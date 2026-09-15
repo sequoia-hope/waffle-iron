@@ -1,6 +1,6 @@
 //! The persistent `GeomRef` of each rendered face.
 //!
-//! Shared by the viewport's face-range accessors (`wasm_api`) and the
+//! Shared by the viewport's face-range accessors (`render_view`) and the
 //! `ListFaces` query (`specs/waffle_mcp_server.md` ICR-3), so a ref a user
 //! picks and a ref an agent lists are the same ref by construction.
 

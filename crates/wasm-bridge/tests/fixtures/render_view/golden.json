@@ -1,0 +1,1090 @@
+{
+ "scenarios": [
+  {
+   "name": "C0077",
+   "steps": [
+    {
+     "response_type": "ModelUpdated",
+     "response": {
+      "n": 24758,
+      "fnv": "ed626aebabdbe2d2"
+     },
+     "metadata": {
+      "n": 187,
+      "fnv": "c74ebdaa1c7aa03d"
+     },
+     "bodies": [
+      {
+       "vertices": {
+        "n": 20160,
+        "fnv": "fb60cf8c6f43d075"
+       },
+       "normals": {
+        "n": 20160,
+        "fnv": "0ce60b125519b725"
+       },
+       "indices": {
+        "n": 13428,
+        "fnv": "9db8159173124eb5"
+       },
+       "faces": {
+        "n": 400571,
+        "fnv": "a6ae0c804666e48d"
+       },
+       "edge_vertices": {
+        "n": 20160,
+        "fnv": "05ce1fb749f8e065"
+       },
+       "edges": {
+        "n": 1304824,
+        "fnv": "bb6357c7b209cc7e"
+       }
+      }
+     ],
+     "legacy": {
+      "mesh_count": 1,
+      "renderable": [
+       1
+      ],
+      "features": [
+       {
+        "mesh_json": {
+         "n": 36,
+         "fnv": "f3191999da686a2a"
+        },
+        "vertices": {
+         "n": 0,
+         "fnv": "cbf29ce484222325"
+        },
+        "normals": {
+         "n": 0,
+         "fnv": "cbf29ce484222325"
+        },
+        "indices": {
+         "n": 0,
+         "fnv": "cbf29ce484222325"
+        },
+        "faces": {
+         "n": 2,
+         "fnv": "09612b07b5ecb5a5"
+        },
+        "edge_vertices": {
+         "n": 0,
+         "fnv": "cbf29ce484222325"
+        },
+        "edges": {
+         "n": 2,
+         "fnv": "09612b07b5ecb5a5"
+        }
+       },
+       {
+        "mesh_json": {
+         "n": 476974,
+         "fnv": "8d6f7ea8601fd071"
+        },
+        "vertices": {
+         "n": 20160,
+         "fnv": "fb60cf8c6f43d075"
+        },
+        "normals": {
+         "n": 20160,
+         "fnv": "0ce60b125519b725"
+        },
+        "indices": {
+         "n": 13428,
+         "fnv": "9db8159173124eb5"
+        },
+        "faces": {
+         "n": 400571,
+         "fnv": "a6ae0c804666e48d"
+        },
+        "edge_vertices": {
+         "n": 20160,
+         "fnv": "05ce1fb749f8e065"
+        },
+        "edges": {
+         "n": 1304824,
+         "fnv": "bb6357c7b209cc7e"
+        }
+       }
+      ]
+     }
+    }
+   ]
+  },
+  {
+   "name": "C0070",
+   "steps": [
+    {
+     "response_type": "ModelUpdated",
+     "response": {
+      "n": 20846,
+      "fnv": "a754a85049448be5"
+     },
+     "metadata": {
+      "n": 187,
+      "fnv": "e00293f497e1e927"
+     },
+     "bodies": [
+      {
+       "vertices": {
+        "n": 1704,
+        "fnv": "6e1e40f63368d6f5"
+       },
+       "normals": {
+        "n": 1704,
+        "fnv": "c4890303f57be78a"
+       },
+       "indices": {
+        "n": 1704,
+        "fnv": "9b84f893d964d7a5"
+       },
+       "faces": {
+        "n": 1410,
+        "fnv": "d634ee4d8ebc6131"
+       },
+       "edge_vertices": {
+        "n": 888,
+        "fnv": "0d66baf9039b420d"
+       },
+       "edges": {
+        "n": 3799,
+        "fnv": "f7b411d3f8b93cc6"
+       }
+      }
+     ],
+     "legacy": {
+      "mesh_count": 1,
+      "renderable": [
+       1
+      ],
+      "features": [
+       {
+        "mesh_json": {
+         "n": 36,
+         "fnv": "f3191999da686a2a"
+        },
+        "vertices": {
+         "n": 0,
+         "fnv": "cbf29ce484222325"
+        },
+        "normals": {
+         "n": 0,
+         "fnv": "cbf29ce484222325"
+        },
+        "indices": {
+         "n": 0,
+         "fnv": "cbf29ce484222325"
+        },
+        "faces": {
+         "n": 2,
+         "fnv": "09612b07b5ecb5a5"
+        },
+        "edge_vertices": {
+         "n": 0,
+         "fnv": "cbf29ce484222325"
+        },
+        "edges": {
+         "n": 2,
+         "fnv": "09612b07b5ecb5a5"
+        }
+       },
+       {
+        "mesh_json": {
+         "n": 44888,
+         "fnv": "4f981cea1a06d75c"
+        },
+        "vertices": {
+         "n": 1704,
+         "fnv": "6e1e40f63368d6f5"
+        },
+        "normals": {
+         "n": 1704,
+         "fnv": "c4890303f57be78a"
+        },
+        "indices": {
+         "n": 1704,
+         "fnv": "9b84f893d964d7a5"
+        },
+        "faces": {
+         "n": 1410,
+         "fnv": "d634ee4d8ebc6131"
+        },
+        "edge_vertices": {
+         "n": 888,
+         "fnv": "0d66baf9039b420d"
+        },
+        "edges": {
+         "n": 3799,
+         "fnv": "f7b411d3f8b93cc6"
+        }
+       }
+      ]
+     }
+    }
+   ]
+  },
+  {
+   "name": "R0052",
+   "steps": [
+    {
+     "response_type": "ModelUpdated",
+     "response": {
+      "n": 26706,
+      "fnv": "6104ee336735aabd"
+     },
+     "metadata": {
+      "n": 393,
+      "fnv": "37549f5c97430579"
+     },
+     "bodies": [
+      {
+       "vertices": {
+        "n": 12096,
+        "fnv": "3b71375d87c9590f"
+       },
+       "normals": {
+        "n": 12096,
+        "fnv": "f79bd76c5f531845"
+       },
+       "indices": {
+        "n": 8052,
+        "fnv": "c6512d22263993ae"
+       },
+       "faces": {
+        "n": 239820,
+        "fnv": "bcaa767af329bba8"
+       },
+       "edge_vertices": {
+        "n": 12096,
+        "fnv": "d7875098d81dcccf"
+       },
+       "edges": {
+        "n": 782008,
+        "fnv": "a5b9a5d5421a90d0"
+       }
+      },
+      {
+       "vertices": {
+        "n": 64512,
+        "fnv": "0d13dbd2b0cb9f29"
+       },
+       "normals": {
+        "n": 64512,
+        "fnv": "1c16260bf05d321a"
+       },
+       "indices": {
+        "n": 61812,
+        "fnv": "ff43a95400d5ba1f"
+       },
+       "faces": {
+        "n": 200923,
+        "fnv": "c51c0c37367ad17e"
+       },
+       "edge_vertices": {
+        "n": 36288,
+        "fnv": "8aa7493b150ffe64"
+       },
+       "edges": {
+        "n": 606044,
+        "fnv": "6d60e7ae1db60708"
+       }
+      }
+     ],
+     "legacy": {
+      "mesh_count": 1,
+      "renderable": [
+       3
+      ],
+      "features": [
+       {
+        "mesh_json": {
+         "n": 36,
+         "fnv": "f3191999da686a2a"
+        },
+        "vertices": {
+         "n": 0,
+         "fnv": "cbf29ce484222325"
+        },
+        "normals": {
+         "n": 0,
+         "fnv": "cbf29ce484222325"
+        },
+        "indices": {
+         "n": 0,
+         "fnv": "cbf29ce484222325"
+        },
+        "faces": {
+         "n": 2,
+         "fnv": "09612b07b5ecb5a5"
+        },
+        "edge_vertices": {
+         "n": 0,
+         "fnv": "cbf29ce484222325"
+        },
+        "edges": {
+         "n": 2,
+         "fnv": "09612b07b5ecb5a5"
+        }
+       },
+       {
+        "mesh_json": {
+         "n": 36,
+         "fnv": "f3191999da686a2a"
+        },
+        "vertices": {
+         "n": 0,
+         "fnv": "cbf29ce484222325"
+        },
+        "normals": {
+         "n": 0,
+         "fnv": "cbf29ce484222325"
+        },
+        "indices": {
+         "n": 0,
+         "fnv": "cbf29ce484222325"
+        },
+        "faces": {
+         "n": 2,
+         "fnv": "09612b07b5ecb5a5"
+        },
+        "edge_vertices": {
+         "n": 0,
+         "fnv": "cbf29ce484222325"
+        },
+        "edges": {
+         "n": 2,
+         "fnv": "09612b07b5ecb5a5"
+        }
+       },
+       {
+        "mesh_json": {
+         "n": 36,
+         "fnv": "f3191999da686a2a"
+        },
+        "vertices": {
+         "n": 0,
+         "fnv": "cbf29ce484222325"
+        },
+        "normals": {
+         "n": 0,
+         "fnv": "cbf29ce484222325"
+        },
+        "indices": {
+         "n": 0,
+         "fnv": "cbf29ce484222325"
+        },
+        "faces": {
+         "n": 2,
+         "fnv": "09612b07b5ecb5a5"
+        },
+        "edge_vertices": {
+         "n": 0,
+         "fnv": "cbf29ce484222325"
+        },
+        "edges": {
+         "n": 2,
+         "fnv": "09612b07b5ecb5a5"
+        }
+       },
+       {
+        "mesh_json": {
+         "n": 337192,
+         "fnv": "7915850ed033a706"
+        },
+        "vertices": {
+         "n": 12096,
+         "fnv": "3b71375d87c9590f"
+        },
+        "normals": {
+         "n": 12096,
+         "fnv": "f79bd76c5f531845"
+        },
+        "indices": {
+         "n": 8052,
+         "fnv": "c6512d22263993ae"
+        },
+        "faces": {
+         "n": 239820,
+         "fnv": "bcaa767af329bba8"
+        },
+        "edge_vertices": {
+         "n": 12096,
+         "fnv": "d7875098d81dcccf"
+        },
+        "edges": {
+         "n": 782008,
+         "fnv": "a5b9a5d5421a90d0"
+        }
+       }
+      ]
+     }
+    }
+   ]
+  },
+  {
+   "name": "F0061",
+   "steps": [
+    {
+     "response_type": "ModelUpdated",
+     "response": {
+      "n": 25269,
+      "fnv": "c8c83f4b61f7286a"
+     },
+     "metadata": {
+      "n": 186,
+      "fnv": "d7914f07ec9f6435"
+     },
+     "bodies": [
+      {
+       "vertices": {
+        "n": 6900,
+        "fnv": "a10f031605f17c29"
+       },
+       "normals": {
+        "n": 6900,
+        "fnv": "9ecebe5f69feb4b5"
+       },
+       "indices": {
+        "n": 4884,
+        "fnv": "bf2fa77e27df53ac"
+       },
+       "faces": {
+        "n": 123280,
+        "fnv": "29533c15abd6f55e"
+       },
+       "edge_vertices": {
+        "n": 6486,
+        "fnv": "d1e9ed1c937438ae"
+       },
+       "edges": {
+        "n": 391296,
+        "fnv": "e667f98de5cd6b54"
+       }
+      }
+     ],
+     "legacy": {
+      "mesh_count": 1,
+      "renderable": [
+       3
+      ],
+      "features": [
+       {
+        "mesh_json": {
+         "n": 36,
+         "fnv": "f3191999da686a2a"
+        },
+        "vertices": {
+         "n": 0,
+         "fnv": "cbf29ce484222325"
+        },
+        "normals": {
+         "n": 0,
+         "fnv": "cbf29ce484222325"
+        },
+        "indices": {
+         "n": 0,
+         "fnv": "cbf29ce484222325"
+        },
+        "faces": {
+         "n": 2,
+         "fnv": "09612b07b5ecb5a5"
+        },
+        "edge_vertices": {
+         "n": 0,
+         "fnv": "cbf29ce484222325"
+        },
+        "edges": {
+         "n": 2,
+         "fnv": "09612b07b5ecb5a5"
+        }
+       },
+       {
+        "mesh_json": {
+         "n": 36,
+         "fnv": "f3191999da686a2a"
+        },
+        "vertices": {
+         "n": 0,
+         "fnv": "cbf29ce484222325"
+        },
+        "normals": {
+         "n": 0,
+         "fnv": "cbf29ce484222325"
+        },
+        "indices": {
+         "n": 0,
+         "fnv": "cbf29ce484222325"
+        },
+        "faces": {
+         "n": 2,
+         "fnv": "09612b07b5ecb5a5"
+        },
+        "edge_vertices": {
+         "n": 0,
+         "fnv": "cbf29ce484222325"
+        },
+        "edges": {
+         "n": 2,
+         "fnv": "09612b07b5ecb5a5"
+        }
+       },
+       {
+        "mesh_json": {
+         "n": 36,
+         "fnv": "f3191999da686a2a"
+        },
+        "vertices": {
+         "n": 0,
+         "fnv": "cbf29ce484222325"
+        },
+        "normals": {
+         "n": 0,
+         "fnv": "cbf29ce484222325"
+        },
+        "indices": {
+         "n": 0,
+         "fnv": "cbf29ce484222325"
+        },
+        "faces": {
+         "n": 2,
+         "fnv": "09612b07b5ecb5a5"
+        },
+        "edge_vertices": {
+         "n": 0,
+         "fnv": "cbf29ce484222325"
+        },
+        "edges": {
+         "n": 2,
+         "fnv": "09612b07b5ecb5a5"
+        }
+       },
+       {
+        "mesh_json": {
+         "n": 161800,
+         "fnv": "04eb854587e77f04"
+        },
+        "vertices": {
+         "n": 6900,
+         "fnv": "a10f031605f17c29"
+        },
+        "normals": {
+         "n": 6900,
+         "fnv": "9ecebe5f69feb4b5"
+        },
+        "indices": {
+         "n": 4884,
+         "fnv": "bf2fa77e27df53ac"
+        },
+        "faces": {
+         "n": 123280,
+         "fnv": "29533c15abd6f55e"
+        },
+        "edge_vertices": {
+         "n": 6486,
+         "fnv": "d1e9ed1c937438ae"
+        },
+        "edges": {
+         "n": 391296,
+         "fnv": "e667f98de5cd6b54"
+        }
+       }
+      ]
+     }
+    }
+   ]
+  },
+  {
+   "name": "F0074",
+   "steps": [
+    {
+     "response_type": "ModelUpdated",
+     "response": {
+      "n": 4329,
+      "fnv": "71267c9878dd6e1c"
+     },
+     "metadata": {
+      "n": 189,
+      "fnv": "7babb863a21a9e83"
+     },
+     "bodies": [
+      {
+       "vertices": {
+        "n": 72,
+        "fnv": "297610d4d2710ba5"
+       },
+       "normals": {
+        "n": 72,
+        "fnv": "65574a73c7322c65"
+       },
+       "indices": {
+        "n": 36,
+        "fnv": "743392961a476025"
+       },
+       "faces": {
+        "n": 2090,
+        "fnv": "1c34580a2001d522"
+       },
+       "edge_vertices": {
+        "n": 72,
+        "fnv": "0b9e82db995eea65"
+       },
+       "edges": {
+        "n": 4578,
+        "fnv": "1b21fcb3bc6af5f1"
+       }
+      }
+     ],
+     "legacy": {
+      "mesh_count": 1,
+      "renderable": [
+       1
+      ],
+      "features": [
+       {
+        "mesh_json": {
+         "n": 36,
+         "fnv": "f3191999da686a2a"
+        },
+        "vertices": {
+         "n": 0,
+         "fnv": "cbf29ce484222325"
+        },
+        "normals": {
+         "n": 0,
+         "fnv": "cbf29ce484222325"
+        },
+        "indices": {
+         "n": 0,
+         "fnv": "cbf29ce484222325"
+        },
+        "faces": {
+         "n": 2,
+         "fnv": "09612b07b5ecb5a5"
+        },
+        "edge_vertices": {
+         "n": 0,
+         "fnv": "cbf29ce484222325"
+        },
+        "edges": {
+         "n": 2,
+         "fnv": "09612b07b5ecb5a5"
+        }
+       },
+       {
+        "mesh_json": {
+         "n": 1092,
+         "fnv": "8a785106f05d9f02"
+        },
+        "vertices": {
+         "n": 72,
+         "fnv": "297610d4d2710ba5"
+        },
+        "normals": {
+         "n": 72,
+         "fnv": "65574a73c7322c65"
+        },
+        "indices": {
+         "n": 36,
+         "fnv": "743392961a476025"
+        },
+        "faces": {
+         "n": 2090,
+         "fnv": "1c34580a2001d522"
+        },
+        "edge_vertices": {
+         "n": 72,
+         "fnv": "0b9e82db995eea65"
+        },
+        "edges": {
+         "n": 4578,
+         "fnv": "1b21fcb3bc6af5f1"
+        }
+       },
+       {
+        "mesh_json": {
+         "n": 36,
+         "fnv": "f3191999da686a2a"
+        },
+        "vertices": {
+         "n": 0,
+         "fnv": "cbf29ce484222325"
+        },
+        "normals": {
+         "n": 0,
+         "fnv": "cbf29ce484222325"
+        },
+        "indices": {
+         "n": 0,
+         "fnv": "cbf29ce484222325"
+        },
+        "faces": {
+         "n": 2,
+         "fnv": "09612b07b5ecb5a5"
+        },
+        "edge_vertices": {
+         "n": 0,
+         "fnv": "cbf29ce484222325"
+        },
+        "edges": {
+         "n": 2,
+         "fnv": "09612b07b5ecb5a5"
+        }
+       },
+       {
+        "mesh_json": {
+         "n": 36,
+         "fnv": "f3191999da686a2a"
+        },
+        "vertices": {
+         "n": 0,
+         "fnv": "cbf29ce484222325"
+        },
+        "normals": {
+         "n": 0,
+         "fnv": "cbf29ce484222325"
+        },
+        "indices": {
+         "n": 0,
+         "fnv": "cbf29ce484222325"
+        },
+        "faces": {
+         "n": 2,
+         "fnv": "09612b07b5ecb5a5"
+        },
+        "edge_vertices": {
+         "n": 0,
+         "fnv": "cbf29ce484222325"
+        },
+        "edges": {
+         "n": 2,
+         "fnv": "09612b07b5ecb5a5"
+        }
+       }
+      ]
+     }
+    }
+   ]
+  },
+  {
+   "name": "assembly",
+   "steps": [
+    {
+     "response_type": "ModelUpdated",
+     "response": {
+      "n": 395,
+      "fnv": "79259d5cb2e32fb1"
+     },
+     "metadata": {
+      "n": 1071,
+      "fnv": "721e9b55f8acb1d5"
+     },
+     "bodies": [
+      {
+       "vertices": {
+        "n": 20160,
+        "fnv": "fb60cf8c6f43d075"
+       },
+       "normals": {
+        "n": 20160,
+        "fnv": "0ce60b125519b725"
+       },
+       "indices": {
+        "n": 13428,
+        "fnv": "9db8159173124eb5"
+       },
+       "faces": {
+        "n": 400571,
+        "fnv": "a6ae0c804666e48d"
+       },
+       "edge_vertices": {
+        "n": 20160,
+        "fnv": "05ce1fb749f8e065"
+       },
+       "edges": {
+        "n": 1304824,
+        "fnv": "bb6357c7b209cc7e"
+       }
+      },
+      {
+       "vertices": {
+        "n": 20160,
+        "fnv": "fb60cf8c6f43d075"
+       },
+       "normals": {
+        "n": 20160,
+        "fnv": "0ce60b125519b725"
+       },
+       "indices": {
+        "n": 13428,
+        "fnv": "9db8159173124eb5"
+       },
+       "faces": {
+        "n": 400571,
+        "fnv": "a6ae0c804666e48d"
+       },
+       "edge_vertices": {
+        "n": 20160,
+        "fnv": "05ce1fb749f8e065"
+       },
+       "edges": {
+        "n": 1304824,
+        "fnv": "bb6357c7b209cc7e"
+       }
+      }
+     ],
+     "legacy": {
+      "mesh_count": 0,
+      "renderable": [],
+      "features": []
+     }
+    }
+   ]
+  },
+  {
+   "name": "in_context",
+   "steps": [
+    {
+     "response_type": "ModelUpdated",
+     "response": {
+      "n": 24815,
+      "fnv": "009c5c6e0029a6d5"
+     },
+     "metadata": {
+      "n": 187,
+      "fnv": "c74ebdaa1c7aa03d"
+     },
+     "bodies": [
+      {
+       "vertices": {
+        "n": 20160,
+        "fnv": "fb60cf8c6f43d075"
+       },
+       "normals": {
+        "n": 20160,
+        "fnv": "0ce60b125519b725"
+       },
+       "indices": {
+        "n": 13428,
+        "fnv": "9db8159173124eb5"
+       },
+       "faces": {
+        "n": 400571,
+        "fnv": "a6ae0c804666e48d"
+       },
+       "edge_vertices": {
+        "n": 20160,
+        "fnv": "05ce1fb749f8e065"
+       },
+       "edges": {
+        "n": 1304824,
+        "fnv": "bb6357c7b209cc7e"
+       }
+      }
+     ],
+     "legacy": {
+      "mesh_count": 1,
+      "renderable": [
+       1
+      ],
+      "features": [
+       {
+        "mesh_json": {
+         "n": 36,
+         "fnv": "f3191999da686a2a"
+        },
+        "vertices": {
+         "n": 0,
+         "fnv": "cbf29ce484222325"
+        },
+        "normals": {
+         "n": 0,
+         "fnv": "cbf29ce484222325"
+        },
+        "indices": {
+         "n": 0,
+         "fnv": "cbf29ce484222325"
+        },
+        "faces": {
+         "n": 2,
+         "fnv": "09612b07b5ecb5a5"
+        },
+        "edge_vertices": {
+         "n": 0,
+         "fnv": "cbf29ce484222325"
+        },
+        "edges": {
+         "n": 2,
+         "fnv": "09612b07b5ecb5a5"
+        }
+       },
+       {
+        "mesh_json": {
+         "n": 476974,
+         "fnv": "8d6f7ea8601fd071"
+        },
+        "vertices": {
+         "n": 20160,
+         "fnv": "fb60cf8c6f43d075"
+        },
+        "normals": {
+         "n": 20160,
+         "fnv": "0ce60b125519b725"
+        },
+        "indices": {
+         "n": 13428,
+         "fnv": "9db8159173124eb5"
+        },
+        "faces": {
+         "n": 400571,
+         "fnv": "a6ae0c804666e48d"
+        },
+        "edge_vertices": {
+         "n": 20160,
+         "fnv": "05ce1fb749f8e065"
+        },
+        "edges": {
+         "n": 1304824,
+         "fnv": "bb6357c7b209cc7e"
+        }
+       }
+      ]
+     }
+    },
+    {
+     "response_type": "ModelUpdated",
+     "response": {
+      "n": 25098,
+      "fnv": "b777951186184cd6"
+     },
+     "metadata": {
+      "n": 648,
+      "fnv": "edbb426c86fc6151"
+     },
+     "bodies": [
+      {
+       "vertices": {
+        "n": 20160,
+        "fnv": "fb60cf8c6f43d075"
+       },
+       "normals": {
+        "n": 20160,
+        "fnv": "0ce60b125519b725"
+       },
+       "indices": {
+        "n": 13428,
+        "fnv": "9db8159173124eb5"
+       },
+       "faces": {
+        "n": 400571,
+        "fnv": "a6ae0c804666e48d"
+       },
+       "edge_vertices": {
+        "n": 20160,
+        "fnv": "05ce1fb749f8e065"
+       },
+       "edges": {
+        "n": 1304824,
+        "fnv": "bb6357c7b209cc7e"
+       }
+      },
+      {
+       "vertices": {
+        "n": 20160,
+        "fnv": "544a3b6dc36eea09"
+       },
+       "normals": {
+        "n": 20160,
+        "fnv": "d4fa6c50979e2425"
+       },
+       "indices": {
+        "n": 13428,
+        "fnv": "9db8159173124eb5"
+       },
+       "faces": {
+        "n": 626619,
+        "fnv": "73963af7a21a89a4"
+       },
+       "edge_vertices": {
+        "n": 20160,
+        "fnv": "3569ce17f8e51199"
+       },
+       "edges": {
+        "n": 1580344,
+        "fnv": "50014e3df544f2be"
+       }
+      }
+     ],
+     "legacy": {
+      "mesh_count": 1,
+      "renderable": [
+       1
+      ],
+      "features": [
+       {
+        "mesh_json": {
+         "n": 36,
+         "fnv": "f3191999da686a2a"
+        },
+        "vertices": {
+         "n": 0,
+         "fnv": "cbf29ce484222325"
+        },
+        "normals": {
+         "n": 0,
+         "fnv": "cbf29ce484222325"
+        },
+        "indices": {
+         "n": 0,
+         "fnv": "cbf29ce484222325"
+        },
+        "faces": {
+         "n": 2,
+         "fnv": "09612b07b5ecb5a5"
+        },
+        "edge_vertices": {
+         "n": 0,
+         "fnv": "cbf29ce484222325"
+        },
+        "edges": {
+         "n": 2,
+         "fnv": "09612b07b5ecb5a5"
+        }
+       },
+       {
+        "mesh_json": {
+         "n": 476974,
+         "fnv": "2e73d1b79ab22725"
+        },
+        "vertices": {
+         "n": 20160,
+         "fnv": "fb60cf8c6f43d075"
+        },
+        "normals": {
+         "n": 20160,
+         "fnv": "0ce60b125519b725"
+        },
+        "indices": {
+         "n": 13428,
+         "fnv": "9db8159173124eb5"
+        },
+        "faces": {
+         "n": 400571,
+         "fnv": "a6ae0c804666e48d"
+        },
+        "edge_vertices": {
+         "n": 20160,
+         "fnv": "05ce1fb749f8e065"
+        },
+        "edges": {
+         "n": 1304824,
+         "fnv": "bb6357c7b209cc7e"
+        }
+       }
+      ]
+     }
+    }
+   ]
+  }
+ ]
+}

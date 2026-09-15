@@ -111,6 +111,12 @@ jobs:
           -p file-format
           -p step-import
 
+      # Native render view vs the wasm bundle census (specs/waffle_server_mode.md
+      # §2.3 S0). It replays corpus documents through the kernel, so its tests
+      # are ignored in the debug run above and run optimized here.
+      - name: Render-view parity (release)
+        run: cargo test --release -p wasm-bridge --test render_view_parity
+
       # The .waffle v4 JSON Schema golden (docs/schema/waffle-v4.schema.json)
       # is generated from the Rust types behind an off-by-default feature;
       # this step fails when the committed schema is stale or when a repo

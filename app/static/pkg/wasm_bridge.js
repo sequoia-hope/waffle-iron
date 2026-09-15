@@ -29,7 +29,7 @@ export function get_body_edge_data(body_index) {
 }
 
 /**
- * Body edge vertex positions as a Float32Array view (by flat body index).
+ * Body edge vertex positions as a Float32Array (by flat body index).
  * @param {number} body_index
  * @returns {Float32Array}
  */
@@ -67,14 +67,8 @@ export function get_body_indices(body_index) {
 }
 
 /**
- * Metadata for every renderable body as a JSON array, in body-index order.
- * Each entry: `{ featureIndex, featureId, outputIndex, outputKey, bodyId, name }`.
- *
- * `bodyId` (`"{featureId}/{outputKey.tag()}"`) is the body's persistent
- * identity — the key for selection and for the name-override registry. `name`
- * is the resolved display name: the user override if set, else the producing
- * feature's name (suffixed with an ordinal when one feature owns several
- * bodies). Naming is resolved here so the engine stays authoritative.
+ * Metadata for every renderable body as a JSON array, in body-index order
+ * (see `render_view::body_metadata`).
  * @returns {string}
  */
 export function get_body_metadata() {
@@ -91,7 +85,7 @@ export function get_body_metadata() {
 }
 
 /**
- * Body mesh vertex normals as a Float32Array view (by flat body index).
+ * Body mesh vertex normals as a Float32Array (by flat body index).
  * @param {number} body_index
  * @returns {Float32Array}
  */
@@ -101,7 +95,8 @@ export function get_body_normals(body_index) {
 }
 
 /**
- * Body mesh vertex positions as a Float32Array view (by flat body index).
+ * Body mesh vertex positions as a Float32Array (by flat body index). A
+ * ghost's vertices are a baked copy; everything else is a zero-copy view.
  * @param {number} body_index
  * @returns {Float32Array}
  */
@@ -111,12 +106,8 @@ export function get_body_vertices(body_index) {
 }
 
 /**
- * Get edge range data for a specific feature by index.
- *
- * Returns a JSON array of edge ranges enriched with GeomRef data.
- * Each entry contains a `geom_ref` (persistent geometry reference) plus
- * `start_index` and `end_index` into the edge vertices array (in vertex count,
- * not float count).
+ * Get edge range data for a specific feature by index, as a JSON array (see
+ * `render_view::feature_edge_entries`).
  * @param {number} feature_index
  * @returns {string}
  */
@@ -148,14 +139,8 @@ export function get_edge_vertices(feature_index) {
 }
 
 /**
- * Get face data for a specific feature by index.
- *
- * Returns a JSON array of face ranges enriched with GeomRef data.
- * Each entry contains a `geom_ref` (persistent geometry reference) plus
- * `start_index` and `end_index` into the mesh indices array.
- *
- * For faces with role assignments from provenance, a Role-based selector is used.
- * For faces without roles, a Signature-based selector with a centroid fallback is used.
+ * Get face data for a specific feature by index, as a JSON array (see
+ * `render_view::feature_face_entries`).
  * @param {number} feature_index
  * @returns {string}
  */
@@ -250,11 +235,8 @@ export function get_mesh_normals(feature_index) {
 /**
  * Get mesh vertex positions as a Float32Array view into WASM memory.
  *
- * Returns the vertices of the latest (last) feature's mesh as a zero-copy
+ * Returns the vertices of the feature's first output mesh as a zero-copy
  * typed array view. The array contains [x0, y0, z0, x1, y1, z1, ...].
- *
- * IMPORTANT: The returned view is invalidated by any WASM memory growth.
- * Copy or transfer the data immediately after calling this function.
  * @param {number} feature_index
  * @returns {Float32Array}
  */
@@ -264,12 +246,8 @@ export function get_mesh_vertices(feature_index) {
 }
 
 /**
- * Get which feature indices should be rendered.
- *
- * Returns indices of features that have mesh data and are NOT consumed
- * by a later boolean operation. When a boolean union succeeds, the target
- * feature is consumed (its geometry is merged into the result feature).
- * When union fails, both features are renderable (multi-body mode).
+ * Get which feature indices should be rendered (see
+ * `render_view::renderable_feature_indices`).
  * @returns {Uint32Array}
  */
 export function get_renderable_feature_indices() {

@@ -71,6 +71,16 @@
 - [ ] Document baseline performance
 - [ ] Identify bottlenecks if any
 
+### M10: Server-mode prep — S0 render view off the wasm gate ✅
+Spec: `specs/waffle_server_mode.md` §2.3 (P-A).
+- [x] `src/render_view.rs`: renderable bodies, body metadata/naming, face and edge entries, ghost baking, legacy per-feature accessors — target-independent (2026-09-15)
+- [x] `src/process.rs`: the `process_message` pipeline with injected clock and logger (2026-09-15)
+- [x] `src/wasm_api.rs` reduced to bindings; exported JS API unchanged (20 functions, same signatures and imports)
+- [x] Oracle `tests/render_view_parity.rs` + `.mjs`: rebuilt bundle census byte-identical to the pre-move bundle; native census structurally equal to the bundle's
+- [ ] S1: request ids in the bridge envelope (replaces FIFO pairing in `bridge.js`)
+- [ ] Known, not fixed: `feature_engine::preview_mesh::decimate_mesh` orders output by `HashMap` iteration, so a native process's `preview_mesh` varies run to run (spec §2.7 H3)
+- [ ] Known, not fixed: `cargo clippy -p wasm-bridge --target wasm32-unknown-unknown` flags the `thread_local!` initializer in `wasm_api.rs` (pre-existing; CI does not lint wasm32)
+
 ## Blockers
 
 - ~~Depends on kernel-fork (M6 needs tessellation output)~~ RESOLVED

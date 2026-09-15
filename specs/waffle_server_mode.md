@@ -174,7 +174,7 @@ proven by the existing GUI suites plus the named oracle.
 
 | Step | Change | Oracle |
 |---|---|---|
-| **S0** | Move the ≈ 600 target-independent lines of `wasm_api.rs` (renderable-body collection, naming, face/edge entries) into a shared `wasm-bridge/src/render_view.rs`; `wasm_api` becomes a pure binding shim | native test: `render_view` output == the JSON the worker receives today for the corpus smoke cases |
+| **S0** — landed 2026-09-15 | Move the ≈ 600 target-independent lines of `wasm_api.rs` (renderable-body collection, naming, face/edge entries) into a shared `wasm-bridge/src/render_view.rs`, and the message pipeline (parse → dispatch → tessellate → preview → serialize) into `wasm-bridge/src/process.rs` with the clock and logger injected; `wasm_api` becomes a pure binding shim | `wasm-bridge/tests/render_view_parity.{rs,mjs}` over 7 scenarios (5 corpus loads, an assembly, an in-context edit with ghosts). **Bundle, byte for byte:** the rebuilt bundle's census of every worker accessor equals the pre-move bundle's (`golden.json`). **Native vs bundle, structure:** same response types, body metadata and all counts; bytes differ across targets by design (§2.7 H3) |
 | **S1** | Request ids in the bridge (`{id, msg}` envelope; worker echoes `id`), replacing FIFO pairing. Needed by any multiplexed transport | `sketch-drawing-regression.spec.js` + agent-link specs green |
 | **S2** | **Document session in Rust.** `EngineState` gains the tab list, inactive tab trees, assembly trees, document metadata, a per-tab undo stack, and a monotonic `revision`. New messages `AddTab`/`CloseTab`/`RenameTab`/`MoveTab`/`EditAssembly`/`SetDocumentMeta`; `SwitchTab` takes an id, not a tree. The JS store keeps its `$state` fields as **mirrors** refreshed from `ModelUpdated` (A2.1 compliant) | `format_tests` round trip; new `session_tests.rs`; GUI tabs/assembly specs unchanged |
 | **S3** | **Agent tool semantics in Rust**: `wasm-bridge/src/tools/` implements `execute_tool(session, name, args, ctx) -> ToolResult` for every non-render tool (gates that are document state, rollback, `modelDelta`, results shaping; `sketch_create` uses `sketch-solver` profiles, which JS already ports). New message `UiToEngine::Tool{name, arguments, context}`. Host-only concerns stay per host (§3.3). Migrated tool by tool, **shadowed**: the page runs both JS and Rust and asserts equal `structuredContent` in dev builds until the JS version is deleted | per-tool differential oracle over O1–O22 scripts |
@@ -270,7 +270,21 @@ slip; it is not a step toward S4.
   `structuredContent` through `--kernel page` and `--kernel host`.
 - **H3** tessellation determinism across processes: two host processes
   loading the same file produce byte-identical mesh blobs (prerequisite for
-  §4.4's cache surviving restarts).
+  §4.4's cache surviving restarts). Measured during S0 (2026-09-15):
+  - Native render arrays, faces, edges and metadata are byte-identical
+    across two native processes on all seven parity scenarios.
+  - The `ModelUpdated.preview_mesh` is **not**: `decimate_mesh`
+    (`feature-engine/src/preview_mesh.rs:84–105`) numbers output vertices in
+    `HashMap` iteration order, which std randomizes per native process
+    (wasm32 happens to be stable). Must be fixed (e.g. `BTreeMap` or
+    first-seen order) before a host content-addresses previews.
+  - **Native and wasm32 meshes differ at the bit level**: on F0061,
+    near-zero normal components differ by ~1e-16, 20 vertex slots are
+    permuted and a few triangulation near-ties flip; vertex multisets are
+    equal. So a mesh id from the host never matches one the page computed
+    for the same document. The viewer cache is keyed only by host output,
+    so this is acceptable, but no design may assume cross-target mesh
+    identity.
 - **H4** crash isolation: forced abort in the host → relay alive, tool
   returns `EngineCrashed`, child restarted, document reloaded.
 - **H5** R0088 loads in `--kernel host` (native ceiling).

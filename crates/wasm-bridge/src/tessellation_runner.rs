@@ -3,9 +3,8 @@
 //! `#[cfg(target_arch = "wasm32")]`-gated and therefore not callable from
 //! `cargo test` on native targets).
 //!
-//! This module is the post-dispatch tessellation stage:
-//!   `process_message` (wasm32) → `dispatch::dispatch` (native+wasm) →
-//!   here (native+wasm).
+//! This module is the post-dispatch tessellation stage of
+//! `process::process_message`: `dispatch::dispatch` → here.
 
 use crate::engine_state::EngineState;
 use modeling_ops::KernelBundle;

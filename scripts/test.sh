@@ -316,6 +316,10 @@ run_rust_fast() {
   # wasm-bridge with --no-default-features
   run_cargo_test "$WASM_BRIDGE_CRATE" --no-default-features
 
+  # Native render view vs the wasm bundle census: replays corpus documents,
+  # so release-only (its tests are ignored in debug builds).
+  run_cargo_test_binary_release "$WASM_BRIDGE_CRATE" render_view_parity
+
   # waffle-types with the MockKernel feature (the contract + test double
   # moved here from the deleted legacy crates/kernel at the Phase 6 migration)
   run_cargo_test waffle-types --features mock-kernel

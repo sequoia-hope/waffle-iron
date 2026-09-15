@@ -3,6 +3,8 @@ pub mod dispatch;
 pub mod engine_state;
 pub mod face_refs;
 pub mod messages;
+pub mod process;
+pub mod render_view;
 pub mod stl_export;
 pub mod tessellation_runner;
 

@@ -1,0 +1,442 @@
+{
+  "scenarios": [
+    {
+      "messages": [
+        {
+          "data": "{\n  \"format\": \"waffle-iron\",\n  \"version\": 3,\n  \"document\": {\n    \"name\": \"Assay C0077\",\n    \"created\": \"2026-07-05T20:52:55.180621772Z\",\n    \"modified\": \"2026-07-05T20:52:55.180621772Z\"\n  },\n  \"tabs\": [\n    {\n      \"id\": \"83830ad8-45cb-4084-9024-40c8c6d7323b\",\n      \"name\": \"Part 1\",\n      \"kind\": {\n        \"type\": \"Part\",\n        \"features\": {\n          \"features\": [\n            {\n              \"id\": \"235d2b24-1ba4-4fdb-ae2f-e1b7fb69e10b\",\n              \"name\": \"Sketch 1\",\n              \"operation\": {\n                \"type\": \"Sketch\",\n                \"sketch\": {\n                  \"id\": \"235d2b24-1ba4-4fdb-ae2f-e1b7fb69e10b\",\n                  \"plane\": {\n                    \"kind\": {\n                      \"type\": \"Face\"\n                    },\n                    \"anchor\": {\n                      \"type\": \"Datum\",\n                      \"datum_id\": \"235d2c24-1ba4-418e-ae2f-e2b7fb69e2be\"\n                    },\n                    \"selector\": {\n                      \"type\": \"Role\",\n                      \"role\": {\n                        \"type\": \"EndCapPositive\"\n                      },\n                      \"index\": 0\n                    },\n                    \"policy\": {\n                      \"type\": \"Strict\"\n                    }\n                  },\n                  \"plane_origin\": [\n                    0.0,\n                    0.0,\n                    0.0\n                  ],\n                  \"plane_normal\": [\n                    0.0,\n                    0.0,\n                    1.0\n                  ],\n                  \"entities\": [\n                    {\n                      \"type\": \"Gear\",\n                      \"id\": 1,\n                      \"params\": {\n                        \"toothCount\": 40,\n                        \"module\": 0.05,\n                        \"pressureAngleDeg\": 20.0,\n                        \"backlash\": 0.0,\n                        \"centerX\": 0.0,\n                        \"centerY\": 0.0,\n                        \"rotationOffset\": 0.0,\n                        \"internal\": false\n                      },\n                      \"construction\": false\n                    }\n                  ],\n                  \"constraints\": [],\n                  \"solve_status\": {\n                    \"type\": \"FullyConstrained\"\n                  }\n                }\n              },\n              \"suppressed\": false,\n              \"references\": []\n            },\n            {\n              \"id\": \"235d2d24-1ba4-4341-ae2f-e3b7fb69e471\",\n              \"name\": \"Extrude 1\",\n              \"operation\": {\n                \"type\": \"Extrude\",\n                \"params\": {\n                  \"sketch_id\": \"235d2b24-1ba4-4fdb-ae2f-e1b7fb69e10b\",\n                  \"profile_index\": 0,\n                  \"depth\": 0.3,\n                  \"direction\": null,\n                  \"symmetric\": false,\n                  \"cut\": false,\n                  \"merge\": true,\n                  \"target_body\": null,\n                  \"depth_mode\": {\n                    \"type\": \"Blind\"\n                  },\n                  \"second_direction\": null,\n                  \"combine\": null\n                }\n              },\n              \"suppressed\": false,\n              \"references\": []\n            }\n          ],\n          \"active_index\": null\n        }\n      }\n    }\n  ],\n  \"active_tab\": \"83830ad8-45cb-4084-9024-40c8c6d7323b\"\n}",
+          "type": "LoadProject"
+        }
+      ],
+      "name": "C0077"
+    },
+    {
+      "messages": [
+        {
+          "data": "{\n  \"format\": \"waffle-iron\",\n  \"version\": 3,\n  \"document\": {\n    \"name\": \"Assay C0070\",\n    \"created\": \"2026-07-05T20:52:55.180328043Z\",\n    \"modified\": \"2026-07-05T20:52:55.180328043Z\"\n  },\n  \"tabs\": [\n    {\n      \"id\": \"ec60d27a-8b24-4638-b482-4f1df9e3acc1\",\n      \"name\": \"Part 1\",\n      \"kind\": {\n        \"type\": \"Part\",\n        \"features\": {\n          \"features\": [\n            {\n              \"id\": \"f80d6224-031b-4ffe-82e0-98b7e2e21aae\",\n              \"name\": \"Sketch 1\",\n              \"operation\": {\n                \"type\": \"Sketch\",\n                \"sketch\": {\n                  \"id\": \"f80d6224-031b-4ffe-82e0-98b7e2e21aae\",\n                  \"plane\": {\n                    \"kind\": {\n                      \"type\": \"Face\"\n                    },\n                    \"anchor\": {\n                      \"type\": \"Datum\",\n                      \"datum_id\": \"f80d6124-031b-4e4b-82e0-97b7e2e218fb\"\n                    },\n                    \"selector\": {\n                      \"type\": \"Role\",\n                      \"role\": {\n                        \"type\": \"EndCapPositive\"\n                      },\n                      \"index\": 0\n                    },\n                    \"policy\": {\n                      \"type\": \"Strict\"\n                    }\n                  },\n                  \"plane_origin\": [\n                    0.0,\n                    0.0,\n                    0.0\n                  ],\n                  \"plane_normal\": [\n                    0.7071067811865476,\n                    -0.7071067811865476,\n                    0.0\n                  ],\n                  \"entities\": [\n                    {\n                      \"type\": \"Point\",\n                      \"id\": 1,\n                      \"x\": -0.6618802153517007,\n                      \"y\": 0.45319726474218097,\n                      \"construction\": false\n                    },\n                    {\n                      \"type\": \"Point\",\n                      \"id\": 2,\n                      \"x\": -0.2618802153517007,\n                      \"y\": 0.45319726474218097,\n                      \"construction\": false\n                    },\n                    {\n                      \"type\": \"Point\",\n                      \"id\": 3,\n                      \"x\": -0.2618802153517007,\n                      \"y\": 0.853197264742181,\n                      \"construction\": false\n                    },\n                    {\n                      \"type\": \"Point\",\n                      \"id\": 4,\n                      \"x\": -0.6618802153517007,\n                      \"y\": 0.853197264742181,\n                      \"construction\": false\n                    },\n                    {\n                      \"type\": \"Line\",\n                      \"id\": 10,\n                      \"start_id\": 1,\n                      \"end_id\": 2,\n                      \"construction\": false\n                    },\n                    {\n                      \"type\": \"Line\",\n                      \"id\": 11,\n                      \"start_id\": 2,\n                      \"end_id\": 3,\n                      \"construction\": false\n                    },\n                    {\n                      \"type\": \"Line\",\n                      \"id\": 12,\n                      \"start_id\": 3,\n                      \"end_id\": 4,\n                      \"construction\": false\n                    },\n                    {\n                      \"type\": \"Line\",\n                      \"id\": 13,\n                      \"start_id\": 4,\n                      \"end_id\": 1,\n                      \"construction\": false\n                    }\n                  ],\n                  \"constraints\": [],\n                  \"solve_status\": {\n                    \"type\": \"FullyConstrained\"\n                  },\n                  \"solved_positions\": {\n                    \"1\": [\n                      -0.6618802153517007,\n                      0.45319726474218097\n                    ],\n                    \"3\": [\n                      -0.2618802153517007,\n                      0.853197264742181\n                    ],\n                    \"4\": [\n                      -0.6618802153517007,\n                      0.853197264742181\n                    ],\n                    \"2\": [\n                      -0.2618802153517007,\n                      0.45319726474218097\n                    ]\n                  },\n                  \"solved_profiles\": [\n                    {\n                      \"entity_ids\": [\n                        1,\n                        2,\n                        3,\n                        4\n                      ],\n                      \"is_outer\": true,\n                      \"vertex_ids\": [\n                        1,\n                        2,\n                        3,\n                        4\n                      ]\n                    }\n                  ]\n                }\n              },\n              \"suppressed\": false,\n              \"references\": []\n            },\n            {\n              \"id\": \"f80d6024-031b-4c98-82e0-96b7e2e21748\",\n              \"name\": \"Revolve 1\",\n              \"operation\": {\n                \"type\": \"Revolve\",\n                \"params\": {\n                  \"sketch_id\": \"f80d6224-031b-4ffe-82e0-98b7e2e21aae\",\n                  \"profile_index\": 0,\n                  \"axis_origin\": [\n                    0.0,\n                    0.0,\n                    0.0\n                  ],\n                  \"axis_direction\": [\n                    0.5773502691896258,\n                    0.5773502691896258,\n                    0.5773502691896258\n                  ],\n                  \"angle\": 360.0,\n                  \"cut\": false,\n                  \"merge\": true,\n                  \"combine\": null\n                }\n              },\n              \"suppressed\": false,\n              \"references\": []\n            }\n          ],\n          \"active_index\": null\n        }\n      }\n    }\n  ],\n  \"active_tab\": \"ec60d27a-8b24-4638-b482-4f1df9e3acc1\"\n}",
+          "type": "LoadProject"
+        }
+      ],
+      "name": "C0070"
+    },
+    {
+      "messages": [
+        {
+          "data": "{\n  \"format\": \"waffle-iron\",\n  \"version\": 3,\n  \"document\": {\n    \"name\": \"Assay R0052\",\n    \"created\": \"2026-04-27T21:48:59.845690310Z\",\n    \"modified\": \"2026-04-27T21:48:59.845690310Z\"\n  },\n  \"tabs\": [\n    {\n      \"id\": \"7bb6a622-9cfe-47aa-93cb-87101c56623b\",\n      \"name\": \"Part 1\",\n      \"kind\": {\n        \"type\": \"Part\",\n        \"features\": {\n          \"features\": [\n            {\n              \"id\": \"338182af-9e3f-4e12-8f0c-2b0241c5e1bd\",\n              \"name\": \"Sketch 1\",\n              \"operation\": {\n                \"type\": \"Sketch\",\n                \"sketch\": {\n                  \"id\": \"338182af-9e3f-4e12-8f0c-2b0241c5e1bd\",\n                  \"plane\": {\n                    \"kind\": {\n                      \"type\": \"Face\"\n                    },\n                    \"anchor\": {\n                      \"type\": \"Datum\",\n                      \"datum_id\": \"b16945c0-63fb-4e2b-b419-2c0c44ee9741\"\n                    },\n                    \"selector\": {\n                      \"type\": \"Role\",\n                      \"role\": {\n                        \"type\": \"EndCapPositive\"\n                      },\n                      \"index\": 0\n                    },\n                    \"policy\": {\n                      \"type\": \"Strict\"\n                    }\n                  },\n                  \"plane_origin\": [\n                    -7.200984466373299,\n                    -35.05954852606426,\n                    56.959025356003046\n                  ],\n                  \"plane_normal\": [\n                    0.05236312868309111,\n                    -0.6475733249206332,\n                    -0.7602018755605343\n                  ],\n                  \"entities\": [\n                    {\n                      \"type\": \"Gear\",\n                      \"id\": 1,\n                      \"params\": {\n                        \"toothCount\": 16,\n                        \"module\": 2.934240180602655,\n                        \"pressureAngleDeg\": 20.0,\n                        \"backlash\": 0.0,\n                        \"centerX\": 0.0,\n                        \"centerY\": 0.0,\n                        \"rotationOffset\": 0.0\n                      },\n                      \"construction\": false\n                    }\n                  ],\n                  \"constraints\": [],\n                  \"solve_status\": {\n                    \"type\": \"FullyConstrained\"\n                  }\n                }\n              },\n              \"suppressed\": false,\n              \"references\": []\n            },\n            {\n              \"id\": \"d9355958-8380-4a33-882a-8feaf57e78a7\",\n              \"name\": \"Revolve 1\",\n              \"operation\": {\n                \"type\": \"Revolve\",\n                \"params\": {\n                  \"sketch_id\": \"338182af-9e3f-4e12-8f0c-2b0241c5e1bd\",\n                  \"profile_index\": 0,\n                  \"axis_origin\": [\n                    -42.36356118832197,\n                    -36.25515334711966,\n                    55.555476147877584\n                  ],\n                  \"axis_direction\": [\n                    0.0,\n                    -0.7612462213829253,\n                    0.648462944531311\n                  ],\n                  \"angle\": 106.82618387885903,\n                  \"cut\": false,\n                  \"merge\": true\n                }\n              },\n              \"suppressed\": false,\n              \"references\": []\n            },\n            {\n              \"id\": \"dfbaab8f-d40b-4820-a837-12152b391831\",\n              \"name\": \"Sketch 2\",\n              \"operation\": {\n                \"type\": \"Sketch\",\n                \"sketch\": {\n                  \"id\": \"dfbaab8f-d40b-4820-a837-12152b391831\",\n                  \"plane\": {\n                    \"kind\": {\n                      \"type\": \"Face\"\n                    },\n                    \"anchor\": {\n                      \"type\": \"Datum\",\n                      \"datum_id\": \"c0851d45-543d-460f-b88f-69cc5da0d1f3\"\n                    },\n                    \"selector\": {\n                      \"type\": \"Role\",\n                      \"role\": {\n                        \"type\": \"EndCapPositive\"\n                      },\n                      \"index\": 0\n                    },\n                    \"policy\": {\n                      \"type\": \"Strict\"\n                    }\n                  },\n                  \"plane_origin\": [\n                    -5.400599744096894,\n                    15.092919281819327,\n                    -9.9495541871702\n                  ],\n                  \"plane_normal\": [\n                    -0.24053564060593396,\n                    -0.2829188091595485,\n                    0.9284931626145859\n                  ],\n                  \"entities\": [\n                    {\n                      \"type\": \"Gear\",\n                      \"id\": 1,\n                      \"params\": {\n                        \"toothCount\": 24,\n                        \"module\": 2.934240180602655,\n                        \"pressureAngleDeg\": 20.0,\n                        \"backlash\": 0.0,\n                        \"centerX\": 0.0,\n                        \"centerY\": 0.0,\n                        \"rotationOffset\": 0.0\n                      },\n                      \"construction\": false\n                    }\n                  ],\n                  \"constraints\": [],\n                  \"solve_status\": {\n                    \"type\": \"FullyConstrained\"\n                  }\n                }\n              },\n              \"suppressed\": false,\n              \"references\": []\n            },\n            {\n              \"id\": \"aaa3cc21-e6ea-4c91-8608-5ab92e8a863a\",\n              \"name\": \"Extrude 2\",\n              \"operation\": {\n                \"type\": \"Extrude\",\n                \"params\": {\n                  \"sketch_id\": \"dfbaab8f-d40b-4820-a837-12152b391831\",\n                  \"profile_index\": 0,\n                  \"depth\": 25.51051178414361,\n                  \"direction\": null,\n                  \"symmetric\": false,\n                  \"cut\": false,\n                  \"merge\": true,\n                  \"target_body\": null,\n                  \"depth_mode\": {\n                    \"type\": \"Blind\"\n                  },\n                  \"second_direction\": null\n                }\n              },\n              \"suppressed\": false,\n              \"references\": []\n            }\n          ],\n          \"active_index\": null\n        }\n      }\n    }\n  ],\n  \"active_tab\": \"7bb6a622-9cfe-47aa-93cb-87101c56623b\"\n}",
+          "type": "LoadProject"
+        }
+      ],
+      "name": "R0052"
+    },
+    {
+      "messages": [
+        {
+          "data": "{\n  \"format\": \"waffle-iron\",\n  \"version\": 3,\n  \"document\": {\n    \"name\": \"Assay F0061\",\n    \"created\": \"2026-04-27T21:48:59.871659987Z\",\n    \"modified\": \"2026-04-27T21:48:59.871659987Z\"\n  },\n  \"tabs\": [\n    {\n      \"id\": \"14e928f0-1668-4f06-9fbe-1f2eb8e6a6d0\",\n      \"name\": \"Part 1\",\n      \"kind\": {\n        \"type\": \"Part\",\n        \"features\": {\n          \"features\": [\n            {\n              \"id\": \"a5c58608-f3fc-4089-b1ac-a8d2bed35657\",\n              \"name\": \"Gear Sketch\",\n              \"operation\": {\n                \"type\": \"Sketch\",\n                \"sketch\": {\n                  \"id\": \"a5c58608-f3fc-4089-b1ac-a8d2bed35657\",\n                  \"plane\": {\n                    \"kind\": {\n                      \"type\": \"Face\"\n                    },\n                    \"anchor\": {\n                      \"type\": \"Datum\",\n                      \"datum_id\": \"395bd7ab-f6e2-4b61-8ca9-328d7856e747\"\n                    },\n                    \"selector\": {\n                      \"type\": \"Role\",\n                      \"role\": {\n                        \"type\": \"EndCapPositive\"\n                      },\n                      \"index\": 0\n                    },\n                    \"policy\": {\n                      \"type\": \"Strict\"\n                    }\n                  },\n                  \"plane_origin\": [\n                    0.0,\n                    0.0,\n                    0.0\n                  ],\n                  \"plane_normal\": [\n                    0.0,\n                    0.0,\n                    1.0\n                  ],\n                  \"entities\": [\n                    {\n                      \"type\": \"Gear\",\n                      \"id\": 1,\n                      \"params\": {\n                        \"toothCount\": 12,\n                        \"module\": 0.05,\n                        \"pressureAngleDeg\": 20.0,\n                        \"backlash\": 0.0,\n                        \"centerX\": 0.0,\n                        \"centerY\": 0.0,\n                        \"rotationOffset\": 0.0\n                      },\n                      \"construction\": false\n                    }\n                  ],\n                  \"constraints\": [],\n                  \"solve_status\": {\n                    \"type\": \"FullyConstrained\"\n                  }\n                }\n              },\n              \"suppressed\": false,\n              \"references\": []\n            },\n            {\n              \"id\": \"21a0ece4-3733-446e-8c61-0a20a8938a1f\",\n              \"name\": \"Gear Extrude\",\n              \"operation\": {\n                \"type\": \"Extrude\",\n                \"params\": {\n                  \"sketch_id\": \"a5c58608-f3fc-4089-b1ac-a8d2bed35657\",\n                  \"profile_index\": 0,\n                  \"depth\": 0.2,\n                  \"direction\": null,\n                  \"symmetric\": false,\n                  \"cut\": false,\n                  \"merge\": true,\n                  \"target_body\": null,\n                  \"depth_mode\": {\n                    \"type\": \"Blind\"\n                  },\n                  \"second_direction\": null\n                }\n              },\n              \"suppressed\": false,\n              \"references\": []\n            },\n            {\n              \"id\": \"bd199343-0408-4e89-9c28-f79d739a0b26\",\n              \"name\": \"Hole Sketch\",\n              \"operation\": {\n                \"type\": \"Sketch\",\n                \"sketch\": {\n                  \"id\": \"bd199343-0408-4e89-9c28-f79d739a0b26\",\n                  \"plane\": {\n                    \"kind\": {\n                      \"type\": \"Face\"\n                    },\n                    \"anchor\": {\n                      \"type\": \"Datum\",\n                      \"datum_id\": \"28ff892c-da45-4057-9f37-dd8e25c83fee\"\n                    },\n                    \"selector\": {\n                      \"type\": \"Role\",\n                      \"role\": {\n                        \"type\": \"EndCapPositive\"\n                      },\n                      \"index\": 0\n                    },\n                    \"policy\": {\n                      \"type\": \"Strict\"\n                    }\n                  },\n                  \"plane_origin\": [\n                    0.0,\n                    0.0,\n                    0.0\n                  ],\n                  \"plane_normal\": [\n                    0.0,\n                    0.0,\n                    1.0\n                  ],\n                  \"entities\": [\n                    {\n                      \"type\": \"Point\",\n                      \"id\": 1,\n                      \"x\": 0.0,\n                      \"y\": 0.0,\n                      \"construction\": true\n                    },\n                    {\n                      \"type\": \"Circle\",\n                      \"id\": 2,\n                      \"center_id\": 1,\n                      \"radius\": 0.1,\n                      \"construction\": false\n                    }\n                  ],\n                  \"constraints\": [],\n                  \"solve_status\": {\n                    \"type\": \"FullyConstrained\"\n                  },\n                  \"solved_positions\": {\n                    \"1\": [\n                      0.0,\n                      0.0\n                    ]\n                  },\n                  \"solved_profiles\": [\n                    {\n                      \"entity_ids\": [\n                        2\n                      ],\n                      \"is_outer\": true,\n                      \"circle\": {\n                        \"center_u\": 0.0,\n                        \"center_v\": 0.0,\n                        \"radius\": 0.1\n                      }\n                    }\n                  ]\n                }\n              },\n              \"suppressed\": false,\n              \"references\": []\n            },\n            {\n              \"id\": \"3b2757e2-1105-4cdd-88c7-020a0c4cb863\",\n              \"name\": \"Hole Cut\",\n              \"operation\": {\n                \"type\": \"Extrude\",\n                \"params\": {\n                  \"sketch_id\": \"bd199343-0408-4e89-9c28-f79d739a0b26\",\n                  \"profile_index\": 0,\n                  \"depth\": 0.3,\n                  \"direction\": null,\n                  \"symmetric\": false,\n                  \"cut\": true,\n                  \"merge\": true,\n                  \"target_body\": null,\n                  \"depth_mode\": {\n                    \"type\": \"Blind\"\n                  },\n                  \"second_direction\": null\n                }\n              },\n              \"suppressed\": false,\n              \"references\": []\n            }\n          ],\n          \"active_index\": null\n        }\n      }\n    }\n  ],\n  \"active_tab\": \"14e928f0-1668-4f06-9fbe-1f2eb8e6a6d0\"\n}",
+          "type": "LoadProject"
+        }
+      ],
+      "name": "F0061"
+    },
+    {
+      "messages": [
+        {
+          "data": "{\n  \"format\": \"waffle-iron\",\n  \"version\": 3,\n  \"document\": {\n    \"name\": \"Assay F0074\",\n    \"created\": \"2026-04-27T21:48:59.886578437Z\",\n    \"modified\": \"2026-04-27T21:48:59.886578437Z\"\n  },\n  \"tabs\": [\n    {\n      \"id\": \"76f1daa9-7d1d-449f-bddc-24dd9a63eb97\",\n      \"name\": \"Part 1\",\n      \"kind\": {\n        \"type\": \"Part\",\n        \"features\": {\n          \"features\": [\n            {\n              \"id\": \"9a8c6b8e-a503-45ef-8229-cfcbd0686539\",\n              \"name\": \"Box Sketch\",\n              \"operation\": {\n                \"type\": \"Sketch\",\n                \"sketch\": {\n                  \"id\": \"9a8c6b8e-a503-45ef-8229-cfcbd0686539\",\n                  \"plane\": {\n                    \"kind\": {\n                      \"type\": \"Face\"\n                    },\n                    \"anchor\": {\n                      \"type\": \"Datum\",\n                      \"datum_id\": \"44e0d09a-0047-4b15-8fe5-6e98fe28af6c\"\n                    },\n                    \"selector\": {\n                      \"type\": \"Role\",\n                      \"role\": {\n                        \"type\": \"EndCapPositive\"\n                      },\n                      \"index\": 0\n                    },\n                    \"policy\": {\n                      \"type\": \"Strict\"\n                    }\n                  },\n                  \"plane_origin\": [\n                    0.0,\n                    0.0,\n                    0.0\n                  ],\n                  \"plane_normal\": [\n                    0.0,\n                    0.0,\n                    1.0\n                  ],\n                  \"entities\": [\n                    {\n                      \"type\": \"Point\",\n                      \"id\": 1,\n                      \"x\": 0.0,\n                      \"y\": 0.0,\n                      \"construction\": false\n                    },\n                    {\n                      \"type\": \"Point\",\n                      \"id\": 2,\n                      \"x\": 1.0,\n                      \"y\": 0.0,\n                      \"construction\": false\n                    },\n                    {\n                      \"type\": \"Point\",\n                      \"id\": 3,\n                      \"x\": 1.0,\n                      \"y\": 1.0,\n                      \"construction\": false\n                    },\n                    {\n                      \"type\": \"Point\",\n                      \"id\": 4,\n                      \"x\": 0.0,\n                      \"y\": 1.0,\n                      \"construction\": false\n                    },\n                    {\n                      \"type\": \"Line\",\n                      \"id\": 10,\n                      \"start_id\": 1,\n                      \"end_id\": 2,\n                      \"construction\": false\n                    },\n                    {\n                      \"type\": \"Line\",\n                      \"id\": 11,\n                      \"start_id\": 2,\n                      \"end_id\": 3,\n                      \"construction\": false\n                    },\n                    {\n                      \"type\": \"Line\",\n                      \"id\": 12,\n                      \"start_id\": 3,\n                      \"end_id\": 4,\n                      \"construction\": false\n                    },\n                    {\n                      \"type\": \"Line\",\n                      \"id\": 13,\n                      \"start_id\": 4,\n                      \"end_id\": 1,\n                      \"construction\": false\n                    }\n                  ],\n                  \"constraints\": [],\n                  \"solve_status\": {\n                    \"type\": \"FullyConstrained\"\n                  },\n                  \"solved_positions\": {\n                    \"2\": [\n                      1.0,\n                      0.0\n                    ],\n                    \"3\": [\n                      1.0,\n                      1.0\n                    ],\n                    \"1\": [\n                      0.0,\n                      0.0\n                    ],\n                    \"4\": [\n                      0.0,\n                      1.0\n                    ]\n                  },\n                  \"solved_profiles\": [\n                    {\n                      \"entity_ids\": [\n                        1,\n                        2,\n                        3,\n                        4\n                      ],\n                      \"is_outer\": true,\n                      \"vertex_ids\": [\n                        1,\n                        2,\n                        3,\n                        4\n                      ]\n                    }\n                  ]\n                }\n              },\n              \"suppressed\": false,\n              \"references\": []\n            },\n            {\n              \"id\": \"5a8d8b04-2242-4d64-b0c1-9a17c15c6e52\",\n              \"name\": \"Box Extrude\",\n              \"operation\": {\n                \"type\": \"Extrude\",\n                \"params\": {\n                  \"sketch_id\": \"9a8c6b8e-a503-45ef-8229-cfcbd0686539\",\n                  \"profile_index\": 0,\n                  \"depth\": 0.5,\n                  \"direction\": null,\n                  \"symmetric\": false,\n                  \"cut\": false,\n                  \"merge\": true,\n                  \"target_body\": null,\n                  \"depth_mode\": {\n                    \"type\": \"Blind\"\n                  },\n                  \"second_direction\": null\n                }\n              },\n              \"suppressed\": false,\n              \"references\": []\n            },\n            {\n              \"id\": \"3f68b837-50be-41cc-bee6-63b1fa50b6db\",\n              \"name\": \"Revolve Sketch\",\n              \"operation\": {\n                \"type\": \"Sketch\",\n                \"sketch\": {\n                  \"id\": \"3f68b837-50be-41cc-bee6-63b1fa50b6db\",\n                  \"plane\": {\n                    \"kind\": {\n                      \"type\": \"Face\"\n                    },\n                    \"anchor\": {\n                      \"type\": \"Datum\",\n                      \"datum_id\": \"7747b4e4-0f04-4a3e-a81b-4eddb287dc1a\"\n                    },\n                    \"selector\": {\n                      \"type\": \"Role\",\n                      \"role\": {\n                        \"type\": \"EndCapPositive\"\n                      },\n                      \"index\": 0\n                    },\n                    \"policy\": {\n                      \"type\": \"Strict\"\n                    }\n                  },\n                  \"plane_origin\": [\n                    0.0,\n                    0.0,\n                    0.0\n                  ],\n                  \"plane_normal\": [\n                    0.0,\n                    0.0,\n                    1.0\n                  ],\n                  \"entities\": [\n                    {\n                      \"type\": \"Point\",\n                      \"id\": 1,\n                      \"x\": 0.0,\n                      \"y\": 0.0,\n                      \"construction\": false\n                    },\n                    {\n                      \"type\": \"Point\",\n                      \"id\": 2,\n                      \"x\": 0.4,\n                      \"y\": 0.0,\n                      \"construction\": false\n                    },\n                    {\n                      \"type\": \"Point\",\n                      \"id\": 3,\n                      \"x\": 0.4,\n                      \"y\": 0.4,\n                      \"construction\": false\n                    },\n                    {\n                      \"type\": \"Point\",\n                      \"id\": 4,\n                      \"x\": 0.0,\n                      \"y\": 0.4,\n                      \"construction\": false\n                    },\n                    {\n                      \"type\": \"Line\",\n                      \"id\": 10,\n                      \"start_id\": 1,\n                      \"end_id\": 2,\n                      \"construction\": false\n                    },\n                    {\n                      \"type\": \"Line\",\n                      \"id\": 11,\n                      \"start_id\": 2,\n                      \"end_id\": 3,\n                      \"construction\": false\n                    },\n                    {\n                      \"type\": \"Line\",\n                      \"id\": 12,\n                      \"start_id\": 3,\n                      \"end_id\": 4,\n                      \"construction\": false\n                    },\n                    {\n                      \"type\": \"Line\",\n                      \"id\": 13,\n                      \"start_id\": 4,\n                      \"end_id\": 1,\n                      \"construction\": false\n                    }\n                  ],\n                  \"constraints\": [],\n                  \"solve_status\": {\n                    \"type\": \"FullyConstrained\"\n                  },\n                  \"solved_positions\": {\n                    \"4\": [\n                      0.0,\n                      0.4\n                    ],\n                    \"3\": [\n                      0.4,\n                      0.4\n                    ],\n                    \"1\": [\n                      0.0,\n                      0.0\n                    ],\n                    \"2\": [\n                      0.4,\n                      0.0\n                    ]\n                  },\n                  \"solved_profiles\": [\n                    {\n                      \"entity_ids\": [\n                        1,\n                        2,\n                        3,\n                        4\n                      ],\n                      \"is_outer\": true,\n                      \"vertex_ids\": [\n                        1,\n                        2,\n                        3,\n                        4\n                      ]\n                    }\n                  ]\n                }\n              },\n              \"suppressed\": false,\n              \"references\": []\n            },\n            {\n              \"id\": \"c4465b32-ce18-44a2-a2a8-458402c2948f\",\n              \"name\": \"Revolve Near\",\n              \"operation\": {\n                \"type\": \"Revolve\",\n                \"params\": {\n                  \"sketch_id\": \"3f68b837-50be-41cc-bee6-63b1fa50b6db\",\n                  \"profile_index\": 0,\n                  \"axis_origin\": [\n                    0.0,\n                    0.0,\n                    0.0\n                  ],\n                  \"axis_direction\": [\n                    0.0,\n                    0.0,\n                    1.0\n                  ],\n                  \"angle\": 270.0,\n                  \"cut\": false,\n                  \"merge\": true\n                }\n              },\n              \"suppressed\": false,\n              \"references\": []\n            }\n          ],\n          \"active_index\": null\n        }\n      }\n    }\n  ],\n  \"active_tab\": \"76f1daa9-7d1d-449f-bddc-24dd9a63eb97\"\n}",
+          "type": "LoadProject"
+        }
+      ],
+      "name": "F0074"
+    },
+    {
+      "messages": [
+        {
+          "assembly": {
+            "instances": [
+              {
+                "fixed": true,
+                "id": "00000000-0000-0000-0000-00000000000a",
+                "name": "A",
+                "source": {
+                  "tab_id": "part"
+                },
+                "transform": {
+                  "rotation_quat": [
+                    0.0,
+                    0.0,
+                    0.0,
+                    1.0
+                  ],
+                  "translation_m": [
+                    0.0,
+                    0.0,
+                    0.0
+                  ]
+                }
+              },
+              {
+                "fixed": true,
+                "id": "00000000-0000-0000-0000-00000000000b",
+                "name": "B",
+                "source": {
+                  "tab_id": "part"
+                },
+                "transform": {
+                  "rotation_quat": [
+                    0.0,
+                    0.0,
+                    0.7071067811865476,
+                    0.7071067811865476
+                  ],
+                  "translation_m": [
+                    0.05,
+                    0.02,
+                    0.0
+                  ]
+                }
+              }
+            ]
+          },
+          "part_trees": {
+            "part": {
+              "active_index": null,
+              "features": [
+                {
+                  "id": "235d2b24-1ba4-4fdb-ae2f-e1b7fb69e10b",
+                  "name": "Sketch 1",
+                  "operation": {
+                    "sketch": {
+                      "constraints": [],
+                      "entities": [
+                        {
+                          "construction": false,
+                          "id": 1,
+                          "params": {
+                            "backlash": 0.0,
+                            "centerX": 0.0,
+                            "centerY": 0.0,
+                            "internal": false,
+                            "module": 0.05,
+                            "pressureAngleDeg": 20.0,
+                            "rotationOffset": 0.0,
+                            "toothCount": 40
+                          },
+                          "type": "Gear"
+                        }
+                      ],
+                      "id": "235d2b24-1ba4-4fdb-ae2f-e1b7fb69e10b",
+                      "plane": {
+                        "anchor": {
+                          "datum_id": "235d2c24-1ba4-418e-ae2f-e2b7fb69e2be",
+                          "type": "Datum"
+                        },
+                        "kind": {
+                          "type": "Face"
+                        },
+                        "policy": {
+                          "type": "Strict"
+                        },
+                        "selector": {
+                          "index": 0,
+                          "role": {
+                            "type": "EndCapPositive"
+                          },
+                          "type": "Role"
+                        }
+                      },
+                      "plane_normal": [
+                        0.0,
+                        0.0,
+                        1.0
+                      ],
+                      "plane_origin": [
+                        0.0,
+                        0.0,
+                        0.0
+                      ],
+                      "solve_status": {
+                        "type": "FullyConstrained"
+                      }
+                    },
+                    "type": "Sketch"
+                  },
+                  "references": [],
+                  "suppressed": false
+                },
+                {
+                  "id": "235d2d24-1ba4-4341-ae2f-e3b7fb69e471",
+                  "name": "Extrude 1",
+                  "operation": {
+                    "params": {
+                      "combine": null,
+                      "cut": false,
+                      "depth": 0.3,
+                      "depth_mode": {
+                        "type": "Blind"
+                      },
+                      "direction": null,
+                      "merge": true,
+                      "profile_index": 0,
+                      "second_direction": null,
+                      "sketch_id": "235d2b24-1ba4-4fdb-ae2f-e1b7fb69e10b",
+                      "symmetric": false,
+                      "target_body": null
+                    },
+                    "type": "Extrude"
+                  },
+                  "references": [],
+                  "suppressed": false
+                }
+              ]
+            }
+          },
+          "type": "OpenAssembly"
+        }
+      ],
+      "name": "assembly"
+    },
+    {
+      "messages": [
+        {
+          "data": "{\n  \"format\": \"waffle-iron\",\n  \"version\": 3,\n  \"document\": {\n    \"name\": \"Assay C0077\",\n    \"created\": \"2026-07-05T20:52:55.180621772Z\",\n    \"modified\": \"2026-07-05T20:52:55.180621772Z\"\n  },\n  \"tabs\": [\n    {\n      \"id\": \"83830ad8-45cb-4084-9024-40c8c6d7323b\",\n      \"name\": \"Part 1\",\n      \"kind\": {\n        \"type\": \"Part\",\n        \"features\": {\n          \"features\": [\n            {\n              \"id\": \"235d2b24-1ba4-4fdb-ae2f-e1b7fb69e10b\",\n              \"name\": \"Sketch 1\",\n              \"operation\": {\n                \"type\": \"Sketch\",\n                \"sketch\": {\n                  \"id\": \"235d2b24-1ba4-4fdb-ae2f-e1b7fb69e10b\",\n                  \"plane\": {\n                    \"kind\": {\n                      \"type\": \"Face\"\n                    },\n                    \"anchor\": {\n                      \"type\": \"Datum\",\n                      \"datum_id\": \"235d2c24-1ba4-418e-ae2f-e2b7fb69e2be\"\n                    },\n                    \"selector\": {\n                      \"type\": \"Role\",\n                      \"role\": {\n                        \"type\": \"EndCapPositive\"\n                      },\n                      \"index\": 0\n                    },\n                    \"policy\": {\n                      \"type\": \"Strict\"\n                    }\n                  },\n                  \"plane_origin\": [\n                    0.0,\n                    0.0,\n                    0.0\n                  ],\n                  \"plane_normal\": [\n                    0.0,\n                    0.0,\n                    1.0\n                  ],\n                  \"entities\": [\n                    {\n                      \"type\": \"Gear\",\n                      \"id\": 1,\n                      \"params\": {\n                        \"toothCount\": 40,\n                        \"module\": 0.05,\n                        \"pressureAngleDeg\": 20.0,\n                        \"backlash\": 0.0,\n                        \"centerX\": 0.0,\n                        \"centerY\": 0.0,\n                        \"rotationOffset\": 0.0,\n                        \"internal\": false\n                      },\n                      \"construction\": false\n                    }\n                  ],\n                  \"constraints\": [],\n                  \"solve_status\": {\n                    \"type\": \"FullyConstrained\"\n                  }\n                }\n              },\n              \"suppressed\": false,\n              \"references\": []\n            },\n            {\n              \"id\": \"235d2d24-1ba4-4341-ae2f-e3b7fb69e471\",\n              \"name\": \"Extrude 1\",\n              \"operation\": {\n                \"type\": \"Extrude\",\n                \"params\": {\n                  \"sketch_id\": \"235d2b24-1ba4-4fdb-ae2f-e1b7fb69e10b\",\n                  \"profile_index\": 0,\n                  \"depth\": 0.3,\n                  \"direction\": null,\n                  \"symmetric\": false,\n                  \"cut\": false,\n                  \"merge\": true,\n                  \"target_body\": null,\n                  \"depth_mode\": {\n                    \"type\": \"Blind\"\n                  },\n                  \"second_direction\": null,\n                  \"combine\": null\n                }\n              },\n              \"suppressed\": false,\n              \"references\": []\n            }\n          ],\n          \"active_index\": null\n        }\n      }\n    }\n  ],\n  \"active_tab\": \"83830ad8-45cb-4084-9024-40c8c6d7323b\"\n}",
+          "type": "LoadProject"
+        },
+        {
+          "assembly": {
+            "instances": [
+              {
+                "fixed": true,
+                "id": "00000000-0000-0000-0000-00000000000a",
+                "name": "A",
+                "source": {
+                  "tab_id": "part"
+                },
+                "transform": {
+                  "rotation_quat": [
+                    0.0,
+                    0.0,
+                    0.0,
+                    1.0
+                  ],
+                  "translation_m": [
+                    0.0,
+                    0.0,
+                    0.0
+                  ]
+                }
+              },
+              {
+                "fixed": true,
+                "id": "00000000-0000-0000-0000-00000000000b",
+                "name": "B",
+                "source": {
+                  "tab_id": "part"
+                },
+                "transform": {
+                  "rotation_quat": [
+                    0.0,
+                    0.0,
+                    0.7071067811865476,
+                    0.7071067811865476
+                  ],
+                  "translation_m": [
+                    0.05,
+                    0.02,
+                    0.0
+                  ]
+                }
+              }
+            ]
+          },
+          "assembly_tab_id": "asm",
+          "features": {
+            "active_index": null,
+            "features": [
+              {
+                "id": "235d2b24-1ba4-4fdb-ae2f-e1b7fb69e10b",
+                "name": "Sketch 1",
+                "operation": {
+                  "sketch": {
+                    "constraints": [],
+                    "entities": [
+                      {
+                        "construction": false,
+                        "id": 1,
+                        "params": {
+                          "backlash": 0.0,
+                          "centerX": 0.0,
+                          "centerY": 0.0,
+                          "internal": false,
+                          "module": 0.05,
+                          "pressureAngleDeg": 20.0,
+                          "rotationOffset": 0.0,
+                          "toothCount": 40
+                        },
+                        "type": "Gear"
+                      }
+                    ],
+                    "id": "235d2b24-1ba4-4fdb-ae2f-e1b7fb69e10b",
+                    "plane": {
+                      "anchor": {
+                        "datum_id": "235d2c24-1ba4-418e-ae2f-e2b7fb69e2be",
+                        "type": "Datum"
+                      },
+                      "kind": {
+                        "type": "Face"
+                      },
+                      "policy": {
+                        "type": "Strict"
+                      },
+                      "selector": {
+                        "index": 0,
+                        "role": {
+                          "type": "EndCapPositive"
+                        },
+                        "type": "Role"
+                      }
+                    },
+                    "plane_normal": [
+                      0.0,
+                      0.0,
+                      1.0
+                    ],
+                    "plane_origin": [
+                      0.0,
+                      0.0,
+                      0.0
+                    ],
+                    "solve_status": {
+                      "type": "FullyConstrained"
+                    }
+                  },
+                  "type": "Sketch"
+                },
+                "references": [],
+                "suppressed": false
+              },
+              {
+                "id": "235d2d24-1ba4-4341-ae2f-e3b7fb69e471",
+                "name": "Extrude 1",
+                "operation": {
+                  "params": {
+                    "combine": null,
+                    "cut": false,
+                    "depth": 0.3,
+                    "depth_mode": {
+                      "type": "Blind"
+                    },
+                    "direction": null,
+                    "merge": true,
+                    "profile_index": 0,
+                    "second_direction": null,
+                    "sketch_id": "235d2b24-1ba4-4fdb-ae2f-e1b7fb69e10b",
+                    "symmetric": false,
+                    "target_body": null
+                  },
+                  "type": "Extrude"
+                },
+                "references": [],
+                "suppressed": false
+              }
+            ]
+          },
+          "instance_path": [
+            "00000000-0000-0000-0000-00000000000b"
+          ],
+          "part_trees": {
+            "part": {
+              "active_index": null,
+              "features": [
+                {
+                  "id": "235d2b24-1ba4-4fdb-ae2f-e1b7fb69e10b",
+                  "name": "Sketch 1",
+                  "operation": {
+                    "sketch": {
+                      "constraints": [],
+                      "entities": [
+                        {
+                          "construction": false,
+                          "id": 1,
+                          "params": {
+                            "backlash": 0.0,
+                            "centerX": 0.0,
+                            "centerY": 0.0,
+                            "internal": false,
+                            "module": 0.05,
+                            "pressureAngleDeg": 20.0,
+                            "rotationOffset": 0.0,
+                            "toothCount": 40
+                          },
+                          "type": "Gear"
+                        }
+                      ],
+                      "id": "235d2b24-1ba4-4fdb-ae2f-e1b7fb69e10b",
+                      "plane": {
+                        "anchor": {
+                          "datum_id": "235d2c24-1ba4-418e-ae2f-e2b7fb69e2be",
+                          "type": "Datum"
+                        },
+                        "kind": {
+                          "type": "Face"
+                        },
+                        "policy": {
+                          "type": "Strict"
+                        },
+                        "selector": {
+                          "index": 0,
+                          "role": {
+                            "type": "EndCapPositive"
+                          },
+                          "type": "Role"
+                        }
+                      },
+                      "plane_normal": [
+                        0.0,
+                        0.0,
+                        1.0
+                      ],
+                      "plane_origin": [
+                        0.0,
+                        0.0,
+                        0.0
+                      ],
+                      "solve_status": {
+                        "type": "FullyConstrained"
+                      }
+                    },
+                    "type": "Sketch"
+                  },
+                  "references": [],
+                  "suppressed": false
+                },
+                {
+                  "id": "235d2d24-1ba4-4341-ae2f-e3b7fb69e471",
+                  "name": "Extrude 1",
+                  "operation": {
+                    "params": {
+                      "combine": null,
+                      "cut": false,
+                      "depth": 0.3,
+                      "depth_mode": {
+                        "type": "Blind"
+                      },
+                      "direction": null,
+                      "merge": true,
+                      "profile_index": 0,
+                      "second_direction": null,
+                      "sketch_id": "235d2b24-1ba4-4fdb-ae2f-e1b7fb69e10b",
+                      "symmetric": false,
+                      "target_body": null
+                    },
+                    "type": "Extrude"
+                  },
+                  "references": [],
+                  "suppressed": false
+                }
+              ]
+            }
+          },
+          "type": "OpenPartInContext"
+        }
+      ],
+      "name": "in_context"
+    }
+  ]
+}
