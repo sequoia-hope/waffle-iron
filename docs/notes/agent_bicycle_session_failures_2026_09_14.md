@@ -11,7 +11,8 @@
 | F9b | FIXED | `feature-engine/src/lib.rs` `inherit_source_body_id()`: an explicit combine's `Main` inherits the name of the first resolved target's OWN output (not that feature's `Main`), and carried siblings inherit from the body they carry; `rebuild.rs` `untargeted_sibling_sources()` is the single ordered source for both the carried bodies and their names | `combine_sibling_outputs.rs::names_follow_the_targeted_body_and_the_carried_sibling` (RED showed `Some("Top tube")` for the down tube, the exact in-app symptom) |
 | F10 | FIXED (re-scoped) | Root cause: `openDocumentRecord` settled the startup restore BEFORE `loadProject`, so the link resumed and read the blank bootstrap tree for the whole rebuild. Now it settles in a `finally` after the load, and `executeTool` refuses every call with `UserBusy {reason: 'loading' \| 'restoring'}` via `getDocumentLoadBusyReason()` (`app/src/lib/engine/store.svelte.js`, `app/src/lib/agent/executor.js`) | `app/tests/gui/agent-document-load-gate.spec.js` (verified RED with the gate disabled); agent-link / reconnect / documents / authoring specs still pass (23) |
 | F7 | FIXED | `feature-engine/src/rebuild.rs` `Changed` + skip decision in `rebuild()`: a feature re-executes only if it changed, names (by any UUID in its definition) a feature that re-executed, finds an input by tree position (legacy most-recent / share-a-face targets, through-all, projected sketches, context-scoped refs) after one, or has no cached result or error; everything else keeps its result, mesh and error. Callers pass what changed (`lib.rs` `changed_feature`/`changed_by`; the parameter and context passes report changed feature ids). Reorder and full rebuilds still re-execute everything | `feature-engine/tests/incremental_rebuild.rs` (8 tests; the unrelated-edit, parameter and rename-undo cases verified RED first), `test-harness/tests/incremental_rebuild_kv2.rs` (kernel-v2: a box notching an annulus tube, V_cut/V_tube = 5/6; the kept Cut keeps its handle and 76,930-triangle mesh, and a later re-execution against the same arena matches a from-scratch rebuild. Debug build: adding the Cut 15.1 s; editing an unrelated upstream sketch 20 ms, versus 15.2 s with the change stashed, where the test is RED) |
-| F4, F5, F6, F8 | OPEN | — | — |
+| F4 | OPEN — not reproduced | None. Three candidate causes measured in the real app and ruled out (see F4 "Investigation") | — |
+| F5, F6, F8 | OPEN | — | — |
 
 Failures hit while an agent built a bicycle frame and fork over the agent link
 (MCP) in the "Bike frame" document (browser-local). Each entry is written so a
@@ -136,6 +137,47 @@ reopened its last work from the browser's draft`. So the tab reloaded (crash,
 OOM or mobile tab kill) and the draft-restore rebuild is the "user change". The
 growing boolean count per rebuild makes a WASM memory ceiling the lead suspect;
 measure heap per rebuild on repro.
+
+**Investigation (2026-09-15, not reproduced).**
+Mechanism (code-read):
+- The relay pings every 15 s and closes the socket after 30 s without a pong
+  (`relay/src/waffle_mcp_relay/link.py:367-376`). That close fails every in-flight
+  call with `PageDisconnected`.
+- The session then stays `page_away` (`pairing.py`), so the next call waits
+  `AWAY_WAIT_S` = 10 s and gets `PageAway`. That matches occurrence 2 exactly.
+- Booleans run in the engine Web Worker (`app/src/lib/engine/worker.js`), but the
+  page answers `ping` on its MAIN thread (`app/src/lib/agent/link.js:286`).
+- So F4 needs either a main-thread stall > 30 s, or the tab being suspended,
+  reloaded or killed.
+
+Measured with the real relay and headless Chromium, recording 100 ms event-loop
+gaps and long tasks, in a scratch probe that was not committed:
+- **F0064** (`LoadProject` 20 s): 13-call bursts every 3 s during the rebuild.
+  117/117 calls `ok`, max main-thread gap 68 ms, no heartbeat drop.
+- **F0085** (`LoadProject` 212 s, 40 features, 18k-triangle body): 949/949
+  calls `ok`, max gap 471 ms, no heartbeat drop.
+- **6 thin-wall annulus tubes + 3 parallel explicit-target Cuts**, plus 80
+  `model_summary` calls while the Cuts ran: all `ok`, max gap 28 ms. The tools
+  missed the tubes, though (each Cut 0.2 s), so this is NOT bike scale.
+
+Ruled out:
+- (a) A burst of concurrent calls.
+- (b) A long worker rebuild starving the pong.
+- (c) The tab `preview_mesh` explaining the 28 MB document: the engine decimates
+  it to 500 triangles (`crates/wasm-bridge/src/dispatch.rs:1003`).
+
+Still open:
+- **What makes "Bike frame" 28 MB.** The probe's 6-tube document is 76 KB, so the
+  bulk is elsewhere in the tree or sources. A multi-MB `featureTree` held in Svelte
+  `$state` and deep-cloned per autosave is a plausible main-thread stall.
+  Unmeasured: needs the exported file.
+- **Tab suspension, reload or OOM on the user's browser**, which occurrence 3
+  confirms happened at least once.
+
+Next evidence needed:
+- The exported 28 MB `.waffle`, loaded under the same probe.
+- A browser-console capture (`[worker]` timings, crash or OOM lines) from the next
+  occurrence.
 
 ---
 
