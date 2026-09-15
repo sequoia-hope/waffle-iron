@@ -57,6 +57,20 @@ rawTest.describe('Document context menu', () => {
     await expect(page).toHaveURL(/\/home$/);
   });
 
+  rawTest('⋯ button opens the same menu without opening the document', async ({ page }) => {
+    const doc = makeTestDocument({ id: 'dot00001', name: 'Dots' });
+    await page.goto('/home');
+    await seedDocument(page, doc);
+    await page.goto('/home');
+    await expect(page.locator('[data-testid="document-card"]')).toBeVisible({ timeout: 10000 });
+
+    await page.locator('[data-testid="doc-menu-btn"]').first().click();
+    await expect(page.locator('[data-testid="doc-context-menu"]')).toBeVisible();
+    await expect(page.locator('[data-testid="doc-ctx-export"]')).toBeVisible();
+    await page.waitForTimeout(400);
+    await expect(page).toHaveURL(/\/home$/);
+  });
+
   rawTest('delete via context menu removes card', async ({ page }) => {
     const doc = makeTestDocument({ id: 'del00001', name: 'Delete Me' });
     await page.goto('/home');

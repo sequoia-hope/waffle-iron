@@ -43,6 +43,16 @@
 		showMenu = true;
 	}
 
+	/** The ⋯ button: the same menu for touch screens, where there is no right-click. */
+	function handleMenuButton(e) {
+		e.stopPropagation();
+		const r = e.currentTarget.getBoundingClientRect();
+		const menuWidth = 180;
+		menuX = Math.max(8, Math.min(r.right - menuWidth, window.innerWidth - menuWidth - 8));
+		menuY = r.bottom + 4;
+		showMenu = true;
+	}
+
 	function closeMenu() {
 		showMenu = false;
 	}
@@ -86,6 +96,18 @@
 	</div>
 {/if}
 
+<div class="card-wrap">
+<button
+	class="card-menu-btn"
+	data-testid="doc-menu-btn"
+	aria-label="Document actions"
+	title="Document actions"
+	onclick={handleMenuButton}
+>
+	<svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+		<circle cx="5" cy="12" r="2"/><circle cx="12" cy="12" r="2"/><circle cx="19" cy="12" r="2"/>
+	</svg>
+</button>
 <button
 	class="document-card"
 	data-testid="document-card"
@@ -133,8 +155,40 @@
 		</span>
 	</div>
 </button>
+</div>
 
 <style>
+	.card-wrap {
+		position: relative;
+	}
+
+	.card-wrap .document-card {
+		display: block;
+		width: 100%;
+	}
+
+	.card-menu-btn {
+		position: absolute;
+		top: 6px;
+		right: 6px;
+		z-index: 2;
+		width: 36px;
+		height: 36px;
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		border: none;
+		border-radius: 999px;
+		background: color-mix(in srgb, var(--bg-secondary, #313244) 85%, transparent);
+		color: var(--text-primary, #cdd6f4);
+		cursor: pointer;
+	}
+
+	.card-menu-btn:hover,
+	.card-menu-btn:focus-visible {
+		background: var(--bg-tertiary, #45475a);
+	}
+
 	.linked-badge {
 		margin-left: 6px;
 		padding: 1px 6px;
