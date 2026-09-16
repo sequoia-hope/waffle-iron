@@ -1,22 +1,32 @@
 /**
- * The S3 C4 differential (`specs/waffle_server_mode.md` §2.3): for every tool
- * whose semantics moved into the engine, the document the engine builds must
- * equal the document the page's JS commands built, step for step.
+ * The S3 C4/C4b oracle (`specs/waffle_server_mode.md` §2.3): the twelve
+ * authoring tools run in the engine, and they must go on producing exactly
+ * what the page's JS commands produced before those bodies were deleted.
  *
  * The read-only tools of C1–C3 are compared by SHADOWING — running both on the
  * same document and diffing the answers. That cannot work here: a step that
  * changes the document cannot be run twice on it without applying it twice. So
- * each scripted sequence runs on TWO FRESH DOCUMENTS, once with
- * `setEngineTools(false)` (the JS bodies in `commands.js`) and once with it on
- * (the engine's `execute_tool`), and the two are compared canonically —
- * feature UUIDs are minted per run, so they are renamed in structural order.
+ * at C4 each scripted sequence ran on two fresh documents, one arm per
+ * implementation, and the two were compared directly. C4b deleted the JS arm,
+ * and what it produced is recorded in
+ * `fixtures/agent-authoring-goldens.json` — captured from the JS side while it
+ * still existed, so the engine is held to an answer that was not derived from
+ * it.
  *
- * Both arms are checked to have actually taken the path they claim: the engine
- * arm must send `Tool` messages and the JS arm must send none. Two agreeing
- * runs of the same implementation would otherwise prove nothing.
+ * Feature UUIDs are minted per run, so both sides are canonicalized the same
+ * way before comparison (see `comparable`).
  */
 import { test, expect } from '@playwright/test';
+import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { dirname, resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { collectCrashErrors, expectNoAnyCrash } from './helpers/state.js';
+
+/** What the page's JS commands produced, recorded before C4b deleted them. */
+const GOLDEN_PATH = resolve(dirname(fileURLToPath(import.meta.url)), 'fixtures/agent-authoring-goldens.json');
+
+/** @type {Record<string, {results: string, document: string}>} */
+const GOLDENS = JSON.parse(readFileSync(GOLDEN_PATH, 'utf8'));
 
 const P = (id, x, y) => ({ type: 'Point', id, x, y });
 const L = (id, a, b) => ({ type: 'Line', id, start_id: a, end_id: b });
@@ -33,8 +43,11 @@ const extrude = (sketchRef, ids = [5, 6, 7, 8], extra = {}) => ({
 });
 
 /**
- * Each sequence exercises tools that C4 moved. `sketch_create` is still JS in
- * both arms (it moves in C5); it is here to produce something to build on.
+ * Each sequence exercises tools that C4 moved. `sketch_create` is still JS (it
+ * moves in C5); it is here to produce something to build on.
+ *
+ * A name here is a key in the golden fixture — renaming one silently orphans
+ * its recording, which is why every name is checked against the file below.
  */
 const SEQUENCES = [
 	['add, rename, suppress', [
@@ -124,14 +137,14 @@ function canonical(value) {
  * Both halves are needed, because each order alone fails one way:
  *
  * - **Rename before sorting** and the naming depends on the raw key order,
- *   which is implementation-specific — the page builds `{parameters,
- *   ...delta}` so `parameters` comes first, while `serde_json::Map` is a
- *   `BTreeMap` and emits keys alphabetically, so `errors` does. Each arm then
+ *   which is implementation-specific — the page built `{parameters,
+ *   ...delta}` so `parameters` came first, while `serde_json::Map` is a
+ *   `BTreeMap` and emits keys alphabetically, so `errors` does. Each side then
  *   meets a different UUID first and names the same parameter differently.
  * - **Sort before renaming** and any map KEYED by a UUID (`provenance`) sorts
  *   by the raw, freshly minted id, which differs every run.
  *
- * So: sort once to get a structure both arms agree on, rename over that (ids
+ * So: sort once to get a structure both sides agree on, rename over that (ids
  * are then reached in the same order — features in tree order, since
  * "features" precedes "provenance"), and sort again so the UUID-keyed maps
  * order by their new names. Key order carries no meaning in JSON, so this
@@ -142,18 +155,17 @@ function comparable(value) {
 }
 
 /**
- * Run one sequence on a fresh page and return what it produced.
+ * Run one sequence on a fresh document and return what it produced.
  * @param {import('@playwright/test').Page} page
- * @param {boolean} useEngine
  * @param {Array<object>} steps
  */
-async function runSequence(page, useEngine, steps) {
+async function runSequence(page, steps) {
 	await page.goto('/');
 	await page.waitForFunction(() => window.__waffle?.getState()?.engineReady === true, null, { timeout: 60000 });
-	await page.waitForFunction(() => typeof window.__waffleAgentExecutor?.setEngineTools === 'function', null, { timeout: 15000 });
+	await page.waitForFunction(() => typeof window.__waffleAgentExecutor?.engineTools === 'function', null, { timeout: 15000 });
 
 	return page.evaluate(
-		async ({ useEngine, steps }) => {
+		async ({ steps }) => {
 			const api = window.__waffleAgentExecutor;
 			const ctx = {
 				agentName: 'rust-authoring-test',
@@ -161,7 +173,6 @@ async function runSequence(page, useEngine, steps) {
 				pause: () => {},
 				isCancelled: () => false
 			};
-			api.setEngineTools(useEngine);
 			window.__waffle.recordEngineSends(true);
 
 			// `{$from, field}` anywhere in the args means an earlier answer;
@@ -206,11 +217,11 @@ async function runSequence(page, useEngine, steps) {
 				featureSends: sends.filter((s) => ['AddFeature', 'EditFeature', 'DeleteFeature', 'Undo', 'Redo'].includes(s.type)).length
 			};
 		},
-		{ useEngine, steps }
+		{ steps }
 	);
 }
 
-test.describe('Authoring tools: the engine and the page build the same document (S3 C4)', () => {
+test.describe('Authoring tools run in the engine and still answer as the page did (S3 C4b)', () => {
 	test('the twelve authoring tools are the ones routed to the engine', async ({ page }) => {
 		await page.goto('/');
 		await page.waitForFunction(() => typeof window.__waffleAgentExecutor?.engineTools === 'function', null, { timeout: 30000 });
@@ -234,30 +245,57 @@ test.describe('Authoring tools: the engine and the page build the same document 
 		);
 	});
 
+	test('every sequence has a recorded golden', () => {
+		// A renamed sequence would otherwise just stop being compared.
+		expect(SEQUENCES.map(([name]) => name).sort()).toEqual(Object.keys(GOLDENS).sort());
+	});
+
 	for (const [name, steps] of SEQUENCES) {
-		test(`C4: ${name}`, async ({ page, context }) => {
+		test(`C4b: ${name}`, async ({ page }) => {
 			test.setTimeout(180000);
 			const crashes = collectCrashErrors(page);
 
-			const viaPage = await runSequence(page, false, steps);
+			const run = await runSequence(page, steps);
 
-			const enginePage = await context.newPage();
-			const engineCrashes = collectCrashErrors(enginePage);
-			const viaEngine = await runSequence(enginePage, true, steps);
+			// The engine really served this, and the page authored nothing
+			// itself — otherwise a JS fallback could pass the comparison.
+			expect(run.toolSends, 'the engine must have served these tools').toBeGreaterThan(0);
+			expect(run.featureSends, 'the page must not send feature messages any more').toBe(0);
 
-			// Each arm really took its own path.
-			expect(viaPage.toolSends, 'the JS arm must not send Tool').toBe(0);
-			expect(viaEngine.toolSends, 'the engine arm must send Tool').toBeGreaterThan(0);
-			expect(viaPage.featureSends, 'the JS arm sends the feature messages itself').toBeGreaterThan(0);
-
-			// The answers agree, step for step, once freshly minted ids are renamed.
-			expect(comparable(viaEngine.results)).toBe(comparable(viaPage.results));
-
-			// And so do the documents they left behind.
-			expect(comparable(viaEngine.document)).toBe(comparable(viaPage.document));
+			// Step for step, and then the document left behind, against what
+			// the page's own implementation produced before C4b removed it.
+			expect(comparable(run.results)).toBe(GOLDENS[name].results);
+			expect(comparable(run.document)).toBe(GOLDENS[name].document);
 
 			expectNoAnyCrash(crashes);
-			expectNoAnyCrash(engineCrashes);
 		});
 	}
+});
+
+/**
+ * Re-record the goldens:
+ *
+ *     CAPTURE_GOLDENS=1 npx playwright test tests/gui/agent-rust-authoring.spec.js -g "golden"
+ *
+ * The committed file was captured from the PAGE's implementation at C4b, while
+ * it still existed, so that the engine is held to an answer it did not author.
+ * Re-recording necessarily takes the engine's current output instead, which
+ * cannot confirm itself — so treat a regenerated fixture as a change to
+ * review, in its diff, against what the behaviour is supposed to be. Do not
+ * regenerate to make a red test green.
+ */
+test.describe('the recorded goldens', () => {
+	test.skip(!process.env.CAPTURE_GOLDENS, 'capture run only (CAPTURE_GOLDENS=1)');
+
+	test('re-record the golden answers and documents', async ({ page }) => {
+		test.setTimeout(600000);
+		/** @type {Record<string, {results: string, document: string}>} */
+		const goldens = {};
+		for (const [name, steps] of SEQUENCES) {
+			const run = await runSequence(page, steps);
+			goldens[name] = { results: comparable(run.results), document: comparable(run.document) };
+		}
+		mkdirSync(dirname(GOLDEN_PATH), { recursive: true });
+		writeFileSync(GOLDEN_PATH, `${JSON.stringify(goldens, null, '\t')}\n`);
+	});
 });

@@ -1,7 +1,14 @@
 /**
  * Agent command implementations (specs/waffle_mcp_server.md §2.5 Authoring, §3.3).
  *
- * The executor calls these holding the engine lock as 'agent'. Every message
+ * Only `sketch_create` is left here. The twelve authoring tools moved into the
+ * engine at S3 C4 (`crates/wasm-bridge/src/tools/author.rs`) and their JS
+ * bodies were deleted at C4b, once the differential had recorded what they
+ * produced (`app/tests/gui/fixtures/agent-authoring-goldens.json`).
+ * `sketch_create` follows in C5 — it is the one path with no Rust twin yet,
+ * because `buildFinishProfiles` has not been ported.
+ *
+ * The executor calls this holding the engine lock as 'agent'. Every message
  * goes through `sendAgentMessage`, so the page's own handlers update the tree,
  * meshes and autosave exactly as for a user action (I1). A step that makes a
  * feature newly fail is undone and verified byte-exact unless the caller asked
@@ -20,18 +27,12 @@ import { buildFinishProfiles } from '$lib/sketch/finishProfiles.js';
 import { extractProfiles } from '$lib/sketch/profiles.js';
 import { showToast } from '$lib/ui/toast.svelte.js';
 import { modelDelta, newlyErroring, sameModel, takeSnapshot } from './delta.js';
-import { requireBody, requireFeature } from './queries.js';
 import { fail, plain, toolOk } from './results.js';
 import { sketchInputProblem } from './sketchInput.js';
 
 /**
  * @typedef {{ agentName: string, pause: (reason: string) => void }} CommandEnv
  */
-
-/** Fillet, chamfer and shell are deferred project-wide (A5, I11). */
-const DEFERRED = new Set(['Fillet', 'Chamfer', 'Shell']);
-/** Operation kinds an agent may author through feature_add / feature_edit. */
-const AUTHORABLE = new Set(['Sketch', 'Extrude', 'Revolve', 'BooleanCombine', 'DatumPlane', 'MateConnector']);
 
 export function snapshotNow() {
 	return takeSnapshot({ featureTree: getFeatureTree(), featureErrors: getFeatureErrors(), bodies: getBodies() });
@@ -89,6 +90,10 @@ async function send(env, message, { rebuild = true, fallback = 'Internal' } = {}
 /**
  * Send one model-changing message and account for it.
  *
+ * The engine has its own `apply_step` (C4) and this is its twin, kept for
+ * `sketch_create` until C5 moves that too. They must stay in step: a change
+ * here without the same change there is a divergence between the two hosts.
+ *
  * `onError`: `rollback` undoes a step that makes any feature newly fail (A2,
  * A4) and throws; `keep` leaves it and marks `kept_with_error` (A3); `report`
  * leaves it without the flag (delete, suppress, … where dependents failing is
@@ -129,30 +134,6 @@ async function applyStep(env, message, { onError = 'rollback', before = snapshot
 	for (const e of fresh) showToast('error', `${env.agentName}: Feature failed: ${e.message}`);
 	if (fresh.length > 0 && onError === 'keep') delta.kept_with_error = true;
 	return { response, delta, featureId };
-}
-
-/** @param {any} operation */
-function checkOperation(operation) {
-	const type = operation?.type;
-	if (DEFERRED.has(type)) {
-		throw fail('Deferred', `${type} is deferred in Waffle Iron and cannot be authored.`, { operation: type });
-	}
-	if (type === 'ImportedBody') {
-		throw fail('UseImportTool', 'Imported bodies come from a STEP import, not from feature_add or feature_edit.', {
-			operation: type
-		});
-	}
-	if (!AUTHORABLE.has(type)) {
-		throw fail('InvalidOperation', `Operation type ${JSON.stringify(type)} cannot be authored.`, {
-			schema_path: '/operation/type',
-			reason: `expected one of ${[...AUTHORABLE].join(', ')}`
-		});
-	}
-}
-
-/** @param {string} id */
-function provenanceOrigin(id) {
-	return getFeatureTree()?.provenance?.[id]?.origin?.type ?? 'User';
 }
 
 /**
@@ -240,128 +221,5 @@ export const COMMANDS = {
 			out.regions_error = String(err?.message ?? err);
 		}
 		return toolOk({ ...out, ...delta });
-	},
-
-	async import_step(args, env) {
-		// The engine records Import provenance itself; unlike importStepFromText
-		// this opens no placement dialog (the identity placement stands).
-		const { delta, featureId } = await applyStep(
-			env,
-			{ type: 'ImportStep', file_name: args.file_name, data: args.step_text },
-			{ onError: args.on_error ?? 'rollback', fallback: 'FeatureRebuildFailed' }
-		);
-		return toolOk({ feature_id: featureId, ...delta });
-	},
-
-	async feature_add(args, env) {
-		checkOperation(args.operation);
-		const { delta, featureId } = await applyStep(
-			env,
-			{ type: 'AddFeature', operation: args.operation, provenance: agentProvenance(env) },
-			{ onError: args.on_error ?? 'rollback', fallback: 'InvalidOperation' }
-		);
-		return toolOk({ feature_id: featureId, ...delta });
-	},
-
-	async feature_edit(args, env) {
-		const feature = requireFeature(args.feature_id);
-		const origin = provenanceOrigin(feature.id);
-		if (origin === 'Derived') {
-			throw fail('DerivedFeatureReadOnly', 'This feature is regenerated from a source and cannot be edited.', {
-				feature_id: feature.id
-			});
-		}
-		if (origin === 'Import' || feature.operation?.type === 'ImportedBody') {
-			throw fail('UseImportTool', 'Imported features are placed through the import dialog, not feature_edit.', {
-				feature_id: feature.id
-			});
-		}
-		checkOperation(args.operation);
-		if (feature.operation?.type !== args.operation.type) {
-			throw fail('OperationKindMismatch', `Feature ${feature.id} is a ${feature.operation?.type}, not a ${args.operation.type}.`, {
-				expected: feature.operation?.type ?? null,
-				got: args.operation.type
-			});
-		}
-		const { delta } = await applyStep(
-			env,
-			{ type: 'EditFeature', feature_id: feature.id, operation: args.operation, provenance: agentProvenance(env) },
-			{ onError: args.on_error ?? 'rollback', fallback: 'InvalidOperation' }
-		);
-		return toolOk(delta);
-	},
-
-	async feature_delete(args, env) {
-		requireFeature(args.feature_id);
-		const { delta } = await applyStep(env, { type: 'DeleteFeature', feature_id: args.feature_id }, { onError: 'report' });
-		return toolOk(delta);
-	},
-
-	async feature_suppress(args, env) {
-		requireFeature(args.feature_id);
-		const message = { type: 'SuppressFeature', feature_id: args.feature_id, suppressed: args.suppressed };
-		const { delta } = await applyStep(env, message, { onError: 'report' });
-		return toolOk(delta);
-	},
-
-	async feature_reorder(args, env) {
-		requireFeature(args.feature_id);
-		const message = { type: 'ReorderFeature', feature_id: args.feature_id, new_position: args.new_position };
-		const { delta } = await applyStep(env, message, { onError: 'report' });
-		return toolOk(delta);
-	},
-
-	async feature_rename(args, env) {
-		requireFeature(args.feature_id);
-		const message = { type: 'RenameFeature', feature_id: args.feature_id, new_name: args.new_name };
-		const { delta } = await applyStep(env, message, { onError: 'report' });
-		return toolOk(delta);
-	},
-
-	async body_rename(args, env) {
-		requireBody(args.body_id);
-		const message = { type: 'RenameBody', body_id: args.body_id, new_name: args.new_name };
-		const { delta } = await applyStep(env, message, { onError: 'report' });
-		return toolOk(delta);
-	},
-
-	async rollback_set(args, env) {
-		const count = getFeatureTree()?.features?.length ?? 0;
-		if (args.index != null && args.index >= count) {
-			throw fail('FeatureNotFound', `Rollback index ${args.index} is past the last feature (the tree has ${count}).`, {
-				index: args.index,
-				feature_count: count
-			});
-		}
-		const { delta } = await applyStep(env, { type: 'SetRollbackIndex', index: args.index }, { onError: 'report' });
-		return toolOk(delta);
-	},
-
-	async parameters_set(args, env) {
-		const current = new Map((getFeatureTree()?.parameters ?? []).map((p) => [p.id, p]));
-		const parameters = args.parameters.map((p) => ({
-			id: p.id ?? crypto.randomUUID(),
-			name: p.name,
-			expression: p.expression,
-			value: typeof current.get(p.id)?.value === 'number' ? current.get(p.id).value : 0
-		}));
-		const { delta } = await applyStep(env, { type: 'SetParameters', parameters }, { onError: 'report' });
-		const evaluated = (plain(getFeatureTree()?.parameters) ?? []).map((p) => {
-			/** @type {Record<string, unknown>} */
-			const row = { id: p.id, name: p.name, value_mm: p.error ? null : (p.value ?? null) };
-			if (p.error) row.error = p.error;
-			return row;
-		});
-		return toolOk({ parameters: evaluated, ...delta });
-	},
-
-	async undo(_args, env) {
-		const { delta } = await applyStep(env, { type: 'Undo' }, { onError: 'report' });
-		return toolOk(delta);
-	},
-
-	async redo(_args, env) {
-		const { delta } = await applyStep(env, { type: 'Redo' }, { onError: 'report' });
-		return toolOk(delta);
 	}
 };

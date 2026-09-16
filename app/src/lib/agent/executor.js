@@ -270,15 +270,17 @@ const SHADOWED = new Set([
 ]);
 
 /**
- * Tools whose semantics now RUN in the engine (S3 C4): the page sends `Tool`
- * and renders the answer. Unlike the read-only tools above these are not
- * shadowed — a step that changes the document cannot be run twice on it to
- * compare — so their equivalence is proven by running whole scripted
- * sequences against each implementation on a fresh document
- * (`agent-rust-authoring.spec.js`), with `setEngineTools` choosing the arm.
+ * Tools whose semantics RUN in the engine (S3 C4): the page sends `Tool` and
+ * renders the answer. There is no JS implementation left to fall back to —
+ * C4b deleted those bodies from `commands.js` — so this set is also the
+ * routing table: a name here reaches `runEngineCommand` and nothing else.
  *
- * Their JS bodies stay in `commands.js` until that differential is green,
- * because they are its control.
+ * They were never shadowed, because a step that changes the document cannot be
+ * run twice on it to compare. What they produced before the deletion is
+ * recorded in `app/tests/gui/fixtures/agent-authoring-goldens.json`, and
+ * `agent-rust-authoring.spec.js` holds the engine to it.
+ *
+ * Keep in sync with `tools::mutates` and `tools::MIGRATED`.
  */
 const ENGINE_COMMANDS = new Set([
 	'feature_add',
@@ -294,9 +296,6 @@ const ENGINE_COMMANDS = new Set([
 	'undo',
 	'redo'
 ]);
-
-/** Whether the twelve above run in the engine. The differential flips it. */
-let engineTools = true;
 
 /** Off by default: shadowing takes the engine lock and costs a round trip. */
 let shadowing = false;
@@ -365,7 +364,10 @@ async function runTool(tool, args, ctx) {
 		: undefined;
 	const command = known ? COMMANDS[tool] : undefined;
 	const documentCommand = known ? DOCUMENT_COMMANDS[tool] : undefined;
-	if (!query && !command && !documentCommand) {
+	// `ENGINE_COMMANDS` counts as an implementation: those twelve have no JS
+	// body any more (C4b), so without it every one of them would be reported
+	// as a tool this page does not have.
+	if (!query && !command && !documentCommand && !ENGINE_COMMANDS.has(tool)) {
 		return toolError('ToolUnavailable', `This page has no tool named "${tool}".`, { tool });
 	}
 	// G6: nothing runs while the engine is not ready or has crashed.
@@ -392,7 +394,7 @@ async function runTool(tool, args, ctx) {
 			return query.engine ? await withAgentLock(() => query.run(args, env)) : await query.run(args, env);
 		}
 		if (documentCommand) return await runDocumentCommand(tool, documentCommand, args, ctx);
-		if (engineTools && ENGINE_COMMANDS.has(tool)) return await runEngineCommand(tool, args, ctx);
+		if (ENGINE_COMMANDS.has(tool)) return await runEngineCommand(tool, args, ctx);
 		return await runCommand(tool, /** @type {any} */ (command), args, ctx);
 	} catch (err) {
 		if (err instanceof ToolFailure) return toolError(err.code, err.detail, err.details);
@@ -409,11 +411,6 @@ if (typeof window !== 'undefined') {
 		executeTool,
 		shadowedTools: () => [...SHADOWED],
 		engineTools: () => [...ENGINE_COMMANDS],
-		// The C4 differential runs each sequence with this off (the JS bodies)
-		// and on (the engine), then compares the documents.
-		setEngineTools: (on) => {
-			engineTools = !!on;
-		},
 		setShadow: (on) => {
 			shadowing = !!on;
 			shadowMismatches.length = 0;

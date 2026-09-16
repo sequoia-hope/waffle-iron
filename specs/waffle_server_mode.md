@@ -186,7 +186,7 @@ proven by the existing GUI suites plus the named oracle.
 | **S0** — landed 2026-09-15 | Move the ≈ 600 target-independent lines of `wasm_api.rs` (renderable-body collection, naming, face/edge entries) into a shared `wasm-bridge/src/render_view.rs`, and the message pipeline (parse → dispatch → tessellate → preview → serialize) into `wasm-bridge/src/process.rs` with the clock and logger injected; `wasm_api` becomes a pure binding shim | `wasm-bridge/tests/render_view_parity.{rs,mjs}` over 7 scenarios (5 corpus loads, an assembly, an in-context edit with ghosts). **Bundle, byte for byte:** the rebuilt bundle's census of every worker accessor equals the pre-move bundle's (`golden.json`). **Native vs bundle, structure:** same response types, body metadata and all counts; bytes differ across targets by design (§2.7 H3) |
 | **S1** — landed 2026-09-16 | Request ids in the bridge (`{id, msg}` envelope; worker echoes `id`), replacing FIFO pairing. Needed by any multiplexed transport | `sketch-drawing-regression.spec.js` + agent-link specs green |
 | **S2** — landed 2026-09-16 (C1–C4) | **Document session in Rust.** `EngineState` gains the tab list, inactive tab trees, assembly trees, document metadata, a per-tab undo stack, and a monotonic `revision`. New messages `AddTab`/`CloseTab`/`RenameTab`/`MoveTab`/`EditAssembly`/`SetDocumentMeta`; `SwitchTab` takes an id, not a tree. The JS store keeps its `$state` fields as **mirrors** refreshed from `ModelUpdated` (A2.1 compliant) | `format_tests` round trip; new `session_tests.rs`; GUI tabs/assembly specs unchanged |
-| **S3** — C1–C4 landed 2026-09-16 | **Agent tool semantics in Rust**: `wasm-bridge/src/tools/` implements `execute_tool(session, name, args, ctx) -> ToolResult` for every non-render tool (gates that are document state, rollback, `modelDelta`, results shaping; `sketch_create` uses `sketch-solver` profiles, which JS already ports). New message `UiToEngine::Tool{name, arguments, context}`. Host-only concerns stay per host (§3.3). Migrated tool by tool, **shadowed**: the page runs both JS and Rust and asserts equal `structuredContent` in dev builds until the JS version is deleted | per-tool differential oracle over O1–O22 scripts |
+| **S3** — C1–C4b landed 2026-09-16 | **Agent tool semantics in Rust**: `wasm-bridge/src/tools/` implements `execute_tool(session, name, args, ctx) -> ToolResult` for every non-render tool (gates that are document state, rollback, `modelDelta`, results shaping; `sketch_create` uses `sketch-solver` profiles, which JS already ports). New message `UiToEngine::Tool{name, arguments, context}`. Host-only concerns stay per host (§3.3). Migrated tool by tool, **shadowed**: the page runs both JS and Rust and asserts equal `structuredContent` in dev builds until the JS version is deleted | per-tool differential oracle over O1–O22 scripts |
 | **S4** | Host binary `waffle-host` (new crate `crates/waffle-host`, native only) wrapping the session | §2.7 oracles |
 
 **S3 checkpoints.** **C1** (landed 2026-09-16) is the mechanism plus the first
@@ -237,10 +237,23 @@ the same implementation cannot pass). Ids are normalized **sort → rename →
 sort**: renaming first depends on raw key order, which differs because
 `serde_json::Map` is a `BTreeMap` while the page builds object literals in
 insertion order; sorting first orders `provenance` (a `HashMap` keyed by UUID)
-by freshly minted ids. Their JS bodies therefore stay in `commands.js` as that
-differential's control until **C4b** deletes them and converts it to a golden
-comparison — deleting them in the same commit would delete the proof. Live
-traffic already runs in the engine.
+by freshly minted ids.
+
+**C4b** (landed 2026-09-16) deleted those twelve JS bodies. The order matters
+and is the reusable part: the goldens were captured FROM THE JS ARM while it
+still existed (`app/tests/gui/fixtures/agent-authoring-goldens.json`), and only
+then were the bodies removed — recording them from the engine afterwards would
+bake any breakage the deletion introduced into the baseline and leave the
+comparison confirming itself. The spec's regeneration mode says so in as many
+words: a regenerated fixture is a change to review in its diff, never a way to
+make a red test green. `commands.js` now holds only `sketch_create` (C5) and
+the `applyStep` twin it still needs — which must stay in step with the engine's
+`apply_step` until C5 retires it. `ENGINE_COMMANDS` in `executor.js` became the
+routing table, and had to be added to the `ToolUnavailable` guard: with no JS
+body left, every one of the twelve would otherwise be reported as a tool the
+page does not have. `delta.js` survives regardless — `executor.js` needs
+`sameModel` for the A18 cancel path, and `agent-executor-pure.spec.js` tests
+its functions directly.
 
 One page-side consequence worth keeping: O3 replay learns recorded-id →
 fresh-id from an answer's `feature_id`, and a `ToolResult` keeps that id in its
