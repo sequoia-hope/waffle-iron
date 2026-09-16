@@ -20,6 +20,7 @@ use serde_json::{json, Value};
 use crate::engine_state::EngineState;
 use crate::messages::{EngineToUi, UiToEngine};
 
+mod author;
 mod inspect;
 mod summary;
 
@@ -32,6 +33,18 @@ pub const MIGRATED: &[&str] = &[
     "face_list",
     "sketch_regions",
     "expression_evaluate",
+    "feature_add",
+    "feature_edit",
+    "feature_delete",
+    "feature_suppress",
+    "feature_reorder",
+    "feature_rename",
+    "body_rename",
+    "rollback_set",
+    "parameters_set",
+    "import_step",
+    "undo",
+    "redo",
 ];
 
 /// An MCP tool result (`specs/waffle_mcp_server.md` §2.3 `result`, I10).
@@ -100,15 +113,21 @@ pub fn execute_tool(
     kb: &mut dyn KernelBundle,
     name: &str,
     arguments: &Value,
-    _context: Option<&Value>,
+    context: Option<&Value>,
 ) -> ToolResult {
-    match run(state, kb, name, arguments) {
+    match run(state, kb, name, arguments, context) {
         Ok(structured) => ToolResult::ok(structured),
         Err(failure) => ToolResult::error(failure.code, &failure.message, failure.details),
     }
 }
 
-fn run(state: &mut EngineState, kb: &mut dyn KernelBundle, name: &str, args: &Value) -> Answer {
+fn run(
+    state: &mut EngineState,
+    kb: &mut dyn KernelBundle,
+    name: &str,
+    args: &Value,
+    context: Option<&Value>,
+) -> Answer {
     match name {
         "model_summary" => summary::model_summary(state),
         "feature_get" => inspect::feature_get(state, args),
@@ -116,6 +135,18 @@ fn run(state: &mut EngineState, kb: &mut dyn KernelBundle, name: &str, args: &Va
         "face_list" => inspect::face_list(state, kb, args),
         "sketch_regions" => inspect::sketch_regions(state, kb, args),
         "expression_evaluate" => inspect::expression_evaluate(state, kb, args),
+        "feature_add" => author::feature_add(state, kb, args, context),
+        "feature_edit" => author::feature_edit(state, kb, args, context),
+        "feature_delete" => author::feature_delete(state, kb, args),
+        "feature_suppress" => author::feature_suppress(state, kb, args),
+        "feature_reorder" => author::feature_reorder(state, kb, args),
+        "feature_rename" => author::feature_rename(state, kb, args),
+        "body_rename" => author::body_rename(state, kb, args),
+        "rollback_set" => author::rollback_set(state, kb, args),
+        "parameters_set" => author::parameters_set(state, kb, args),
+        "import_step" => author::import_step(state, kb, args),
+        "undo" => author::undo(state, kb),
+        "redo" => author::redo(state, kb),
         other => Err(ToolFailure::new(
             "ToolUnavailable",
             format!("This engine has no tool named \"{other}\"."),

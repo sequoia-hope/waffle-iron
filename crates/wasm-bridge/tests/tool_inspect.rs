@@ -333,6 +333,9 @@ fn the_migrated_list_is_exactly_what_this_checkpoint_implements() {
     // The page shadows this list; a name here whose JS body is still the one
     // serving answers is the intended state, a name MISSING here is a tool
     // silently left un-differentiated.
+    //
+    // C2/C3 added the six read-only tools; C4 adds the twelve authoring ones,
+    // which is why this list grows rather than a second one appearing.
     assert_eq!(
         wasm_bridge::tools::MIGRATED,
         &[
@@ -342,6 +345,18 @@ fn the_migrated_list_is_exactly_what_this_checkpoint_implements() {
             "face_list",
             "sketch_regions",
             "expression_evaluate",
+            "feature_add",
+            "feature_edit",
+            "feature_delete",
+            "feature_suppress",
+            "feature_reorder",
+            "feature_rename",
+            "body_rename",
+            "rollback_set",
+            "parameters_set",
+            "import_step",
+            "undo",
+            "redo",
         ]
     );
 }
