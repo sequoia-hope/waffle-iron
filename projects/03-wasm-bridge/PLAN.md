@@ -115,8 +115,34 @@ unchanged throughout.
       undo history, and a monotonic `revision`. 15 unit tests.
       `feature_engine::Engine` gained `take_history`/`set_history` (the stack
       was private with no accessor, so a host could not park it per tab).
-- [ ] C2: `EngineState` owns the session; `LoadProject`/`NewDocument` populate
-      it and `ModelUpdated` reports it. No message signature changes.
+- [x] **C2 — `EngineState` owns the session** (2026-09-16): `state.session` is a
+      `DocumentSession`. `LoadProject` builds it from the loaded file
+      (`from_document`: metadata, tab list, every inactive tab's tree) and
+      `NewDocument` resets it. `ModelUpdated` gained
+      `document: Option<DocumentInfo>` — `{id, name, display_unit, tabs,
+      active_tab, revision}`, never a tab's tree. No existing message's
+      signature changed.
+      - **The document's name and display unit have one home now.** The
+        `project_name`/`display_unit` String fields are gone from
+        `EngineState`; `project_name()`/`display_unit()` read the session, and
+        `set_project_name()`/`set_display_unit()` write it. A document that
+        states no unit still reads `"mm"`, as the old field defaulted to.
+      - `SaveDocument` **adopts** the `{document, tabs, active_tab}` the UI
+        hands over (after a successful save, never on failure). While the JS
+        store owns the tab bar, a save is the only message that tells the
+        session about a rename, a new tab or a switch. C3 deletes this.
+      - **Known gap, closed by C3**: `SwitchTab` carries a tree, not a tab id,
+        so the session cannot tell which tab became active; its `active_tab`
+        is the last one a load or a save reported. Nothing reads the session's
+        tab bar until C4, so this is a stale field, not a wrong screen.
+      - Oracle: new `tests/document_session.rs` (6 tests: fresh session, load,
+        new, save-adoption, one-home display unit, and that every
+        `ModelUpdated` reports the session). Whole `wasm-bridge` suite green
+        across all targets; `clippy --all-targets -D warnings` and
+        `fmt --check` clean. Release render-view parity (the CI step) green:
+        `structure()` compares response TYPES, body metadata and counts, not
+        the response bytes, so a new `ModelUpdated` field does not move it —
+        the byte-for-byte `.mjs` golden does shift, and C3 regenerates it.
 - [ ] C3: new messages `AddTab`/`CloseTab`/`RenameTab`/`MoveTab`/
       `SetDocumentMeta`/`EditAssembly`; `SwitchTab` takes a `tab_id` not a
       tree; `OpenAssembly` takes a `tab_id` and the session supplies the part

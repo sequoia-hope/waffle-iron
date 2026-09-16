@@ -5,6 +5,14 @@ use waffle_types::{
     ClosedProfile, GeomRef, ProjectedEntity, Sketch, SketchConstraint, SketchEntity, SolveStatus,
 };
 
+use crate::session::DocumentSession;
+
+/// The name a document carries until it is saved or loaded under another.
+const UNTITLED: &str = "Untitled";
+
+/// The display unit a document with no stated preference is shown in.
+const DEFAULT_DISPLAY_UNIT: &str = "mm";
+
 /// The engine state wrapper for the WASM bridge.
 ///
 /// Holds the parametric modeling engine and manages the active sketch session.
@@ -17,10 +25,12 @@ pub struct EngineState {
     pub selection: Vec<GeomRef>,
     /// Current hover state.
     pub hover: Option<GeomRef>,
-    /// Project name for save operations.
-    pub project_name: String,
-    /// Document display unit preference (mm, cm, m, in, ft).
-    pub display_unit: String,
+    /// The open document (`specs/waffle_server_mode.md` §2.3 S2): metadata,
+    /// the tab list, every inactive tab's tree, per-tab undo and the
+    /// revision. The document's name and display unit live HERE, not in a
+    /// second copy on this struct — read them through [`EngineState::project_name`]
+    /// and [`EngineState::display_unit`].
+    pub session: DocumentSession,
     /// The document's `sources` table (v4 §2.3) — metadata only; content
     /// lives in `engine.sources`. Document-scoped: survives tab switches,
     /// cleared by `NewDocument`, attached to every save.
@@ -59,14 +69,38 @@ impl EngineState {
             active_sketch: None,
             selection: Vec::new(),
             hover: None,
-            project_name: "Untitled".to_string(),
-            display_unit: "mm".to_string(),
+            session: DocumentSession::new(UNTITLED),
             sources: Vec::new(),
             document_extra: serde_json::Map::new(),
             envelope_extra: serde_json::Map::new(),
             assembly: None,
             context_view: None,
         }
+    }
+
+    /// The document's name, used for save and export file names.
+    pub fn project_name(&self) -> &str {
+        &self.session.document().name
+    }
+
+    /// The document's display unit. A document that states no preference is
+    /// shown in millimetres, which is what the field this replaced defaulted to.
+    pub fn display_unit(&self) -> &str {
+        self.session
+            .document()
+            .display_unit
+            .as_deref()
+            .unwrap_or(DEFAULT_DISPLAY_UNIT)
+    }
+
+    /// Rename the document (its save and export file names follow).
+    pub fn set_project_name(&mut self, name: impl Into<String>) {
+        self.session.set_meta(Some(name.into()), None);
+    }
+
+    /// Set the document's display unit.
+    pub fn set_display_unit(&mut self, unit: impl Into<String>) {
+        self.session.set_meta(None, Some(unit.into()));
     }
 
     /// Leave any in-context editing session: the ghost view and the engine's
@@ -203,8 +237,9 @@ impl EngineState {
         self.active_sketch = None;
         self.selection.clear();
         self.hover = None;
-        self.project_name = "Untitled".to_string();
-        self.display_unit = "mm".to_string();
+        // A new document is a new session: one empty Part tab, fresh
+        // metadata, revision back to 0.
+        self.session = DocumentSession::new(UNTITLED);
         self.sources.clear();
         self.document_extra.clear();
         self.envelope_extra.clear();

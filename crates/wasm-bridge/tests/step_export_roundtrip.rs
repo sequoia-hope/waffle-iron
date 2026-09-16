@@ -392,7 +392,7 @@ fn count_solids(text: &str) -> usize {
 fn export_step_message_writes_every_live_body_and_warns_about_imported_ones() {
     let mut state = EngineState::new();
     let mut kernel = KernelV2Adapter::new();
-    state.project_name = "two-bodies".to_string();
+    state.set_project_name("two-bodies");
 
     let s1 = square_sketch(&mut state, &mut kernel, (0.0, 0.0), 0.02);
     dispatch(
@@ -494,7 +494,7 @@ fn export_step_with_an_open_assembly_places_every_instance() {
     };
 
     let mut state = EngineState::new();
-    state.project_name = "asm".to_string();
+    state.set_project_name("asm");
     let r = dispatch(
         &mut state,
         UiToEngine::OpenAssembly {

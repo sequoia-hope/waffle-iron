@@ -27,6 +27,8 @@
 
 use std::collections::HashMap;
 
+use serde::{Deserialize, Serialize};
+
 use feature_engine::preview_mesh::PreviewMesh;
 use feature_engine::types::FeatureTree;
 use feature_engine::undo::UndoStack;
@@ -56,7 +58,10 @@ pub enum SessionError {
 }
 
 /// A tab's content as the session hands it out, without its tree.
-#[derive(Debug, Clone, PartialEq, Eq)]
+///
+/// Serializable because it rides on `ModelUpdated.document` (C2): the tab bar
+/// is display data for the UI, never the tab's tree.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct TabInfo {
     pub id: String,
     pub name: String,
@@ -345,6 +350,24 @@ impl DocumentSession {
         if let Some(unit) = display_unit {
             self.document.display_unit = Some(unit);
         }
+        self.commit();
+    }
+
+    /// Adopt document state handed over wholesale — today's `SaveDocument`,
+    /// where the JS store is still the authority for the tab bar. Metadata,
+    /// tabs and the active tab replace what the session held; parked
+    /// histories of tabs that no longer exist are dropped, so undo still
+    /// follows a surviving tab across a save.
+    ///
+    /// This exists only while JS owns the tab bar: C3 gives tabs their own
+    /// messages, and the session stops being told after the fact.
+    pub fn adopt(&mut self, document: DocumentMetadata, tabs: Vec<Tab>, active_tab: String) {
+        self.document = document;
+        self.tabs = tabs;
+        self.active_tab = active_tab;
+        let live: std::collections::HashSet<String> =
+            self.tabs.iter().map(|t| t.id.clone()).collect();
+        self.histories.retain(|id, _| live.contains(id));
         self.commit();
     }
 

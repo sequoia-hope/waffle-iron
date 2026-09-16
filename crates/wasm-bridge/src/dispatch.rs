@@ -9,10 +9,11 @@ use waffle_types::OutputKey;
 
 use crate::engine_state::{BridgeError, EngineState};
 use crate::messages::{
-    AssemblyStatus, ConnectorFrameInfo, ContextInstanceInfo, ContextStatus, EngineToUi,
-    PartConnectorInfo, SourceStatus, UiToEngine,
+    AssemblyStatus, ConnectorFrameInfo, ContextInstanceInfo, ContextStatus, DocumentInfo,
+    EngineToUi, PartConnectorInfo, SourceStatus, UiToEngine,
 };
 use crate::messages::{ListedFace, MeasureMethod, Measured};
+use crate::session::DocumentSession;
 
 /// Dispatch a UI message to the engine and return a response.
 ///
@@ -295,7 +296,7 @@ fn handle_message(
         // -- File operations --
         UiToEngine::SaveProject => {
             let meta =
-                ProjectMetadata::new(&state.project_name).with_display_unit(&state.display_unit);
+                ProjectMetadata::new(state.project_name()).with_display_unit(state.display_unit());
             let mut doc = WaffleDocument::single_part(&meta, state.engine.tree.clone());
             // `single_part` lifted any legacy inline payloads into fresh
             // entries; the live tree's `source_id`s point at the document's
@@ -348,9 +349,15 @@ fn handle_message(
             // Inactive tabs the UI parsed from a v3 file may still carry
             // inline STEP payloads; lift them so the file is uniformly v4.
             let _ = doc.lift_inline_payloads();
-            Ok(EngineToUi::SaveReady {
-                json_data: verified(&doc)?,
-            })
+            let json_data = verified(&doc)?;
+            // The UI just handed over its whole document state, so the session
+            // adopts it instead of keeping a second, older copy. This is the C2
+            // bridge: the JS store is still the authority for the tab bar, and
+            // a save is the only message that tells the session about a rename,
+            // a new tab or a switch. C3 gives each of those its own message and
+            // this adoption goes away. Nothing is adopted if the save failed.
+            state.session.adopt(doc.document, doc.tabs, doc.active_tab);
+            Ok(EngineToUi::SaveReady { json_data })
         }
 
         UiToEngine::LoadProject { data } => {
@@ -358,7 +365,7 @@ fn handle_message(
                 file_format::load_document(&data).map_err(|e| BridgeError::Serialization {
                     reason: e.to_string(),
                 })?;
-            let doc = loaded.document;
+            let mut doc = loaded.document;
             let tab = doc
                 .active_tab()
                 .or_else(|| doc.tabs.first())
@@ -380,18 +387,20 @@ fn handle_message(
                     })
                 }
             };
-            state.project_name = doc.document.name.clone();
-            if let Some(ref unit) = doc.document.display_unit {
-                state.display_unit = unit.clone();
-            }
             // Adopt the sources table; register every usable embed.
             state.engine.sources.clear();
             for (id, text) in doc.embedded_contents() {
                 state.engine.sources.insert_text(id, &text);
             }
-            state.sources = doc.sources;
-            state.document_extra = doc.document.extra;
-            state.envelope_extra = doc.extra;
+            state.sources = std::mem::take(&mut doc.sources);
+            state.document_extra = doc.document.extra.clone();
+            state.envelope_extra = doc.extra.clone();
+            // The session takes the rest of the document: metadata (the name
+            // and display unit that used to be a second copy on EngineState),
+            // the tab list, and every inactive tab's tree. `tree` below is the
+            // active tab's, so the live tree and the session agree from the
+            // first message (S2 C2).
+            state.session = DocumentSession::from_document(doc);
             state.engine.tree = tree;
             state.assembly = None;
             state.clear_context();
@@ -447,6 +456,10 @@ fn handle_message(
         }
 
         // -- Tab / document management --
+        // C2 gap, closed by C3: the message carries a tree, not a tab id, so
+        // the session cannot tell WHICH tab became active and its `active_tab`
+        // goes stale until the next load or save. Nothing reads the session's
+        // tab bar yet (C4 does), so this is a stale field, not a wrong screen.
         UiToEngine::SwitchTab { features } => {
             state.active_sketch = None;
             state.selection.clear();
@@ -567,7 +580,7 @@ fn handle_message(
 
         // -- Settings --
         UiToEngine::SetDisplayUnit { unit } => {
-            state.display_unit = unit;
+            state.set_display_unit(unit);
             Ok(model_updated_response(state))
         }
 
@@ -599,7 +612,7 @@ fn handle_message(
             if bodies.is_empty() {
                 return Err(BridgeError::NoMeshData);
             }
-            let file_name = format!("{}.step", state.project_name);
+            let file_name = format!("{}.step", state.project_name());
             let step_data = kb.export_step_bodies(&bodies, &file_name).map_err(|e| {
                 BridgeError::Engine(feature_engine::types::EngineError::RebuildFailed {
                     feature_name: "STEP export".to_string(),
@@ -1032,6 +1045,20 @@ pub fn attach_preview_mesh(state: &EngineState, response: &mut EngineToUi) {
     }
 }
 
+/// The session as `ModelUpdated` reports it (S2 C2): what a host needs to draw
+/// a tab bar and name a document state. Never a tab's tree.
+fn document_info(state: &EngineState) -> DocumentInfo {
+    let meta = state.session.document();
+    DocumentInfo {
+        id: meta.id,
+        name: meta.name.clone(),
+        display_unit: meta.display_unit.clone(),
+        tabs: state.session.tabs(),
+        active_tab: state.session.active_tab_id().to_string(),
+        revision: state.session.revision(),
+    }
+}
+
 fn model_updated_response(state: &EngineState) -> EngineToUi {
     let preview_mesh = preview_mesh(state);
 
@@ -1126,6 +1153,7 @@ fn model_updated_response(state: &EngineState) -> EngineToUi {
                 )
             })
             .collect(),
+        document: Some(document_info(state)),
     }
 }
 

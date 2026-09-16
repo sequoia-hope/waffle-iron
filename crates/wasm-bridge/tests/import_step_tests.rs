@@ -156,8 +156,8 @@ fn save_document_writes_the_source_and_load_project_reads_it_back() {
         fresh.engine.errors
     );
     assert_eq!(fresh.sources.len(), 1);
-    assert_eq!(fresh.project_name, "Doc");
-    assert_eq!(fresh.display_unit, "mm");
+    assert_eq!(fresh.project_name(), "Doc");
+    assert_eq!(fresh.display_unit(), "mm");
     assert!(fresh.engine.sources.contains(fresh.sources[0].id));
     assert_eq!(fresh.engine.feature_results[&feature_id].outputs.len(), 1);
 }

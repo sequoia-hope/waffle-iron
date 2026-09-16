@@ -394,6 +394,24 @@ pub enum UiToEngine {
     },
 }
 
+/// The open document as the Rust session knows it
+/// (`specs/waffle_server_mode.md` §2.3 S2, checkpoint C2): what a host needs
+/// to show a tab bar and name a document state, and what C4 turns the JS
+/// store's `$state` into a mirror of. Never a tab's tree — the active tab's
+/// is `ModelUpdated.feature_tree`, and an inactive tab's is not display data.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DocumentInfo {
+    pub id: Uuid,
+    pub name: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub display_unit: Option<String>,
+    pub tabs: Vec<crate::session::TabInfo>,
+    pub active_tab: String,
+    /// Increments on every committed mutation, so a host can name the state a
+    /// viewer holds (spec §4.1).
+    pub revision: u64,
+}
+
 /// One face of a `FacesListed` answer (ICR-3).
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ListedFace {
@@ -467,6 +485,16 @@ pub enum EngineToUi {
         /// features), in the part's coordinates, for the viewport to draw.
         #[serde(default, skip_serializing_if = "Vec::is_empty")]
         connectors: Vec<PartConnectorInfo>,
+        /// The document session (S2 C2): metadata, the tab list, the active
+        /// tab and the revision.
+        ///
+        /// **Nothing reads this yet** — C4 makes the JS store's tab,
+        /// assembly and metadata `$state` a mirror of it. Until C3 gives
+        /// `SwitchTab` a tab id, the store can switch tabs without telling
+        /// the session, so `active_tab` names the last tab a load or a save
+        /// reported, not necessarily the one on screen.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        document: Option<DocumentInfo>,
     },
 
     /// Sketch constraint solver completed.
