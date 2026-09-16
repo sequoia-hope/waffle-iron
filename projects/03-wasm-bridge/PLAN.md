@@ -77,7 +77,30 @@ Spec: `specs/waffle_server_mode.md` §2.3 (P-A).
 - [x] `src/process.rs`: the `process_message` pipeline with injected clock and logger (2026-09-15)
 - [x] `src/wasm_api.rs` reduced to bindings; exported JS API unchanged (20 functions, same signatures and imports)
 - [x] Oracle `tests/render_view_parity.rs` + `.mjs`: rebuilt bundle census byte-identical to the pre-move bundle; native census structurally equal to the bundle's
-- [ ] S1: request ids in the bridge envelope (replaces FIFO pairing in `bridge.js`)
+- [x] **S1: request ids in the bridge envelope** (2026-09-16): every send leaves
+      as `{id, msg}` and the worker echoes the id back on the answer, so
+      `bridge.js` pairs through a `Map` keyed by id instead of shifting a FIFO
+      array. `init`/`ready` stay bare (pre-handshake, before pairing starts).
+      Needed by any transport that can reorder or push unsolicited frames
+      (spec §2.3 S1), i.e. every host transport.
+      - Fixes a live mispairing, not only a future one: the worker's
+        `onmessage` is `async` and **awaits** the blob-URL re-import on the
+        crash-restart path, so a message delivered during that await is
+        processed and answered first, and FIFO handed its answer to the
+        request that was still restarting.
+      - Behavior change, deliberate: an `Error` that answers no id is the
+        worker's `self.onerror` (an uncaught failure outside `processMessage`).
+        It now rejects **every** in-flight send, where FIFO rejected whichever
+        was oldest and left the rest hanging forever.
+      - Oracle: `sketch-drawing-regression` + `agent-link`/`agent-parity`/
+        `agent-reconnect` (27 passed), then the whole gui-fast tier
+        (349 passed, 233 s). No Rust change, so the bundle is untouched.
+- Found by S1: `crates/wasm-bridge/js/{bridge,worker}.js` is a **dead copy**
+  of the pre-SvelteKit bridge (last touched 2026-02-09, `f6a68d4d`), still
+  doing `_pendingCallbacks.shift()`. Nothing builds or imports it — the live
+  files are `app/src/lib/engine/{bridge,worker}.js`. Only this sub-project's
+  own `CLAUDE.md` ("Key Files") and M3 above still point at it, which is how
+  a future session edits the wrong bridge. Delete both, and fix that list.
 - [ ] Known, not fixed: `feature_engine::preview_mesh::decimate_mesh` orders output by `HashMap` iteration, so a native process's `preview_mesh` varies run to run (spec §2.7 H3)
 - [ ] Known, not fixed: `cargo clippy -p wasm-bridge --target wasm32-unknown-unknown` flags the `thread_local!` initializer in `wasm_api.rs` (pre-existing; CI does not lint wasm32)
 

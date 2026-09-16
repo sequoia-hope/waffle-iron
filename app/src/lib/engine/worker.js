@@ -354,13 +354,21 @@ function collectMeshes() {
 }
 
 self.onmessage = async function (event) {
-	const msg = event.data;
+	const frame = event.data;
 
-	if (msg.type === 'init') {
-		basePath = msg.basePath || '';
-		await initEngine(msg.wasmUrl);
+	// `init` is the pre-handshake frame and carries no request id; its answer is
+	// the bare `ready` the bridge waits for before it starts pairing.
+	if (frame.type === 'init') {
+		basePath = frame.basePath || '';
+		await initEngine(frame.wasmUrl);
 		return;
 	}
+
+	// Every other frame is `{id, msg}`; the id rides back out with the answer.
+	// This handler awaits (crash restart below), so a second message can be
+	// delivered while the first is still in flight and answers can leave in
+	// either order — the id, not arrival order, says whose answer this is.
+	const { id, msg } = frame;
 
 	const response = processMessage(msg);
 
@@ -407,13 +415,15 @@ self.onmessage = async function (event) {
 			console.log(`[worker] collectMeshes took ${(meshElapsed / 1000).toFixed(2)}s`);
 		}
 		response.meshes = meshes;
-		self.postMessage(response, transferables);
+		self.postMessage({ id, msg: response }, transferables);
 	} else {
-		self.postMessage(response);
+		self.postMessage({ id, msg: response });
 	}
 };
 
 self.onerror = function (error) {
+	// Unsolicited: this answers no particular request, so it goes out bare and
+	// the bridge fails everything in flight with it.
 	self.postMessage({
 		type: 'Error',
 		message: `Worker error: ${error.message || error}`,

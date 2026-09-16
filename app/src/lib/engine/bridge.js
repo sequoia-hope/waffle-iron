@@ -10,7 +10,8 @@ import { log } from './logger.js';
 /**
  * Pointer feedback the engine answers without touching the model. These never
  * take the engine lock (specs/waffle_mcp_server.md §2.7: selection and hover
- * stay live during an agent call); FIFO response pairing keeps them safe.
+ * stay live during an agent call); the request id on every send is what keeps
+ * them safe, since they overtake nothing and answer only themselves.
  */
 const UNGATED_TYPES = new Set(['HoverEntity', 'SelectEntity']);
 
@@ -18,8 +19,14 @@ export class EngineBridge {
 	constructor() {
 		/** @type {Worker | null} */
 		this._worker = null;
-		/** @type {Array<{resolve: Function, reject: Function, entry?: object | null}>} */
-		this._pendingCallbacks = [];
+		/**
+		 * In-flight sends by request id. The worker echoes the id it was given,
+		 * so an answer reaches its own caller whatever order answers arrive in.
+		 * @type {Map<number, {resolve: Function, reject: Function, entry?: object | null}>}
+		 */
+		this._pending = new Map();
+		/** Monotonic request id. Starts at 1, so a missing id is falsy. */
+		this._nextRequestId = 1;
 		/** @type {Function | null} */
 		this._onModelUpdated = null;
 		/** @type {Function | null} */
@@ -143,8 +150,9 @@ export class EngineBridge {
 
 			log('engine', `Send: ${message.type}`, { type: message.type });
 
+			const id = this._nextRequestId++;
 			try {
-				this._worker.postMessage(message);
+				this._worker.postMessage({ id, msg: message });
 				/** @type {any} */
 				let entry = null;
 				if (this._sendLog) {
@@ -152,7 +160,7 @@ export class EngineBridge {
 					if (this._logPayloads) entry.message = JSON.parse(JSON.stringify(message));
 					this._sendLog.push(entry);
 				}
-				this._pendingCallbacks.push({ resolve, reject, entry });
+				this._pending.set(id, { resolve, reject, entry });
 			} catch (err) {
 				log('error', `postMessage failed: ${err}`);
 				reject(err);
@@ -196,11 +204,34 @@ export class EngineBridge {
 	}
 
 	/**
+	 * Build the rejection for an engine `Error` response. Typed error fields
+	 * (ICR-2): `kind` is the engine's ErrorKind when the failure is an engine
+	 * error; absent for bridge-level failures.
+	 * @param {any} msg
+	 * @returns {Error & {kind: object | null, featureId: string | null, needsRestart: boolean}}
+	 */
+	_engineError(msg) {
+		const err = /** @type {Error & {kind: object | null, featureId: string | null, needsRestart: boolean}} */ (
+			new Error(msg.message)
+		);
+		err.kind = msg.kind ?? null;
+		err.featureId = msg.feature_id ?? null;
+		err.needsRestart = msg.needsRestart === true;
+		return err;
+	}
+
+	/**
 	 * @param {MessageEvent} event
 	 */
 	_handleMessage(event) {
-		const msg = event.data;
-		const pending = this._pendingCallbacks.shift();
+		const frame = event.data;
+		// `{id, msg}` answers one send. A bare message is unsolicited — the
+		// worker's `self.onerror` — and answers none.
+		const envelope = !!frame && typeof frame === 'object' && 'msg' in frame;
+		const msg = envelope ? frame.msg : frame;
+		const id = envelope ? frame.id : null;
+		const pending = id ? this._pending.get(id) : null;
+		if (pending) this._pending.delete(id);
 		if (pending?.entry) pending.entry.response = { type: msg.type, feature_id: msg.feature_id ?? null };
 
 		// Build summary data for the log entry
@@ -248,19 +279,17 @@ export class EngineBridge {
 		}
 
 		if (pending) {
-			if (msg.type === 'Error') {
-				// Typed error fields (ICR-2): `kind` is the engine's ErrorKind when
-				// the failure is an engine error; absent for bridge-level failures.
-				const err = /** @type {Error & {kind: object | null, featureId: string | null, needsRestart: boolean}} */ (
-					new Error(msg.message)
-				);
-				err.kind = msg.kind ?? null;
-				err.featureId = msg.feature_id ?? null;
-				err.needsRestart = msg.needsRestart === true;
-				pending.reject(err);
-			} else {
-				pending.resolve(msg);
-			}
+			if (msg.type === 'Error') pending.reject(this._engineError(msg));
+			else pending.resolve(msg);
+		} else if (msg.type === 'Error') {
+			// An Error answering no request is the worker's `self.onerror`: an
+			// uncaught failure outside `processMessage`, which leaves the worker
+			// unable to answer anything still in flight. FIFO pairing used to
+			// reject whichever send happened to be oldest and hang the rest;
+			// fail them all with the one error that actually happened.
+			const err = this._engineError(msg);
+			for (const p of this._pending.values()) p.reject(err);
+			this._pending.clear();
 		}
 	}
 }
