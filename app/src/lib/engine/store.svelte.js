@@ -6299,29 +6299,19 @@ export function getAssembly() {
 
 /**
  * Re-evaluate the open Assembly tab: hand the engine the assembly and the
- * feature trees of this document's Part tabs (`OpenAssembly`); the engine
+ * tab's name (`OpenAssembly`); the session supplies the assembly and every
+ * part tree it references (S2 C3b), and the engine
  * builds each part once, derives connector frames, solves placements and
  * renders the instance bodies.
  */
 export async function refreshAssembly() {
 	const tab = activeAssemblyTab();
 	if (!tab || !bridge || !engineReady) return false;
-	const part_trees = {};
-	const assembly_trees = {};
-	for (const t of documentTabs) {
-		if (t.kind?.type === 'Part' && t.kind.features) {
-			part_trees[t.id] = JSON.parse(JSON.stringify(t.kind.features));
-		} else if (t.kind?.type === 'Assembly' && t.id !== tab.id && t.kind.assembly) {
-			const a = JSON.parse(JSON.stringify(t.kind.assembly));
-			delete a.placements;
-			assembly_trees[t.id] = a;
-		}
-	}
-	const assembly = JSON.parse(JSON.stringify(tab.kind.assembly));
-	// Placements are derived; the engine recomputes them.
-	delete assembly.placements;
 	try {
-		await sendRebuild({ type: 'OpenAssembly', tab_id: tab.id, assembly, part_trees, assembly_trees });
+		// The session holds the tab's assembly and every tree it references
+		// (S2 C3b) — the store used to re-send every Part tree here, on every
+		// evaluation, which was the largest payload on this wire.
+		await sendRebuild({ type: 'OpenAssembly', tab_id: tab.id });
 		refreshSourceTabs();
 		return true;
 	} catch (err) {
@@ -6343,40 +6333,24 @@ export function getEditContext() { return editContext; }
 
 /**
  * The `OpenPartInContext` payload for editing `partTabId` as the instance at
- * `instancePath` of the assembly tab `assemblyTabId`: the part's tree (the
- * LIVE tree when that part is the active tab), the assembly (derived
- * placements stripped) and this document's other trees, as `OpenAssembly`
- * takes them.
+ * `instancePath` of the assembly tab `assemblyTabId` — three names and nothing
+ * else (S2 C3b). The session holds the part's tree, the assembly and every
+ * tree it references; switching to `partTabId` is what makes the part's tree
+ * the live one being edited.
  */
 function contextPayload(assemblyTabId, instancePath, partTabId) {
 	const asmTab = documentTabs.find((t) => t.id === assemblyTabId);
 	if (asmTab?.kind?.type !== 'Assembly') return null;
 	const partTab = documentTabs.find((t) => t.id === partTabId);
 	if (partTab?.kind?.type !== 'Part') return null;
-	const liveIsPart = activeTabId === partTabId;
-	const features = JSON.parse(JSON.stringify(liveIsPart ? featureTree : (partTab.kind.features ?? { features: [], active_index: null })));
-	const part_trees = {};
-	const assembly_trees = {};
-	for (const t of documentTabs) {
-		if (t.kind?.type === 'Part') {
-			part_trees[t.id] = t.id === partTabId ? features : JSON.parse(JSON.stringify(t.kind.features ?? { features: [], active_index: null }));
-		} else if (t.kind?.type === 'Assembly' && t.id !== assemblyTabId && t.kind.assembly) {
-			const a = JSON.parse(JSON.stringify(t.kind.assembly));
-			delete a.placements;
-			assembly_trees[t.id] = a;
-		}
-	}
-	const assembly = JSON.parse(JSON.stringify(asmTab.kind.assembly));
-	delete assembly.placements;
+	// Nothing but names (S2 C3b): the session holds the part's tree, the
+	// assembly, and every tree it references — and the switch to `partTabId`
+	// is what makes the part's tree live, so it is the tree being edited.
 	return {
 		type: 'OpenPartInContext',
 		tab_id: partTabId,
-		features,
 		assembly_tab_id: assemblyTabId,
-		instance_path: [...instancePath],
-		assembly,
-		part_trees,
-		assembly_trees
+		instance_path: [...instancePath]
 	};
 }
 
@@ -6496,12 +6470,31 @@ async function refreshSourceTabs() {
 let lastConnectorRefusal = $state(null);
 export function getConnectorRefusal() { return lastConnectorRefusal; }
 
-/** Mutate the open assembly's tree, then re-evaluate and autosave. */
+/**
+ * Mutate the open assembly's tree, hand it to the session, then autosave.
+ *
+ * The session is the authority for an Assembly tab's content (S2 C3b), so the
+ * edit has to REACH it: `OpenAssembly` no longer carries the assembly, and a
+ * panel edit that stayed in the store's tab copy would be evaluated from the
+ * session's stale one. `EditAssembly` re-evaluates the tab when it is the one
+ * on screen, so this replaces the `refreshAssembly()` that used to follow.
+ */
 async function editAssembly(fn) {
 	const tab = activeAssemblyTab();
 	if (!tab) return null;
 	const result = fn(tab.kind.assembly);
-	await refreshAssembly();
+	if (bridge && engineReady) {
+		// Placements are derived; the engine recomputes them.
+		const assembly = JSON.parse(JSON.stringify(tab.kind.assembly));
+		delete assembly.placements;
+		try {
+			await sendRebuild({ type: 'EditAssembly', tab_id: tab.id, assembly });
+		} catch (err) {
+			log('error', `EditAssembly failed: ${err?.message || err}`);
+			showToast('error', `The assembly edit failed: ${err?.message || err}`);
+			return null;
+		}
+	}
 	scheduleAutoSave();
 	return result;
 }

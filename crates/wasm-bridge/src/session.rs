@@ -292,6 +292,28 @@ impl DocumentSession {
 
     // ── Assemblies ──────────────────────────────────────────────────────
 
+    /// Replace a `Part` tab's stored tree.
+    ///
+    /// The ACTIVE tab's tree is the live one in the engine — this writes the
+    /// copy the session keeps, so setting it on the active tab is overwritten
+    /// by the next stash. Use it for the tabs that are not open.
+    pub fn set_features(&mut self, id: &str, features: FeatureTree) -> Result<(), SessionError> {
+        let index = self.index_of(id)?;
+        let tab = &mut self.tabs[index];
+        match tab.features_mut() {
+            Some(slot) => *slot = features,
+            None => {
+                return Err(SessionError::TabKindNotSupported {
+                    name: tab.name.clone(),
+                    kind: tab.kind.type_tag().to_string(),
+                    expected: "hold a feature tree".to_string(),
+                })
+            }
+        }
+        self.commit();
+        Ok(())
+    }
+
     /// Replace an `Assembly` tab's tree, as the assembly panel's edits do.
     pub fn set_assembly(
         &mut self,
@@ -312,6 +334,25 @@ impl DocumentSession {
         }
         self.commit();
         Ok(())
+    }
+
+    /// An `Assembly` tab's tree, refused loudly for a tab of any other kind.
+    ///
+    /// This is what `OpenAssembly` evaluates (S2 C3b): the tab's content lives
+    /// here, so the message names the tab instead of carrying its assembly.
+    pub fn assembly(
+        &self,
+        id: &str,
+    ) -> Result<&feature_engine::assembly::AssemblyTree, SessionError> {
+        let tab = self
+            .tab(id)
+            .ok_or_else(|| SessionError::TabNotFound { id: id.to_string() })?;
+        tab.assembly_tree()
+            .ok_or_else(|| SessionError::TabKindNotSupported {
+                name: tab.name.clone(),
+                kind: tab.kind.type_tag().to_string(),
+                expected: "hold an assembly".to_string(),
+            })
     }
 
     /// Every `Part` tab's tree, keyed by tab id — what evaluating an assembly

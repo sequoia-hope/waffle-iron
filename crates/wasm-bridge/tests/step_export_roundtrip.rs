@@ -471,12 +471,25 @@ fn export_step_with_an_open_assembly_places_every_instance() {
         );
         scratch.engine.tree.clone()
     };
+    // The document holds both tabs now (S2 C3b): the Part tab carries the tree
+    // the instances reference — as the LIVE tree, which the switch into the
+    // assembly stashes into it — and the Assembly tab carries the assembly.
+    // `OpenAssembly` only names the tab.
+    //
+    // So the state must exist BEFORE the instances: they name ITS Part tab.
+    // Taking that id from a throwaway `EngineState` names a tab this document
+    // does not have, and the assembly then renders nothing at all.
+    let mut state = EngineState::new();
+    state.set_project_name("asm");
+    state.engine.tree = part_tree;
+    let part_tab = state.session.tabs()[0].id.clone();
+
     let instance = |name: &str, t: Transform, fixed: bool| Instance {
         id: Uuid::new_v4(),
         name: name.into(),
         source: PartRef {
             source_id: None,
-            tab_id: "part".into(),
+            tab_id: part_tab.clone(),
         },
         transform: t,
         fixed,
@@ -493,21 +506,17 @@ fn export_step_with_an_open_assembly_places_every_instance() {
         ..Default::default()
     };
 
-    let mut state = EngineState::new();
-    state.set_project_name("asm");
-    // The assembly is a tab of the document, and `OpenAssembly` names it.
     let asm_tab = state
         .session
         .add_tab("Assembly", None)
         .expect("assembly tab");
+    state
+        .session
+        .set_assembly(&asm_tab, tree)
+        .expect("the assembly tab takes its tree");
     let r = dispatch(
         &mut state,
-        UiToEngine::OpenAssembly {
-            tab_id: asm_tab,
-            assembly: tree,
-            part_trees: HashMap::from([("part".to_string(), part_tree)]),
-            assembly_trees: HashMap::new(),
-        },
+        UiToEngine::OpenAssembly { tab_id: asm_tab },
         &mut kernel,
     );
     assert!(matches!(r, EngineToUi::ModelUpdated { .. }), "{r:?}");

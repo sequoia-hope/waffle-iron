@@ -81,41 +81,37 @@ fn fastened(a: Uuid, b: Uuid, flip: bool) -> Mate {
     }
 }
 
-/// The document's `Assembly` tab, added on first use. `OpenAssembly` names the
-/// tab it opens (S2 C3): the session makes it active, so the live tree it
-/// stashes on the way out lands on the tab it actually came from.
-fn assembly_tab(state: &mut EngineState) -> String {
-    if let Some(tab) = state
-        .session
-        .tabs()
-        .into_iter()
-        .find(|t| t.kind == "Assembly")
-    {
-        return tab.id;
-    }
-    state
+/// The document's first `Part` tab — the one a fresh `EngineState` starts with,
+/// whose LIVE tree is what `cube_part` builds. Instances name it (S2 C3b): the
+/// session supplies every part tree an assembly references, so a part must be a
+/// tab of the document rather than a payload key.
+fn part_tab(state: &EngineState) -> String {
+    state.session.tabs()[0].id.clone()
+}
+
+/// A NEW `Assembly` tab holding `tree`. Each assembly in a test is its own tab,
+/// because `OpenAssembly` names the tab it opens and the tab carries the
+/// assembly (S2 C3b) — a shared tab would make a sub-assembly and its parent
+/// the same document tab.
+fn assembly_tab(state: &mut EngineState, tree: &AssemblyTree) -> String {
+    let id = state
         .session
         .add_tab("Assembly", None)
-        .expect("an Assembly tab")
+        .expect("an Assembly tab");
+    state
+        .session
+        .set_assembly(&id, tree.clone())
+        .expect("the tab takes its assembly");
+    id
 }
 
 fn open(
     state: &mut EngineState,
     kernel: &mut KernelV2Adapter,
     tree: &AssemblyTree,
-    parts: &HashMap<String, FeatureTree>,
 ) -> AssemblyStatus {
-    let tab_id = assembly_tab(state);
-    let r = dispatch(
-        state,
-        UiToEngine::OpenAssembly {
-            tab_id,
-            assembly: tree.clone(),
-            part_trees: parts.clone(),
-            assembly_trees: HashMap::new(),
-        },
-        kernel,
-    );
+    let tab_id = assembly_tab(state, tree);
+    let r = dispatch(state, UiToEngine::OpenAssembly { tab_id }, kernel);
     let EngineToUi::ModelUpdated { assembly, .. } = r else {
         panic!("{r:?}")
     };
@@ -126,17 +122,19 @@ fn open(
 fn open_assembly_builds_parts_once_places_instances_and_reports_placements() {
     let mut state = EngineState::new();
     let mut kernel = KernelV2Adapter::new();
-    let part = cube_part(&mut state, &mut kernel);
-    let parts: HashMap<String, FeatureTree> = HashMap::from([("part".to_string(), part)]);
+    // The cube is the live tree of the document's Part tab; the instances name
+    // that tab, and the session supplies its tree (S2 C3b).
+    cube_part(&mut state, &mut kernel);
+    let part = part_tab(&state);
 
-    let a = instance("A", "part", Transform::identity(), true);
-    let b = instance("B", "part", Transform::translation([0.03, 0.0, 0.0]), false);
+    let a = instance("A", &part, Transform::identity(), true);
+    let b = instance("B", &part, Transform::translation([0.03, 0.0, 0.0]), false);
     let (ida, idb) = (a.id, b.id);
     let tree = AssemblyTree {
         instances: vec![a, b],
         ..Default::default()
     };
-    let status = open(&mut state, &mut kernel, &tree, &parts);
+    let status = open(&mut state, &mut kernel, &tree);
     assert!(status.errors.is_empty(), "{:?}", status.errors);
     assert_eq!(status.parts.len(), 1, "one distinct part built once");
     assert_eq!(status.placements.len(), 2);
@@ -178,12 +176,12 @@ fn open_assembly_builds_parts_once_places_instances_and_reports_placements() {
 fn connector_frames_come_from_the_parts_geometry_and_fastened_stacks_the_cubes() {
     let mut state = EngineState::new();
     let mut kernel = KernelV2Adapter::new();
-    let part = cube_part(&mut state, &mut kernel);
-    let import_id = part.features[0].id;
-    let parts: HashMap<String, FeatureTree> = HashMap::from([("part".to_string(), part)]);
+    let part_tree = cube_part(&mut state, &mut kernel);
+    let import_id = part_tree.features[0].id;
+    let part = part_tab(&state);
 
-    let a = instance("A", "part", Transform::identity(), true);
-    let b = instance("B", "part", Transform::identity(), false);
+    let a = instance("A", &part, Transform::identity(), true);
+    let b = instance("B", &part, Transform::identity(), false);
     let (ida, idb) = (a.id, b.id);
     // A's connector on a real face of the imported cube: the face whose
     // outward normal is +z (found through the engine's own resolution of a
@@ -218,7 +216,7 @@ fn connector_frames_come_from_the_parts_geometry_and_fastened_stacks_the_cubes()
         mates: vec![fastened(cida, cidb, true)],
         ..Default::default()
     };
-    let status = open(&mut state, &mut kernel, &tree, &parts);
+    let status = open(&mut state, &mut kernel, &tree);
     assert!(status.errors.is_empty(), "{:?}", status.errors);
     assert!(status.warnings.is_empty(), "{:?}", status.warnings);
     let view = state.assembly.as_ref().unwrap();
@@ -237,10 +235,12 @@ fn connector_frames_come_from_the_parts_geometry_and_fastened_stacks_the_cubes()
 fn a_part_the_document_lacks_and_a_bad_face_are_loud_but_the_rest_renders() {
     let mut state = EngineState::new();
     let mut kernel = KernelV2Adapter::new();
-    let part = cube_part(&mut state, &mut kernel);
-    let parts: HashMap<String, FeatureTree> = HashMap::from([("part".to_string(), part)]);
+    cube_part(&mut state, &mut kernel);
+    let part = part_tab(&state);
 
-    let a = instance("A", "part", Transform::identity(), true);
+    let a = instance("A", &part, Transform::identity(), true);
+    // A tab the document does not have — still a literal, because that is the
+    // failure under test.
     let ghost = instance("Ghost", "missing-tab", Transform::identity(), false);
     let ida = a.id;
     let bad_face = GeomRef {
@@ -268,7 +268,7 @@ fn a_part_the_document_lacks_and_a_bad_face_are_loud_but_the_rest_renders() {
         placements: BTreeMap::new(),
         ..Default::default()
     };
-    let status = open(&mut state, &mut kernel, &tree, &parts);
+    let status = open(&mut state, &mut kernel, &tree);
     assert!(
         status.errors.iter().any(|e| e.contains("missing-tab")),
         "{:?}",
@@ -294,12 +294,12 @@ fn a_sub_assembly_instance_renders_its_members_with_composed_placements_and_conn
 {
     let mut state = EngineState::new();
     let mut kernel = KernelV2Adapter::new();
-    let part = cube_part(&mut state, &mut kernel);
-    let parts: HashMap<String, FeatureTree> = HashMap::from([("part".to_string(), part)]);
+    cube_part(&mut state, &mut kernel);
+    let part = part_tab(&state);
 
     // Sub-assembly "stack": two cubes fastened (B on A).
-    let a = instance("A", "part", Transform::identity(), true);
-    let b = instance("B", "part", Transform::identity(), false);
+    let a = instance("A", &part, Transform::identity(), true);
+    let b = instance("B", &part, Transform::identity(), false);
     let (ida, idb) = (a.id, b.id);
     let ca = connector(
         "A top",
@@ -320,19 +320,21 @@ fn a_sub_assembly_instance_renders_its_members_with_composed_placements_and_conn
         mates: vec![fastened(cida, cidb, true)],
         ..Default::default()
     };
-    let asm_trees: HashMap<String, AssemblyTree> = HashMap::from([("stack".to_string(), stack)]);
+    // The sub-assembly is a tab of this document too (S2 C3b), so instances of
+    // it name that tab.
+    let stack_tab = assembly_tab(&mut state, &stack);
 
     // Top: two instances of the stack, the second moved 50 mm in x, plus a
     // lone cube fastened onto the FIRST stack's top cube (connector path
     // [stack1, B]).
-    let s1 = instance("Stack 1", "stack", Transform::identity(), true);
+    let s1 = instance("Stack 1", &stack_tab, Transform::identity(), true);
     let s2 = instance(
         "Stack 2",
-        "stack",
+        &stack_tab,
         Transform::translation([0.05, 0.0, 0.0]),
         false,
     );
-    let lone = instance("Lone", "part", Transform::identity(), false);
+    let lone = instance("Lone", &part, Transform::identity(), false);
     let (ids1, ids2, idl) = (s1.id, s2.id, lone.id);
     let mut c_top_of_b = connector(
         "stack1 B top",
@@ -355,17 +357,8 @@ fn a_sub_assembly_instance_renders_its_members_with_composed_placements_and_conn
         ..Default::default()
     };
 
-    let tab_id = assembly_tab(&mut state);
-    let r = dispatch(
-        &mut state,
-        UiToEngine::OpenAssembly {
-            tab_id,
-            assembly: top,
-            part_trees: parts,
-            assembly_trees: asm_trees,
-        },
-        &mut kernel,
-    );
+    let tab_id = assembly_tab(&mut state, &top);
+    let r = dispatch(&mut state, UiToEngine::OpenAssembly { tab_id }, &mut kernel);
     let EngineToUi::ModelUpdated { assembly, .. } = r else {
         panic!("{r:?}")
     };
@@ -402,21 +395,21 @@ fn a_sub_assembly_instance_renders_its_members_with_composed_placements_and_conn
     assert!((lone_t.translation_m[2] - 0.02).abs() < 1e-6, "{lone_t:?}");
     assert!(lone_t.translation_m[0].abs() < 1e-6, "{lone_t:?}");
 
-    // A self-referencing sub-assembly is a loud error, not a hang.
-    let selfref = instance("Me", "loop", Transform::identity(), false);
+    // A self-referencing sub-assembly is a loud error, not a hang. The tab has
+    // to exist before the instance can name it, so the tab is minted empty and
+    // then given an assembly that instances the tab itself.
+    let loop_tab = assembly_tab(&mut state, &AssemblyTree::default());
     let looping = AssemblyTree {
-        instances: vec![selfref],
+        instances: vec![instance("Me", &loop_tab, Transform::identity(), false)],
         ..Default::default()
     };
-    let tab_id = assembly_tab(&mut state);
+    state
+        .session
+        .set_assembly(&loop_tab, looping)
+        .expect("the tab takes its assembly");
     let r = dispatch(
         &mut state,
-        UiToEngine::OpenAssembly {
-            tab_id,
-            assembly: looping.clone(),
-            part_trees: HashMap::new(),
-            assembly_trees: HashMap::from([("loop".to_string(), looping)]),
-        },
+        UiToEngine::OpenAssembly { tab_id: loop_tab },
         &mut kernel,
     );
     let EngineToUi::ModelUpdated { assembly, .. } = r else {
@@ -482,7 +475,9 @@ fn list_source_tabs_reads_a_linked_document_and_its_parts_can_be_instanced() {
         instances: vec![inst],
         ..Default::default()
     };
-    let status = open(&mut state, &mut kernel, &tree, &HashMap::new());
+    // A linked-source part: it resolves through the engine's source store, not
+    // the session's tabs.
+    let status = open(&mut state, &mut kernel, &tree);
     assert!(status.errors.is_empty(), "{:?}", status.errors);
     assert_eq!(status.parts.len(), 1);
     assert!(status.parts[0].source_id == Some(sid));
@@ -578,27 +573,23 @@ fn cube_top_face(import_id: Uuid, scope: Option<waffle_types::RefScope>) -> Geom
     }
 }
 
+/// Open the document's Part tab in the context of `asm_tab` (an Assembly tab
+/// that already holds its tree). Nothing but names crosses the wire (S2 C3b):
+/// the part's tree is the session's copy of that tab, which the switch makes
+/// live.
 fn open_in_context(
     state: &mut EngineState,
     kernel: &mut KernelV2Adapter,
-    features: &FeatureTree,
-    tree: &AssemblyTree,
-    parts: &HashMap<String, FeatureTree>,
+    asm_tab: &str,
     path: Vec<Uuid>,
 ) -> Result<ContextStatus, String> {
-    // The Part tab being opened in context — the session makes it active, so
-    // the tree it stashes on the way out lands on the tab it came from.
-    let tab_id = state.session.tabs()[0].id.clone();
+    let tab_id = part_tab(state);
     let r = dispatch(
         state,
         UiToEngine::OpenPartInContext {
             tab_id,
-            features: features.clone(),
-            assembly_tab_id: "asm".into(),
+            assembly_tab_id: asm_tab.to_string(),
             instance_path: path,
-            assembly: tree.clone(),
-            part_trees: parts.clone(),
-            assembly_trees: HashMap::new(),
         },
         kernel,
     );
@@ -627,29 +618,30 @@ fn near3(a: [f64; 3], b: [f64; 3], tol: f64) -> bool {
 fn open_part_in_context_snapshots_the_other_instances_and_scoped_planes_follow_them() {
     let mut state = EngineState::new();
     let mut kernel = KernelV2Adapter::new();
-    let part = cube_part(&mut state, &mut kernel);
-    let import_id = part.features[0].id;
-    let parts: HashMap<String, FeatureTree> = HashMap::from([("part".to_string(), part.clone())]);
+    let part_tree = cube_part(&mut state, &mut kernel);
+    let import_id = part_tree.features[0].id;
+    let part = part_tab(&state);
 
-    let a = instance("A", "part", Transform::identity(), true);
-    let b = instance("B", "part", Transform::translation([0.03, 0.0, 0.0]), true);
+    let a = instance("A", &part, Transform::identity(), true);
+    let b = instance("B", &part, Transform::translation([0.03, 0.0, 0.0]), true);
     let (ida, idb) = (a.id, b.id);
     let tree = AssemblyTree {
         instances: vec![a, b],
         ..Default::default()
     };
+    let asm_tab = assembly_tab(&mut state, &tree);
 
     // Open B in context: the live tree is B's part, the view holds A as the
     // one ghost at A relative to B, and the engine's snapshot agrees.
-    let status = open_in_context(&mut state, &mut kernel, &part, &tree, &parts, vec![idb]).unwrap();
-    assert_eq!(status.assembly_tab_id, "asm");
+    let status = open_in_context(&mut state, &mut kernel, &asm_tab, vec![idb]).unwrap();
+    assert_eq!(status.assembly_tab_id, asm_tab);
     assert_eq!(status.instance_path, vec![idb]);
     assert_eq!(status.instance_name, "B");
     assert!(status.errors.is_empty(), "{:?}", status.errors);
     assert_eq!(status.instances.len(), 1);
     assert_eq!(status.instances[0].path, vec![ida]);
     assert_eq!(status.instances[0].name, "A");
-    assert_eq!(status.instances[0].part_tab_id, "part");
+    assert_eq!(status.instances[0].part_tab_id, part);
     assert!(status
         .placement
         .approx_eq(&Transform::translation([0.03, 0.0, 0.0]), 1e-12));
@@ -677,7 +669,11 @@ fn open_part_in_context_snapshots_the_other_instances_and_scoped_planes_follow_t
     // A sketch on A's top face, scoped: the engine derives the plane from the
     // context — A's face centroid (5, 5, 10) mm in A's frame, at x − 30 mm in
     // B's — replacing the stale snapshot the feature arrived with.
-    let scope = waffle_types::RefScope::in_assembly("asm", vec![ida]);
+    // The scope names the REAL assembly tab: the engine's edit context is
+    // keyed by it, and a stale `"asm"` here would stop the scoped plane
+    // resolving through the context — quietly making the assertions below
+    // prove nothing.
+    let scope = waffle_types::RefScope::in_assembly(asm_tab.clone(), vec![ida]);
     let r = dispatch(
         &mut state,
         UiToEngine::AddFeature {
@@ -749,17 +745,14 @@ fn open_part_in_context_snapshots_the_other_instances_and_scoped_planes_follow_t
     // current trees — the plane follows A, the extrude rebuilds on it.
     let mut moved = tree.clone();
     moved.instances[0].transform = Transform::translation([0.0, 0.02, 0.0]);
-    let parts_now: HashMap<String, FeatureTree> =
-        HashMap::from([("part".to_string(), live.clone())]);
-    let status = open_in_context(
-        &mut state,
-        &mut kernel,
-        &live,
-        &moved,
-        &parts_now,
-        vec![idb],
-    )
-    .unwrap();
+    // The assembly tab takes the moved tree. The part's own tree is NOT on the
+    // wire any more: it is the session's copy of the Part tab, which is the
+    // live tree (that tab is still the active one) — `live` above.
+    state
+        .session
+        .set_assembly(&asm_tab, moved.clone())
+        .expect("the tab takes its assembly");
+    let status = open_in_context(&mut state, &mut kernel, &asm_tab, vec![idb]).unwrap();
     assert!(status.errors.is_empty(), "{:?}", status.errors);
     assert!(state.engine.errors.is_empty(), "{:?}", state.engine.errors);
     let (o, _) = sketch_plane(&state, sid);
@@ -803,8 +796,9 @@ fn open_part_in_context_snapshots_the_other_instances_and_scoped_planes_follow_t
     };
     assert!(context.is_none());
     assert!(state.engine.context.is_none() && state.context_view.is_none());
+    let expected_assembly = format!("of assembly `{asm_tab}`");
     assert!(
-        warnings.iter().any(|w| w.contains("of assembly `asm`")
+        warnings.iter().any(|w| w.contains(&expected_assembly)
             && w.contains("open the part in that assembly's context")),
         "{warnings:?}"
     );
@@ -814,7 +808,7 @@ fn open_part_in_context_snapshots_the_other_instances_and_scoped_planes_follow_t
 
     // Back in the assembly, BOTH instances carry the new extrude (propagation
     // is by recipe: every instance of the part rebuilds from the same tree).
-    let status = open(&mut state, &mut kernel, &moved, &parts_now);
+    let status = open(&mut state, &mut kernel, &moved);
     assert!(status.errors.is_empty(), "{:?}", status.errors);
     let view = state.assembly.as_ref().unwrap();
     assert_eq!(view.parts.len(), 1);
@@ -826,27 +820,20 @@ fn open_part_in_context_snapshots_the_other_instances_and_scoped_planes_follow_t
 fn open_part_in_context_refuses_what_it_cannot_edit() {
     let mut state = EngineState::new();
     let mut kernel = KernelV2Adapter::new();
-    let part = cube_part(&mut state, &mut kernel);
-    let parts: HashMap<String, FeatureTree> = HashMap::from([("part".to_string(), part.clone())]);
-    let mut a = instance("A", "part", Transform::identity(), true);
+    let part_tree = cube_part(&mut state, &mut kernel);
+    let part = part_tab(&state);
+    let mut a = instance("A", &part, Transform::identity(), true);
     let ida = a.id;
     let tree = AssemblyTree {
         instances: vec![a.clone()],
         ..Default::default()
     };
+    let asm_tab = assembly_tab(&mut state, &tree);
 
     // An instance that is not in the assembly.
-    let err = open_in_context(
-        &mut state,
-        &mut kernel,
-        &part,
-        &tree,
-        &parts,
-        vec![Uuid::new_v4()],
-    )
-    .unwrap_err();
+    let err = open_in_context(&mut state, &mut kernel, &asm_tab, vec![Uuid::new_v4()]).unwrap_err();
     assert!(
-        err.contains("not a rendered part of assembly `asm`"),
+        err.contains(&format!("not a rendered part of assembly `{asm_tab}`")),
         "{err}"
     );
     assert!(state.engine.context.is_none() && state.context_view.is_none());
@@ -857,14 +844,24 @@ fn open_part_in_context_refuses_what_it_cannot_edit() {
         instances: vec![a],
         ..Default::default()
     };
-    let err =
-        open_in_context(&mut state, &mut kernel, &part, &hidden, &parts, vec![ida]).unwrap_err();
+    state
+        .session
+        .set_assembly(&asm_tab, hidden)
+        .expect("the tab takes its assembly");
+    let err = open_in_context(&mut state, &mut kernel, &asm_tab, vec![ida]).unwrap_err();
     assert!(err.contains("not a rendered part"), "{err}");
 
     // A scoped reference to an instance the context does not have: a loud
     // per-feature error, the part still opens and builds.
-    open_in_context(&mut state, &mut kernel, &part, &tree, &parts, vec![ida]).unwrap();
-    let import_id = part.features[0].id;
+    // Put the un-suppressed tree back first: the block above left the tab
+    // holding `hidden`, and this case needs the part to OPEN so the scoped
+    // reference below is what fails.
+    state
+        .session
+        .set_assembly(&asm_tab, tree)
+        .expect("the tab takes its assembly");
+    open_in_context(&mut state, &mut kernel, &asm_tab, vec![ida]).unwrap();
+    let import_id = part_tree.features[0].id;
     dispatch(
         &mut state,
         UiToEngine::AddFeature {
@@ -872,7 +869,7 @@ fn open_part_in_context_refuses_what_it_cannot_edit() {
             operation: sketch_on(cube_top_face(
                 import_id,
                 Some(waffle_types::RefScope::in_assembly(
-                    "asm",
+                    asm_tab.clone(),
                     vec![Uuid::new_v4()],
                 )),
             )),
@@ -895,7 +892,10 @@ fn open_part_in_context_refuses_what_it_cannot_edit() {
             provenance: None,
             operation: sketch_on(cube_top_face(
                 import_id,
-                Some(waffle_types::RefScope::in_assembly("asm", vec![ida])),
+                Some(waffle_types::RefScope::in_assembly(
+                    asm_tab.clone(),
+                    vec![ida],
+                )),
             )),
         },
         &mut kernel,
@@ -1119,14 +1119,26 @@ fn a_revolute_mate_on_two_cylindrical_faces_puts_the_pin_on_the_bore_axis() {
     let pin = state.engine.tree.clone();
     dispatch(&mut state, UiToEngine::NewDocument, &mut kernel);
 
-    let parts: HashMap<String, FeatureTree> =
-        HashMap::from([("washer".to_string(), washer), ("pin".to_string(), pin)]);
+    // Two parts, so two Part tabs (S2 C3b). The pin is the LIVE tree of the
+    // reset document's own tab — which is what the session serves for the tab
+    // that is open — and the washer gets a tab of its own, whose STORED tree
+    // the session serves because that tab is not the active one.
+    state.engine.tree = pin;
+    let pin_tab = part_tab(&state);
+    let washer_tab = state
+        .session
+        .add_tab("Part", None)
+        .expect("a second Part tab");
+    state
+        .session
+        .set_features(&washer_tab, washer)
+        .expect("the washer tab takes its tree");
 
-    let w = instance("W", "washer", Transform::identity(), true);
+    let w = instance("W", &washer_tab, Transform::identity(), true);
     // The pin starts translated and turned right off the axis.
     let p = instance(
         "P",
-        "pin",
+        &pin_tab,
         Transform {
             translation_m: [0.05, 0.02, 0.03],
             rotation_quat: [0.382_683_432_365_09, 0.0, 0.0, 0.923_879_532_511_287],
@@ -1152,7 +1164,7 @@ fn a_revolute_mate_on_two_cylindrical_faces_puts_the_pin_on_the_bore_axis() {
         extra: Map::new(),
     };
 
-    let status = open(&mut state, &mut kernel, &tree, &parts);
+    let status = open(&mut state, &mut kernel, &tree);
     assert!(
         status.errors.is_empty(),
         "a cylindrical pick is no longer an error: {:?}",
@@ -1233,8 +1245,12 @@ fn probe_connector_ref_accepts_a_cylindrical_pick_and_refuses_what_has_no_frame(
     let part = state.engine.tree.clone();
     dispatch(&mut state, UiToEngine::NewDocument, &mut kernel);
 
-    let parts: HashMap<String, FeatureTree> = HashMap::from([("part".to_string(), part)]);
-    let a = instance("A", "part", Transform::identity(), true);
+    // `NewDocument` reset the session, so this is its one Part tab — and the
+    // part is its LIVE tree, which is what the session serves for the tab that
+    // is open (S2 C3b).
+    state.engine.tree = part;
+    let part_id = part_tab(&state);
+    let a = instance("A", &part_id, Transform::identity(), true);
     let id = a.id;
     let tree = AssemblyTree {
         instances: vec![a],
@@ -1243,7 +1259,7 @@ fn probe_connector_ref_accepts_a_cylindrical_pick_and_refuses_what_has_no_frame(
         placements: BTreeMap::new(),
         extra: Map::new(),
     };
-    open(&mut state, &mut kernel, &tree, &parts);
+    open(&mut state, &mut kernel, &tree);
 
     let probe = |state: &mut EngineState, kernel: &mut KernelV2Adapter, geom_ref: GeomRef| {
         let r = dispatch(
@@ -1299,9 +1315,11 @@ fn connector_adjustments_move_the_frame_in_its_own_axes() {
     let (bore_ref, _) = smallest_cylinder_face_ref(&state, &kernel);
     let washer = state.engine.tree.clone();
     dispatch(&mut state, UiToEngine::NewDocument, &mut kernel);
-    let parts: HashMap<String, FeatureTree> = HashMap::from([("washer".to_string(), washer)]);
+    // The washer is the live tree of the reset document's Part tab.
+    state.engine.tree = washer;
+    let washer_tab = part_tab(&state);
 
-    let w = instance("W", "washer", Transform::identity(), true);
+    let w = instance("W", &washer_tab, Transform::identity(), true);
     let idw = w.id;
     let mut end = connector("end", idw, Some(bore_ref.clone()), Frame::default());
     end.anchor = AxialAnchor::PositiveEnd;
@@ -1327,7 +1345,7 @@ fn connector_adjustments_move_the_frame_in_its_own_axes() {
         extra: Map::new(),
     };
 
-    let status = open(&mut state, &mut kernel, &tree, &parts);
+    let status = open(&mut state, &mut kernel, &tree);
     assert!(status.errors.is_empty(), "{:?}", status.errors);
     let frame_of = |id: Uuid| {
         status
@@ -1463,10 +1481,10 @@ fn a_part_mate_connector_is_evaluated_in_the_part_and_mates_its_instances() {
         .iter()
         .all(|f| f.id != Uuid::nil()));
 
-    let parts: HashMap<String, FeatureTree> =
-        HashMap::from([("part".to_string(), state.engine.tree.clone())]);
-    let a = instance("A", "part", Transform::identity(), true);
-    let b = instance("B", "part", Transform::identity(), false);
+    // The part is already the live tree of the open Part tab.
+    let part = part_tab(&state);
+    let a = instance("A", &part, Transform::identity(), true);
+    let b = instance("B", &part, Transform::identity(), false);
     let (ida, idb) = (a.id, b.id);
     let mut ca = connector("A › Top", ida, None, Frame::default());
     ca.part_connector = Some(top_id);
@@ -1485,7 +1503,7 @@ fn a_part_mate_connector_is_evaluated_in_the_part_and_mates_its_instances() {
         mates: vec![fastened(cida, cidb, true)],
         ..Default::default()
     };
-    let status = open(&mut state, &mut kernel, &tree, &parts);
+    let status = open(&mut state, &mut kernel, &tree);
 
     // B stacked on A's part connector.
     let tb = status.placements[&idb];

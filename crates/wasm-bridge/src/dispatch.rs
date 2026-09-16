@@ -538,45 +538,25 @@ fn handle_message(
             )
         }
 
-        UiToEngine::OpenAssembly {
-            tab_id,
-            assembly,
-            part_trees,
-            assembly_trees,
-        } => {
-            state.active_sketch = None;
-            state.selection.clear();
-            state.hover = None;
-            state.clear_context();
-            // Opening an assembly IS a tab switch, and the only message that
-            // expresses it: the session stashes the outgoing tab's live tree
-            // and history into it before the tree below replaces them.
-            state.session.switch_tab(&tab_id, &mut state.engine)?;
-            // The live tree is not the assembly's content; keep the renderer
-            // on the instances only. (An `Assembly` tab holds no tree, so the
-            // switch already left it empty — this also covers a `Part` tab
-            // named here by a caller that should not have.)
-            state.engine.tree = feature_engine::types::FeatureTree::new();
-            state.engine.rebuild_from_scratch(kb);
-            let view = crate::assembly_view::evaluate(
-                assembly,
-                &part_trees,
-                &assembly_trees,
-                &state.engine.sources,
-                kb,
-            );
-            state.assembly = Some(view);
+        UiToEngine::OpenAssembly { tab_id } => {
+            open_assembly(state, &tab_id, kb)?;
+            Ok(model_updated_response(state))
+        }
+
+        UiToEngine::EditAssembly { tab_id, assembly } => {
+            state.session.set_assembly(&tab_id, assembly)?;
+            // Re-evaluate only what is on screen: editing a background
+            // assembly tab records the change, and opening that tab shows it.
+            if state.session.active_tab_id() == tab_id {
+                open_assembly(state, &tab_id, kb)?;
+            }
             Ok(model_updated_response(state))
         }
 
         UiToEngine::OpenPartInContext {
             tab_id,
-            features,
             assembly_tab_id,
             instance_path,
-            assembly,
-            part_trees,
-            assembly_trees,
         } => {
             state.active_sketch = None;
             state.selection.clear();
@@ -585,11 +565,14 @@ fn handle_message(
             state.clear_context();
             // Opening a part in context is a tab switch too (the store leaves
             // the assembly tab for the part's), and it happens FIRST: the
-            // stash below must capture the outgoing tab's live tree before
-            // anything replaces it, and a refused tab id must not leave a
-            // context view behind. The message's `features` is the tree to
-            // edit and wins over the stashed copy.
+            // stash must capture the outgoing tab's live tree before anything
+            // replaces it, a refused tab id must not leave a context view
+            // behind, and the switch is what makes the part's tree live — so
+            // `part_trees` below carries the very tree being edited.
             state.session.switch_tab(&tab_id, &mut state.engine)?;
+            let assembly = state.session.assembly(&assembly_tab_id)?.clone();
+            let part_trees = state.session.part_trees(&state.engine);
+            let assembly_trees = state.session.assembly_trees();
             let view = crate::assembly_view::evaluate(
                 assembly,
                 &part_trees,
@@ -602,7 +585,6 @@ fn handle_message(
                     .map_err(|reason| BridgeError::InvalidRequest { reason })?;
             state.context_view = Some(context_view);
             state.engine.context = Some(context);
-            state.engine.tree = features;
             state.engine.rebuild_from_scratch(kb);
             Ok(model_updated_response(state))
         }
@@ -731,7 +713,45 @@ fn handle_message(
     }
 }
 
-/// Make `tab_id` the active tab and rebuild it (S2 C3).
+/// Open an `Assembly` tab and evaluate it (S2 C3b).
+///
+/// Everything the evaluation needs is in the session: the tab's own assembly,
+/// and every Part / sub-assembly tree its instances reference (the active
+/// tab's tree comes from the live engine, so an assembly always builds its
+/// parts from what is on screen). Parts of linked `.waffle` sources still
+/// resolve through the engine's source store.
+fn open_assembly(
+    state: &mut EngineState,
+    tab_id: &str,
+    kb: &mut dyn KernelBundle,
+) -> Result<(), BridgeError> {
+    state.active_sketch = None;
+    state.selection.clear();
+    state.hover = None;
+    state.clear_context();
+    // Refuse a tab that holds no assembly BEFORE switching to it: a loud
+    // error must not leave the session on a tab it could not open.
+    let assembly = state.session.assembly(tab_id)?.clone();
+    state.session.switch_tab(tab_id, &mut state.engine)?;
+    // The live tree is not the assembly's content; keep the renderer on the
+    // instances only. (An `Assembly` tab holds no tree, so the switch already
+    // left it empty.)
+    state.engine.tree = feature_engine::types::FeatureTree::new();
+    state.engine.rebuild_from_scratch(kb);
+    let part_trees = state.session.part_trees(&state.engine);
+    let assembly_trees = state.session.assembly_trees();
+    let view = crate::assembly_view::evaluate(
+        assembly,
+        &part_trees,
+        &assembly_trees,
+        &state.engine.sources,
+        kb,
+    );
+    state.assembly = Some(view);
+    Ok(())
+}
+
+/// Make `tab_id` the active tab and rebuild it (S2 C3a).
 ///
 /// The session stashes the live tree and the undo history into the outgoing
 /// tab and loads the incoming one's, so neither crosses a switch. Everything

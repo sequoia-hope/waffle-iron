@@ -83,7 +83,7 @@ fn run(state: &mut EngineState, kernel: &mut KernelV2Adapter, msg: &Value) -> St
 /// document id, `created`, `modified` — is fixed, because
 /// `scenarios_fixture_is_current` diffs this against the committed fixture
 /// exactly and `DocumentMetadata::new` would mint a fresh UUID and `now()`.
-fn parity_document(part: &FeatureTree) -> Value {
+fn parity_document(part: &FeatureTree, assembly: &AssemblyTree) -> Value {
     let fixed = DateTime::parse_from_rfc3339("2026-01-01T00:00:00Z")
         .expect("a fixed timestamp")
         .with_timezone(&Utc);
@@ -111,7 +111,10 @@ fn parity_document(part: &FeatureTree) -> Value {
                 id: ASM_TAB.into(),
                 name: "Assembly 1".into(),
                 kind: TabKind::Assembly {
-                    assembly: AssemblyTree::default(),
+                    // The tab CARRIES the assembly now (S2 C3b): the message
+                    // only names the tab, so an empty tab here would leave the
+                    // scenario evaluating nothing.
+                    assembly: assembly.clone(),
                     preview_mesh: None,
                 },
                 extra: Map::new(),
@@ -122,14 +125,6 @@ fn parity_document(part: &FeatureTree) -> Value {
     };
     let data = file_format::save_document_verified(&doc).expect("the parity document saves");
     json!({ "type": "LoadProject", "data": data })
-}
-
-/// `{ PART_TAB: part }` — the payload `OpenAssembly` still carries in C3a
-/// (C3b has the session supply it).
-fn part_trees(part: &Value) -> Value {
-    let mut map = Map::new();
-    map.insert(PART_TAB.to_string(), part.clone());
-    Value::Object(map)
 }
 
 fn instance(n: u128, name: &str, transform: Transform) -> Instance {
@@ -164,7 +159,6 @@ fn scenarios() -> &'static Vec<(String, Vec<Value>)> {
         let mut kernel = KernelV2Adapter::new();
         run(&mut state, &mut kernel, &load("C0077"));
         let tree = state.engine.tree.clone();
-        let part = serde_json::to_value(&tree).expect("tree serializes");
 
         let b_placement = Transform {
             translation_m: [0.05, 0.02, 0.0],
@@ -177,34 +171,26 @@ fn scenarios() -> &'static Vec<(String, Vec<Value>)> {
             ],
             ..Default::default()
         };
-        let assembly = serde_json::to_value(&assembly).expect("assembly serializes");
 
-        // Both assembly scenarios open a tab of a real document now: the tab
-        // the session makes active is the one the message names.
+        // Both assembly scenarios open a tab of a real document: the document
+        // carries the part, the assembly and the tab ids, and the message is
+        // just the tab's name (S2 C3b).
         out.push((
             "assembly".into(),
             vec![
-                parity_document(&tree),
-                json!({
-                    "type": "OpenAssembly",
-                    "tab_id": ASM_TAB,
-                    "assembly": assembly,
-                    "part_trees": part_trees(&part),
-                }),
+                parity_document(&tree, &assembly),
+                json!({ "type": "OpenAssembly", "tab_id": ASM_TAB }),
             ],
         ));
         out.push((
             "in_context".into(),
             vec![
-                parity_document(&tree),
+                parity_document(&tree, &assembly),
                 json!({
                     "type": "OpenPartInContext",
                     "tab_id": PART_TAB,
-                    "features": part,
                     "assembly_tab_id": ASM_TAB,
                     "instance_path": [Uuid::from_u128(0xB)],
-                    "assembly": assembly,
-                    "part_trees": part_trees(&part),
                 }),
             ],
         ));

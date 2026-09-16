@@ -187,11 +187,39 @@ unchanged throughout.
         that actually exercise C3 must be named explicitly:
         `agent-tabs-viewport`, `agent-documents`, `assembly`,
         `document-format-seam`, `document-identity`, `auto-restore`.
-- [ ] C3b: the session supplies the trees — `OpenAssembly`/`OpenPartInContext`
-      lose `part_trees`/`assembly_trees` (today JS re-sends every Part tree on
-      every assembly evaluation, the largest payload this removes), plus a new
-      `EditAssembly` so the assembly panel's edits reach the session instead of
-      only the store's tab copy.
+- [x] **C3b — the session supplies the trees** (2026-09-16): `OpenAssembly` is
+      `{tab_id}` and `OpenPartInContext` is `{tab_id, assembly_tab_id,
+      instance_path}`. The session holds the tab's assembly AND every part /
+      sub-assembly tree its instances reference, so nothing but names crosses
+      the wire. New `EditAssembly{tab_id, assembly}` carries the panel's edits
+      INTO the session — without it, `OpenAssembly` would evaluate a stale
+      assembly, which is why it had to land in the same commit.
+      - **Measured, in the parity fixture:** `scenarios.json` −373/+11 lines.
+        That is the payload this removes, and in the app it is per assembly
+        EVALUATION, not once. `golden.json` moved ±18 lines — the render census
+        barely changed, which is the right shape: C3b removes redundant
+        transport, it does not touch geometry.
+      - `DocumentSession` gained `assembly(id)` (refuses a non-Assembly tab
+        loudly, BEFORE the switch, so a bad id cannot leave the session on a tab
+        it could not open) and `set_features(id, tree)`.
+      - **Trap for the tests:** `part_trees()` serves the LIVE engine tree for
+        the active tab and the stored copy for every other. So a fixture's part
+        must be `state.engine.tree` when its tab is the open one; calling
+        `set_features` on the active tab is overwritten by the next stash. An
+        instance naming a tab the session lacks renders NOTHING — which
+        surfaced as `export_step_…` failing with "no mesh data available for
+        export" after I took a tab id from a throwaway `EngineState`.
+      - **Tests that assert only "no errors" cannot catch this**: an assembly
+        of empty parts reports no errors. The geometry assertions (placements
+        at z = 10 mm, the bore radius, `feature_results.len()`) are what pin it.
+      - Scoped refs in the in-context test now name the real assembly tab
+        (`RefScope::in_assembly(asm_tab, …)`), not the old `"asm"` literal —
+        otherwise the scoped-plane assertions keep passing while proving
+        nothing about context resolution.
+      - Oracles: 170 `wasm-bridge` tests; clippy `--all-targets -D warnings`;
+        `fmt --check`; both release parity tests against regenerated fixtures;
+        GUI 27 targeted (46 s, incl. the whole `assembly.spec.js` panel path
+        through `EditAssembly`) + gui-fast 349 (218 s).
 - [ ] C3c: `SaveDocument` loses its payload (v4 §4 inv. 7, one writer) and
       `DocumentSession::adopt` is deleted with it; the session records each
       tab's preview mesh (it has `set_preview_mesh`, still called by nothing).

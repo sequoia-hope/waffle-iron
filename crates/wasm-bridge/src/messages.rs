@@ -248,15 +248,22 @@ pub enum UiToEngine {
         /// The `Assembly` tab being opened. The session makes it active — a
         /// switch the tree-carrying `SwitchTab` cannot express, and without it
         /// the session's `active_tab` would go stale and the NEXT switch would
-        /// stash the live tree onto the wrong tab (S2 C3).
+        /// stash the live tree onto the wrong tab (S2 C3a).
+        ///
+        /// The tab's assembly AND every part / sub-assembly tree it references
+        /// come from the session (S2 C3b) — the UI used to re-send every Part
+        /// tree on every evaluation, which was the largest payload on this
+        /// wire. Parts of linked `.waffle` sources still resolve through the
+        /// engine's source store.
+        tab_id: String,
+    },
+    /// Replace an `Assembly` tab's tree — the assembly panel's edits
+    /// (instances, connectors, mates), which used to live only in the JS tab
+    /// copy (S2 C3b). Re-evaluates when it is the tab on screen; an edit to a
+    /// background tab is recorded and shown when that tab opens.
+    EditAssembly {
         tab_id: String,
         assembly: feature_engine::assembly::AssemblyTree,
-        #[serde(default)]
-        part_trees: HashMap<String, FeatureTree>,
-        /// This document's OTHER assembly tabs, so an instance may be of an
-        /// assembly (a sub-assembly, 3d-2).
-        #[serde(default)]
-        assembly_trees: HashMap<String, feature_engine::assembly::AssemblyTree>,
     },
     /// The tabs of a linked `.waffle` source (for "add instance"): id, name
     /// and kind of each.
@@ -287,16 +294,13 @@ pub enum UiToEngine {
     /// a same-document Part (a linked part is read-only).
     OpenPartInContext {
         /// The Part tab being opened in context: the session makes it active,
-        /// for the same reason `OpenAssembly` carries one (S2 C3).
+        /// for the same reason `OpenAssembly` names one (S2 C3a). Its tree is
+        /// the session's copy of that tab — which IS the live tree once the
+        /// switch has happened, so `features` is no longer on the wire, and
+        /// neither are the assembly and the trees it references (S2 C3b).
         tab_id: String,
-        features: FeatureTree,
         assembly_tab_id: String,
         instance_path: Vec<Uuid>,
-        assembly: feature_engine::assembly::AssemblyTree,
-        #[serde(default)]
-        part_trees: HashMap<String, FeatureTree>,
-        #[serde(default)]
-        assembly_trees: HashMap<String, feature_engine::assembly::AssemblyTree>,
     },
     /// Fork of a linked document (v4 §7.1): rewrite every `Relative` source
     /// into an absolute `Git` locator in `base`'s repository, pinned at
