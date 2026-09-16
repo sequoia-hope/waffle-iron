@@ -272,4 +272,10 @@ pub enum BridgeError {
 
     #[error("invalid request: {reason}")]
     InvalidRequest { reason: String },
+
+    /// A tab operation the session refused (an unknown tab id, a kind this
+    /// build cannot open, the last tab). Each maps to an agent error code of
+    /// the closed set (`specs/waffle_mcp_server.md` §6.1).
+    #[error("{0}")]
+    Session(#[from] crate::session::SessionError),
 }

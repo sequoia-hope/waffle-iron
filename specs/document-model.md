@@ -279,20 +279,27 @@ The tab bar sits between the Toolbar and the viewport, replacing the current top
 
 Tab switching is the most complex interaction. The sequence:
 
-1. **Save current tab state**: Capture the active feature tree (already in engine state) and current preview mesh into `tabs[active_tab]`.
-2. **Send `SwitchTab` message** to engine with the new tab's `FeatureTree`.
-3. **Engine resets**: Clears all solids, loads new feature tree, performs full rebuild.
-4. **Engine responds** with `ModelUpdated` containing new meshes + feature tree.
-5. **UI updates**: Feature tree panel, viewport, property editor all reflect new tab.
+Since server-mode S2 C3 (`specs/waffle_server_mode.md` §2.3) the engine's
+`DocumentSession` holds every tab's tree, so a switch NAMES a tab instead of
+carrying its content:
 
-This is functionally equivalent to a `LoadProject` but without file I/O. The engine message:
+1. **Send `SwitchTab { tab_id }`** to the engine.
+2. **The session stashes** the live tree and the undo history into the tab
+   being left, and loads the incoming tab's — no tree crosses the wire, and
+   undo no longer leaks across tabs.
+3. **Engine rebuilds** the incoming tree from scratch.
+4. **Engine responds** with `ModelUpdated` containing new meshes + feature tree
+   + `document` (the tab list, the active tab, the revision).
+5. **UI updates**: Feature tree panel, viewport, property editor all reflect new tab.
 
 ```rust
 UiToEngine::SwitchTab {
-    features: FeatureTree,  // new tab's feature tree to load
+    tab_id: String,  // the tab to open; the session already has its tree
 }
 // Response: EngineToUi::ModelUpdated { ... } (same as LoadProject)
 ```
+
+A tab id the document does not have is a loud error, not a silent no-op.
 
 ### Undo isolation
 

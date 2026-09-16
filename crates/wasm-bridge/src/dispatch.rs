@@ -456,18 +456,37 @@ fn handle_message(
         }
 
         // -- Tab / document management --
-        // C2 gap, closed by C3: the message carries a tree, not a tab id, so
-        // the session cannot tell WHICH tab became active and its `active_tab`
-        // goes stale until the next load or save. Nothing reads the session's
-        // tab bar yet (C4 does), so this is a stale field, not a wrong screen.
-        UiToEngine::SwitchTab { features } => {
-            state.active_sketch = None;
-            state.selection.clear();
-            state.hover = None;
-            state.assembly = None;
-            state.clear_context();
-            state.engine.tree = features;
-            state.engine.rebuild_from_scratch(kb);
+        // The session owns the tab bar (S2 C3): each of these names a tab
+        // rather than handing over its content, so the engine and the UI can
+        // no longer hold two tab lists that disagree.
+        UiToEngine::SwitchTab { tab_id } => {
+            switch_to_tab(state, &tab_id, kb)?;
+            Ok(model_updated_response(state))
+        }
+
+        UiToEngine::AddTab { kind, name } => {
+            // Appended last, and NOT activated: the caller sends `SwitchTab`
+            // if it wants it open.
+            state.session.add_tab(&kind, name)?;
+            Ok(model_updated_response(state))
+        }
+
+        UiToEngine::CloseTab { tab_id } => {
+            // Closing an inactive tab touches no geometry; closing the active
+            // one names a successor, which becomes the live tree.
+            if let Some(successor) = state.session.close_tab(&tab_id)? {
+                switch_to_tab(state, &successor, kb)?;
+            }
+            Ok(model_updated_response(state))
+        }
+
+        UiToEngine::RenameTab { tab_id, name } => {
+            state.session.rename_tab(&tab_id, name)?;
+            Ok(model_updated_response(state))
+        }
+
+        UiToEngine::MoveTab { tab_id, index } => {
+            state.session.move_tab(&tab_id, index)?;
             Ok(model_updated_response(state))
         }
 
@@ -520,6 +539,7 @@ fn handle_message(
         }
 
         UiToEngine::OpenAssembly {
+            tab_id,
             assembly,
             part_trees,
             assembly_trees,
@@ -528,8 +548,14 @@ fn handle_message(
             state.selection.clear();
             state.hover = None;
             state.clear_context();
+            // Opening an assembly IS a tab switch, and the only message that
+            // expresses it: the session stashes the outgoing tab's live tree
+            // and history into it before the tree below replaces them.
+            state.session.switch_tab(&tab_id, &mut state.engine)?;
             // The live tree is not the assembly's content; keep the renderer
-            // on the instances only.
+            // on the instances only. (An `Assembly` tab holds no tree, so the
+            // switch already left it empty — this also covers a `Part` tab
+            // named here by a caller that should not have.)
             state.engine.tree = feature_engine::types::FeatureTree::new();
             state.engine.rebuild_from_scratch(kb);
             let view = crate::assembly_view::evaluate(
@@ -544,6 +570,7 @@ fn handle_message(
         }
 
         UiToEngine::OpenPartInContext {
+            tab_id,
             features,
             assembly_tab_id,
             instance_path,
@@ -556,6 +583,13 @@ fn handle_message(
             state.hover = None;
             state.assembly = None;
             state.clear_context();
+            // Opening a part in context is a tab switch too (the store leaves
+            // the assembly tab for the part's), and it happens FIRST: the
+            // stash below must capture the outgoing tab's live tree before
+            // anything replaces it, and a refused tab id must not leave a
+            // context view behind. The message's `features` is the tree to
+            // edit and wins over the stashed copy.
+            state.session.switch_tab(&tab_id, &mut state.engine)?;
             let view = crate::assembly_view::evaluate(
                 assembly,
                 &part_trees,
@@ -579,8 +613,8 @@ fn handle_message(
         }
 
         // -- Settings --
-        UiToEngine::SetDisplayUnit { unit } => {
-            state.set_display_unit(unit);
+        UiToEngine::SetDocumentMeta { name, display_unit } => {
+            state.session.set_meta(name, display_unit);
             Ok(model_updated_response(state))
         }
 
@@ -695,6 +729,27 @@ fn handle_message(
             }
         }
     }
+}
+
+/// Make `tab_id` the active tab and rebuild it (S2 C3).
+///
+/// The session stashes the live tree and the undo history into the outgoing
+/// tab and loads the incoming one's, so neither crosses a switch. Everything
+/// cleared here belongs to the tab being left: a half-finished sketch, the
+/// selection, the hover, an open assembly view, an edit context.
+fn switch_to_tab(
+    state: &mut EngineState,
+    tab_id: &str,
+    kb: &mut dyn KernelBundle,
+) -> Result<(), BridgeError> {
+    state.active_sketch = None;
+    state.selection.clear();
+    state.hover = None;
+    state.assembly = None;
+    state.clear_context();
+    state.session.switch_tab(tab_id, &mut state.engine)?;
+    state.engine.rebuild_from_scratch(kb);
+    Ok(())
 }
 
 /// `ListFaces` (ICR-3): every face of a body as the viewport's `GeomRef` (the

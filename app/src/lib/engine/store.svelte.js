@@ -765,6 +765,19 @@ export async function initEngine() {
 		if (msg.meshes) {
 			meshes = msg.meshes;
 		}
+		// The session's own view of the document (S2 C3). Recorded, never
+		// applied here: see `reconcileTabIdsFromSession` for why matching the
+		// two lists up is only safe at specific moments.
+		sessionDocument = msg.document ?? sessionDocument;
+		// The doc-less `/` bootstrap mints a tab id before the engine has ever
+		// spoken, while the session has its own one Part tab for that same
+		// screen — so the store would ask to switch to a tab the session does
+		// not have. One tab on each side is an unambiguous correspondence:
+		// take the engine's id, once.
+		if (!bootstrapTabsReconciled && documentTabs.length === 1 && sessionDocument?.tabs?.length === 1) {
+			bootstrapTabsReconciled = true;
+			reconcileTabIdsFromSession();
+		}
 		// The document's `sources` table with availability (v4 §2.3) — the
 		// Sources panel's data; absent on the wire when the table is empty.
 		documentSources = msg.sources ?? [];
@@ -6059,7 +6072,7 @@ export function setDocumentDisplayUnit(unit) {
 	documentDisplayUnit = unit;
 	// Notify engine so it persists in save
 	if (bridge && engineReady) {
-		bridge.send({ type: 'SetDisplayUnit', unit }).catch(() => {});
+		bridge.send({ type: 'SetDocumentMeta', display_unit: unit }).catch(() => {});
 	}
 }
 
@@ -6153,6 +6166,10 @@ export async function openDocumentRecord(docId, json, link = null) {
 		if (!(await loadProject(json, { silent: true }))) {
 			throw new Error('the engine did not load the document (not ready, or saved by a newer version)');
 		}
+		// Both lists were built from the same file, in the same order: one of
+		// the two moments the store may take the engine's tab ids (S2 C3).
+		bootstrapTabsReconciled = true;
+		reconcileTabIdsFromSession();
 		// The load's own ModelUpdated scheduled an autosave of what was just read
 		// from storage; nothing is unsaved yet (agent link S3 reads the timer).
 		// Source resolution below may still schedule a real one.
@@ -6199,13 +6216,11 @@ export async function switchTab(tabId) {
 
 	if (bridge && engineReady && targetTab?.kind?.type === 'Assembly') {
 		await refreshAssembly();
-	} else if (bridge && engineReady && targetTab?.kind?.features) {
-		// Deep-clone to unwrap Svelte 5 proxies (they can't be postMessage'd)
-		const features = JSON.parse(JSON.stringify(targetTab.kind.features));
-		await sendRebuild({
-			type: 'SwitchTab',
-			features
-		});
+	} else if (bridge && engineReady) {
+		// The tree is NOT on the wire any more (S2 C3): the session holds every
+		// tab's, stashes the live one into the tab being left and loads the
+		// incoming tab's — which also carries the undo history with it.
+		await sendRebuild({ type: 'SwitchTab', tab_id: tabId });
 	}
 
 	scheduleAutoSave();
@@ -6306,7 +6321,7 @@ export async function refreshAssembly() {
 	// Placements are derived; the engine recomputes them.
 	delete assembly.placements;
 	try {
-		await sendRebuild({ type: 'OpenAssembly', assembly, part_trees, assembly_trees });
+		await sendRebuild({ type: 'OpenAssembly', tab_id: tab.id, assembly, part_trees, assembly_trees });
 		refreshSourceTabs();
 		return true;
 	} catch (err) {
@@ -6355,6 +6370,7 @@ function contextPayload(assemblyTabId, instancePath, partTabId) {
 	delete assembly.placements;
 	return {
 		type: 'OpenPartInContext',
+		tab_id: partTabId,
 		features,
 		assembly_tab_id: assemblyTabId,
 		instance_path: [...instancePath],
@@ -6418,7 +6434,7 @@ export async function openPartInContext(instancePath) {
 		// Fall back to a plain open of the part so the user is not stranded.
 		log('error', `Open in context failed: ${err?.message || err}`);
 		showToast('error', `Could not open in context: ${err?.message || err}`);
-		await sendRebuild({ type: 'SwitchTab', features: payload.features }).catch(() => {});
+		await sendRebuild({ type: 'SwitchTab', tab_id: partTabId }).catch(() => {});
 		scheduleAutoSave();
 		return false;
 	}
@@ -6444,7 +6460,10 @@ export async function updateEditContext() {
 /** Leave the context: the part stays open on its own (ghosts gone). */
 export async function exitEditContext() {
 	if (!editContext || !bridge || !engineReady) return false;
-	await sendRebuild({ type: 'SwitchTab', features: JSON.parse(JSON.stringify(featureTree)) });
+	// Switching to the tab that is already active: the session stashes the live
+	// tree into it and loads it straight back, so the part stays exactly as it
+	// is — only the ghosts go.
+	await sendRebuild({ type: 'SwitchTab', tab_id: activeTabId });
 	return true;
 }
 
@@ -6693,29 +6712,34 @@ export function getSelectedInstancePath() { return selectedInstancePath; }
 export function setSelectedInstancePath(path) { selectedInstancePath = path?.length ? [...path] : null; }
 
 /**
- * Add a new tab to the document.
- * @returns {string} The new tab's ID
+ * Add a new tab to the document. The ENGINE mints the id and the name (S2 C3):
+ * the session owns the tab bar, so a tab the store invented on its own would be
+ * a tab the engine cannot be asked to switch to.
+ * @returns {Promise<string | null>} the new tab's id, or null when the engine
+ *   refused (or is not running — a tab with no engine behind it is not one).
  */
-export function addTab(kind = 'Part') {
-	const id = generateUUID();
-	if (kind === 'Assembly') {
-		const n = documentTabs.filter(t => t.kind?.type === 'Assembly').length + 1;
-		documentTabs = [...documentTabs, {
-			id,
-			name: `Assembly ${n}`,
-			kind: { type: 'Assembly', assembly: { instances: [], connectors: [], mates: [] } }
-		}];
-		scheduleAutoSave();
-		return id;
+export async function addTab(kind = 'Part') {
+	if (!bridge || !engineReady) return null;
+	let response;
+	try {
+		response = await bridge.send({ type: 'AddTab', kind });
+	} catch (err) {
+		log('error', `AddTab failed: ${err?.message || err}`);
+		return null;
 	}
-	const name = `Part ${documentTabs.filter(t => t.kind?.type !== 'Assembly').length + 1}`;
-	documentTabs = [...documentTabs, {
-		id,
-		name,
-		kind: { type: 'Part', features: { features: [], active_index: null } }
-	}];
+	const tabs = response?.document?.tabs;
+	if (response?.type !== 'ModelUpdated' || !tabs?.length) {
+		log('error', `AddTab refused: ${response?.message || 'the engine added no tab'}`);
+		return null;
+	}
+	// Appended last, by the message's contract.
+	const added = tabs[tabs.length - 1];
+	const content = kind === 'Assembly'
+		? { type: 'Assembly', assembly: { instances: [], connectors: [], mates: [] } }
+		: { type: 'Part', features: { features: [], active_index: null } };
+	documentTabs = [...documentTabs, { id: added.id, name: added.name, kind: content }];
 	scheduleAutoSave();
-	return id;
+	return added.id;
 }
 
 /**
@@ -6728,12 +6752,32 @@ export async function closeTab(tabId) {
 	const idx = documentTabs.findIndex(t => t.id === tabId);
 	if (idx === -1) return;
 
+	// The session closes the tab and, when it was the active one, makes its
+	// successor active and rebuilds it — one message, so the store never holds
+	// a tab list the engine has already moved past.
+	let response = null;
+	if (bridge && engineReady) {
+		try {
+			response = await bridge.send({ type: 'CloseTab', tab_id: tabId });
+		} catch (err) {
+			log('error', `CloseTab failed: ${err?.message || err}`);
+			return;
+		}
+		if (response?.type !== 'ModelUpdated') {
+			log('error', `CloseTab refused: ${response?.message || 'the engine kept the tab'}`);
+			return;
+		}
+	}
+
 	documentTabs = documentTabs.filter(t => t.id !== tabId);
 
 	if (activeTabId === tabId) {
-		// Switch to adjacent tab (prefer left neighbor, else right)
-		const newIdx = Math.min(idx, documentTabs.length - 1);
-		await switchTab(documentTabs[newIdx].id);
+		// The successor the session chose (the next tab, or the last if the
+		// closed one was last); its tree is already the live one.
+		const successor = response?.document?.active_tab
+			?? documentTabs[Math.min(idx, documentTabs.length - 1)].id;
+		activeTabId = successor;
+		lastRebuildWarnings = new Set();
 	}
 
 	scheduleAutoSave();
@@ -6744,7 +6788,15 @@ export async function closeTab(tabId) {
  * @param {string} tabId
  * @param {string} name
  */
-export function renameTab(tabId, name) {
+export async function renameTab(tabId, name) {
+	if (bridge && engineReady) {
+		try {
+			await bridge.send({ type: 'RenameTab', tab_id: tabId, name });
+		} catch (err) {
+			log('error', `RenameTab failed: ${err?.message || err}`);
+			return;
+		}
+	}
 	documentTabs = documentTabs.map(t =>
 		t.id === tabId ? { ...t, name } : t
 	);
@@ -6758,17 +6810,70 @@ export function renameTab(tabId, name) {
  * @param {number} index
  * @returns {boolean} whether the order changed
  */
-export function moveTab(tabId, index) {
+export async function moveTab(tabId, index) {
 	const from = documentTabs.findIndex(t => t.id === tabId);
 	if (from === -1) return false;
 	const to = Math.max(0, Math.min(documentTabs.length - 1, Math.trunc(index)));
 	if (to === from) return false;
+	if (bridge && engineReady) {
+		try {
+			await bridge.send({ type: 'MoveTab', tab_id: tabId, index: to });
+		} catch (err) {
+			log('error', `MoveTab failed: ${err?.message || err}`);
+			return false;
+		}
+	}
 	const next = [...documentTabs];
 	const [tab] = next.splice(from, 1);
 	next.splice(to, 0, tab);
 	documentTabs = next;
 	scheduleAutoSave();
 	return true;
+}
+
+/**
+ * The session's tab list as of the last `ModelUpdated` (S2 C3), for the
+ * reconciliation points below. `{id, name, kind}` per tab; never a tree.
+ * @type {any}
+ */
+let sessionDocument = null;
+
+/** Whether the bootstrap tab has taken the engine's id (once per page). */
+let bootstrapTabsReconciled = false;
+
+/**
+ * Take the engine's tab ids for the store's tabs, positionally (S2 C3).
+ *
+ * The store and the engine each minted ids for the SAME file — the store's
+ * `initDocumentState` rewrites a legacy id to a fresh UUID, and the engine's
+ * v3→v4 migration does its own — and the save handed the store's ids back, so
+ * the engine's were discarded. Harmless while `SwitchTab` carried the tree; not
+ * harmless now that it names a tab, because the store would ask for a tab the
+ * session does not have.
+ *
+ * **Only call this where the correspondence is guaranteed**: right after a
+ * `LoadProject`, where both lists are the same tabs in the same order because
+ * both were built from the same file. Running it on every `ModelUpdated` is
+ * what the first cut of C3 did, and it corrupts identity: the moment the two
+ * lists differ in order or membership (a reorder in flight, a bootstrap tab the
+ * engine never saw), pairing by position stamps each tab with its neighbour's
+ * id — observed turning `[P1,P2,P3]` into three tabs whose names and ids no
+ * longer belong to each other.
+ */
+function reconcileTabIdsFromSession() {
+	const session = sessionDocument?.tabs;
+	if (!session || session.length !== documentTabs.length) return;
+	/** @type {Map<string, string>} */
+	const adopted = new Map();
+	const next = documentTabs.map((tab, i) => {
+		if (session[i].id === tab.id) return tab;
+		adopted.set(tab.id, session[i].id);
+		return { ...tab, id: session[i].id };
+	});
+	if (adopted.size === 0) return;
+	documentTabs = next;
+	if (activeTabId && adopted.has(activeTabId)) activeTabId = adopted.get(activeTabId) ?? activeTabId;
+	log('engine', 'Adopted the engine tab ids', { count: adopted.size });
 }
 
 /**
@@ -8323,6 +8428,9 @@ export async function loadProject(jsonData, { silent = false } = {}) {
 				if (parsed) {
 					const fileId = isUuid(parsed.document?.id) ? parsed.document.id : generateUUID();
 					initDocumentState(fileId, parsed);
+					// Same file, same order, on both sides (S2 C3).
+					bootstrapTabsReconciled = true;
+					reconcileTabIdsFromSession();
 				}
 				// Project name from filename (wins over the stored doc name).
 				const nameWithoutExt = file.name.replace(/\.(waffle|json)$/i, '');

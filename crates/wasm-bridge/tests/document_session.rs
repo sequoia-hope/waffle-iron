@@ -41,8 +41,9 @@ fn model_updated_reports_the_session() {
 
     let response = dispatch(
         &mut state,
-        UiToEngine::SetDisplayUnit {
-            unit: "in".to_string(),
+        UiToEngine::SetDocumentMeta {
+            name: None,
+            display_unit: Some("in".to_string()),
         },
         &mut kernel,
     );
@@ -66,8 +67,9 @@ fn the_display_unit_has_one_home_now() {
 
     dispatch(
         &mut state,
-        UiToEngine::SetDisplayUnit {
-            unit: "cm".to_string(),
+        UiToEngine::SetDocumentMeta {
+            name: None,
+            display_unit: Some("cm".to_string()),
         },
         &mut kernel,
     );
@@ -126,6 +128,139 @@ fn new_document_resets_the_session() {
     assert_eq!(info.tabs.len(), 1);
     assert_eq!(info.revision, 0, "a new document starts a new count");
     assert_ne!(info.id, loaded_id, "a new document is a new identity");
+}
+
+#[test]
+fn the_tab_messages_drive_the_session_and_report_it() {
+    let mut state = EngineState::new();
+    let mut kernel = MockKernel::new();
+    let first = state.session.tabs()[0].id.clone();
+
+    let r = dispatch(
+        &mut state,
+        UiToEngine::AddTab {
+            kind: "Part".to_string(),
+            name: None,
+        },
+        &mut kernel,
+    );
+    let info = reported(&r);
+    assert_eq!(info.tabs.len(), 2);
+    assert_eq!(info.tabs[1].name, "Part 2", "named as the tab bar's + does");
+    assert_eq!(
+        info.active_tab, first,
+        "adding a tab does not open it; SwitchTab does"
+    );
+    let second = info.tabs[1].id.clone();
+
+    let r = dispatch(
+        &mut state,
+        UiToEngine::RenameTab {
+            tab_id: second.clone(),
+            name: "Bracket".to_string(),
+        },
+        &mut kernel,
+    );
+    assert_eq!(reported(&r).tabs[1].name, "Bracket");
+
+    let r = dispatch(
+        &mut state,
+        UiToEngine::MoveTab {
+            tab_id: second.clone(),
+            index: 0,
+        },
+        &mut kernel,
+    );
+    let order: Vec<String> = reported(&r).tabs.iter().map(|t| t.id.clone()).collect();
+    assert_eq!(order, [second.clone(), first.clone()]);
+
+    let r = dispatch(
+        &mut state,
+        UiToEngine::SwitchTab {
+            tab_id: second.clone(),
+        },
+        &mut kernel,
+    );
+    assert_eq!(reported(&r).active_tab, second);
+}
+
+#[test]
+fn the_live_tree_follows_the_tab_and_a_closed_tab_hands_over_to_its_successor() {
+    let mut state = EngineState::new();
+    let mut kernel = MockKernel::new();
+    let first = state.session.tabs()[0].id.clone();
+    // A tree distinguishable from an empty one without building geometry (a
+    // rollback bar at 0 slices no features, so the rebuild is still valid).
+    state.engine.tree.active_index = Some(0);
+
+    let r = dispatch(
+        &mut state,
+        UiToEngine::AddTab {
+            kind: "Part".to_string(),
+            name: None,
+        },
+        &mut kernel,
+    );
+    let second = reported(&r).tabs[1].id.clone();
+
+    dispatch(
+        &mut state,
+        UiToEngine::SwitchTab {
+            tab_id: second.clone(),
+        },
+        &mut kernel,
+    );
+    assert_eq!(state.engine.tree.active_index, None, "the new tab is empty");
+
+    dispatch(
+        &mut state,
+        UiToEngine::SwitchTab {
+            tab_id: first.clone(),
+        },
+        &mut kernel,
+    );
+    assert_eq!(
+        state.engine.tree.active_index,
+        Some(0),
+        "the tab we left kept its tree — the wire no longer carries it"
+    );
+
+    // Closing the ACTIVE tab makes its successor active, and live.
+    let r = dispatch(
+        &mut state,
+        UiToEngine::CloseTab { tab_id: first },
+        &mut kernel,
+    );
+    let info = reported(&r);
+    assert_eq!(info.tabs.len(), 1);
+    assert_eq!(info.active_tab, second);
+    assert_eq!(state.engine.tree.active_index, None);
+}
+
+#[test]
+fn a_tab_id_the_document_does_not_have_is_a_loud_error() {
+    let mut state = EngineState::new();
+    let mut kernel = MockKernel::new();
+    let before = state.session.active_tab_id().to_string();
+
+    let r = dispatch(
+        &mut state,
+        UiToEngine::SwitchTab {
+            tab_id: "no-such-tab".to_string(),
+        },
+        &mut kernel,
+    );
+    match r {
+        EngineToUi::Error { message, .. } => {
+            assert!(message.contains("no-such-tab"), "{message}");
+        }
+        other => panic!("expected an Error, got {other:?}"),
+    }
+    assert_eq!(
+        state.session.active_tab_id(),
+        before,
+        "a refused switch changes nothing"
+    );
 }
 
 #[test]

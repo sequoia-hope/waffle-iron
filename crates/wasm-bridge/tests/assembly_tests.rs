@@ -81,15 +81,35 @@ fn fastened(a: Uuid, b: Uuid, flip: bool) -> Mate {
     }
 }
 
+/// The document's `Assembly` tab, added on first use. `OpenAssembly` names the
+/// tab it opens (S2 C3): the session makes it active, so the live tree it
+/// stashes on the way out lands on the tab it actually came from.
+fn assembly_tab(state: &mut EngineState) -> String {
+    if let Some(tab) = state
+        .session
+        .tabs()
+        .into_iter()
+        .find(|t| t.kind == "Assembly")
+    {
+        return tab.id;
+    }
+    state
+        .session
+        .add_tab("Assembly", None)
+        .expect("an Assembly tab")
+}
+
 fn open(
     state: &mut EngineState,
     kernel: &mut KernelV2Adapter,
     tree: &AssemblyTree,
     parts: &HashMap<String, FeatureTree>,
 ) -> AssemblyStatus {
+    let tab_id = assembly_tab(state);
     let r = dispatch(
         state,
         UiToEngine::OpenAssembly {
+            tab_id,
             assembly: tree.clone(),
             part_trees: parts.clone(),
             assembly_trees: HashMap::new(),
@@ -145,11 +165,10 @@ fn open_assembly_builds_parts_once_places_instances_and_reports_placements() {
     let _ = ida;
 
     // Switching to a Part tab drops the assembly view.
+    let part_tab = state.session.tabs()[0].id.clone();
     dispatch(
         &mut state,
-        UiToEngine::SwitchTab {
-            features: FeatureTree::new(),
-        },
+        UiToEngine::SwitchTab { tab_id: part_tab },
         &mut kernel,
     );
     assert!(state.assembly.is_none());
@@ -336,9 +355,11 @@ fn a_sub_assembly_instance_renders_its_members_with_composed_placements_and_conn
         ..Default::default()
     };
 
+    let tab_id = assembly_tab(&mut state);
     let r = dispatch(
         &mut state,
         UiToEngine::OpenAssembly {
+            tab_id,
             assembly: top,
             part_trees: parts,
             assembly_trees: asm_trees,
@@ -387,9 +408,11 @@ fn a_sub_assembly_instance_renders_its_members_with_composed_placements_and_conn
         instances: vec![selfref],
         ..Default::default()
     };
+    let tab_id = assembly_tab(&mut state);
     let r = dispatch(
         &mut state,
         UiToEngine::OpenAssembly {
+            tab_id,
             assembly: looping.clone(),
             part_trees: HashMap::new(),
             assembly_trees: HashMap::from([("loop".to_string(), looping)]),
@@ -563,9 +586,13 @@ fn open_in_context(
     parts: &HashMap<String, FeatureTree>,
     path: Vec<Uuid>,
 ) -> Result<ContextStatus, String> {
+    // The Part tab being opened in context — the session makes it active, so
+    // the tree it stashes on the way out lands on the tab it came from.
+    let tab_id = state.session.tabs()[0].id.clone();
     let r = dispatch(
         state,
         UiToEngine::OpenPartInContext {
+            tab_id,
             features: features.clone(),
             assembly_tab_id: "asm".into(),
             instance_path: path,
@@ -754,11 +781,19 @@ fn open_part_in_context_snapshots_the_other_instances_and_scoped_planes_follow_t
 
     // Opening the part on its own (SwitchTab) drops the context: the sketch
     // keeps its last derived plane and says what it depends on, loudly.
+    // Switching to the tab that is ALREADY active stashes the live tree into
+    // it and loads it straight back, so the in-context edits survive.
     let live_now = state.engine.tree.clone();
+    let open_tab = state.session.active_tab_id().to_string();
     let r = dispatch(
         &mut state,
-        UiToEngine::SwitchTab { features: live_now },
+        UiToEngine::SwitchTab { tab_id: open_tab },
         &mut kernel,
+    );
+    assert_eq!(
+        state.engine.tree.features.len(),
+        live_now.features.len(),
+        "the live tree survives a switch to the tab it belongs to"
     );
     let EngineToUi::ModelUpdated {
         warnings, context, ..

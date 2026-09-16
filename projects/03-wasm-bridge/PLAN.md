@@ -143,16 +143,65 @@ unchanged throughout.
         `structure()` compares response TYPES, body metadata and counts, not
         the response bytes, so a new `ModelUpdated` field does not move it —
         the byte-for-byte `.mjs` golden does shift, and C3 regenerates it.
-- [ ] C3: new messages `AddTab`/`CloseTab`/`RenameTab`/`MoveTab`/
-      `SetDocumentMeta`/`EditAssembly`; `SwitchTab` takes a `tab_id` not a
-      tree; `OpenAssembly` takes a `tab_id` and the session supplies the part
-      trees (today JS re-sends every tree on every assembly evaluation —
-      the largest payload this removes); `SaveDocument` loses its payload
-      (v4 §4 inv. 7 one writer). Regenerate the render-view parity fixtures.
+- C3 is staged in three commits: the tab bar (C3a), the tree payloads (C3b),
+  the save payload (C3c). Splitting was forced by a real hazard — see C3a's
+  first bullet.
+- [x] **C3a — the tab bar moves to the session** (2026-09-16): `SwitchTab`
+      takes a `tab_id` instead of a tree; new `AddTab`/`CloseTab`/`RenameTab`/
+      `MoveTab`; `SetDocumentMeta` replaces `SetDisplayUnit`, so the document's
+      metadata has one message that writes it. `OpenAssembly` and
+      `OpenPartInContext` gained a `tab_id` — REQUIRED, not cosmetic: opening
+      an assembly or a part in context IS a tab switch, and neither could be
+      expressed by the tree-carrying `SwitchTab`. With a stale `active_tab` the
+      next `stash_active` writes the live tree onto the WRONG tab, which is
+      silent data loss.
+      - **The store had to stop minting tab ids, and that is why C3 split.**
+        `initDocumentState` rewrote legacy ids to fresh UUIDs and the engine's
+        v3→v4 migration minted its own; `SaveDocument` handed the store's back,
+        so the engine's were discarded. Harmless while the tree rode the wire —
+        fatal once a message NAMES a tab. The store now takes the engine's ids
+        at the only two moments the correspondence is provable: right after a
+        `LoadProject` (both lists built from the same file, same order) and
+        once at the doc-less `/` bootstrap (one tab on each side).
+      - **Trap, caught only by a GUI test:** the first cut reconciled
+        POSITIONALLY on every `ModelUpdated`. That corrupts identity the moment
+        the two lists differ in order or membership — after a `moveTab` the
+        names were reordered correctly while the ids were stamped onto their
+        neighbours, and a session id the store had never seen appeared in the
+        list. Reconcile only where the pairing is provable; never "when the
+        lengths happen to match".
+      - Two latent bugs fixed on the way: `stash_active` parked the undo
+        history under the id of a tab `close_tab` had just removed (a history
+        outliving its tab), and `OpenPartInContext` set `context_view` /
+        `engine.context` BEFORE the switch that can fail, leaving an edit
+        context behind on a refused tab id.
+      - Oracles: 170 `wasm-bridge` tests (3 new in `document_session.rs`);
+        clippy `--all-targets -D warnings`; `fmt --check`; both release parity
+        tests green against regenerated `scenarios.json` + `golden.json` — the
+        scenarios now open a FIXED two-tab document, because a static JSON
+        scenario cannot name a session-minted tab id (its document id and
+        timestamps are pinned too, or `scenarios_fixture_is_current` would be
+        permanently stale); GUI 27 targeted + gui-fast 349, all passed.
+      - **gui-fast covers NONE of this** — it is sketch/viewport/feature-tree
+        only, and was green the whole time the tab ids were corrupt. The specs
+        that actually exercise C3 must be named explicitly:
+        `agent-tabs-viewport`, `agent-documents`, `assembly`,
+        `document-format-seam`, `document-identity`, `auto-restore`.
+- [ ] C3b: the session supplies the trees — `OpenAssembly`/`OpenPartInContext`
+      lose `part_trees`/`assembly_trees` (today JS re-sends every Part tree on
+      every assembly evaluation, the largest payload this removes), plus a new
+      `EditAssembly` so the assembly panel's edits reach the session instead of
+      only the store's tab copy.
+- [ ] C3c: `SaveDocument` loses its payload (v4 §4 inv. 7, one writer) and
+      `DocumentSession::adopt` is deleted with it; the session records each
+      tab's preview mesh (it has `set_preview_mesh`, still called by nothing).
+      Regenerate the parity fixtures.
 - [ ] C4: the JS store's tab/assembly/metadata `$state` becomes a mirror fed
       by `ModelUpdated`; delete the second `.waffle` parser in
       `initDocumentState`. A2.1 compliance.
-- Found by C1, to fix in C2/C3: **undo already leaks across tabs today** —
+- ~~Found by C1, to fix in C2/C3~~ **FIXED by C3a** (the per-tab stack is live:
+  `switch_tab` parks the outgoing tab's history and restores the incoming
+  tab's): **undo used to leak across tabs** —
   `SwitchTab` replaces `engine.tree` and `rebuild_from_scratch` clears only
   results, never `undo_stack`, so an `Undo` after a switch pops a command
   recorded against the tab you just left. The per-tab stack is a behavior

@@ -6,8 +6,8 @@
     {
      "response_type": "ModelUpdated",
      "response": {
-      "n": 24758,
-      "fnv": "ed626aebabdbe2d2"
+      "n": 24985,
+      "fnv": "eeb1053f7a9647d9"
      },
      "metadata": {
       "n": 187,
@@ -118,8 +118,8 @@
     {
      "response_type": "ModelUpdated",
      "response": {
-      "n": 20846,
-      "fnv": "a754a85049448be5"
+      "n": 21063,
+      "fnv": "8a5351f1ec6b8006"
      },
      "metadata": {
       "n": 187,
@@ -230,8 +230,8 @@
     {
      "response_type": "ModelUpdated",
      "response": {
-      "n": 26706,
-      "fnv": "6104ee336735aabd"
+      "n": 26955,
+      "fnv": "fa5679688003c994"
      },
      "metadata": {
       "n": 393,
@@ -428,8 +428,8 @@
     {
      "response_type": "ModelUpdated",
      "response": {
-      "n": 25269,
-      "fnv": "c8c83f4b61f7286a"
+      "n": 25504,
+      "fnv": "649798400ff9df95"
      },
      "metadata": {
       "n": 186,
@@ -600,8 +600,8 @@
     {
      "response_type": "ModelUpdated",
      "response": {
-      "n": 4329,
-      "fnv": "71267c9878dd6e1c"
+      "n": 4557,
+      "fnv": "f7fd7b65090b2540"
      },
      "metadata": {
       "n": 189,
@@ -772,83 +772,8 @@
     {
      "response_type": "ModelUpdated",
      "response": {
-      "n": 395,
-      "fnv": "79259d5cb2e32fb1"
-     },
-     "metadata": {
-      "n": 1071,
-      "fnv": "721e9b55f8acb1d5"
-     },
-     "bodies": [
-      {
-       "vertices": {
-        "n": 20160,
-        "fnv": "fb60cf8c6f43d075"
-       },
-       "normals": {
-        "n": 20160,
-        "fnv": "0ce60b125519b725"
-       },
-       "indices": {
-        "n": 13428,
-        "fnv": "9db8159173124eb5"
-       },
-       "faces": {
-        "n": 400571,
-        "fnv": "a6ae0c804666e48d"
-       },
-       "edge_vertices": {
-        "n": 20160,
-        "fnv": "05ce1fb749f8e065"
-       },
-       "edges": {
-        "n": 1304824,
-        "fnv": "bb6357c7b209cc7e"
-       }
-      },
-      {
-       "vertices": {
-        "n": 20160,
-        "fnv": "fb60cf8c6f43d075"
-       },
-       "normals": {
-        "n": 20160,
-        "fnv": "0ce60b125519b725"
-       },
-       "indices": {
-        "n": 13428,
-        "fnv": "9db8159173124eb5"
-       },
-       "faces": {
-        "n": 400571,
-        "fnv": "a6ae0c804666e48d"
-       },
-       "edge_vertices": {
-        "n": 20160,
-        "fnv": "05ce1fb749f8e065"
-       },
-       "edges": {
-        "n": 1304824,
-        "fnv": "bb6357c7b209cc7e"
-       }
-      }
-     ],
-     "legacy": {
-      "mesh_count": 0,
-      "renderable": [],
-      "features": []
-     }
-    }
-   ]
-  },
-  {
-   "name": "in_context",
-   "steps": [
-    {
-     "response_type": "ModelUpdated",
-     "response": {
-      "n": 24815,
-      "fnv": "009c5c6e0029a6d5"
+      "n": 25093,
+      "fnv": "e9e1ab0425814c7f"
      },
      "metadata": {
       "n": 187,
@@ -954,12 +879,194 @@
     {
      "response_type": "ModelUpdated",
      "response": {
-      "n": 25098,
-      "fnv": "b777951186184cd6"
+      "n": 734,
+      "fnv": "535eeae4b7a36d65"
      },
      "metadata": {
-      "n": 648,
-      "fnv": "edbb426c86fc6151"
+      "n": 1199,
+      "fnv": "f44e15a5cf72b625"
+     },
+     "bodies": [
+      {
+       "vertices": {
+        "n": 20160,
+        "fnv": "fb60cf8c6f43d075"
+       },
+       "normals": {
+        "n": 20160,
+        "fnv": "0ce60b125519b725"
+       },
+       "indices": {
+        "n": 13428,
+        "fnv": "9db8159173124eb5"
+       },
+       "faces": {
+        "n": 400571,
+        "fnv": "a6ae0c804666e48d"
+       },
+       "edge_vertices": {
+        "n": 20160,
+        "fnv": "05ce1fb749f8e065"
+       },
+       "edges": {
+        "n": 1304824,
+        "fnv": "bb6357c7b209cc7e"
+       }
+      },
+      {
+       "vertices": {
+        "n": 20160,
+        "fnv": "fb60cf8c6f43d075"
+       },
+       "normals": {
+        "n": 20160,
+        "fnv": "0ce60b125519b725"
+       },
+       "indices": {
+        "n": 13428,
+        "fnv": "9db8159173124eb5"
+       },
+       "faces": {
+        "n": 400571,
+        "fnv": "a6ae0c804666e48d"
+       },
+       "edge_vertices": {
+        "n": 20160,
+        "fnv": "05ce1fb749f8e065"
+       },
+       "edges": {
+        "n": 1304824,
+        "fnv": "bb6357c7b209cc7e"
+       }
+      }
+     ],
+     "legacy": {
+      "mesh_count": 0,
+      "renderable": [],
+      "features": []
+     }
+    }
+   ]
+  },
+  {
+   "name": "in_context",
+   "steps": [
+    {
+     "response_type": "ModelUpdated",
+     "response": {
+      "n": 25046,
+      "fnv": "3bb79bb50e7d493e"
+     },
+     "metadata": {
+      "n": 187,
+      "fnv": "c74ebdaa1c7aa03d"
+     },
+     "bodies": [
+      {
+       "vertices": {
+        "n": 20160,
+        "fnv": "fb60cf8c6f43d075"
+       },
+       "normals": {
+        "n": 20160,
+        "fnv": "0ce60b125519b725"
+       },
+       "indices": {
+        "n": 13428,
+        "fnv": "9db8159173124eb5"
+       },
+       "faces": {
+        "n": 400571,
+        "fnv": "a6ae0c804666e48d"
+       },
+       "edge_vertices": {
+        "n": 20160,
+        "fnv": "05ce1fb749f8e065"
+       },
+       "edges": {
+        "n": 1304824,
+        "fnv": "bb6357c7b209cc7e"
+       }
+      }
+     ],
+     "legacy": {
+      "mesh_count": 1,
+      "renderable": [
+       1
+      ],
+      "features": [
+       {
+        "mesh_json": {
+         "n": 36,
+         "fnv": "f3191999da686a2a"
+        },
+        "vertices": {
+         "n": 0,
+         "fnv": "cbf29ce484222325"
+        },
+        "normals": {
+         "n": 0,
+         "fnv": "cbf29ce484222325"
+        },
+        "indices": {
+         "n": 0,
+         "fnv": "cbf29ce484222325"
+        },
+        "faces": {
+         "n": 2,
+         "fnv": "09612b07b5ecb5a5"
+        },
+        "edge_vertices": {
+         "n": 0,
+         "fnv": "cbf29ce484222325"
+        },
+        "edges": {
+         "n": 2,
+         "fnv": "09612b07b5ecb5a5"
+        }
+       },
+       {
+        "mesh_json": {
+         "n": 476974,
+         "fnv": "8d6f7ea8601fd071"
+        },
+        "vertices": {
+         "n": 20160,
+         "fnv": "fb60cf8c6f43d075"
+        },
+        "normals": {
+         "n": 20160,
+         "fnv": "0ce60b125519b725"
+        },
+        "indices": {
+         "n": 13428,
+         "fnv": "9db8159173124eb5"
+        },
+        "faces": {
+         "n": 400571,
+         "fnv": "a6ae0c804666e48d"
+        },
+        "edge_vertices": {
+         "n": 20160,
+         "fnv": "05ce1fb749f8e065"
+        },
+        "edges": {
+         "n": 1304824,
+         "fnv": "bb6357c7b209cc7e"
+        }
+       }
+      ]
+     }
+    },
+    {
+     "response_type": "ModelUpdated",
+     "response": {
+      "n": 25475,
+      "fnv": "a9f334417035dd89"
+     },
+     "metadata": {
+      "n": 712,
+      "fnv": "3c9494a6ed22760f"
      },
      "bodies": [
       {
@@ -1002,16 +1109,16 @@
         "fnv": "9db8159173124eb5"
        },
        "faces": {
-        "n": 626619,
-        "fnv": "73963af7a21a89a4"
+        "n": 663645,
+        "fnv": "7b2b7cde126cdd48"
        },
        "edge_vertices": {
         "n": 20160,
         "fnv": "3569ce17f8e51199"
        },
        "edges": {
-        "n": 1580344,
-        "fnv": "50014e3df544f2be"
+        "n": 1691224,
+        "fnv": "16cf186ba807fe68"
        }
       }
      ],

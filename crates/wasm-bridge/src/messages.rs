@@ -245,6 +245,11 @@ pub enum UiToEngine {
     /// are solved and returned as `ModelUpdated.assembly`; the instance
     /// bodies are then what the per-body accessors enumerate.
     OpenAssembly {
+        /// The `Assembly` tab being opened. The session makes it active — a
+        /// switch the tree-carrying `SwitchTab` cannot express, and without it
+        /// the session's `active_tab` would go stale and the NEXT switch would
+        /// stash the live tree onto the wrong tab (S2 C3).
+        tab_id: String,
         assembly: feature_engine::assembly::AssemblyTree,
         #[serde(default)]
         part_trees: HashMap<String, FeatureTree>,
@@ -281,6 +286,9 @@ pub enum UiToEngine {
     /// `SwitchTab`/`OpenAssembly`/`LoadProject` drops it. The instance must be
     /// a same-document Part (a linked part is read-only).
     OpenPartInContext {
+        /// The Part tab being opened in context: the session makes it active,
+        /// for the same reason `OpenAssembly` carries one (S2 C3).
+        tab_id: String,
         features: FeatureTree,
         assembly_tab_id: String,
         instance_path: Vec<Uuid>,
@@ -332,18 +340,54 @@ pub enum UiToEngine {
     },
 
     // -- Tab / document management --
-    /// Switch to a different tab, saving current features and loading new ones.
+    /// Make `tab_id` the active tab (S2 C3). The session stashes the live tree
+    /// and the undo history into the outgoing tab and loads the incoming one's
+    /// — the tree is NOT on the wire, because the session already holds every
+    /// tab's. Switching to an `Assembly` tab leaves the live tree empty; the
+    /// assembly itself is evaluated by `OpenAssembly`.
     SwitchTab {
-        /// Features of the tab being switched TO.
-        features: FeatureTree,
+        tab_id: String,
+    },
+    /// Append a tab of `kind` (`Part` or `Assembly`) and mint its id. `name`
+    /// defaults to `"Part N"` / `"Assembly N"`, counting existing tabs of that
+    /// kind exactly as the tab bar's + buttons do. The new tab is the LAST one
+    /// of the `ModelUpdated.document.tabs` that answers — it does not become
+    /// active; send `SwitchTab` for that.
+    AddTab {
+        /// `Part` or `Assembly`; any other kind is refused.
+        kind: String,
+        #[serde(default)]
+        name: Option<String>,
+    },
+    /// Remove a tab and its parked undo history. Closing the ACTIVE tab makes
+    /// its successor active (the next tab, or the last if it was last) and
+    /// rebuilds. The document's last tab cannot be closed.
+    CloseTab {
+        tab_id: String,
+    },
+    RenameTab {
+        tab_id: String,
+        name: String,
+    },
+    /// Move a tab to `index` in the bar (0 = first); an index past the end
+    /// moves it last, as `tab_move` documents.
+    MoveTab {
+        tab_id: String,
+        index: usize,
     },
     /// Reset engine to a clean state (new document).
     NewDocument,
 
     // -- Settings --
-    /// Set the document display unit (mm, cm, m, in, ft).
-    SetDisplayUnit {
-        unit: String,
+    /// Set the document's name, its display unit (mm, cm, m, in, ft), or both
+    /// (S2 C3). `modified` is stamped at save time, never here. This replaced
+    /// `SetDisplayUnit`: the document's metadata has one home (the session's
+    /// `DocumentMetadata`) and one message that writes it.
+    SetDocumentMeta {
+        #[serde(default)]
+        name: Option<String>,
+        #[serde(default)]
+        display_unit: Option<String>,
     },
 
     // -- Design parameters (variables) --

@@ -495,9 +495,15 @@ fn export_step_with_an_open_assembly_places_every_instance() {
 
     let mut state = EngineState::new();
     state.set_project_name("asm");
+    // The assembly is a tab of the document, and `OpenAssembly` names it.
+    let asm_tab = state
+        .session
+        .add_tab("Assembly", None)
+        .expect("assembly tab");
     let r = dispatch(
         &mut state,
         UiToEngine::OpenAssembly {
+            tab_id: asm_tab,
             assembly: tree,
             part_trees: HashMap::from([("part".to_string(), part_tree)]),
             assembly_trees: HashMap::new(),

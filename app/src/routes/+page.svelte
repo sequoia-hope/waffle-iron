@@ -116,7 +116,7 @@
 			activeTabId={activeTab}
 			onswitch={(id) => switchTab(id)}
 			onclose={(id) => closeTab(id)}
-			onadd={(kind) => { const id = addTab(kind); switchTab(id); }}
+			onadd={async (kind) => { const id = await addTab(kind); if (id) await switchTab(id); }}
 			onrename={(id, name) => renameTab(id, name)}
 			onmove={(id, index) => moveTab(id, index)}
 		/>
@@ -157,7 +157,7 @@
 			activeTabId={activeTab}
 			onswitch={(id) => switchTab(id)}
 			onclose={(id) => closeTab(id)}
-			onadd={(kind) => { const id = addTab(kind); switchTab(id); }}
+			onadd={async (kind) => { const id = await addTab(kind); if (id) await switchTab(id); }}
 			onrename={(id, name) => renameTab(id, name)}
 			onmove={(id, index) => moveTab(id, index)}
 		/>

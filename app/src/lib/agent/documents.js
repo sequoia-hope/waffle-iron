@@ -179,8 +179,10 @@ export const DOCUMENT_COMMANDS = {
 
 	async tab_add({ kind = 'Part', name, activate = true }) {
 		requireEditable();
-		const id = addTab(kind);
-		if (name) renameTab(id, name);
+		// The engine mints the tab (S2 C3); the store follows it.
+		const id = await addTab(kind);
+		if (!id) throw fail('Internal', 'The engine did not add the tab.', { kind });
+		if (name) await renameTab(id, name);
 		if (activate) await switchTab(id);
 		return toolOk({ tab_id: id, ...documentInfo() });
 	},
@@ -188,14 +190,14 @@ export const DOCUMENT_COMMANDS = {
 	async tab_move({ tab_id, index }) {
 		requireEditable();
 		requireTab(tab_id);
-		moveTab(tab_id, index);
+		await moveTab(tab_id, index);
 		return toolOk(documentInfo());
 	},
 
 	async tab_rename({ tab_id, name }) {
 		requireEditable();
 		requireTab(tab_id);
-		renameTab(tab_id, name);
+		await renameTab(tab_id, name);
 		return toolOk(documentInfo());
 	}
 };

@@ -231,11 +231,16 @@ impl DocumentSession {
     /// its content: the live tree is empty while such a tab is open, and
     /// stamping it in would invent a `features` key the tab never had.
     pub fn stash_active(&mut self, engine: &mut Engine) {
+        // Always taken: the outgoing tab's history must not follow the engine
+        // to the next tab, even when there is nowhere left to park it (the
+        // active tab was just closed — C3's `CloseTab` switches to a
+        // successor). Parking it under a dead id would leak a history that
+        // outlives its tab.
         let history = engine.take_history();
-        self.histories.insert(self.active_tab.clone(), history);
         let Ok(index) = self.index_of(&self.active_tab.clone()) else {
             return;
         };
+        self.histories.insert(self.active_tab.clone(), history);
         if let Some(features) = self.tabs[index].features_mut() {
             *features = engine.tree.clone();
         }
