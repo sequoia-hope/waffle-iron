@@ -180,7 +180,14 @@ async function runDocumentCommand(tool, run, args, ctx) {
  * a divergence is visible without being served to an agent. The JS body is
  * deleted — and the name leaves this set — once the differential is green.
  */
-const SHADOWED = new Set(['model_summary']);
+const SHADOWED = new Set([
+	'model_summary',
+	'feature_get',
+	'body_measure',
+	'face_list',
+	'sketch_regions',
+	'expression_evaluate'
+]);
 
 /** Off by default: shadowing takes the engine lock and costs a round trip. */
 let shadowing = false;

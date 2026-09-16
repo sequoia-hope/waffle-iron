@@ -186,16 +186,23 @@ proven by the existing GUI suites plus the named oracle.
 | **S0** — landed 2026-09-15 | Move the ≈ 600 target-independent lines of `wasm_api.rs` (renderable-body collection, naming, face/edge entries) into a shared `wasm-bridge/src/render_view.rs`, and the message pipeline (parse → dispatch → tessellate → preview → serialize) into `wasm-bridge/src/process.rs` with the clock and logger injected; `wasm_api` becomes a pure binding shim | `wasm-bridge/tests/render_view_parity.{rs,mjs}` over 7 scenarios (5 corpus loads, an assembly, an in-context edit with ghosts). **Bundle, byte for byte:** the rebuilt bundle's census of every worker accessor equals the pre-move bundle's (`golden.json`). **Native vs bundle, structure:** same response types, body metadata and all counts; bytes differ across targets by design (§2.7 H3) |
 | **S1** — landed 2026-09-16 | Request ids in the bridge (`{id, msg}` envelope; worker echoes `id`), replacing FIFO pairing. Needed by any multiplexed transport | `sketch-drawing-regression.spec.js` + agent-link specs green |
 | **S2** — landed 2026-09-16 (C1–C4) | **Document session in Rust.** `EngineState` gains the tab list, inactive tab trees, assembly trees, document metadata, a per-tab undo stack, and a monotonic `revision`. New messages `AddTab`/`CloseTab`/`RenameTab`/`MoveTab`/`EditAssembly`/`SetDocumentMeta`; `SwitchTab` takes an id, not a tree. The JS store keeps its `$state` fields as **mirrors** refreshed from `ModelUpdated` (A2.1 compliant) | `format_tests` round trip; new `session_tests.rs`; GUI tabs/assembly specs unchanged |
-| **S3** — C1 landed 2026-09-16 | **Agent tool semantics in Rust**: `wasm-bridge/src/tools/` implements `execute_tool(session, name, args, ctx) -> ToolResult` for every non-render tool (gates that are document state, rollback, `modelDelta`, results shaping; `sketch_create` uses `sketch-solver` profiles, which JS already ports). New message `UiToEngine::Tool{name, arguments, context}`. Host-only concerns stay per host (§3.3). Migrated tool by tool, **shadowed**: the page runs both JS and Rust and asserts equal `structuredContent` in dev builds until the JS version is deleted | per-tool differential oracle over O1–O22 scripts |
+| **S3** — C1–C3 landed 2026-09-16 | **Agent tool semantics in Rust**: `wasm-bridge/src/tools/` implements `execute_tool(session, name, args, ctx) -> ToolResult` for every non-render tool (gates that are document state, rollback, `modelDelta`, results shaping; `sketch_create` uses `sketch-solver` profiles, which JS already ports). New message `UiToEngine::Tool{name, arguments, context}`. Host-only concerns stay per host (§3.3). Migrated tool by tool, **shadowed**: the page runs both JS and Rust and asserts equal `structuredContent` in dev builds until the JS version is deleted | per-tool differential oracle over O1–O22 scripts |
 | **S4** | Host binary `waffle-host` (new crate `crates/waffle-host`, native only) wrapping the session | §2.7 oracles |
 
 **S3 checkpoints.** **C1** (landed 2026-09-16) is the mechanism plus the first
 tool: `UiToEngine::Tool` / `EngineToUi::ToolResult`, `crates/wasm-bridge/src/tools/`
 with `execute_tool` and the `MIGRATED` list, the page-side shadow
 (`executor.js` `setShadow`, differential in `app/tests/gui/agent-rust-tools.spec.js`),
-and `model_summary`. Then, in order: **C2** the remaining pure reads
-(`feature_get`); **C3** the tools that only wrap an existing engine message
-(`body_measure`, `face_list`, `sketch_regions`, `expression_evaluate`); **C4**
+and `model_summary`. **C2** and **C3** (landed 2026-09-16) add the read-only
+tools: `feature_get`, and the four that wrap one engine message —
+`body_measure`, `face_list`, `sketch_regions`, `expression_evaluate`. Two of
+those were not the thin wrappers they looked: `sketch_regions` builds its
+request by expanding every `Gear` entity through `GenerateGearProfile` and
+shifting each id into that gear's own range, so `regionInputs` and the
+entities half of `remapGearResponse` moved with it; and `body_measure` /
+`face_list` must refuse on the RENDERED body list, because `find_body` in
+dispatch searches every feature output, including consumed and rolled-back
+ones the page would never offer. Then, in order: **C4**
 the authoring core — `applyStep` (snapshot → dispatch → `ModelDelta` →
 rollback-on-new-error) and the twelve tools built on it; **C5** `sketch_create`,
 which additionally needs `buildFinishProfiles` ported (the one part of that path

@@ -22,11 +22,10 @@ use serde_json::{json, Map, Value};
 
 use crate::engine_state::EngineState;
 use crate::messages::PartConnectorInfo;
-use crate::render_view;
-use crate::tools::ToolResult;
+use crate::tools::{rendered_bodies, Answer};
 
-pub fn model_summary(state: &EngineState) -> ToolResult {
-    ToolResult::ok(summarize(state))
+pub(super) fn model_summary(state: &EngineState) -> Answer {
+    Ok(summarize(state))
 }
 
 /// The structured content of one `model_summary` call.
@@ -106,16 +105,9 @@ fn error_rows(state: &EngineState, errors: &Map<String, Value>) -> Vec<Value> {
 
 /// The solid bodies the viewport shows for the open Part.
 fn bodies(state: &EngineState) -> Vec<Value> {
-    render_view::body_metadata(state)
+    rendered_bodies(state)
         .into_iter()
-        .enumerate()
-        .filter(|(index, meta)| {
-            // A ghost belongs to another part; a body with no mesh never
-            // reaches the store at all.
-            meta.get("context") != Some(&json!(true))
-                && render_view::body_vertices(state, *index).is_some_and(|v| !v.is_empty())
-        })
-        .map(|(_, meta)| {
+        .map(|meta| {
             json!({
                 "body_id": meta.get("bodyId").cloned().unwrap_or(Value::Null),
                 "name": meta.get("name").cloned().unwrap_or(Value::Null),

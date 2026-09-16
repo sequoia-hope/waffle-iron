@@ -71,6 +71,24 @@ test.describe('Agent tools implemented in the engine (S3)', () => {
 					});
 					const built = await call('model_summary');
 
+					// The read-only tools, over the model just built: each is
+					// shadowed, so each is a comparison.
+					const bodyId = built.structuredContent.bodies[0]?.body_id;
+					const feature = await call('feature_get', { feature_id: solid.structuredContent.feature_id });
+					const measured = await call('body_measure', { body_id: bodyId });
+					const faces = await call('face_list', { body_id: bodyId });
+					const regions = await call('sketch_regions', { feature_id: sketch.structuredContent.feature_id });
+					const expression = await call('expression_evaluate', { expression: 'width * 2' });
+					for (const [name, r] of [
+						['feature_get', feature],
+						['body_measure', measured],
+						['face_list', faces],
+						['sketch_regions', regions],
+						['expression_evaluate', expression]
+					]) {
+						if (r.isError) return { failed: name, detail: r.structuredContent };
+					}
+
 					await call('feature_suppress', { feature_id: solid.structuredContent.feature_id, suppressed: true });
 					const suppressed = await call('model_summary');
 
@@ -78,6 +96,11 @@ test.describe('Agent tools implemented in the engine (S3)', () => {
 						empty: empty.structuredContent,
 						built: built.structuredContent,
 						suppressed: suppressed.structuredContent,
+						feature: feature.structuredContent,
+						measured: measured.structuredContent,
+						faces: faces.structuredContent,
+						regions: regions.structuredContent,
+						expression: expression.structuredContent,
 						runs: api.getShadowRuns(),
 						mismatches: api.getShadowMismatches()
 					};
@@ -90,8 +113,9 @@ test.describe('Agent tools implemented in the engine (S3)', () => {
 
 		expect(result.failed, `${result.failed}: ${JSON.stringify(result.detail)}`).toBeUndefined();
 
-		// The comparison ran — three `model_summary` calls, each shadowed.
-		expect(result.runs).toBe(3);
+		// The comparison ran: three `model_summary` calls plus the five
+		// read-only tools, each shadowed.
+		expect(result.runs).toBe(8);
 		expect(result.mismatches).toEqual([]);
 
 		// And the model really was non-trivial, so "no mismatch" is not the
@@ -104,6 +128,14 @@ test.describe('Agent tools implemented in the engine (S3)', () => {
 		expect(result.built.parameters.map((p) => p.name)).toEqual(['width', 'broken']);
 		expect(result.suppressed.features[1].suppressed).toBe(true);
 
+		// …and that each read-only tool answered about that model, so the
+		// agreement is over real content rather than matching refusals.
+		expect(result.feature.operation.type).toBe('Extrude');
+		expect(result.measured.volume_m3).toBeGreaterThan(0);
+		expect(result.faces.faces.length).toBeGreaterThan(0);
+		expect(result.regions.regions.length).toBeGreaterThan(0);
+		expect(result.expression.value_mm).toBe(40);
+
 		expectNoAnyCrash(crashes);
 	});
 
@@ -115,6 +147,13 @@ test.describe('Agent tools implemented in the engine (S3)', () => {
 
 		const shadowed = await page.evaluate(() => window.__waffleAgentExecutor.shadowedTools());
 		// Keep in sync with `tools::MIGRATED`; this is the list the differential covers.
-		expect(shadowed).toEqual(['model_summary']);
+		expect(shadowed).toEqual([
+			'model_summary',
+			'feature_get',
+			'body_measure',
+			'face_list',
+			'sketch_regions',
+			'expression_evaluate'
+		]);
 	});
 });
