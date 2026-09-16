@@ -765,19 +765,12 @@ export async function initEngine() {
 		if (msg.meshes) {
 			meshes = msg.meshes;
 		}
-		// The session's own view of the document (S2 C3). Recorded, never
-		// applied here: see `reconcileTabIdsFromSession` for why matching the
-		// two lists up is only safe at specific moments.
-		sessionDocument = msg.document ?? sessionDocument;
-		// The doc-less `/` bootstrap mints a tab id before the engine has ever
-		// spoken, while the session has its own one Part tab for that same
-		// screen — so the store would ask to switch to a tab the session does
-		// not have. One tab on each side is an unambiguous correspondence:
-		// take the engine's id, once.
-		if (!bootstrapTabsReconciled && documentTabs.length === 1 && sessionDocument?.tabs?.length === 1) {
-			bootstrapTabsReconciled = true;
-			reconcileTabIdsFromSession();
-		}
+		// The tab bar, the active tab and the document's metadata are MIRRORS
+		// of the session now (S2 C4, invariant A2.1): the engine is
+		// authoritative and the store must not keep a copy that can diverge.
+		// This replaces the id reconciliation C3a needed, which existed only
+		// because the store minted tab ids of its own.
+		mirrorSessionDocument(msg.document);
 		// The document's `sources` table with availability (v4 §2.3) — the
 		// Sources panel's data; absent on the wire when the table is empty.
 		documentSources = msg.sources ?? [];
@@ -789,12 +782,10 @@ export async function initEngine() {
 		// In-context editing (v4 Phase 3d-4): present while a Part is open in
 		// an assembly's context; the engine drops it on any tab switch.
 		editContext = msg.context ? { instances: [], errors: [], warnings: [], ...msg.context } : null;
-		if (msg.assembly?.placements) {
-			const tab = documentTabs.find(t => t.id === activeTabId);
-			if (tab?.kind?.type === 'Assembly') {
-				tab.kind.assembly.placements = JSON.parse(JSON.stringify(msg.assembly.placements));
-			}
-		}
+		// (The solved placements used to be written back into the store's tab
+		// copy here so they would be saved with it. The engine records them
+		// into its own tab now — S2 C3c — so this copy would only be a second
+		// one that can disagree.)
 		lastError = null;
 		statusMessage = `Model updated (${meshes.length} ${meshes.length === 1 ? 'body' : 'bodies'})`;
 
@@ -976,15 +967,11 @@ export async function initEngine() {
 			activeDocId = documentId;
 		}
 
-		// Initialize default tab state if no document was loaded.
-		// Use a real UUID (not a literal like 'default') so the document
-		// round-trips through the Rust loader, which historically required
-		// tab ids to be parseable — see load.rs / metadata.rs Tab.id.
-		if (documentTabs.length === 0) {
-			const tabId = generateUUID();
-			documentTabs = [{ id: tabId, name: 'Part 1', kind: { type: 'Part', features: { features: [], active_index: null } } }];
-			activeTabId = tabId;
-		}
+		// (The store used to mint a default tab here for the doc-less `/`
+		// session. The engine's session already HAS that tab — one empty Part
+		// tab — and the first `ModelUpdated` mirrors it (S2 C4). Minting one
+		// as well put a tab the engine never had beside the mirrored one, and
+		// the tab bar rendered two.)
 
 		if (autoRestoreState && restorePolicy === 'auto') {
 			if (await restoreAutoSave()) {
@@ -6062,7 +6049,7 @@ export function setTwoFingerActive(v) { twoFingerActive = v; }
 
 export function getProjectName() { return projectName; }
 /** @param {string} name */
-export function setProjectName(name) { projectName = name; documentName = name; }
+export function setProjectName(name) { setDocumentName(name); }
 
 // -- Document display unit --
 
@@ -6097,7 +6084,20 @@ export function getDocumentInfo() {
 }
 export function getDocumentTabs() { return documentTabs; }
 export function getDocumentName() { return documentName; }
-export function setDocumentName(name) { documentName = name; projectName = name; }
+export function setDocumentName(name) {
+	documentName = name;
+	projectName = name;
+	// The name is a MIRROR of the session now (S2 C4): assigning it locally
+	// would last exactly until the next `ModelUpdated` overwrote it from the
+	// engine. Renames have to reach the session to stick — File→Open takes the
+	// document's name from the FILENAME this way, and the inline rename in the
+	// toolbar does too.
+	if (bridge && engineReady) {
+		bridge.send({ type: 'SetDocumentMeta', name }).catch((err) => {
+			log('error', `SetDocumentMeta(name) failed: ${err?.message || err}`);
+		});
+	}
+}
 
 /**
  * Check sessionStorage for a pending document (set by /doc/[id] route) and load it.
@@ -6151,9 +6151,6 @@ export async function openDocumentRecord(docId, json, link = null) {
 	// engine swaps trees would capture mixed state.
 	cancelPendingAutoSave();
 	const parsed = JSON.parse(json);
-	// The opened document is the one asked for; drop any restore offer the
-	// bootstrap raced ahead with.
-	autoRestoreState = null;
 	// Set before the first await: a call arriving during the load is refused,
 	// not answered from the half-swapped store.
 	documentLoadPending = true;
@@ -6166,10 +6163,10 @@ export async function openDocumentRecord(docId, json, link = null) {
 		if (!(await loadProject(json, { silent: true }))) {
 			throw new Error('the engine did not load the document (not ready, or saved by a newer version)');
 		}
-		// Both lists were built from the same file, in the same order: one of
-		// the two moments the store may take the engine's tab ids (S2 C3).
-		bootstrapTabsReconciled = true;
-		reconcileTabIdsFromSession();
+		// (The store used to take the engine's tab ids here, because it had
+		// minted its own while parsing the same file. It no longer parses and
+		// no longer mints: the load's `ModelUpdated` mirrors the session — S2
+		// C4.)
 		// The load's own ModelUpdated scheduled an autosave of what was just read
 		// from storage; nothing is unsaved yet (agent link S3 reads the timer).
 		// Source resolution below may still schedule a real one.
@@ -6179,6 +6176,16 @@ export async function openDocumentRecord(docId, json, link = null) {
 		if (activeAssemblyTab()) await refreshAssembly();
 	} finally {
 		documentLoadPending = false;
+		// The restore offer is dropped once the document is actually OPEN, not
+		// before the first await. `AutoRestoreDialog` renders on
+		// `autoRestoreState`, so clearing it early dismissed the dialog while
+		// the load was still in flight — and since the tab list became a
+		// mirror (S2 C4) it is empty until the load's `ModelUpdated` arrives,
+		// so the user saw an empty tab bar behind the vanished dialog. The
+		// bootstrap-offer race this used to guard cannot happen: an explicit
+		// handoff (`/doc/[id]`, `/open`) stops the offer being set at all
+		// (`handoffPending`).
+		autoRestoreState = null;
 		// Settled only once the document is in the engine: the agent link
 		// resumes on it, and resuming earlier let calls read the blank
 		// bootstrap tree for the whole rebuild (failure log F10).
@@ -6200,15 +6207,9 @@ export async function switchTab(tabId) {
 		autoSaveTimer = null;
 	}
 
-	// Save current tab's features before switching
-	if (activeTabId) {
-		const currentTab = documentTabs.find(t => t.id === activeTabId);
-		if (currentTab) {
-			currentTab.kind.features = JSON.parse(JSON.stringify(featureTree));
-		}
-	}
-
-	// Load target tab's features
+	// (The outgoing tab's tree used to be copied into the store's tab here.
+	// The session stashes it into the tab it belongs to — S2 C3a — and the
+	// save composes from the session — C3c — so nothing reads that copy.)
 	const targetTab = documentTabs.find(t => t.id === tabId);
 	activeTabId = tabId;
 	// New document context: its rebuild warnings are "new" again.
@@ -6725,12 +6726,11 @@ export async function addTab(kind = 'Part') {
 		log('error', `AddTab refused: ${response?.message || 'the engine added no tab'}`);
 		return null;
 	}
-	// Appended last, by the message's contract.
+	// Appended last, by the message's contract. The tab itself is NOT added to
+	// the store here: the answer's `ModelUpdated` mirrors the session's list
+	// (S2 C4), and appending as well would put the same tab in twice — a
+	// duplicate key in the tab bar's keyed each block.
 	const added = tabs[tabs.length - 1];
-	const content = kind === 'Assembly'
-		? { type: 'Assembly', assembly: { instances: [], connectors: [], mates: [] } }
-		: { type: 'Part', features: { features: [], active_index: null } };
-	documentTabs = [...documentTabs, { id: added.id, name: added.name, kind: content }];
 	scheduleAutoSave();
 	return added.id;
 }
@@ -6762,16 +6762,10 @@ export async function closeTab(tabId) {
 		}
 	}
 
-	documentTabs = documentTabs.filter(t => t.id !== tabId);
-
-	if (activeTabId === tabId) {
-		// The successor the session chose (the next tab, or the last if the
-		// closed one was last); its tree is already the live one.
-		const successor = response?.document?.active_tab
-			?? documentTabs[Math.min(idx, documentTabs.length - 1)].id;
-		activeTabId = successor;
-		lastRebuildWarnings = new Set();
-	}
+	// The tab list and the active tab are the mirror's to write (S2 C4): the
+	// answer above already carried the session's list without this tab, and
+	// the successor it chose.
+	if (activeTabId === tabId) lastRebuildWarnings = new Set();
 
 	scheduleAutoSave();
 }
@@ -6790,9 +6784,7 @@ export async function renameTab(tabId, name) {
 			return;
 		}
 	}
-	documentTabs = documentTabs.map(t =>
-		t.id === tabId ? { ...t, name } : t
-	);
+	// The rename reaches the store through the answer's mirror (S2 C4).
 	scheduleAutoSave();
 }
 
@@ -6816,61 +6808,66 @@ export async function moveTab(tabId, index) {
 			return false;
 		}
 	}
-	const next = [...documentTabs];
-	const [tab] = next.splice(from, 1);
-	next.splice(to, 0, tab);
-	documentTabs = next;
+	// The new order arrives with the answer (S2 C4); reordering here too would
+	// apply the move twice, from a list the engine has already moved past.
 	scheduleAutoSave();
 	return true;
 }
 
 /**
- * The session's tab list as of the last `ModelUpdated` (S2 C3), for the
- * reconciliation points below. `{id, name, kind}` per tab; never a tree.
+ * The session's tab list as of the last `ModelUpdated` (S2 C4). `{id, name,
+ * kind}` per tab; never a tree.
  * @type {any}
  */
 let sessionDocument = null;
 
-/** Whether the bootstrap tab has taken the engine's id (once per page). */
-let bootstrapTabsReconciled = false;
-
 /**
- * Take the engine's tab ids for the store's tabs, positionally (S2 C3).
+ * Mirror the session's document into the store's `$state` (S2 C4, A2.1).
  *
- * The store and the engine each minted ids for the SAME file — the store's
- * `initDocumentState` rewrites a legacy id to a fresh UUID, and the engine's
- * v3→v4 migration does its own — and the save handed the store's ids back, so
- * the engine's were discarded. Harmless while `SwitchTab` carried the tree; not
- * harmless now that it names a tab, because the store would ask for a tab the
- * session does not have.
+ * The engine is authoritative for the tab bar, the active tab and the
+ * document's name and display unit; the store renders them. Keeping a second
+ * copy that the store also writes is what A2.1 forbids, and what made C3a's
+ * tab ids diverge in the first place.
  *
- * **Only call this where the correspondence is guaranteed**: right after a
- * `LoadProject`, where both lists are the same tabs in the same order because
- * both were built from the same file. Running it on every `ModelUpdated` is
- * what the first cut of C3 did, and it corrupts identity: the moment the two
- * lists differ in order or membership (a reorder in flight, a bootstrap tab the
- * engine never saw), pairing by position stamps each tab with its neighbour's
- * id — observed turning `[P1,P2,P3]` into three tabs whose names and ids no
- * longer belong to each other.
+ * Per-tab CONTENT is not on the wire and is not mirrored: `kind.assembly` is
+ * still the store's until C4b, so each tab's existing content is carried over
+ * by id rather than dropped. `id` and `created` stay the HOST's to latch
+ * (the storage record is keyed by the identity, v4 P2-5) — they are adopted
+ * from a load, not owned by the engine.
+ * @param {any} info - `ModelUpdated.document`
  */
-function reconcileTabIdsFromSession() {
-	const session = sessionDocument?.tabs;
-	if (!session || session.length !== documentTabs.length) return;
-	/** @type {Map<string, string>} */
-	const adopted = new Map();
-	const next = documentTabs.map((tab, i) => {
-		if (session[i].id === tab.id) return tab;
-		adopted.set(tab.id, session[i].id);
-		return { ...tab, id: session[i].id };
+function mirrorSessionDocument(info) {
+	if (!info?.tabs) return;
+	sessionDocument = info;
+	const byId = new Map(documentTabs.map((t) => [t.id, t]));
+	documentTabs = info.tabs.map((t) => {
+		const existing = byId.get(t.id);
+		// The OPEN Assembly tab's tree comes with the message (S2 C4b) — it is
+		// what the panel reads and what `editAssembly` mutates. Every other
+		// tab's content is not display data and is not on the wire: the
+		// session holds it, and supplies it to the messages that need it.
+		const kind = t.id === info.active_tab && t.kind === 'Assembly' && info.assembly_tree
+			? { type: 'Assembly', assembly: info.assembly_tree }
+			: existing?.kind?.type === t.kind
+				? existing.kind
+				: t.kind === 'Assembly'
+					? { type: 'Assembly', assembly: { instances: [], connectors: [], mates: [] } }
+					: { type: t.kind, features: { features: [], active_index: null } };
+		return { ...(existing ?? {}), id: t.id, name: t.name, kind };
 	});
-	if (adopted.size === 0) return;
-	documentTabs = next;
-	if (activeTabId && adopted.has(activeTabId)) activeTabId = adopted.get(activeTabId) ?? activeTabId;
-	log('engine', 'Adopted the engine tab ids', { count: adopted.size });
+	activeTabId = info.active_tab;
+	documentName = info.name;
+	projectName = info.name;
+	if (info.display_unit) documentDisplayUnit = info.display_unit;
+	// `created` is NOT mirrored. It is the host's to latch (C3c) and the
+	// engine only echoes it back — through a serializer that drops the
+	// milliseconds, so mirroring it rewrites "…:05.000Z" as "…:05Z" and the
+	// stored document's own timestamp changes shape on open. The store keeps
+	// the value it read from the file.
 }
 
 /**
- * Initialize document state from a v3 document JSON.
+ * Adopt the storage identity of a document being opened.
  * Called when loading a document from IndexedDB or creating a new one.
  * @param {string} docId
  * @param {object} parsed - Parsed v3 JSON
@@ -6878,50 +6875,33 @@ function reconcileTabIdsFromSession() {
  *   share-link provenance; non-null makes the document read-only here.
  */
 export function initDocumentState(docId, parsed, link = null) {
+	// What is left here is the state the ENGINE does not have: which storage
+	// record this tab is filed under, and where the document was linked from.
+	//
+	// The name, the display unit, the tab list and the active tab used to be
+	// parsed out of the `.waffle` right here — a second reader of the format,
+	// beside the Rust loader, whose tab ids had to be rewritten "exactly as
+	// the Rust v3→v4 migration does" to keep the two agreeing. They never
+	// quite did (see C3a). `LoadProject` now tells the store all of it through
+	// `ModelUpdated.document` (S2 C4, A2.1), so the parser is gone.
 	activeDocId = docId;
 	documentLink = link && link.readOnly ? link : null;
-	documentName = parsed.document?.name || 'Untitled';
-	projectName = documentName;
-	// v4 identity: adopt the file's document.id; a legacy (v1–v3) file has
-	// none, so mint one here — once — and every save persists it. When the
-	// caller keyed a NEW storage record by a fresh UUID (P2-5: record key =
-	// document identity), the minted identity IS that key.
+	// v4 identity stays the HOST's (v4 P2-5: the storage record is keyed by
+	// it, and C3c pushes it down to the session): adopt the file's id, or mint
+	// one for a legacy file that has none. `created` arrives with the load.
 	documentId = isUuid(parsed.document?.id)
 		? parsed.document.id
 		: isUuid(docId) ? docId : generateUUID();
-	// Adopt the document's creation time (v3: document.*, legacy: project.*)
-	// so saves preserve it instead of re-stamping "now".
+	// `created` is host state too, and it is read here rather than mirrored:
+	// the engine echoes it through a serializer that drops the milliseconds,
+	// so taking it back from `ModelUpdated` would rewrite the stored
+	// document's own "…:05.000Z" as "…:05Z" on every open. Reading one field
+	// is not the second format parser C4 deleted — that was the name, the
+	// unit, the tab list and the active tab, all of which the engine now
+	// reports.
 	documentCreated = parsed.document?.created || parsed.project?.created || null;
-	// Adopt the display unit here too: an EMPTY document never reaches the
-	// loadProject/extractDisplayUnit path, and its stored unit must still stick.
-	const unit = parsed.document?.display_unit ?? parsed.project?.display_unit;
-	documentDisplayUnit = typeof unit === 'string' && unit ? unit : 'mm';
 	// New document context: its rebuild warnings are "new" again.
 	lastRebuildWarnings = new Set();
-
-	if (parsed.tabs && parsed.tabs.length > 0) {
-		// v4: tab ids are UUIDs. A legacy id (the historical "default") is
-		// rewritten exactly as the Rust v3→v4 migration does, with active_tab
-		// following, so the JS tab list and the engine's view of the same file
-		// agree. Unknown tab keys ride along (`...t`) and are preserved on save.
-		const idMap = new Map();
-		documentTabs = parsed.tabs.map(t => {
-			const id = isUuid(t.id) ? t.id : generateUUID();
-			idMap.set(t.id, id);
-			return {
-				...t,
-				id,
-				name: t.name,
-				kind: t.kind || { type: 'Part', features: { features: [], active_index: null } }
-			};
-		});
-		activeTabId = idMap.get(parsed.active_tab) ?? documentTabs[0].id;
-	} else {
-		// Legacy v1/v2 — single implicit tab
-		const tabId = generateUUID();
-		documentTabs = [{ id: tabId, name: 'Part 1', kind: { type: 'Part', features: { features: [], active_index: null } } }];
-		activeTabId = tabId;
-	}
 }
 
 /**
@@ -8410,9 +8390,6 @@ export async function loadProject(jsonData, { silent = false } = {}) {
 				if (parsed) {
 					const fileId = isUuid(parsed.document?.id) ? parsed.document.id : generateUUID();
 					initDocumentState(fileId, parsed);
-					// Same file, same order, on both sides (S2 C3).
-					bootstrapTabsReconciled = true;
-					reconcileTabIdsFromSession();
 				}
 				// Project name from filename (wins over the stored doc name).
 				const nameWithoutExt = file.name.replace(/\.(waffle|json)$/i, '');

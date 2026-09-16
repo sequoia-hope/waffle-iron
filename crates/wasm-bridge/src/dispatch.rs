@@ -1127,8 +1127,17 @@ fn document_info(state: &EngineState) -> DocumentInfo {
         id: meta.id,
         name: meta.name.clone(),
         display_unit: meta.display_unit.clone(),
+        created: meta.created,
         tabs: state.session.tabs(),
         active_tab: state.session.active_tab_id().to_string(),
+        // The open Assembly tab's tree, so the panel has a source once the
+        // store stops holding tab content (S2 C4b). `assembly()` refuses a tab
+        // of any other kind, which is exactly the "not an assembly" case.
+        assembly_tree: state
+            .session
+            .assembly(state.session.active_tab_id())
+            .ok()
+            .cloned(),
         revision: state.session.revision(),
     }
 }

@@ -106,9 +106,10 @@ Spec: `specs/waffle_server_mode.md` §2.3 (P-A).
 - [ ] Known, not fixed: `cargo clippy -p wasm-bridge --target wasm32-unknown-unknown` flags the `thread_local!` initializer in `wasm_api.rs` (pre-existing; CI does not lint wasm32)
 
 ### M11: Server-mode S2 — the document session in Rust
-Spec: `specs/waffle_server_mode.md` §2.3 S2 (P-A). Staged as four atomic
-checkpoints; the JS store is untouched until C4, so the browser path is
-unchanged throughout.
+Spec: `specs/waffle_server_mode.md` §2.3 S2 (P-A). Staged as atomic
+checkpoints — C1, C2, then C3a/C3b/C3c (C3 split once it turned out the store
+and the engine were minting tab ids independently), then C4. The browser path
+is green at every one. **COMPLETE 2026-09-16.**
 - [x] **C1 — the session type, wired to nothing** (2026-09-16): `src/session.rs`
       `DocumentSession` owns the document metadata, the tab list, every
       inactive tab's tree, assembly trees, per-tab preview meshes, a per-tab
@@ -268,9 +269,49 @@ unchanged throughout.
       checkpoint stayed green. Fix: normalize or exclude `document.id` in the
       census so the byte layer means something again. Until then, a moved
       `golden.json` response hash with unchanged `n` is NOISE, not a signal.
-- [ ] C4: the JS store's tab/assembly/metadata `$state` becomes a mirror fed
-      by `ModelUpdated`; delete the second `.waffle` parser in
-      `initDocumentState`. A2.1 compliance.
+- [x] **C4 — the store is a mirror** (2026-09-16): `documentTabs`,
+      `activeTabId`, `documentName` and `documentDisplayUnit` are written ONLY
+      by `mirrorSessionDocument(msg.document)`. The second `.waffle` parser is
+      gone: `initDocumentState` no longer reads the name, the unit, the tab
+      list or the active tab — it keeps the storage record id, the share link,
+      and the document identity/`created` that are the host's (C3c). A2.1:
+      "JS must treat the engine as authoritative and must not duplicate state
+      in a way that can diverge."
+      - `DocumentInfo` gained `created` and `assembly_tree`. The second is not
+        optional polish: the moment the mirror owns the tab list, the assembly
+        panel loses its only source for the OPEN tab's tree
+        (`getAssembly`/`editAssembly` read `tab.kind.assembly`). Only the open
+        tab's — an inactive tab's assembly is not display data.
+      - **C4a/C4b could not be split.** Planned as two commits; the mirror
+        necessarily drops per-tab assembly content, so "C4a alone" is a
+        knowingly-broken state with four failing assembly specs. Landed as one.
+      - **A mirror and its former writers are never compatible.** Deferring the
+        removal of the local writes in `addTab`/`closeTab`/`renameTab`/
+        `moveTab` and the bootstrap tab mint — on the reasoning that they were
+        "safe-but-redundant duplicates" — cost **13 of 27** targeted specs. The
+        tab bar diagnosed it literally: `each_key_duplicate … at indexes 1 and
+        2`. Remove the writers in the SAME change that adds the mirror.
+      - **`WASM crash detected` meant no such thing**: `collectCrashErrors`
+        reports any page error under that banner, and these were Svelte
+        keyed-each errors from `TabBar.svelte`. Taken at face value it sends
+        you into the kernel.
+      - **`created` must NOT be mirrored.** Rust's `rfc3339_js` drops the
+        milliseconds, so echoing the engine's copy rewrites a stored
+        `…:05.000Z` as `…:05Z` on every open. It is read from the file once, in
+        `initDocumentState`. (Removing the parser AND declining to mirror it
+        first left it `null` — the fix has to keep exactly one source.)
+      - **Regression caught and fixed, not test-patched:** `openDocumentRecord`
+        cleared `autoRestoreState` BEFORE its first await, so the restore
+        dialog (which renders on that state) vanished mid-load. Invisible while
+        `initDocumentState` filled the tab list synchronously; with a mirror the
+        tab bar is genuinely empty for that window. The clear moved into the
+        `finally`. The bootstrap-offer race it guarded cannot happen —
+        `handoffPending` stops the offer being set during an explicit open.
+      - Oracles: 170 `wasm-bridge` tests; clippy `--all-targets -D warnings`;
+        `fmt --check`; both release parity tests; GUI 27 targeted; gui-fast
+        345/349 — the 4 are CONTENTION FLAKE, all 41 tests of those four spec
+        files pass in isolation (39.2 s) on the same bundle, and every
+        signature is a timeout/missing-UI, never a wrong value.
 - ~~Found by C1, to fix in C2/C3~~ **FIXED by C3a** (the per-tab stack is live:
   `switch_tab` parks the outgoing tab's history and restores the incoming
   tab's): **undo used to leak across tabs** —

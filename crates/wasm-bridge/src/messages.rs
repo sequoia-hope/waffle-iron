@@ -457,8 +457,21 @@ pub struct DocumentInfo {
     pub name: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub display_unit: Option<String>,
+    /// Preserved from the file the document was opened from, never re-stamped
+    /// (S2 C4): the store used to parse it out of the `.waffle` itself, and
+    /// that second parser is what C4 deletes.
+    pub created: chrono::DateTime<chrono::Utc>,
     pub tabs: Vec<crate::session::TabInfo>,
     pub active_tab: String,
+    /// The OPEN tab's assembly, when it is an `Assembly` tab (S2 C4b).
+    ///
+    /// The tab list carries no content, by design — but the assembly panel
+    /// edits this tree live (instances, connectors, mates), and once the store
+    /// stops keeping its own tab copies it has no other source. Only the open
+    /// tab's: an inactive tab's assembly is not display data, and the session
+    /// supplies it to every message that needs it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub assembly_tree: Option<feature_engine::assembly::AssemblyTree>,
     /// Increments on every committed mutation, so a host can name the state a
     /// viewer holds (spec §4.1).
     pub revision: u64,

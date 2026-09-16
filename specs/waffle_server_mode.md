@@ -90,14 +90,23 @@ file). LOC excludes the generated `engineSchemas.generated.js` (3,580).
 "Mixed" is overwhelmingly clean engine messages interleaved with
 `showToast`, dialog state and camera events — separable, but not separated.
 
-### 1.3 Where authority lives today
+### 1.3 Where authority lived when this spec was written
+
+**S2 is complete (2026-09-16); the first four rows have moved.** The tab list,
+every inactive tab's tree, the assembly trees and the document's metadata are
+the Rust `DocumentSession`'s now, and the JS store's `$state` is a mirror fed by
+`ModelUpdated.document` (C4, invariant A2.1). The rows below are kept as the
+survey that motivated the work — read them as "before S2", not as current.
+The rows still marked JS *and* not struck through (sketch session, agent tool
+semantics, face planes, undo persistence) are still accurate: tool semantics are
+S3's job, and the interactive sketch session is explicitly not moving (§2.3).
 
 | State | Authority | Evidence |
 |---|---|---|
 | Active tab feature tree, feature results, meshes, feature undo/redo, parameters, sources table, file composition | **Rust** | JS replaces `featureTree` wholesale on `ModelUpdated` (store 762–764); undo is `{type:'Undo'}` (7614); `SaveDocument` composes (v4 inv. 7) |
-| Tab list and every **inactive** tab's tree | **JS** | `documentTabs` (418); `switchTab` copies the live tree out and sends the target's (6190–6208); Rust `SwitchTab` just replaces `state.engine.tree` |
-| Assembly trees (instances, connectors, mates) | **JS** | edited in `editAssembly` (6481–6488), re-sent whole as `OpenAssembly` |
-| Document id, name, created, display unit, link | **JS** | store 400–447, 6782–6827 |
+| ~~Tab list and every **inactive** tab's tree~~ → **Rust** (C3a) | ~~JS~~ | `SwitchTab{tab_id}` names a tab; `AddTab`/`CloseTab`/`RenameTab`/`MoveTab` drive `DocumentSession`; the store mirrors `ModelUpdated.document.tabs` |
+| ~~Assembly trees (instances, connectors, mates)~~ → **Rust** (C3b) | ~~JS~~ | `OpenAssembly{tab_id}` only; `EditAssembly{tab_id, assembly}` carries the panel's edits in; the open tab's tree comes back as `DocumentInfo.assembly_tree` |
+| ~~Document name, display unit~~ → **Rust** (C3c/C4); id + created stay the HOST's | **split** | `SetDocumentMeta{name?, display_unit?, id?, created?}`; the storage record is keyed by the identity (v4 P2-5), so the host mints and latches it and pushes it down |
 | In-progress sketch session and sketch undo | **JS** | store 153–224, 7638–7772; profiles extracted in JS (`sketch/profiles.js`, a port of `sketch-solver/src/profiles.rs`) |
 | Agent tool semantics (gates, rollback, delta, results) | **JS** | `executor.js:180 executeTool`, `commands.js:101 applyStep`, `delta.js` |
 | Face planes, `bodyForRef` hit mapping used by agent queries | **JS, derived from JS mesh copies** | store 5159; `queries.js:43–49` |
