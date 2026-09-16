@@ -661,8 +661,15 @@ async function replayEngineMessages(entries) {
 				} catch {
 					// The recording page's engine rejected the same message.
 				}
+				// An authoring tool answers with a `ToolResult`, which keeps the
+				// id of any feature it created in the MCP payload rather than at
+				// the top level (S3 C4) — on BOTH sides of this mapping: the
+				// recorded answer and the one this replay just got back. Miss
+				// either and no id is learned, every later step replays against
+				// a stale one, and the `catch` above swallows the failure.
 				const recorded = entry.response?.feature_id;
-				if (recorded && response?.feature_id) ids.set(recorded, response.feature_id);
+				const replayed = response?.feature_id ?? response?.structuredContent?.feature_id;
+				if (recorded && replayed) ids.set(recorded, replayed);
 			}
 		} finally {
 			agentActivity = null;

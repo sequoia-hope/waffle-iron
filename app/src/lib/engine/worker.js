@@ -407,14 +407,21 @@ self.onmessage = async function (event) {
 		}
 	}
 
-	if (response.type === 'ModelUpdated') {
+	// A `ModelUpdated`, or the model an authoring tool's answer carries with it
+	// (S3 C4). The meshes belong to THAT object, not to the envelope: it is
+	// what the store's `modelUpdated` handler is handed, and what reads
+	// `msg.meshes`.
+	const model =
+		response.type === 'ModelUpdated' ? response : response.type === 'ToolResult' ? response.model : null;
+
+	if (model) {
 		const t1 = performance.now();
 		const { meshes, transferables } = collectMeshes();
 		const meshElapsed = performance.now() - t1;
 		if (meshElapsed > 50) {
 			console.log(`[worker] collectMeshes took ${(meshElapsed / 1000).toFixed(2)}s`);
 		}
-		response.meshes = meshes;
+		model.meshes = meshes;
 		self.postMessage({ id, msg: response }, transferables);
 	} else {
 		self.postMessage({ id, msg: response });

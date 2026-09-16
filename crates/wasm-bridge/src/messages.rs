@@ -688,6 +688,16 @@ pub enum EngineToUi {
     ToolResult {
         #[serde(flatten)]
         result: crate::tools::ToolResult,
+        /// The model update a tool that CHANGED the document carries with its
+        /// answer (S3 C4).
+        ///
+        /// A `ToolResult` is not a `ModelUpdated`, so without this nothing
+        /// refreshes the host's tree, meshes and errors after an authoring
+        /// call — the page's worker collects meshes only for a `ModelUpdated`,
+        /// and its store assigns the tree only from one. Omitted entirely for
+        /// the read-only tools, whose answers stay byte-identical on the wire.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        model: Option<Box<EngineToUi>>,
     },
 }
 

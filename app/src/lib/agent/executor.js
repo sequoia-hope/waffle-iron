@@ -23,8 +23,9 @@ import {
 	setToolHint,
 	withEngineLock
 } from '$lib/engine/store.svelte.js';
+import { showToast } from '$lib/ui/toast.svelte.js';
 import { COMMANDS, snapshotNow } from './commands.js';
-import { sameModel } from './delta.js';
+import { newlyErroring, sameModel } from './delta.js';
 import { DOCUMENT_COMMANDS, DOCUMENT_QUERIES } from './documents.js';
 import { EXPORT_QUERIES } from './export.js';
 import { QUERIES } from './queries.js';
@@ -149,6 +150,85 @@ async function runCommand(tool, command, args, ctx) {
 }
 
 /**
+ * Run one authoring tool in the ENGINE (S3 C4), under the same page gates a
+ * JS command passes.
+ *
+ * The engine decides what the step does, what it refuses and how the answer is
+ * shaped; the page keeps what §3.3 leaves it — the lock, the busy/paused
+ * gates, cancellation, and the rendering. The model update rides back with the
+ * answer and reaches the store through the bridge, so the tree, meshes and
+ * autosave refresh exactly as for a user action (I1).
+ *
+ * @param {string} tool
+ * @param {Record<string, unknown>} args
+ * @param {CallContext} ctx
+ */
+async function runEngineCommand(tool, args, ctx) {
+	const refusal = commandRefusal(ctx);
+	if (refusal) throw refusal;
+	return withAgentLock(async () => {
+		// The page may have changed while the call waited for the lock (I12).
+		const late = commandRefusal(ctx);
+		if (late) throw late;
+		const before = snapshotNow();
+		// `quietErrors`: the store must not toast the rebuild failures of this
+		// step — they are reported once, below, as the agent's own (A2/A3).
+		setAgentActivity({ tool, agentName: ctx.agentName, quietErrors: true });
+		try {
+			const answer = await sendAgentMessage({
+				type: 'Tool',
+				name: tool,
+				arguments: args,
+				context: { agent_name: ctx.agentName }
+			});
+			const result = {
+				content: answer?.content ?? [],
+				structuredContent: answer?.structuredContent ?? {},
+				isError: !!answer?.isError
+			};
+			renderStepOutcome(tool, result, before, ctx);
+
+			if (ctx.isCancelled() && !NOT_UNDOABLE.has(tool) && !sameModel(before, snapshotNow())) {
+				// A18: a kernel op cannot be interrupted; undo the finished step.
+				await sendAgentMessage({ type: 'Undo' }, { rebuild: true });
+				return toolError('Cancelled', 'The call was cancelled; its step was undone.', { tool });
+			}
+			return result;
+		} finally {
+			setAgentActivity(null);
+			if (getToolHint() === AGENT_WORKING_HINT) setToolHint(null);
+		}
+	});
+}
+
+/**
+ * Show what a step did, the way the JS commands did (§3.3: the engine decides,
+ * the host renders).
+ *
+ * Which failures are NEW is a page question — it is a diff against what this
+ * page already showed — so it is computed here rather than carried in the
+ * delta, which the differential compares against the JS answer byte for byte.
+ *
+ * @param {string} tool
+ * @param {{structuredContent: any, isError: boolean}} result
+ * @param {ReturnType<typeof snapshotNow>} before
+ * @param {CallContext} ctx
+ */
+function renderStepOutcome(tool, result, before, ctx) {
+	const error = result.structuredContent?.error;
+	if (result.isError) {
+		// A rollback that could not restore the document exactly stops the
+		// session: the engine cannot pause an agent, only say that it must be.
+		if (error?.details?.pause_agent) ctx.pause('An agent step could not be rolled back exactly.');
+		if (error?.details?.rolled_back) showToast('error', `Agent step rolled back: ${error.message}`);
+		return;
+	}
+	for (const e of newlyErroring(before, snapshotNow())) {
+		showToast('error', `${ctx.agentName}: Feature failed: ${e.message}`);
+	}
+}
+
+/**
  * Document-level tools (open, new, save, tab switch) run the store's own
  * multi-message flows, which send through the gated user path; they cannot
  * hold the agent lock for the whole call, because each of their sends waits for
@@ -188,6 +268,35 @@ const SHADOWED = new Set([
 	'sketch_regions',
 	'expression_evaluate'
 ]);
+
+/**
+ * Tools whose semantics now RUN in the engine (S3 C4): the page sends `Tool`
+ * and renders the answer. Unlike the read-only tools above these are not
+ * shadowed — a step that changes the document cannot be run twice on it to
+ * compare — so their equivalence is proven by running whole scripted
+ * sequences against each implementation on a fresh document
+ * (`agent-rust-authoring.spec.js`), with `setEngineTools` choosing the arm.
+ *
+ * Their JS bodies stay in `commands.js` until that differential is green,
+ * because they are its control.
+ */
+const ENGINE_COMMANDS = new Set([
+	'feature_add',
+	'feature_edit',
+	'feature_delete',
+	'feature_suppress',
+	'feature_reorder',
+	'feature_rename',
+	'body_rename',
+	'rollback_set',
+	'parameters_set',
+	'import_step',
+	'undo',
+	'redo'
+]);
+
+/** Whether the twelve above run in the engine. The differential flips it. */
+let engineTools = true;
 
 /** Off by default: shadowing takes the engine lock and costs a round trip. */
 let shadowing = false;
@@ -283,6 +392,7 @@ async function runTool(tool, args, ctx) {
 			return query.engine ? await withAgentLock(() => query.run(args, env)) : await query.run(args, env);
 		}
 		if (documentCommand) return await runDocumentCommand(tool, documentCommand, args, ctx);
+		if (engineTools && ENGINE_COMMANDS.has(tool)) return await runEngineCommand(tool, args, ctx);
 		return await runCommand(tool, /** @type {any} */ (command), args, ctx);
 	} catch (err) {
 		if (err instanceof ToolFailure) return toolError(err.code, err.detail, err.details);
@@ -298,6 +408,12 @@ if (typeof window !== 'undefined') {
 	window.__waffleAgentExecutor = {
 		executeTool,
 		shadowedTools: () => [...SHADOWED],
+		engineTools: () => [...ENGINE_COMMANDS],
+		// The C4 differential runs each sequence with this off (the JS bodies)
+		// and on (the engine), then compares the documents.
+		setEngineTools: (on) => {
+			engineTools = !!on;
+		},
 		setShadow: (on) => {
 			shadowing = !!on;
 			shadowMismatches.length = 0;

@@ -265,6 +265,7 @@ test.describe('Agent link authoring (Phase 1)', () => {
 		refused(await relay.callTool('undo'), 'NothingToUndo');
 		refused(await relay.callTool('redo'), 'NothingToRedo');
 
+		const documentBefore = await documentBytes(page);
 		await page.evaluate(() => window.__waffle.recordEngineSends(true));
 		for (const [type, params] of [
 			['Fillet', { edges: [], radius: 0.001 }],
@@ -283,7 +284,16 @@ test.describe('Agent link authoring (Phase 1)', () => {
 			'InvalidSketch'
 		);
 		expect(dup.message).toContain('/entities/1/id');
-		expect(await agentSends(page)).toEqual([]);
+		// S3 C4 moved these refusals INTO the engine, so a refused authoring
+		// call now costs exactly one `Tool` message — it cannot be decided
+		// without asking the engine. The invariant is unchanged in substance
+		// (a refusal does no work and changes nothing), so that is what is
+		// asserted: no feature-level message, and a byte-identical document.
+		// `body_measure` and `sketch_create` still refuse in the page and send
+		// nothing at all.
+		expect((await agentSends(page)).filter((s) => s.type !== 'Tool')).toEqual([]);
+		expect(await documentBytes(page)).toBe(documentBefore);
+		const sendsAfterRefusals = (await agentSends(page)).length;
 
 		// A malformed known operation fails the relay's inputSchema check (§6.1) and never reaches the page.
 		const malformed = await relay.request('tools/call', {
@@ -291,7 +301,7 @@ test.describe('Agent link authoring (Phase 1)', () => {
 			arguments: { operation: { type: 'Extrude', params: { sketch_id: NIL_UUID } } }
 		});
 		expect(malformed.error.code).toBe(-32602);
-		expect(await agentSends(page)).toEqual([]);
+		expect((await agentSends(page)).length).toBe(sendsAfterRefusals);
 
 		expectNoAnyCrash(crashes);
 	});

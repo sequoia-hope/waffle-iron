@@ -700,9 +700,23 @@ fn handle_message(
             name,
             arguments,
             context,
-        } => Ok(EngineToUi::ToolResult {
-            result: crate::tools::execute_tool(state, kb, &name, &arguments, context.as_ref()),
-        }),
+        } => {
+            let result = crate::tools::execute_tool(state, kb, &name, &arguments, context.as_ref());
+            // A tool that can change the document carries the model update
+            // with its answer, because nothing downstream would produce one:
+            // `process_message` tessellates and attaches a preview only for a
+            // `ModelUpdated`. The tool has already tessellated (it had to, to
+            // report `bodies_added`), so the preview built here is of the
+            // meshes the host is about to receive.
+            //
+            // Carried whenever the tool is a mutating one, answer or refusal:
+            // a refusal can still have moved the document — a rollback that
+            // did not restore it exactly leaves it changed, and that is
+            // precisely the state a host must not miss.
+            let model =
+                crate::tools::mutates(&name).then(|| Box::new(model_updated_response(state)));
+            Ok(EngineToUi::ToolResult { result, model })
+        }
     }
 }
 

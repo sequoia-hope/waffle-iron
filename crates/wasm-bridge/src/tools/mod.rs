@@ -47,6 +47,30 @@ pub const MIGRATED: &[&str] = &[
     "redo",
 ];
 
+/// Whether this tool can change the document.
+///
+/// The mutating tools are exactly C4's twelve: their answers carry a model
+/// update (`EngineToUi::ToolResult::model`), because a `ToolResult` is not a
+/// `ModelUpdated` and nothing else would refresh the host's view. A tool that
+/// is not listed here is read-only and answers with no model.
+pub fn mutates(name: &str) -> bool {
+    matches!(
+        name,
+        "feature_add"
+            | "feature_edit"
+            | "feature_delete"
+            | "feature_suppress"
+            | "feature_reorder"
+            | "feature_rename"
+            | "body_rename"
+            | "rollback_set"
+            | "parameters_set"
+            | "import_step"
+            | "undo"
+            | "redo"
+    )
+}
+
 /// An MCP tool result (`specs/waffle_mcp_server.md` §2.3 `result`, I10).
 ///
 /// Field names are the MCP wire names, so the page can hand a result to the

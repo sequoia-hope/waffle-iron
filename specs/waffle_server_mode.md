@@ -186,7 +186,7 @@ proven by the existing GUI suites plus the named oracle.
 | **S0** — landed 2026-09-15 | Move the ≈ 600 target-independent lines of `wasm_api.rs` (renderable-body collection, naming, face/edge entries) into a shared `wasm-bridge/src/render_view.rs`, and the message pipeline (parse → dispatch → tessellate → preview → serialize) into `wasm-bridge/src/process.rs` with the clock and logger injected; `wasm_api` becomes a pure binding shim | `wasm-bridge/tests/render_view_parity.{rs,mjs}` over 7 scenarios (5 corpus loads, an assembly, an in-context edit with ghosts). **Bundle, byte for byte:** the rebuilt bundle's census of every worker accessor equals the pre-move bundle's (`golden.json`). **Native vs bundle, structure:** same response types, body metadata and all counts; bytes differ across targets by design (§2.7 H3) |
 | **S1** — landed 2026-09-16 | Request ids in the bridge (`{id, msg}` envelope; worker echoes `id`), replacing FIFO pairing. Needed by any multiplexed transport | `sketch-drawing-regression.spec.js` + agent-link specs green |
 | **S2** — landed 2026-09-16 (C1–C4) | **Document session in Rust.** `EngineState` gains the tab list, inactive tab trees, assembly trees, document metadata, a per-tab undo stack, and a monotonic `revision`. New messages `AddTab`/`CloseTab`/`RenameTab`/`MoveTab`/`EditAssembly`/`SetDocumentMeta`; `SwitchTab` takes an id, not a tree. The JS store keeps its `$state` fields as **mirrors** refreshed from `ModelUpdated` (A2.1 compliant) | `format_tests` round trip; new `session_tests.rs`; GUI tabs/assembly specs unchanged |
-| **S3** — C1–C3 landed 2026-09-16 | **Agent tool semantics in Rust**: `wasm-bridge/src/tools/` implements `execute_tool(session, name, args, ctx) -> ToolResult` for every non-render tool (gates that are document state, rollback, `modelDelta`, results shaping; `sketch_create` uses `sketch-solver` profiles, which JS already ports). New message `UiToEngine::Tool{name, arguments, context}`. Host-only concerns stay per host (§3.3). Migrated tool by tool, **shadowed**: the page runs both JS and Rust and asserts equal `structuredContent` in dev builds until the JS version is deleted | per-tool differential oracle over O1–O22 scripts |
+| **S3** — C1–C4 landed 2026-09-16 | **Agent tool semantics in Rust**: `wasm-bridge/src/tools/` implements `execute_tool(session, name, args, ctx) -> ToolResult` for every non-render tool (gates that are document state, rollback, `modelDelta`, results shaping; `sketch_create` uses `sketch-solver` profiles, which JS already ports). New message `UiToEngine::Tool{name, arguments, context}`. Host-only concerns stay per host (§3.3). Migrated tool by tool, **shadowed**: the page runs both JS and Rust and asserts equal `structuredContent` in dev builds until the JS version is deleted | per-tool differential oracle over O1–O22 scripts |
 | **S4** | Host binary `waffle-host` (new crate `crates/waffle-host`, native only) wrapping the session | §2.7 oracles |
 
 **S3 checkpoints.** **C1** (landed 2026-09-16) is the mechanism plus the first
@@ -202,9 +202,22 @@ shifting each id into that gear's own range, so `regionInputs` and the
 entities half of `remapGearResponse` moved with it; and `body_measure` /
 `face_list` must refuse on the RENDERED body list, because `find_body` in
 dispatch searches every feature output, including consumed and rolled-back
-ones the page would never offer. Then, in order: **C4**
-the authoring core — `applyStep` (snapshot → dispatch → `ModelDelta` →
-rollback-on-new-error) and the twelve tools built on it; **C5** `sketch_create`,
+ones the page would never offer. **C4** (landed 2026-09-16) is the authoring
+core — `apply_step` (snapshot → dispatch → tessellate → `ModelDelta` →
+rollback-on-new-error) and the twelve tools built on it, in
+`crates/wasm-bridge/src/tools/author.rs`. Three things it had to get right that
+are invisible until they answer wrongly: the step must **tessellate before its
+after-snapshot**, because `bodies_added` comes from the RENDERED body list and
+`process_message` tessellates only a `ModelUpdated`, never a `ToolResult` (so
+every `feature_add` would otherwise report `bodies_added: []`); a failing step
+is a **recorded feature error, not a returned `Err`**
+(`add_feature_with_provenance` always answers `Ok`), so the rollback path is
+reached through the snapshot diff, as it was in JS; and a `ToolResult` is not a
+`ModelUpdated`, so it now **carries the model update** (`ToolResult::model`) —
+without it the worker collects no meshes and the store never refreshes its
+tree, errors or autosave after an authoring call. The toast and the pause stay
+with the host (§3.3): the answer says `rolled_back`, and `pause_agent` when a
+rollback did not restore the document exactly. Then, in order: **C5** `sketch_create`,
 which additionally needs `buildFinishProfiles` ported (the one part of that path
 with no Rust twin — `extract_profiles` already has one in `waffle_types`);
 **C6** the export pair, whose `deliver:"download"` half stays in the page.
@@ -212,6 +225,29 @@ with no Rust twin — `extract_profiles` already has one in `waffle_types`);
 A migrated tool's JS body is deleted, and its name leaves `MIGRATED`, only once
 the differential has run green over a model that exercises it — two agreeing
 empty answers prove nothing, so the differential asserts its own call count.
+
+**C4 cannot shadow, and does not.** A step that CHANGES the document cannot be
+run twice on it to compare the answers — that applies it twice. So the twelve
+authoring tools are compared by running whole scripted sequences against each
+implementation on a FRESH document, then diffing both the per-call answers and
+the saved file canonically (`app/tests/gui/agent-rust-authoring.spec.js`, with
+`executor.js` `setEngineTools` choosing the arm; each arm is asserted to have
+taken its own path — `Tool` sends in one, none in the other — so two runs of
+the same implementation cannot pass). Ids are normalized **sort → rename →
+sort**: renaming first depends on raw key order, which differs because
+`serde_json::Map` is a `BTreeMap` while the page builds object literals in
+insertion order; sorting first orders `provenance` (a `HashMap` keyed by UUID)
+by freshly minted ids. Their JS bodies therefore stay in `commands.js` as that
+differential's control until **C4b** deletes them and converts it to a golden
+comparison — deleting them in the same commit would delete the proof. Live
+traffic already runs in the engine.
+
+One page-side consequence worth keeping: O3 replay learns recorded-id →
+fresh-id from an answer's `feature_id`, and a `ToolResult` keeps that id in its
+MCP payload, not at the top level. Both the recorder (`bridge.js`) and the
+replay (`store.svelte.js`) must look there, or every step after a tool that
+created a feature replays against a stale id — and the replay's `catch`
+swallows it, silently losing the step.
 
 Not moved, by §3.3: `viewport_view` / `viewport_capture`, `selection_get`, the
 storage tools, and the provider and UI halves of the document and tab flows.

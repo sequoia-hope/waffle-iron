@@ -232,7 +232,16 @@ export class EngineBridge {
 		const id = envelope ? frame.id : null;
 		const pending = id ? this._pending.get(id) : null;
 		if (pending) this._pending.delete(id);
-		if (pending?.entry) pending.entry.response = { type: msg.type, feature_id: msg.feature_id ?? null };
+		if (pending?.entry) {
+			// An authoring tool answers with a `ToolResult`, which carries the
+			// id of any feature it created in the MCP payload rather than at
+			// the top level (S3 C4). O3 replay learns recorded-id → fresh-id
+			// from this field, so without the second lookup every step after a
+			// `Tool` that created a feature replays against a stale id — and
+			// the replay swallows the resulting failure, losing the step.
+			const featureId = msg.feature_id ?? msg.structuredContent?.feature_id ?? null;
+			pending.entry.response = { type: msg.type, feature_id: featureId };
+		}
 
 		// Build summary data for the log entry
 		const summary = { type: msg.type };
@@ -257,6 +266,14 @@ export class EngineBridge {
 		switch (msg.type) {
 			case 'ModelUpdated':
 				if (this._onModelUpdated) this._onModelUpdated(msg);
+				break;
+			case 'ToolResult':
+				// An authoring tool runs inside the engine now (S3 C4), so its
+				// answer is not a `ModelUpdated` — but the document changed.
+				// The model it carries goes to the same handler, so the tree,
+				// meshes, errors and autosave refresh exactly as for any other
+				// step. A read-only tool carries none.
+				if (msg.model && this._onModelUpdated) this._onModelUpdated(msg.model);
 				break;
 			case 'SketchSolved':
 				if (this._onSketchSolved) this._onSketchSolved(msg);
