@@ -5,6 +5,7 @@ pub mod face_refs;
 pub mod messages;
 pub mod process;
 pub mod render_view;
+pub mod session;
 pub mod stl_export;
 pub mod tessellation_runner;
 
@@ -14,3 +15,4 @@ pub mod wasm_api;
 pub use dispatch::dispatch;
 pub use engine_state::{BridgeError, EngineState};
 pub use messages::{EngineToUi, UiToEngine};
+pub use session::{DocumentSession, SessionError, TabInfo};

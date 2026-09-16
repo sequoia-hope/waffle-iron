@@ -81,6 +81,41 @@ Spec: `specs/waffle_server_mode.md` §2.3 (P-A).
 - [ ] Known, not fixed: `feature_engine::preview_mesh::decimate_mesh` orders output by `HashMap` iteration, so a native process's `preview_mesh` varies run to run (spec §2.7 H3)
 - [ ] Known, not fixed: `cargo clippy -p wasm-bridge --target wasm32-unknown-unknown` flags the `thread_local!` initializer in `wasm_api.rs` (pre-existing; CI does not lint wasm32)
 
+### M11: Server-mode S2 — the document session in Rust
+Spec: `specs/waffle_server_mode.md` §2.3 S2 (P-A). Staged as four atomic
+checkpoints; the JS store is untouched until C4, so the browser path is
+unchanged throughout.
+- [x] **C1 — the session type, wired to nothing** (2026-09-16): `src/session.rs`
+      `DocumentSession` owns the document metadata, the tab list, every
+      inactive tab's tree, assembly trees, per-tab preview meshes, a per-tab
+      undo history, and a monotonic `revision`. 15 unit tests.
+      `feature_engine::Engine` gained `take_history`/`set_history` (the stack
+      was private with no accessor, so a host could not park it per tab).
+- [ ] C2: `EngineState` owns the session; `LoadProject`/`NewDocument` populate
+      it and `ModelUpdated` reports it. No message signature changes.
+- [ ] C3: new messages `AddTab`/`CloseTab`/`RenameTab`/`MoveTab`/
+      `SetDocumentMeta`/`EditAssembly`; `SwitchTab` takes a `tab_id` not a
+      tree; `OpenAssembly` takes a `tab_id` and the session supplies the part
+      trees (today JS re-sends every tree on every assembly evaluation —
+      the largest payload this removes); `SaveDocument` loses its payload
+      (v4 §4 inv. 7 one writer). Regenerate the render-view parity fixtures.
+- [ ] C4: the JS store's tab/assembly/metadata `$state` becomes a mirror fed
+      by `ModelUpdated`; delete the second `.waffle` parser in
+      `initDocumentState`. A2.1 compliance.
+- Found by C1, to fix in C2/C3: **undo already leaks across tabs today** —
+  `SwitchTab` replaces `engine.tree` and `rebuild_from_scratch` clears only
+  results, never `undo_stack`, so an `Undo` after a switch pops a command
+  recorded against the tab you just left. The per-tab stack is a behavior
+  fix, not only a relocation.
+- Found by C1: the JS `switchTab` writes `kind.features` without checking the
+  tab kind, stamping an empty `features` key onto an Assembly tab that is
+  then serialized (harmless — `TabKind` ignores unknown keys — but the JS and
+  Rust views of an Assembly tab differ). The session refuses to do this.
+- Found by C1: `feature_engine::preview_mesh::PreviewMesh` and
+  `file_format::PreviewMesh` are structurally identical, nominally distinct,
+  and have no conversion anywhere. JS never noticed (both are JSON on the
+  wire); `DocumentSession::set_preview_mesh` converts field-wise.
+
 ## Blockers
 
 - ~~Depends on kernel-fork (M6 needs tessellation output)~~ RESOLVED

@@ -786,6 +786,23 @@ impl Engine {
     pub fn can_redo(&self) -> bool {
         self.undo_stack.can_redo()
     }
+
+    /// Take the undo/redo history out of the engine, leaving it empty.
+    ///
+    /// A host that drives several feature trees through one engine (the
+    /// document session's tabs, `specs/waffle_server_mode.md` §2.3 S2) must
+    /// park the outgoing tree's history and restore the incoming one.
+    /// Without it a command recorded against one tree is popped against
+    /// another: `rebuild_from_scratch` clears results, never the stack.
+    pub fn take_history(&mut self) -> UndoStack {
+        std::mem::take(&mut self.undo_stack)
+    }
+
+    /// Restore a history taken by [`Engine::take_history`], discarding the
+    /// current one.
+    pub fn set_history(&mut self, history: UndoStack) {
+        self.undo_stack = history;
+    }
 }
 
 /// One feature changed.
