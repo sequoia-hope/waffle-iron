@@ -444,6 +444,21 @@ pub enum UiToEngine {
         #[serde(default)]
         chord_tolerance: Option<f64>,
     },
+
+    // -- Agent tools --
+    /// Run one agent tool (`specs/waffle_server_mode.md` §2.3 S3). The
+    /// semantics live in [`crate::tools`], so the page and a native host
+    /// answer identically; the gates that are page state (the engine lock,
+    /// `UserBusy`, `AgentPaused`) stay with the host (§3.3).
+    Tool {
+        name: String,
+        #[serde(default)]
+        arguments: serde_json::Value,
+        /// Per-call host state (the agent's name, for provenance). Read from
+        /// the authoring tools onward; the read-only tools ignore it.
+        #[serde(default)]
+        context: Option<serde_json::Value>,
+    },
 }
 
 /// The open document as the Rust session knows it
@@ -667,6 +682,13 @@ pub enum EngineToUi {
     /// Planetary preview generated: one polyline per gear (sun, N planets,
     /// ring). Empty when the params are invalid.
     PlanetaryPreviewGenerated { polylines: Vec<Vec<(f64, f64)>> },
+
+    /// The answer to [`UiToEngine::Tool`]: an MCP tool result, in the wire
+    /// shape the relay forwards unchanged (S3).
+    ToolResult {
+        #[serde(flatten)]
+        result: crate::tools::ToolResult,
+    },
 }
 
 /// One `sources` entry as the host needs it to resolve content: the entry's

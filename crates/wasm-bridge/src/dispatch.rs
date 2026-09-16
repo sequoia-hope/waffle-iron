@@ -695,6 +695,14 @@ fn handle_message(
                 None => Err(BridgeError::NoMeshData),
             }
         }
+
+        UiToEngine::Tool {
+            name,
+            arguments,
+            context,
+        } => Ok(EngineToUi::ToolResult {
+            result: crate::tools::execute_tool(state, kb, &name, &arguments, context.as_ref()),
+        }),
     }
 }
 

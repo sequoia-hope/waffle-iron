@@ -30,6 +30,7 @@ import { EXPORT_QUERIES } from './export.js';
 import { QUERIES } from './queries.js';
 import { ToolFailure, toolError } from './results.js';
 import { TOOL_NAMES } from './tools/index.js';
+import { canonicalJson } from './tools/manifest.js';
 import { VIEWPORT_QUERIES } from './viewport.js';
 
 export { toolError } from './results.js';
@@ -171,13 +172,77 @@ async function runDocumentCommand(tool, run, args, ctx) {
 }
 
 /**
- * Run one tool call.
+ * Tools whose semantics have moved into the engine (`crates/wasm-bridge/src/tools`,
+ * `specs/waffle_server_mode.md` §2.3 S3). Keep in sync with `tools::MIGRATED`.
+ *
+ * While a name is in this set BOTH implementations run and their
+ * `structuredContent` must match: the JS answer is still the one returned, so
+ * a divergence is visible without being served to an agent. The JS body is
+ * deleted — and the name leaves this set — once the differential is green.
+ */
+const SHADOWED = new Set(['model_summary']);
+
+/** Off by default: shadowing takes the engine lock and costs a round trip. */
+let shadowing = false;
+
+/** @type {Array<{tool: string, page: string, engine: string}>} */
+const shadowMismatches = [];
+
+/** How many calls actually reached the engine: an empty mismatch list means
+ * nothing unless the comparison ran. */
+let shadowRuns = 0;
+
+/**
+ * Run the engine's implementation of `tool` and compare it with the page's.
+ *
+ * Only non-error results are compared: the refusals above (`EngineNotReady`,
+ * `UserBusy`, …) are page state by §3.3, which the engine deliberately does
+ * not model, so comparing them would report a difference that is by design.
+ *
+ * @param {string} tool
+ * @param {Record<string, unknown>} args
+ * @param {{content: object[], structuredContent: object, isError: boolean}} pageResult
+ */
+async function shadowAgainstEngine(tool, args, pageResult) {
+	if (pageResult.isError) return pageResult;
+	try {
+		const answer = await withAgentLock(() =>
+			sendAgentMessage({ type: 'Tool', name: tool, arguments: args })
+		);
+		shadowRuns += 1;
+		const page = canonicalJson(pageResult.structuredContent);
+		const engine = canonicalJson(answer?.structuredContent);
+		if (page !== engine) {
+			shadowMismatches.push({ tool, page, engine });
+			console.error(`[agent] ${tool}: the engine and the page disagree\npage:   ${page}\nengine: ${engine}`);
+		}
+	} catch (err) {
+		shadowMismatches.push({ tool, page: '', engine: `threw: ${err?.message ?? String(err)}` });
+		console.error(`[agent] ${tool}: the engine's implementation threw`, err);
+	}
+	return pageResult;
+}
+
+/**
+ * Run one tool call, shadowing the engine's implementation where there is one.
  * @param {string} tool
  * @param {Record<string, unknown>} args
  * @param {CallContext} ctx
  * @returns {Promise<{content: object[], structuredContent: object, isError: boolean}>}
  */
 export async function executeTool(tool, args, ctx) {
+	const result = await runTool(tool, args, ctx);
+	if (!shadowing || !SHADOWED.has(tool)) return result;
+	return shadowAgainstEngine(tool, args, result);
+}
+
+/**
+ * @param {string} tool
+ * @param {Record<string, unknown>} args
+ * @param {CallContext} ctx
+ * @returns {Promise<{content: object[], structuredContent: object, isError: boolean}>}
+ */
+async function runTool(tool, args, ctx) {
 	const known = TOOL_NAMES.has(tool);
 	const query = known
 		? (QUERIES[tool] ?? DOCUMENT_QUERIES[tool] ?? VIEWPORT_QUERIES[tool] ?? EXPORT_QUERIES[tool])
@@ -219,9 +284,21 @@ export async function executeTool(tool, args, ctx) {
 }
 
 // Test hook (agent-document-load-gate.spec.js): run a tool in this page's own
-// executor, without a relay.
+// executor, without a relay. `setShadow` drives the S3 differential
+// (agent-rust-tools.spec.js): with it on, every migrated tool also runs in the
+// engine and any disagreement lands in `getShadowMismatches()`.
 if (typeof window !== 'undefined') {
-	window.__waffleAgentExecutor = { executeTool };
+	window.__waffleAgentExecutor = {
+		executeTool,
+		shadowedTools: () => [...SHADOWED],
+		setShadow: (on) => {
+			shadowing = !!on;
+			shadowMismatches.length = 0;
+			shadowRuns = 0;
+		},
+		getShadowMismatches: () => shadowMismatches.map((m) => ({ ...m })),
+		getShadowRuns: () => shadowRuns
+	};
 }
 
 /**
