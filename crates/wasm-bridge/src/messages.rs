@@ -188,11 +188,7 @@ pub enum UiToEngine {
     /// engine — and the engine attaches its `sources` table (embeds from the
     /// source store per each entry's `pack`) and returns the verified file
     /// as `SaveReady`.
-    SaveDocument {
-        document: file_format::DocumentMetadata,
-        tabs: Vec<file_format::Tab>,
-        active_tab: String,
-    },
+    SaveDocument,
     /// The host fetched a source's content through its locator (v4 §2.3):
     /// register it (hash recorded on the entry) and rebuild so dependent
     /// features recover from `SourceUnavailable`.
@@ -392,6 +388,14 @@ pub enum UiToEngine {
         name: Option<String>,
         #[serde(default)]
         display_unit: Option<String>,
+        /// The document's identity, and the creation time preserved from the
+        /// file it was opened from (S2 C3c). Both are the HOST's to mint and
+        /// latch — the storage record is keyed by the identity (v4 P2-5) — and
+        /// the session needs them because it composes the saved file now.
+        #[serde(default)]
+        id: Option<Uuid>,
+        #[serde(default)]
+        created: Option<chrono::DateTime<chrono::Utc>>,
     },
 
     // -- Design parameters (variables) --

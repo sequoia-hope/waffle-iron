@@ -309,54 +309,34 @@ fn handle_message(
             })
         }
 
-        UiToEngine::SaveDocument {
-            mut document,
-            mut tabs,
-            active_tab,
-        } => {
-            let active = tabs
-                .iter_mut()
-                .find(|t| t.id == active_tab)
-                .ok_or_else(|| BridgeError::InvalidRequest {
-                    reason: format!("active_tab `{active_tab}` names no tab"),
-                })?;
-            match &mut active.kind {
-                TabKind::Part { features, .. } => *features = state.engine.tree.clone(),
-                // An assembly tab's content is UI-owned (instances, mates,
-                // solved placements); nothing to substitute.
-                TabKind::Assembly { .. } => {}
-                TabKind::Unknown(_) => {
-                    return Err(BridgeError::InvalidRequest {
-                        reason: format!(
-                            "active tab `{}` has kind `{}`; only a Part tab can hold the live tree",
-                            active.name,
-                            active.kind.type_tag()
-                        ),
-                    })
-                }
-            }
-            // Unknown keys the UI does not carry: re-attach what load captured.
+        UiToEngine::SaveDocument => {
+            // The session composes the file (S2 C3c, v4 §4 inv. 7 one writer).
+            // Nothing is handed over any more: it holds the metadata, every
+            // tab with its tree and thumbnail, and which tab is active, and
+            // `to_document` stashes the live tree into the active tab on the
+            // way. An active tab of a kind this build cannot open keeps its
+            // content verbatim rather than being refused — the live tree is
+            // empty while such a tab is open, so there is nothing to stamp.
+            let sources = sources_for_save(state);
+            let envelope_extra = state.envelope_extra.clone();
+            let mut doc = state.session.to_document(
+                &mut state.engine,
+                sources,
+                chrono::Utc::now(),
+                envelope_extra,
+            );
+            // Unknown `document.*` keys the UI does not carry: re-attach what
+            // load captured (v4 §2.6).
             for (k, v) in &state.document_extra {
-                document.extra.entry(k.clone()).or_insert_with(|| v.clone());
+                doc.document
+                    .extra
+                    .entry(k.clone())
+                    .or_insert_with(|| v.clone());
             }
-            let mut doc = WaffleDocument {
-                document,
-                sources: sources_for_save(state),
-                tabs,
-                active_tab,
-                extra: state.envelope_extra.clone(),
-            };
-            // Inactive tabs the UI parsed from a v3 file may still carry
-            // inline STEP payloads; lift them so the file is uniformly v4.
+            // Tabs loaded from a v3 file may still carry inline STEP payloads;
+            // lift them so the file is uniformly v4.
             let _ = doc.lift_inline_payloads();
             let json_data = verified(&doc)?;
-            // The UI just handed over its whole document state, so the session
-            // adopts it instead of keeping a second, older copy. This is the C2
-            // bridge: the JS store is still the authority for the tab bar, and
-            // a save is the only message that tells the session about a rename,
-            // a new tab or a switch. C3 gives each of those its own message and
-            // this adoption goes away. Nothing is adopted if the save failed.
-            state.session.adopt(doc.document, doc.tabs, doc.active_tab);
             Ok(EngineToUi::SaveReady { json_data })
         }
 
@@ -595,8 +575,13 @@ fn handle_message(
         }
 
         // -- Settings --
-        UiToEngine::SetDocumentMeta { name, display_unit } => {
-            state.session.set_meta(name, display_unit);
+        UiToEngine::SetDocumentMeta {
+            name,
+            display_unit,
+            id,
+            created,
+        } => {
+            state.session.set_meta(name, display_unit, id, created);
             Ok(model_updated_response(state))
         }
 
@@ -747,6 +732,13 @@ fn open_assembly(
         &state.engine.sources,
         kb,
     );
+    // The solved placements are derived, but they are saved WITH the tab
+    // (v4 §2.5) and the session composes the file now (S2 C3c) — so they go
+    // back into the tab that was just evaluated. The store keeps its own copy
+    // for the panel; this is the one that reaches storage.
+    state
+        .session
+        .set_assembly_placements(tab_id, view.placements.clone());
     state.assembly = Some(view);
     Ok(())
 }
@@ -1111,12 +1103,19 @@ fn preview_mesh(state: &EngineState) -> Option<feature_engine::preview_mesh::Pre
 /// any new body has a mesh: after a load or full rebuild it came back `None`,
 /// and the page then stored the whole last mesh as the thumbnail (a 180k
 /// triangle, 10 MB preview in a 44-feature document).
-pub fn attach_preview_mesh(state: &EngineState, response: &mut EngineToUi) {
+pub fn attach_preview_mesh(state: &mut EngineState, response: &mut EngineToUi) {
     if let EngineToUi::ModelUpdated {
         preview_mesh: slot, ..
     } = response
     {
-        *slot = preview_mesh(state);
+        let mesh = preview_mesh(state);
+        // The thumbnail is saved WITH its tab (v4 §2.5), and the session is
+        // what composes the file now (S2 C3c) — so every tab keeps the last
+        // preview its own tree produced, instead of the store holding the only
+        // copy on its tab list.
+        let active = state.session.active_tab_id().to_string();
+        state.session.set_preview_mesh(&active, mesh.clone());
+        *slot = mesh;
     }
 }
 

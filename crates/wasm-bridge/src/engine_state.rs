@@ -95,12 +95,12 @@ impl EngineState {
 
     /// Rename the document (its save and export file names follow).
     pub fn set_project_name(&mut self, name: impl Into<String>) {
-        self.session.set_meta(Some(name.into()), None);
+        self.session.set_meta(Some(name.into()), None, None, None);
     }
 
     /// Set the document's display unit.
     pub fn set_display_unit(&mut self, unit: impl Into<String>) {
-        self.session.set_meta(None, Some(unit.into()));
+        self.session.set_meta(None, Some(unit.into()), None, None);
     }
 
     /// Leave any in-context editing session: the ghost view and the engine's

@@ -220,10 +220,54 @@ unchanged throughout.
         `fmt --check`; both release parity tests against regenerated fixtures;
         GUI 27 targeted (46 s, incl. the whole `assembly.spec.js` panel path
         through `EditAssembly`) + gui-fast 349 (218 s).
-- [ ] C3c: `SaveDocument` loses its payload (v4 §4 inv. 7, one writer) and
-      `DocumentSession::adopt` is deleted with it; the session records each
-      tab's preview mesh (it has `set_preview_mesh`, still called by nothing).
-      Regenerate the parity fixtures.
+- [x] **C3c — the session composes the file** (2026-09-16): `SaveDocument` is a
+      UNIT variant. No document, no tabs, no active tab: `to_document` composes
+      the file from the session, so v4 §4 inv. 7 ("one writer") is now
+      literally true. `DocumentSession::adopt` is deleted with the payload.
+      `attach_preview_mesh` records each thumbnail into its own tab, so
+      previews survive a save without the store holding the only copy.
+      - **`id` and `created` flow DOWN, not up** — the opposite of C3a's tab
+        ids, and the GUI assertions are what settled it: the storage record is
+        keyed by the document's identity (v4 P2-5), and
+        `document-format-seam` (`written.document.id === state.documentId`),
+        `document-identity` and `git-provider` all pin that. So the HOST mints
+        and latches identity, `SetDocumentMeta` gained `id`/`created`, and only
+        `modified` is engine-stamped at save time.
+      - **Bug found by the GUI run: saving DIRTIED the document.** The sync
+        `SetDocumentMeta` answers with a `ModelUpdated`, and every
+        `ModelUpdated` calls `scheduleAutoSave()` — so a completed save left a
+        timer armed, `hasPendingAutoSave()` stayed true, and the agent link
+        refused the next call with `UnsavedChanges`. `saveDocumentOrThrow`
+        cancels BEFORE `buildDocumentJson`, so its cancel could not help.
+        `buildDocumentJson` now restores the prior timer state instead of
+        blanket-cancelling: a real edit made during a save still gets its
+        autosave, and saving a clean document leaves it clean.
+      - **Bug found by the GUI run, latent since C3b: solved placements stopped
+        reaching storage.** `editAssembly` strips derived placements before
+        sending and `OpenAssembly` never wrote them back; while the store's own
+        tab copy was what got saved this was invisible, and C3c's payload-free
+        save turned it into a saved assembly that reopens UNPLACED. `dispatch`
+        now writes `view.placements` into the session's assembly tab after each
+        evaluation (`set_assembly_placements`) — right on the merits, since the
+        engine is what derives them.
+      - **Seam, closed by C4:** between a rename and the next save,
+        `ModelUpdated.document.name` is stale. Nothing reads it yet, and every
+        save path pushes metadata first, so it is invisible today.
+      - Oracles: 170 `wasm-bridge` tests; clippy `--all-targets -D warnings`;
+        `fmt --check`; both release parity tests; GUI 27 targeted + gui-fast
+        349; bundle fingerprint verified equal after the final rebuild.
+- [ ] **Defect in the byte-for-byte parity layer (found during C3c, not
+      introduced by it).** `render_view_parity.mjs`'s "a bundle's census must
+      equal `golden.json` exactly" has been unfalsifiable since **C2**, when
+      `ModelUpdated` gained `document`: `DocumentInfo.id` is a `Uuid` minted
+      per `EngineState` (`engine_state.rs:72`, and again on `NewDocument`), so
+      the serialized response differs every run. MEASURED: two census runs over
+      the same unchanged bundle differ in 5 of 9 `response` hashes with all 9
+      lengths identical (a 36-char UUID swapped for another). The structural
+      test is unaffected (`structure()` drops these hashes), which is why every
+      checkpoint stayed green. Fix: normalize or exclude `document.id` in the
+      census so the byte layer means something again. Until then, a moved
+      `golden.json` response hash with unchanged `n` is NOISE, not a signal.
 - [ ] C4: the JS store's tab/assembly/metadata `$state` becomes a mirror fed
       by `ModelUpdated`; delete the second `.waffle` parser in
       `initDocumentState`. A2.1 compliance.

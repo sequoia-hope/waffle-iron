@@ -6937,53 +6937,42 @@ export function initDocumentState(docId, parsed, link = null) {
 export async function buildDocumentJson() {
 	if (!bridge || !engineReady) return null;
 
-	const now = new Date().toISOString();
-	// Latch identity + creation time on first save so they stay stable.
-	if (!documentCreated) documentCreated = now;
+	// Latch identity + creation time on first save so they stay stable. These
+	// stay the STORE's to mint: the storage record is keyed by the document's
+	// own identity (v4 P2-5), so the id has to be the one this tab already
+	// filed under — the session takes them rather than inventing its own.
+	if (!documentCreated) documentCreated = new Date().toISOString();
 	if (!documentId) documentId = generateUUID();
-	if (!implicitTabId) implicitTabId = generateUUID();
-	// Deep-clone documentTabs to unwrap Svelte 5 proxies
-	const tabSnapshot = JSON.parse(JSON.stringify(documentTabs));
-	// A doc-less editor session (plain `/`, no initDocumentState) has no tabs;
-	// wrap the live tree in an implicit tab so the download path never emits
-	// an empty document.
-	const tabs = tabSnapshot.length > 0
-		? tabSnapshot.map(t => {
-			const type = t.kind?.type || 'Part';
-			// Only Part tabs are normalized. Any other kind (a tab from a newer
-			// build — Assembly, Drawing) is opaque and passes through verbatim.
-			const kind = type === 'Part'
-				? {
-					...(t.kind || {}),
-					type: 'Part',
-					features: t.kind?.features || { features: [], active_index: null },
-					preview_mesh: t.kind?.preview_mesh ?? null
-				}
-				: t.kind;
-			return { ...t, id: t.id, name: t.name, kind };
-		})
-		: [{
-			id: implicitTabId,
-			name: 'Part 1',
-			kind: { type: 'Part', features: { features: [], active_index: null }, preview_mesh: null }
-		}];
-	const activeTab = tabSnapshot.length > 0 ? (activeTabId || tabs[0].id) : implicitTabId;
+	// One sync point, immediately before the save: the session composes the
+	// file now (S2 C3c), so anything the store changed without telling it —
+	// a rename, a freshly latched identity — would otherwise be written stale.
+	//
+	// Its answer is a ModelUpdated, and EVERY ModelUpdated schedules an
+	// autosave — so syncing here would leave a timer armed and the document
+	// looking permanently unsaved (`hasPendingAutoSave`), which the agent link
+	// then refuses calls over. Saving must not itself dirty the document, so
+	// the timer is put back exactly as it was: a real edit waiting for its
+	// autosave still gets one, and a save on a clean document leaves it clean.
+	const wasPending = hasPendingAutoSave();
+	try {
+		await bridge.send({
+			type: 'SetDocumentMeta',
+			id: documentId,
+			name: documentName,
+			created: documentCreated,
+			display_unit: documentDisplayUnit
+		});
+	} catch (err) {
+		log('error', `SetDocumentMeta failed: ${err?.message || err}`);
+		return null;
+	}
+	if (!wasPending) cancelPendingAutoSave();
 
 	let response;
 	try {
-		response = await bridge.send({
-			type: 'SaveDocument',
-			document: {
-				id: documentId,
-				name: documentName,
-				// Preserved from open (or latched at first save) — never re-stamped.
-				created: documentCreated,
-				modified: now,
-				display_unit: documentDisplayUnit
-			},
-			tabs,
-			active_tab: activeTab
-		});
+		// No payload: metadata, every tab with its tree and thumbnail, and
+		// which one is active all live in the session (v4 §4 inv. 7).
+		response = await bridge.send({ type: 'SaveDocument' });
 	} catch (err) {
 		log('error', `SaveDocument failed: ${err?.message || err}`);
 		return null;

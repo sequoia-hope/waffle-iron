@@ -29,18 +29,12 @@ fn import_cube(state: &mut EngineState, kernel: &mut KernelV2Adapter) -> EngineT
     )
 }
 
+/// Save through the session (S2 C3c): the metadata, the tab list and the live
+/// tree are all its own, so the message carries nothing.
 fn save_document(state: &mut EngineState, kernel: &mut KernelV2Adapter) -> String {
-    let tab = Tab::part("Part 1", FeatureTree::new());
-    let active_tab = tab.id.clone();
-    let response = dispatch(
-        state,
-        UiToEngine::SaveDocument {
-            document: DocumentMetadata::new("Doc").with_display_unit("mm"),
-            tabs: vec![tab],
-            active_tab,
-        },
-        kernel,
-    );
+    state.set_project_name("Doc");
+    state.set_display_unit("mm");
+    let response = dispatch(state, UiToEngine::SaveDocument, kernel);
     match response {
         EngineToUi::SaveReady { json_data } => json_data,
         other => panic!("expected SaveReady, got {other:?}"),
@@ -276,51 +270,39 @@ fn legacy_save_project_carries_the_sources_table_and_new_document_clears_it() {
 }
 
 #[test]
-fn save_document_rejects_a_dangling_or_non_part_active_tab() {
+fn an_opaque_tab_is_preserved_through_a_save() {
+    // v4 §2.6: a tab of a kind this build cannot open rides load → save
+    // verbatim.
+    //
+    // Until S2 C3c this test also covered `SaveDocument` refusing a dangling
+    // `active_tab` and refusing to host the live tree on a non-Part tab. Both
+    // were validations of a PAYLOAD that no longer exists: the session cannot
+    // be handed a tab list that disagrees with itself, and `stash_active`
+    // leaves a tab that holds no tree alone rather than erroring.
     let mut state = EngineState::new();
     let mut kernel = KernelV2Adapter::new();
-    let response = dispatch(
-        &mut state,
-        UiToEngine::SaveDocument {
-            document: DocumentMetadata::new("Doc"),
-            tabs: vec![Tab::part("Part 1", FeatureTree::new())],
-            active_tab: "nope".into(),
-        },
-        &mut kernel,
-    );
-    assert!(
-        matches!(response, EngineToUi::Error { ref message, .. } if message.contains("names no tab"))
-    );
 
-    // An opaque (future-kind) tab is preserved through SaveDocument but
-    // cannot host the live tree.
-    let asm: Tab = serde_json::from_value(serde_json::json!({
+    let part = Tab::part("Part 1", FeatureTree::new());
+    let part_id = part.id.clone();
+    let drawing: Tab = serde_json::from_value(serde_json::json!({
         "id": "drw", "name": "Drawing 1", "kind": { "type": "Drawing", "sheets": [] }
     }))
     .unwrap();
-    let part = Tab::part("Part 1", FeatureTree::new());
-    let part_id = part.id.clone();
-    let response = dispatch(
+    let fixture = WaffleDocument {
+        document: DocumentMetadata::new("Doc"),
+        sources: Vec::new(),
+        tabs: vec![part, drawing],
+        active_tab: part_id,
+        extra: Default::default(),
+    };
+    let json = file_format::save_document_verified(&fixture).expect("the fixture saves");
+    dispatch(
         &mut state,
-        UiToEngine::SaveDocument {
-            document: DocumentMetadata::new("Doc"),
-            tabs: vec![part.clone(), asm.clone()],
-            active_tab: "drw".into(),
-        },
+        UiToEngine::LoadProject { data: json },
         &mut kernel,
     );
-    assert!(
-        matches!(response, EngineToUi::Error { ref message, .. } if message.contains("Drawing"))
-    );
-    let response = dispatch(
-        &mut state,
-        UiToEngine::SaveDocument {
-            document: DocumentMetadata::new("Doc"),
-            tabs: vec![part, asm],
-            active_tab: part_id,
-        },
-        &mut kernel,
-    );
+
+    let response = dispatch(&mut state, UiToEngine::SaveDocument, &mut kernel);
     let EngineToUi::SaveReady { json_data } = response else {
         panic!("{response:?}")
     };
@@ -697,27 +679,37 @@ fn an_active_assembly_tab_saves_without_touching_the_live_tree() {
     use feature_engine::assembly::AssemblyTree;
     let mut state = EngineState::new();
     let mut kernel = KernelV2Adapter::new();
+    // The cube is the live tree of the document's Part tab.
     import_cube(&mut state, &mut kernel);
-    let part = Tab::part("Part 1", FeatureTree::new());
-    let asm_tab = Tab::assembly("Assembly 1", AssemblyTree::default());
-    let asm_id = asm_tab.id.clone();
-    let response = dispatch(
+    let asm_id = state
+        .session
+        .add_tab("Assembly", None)
+        .expect("an Assembly tab");
+    state
+        .session
+        .set_assembly(&asm_id, AssemblyTree::default())
+        .expect("the tab takes its assembly");
+    // Opening the assembly stashes the live tree into the Part tab it came
+    // from and leaves the live tree empty.
+    dispatch(
         &mut state,
-        UiToEngine::SaveDocument {
-            document: DocumentMetadata::new("Doc"),
-            tabs: vec![part, asm_tab],
-            active_tab: asm_id.clone(),
+        UiToEngine::OpenAssembly {
+            tab_id: asm_id.clone(),
         },
         &mut kernel,
     );
+
+    let response = dispatch(&mut state, UiToEngine::SaveDocument, &mut kernel);
     let EngineToUi::SaveReady { json_data } = response else {
         panic!("{response:?}")
     };
     let doc = load_document(&json_data).unwrap().document;
     assert_eq!(doc.active_tab, asm_id);
     assert!(doc.tab(&asm_id).unwrap().assembly_tree().is_some());
-    // The Part tab kept ITS tree (empty), not the engine's live one.
-    assert!(doc.tabs[0].features().unwrap().features.is_empty());
+    // The Part tab holds the imported cube — the live tree went to the tab it
+    // belongs to, not onto the assembly (S2 C3c; before the session composed
+    // the file, the UI handed over an empty Part tab here).
+    assert_eq!(doc.tabs[0].features().unwrap().features.len(), 1);
     // Loading a document whose active tab is an assembly opens with an
     // empty live tree (the assembly is evaluated by OpenAssembly).
     let mut fresh = EngineState::new();

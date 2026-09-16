@@ -314,6 +314,27 @@ impl DocumentSession {
         Ok(())
     }
 
+    /// Record the solved placements on an `Assembly` tab (S2 C3c).
+    ///
+    /// Placements are DERIVED — the engine solves them on every evaluation —
+    /// but they are saved with the tab (v4 §2.5), and the session is what
+    /// composes the file now. Without this the store's copy would be the only
+    /// one that ever had them, and a saved assembly would reopen unplaced.
+    /// Silent for a tab that holds no assembly: this rides on an evaluation,
+    /// not on a user action.
+    pub fn set_assembly_placements(
+        &mut self,
+        id: &str,
+        placements: std::collections::BTreeMap<uuid::Uuid, feature_engine::assembly::Transform>,
+    ) {
+        let Ok(index) = self.index_of(id) else {
+            return;
+        };
+        if let TabKind::Assembly { assembly, .. } = &mut self.tabs[index].kind {
+            assembly.placements = placements;
+        }
+    }
+
     /// Replace an `Assembly` tab's tree, as the assembly panel's edits do.
     pub fn set_assembly(
         &mut self,
@@ -387,33 +408,33 @@ impl DocumentSession {
 
     // ── Metadata and serialization ──────────────────────────────────────
 
-    /// Set the document's name, display unit, or both. `modified` is stamped
-    /// by [`DocumentSession::to_document`] at save time, not here.
-    pub fn set_meta(&mut self, name: Option<String>, display_unit: Option<String>) {
+    /// Set the document's name, display unit, identity, creation time, or any
+    /// subset. `modified` is stamped by [`DocumentSession::to_document`] at
+    /// save time, not here.
+    ///
+    /// `id` and `created` arrive from the UI rather than being minted here: the
+    /// storage record is keyed by the document's own identity (v4 §4 inv. 1,
+    /// P2-5), so the id has to be the one the host already filed the document
+    /// under, and `created` is preserved from the file it was opened from.
+    pub fn set_meta(
+        &mut self,
+        name: Option<String>,
+        display_unit: Option<String>,
+        id: Option<uuid::Uuid>,
+        created: Option<chrono::DateTime<chrono::Utc>>,
+    ) {
         if let Some(name) = name {
             self.document.name = name;
         }
         if let Some(unit) = display_unit {
             self.document.display_unit = Some(unit);
         }
-        self.commit();
-    }
-
-    /// Adopt document state handed over wholesale — today's `SaveDocument`,
-    /// where the JS store is still the authority for the tab bar. Metadata,
-    /// tabs and the active tab replace what the session held; parked
-    /// histories of tabs that no longer exist are dropped, so undo still
-    /// follows a surviving tab across a save.
-    ///
-    /// This exists only while JS owns the tab bar: C3 gives tabs their own
-    /// messages, and the session stops being told after the fact.
-    pub fn adopt(&mut self, document: DocumentMetadata, tabs: Vec<Tab>, active_tab: String) {
-        self.document = document;
-        self.tabs = tabs;
-        self.active_tab = active_tab;
-        let live: std::collections::HashSet<String> =
-            self.tabs.iter().map(|t| t.id.clone()).collect();
-        self.histories.retain(|id, _| live.contains(id));
+        if let Some(id) = id {
+            self.document.id = id;
+        }
+        if let Some(created) = created {
+            self.document.created = created;
+        }
         self.commit();
     }
 
@@ -502,7 +523,7 @@ mod tests {
         s.rename_tab(&id, "Renamed").unwrap();
         s.move_tab(&id, 0).unwrap();
         s.switch_tab(&id, &mut e).unwrap();
-        s.set_meta(Some("New name".into()), None);
+        s.set_meta(Some("New name".into()), None, None, None);
         // add, rename, move, switch, set_meta.
         assert_eq!(s.revision(), before + 5);
     }
@@ -672,12 +693,26 @@ mod tests {
         let mut s = session();
         let mut e = engine();
         s.add_tab("Part", Some("Second".into())).unwrap();
-        s.set_meta(Some("Named".into()), Some("in".into()));
+        // The identity and creation time are the host's (S2 C3c); they must
+        // survive the round trip untouched, because the storage record is
+        // keyed by the identity.
+        let id = uuid::Uuid::new_v4();
+        let created = chrono::DateTime::parse_from_rfc3339("2021-02-03T04:05:06Z")
+            .expect("a fixed timestamp")
+            .with_timezone(&chrono::Utc);
+        s.set_meta(
+            Some("Named".into()),
+            Some("in".into()),
+            Some(id),
+            Some(created),
+        );
         let doc = s.to_document(&mut e, Vec::new(), chrono::Utc::now(), Default::default());
 
         let mut reopened = DocumentSession::from_document(doc);
         assert_eq!(reopened.document().name, "Named");
         assert_eq!(reopened.document().display_unit.as_deref(), Some("in"));
+        assert_eq!(reopened.document().id, id);
+        assert_eq!(reopened.document().created, created);
         assert_eq!(
             reopened
                 .tabs()

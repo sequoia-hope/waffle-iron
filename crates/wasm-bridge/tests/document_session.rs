@@ -1,14 +1,16 @@
-//! The document session at the bridge (`specs/waffle_server_mode.md` §2.3 S2,
-//! checkpoint C2): `EngineState` owns one `DocumentSession`, `LoadProject` and
-//! `NewDocument` populate it, `SaveDocument` adopts what the UI hands over, and
-//! every `ModelUpdated` reports it.
+//! The document session at the bridge (`specs/waffle_server_mode.md` §2.3 S2):
+//! `EngineState` owns one `DocumentSession`, `LoadProject` and `NewDocument`
+//! populate it, the tab messages drive it, and every `ModelUpdated` reports it.
+//! Since C3c `SaveDocument` carries nothing at all — the session composes the
+//! file (v4 §4 inv. 7), taking only the identity and creation time the host
+//! latched, because the storage record is keyed by that identity.
 //!
 //! The session's unit tests live in `src/session.rs` (C1). These check the
 //! dispatch wiring: that the document's name and display unit have exactly one
 //! home, and that a host could drive a tab bar from `ModelUpdated` alone.
 
 use feature_engine::types::FeatureTree;
-use file_format::{save_document_verified, DocumentMetadata, Tab, WaffleDocument};
+use file_format::{load_document, save_document_verified, Tab, WaffleDocument};
 use waffle_types::kernel::MockKernel;
 use wasm_bridge::messages::*;
 use wasm_bridge::*;
@@ -44,6 +46,8 @@ fn model_updated_reports_the_session() {
         UiToEngine::SetDocumentMeta {
             name: None,
             display_unit: Some("in".to_string()),
+            id: None,
+            created: None,
         },
         &mut kernel,
     );
@@ -70,6 +74,8 @@ fn the_display_unit_has_one_home_now() {
         UiToEngine::SetDocumentMeta {
             name: None,
             display_unit: Some("cm".to_string()),
+            id: None,
+            created: None,
         },
         &mut kernel,
     );
@@ -264,32 +270,68 @@ fn a_tab_id_the_document_does_not_have_is_a_loud_error() {
 }
 
 #[test]
-fn save_document_adopts_the_uis_document_state() {
+fn save_composes_the_file_from_the_session() {
     let mut state = EngineState::new();
     let mut kernel = MockKernel::new();
 
-    let bracket = Tab::part("Bracket", FeatureTree::new());
-    let plate = Tab::part("Plate", FeatureTree::new());
-    let active = plate.id.clone();
-    let response = dispatch(
+    // Everything the file needs is put into the SESSION — nothing is handed
+    // over by the save (S2 C3c). `id` and `created` come from the host, which
+    // owns the document's identity (the storage record is keyed by it).
+    let id = uuid::Uuid::new_v4();
+    let created = chrono::DateTime::parse_from_rfc3339("2020-01-02T03:04:05Z")
+        .expect("a fixed timestamp")
+        .with_timezone(&chrono::Utc);
+    dispatch(
         &mut state,
-        UiToEngine::SaveDocument {
-            document: DocumentMetadata::new("Saved").with_display_unit("ft"),
-            tabs: vec![bracket, plate],
-            active_tab: active.clone(),
+        UiToEngine::SetDocumentMeta {
+            name: Some("Saved".to_string()),
+            display_unit: Some("ft".to_string()),
+            id: Some(id),
+            created: Some(created),
         },
         &mut kernel,
     );
-    assert!(
-        matches!(response, EngineToUi::SaveReady { .. }),
-        "{response:?}"
+    let r = dispatch(
+        &mut state,
+        UiToEngine::AddTab {
+            kind: "Part".to_string(),
+            name: Some("Plate".to_string()),
+        },
+        &mut kernel,
+    );
+    let plate = reported(&r).tabs[1].id.clone();
+    dispatch(
+        &mut state,
+        UiToEngine::SwitchTab {
+            tab_id: plate.clone(),
+        },
+        &mut kernel,
     );
 
-    // The store is still the authority for the tab bar in C2, so a save is
-    // where the session learns what it now looks like.
-    assert_eq!(state.project_name(), "Saved");
-    assert_eq!(state.display_unit(), "ft");
-    assert_eq!(state.session.active_tab_id(), active);
-    let names: Vec<_> = state.session.tabs().into_iter().map(|t| t.name).collect();
-    assert_eq!(names, ["Bracket", "Plate"]);
+    let response = dispatch(&mut state, UiToEngine::SaveDocument, &mut kernel);
+    let EngineToUi::SaveReady { json_data } = response else {
+        panic!("{response:?}")
+    };
+
+    let doc = load_document(&json_data)
+        .expect("the saved file loads")
+        .document;
+    assert_eq!(doc.document.name, "Saved");
+    assert_eq!(doc.document.display_unit.as_deref(), Some("ft"));
+    assert_eq!(
+        doc.document.id, id,
+        "the host's identity is what is written"
+    );
+    assert_eq!(
+        doc.document.created, created,
+        "created is preserved, not re-stamped"
+    );
+    assert!(
+        doc.document.modified > created,
+        "modified IS re-stamped at save time: {:?}",
+        doc.document.modified
+    );
+    assert_eq!(doc.active_tab, plate);
+    let names: Vec<_> = doc.tabs.iter().map(|t| t.name.clone()).collect();
+    assert_eq!(names, ["Part 1", "Plate"]);
 }
