@@ -95,12 +95,13 @@ Spec: `specs/waffle_server_mode.md` §2.3 (P-A).
       - Oracle: `sketch-drawing-regression` + `agent-link`/`agent-parity`/
         `agent-reconnect` (27 passed), then the whole gui-fast tier
         (349 passed, 233 s). No Rust change, so the bundle is untouched.
-- Found by S1: `crates/wasm-bridge/js/{bridge,worker}.js` is a **dead copy**
-  of the pre-SvelteKit bridge (last touched 2026-02-09, `f6a68d4d`), still
-  doing `_pendingCallbacks.shift()`. Nothing builds or imports it — the live
-  files are `app/src/lib/engine/{bridge,worker}.js`. Only this sub-project's
-  own `CLAUDE.md` ("Key Files") and M3 above still point at it, which is how
-  a future session edits the wrong bridge. Delete both, and fix that list.
+- Found by S1, **fixed 2026-09-16**: `crates/wasm-bridge/js/{bridge,worker}.js`
+  was a dead copy of the pre-SvelteKit bridge (last touched 2026-02-09,
+  `f6a68d4d`), still doing `_pendingCallbacks.shift()` — nothing built or
+  imported it, and S1 proved it had drifted. Both deleted; this sub-project's
+  `CLAUDE.md` Key Files list now points at the real `src/*.rs` and at the live
+  `app/src/lib/engine/{bridge,worker}.js`. **M3 above names `js/worker.js` and
+  `js/bridge.js` as historical record only — those paths no longer exist.**
 - [ ] Known, not fixed: `feature_engine::preview_mesh::decimate_mesh` orders output by `HashMap` iteration, so a native process's `preview_mesh` varies run to run (spec §2.7 H3)
 - [ ] Known, not fixed: `cargo clippy -p wasm-bridge --target wasm32-unknown-unknown` flags the `thread_local!` initializer in `wasm_api.rs` (pre-existing; CI does not lint wasm32)
 
