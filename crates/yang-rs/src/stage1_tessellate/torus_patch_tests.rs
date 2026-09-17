@@ -459,6 +459,172 @@ fn torus_band_window_on_seam_render() {
     );
 }
 
+/// KV14 Slice F-4 (C0065): a CLOSED torus carrying only WINDOW loops — the
+/// through-slot's two holes in the tube, no loop wrapping either period.
+/// The face's "outer" loop bounds the complement (it is a window), so the
+/// consumer lays a full period rectangle with both seam cuts clear of the
+/// windows and carves every loop as a hole. Window A straddles BOTH default
+/// seams (u = 0 and v = 0); window B sits elsewhere.
+#[test]
+fn torus_closed_with_two_windows_render() {
+    let center = Point3::new(0.0, 0.0, 0.0);
+    let axis = Vector3::new(0.0, 0.0, 1.0);
+    let (major, minor) = (3.0_f64, 1.0_f64);
+    let ax = normalize3(axis.as_array());
+    let (e1, e2) = ortho_basis(axis);
+    let (e1a, e2a) = (e1.as_array(), e2.as_array());
+    // A window loop walked CCW in (u, v) bounds the COMPLEMENT of an outward
+    // face (a material-left disk loop runs CW in this chart).
+    let window = |wu0: f64, wu1: f64, wv0: f64, wv1: f64| -> Vec<Point3> {
+        let nw = 6;
+        let mut win: Vec<Point3> = Vec::new();
+        let mut wpush = |u: f64, v: f64| win.push(eval(center, ax, e1a, e2a, major, minor, u, v));
+        for k in 0..nw {
+            wpush(wu0 + (wu1 - wu0) * (k as f64 / nw as f64), wv0);
+        }
+        for k in 0..nw {
+            wpush(wu1, wv0 + (wv1 - wv0) * (k as f64 / nw as f64));
+        }
+        for k in 0..nw {
+            wpush(wu1 - (wu1 - wu0) * (k as f64 / nw as f64), wv1);
+        }
+        for k in 0..nw {
+            wpush(wu0, wv1 - (wv1 - wv0) * (k as f64 / nw as f64));
+        }
+        win
+    };
+    let win_area = |wu0: f64, wu1: f64, wv0: f64, wv1: f64| -> f64 {
+        minor * (wv1 - wv0) * (major * (wu1 - wu0) + minor * (wu1.sin() - wu0.sin()))
+    };
+    let (a0, a1, b0, b1) = (-0.3_f64, 0.3_f64, -0.35_f64, 0.35_f64);
+    let (c0, c1, d0, d1) = (1.0_f64, 2.0_f64, 2.0_f64, 2.6_f64);
+    let win_a = window(a0, a1, b0, b1);
+    let win_b = window(c0, c1, d0, d1);
+    let n_window_edges = win_a.len() + win_b.len();
+
+    let (verts, tris) = tessellate_torus_patch(
+        center,
+        axis,
+        major,
+        minor,
+        &win_a,
+        std::slice::from_ref(&win_b),
+        0.05,
+        false,
+    )
+    .expect("closed torus with two windows tessellates");
+    assert!(!tris.is_empty());
+
+    // Every window vertex is emitted bit-for-bit.
+    for p in win_a.iter().chain(win_b.iter()) {
+        assert!(
+            verts.iter().any(|q| q.as_array() == p.as_array()),
+            "window vertex {:?} not emitted bit-exact",
+            p.as_array()
+        );
+    }
+    // Every vertex on the tube.
+    let surf = torus(major, minor);
+    for (i, &p) in verts.iter().enumerate() {
+        let d = signed_distance_to_surface(surf, p).unwrap();
+        assert!(d.abs() < 1e-9, "vert {i} off tube: {d:e}");
+    }
+    // Watertight/manifold by 3D position across BOTH seams: only the two
+    // windows are boundaries (count-1); every other positional edge is
+    // count-2, none more.
+    let key = |p: Point3| {
+        let a = p.as_array();
+        [
+            (a[0] * 1e7).round() as i64,
+            (a[1] * 1e7).round() as i64,
+            (a[2] * 1e7).round() as i64,
+        ]
+    };
+    let mut edges: BTreeMap<([i64; 3], [i64; 3]), u32> = BTreeMap::new();
+    for t in &tris {
+        for (a, b) in [(t[0], t[1]), (t[1], t[2]), (t[2], t[0])] {
+            let (ka, kb) = (key(verts[a as usize]), key(verts[b as usize]));
+            let e = if ka < kb { (ka, kb) } else { (kb, ka) };
+            *edges.entry(e).or_insert(0) += 1;
+        }
+    }
+    assert!(
+        edges.values().all(|&c| c == 1 || c == 2),
+        "non-manifold edge (a seam copy or window split)"
+    );
+    let boundary_edges = edges.values().filter(|&&c| c == 1).count();
+    assert_eq!(
+        boundary_edges, n_window_edges,
+        "expected exactly the two windows as boundary, got {boundary_edges}"
+    );
+    // Chorded area ≈ the whole tube 4π²Rr minus both windows.
+    let analytic = 4.0 * std::f64::consts::PI * std::f64::consts::PI * major * minor
+        - win_area(a0, a1, b0, b1)
+        - win_area(c0, c1, d0, d1);
+    let mut area = 0.0;
+    for t in &tris {
+        let a = verts[t[0] as usize].as_array();
+        let b = verts[t[1] as usize].as_array();
+        let c = verts[t[2] as usize].as_array();
+        let ab = [b[0] - a[0], b[1] - a[1], b[2] - a[2]];
+        let ac = [c[0] - a[0], c[1] - a[1], c[2] - a[2]];
+        let cr = [
+            ab[1] * ac[2] - ab[2] * ac[1],
+            ab[2] * ac[0] - ab[0] * ac[2],
+            ab[0] * ac[1] - ab[1] * ac[0],
+        ];
+        area += 0.5 * (cr[0] * cr[0] + cr[1] * cr[1] + cr[2] * cr[2]).sqrt();
+    }
+    assert!(
+        area <= analytic * (1.0 + 1e-6) && area >= analytic * 0.97,
+        "closed-torus-with-windows area {area} vs analytic {analytic}"
+    );
+
+    // A mixed-orientation loop set (one window wound as a disk) stays a loud
+    // decline, as does a disk loop with the disk sense (the pre-F-4 path).
+    let mut win_b_disk = win_b.clone();
+    win_b_disk.reverse();
+    assert!(
+        tessellate_torus_patch(
+            center,
+            axis,
+            major,
+            minor,
+            &win_a,
+            &[win_b_disk],
+            0.05,
+            false
+        )
+        .is_none(),
+        "a window wound in the disk sense must decline"
+    );
+}
+
+#[test]
+fn seam_cut_in_largest_gap_clears_every_window() {
+    let period = std::f64::consts::TAU;
+    // Two windows: one straddling 0 (as [−0.3, 0.3]), one at [1, 2]. The
+    // largest gap is (2, 2π − 0.3), midpoint ≈ (2 + 5.983)/2.
+    let cut = seam_cut_in_largest_gap(&[(-0.3, 0.3), (1.0, 2.0)], period).unwrap();
+    let expect = 0.5 * (2.0 + period - 0.3);
+    assert!((cut - expect).abs() < 1e-12, "cut {cut} vs {expect}");
+    for &(lo, hi) in &[(-0.3_f64, 0.3_f64), (1.0, 2.0)] {
+        let d = (cut - lo).rem_euclid(period);
+        assert!(
+            !(d > 0.0 && d < hi - lo),
+            "cut {cut} splits window [{lo}, {hi}]"
+        );
+    }
+    // The wrap-around gap wins when it is the largest.
+    let cut = seam_cut_in_largest_gap(&[(2.5, 3.5), (3.6, 4.0)], period).unwrap();
+    let expect = (0.5 * (4.0 + period + 2.5)).rem_euclid(period);
+    assert!((cut - expect).abs() < 1e-12, "wrap cut {cut} vs {expect}");
+    // Overlapping intervals merge; a full cover has no cut.
+    assert!(seam_cut_in_largest_gap(&[(0.0, 4.0), (3.0, period + 0.5)], period).is_none());
+    assert!(seam_cut_in_largest_gap(&[(0.0, period)], period).is_none());
+    assert_eq!(seam_cut_in_largest_gap(&[], period), Some(0.0));
+}
+
 fn torus(major: f64, minor: f64) -> Surface {
     Surface::Torus {
         center: Point3::new(0.0, 0.0, 0.0),

@@ -1,8 +1,8 @@
 {
-  "errored": 14,
+  "errored": 13,
   "failed": 0,
   "generated": "kernel-v2 (assay_kv2 categorized run)",
-  "passed": 291,
+  "passed": 292,
   "results": [
     {
       "category": "SUPPORTED_CORRECT",
@@ -1553,10 +1553,10 @@
       "status": "pass"
     },
     {
-      "category": "ERROR",
-      "detail": "1 engine error(s): 3e24041b-9e39-4655-88f7-3aaf7e003105: operation error: kernel error: boolean operation failed: kernel-v2 boolean_subtract failed: BooleanFailed(\"yang-rs: Stage-4 relocation region around vertex 8 is invalid: OffCurveBeyondChordBand\")",
+      "category": "SUPPORTED_CORRECT",
+      "detail": "all checks passed",
       "id": "C0065",
-      "status": "error"
+      "status": "pass"
     },
     {
       "category": "SUPPORTED_CORRECT",

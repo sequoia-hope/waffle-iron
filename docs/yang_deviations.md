@@ -99,6 +99,7 @@ Presented 2026-07-16; the user's answer (2026-07-17) was **"i have no opinion on
 | N59 | RESOLVED 2026-08-24 (same-session fix; P5 convention) | §4.5.3 reversal sweep covered TYPED chains only — pair-relocated (untyped) chains never swept; fixed by the pair-site arm (spec `yang_453_pair_chain_reversal.md`), R0028+R0025 convert, R0032 advances to a NotSupported boundary |
 | N60 | RESOLVED (flipped always-on 2026-08-26; blockers R0054/F0085 fixed structurally) | §4.4.2 output boundary-curve restoration — carried same-input circles re-typed onto their input rims; the KV9-F2a fold family's owner |
 | N61 | RESOLVED for cylinders (2026-09-11, KV14 Slice G); OPEN for cones | Stage-1 curved chart CDT (holed / partial laterals) was boundary-only — no §4.1 domain triangulation to d_ε; interior diagonals exceeded the chord budget downstream bands read back (R0026) |
+| N62 | PERMANENT (flipped always-on 2026-09-17, C0065) | §4.5.2 refines the WHOLE op at d_ε/2, d_ε/4 under the Q3 guard shell instead of the traversed patches + one-ring with a local splice — strictly more refinement, paid only by an already-failed op |
 | #137 diag | HISTORICAL | #137 (2026-07-15): C0065/R0074 — the torus∩plane solver EXISTS and RUNS; the blocker is mesh RESOLUTION nea… |
 | #137 diag 2 | HISTORICAL | #137 (2026-07-15, follow-up): resolution ALONE is not the fix — it flips the loud STOP into a silent-wrong … |
 
@@ -4374,6 +4375,47 @@ the chart, not Δθ alone; 2,275 cone chart faces in the corpus census are still
 boundary-only (no case is known to STOP on it; R0044's thin-band cone faces
 are the likely first customer). Related: N9 (planar no-Steiner CDT — a plane
 has no chord error, so N9 stays PERMANENT).
+
+### N62 — §4.5.2 refines the WHOLE op, not the traversed patches + one-ring (flipped always-on 2026-09-17, C0065)
+
+**Paper:** §4.5.2 (`refs/text/yang2025_hybrid_boolean.txt:659-670`) — "we
+increase the mesh resolution of the parametric surfaces associated with the
+erroneous regions … the surfaces requiring refinement include those traversed
+by C_p (red regions) and the neighbors of a ring of them (orange regions). We
+then compute the intersections between the meshes only in the refined
+regions … the curve bounded by them is used to replace the original."
+
+**Implementation:** `boolean::refine_452` — on a typed Stage-4
+`Stage4RegionInvalid` (the paper's "point pairs that cannot converge to a
+distance of 0 within their domains", after §4.5.1 has refused), re-derive
+BOTH operands' Stage-1 discretization at `d_ε/2` then `d_ε/4`
+(`with_refined_chord` + `retessellated_at_current_d_eps`) and re-run the
+whole op; adopt a rung's body only at ZERO unpaired undirected edges AND
+zero improper contacts (Q3 clause 4, both halves), abort on a
+non-decreasing rung (clause 2), fixed budget (clause 3). Locality — the
+red/orange region and the spliced curve — is not implemented; the whole op
+is refined and re-intersected. That is strictly MORE refinement than the
+paper asks for, so the intersection curves are at least as accurate;
+locality is the paper's efficiency measure, not a correctness condition. The
+cost is a second and third full pass, paid only by an op that has already
+failed loud (measured: R0038 0.4 s total, R0050 ≈ 3 s, C0065 1.7 s).
+
+**Trigger semantics kept faithful:** the paper's ordering (§4.5.1 first,
+then refinement, repeated while failure persists) and its termination
+argument (mesh intersections converge to the surface intersections under
+refinement — for transversal pairs; Q3 clause 1's transversality entry gate
+is still deferred, so a tangential member pays the bounded ladder and keeps
+its STOP: R0038, R0050 measured byte-identical under the flip).
+
+**First customer:** C0065 (`specs/yang_452_local_refinement.md` §7) — the
+first MONOTONE ladder in the family: d_ε/1.5, /2 STOP on the same reason at
+a moved vertex, /3 and /4 converge (0 unpaired, 0 improper, all eight
+torus∩wall∩wall corners exact), no oscillation between failure kinds, and
+no tangency anywhere on the pair (the x = 1.45 wall crosses the torus at
+≥ 14.8°). §6.7's re-open criterion, met.
+
+**State:** PERMANENT (deliberate; the local splice is an efficiency
+increment with no correctness customer). Live successor of the HISTORICAL D4.
 
 ## Remediation priority (OPEN set)
 

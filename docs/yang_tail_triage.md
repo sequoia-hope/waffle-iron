@@ -43,6 +43,64 @@ after the reconciliation run (release, 8 jobs, 360 s; wall 577 s, F0085
 regression since 2026-08-01 is outstanding (checked over every commit of
 `results.json`).
 
+## 2026-09-17 (later) — C0065 CONVERTED ⇒ 292C: Yang §4.5.2 op-level refinement FLIPPED ALWAYS-ON on its first MONOTONE customer, then KV14 Slice F-4 (a CLOSED torus carrying only WINDOW loops) for the body it emits; two stale adjudications overturned by re-running a 5 s ladder
+
+Canonical corpus after the flip run (release, 8 jobs, 600 s; wall 776.9 s; F0085 327.9 s, R0044 390.2 s, F0065 112.5 s): **292C / 0W / 13E / 4EE / 0T + 3 UNSUPPORTED(coplanar-boolean)** — per-id diff of the committed `results.json`: exactly ONE category move (C0065 ERROR → SUPPORTED_CORRECT), ZERO detail moves. The other §4.5.2 customers (R0038, R0050, R0085 op 2) pay the ladder and keep their STOPs byte-identical.
+
+**The two readings that were wrong.** (1) `yang_137_torus_plane_grazing_corner.md`
+§3 (2026-07-15): "refinement alone converts a correct loud STOP into a silent
+SUPPORTED_WRONG" — measured with `YANG_NSEG_FLOOR` on a tree that had no
+Stage-1 junction mints; on today's tree the same knob (debug-only — release
+silently ignores it) takes the case to a WATERTIGHT body and a kernel-v2
+render wall. (2) `yang_452_local_refinement.md` §5 (2026-08-29): "R0015/C0065:
+the torus near-tangency arm … the near-tangent loop-closure race is
+invariant" — the x = 1.45 wall crosses the torus at ≥ 14.8° everywhere; the
+pair has no tangency. What it has is a shallow crossing 0.05 deep under a
+0.038 rim chord sag: the mesh loop reaches |y| = 0.22 of the true 0.38, never
+crosses the |y| = 0.25 clip walls, and v8's relocation (0.165 = 3.85 d_ε,
+the 1/sin 14.8° amplification of a within-contract mesh error) leaves the
+bounded face. That is the paper's OWN refinement trigger (`:648-651`), and
+§4.5.1 correctly refuses it first (FIRST_STRATEGY, owner-face hull refuses
+the midpoint's projection — Fig-12(c)'s `p1`).
+
+**The ladder is MONOTONE** (`YANG_452_REFINE=census`, release): /1.5 and /2
+STOP on the same reason at a moved vertex, /3 and /4 converge (0 unpaired,
+0 improper), /6+ re-opens an improper-pair wall on the denser chart. The
+adopted d_ε/4 body carries all EIGHT torus∩wall∩wall corners exact
+(`[1.45, ±0.25, 0.5 ± 0.12785]`, `[0.95, ±0.25, 0.5 ± 0.20646]` — closed
+forms) with the wall loop clipped to |y| ≤ 0.25: #137's part (b) came free
+from the Stage-1 junction mints (#146) once the mesh loop reached the walls.
+§6.7's re-open criterion met verbatim ⇒ the pass is production
+(`refine_452_mode()` unset = adopt; `YANG_452_REFINE=0|off` restores the
+STOP-only behaviour). Clause 4 now demands unpaired == 0 AND improper == 0
+(R0050's /2 body: unpaired 0, improper 55 — not adopted; STOP stands).
+Deviation N62 (whole-op refinement in place of the paper's local splice —
+strictly more refinement, paid only by an already-failed op). Cost on the
+tangential members: R0038 0.4 s total, R0050 ≈ 3 s.
+
+**The wall after the flip was kernel-v2's** — `TessellationFailed {
+FaceId(7), "torus patch UV-CDT failed" }`: the output torus face is the
+CLOSED tube minus two windows, no loop wrapping either period, the "outer"
+loop bounding the complement (`YANG_TORUS_PATCH_PROBE`: "disk loop bounds the
+complement"). `tessellate_torus_patch` knew a disk and a band; Slice F-4
+lays one full period rectangle with both seam cuts in the largest
+window-free gap (`seam_cut_in_largest_gap`), seam copies carrying the SAME
+3D points, every loop a hole (`yang_stage1_curved_holed_patch.md` §"Slice
+F-4"). Note for oracles: such a face has its own genus — a B-Rep
+V − E + F − R reads 2 short per handle (kernel-v2 `validate_solid` says
+genus 1 for this genus-2 solid); count χ from the welded render mesh, and
+count only vertices some triangle references (UV-CDT pools carry orphan
+Steiner points from dropped hole/exterior triangles — 395 here).
+
+Pins: smoke `C0065`; kernel-v2 `tests/kv6d_c0065_through_slot.rs`
+(genus 2 by welded χ, watertight, the eight corners as output vertices,
+volume within 2 % of tube − bite); yang-rs
+`torus_patch_tests::{torus_closed_with_two_windows_render,
+seam_cut_in_largest_gap_clears_every_window}`.
+
+Remaining actionable tail: 13 ERROR (R0038, R0050, R0100, R0019, R0085 and
+the C-series/M8 residue rows below), unchanged but for C0065 struck.
+
 ## 2026-09-17 — C0056 CONVERTED ⇒ 291C: the §4.3.3 mint's GENERATOR arm (parallel-axis cyl×cyl), then three consumers that had never seen a line-pinched face — kernel-v2 M3d SLIT tessellation, the spur facet fraction at the render self-intersection gate, and per-FAN χ counting in the oracle; canonical **291C / 0W / 14E / 4EE / 0T + 3 U**, exactly one move
 
 Canonical corpus after the flip run (release, 8 jobs, 600 s; wall 738.1 s; F0085 321.6 s, R0044 293.3 s, F0065 110.9 s): **291C / 0W / 14E / 4EE / 0T + 3 UNSUPPORTED(coplanar-boolean)** — per-id diff of the committed `results.json`: exactly ONE category move (C0056 ERROR → SUPPORTED_CORRECT), ZERO detail moves. Spec `yang_433_tangent_point_mesh_update.md` §11 and
@@ -1837,7 +1895,7 @@ moved. The 30 ERROR rows are the ACTIVE rows below.
 
 | Case | Loud error | Root cause | Confidence | Vehicle |
 |---|---|---|---|---|
-| C0065 | Stage-4 OffCurve v8 | torus∩plane grazing loop reaches \|y\|=0.384 outside the box face; needs exact triple-junction corner insert + stitch (primitive proven, N-137.1) | CONFIRMED (#137 spec) | P3b-#137 |
+| ~~C0065~~ | ~~Stage-4 OffCurve v8~~ | **CONVERTED 2026-09-17: Yang §4.5.2 op-level refinement flipped always-on (its first monotone customer) + KV14 Slice F-4 (closed torus with windows only) — section at the top.** torus∩plane grazing loop reaches \|y\|=0.384 outside the box face; ~~needs exact triple-junction corner insert + stitch (primitive proven, N-137.1)~~ the corners come out exact from the Stage-1 junction mints once the mesh loop reaches the clip walls | CONFIRMED (#137 spec) | ~~P3b-#137~~ §4.5.2 + Slice F-4 |
 | ~~R0074~~ | ~~Stage-4 OffCurve v89~~ ring rejected by CDT (FaceId 593) | **FLIPPED CORRECT 2026-09-03 (eaf6aa51); reconciled 2026-09-04 from the committed results.json history** ~~torus∩plane grazing — same class as C0065~~ **DRIFTED + RE-DIAGNOSED 2026-07-29 (`KV2_RING_PROVENANCE`, 70ccf32c): this is no longer a #137 grazing case.** The OffCurve layer is gone; R0074 now fails as a ring-reject and is the **cleanest witness of the planar seam-overlap class**. PLANAR builder, 541 half-edges, **all LineSegment, ZERO interior samples** (sampler exonerated). 7 adjacency runs; all three crossings (111×113/114/115) sit on the run-B→run-C seam at idx 114, with folds of 179.90° / 156.70° / 177.15° against a ring median of 2.86°. The four fold points project onto the v111→v116 chord at t = 0.588, 0.590, 0.471, 0.263 — monotone **DESCENDING** where traversal demands ascending — and v112/v113 are **9.1e-6 apart (near-dup pair)** at the seam. **Control: the ring's OTHER seam (idx 58) turns a genuine 86.6°/80.9° corner and is clean** ⇒ seam does not imply fold; overlapping chain RANGES do. This is the "mint once exactly, share by identity" contract (`docs/yang_junction_research_findings.md`) violated in Stage-5/6 **OUTPUT** assembly, not the Stage-1 input sampling #146 chases | CONFIRMED (2026-07-29; mechanism settled by the positional oracle — 67/78 folds straddle the moved/still boundary, 329 of 2731 verts moved) | **Stage-4 partial relocation of a boundary chain** (with R0011, F0045). NOTE: the conic `relocations` oracle is BLIND here (torus arm records no `t` retag) — an earlier pass wrongly read `n_relocations=0` as "nothing moved" and re-vehicled this row to #146; RETRACTED |
 | ~~R0003~~ | Stage-4 OffCurve v4233 | **FLIPPED CORRECT 2026-08-29 (e8127391); reconciled 2026-09-04 from the committed results.json history** multi-map over-band chain (v4233→v8508); needs ellipse×hyperbola junction handling, band-fixing exhausted (N45/N46). **§4-I12 2026-08-22: v4233 AND v10583 measured as §4.5.1's first confirmed customers** — interior, bounded 1 hop each side by converged vertices sharing cone+plane; the paper's first-strategy repair (midpoint + truncated cross-boundary re-optimize) is the owner, not more junction vocabulary | CONFIRMED (N51/N52; I12) | **§4.5.1 increment 1 (pin case)** — was P3-junction. **inc-2b 2026-08-22: repair landed gated; under `YANG_451=1` the Stage-4 wall clears (11/11 regions) and the case advances to the KV9-F2 developable fold (FaceId 435, cone tan 2.3961 — not a repaired cone ⇒ developable-ring family latent). Post-flip owner: that family** **2026-08-24b: the fold ANCHORED (extended `KV2_PATCH_FOLD_PROBE`): KV9-F2a deep-chord strip fold — a boundary Chord-split node keeps its ORIGINAL chord's sagitta as a permanent off-surface deviation (dev=0.242 vs facet band 0.188), the adjacent Interior splits are exactly on-surface, and a 0.044-thin sliver bridging the layers folds. The deep chords are yang-rs's pair-curve LineSegment polylines at MESH density = the §4.3.4 refine-after-repair debt (trigger fired). Owner: spec `yang_434_output_chord_refinement.md` (design checkpoint landed; R0100/R0020 same mechanism; R0017 is F2b — all-on-surface inversion, unanchored, NOT this fix's customer)** |
 | ~~R0015~~ | ~~Stage-4 OffCurve v84~~ ~~Stage-6 non-2-manifold (`i6-edge-overuse`)~~ | **CONVERTED 2026-09-11 (night, third): the false partner-hull STOP (R0026's layer), then the n-ary group's per-pair `opposite` + the face-keyed sheet rule (section above).** probe 2026-07-18: N51 "no-curve-type" REFUTED — v84 IS in the torus map (`torus=true`); `YANG_TORUS_PROBE` shows the pair Newton relocates it EXACTLY (rho=0, F_torus(proj)=0) and it passes the displacement gate, so the STOP is the **bounded-face containment** check below the gate (`stage4_correct.rs:4225`) — the C0065 grazing-loop-outside-face signature, at MICRO scale (torus R=5.97e-5/r=3.98e-5, coords ~1e-4) | CONFIRMED (#171 pass 2) | P3b-#137 (C0065 containment class, micro-scale) |

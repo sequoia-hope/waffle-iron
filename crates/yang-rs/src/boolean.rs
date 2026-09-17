@@ -526,15 +526,17 @@ pub(crate) fn cancel_subresolution_pleats(
 }
 
 /// §4.5.2 LOCAL REFINEMENT gate (spec `specs/yang_452_local_refinement.md`
-/// §6, increment 2). `YANG_452_REFINE=1|on` arms the pass; `census` runs every
-/// rung and reports without adopting anything; unset/other = off (the standing
-/// Stage-4 STOP is the answer). The flip proof is the full-corpus two-run
-/// measurement recorded in the spec.
+/// §6 increment 2, §7 flip). ALWAYS-ON since 2026-09-17: the adopt arm is the
+/// production default (C0065, the first monotone customer — spec §7).
+/// `YANG_452_REFINE=0|off` restores the pre-flip behaviour (the standing
+/// Stage-4 STOP is the answer); `census` runs every rung and reports without
+/// adopting anything. The flip proof is the full-corpus two-run measurement
+/// recorded in the spec.
 fn refine_452_mode() -> Option<bool> {
     match std::env::var("YANG_452_REFINE").as_deref() {
-        Ok("1") | Ok("on") => Some(true),
+        Ok("0") | Ok("off") => None,
         Ok("census") => Some(false),
-        _ => None,
+        _ => Some(true),
     }
 }
 
@@ -680,20 +682,26 @@ fn refine_452(
             }
         };
         let unpaired = refine_452_unpaired(&brep);
+        // Clause 4 reads BOTH halves of "a valid body": the pairing
+        // functional above and the output's improper-contact census (the
+        // kernel-v2 render gate's own test). A rung that pairs every edge
+        // but self-intersects (R0050 at d_ε/2: unpaired 0, improper 55) is
+        // not adopted — it would only be refused one crate later, and the
+        // standing STOP names the defect better than a render-gate reject.
+        let improper = output_improper_count(&brep);
         if probe {
             eprintln!(
-                "[s452]   d_eps/{factor} -> Ok tris={} unpaired={unpaired} improper={}",
+                "[s452]   d_eps/{factor} -> Ok tris={} unpaired={unpaired} improper={improper}",
                 brep.mesh.tris.len(),
-                output_improper_count(&brep),
             );
         }
         if unpaired == 0 {
             // Converged: the refinement produced a watertight 2-manifold
             // output. Every downstream gate still applies unchanged.
-            if adopt {
+            if adopt && improper == 0 {
                 return Some(brep);
             }
-            continue; // census: measure every rung
+            continue; // census, or a self-intersecting rung: keep climbing
         }
         // Strict-decrease monitor: abort the ladder on the first rung that did
         // not improve on the previous one.
@@ -742,8 +750,8 @@ pub fn boolean(
     }
     // Detect-then-refine. Pass 1 at natural resolution.
     let natural = boolean_once(a, b, op, backend, false);
-    if std::env::var_os("YANG_BREP_PROBE").is_some() {
-        if let Ok(out) = &natural {
+    let brep_probe_out = |out: &BRep| {
+        if std::env::var_os("YANG_BREP_PROBE").is_some() {
             for (vi, v) in out.vertices().iter().enumerate() {
                 let q = v.point.as_array();
                 eprintln!(
@@ -764,6 +772,9 @@ pub fn boolean(
                 );
             }
         }
+    };
+    if let Ok(out) = &natural {
+        brep_probe_out(out);
     }
     // §4.5.2 local refinement (Yang :659-670) — an out-of-domain Stage-4
     // optimization failure is the paper's own refinement trigger, and it must
@@ -771,6 +782,7 @@ pub fn boolean(
     // on the no-graze path (this class is surface-vs-surface under-resolution,
     // not a rim under-sampling).
     if let Some(refined) = refine_452(a, b, op, backend, &natural) {
+        brep_probe_out(&refined);
         return Ok(refined);
     }
     let probe = std::env::var_os("YANG_REFINE_PROBE").is_some();

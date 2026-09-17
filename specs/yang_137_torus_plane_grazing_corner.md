@@ -1,6 +1,22 @@
 # SPEC — #137: torus∩plane grazing-loop CORNER refinement (C0065/R0074)
 
-Status: **DESIGN** (no production code yet). Grounded in the 2026-07-15 probe +
+Status: **RESOLVED for C0065 (2026-09-17) — by other vehicles.** Part (a)
+landed as the always-on Yang §4.5.2 op-level refinement pass
+(`specs/yang_452_local_refinement.md` §7) and part (b) turned out to be
+already supplied by the Stage-1 rim-junction mints / shared-identity junction
+path that landed after this spec was written (#146,
+`yang_rim_junction_insertion.md`): the refined loop crosses the clip walls
+and all eight torus∩wall∩wall corners come out exact with no separate
+corner insert+stitch. The §3 sweep's "refinement alone ⇒ silent
+SUPPORTED_WRONG" no longer reproduces on today's tree (the refined body is
+watertight, χ = −2). The N-137.1 primitive (`torus_plane_clip_junction`)
+stays as a unit-tested pin. The remaining wall after the flip was
+kernel-v2's closed-torus-with-windows render (KV14 Slice F-4,
+`yang_stage1_curved_holed_patch.md`), also landed. R0074 (the other driver)
+had converted on 2026-09-03 by a different route. Nothing below is a
+worklist any more; kept as the record of the diagnosis.
+
+Original status: **DESIGN** (no production code yet). Grounded in the 2026-07-15 probe +
 resolution-sweep session (`docs/yang_deviations.md` "#137" + "#137 follow-up",
 memory `session_2026_07_15_137_resolution_refutes_refinement`).
 

@@ -442,20 +442,21 @@ fn closed_torus_boolean_meridian_half_cut() {
 }
 
 // =========================================================================
-// 6. Adversary: near-tangent narrow shaft stays a LOUD typed stop (C0065)
+// 6. The near-tangent narrow shaft (C0065) CONVERTS: §4.5.2 + Slice F-4
 // =========================================================================
 
 /// The C0065 configuration: a vertical square shaft whose outer wall
-/// (x = 1.45) is near-tangent to the outer equator (ρ = 1.5) — the gap
-/// (0.05) is comparable to the Stage-1 chord sagitta, so the inscribed
-/// mesh's intersection oval closes EARLY (entirely inside the bounded
-/// wall) and Stage-4 implicit-pair relocation would drag it onto the
-/// infinite-surface curve OUTSIDE the wall face, minting a phantom
-/// overlapping lens shell (silent WRONG geometry). The bounded-face
-/// containment guard must stop this typed — never emit the double cover.
-/// (The honest conversion is the §4.3.3 near-tangency increment.)
+/// (x = 1.45) grazes the outer equator (ρ = 1.5) 0.05 deep — comparable to
+/// the Stage-1 chord sagitta, so the inscribed mesh's intersection oval
+/// closes EARLY (entirely inside the bounded wall) and the Stage-4 relocation
+/// leaves the wall face: `OffCurveBeyondChordBand`, the typed STOP this test
+/// pinned until 2026-09-17. That STOP is Yang §4.5.2's own trigger; the
+/// always-on op-level refinement pass (`yang-rs::boolean::refine_452`)
+/// re-tessellates at d_ε/4, the loop reaches the clip walls, and the output
+/// is the genus-2 through-slot. Full oracle: `tests/kv6d_c0065_through_slot.rs`;
+/// here only that the boolean no longer stops and validates as one shell.
 #[test]
-fn closed_torus_near_tangent_shaft_stays_loud() {
+fn closed_torus_near_tangent_shaft_converts_through_452() {
     let mut arena = BrepArena::new();
     let profile = Profile::circle(
         Point3::new(0.0, 0.0, 0.0),
@@ -488,12 +489,14 @@ fn closed_torus_near_tangent_shaft_stays_loud() {
     .expect("shaft profile");
     let shaft =
         extrude(&mut arena, &shaft_profile, Vector3::new(0.0, 0.0, 3.0), 3.0).expect("shaft box");
-    let err = boolean_op(&mut arena, r.solid, shaft.solid, BoolOp::Subtract)
-        .expect_err("near-tangent narrow shaft must stop typed, not emit a double cover");
-    let msg = format!("{err:?}");
-    assert!(
-        msg.contains("OffCurveBeyondChordBand") || msg.contains("LocalRefinementRequired"),
-        "expected a Stage-4 typed stop, got {msg}"
+    let out = boolean_op(&mut arena, r.solid, shaft.solid, BoolOp::Subtract)
+        .unwrap_or_else(|e| panic!("the §4.5.2 pass converts the grazing shaft: {e:?}"));
+    let report = validate_solid(&arena, out).expect("slotted torus validates");
+    assert_eq!(report.shells, 1, "one connected shell");
+    assert_eq!(report.faces, 5, "torus + the four shaft walls");
+    assert_eq!(
+        report.rings, 1,
+        "the torus face carries its second window as a ring"
     );
 }
 

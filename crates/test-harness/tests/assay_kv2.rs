@@ -1389,6 +1389,18 @@ fn smoke_corpus_boundary_categories() {
         // §4.3.3 generator arm + M3d slit + per-fan χ (2026-09-17): the
         // internally tangent blind hole, 0.4 s release.
         ("C0056", Category::SupportedCorrect),
+        // C0065 FLIPPED (2026-09-17, Yang §4.5.2 local refinement ALWAYS-ON
+        // + KV14 Slice F-4): the x = 1.45 wall grazes the torus 0.05 deep
+        // while the natural rim chord sags 0.038, so the mesh loop reached
+        // only |y| = 0.22 of the true 0.38 and never crossed the |y| = 0.25
+        // clip walls — the paper's own refinement trigger (an out-of-domain
+        // relocation, `OffCurveBeyondChordBand` v8). The op-level d_ε ladder
+        // is MONOTONE here (d_ε/2 STOPs, d_ε/4 converges: 0 unpaired,
+        // 0 improper, all eight torus∩wall∩wall corners exact), and the
+        // output torus face — the closed tube minus two windows, no loop
+        // wrapping either period — now tessellates through the windows arm.
+        // 1.7 s release.
+        ("C0065", Category::SupportedCorrect),
         // F0060 FLIPPED (2026-09-13, spec `yang_tangency_pinch_split.md`
         // §0c): the perpendicular equal-radius cylinder cut is LINE-pinched
         // along both cap diameters and POINT-pinched at (±r, 0, 0); the
@@ -1651,8 +1663,9 @@ fn smoke_corpus_boundary_categories() {
         // typed Stage-4 relocation error (near-tangent shaft containment
         // guard — see the KV6d roadmap ledger entry and task #137). The
         // stale UNSUPPORTED(revolve) pin sat unseen behind the debug tier's
-        // fail-fast, exactly like C0071's below.
-        ("C0065", Category::Error), // [KV6d] torus boolean → Stage-4 typed ERROR
+        // fail-fast, exactly like C0071's below. PIN MOVED AGAIN 2026-09-17:
+        // the §4.5.2 flip + KV14 Slice F-4 convert it — pinned
+        // SupportedCorrect in the block above.
         // C0071 PIN MOVED at KV7-F2 (2026-07-10): the multi-shell operand
         // wall was REMOVED (lumps and voids re-enter booleans) and the case
         // completes CORRECT; the stale pin sat unseen behind the debug

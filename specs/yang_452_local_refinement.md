@@ -426,3 +426,110 @@ anywhere. Yang's Table 3 (`:866-873`: 4 of 400 operations need resolution
 enhancement at `d_ε = 1e-2`, 1 of 400 at `1e-3`, #Fail 0 throughout) says such
 cases exist and that the loop is load-bearing in the paper; none of ours is
 one yet.
+
+## 7. FLIPPED ALWAYS-ON (2026-09-17) — C0065 is the first MONOTONE customer; the pass is production; KV14 Slice F-4 takes the output face
+
+**Why re-open.** §6.7 named the re-open condition: "a §4-I9 fire whose case
+ladder is MONOTONE — the same typed failure weakening and then clearing as
+`d_ε` shrinks, with no oscillation between failure kinds — on a surface pair
+with no tangency anywhere." C0065 was ledgered in §5 as the torus
+near-tangency arm ("the wedge gate and the mesh both scale with d_ε; the
+near-tangent loop-closure race is invariant") and, before that, by
+`yang_137_torus_plane_grazing_corner.md` §3 as "refinement alone converts a
+correct loud STOP into a silent SUPPORTED_WRONG". Both readings were
+re-measured on today's tree and neither holds any more.
+
+### 7.1 The geometry is a shallow CROSSING, not a tangency
+
+Torus R = 1.2, r = 0.3, tube plane z = 0.5; the cut wall x = 1.45 sits 0.05
+inside the outer equator (radial 1.5). The wall crosses the tube at an angle
+whose minimum, at the loop's equatorial extreme `[1.45, ∓0.384, 0.5]`, is
+`arccos(1.45/1.5) = 14.8°` — shallow, but a crossing everywhere; no point of
+the pair is tangent. Stage 1's natural rim density for this solid is N = 14
+(`d_ε = 4.28e-2`, chord sag `1.5·(1 − cos(π/14)) = 3.77e-2`), so the mesh
+torus reaches x = 1.45 only within the first θ-step either side of the +x
+azimuth: the mesh loop's extreme is v8 = `[1.45, −0.219, 0.5]` against the
+true 0.384, and it never crosses the |y| = 0.25 clip walls. The relocation of
+v8 to its true position is 0.165 = 3.85 × d_ε — the 1/sin 14.8° = 3.9×
+amplification of a within-contract mesh error across a shallow crossing —
+and lands outside the wall's bounded face: `OffCurveBeyondChordBand`, the
+paper's own refinement trigger ("insufficient discretization resolution
+cannot provide a proper initialization for optimization", `:648-651`).
+§4.5.1 correctly refuses first (v8 is bounded by v3/v56 on the common pair,
+FIRST_STRATEGY, and the torus arm's owner-face hull refuses the midpoint's
+projection — it lies beyond the wall, Fig-12(c)'s `p1`).
+
+### 7.2 The op-level ladder is MONOTONE (`YANG_452_REFINE=census`, release)
+
+| rung | operands (tris) | result |
+|---|---|---|
+| natural | a 392, b 12 | `Err OffCurveBeyondChordBand v8` |
+| d_ε/1.5 | a 578 | `Err OffCurveBeyondChordBand v3` |
+| d_ε/2 | a 722 | `Err OffCurveBeyondChordBand v3` |
+| d_ε/3 | a 1058 | **Ok** tris 1222, unpaired 0, improper 0 |
+| d_ε/4 | a 1458 | **Ok** tris 1634, unpaired 0, improper 0 |
+| d_ε/6 | a 2178 | Ok, unpaired 0, **improper 2** |
+| d_ε/8 | a 2888 | Ok, unpaired 0, improper 2 |
+| d_ε/12 | a 4232 | Ok, unpaired 0, improper 2 |
+
+The same typed reason at a vertex that moves with the mesh, then
+convergence, then a NEW wall on the much denser chart (the shape §6.3's
+budget note predicted from R0050: refining past the rung that resolves the
+failure buys nothing and re-opens an improper-pair wall). The production
+ladder `[2, 4]` STOPs at /2 and adopts /4. The adopted body
+(`YANG_BREP_PROBE`): 5 faces (the torus + the four shaft walls; the shaft's
+caps miss the tube), 114 edges all `LineSegment` (torus∩plane is a quartic —
+chord polylines, the §4.3.4 representation), and all EIGHT torus∩wall∩wall
+corners exact — `[1.45, ±0.25, 0.5 ± 0.12785]` and
+`[0.95, ±0.25, 0.5 ± 0.20646]` against the closed forms
+`z = 0.5 ± √(r² − (√(x² + 0.25²) − R)²)` — with the x = 1.45 loop clipped to
+|y| ≤ 0.25 (16 vertices on the wall, none beyond). V − E + F = 110 − 114 + 5
+= 1 on a B-Rep whose torus face is the CLOSED tube minus two windows (no
+seam edge survives; the face's own genus is not a disk's), i.e. χ = 1 − 1
+ring − 2 = −2: genus 2, the authored target (corrected by exact membership
+2026-09-04). The 2026-07-15 "refinement ⇒ silent SUPPORTED_WRONG (dangling
+loop ends, χ ≠ 2)" sweep does NOT reproduce: the Stage-1 rim-junction mints
+and the shared-identity junction path that landed since (spec
+`yang_rim_junction_insertion.md`, #146) give the refined loop its exact
+corners, which is spec `yang_137` part (b) — no separate corner
+insert+stitch was needed, and part (a) is this pass.
+
+### 7.3 The wall after the flip was kernel-v2's: KV14 Slice F-4
+
+Under the adopt arm C0065 STOPped one crate later —
+`TessellationFailed { face: FaceId(7), reason: "torus patch UV-CDT failed
+(self-intersecting projection / seam-crossing patch)" }` —
+`YANG_TORUS_PATCH_PROBE`: `boundary=55 holes=1 … DECLINE disk loop bounds the
+complement (signed area2=5.9e-1, reversed=false)`. The output torus face has
+NO loop wrapping either period: its "outer" loop is one window and its inner
+loop the other, both bounding the complement. `tessellate_torus_patch` knew
+a DISK (0 wrapping loops, the outer bounds the interior) and a BAND (2
+meridian-wrapping rims + windows); a closed tube with windows only is a third
+configuration. Slice F-4 (`yang_stage1_curved_holed_patch.md` §"Slice F-4"):
+lay one full period rectangle as the CDT outer ring with both seam cuts in
+the largest window-free gap of each period (`seam_cut_in_largest_gap`),
+sample each seam at the structured grid's own spacing with the two copies
+carrying the SAME 3D points (evaluated once) and all four corners one point,
+carve EVERY loop as a hole. Watertight across both seams by construction;
+pinned by `torus_patch_tests::torus_closed_with_two_windows_render` (window A
+straddles both default seams) and `seam_cut_in_largest_gap_clears_every_window`.
+
+### 7.4 The flip
+
+`refine_452_mode()`: unset ⇒ adopt (production); `YANG_452_REFINE=0|off`
+restores the STOP-only behaviour; `census` unchanged. Clause 4 now reads
+BOTH halves of "a valid body" — unpaired edges AND the improper-contact
+census (`output_improper_count`) — so R0050's d_ε/2 body (unpaired 0,
+improper 55) is no longer adopted only to be refused by the kernel-v2 render
+gate one crate later; the ladder continues and its standing STOP stands
+(byte-identical verdict). Cost under the flip, single-case release: R0038
+0.4 s total (both rungs `LocalRefinementRequired`, budget exhausted, STOP
+stands), C0065 1.7 s SUPPORTED_CORRECT (all checks, including the in-line
+composition oracle).
+
+Pins: assay smoke `C0065 → SupportedCorrect`; kernel-v2
+`tests/kv6d_c0065_through_slot.rs` (genus 2 by welded χ, watertight, the
+eight exact corners as output vertices, volume within 2 % of the analytic
+tube-minus-bite).
+
+**Corpus proof (flip run, release, 8 jobs, 600 s; wall 776.9 s; F0085 327.9 s, R0044 390.2 s):** **292C / 0W / 13E / 4EE / 0T + 3 U** — per-id diff against the committed `results.json`: exactly ONE category move (C0065 ERROR → SUPPORTED_CORRECT), ZERO detail moves; R0038, R0050 and R0085 op 2 pay the ladder and keep their STOPs byte-identical. Ledger: `docs/yang_tail_triage.md` 2026-09-17 (later).

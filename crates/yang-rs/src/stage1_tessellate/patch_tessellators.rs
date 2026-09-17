@@ -763,10 +763,61 @@ pub(crate) fn band_seam_bridge<F: Fn(f64, f64) -> Point3>(
     fallback.map(|(xi, yi, dpr)| build_ring(xi, yi, dpr))
 }
 
+/// KV14 Slice F-4 (C0065): the seam cut for a CLOSED periodic coordinate
+/// whose face carries only window loops — the midpoint of the largest arc
+/// of the period that no window covers. `intervals` are each window's
+/// `(lo, hi)` extent in that coordinate (unwrapped, `hi − lo < period`).
+/// `None` when the windows cover the whole period (every cut would split a
+/// window, so the chart has no simple rectangle — loud at the caller).
+pub(crate) fn seam_cut_in_largest_gap(intervals: &[(f64, f64)], period: f64) -> Option<f64> {
+    if !(period.is_finite() && period > 0.0) {
+        return None;
+    }
+    let mut iv: Vec<(f64, f64)> = Vec::with_capacity(intervals.len());
+    for &(lo, hi) in intervals {
+        let w = hi - lo;
+        if !w.is_finite() || w < 0.0 || w >= period {
+            return None;
+        }
+        let l = lo.rem_euclid(period);
+        iv.push((l, l + w));
+    }
+    if iv.is_empty() {
+        return Some(0.0);
+    }
+    iv.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
+    // Sweep the sorted intervals: a gap opens where the running cover ends
+    // before the next interval starts; the wrap-around gap closes the sweep.
+    let mut best: Option<(f64, f64)> = None; // (gap start, gap width)
+    let mut cover_end = iv[0].1;
+    for &(lo, hi) in &iv[1..] {
+        let gap = lo - cover_end;
+        if gap > 0.0 && best.is_none_or(|(_, w)| gap > w) {
+            best = Some((cover_end, gap));
+        }
+        cover_end = cover_end.max(hi);
+    }
+    let wrap_gap = iv[0].0 + period - cover_end;
+    if wrap_gap > 0.0 && best.is_none_or(|(_, w)| wrap_gap > w) {
+        best = Some((cover_end, wrap_gap));
+    }
+    let (start, width) = best?;
+    if width <= 1e-9 * period {
+        return None;
+    }
+    Some((start + 0.5 * width).rem_euclid(period))
+}
+
 /// `reversed`: the face's outward normal is the torus's INWARD normal (a
 /// bore). It decides which side of a BAND's `+1`-meridian-wrapping rim the
 /// band lies on (see the band case below); it has no effect on a bounded
 /// (non-wrapping) patch, whose loop fixes its own region.
+///
+/// Boundary vertices are emitted bit-for-bit in every arm; they lead the
+/// vertex pool (`verts[0..boundary.len()] == boundary`) in the disk and band
+/// arms, while the closed-torus WINDOWS arm (KV14 Slice F-4) leads with its
+/// synthetic seam rectangle and appends the loops after it. Consumers map by
+/// position (`tessellate_torus_band`, kernel-v2's render emit), not by index.
 #[allow(clippy::too_many_arguments)]
 pub fn tessellate_torus_patch(
     center: Point3,
@@ -915,45 +966,176 @@ pub fn tessellate_torus_patch(
             // the other sense bounds the COMPLEMENT (the torus minus this
             // disk); filling the interior would emit the wrong region
             // silently — decline instead (typed at the caller).
-            let disk = &ploops[0];
-            let m = disk.su.len();
-            let area2: f64 = (0..m)
-                .map(|k| {
-                    let j = (k + 1) % m;
-                    disk.su[k] * disk.sv[j] - disk.su[j] * disk.sv[k]
-                })
-                .sum();
-            if area2 == 0.0 || (area2 < 0.0) == reversed {
+            let signed_area2 = |l: &PLoop| -> f64 {
+                let m = l.su.len();
+                (0..m)
+                    .map(|k| {
+                        let j = (k + 1) % m;
+                        l.su[k] * l.sv[j] - l.su[j] * l.sv[k]
+                    })
+                    .sum()
+            };
+            let area2 = signed_area2(&ploops[0]);
+            if area2 == 0.0 {
                 if probe {
-                    eprintln!(
-                        "[torus-patch] DECLINE disk loop bounds the complement \
-                         (signed area2={area2:.6e}, reversed={reversed})"
-                    );
+                    eprintln!("[torus-patch] DECLINE disk loop has zero signed area");
                 }
                 return None;
             }
-            let (u_ref, v_ref) = (umean(&ploops[0]), vmean(&ploops[0]));
-            let mut o = Vec::with_capacity(ploops[0].su.len());
-            for k in 0..ploops[0].su.len() {
-                o.push(verts2d.len() as u32);
-                verts2d.push(cad_primitives::Point2::new(
-                    ploops[0].su[k],
-                    ploops[0].sv[k],
-                ));
-                vert3d.push(ploops[0].pts[k]);
-            }
-            for l in &ploops[1..] {
-                let du = ((umean(l) - u_ref) / span).round() * span;
-                let dv = ((vmean(l) - v_ref) / span_v).round() * span_v;
-                let mut hi = Vec::with_capacity(l.su.len());
-                for k in 0..l.su.len() {
-                    hi.push(verts2d.len() as u32);
-                    verts2d.push(cad_primitives::Point2::new(l.su[k] - du, l.sv[k] - dv));
-                    vert3d.push(l.pts[k]);
+            if (area2 < 0.0) == reversed {
+                // KV14 Slice F-4 (C0065): the "outer" loop bounds the
+                // COMPLEMENT — this is a CLOSED torus carrying only WINDOW
+                // loops (a through-slot bitten out of the tube leaves the
+                // tube's surface with two holes and NO boundary of its own;
+                // Stage 6 emits one window as the face's outer loop and the
+                // rest as inner loops, none of them wrapping either period).
+                // The face is the whole double-periodic chart minus the
+                // windows: lay one full period rectangle as the CDT outer
+                // ring, with its two seam cuts placed where no window
+                // straddles them, and carve EVERY loop as a hole. The two
+                // copies of each seam edge are sampled at the same
+                // parameters and carry the SAME 3D points (evaluated once,
+                // reused), and all four rectangle corners are one 3D point,
+                // so the mesh closes watertight across both seams.
+                for (i, l) in ploops.iter().enumerate().skip(1) {
+                    let a2 = signed_area2(l);
+                    if a2 == 0.0 || (a2 < 0.0) != (area2 < 0.0) {
+                        if probe {
+                            eprintln!(
+                                "[torus-patch] DECLINE windows arm: loop {i} does not bound the \
+                                 complement like loop 0 (signed area2={a2:.6e})"
+                            );
+                        }
+                        return None;
+                    }
                 }
-                hole_idx.push(hi);
+                let extent = |a: &[f64]| -> (f64, f64) {
+                    a.iter()
+                        .fold((f64::INFINITY, f64::NEG_INFINITY), |(lo, hi), &x| {
+                            (lo.min(x), hi.max(x))
+                        })
+                };
+                let u_iv: Vec<(f64, f64)> = ploops.iter().map(|l| extent(&l.su)).collect();
+                let v_iv: Vec<(f64, f64)> = ploops.iter().map(|l| extent(&l.sv)).collect();
+                let (Some(u_cut), Some(v_cut)) = (
+                    seam_cut_in_largest_gap(&u_iv, span),
+                    seam_cut_in_largest_gap(&v_iv, span_v),
+                ) else {
+                    if probe {
+                        eprintln!(
+                            "[torus-patch] DECLINE windows arm: the windows cover a whole \
+                             period (no seam cut clears them)"
+                        );
+                    }
+                    return None;
+                };
+                // Seam sampling at the structured grid's own spacing (the
+                // interior seed spacing below): `s` along the meridian,
+                // `s·R/(R+r)` along the longitude — so a seam edge carries
+                // the same chord as the rings it replaces.
+                let s = max_3d_area.sqrt();
+                let (ku, kv) = if s.is_finite() && s > 0.0 {
+                    (
+                        ((span / s).ceil() as usize).clamp(3, 4096),
+                        ((span_v / (s * major / (major + minor))).ceil() as usize).clamp(3, 4096),
+                    )
+                } else {
+                    (12, 24)
+                };
+                let bottom: Vec<(f64, Point3)> = (0..ku)
+                    .map(|i| {
+                        let su = u_cut + span * (i as f64) / (ku as f64);
+                        (su, eval(su / minor, v_cut / major))
+                    })
+                    .collect();
+                let right: Vec<(f64, Point3)> = (0..kv)
+                    .map(|j| {
+                        let sv = v_cut + span_v * (j as f64) / (kv as f64);
+                        (sv, eval(u_cut / minor, sv / major))
+                    })
+                    .collect();
+                let corner = bottom[0].1;
+                if probe {
+                    eprintln!(
+                        "[torus-patch] windows arm: {} windows, cuts u={:.6}° v={:.6}°, ring {ku}×{kv}",
+                        ploops.len(),
+                        (u_cut / minor).to_degrees(),
+                        (v_cut / major).to_degrees()
+                    );
+                }
+                let mut push = |su: f64, sv: f64, p: Point3| -> u32 {
+                    let id = verts2d.len() as u32;
+                    verts2d.push(cad_primitives::Point2::new(su, sv));
+                    vert3d.push(p);
+                    id
+                };
+                let mut o = Vec::with_capacity(2 * (ku + kv));
+                // Bottom edge (v = v_cut), left → right.
+                for (i, &(su, p)) in bottom.iter().enumerate() {
+                    o.push(push(su, v_cut, if i == 0 { corner } else { p }));
+                }
+                // Right edge (u = u_cut + span), bottom → top.
+                for (j, &(sv, p)) in right.iter().enumerate() {
+                    o.push(push(u_cut + span, sv, if j == 0 { corner } else { p }));
+                }
+                // Top edge (v = v_cut + span_v), right → left: the bottom
+                // edge's samples one longitude period up, same 3D points.
+                for i in (1..=ku).rev() {
+                    let (su, p) = if i == ku {
+                        (u_cut + span, corner)
+                    } else {
+                        bottom[i]
+                    };
+                    o.push(push(su, v_cut + span_v, p));
+                }
+                // Left edge (u = u_cut), top → bottom: the right edge's
+                // samples one meridian period back, same 3D points.
+                for j in (1..=kv).rev() {
+                    let (sv, p) = if j == kv {
+                        (v_cut + span_v, corner)
+                    } else {
+                        right[j]
+                    };
+                    o.push(push(u_cut, sv, p));
+                }
+                // Every loop is a window: shift each by whole periods into
+                // the rectangle (no window straddles a cut, so the whole
+                // loop lands inside).
+                let (u_mid, v_mid) = (u_cut + 0.5 * span, v_cut + 0.5 * span_v);
+                for l in &ploops {
+                    let du = ((umean(l) - u_mid) / span).round() * span;
+                    let dv = ((vmean(l) - v_mid) / span_v).round() * span_v;
+                    let mut hi = Vec::with_capacity(l.su.len());
+                    for k in 0..l.su.len() {
+                        hi.push(push(l.su[k] - du, l.sv[k] - dv, l.pts[k]));
+                    }
+                    hole_idx.push(hi);
+                }
+                o
+            } else {
+                let (u_ref, v_ref) = (umean(&ploops[0]), vmean(&ploops[0]));
+                let mut o = Vec::with_capacity(ploops[0].su.len());
+                for k in 0..ploops[0].su.len() {
+                    o.push(verts2d.len() as u32);
+                    verts2d.push(cad_primitives::Point2::new(
+                        ploops[0].su[k],
+                        ploops[0].sv[k],
+                    ));
+                    vert3d.push(ploops[0].pts[k]);
+                }
+                for l in &ploops[1..] {
+                    let du = ((umean(l) - u_ref) / span).round() * span;
+                    let dv = ((vmean(l) - v_ref) / span_v).round() * span_v;
+                    let mut hi = Vec::with_capacity(l.su.len());
+                    for k in 0..l.su.len() {
+                        hi.push(verts2d.len() as u32);
+                        verts2d.push(cad_primitives::Point2::new(l.su[k] - du, l.sv[k] - dv));
+                        vert3d.push(l.pts[k]);
+                    }
+                    hole_idx.push(hi);
+                }
+                o
             }
-            o
         }
         2 => {
             // BAND (KV14 Slice F/F-2): two oppositely-meridian-wrapping loops are

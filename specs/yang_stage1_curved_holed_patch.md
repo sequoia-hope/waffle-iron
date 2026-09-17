@@ -764,3 +764,47 @@ step); R0044 292.8 s (274.6 s before), F0085 332.2 s (314.7 s) — within the
 derivation, the census flagging the R0026 fan, and the tongue strip
 (boundary-only violates; seeded meets the budget with on-surface,
 source-faithful Steiner vertices and a watertight ribbon).
+
+## Slice F-4 — CLOSED torus with WINDOWS only (2026-09-17, C0065)
+
+**The configuration.** A through-slot bitten out of a torus tube (C0065's
+shaft spans radial 0.95…1.45 of the 0.9…1.5 tube, |y| ≤ 0.25) leaves the
+tube's surface with two holes and no boundary of its own. Stage 6 emits the
+torus face with one window as its outer loop and the other as an inner loop;
+neither wraps a period, and BOTH bound the complement in the (u, v) chart
+(a material-left window loop of an outward face runs CCW where a disk loop
+runs CW). `tessellate_torus_patch` knew a DISK (0 wrapping loops, the outer
+bounds the interior) and a BAND (two meridian-wrapping rims + windows,
+Slices F/F-2) and declined this as "disk loop bounds the complement"
+(`YANG_TORUS_PATCH_PROBE`), so kernel-v2's render STOPped
+`TessellationFailed { FaceId(7), "torus patch UV-CDT failed" }` on the first
+C0065 body the §4.5.2 pass ever emitted.
+
+**The arm.** In the 0-wrapping branch, when the outer loop bounds the
+complement: every loop must bound the complement too (mixed sense declines,
+typed); take each loop's `su`/`sv` extent and put the meridian and longitude
+seam cuts at the midpoint of the largest window-free arc of each period
+(`seam_cut_in_largest_gap`; a full cover declines); lay the period rectangle
+`[u_cut, u_cut + 2πr] × [v_cut, v_cut + 2πR]` as the CDT outer ring, sampled
+at the structured grid's own spacing (`s` along the meridian, `s·R/(R+r)`
+along the longitude — the same chord as the rings it replaces) with the top
+edge reusing the bottom edge's 3D points, the left edge the right edge's,
+and all four corners one point; shift every loop by whole periods into the
+rectangle and carve it as a hole; the existing seeded refined CDT and
+map-back do the rest. The seam copies are constraint edges the CDT keeps
+unsplit, so the positional weld closes both seams: pinned by
+`torus_patch_tests::torus_closed_with_two_windows_render` (window A straddles
+both default seams; every positional edge count-2 but the windows; area
+= 4π²Rr − windows) and `seam_cut_in_largest_gap_clears_every_window`.
+Consumers map by position, not by index (`tessellate_torus_band` welds
+by quantized key; kernel-v2 emits the pool verbatim), so this arm's pool
+leading with the synthetic rectangle rather than the boundary is
+contract-clean (doc comment updated).
+
+**Still declined (typed):** a longitude-wrapping loop (the full-turn seam),
+one or > 2 meridian-wrapping loops, windows covering a whole period in
+either coordinate, mixed loop senses.
+
+**Measured:** C0065 SUPPORTED_CORRECT end to end (1.7 s release) once the
+§4.5.2 pass supplies the body (`specs/yang_452_local_refinement.md` §7);
+kernel-v2 pin `tests/kv6d_c0065_through_slot.rs`.

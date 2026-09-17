@@ -1677,24 +1677,21 @@ pub(crate) fn torus_disk_patch_reversed_face_points_inward() {
     check_torus_disk_mesh(&t, verts.len(), exact, true);
 }
 
-/// P10 region check: the same loop walked in the COMPLEMENT's sense (material
-/// on the right) bounds the torus minus the disk; filling the (u, v) polygon
-/// interior would silently emit the wrong region, so the consumer must
-/// decline — a typed `MalformedTopology`, not a mesh.
+/// The same loop walked in the COMPLEMENT's sense (material on the right)
+/// bounds the torus MINUS the disk — a closed tube with one window. Until
+/// KV14 Slice F-4 (2026-09-17, C0065) the consumer declined it typed (filling
+/// the (u, v) polygon's interior would have emitted the wrong region
+/// silently); the windows arm now lays the full period rectangle with both
+/// seam cuts clear of the window and carves the loop as a hole, so the
+/// emitted region IS the complement: on-tube, outward, watertight across
+/// both seams, and its area is the whole tube 4π²Rr minus the disk.
 #[test]
-pub(crate) fn torus_disk_patch_complement_sense_declines_typed() {
-    let (verts, edges, faces, _) = torus_disk_fixture(false, false);
-    match stage1_tessellate(&verts, &edges, &faces) {
-        Err(YangError::MalformedTopology(msg)) => assert!(
-            msg.contains("torus patch UV-CDT declined"),
-            "unexpected wall text: {msg}"
-        ),
-        Err(e) => panic!("expected the typed torus-patch decline, got {e:?}"),
-        Ok(t) => panic!(
-            "complement-sense loop must not tessellate (got {} tris)",
-            t.tris.len()
-        ),
-    }
+pub(crate) fn torus_disk_patch_complement_sense_is_the_windowed_tube() {
+    let (verts, edges, faces, disk) = torus_disk_fixture(false, false);
+    let t = stage1_tessellate(&verts, &edges, &faces).expect("windowed tube tessellation");
+    let (major, minor) = (3.0_f64, 1.0_f64);
+    let tube = 4.0 * std::f64::consts::PI * std::f64::consts::PI * major * minor;
+    check_torus_disk_mesh(&t, verts.len(), tube - disk, false);
 }
 
 /// Code review 2026-09-04 (apex-cone OPERAND, 84068638): the structured
