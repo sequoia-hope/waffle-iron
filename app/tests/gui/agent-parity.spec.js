@@ -164,7 +164,19 @@ test.describe('Agent link O3 parity', () => {
 				expect(log.filter((e) => e.origin === 'user')).toEqual([]);
 				const viaAgent = await canonicalDocument(page);
 
+				// The fresh page must start EMPTY: it shares the browser context with
+				// the agent's page, and startup restore (`restoreOnReload: 'auto'`)
+				// reopens the newest draft of ANY tab when a tab has none of its own.
+				// Once the agent page's 3 s autosave debounce has flushed — always on a
+				// slow CI runner, rarely locally — that draft is the agent's own work,
+				// and replaying on top of it doubled every feature (CI, 2026-09-17).
 				const fresh = await context.newPage();
+				await fresh.addInitScript(() => {
+					try {
+						const settings = JSON.parse(localStorage.getItem('waffle:settings') || '{}');
+						localStorage.setItem('waffle:settings', JSON.stringify({ ...settings, restoreOnReload: 'never' }));
+					} catch {}
+				});
 				const freshCrashes = collectCrashErrors(fresh);
 				await fresh.goto('/');
 				await fresh.waitForFunction(() => window.__waffle?.getState()?.engineReady === true, null, { timeout: 30000 });
