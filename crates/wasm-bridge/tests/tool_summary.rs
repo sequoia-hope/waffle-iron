@@ -317,22 +317,23 @@ fn an_unknown_tool_is_loud() {
 }
 
 #[test]
-fn a_tool_not_migrated_yet_is_unavailable_not_silent() {
-    // The page still answers these in JS; an engine asked for one must refuse
-    // rather than return nothing. This named `feature_add` until C4 moved the
-    // twelve authoring tools and `sketch_create` until C5 moved that; the
-    // export pair (C6) is what stands for "not here yet" now.
+fn a_tool_the_page_serves_is_unavailable_not_silent() {
+    // The page answers these itself (§3.3 host state); an engine asked for one
+    // must refuse rather than return nothing. This named `feature_add` until
+    // C4 moved the twelve authoring tools, `sketch_create` until C5 and
+    // `export_step` until C6; with every non-render tool moved, the viewer's
+    // selection is what stands for "not here" — and it never will be.
     let mut state = EngineState::new();
     let mut kernel = MockKernel::new();
-    let result = execute_tool(&mut state, &mut kernel, "export_step", &json!({}), None);
+    let result = execute_tool(&mut state, &mut kernel, "selection_get", &json!({}), None);
 
     assert!(result.is_error);
     assert_eq!(
         result.structured_content["error"]["code"],
         "ToolUnavailable"
     );
-    assert!(!wasm_bridge::tools::MIGRATED.contains(&"export_step"));
-    assert!(wasm_bridge::tools::MIGRATED.contains(&"model_summary"));
+    assert!(!wasm_bridge::tools::MIGRATED.contains(&"selection_get"));
+    assert!(wasm_bridge::tools::MIGRATED.contains(&"export_step"));
 }
 
 #[test]

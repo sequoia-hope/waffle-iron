@@ -604,11 +604,13 @@ fn on_error_keep_leaves_the_failing_step_in_place_and_says_so() {
 
 #[test]
 fn a_tool_this_engine_does_not_implement_is_refused_not_ignored() {
-    // This named `sketch_create` until C5 moved it; the export pair (C6) is
-    // what is still served by the page.
+    // This named `sketch_create` until C5 moved it and `export_step` until
+    // C6 did. `selection_get` reads the viewer's selection, host state by
+    // §3.3, so the engine never serves it — and must say so.
     let mut state = EngineState::new();
-    let error = refused(&mut state, "export_step", json!({}));
+    let error = refused(&mut state, "selection_get", json!({}));
     assert_eq!(error["code"], "ToolUnavailable");
+    assert_eq!(error["details"]["tool"], "selection_get");
 }
 
 #[test]

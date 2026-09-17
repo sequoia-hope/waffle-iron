@@ -351,9 +351,9 @@ fn the_migrated_list_is_exactly_what_this_checkpoint_implements() {
     // `ENGINE_QUERIES` ∪ `ENGINE_COMMANDS`, pinned by the agent-rust-* specs);
     // a name MISSING here is a tool the page would report as one it lacks.
     //
-    // C2/C3 added the six read-only tools, C4 the twelve authoring ones and
-    // C5 `sketch_create`, which is why this list grew rather than a second one
-    // appearing.
+    // C2/C3 added the six read-only tools, C4 the twelve authoring ones, C5
+    // `sketch_create` and C6 the export pair, which is why this list grew
+    // rather than a second one appearing.
     assert_eq!(
         wasm_bridge::tools::MIGRATED,
         &[
@@ -363,6 +363,8 @@ fn the_migrated_list_is_exactly_what_this_checkpoint_implements() {
             "face_list",
             "sketch_regions",
             "expression_evaluate",
+            "export_step",
+            "export_stl",
             "feature_add",
             "feature_edit",
             "feature_delete",

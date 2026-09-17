@@ -5,28 +5,20 @@
  * Queries change nothing. Only `selection_get` lives here now: it reads the
  * user's viewport selection, which is host state the engine deliberately does
  * not model. The other read-only tools — `model_summary`, `feature_get`,
- * `body_measure`, `face_list`, `sketch_regions`, `expression_evaluate` — run in
- * the engine (`crates/wasm-bridge/src/tools/{summary,inspect}.rs`, S3 C5b);
- * `executor.js` routes them there. `requireBody` and `ask` remain for the
- * export queries, which keep their `deliver:"download"` half in the page.
+ * `body_measure`, `face_list`, `sketch_regions`, `expression_evaluate`, and
+ * the export pair — run in the engine
+ * (`crates/wasm-bridge/src/tools/{summary,inspect,export}.rs`, S3 C5b/C6);
+ * `executor.js` routes them there.
  */
 import {
 	computeFacePlane,
 	geomRefEquals,
-	getBodies,
 	getMeshes,
 	getSelectedFeatureId,
 	getSelectedRefs
 } from '$lib/engine/store.svelte.js';
 import { isDatumPlaneRef } from '$lib/engine/planes.js';
-import { fail, plain, toolOk } from './results.js';
-
-/** @param {string} id */
-export function requireBody(id) {
-	if (!getBodies().some((b) => b.bodyId === id)) {
-		throw fail('BodyNotFound', `No body with id ${id} in the open Part.`, { body_id: id });
-	}
-}
+import { plain, toolOk } from './results.js';
 
 /**
  * The body whose rendered face or edge ranges carry `ref`, or null.
@@ -38,26 +30,6 @@ function bodyForRef(ref) {
 		if (ranges.some((r) => r.geom_ref && geomRefEquals(r.geom_ref, ref))) return mesh.bodyId ?? null;
 	}
 	return null;
-}
-
-/**
- * @param {object} message
- * @param {string} expected - the EngineToUi `type` a successful answer has
- * @param {(m: object) => Promise<any>} send
- */
-export async function ask(message, expected, send) {
-	let response;
-	try {
-		response = await send(message);
-	} catch (err) {
-		throw fail('Internal', `${message.type} failed: ${err?.message ?? String(err)}`, {
-			engine_error: { kind: err?.kind ?? null, message: String(err?.message ?? err) }
-		});
-	}
-	if (response?.type !== expected) {
-		throw fail('Internal', `${message.type} answered ${response?.type ?? 'nothing'}, expected ${expected}.`, {});
-	}
-	return response;
 }
 
 /**

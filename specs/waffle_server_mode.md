@@ -1,7 +1,7 @@
 # Waffle Iron Server Mode — Headless Kernel Host, Dual-Transport MCP, Viewer Sync
 
-Status: **rev 1 — P-A (S0, S1, S2) complete 2026-09-16; P-B (S3) C1–C5b
-complete 2026-09-17, C6 open; S4 not started.** First written 2026-09-15 as
+Status: **rev 1 — P-A (S0, S1, S2) complete 2026-09-16; P-B (S3) C1–C6
+complete 2026-09-17; S4 not started.** First written 2026-09-15 as
 rev 0 (investigation + spec, no implementation); §2.3 carries the landed
 state, and the audit sections (§0, §1, §3.1) are kept as the survey that
 motivated it — read them as "before S0", not as current.
@@ -192,14 +192,16 @@ proven by the existing GUI suites plus the named oracle.
 | **S0** — landed 2026-09-15 | Move the ≈ 600 target-independent lines of `wasm_api.rs` (renderable-body collection, naming, face/edge entries) into a shared `wasm-bridge/src/render_view.rs`, and the message pipeline (parse → dispatch → tessellate → preview → serialize) into `wasm-bridge/src/process.rs` with the clock and logger injected; `wasm_api` becomes a pure binding shim | `wasm-bridge/tests/render_view_parity.{rs,mjs}` over 7 scenarios (5 corpus loads, an assembly, an in-context edit with ghosts). **Bundle, byte for byte:** the rebuilt bundle's census of every worker accessor equals the pre-move bundle's (`golden.json`). **Native vs bundle, structure:** same response types, body metadata and all counts; bytes differ across targets by design (§2.7 H3) |
 | **S1** — landed 2026-09-16 | Request ids in the bridge (`{id, msg}` envelope; worker echoes `id`), replacing FIFO pairing. Needed by any multiplexed transport | `sketch-drawing-regression.spec.js` + agent-link specs green |
 | **S2** — landed 2026-09-16 (C1–C4) | **Document session in Rust.** `EngineState` gains the tab list, inactive tab trees, assembly trees, document metadata, a per-tab undo stack, and a monotonic `revision`. New messages `AddTab`/`CloseTab`/`RenameTab`/`MoveTab`/`EditAssembly`/`SetDocumentMeta`; `SwitchTab` takes an id, not a tree. The JS store keeps its `$state` fields as **mirrors** refreshed from `ModelUpdated` (A2.1 compliant) | `format_tests` round trip; new `document_session.rs`; GUI tabs/assembly specs unchanged |
-| **S3** — C1–C4b landed 2026-09-16, C5–C5b 2026-09-17; **C6 open** | **Agent tool semantics in Rust**: `wasm-bridge/src/tools/` implements `execute_tool(session, name, args, ctx) -> ToolResult` for every non-render tool but the export pair (gates that are document state, rollback, `modelDelta`, results shaping; `sketch_create` uses `sketch-solver` profiles). New message `UiToEngine::Tool{name, arguments, context}`. Host-only concerns stay per host (§3.3). Migrated tool by tool: the read-only tools **shadowed** (the page ran both and asserted equal `structuredContent`) until green, then their JS bodies deleted (C5b); the authoring tools against goldens recorded from the JS arm (C4b) | read-only: `agent-rust-tools.spec.js` (one `Tool` send each, none of the former JS sends); authoring: the C4b goldens |
+| **S3** — C1–C4b landed 2026-09-16, C5–C6 2026-09-17 — **DONE** | **Agent tool semantics in Rust**: `wasm-bridge/src/tools/` implements `execute_tool(session, name, args, ctx) -> ToolResult` for every non-render tool (gates that are document state, rollback, `modelDelta`, results shaping; `sketch_create` uses `sketch-solver` profiles; the export pair hands a `deliver:"download"` file to the host in `ToolResult::download`). New message `UiToEngine::Tool{name, arguments, context}`. Host-only concerns stay per host (§3.3). Migrated tool by tool: the read-only tools **shadowed** (the page ran both and asserted equal `structuredContent`) until green, then their JS bodies deleted (C5b); the authoring tools against goldens recorded from the JS arm (C4b); the export pair against the real-relay spec that predates it (C6) | read-only: `agent-rust-tools.spec.js` (one `Tool` send each, none of the former JS sends); authoring: the C4b goldens; export: `agent-export-import.spec.js` |
 | **S4** | Host binary `waffle-host` (new crate `crates/waffle-host`, native only) wrapping the session | §2.7 oracles |
 
-**Status and next step (2026-09-17).** S0–S2 and S3 C1–C5b are landed. Next,
-in order: **S3 C6** (the export pair — `export_step`/`export_stl` semantics in
-the engine, the `deliver:"download"` half staying in the page), then **S4**.
+**Status and next step (2026-09-17).** S0–S2 and all of S3 (C1–C6) are
+landed. Next: **S4**, the native host — which now has one `execute_tool`
+to wrap for every non-render tool, and one field (`ToolResult::download`)
+to honour for the export pair.
 Open debt found by the 2026-09-17 consistency review and not yet paid: the
-agent-rust-* specs are in no CI job and not in gui-fast; the relay manifest
+agent-rust-* specs are in gui-fast (since C6) but no CI job runs any
+Playwright spec; the relay manifest
 drift guard (`relay/tests/test_manifest.py`) runs in no CI job; the routing
 table exists in Rust (`MIGRATED`) and in the page (two sets) with only the
 specs tying them; `finishProfiles.js` (interactive) and
@@ -287,7 +289,23 @@ and their union is `tools::MIGRATED`, which `agent-rust-tools.spec.js` and
 read-only spec asserts the thing the shadow used to prove indirectly: every
 call is one `Tool` send and the page sends none of the engine messages the JS
 bodies used to (`MeasureBody`, `ListFaces`, `ComputeRegions`, …). Then:
-**C6** the export pair, whose `deliver:"download"` half stays in the page.
+**C6** (landed 2026-09-17) the export pair. `tools/export.rs` holds
+everything around the one engine message each wraps — the `NothingToExport`
+/ `BodyNotFound` gates on the RENDERED body list, the file name, the byte
+count, the Q6 cap and the result's shape, the embedded resource included.
+What stays with the host is DELIVERING a `deliver:"download"` file (§3.3),
+and the seam is explicit: the engine's answer describes the file to the
+agent and carries the file itself out of band in `ToolResult::download`
+(never in the MCP `content`; absent from every other answer). The page's
+`runEngineQuery` hands it to the browser and `toolAnswer` strips it before
+the relay sees the result. The trap this shape guards: a host that ignores
+the field has dropped the user's file while the answer says `download`,
+and nothing downstream notices — so it is a typed field on the result, not
+a second message. The pair was not shadowed: `agent-export-import.spec.js`
+drives the real relay, asserts the embedded STEP/STL bytes and catches the
+browser's download event, and predates the port. `queries.js` lost
+`requireBody` and `ask` with their last callers; `export.js` keeps only
+`deliverDownload`.
 
 **C4 cannot shadow, and does not.** A step that CHANGES the document cannot be
 run twice on it to compare the answers — that applies it twice. So the twelve
@@ -480,7 +498,7 @@ plus two new codes, `ViewerUnavailable` and `HostCapability`.
 | `AgentPaused` | agent bar in page | agent bar in any viewer → host |
 | `selection_get` | page selection | the **focused viewer's** selection (most recent input); none attached → `ViewerUnavailable` |
 | `viewport_view`, `viewport_capture` | page camera / canvas | forwarded to the focused visible viewer (`capture_request`); none → `ViewerUnavailable` |
-| `export_*` `deliver:"download"` | browser download | host writes into `--documents DIR/exports/` and returns the path (`deliver:"inline"` unchanged) |
+| `export_*` `deliver:"download"` — the file arrives in `ToolResult::download` (C6) | browser download | host writes into `--documents DIR/exports/` and returns the path (`deliver:"agent"` unchanged) |
 | Storage tools (`storage_list`, `document_open/save/new`) | IndexedDB / git providers | host file provider rooted at `--documents DIR` (git providers: `HostCapability` in v1) |
 | `window.confirm` on unsaved changes | page dialog | host policy: autosave makes "unsaved" transient; `document_open` saves first |
 
@@ -714,7 +732,7 @@ untouched (C1).
 | Phase | Content | Exit |
 |---|---|---|
 | **P-A: A2.1 compliance** — DONE 2026-09-16 | S0, S1, S2 | browser suites green; `document_session.rs`; no behavior change |
-| **P-B: tools in Rust** — DONE 2026-09-17 but C6 | S3, shadowed tool by tool | H2-style differential green in page mode; JS tool bodies deleted (all but the export pair) |
+| **P-B: tools in Rust** — DONE 2026-09-17 | S3, shadowed tool by tool | H2-style differential green in page mode; JS tool bodies deleted |
 | **P-C: host** | S4, relay `Backend` split, `--kernel host`, file provider, wheels | H1–H6 |
 | **P-D: viewer v1** | `/view` route, `waffle-viewer/1` snapshot/update/blobs, `raw/1` + `mq/1`, cache, auth, reconnect | V1–V3, V5, V6, V8 |
 | **P-E: viewer v2+** | multiple viewers (V4), capture forwarding, `command` (V3 frames), face-chunk encoding if V7 justifies | V4, V7 |

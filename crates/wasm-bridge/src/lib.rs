@@ -17,4 +17,4 @@ pub use dispatch::dispatch;
 pub use engine_state::{BridgeError, EngineState};
 pub use messages::{EngineToUi, UiToEngine};
 pub use session::{DocumentSession, SessionError, TabInfo};
-pub use tools::{execute_tool, ToolResult};
+pub use tools::{execute_tool, ExportFile, ToolResult, MAX_AGENT_PAYLOAD_BYTES};

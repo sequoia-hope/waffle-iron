@@ -7,15 +7,16 @@
 //! storage providers — and the *semantics* (what a tool reads, what it
 //! refuses, how its result is shaped) live here.
 //!
-//! Tools migrated one at a time (C1–C5b). A read-only tool was shadowed until
+//! Tools migrated one at a time (C1–C6). A read-only tool was shadowed until
 //! its differential was green — the page ran both implementations and
 //! compared `structuredContent` — and then its JS body was deleted; an
 //! authoring tool was cut over against recorded goldens instead, since a step
-//! that changes the document cannot run twice. Nothing shadows any more: the
-//! page routes every name in [`MIGRATED`] here and has no JS body for it
-//! (`app/src/lib/agent/executor.js` `ENGINE_QUERIES` / `ENGINE_COMMANDS`).
-//! A name not listed answers `ToolUnavailable`, exactly as an unknown one
-//! does — a host must never silently do nothing.
+//! that changes the document cannot run twice; the export pair (C6) against
+//! the end-to-end relay spec that predates the port. Nothing shadows any
+//! more: the page routes every name in [`MIGRATED`] here and has no JS body
+//! for it (`app/src/lib/agent/executor.js` `ENGINE_QUERIES` /
+//! `ENGINE_COMMANDS`). A name not listed answers `ToolUnavailable`, exactly
+//! as an unknown one does — a host must never silently do nothing.
 
 use modeling_ops::KernelBundle;
 use serde::{Deserialize, Serialize};
@@ -25,14 +26,18 @@ use crate::engine_state::EngineState;
 use crate::messages::{EngineToUi, UiToEngine};
 
 mod author;
+mod export;
 mod inspect;
 mod sketch;
 mod summary;
 
+pub use export::{ExportFile, MAX_AGENT_PAYLOAD_BYTES};
+
 /// The tools [`execute_tool`] implements — every non-render agent tool. The
 /// page routes exactly these to `Tool` and implements none of them; what it
-/// keeps (`selection_get`, the viewport, storage and export-download halves)
-/// is host state by §3.3. Keep it in sync with the `match` in [`execute_tool`].
+/// keeps (`selection_get`, the viewport, the storage tools, and DELIVERING an
+/// export the answer hands it in [`ToolResult::download`]) is host state by
+/// §3.3. Keep it in sync with the `match` in [`execute_tool`].
 pub const MIGRATED: &[&str] = &[
     "model_summary",
     "feature_get",
@@ -40,6 +45,8 @@ pub const MIGRATED: &[&str] = &[
     "face_list",
     "sketch_regions",
     "expression_evaluate",
+    "export_step",
+    "export_stl",
     "feature_add",
     "feature_edit",
     "feature_delete",
@@ -83,7 +90,8 @@ pub fn mutates(name: &str) -> bool {
 /// An MCP tool result (`specs/waffle_mcp_server.md` §2.3 `result`, I10).
 ///
 /// Field names are the MCP wire names, so the page can hand a result to the
-/// relay unchanged.
+/// relay unchanged — all but `download`, which is for the HOST, not the
+/// agent: it must be stripped before the result goes onto the wire.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ToolResult {
     pub content: Vec<Value>,
@@ -91,6 +99,13 @@ pub struct ToolResult {
     pub structured_content: Value,
     #[serde(rename = "isError")]
     pub is_error: bool,
+    /// A file the host must deliver to the user — an export the agent asked
+    /// for with `deliver:"download"` (S3 C6, §3.3). Not part of the MCP
+    /// result: the agent's answer only describes the file, and this is the
+    /// file. A host that does not act on it has dropped the user's download
+    /// while the answer says it happened. Absent from every other answer.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub download: Option<ExportFile>,
 }
 
 impl ToolResult {
@@ -100,6 +115,7 @@ impl ToolResult {
             content: vec![json!({ "type": "text", "text": structured.to_string() })],
             structured_content: structured,
             is_error: false,
+            download: None,
         }
     }
 
@@ -112,6 +128,7 @@ impl ToolResult {
                 "error": { "code": code, "message": message, "details": details }
             }),
             is_error: true,
+            download: None,
         }
     }
 }
@@ -147,8 +164,16 @@ pub fn execute_tool(
     arguments: &Value,
     context: Option<&Value>,
 ) -> ToolResult {
-    match run(state, kb, name, arguments, context) {
-        Ok(structured) => ToolResult::ok(structured),
+    // The export pair shapes its own result: an embedded resource in
+    // `content`, or the file for the host in `download`, neither of which
+    // `structuredContent` alone can carry.
+    let outcome = match name {
+        "export_step" => export::export_step(state, kb, arguments),
+        "export_stl" => export::export_stl(state, kb, arguments),
+        _ => run(state, kb, name, arguments, context).map(ToolResult::ok),
+    };
+    match outcome {
+        Ok(result) => result,
         Err(failure) => ToolResult::error(failure.code, &failure.message, failure.details),
     }
 }

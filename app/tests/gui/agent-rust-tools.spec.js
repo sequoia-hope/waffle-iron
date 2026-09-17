@@ -1,8 +1,10 @@
 /**
  * The read-only agent tools run in the engine (`specs/waffle_server_mode.md`
- * §2.3 S3 C5b): `model_summary`, `feature_get`, `body_measure`, `face_list`,
- * `sketch_regions` and `expression_evaluate` reach the page as one `Tool` send
- * each, and the page has no JS body left for them.
+ * §2.3 S3 C5b, C6): `model_summary`, `feature_get`, `body_measure`,
+ * `face_list`, `sketch_regions`, `expression_evaluate`, `export_step` and
+ * `export_stl` reach the page as one `Tool` send each, and the page has no JS
+ * body left for them (the export pair's `deliver:"download"` half excepted,
+ * which `agent-export-import.spec.js` covers through the real relay).
  *
  * Until C5b this spec was the S3 differential — the page ran both
  * implementations and this asserted the mismatch log empty. The JS bodies are
@@ -32,10 +34,28 @@ const extrude = (sketchId, depth) => ({
 });
 
 /** The read-only tools, in the order the sequence below calls them. */
-const READ_ONLY = ['model_summary', 'feature_get', 'body_measure', 'face_list', 'sketch_regions', 'expression_evaluate'];
+const READ_ONLY = [
+	'model_summary',
+	'feature_get',
+	'body_measure',
+	'face_list',
+	'sketch_regions',
+	'expression_evaluate',
+	'export_step',
+	'export_stl'
+];
 
-/** What the JS bodies sent to the engine themselves before C5b. */
-const FORMER_JS_SENDS = ['MeasureBody', 'ListFaces', 'ComputeRegions', 'GenerateGearProfile', 'EvaluateExpression'];
+/** What the JS bodies sent to the engine themselves before C5b and C6. */
+const FORMER_JS_SENDS = [
+	'MeasureBody',
+	'ListFaces',
+	'ComputeRegions',
+	'GenerateGearProfile',
+	'EvaluateExpression',
+	'ExportStep',
+	'ExportStl',
+	'ExportBodyStl'
+];
 
 test.describe('Read-only agent tools run in the engine (S3 C5b)', () => {
 	test('every read-only tool answers about the real model through one Tool send', async ({ waffle }) => {
@@ -88,12 +108,16 @@ test.describe('Read-only agent tools run in the engine (S3 C5b)', () => {
 				const faces = await call('face_list', { body_id: bodyId });
 				const regions = await call('sketch_regions', { feature_id: sketch.structuredContent.feature_id });
 				const expression = await call('expression_evaluate', { expression: 'width * 2' });
+				const step = await call('export_step');
+				const stl = await call('export_stl', { body_id: bodyId });
 				for (const [name, r] of [
 					['feature_get', feature],
 					['body_measure', measured],
 					['face_list', faces],
 					['sketch_regions', regions],
-					['expression_evaluate', expression]
+					['expression_evaluate', expression],
+					['export_step', step],
+					['export_stl', stl]
 				]) {
 					if (r.isError) return { failed: name, detail: r.structuredContent };
 				}
@@ -115,6 +139,10 @@ test.describe('Read-only agent tools run in the engine (S3 C5b)', () => {
 					faces: faces.structuredContent,
 					regions: regions.structuredContent,
 					expression: expression.structuredContent,
+					// The whole result: the embedded resource is in `content`, and a
+					// download side channel must NOT be (there was none asked for).
+					step,
+					stl,
 					missing,
 					toolSends: sends.filter((s) => s.type === 'Tool').map((s) => s.message?.name),
 					formerJsSends: sends.filter((s) => formerJsSends.includes(s.type)).map((s) => s.type)
@@ -139,6 +167,8 @@ test.describe('Read-only agent tools run in the engine (S3 C5b)', () => {
 			'face_list',
 			'sketch_regions',
 			'expression_evaluate',
+			'export_step',
+			'export_stl',
 			'feature_suppress',
 			'model_summary',
 			'body_measure'
@@ -161,6 +191,18 @@ test.describe('Read-only agent tools run in the engine (S3 C5b)', () => {
 		expect(result.regions.regions.length).toBeGreaterThan(0);
 		expect(result.expression.value_mm).toBe(40);
 
+		// The export pair (C6): the file embedded as an MCP resource, its size
+		// in the description, and nothing out of band — the relay hands
+		// `content`/`structuredContent`/`isError` on unchanged.
+		expect(result.step.structuredContent).toMatchObject({ deliver: 'agent', mime_type: 'model/step', warnings: [] });
+		const stepResource = result.step.content.find((c) => c.type === 'resource')?.resource;
+		expect(stepResource.text.startsWith('ISO-10303-21;')).toBe(true);
+		expect(result.step.structuredContent.bytes).toBe(Buffer.byteLength(stepResource.text, 'utf8'));
+		expect(result.stl.structuredContent).toMatchObject({ deliver: 'agent', mime_type: 'model/stl', file_name: 'Base_plate.stl' });
+		expect(typeof result.stl.content.find((c) => c.type === 'resource')?.resource.blob).toBe('string');
+		expect(Object.keys(result.step).sort()).toEqual(['content', 'isError', 'structuredContent']);
+		expect(Object.keys(result.stl).sort()).toEqual(['content', 'isError', 'structuredContent']);
+
 		// The refusal came back in the MCP error shape, from the engine.
 		expect(result.missing.isError).toBe(true);
 		expect(result.missing.structuredContent.error.code).toBe('BodyNotFound');
@@ -168,7 +210,7 @@ test.describe('Read-only agent tools run in the engine (S3 C5b)', () => {
 		expectNoAnyCrash(crashes);
 	});
 
-	test('the read-only routing table is exactly the six the engine implements', async ({ waffle }) => {
+	test('the read-only routing table is exactly the eight the engine implements', async ({ waffle }) => {
 		const page = waffle.page;
 		await page.waitForFunction(() => typeof window.__waffleAgentExecutor?.engineQueries === 'function', {
 			timeout: 15000

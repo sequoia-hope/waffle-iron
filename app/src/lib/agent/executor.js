@@ -27,7 +27,7 @@ import { showToast } from '$lib/ui/toast.svelte.js';
 import { snapshotNow } from './commands.js';
 import { newlyErroring, sameModel } from './delta.js';
 import { DOCUMENT_COMMANDS, DOCUMENT_QUERIES } from './documents.js';
-import { EXPORT_QUERIES } from './export.js';
+import { deliverDownload } from './export.js';
 import { QUERIES } from './queries.js';
 import { ToolFailure, toolError } from './results.js';
 import { TOOL_NAMES } from './tools/index.js';
@@ -232,8 +232,9 @@ function toolAnswer(answer) {
  * Tools whose semantics live in the engine (`crates/wasm-bridge/src/tools`,
  * `specs/waffle_server_mode.md` §2.3 S3): the page sends `Tool` and renders
  * the answer. There is no JS implementation to fall back to — C4b deleted the
- * authoring bodies, C5b the read-only ones — so these two sets are also the
- * routing table: a name here reaches the engine and nothing else.
+ * authoring bodies, C5b the read-only ones, C6 the export pair's — so these
+ * two sets are also the routing table: a name here reaches the engine and
+ * nothing else.
  *
  * `ENGINE_QUERIES` change nothing and pass no authoring gate. They were
  * migrated shadowed (both implementations ran, `structuredContent` compared)
@@ -241,7 +242,10 @@ function toolAnswer(answer) {
  * not be (a step that changes the document cannot run twice on it), so what
  * they produced before the deletion is recorded in
  * `app/tests/gui/fixtures/agent-authoring-goldens.json` and
- * `agent-rust-authoring.spec.js` holds the engine to it.
+ * `agent-rust-authoring.spec.js` holds the engine to it. The export pair was
+ * cut over against `agent-export-import.spec.js`, which drives the real relay
+ * and predates the port; its `deliver:"download"` half stays in this page
+ * (§3.3) — see `runEngineQuery`.
  *
  * Keep in sync with `tools::MIGRATED` (the union of both) and `tools::mutates`
  * (exactly `ENGINE_COMMANDS`); `agent-rust-tools.spec.js` and
@@ -253,7 +257,9 @@ const ENGINE_QUERIES = new Set([
 	'body_measure',
 	'face_list',
 	'sketch_regions',
-	'expression_evaluate'
+	'expression_evaluate',
+	'export_step',
+	'export_stl'
 ]);
 
 const ENGINE_COMMANDS = new Set([
@@ -278,11 +284,22 @@ const ENGINE_COMMANDS = new Set([
  * query that sent a bridge message did — a user send in the middle of an
  * agent's read would answer about a different model.
  *
+ * An export the agent asked to `deliver:"download"` comes back with the file
+ * OUT OF BAND (`download`, S3 C6): the answer only describes it, and this
+ * page hands it to the browser. `toolAnswer` drops the field, so the relay
+ * never sees the file — but had this page not delivered it, nothing
+ * downstream would notice either, which is why it is done here and not left
+ * to a caller.
+ *
  * @param {string} tool
  * @param {Record<string, unknown>} args
  */
 async function runEngineQuery(tool, args) {
-	return withAgentLock(async () => toolAnswer(await sendAgentMessage({ type: 'Tool', name: tool, arguments: args })));
+	return withAgentLock(async () => {
+		const answer = await sendAgentMessage({ type: 'Tool', name: tool, arguments: args });
+		if (answer?.download) deliverDownload(answer.download);
+		return toolAnswer(answer);
+	});
 }
 
 /**
@@ -294,9 +311,7 @@ async function runEngineQuery(tool, args) {
  */
 export async function executeTool(tool, args, ctx) {
 	const known = TOOL_NAMES.has(tool);
-	const query = known
-		? (QUERIES[tool] ?? DOCUMENT_QUERIES[tool] ?? VIEWPORT_QUERIES[tool] ?? EXPORT_QUERIES[tool])
-		: undefined;
+	const query = known ? (QUERIES[tool] ?? DOCUMENT_QUERIES[tool] ?? VIEWPORT_QUERIES[tool]) : undefined;
 	const documentCommand = known ? DOCUMENT_COMMANDS[tool] : undefined;
 	// The engine sets are where those tools' implementations live now: none
 	// of them has a JS body, so without them every one would be reported as a

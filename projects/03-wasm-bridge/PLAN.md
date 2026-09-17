@@ -328,11 +328,11 @@ is green at every one. **COMPLETE 2026-09-16.**
   and have no conversion anywhere. JS never noticed (both are JSON on the
   wire); `DocumentSession::set_preview_mesh` converts field-wise.
 
-### M12: Server-mode S3 — agent tool semantics in Rust ✅ (C1–C5b; C6 open)
+### M12: Server-mode S3 — agent tool semantics in Rust ✅ (C1–C6 COMPLETE)
 
 `specs/waffle_server_mode.md` §2.3 S3. `crates/wasm-bridge/src/tools/`
 implements `execute_tool(state, kb, name, args, ctx) -> ToolResult` for every
-non-render agent tool but the export pair; the page sends
+non-render agent tool; the page sends
 `UiToEngine::Tool{name, arguments, context}` and renders
 `EngineToUi::ToolResult{result, model}`.
 
@@ -366,11 +366,18 @@ non-render agent tool but the export pair; the page sends
       lock, no authoring gate) beside `ENGINE_COMMANDS`; their union is
       `MIGRATED`. `agent-rust-tools.spec.js` now asserts one `Tool` send per
       call and none of the former JS sends.
-- [ ] **C6** — the export pair (`export_step`/`export_stl` semantics), the
-      `deliver:"download"` half staying in the page.
+- [x] **C6** (2026-09-17) — the export pair (`tools/export.rs`): gates on
+      the RENDERED body list, file name, byte count, Q6 cap, embedded
+      resource. A `deliver:"download"` file rides OUT OF BAND in
+      `ToolResult::download` for the host to deliver (the page's
+      `runEngineQuery` does; `toolAnswer` strips it before the relay). Oracle:
+      `agent-export-import.spec.js` (real relay, browser download event),
+      which predates the port. `tests/tool_export.rs` pins the wire shape
+      with the real kernel. `queries.js` `requireBody`/`ask` deleted.
 
-Open debt (2026-09-17 consistency review): the agent-rust-* specs are in no
-CI job and not in gui-fast; the relay manifest drift guard runs in no CI job;
+Open debt (2026-09-17 consistency review): the agent-rust-* specs are in
+gui-fast (since C6) but no CI workflow runs Playwright at all; the relay
+manifest drift guard runs in no CI job;
 `finishProfiles.js` (interactive) and `build_finish_profiles` (agent) have no
 cross oracle; the store pre-writes `activeTabId` before
 `SwitchTab`/`OpenPartInContext`.

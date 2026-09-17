@@ -323,12 +323,15 @@ redo-stack entry left by a rollback.
   operation note documents its params. `model_summary` returns `connectors`
   (`feature_id, name, kind, origin_m, z_axis, x_axis`). The manifest was
   regenerated.
-- [x] **`export_step` / `export_stl`** (2026-09-14): engine-locked queries
-  (`$lib/agent/export.js`); Q5 `NothingToExport` from the body list (the
+- [x] **`export_step` / `export_stl`** (2026-09-14): engine-locked queries;
+  Q5 `NothingToExport` from the body list (the
   bridge's `NoMeshData` never reaches them), Q6 `PayloadTooLarge` > 16 MiB for
   `deliver: "agent"`, Q7 warnings verbatim. `agent` embeds a text (STEP) or
   base64 blob (STL) resource; `download` reuses the store's download helpers
-  (`triggerStepDownload` extracted from `exportStep`).
+  (`triggerStepDownload` extracted from `exportStep`). Since S3 C6
+  (2026-09-17) the semantics run in the engine
+  (`crates/wasm-bridge/src/tools/export.rs`); `$lib/agent/export.js` keeps
+  only `deliverDownload`, fed by the answer's `download` field.
 - [x] **`import_step`** (2026-09-14): a command sending `ImportStep` through
   `applyStep` (one undo step, rollback, engine-recorded `Import` provenance);
   no placement dialog. O21 round trip in `agent-export-import.spec.js`.
