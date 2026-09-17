@@ -10442,6 +10442,17 @@ fn stage4_relocate_and_correct_inner(
                     });
                 };
                 for v in [s, e] {
+                    if let Ok(list) = std::env::var("YANG_V_PROBE") {
+                        if list.split(',').any(|t| t.trim().parse::<u32>() == Ok(v)) {
+                            eprintln!(
+                                "YANG_V_PROBE line_arm v={v} edge=({s},{e}) p={:?} \
+                                 surf_a={surf_a:?} surf_b={surf_b:?} line={lr:?} \
+                                 exact_junction={}",
+                                mesh.verts.get(v as usize),
+                                exact_junctions.contains(&v)
+                            );
+                        }
+                    }
                     // Increment 3: certified exact junction — enters no map (see above).
                     if exact_junctions.contains(&v) {
                         continue;
@@ -10745,10 +10756,27 @@ fn stage4_relocate_and_correct_inner(
                 && (n_maps - usize::from(vert_surface_pair.contains_key(&v)) >= 1
                     || circle_pair_corner
                     || same_type_junction.contains(&v));
+            // R0070 (2026-09-17, spec `yang_stage4_conic_triple_junction`,
+            // "Junction-map candidates — the line × plane-pair corner"): a
+            // LINE endpoint that also terminates an exact plane∩plane
+            // segment is the corner where a ruling of one operand's plane
+            // crosses the OTHER operand's crease into a neighbouring planar
+            // face — {cylinder, plane, plane}, exactly three surfaces, the
+            // R0077 two-plane line metric's own shape. `vert_pp_planes` is
+            // the fifth map found counting ZERO toward `n_maps` (after the
+            // KV16 same-type, R0044 pair, M5 K11 line×circle and C0067
+            // circle-pair exclusions): the vertex fell through to the Line
+            // arm's perpendicular FOOT, which lands on the line's two
+            // carriers and OFF the third plane by the foot's along-line
+            // error (R0070 op 3: 8.5e-7 at 1.7e-2 scale, `s6-planar-loop-
+            // nonplanar`). Monotone: a vertex this admits was relocated
+            // wrong before, never STOPped.
+            let pp_line_corner = vert_line.contains_key(&v) && vert_pp_planes.contains_key(&v);
             if n_maps < 2
                 && !same_type_junction.contains(&v)
                 && !circle_pair_corner
                 && !torus_conic_mix
+                && !pp_line_corner
             {
                 continue;
             }
@@ -10795,12 +10823,36 @@ fn stage4_relocate_and_correct_inner(
                 n0[2] * n1[0] - n0[0] * n1[2],
                 n0[0] * n1[1] - n0[1] * n1[0],
             ];
-            let line_div = junction_line_divergence([surfs[0], surfs[1], surfs[2]], qa);
+            // R0070 (2026-09-17): the line may also be an exact Stage-3 LINE
+            // curve the vertex terminates (a plane∩cylinder generator, a
+            // Steinmetz line) — the same along-the-line move, the line
+            // supplied by `vert_line` instead of two planes
+            // (`junction_line_curve_divergence`, certificate inside).
+            let plane_pair_div = junction_line_divergence([surfs[0], surfs[1], surfs[2]], qa);
+            let line_curve_div = if plane_pair_div.is_none() {
+                vert_line.get(&v).and_then(|lr| {
+                    junction_line_curve_divergence(
+                        (lr.point, lr.dir),
+                        pa,
+                        [surfs[0], surfs[1], surfs[2]],
+                        qa,
+                    )
+                })
+            } else {
+                None
+            };
+            let line_div = plane_pair_div.or(line_curve_div);
             let sin_theta =
                 line_div.unwrap_or_else(|| (cx[0] * cx[0] + cx[1] * cx[1] + cx[2] * cx[2]).sqrt());
             let gate = tangent_plane_corridor(d_eps, sin_theta);
             if probe_v || std::env::var_os("YANG_LRR_PROBE").is_some() {
-                let metric = if line_div.is_some() { "line" } else { "curve" };
+                let metric = if plane_pair_div.is_some() {
+                    "line"
+                } else if line_curve_div.is_some() {
+                    "line-curve"
+                } else {
+                    "curve"
+                };
                 eprintln!(
                     "[triple-gate] v={v} rho={rho:.4e} gate={gate:.4e} d_eps={d_eps:.4e} \
                      sin_theta={sin_theta:.4e} metric={metric} p={:?} q={qa:?} surfs={surfs:?}",
@@ -12827,7 +12879,18 @@ fn stage4_relocate_and_correct_inner(
                             Stage4InvalidReason::LocalRefinementRequired,
                         )
                     })?;
-                    let line_div = junction_line_divergence([t_surf, *s1, *s2], qa);
+                    // R0070 (2026-09-17): the line-curve arm, same as the
+                    // conic triple block ("fix all gates sharing a metric").
+                    let line_div = junction_line_divergence([t_surf, *s1, *s2], qa).or_else(|| {
+                        vert_line.get(&v).and_then(|lr| {
+                            junction_line_curve_divergence(
+                                (lr.point, lr.dir),
+                                p.as_array(),
+                                [t_surf, *s1, *s2],
+                                qa,
+                            )
+                        })
+                    });
                     (proj, n0, n1, line_div)
                 }
                 _ => {

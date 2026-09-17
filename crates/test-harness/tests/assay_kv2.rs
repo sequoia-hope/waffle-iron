@@ -1421,6 +1421,22 @@ fn smoke_corpus_boundary_categories() {
         // corner and relocates it along the box edge (the PR-KV11 line
         // metric: ρ 7.7e-3 / 8.7e-3 against a 3.27e-2 gate). 1.0 s release.
         ("C0067", Category::SupportedCorrect),
+        // R0070 FLIPPED (2026-09-17, two Stage-4 junction defects): a cut
+        // cylinder drilled into a 152° revolve boss, axis parallel to the
+        // boss's annular cap. (1) The cap∩cut-cylinder GENERATOR pierces the
+        // boss lateral at |L̂·n| 0.345; the triple block gated the exact
+        // junction at the surface-pair corridor (sin θ = 1 between cap and
+        // lateral — two surfaces the move slides within neither of) and the
+        // §4.5.2 ladder halved the corridor as fast as the offset shrank.
+        // The junction-line metric now takes the line from the vertex's
+        // exact Line curve (`junction_line_curve_divergence`), not only
+        // from two planes. (2) The bottom∩lateral generator's endpoint on a
+        // gear-flank plane is a line × plane∩plane corner; the plane∩plane
+        // map counted zero toward `n_maps`, the Line arm relocated it to
+        // the generator's perpendicular FOOT, 8.5e-7 off the flank, Stage 6
+        // `s6-planar-loop-nonplanar`. The corner is now a triple-block
+        // candidate. 14 s release.
+        ("R0070", Category::SupportedCorrect),
         // F0082 FLIPPED (2026-09-12, the planar chart scan): op 12's input
         // carried op 11's base cap with the two corners where the
         // near-coplanar stack's plane∩plane line meets the rectangle walls

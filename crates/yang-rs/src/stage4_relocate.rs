@@ -447,6 +447,76 @@ pub(crate) fn junction_line_divergence(surfs: [Surface; 3], q: [f64; 3]) -> Opti
     Some(((l[0] * n3[0] + l[1] * n3[1] + l[2] * n3[2]) / ll).abs())
 }
 
+/// Junction-line metric, the LINE-CURVE arm (R0070, 2026-09-17; spec
+/// `yang_stage4_conic_triple_junction.md`, "Junction-line amendment — the
+/// line-curve carriers"): the vertex is an endpoint of an exact Stage-3
+/// `Line` intersection curve (`LineReloc` — a plane∩cylinder GENERATOR when
+/// the plane runs parallel to the axis, a cylinder∩cylinder Steinmetz line,
+/// a cone-apex generator) and sits ON that line; the exact junction lies
+/// along it where the line pierces the third surface. The relocation moves
+/// along `L̂ = dir` and closes the pierced surface's chord offset δ (|δ| ≤ d_ε)
+/// by `|δ| / |L̂·n₃|` to first order — the same principle as
+/// [`junction_line_divergence`], with the line supplied by the curve rather
+/// than by two planes. Measured on R0070 op 3 (`[triple-gate]`,
+/// 2026-09-17): the cut cylinder's cap-plane generator (plane residual
+/// −3.5e-18, cylinder residual 0) pierces the revolve boss's lateral at
+/// |L̂·n| 0.3454, the chord vertex sits 6.116e-4 inside the boss (d_ε
+/// 7.338e-4) and the exact junction 2.0014e-3 along the generator — the
+/// move has ZERO off-line component; the curve corridor (sin θ = 1 between
+/// the cap plane and the boss lateral, two surfaces neither of which the
+/// move slides within) refused it at 1.4677e-3, the line corridor admits it
+/// at 4.249e-3.
+///
+/// Certificate (what makes this a metric correction and not a band): the
+/// vertex `p` lies on the line to `1e-9·(1+‖p‖)` (the on-surface band of
+/// `torus_plane_clip_junction`), exactly TWO of the three surfaces carry the
+/// line — their normals at `q` are perpendicular to `L̂` within
+/// `MIN_FEATURE_SIZE` — and the remaining one is pierced transversally
+/// (`|L̂·n₃| > MIN_FEATURE_SIZE`). Each carrier normal ⊥ `L̂` gives
+/// `sin θ(carrier, third) ≥ |L̂·n₃|` for both carrier/third pairs, so the
+/// line corridor is never below the curve corridor measured against a
+/// carrier. `None` (the caller keeps its metric, byte-identical): the vertex
+/// is off the line, the carrier count is not two, or a normal is undefined
+/// at `q`. Shares the `YANG_JUNCTION_LINE=0|off` measurement gate.
+pub(crate) fn junction_line_curve_divergence(
+    line: (Point3, Vector3),
+    p: [f64; 3],
+    surfs: [Surface; 3],
+    q: [f64; 3],
+) -> Option<f64> {
+    if matches!(
+        std::env::var("YANG_JUNCTION_LINE").as_deref(),
+        Ok("0") | Ok("off")
+    ) {
+        return None;
+    }
+    let (point, dir) = line;
+    let l = normalize3(dir.as_array());
+    if !(l[0] * l[0] + l[1] * l[1] + l[2] * l[2]).is_finite() {
+        return None;
+    }
+    // The vertex sits on the line (its two carriers are exact at p).
+    let p_norm = (p[0] * p[0] + p[1] * p[1] + p[2] * p[2]).sqrt();
+    if line_perp_distance(Point3::new(p[0], p[1], p[2]), point, dir) > 1e-9 * (1.0 + p_norm) {
+        return None;
+    }
+    let mut carriers = 0usize;
+    let mut pierced: Option<f64> = None;
+    for s in surfs {
+        let (_, n) = surface_value_and_normal(s, q)?;
+        let cos = (l[0] * n[0] + l[1] * n[1] + l[2] * n[2]).abs();
+        if cos <= cad_primitives::MIN_FEATURE_SIZE {
+            carriers += 1;
+        } else if pierced.replace(cos).is_some() {
+            return None; // two transversal surfaces: not a line junction
+        }
+    }
+    if carriers != 2 {
+        return None;
+    }
+    pierced
+}
+
 /// #137 N-137.1 (spec `specs/yang_137_torus_plane_grazing_corner.md`): the exact
 /// grazing-CORNER junction `torus ∩ cutting_plane ∩ clip_plane`, refined from a
 /// mesh `seed` via the existing 3-surface Newton and then VALIDATED to lie on all

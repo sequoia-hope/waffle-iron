@@ -127,6 +127,73 @@
 > R0077 pierces RED under the curve corridor, GREEN under the line corridor;
 > the φ = 0 coincidence; the never-undercuts sweep; the `None` arms).
 
+> **Junction-line amendment — the line-curve carriers (2026-09-17, R0070):
+> the line the vertex moves along may be an exact Stage-3 LINE curve, not
+> only the line of two planes.** R0070 op 3 (a cylinder drilled into a 152°
+> revolve boss, its axis parallel to the boss's annular cap): cap ∩ cut
+> cylinder is a GENERATOR (`vert_line`), and where the generator reaches the
+> boss's rim it pierces the boss lateral — {cap plane, boss lateral, cut
+> lateral}, ONE plane, so `junction_line_divergence` declined and the triple
+> block gated the move at the surface-pair corridor between the cap and the
+> boss lateral (sin θ = 1 — two surfaces the move slides within NEITHER of).
+> Measured (`[triple-gate]`): v88 sits exactly on the generator (cap residual
+> −3.5e-18, cut-cylinder residual 0), 6.116e-4 inside the boss lateral
+> (d_ε 7.3383e-4), and the exact junction 2.0014e-3 along the generator with
+> ZERO off-line component; |L̂·n_boss| = 0.3454, so the line corridor is
+> 4.249e-3 against the curve corridor's 1.4677e-3 — the same mis-measurement
+> R0077 exposed, with the line supplied by the curve. The §4.5.2 ladder
+> could not rescue it: the corridor halves with d_ε while the along-line
+> offset shrinks no faster (2.0e-3 / 7.3e-4 → 4.5e-4 / 1.8e-4, rung 3).
+> Fix: `stage4_relocate::junction_line_curve_divergence((point, dir), p,
+> surfs, q)` — the vertex must lie ON the line to `1e-9·(1+‖p‖)`, exactly
+> two of the three surfaces carry it (normals at `q` ⊥ `L̂` within
+> `MIN_FEATURE_SIZE`), the third is pierced transversally; divergence
+> `|L̂·n₃(q)|`, else `None` and the caller keeps its metric byte-identically.
+> Wired at BOTH triple arms as the fallback of the two-plane helper (the
+> conic triple block, probe label `metric=line-curve`; the torus `[s1, s2]`
+> partner arm), sharing the `YANG_JUNCTION_LINE=0|off` gate. Each carrier
+> normal ⊥ `L̂` gives `sin θ(carrier, third) ≥ |L̂·n₃|`, so the line corridor
+> never undercuts the curve corridor measured against a carrier — a metric
+> correction, not a band; a move the chord offset cannot explain stays a
+> loud `OffCurveBeyondChordBand`. Pins:
+> `tests_unit/s4_line_curve_junction_metric.rs` (R0070's v88 numbers; the
+> two-plane arm declines; off-line vertex, wrong carrier counts → `None`).
+
+> **Junction-map candidates amendment — the line × plane-pair corner
+> (2026-09-17, R0070): `vert_pp_planes` is the FIFTH map found counting zero
+> toward `n_maps`.** With the corridor admitting v88, R0070 op 3 advanced to
+> Stage 6 `s6-planar-loop-nonplanar` (face 188, a gear-flank plane of the
+> boss, vertex off-plane 8.455e-7 against the 1.022e-7 band). The vertex
+> (`YANG_S6_NONPLANAR_PROBE` + the Line arm's `YANG_V_PROBE` print) sat
+> BEFORE Stage 4 exactly on two planes — the flank (residual 9.3e-17) and the
+> hole's bottom (−1.7e-18) — and 3.75e-6 inside the boss lateral: the corner
+> where the bottom∩lateral GENERATOR (a `vert_line` endpoint) meets the
+> bottom∩flank plane∩plane segment (a `vert_pp_planes` endpoint) —
+> {cylinder, plane, plane}, exactly three surfaces, the R0077 two-plane line
+> metric's own shape (|L̂·n_lateral| 0.909). The triple block's `n_maps`
+> counts circle / ellipse / cone-ellipse / parabola / cone-hyperbola / line /
+> surface-pair and NOT the plane∩plane map (the KV11 ellipse×pp and the
+> circle×pp arms handle THEIR corners in dedicated blocks before it; a
+> line×pp corner had none), so the vertex read `n_maps = 1`, skipped the
+> block, and the Line arm relocated it to the generator's perpendicular
+> FOOT — on both of the line's carriers, off the third plane by the foot's
+> along-line error (disp 4.03e-6, off-plane 8.5e-7 — the foot is the wrong
+> point of the right line). Fix: `pp_line_corner = vert_line ∩ vert_pp_planes`
+> joins the `n_maps < 2` bypass (beside the KV16 same-type, C0067
+> circle-pair and R0050 torus mixes); the existing 3-surface Newton lands
+> the corner (ρ 4.12e-6 against the line-corridor gate 1.61e-3) and the
+> bookkeeping tail's `vert_line.remove` keeps the Line arm off it. Monotone:
+> such a vertex was relocated WRONG before (a sub-band foot would have
+> passed Stage 6 silently), never STOPped. **R0070 ERROR →
+> SUPPORTED_CORRECT (14.0 s).** Pin: kernel-v2
+> `tests/s4_line_pp_corner_chain.rs` (a z-cylinder boss with a TILTED slot
+> and an x-drilled hole whose bottom plane crosses the lateral — three flank
+> corners and three generator pierces are exact output vertices; RED at
+> `s6-planar-loop-nonplanar` without the candidate, mutation-checked). The
+> remaining zero-counting maps (`vert_junction` line×circle,
+> `vert_ell_junction`, `vert_pp_circle_junction`) are unchanged: no STOP
+> names them.
+
 
 > **Status (2026-07-10, N2 epic increment 5): WIRED — the inexact
 > ≥3-surface junction class this design record anticipated has arrived.**
