@@ -588,7 +588,14 @@ pub(crate) fn stage0_preprocess(a: &BRep, b: &BRep) -> Result<Option<Stage0>, Ya
                 // lateral + opposite cap (`collect_rim_crossings`, PR-M8
                 // disc-rim crossing). disc∩disc crossing stays walled here.
                 // Any other wall stays the loud residue.
-                DiscPair::Wall("disc-poly-nonconvex") | DiscPair::Wall("disc-crossing") => {}
+                // M8 disc∩holed-polygon (spec `m8_disc_holed_polygon_overlay`,
+                // R0070): a HOLED all-line partner is a `PolygonWithHoles` the
+                // general overlay already consumes (`face_polygon_2d` projects
+                // every inner loop); the disc-pair builder's convex-containment
+                // fast path simply cannot express it, so it routes general.
+                DiscPair::Wall("disc-poly-nonconvex")
+                | DiscPair::Wall("disc-crossing")
+                | DiscPair::Wall("disc-poly-holed") => {}
                 DiscPair::Wall(tag) => {
                     probe(tag, &format!("pair=({},{})", p.face_a, p.face_b));
                     return Err(pair_err(p.face_a, p.face_b));

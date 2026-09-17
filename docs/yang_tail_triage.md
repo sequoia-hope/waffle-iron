@@ -43,6 +43,49 @@ after the reconciliation run (release, 8 jobs, 360 s; wall 577 s, F0085
 regression since 2026-08-01 is outstanding (checked over every commit of
 `results.json`).
 
+## 2026-09-17 (evening) — R0070 advances UNSUPPORTED(coplanar-boolean) → ERROR: the M8 `disc-poly-holed` wall was a ROUTING gap; canonical 292C / 0W / 14E / 4EE / 0T + 2 UNSUPPORTED(coplanar-boolean)
+
+R0070 (34 s; revolve(rectangle, 152°) boss + extrude(gear, cut) +
+extrude(circle, cut), scale 1.7e-2) was the third coplanar residue case: op
+3's cut cylinder puts its flat end ON the planar cap the gear cut left
+behind — an all-`LineSegment` face with ONE inner loop (the gear outline).
+Stage 0 classified the pair `disc_pair` and `build_disc_pair` returned
+`Wall("disc-poly-holed")` (`disc_pair.rs:119`): the direct builder is a
+CONVEX-containment construction and cannot express a hole. The dispatch
+arm forwarded only `disc-poly-nonconvex` / `disc-crossing` to the general
+overlay; every other tag raised `CoplanarFacesUnsupported`. But the
+general path already consumes the shape (`face_polygon_2d` projects every
+inner loop into the `PolygonWithHoles` the exact overlay segments; annular
+caps and non-convex partners take that path today) — a routing gap, not a
+missing algorithm (spec `m8_disc_holed_polygon_overlay.md`).
+
+Fix: the `disc-poly-holed` tag joins the general-overlay arm
+(`stage0/mod.rs`). Tests `tests/m8_disc_holed_polygon.rs` (8: a 4×4×1
+plate with a square through-hole × a cylinder — containment union/cut,
+hole-edge crossing union/cut, disc-over-hole union/counterbore, fixture
+sanity, and a loud pin for a PRE-EXISTING boundary found on the way: a
+tool with BOTH caps flush with the plate's caps while its rim crosses an
+edge fails `azimuth-merge rims disagree` — also on an UNHOLED plate, so
+not a hole effect; spec §7, owner `m8_rim_override_uniform_merge`). RED
+5/8 without the routing change, GREEN with it.
+
+With Stage 0 handling the pair (`disc-crossing-same-normal | pair=(133,0)`
+— the cut disc crosses the gear outline) op 3 reaches Stage 4 and STOPs at
+`Stage-4 relocation region around vertex 4294967295 is invalid:
+LocalRefinementRequired` — the region-boundary walk in `stage4_correct.rs`
+finding a boundary vertex of degree ≠ 2, the §4.4.1 mesh-updating region
+class. That is R0070's honest next wall (row updated below).
+
+Corpus (release, 8 jobs, 600 s; wall 772.1 s; F0085 321.2 s, R0044
+395.6 s, F0065 112.9 s): **292C / 0W / 14E / 4EE / 0T, 2
+UNSUPPORTED(coplanar-boolean)** — per-id diff of the committed
+`results.json`: exactly ONE category move (R0070 UNSUPPORTED → ERROR),
+ZERO detail moves. The remaining UNSUPPORTED set is F0064/F0072 alone —
+both the N17 cherchi `CoplanarPairDeferred` class (a disc rim crossing a
+non-convex / gear outline reaches the general overlay, whose overlap
+triangles are NOT identical on both solids), the genuine §4.5.5
+identical-mesh gap.
+
 ## 2026-09-17 (later) — C0065 CONVERTED ⇒ 292C: Yang §4.5.2 op-level refinement FLIPPED ALWAYS-ON on its first MONOTONE customer, then KV14 Slice F-4 (a CLOSED torus carrying only WINDOW loops) for the body it emits; two stale adjudications overturned by re-running a 5 s ladder
 
 Canonical corpus after the flip run (release, 8 jobs, 600 s; wall 776.9 s; F0085 327.9 s, R0044 390.2 s, F0065 112.5 s): **292C / 0W / 13E / 4EE / 0T + 3 UNSUPPORTED(coplanar-boolean)** — per-id diff of the committed `results.json`: exactly ONE category move (C0065 ERROR → SUPPORTED_CORRECT), ZERO detail moves. The other §4.5.2 customers (R0038, R0050, R0085 op 2) pay the ladder and keep their STOPs byte-identical.
@@ -1900,7 +1943,7 @@ moved. The 30 ERROR rows are the ACTIVE rows below.
 | ~~R0003~~ | Stage-4 OffCurve v4233 | **FLIPPED CORRECT 2026-08-29 (e8127391); reconciled 2026-09-04 from the committed results.json history** multi-map over-band chain (v4233→v8508); needs ellipse×hyperbola junction handling, band-fixing exhausted (N45/N46). **§4-I12 2026-08-22: v4233 AND v10583 measured as §4.5.1's first confirmed customers** — interior, bounded 1 hop each side by converged vertices sharing cone+plane; the paper's first-strategy repair (midpoint + truncated cross-boundary re-optimize) is the owner, not more junction vocabulary | CONFIRMED (N51/N52; I12) | **§4.5.1 increment 1 (pin case)** — was P3-junction. **inc-2b 2026-08-22: repair landed gated; under `YANG_451=1` the Stage-4 wall clears (11/11 regions) and the case advances to the KV9-F2 developable fold (FaceId 435, cone tan 2.3961 — not a repaired cone ⇒ developable-ring family latent). Post-flip owner: that family** **2026-08-24b: the fold ANCHORED (extended `KV2_PATCH_FOLD_PROBE`): KV9-F2a deep-chord strip fold — a boundary Chord-split node keeps its ORIGINAL chord's sagitta as a permanent off-surface deviation (dev=0.242 vs facet band 0.188), the adjacent Interior splits are exactly on-surface, and a 0.044-thin sliver bridging the layers folds. The deep chords are yang-rs's pair-curve LineSegment polylines at MESH density = the §4.3.4 refine-after-repair debt (trigger fired). Owner: spec `yang_434_output_chord_refinement.md` (design checkpoint landed; R0100/R0020 same mechanism; R0017 is F2b — all-on-surface inversion, unanchored, NOT this fix's customer)** |
 | ~~R0015~~ | ~~Stage-4 OffCurve v84~~ ~~Stage-6 non-2-manifold (`i6-edge-overuse`)~~ | **CONVERTED 2026-09-11 (night, third): the false partner-hull STOP (R0026's layer), then the n-ary group's per-pair `opposite` + the face-keyed sheet rule (section above).** probe 2026-07-18: N51 "no-curve-type" REFUTED — v84 IS in the torus map (`torus=true`); `YANG_TORUS_PROBE` shows the pair Newton relocates it EXACTLY (rho=0, F_torus(proj)=0) and it passes the displacement gate, so the STOP is the **bounded-face containment** check below the gate (`stage4_correct.rs:4225`) — the C0065 grazing-loop-outside-face signature, at MICRO scale (torus R=5.97e-5/r=3.98e-5, coords ~1e-4) | CONFIRMED (#171 pass 2) | P3b-#137 (C0065 containment class, micro-scale) |
 | ~~R0026~~ | ~~Stage-4 OffCurve v218~~ ~~Stage-3 AmbiguousCurve{2,0} (218,220), 2026-08 → 2026-09-11~~ Stage-4 OffCurve v677 (partner-hull containment `:12483`) | **2026-09-11 (night): the Stage-3 layer was KV14 Slice G — the chart CDT's chord contract (section above), FIXED; back at the containment wall, partner AABB unprobed.** probe 2026-07-18: same as R0015 — v218 `torus=true`, pair Newton rho=9.65e-6 ≪ gate 3.0e-3, then bounded-face containment STOP; micro torus∩plane (R=0.0214/r=0.0143) | CONFIRMED (#171 pass 2) | P3b-#137 (C0065 containment class, micro-scale) **CONVERTED 2026-09-11 (night, later): Slice G + the shared plane identity (sections above).** |
-| R0070 | ~~Stage-4 OffCurve v1028 (+op2 LRR v47)~~ ~~input `face 134: holed lateral CDT failed: degenerate CDT input`~~ UNSUPPORTED(coplanar-boolean): M8 `disc-poly-holed` pair (133,0) | **2026-09-11 (night, fourth): the input wall was Stage-6's most-edges outer-loop rule labelling a bounded cylinder patch inside-out (fixed, section above); now an M8 residue row — the cut disc vs a HOLED planar face — in the F0064/F0072 bucket.** probe 2026-07-18: v1028 sits on a micro Ellipse edge (1025,1028; major_r 0.028) AND a LineSegment edge (1028,1029) — an ellipse∩line conic junction endpoint whose ellipse relocation lands beyond band at micro scale. ~~**op2 v47** is the surface-pair endpoint-mix STOP, R0044 class~~ **op2's endpoint-mix layer RESOLVED 2026-07-28 (triple-block wiring)** — R0070 raises no LRR at all now; the surviving failure is the v1028 OffCurve half only | CONFIRMED (#171 pass 2; op2 half closed 2026-07-28) | P3-junction (v1028 OffCurve half only) |
+| R0070 | ~~Stage-4 OffCurve v1028 (+op2 LRR v47)~~ ~~input `face 134: holed lateral CDT failed: degenerate CDT input`~~ ~~UNSUPPORTED(coplanar-boolean): M8 `disc-poly-holed` pair (133,0)~~ ERROR: op 3 `Stage-4 relocation region around vertex 4294967295 is invalid: LocalRefinementRequired` (region-boundary walk, `stage4_correct.rs` — §4.4.1 mesh-updating region class) | **2026-09-17 (evening): the `disc-poly-holed` wall was a ROUTING gap — the disc-pair convex builder cannot express a hole, but the general overlay already consumes a holed `PolygonWithHoles`; the tag now routes general like `disc-poly-nonconvex` (spec `m8_disc_holed_polygon_overlay`, 8 fixture tests). Stage 0 handles the pair (`disc-crossing-same-normal`: the cut disc crosses the gear outline) and the case advances to the Stage-4 wall at left.** **2026-09-11 (night, fourth): the input wall was Stage-6's most-edges outer-loop rule labelling a bounded cylinder patch inside-out (fixed, section above); now an M8 residue row — the cut disc vs a HOLED planar face — in the F0064/F0072 bucket.** probe 2026-07-18: v1028 sits on a micro Ellipse edge (1025,1028; major_r 0.028) AND a LineSegment edge (1028,1029) — an ellipse∩line conic junction endpoint whose ellipse relocation lands beyond band at micro scale. ~~**op2 v47** is the surface-pair endpoint-mix STOP, R0044 class~~ **op2's endpoint-mix layer RESOLVED 2026-07-28 (triple-block wiring)** — R0070 raises no LRR at all now; the surviving failure is the v1028 OffCurve half only | CONFIRMED (#171 pass 2; op2 half closed 2026-07-28) | P3-junction (v1028 OffCurve half only) |
 
 ### Reassembly non-2-manifold (8) — the #146 junction-mint bucket
 
