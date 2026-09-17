@@ -419,6 +419,145 @@ fn parameters_set_keeps_the_identity_of_a_parameter_it_is_given_back() {
     assert_eq!(second["parameters"][0]["value_mm"], json!(30.0));
 }
 
+#[test]
+fn parameters_set_keeps_the_last_value_under_a_non_canonical_id_spelling() {
+    let mut state = EngineState::new();
+    let first = ok(
+        &mut state,
+        "parameters_set",
+        json!({ "parameters": [{ "name": "width", "expression": "20" }] }),
+    );
+    let id = first["parameters"][0]["id"]
+        .as_str()
+        .expect("an id")
+        .to_string();
+
+    // The id is parsed leniently, so this spelling still names the parameter;
+    // the last good value must be found by the parsed id, not its text,
+    // or the row keeps its identity and silently loses its value.
+    let braced_upper = format!("{{{}}}", id.to_uppercase());
+    let second = ok(
+        &mut state,
+        "parameters_set",
+        json!({ "parameters": [{ "id": braced_upper, "name": "width", "expression": "nope +" }] }),
+    );
+    assert_eq!(second["parameters"][0]["id"], json!(id));
+    assert!(second["parameters"][0]["error"].is_string());
+    let kept = &state.engine.tree.parameters[0];
+    assert_eq!(kept.id.to_string(), id);
+    assert_eq!(
+        kept.value, 20.0,
+        "the last good value is what dependents hold"
+    );
+}
+
+// ── What a mutating tool's answer carries ─────────────────────────────────
+
+#[test]
+fn a_mutating_tools_answer_carries_the_model_update_and_its_preview() {
+    // Real kernel: `bodies_added` and the preview both come from tessellated
+    // meshes, which `MockKernel` never produces. This pins the two S3 C4
+    // traps — the tool tessellates before its after-snapshot, and the answer
+    // carries a `ModelUpdated` whose preview was attached (a `ToolResult`
+    // never passes through `process_message`'s preview step).
+    let mut state = EngineState::new();
+    let mut kernel = kernel_v2::KernelV2Adapter::new();
+    // A 20 × 10 mm rectangle with real edges (`rectangle_sketch` is points
+    // only, which the mock never notices and the kernel cannot extrude).
+    let corners = [
+        (1, 0.0, 0.0),
+        (2, 0.02, 0.0),
+        (3, 0.02, 0.01),
+        (4, 0.0, 0.01),
+    ];
+    let mut entities: Vec<SketchEntity> =
+        corners.iter().map(|&(id, x, y)| point(id, x, y)).collect();
+    for (id, (a, b)) in [(10, (1, 2)), (11, (2, 3)), (12, (3, 4)), (13, (4, 1))] {
+        entities.push(SketchEntity::Line {
+            id,
+            start_id: a,
+            end_id: b,
+            construction: false,
+        });
+    }
+    let sketch = Operation::Sketch {
+        sketch: Sketch {
+            id: Uuid::new_v4(),
+            plane: GeomRef {
+                kind: TopoKind::Face,
+                anchor: Anchor::Datum {
+                    datum_id: Uuid::new_v4(),
+                },
+                selector: Selector::Role {
+                    role: Role::EndCapPositive,
+                    index: 0,
+                },
+                policy: ResolvePolicy::BestEffort,
+                scope: None,
+            },
+            plane_origin: [0.0, 0.0, 0.0],
+            plane_normal: [0.0, 0.0, 1.0],
+            entities,
+            constraints: Vec::new(),
+            solve_status: SolveStatus::FullyConstrained,
+            solved_positions: corners.iter().map(|&(id, x, y)| (id, (x, y))).collect(),
+            projected: Vec::new(),
+            solved_profiles: vec![ClosedProfile {
+                entity_ids: vec![10, 11, 12, 13],
+                is_outer: true,
+                vertex_ids: vec![],
+                circle: None,
+                spline_segments: vec![],
+                arc_segments: vec![],
+            }],
+        },
+    };
+    let added = ok(
+        &mut state,
+        "feature_add",
+        json!({ "operation": serde_json::to_value(sketch).expect("a sketch operation") }),
+    );
+    let sketch_id = Uuid::parse_str(added["feature_id"].as_str().expect("an id")).expect("a uuid");
+    let msg = wasm_bridge::messages::UiToEngine::Tool {
+        name: "feature_add".to_string(),
+        arguments: json!({ "operation": extrude(sketch_id, Some(vec![10, 11, 12, 13])) }),
+        context: None,
+    };
+    let wasm_bridge::messages::EngineToUi::ToolResult { result, model } =
+        wasm_bridge::dispatch(&mut state, msg, &mut kernel)
+    else {
+        panic!("a Tool message answers ToolResult");
+    };
+    assert!(!result.is_error, "{result:?}");
+    assert_eq!(
+        result.structured_content["bodies_added"]
+            .as_array()
+            .map(Vec::len),
+        Some(1)
+    );
+    let model = model.expect("a mutating tool carries its model update");
+    let wasm_bridge::messages::EngineToUi::ModelUpdated { preview_mesh, .. } = *model else {
+        panic!("the carried model is a ModelUpdated");
+    };
+    assert!(
+        preview_mesh.is_some(),
+        "the preview of the new box is attached"
+    );
+
+    // And a read-only tool carries none.
+    let read_only = wasm_bridge::messages::UiToEngine::Tool {
+        name: "model_summary".to_string(),
+        arguments: json!({}),
+        context: None,
+    };
+    let wasm_bridge::messages::EngineToUi::ToolResult { model, .. } =
+        wasm_bridge::dispatch(&mut state, read_only, &mut kernel)
+    else {
+        panic!("a Tool message answers ToolResult");
+    };
+    assert!(model.is_none());
+}
+
 // ── A step that makes a feature fail ─────────────────────────────────────
 
 #[test]

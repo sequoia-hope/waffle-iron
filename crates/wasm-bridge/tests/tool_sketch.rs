@@ -295,6 +295,13 @@ fn a_contradictory_sketch_commits_nothing_by_default() {
         state.engine.tree.features.is_empty(),
         "nothing was committed"
     );
+    // ...and the sketch `BeginSketch` opened was closed again: there is no
+    // cancel message, so a refusal that left it open would shadow the user's
+    // next sketch.
+    assert!(
+        state.active_sketch.is_none(),
+        "the abandoned sketch is still open"
+    );
 }
 
 #[test]

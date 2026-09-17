@@ -786,12 +786,15 @@ pub(super) fn parameters_set(
     kb: &mut dyn KernelBundle,
     args: &Value,
 ) -> Answer {
-    let current: HashMap<String, f64> = state
+    // Keyed by the parsed id, not its text: the id below is parsed leniently
+    // (`Uuid::parse_str` accepts braces and upper case), so a non-canonical
+    // spelling that still names this parameter must find its last value.
+    let current: HashMap<Uuid, f64> = state
         .engine
         .tree
         .parameters
         .iter()
-        .map(|p| (p.id.to_string(), p.value))
+        .map(|p| (p.id, p.value))
         .collect();
 
     let rows = args
@@ -801,10 +804,11 @@ pub(super) fn parameters_set(
         .unwrap_or_default();
     let mut parameters = Vec::with_capacity(rows.len());
     for row in &rows {
-        let id_text = row.get("id").and_then(Value::as_str);
         // A parameter with no id is a new one; an id that is not a UUID names
         // no existing parameter, so it becomes one too.
-        let id = id_text
+        let id = row
+            .get("id")
+            .and_then(Value::as_str)
             .and_then(|text| Uuid::parse_str(text).ok())
             .unwrap_or_else(Uuid::new_v4);
         parameters.push(DesignParameter {
@@ -821,10 +825,7 @@ pub(super) fn parameters_set(
                 .to_string(),
             // The last good value is kept so dependents hold their geometry
             // while an expression is being fixed.
-            value: id_text
-                .and_then(|text| current.get(text))
-                .copied()
-                .unwrap_or(0.0),
+            value: current.get(&id).copied().unwrap_or(0.0),
             error: None,
         });
     }

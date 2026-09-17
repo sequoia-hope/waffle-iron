@@ -713,8 +713,11 @@ fn handle_message(
             // a refusal can still have moved the document — a rollback that
             // did not restore it exactly leaves it changed, and that is
             // precisely the state a host must not miss.
-            let model =
-                crate::tools::mutates(&name).then(|| Box::new(model_updated_response(state)));
+            let model = crate::tools::mutates(&name).then(|| {
+                let mut model = model_updated_response(state);
+                attach_preview_mesh(state, &mut model);
+                Box::new(model)
+            });
             Ok(EngineToUi::ToolResult { result, model })
         }
     }

@@ -316,16 +316,23 @@ pub(super) fn sketch_create(
         "Internal",
     )?;
 
-    let response = crate::tools::author::send(
-        state,
-        kb,
-        UiToEngine::SolveSketch {
-            entities: Some(entities.clone()),
-            constraints: Some(driving),
-        },
-        "InvalidSketch",
-    )?;
+    // From here until `FinishSketch` commits, the engine has an open sketch.
+    // A refusal on this stretch must close it (`abandon_on_err`): left open,
+    // it shadows any sketch the user had begun and a later
+    // `SolveSketch { entities: None }` would solve the abandoned one.
+    let response = abandon_on_err(state, |state| {
+        crate::tools::author::send(
+            state,
+            kb,
+            UiToEngine::SolveSketch {
+                entities: Some(entities.clone()),
+                constraints: Some(driving),
+            },
+            "InvalidSketch",
+        )
+    })?;
     let EngineToUi::SketchSolved { solved } = &response else {
+        state.active_sketch = None;
         return Err(unexpected("SolveSketch", "SketchSolved", &response));
     };
 
@@ -336,6 +343,7 @@ pub(super) fn sketch_create(
     );
     let status_tag = solve_status_tag(&status);
     if failed_solve && on_error == OnError::Rollback {
+        state.active_sketch = None;
         return Err(ToolFailure::new(
             "SketchSolveFailed",
             format!("The sketch did not solve ({status_tag}); nothing was committed."),
@@ -379,26 +387,31 @@ pub(super) fn sketch_create(
     let extracted = waffle_types::extract_profiles(&solved_entities, &positions);
     let finished = build_finish_profiles(&extracted, &solved_entities, &positions);
 
-    let step = apply_step(
-        state,
-        kb,
-        UiToEngine::FinishSketch {
-            solved_positions: finished.solved_positions,
-            solved_profiles: finished.profiles,
-            plane_origin: plane.origin,
-            plane_normal: plane.normal,
-            entities: solved_entities,
-            constraints,
-            projected: Vec::new(),
-            provenance: agent_provenance(context),
-        },
-        if failed_solve {
-            OnError::Keep
-        } else {
-            on_error
-        },
-        "InvalidSketch",
-    )?;
+    // `finish_sketch` closes the open sketch itself when it commits; a
+    // refusal before that point leaves it open, so this is the last stretch
+    // `abandon_on_err` covers.
+    let step = abandon_on_err(state, |state| {
+        apply_step(
+            state,
+            kb,
+            UiToEngine::FinishSketch {
+                solved_positions: finished.solved_positions,
+                solved_profiles: finished.profiles,
+                plane_origin: plane.origin,
+                plane_normal: plane.normal,
+                entities: solved_entities,
+                constraints,
+                projected: Vec::new(),
+                provenance: agent_provenance(context),
+            },
+            if failed_solve {
+                OnError::Keep
+            } else {
+                on_error
+            },
+            "InvalidSketch",
+        )
+    })?;
 
     let mut out = json!({
         "feature_id": step.feature_id,
@@ -428,6 +441,22 @@ pub(super) fn sketch_create(
 }
 
 /// The serde tag of a solve status, as the answer reports it.
+/// Run one step of an open sketch; on refusal, close the sketch first.
+///
+/// `BeginSketch` opens `state.active_sketch` and only a committed
+/// `FinishSketch` closes it — there is no cancel message — so every refusal
+/// in between would otherwise leave the engine with a sketch nobody owns.
+fn abandon_on_err<T>(
+    state: &mut EngineState,
+    step: impl FnOnce(&mut EngineState) -> Result<T, ToolFailure>,
+) -> Result<T, ToolFailure> {
+    let result = step(state);
+    if result.is_err() {
+        state.active_sketch = None;
+    }
+    result
+}
+
 fn solve_status_tag(status: &SolveStatus) -> String {
     serde_json::to_value(status)
         .ok()
@@ -463,15 +492,17 @@ fn regions_of(
         &sketch.entities,
         &sketch.solved_positions,
     )?;
-    let response = crate::tools::author::send(
+    // Through `engine_call`, as `sketch_regions` sends the same message: one
+    // failure, one `regions_error` text, whichever tool asked.
+    let response = crate::tools::engine_call(
         state,
         kb,
+        "ComputeRegions",
         UiToEngine::ComputeRegions {
             entities,
             solved_positions,
             chord_tolerance: None,
         },
-        "Internal",
     )?;
     let EngineToUi::RegionsComputed { regions } = &response else {
         return Err(unexpected("ComputeRegions", "RegionsComputed", &response));

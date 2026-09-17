@@ -189,6 +189,21 @@ fn feature_get_reports_a_features_rebuild_error() {
 }
 
 #[test]
+fn feature_get_reports_the_last_error_when_an_id_was_reported_twice() {
+    // Last wins, as in `model_summary`'s map: the two tools must never show
+    // two different messages for the same feature.
+    let mut state = EngineState::new();
+    let id = add_feature(&mut state, rectangle_sketch(), None);
+    state.engine.errors = vec![(id, "first".to_string()), (id, "last".to_string())];
+
+    let out = ok(&mut state, "feature_get", json!({ "feature_id": id }));
+    assert_eq!(out["error"], "last");
+    let summary = ok(&mut state, "model_summary", json!({}));
+    assert_eq!(summary["errors"][0]["feature_id"], json!(id));
+    assert_eq!(summary["errors"][0]["message"], "last");
+}
+
+#[test]
 fn feature_get_refuses_an_id_the_tree_does_not_have() {
     let mut state = EngineState::new();
     let missing = Uuid::nil();

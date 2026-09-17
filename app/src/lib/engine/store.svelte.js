@@ -6865,7 +6865,10 @@ function mirrorSessionDocument(info) {
 	activeTabId = info.active_tab;
 	documentName = info.name;
 	projectName = info.name;
-	if (info.display_unit) documentDisplayUnit = info.display_unit;
+	// Unconditional: the session reports no unit for a legacy file, and that
+	// means mm — not "keep whatever the previous document used". (This used to
+	// lean on a second `.waffle` parser in the load path to do the reset.)
+	documentDisplayUnit = info.display_unit ?? 'mm';
 	// `created` is NOT mirrored. It is the host's to latch (C3c) and the
 	// engine only echoes it back — through a serializer that drops the
 	// milliseconds, so mirroring it rewrites "…:05.000Z" as "…:05Z" and the
@@ -7985,28 +7988,6 @@ export function triggerStepDownload(stepData, fileName) {
 }
 
 /**
- * Extract display_unit from .waffle JSON and set it on the store.
- * Falls back to 'mm' if not present (legacy v1 files).
- * @param {string} jsonData
- */
-function extractDisplayUnit(jsonData) {
-	try {
-		const parsed = JSON.parse(jsonData);
-		// v3 stores it at document.display_unit; v1/v2 at project.display_unit.
-		// (Reading only the legacy path silently reset v3 files to mm —
-		// docs/FILE_FORMAT.md §14.3.)
-		const unit = parsed?.document?.display_unit ?? parsed?.project?.display_unit;
-		if (unit && typeof unit === 'string') {
-			documentDisplayUnit = unit;
-		} else {
-			documentDisplayUnit = 'mm';
-		}
-	} catch {
-		documentDisplayUnit = 'mm';
-	}
-}
-
-/**
  * Import a STEP file as a new ImportedBody feature (task #138). Sends the raw
  * STEP text; the engine compresses and embeds it in the feature. Used by the
  * file picker AND directly by tests (real file pickers can't be driven).
@@ -8356,7 +8337,9 @@ export async function loadProject(jsonData, { silent = false } = {}) {
 		// (loadPendingDocument runs initDocumentState itself; test-case loads
 		// deliberately keep the current document context).
 		if (parseTooNew(jsonData)) return false;
-		extractDisplayUnit(jsonData);
+		// The display unit (a legacy file's included — the loader converts
+		// `project.display_unit`) arrives with the answer's `document` and is
+		// mirrored there; nothing here parses the file for it.
 		await sendRebuild({ type: 'LoadProject', data: jsonData });
 		if (!silent) showToast('info', 'Project loaded');
 		return true;
@@ -8384,7 +8367,6 @@ export async function loadProject(jsonData, { silent = false } = {}) {
 				clearTimeout(autoSaveTimer);
 				autoSaveTimer = null;
 			}
-			extractDisplayUnit(text);
 			try {
 				await sendRebuild({ type: 'LoadProject', data: text });
 				// Adopt the opened file's tab structure (the engine only holds

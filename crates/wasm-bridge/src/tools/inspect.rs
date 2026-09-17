@@ -31,7 +31,15 @@ pub(super) fn feature_get(state: &EngineState, args: &Value) -> Answer {
             .map(|p| json!(p.origin))
             .unwrap_or_else(|| json!({ "type": "User" })),
     });
-    if let Some((_, message)) = state.engine.errors.iter().find(|(id, _)| *id == feature.id) {
+    // Last wins, like `model_summary`'s map and the authoring delta: if the
+    // engine reported an id twice, every tool shows the same message.
+    if let Some((_, message)) = state
+        .engine
+        .errors
+        .iter()
+        .rev()
+        .find(|(id, _)| *id == feature.id)
+    {
         out["error"] = json!(message);
     }
     Ok(out)
