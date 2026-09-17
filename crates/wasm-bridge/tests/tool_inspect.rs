@@ -357,6 +357,7 @@ fn the_migrated_list_is_exactly_what_this_checkpoint_implements() {
             "import_step",
             "undo",
             "redo",
+            "sketch_create",
         ]
     );
 }

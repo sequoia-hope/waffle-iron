@@ -465,8 +465,10 @@ fn on_error_keep_leaves_the_failing_step_in_place_and_says_so() {
 
 #[test]
 fn a_tool_this_engine_does_not_implement_is_refused_not_ignored() {
+    // This named `sketch_create` until C5 moved it; the export pair (C6) is
+    // what is still served by the page.
     let mut state = EngineState::new();
-    let error = refused(&mut state, "sketch_create", json!({}));
+    let error = refused(&mut state, "export_step", json!({}));
     assert_eq!(error["code"], "ToolUnavailable");
 }
 

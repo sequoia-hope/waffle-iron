@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 
-use crate::sketch::{CircleProfile, ClosedProfile, SketchEntity};
+use crate::sketch::{ArcSegment, CircleProfile, ClosedProfile, SketchEntity};
 
 /// Extract closed profiles from solved sketch geometry.
 ///
@@ -359,4 +359,316 @@ fn compute_profile_area(
         }
     }
     compute_signed_area(&vertices, positions)
+}
+
+// ── The `FinishSketch` profile payload ───────────────────────────────────
+
+/// Synthetic point ids for arc samples start here, far above any real entity
+/// id so they cannot collide with one.
+const ARC_SYNTH_ID_BASE: u32 = 900_000;
+
+/// How many segments an arc is sampled into.
+const ARC_SAMPLES: usize = 16;
+
+/// What a `FinishSketch` message carries: the profiles, and every point they
+/// name — the solved ones plus the synthetic arc samples minted here.
+#[derive(Debug, Clone)]
+pub struct FinishProfiles {
+    pub profiles: Vec<ClosedProfile>,
+    pub solved_positions: HashMap<u32, (f64, f64)>,
+}
+
+/// Build the profile payload of a `FinishSketch` from a solved sketch.
+///
+/// Ported from `app/src/lib/sketch/finishProfiles.js`, which the app's own
+/// Finish Sketch and the agent's `sketch_create` both used, so a sketch
+/// committed by any host carries identical `solved_profiles` and
+/// `solved_positions` (`specs/waffle_mcp_server.md` I1).
+///
+/// [`extract_profiles`] yields entity ids; the kernel wants ordered point-id
+/// loops. Lines contribute their start point, arcs are sampled into synthetic
+/// points with an `arc_segments` record, splines contribute every control
+/// point, and a standalone circle becomes a tagged `circle` profile (a true
+/// cylinder, not a polygon).
+///
+/// `entities` must already carry the solver's radii: a `Diameter`/`Radius`
+/// constraint solves a circle's radius into `SolvedSketch::radii`, not into
+/// the entity, and the circle profile below reads it from the entity.
+pub fn build_finish_profiles(
+    extracted: &[ClosedProfile],
+    entities: &[SketchEntity],
+    positions: &HashMap<u32, (f64, f64)>,
+) -> FinishProfiles {
+    let mut solved_positions = positions.clone();
+    // One counter across ALL profiles: two profiles must never mint the same
+    // synthetic id, or their arcs would share points.
+    let mut next_synth_id = ARC_SYNTH_ID_BASE;
+    let mut profiles = Vec::with_capacity(extracted.len());
+
+    for p in extracted {
+        let edges: Vec<&SketchEntity> = p
+            .entity_ids
+            .iter()
+            .filter_map(|id| entities.iter().find(|e| e.id() == *id))
+            .collect();
+
+        // A standalone circle is passed through as a tagged circle profile.
+        if edges.len() == 1 {
+            if let SketchEntity::Circle {
+                id,
+                center_id,
+                radius,
+                ..
+            } = edges[0]
+            {
+                profiles.push(match positions.get(center_id) {
+                    Some(&(center_u, center_v)) => ClosedProfile {
+                        entity_ids: vec![*id],
+                        is_outer: p.is_outer,
+                        vertex_ids: Vec::new(),
+                        circle: Some(CircleProfile {
+                            center_u,
+                            center_v,
+                            radius: *radius,
+                        }),
+                        spline_segments: Vec::new(),
+                        arc_segments: Vec::new(),
+                    },
+                    None => bare_profile(p),
+                });
+                continue;
+            }
+        }
+
+        if edges.is_empty() {
+            profiles.push(bare_profile(p));
+            continue;
+        }
+
+        let Some((first_start, first_end)) = entity_endpoints(edges[0]) else {
+            profiles.push(bare_profile(p));
+            continue;
+        };
+
+        let mut point_ids: Vec<u32> = Vec::new();
+        let mut arc_segments: Vec<ArcSegment> = Vec::new();
+
+        // The walk can enter the first entity either way: take its direction
+        // from how it connects to the second. Always assuming forward pushed
+        // the shared vertex twice (kernel `ProfileRepeatedVertex`) and
+        // misdirected the whole chain. A 2-entity loop (bigon) connects at
+        // both ends, so it keeps forward.
+        let mut first_forward = true;
+        if edges.len() > 2 {
+            if let Some((s2, e2)) = entity_endpoints(edges[1]) {
+                let end_connects = first_end == s2 || first_end == e2;
+                let start_connects = first_start == s2 || first_start == e2;
+                if !end_connects && start_connects {
+                    first_forward = false;
+                }
+            }
+        }
+
+        add_entity_points(
+            edges[0],
+            first_forward,
+            positions,
+            &mut point_ids,
+            &mut arc_segments,
+            &mut solved_positions,
+            &mut next_synth_id,
+        );
+        let mut prev_end = if first_forward { first_end } else { first_start };
+
+        for entity in edges.iter().skip(1) {
+            let Some((next_start, next_end)) = entity_endpoints(entity) else {
+                continue;
+            };
+            let forward = next_start == prev_end;
+            let connected = forward || next_end == prev_end;
+            let dir = if connected { forward } else { true };
+
+            add_entity_points(
+                entity,
+                dir,
+                positions,
+                &mut point_ids,
+                &mut arc_segments,
+                &mut solved_positions,
+                &mut next_synth_id,
+            );
+            prev_end = if connected {
+                if forward {
+                    next_end
+                } else {
+                    next_start
+                }
+            } else {
+                next_end
+            };
+        }
+
+        // An arc that CLOSES the profile ends on vertex 0 — the kernel reads
+        // index runs cyclically.
+        for seg in arc_segments.iter_mut() {
+            if seg.end_vertex_index >= point_ids.len() {
+                seg.end_vertex_index = 0;
+            }
+        }
+
+        profiles.push(ClosedProfile {
+            entity_ids: p.entity_ids.clone(),
+            is_outer: p.is_outer,
+            vertex_ids: point_ids,
+            circle: None,
+            spline_segments: Vec::new(),
+            arc_segments,
+        });
+    }
+
+    FinishProfiles {
+        profiles,
+        solved_positions,
+    }
+}
+
+/// A profile with no usable point loop: the ids and the winding, nothing else.
+fn bare_profile(p: &ClosedProfile) -> ClosedProfile {
+    ClosedProfile {
+        entity_ids: p.entity_ids.clone(),
+        is_outer: p.is_outer,
+        vertex_ids: Vec::new(),
+        circle: None,
+        spline_segments: Vec::new(),
+        arc_segments: Vec::new(),
+    }
+}
+
+/// The two connection points of an edge entity, start then end.
+fn entity_endpoints(entity: &SketchEntity) -> Option<(u32, u32)> {
+    match entity {
+        SketchEntity::Line {
+            start_id, end_id, ..
+        }
+        | SketchEntity::Arc {
+            start_id, end_id, ..
+        } => Some((*start_id, *end_id)),
+        SketchEntity::Spline { point_ids, .. } if point_ids.len() >= 2 => {
+            Some((point_ids[0], point_ids[point_ids.len() - 1]))
+        }
+        _ => None,
+    }
+}
+
+/// The point an entity contributes when the chain enters it: each entity adds
+/// exactly one, and the next entity's start supplies the end.
+fn entity_start_point(entity: &SketchEntity, forward: bool) -> Option<u32> {
+    match entity {
+        SketchEntity::Line {
+            start_id, end_id, ..
+        }
+        | SketchEntity::Arc {
+            start_id, end_id, ..
+        } => Some(if forward { *start_id } else { *end_id }),
+        SketchEntity::Spline { point_ids, .. } if point_ids.len() >= 2 => Some(if forward {
+            point_ids[0]
+        } else {
+            point_ids[point_ids.len() - 1]
+        }),
+        _ => None,
+    }
+}
+
+/// Add one entity's points to the chain, densely: all of a spline's samples,
+/// an arc's sampled sweep, or a line's single start point. The LAST point is
+/// never added — the next entity's start is that point.
+fn add_entity_points(
+    entity: &SketchEntity,
+    forward: bool,
+    positions: &HashMap<u32, (f64, f64)>,
+    point_ids: &mut Vec<u32>,
+    arc_segments: &mut Vec<ArcSegment>,
+    solved_positions: &mut HashMap<u32, (f64, f64)>,
+    next_synth_id: &mut u32,
+) {
+    match entity {
+        // A spline carries its curve as every sample point (involute gear
+        // teeth are 12+ each), so all but the last go in.
+        SketchEntity::Spline { point_ids: pts, .. } if pts.len() >= 2 => {
+            let ordered: Vec<u32> = if forward {
+                pts.clone()
+            } else {
+                pts.iter().rev().copied().collect()
+            };
+            point_ids.extend(&ordered[..ordered.len() - 1]);
+        }
+        SketchEntity::Arc {
+            center_id,
+            start_id,
+            end_id,
+            ..
+        } => {
+            let (s_id, e_id) = if forward {
+                (*start_id, *end_id)
+            } else {
+                (*end_id, *start_id)
+            };
+            let (Some(&(cx, cy)), Some(&(sx, sy)), Some(&(ex, ey))) = (
+                positions.get(center_id),
+                positions.get(&s_id),
+                positions.get(&e_id),
+            ) else {
+                // No geometry to sample: the start point alone.
+                point_ids.push(s_id);
+                return;
+            };
+
+            let radius = (sx - cx).hypot(sy - cy);
+            let start_angle = (sy - cy).atan2(sx - cx);
+            let mut end_angle = (ey - cy).atan2(ex - cx);
+            // Arcs are CCW start→end. Traversed in REVERSE the same physical
+            // arc is walked clockwise, so the angle must DECREASE — forcing
+            // CCW here sampled the complement arc, the wrong side of the
+            // circle.
+            if forward {
+                if end_angle <= start_angle {
+                    end_angle += std::f64::consts::TAU;
+                }
+            } else if end_angle >= start_angle {
+                end_angle -= std::f64::consts::TAU;
+            }
+
+            let arc_start_index = point_ids.len();
+            point_ids.push(s_id);
+            for s in 1..ARC_SAMPLES {
+                let t = s as f64 / ARC_SAMPLES as f64;
+                let angle = start_angle + t * (end_angle - start_angle);
+                let synth_id = *next_synth_id;
+                *next_synth_id += 1;
+                solved_positions.insert(
+                    synth_id,
+                    (cx + angle.cos() * radius, cy + angle.sin() * radius),
+                );
+                point_ids.push(synth_id);
+            }
+            // The arc's true end vertex is the NEXT entity's start, which will
+            // occupy the index `point_ids.len()` names (wrapped to 0 above
+            // when this arc closes the profile). Pointing at the last interior
+            // sample instead cut every arc to (N-1)/N of its sweep and left a
+            // chord sliver: an extruded 90° fillet was really 84.4°.
+            arc_segments.push(ArcSegment {
+                start_vertex_index: arc_start_index,
+                end_vertex_index: point_ids.len(),
+                center_u: cx,
+                center_v: cy,
+                radius,
+            });
+        }
+        // A line, or anything with no curve of its own.
+        other => {
+            if let Some(pt) = entity_start_point(other, forward) {
+                point_ids.push(pt);
+            }
+        }
+    }
 }

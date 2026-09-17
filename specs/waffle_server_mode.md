@@ -186,7 +186,7 @@ proven by the existing GUI suites plus the named oracle.
 | **S0** — landed 2026-09-15 | Move the ≈ 600 target-independent lines of `wasm_api.rs` (renderable-body collection, naming, face/edge entries) into a shared `wasm-bridge/src/render_view.rs`, and the message pipeline (parse → dispatch → tessellate → preview → serialize) into `wasm-bridge/src/process.rs` with the clock and logger injected; `wasm_api` becomes a pure binding shim | `wasm-bridge/tests/render_view_parity.{rs,mjs}` over 7 scenarios (5 corpus loads, an assembly, an in-context edit with ghosts). **Bundle, byte for byte:** the rebuilt bundle's census of every worker accessor equals the pre-move bundle's (`golden.json`). **Native vs bundle, structure:** same response types, body metadata and all counts; bytes differ across targets by design (§2.7 H3) |
 | **S1** — landed 2026-09-16 | Request ids in the bridge (`{id, msg}` envelope; worker echoes `id`), replacing FIFO pairing. Needed by any multiplexed transport | `sketch-drawing-regression.spec.js` + agent-link specs green |
 | **S2** — landed 2026-09-16 (C1–C4) | **Document session in Rust.** `EngineState` gains the tab list, inactive tab trees, assembly trees, document metadata, a per-tab undo stack, and a monotonic `revision`. New messages `AddTab`/`CloseTab`/`RenameTab`/`MoveTab`/`EditAssembly`/`SetDocumentMeta`; `SwitchTab` takes an id, not a tree. The JS store keeps its `$state` fields as **mirrors** refreshed from `ModelUpdated` (A2.1 compliant) | `format_tests` round trip; new `session_tests.rs`; GUI tabs/assembly specs unchanged |
-| **S3** — C1–C4b landed 2026-09-16 | **Agent tool semantics in Rust**: `wasm-bridge/src/tools/` implements `execute_tool(session, name, args, ctx) -> ToolResult` for every non-render tool (gates that are document state, rollback, `modelDelta`, results shaping; `sketch_create` uses `sketch-solver` profiles, which JS already ports). New message `UiToEngine::Tool{name, arguments, context}`. Host-only concerns stay per host (§3.3). Migrated tool by tool, **shadowed**: the page runs both JS and Rust and asserts equal `structuredContent` in dev builds until the JS version is deleted | per-tool differential oracle over O1–O22 scripts |
+| **S3** — C1–C5 landed 2026-09-17 | **Agent tool semantics in Rust**: `wasm-bridge/src/tools/` implements `execute_tool(session, name, args, ctx) -> ToolResult` for every non-render tool (gates that are document state, rollback, `modelDelta`, results shaping; `sketch_create` uses `sketch-solver` profiles, which JS already ports). New message `UiToEngine::Tool{name, arguments, context}`. Host-only concerns stay per host (§3.3). Migrated tool by tool, **shadowed**: the page runs both JS and Rust and asserts equal `structuredContent` in dev builds until the JS version is deleted | per-tool differential oracle over O1–O22 scripts |
 | **S4** | Host binary `waffle-host` (new crate `crates/waffle-host`, native only) wrapping the session | §2.7 oracles |
 
 **S3 checkpoints.** **C1** (landed 2026-09-16) is the mechanism plus the first
@@ -217,10 +217,41 @@ reached through the snapshot diff, as it was in JS; and a `ToolResult` is not a
 without it the worker collects no meshes and the store never refreshes its
 tree, errors or autosave after an authoring call. The toast and the pause stay
 with the host (§3.3): the answer says `rolled_back`, and `pause_agent` when a
-rollback did not restore the document exactly. Then, in order: **C5** `sketch_create`,
-which additionally needs `buildFinishProfiles` ported (the one part of that path
-with no Rust twin — `extract_profiles` already has one in `waffle_types`);
-**C6** the export pair, whose `deliver:"download"` half stays in the page.
+rollback did not restore the document exactly. **C5** (landed 2026-09-17) is `sketch_create`, the last authoring tool and the
+only one that orchestrates four messages — `BeginSketch`, `SolveSketch`,
+`FinishSketch`, then a regions query. `buildFinishProfiles` became
+`waffle_types::profiles::build_finish_profiles`, written BESIDE
+`extract_profiles` rather than into it: that function is load-bearing for
+`sketch-solver`, `regions.rs` and the assay generators, so C5 adds and does not
+touch it.
+
+Three things the port had to establish first:
+
+- **A datum plane arrives in a shape Rust cannot type.** `planes.js` mints
+  `{anchor: {type: "DatumPlane", id}}`, and `waffle_types::Anchor` has only
+  `FeatureOutput` and `Datum{datum_id}` — deserializing one into a `GeomRef`
+  fails outright. So the plane is resolved from the RAW JSON, branching on
+  `anchor.type` (`DatumPlane` / `Datum` / a typed face ref), and the legacy
+  `{plane: "XY"}` spelling resolves too. Adding a variant to `Anchor` was the
+  alternative and would have touched a core file-format type.
+- **The datum path was covered by nothing.** Every agent spec passes an
+  explicit `{origin, normal}`; O12 covers a picked FACE ref on real geometry.
+  A plane named by a datum ref was resolved by code no test ran, so C5 added
+  `crates/wasm-bridge/tests/tool_sketch.rs` (built-in planes resolve without a
+  kernel, so `MockKernel` reaches them).
+- **The goldens needed no recapture.** Every sequence in
+  `agent-authoring-goldens.json` opens with a `sketch_create` recorded from the
+  JS implementation at C4b, so moving it into the engine put it under an oracle
+  that already existed and predates the port.
+
+Two divergences were found and deliberately LEFT, because closing them means
+changing `extract_profiles` under the corpus: JS builds half-edges for
+`Spline` and Rust does not, and the unbounded-face scan differs (JS takes the
+global largest profile and drops it only if CW; Rust takes the largest CW one
+and always drops it). `PlaneDefinition` likewise has no `three-points` method
+in Rust, which JS `resolvePlane` still offers — unreachable for an agent, whose
+schema is generated from Rust. Then: **C6** the export pair, whose
+`deliver:"download"` half stays in the page.
 
 A migrated tool's JS body is deleted, and its name leaves `MIGRATED`, only once
 the differential has run green over a model that exercises it — two agreeing

@@ -24,7 +24,7 @@ import {
 	withEngineLock
 } from '$lib/engine/store.svelte.js';
 import { showToast } from '$lib/ui/toast.svelte.js';
-import { COMMANDS, snapshotNow } from './commands.js';
+import { snapshotNow } from './commands.js';
 import { newlyErroring, sameModel } from './delta.js';
 import { DOCUMENT_COMMANDS, DOCUMENT_QUERIES } from './documents.js';
 import { EXPORT_QUERIES } from './export.js';
@@ -116,37 +116,6 @@ function commandRefusal(ctx) {
 	const busy = getUserBusyReason();
 	if (busy) return new ToolFailure('UserBusy', BUSY_MESSAGES[busy], { reason: busy });
 	return null;
-}
-
-/**
- * @param {string} tool
- * @param {(args: any, env: any) => Promise<object>} command
- * @param {Record<string, unknown>} args
- * @param {CallContext} ctx
- */
-async function runCommand(tool, command, args, ctx) {
-	const refusal = commandRefusal(ctx);
-	if (refusal) throw refusal;
-	return withAgentLock(async () => {
-		// The page may have changed while the call waited for the lock (I12).
-		const late = commandRefusal(ctx);
-		if (late) throw late;
-		const before = snapshotNow();
-		setAgentActivity({ tool, agentName: ctx.agentName, quietErrors: true });
-		try {
-			const result = await command(args, { agentName: ctx.agentName, pause: ctx.pause });
-			if (ctx.isCancelled() && !NOT_UNDOABLE.has(tool) && !sameModel(before, snapshotNow())) {
-				// A18: a kernel op cannot be interrupted; undo the finished step. The
-				// relay already answered the cancelled request, so this result is discarded.
-				await sendAgentMessage({ type: 'Undo' }, { rebuild: true });
-				return toolError('Cancelled', 'The call was cancelled; its step was undone.', { tool });
-			}
-			return result;
-		} finally {
-			setAgentActivity(null);
-			if (getToolHint() === AGENT_WORKING_HINT) setToolHint(null);
-		}
-	});
 }
 
 /**
@@ -294,7 +263,8 @@ const ENGINE_COMMANDS = new Set([
 	'parameters_set',
 	'import_step',
 	'undo',
-	'redo'
+	'redo',
+	'sketch_create'
 ]);
 
 /** Off by default: shadowing takes the engine lock and costs a round trip. */
@@ -362,12 +332,11 @@ async function runTool(tool, args, ctx) {
 	const query = known
 		? (QUERIES[tool] ?? DOCUMENT_QUERIES[tool] ?? VIEWPORT_QUERIES[tool] ?? EXPORT_QUERIES[tool])
 		: undefined;
-	const command = known ? COMMANDS[tool] : undefined;
 	const documentCommand = known ? DOCUMENT_COMMANDS[tool] : undefined;
-	// `ENGINE_COMMANDS` counts as an implementation: those twelve have no JS
-	// body any more (C4b), so without it every one of them would be reported
-	// as a tool this page does not have.
-	if (!query && !command && !documentCommand && !ENGINE_COMMANDS.has(tool)) {
+	// `ENGINE_COMMANDS` is where an authoring tool's implementation lives now:
+	// none of them has a JS body (C4b deleted the twelve, C5 `sketch_create`),
+	// so without it every one would be reported as a tool this page lacks.
+	if (!query && !documentCommand && !ENGINE_COMMANDS.has(tool)) {
 		return toolError('ToolUnavailable', `This page has no tool named "${tool}".`, { tool });
 	}
 	// G6: nothing runs while the engine is not ready or has crashed.
@@ -394,8 +363,9 @@ async function runTool(tool, args, ctx) {
 			return query.engine ? await withAgentLock(() => query.run(args, env)) : await query.run(args, env);
 		}
 		if (documentCommand) return await runDocumentCommand(tool, documentCommand, args, ctx);
-		if (ENGINE_COMMANDS.has(tool)) return await runEngineCommand(tool, args, ctx);
-		return await runCommand(tool, /** @type {any} */ (command), args, ctx);
+		// Whatever reaches here is an engine command: the guard above refused
+		// anything that is not a query, a document command, or one of these.
+		return await runEngineCommand(tool, args, ctx);
 	} catch (err) {
 		if (err instanceof ToolFailure) return toolError(err.code, err.detail, err.details);
 		return toolError('Internal', `${tool} failed in the page: ${err?.message ?? String(err)}`, {});

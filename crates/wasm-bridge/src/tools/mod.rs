@@ -22,6 +22,7 @@ use crate::messages::{EngineToUi, UiToEngine};
 
 mod author;
 mod inspect;
+mod sketch;
 mod summary;
 
 /// The tools [`execute_tool`] implements. The page shadows exactly these; the
@@ -45,6 +46,7 @@ pub const MIGRATED: &[&str] = &[
     "import_step",
     "undo",
     "redo",
+    "sketch_create",
 ];
 
 /// Whether this tool can change the document.
@@ -68,6 +70,7 @@ pub fn mutates(name: &str) -> bool {
             | "import_step"
             | "undo"
             | "redo"
+            | "sketch_create"
     )
 }
 
@@ -171,6 +174,7 @@ fn run(
         "import_step" => author::import_step(state, kb, args),
         "undo" => author::undo(state, kb),
         "redo" => author::redo(state, kb),
+        "sketch_create" => sketch::sketch_create(state, kb, args, context),
         other => Err(ToolFailure::new(
             "ToolUnavailable",
             format!("This engine has no tool named \"{other}\"."),

@@ -222,7 +222,7 @@ async function runSequence(page, steps) {
 }
 
 test.describe('Authoring tools run in the engine and still answer as the page did (S3 C4b)', () => {
-	test('the twelve authoring tools are the ones routed to the engine', async ({ page }) => {
+	test('every authoring tool is routed to the engine', async ({ page }) => {
 		await page.goto('/');
 		await page.waitForFunction(() => typeof window.__waffleAgentExecutor?.engineTools === 'function', null, { timeout: 30000 });
 		const routed = await page.evaluate(() => window.__waffleAgentExecutor.engineTools());
@@ -240,6 +240,7 @@ test.describe('Authoring tools run in the engine and still answer as the page di
 				'parameters_set',
 				'redo',
 				'rollback_set',
+				'sketch_create',
 				'undo'
 			].sort()
 		);

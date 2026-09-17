@@ -209,7 +209,7 @@ type RegionInputs = (Vec<SketchEntity>, SolvedPositions);
 /// The solver's output is the authoritative coordinate source: a point's
 /// raw `x`/`y` is pre-solve scratch and is used only when the point has no
 /// solved entry yet. Gears are stored compactly and expanded here.
-fn region_inputs(
+pub(super) fn region_inputs(
     state: &mut EngineState,
     kb: &mut dyn KernelBundle,
     entities: &[SketchEntity],

@@ -62,7 +62,7 @@ pub(crate) enum OnError {
 
 impl OnError {
     /// The caller's `on_error`, which the schema limits to rollback | keep.
-    fn from_args(args: &Value) -> Self {
+    pub(super) fn from_args(args: &Value) -> Self {
         match args.get("on_error").and_then(Value::as_str) {
             Some("keep") => OnError::Keep,
             _ => OnError::Rollback,
@@ -258,9 +258,9 @@ fn model_delta(
 }
 
 /// One model-changing message, sent and accounted for.
-struct Step {
-    delta: Value,
-    feature_id: Option<Uuid>,
+pub(super) struct Step {
+    pub(super) delta: Value,
+    pub(super) feature_id: Option<Uuid>,
 }
 
 /// Send one message, mapping an engine rejection to a typed tool failure.
@@ -268,7 +268,7 @@ struct Step {
 /// Never parses message text: the class comes from the answer's `kind`
 /// (ICR-2). `fallback` is the code for a bridge-level failure, which carries
 /// no engine kind.
-fn send(
+pub(super) fn send(
     state: &mut EngineState,
     kb: &mut dyn KernelBundle,
     msg: UiToEngine,
@@ -314,7 +314,7 @@ fn send(
 }
 
 /// Send one model-changing message and account for it (JS `applyStep`).
-fn apply_step(
+pub(super) fn apply_step(
     state: &mut EngineState,
     kb: &mut dyn KernelBundle,
     msg: UiToEngine,
@@ -446,7 +446,7 @@ fn message_feature_id(msg: &UiToEngine) -> Option<Uuid> {
 
 /// The provenance an agent's step records (ICR-4). `at` is a timestamp the
 /// engine has no clock for, and the page sends none either.
-fn agent_provenance(context: Option<&Value>) -> Option<Provenance> {
+pub(super) fn agent_provenance(context: Option<&Value>) -> Option<Provenance> {
     Some(Provenance {
         origin: ProvenanceOrigin::Agent {
             name: agent_name(context),

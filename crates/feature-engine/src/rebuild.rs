@@ -2311,6 +2311,22 @@ pub fn resolve_face_plane(
     crate::connector::planar_face_plane(resolved.kernel_id, introspect, "Datum plane base face")
 }
 
+/// Resolve a datum plane, named by its UUID, to `(origin, normal)`.
+///
+/// The public face of [`find_datum_plane_data`], for a host that must resolve
+/// a plane an agent named rather than one a rebuild is walking
+/// (`specs/waffle_server_mode.md` §2.3 S3 C5 — the engine's `sketch_create`).
+/// Purely additive: the resolution is the same one every rebuild already uses,
+/// so no existing behaviour moves.
+pub fn resolve_datum_plane(
+    datum_id: Uuid,
+    tree: &FeatureTree,
+    feature_results: &HashMap<Uuid, OpResult>,
+    introspect: &dyn waffle_types::kernel::KernelIntrospect,
+) -> Result<([f64; 3], [f64; 3]), EngineError> {
+    find_datum_plane_data(datum_id, tree, feature_results, introspect)
+}
+
 /// Look up origin and normal for a datum plane by its UUID.
 ///
 /// Checks the three built-in planes first, then searches the feature tree

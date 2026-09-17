@@ -320,18 +320,18 @@ fn an_unknown_tool_is_loud() {
 fn a_tool_not_migrated_yet_is_unavailable_not_silent() {
     // The page still answers these in JS; an engine asked for one must refuse
     // rather than return nothing. This named `feature_add` until C4 moved the
-    // twelve authoring tools; `sketch_create` is the next to go (C5), so it is
-    // what stands for "not here yet" now.
+    // twelve authoring tools and `sketch_create` until C5 moved that; the
+    // export pair (C6) is what stands for "not here yet" now.
     let mut state = EngineState::new();
     let mut kernel = MockKernel::new();
-    let result = execute_tool(&mut state, &mut kernel, "sketch_create", &json!({}), None);
+    let result = execute_tool(&mut state, &mut kernel, "export_step", &json!({}), None);
 
     assert!(result.is_error);
     assert_eq!(
         result.structured_content["error"]["code"],
         "ToolUnavailable"
     );
-    assert!(!wasm_bridge::tools::MIGRATED.contains(&"sketch_create"));
+    assert!(!wasm_bridge::tools::MIGRATED.contains(&"export_step"));
     assert!(wasm_bridge::tools::MIGRATED.contains(&"model_summary"));
 }
 
