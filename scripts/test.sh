@@ -142,6 +142,7 @@ GUI_FAST_SPECS=(
 # ---------------------------------------------------------------------------
 GUI_RELAY_SPECS=(
   agent-link.spec.js
+  agent-assembly.spec.js
   agent-authoring.spec.js
   agent-document-load-gate.spec.js
   agent-documents.spec.js

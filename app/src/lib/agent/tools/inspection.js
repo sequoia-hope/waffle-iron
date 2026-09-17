@@ -41,7 +41,8 @@ export const selectionGetTool = {
 		"The user's current viewport selection: each picked face, edge or vertex as a GeomRef (a face ref is " +
 		'usable as sketch_create plane), its kind and the body it belongs to; a selected datum plane has kind ' +
 		'"DatumPlane" and a plane {origin, normal} to pass as sketch_create plane. Also the feature selected in ' +
-		'the tree. An empty selection is not an error.',
+		'the tree. In an open assembly, instance_path names the instance the user clicked; its picked face or ' +
+		'edge is in the PART\'s space and is what connector_add takes as geom_ref. An empty selection is not an error.',
 	inputSchema: noArguments,
 	outputSchema: {
 		type: 'object',
@@ -59,9 +60,14 @@ export const selectionGetTool = {
 					required: ['geom_ref', 'kind', 'body_id']
 				}
 			},
-			selected_feature_id: { type: ['string', 'null'] }
+			selected_feature_id: { type: ['string', 'null'] },
+			instance_path: {
+				type: ['array', 'null'],
+				items: { type: 'string' },
+				description: 'The clicked instance in an open assembly ([instance, member, …]); null otherwise.'
+			}
 		},
-		required: ['selection', 'selected_feature_id']
+		required: ['selection', 'selected_feature_id', 'instance_path']
 	},
 	annotations: readOnly('Get selection')
 };

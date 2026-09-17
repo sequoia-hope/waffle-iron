@@ -18,6 +18,18 @@ import {
 	undoTool
 } from './authoring.js';
 import {
+	assemblyGetTool,
+	connectorAddTool,
+	connectorDeleteTool,
+	connectorEditTool,
+	instanceAddTool,
+	instanceDeleteTool,
+	instanceEditTool,
+	mateAddTool,
+	mateDeleteTool,
+	mateEditTool
+} from './assembly.js';
+import {
 	documentInfoTool,
 	documentNewTool,
 	documentOpenTool,
@@ -74,7 +86,17 @@ export const TOOLS = [
 	redoTool,
 	importStepTool,
 	exportStepTool,
-	exportStlTool
+	exportStlTool,
+	assemblyGetTool,
+	instanceAddTool,
+	instanceEditTool,
+	instanceDeleteTool,
+	connectorAddTool,
+	connectorEditTool,
+	connectorDeleteTool,
+	mateAddTool,
+	mateEditTool,
+	mateDeleteTool
 ];
 
 export const TOOL_NAMES = new Set(TOOLS.map((t) => t.name));

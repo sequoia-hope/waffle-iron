@@ -213,6 +213,40 @@ agent renames with `feature_rename`. ICR-5 (§9) would add the field.
 | `export_step` | query (no model change; engine lock) | `deliver: "agent" \| "download" ("agent")` | `{deliver, file_name, mime_type, bytes, warnings[]}`; `agent` adds an embedded text resource `model/step` (`waffle://export/<file>`); `download`: the browser's normal download (`triggerStepDownload`) |
 | `export_stl` | query | `body_id?`, `deliver ("agent")` | as above, `model/stl` as a base64 blob resource (`ExportBodyStl` for one body, `ExportStl` merged) |
 
+**Assemblies** (2026-09-17). All run in the page over the store flows the
+Assembly panel uses (`addInstance`, `addConnector`, `addMate` and their
+edit/remove partners → one `EditAssembly` per call, which re-solves the open
+tab). Every one needs an **Assembly tab active** (the inverse of G7:
+`TabKindNotSupported{kind}` on a Part tab) and, for the commands, G3–G5. They
+are document commands (§2.7): no whole-call lock, and NOT engine undo steps
+— `undo`/`redo` act on a Part's feature tree; an assembly edit is reversed
+with the matching delete/edit tool. Each returns the **assembly state**:
+`{tab_id, name, instances[{id, name, source{tab_id, source_id}, part_name,
+transform, fixed, suppressed, placement}], connectors[{id, name,
+instance_path, part_connector, geom_ref, frame, anchor, flip_z, rotation_deg,
+offset_m, world_frame{kind, origin, x_axis, y_axis, z_axis}}], mates[{id,
+name, kind, connectors, suppressed}], part_connectors[], available_parts[],
+errors[], warnings[]}` — placements and world frames from
+`ModelUpdated.assembly` after the edit.
+
+| Tool | Kind | Inputs (defaults) | Result |
+|---|---|---|---|
+| `assembly_get` | query (store state) | — | assembly state |
+| `instance_add` | command | `tab_id`, `source_id?`, `name?`, `transform? {translation_m, rotation_quat \| rotation_euler_deg}`, `fixed (false)` | `{instance_id}` + state. A Part tab, another Assembly tab (sub-assembly) or a linked source's tab (`available_parts`); the open assembly itself is `TabNotFound` |
+| `instance_edit` | command | `instance_id`, `name?`, `transform?` (given fields only), `fixed?`, `suppressed?` | state |
+| `instance_delete` | command | `instance_id` | state (its connectors and their mates go too) |
+| `connector_add` | command | `instance_path`, one of `part_connector` \| `geom_ref` \| `frame`, `name?` | `{connector_id}` + state. `geom_ref` is judged by `ProbeConnectorRef` first: `ConnectorRefused{reason}` when no frame derives. `part_connector` must be among the evaluated `part_connectors` of that instance, else `ConnectorNotFound` |
+| `connector_edit` | command | `connector_id`, `name?`, `anchor?`, `flip_z?`, `rotation_deg?`, `offset_m?` | state (`updateConnector`; `offset_m` is stored as given, no mm round trip) |
+| `connector_delete` | command | `connector_id` | state (mates using it go too) |
+| `mate_add` | command | `a`, `b`, `kind (Fastened)`, `flip (true)`, `rotation_deg (0)`, `name?` | `{mate_id}` + state; `a === b` is `InvalidArguments` |
+| `mate_edit` | command | `mate_id`, `name?`, `kind?`, `flip?`, `rotation_deg?`, `suppressed?` | state |
+| `mate_delete` | command | `mate_id` | state |
+
+`selection_get` gains `instance_path` (the clicked instance in an open
+assembly, else `null`): the picked face or edge is in the part's space and is
+what `connector_add` takes as `geom_ref`. `tab_switch` accepts Assembly tabs
+(the switch evaluates the tab, as the tab bar's does).
+
 ### 2.6 Measurement method
 
 `body_measure.method` is `"exact"` (B-Rep volume/area through ICR-1) or
@@ -291,7 +325,7 @@ exact.
 | G4 | paused | `AgentPaused` |
 | G5 | document linked read-only (`isDocumentReadOnly()`) | `DocumentReadOnly` (fork is a user decision) |
 | G6 | engine not ready / crashed (`needsRestart`) | `EngineNotReady` / `EngineCrashed` |
-| G7 | active tab is not a Part (Phase 1) | `TabKindNotSupported{kind}` |
+| G7 | active tab is not a Part (feature tools); active tab is not an Assembly (assembly tools, §2.5) | `TabKindNotSupported{kind}` |
 | G8 | user presses a modeling shortcut during an agent call | ignored with a status-bar hint "Agent is working"; nothing queued |
 
 Queries run in G1–G8 except G6. Those that read store state do not take the
@@ -480,7 +514,11 @@ Tool results with `isError: true`:
 | `DocumentNotFound` | S4 |
 | `ProviderNotFound` | `storage_list` / `document_open` naming a storage provider this tab has not connected |
 | `StorageFailed` | a provider's list/get failed or the engine did not load the record (`provider`, `reason` verbatim) |
-| `TabNotFound` | `tab_switch`, `tab_move` or `tab_rename` naming an id the document does not have |
+| `TabNotFound` | `tab_switch`, `tab_move` or `tab_rename` naming an id the document does not have; `instance_add` naming a tab that is not a placeable part (or the open assembly itself) |
+| `InstanceNotFound` / `ConnectorNotFound` / `MateNotFound` | an assembly tool naming an id the open assembly does not have (`ConnectorNotFound` also for a `part_connector` the instance's part did not evaluate) |
+| `ConnectorRefused` | `connector_add` with a `geom_ref` the engine cannot derive a frame from (`reason` verbatim from `ProbeConnectorRef`) |
+| `AssemblyEditFailed` | the engine refused the `EditAssembly` (`reason` verbatim) |
+| `InvalidArguments` | an argument combination the schema cannot express: both `rotation_quat` and `rotation_euler_deg`, a zero quaternion, several of `part_connector`/`geom_ref`/`frame`, `mate_add` with `a === b` |
 | `Internal` | the executor detects a broken invariant (rollback not byte-exact; `ModelDelta` inconsistent). The agent session is then **paused** automatically, and the bar tells the user why. |
 
 ### 6.2 Structured-error gap
@@ -603,7 +641,7 @@ always labelled, and never asserted as exact by any oracle.
 |---|---|---|
 | **0 — Spike + ICRs** | Minimal relay + `/agent` route + one tool (`model_summary`); run O23 and record the matrix here; land ICR-1…ICR-4 with their own tests | matrix recorded; a go/no-go note on the default connection path; ICRs merged |
 | **1 — Live authoring** | Pairing, consent, agent bar (Pause/Disconnect), engine lock + busy gates, executor with rollback and provenance, tools of §2.5 except `viewport_capture` and export; agent badge in the feature tree | O1–O20 green (O4 `NotSupported` row after ICR-2); `sketch-drawing-regression.spec.js` still green (the lock touches sketch paths) |
-| **2 — Collaboration** | `viewport_capture`, `export_*`, `import_step` (STEP text from the agent → `importStepFromText`, `Import` provenance), Assembly tabs read-only (`OpenAssembly` status), parameters as MCP resources with subscriptions | O21–O22 green |
+| **2 — Collaboration** | `viewport_capture`, `export_*`, `import_step` (STEP text from the agent → `importStepFromText`, `Import` provenance), assembly authoring (`assembly_get`, `instance_*`, `connector_*`, `mate_*` over `EditAssembly` — landed 2026-09-17, `agent-assembly.spec.js`), parameters as MCP resources with subscriptions | O21–O22 green |
 | **3 — Headless and remote** | `--headless-app`: the relay launches the app in a headless browser (Playwright for Python) for CI/batch agents, using the same tools and the same page code; TLS bind hardening for the cross-machine case; WebMCP exposure of the same registry if browsers ship it | its own oracle addendum |
 
 ---

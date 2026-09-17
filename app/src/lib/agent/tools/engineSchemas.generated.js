@@ -3576,5 +3576,40 @@ export const ENGINE_DEFS = {
       }
     },
     "type": "object"
+  },
+  "Transform": {
+    "description": "A rigid transform `p' = R p + t` with `R` as a unit quaternion\n`[x, y, z, w]` (the JS/three.js order). Lengths in meters.",
+    "properties": {
+      "rotation_quat": {
+        "default": [
+          0,
+          0,
+          0,
+          1
+        ],
+        "items": {
+          "format": "double",
+          "type": "number"
+        },
+        "maxItems": 4,
+        "minItems": 4,
+        "type": "array"
+      },
+      "translation_m": {
+        "default": [
+          0,
+          0,
+          0
+        ],
+        "items": {
+          "format": "double",
+          "type": "number"
+        },
+        "maxItems": 3,
+        "minItems": 3,
+        "type": "array"
+      }
+    },
+    "type": "object"
   }
 };

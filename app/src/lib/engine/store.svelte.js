@@ -6482,6 +6482,10 @@ async function editAssembly(fn) {
 			await sendRebuild({ type: 'EditAssembly', tab_id: tab.id, assembly });
 		} catch (err) {
 			log('error', `EditAssembly failed: ${err?.message || err}`);
+			// During an agent call the failure is the agent's to report (the
+			// executor turns it into a typed result); a swallowed null would
+			// read as "nothing happened" over the link.
+			if (agentActivity) throw err;
 			showToast('error', `The assembly edit failed: ${err?.message || err}`);
 			return null;
 		}
@@ -6546,6 +6550,15 @@ export async function removeInstance(instanceId) {
  * evaluation), or an explicit `frame`.
  * @returns {Promise<string|null>} the connector id
  */
+/** Thrown to an agent call when the engine cannot derive a connector frame from a pick. */
+export class ConnectorRefused extends Error {
+	constructor(reason) {
+		super(reason);
+		this.name = 'ConnectorRefused';
+		this.reason = reason;
+	}
+}
+
 export async function addConnector({ instanceId = null, instancePath = null, geomRef = null, partConnector = null, frame = null, name }) {
 	const path = instancePath?.length ? [...instancePath] : [instanceId];
 	// Judge the pick BEFORE minting a connector: a reference the engine cannot
@@ -6558,6 +6571,8 @@ export async function addConnector({ instanceId = null, instancePath = null, geo
 			const reason = probe.reason || 'this geometry cannot define a connector frame';
 			lastConnectorRefusal = reason;
 			log('warn', `Connector refused: ${reason}`);
+			// Over the agent link the refusal is a typed result, not a toast.
+			if (agentActivity) throw new ConnectorRefused(reason);
 			showToast('error', `Cannot put a connector here — ${reason}`);
 			return null;
 		}
@@ -6619,9 +6634,13 @@ export async function updateConnector(connectorId, patch) {
 			if (r) c.rotation_deg = r;
 			else delete c.rotation_deg;
 		}
-		if ('offsetMm' in patch) {
-			// Stored in meters, like every length in the document.
-			const o = [0, 1, 2].map(k => (Number(patch.offsetMm?.[k]) || 0) / 1000);
+		if ('offsetMm' in patch || 'offsetM' in patch) {
+			// Stored in meters, like every length in the document. `offsetM`
+			// (the agent link, which speaks meters) is taken as is — no unit
+			// round trip.
+			const o = 'offsetM' in patch
+				? [0, 1, 2].map(k => Number(patch.offsetM?.[k]) || 0)
+				: [0, 1, 2].map(k => (Number(patch.offsetMm?.[k]) || 0) / 1000);
 			if (o.some(v => v !== 0)) c.offset_m = o;
 			else delete c.offset_m;
 		}

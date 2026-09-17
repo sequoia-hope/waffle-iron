@@ -10,11 +10,11 @@ name: Relay tests
 #              which until 2026-09-17 ran in no CI: a tool edit that forgot
 #              `node app/scripts/gen-agent-manifest.mjs` was only caught by
 #              someone running the tier by hand.
-#   gui-relay  `scripts/test.sh gui-relay` — the nine agent-*.spec.js
+#   gui-relay  `scripts/test.sh gui-relay` — the ten agent-*.spec.js
 #              Playwright files that spawn the REAL relay (`uv run
 #              waffle-mcp-relay`) and drive it as an MCP client over stdio
 #              against the page: pairing, authoring, parity, reconnect, tabs
-#              and viewport, export/import. gui-tests.yml deliberately leaves
+#              and viewport, export/import, assemblies. gui-tests.yml deliberately leaves
 #              these out of gui-fast because they need uv.
 #
 # Both jobs run against the COMMITTED WASM bundle in app/static/pkg/ — no Rust

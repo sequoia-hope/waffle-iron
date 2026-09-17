@@ -24,7 +24,17 @@ const toolsIndex = resolve(here, '../src/lib/agent/tools/index.js');
 const target = resolve(here, '../../relay/src/waffle_mcp_relay/agent-tools.manifest.json');
 
 /** Engine types tool inputs may refer to (spec §2.4). */
-const ENGINE_ROOTS = ['Operation', 'SketchEntity', 'SketchConstraint', 'GeomRef', 'TopoQuery', 'DesignParameter'];
+const ENGINE_ROOTS = [
+	'Operation',
+	'SketchEntity',
+	'SketchConstraint',
+	'GeomRef',
+	'TopoQuery',
+	'DesignParameter',
+	'Transform',
+	'Frame',
+	'AxialAnchor'
+];
 
 function engineSchemasText() {
 	const defs = JSON.parse(readFileSync(golden, 'utf8')).$defs;

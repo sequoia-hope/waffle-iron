@@ -116,7 +116,7 @@ test.describe('Agent link documents (Phase 1)', () => {
 		expectNoAnyCrash(crashes);
 	});
 
-	test('tab_switch and G7: Part tabs switch; an Assembly tab is refused', async ({ page }) => {
+	test('tab_switch and G7: tabs switch; the feature tools refuse an Assembly tab', async ({ page }) => {
 		const crashes = collectCrashErrors(page);
 		await pairAgent(page, relay, AGENT);
 		ok(await relay.callTool('document_new', { name: 'Tabs' }));
@@ -133,11 +133,11 @@ test.describe('Agent link documents (Phase 1)', () => {
 		ok(await relay.callTool('tab_switch', { tab_id: first }));
 		expect(ok(await relay.callTool('model_summary')).features).toHaveLength(1);
 
-		expect(refused(await relay.callTool('tab_switch', { tab_id: assembly }), 'TabKindNotSupported').details.kind).toBe('Assembly');
 		refused(await relay.callTool('tab_switch', { tab_id: 'no-such-tab' }), 'TabNotFound');
 
-		// G7: the user has an Assembly tab active.
-		await page.evaluate((id) => window.__waffle.switchTab(id), assembly);
+		// An Assembly tab switches too (the assembly tools work there,
+		// agent-assembly.spec.js); G7 still keeps the feature tools off it.
+		expect(ok(await relay.callTool('tab_switch', { tab_id: assembly })).active_tab).toBe(assembly);
 		await page.evaluate(() => window.__waffle.recordEngineSends(true));
 		const g7 = refused(await relay.callTool('sketch_create', { plane: XY, entities: RECT }), 'TabKindNotSupported');
 		expect(g7.details.kind).toBe('Assembly');

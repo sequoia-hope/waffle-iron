@@ -15,6 +15,7 @@ import {
 	geomRefEquals,
 	getMeshes,
 	getSelectedFeatureId,
+	getSelectedInstancePath,
 	getSelectedRefs
 } from '$lib/engine/store.svelte.js';
 import { isDatumPlaneRef } from '$lib/engine/planes.js';
@@ -54,7 +55,14 @@ export const QUERIES = {
 				if (plane) row.plane = { origin: [...plane.origin], normal: [...plane.normal] };
 				return row;
 			});
-			return toolOk({ selection, selected_feature_id: getSelectedFeatureId() ?? null });
+			// In an open assembly the click also names the instance the pick is
+			// on; with it, a picked face or edge is what connector_add takes.
+			const path = getSelectedInstancePath();
+			return toolOk({
+				selection,
+				selected_feature_id: getSelectedFeatureId() ?? null,
+				instance_path: path?.length ? [...path] : null
+			});
 		}
 	}
 };

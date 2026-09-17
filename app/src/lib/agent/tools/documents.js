@@ -154,7 +154,10 @@ export const documentSaveTool = {
 
 export const tabSwitchTool = {
 	name: 'tab_switch',
-	description: 'Make another Part tab of the document active (Assembly tabs are not supported yet).',
+	description:
+		'Make another tab of the document active. On a Part tab the feature tools work (sketch_create, feature_add, …); ' +
+		'on an Assembly tab the assembly tools do (assembly_get, instance_add, connector_add, mate_add, …). Switching ' +
+		'to an Assembly tab evaluates it (parts built, mates solved).',
 	inputSchema: {
 		type: 'object',
 		properties: { tab_id: { type: 'string', description: 'Tab id from document_info.tabs.' } },
@@ -171,8 +174,8 @@ export const tabAddTool = {
 	name: 'tab_add',
 	description:
 		'Add a tab to the open document, as the tab bar\'s + buttons do: an empty Part (default) or Assembly, named ' +
-		'"Part N" / "Assembly N" unless name is given. activate (default true) makes it the active tab; agent edits ' +
-		'work on Part tabs. Returns the new tab_id with the document info.',
+		'"Part N" / "Assembly N" unless name is given. activate (default true) makes it the active tab: the feature ' +
+		'tools work on a Part tab, the assembly tools on an Assembly tab. Returns the new tab_id with the document info.',
 	inputSchema: {
 		type: 'object',
 		properties: {

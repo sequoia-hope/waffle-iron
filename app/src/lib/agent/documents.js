@@ -170,8 +170,10 @@ export const DOCUMENT_COMMANDS = {
 	async tab_switch({ tab_id }) {
 		const tab = requireTab(tab_id);
 		const kind = tab.kind?.type ?? 'Part';
-		if (kind !== 'Part') {
-			throw fail('TabKindNotSupported', `Tab ${tab.name} is a ${kind} tab; agents work on Part tabs.`, { kind });
+		// Part tabs take the feature tools, Assembly tabs the assembly tools;
+		// anything else (a kind from a newer build) has no tool to work it.
+		if (kind !== 'Part' && kind !== 'Assembly') {
+			throw fail('TabKindNotSupported', `Tab ${tab.name} is a ${kind} tab; agents work on Part and Assembly tabs.`, { kind });
 		}
 		await switchTab(tab_id);
 		return toolOk(documentInfo());

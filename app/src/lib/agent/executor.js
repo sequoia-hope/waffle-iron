@@ -24,6 +24,7 @@ import {
 	withEngineLock
 } from '$lib/engine/store.svelte.js';
 import { showToast } from '$lib/ui/toast.svelte.js';
+import { ASSEMBLY_COMMANDS, ASSEMBLY_QUERIES } from './assembly.js';
 import { snapshotNow } from './commands.js';
 import { newlyErroring, sameModel } from './delta.js';
 import { DOCUMENT_COMMANDS, DOCUMENT_QUERIES } from './documents.js';
@@ -193,11 +194,14 @@ function renderStepOutcome(tool, result, before, ctx) {
 }
 
 /**
- * Document-level tools (open, new, save, tab switch) run the store's own
- * multi-message flows, which send through the gated user path; they cannot
- * hold the agent lock for the whole call, because each of their sends waits for
- * it. The agent activity still refuses the modeling UI meanwhile (G8), and G3
- * and G4 apply.
+ * Document-level tools (open, new, save, tab switch) and the assembly tools
+ * run the store's own multi-message flows, which send through the gated user
+ * path; they cannot hold the agent lock for the whole call, because each of
+ * their sends waits for it. The agent activity still refuses the modeling UI
+ * meanwhile (G8), and G3 and G4 apply. (An assembly edit is one
+ * `EditAssembly` send, which the store's `editAssembly` makes through the
+ * gated path too; its own gate — an Assembly tab must be active — is the
+ * inverse of G7 and lives in `assembly.js`.)
  * @param {string} tool
  * @param {(args: any, ctx: CallContext) => Promise<object>} run
  * @param {Record<string, unknown>} args
@@ -311,8 +315,10 @@ async function runEngineQuery(tool, args) {
  */
 export async function executeTool(tool, args, ctx) {
 	const known = TOOL_NAMES.has(tool);
-	const query = known ? (QUERIES[tool] ?? DOCUMENT_QUERIES[tool] ?? VIEWPORT_QUERIES[tool]) : undefined;
-	const documentCommand = known ? DOCUMENT_COMMANDS[tool] : undefined;
+	const query = known
+		? (QUERIES[tool] ?? DOCUMENT_QUERIES[tool] ?? VIEWPORT_QUERIES[tool] ?? ASSEMBLY_QUERIES[tool])
+		: undefined;
+	const documentCommand = known ? (DOCUMENT_COMMANDS[tool] ?? ASSEMBLY_COMMANDS[tool]) : undefined;
 	// The engine sets are where those tools' implementations live now: none
 	// of them has a JS body, so without them every one would be reported as a
 	// tool this page lacks.

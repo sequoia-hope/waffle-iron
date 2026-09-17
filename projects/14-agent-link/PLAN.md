@@ -335,7 +335,31 @@ redo-stack entry left by a rollback.
 - [x] **`import_step`** (2026-09-14): a command sending `ImportStep` through
   `applyStep` (one undo step, rollback, engine-recorded `Import` provenance);
   no placement dialog. O21 round trip in `agent-export-import.spec.js`.
-- [ ] Assembly tabs read-only, parameters as MCP resources.
+- [x] **Assembly tools** (2026-09-17): `assembly_get`, `instance_add` /
+  `instance_edit` / `instance_delete`, `connector_add` / `connector_edit` /
+  `connector_delete`, `mate_add` / `mate_edit` / `mate_delete`
+  (`$lib/agent/assembly.js`, definitions in `tools/assembly.js`; spec §2.5
+  "Assemblies"). They call the Assembly panel's own store flows, so one call
+  is one `EditAssembly` and the returned state is the store's after the
+  engine re-solved the tab. `tab_switch` accepts Assembly tabs; the assembly
+  tools have the inverse of G7. `selection_get` reports `instance_path`.
+  Store changes: `editAssembly` and `addConnector`'s probe refusal THROW
+  during an agent call (a swallowed null read as "nothing happened" over the
+  link); `updateConnector` takes `offsetM` (meters, as given). Two engine
+  schema roots were added for the inputs (`Transform`, `Frame`,
+  `AxialAnchor`); the output schemas spell Transform/Frame out instead, since
+  every assembly tool returns the state (the manifest still grew ~80 KB
+  compact — the §"~160 KB tools/list" item stands). Not an undo step: the
+  engine's undo is per Part tree; documented in every tool description.
+  Tests: `agent-assembly.spec.js` (2): a block Fastened onto a plate lands
+  its bottom-face centre on the plate's top-face centre (oracle from
+  `body_measure` bboxes — the sketch axes of an origin+normal plane are not
+  world x/y), connector offset lifts it, mate suppress/edit/kind, save +
+  reopen keeps ids, cascade deletes; a connector from a part's
+  `MateConnector` feature and one from an explicit frame, Fastened with a
+  90° turn (x axes orthogonal), re-kinded Revolute. Added to
+  `GUI_RELAY_SPECS`.
+- [ ] Parameters as MCP resources.
 
 ### Findings from the planetary-gearbox exercise (2026-09-17)
 
@@ -345,13 +369,8 @@ headless page — five Part tabs, 93 s, every call green; script, call log,
 captures, `.waffle.json` and STEP in `docs/notes/planetary_gearbox/`. What
 the exercise found, in priority order:
 
-- [ ] **No agent tool authors an assembly.** `tab_add kind:"Assembly"`
-  exists, but `tab_switch` refuses Assembly tabs (G7) and nothing exposes
-  `EditAssembly` (instances, mates) although the engine has owned assembly
-  trees since S2 C3b and parts can carry `MateConnector` features. An
-  "assembly" today is a Part tab with every body placed by hand (the
-  gearbox's "Stage" tab). A thin `assembly_edit` / `instance_add` /
-  `mate_add` over `EditAssembly` would close it.
+- [x] **No agent tool authors an assembly** — CLOSED 2026-09-17 by the
+  assembly tools above (`instance_add`, `connector_add`, `mate_add`, …).
 - [ ] **feature-engine defect, silent:** an explicit `Strict` target naming a
   CONSUMED output duplicates the consumed body instead of failing
   (`projects/06-feature-engine/PLAN.md` Blockers). Every chained boolean an
