@@ -1,6 +1,7 @@
 /**
  * Authoring agent tools (specs/waffle_mcp_server.md §2.5 Authoring). Definitions
- * only; implementations are in `../commands.js`. Every command is one undo step
+ * only; implementations are the engine's (`crates/wasm-bridge/src/tools/{author,sketch}.rs`,
+ * S3), routed by `../executor.js`. Every command is one undo step
  * for the user (I5) unless its description says otherwise.
  */
 import { UNITS_NOTE, commandOutputSchema, onErrorSchema, uuid } from './common.js';

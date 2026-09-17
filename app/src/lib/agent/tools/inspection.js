@@ -1,6 +1,8 @@
 /**
  * Read-only agent tools (specs/waffle_mcp_server.md §2.5 Inspection). Definitions
- * only; implementations are in `../queries.js`.
+ * only. `selection_get` is implemented in `../queries.js` (viewport state stays
+ * with the host); the rest run in the engine
+ * (`crates/wasm-bridge/src/tools/inspect.rs`, S3), routed by `../executor.js`.
  */
 import { noArguments, uuid } from './common.js';
 import { defsFor, engineRef } from './engineSchemas.js';

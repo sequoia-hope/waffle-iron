@@ -41,6 +41,13 @@ cargo clippy --all-targets -p wasm-bridge -- -D warnings
   document metadata, per-tab undo, the revision
 - `src/render_view.rs` — renderable bodies, body metadata/naming, face and edge
   entries, ghost baking
+- `src/tools/` — the agent tool semantics (`specs/waffle_server_mode.md` S3):
+  `mod.rs` (`execute_tool`, `MIGRATED`, `ToolResult`, the shared `require_*`
+  / `engine_call` helpers), `summary.rs`, `inspect.rs`, `author.rs`
+  (`apply_step`), `sketch.rs`. Two rules: a mutating tool's `ToolResult` MUST
+  carry the model update (nothing else refreshes the host), and it must
+  tessellate BEFORE its after-snapshot (or `bodies_added` is always empty).
+  The page implements none of these; `executor.js` routes them here
 - `src/assembly_view.rs`, `src/face_refs.rs`, `src/stl_export.rs`,
   `src/tessellation_runner.rs`, `src/engine_state.rs`
 

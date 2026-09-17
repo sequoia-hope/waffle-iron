@@ -1,6 +1,7 @@
 /**
  * `model_summary` — the read-only overview of the open Part (specs/waffle_mcp_server.md §2.5).
- * Definition only (plain data); the implementation lives in `../summary.js`.
+ * Definition only (plain data); the implementation is the engine's
+ * (`crates/wasm-bridge/src/tools/summary.rs`, S3), routed by `../executor.js`.
  */
 
 const featureSchema = {

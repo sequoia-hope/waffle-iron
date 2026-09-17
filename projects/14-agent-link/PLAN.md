@@ -139,7 +139,12 @@ Exit (spec §8): O1–O20 green (O4 `NotSupported` row after ICR-2);
   verbatim to `$lib/sketch/finishProfiles.js` (byte-identical on six
   sketches).
 - [x] **Executor + 19 page tools** (spec §2.5 minus documents/storage,
-  viewport_capture, export): `model_summary`, `feature_get`,
+  viewport_capture, export). **Superseded by server-mode S3 (2026-09-17,
+  `specs/waffle_server_mode.md` §2.3): every tool below except
+  `selection_get` now runs in the engine (`crates/wasm-bridge/src/tools/`)
+  and `executor.js` only routes; `commands.js` is `snapshotNow`,
+  `queries.js` is `selection_get` + `requireBody`/`ask`, `summary.js` is
+  gone.** As landed then: `model_summary`, `feature_get`,
   `selection_get`, `body_measure`, `face_list`, `sketch_regions`,
   `expression_evaluate`, `sketch_create`, `feature_add`, `feature_edit`,
   `feature_delete`, `feature_suppress`, `feature_reorder`,

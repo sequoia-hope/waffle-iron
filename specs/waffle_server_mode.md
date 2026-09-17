@@ -1,12 +1,16 @@
 # Waffle Iron Server Mode — Headless Kernel Host, Dual-Transport MCP, Viewer Sync
 
-Status: **draft rev 0 (investigation + spec, no implementation)**, 2026-09-15.
+Status: **rev 1 — P-A (S0, S1, S2) complete 2026-09-16; P-B (S3) C1–C5b
+complete 2026-09-17, C6 open; S4 not started.** First written 2026-09-15 as
+rev 0 (investigation + spec, no implementation); §2.3 carries the landed
+state, and the audit sections (§0, §1, §3.1) are kept as the survey that
+motivated it — read them as "before S0", not as current.
 Amends `specs/waffle_mcp_server.md` (rev 2). That spec's §7 rejected a
 headless server for two reasons; §0.3 below answers both, and this spec
 does not proceed if the answers are rejected.
 
-Scope: Phase 1 is an audit of the code as it stands (commit `540e3620`).
-Phases 2–4 are specs grounded in it. Nothing here is built.
+Scope: Phase 1 is an audit of the code as it stood at commit `540e3620`.
+Phases 2–4 are specs grounded in it; §2.3 records what has since been built.
 
 ---
 
@@ -97,9 +101,11 @@ every inactive tab's tree, the assembly trees and the document's metadata are
 the Rust `DocumentSession`'s now, and the JS store's `$state` is a mirror fed by
 `ModelUpdated.document` (C4, invariant A2.1). The rows below are kept as the
 survey that motivated the work — read them as "before S2", not as current.
-The rows still marked JS *and* not struck through (sketch session, agent tool
-semantics, face planes, undo persistence) are still accurate: tool semantics are
-S3's job, and the interactive sketch session is explicitly not moving (§2.3).
+**S3 is complete too (C5b, 2026-09-17):** the agent tool semantics row moved
+to Rust as well, and the face-planes row split (`sketch_create`'s plane
+resolution is Rust, `selection_get`'s `bodyForRef` stays JS). The rows still
+marked JS and not struck through (sketch session, undo persistence) are
+accurate: the interactive sketch session is explicitly not moving (§2.3).
 
 | State | Authority | Evidence |
 |---|---|---|
@@ -108,8 +114,8 @@ S3's job, and the interactive sketch session is explicitly not moving (§2.3).
 | ~~Assembly trees (instances, connectors, mates)~~ → **Rust** (C3b) | ~~JS~~ | `OpenAssembly{tab_id}` only; `EditAssembly{tab_id, assembly}` carries the panel's edits in; the open tab's tree comes back as `DocumentInfo.assembly_tree` |
 | ~~Document name, display unit~~ → **Rust** (C3c/C4); id + created stay the HOST's | **split** | `SetDocumentMeta{name?, display_unit?, id?, created?}`; the storage record is keyed by the identity (v4 P2-5), so the host mints and latches it and pushes it down |
 | In-progress sketch session and sketch undo | **JS** | store 153–224, 7638–7772; profiles extracted in JS (`sketch/profiles.js`, a port of `sketch-solver/src/profiles.rs`) |
-| Agent tool semantics (gates, rollback, delta, results) | **JS** | `executor.js:180 executeTool`, `commands.js:101 applyStep`, `delta.js` |
-| Face planes, `bodyForRef` hit mapping used by agent queries | **JS, derived from JS mesh copies** | store 5159; `queries.js:43–49` |
+| ~~Agent tool semantics (gates, rollback, delta, results)~~ → **Rust** (S3 C1–C5b); the page keeps only §3.3's host concerns | ~~JS~~ | `crates/wasm-bridge/src/tools/` `execute_tool`; `executor.js` routes `ENGINE_QUERIES` / `ENGINE_COMMANDS` and holds the lock, the busy/paused gates and the cancel snapshot |
+| Face planes for `sketch_create` → **Rust** (C5); `bodyForRef` hit mapping for `selection_get` | **split** | `tools/sketch.rs resolve_plane` from raw JSON; `queries.js bodyForRef` over the JS mesh copies (viewport state, §3.3) |
 | Undo history persistence | **nowhere** | not in `file-format`, not in drafts; lost on tab reload today |
 
 ### 1.4 Hard browser dependencies inside kernel/document logic
@@ -185,9 +191,20 @@ proven by the existing GUI suites plus the named oracle.
 |---|---|---|
 | **S0** — landed 2026-09-15 | Move the ≈ 600 target-independent lines of `wasm_api.rs` (renderable-body collection, naming, face/edge entries) into a shared `wasm-bridge/src/render_view.rs`, and the message pipeline (parse → dispatch → tessellate → preview → serialize) into `wasm-bridge/src/process.rs` with the clock and logger injected; `wasm_api` becomes a pure binding shim | `wasm-bridge/tests/render_view_parity.{rs,mjs}` over 7 scenarios (5 corpus loads, an assembly, an in-context edit with ghosts). **Bundle, byte for byte:** the rebuilt bundle's census of every worker accessor equals the pre-move bundle's (`golden.json`). **Native vs bundle, structure:** same response types, body metadata and all counts; bytes differ across targets by design (§2.7 H3) |
 | **S1** — landed 2026-09-16 | Request ids in the bridge (`{id, msg}` envelope; worker echoes `id`), replacing FIFO pairing. Needed by any multiplexed transport | `sketch-drawing-regression.spec.js` + agent-link specs green |
-| **S2** — landed 2026-09-16 (C1–C4) | **Document session in Rust.** `EngineState` gains the tab list, inactive tab trees, assembly trees, document metadata, a per-tab undo stack, and a monotonic `revision`. New messages `AddTab`/`CloseTab`/`RenameTab`/`MoveTab`/`EditAssembly`/`SetDocumentMeta`; `SwitchTab` takes an id, not a tree. The JS store keeps its `$state` fields as **mirrors** refreshed from `ModelUpdated` (A2.1 compliant) | `format_tests` round trip; new `session_tests.rs`; GUI tabs/assembly specs unchanged |
-| **S3** — C1–C5 landed 2026-09-17 | **Agent tool semantics in Rust**: `wasm-bridge/src/tools/` implements `execute_tool(session, name, args, ctx) -> ToolResult` for every non-render tool (gates that are document state, rollback, `modelDelta`, results shaping; `sketch_create` uses `sketch-solver` profiles, which JS already ports). New message `UiToEngine::Tool{name, arguments, context}`. Host-only concerns stay per host (§3.3). Migrated tool by tool, **shadowed**: the page runs both JS and Rust and asserts equal `structuredContent` in dev builds until the JS version is deleted | per-tool differential oracle over O1–O22 scripts |
+| **S2** — landed 2026-09-16 (C1–C4) | **Document session in Rust.** `EngineState` gains the tab list, inactive tab trees, assembly trees, document metadata, a per-tab undo stack, and a monotonic `revision`. New messages `AddTab`/`CloseTab`/`RenameTab`/`MoveTab`/`EditAssembly`/`SetDocumentMeta`; `SwitchTab` takes an id, not a tree. The JS store keeps its `$state` fields as **mirrors** refreshed from `ModelUpdated` (A2.1 compliant) | `format_tests` round trip; new `document_session.rs`; GUI tabs/assembly specs unchanged |
+| **S3** — C1–C4b landed 2026-09-16, C5–C5b 2026-09-17; **C6 open** | **Agent tool semantics in Rust**: `wasm-bridge/src/tools/` implements `execute_tool(session, name, args, ctx) -> ToolResult` for every non-render tool but the export pair (gates that are document state, rollback, `modelDelta`, results shaping; `sketch_create` uses `sketch-solver` profiles). New message `UiToEngine::Tool{name, arguments, context}`. Host-only concerns stay per host (§3.3). Migrated tool by tool: the read-only tools **shadowed** (the page ran both and asserted equal `structuredContent`) until green, then their JS bodies deleted (C5b); the authoring tools against goldens recorded from the JS arm (C4b) | read-only: `agent-rust-tools.spec.js` (one `Tool` send each, none of the former JS sends); authoring: the C4b goldens |
 | **S4** | Host binary `waffle-host` (new crate `crates/waffle-host`, native only) wrapping the session | §2.7 oracles |
+
+**Status and next step (2026-09-17).** S0–S2 and S3 C1–C5b are landed. Next,
+in order: **S3 C6** (the export pair — `export_step`/`export_stl` semantics in
+the engine, the `deliver:"download"` half staying in the page), then **S4**.
+Open debt found by the 2026-09-17 consistency review and not yet paid: the
+agent-rust-* specs are in no CI job and not in gui-fast; the relay manifest
+drift guard (`relay/tests/test_manifest.py`) runs in no CI job; the routing
+table exists in Rust (`MIGRATED`) and in the page (two sets) with only the
+specs tying them; `finishProfiles.js` (interactive) and
+`build_finish_profiles` (agent) have no cross oracle; the store still
+pre-writes `activeTabId` before `SwitchTab`/`OpenPartInContext`.
 
 **S3 checkpoints.** **C1** (landed 2026-09-16) is the mechanism plus the first
 tool: `UiToEngine::Tool` / `EngineToUi::ToolResult`, `crates/wasm-bridge/src/tools/`
@@ -250,12 +267,27 @@ changing `extract_profiles` under the corpus: JS builds half-edges for
 global largest profile and drops it only if CW; Rust takes the largest CW one
 and always drops it). `PlaneDefinition` likewise has no `three-points` method
 in Rust, which JS `resolvePlane` still offers — unreachable for an agent, whose
-schema is generated from Rust. Then: **C6** the export pair, whose
-`deliver:"download"` half stays in the page.
+schema is generated from Rust.
 
-A migrated tool's JS body is deleted, and its name leaves `MIGRATED`, only once
-the differential has run green over a model that exercises it — two agreeing
-empty answers prove nothing, so the differential asserts its own call count.
+The rule the migration followed: a read-only tool's JS body was deleted only
+once the differential had run green over a model that exercises it — two
+agreeing empty answers prove nothing, so the differential asserted its own
+call count. `MIGRATED` is the list of what the engine implements and only
+grows; the set that shrank as bodies were deleted was the page's `SHADOWED`,
+which C5b removed.
+
+**C5b** (landed 2026-09-17) deleted the six read-only JS bodies
+(`queries.js` keeps only `selection_get`, `requireBody` and `ask`; `summary.js`
+and the store's `sketchRegionsRequest` are gone) and retired the shadow
+(`setShadow`, the mismatch log, `SHADOWED`). `executor.js` routes
+`ENGINE_QUERIES` — the six — to a `Tool` send under the agent lock and no
+authoring gate, beside `ENGINE_COMMANDS`; the two sets are the routing table
+and their union is `tools::MIGRATED`, which `agent-rust-tools.spec.js` and
+`agent-rust-authoring.spec.js` pin. With no JS answer to compare against, the
+read-only spec asserts the thing the shadow used to prove indirectly: every
+call is one `Tool` send and the page sends none of the engine messages the JS
+bodies used to (`MeasureBody`, `ListFaces`, `ComputeRegions`, …). Then:
+**C6** the export pair, whose `deliver:"download"` half stays in the page.
 
 **C4 cannot shadow, and does not.** A step that CHANGES the document cannot be
 run twice on it to compare the answers — that applies it twice. So the twelve
@@ -277,9 +309,9 @@ then were the bodies removed — recording them from the engine afterwards would
 bake any breakage the deletion introduced into the baseline and leave the
 comparison confirming itself. The spec's regeneration mode says so in as many
 words: a regenerated fixture is a change to review in its diff, never a way to
-make a red test green. `commands.js` now holds only `sketch_create` (C5) and
-the `applyStep` twin it still needs — which must stay in step with the engine's
-`apply_step` until C5 retires it. `ENGINE_COMMANDS` in `executor.js` became the
+make a red test green. `commands.js` then held only `sketch_create` and
+the `applyStep` twin it needed, until C5 retired both; it is one function now,
+`snapshotNow`, which the A18 cancel path still reads. `ENGINE_COMMANDS` in `executor.js` became the
 routing table, and had to be added to the `ToolUnavailable` guard: with no JS
 body left, every one of the twelve would otherwise be reported as a tool the
 page does not have. `delta.js` survives regardless — `executor.js` needs
@@ -417,11 +449,12 @@ slip; it is not a step toward S4.
 |---|---|---|
 | MCP → relay | `server.py:_call_tool` (213): schema validation, then `LinkServer.call` | single |
 | relay → page | `link.py:call` (179): `call{id, tool, arguments}` → `result{content, structuredContent, isError}` | single |
-| page tools | `executor.js:180 executeTool`: every page tool | single |
-| page → engine | `sendAgentMessage` → `bridge.sendUngated` → `process_message` → `dispatch` | single, but **tool semantics sit above it in JS** |
+| page tools | `executor.js executeTool`: every page tool | single |
+| page → engine | `sendAgentMessage` → `bridge.sendUngated` → `process_message` → `dispatch` | single, but **tool semantics sat above it in JS** (before S3) |
 
-So the *wire* layer is already single and host-agnostic. The *semantic*
-layer is not reusable by a host; S3 consolidates it.
+So the *wire* layer was already single and host-agnostic. The *semantic*
+layer was not reusable by a host; S3 consolidated it (`tools::execute_tool`,
+reached by the page through `UiToEngine::Tool`).
 
 ### 3.2 Transport selection
 
@@ -680,8 +713,8 @@ untouched (C1).
 
 | Phase | Content | Exit |
 |---|---|---|
-| **P-A: A2.1 compliance** | S0, S1, S2 | browser suites green; `session_tests.rs`; no behavior change |
-| **P-B: tools in Rust** | S3, shadowed tool by tool | H2-style differential green in page mode; JS tool bodies deleted |
+| **P-A: A2.1 compliance** — DONE 2026-09-16 | S0, S1, S2 | browser suites green; `document_session.rs`; no behavior change |
+| **P-B: tools in Rust** — DONE 2026-09-17 but C6 | S3, shadowed tool by tool | H2-style differential green in page mode; JS tool bodies deleted (all but the export pair) |
 | **P-C: host** | S4, relay `Backend` split, `--kernel host`, file provider, wheels | H1–H6 |
 | **P-D: viewer v1** | `/view` route, `waffle-viewer/1` snapshot/update/blobs, `raw/1` + `mq/1`, cache, auth, reconnect | V1–V3, V5, V6, V8 |
 | **P-E: viewer v2+** | multiple viewers (V4), capture forwarding, `command` (V3 frames), face-chunk encoding if V7 justifies | V4, V7 |

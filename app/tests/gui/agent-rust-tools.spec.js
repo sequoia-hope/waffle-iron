@@ -1,13 +1,16 @@
 /**
- * The S3 differential (`specs/waffle_server_mode.md` §2.3): for every tool whose
- * semantics have moved into the engine, the page's JS implementation and the
- * engine's Rust one must produce identical `structuredContent`.
+ * The read-only agent tools run in the engine (`specs/waffle_server_mode.md`
+ * §2.3 S3 C5b): `model_summary`, `feature_get`, `body_measure`, `face_list`,
+ * `sketch_regions` and `expression_evaluate` reach the page as one `Tool` send
+ * each, and the page has no JS body left for them.
  *
- * The executor shadows each migrated call (`setShadow(true)`): it returns the
- * page's answer and records any disagreement. So this spec drives a real
- * document through the real tools and then asserts the mismatch log is empty —
- * and that the comparison actually ran, because an empty log proves nothing on
- * its own (`getShadowRuns`).
+ * Until C5b this spec was the S3 differential — the page ran both
+ * implementations and this asserted the mismatch log empty. The JS bodies are
+ * gone, so there is nothing to compare against any more; what remains to pin
+ * is that the answers are about the real model (not matching refusals) and
+ * that every one of them went through the engine, which the engine send log
+ * shows: `Tool` sends, and none of the engine messages the JS bodies used to
+ * send themselves (`MeasureBody`, `ListFaces`, `ComputeRegions`, …).
  *
  * The model is built through the page's own executor, so the summary under
  * test covers what a real session produces: features of several kinds, an
@@ -28,16 +31,22 @@ const extrude = (sketchId, depth) => ({
 	params: { sketch_id: sketchId, profile_index: 0, profile_entity_ids: [5, 6, 7, 8], depth, symmetric: false, cut: false }
 });
 
-test.describe('Agent tools implemented in the engine (S3)', () => {
-	test('the page and the engine summarize the same model', async ({ waffle }) => {
+/** The read-only tools, in the order the sequence below calls them. */
+const READ_ONLY = ['model_summary', 'feature_get', 'body_measure', 'face_list', 'sketch_regions', 'expression_evaluate'];
+
+/** What the JS bodies sent to the engine themselves before C5b. */
+const FORMER_JS_SENDS = ['MeasureBody', 'ListFaces', 'ComputeRegions', 'GenerateGearProfile', 'EvaluateExpression'];
+
+test.describe('Read-only agent tools run in the engine (S3 C5b)', () => {
+	test('every read-only tool answers about the real model through one Tool send', async ({ waffle }) => {
 		const page = waffle.page;
 		const crashes = collectCrashErrors(page);
-		await page.waitForFunction(() => typeof window.__waffleAgentExecutor?.setShadow === 'function', {
+		await page.waitForFunction(() => typeof window.__waffleAgentExecutor?.executeTool === 'function', {
 			timeout: 15000
 		});
 
 		const result = await page.evaluate(
-			async ({ xy, rect, extrudeOp }) => {
+			async ({ xy, rect, extrudeOp, formerJsSends }) => {
 				const api = window.__waffleAgentExecutor;
 				const ctx = {
 					agentName: 'rust-tools-test',
@@ -46,80 +55,97 @@ test.describe('Agent tools implemented in the engine (S3)', () => {
 					isCancelled: () => false
 				};
 				const call = (tool, args = {}) => api.executeTool(tool, args, ctx);
+				// Record every send with its payload: a `Tool` entry's `message.name`
+				// is the tool it carried.
+				window.__waffle.recordEngineSends(true, { payloads: true });
+				const agentSends = () => window.__waffle.getEngineSendLog().filter((s) => s.origin === 'agent');
 
-				api.setShadow(true);
-				try {
-					// An empty document is the first comparison: every list empty,
-					// which is exactly where a null-vs-[] difference would hide.
-					const empty = await call('model_summary');
+				// An empty document first: every list empty, which is exactly
+				// where a null-vs-[] difference would hide.
+				const empty = await call('model_summary');
 
-					const sketch = await call('sketch_create', { plane: xy, entities: rect });
-					if (sketch.isError) return { failed: 'sketch_create', detail: sketch.structuredContent };
-					const solid = await call('feature_add', {
-						operation: { ...extrudeOp, params: { ...extrudeOp.params, sketch_id: sketch.structuredContent.feature_id } }
-					});
-					if (solid.isError) return { failed: 'feature_add', detail: solid.structuredContent };
+				const sketch = await call('sketch_create', { plane: xy, entities: rect });
+				if (sketch.isError) return { failed: 'sketch_create', detail: sketch.structuredContent };
+				const solid = await call('feature_add', {
+					operation: { ...extrudeOp, params: { ...extrudeOp.params, sketch_id: sketch.structuredContent.feature_id } }
+				});
+				if (solid.isError) return { failed: 'feature_add', detail: solid.structuredContent };
 
-					// Variety the summary has to report: a rename, a suppressed
-					// feature, and parameters (one of which does not evaluate).
-					await call('feature_rename', { feature_id: solid.structuredContent.feature_id, new_name: 'Base plate' });
-					await call('parameters_set', {
-						parameters: [
-							{ name: 'width', expression: '20' },
-							{ name: 'broken', expression: 'nope +' }
-						]
-					});
-					const built = await call('model_summary');
+				// Variety the summary has to report: a rename, a suppressed
+				// feature, and parameters (one of which does not evaluate).
+				await call('feature_rename', { feature_id: solid.structuredContent.feature_id, new_name: 'Base plate' });
+				await call('parameters_set', {
+					parameters: [
+						{ name: 'width', expression: '20' },
+						{ name: 'broken', expression: 'nope +' }
+					]
+				});
+				const built = await call('model_summary');
 
-					// The read-only tools, over the model just built: each is
-					// shadowed, so each is a comparison.
-					const bodyId = built.structuredContent.bodies[0]?.body_id;
-					const feature = await call('feature_get', { feature_id: solid.structuredContent.feature_id });
-					const measured = await call('body_measure', { body_id: bodyId });
-					const faces = await call('face_list', { body_id: bodyId });
-					const regions = await call('sketch_regions', { feature_id: sketch.structuredContent.feature_id });
-					const expression = await call('expression_evaluate', { expression: 'width * 2' });
-					for (const [name, r] of [
-						['feature_get', feature],
-						['body_measure', measured],
-						['face_list', faces],
-						['sketch_regions', regions],
-						['expression_evaluate', expression]
-					]) {
-						if (r.isError) return { failed: name, detail: r.structuredContent };
-					}
-
-					await call('feature_suppress', { feature_id: solid.structuredContent.feature_id, suppressed: true });
-					const suppressed = await call('model_summary');
-
-					return {
-						empty: empty.structuredContent,
-						built: built.structuredContent,
-						suppressed: suppressed.structuredContent,
-						feature: feature.structuredContent,
-						measured: measured.structuredContent,
-						faces: faces.structuredContent,
-						regions: regions.structuredContent,
-						expression: expression.structuredContent,
-						runs: api.getShadowRuns(),
-						mismatches: api.getShadowMismatches()
-					};
-				} finally {
-					api.setShadow(false);
+				const bodyId = built.structuredContent.bodies[0]?.body_id;
+				const feature = await call('feature_get', { feature_id: solid.structuredContent.feature_id });
+				const measured = await call('body_measure', { body_id: bodyId });
+				const faces = await call('face_list', { body_id: bodyId });
+				const regions = await call('sketch_regions', { feature_id: sketch.structuredContent.feature_id });
+				const expression = await call('expression_evaluate', { expression: 'width * 2' });
+				for (const [name, r] of [
+					['feature_get', feature],
+					['body_measure', measured],
+					['face_list', faces],
+					['sketch_regions', regions],
+					['expression_evaluate', expression]
+				]) {
+					if (r.isError) return { failed: name, detail: r.structuredContent };
 				}
+
+				await call('feature_suppress', { feature_id: solid.structuredContent.feature_id, suppressed: true });
+				const suppressed = await call('model_summary');
+
+				// A refusal is the engine's too: the page has no body to refuse from.
+				const missing = await call('body_measure', { body_id: 'no-such-body' });
+
+				const sends = agentSends();
+				window.__waffle.recordEngineSends(false);
+				return {
+					empty: empty.structuredContent,
+					built: built.structuredContent,
+					suppressed: suppressed.structuredContent,
+					feature: feature.structuredContent,
+					measured: measured.structuredContent,
+					faces: faces.structuredContent,
+					regions: regions.structuredContent,
+					expression: expression.structuredContent,
+					missing,
+					toolSends: sends.filter((s) => s.type === 'Tool').map((s) => s.message?.name),
+					formerJsSends: sends.filter((s) => formerJsSends.includes(s.type)).map((s) => s.type)
+				};
 			},
-			{ xy: XY, rect: RECT, extrudeOp: extrude('placeholder', 0.005) }
+			{ xy: XY, rect: RECT, extrudeOp: extrude('placeholder', 0.005), formerJsSends: FORMER_JS_SENDS }
 		);
 
 		expect(result.failed, `${result.failed}: ${JSON.stringify(result.detail)}`).toBeUndefined();
 
-		// The comparison ran: three `model_summary` calls plus the five
-		// read-only tools, each shadowed.
-		expect(result.runs).toBe(8);
-		expect(result.mismatches).toEqual([]);
+		// Every call above was one `Tool` send — the read-only ones included —
+		// and the page sent none of the messages its JS bodies used to.
+		expect(result.toolSends).toEqual([
+			'model_summary',
+			'sketch_create',
+			'feature_add',
+			'feature_rename',
+			'parameters_set',
+			'model_summary',
+			'feature_get',
+			'body_measure',
+			'face_list',
+			'sketch_regions',
+			'expression_evaluate',
+			'feature_suppress',
+			'model_summary',
+			'body_measure'
+		]);
+		expect(result.formerJsSends).toEqual([]);
 
-		// And the model really was non-trivial, so "no mismatch" is not the
-		// agreement of two empty answers.
+		// The model really was non-trivial, so the answers are not two empty lists.
 		expect(result.empty.features).toEqual([]);
 		expect(result.built.features.map((f) => f.kind)).toEqual(['Sketch', 'Extrude']);
 		expect(result.built.features[0].provenance).toEqual({ type: 'Agent', name: 'rust-tools-test' });
@@ -128,32 +154,29 @@ test.describe('Agent tools implemented in the engine (S3)', () => {
 		expect(result.built.parameters.map((p) => p.name)).toEqual(['width', 'broken']);
 		expect(result.suppressed.features[1].suppressed).toBe(true);
 
-		// …and that each read-only tool answered about that model, so the
-		// agreement is over real content rather than matching refusals.
+		// …and each read-only tool answered about that model.
 		expect(result.feature.operation.type).toBe('Extrude');
 		expect(result.measured.volume_m3).toBeGreaterThan(0);
 		expect(result.faces.faces.length).toBeGreaterThan(0);
 		expect(result.regions.regions.length).toBeGreaterThan(0);
 		expect(result.expression.value_mm).toBe(40);
 
+		// The refusal came back in the MCP error shape, from the engine.
+		expect(result.missing.isError).toBe(true);
+		expect(result.missing.structuredContent.error.code).toBe('BodyNotFound');
+
 		expectNoAnyCrash(crashes);
 	});
 
-	test('a tool that has not migrated is refused by the engine, not answered wrongly', async ({ waffle }) => {
+	test('the read-only routing table is exactly the six the engine implements', async ({ waffle }) => {
 		const page = waffle.page;
-		await page.waitForFunction(() => typeof window.__waffleAgentExecutor?.shadowedTools === 'function', {
+		await page.waitForFunction(() => typeof window.__waffleAgentExecutor?.engineQueries === 'function', {
 			timeout: 15000
 		});
 
-		const shadowed = await page.evaluate(() => window.__waffleAgentExecutor.shadowedTools());
-		// Keep in sync with `tools::MIGRATED`; this is the list the differential covers.
-		expect(shadowed).toEqual([
-			'model_summary',
-			'feature_get',
-			'body_measure',
-			'face_list',
-			'sketch_regions',
-			'expression_evaluate'
-		]);
+		const routed = await page.evaluate(() => window.__waffleAgentExecutor.engineQueries());
+		// Keep in sync with `tools::MIGRATED` minus `tools::mutates`
+		// (`agent-rust-authoring.spec.js` pins the mutating half).
+		expect(routed).toEqual(READ_ONLY);
 	});
 });

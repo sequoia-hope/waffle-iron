@@ -36,11 +36,14 @@
   - agent entry point: `sendAgentMessage`;
   - page state: `getUserBusyReason`, `getAgentActivity`/`setAgentActivity`,
     `isEngineCrashed`;
-  - shared with the app: `beginSketchPlaneRef`, `sketchRegionsRequest`,
-    `openDocumentRecord`, `saveDocumentOrThrow`, `getDocumentInfo`,
-    `hasPendingAutoSave`/`cancelPendingAutoSave`,
-    `$lib/sketch/finishProfiles.js` `buildFinishProfiles`, and
-    `$lib/storage/newDocument.js` `newDocumentRecord`;
+  - shared with the app: `openDocumentRecord`, `saveDocumentOrThrow`,
+    `getDocumentInfo`, `hasPendingAutoSave`/`cancelPendingAutoSave`, and
+    `$lib/storage/newDocument.js` `newDocumentRecord`. (Until S3 the page
+    also shared `beginSketchPlaneRef`, `sketchRegionsRequest` and
+    `buildFinishProfiles` with the JS tool bodies; those bodies are gone and
+    the engine has its own — `crates/wasm-bridge/src/tools/`,
+    `waffle_types::profiles::build_finish_profiles`. `finishProfiles.js`
+    remains for the interactive Finish Sketch only.)
   - test oracles: `__waffle.recordEngineSends` / `getEngineSendLog`.
 
 ## Interface change requests (owned by other sub-projects)

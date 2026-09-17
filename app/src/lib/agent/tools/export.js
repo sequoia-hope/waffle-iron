@@ -1,7 +1,8 @@
 /**
  * Export and import agent tools (specs/waffle_mcp_server.md §2.5 Export, Q5–Q7;
- * `import_step`). Definitions only; implementations are in `../export.js` (the
- * export queries) and `../commands.js` (`import_step`).
+ * `import_step`). Definitions only; the export queries are implemented in
+ * `../export.js` (their `deliver:"download"` half needs the page) and
+ * `import_step` in the engine (`crates/wasm-bridge/src/tools/author.rs`, S3).
  */
 import { commandOutputSchema, onErrorSchema } from './common.js';
 

@@ -31,7 +31,6 @@ import { EXPORT_QUERIES } from './export.js';
 import { QUERIES } from './queries.js';
 import { ToolFailure, toolError } from './results.js';
 import { TOOL_NAMES } from './tools/index.js';
-import { canonicalJson } from './tools/manifest.js';
 import { VIEWPORT_QUERIES } from './viewport.js';
 
 export { toolError } from './results.js';
@@ -150,11 +149,7 @@ async function runEngineCommand(tool, args, ctx) {
 				arguments: args,
 				context: { agent_name: ctx.agentName }
 			});
-			const result = {
-				content: answer?.content ?? [],
-				structuredContent: answer?.structuredContent ?? {},
-				isError: !!answer?.isError
-			};
+			const result = toolAnswer(answer);
 			renderStepOutcome(tool, result, before, ctx);
 
 			if (ctx.isCancelled() && !NOT_UNDOABLE.has(tool) && !sameModel(before, snapshotNow())) {
@@ -221,15 +216,38 @@ async function runDocumentCommand(tool, run, args, ctx) {
 }
 
 /**
- * Tools whose semantics have moved into the engine (`crates/wasm-bridge/src/tools`,
- * `specs/waffle_server_mode.md` §2.3 S3). Keep in sync with `tools::MIGRATED`.
- *
- * While a name is in this set BOTH implementations run and their
- * `structuredContent` must match: the JS answer is still the one returned, so
- * a divergence is visible without being served to an agent. The JS body is
- * deleted — and the name leaves this set — once the differential is green.
+ * The engine's answer to a `Tool` send, in the `result` frame's shape.
+ * @param {any} answer
+ * @returns {{content: object[], structuredContent: object, isError: boolean}}
  */
-const SHADOWED = new Set([
+function toolAnswer(answer) {
+	return {
+		content: answer?.content ?? [],
+		structuredContent: answer?.structuredContent ?? {},
+		isError: !!answer?.isError
+	};
+}
+
+/**
+ * Tools whose semantics live in the engine (`crates/wasm-bridge/src/tools`,
+ * `specs/waffle_server_mode.md` §2.3 S3): the page sends `Tool` and renders
+ * the answer. There is no JS implementation to fall back to — C4b deleted the
+ * authoring bodies, C5b the read-only ones — so these two sets are also the
+ * routing table: a name here reaches the engine and nothing else.
+ *
+ * `ENGINE_QUERIES` change nothing and pass no authoring gate. They were
+ * migrated shadowed (both implementations ran, `structuredContent` compared)
+ * until the differential was green on a real model; `ENGINE_COMMANDS` could
+ * not be (a step that changes the document cannot run twice on it), so what
+ * they produced before the deletion is recorded in
+ * `app/tests/gui/fixtures/agent-authoring-goldens.json` and
+ * `agent-rust-authoring.spec.js` holds the engine to it.
+ *
+ * Keep in sync with `tools::MIGRATED` (the union of both) and `tools::mutates`
+ * (exactly `ENGINE_COMMANDS`); `agent-rust-tools.spec.js` and
+ * `agent-rust-authoring.spec.js` pin them.
+ */
+const ENGINE_QUERIES = new Set([
 	'model_summary',
 	'feature_get',
 	'body_measure',
@@ -238,19 +256,6 @@ const SHADOWED = new Set([
 	'expression_evaluate'
 ]);
 
-/**
- * Tools whose semantics RUN in the engine (S3 C4): the page sends `Tool` and
- * renders the answer. There is no JS implementation left to fall back to —
- * C4b deleted those bodies from `commands.js` — so this set is also the
- * routing table: a name here reaches `runEngineCommand` and nothing else.
- *
- * They were never shadowed, because a step that changes the document cannot be
- * run twice on it to compare. What they produced before the deletion is
- * recorded in `app/tests/gui/fixtures/agent-authoring-goldens.json`, and
- * `agent-rust-authoring.spec.js` holds the engine to it.
- *
- * Keep in sync with `tools::mutates` and `tools::MIGRATED`.
- */
 const ENGINE_COMMANDS = new Set([
 	'feature_add',
 	'feature_edit',
@@ -267,76 +272,36 @@ const ENGINE_COMMANDS = new Set([
 	'sketch_create'
 ]);
 
-/** Off by default: shadowing takes the engine lock and costs a round trip. */
-let shadowing = false;
-
-/** @type {Array<{tool: string, page: string, engine: string}>} */
-const shadowMismatches = [];
-
-/** How many calls actually reached the engine: an empty mismatch list means
- * nothing unless the comparison ran. */
-let shadowRuns = 0;
-
 /**
- * Run the engine's implementation of `tool` and compare it with the page's.
- *
- * Only non-error results are compared: the refusals above (`EngineNotReady`,
- * `UserBusy`, …) are page state by §3.3, which the engine deliberately does
- * not model, so comparing them would report a difference that is by design.
+ * Run one read-only tool in the ENGINE (S3 C5b). It changes nothing, so no
+ * authoring gate applies; it still holds the agent lock (I6), as every JS
+ * query that sent a bridge message did — a user send in the middle of an
+ * agent's read would answer about a different model.
  *
  * @param {string} tool
  * @param {Record<string, unknown>} args
- * @param {{content: object[], structuredContent: object, isError: boolean}} pageResult
  */
-async function shadowAgainstEngine(tool, args, pageResult) {
-	if (pageResult.isError) return pageResult;
-	try {
-		const answer = await withAgentLock(() =>
-			sendAgentMessage({ type: 'Tool', name: tool, arguments: args })
-		);
-		shadowRuns += 1;
-		const page = canonicalJson(pageResult.structuredContent);
-		const engine = canonicalJson(answer?.structuredContent);
-		if (page !== engine) {
-			shadowMismatches.push({ tool, page, engine });
-			console.error(`[agent] ${tool}: the engine and the page disagree\npage:   ${page}\nengine: ${engine}`);
-		}
-	} catch (err) {
-		shadowMismatches.push({ tool, page: '', engine: `threw: ${err?.message ?? String(err)}` });
-		console.error(`[agent] ${tool}: the engine's implementation threw`, err);
-	}
-	return pageResult;
+async function runEngineQuery(tool, args) {
+	return withAgentLock(async () => toolAnswer(await sendAgentMessage({ type: 'Tool', name: tool, arguments: args })));
 }
 
 /**
- * Run one tool call, shadowing the engine's implementation where there is one.
+ * Run one tool call.
  * @param {string} tool
  * @param {Record<string, unknown>} args
  * @param {CallContext} ctx
  * @returns {Promise<{content: object[], structuredContent: object, isError: boolean}>}
  */
 export async function executeTool(tool, args, ctx) {
-	const result = await runTool(tool, args, ctx);
-	if (!shadowing || !SHADOWED.has(tool)) return result;
-	return shadowAgainstEngine(tool, args, result);
-}
-
-/**
- * @param {string} tool
- * @param {Record<string, unknown>} args
- * @param {CallContext} ctx
- * @returns {Promise<{content: object[], structuredContent: object, isError: boolean}>}
- */
-async function runTool(tool, args, ctx) {
 	const known = TOOL_NAMES.has(tool);
 	const query = known
 		? (QUERIES[tool] ?? DOCUMENT_QUERIES[tool] ?? VIEWPORT_QUERIES[tool] ?? EXPORT_QUERIES[tool])
 		: undefined;
 	const documentCommand = known ? DOCUMENT_COMMANDS[tool] : undefined;
-	// `ENGINE_COMMANDS` is where an authoring tool's implementation lives now:
-	// none of them has a JS body (C4b deleted the twelve, C5 `sketch_create`),
-	// so without it every one would be reported as a tool this page lacks.
-	if (!query && !documentCommand && !ENGINE_COMMANDS.has(tool)) {
+	// The engine sets are where those tools' implementations live now: none
+	// of them has a JS body, so without them every one would be reported as a
+	// tool this page lacks.
+	if (!query && !documentCommand && !ENGINE_QUERIES.has(tool) && !ENGINE_COMMANDS.has(tool)) {
 		return toolError('ToolUnavailable', `This page has no tool named "${tool}".`, { tool });
 	}
 	// G6: nothing runs while the engine is not ready or has crashed.
@@ -363,6 +328,7 @@ async function runTool(tool, args, ctx) {
 			return query.engine ? await withAgentLock(() => query.run(args, env)) : await query.run(args, env);
 		}
 		if (documentCommand) return await runDocumentCommand(tool, documentCommand, args, ctx);
+		if (ENGINE_QUERIES.has(tool)) return await runEngineQuery(tool, args);
 		// Whatever reaches here is an engine command: the guard above refused
 		// anything that is not a query, a document command, or one of these.
 		return await runEngineCommand(tool, args, ctx);
@@ -372,22 +338,14 @@ async function runTool(tool, args, ctx) {
 	}
 }
 
-// Test hook (agent-document-load-gate.spec.js): run a tool in this page's own
-// executor, without a relay. `setShadow` drives the S3 differential
-// (agent-rust-tools.spec.js): with it on, every migrated tool also runs in the
-// engine and any disagreement lands in `getShadowMismatches()`.
+// Test hook (agent-document-load-gate.spec.js, agent-rust-*.spec.js): run a
+// tool in this page's own executor, without a relay, and read the routing
+// table the specs hold to the engine's `MIGRATED` list.
 if (typeof window !== 'undefined') {
 	window.__waffleAgentExecutor = {
 		executeTool,
-		shadowedTools: () => [...SHADOWED],
-		engineTools: () => [...ENGINE_COMMANDS],
-		setShadow: (on) => {
-			shadowing = !!on;
-			shadowMismatches.length = 0;
-			shadowRuns = 0;
-		},
-		getShadowMismatches: () => shadowMismatches.map((m) => ({ ...m })),
-		getShadowRuns: () => shadowRuns
+		engineQueries: () => [...ENGINE_QUERIES],
+		engineTools: () => [...ENGINE_COMMANDS]
 	};
 }
 

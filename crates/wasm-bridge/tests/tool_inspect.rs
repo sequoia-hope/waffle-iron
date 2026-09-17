@@ -2,10 +2,12 @@
 //! §2.3 S3, checkpoints C2 and C3): `feature_get`, and the four tools that
 //! wrap one engine message.
 //!
-//! The agreement with the page's JS implementation is proven by the
-//! differential in `app/tests/gui/agent-rust-tools.spec.js`, against the real
-//! kernel. These tests pin what that cannot reach: the refusal codes and the
-//! result shapes, including the ones that only appear when something is
+//! Agreement with the page's former JS implementation was proven by the S3
+//! differential before those bodies were deleted (C5b); today
+//! `app/tests/gui/agent-rust-tools.spec.js` pins, against the real kernel,
+//! that the page routes each of these here and that the answers are about the
+//! real model. These tests pin what that cannot reach: the refusal codes and
+//! the result shapes, including the ones that only appear when something is
 //! missing.
 
 use feature_engine::types::*;
@@ -345,12 +347,13 @@ fn an_expression_that_does_not_evaluate_reports_its_error_not_a_value() {
 
 #[test]
 fn the_migrated_list_is_exactly_what_this_checkpoint_implements() {
-    // The page shadows this list; a name here whose JS body is still the one
-    // serving answers is the intended state, a name MISSING here is a tool
-    // silently left un-differentiated.
+    // The page routes exactly this list to the engine (`executor.js`
+    // `ENGINE_QUERIES` ∪ `ENGINE_COMMANDS`, pinned by the agent-rust-* specs);
+    // a name MISSING here is a tool the page would report as one it lacks.
     //
-    // C2/C3 added the six read-only tools; C4 adds the twelve authoring ones,
-    // which is why this list grows rather than a second one appearing.
+    // C2/C3 added the six read-only tools, C4 the twelve authoring ones and
+    // C5 `sketch_create`, which is why this list grew rather than a second one
+    // appearing.
     assert_eq!(
         wasm_bridge::tools::MIGRATED,
         &[

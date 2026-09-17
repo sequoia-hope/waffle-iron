@@ -328,6 +328,53 @@ is green at every one. **COMPLETE 2026-09-16.**
   and have no conversion anywhere. JS never noticed (both are JSON on the
   wire); `DocumentSession::set_preview_mesh` converts field-wise.
 
+### M12: Server-mode S3 — agent tool semantics in Rust ✅ (C1–C5b; C6 open)
+
+`specs/waffle_server_mode.md` §2.3 S3. `crates/wasm-bridge/src/tools/`
+implements `execute_tool(state, kb, name, args, ctx) -> ToolResult` for every
+non-render agent tool but the export pair; the page sends
+`UiToEngine::Tool{name, arguments, context}` and renders
+`EngineToUi::ToolResult{result, model}`.
+
+- [x] **C1** (2026-09-16, `8418d624`) — the mechanism and `model_summary`
+      (`tools/summary.rs`); `MIGRATED`; the page-side shadow that ran both
+      implementations and compared `structuredContent`.
+- [x] **C2/C3** (2026-09-16, `5f4c1ca4`) — `feature_get` and the four
+      one-message wrappers (`tools/inspect.rs`). `sketch_regions` expands
+      gears itself; `body_measure`/`face_list` refuse on the RENDERED body list
+      (`rendered_bodies`), since dispatch's `find_body` also finds consumed and
+      rolled-back outputs.
+- [x] **C4** (2026-09-16, `b8638937`, `434703dc`) — `apply_step` and the twelve
+      authoring tools (`tools/author.rs`). Three traps: tessellate BEFORE the
+      after-snapshot or `bodies_added` is always `[]`; a failing step is a
+      recorded feature error, not an `Err`; a `ToolResult` is not a
+      `ModelUpdated`, so it CARRIES the model update (`ToolResult::model`).
+- [x] **C4b** (2026-09-16, `fd223d30`) — the twelve JS bodies deleted, goldens
+      recorded from the JS arm FIRST (`agent-authoring-goldens.json`).
+- [x] **C5** (2026-09-17, `dc9d2e3d`) — `sketch_create` (`tools/sketch.rs`);
+      `buildFinishProfiles` → `waffle_types::profiles::build_finish_profiles`,
+      written BESIDE `extract_profiles`; datum planes resolved from RAW JSON.
+- [x] **Review fixes** (2026-09-17, `f5d6773f`) — the `Tool` arm attaches the
+      preview to the carried model; `feature_get` last-wins errors;
+      `parameters_set` last value by parsed id; `sketch_create` closes the
+      open sketch on refusal (`abandon_on_err`); one engine-call helper for
+      `ComputeRegions`; the store's `extractDisplayUnit` parser deleted.
+- [x] **C5b** (2026-09-17) — the six read-only JS bodies deleted
+      (`queries.js` keeps `selection_get`, `requireBody`, `ask`; `summary.js`
+      and the store's `sketchRegionsRequest` gone) and the shadow retired.
+      `executor.js` routes `ENGINE_QUERIES` (a `Tool` send under the agent
+      lock, no authoring gate) beside `ENGINE_COMMANDS`; their union is
+      `MIGRATED`. `agent-rust-tools.spec.js` now asserts one `Tool` send per
+      call and none of the former JS sends.
+- [ ] **C6** — the export pair (`export_step`/`export_stl` semantics), the
+      `deliver:"download"` half staying in the page.
+
+Open debt (2026-09-17 consistency review): the agent-rust-* specs are in no
+CI job and not in gui-fast; the relay manifest drift guard runs in no CI job;
+`finishProfiles.js` (interactive) and `build_finish_profiles` (agent) have no
+cross oracle; the store pre-writes `activeTabId` before
+`SwitchTab`/`OpenPartInContext`.
+
 ## Blockers
 
 - ~~Depends on kernel-fork (M6 needs tessellation output)~~ RESOLVED

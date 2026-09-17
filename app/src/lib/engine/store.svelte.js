@@ -4050,23 +4050,6 @@ function regionInputs(feature, gears) {
 	return { entities, solved_positions };
 }
 
-/**
- * The ComputeRegions message for one completed sketch, expanding its gears with
- * `send` (the agent link passes its own sender: it holds the engine lock).
- * @param {any} feature
- * @param {(message: object) => Promise<any>} send
- */
-export async function sketchRegionsRequest(feature, send) {
-	const gears = new Map();
-	for (const e of feature.operation?.sketch?.entities || []) {
-		if (e.type !== 'Gear') continue;
-		const response = await send({ type: 'GenerateGearProfile', params: JSON.parse(JSON.stringify(e.params)) });
-		gears.set(`${feature.id}:${e.id}`, remapGearResponse(response, inactiveGearIdBase(e.id)));
-	}
-	const { entities, solved_positions } = regionInputs(feature, gears);
-	return { type: 'ComputeRegions', entities: JSON.parse(JSON.stringify(entities)), solved_positions };
-}
-
 /** @param {string} featureId @returns {Array<object> | null} */
 export function getSketchRegions(featureId) {
 	return sketchRegions.get(featureId) ?? null;

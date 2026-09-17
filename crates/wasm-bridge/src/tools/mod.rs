@@ -7,11 +7,15 @@
 //! storage providers — and the *semantics* (what a tool reads, what it
 //! refuses, how its result is shaped) live here.
 //!
-//! Tools migrate one at a time. Until a tool's JS body is deleted, the page
-//! runs both and compares `structuredContent` (the shadow in
-//! `app/src/lib/agent/executor.js`); [`MIGRATED`] is the list the shadow reads.
-//! A name that has not migrated yet answers `ToolUnavailable`, exactly as an
-//! unknown one does — a host must never silently do nothing.
+//! Tools migrated one at a time (C1–C5b). A read-only tool was shadowed until
+//! its differential was green — the page ran both implementations and
+//! compared `structuredContent` — and then its JS body was deleted; an
+//! authoring tool was cut over against recorded goldens instead, since a step
+//! that changes the document cannot run twice. Nothing shadows any more: the
+//! page routes every name in [`MIGRATED`] here and has no JS body for it
+//! (`app/src/lib/agent/executor.js` `ENGINE_QUERIES` / `ENGINE_COMMANDS`).
+//! A name not listed answers `ToolUnavailable`, exactly as an unknown one
+//! does — a host must never silently do nothing.
 
 use modeling_ops::KernelBundle;
 use serde::{Deserialize, Serialize};
@@ -25,8 +29,10 @@ mod inspect;
 mod sketch;
 mod summary;
 
-/// The tools [`execute_tool`] implements. The page shadows exactly these; the
-/// rest are still JS. Keep it in sync with the `match` in [`execute_tool`].
+/// The tools [`execute_tool`] implements — every non-render agent tool. The
+/// page routes exactly these to `Tool` and implements none of them; what it
+/// keeps (`selection_get`, the viewport, storage and export-download halves)
+/// is host state by §3.3. Keep it in sync with the `match` in [`execute_tool`].
 pub const MIGRATED: &[&str] = &[
     "model_summary",
     "feature_get",
@@ -51,7 +57,7 @@ pub const MIGRATED: &[&str] = &[
 
 /// Whether this tool can change the document.
 ///
-/// The mutating tools are exactly C4's twelve: their answers carry a model
+/// The mutating tools are C4's twelve plus C5's `sketch_create`: their answers carry a model
 /// update (`EngineToUi::ToolResult::model`), because a `ToolResult` is not a
 /// `ModelUpdated` and nothing else would refresh the host's view. A tool that
 /// is not listed here is read-only and answers with no model.
@@ -133,8 +139,7 @@ pub(crate) type Answer = Result<Value, ToolFailure>;
 /// Run one agent tool against the open document.
 ///
 /// `context` carries the per-call state a host holds (the agent's name, for
-/// provenance); read from the authoring tools onward, unused by the read-only
-/// tools of these checkpoints.
+/// provenance); the authoring tools read it, the read-only ones do not.
 pub fn execute_tool(
     state: &mut EngineState,
     kb: &mut dyn KernelBundle,
