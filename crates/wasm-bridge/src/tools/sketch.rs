@@ -140,7 +140,11 @@ struct SketchPlane {
 
 fn invalid_sketch(message: impl Into<String>) -> ToolFailure {
     let message = message.into();
-    ToolFailure::new("InvalidSketch", message.clone(), json!({ "reason": message }))
+    ToolFailure::new(
+        "InvalidSketch",
+        message.clone(),
+        json!({ "reason": message }),
+    )
 }
 
 /// A datum plane's UUID from a page-shaped ref, including the legacy
@@ -388,7 +392,11 @@ pub(super) fn sketch_create(
             projected: Vec::new(),
             provenance: agent_provenance(context),
         },
-        if failed_solve { OnError::Keep } else { on_error },
+        if failed_solve {
+            OnError::Keep
+        } else {
+            on_error
+        },
         "InvalidSketch",
     )?;
 
@@ -449,8 +457,12 @@ fn regions_of(
         ));
     };
 
-    let (entities, solved_positions) =
-        crate::tools::inspect::region_inputs(state, kb, &sketch.entities, &sketch.solved_positions)?;
+    let (entities, solved_positions) = crate::tools::inspect::region_inputs(
+        state,
+        kb,
+        &sketch.entities,
+        &sketch.solved_positions,
+    )?;
     let response = crate::tools::author::send(
         state,
         kb,

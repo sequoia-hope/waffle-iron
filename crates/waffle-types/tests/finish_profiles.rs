@@ -70,12 +70,21 @@ fn rectangle() -> (Vec<SketchEntity>, HashMap<u32, (f64, f64)>) {
         line(7, 3, 4),
         line(8, 4, 1),
     ];
-    let pos = positions(&[(1, 0.0, 0.0), (2, 0.02, 0.0), (3, 0.02, 0.01), (4, 0.0, 0.01)]);
+    let pos = positions(&[
+        (1, 0.0, 0.0),
+        (2, 0.02, 0.0),
+        (3, 0.02, 0.01),
+        (4, 0.0, 0.01),
+    ]);
     (entities, pos)
 }
 
 /// A D: an arc from (0.01,0) to (-0.01,0) about the origin, closed by a line.
-fn d_shape(arc_id: u32, line_id: u32, ids: [u32; 3]) -> (Vec<SketchEntity>, HashMap<u32, (f64, f64)>) {
+fn d_shape(
+    arc_id: u32,
+    line_id: u32,
+    ids: [u32; 3],
+) -> (Vec<SketchEntity>, HashMap<u32, (f64, f64)>) {
     let [c, s, e] = ids;
     let entities = vec![
         point(c, 0.0, 0.0),

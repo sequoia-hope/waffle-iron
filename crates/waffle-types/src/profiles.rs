@@ -478,7 +478,11 @@ pub fn build_finish_profiles(
             &mut solved_positions,
             &mut next_synth_id,
         );
-        let mut prev_end = if first_forward { first_end } else { first_start };
+        let mut prev_end = if first_forward {
+            first_end
+        } else {
+            first_start
+        };
 
         for entity in edges.iter().skip(1) {
             let Some((next_start, next_end)) = entity_endpoints(entity) else {

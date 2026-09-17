@@ -125,7 +125,10 @@ fn a_closed_rectangle_reports_its_region() {
     let regions = out["regions"].as_array().expect("regions");
     assert!(!regions.is_empty(), "the closed loop is a region");
     let area = regions[0]["area_m2"].as_f64().expect("an area");
-    assert!((area - 2e-4).abs() < 1e-12, "20 × 10 mm = 2e-4 m², got {area}");
+    assert!(
+        (area - 2e-4).abs() < 1e-12,
+        "20 × 10 mm = 2e-4 m², got {area}"
+    );
     assert!(out.get("regions_error").is_none());
 }
 
@@ -212,7 +215,10 @@ fn a_plane_that_names_nothing_is_refused_before_anything_is_committed() {
     );
     assert_eq!(error["code"], "InvalidSketch");
     assert_eq!(error["details"]["reason"], "unresolved plane");
-    assert!(state.engine.tree.features.is_empty(), "nothing was committed");
+    assert!(
+        state.engine.tree.features.is_empty(),
+        "nothing was committed"
+    );
 }
 
 // ── Input shape (A13): ids only, with a pointer to the offender ──────────
@@ -285,7 +291,10 @@ fn a_contradictory_sketch_commits_nothing_by_default() {
         "got {:?}",
         error["details"]["status"]
     );
-    assert!(state.engine.tree.features.is_empty(), "nothing was committed");
+    assert!(
+        state.engine.tree.features.is_empty(),
+        "nothing was committed"
+    );
 }
 
 #[test]
@@ -303,7 +312,8 @@ fn on_error_keep_commits_a_sketch_that_did_not_solve() {
             "on_error": "keep",
         }),
     );
-    assert!(["OverConstrained", "SolveFailed"]
-        .contains(&out["solve_status"].as_str().unwrap_or("")));
+    assert!(
+        ["OverConstrained", "SolveFailed"].contains(&out["solve_status"].as_str().unwrap_or(""))
+    );
     assert_eq!(state.engine.tree.features.len(), 1, "the sketch stayed");
 }
