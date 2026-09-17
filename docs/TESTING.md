@@ -83,7 +83,7 @@ which spawn the real relay.
 ./scripts/test.sh parity     # Ignored sidecar reference oracles (~20s)
 ./scripts/test.sh fast       # Rewrite + consumer crates (~500s)
 ./scripts/test.sh full       # All Rust tests incl. parity (~27min)
-./scripts/test.sh gui-fast   # Quick GUI smoke tests
+./scripts/test.sh gui-fast   # Quick GUI smoke tests (also CI: .github/workflows/gui-tests.yml)
 ./scripts/test.sh gui-full   # All GUI tests
 ./scripts/test.sh relay      # Agent-link relay: pytest + ruff
 ./scripts/test.sh all-fast   # Rust fast + GUI fast + relay

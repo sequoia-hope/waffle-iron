@@ -1,0 +1,62 @@
+name: GUI tests
+
+# Runs the gui-fast tier (`scripts/test.sh gui-fast`: the 37 spec files that
+# need no relay) on every push and PR. Until 2026-09-17 no workflow ran any
+# Playwright spec, so the goldens oracle for the engine's agent tools
+# (`agent-rust-authoring.spec.js`) and the page-vs-engine routing pin
+# (`agent-rust-tools.spec.js`) ran only when someone ran the tier by hand.
+#
+# No Rust toolchain: the tests run against the COMMITTED WASM bundle in
+# app/static/pkg/, which the pre-commit fingerprint hook keeps in step with
+# the Rust sources. Playwright's own `webServer` starts `npm run dev`.
+#
+# Not run here: the relay-backed `agent-*.spec.js` files (they need uv and
+# the Python relay; `scripts/test.sh relay` covers the relay itself) and the
+# gui-full tier — keep this job under ten minutes so it gates pushes.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  gui-fast:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: app/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+        working-directory: app
+
+      - name: Install Chromium
+        run: npx playwright install --with-deps chromium
+        working-directory: app
+
+      # ubuntu-latest has 4 cores; the tier's default of 8 workers only
+      # thrashes there. Chromium renders through SwiftShader (see
+      # app/playwright.config.js launchOptions), so no GPU is needed.
+      - name: gui-fast tier
+        run: ./scripts/test.sh gui-fast
+        env:
+          TEST_THREADS: 4
+
+      - name: Upload traces and screenshots of failures
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-test-results
+          path: app/test-results/
+          if-no-files-found: ignore
+          retention-days: 7

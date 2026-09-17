@@ -375,8 +375,8 @@ non-render agent tool; the page sends
       which predates the port. `tests/tool_export.rs` pins the wire shape
       with the real kernel. `queries.js` `requireBody`/`ask` deleted.
 
-Open debt (2026-09-17 consistency review): the agent-rust-* specs are in
-gui-fast (since C6) but no CI workflow runs Playwright at all; the relay
+Open debt (2026-09-17 consistency review; the agent-rust-* specs now gate
+pushes via gui-fast in `.github/workflows/gui-tests.yml`): the relay
 manifest drift guard runs in no CI job;
 `finishProfiles.js` (interactive) and `build_finish_profiles` (agent) have no
 cross oracle; the store pre-writes `activeTabId` before
