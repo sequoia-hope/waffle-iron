@@ -1,0 +1,99 @@
+name: Relay tests
+
+# The agent link's relay, both sides, on every push and PR:
+#
+#   relay      `scripts/test.sh relay` — the Python relay's pytest suite plus
+#              its ruff lint and format gates. Includes the tool-manifest guard
+#              (relay/tests/test_manifest.py regenerates the manifest from
+#              app/src/lib/agent/tools/ with node and diffs it against the
+#              committed relay/src/waffle_mcp_relay/agent-tools.manifest.json),
+#              which until 2026-09-17 ran in no CI: a tool edit that forgot
+#              `node app/scripts/gen-agent-manifest.mjs` was only caught by
+#              someone running the tier by hand.
+#   gui-relay  `scripts/test.sh gui-relay` — the nine agent-*.spec.js
+#              Playwright files that spawn the REAL relay (`uv run
+#              waffle-mcp-relay`) and drive it as an MCP client over stdio
+#              against the page: pairing, authoring, parity, reconnect, tabs
+#              and viewport, export/import. gui-tests.yml deliberately leaves
+#              these out of gui-fast because they need uv.
+#
+# Both jobs run against the COMMITTED WASM bundle in app/static/pkg/ — no Rust
+# toolchain — the same way gui-tests.yml does. Measured locally (2026-09-17):
+# relay 13 s; gui-relay 60 tests in 57 s with 4 workers.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  relay:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: true
+          cache-dependency-glob: relay/uv.lock
+
+      # The manifest guard shells out to node; no npm install is needed
+      # (app/scripts/gen-agent-manifest.mjs imports only from app/src).
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: relay tier (pytest + ruff)
+        run: ./scripts/test.sh relay
+
+  gui-relay:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: true
+          cache-dependency-glob: relay/uv.lock
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: app/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+        working-directory: app
+
+      - name: Install Chromium
+        run: npx playwright install --with-deps chromium
+        working-directory: app
+
+      # Resolve the relay's Python environment before Playwright starts so the
+      # first spec's `uv run` does not spend its relay start-up deadline on a
+      # cold sync.
+      - name: Sync the relay environment
+        run: uv sync --frozen
+        working-directory: relay
+
+      # ubuntu-latest has 4 cores (see gui-tests.yml).
+      - name: gui-relay tier
+        run: ./scripts/test.sh gui-relay
+        env:
+          TEST_THREADS: 4
+
+      - name: Upload traces and screenshots of failures
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-relay-test-results
+          path: app/test-results/
+          if-no-files-found: ignore
+          retention-days: 7

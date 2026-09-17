@@ -72,9 +72,20 @@ The Python relay of the agent link (`relay/`, `specs/waffle_mcp_server.md` §5
 harness a): `uv run pytest`, then `uv run ruff check` and
 `uv run ruff format --check`. It needs `uv` and `node` (one test regenerates
 the tool manifest from `app/src/lib/agent/tools/` and diffs it against the
-relay's committed copy). Runs standalone and as part of `all-fast` and `all`.
-The page side of the link is covered by `app/tests/gui/agent-*.spec.js`,
-which spawn the real relay.
+relay's committed copy). Runs standalone and as part of `all-fast` and `all`,
+and in CI on every push and PR (`.github/workflows/relay-tests.yml`, job
+`relay`).
+
+### GUI Relay (`gui-relay`, 9 spec files, ~1min)
+
+The page side of the agent link: the `app/tests/gui/agent-*.spec.js` files
+that spawn the REAL relay through `uv run waffle-mcp-relay` and drive it as
+an MCP client over stdio (pairing, authoring, O3 parity, reconnect, tabs and
+viewport, export/import). They need `uv`, which is why they are not in
+`gui-fast`. `GUI_RELAY_SPECS` in `scripts/test.sh` is the list; every
+`agent-*.spec.js` belongs either there or in `GUI_FAST_SPECS` (the two
+`agent-rust-*` files drive the page's own executor and need no relay). Runs
+in CI as the `gui-relay` job of `relay-tests.yml`.
 
 ## Running Tests
 
@@ -84,9 +95,10 @@ which spawn the real relay.
 ./scripts/test.sh fast       # Rewrite + consumer crates (~500s)
 ./scripts/test.sh full       # All Rust tests incl. parity (~27min)
 ./scripts/test.sh gui-fast   # Quick GUI smoke tests (also CI: .github/workflows/gui-tests.yml)
+./scripts/test.sh gui-relay  # Agent-link GUI specs that spawn the real relay (also CI: relay-tests.yml)
 ./scripts/test.sh gui-full   # All GUI tests
-./scripts/test.sh relay      # Agent-link relay: pytest + ruff
-./scripts/test.sh all-fast   # Rust fast + GUI fast + relay
+./scripts/test.sh relay      # Agent-link relay: pytest + ruff (also CI: relay-tests.yml)
+./scripts/test.sh all-fast   # Rust fast + GUI fast + GUI relay + relay
 ./scripts/test.sh all        # Everything
 ./scripts/test.sh assay      # Corpus replay + proptest assays
 ./scripts/test.sh profile    # Run timing profiler

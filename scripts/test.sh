@@ -134,6 +134,25 @@ GUI_FAST_SPECS=(
 )
 
 # ---------------------------------------------------------------------------
+# GUI Relay Tier — the agent-link specs that spawn the REAL Python relay
+# (app/tests/gui/helpers/mcp-relay.js runs `uv run waffle-mcp-relay`). Kept
+# out of gui-fast because they need uv; they are the page side of the link
+# that the `relay` tier's pytest suite cannot see. Every agent-*.spec.js
+# not listed in GUI_FAST_SPECS belongs here.
+# ---------------------------------------------------------------------------
+GUI_RELAY_SPECS=(
+  agent-link.spec.js
+  agent-authoring.spec.js
+  agent-document-load-gate.spec.js
+  agent-documents.spec.js
+  agent-executor-pure.spec.js
+  agent-export-import.spec.js
+  agent-parity.spec.js
+  agent-reconnect.spec.js
+  agent-tabs-viewport.spec.js
+)
+
+# ---------------------------------------------------------------------------
 # Concurrency — maximize parallelism within memory safety bounds.
 # Each boolean cascade test: 200-500MB. Each Chromium+WASM worker: 200-500MB.
 # Default 8 threads/workers ≈ 8GB peak. Override: TEST_THREADS=12 scripts/test.sh full
@@ -452,6 +471,38 @@ run_gui_fast() {
 }
 
 # ---------------------------------------------------------------------------
+# Tier: GUI Relay (~60 tests, 9 spec files, needs uv)
+# ---------------------------------------------------------------------------
+run_gui_relay() {
+  header "GUI Relay Tier"
+  local tier_start rc=0
+  tier_start=$(timer_start)
+
+  if ! command -v uv >/dev/null 2>&1 && [[ ! -x "$HOME/.local/bin/uv" ]]; then
+    fail "gui-relay: uv not found (install uv: https://docs.astral.sh/uv/)"
+    return
+  fi
+
+  local spec_args=()
+  for spec in "${GUI_RELAY_SPECS[@]}"; do
+    spec_args+=("tests/gui/$spec")
+  done
+
+  # No mem_guard — see run_gui_fast (V8 sandbox vs prlimit --as).
+  (cd "$APP_DIR" && PW_WORKERS="$TEST_THREADS" npx playwright test "${spec_args[@]}") || rc=$?
+
+  local elapsed
+  elapsed=$(timer_elapsed "$tier_start")
+  if [[ $rc -eq 0 ]]; then
+    pass "GUI Relay (${elapsed}s)"
+  else
+    fail "GUI Relay (${elapsed}s)"
+  fi
+  echo ""
+  echo -e "${CYAN}  GUI Relay tier completed in ${elapsed}s${NC}"
+}
+
+# ---------------------------------------------------------------------------
 # Tier: GUI Full (~425 tests)
 # ---------------------------------------------------------------------------
 run_gui_full() {
@@ -606,9 +657,10 @@ print_help() {
   echo -e "  ${GREEN}full${NC}         Rust full tier        (~910 tests, includes parity)"
   echo -e "  ${GREEN}parity${NC}       Ignored sidecar reference oracles (~20s, needs sidecars)"
   echo -e "  ${GREEN}gui-fast${NC}     GUI fast tier         (~275 tests, 37 spec files)"
+  echo -e "  ${GREEN}gui-relay${NC}    GUI relay tier        (~60 tests, agent-link specs that spawn the real relay; needs uv)"
   echo -e "  ${GREEN}gui-full${NC}     GUI full tier         (~425 tests, all spec files)"
   echo -e "  ${GREEN}relay${NC}        Agent-link relay      (pytest + ruff, needs uv and node)"
-  echo -e "  ${GREEN}all-fast${NC}     fast + gui-fast + relay"
+  echo -e "  ${GREEN}all-fast${NC}     fast + gui-fast + gui-relay + relay"
   echo -e "  ${GREEN}all${NC}          full + gui-full + relay"
   echo -e "  ${GREEN}assay-quick${NC}  Assay proptest        (5 cases, <30s)"
   echo -e "  ${GREEN}assay${NC}        Assay proptest        (default cases, ~3min)"
@@ -628,6 +680,9 @@ print_help() {
   echo ""
   echo -e "${BOLD}GUI Fast Tier:${NC}"
   echo "  ${#GUI_FAST_SPECS[@]} spec files (sketch, snap, feature-tree, selection, etc.)"
+  echo ""
+  echo -e "${BOLD}GUI Relay Tier:${NC}"
+  echo "  ${#GUI_RELAY_SPECS[@]} spec files (agent-*.spec.js driving the real Python relay)"
   echo ""
   echo -e "${BOLD}GUI Full Tier:${NC}"
   echo "  All spec files in app/tests/gui/"
@@ -660,6 +715,9 @@ main() {
     gui-fast)
       run_gui_fast
       ;;
+    gui-relay)
+      run_gui_relay
+      ;;
     gui-full)
       run_gui_full
       ;;
@@ -669,6 +727,7 @@ main() {
     all-fast)
       run_rust_fast
       run_gui_fast
+      run_gui_relay
       run_relay
       ;;
     all)
