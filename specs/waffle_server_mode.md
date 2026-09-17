@@ -200,11 +200,12 @@ landed. Next: **S4**, the native host — which now has one `execute_tool`
 to wrap for every non-render tool, and one field (`ToolResult::download`)
 to honour for the export pair.
 Open debt found by the 2026-09-17 consistency review and not yet paid (the
-agent-rust-* specs now run in CI: gui-fast, `.github/workflows/gui-tests.yml`,
-since C6): the relay manifest
-drift guard (`relay/tests/test_manifest.py`) runs in no CI job; the routing
-table exists in Rust (`MIGRATED`) and in the page (two sets) with only the
-specs tying them; `finishProfiles.js` (interactive) and
+agent-rust-* specs run in CI — gui-fast, `.github/workflows/gui-tests.yml`,
+since C6 — and, since later the same day, so do the relay's pytest suite
+with its manifest drift guard and the nine relay-backed agent specs:
+`.github/workflows/relay-tests.yml`, tiers `relay` and `gui-relay`): the
+routing table exists in Rust (`MIGRATED`) and in the page (two sets) with
+only the specs tying them; `finishProfiles.js` (interactive) and
 `build_finish_profiles` (agent) have no cross oracle; the store still
 pre-writes `activeTabId` before `SwitchTab`/`OpenPartInContext`.
 

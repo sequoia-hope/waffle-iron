@@ -337,6 +337,52 @@ redo-stack entry left by a rollback.
   no placement dialog. O21 round trip in `agent-export-import.spec.js`.
 - [ ] Assembly tabs read-only, parameters as MCP resources.
 
+### Findings from the planetary-gearbox exercise (2026-09-17)
+
+A planetary stage (sun 18 / planets 3×12 / ring 42, module 1.5 mm, carrier
+with pins and boss) was built end to end through the REAL relay and a
+headless page — five Part tabs, 93 s, every call green; script, call log,
+captures, `.waffle.json` and STEP in `docs/notes/planetary_gearbox/`. What
+the exercise found, in priority order:
+
+- [ ] **No agent tool authors an assembly.** `tab_add kind:"Assembly"`
+  exists, but `tab_switch` refuses Assembly tabs (G7) and nothing exposes
+  `EditAssembly` (instances, mates) although the engine has owned assembly
+  trees since S2 C3b and parts can carry `MateConnector` features. An
+  "assembly" today is a Part tab with every body placed by hand (the
+  gearbox's "Stage" tab). A thin `assembly_edit` / `instance_add` /
+  `mate_add` over `EditAssembly` would close it.
+- [ ] **feature-engine defect, silent:** an explicit `Strict` target naming a
+  CONSUMED output duplicates the consumed body instead of failing
+  (`projects/06-feature-engine/PLAN.md` Blockers). Every chained boolean an
+  agent authors must target the PREVIOUS boolean's `Main`; the tool
+  descriptions should say so until the engine refuses the stale ref.
+- [ ] **`body_measure.closed` is false for every boolean output** (bored
+  gears, the ring after its teeth cut, the carrier after three unions),
+  true for a plain extrude. Volumes are exact and right (bored sun
+  5259.9 mm³ = 5542.7 − π·3²·10); only the bored gears' surface area falls
+  back to mesh, loudly (`exact_unavailable.surface_area`: cavity-sense
+  cylinder faces are KV5b partial patches — a known boundary, correctly
+  reported). `closed` is `edge_faces(e).len() == 2` for every edge
+  (`dispatch.rs`); either the boolean outputs really carry non-manifold
+  edges (a kernel question) or the census is wrong for them (a bridge
+  question) — anchor before fixing.
+- [ ] **No progress reporting.** The relay hard-codes `progress: false` in
+  every `call` frame and drops `progress` frames ("Phase 0 has no
+  long-running page tools" in `link.py`, stale); the page never sends one.
+  A boolean can run minutes (F0085 ≈ 300 s), during which an MCP client sees
+  nothing and may time out and cancel (A18 then undoes finished work). Wire
+  MCP `progressToken` → `call.progress` → page `progress` frames from the
+  rebuild's per-feature notifications.
+- [ ] **`sketch_regions` on a multi-gear sketch is unusable for
+  addressing:** five gears plus a rim circle returned only sub-regions with
+  `profile_entity_ids: null` (the ring's toothed loop and the planets'
+  loops interleave without touching, yet no whole loop was reported). One
+  sketch per gear works. Worth a regression case in `regions.rs`.
+- [ ] Doc drift: `specs/waffle_mcp_server.md` still says "Phase 1 in
+  progress"; Phase 2's tab, viewport, export, import and connector tools have
+  landed.
+
 ## Blockers
 
 - Environment: the workspace disk is at ~100% (16 GB free on 2026-09-14);

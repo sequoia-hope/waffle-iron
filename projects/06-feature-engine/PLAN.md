@@ -98,6 +98,20 @@
 - ~~Depends on modeling-ops (OpResult production with provenance)~~ Resolved
 - ~~Can start M1-M4 with mock OpResults before modeling-ops is ready~~ Resolved (all milestones complete)
 - Fillet, chamfer, and shell operations: MockKernel tests pass but WaffleKernel implementation is deferred indefinitely (see root CLAUDE.md)
+- **DEFECT (found 2026-09-17 building a planetary gearbox over the agent
+  link, `docs/notes/planetary_gearbox/`): an explicit `Strict` combine target
+  that names an output ALREADY CONSUMED by an earlier combine is neither
+  refused nor warned about.** `resolve_combine_targets` (`rebuild.rs`)
+  documents `Strict ⇒ loud ResolutionFailed`, but `find_solid_handle` still
+  finds the consumed feature's stale handle in `feature_results`, so the
+  boolean runs against it and DUPLICATES the consumed body: plate → pin 1
+  `Add` (targets plate; consumes it) → pin 2 `Add` (targets plate again)
+  yields two bodies of 5127.1 mm³ each (plate 5026.5 + one pin), no
+  warning, no error (`repro_consumed_target.mjs` in that notes folder).
+  Expected per P10 and the function's own doc: `ResolutionFailed` for
+  `Strict`, a warning and a dropped target for `BestEffort`. Fix: consult
+  `already_consumed` in the `Explicit` arm (as `MostRecentLegacy` does) and
+  add a test that chains two explicit combines onto one original output.
 
 ## Interface Change Requests
 
