@@ -411,6 +411,31 @@ fn tessellate_developable_patch(
         DevSurface::Cone { tan_half_angle } => tan_half_angle,
     };
     let w_facet = 2.0 * PI * r_unroll / f64::from(n_seg);
+    /// Facet-width fraction for triangles touching a SPUR node (spec
+    /// `kv2_cdt_triangulation_core` §6b M3d).
+    ///
+    /// A spur is the trace of another sheet TANGENT to this face along a
+    /// line (C0056: the outer wall of a cylinder whose blind hole touches
+    /// it along one generator). Two inscribed renders of internally tangent
+    /// cylinders CROSS next to the tangent line unless the outer's first
+    /// chord is shorter than the inner's: a chord leaving the shared tangent
+    /// line at angular step φ lies `s·φ/2` below the common tangent plane at
+    /// tangent distance `s` — on ANY radius — while the surfaces themselves
+    /// separate only quadratically, so both renders dip below the tangent
+    /// plane and the deeper one is simply the one with the larger step. The
+    /// per-face relative sagitta gives every cylinder the SAME angular step,
+    /// which makes the two first chords coincide to second order and cross
+    /// on higher-order terms (measured: `SelfIntersectingBooleanOutput`,
+    /// four penetrations, ~1e-4 deep — real crossings of the render, not of
+    /// the B-Rep, whose tangency is exact). Halving the facet width at the
+    /// spur puts this face's first chord strictly above the neighbour's
+    /// (`φ/2 < ψ`); the second chord and beyond are already far outside the
+    /// tangent sheet (its gap at azimuth θ is `R θ² (R−r)/(2r)` against a
+    /// sag of `R φ²/32`). The neighbour carries the line as an ordinary
+    /// boundary (a seam, not a spur) and keeps its regular step, which is
+    /// what makes the rule ASYMMETRIC and hence effective. Not a band: an
+    /// unresolved crossing still trips the loud self-intersection gate.
+    const SPUR_FACET_FRACTION: f64 = 0.5;
     // §4.3.4 inc-0 census (spec `yang_434_output_chord_refinement.md` §3,
     // env-gated `KV2_CHORD_DEPTH_CENSUS`, print-only): per face, the depth of
     // the boundary `LineSegment` chords below this developable surface
@@ -835,23 +860,35 @@ fn tessellate_developable_patch(
     // a pinch spanning inconsistent seam windows is out of scope, loudly.
     // Wrap chains are never translated (their absolute window anchors the
     // seam cut): a wrap chain matching at k ≠ 0 is equally out of scope.
+    //
+    // A SAME-chain match a whole window apart is not a pinch at all: it is a
+    // SEAM DUPLICATE — one loop cut open along a seam visits the seam's end
+    // vertex on both sides of the cut, a span apart by construction, and the
+    // two copies must stay distinct nodes at distinct 2D positions (the CDT
+    // accepts them as such; spec §6b M3d, C0056's hole-wall cylinder whose
+    // seam is the tangent line it shares with the outer wall). Skip those;
+    // a same-chain match at k = 0 is a genuine in-loop pinch (spur or lobe)
+    // and canonicalizes like any other.
     {
-        let mut canon_of: std::collections::BTreeMap<(u64, u64, u64), usize> =
+        let mut canon_of: std::collections::BTreeMap<(u64, u64, u64), (usize, usize)> =
             std::collections::BTreeMap::new();
-        for c in &mut chains {
+        for (ci, c) in chains.iter_mut().enumerate() {
             let mut anchored = false;
             for i in 0..c.entries.len() {
                 let e = c.entries[i].0;
                 let p = nodes[e].pos;
                 let key = (p[0].to_bits(), p[1].to_bits(), p[2].to_bits());
-                let Some(&n0) = canon_of.get(&key) else {
-                    canon_of.insert(key, e);
+                let Some(&(c0, n0)) = canon_of.get(&key) else {
+                    canon_of.insert(key, (ci, e));
                     continue;
                 };
                 if n0 == e {
                     continue;
                 }
                 let k = ((nodes[e].p2.x() - nodes[n0].p2.x()) / span).round();
+                if k != 0.0 && c0 == ci {
+                    continue; // seam duplicate of this very loop
+                }
                 if k != 0.0 {
                     if anchored || c.wrap != 0 {
                         return Err(fail("pinched loop spans inconsistent seam windows"));
@@ -1285,8 +1322,12 @@ fn tessellate_developable_patch(
             );
         }
     }
-    let cdt_tris =
+    let (cdt_tris, slits) =
         triangulate_with_pinch_split(&pool_p2, &pool_p3, &outer_cdt, &holes_cdt).map_err(fail)?;
+    // Work nodes on a SPUR (M3d slit): the trace of another sheet tangent to
+    // this face along a line. See `SPUR_FACET_FRACTION` below.
+    let spur_w: std::collections::BTreeSet<usize> =
+        slits.iter().flatten().map(|&pi| pi as usize).collect();
 
     // ---- pass 4: conforming chord-bound refinement -------------------------
     // Triangles in "work" coordinates: each corner = (p2 in the CUT frame,
@@ -1509,7 +1550,16 @@ fn tessellate_developable_patch(
     );
     while let Some(seed) = work.pop_front() {
         let du = max_du(wtris[seed], &wnodes);
-        if du <= w_limit
+        // Facet limit for this triangle: the render facet width, or its
+        // spur fraction for a triangle with a corner ON a spur (a chart node
+        // the ring reaches by a zero-width slit — the tangent line another
+        // sheet shares with this face).
+        let limit = if wtris[seed].iter().any(|w| spur_w.contains(w)) {
+            w_limit * SPUR_FACET_FRACTION
+        } else {
+            w_limit
+        };
+        if du <= limit
             && !(lift_refine && du > du_floor && lift_inverts(wtris[seed], &wnodes, &nodes))
         {
             continue;

@@ -187,7 +187,8 @@ pub use cherchi_rs::{NativeBoolean, NativeBooleanError};
 // through this seam — the same pattern as `NativeBoolean` above and the torus
 // UV-patch consumer's existing use of this primitive.
 pub use cherchi_rs::triangulation::{
-    cdt_polygon_with_holes, cdt_polygon_with_holes_floodfill, CdtError,
+    cdt_polygon_with_holes, cdt_polygon_with_holes_floodfill,
+    cdt_polygon_with_holes_floodfill_constrained, CdtError,
 };
 // `ArrangementError` is re-exported so that kernel-v2 (whose dep rules allow
 // `yang-rs` but NOT `cherchi-rs`) can pattern-match the M8 boundary inside

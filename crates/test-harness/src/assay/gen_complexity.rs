@@ -1726,11 +1726,17 @@ fn family_cyl_degree4(dir: &Path) -> Vec<ManifestEntry> {
             "degree-4 cyl×cyl",
             "internal lateral tangency, cut (wall thins to zero at the tangent line) [KV9-tangency]",
         );
+        // Expected volume: the boss is r = 1, h = 1 (π); the cut runs from
+        // z = 1.4 DOWN 1.2 to z = 0.2, so only 0.8 of it lies inside the
+        // boss — π − π·0.25·0.8. The original knob subtracted a full-height
+        // hole (π·0.25·1.0 = 0.75π), an authored-invalid expectation that
+        // graded the first correct output SUPPORTED_WRONG (2026-09-17: the
+        // kernel measured 2.5104 against 0.8π = 2.5133).
         e.push(write_c_case(
             dir,
             c,
             d,
-            Knobs::curved(2, PI * 1.0 - PI * 0.25 * 1.0, 4.0),
+            Knobs::curved(2, PI * 1.0 - PI * 0.25 * 0.8, 4.0),
         ));
     }
     // C0057: near-tangent parallel (overlap width 1e-6).

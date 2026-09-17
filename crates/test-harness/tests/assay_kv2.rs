@@ -1386,6 +1386,9 @@ fn smoke_corpus_boundary_categories() {
         // former entry below; at 28.0 s release it is too heavy for a smoke
         // gate, and the kv9 exact-volume oracle pins it for 0.15 s instead.
         ("F0058", Category::SupportedCorrect),
+        // §4.3.3 generator arm + M3d slit + per-fan χ (2026-09-17): the
+        // internally tangent blind hole, 0.4 s release.
+        ("C0056", Category::SupportedCorrect),
         // F0060 FLIPPED (2026-09-13, spec `yang_tangency_pinch_split.md`
         // §0c): the perpendicular equal-radius cylinder cut is LINE-pinched
         // along both cap diameters and POINT-pinched at (±r, 0, 0); the

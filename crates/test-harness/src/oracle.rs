@@ -288,20 +288,33 @@ struct HybridComplex {
 /// complex came out one short per touch (F0060: four lobes touching pairwise
 /// at two tangent points read as two shells of χ = 3 each). `pinch_extra` is
 /// the correction the weld owes back: Σ over welded vertices of (number of
-/// shells touching it − 1), i.e. the per-sheet vertex copies the weld
-/// removed. A pinch INSIDE one shell (a self-touching sheet: two closed fans
-/// of the SAME component) contributes nothing and still reads one χ short,
-/// as it must — that is a defect, not a representation. Two sheets sharing
-/// an EDGE key are one component here and stay non-manifold for the
-/// watertight oracle; only the vertex case is a representation question.
+/// FANS at it − 1), where a fan is an edge-connected component of the
+/// vertex's incident triangles (its link components) — i.e. the per-sheet
+/// vertex copies the weld removed, whichever shells they belong to.
+///
+/// Counting fans rather than touching SHELLS (the 2026-09-13 form) is the
+/// same rule completed: a solid whose boundary touches itself at a point
+/// has one B-Rep vertex per sheet there whether the two sheets are separate
+/// shells (F0060's lobes) or one shell folded back on itself (C0056: the
+/// outer wall of a blind hole tangent to it along a generator — the top
+/// crescent's cusp is two vertices of ONE sphere, and kernel-v2's own
+/// manifold validator accepts exactly that). The two counts agree wherever
+/// every shell meets a vertex in one fan, so no verdict without an in-shell
+/// pinch changes. Two sheets sharing an EDGE key are one component here and
+/// stay non-manifold for the watertight oracle; a vertex whose fans are
+/// merely cut open by an unpaired edge is not a pinch and is not credited
+/// (a fan is counted per component, and an open fan is still one).
 struct ShellDecomposition {
     shells: usize,
     pinch_extra: usize,
 }
 
+/// `tri_edge_keys[t][s]` are the keys of triangle `t`'s edge slot `s`
+/// (`s = 0`: v0–v1, `1`: v1–v2, `2`: v2–v0 of `tri_vertex_ids[t]`); a slot
+/// carries several keys when the edge is T-subdivided.
 fn shell_decomposition<K: std::hash::Hash + Eq>(
     tri_vertex_ids: &[[usize; 3]],
-    tri_edge_keys: &[Vec<K>],
+    tri_edge_keys: &[[Vec<K>; 3]],
 ) -> ShellDecomposition {
     use std::collections::HashSet;
     let n = tri_vertex_ids.len();
@@ -315,8 +328,8 @@ fn shell_decomposition<K: std::hash::Hash + Eq>(
     }
     // Every triangle sharing an edge key joins the first triangle seen on it.
     let mut first_on_key: HashMap<&K, usize> = HashMap::new();
-    for (ti, keys) in tri_edge_keys.iter().enumerate() {
-        for k in keys {
+    for (ti, slots) in tri_edge_keys.iter().enumerate() {
+        for k in slots.iter().flatten() {
             match first_on_key.get(k) {
                 Some(&tj) => {
                     let (ra, rb) = (find(&mut parent, ti), find(&mut parent, tj));
@@ -331,15 +344,45 @@ fn shell_decomposition<K: std::hash::Hash + Eq>(
         }
     }
     let mut roots: HashSet<usize> = HashSet::new();
-    let mut shells_at_vertex: HashMap<usize, HashSet<usize>> = HashMap::new();
+    // Corners per welded vertex: (triangle, corner index).
+    let mut corners: HashMap<usize, Vec<(usize, usize)>> = HashMap::new();
     for (ti, vids) in tri_vertex_ids.iter().enumerate() {
-        let r = find(&mut parent, ti);
-        roots.insert(r);
-        for &v in vids {
-            shells_at_vertex.entry(v).or_default().insert(r);
+        roots.insert(find(&mut parent, ti));
+        for (c, &v) in vids.iter().enumerate() {
+            corners.entry(v).or_default().push((ti, c));
         }
     }
-    let pinch_extra = shells_at_vertex.values().map(|s| s.len() - 1).sum();
+    // Fans: components of a vertex's corner triangles under the keys of the
+    // two edge slots INCIDENT to that corner (slot c leaves the corner, slot
+    // (c+2)%3 arrives at it).
+    let mut pinch_extra = 0usize;
+    for list in corners.values() {
+        if list.len() < 2 {
+            continue;
+        }
+        let m = list.len();
+        let mut lp: Vec<usize> = (0..m).collect();
+        let mut first_local: HashMap<&K, usize> = HashMap::new();
+        for (li, &(ti, c)) in list.iter().enumerate() {
+            for slot in [c, (c + 2) % 3] {
+                for k in &tri_edge_keys[ti][slot] {
+                    match first_local.get(k) {
+                        Some(&lj) => {
+                            let (ra, rb) = (find(&mut lp, li), find(&mut lp, lj));
+                            if ra != rb {
+                                lp[ra.max(rb)] = ra.min(rb);
+                            }
+                        }
+                        None => {
+                            first_local.insert(k, li);
+                        }
+                    }
+                }
+            }
+        }
+        let fans: HashSet<usize> = (0..m).map(|i| find(&mut lp, i)).collect();
+        pinch_extra += fans.len() - 1;
+    }
     ShellDecomposition {
         shells: roots.len().max(1),
         pinch_extra,
@@ -427,7 +470,7 @@ fn hybrid_edge_complex(mesh: &RenderMesh, inv_grid: f64) -> HybridComplex {
         )
     };
     let mut tri_vids: Vec<[usize; 3]> = Vec::with_capacity(mesh.indices.len() / 3);
-    let mut tri_keys: Vec<Vec<HybridEdgeKey>> = Vec::with_capacity(mesh.indices.len() / 3);
+    let mut tri_keys: Vec<[Vec<HybridEdgeKey>; 3]> = Vec::with_capacity(mesh.indices.len() / 3);
     for tri in mesh.indices.chunks_exact(3) {
         let ks = [xkey(tri[0]), xkey(tri[1]), xkey(tri[2])];
         tri_vids.push([
@@ -435,18 +478,18 @@ fn hybrid_edge_complex(mesh: &RenderMesh, inv_grid: f64) -> HybridComplex {
             vid(ks[1], &id_of, &residue_verts),
             vid(ks[2], &id_of, &residue_verts),
         ]);
-        let mut keys: Vec<HybridEdgeKey> = Vec::with_capacity(3);
-        for (a, b) in [(ks[0], ks[1]), (ks[1], ks[2]), (ks[2], ks[0])] {
+        let slot = |a: XKey, b: XKey| -> Vec<HybridEdgeKey> {
             let e = if a <= b { (a, b) } else { (b, a) };
             if exact.get(&e).copied() == Some(2) {
-                keys.push(HybridEdgeKey::Exact(e.0, e.1));
+                vec![HybridEdgeKey::Exact(e.0, e.1)]
             } else {
-                for sub in t_split_chain(qof(a), qof(b), &qverts) {
-                    keys.push(HybridEdgeKey::Quant(sub));
-                }
+                t_split_chain(qof(a), qof(b), &qverts)
+                    .into_iter()
+                    .map(HybridEdgeKey::Quant)
+                    .collect()
             }
-        }
-        tri_keys.push(keys);
+        };
+        tri_keys.push([slot(ks[0], ks[1]), slot(ks[1], ks[2]), slot(ks[2], ks[0])]);
     }
     let dec = shell_decomposition(&tri_vids, &tri_keys);
 
@@ -1713,16 +1756,14 @@ pub fn check_mesh_euler_characteristic_with_shells(
             )
         };
         let mut tri_vids: Vec<[usize; 3]> = Vec::with_capacity(mesh.indices.len() / 3);
-        let mut tri_keys: Vec<Vec<ExactEdge>> = Vec::with_capacity(mesh.indices.len() / 3);
+        let mut tri_keys: Vec<[Vec<ExactEdge>; 3]> = Vec::with_capacity(mesh.indices.len() / 3);
         for tri in mesh.indices.chunks_exact(3) {
             let ks = [xkey(tri[0]), xkey(tri[1]), xkey(tri[2])];
             tri_vids.push([idx[&ks[0]], idx[&ks[1]], idx[&ks[2]]]);
-            tri_keys.push(
-                [(ks[0], ks[1]), (ks[1], ks[2]), (ks[2], ks[0])]
-                    .into_iter()
-                    .map(|(a, b)| if a <= b { (a, b) } else { (b, a) })
-                    .collect(),
-            );
+            let key = |a: (u32, u32, u32), b: (u32, u32, u32)| -> Vec<ExactEdge> {
+                vec![if a <= b { (a, b) } else { (b, a) }]
+            };
+            tri_keys.push([key(ks[0], ks[1]), key(ks[1], ks[2]), key(ks[2], ks[0])]);
         }
         let dec = shell_decomposition(&tri_vids, &tri_keys);
         let shells = dec.shells as i64;
@@ -3207,6 +3248,54 @@ mod tests {
         assert!(
             verdict.detail.contains("+1 pinch") && verdict.detail.contains("2 shell(s)"),
             "the third cube is a distinct shell touching at a corner; the edge pair is one: {}",
+            verdict.detail
+        );
+    }
+
+    #[test]
+    fn euler_characteristic_in_shell_vertex_pinch_counts_the_vertex_per_fan() {
+        // C0056's shape in miniature (2026-09-17): ONE closed shell whose
+        // boundary touches itself at a point — two tetrahedra sharing the
+        // origin, their far faces removed and joined by a three-quad tube, so
+        // the surface is a single sphere (disc + annulus + disc) that passes
+        // through the origin twice. The position weld reads the origin once
+        // and V−E+F comes out 1; the honest manifold count has one vertex
+        // PER FAN there (two closed fans of the same component), χ = 2.
+        let mut mesh = empty_mesh();
+        let o = [0.0f32, 0.0, 0.0];
+        let (a1, a2, a3) = ([1.0f32, 0.0, 0.0], [0.0f32, 1.0, 0.0], [0.0f32, 0.0, 1.0]);
+        let (b1, b2, b3) = (
+            [-1.0f32, 0.0, 0.0],
+            [0.0f32, -1.0, 0.0],
+            [0.0f32, 0.0, -1.0],
+        );
+        // Tetrahedron 1 minus its far face (a1, a2, a3).
+        push_tri(&mut mesh, o, a2, a1);
+        push_tri(&mut mesh, o, a3, a2);
+        push_tri(&mut mesh, o, a1, a3);
+        // Tetrahedron 2 minus its far face (b1, b2, b3).
+        push_tri(&mut mesh, o, b1, b2);
+        push_tri(&mut mesh, o, b2, b3);
+        push_tri(&mut mesh, o, b3, b1);
+        // The tube: quads (a1,a2,b3,b2), (a2,a3,b1,b3), (a3,a1,b2,b1) — no
+        // tube edge passes through the origin, so nothing T-splits there.
+        for q in [[a1, a2, b3, b2], [a2, a3, b1, b3], [a3, a1, b2, b1]] {
+            push_tri(&mut mesh, q[0], q[1], q[2]);
+            push_tri(&mut mesh, q[0], q[2], q[3]);
+        }
+        finish_single_range(&mut mesh);
+        let wt = check_watertight_mesh(&mesh);
+        assert!(wt.passed, "every edge pairs exactly: {}", wt.detail);
+        let verdict = check_mesh_euler_characteristic(&mesh, 2);
+        assert!(
+            verdict.passed,
+            "an in-shell vertex pinch is one vertex per fan: {}",
+            verdict.detail
+        );
+        assert_eq!(verdict.value, Some(2.0));
+        assert!(
+            verdict.detail.contains("+1 pinch") && verdict.detail.contains("1 shell(s)"),
+            "one shell, one fused copy: {}",
             verdict.detail
         );
     }

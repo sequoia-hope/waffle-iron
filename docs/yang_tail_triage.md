@@ -43,6 +43,47 @@ after the reconciliation run (release, 8 jobs, 360 s; wall 577 s, F0085
 regression since 2026-08-01 is outstanding (checked over every commit of
 `results.json`).
 
+## 2026-09-17 — C0056 CONVERTED ⇒ 291C: the §4.3.3 mint's GENERATOR arm (parallel-axis cyl×cyl), then three consumers that had never seen a line-pinched face — kernel-v2 M3d SLIT tessellation, the spur facet fraction at the render self-intersection gate, and per-FAN χ counting in the oracle; canonical **291C / 0W / 14E / 4EE / 0T + 3 U**, exactly one move
+
+Canonical corpus after the flip run (release, 8 jobs, 600 s; wall 738.1 s; F0085 321.6 s, R0044 293.3 s, F0065 110.9 s): **291C / 0W / 14E / 4EE / 0T + 3 UNSUPPORTED(coplanar-boolean)** — per-id diff of the committed `results.json`: exactly ONE category move (C0056 ERROR → SUPPORTED_CORRECT), ZERO detail moves. Spec `yang_433_tangent_point_mesh_update.md` §11 and
+`kv2_cdt_triangulation_core.md` §6d carry the measurements; the short form:
+
+1. **The Stage-3 `AmbiguousCurve {1, 0}` was the point-form finding in line
+   form.** The single candidate IS the exact generator; the arrangement's chords
+   sit 4.9e-2 off it because A's 13-gon has no ruling at the tangent azimuth and
+   B's 12-gon ruling there differs in the last bits between its two rims. Mint
+   the generator as a RULING of both prisms (rim samples `p₀ + h·û`, identical
+   non-axial bits; the axis must be exactly a coordinate axis, else decline);
+   B's existing uniform slot takes the override's bits (#143). The pipeline then
+   completes with the honest Mäntylä output: cusp as two vertices, the tangent
+   line as two twin edge pairs, a SPUR of the outer wall / a SEAM of the hole
+   wall; `validate_solid` accepts it.
+2. **kernel-v2 tessellation read the spur as a 2-vertex pinch sub-ring** —
+   M3d: peel it into an interior CDT constraint
+   (`cdt_polygon_with_holes_floodfill_constrained`); developable pass 1.5 must
+   not merge a same-loop seam duplicate.
+3. **The render self-intersection gate then fired on four ~1e-4 crossings** —
+   real crossings of the two RENDERS at an internal tangency (equal relative-
+   sagitta steps ⇒ coincident first chords; r = R/2 is the midpoint-circle
+   case). `SPUR_FACET_FRACTION = 0.5` halves the spur owner's facet width; the
+   seam-carrying neighbour keeps its step. Not a band — the gate stays loud
+   (thin walls r ≳ 0.9R remain a STOP).
+4. **The χ oracle read V−E+F = 1**: the position weld fuses the cusp inside ONE
+   shell, and the 2026-09-13 rule credited fused copies only across shells. That
+   "as it must" was wrong: one B-Rep vertex per FAN is the representation, in
+   one shell or two. `pinch_extra` = Σ (link components − 1).
+5. **C0056's `expected_volume` was authored for a full-height hole**
+   (0.75π); the cut spans 0.8 of the boss: 0.8π = 2.5133 (measured 2.5104).
+   Generator knob + meta corrected (the R0004 precedent).
+
+Named, not fixed: C0043 (same tangency, coplanar caps) takes the Stage-0 path
+where the mint is not wired — M8. A slit with both ends interior (an inner
+zero-area loop) is not peeled. The 2026-09-13 "4-valent exact line edge" case
+still did not arise (the spur refinement subdivides only the outer copy).
+
+Remaining actionable tail: 14 ERROR (R0038, R0050, R0100, C0065, R0019, R0085 and
+the C-series/M8 residue rows below), unchanged but for C0056 struck.
+
 ## 2026-09-13 (night, latest+2) — F0060 CONVERTED ⇒ 290C: the χ = 6 was the assay ORACLE welding Mäntylä duplication, not the output; the edge-pinch split is ALWAYS-ON; canonical **290C / 0W / 15E / 4EE / 0T + 3 U**, exactly one move
 
 Canonical after the flip run (release, 8 jobs, 600 s; wall 745.8 s at host load
@@ -2259,7 +2300,7 @@ Two dead ends, closed by measurement (do not re-walk them):
 | Case | Loud error | Root cause | Confidence | Vehicle |
 |---|---|---|---|---|
 | C0043 | AmbiguousCurve {1, 0} edge (23,93) | probe 2026-07-18 (`YANG_S3_AMBIG_PROBE`): the two surfaces are **internally tangent cylinders BY DESIGN** (r=1.0 at origin, r=0.4 at x=0.6; axis distance 0.6 = 1.0−0.4; gen_complexity.rs: "the degenerate tangency is the test", union == operand A by design). The single candidate IS the exact tangent generator Line{[1,0,0], ẑ}; the mesh intersection chords sit 4.5e-2 off it (= tol, the near-parallel-surface amplification at tangency) so matched=0 — a correct loud STOP on 1D line-contact tangency. Same contact-degeneracy family as C0107–C0110 | CONFIRMED (#171 pass 2) | degenerate-tangency SSI vocabulary (C0109 family) or scope sign-off |
-| C0056 | AmbiguousCurve {1, 0} edge (37,70) | probe 2026-07-18: same signature, also BY DESIGN — internal lateral tangency cut (r=1.0 origin × r=0.5 at x=0.5, axis distance 0.5 = 1.0−0.5; "wall thins to zero at the tangent line"); candidate = Line{[1,0,0], ẑ}, chords 4.9e-2 off. Output would be zero-thickness at the tangent line (C0114/C0115 kin) | CONFIRMED (#171 pass 2) | degenerate-tangency SSI vocabulary or scope sign-off |
+| ~~C0056~~ | ~~AmbiguousCurve {1, 0} edge (37,70)~~ **CONVERTED 2026-09-17 (§4.3.3 generator arm + M3d slit + spur facet fraction + per-fan χ; section above)** | probe 2026-07-18: same signature, also BY DESIGN — internal lateral tangency cut (r=1.0 origin × r=0.5 at x=0.5, axis distance 0.5 = 1.0−0.5; "wall thins to zero at the tangent line"); candidate = Line{[1,0,0], ẑ}, chords 4.9e-2 off. Output would be zero-thickness at the tangent line (C0114/C0115 kin) | CONFIRMED (#171 pass 2) | degenerate-tangency SSI vocabulary or scope sign-off |
 
 ### NonPlanarFace (3)
 

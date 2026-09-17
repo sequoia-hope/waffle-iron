@@ -61,7 +61,7 @@
       "decrease"
     ],
     "expect_rebuild_error": false,
-    "expected_volume": 2.356194490192345,
+    "expected_volume": 2.5132741228718345,
     "expected_volume_tol_rel": 0.05
   },
   "generator_version": 4,

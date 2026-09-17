@@ -26,9 +26,15 @@
 //! produces the four alternating A,B,A,B sectors the exact geometry has.
 //!
 //! Scope (fail-closed — a missed mint is status quo, never worse):
-//! - CYLINDER × CYLINDER only, non-parallel axes (parallel axes are tangent
-//!   along a whole GENERATOR, a line pinch — the F0060 class, a different
-//!   vehicle);
+//! - CYLINDER × CYLINDER only. Non-parallel axes touch at isolated POINTS
+//!   ([`cyl_cyl_tangent_points`]); parallel axes touch along a whole
+//!   GENERATOR ([`cyl_cyl_tangent_generator`]) — a line pinch whose output is
+//!   the F0060 class (per-sheet edge duplication, `split_pinch_vertices`), and
+//!   whose Stage-1 half is the SAME idea: give both prisms a RULING on the
+//!   exact tangent line, with identical bits on all four rims, so the exact
+//!   arrangement sees one shared segment instead of a sagitta-scale poke
+//!   (C0056: B's 12-gon stood 4.9e-2 outside A's 13-gon at the tangency,
+//!   and the crossing chords matched no candidate — `AmbiguousCurve {1, 0}`);
 //! - both faces the CANONICAL TUBE vocabulary `line_edge_cylinder_face_pierce`
 //!   already uses (hole-free, outer loop = exactly two full-circle rims), so
 //!   axial containment is exact via the rim planes;
@@ -127,6 +133,66 @@ pub(crate) fn cyl_cyl_tangent_points(
     Some(out)
 }
 
+/// The exact surface-tangency GENERATOR of two cylinders with PARALLEL axes.
+///
+/// With `û ∥ v̂` the shared normal `m` is the unit perpendicular from A's axis
+/// to B's: `w⊥ = (b − a) − ((b − a)·û)û`, `m = w⊥/|w⊥|`, `δ = |w⊥|`. The same
+/// admissibility identity as the point form then holds along the whole line:
+/// `s_A·R_A − s_B·R_B = δ` — external contact `(+,−)` at `δ = R_A + R_B`,
+/// internal contact `(+,+)` at `δ = R_A − R_B` (B inside A) or `(−,−)` at
+/// `δ = R_B − R_A` (A inside B) — and the generator is `{a + s_A·R_A·m + t·û}`.
+///
+/// Returns `(p₀, û)` — A's radial foot on the line and A's unit axis — or
+/// `None` for non-parallel axes (the point form's domain), a coaxial pair
+/// (`δ` below the rounding band: coincident or nested surfaces, no generator
+/// contact), or no admissible sign pair within `TAU_WORK·(1+scale)`.
+pub(crate) fn cyl_cyl_tangent_generator(
+    (ap1, ad1, r1): (Point3, Vector3, f64),
+    (ap2, ad2, r2): (Point3, Vector3, f64),
+) -> Option<(Point3, [f64; 3])> {
+    let u = normalize3(ad1.as_array());
+    let v = normalize3(ad2.as_array());
+    let n = [
+        u[1] * v[2] - u[2] * v[1],
+        u[2] * v[0] - u[0] * v[2],
+        u[0] * v[1] - u[1] * v[0],
+    ];
+    let n_len = (n[0] * n[0] + n[1] * n[1] + n[2] * n[2]).sqrt();
+    // The point form's own parallel floor, read the other way round.
+    if n_len >= 1e-9 {
+        return None;
+    }
+    let (a, b) = (ap1.as_array(), ap2.as_array());
+    let w0 = [b[0] - a[0], b[1] - a[1], b[2] - a[2]];
+    let axial = w0[0] * u[0] + w0[1] * u[1] + w0[2] * u[2];
+    let wp = [
+        w0[0] - axial * u[0],
+        w0[1] - axial * u[1],
+        w0[2] - axial * u[2],
+    ];
+    let delta = (wp[0] * wp[0] + wp[1] * wp[1] + wp[2] * wp[2]).sqrt();
+    let scale = a
+        .iter()
+        .chain(b.iter())
+        .chain([r1, r2, delta].iter())
+        .fold(0.0f64, |acc, &c| acc.max(c.abs()));
+    // ROUNDING band (KV10 identity), never TAU_MODEL — see the point form.
+    let band = cad_primitives::TAU_WORK * (1.0 + scale);
+    if delta <= band {
+        return None; // coaxial — no generator contact
+    }
+    let m = [wp[0] / delta, wp[1] / delta, wp[2] / delta];
+    for (sa, sb) in [(1.0, 1.0), (1.0, -1.0), (-1.0, 1.0), (-1.0, -1.0)] {
+        if (sa * r1 - sb * r2 - delta).abs() > band {
+            continue;
+        }
+        let g = sa * r1;
+        let p0 = Point3::new(a[0] + g * m[0], a[1] + g * m[1], a[2] + g * m[2]);
+        return Some((p0, u));
+    }
+    None
+}
+
 /// A canonical TUBE: its axial span plus the two full-circle rim edges (index
 /// and centre). `None` when the face is outside that vocabulary (holed, or an
 /// outer loop that is not exactly two full-circle rims). Identical gate and
@@ -194,6 +260,63 @@ pub(crate) struct TangentOverrides {
     pub rim: BTreeMap<u32, Vec<Point3>>,
 }
 
+/// Bit-exact dedup push into an override channel.
+fn push_unique(m: &mut BTreeMap<u32, Vec<Point3>>, k: u32, q: Point3) {
+    let e = m.entry(k).or_default();
+    let qa = q.as_array();
+    let key = [qa[0].to_bits(), qa[1].to_bits(), qa[2].to_bits()];
+    if !e
+        .iter()
+        .any(|r| [r.x().to_bits(), r.y().to_bits(), r.z().to_bits()] == key)
+    {
+        e.push(q);
+    }
+}
+
+/// Push a rim-ring sample unless its azimuth IS the rim's seam ruling. The
+/// tube grid already carries that ruling, and pushing a re-derived copy that
+/// differs from the authoritative B-Rep vertex in the last bits is refused
+/// loudly by the rim build ("coincides with the seam vertex but differs in
+/// bits"). Skip it — fail closed, the ruling is there. Returns whether it
+/// pushed.
+fn push_rim_unless_seam(
+    out: &mut TangentOverrides,
+    ei: u32,
+    seam: Point3,
+    sample: Point3,
+    probe: bool,
+) -> bool {
+    let (sa, sv) = (sample.as_array(), seam.as_array());
+    let sc = sa
+        .iter()
+        .chain(sv.iter())
+        .fold(0.0f64, |m, &c| m.max(c.abs()));
+    let band = cad_primitives::TAU_MODEL * (1.0 + sc);
+    let d2 = (sa[0] - sv[0]).powi(2) + (sa[1] - sv[1]).powi(2) + (sa[2] - sv[2]).powi(2);
+    if d2 < band * band {
+        if probe {
+            eprintln!(
+                "[tangent-insert] rim {ei} SKIP {sa:?}: the tangency azimuth IS the seam ruling"
+            );
+        }
+        return false;
+    }
+    push_unique(&mut out.rim, ei, sample);
+    true
+}
+
+/// Is `u` EXACTLY a signed coordinate axis? Then `p₀ + h·û` keeps two
+/// coordinates bit-identical for every `h`, so the four rim samples of a
+/// generator mint are exactly collinear and the exact arrangement sees ONE
+/// shared segment. Any other axis would give four independently rounded
+/// points that are collinear only to ~1 ulp — two skew femto-segments to an
+/// exact predicate — so the generator arm declines there (status quo).
+fn is_exact_coordinate_axis(u: [f64; 3]) -> bool {
+    let ones = u.iter().filter(|c| c.abs() == 1.0).count();
+    let zeros = u.iter().filter(|c| **c == 0.0).count();
+    ones == 1 && zeros == 2
+}
+
 /// Yang §4.3.3/§4.4.1: the Stage-1 overrides that mint every exact
 /// cylinder×cylinder surface-tangency point into BOTH operands.
 ///
@@ -254,7 +377,14 @@ pub(crate) fn tangent_point_face_overrides(
                 continue;
             };
             let Some(pts) = cyl_cyl_tangent_points((apa, ada, ra), (apb, adb, rb)) else {
-                continue; // parallel axes — generator tangency, out of scope
+                // Parallel axes: a GENERATOR tangency, if any. Same channel,
+                // rim samples only — a line needs no face-interior point.
+                mint_generator(
+                    (fa_idx as u32, &tube_a, (apa, ada, ra), &mut out_a),
+                    (fb_idx as u32, &tube_b, (apb, adb, rb), &mut out_b),
+                    probe,
+                );
+                continue;
             };
             for p in pts {
                 let pa = p.as_array();
@@ -304,20 +434,9 @@ pub(crate) fn tangent_point_face_overrides(
                 if probe {
                     eprintln!("[tangent-insert] A#{fa_idx} B#{fb_idx} MINT {pa:?}");
                 }
-                let push = |m: &mut BTreeMap<u32, Vec<Point3>>, k: u32, q: Point3| {
-                    let e = m.entry(k).or_default();
-                    let qa = q.as_array();
-                    let key = [qa[0].to_bits(), qa[1].to_bits(), qa[2].to_bits()];
-                    if !e
-                        .iter()
-                        .any(|r| [r.x().to_bits(), r.y().to_bits(), r.z().to_bits()] == key)
-                    {
-                        e.push(q);
-                    }
-                };
                 // The point itself, as a face interior…
-                push(&mut out_a.face, fa_idx as u32, p);
-                push(&mut out_b.face, fb_idx as u32, p);
+                push_unique(&mut out_a.face, fa_idx as u32, p);
+                push_unique(&mut out_b.face, fb_idx as u32, p);
                 // …and its AZIMUTH on each tube's two rims, so the Stage-1 grid
                 // carries a ruling through it. The tangency's radial direction
                 // from an axis is exactly the shared normal `m` (that is what
@@ -353,35 +472,111 @@ pub(crate) fn tangent_point_face_overrides(
                 ] {
                     for &(ei, centre, seam) in &tube.rims {
                         let sample = rim_sample(centre, ap, ah, r);
-                        // The tangency azimuth can BE the seam's: the tube grid
-                        // already carries that ruling, and pushing a re-derived
-                        // copy that differs from the authoritative B-Rep vertex
-                        // in the last bits is refused loudly by the rim build
-                        // ("coincides with the seam vertex but differs in
-                        // bits"). Skip it — fail closed, the ruling is there.
-                        let (sa, sv) = (sample.as_array(), seam.as_array());
-                        let sc = sa
-                            .iter()
-                            .chain(sv.iter())
-                            .fold(0.0f64, |m, &c| m.max(c.abs()));
-                        let band = cad_primitives::TAU_MODEL * (1.0 + sc);
-                        let d2 = (sa[0] - sv[0]).powi(2)
-                            + (sa[1] - sv[1]).powi(2)
-                            + (sa[2] - sv[2]).powi(2);
-                        if d2 < band * band {
-                            if probe {
-                                eprintln!(
-                                    "[tangent-insert] rim {ei} SKIP {sa:?}: the tangency azimuth \
-                                     IS the seam ruling"
-                                );
-                            }
-                            continue;
-                        }
-                        push(&mut out.rim, ei, sample);
+                        push_rim_unless_seam(out, ei, seam, sample, probe);
                     }
                 }
             }
         }
     }
     (out_a, out_b)
+}
+
+/// The generator arm of [`tangent_point_face_overrides`]: two canonical tubes
+/// with parallel axes tangent along a line get that line as a RULING of both
+/// Stage-1 grids — one exact point `p₀` on the line, and each of the four rim
+/// samples `p₀ + h·û` at its rim's own axial height, so the two prisms share
+/// the tangent segment bit-exactly and B's facets adjacent to it fall INSIDE
+/// A's (or outside, for external contact) instead of poking through.
+///
+/// Per-pair gates, all fail-closed:
+/// 1. both faces canonical tubes (the caller's [`tube_axial_span`]);
+/// 2. exact generator tangency within the rounding band
+///    ([`cyl_cyl_tangent_generator`]);
+/// 3. the axis is EXACTLY a coordinate axis ([`is_exact_coordinate_axis`]) —
+///    the only frame in which four rounded samples are exactly collinear;
+/// 4. the two tubes' axial spans OVERLAP by more than the rim margin
+///    `TAU_MODEL·(1+scale)` — spans that merely touch meet at a rim×rim
+///    circle tangency, a corner of higher order (the rim-junction vehicle);
+/// 5. on-surface postcondition `TAU_EVAL·(1+scale)` of `p₀` against BOTH
+///    cylinders (a violation is a producer fault in the closed form).
+///
+/// A sample whose azimuth IS a rim's seam is skipped (the ruling exists;
+/// [`push_rim_unless_seam`]); one landing on a uniform Steiner slot is
+/// MERGED by the rim build with the sample's exact bits (task #143), which is
+/// what makes a tube whose own grid already carries the azimuth — C0056's B,
+/// whose two rims disagreed in the last bits at that ruling — exact too.
+#[allow(clippy::type_complexity)]
+fn mint_generator(
+    (fa_idx, tube_a, cyl_a, out_a): (u32, &Tube, (Point3, Vector3, f64), &mut TangentOverrides),
+    (fb_idx, tube_b, cyl_b, out_b): (u32, &Tube, (Point3, Vector3, f64), &mut TangentOverrides),
+    probe: bool,
+) {
+    let Some((p0, u)) = cyl_cyl_tangent_generator(cyl_a, cyl_b) else {
+        return;
+    };
+    let pa = p0.as_array();
+    let scale = pa.iter().fold(0.0f64, |m, &c| m.max(c.abs()));
+    // (3) Exact-collinearity frame.
+    if !is_exact_coordinate_axis(u) {
+        if probe {
+            eprintln!(
+                "[tangent-insert] A#{fa_idx} B#{fb_idx} generator {pa:?} + t·{u:?} SKIP: \
+                 the axis is not a coordinate axis (rim samples would not be exactly collinear)"
+            );
+        }
+        return;
+    }
+    // (4) Axial overlap of the two tubes along û, measured from p₀.
+    let h_of = |c: Point3| -> f64 {
+        let q = c.as_array();
+        (q[0] - pa[0]) * u[0] + (q[1] - pa[1]) * u[1] + (q[2] - pa[2]) * u[2]
+    };
+    let span = |t: &Tube| -> (f64, f64) {
+        let (h0, h1) = (h_of(t.rims[0].1), h_of(t.rims[1].1));
+        (h0.min(h1), h0.max(h1))
+    };
+    let (la, ha) = span(tube_a);
+    let (lb, hb) = span(tube_b);
+    let (lo, hi) = (la.max(lb), ha.min(hb));
+    let margin = cad_primitives::TAU_MODEL * (1.0 + scale.max(hi.abs()).max(lo.abs()));
+    if hi - lo <= margin {
+        if probe {
+            eprintln!(
+                "[tangent-insert] A#{fa_idx} B#{fb_idx} generator {pa:?} + t·{u:?} SKIP: \
+                 axial spans do not overlap (A [{la:.6},{ha:.6}] B [{lb:.6},{hb:.6}])"
+            );
+        }
+        return;
+    }
+    // (5) On-surface postcondition against both cylinders.
+    let on = [cyl_a, cyl_b].into_iter().all(|(ap, ad, r)| {
+        let (ap, ah) = (ap.as_array(), normalize3(ad.as_array()));
+        let w = [pa[0] - ap[0], pa[1] - ap[1], pa[2] - ap[2]];
+        let h = w[0] * ah[0] + w[1] * ah[1] + w[2] * ah[2];
+        let rad = [w[0] - h * ah[0], w[1] - h * ah[1], w[2] - h * ah[2]];
+        let len = (rad[0] * rad[0] + rad[1] * rad[1] + rad[2] * rad[2]).sqrt();
+        (len - r).abs() <= cad_primitives::TAU_EVAL * (1.0 + scale)
+    });
+    if !on {
+        if probe {
+            eprintln!(
+                "[tangent-insert] A#{fa_idx} B#{fb_idx} generator {pa:?} + t·{u:?} REJECT \
+                 off-surface"
+            );
+        }
+        return;
+    }
+    if probe {
+        eprintln!(
+            "[tangent-insert] A#{fa_idx} B#{fb_idx} MINT generator {pa:?} + t·{u:?} \
+             over h ∈ [{lo:.6},{hi:.6}]"
+        );
+    }
+    for (tube, out) in [(tube_a, out_a), (tube_b, out_b)] {
+        for &(ei, centre, seam) in &tube.rims {
+            let h = h_of(centre);
+            let sample = Point3::new(pa[0] + h * u[0], pa[1] + h * u[1], pa[2] + h * u[2]);
+            push_rim_unless_seam(out, ei, seam, sample, probe);
+        }
+    }
 }

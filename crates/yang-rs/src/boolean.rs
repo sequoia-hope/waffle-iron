@@ -722,8 +722,49 @@ pub fn boolean(
     op: BoolOp,
     backend: &dyn MeshBoolean,
 ) -> Result<BRep, YangError> {
+    // Operand probe (read-only, env-gated): the B-Rep vertices and face
+    // surfaces yang receives, at full precision — the producer-side view a
+    // Stage-1 mesh dump cannot give (a seam vertex is used VERBATIM as
+    // `ring[0]`, so a rim wobble seen in the mesh is an INPUT fact).
+    if std::env::var_os("YANG_BREP_PROBE").is_some() {
+        for (tag, brep) in [("A", a), ("B", b)] {
+            for (vi, v) in brep.vertices().iter().enumerate() {
+                let q = v.point.as_array();
+                eprintln!(
+                    "[brep-probe] {tag} v{vi} ({:?}, {:?}, {:?})",
+                    q[0], q[1], q[2]
+                );
+            }
+            for (fi, f) in brep.faces().iter().enumerate() {
+                eprintln!("[brep-probe] {tag} f{fi} {:?}", f.surface);
+            }
+        }
+    }
     // Detect-then-refine. Pass 1 at natural resolution.
     let natural = boolean_once(a, b, op, backend, false);
+    if std::env::var_os("YANG_BREP_PROBE").is_some() {
+        if let Ok(out) = &natural {
+            for (vi, v) in out.vertices().iter().enumerate() {
+                let q = v.point.as_array();
+                eprintln!(
+                    "[brep-probe] OUT v{vi} ({:?}, {:?}, {:?})",
+                    q[0], q[1], q[2]
+                );
+            }
+            for (ei, e) in out.edges().iter().enumerate() {
+                eprintln!(
+                    "[brep-probe] OUT e{ei} {}->{} {:?}",
+                    e.start, e.end, e.curve
+                );
+            }
+            for (fi, f) in out.faces().iter().enumerate() {
+                eprintln!(
+                    "[brep-probe] OUT f{fi} {:?} outer={:?} inner={:?}",
+                    f.surface, f.outer_loop, f.inner_loops
+                );
+            }
+        }
+    }
     // §4.5.2 local refinement (Yang :659-670) — an out-of-domain Stage-4
     // optimization failure is the paper's own refinement trigger, and it must
     // be consulted BEFORE the §4.5.4 rim×plane graze gate below returns early

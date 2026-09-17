@@ -335,11 +335,13 @@ it is a ρ-ACCEPTANCE change and needs its own corpus run.
 
 ## 8. What this does NOT cover
 
-- **Line tangency.** Parallel-axis cylinders and plane×cylinder generators touch
+- **Line tangency.** ~~Parallel-axis cylinders and plane×cylinder generators touch
   along a whole line, and the solid is genuinely LINE-pinched: F0060's `A − B` is
   two thin cusps (`−0.3 < z < −0.3 + x²/0.6`) joined along the generator. Its
   manifold B-Rep needs the tangent EDGE duplicated per sheet — see the ledger's
-  2026-09-13 addendum; measured unchanged by this increment.
+  2026-09-13 addendum; measured unchanged by this increment.~~ **Parallel-axis
+  cylinder×cylinder: LANDED 2026-09-17 as the generator arm (§11, C0056).**
+  Plane×cylinder generators (R0038) remain out.
 - **Torus tangency.** R0050 (exact torus×torus tangency) and C0065 need the same
   idea with a torus tangent-point solver; measured unchanged.
 - **R0038**, the plane-tangent-cylinder generator, whose §4.4.1 remedy is
@@ -409,3 +411,137 @@ it is a ρ-ACCEPTANCE change and needs its own corpus run.
   — the face-interior mint channel this increment reuses.
 - `specs/yang_tangency_pinch_split.md` — the vertex-fan split; §0's exclusion of
   the perpendicular EDGE pinch is confirmed correct by §2 above.
+
+## 11. Increment 4 (LANDED 2026-09-17, ALWAYS-ON) — the GENERATOR arm: parallel axes tangent along a line (C0056)
+
+**Configuration.** C0056: A = cylinder `r 1`, `z ∈ [0, 1]`; B = cylinder
+`r 0.5` on the axis through `(0.5, 0, 1.4)` pointing down, `z ∈ [0.2, 1.4]`,
+CUT. Axes parallel, offset `0.5 = R_A − R_B` exactly: the hole wall is
+internally tangent to the outer wall along the generator `x = 1, y = 0,
+z ∈ [0.2, 1]`. The output is a blind hole whose wall thins to ZERO along that
+line — a line-pinched solid (the F0060 class), with the top face a crescent
+whose cusp is that line's top.
+
+**The wall, measured.** Stage 3 `AmbiguousCurve { candidates: 1, matched: 0 }`
+on edge (37,70): the single candidate IS the exact generator
+`Line{(1,0,0), ẑ}`, and the arrangement's intersection chords sit at
+`(0.95990, 0.14964, z)` — a vertical chord 8.9° off the tangent azimuth, `4.9e-2`
+from the line. `YANG_STAGE0_DUMP_DIR` on the two Stage-1 prisms: A is a 13-gon
+whose seam sits at −90° and whose rulings fall at `−6.92° + k·27.69°` — NO
+ruling at the tangent azimuth 0; B is a 12-gon with a ruling at 0 whose two rim
+samples DIFFER IN THE LAST BITS (`(1.0, 0.0, 1.4)` vs
+`(1.0, 1.2246e-16, 0.2)` — a `sin π` residue of the Stage-1 uniform-slot
+evaluation in the far rim's own frame). B's ruling therefore stands at the full
+radius where A's facet stands one sagitta inside, B pokes OUT of A along the
+tangent line, and the mesh-level intersection is a chord pair 4.9e-2 off the
+curve both operands are actually tangent along. The point form's finding (§2)
+in line form.
+
+**The mint (`boolean::tangency::cyl_cyl_tangent_generator` +
+`mint_generator`).** With `û ∥ v̂` the shared normal is the unit perpendicular
+from A's axis to B's, `m = w⊥/|w⊥|`, `δ = |w⊥|`, and the point form's identity
+`s_A·R_A − s_B·R_B = δ` selects the contact: `(+,−)` external at
+`δ = R_A + R_B`, `(+,+)` internal (B inside A) at `δ = R_A − R_B`, `(−,−)` (A
+inside B) at `δ = R_B − R_A`. The line is `p₀ + t·û`, `p₀ = a + s_A·R_A·m`.
+Rim samples ONLY — a line needs no face-interior point: each of the four rims
+gets `p₀ + h·û` at its own axial height `h = (centre − p₀)·û`, so all four
+samples share `p₀`'s bits in the two non-axial coordinates. Gates, fail-closed:
+canonical tubes; exact tangency within the ROUNDING band; **the axis is exactly
+a coordinate axis** (the only frame in which four rounded samples are exactly
+collinear — an oblique axis would hand the exact arrangement two skew
+femto-segments, so it declines, status quo); the two tubes' axial spans overlap
+by more than the rim margin (spans that merely touch are a rim×rim circle
+tangency, the rim-junction vehicle); on-surface postcondition of `p₀` against
+both cylinders.
+
+**Why B needs no producer fix.** B already carries the azimuth as uniform
+Steiner slot k = 3 on both rims; the mint's sample lands angularly within
+`merge_tol` of that slot and the rim build's task-#143 merge policy makes the
+slot TAKE THE OVERRIDE'S BITS — so B's ruling becomes exactly the line without
+touching the seam vertex (which stays authoritative and is skipped as before).
+A's rims take the sample as a new slot and its lateral routes to azimuth-merge,
+exactly as the point form's rim channel does. After the mint the arrangement
+sees ONE shared collinear segment `z ∈ [0.2, 1]` (A's ruling split at B's rim
+vertex, B's at A's), B's facets fall strictly inside A's (B's step 30° > A's
+27.7°, the chord-depth ordering of §11c), Stage 3 matches the generator, and the
+pipeline COMPLETES: yang emits a 5-face B-Rep with the honest Mäntylä
+duplication — the cusp as TWO vertices (v34, v70 at `(1,0,1)`), the line as two
+twin pairs (e29/e71, e30/e58), the outer wall carrying the line as a SPUR of
+its top-rim loop (`70 → 57 → 34`, v57 = `(1,0,0.2)` the line's bottom) and the
+hole wall carrying it as a SEAM (top circle, down, bottom circle, up). Every
+vertex has one fan; kernel-v2's `validate_solid` accepts it.
+
+**Three consumers had never seen a spur, and each was one layer of the same
+fact:**
+
+1. **kernel-v2 tessellation — M3d slit** (`tessellate/mod.rs::pinch_split_rec`,
+   spec `kv2_cdt_triangulation_core` §6d). The pinch split read
+   `70 → 57 → 34` as a two-vertex sub-ring ("pinch sub-ring has fewer than 3
+   vertices"). A two-vertex sub-ring IS a slit: peel it (keep the twin copy in
+   the ring, remember `[anchor, tip]`), recurse, and hand the slits to the CDT
+   as INTERIOR CONSTRAINT edges — new
+   `cherchi_rs::cdt_polygon_with_holes_floodfill_constrained` (the welding
+   flood-fill variant plus constraints; empty constraints ⇒ byte-identical).
+   Then `pass 1.5` of the developable tessellator treated the hole wall's seam
+   copies (same position a whole window apart, in ONE loop) as a cross-loop
+   pinch to canonicalize; a same-chain match at `k ≠ 0` is a seam duplicate and
+   is now skipped.
+2. **kernel-v2 self-intersection gate — the spur facet fraction**
+   (`developable.rs::SPUR_FACET_FRACTION = 0.5`). Both faces tessellated, the
+   render gate found four ~1e-4 penetrations between the outer wall and the hole
+   wall next to the line — REAL crossings of the render, none of the B-Rep. A
+   chord leaving the shared tangent line at angular step φ lies `s·φ/2` below
+   the common tangent plane at tangent distance `s`, on any radius, while the
+   surfaces separate only quadratically; the per-face RELATIVE sagitta gives
+   both cylinders the same step (`sqrt(8·1e-3)` = 5.1°), so the two first
+   chords coincide to second order and cross on the higher-order terms
+   (`r = R/2` is the exact midpoint-circle configuration: A's chord midpoints
+   from the tangent point lie ON B's circle). Halving the facet width for
+   triangles with a corner on a spur node puts the outer wall's first chord
+   strictly above the hole wall's; the hole wall carries the line as a seam,
+   keeps its step, and the rule is asymmetric by construction. Not a band: a
+   crossing that survives still trips the loud gate. Measured limit, named: the
+   second chord's sag `R φ²/32` against the gap `R θ² (R−r)/(2r)` bounds the
+   rule to roughly `r < 0.9 R`; thinner walls stay a loud STOP.
+3. **assay χ oracle — per-FAN vertex counting** (`test-harness::oracle::
+   shell_decomposition`). The render then graded `V 549 − E 1643 + F 1095 = 1`
+   against 2: the position weld reads the cusp once, and the 2026-09-13 rule
+   credited fused copies only across DISTINCT shells ("a self-pinch inside one
+   shell still reads one χ short, as it must"). It must not: the same solid
+   represented as one sphere folded to touch itself at a point has one B-Rep
+   vertex per FAN there, exactly as F0060's separate lobes do, and kernel-v2's
+   own validator accepts precisely that form. `pinch_extra` is now Σ over
+   welded vertices of (link components − 1), computed from the per-edge-slot
+   keys on both the exact and the hybrid path; identical to the shell count
+   wherever every shell meets a vertex in one fan. Unit test
+   `euler_characteristic_in_shell_vertex_pinch_counts_the_vertex_per_fan`
+   (two tetrahedra sharing the origin, joined by a tube: one sphere through
+   the origin twice; weld χ 1, per-fan χ 2). The watertight oracle needed
+   nothing: the spur refinement subdivides the outer wall's copy of the line
+   while the hole wall's copy stays whole, so the exact keys never coincide
+   4-valent (the 2026-09-13 "named, not fixed" case did not arise here; it
+   remains named).
+
+**Authored-invalid expectation, corrected.** C0056's `expected_volume` was
+`π − π·0.25·1.0` (a full-height hole); the cut spans `z ∈ [0.2, 1.4]` and only
+0.8 of it lies inside the boss: `π − π·0.25·0.8 = 0.8π = 2.5133`. The kernel
+measured 2.5104 (inscribed render, −0.1 %). The first correct output graded
+`SUPPORTED_WRONG` on the old number by 6.7 % against a 5 % tolerance; the
+generator knob and the meta are corrected in the same increment (the R0004
+precedent).
+
+**Oracles.** yang-rs `tests_unit::s433_tangent_relocation` +6 generator tests
+(C0056's foot, external, A-inside-B far side, axial-offset invariance, near-
+tangency refused, coaxial/crossing declined); kernel-v2
+`m3d_slit_ring_tessellates_with_the_spur_as_a_constrained_edge` and the former
+guard rewritten as `m3d_two_vertex_subring_is_a_slit_and_emits_no_degenerate_triangle`;
+cherchi-rs `floodfill_constrained_keeps_the_interior_and_the_constraint_edge`;
+oracle per-fan test above; smoke pin C0056 (0.4 s release). Corpus: Canonical corpus after the flip run (release, 8 jobs, 600 s; wall 738.1 s; F0085 321.6 s, R0044 293.3 s, F0065 110.9 s): **291C / 0W / 14E / 4EE / 0T + 3 UNSUPPORTED(coplanar-boolean)** — per-id diff of the committed `results.json`: exactly ONE category move (C0056 ERROR → SUPPORTED_CORRECT), ZERO detail moves.
+
+**Not covered (still).** C0043 — the same tangency with COPLANAR caps — takes
+the Stage-0 path (`stage0: true`), where the P3a/tangency mint is not wired;
+it stays at its Stage-3 wall, M8 territory. A slit whose BOTH ends are
+interior to the face (a slot fully inside the outer wall's span) would arrive
+as a zero-area INNER loop, which the M3d peel does not see. R0038
+(plane-tangent-cylinder generator), torus tangency (R0050, C0065), and oblique
+axes (the exact-collinearity gate) are unchanged.

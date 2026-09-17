@@ -316,6 +316,45 @@ pub fn cdt_polygon_with_holes_floodfill(
     outer: &[u32],
     holes: &[Vec<u32>],
 ) -> Result<Vec<[u32; 3]>, CdtError> {
+    floodfill_cdt_impl(verts, outer, holes, &[])
+}
+
+/// [`cdt_polygon_with_holes_floodfill`] plus INTERIOR constraint edges — the
+/// flood-fill classification and the shared-vertex welding of that variant,
+/// with each `constraints` pair `[a, b]` inserted as a hard constraint edge
+/// (both endpoints inserted and kept, welded like any other vertex).
+///
+/// The customer is a SLIT: a face loop that walks into its own interior and
+/// straight back out along the same segment (kernel-v2 spec
+/// `kv2_cdt_triangulation_core` §6b M3d — a solid whose surface is tangent to
+/// another sheet along a line carries that line as a spur of the containing
+/// face, `p → q → p'` with `p` and `p'` per-sheet copies at one position).
+/// The ring is triangulated without the spur and the spur's segment is
+/// supplied here, so the result has `[p, q]` as an edge on BOTH sides and stays
+/// conformal with the neighbouring sheets' copies of that edge.
+///
+/// A constraint whose endpoints weld to one handle is `DegenerateInput`; one
+/// that would cross a boundary or another constraint (forcing a Steiner split)
+/// is `TriangulationFailed` — never a silent split (P9/P10). Interior
+/// classification is unchanged: an interior constraint edge cannot be reached
+/// by the hull flood (the outer loop encloses it), so it neither adds nor
+/// removes kept faces; it only fixes where the diagonals lie. With an empty
+/// `constraints` slice this is byte-identical to the plain flood-fill variant.
+pub fn cdt_polygon_with_holes_floodfill_constrained(
+    verts: &[CadPoint2],
+    outer: &[u32],
+    holes: &[Vec<u32>],
+    constraints: &[[u32; 2]],
+) -> Result<Vec<[u32; 3]>, CdtError> {
+    floodfill_cdt_impl(verts, outer, holes, constraints)
+}
+
+fn floodfill_cdt_impl(
+    verts: &[CadPoint2],
+    outer: &[u32],
+    holes: &[Vec<u32>],
+    constraints: &[[u32; 2]],
+) -> Result<Vec<[u32; 3]>, CdtError> {
     // ---- 1-4. Same constrained-CDT setup as `cdt_polygon_with_holes`, with
     // SHARED-VERTEX WELDING (spec §6b M3b) in the vertex-insertion step. ----
     // (Duplicated rather than factored: the sibling boundary-only functions
@@ -330,6 +369,9 @@ pub fn cdt_polygon_with_holes_floodfill(
         if !hole.iter().copied().all(in_range) {
             return Err(CdtError::LoopIndexOutOfRange);
         }
+    }
+    if constraints.iter().flatten().any(|&i| !in_range(i)) {
+        return Err(CdtError::LoopIndexOutOfRange);
     }
     if outer.len() < 3 {
         return Err(CdtError::DegenerateInput);
@@ -394,6 +436,21 @@ pub fn cdt_polygon_with_holes_floodfill(
         if hole.len() >= 2 {
             add_loop(&mut cdt, &handle_of, hole)?;
         }
+    }
+    // Interior constraint edges (the `_constrained` entry; empty otherwise).
+    for &[ia, ib] in constraints {
+        let a = insert_vertex(&mut cdt, &mut handle_of, ia)?;
+        let b = insert_vertex(&mut cdt, &mut handle_of, ib)?;
+        if a == b {
+            return Err(CdtError::DegenerateInput);
+        }
+        if cdt.exists_constraint(a, b) {
+            continue;
+        }
+        if !cdt.can_add_constraint(a, b) {
+            return Err(CdtError::TriangulationFailed);
+        }
+        cdt.add_constraint(a, b);
     }
 
     // No-Steiner guard: with welding, several caller indices may share one
@@ -1388,6 +1445,60 @@ mod tests {
             }
         }
         m
+    }
+
+    /// M3d slit customer (2026-09-17): a unit square with an interior
+    /// constraint from the top edge's midpoint down to an interior point.
+    /// The constrained flood-fill variant keeps every interior face (the
+    /// square's full area), inserts the interior endpoint, and has the
+    /// constraint as an edge of exactly two triangles; with no constraints
+    /// it is the plain flood-fill variant, triangle for triangle.
+    #[test]
+    fn floodfill_constrained_keeps_the_interior_and_the_constraint_edge() {
+        let verts = vec![
+            CadPoint2::new(0.0, 0.0), // 0
+            CadPoint2::new(1.0, 0.0), // 1
+            CadPoint2::new(1.0, 1.0), // 2
+            CadPoint2::new(0.5, 1.0), // 3  on the top edge
+            CadPoint2::new(0.0, 1.0), // 4
+            CadPoint2::new(0.5, 0.3), // 5  interior tip
+        ];
+        let outer = [0u32, 1, 2, 3, 4];
+        let tris = cdt_polygon_with_holes_floodfill_constrained(&verts, &outer, &[], &[[3, 5]])
+            .expect("constrained square");
+        let area: f64 = tris
+            .iter()
+            .map(|t| {
+                let (a, b, c) = (
+                    verts[t[0] as usize],
+                    verts[t[1] as usize],
+                    verts[t[2] as usize],
+                );
+                0.5 * ((b.x() - a.x()) * (c.y() - a.y()) - (b.y() - a.y()) * (c.x() - a.x()))
+            })
+            .sum();
+        assert!((area - 1.0).abs() < 1e-12, "full square, CCW: {area}");
+        assert!(tris.iter().any(|t| t.contains(&5)), "the tip is kept");
+        let uses = tris
+            .iter()
+            .filter(|t| t.contains(&3) && t.contains(&5))
+            .count();
+        assert_eq!(uses, 2, "the constraint is an edge on both sides");
+        let plain = cdt_polygon_with_holes_floodfill(&verts[..5], &outer, &[]).unwrap();
+        let plain2 =
+            cdt_polygon_with_holes_floodfill_constrained(&verts[..5], &outer, &[], &[]).unwrap();
+        assert_eq!(plain, plain2, "no constraints ⇒ byte-identical");
+        // A constraint CROSSING the boundary (between vertices 2 and 3, at
+        // x ≈ 0.62) is refused loudly, never Steiner-split.
+        let verts2 = {
+            let mut v = verts.clone();
+            v.push(CadPoint2::new(0.7, 1.5)); // 6: outside
+            v
+        };
+        assert!(matches!(
+            cdt_polygon_with_holes_floodfill_constrained(&verts2, &outer, &[], &[[5, 6]]),
+            Err(CdtError::TriangulationFailed)
+        ));
     }
 
     #[test]

@@ -246,6 +246,44 @@ global grid-degenerate count) — defensive only. Residual E2E-only risk:
 per-face vs mesh-wide max_abs in the grid predicate (100× headroom
 argument); the full-assay diff remains its binding gate.
 
+## 6d. M3d — the SLIT (2026-09-17, C0056)
+
+| # | Ring shape | Behavior |
+|---|---|---|
+| M3d | A pinch split whose sub-ring has exactly TWO vertices (`p → q → p'`, `p` and `p'` bitwise-identical in 2D) — a zero-width SPUR into the face interior | Peel it: keep the twin copy in the ring, record `[p', q]` as an interior constraint, recurse (a longer spur peels one segment per level — its tip is always a two-vertex sub-ring). The leaf CDT is `cherchi_rs::cdt_polygon_with_holes_floodfill_constrained` (M2 flood-fill + M3b welding + interior constraint edges; empty constraints ⇒ byte-identical to the plain variant). A spur is an edge of the result on BOTH sides and its tip a vertex; no zero-area triangle is emitted. Under M3a each slit follows the sub-ring holding its anchor; a slit anchored on an M3b hole lobe is out of scope → loud |
+
+Why a spur exists: a solid whose surface is tangent to another sheet along a
+LINE (C0056's outer wall, touched by its blind hole's wall along one
+generator) carries that line as a spur of the containing face's loop — the
+honest Mäntylä form yang emits (two twin edge pairs, the line's top as two
+per-sheet vertices), which kernel-v2's manifold validator accepts. The
+neighbouring sheet carries the same line as a SEAM.
+
+Two companions in `developable.rs`:
+
+- **pass 1.5** canonicalizes same-position copies across chains; a match
+  within ONE chain a whole window apart (`k ≠ 0`) is a seam duplicate (the
+  hole wall's loop: top circle, down the line, bottom circle, up the line —
+  the seam vertex visited on both sides of the cut) and is skipped, not
+  merged. The former path merged it and then walled the loop's second
+  duplicate as "pinched loop spans inconsistent seam windows".
+- **`SPUR_FACET_FRACTION = 0.5`**: triangles with a corner on a spur node
+  refine to half the facet width. Two inscribed renders of internally tangent
+  cylinders cross next to the tangent line unless the spur owner's first
+  chord is shorter than the neighbour's (a chord at angular step φ lies
+  `s·φ/2` below the shared tangent plane at tangent distance `s`, on any
+  radius; the per-face relative sagitta gives both the same step). Measured
+  before the rule: `SelfIntersectingBooleanOutput`, four ~1e-4 penetrations —
+  crossings of the render, not the B-Rep. Not a band: an unresolved crossing
+  still trips the loud gate (thin walls, `r ≳ 0.9 R`, remain a STOP).
+
+Oracles: `m3d_slit_ring_tessellates_with_the_spur_as_a_constrained_edge`,
+`m3d_two_vertex_subring_is_a_slit_and_emits_no_degenerate_triangle` (the
+former "stays loud" guard, rewritten — the loud contract now lives on the
+consecutive-duplicate guard and on `DegenerateInput` for a constraint whose
+endpoints weld), cherchi-rs
+`floodfill_constrained_keeps_the_interior_and_the_constraint_edge`.
+
 ## 7. Research basis
 
 - Constrained Delaunay triangulation and its max-min-angle optimality:

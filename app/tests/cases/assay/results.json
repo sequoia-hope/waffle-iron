@@ -1,8 +1,8 @@
 {
-  "errored": 15,
+  "errored": 14,
   "failed": 0,
   "generated": "kernel-v2 (assay_kv2 categorized run)",
-  "passed": 290,
+  "passed": 291,
   "results": [
     {
       "category": "SUPPORTED_CORRECT",
@@ -1499,10 +1499,10 @@
       "status": "pass"
     },
     {
-      "category": "ERROR",
-      "detail": "1 engine error(s): b4a85b12-c3dc-4b73-bf7b-91a6a3a32623: operation error: kernel error: boolean operation failed: kernel-v2 boolean_subtract failed: BooleanFailed(\"yang-rs: Stage-3 SSI refinement failed for intersection edge (37, 70): AmbiguousCurve { candidates: 1, matched: 0 }\")",
+      "category": "SUPPORTED_CORRECT",
+      "detail": "all checks passed",
       "id": "C0056",
-      "status": "error"
+      "status": "pass"
     },
     {
       "category": "SUPPORTED_CORRECT",

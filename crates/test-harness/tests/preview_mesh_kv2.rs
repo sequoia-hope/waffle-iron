@@ -113,7 +113,7 @@ fn preview_is_decimated_from_the_mesh_tessellated_after_dispatch() {
     assert_eq!(preview_triangles(&response), None);
 
     tessellate_missing_meshes(&mut state, k);
-    attach_preview_mesh(&state, &mut response);
+    attach_preview_mesh(&mut state, &mut response);
 
     let extrude_id = state.engine.tree.features.last().expect("extrude").id;
     let render_triangles = state

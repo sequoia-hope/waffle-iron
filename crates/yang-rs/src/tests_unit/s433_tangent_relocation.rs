@@ -316,12 +316,101 @@ pub(crate) fn s433_near_tangency_beyond_the_rounding_band_is_refused() {
 }
 
 /// PARALLEL axes are tangent along a whole GENERATOR, not at isolated points —
-/// `None`, the F0060 line-pinch vehicle, deliberately out of scope.
+/// `None` from the POINT form; the generator form below owns them.
 #[test]
 pub(crate) fn s433_parallel_axes_return_none() {
     let a = cyl([0.0, 0.0, 0.0], [0.0, 0.0, 1.0], 0.3);
     let b = cyl([0.6, 0.0, 0.0], [0.0, 0.0, 1.0], 0.3);
     assert!(cyl_cyl_tangent_points(a, b).is_none());
+}
+
+// =========================================================================
+// §11 (2026-09-17): the GENERATOR arm — parallel axes tangent along a line.
+// `m` is the unit perpendicular from A's axis to B's, `δ = |w⊥|`, and the
+// point form's identity `s_A·R_A − s_B·R_B = δ` selects the sign pair; the
+// line is `a + s_A·R_A·m + t·û`. Every expectation is derived from the
+// configuration.
+// =========================================================================
+
+use crate::boolean::cyl_cyl_tangent_generator;
+
+/// C0056: A = cylinder r 1 on the z-axis, B = cylinder r 0.5 on the axis
+/// through (0.5, 0, 1.4) pointing DOWN. `δ = 0.5 = R_A − R_B` — internal
+/// contact, `(+,+)`, along the generator x = 1, y = 0. The foot is exactly
+/// (1, 0, 0) (A's axis point plus R_A·x̂, both exact) and the axis is A's own
+/// unit axis, regardless of B's antiparallel direction.
+#[test]
+pub(crate) fn s433_generator_internal_contact_is_the_outer_radius_foot() {
+    let a = cyl([0.0, 0.0, 0.0], [0.0, 0.0, 1.0], 1.0);
+    let b = cyl([0.5, 0.0, 1.4], [-0.0, -0.0, -1.0], 0.5);
+    let (p0, u) = cyl_cyl_tangent_generator(a, b).expect("internally tangent");
+    assert_eq!(p0.as_array(), [1.0, 0.0, 0.0], "{p0:?}");
+    assert_eq!(u, [0.0, 0.0, 1.0]);
+}
+
+/// External contact: two r = 0.3 cylinders whose axes are 0.6 apart touch
+/// along x = 0.3 — `δ = R_A + R_B`, sign pair `(+,−)`, foot `a + R_A·m`.
+#[test]
+pub(crate) fn s433_generator_external_contact_between_the_axes() {
+    let a = cyl([0.0, 0.0, 0.0], [0.0, 0.0, 1.0], 0.3);
+    let b = cyl([0.6, 0.0, 0.0], [0.0, 0.0, 1.0], 0.3);
+    let (p0, u) = cyl_cyl_tangent_generator(a, b).expect("externally tangent");
+    assert!(
+        (p0.x() - 0.3).abs() < 1e-15 && p0.y().abs() < 1e-15 && p0.z().abs() < 1e-15,
+        "{p0:?}"
+    );
+    assert_eq!(u, [0.0, 0.0, 1.0]);
+}
+
+/// A inside B: A is r 0.25 at the origin, B is r 0.4 centred 0.15 along +x
+/// (`δ = R_B − R_A`, sign pair `(−,−)`). The contact is on A's FAR side,
+/// `a − R_A·m = (−0.25, 0, 0)` — which is also `b − R_B·m`.
+#[test]
+pub(crate) fn s433_generator_inner_operand_touches_on_its_far_side() {
+    let a = cyl([0.0, 0.0, 0.0], [0.0, 0.0, 1.0], 0.25);
+    let b = cyl([0.15, 0.0, 0.0], [0.0, 0.0, 1.0], 0.4);
+    let (p0, _) = cyl_cyl_tangent_generator(a, b).expect("A inside B, tangent");
+    assert!(
+        (p0.x() + 0.25).abs() < 1e-15 && p0.y().abs() < 1e-15,
+        "{p0:?}"
+    );
+    assert!(
+        (0.15 - 0.4 - p0.x()).abs() < 1e-15,
+        "also B's far foot: {p0:?}"
+    );
+}
+
+/// The axial offset between the two axis POINTS is irrelevant: B's axis
+/// point 3.7 higher along the shared axis direction changes nothing but the
+/// foot's height, which is A's axis point's.
+#[test]
+pub(crate) fn s433_generator_ignores_the_axial_offset_of_the_axis_points() {
+    let a = cyl([0.0, 0.0, 0.0], [0.0, 0.0, 1.0], 1.0);
+    let b = cyl([0.5, 0.0, 3.7], [0.0, 0.0, 1.0], 0.5);
+    let (p0, _) = cyl_cyl_tangent_generator(a, b).expect("still tangent");
+    assert_eq!(p0.as_array(), [1.0, 0.0, 0.0], "{p0:?}");
+}
+
+/// A NEAR-tangency is not a tangency (the R0053 rule, as in the point form):
+/// 1e-6 beyond the rounding band → `None`.
+#[test]
+pub(crate) fn s433_generator_near_tangency_beyond_the_rounding_band_is_refused() {
+    let a = cyl([0.0, 0.0, 0.0], [0.0, 0.0, 1.0], 1.0);
+    let b = cyl([0.5 + 1e-6, 0.0, 0.0], [0.0, 0.0, 1.0], 0.5);
+    assert!(cyl_cyl_tangent_generator(a, b).is_none());
+}
+
+/// Coaxial cylinders have no generator contact (coincident or nested
+/// surfaces), and crossing axes belong to the point form — both `None`.
+#[test]
+pub(crate) fn s433_generator_declines_coaxial_and_crossing_axes() {
+    let a = cyl([0.0, 0.0, 0.0], [0.0, 0.0, 1.0], 1.0);
+    let coaxial = cyl([0.0, 0.0, 0.5], [0.0, 0.0, 1.0], 1.0);
+    assert!(cyl_cyl_tangent_generator(a, coaxial).is_none());
+    let crossing = cyl([0.0, 0.5, 1.0], [1.0, 0.0, 0.0], 0.5);
+    assert!(cyl_cyl_tangent_generator(a, crossing).is_none());
+    // …and the point form does own that crossing pair.
+    assert!(cyl_cyl_tangent_points(a, crossing).is_some());
 }
 
 // =========================================================================

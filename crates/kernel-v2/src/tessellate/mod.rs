@@ -687,8 +687,16 @@ fn triangulate_ring(
     p3: &[[f64; 3]],
     outer: &[u32],
     holes: &[Vec<u32>],
+    slits: &[[u32; 2]],
 ) -> Result<Vec<[u32; 3]>, &'static str> {
-    let mut tris = yang_rs::cdt_polygon_with_holes_floodfill(p2, outer, holes).map_err(|e| {
+    // M3d slits ride in as interior constraint edges; with none, the call is
+    // the plain flood-fill variant, byte-identical.
+    let cdt = if slits.is_empty() {
+        yang_rs::cdt_polygon_with_holes_floodfill(p2, outer, holes)
+    } else {
+        yang_rs::cdt_polygon_with_holes_floodfill_constrained(p2, outer, holes, slits)
+    };
+    let mut tris = cdt.map_err(|e| {
         if std::env::var_os("KV2_RING_REJECT_PROBE").is_some() {
             eprintln!(
                 "KV2_RING_REJECT_PROBE cdt_err={e:?} outer_len={} holes={} npts={}",
@@ -719,6 +727,9 @@ fn triangulate_ring(
     add_ring_edges(&mut cset, outer);
     for h in holes {
         add_ring_edges(&mut cset, h);
+    }
+    for &[a, b] in slits {
+        cset.insert((a.min(b), a.max(b)));
     }
     let is_constraint = |i: u32, j: u32| cset.contains(&(i.min(j), i.max(j)));
     grid_degeneracy_flip_pass(&mut tris, p2, p3, &is_constraint)?;
@@ -760,14 +771,35 @@ fn find_ring_pinch(p2: &[Point2], outer: &[u32]) -> Option<(usize, usize)> {
 /// which recurse. No-op when the ring carries no non-consecutive duplicate
 /// (the common case, incl. patch seam duplicates whose 2D positions differ by
 /// `span`). Wired into BOTH cores.
+///
+/// Returns the triangles and the M3d SLITS the split peeled (pool-index
+/// pairs `[anchor, tip]`, see [`pinch_split_rec`]) — empty for every ring
+/// without a spur, so callers that do not care see nothing new.
 fn triangulate_with_pinch_split(
     p2: &[Point2],
     p3: &[[f64; 3]],
     outer: &[u32],
     holes: &[Vec<u32>],
-) -> Result<Vec<[u32; 3]>, &'static str> {
+) -> Result<PinchSplit, &'static str> {
     let mut budget = 16usize;
-    pinch_split_rec(p2, p3, outer, holes, &mut budget)
+    let mut slits: Vec<[u32; 2]> = Vec::new();
+    let tris = pinch_split_rec(p2, p3, outer, holes, &[], &mut slits, &mut budget)?;
+    Ok((tris, slits))
+}
+
+/// Triangles plus the M3d slits peeled on the way (pool-index pairs
+/// `[anchor, tip]`).
+type PinchSplit = (Vec<[u32; 3]>, Vec<[u32; 2]>);
+
+/// The sub-slice of `slits` anchored on a vertex of `ring` (pool-index
+/// membership — a slit's anchor is the pinch copy the peel kept in the ring,
+/// so it belongs to exactly one sub-ring of any later split).
+fn slits_anchored_in(ring: &[u32], slits: &[[u32; 2]]) -> Vec<[u32; 2]> {
+    slits
+        .iter()
+        .copied()
+        .filter(|&[anchor, _]| ring.contains(&anchor))
+        .collect()
 }
 
 fn pinch_split_rec(
@@ -775,10 +807,12 @@ fn pinch_split_rec(
     p3: &[[f64; 3]],
     outer: &[u32],
     holes: &[Vec<u32>],
+    slits: &[[u32; 2]],
+    peeled_out: &mut Vec<[u32; 2]>,
     budget: &mut usize,
 ) -> Result<Vec<[u32; 3]>, &'static str> {
     let Some((i, j)) = find_ring_pinch(p2, outer) else {
-        return triangulate_ring(p2, p3, outer, holes);
+        return triangulate_ring(p2, p3, outer, holes, slits);
     };
     if *budget == 0 {
         return Err("pinch-ring split budget exhausted");
@@ -789,6 +823,29 @@ fn pinch_split_rec(
     let ring_a: Vec<u32> = outer[i..j].to_vec();
     let mut ring_b: Vec<u32> = outer[j..].to_vec();
     ring_b.extend_from_slice(&outer[..i]);
+
+    // M3d: a TWO-vertex sub-ring is a SLIT — the ring walks from the pinch
+    // position to `q` and straight back to the same position through the
+    // twin copy (`p → q → p'`): a zero-width spur into the face interior, the
+    // trace of another sheet tangent to this face along a line (spec §6b M3d;
+    // C0056's outer cylinder, whose hole wall touches it along one generator).
+    // It has no area to triangulate, but `[p, q]` MUST be an edge of the
+    // result on both sides so the face stays conformal with the sheets glued
+    // to the spur. Peel it: keep the twin copy in the ring, remember the spur
+    // as an interior constraint anchored on that copy, recurse. A longer spur
+    // peels one segment per level (its tip is always a two-vertex sub-ring).
+    if ring_a.len() == 2 {
+        let mut peeled = slits.to_vec();
+        peeled.push([outer[j], ring_a[1]]);
+        peeled_out.push([outer[j], ring_a[1]]);
+        return pinch_split_rec(p2, p3, &ring_b, holes, &peeled, peeled_out, budget);
+    }
+    if ring_b.len() == 2 {
+        let mut peeled = slits.to_vec();
+        peeled.push([outer[i], ring_b[1]]);
+        peeled_out.push([outer[i], ring_b[1]]);
+        return pinch_split_rec(p2, p3, &ring_a, holes, &peeled, peeled_out, budget);
+    }
     let pts_a: Vec<Point2> = ring_a.iter().map(|&x| p2[x as usize]).collect();
     let pts_b: Vec<Point2> = ring_b.iter().map(|&x| p2[x as usize]).collect();
     for pts in [&pts_a, &pts_b] {
@@ -822,8 +879,15 @@ fn pinch_split_rec(
                     return Err("pinch hole not strictly contained in either sub-ring");
                 }
             }
-            let mut tris = pinch_split_rec(p2, p3, &ring_a, &holes_a, budget)?;
-            tris.extend(pinch_split_rec(p2, p3, &ring_b, &holes_b, budget)?);
+            let (slits_a, slits_b) = (
+                slits_anchored_in(&ring_a, slits),
+                slits_anchored_in(&ring_b, slits),
+            );
+            let mut tris =
+                pinch_split_rec(p2, p3, &ring_a, &holes_a, &slits_a, peeled_out, budget)?;
+            tris.extend(pinch_split_rec(
+                p2, p3, &ring_b, &holes_b, &slits_b, peeled_out, budget,
+            )?);
             Ok(tris)
         }
         // M3b: CCW + CW — keyhole. The CCW sub-ring is the outer; the CW
@@ -854,11 +918,15 @@ fn pinch_split_rec(
                     return Err("keyhole outer does not strictly contain a face hole");
                 }
             }
+            // A slit anchored on the hole lobe is out of scope → loud.
+            if !slits_anchored_in(&cw_ring, slits).is_empty() {
+                return Err("keyhole hole lobe carries a slit anchor (out of scope)");
+            }
             ccw_holes.push(cw_ring);
             // The CCW outer may itself carry a further pinch — recurse the
             // split BEFORE the keyhole CDT (budget unchanged); the appended CW
             // hole rides along as a native hole through the recursion.
-            pinch_split_rec(p2, p3, &ccw_ring, &ccw_holes, budget)
+            pinch_split_rec(p2, p3, &ccw_ring, &ccw_holes, slits, peeled_out, budget)
         }
         // M3c: CW + CW (or a degenerate zero-area sub-ring) — invalid winding.
         _ => Err("pinch sub-ring is not CCW"),
@@ -987,8 +1055,9 @@ fn tessellate_planar_face(
             [out.positions[i], out.positions[i + 1], out.positions[i + 2]]
         })
         .collect();
-    let cdt_tris = triangulate_with_pinch_split(&pool_p2, &pool_p3, &outer_cdt, &holes_cdt)
-        .map_err(|reason| KernelV2Error::TessellationFailed { face: fid, reason })?;
+    let (cdt_tris, _slits) =
+        triangulate_with_pinch_split(&pool_p2, &pool_p3, &outer_cdt, &holes_cdt)
+            .map_err(|reason| KernelV2Error::TessellationFailed { face: fid, reason })?;
 
     // Emit, applying the G1 render-precision gate to every triangle: geometry
     // valid at f64 but COLLAPSED at f32 render precision must fail loudly (§3

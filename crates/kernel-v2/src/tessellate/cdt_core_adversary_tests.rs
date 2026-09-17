@@ -329,11 +329,15 @@ fn guard_m3_triple_pinch_stays_loud() {
     }
 }
 
-/// GUARD (M3, spec §6b M3): a pinch whose split would make a 2-vertex
-/// sub-ring (a degenerate spike — pinch at ring positions i and i+2) must
-/// fail LOUDLY ("fewer than 3 vertices"), never emit a degenerate spike.
+/// M3d (spec §6b M3d, 2026-09-17; formerly the M3 guard "a 2-vertex
+/// sub-ring stays loud"): a pinch whose split makes a 2-vertex sub-ring —
+/// ring positions i and i+2 at one bit pattern — is a SPIKE, i.e. a slit:
+/// the trace of another sheet tangent to this face along a line (C0056's
+/// outer wall). It tessellates with the spike as an interior constraint
+/// edge; what stays guarded is that NO degenerate triangle is emitted for
+/// it (the spike has no area; it is an edge of two proper triangles).
 #[test]
-fn guard_m3_two_vertex_subring_stays_loud() {
+fn m3d_two_vertex_subring_is_a_slit_and_emits_no_degenerate_triangle() {
     let z = 0.0;
     let pts = [
         Point3::new(2.0, -2.0, z),  // 0
@@ -346,12 +350,38 @@ fn guard_m3_two_vertex_subring_stays_loud() {
     ];
     let (arena, fid) = build_planar_loop(&pts);
     let mut mesh = RenderMesh::default();
-    match tessellate_planar_face(&arena, fid, 32, &mut mesh) {
-        Err(KernelV2Error::TessellationFailed { face, .. }) => {
-            assert_eq!(face, fid, "the guard must fail THIS face");
-        }
-        other => panic!("a 2-vertex-sub-ring pinch must fail loudly, got {other:?}"),
+    tessellate_planar_face(&arena, fid, 32, &mut mesh).expect("M3d: a spike is a slit");
+    let pos = |vid: u32| -> [f64; 2] {
+        let i = vid as usize * 3;
+        [mesh.positions[i], mesh.positions[i + 1]]
+    };
+    let signed = |t: &[u32]| -> f64 {
+        let (a, b, c) = (pos(t[0]), pos(t[1]), pos(t[2]));
+        0.5 * ((b[0] - a[0]) * (c[1] - a[1]) - (b[1] - a[1]) * (c[0] - a[0]))
+    };
+    let mut area = 0.0;
+    for t in mesh.indices.chunks_exact(3) {
+        let a = signed(t);
+        assert!(
+            a.abs() > 1e-9,
+            "no degenerate triangle for the spike: {t:?}"
+        );
+        area += a.abs();
     }
+    assert!((area - 16.0).abs() < 1e-9, "the spike has no area: {area}");
+    let at = |vid: u32, x: f64, y: f64| pos(vid) == [x, y];
+    let spike_uses = mesh
+        .indices
+        .chunks_exact(3)
+        .flat_map(|t| [(t[0], t[1]), (t[1], t[2]), (t[2], t[0])])
+        .filter(|&(a, b)| {
+            (at(a, 0.0, -2.0) && at(b, 0.5, -1.5)) || (at(a, 0.5, -1.5) && at(b, 0.0, -2.0))
+        })
+        .count();
+    assert_eq!(
+        spike_uses, 2,
+        "the spike is a constrained edge on both sides"
+    );
 }
 
 // Deterministic LCG — no external rng dependency.

@@ -377,6 +377,68 @@ fn red_m1_r0040_patch_ring_tessellates_clean() {
 /// vertices make spade return `DuplicateVertex`, mapped to a loud
 /// `TessellationFailed`, so `expect` panics — RED.
 ///
+/// M3d (2026-09-17): a SLIT. A CCW square whose top edge carries a spur —
+/// the loop walks from (0,2) straight down to (0,0.5) and back up to a
+/// second vertex at (0,2): `p → q → p'`, a zero-width sub-ring of two
+/// vertices. It is the trace of another sheet tangent to this face along a
+/// line (C0056's outer wall). The ring must tessellate to the square's full
+/// area with the spur `[p, q]` present as a triangle edge on BOTH sides and
+/// `q` a vertex of the result (conformal with the sheets glued to the spur).
+#[test]
+fn m3d_slit_ring_tessellates_with_the_spur_as_a_constrained_edge() {
+    let z = 0.0;
+    let pts = [
+        Point3::new(2.0, -2.0, z),  // 0
+        Point3::new(2.0, 2.0, z),   // 1
+        Point3::new(0.0, 2.0, z),   // 2  p  (spur anchor)
+        Point3::new(0.0, 0.5, z),   // 3  q  (spur tip)
+        Point3::new(0.0, 2.0, z),   // 4  p' (twin of p, same bits)
+        Point3::new(-2.0, 2.0, z),  // 5
+        Point3::new(-2.0, -2.0, z), // 6
+    ];
+    let (arena, fid) = build_planar_loop(&pts);
+    let mut mesh = RenderMesh::default();
+    tessellate_planar_face(&arena, fid, 32, &mut mesh)
+        .expect("M3d: a slit ring must tessellate (RED before: two-vertex pinch sub-ring)");
+
+    let pos = |vid: u32| -> [f64; 2] {
+        let i = vid as usize * 3;
+        [mesh.positions[i], mesh.positions[i + 1]]
+    };
+    let signed = |t: &[u32]| -> f64 {
+        let (a, b, c) = (pos(t[0]), pos(t[1]), pos(t[2]));
+        0.5 * ((b[0] - a[0]) * (c[1] - a[1]) - (b[1] - a[1]) * (c[0] - a[0]))
+    };
+    let area_sum: f64 = mesh.indices.chunks_exact(3).map(|t| signed(t).abs()).sum();
+    assert!(
+        (area_sum - 16.0).abs() < 1e-9,
+        "M3d: the slit has no area — partition {area_sum} != 16"
+    );
+    let all_pos = mesh.indices.chunks_exact(3).all(|t| signed(t) > 0.0);
+    let all_neg = mesh.indices.chunks_exact(3).all(|t| signed(t) < 0.0);
+    assert!(all_pos || all_neg, "M3d: one winding sign");
+    // The spur segment (0,2)–(0,0.5) is an edge of exactly two triangles.
+    let is_at = |vid: u32, x: f64, y: f64| {
+        let p = pos(vid);
+        p[0] == x && p[1] == y
+    };
+    let mut spur_uses = 0usize;
+    for t in mesh.indices.chunks_exact(3) {
+        for (i, j) in [(0, 1), (1, 2), (2, 0)] {
+            let (a, b) = (t[i], t[j]);
+            if (is_at(a, 0.0, 2.0) && is_at(b, 0.0, 0.5))
+                || (is_at(a, 0.0, 0.5) && is_at(b, 0.0, 2.0))
+            {
+                spur_uses += 1;
+            }
+        }
+    }
+    assert_eq!(
+        spur_uses, 2,
+        "M3d: the spur is a constrained edge on both sides"
+    );
+}
+
 /// Geometry: a big CCW square (−2,−2)..(2,2) whose bottom edge is pinched
 /// at (0,−2) by a diamond lobe protruding INTO the square. Both sub-rings
 /// are CCW by hand-shoelace: square pentagon area 16 (the pinch point sits
