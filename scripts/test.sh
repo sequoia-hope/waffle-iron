@@ -126,6 +126,11 @@ GUI_FAST_SPECS=(
   sketch-polyline-drag.spec.js
   tool-switching-mid-operation.spec.js
   unit-conversion-display.spec.js
+  # Server-mode S3: the page's routing table vs the engine's MIGRATED list,
+  # and the C4b goldens. Neither needs the relay (they drive the page's own
+  # executor), so they belong in the fast tier.
+  agent-rust-tools.spec.js
+  agent-rust-authoring.spec.js
 )
 
 # ---------------------------------------------------------------------------
@@ -417,7 +422,7 @@ run_rust_full() {
 }
 
 # ---------------------------------------------------------------------------
-# Tier: GUI Fast (~260 tests)
+# Tier: GUI Fast (~275 tests)
 # ---------------------------------------------------------------------------
 run_gui_fast() {
   header "GUI Fast Tier"
@@ -600,7 +605,7 @@ print_help() {
   echo -e "  ${GREEN}fast${NC}         Rust fast tier       (rewrite crates + legacy fast, <60s target)"
   echo -e "  ${GREEN}full${NC}         Rust full tier        (~910 tests, includes parity)"
   echo -e "  ${GREEN}parity${NC}       Ignored sidecar reference oracles (~20s, needs sidecars)"
-  echo -e "  ${GREEN}gui-fast${NC}     GUI fast tier         (~260 tests, 35 spec files)"
+  echo -e "  ${GREEN}gui-fast${NC}     GUI fast tier         (~275 tests, 37 spec files)"
   echo -e "  ${GREEN}gui-full${NC}     GUI full tier         (~425 tests, all spec files)"
   echo -e "  ${GREEN}relay${NC}        Agent-link relay      (pytest + ruff, needs uv and node)"
   echo -e "  ${GREEN}all-fast${NC}     fast + gui-fast + relay"
