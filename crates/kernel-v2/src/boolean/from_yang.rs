@@ -798,7 +798,25 @@ pub fn from_yang_brep_indexed(
                         "output face plane normal disagrees with its outer-loop Newell normal",
                     ));
                 }
-                face_normals[spec.face] = Some(nu);
+                // Plane FIDELITY (R0085 op 3, 2026-09-18): the face carries
+                // yang's STATED normal — the input plane's exact bits, which
+                // Stage 5 inherits unchanged — not the loop's Newell
+                // recomputation. Newell above is the ORIENTATION check
+                // only. A per-fragment Newell normal drifts by
+                // (vertex noise / fragment size): on a small fragment of a
+                // split gear flank that reached ~1e-12, past the KV10
+                // sibling cluster band (`canonicalize_sibling_planes`,
+                // `TAU_WORK`) yet inside yang's intra-solid near-coplanar
+                // detection band — so the re-imported output walled its
+                // next boolean as `CoplanarFacesUnsupported` on two faces
+                // of ONE plane. Every fragment of one input plane now
+                // stores bit-identical normal bits (`f1_boolean_output_
+                // planarity` / `kv10_plane_canonicalization` pins).
+                face_normals[spec.face] = Some(UnitVector3 {
+                    x: normal[0],
+                    y: normal[1],
+                    z: normal[2],
+                });
             }
             LoopKind::Inner => {
                 let nw = geom::newell(&pts);

@@ -511,6 +511,51 @@ fn f32_render_degenerate(pa: [f64; 3], pb: [f64; 3], pc: [f64; 3]) -> bool {
     cx == 0.0 && cy == 0.0 && cz == 0.0
 }
 
+/// Render SUB-RESOLUTION predicate — the corpus oracle's own degenerate
+/// rule (`test_harness::oracle::check_no_degenerate_triangles`, PR-KV8c)
+/// computed in the same shape: all-f32 arithmetic on the f32-rounded
+/// positions, `true` iff the triangle's area is below `1e-12` AND its
+/// height (`2·area / longest side`) is below `height_floor` = four f32
+/// ulps of the coordinate scale. Such a triangle is unrepresentable in the
+/// render channel; the bitwise B2/B3 gate above cannot see it (its vertices
+/// differ at the ~1e-6 level). Callers pass a floor built from the FACE's
+/// own coordinate scale — at most the mesh-wide scale the oracle uses, so
+/// this gate is never stricter than the oracle's verdict.
+fn render_subresolution_triangle(
+    pa: [f64; 3],
+    pb: [f64; 3],
+    pc: [f64; 3],
+    height_floor: f64,
+) -> bool {
+    let f = |p: [f64; 3]| [p[0] as f32, p[1] as f32, p[2] as f32];
+    let (fa, fb, fc) = (f(pa), f(pb), f(pc));
+    let (ax, ay, az) = (fb[0] - fa[0], fb[1] - fa[1], fb[2] - fa[2]);
+    let (bx, by, bz) = (fc[0] - fa[0], fc[1] - fa[1], fc[2] - fa[2]);
+    let cx = ay * bz - az * by;
+    let cy = az * bx - ax * bz;
+    let cz = ax * by - ay * bx;
+    let area = (cx * cx + cy * cy + cz * cz).sqrt() / 2.0;
+    let max_side2 = (ax * ax + ay * ay + az * az)
+        .max(bx * bx + by * by + bz * bz)
+        .max((bx - ax) * (bx - ax) + (by - ay) * (by - ay) + (bz - az) * (bz - az));
+    let height = if max_side2 > 0.0 {
+        2.0 * area / max_side2.sqrt()
+    } else {
+        0.0
+    };
+    (area as f64) < 1e-12 && (height as f64) < height_floor
+}
+
+/// The render sub-resolution height floor for a set of positions: four f32
+/// ulps of their largest |coordinate| (the oracle's `height_floor`).
+fn render_height_floor<'a>(positions: impl Iterator<Item = &'a [f64; 3]>) -> f64 {
+    let max_abs = positions
+        .flat_map(|p| p.iter())
+        .map(|&c| (c as f32).abs())
+        .fold(0.0_f32, f32::max) as f64;
+    4.0 * max_abs * (f32::EPSILON as f64)
+}
+
 /// M1 grid-degeneracy predicate (spec `kv2_cdt_triangulation_core` §6b): is the
 /// triangle's f32-rounded height below the render weld `grid`? The height is
 /// computed in the SAME shape as `oracle::check_no_degenerate_triangles`

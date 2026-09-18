@@ -81,6 +81,26 @@ tolerance, A14.3).
 - If a downstream stage cannot digest the newly-admitted geometry, it must
   fail loudly at its own gate (P9) — verified case-by-case in validation.
 
+## 6a. Producer fidelity (2026-09-18) — the cluster band is the second line, not the first
+
+The KV10 cluster (§3) absorbs ROUNDING noise between sibling fragments. It
+was carrying more than rounding: `from_yang_brep` stored each output face's
+plane as the outer loop's Newell unit normal, so a small fragment of a split
+plane drifted by vertex-noise / fragment-size — R0085's gear flank fragments
+(faces 227 / 476 of the op-2 output) differed by up to 1.3e-12 per normal
+component, past the `TAU_WORK` band and into yang's intra-solid detection
+band. The assembler now stores yang's STATED normal (Stage 5 inherits the
+input face's surface unchanged), Newell being the orientation check only;
+and the polygon extrude's caps carry `±profile.unit_normal()` exactly
+(Euler-operator Newell tilts of 1e-17 … 1e-15 otherwise compound through a
+chained stack — F0067). Every fragment of one input plane therefore enters
+this canonicalization with bit-identical normals; the cluster's remaining
+job is the per-fragment `d` re-derivation (`to_yang_brep` anchors `d` at
+each face's own first loop vertex — a few ulps). Pins: `kv10_plane_
+canonicalization::output_planes_carry_input_normal_bits_exactly`,
+`extrude_caps_carry_the_profile_normal_exactly`. Ledger: `docs/yang_tail_
+triage.md` 2026-09-18 (later).
+
 ## 7. Research basis
 
 Yang 2025 §4.5.5 [#24] concerns coplanarity BETWEEN operands; intra-solid

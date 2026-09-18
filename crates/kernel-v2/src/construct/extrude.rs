@@ -190,6 +190,34 @@ pub fn extrude(
         )?);
     }
 
+    // Plane FIDELITY (R0085 / F0067, 2026-09-18): the two caps carry the
+    // profile plane's EXACT unit normal (top `+a`, base `−a`, `a` = the
+    // profile normal signed by the sweep sense — a sheared prism's caps are
+    // the profile plane translated, so their normal is `n̂`, not `d̂`). The
+    // Euler operators derived them as Newell normals of the polygonal walks,
+    // which carry ~1e-17 … 1e-14 rounding tilts (a gear cap: 1.5e-15); those
+    // tilts compound through a chained-boolean stack once the boolean
+    // assembler stores stated planes faithfully (`from_yang_brep`), and
+    // F0067's tenth stacked extrude walled at Stage 0 on a 1.5e-15-tilted
+    // cap. Newell stays the ORIENTATION check (`validate_solid`, the same
+    // agreement band); the analytic normal is what the face stores — the
+    // arc-profile and circle paths below already build their caps this way.
+    let n_unit = profile.unit_normal();
+    let a = if cosine >= 0.0 { n_unit } else { neg(n_unit) };
+    for (fid, normal) in [(core.front, a), (core.back, neg(a))] {
+        let Some(Surface::Plane(plane)) = arena.face(fid)?.surface else {
+            return Err(KernelV2Error::NewellMismatch { face: fid });
+        };
+        let dot = plane.normal.x * normal.x + plane.normal.y * normal.y + plane.normal.z * normal.z;
+        if dot < 1.0 - crate::validate::NORMAL_AGREEMENT_TOLERANCE {
+            return Err(KernelV2Error::NewellMismatch { face: fid });
+        }
+        arena.face_mut(fid)?.surface = Some(Surface::Plane(Plane {
+            point: plane.point,
+            normal,
+        }));
+    }
+
     finalize_solid(arena, core.solid)?;
     Ok(ExtrudeResult {
         solid: core.solid,

@@ -161,3 +161,104 @@ fn chained_boolean_over_split_fragments_succeeds() {
     let vol = mesh_signed_volume(&mesh);
     assert!((vol - 45.224).abs() < 1e-6, "union volume {vol} != 45.224");
 }
+
+/// Plane FIDELITY at the assembler (R0085 op 3, 2026-09-18): every planar
+/// face of a boolean output carries the EXACT normal bits of an input plane.
+/// yang Stage 5 inherits each output face's surface from its input face
+/// unchanged; `from_yang_brep` must store that stated normal, never the
+/// outer loop's Newell recomputation (whose per-fragment rounding drifts by
+/// vertex-noise / fragment-size — ~1e-12 on the small split-flank fragment
+/// that walled R0085's third op as an intra-solid near-coplanar pair, past
+/// the `TAU_WORK` sibling cluster band of `canonicalize_sibling_planes`).
+#[test]
+fn output_planes_carry_input_normal_bits_exactly() {
+    let mut a = BrepArena::new();
+    let b1 = oblique_box(&mut a, (0.0, 4.0), (0.0, 4.0), (0.0, 1.0));
+    let b2 = oblique_box(&mut a, (1.0, 3.0), (-1.0, 5.0), (-1.0, 2.0));
+    let bits = |n: [f64; 3]| [n[0].to_bits(), n[1].to_bits(), n[2].to_bits()];
+    let mut input_normals: Vec<[f64; 3]> = Vec::new();
+    for s in [b1, b2] {
+        for f in to_yang_brep(&a, s).expect("input yang conversion").faces() {
+            if let yang_rs::Surface::Plane { normal, .. } = f.surface {
+                input_normals.push(normal.as_array());
+            }
+        }
+    }
+    let input_bits: std::collections::BTreeSet<[u64; 3]> =
+        input_normals.iter().map(|&n| bits(n)).collect();
+
+    let out = boolean_op(&mut a, b1, b2, BoolOp::Union).expect("union");
+    validate_solid(&a, out).expect("valid output");
+    let y = to_yang_brep(&a, out).expect("output yang conversion");
+    let mut planar = 0usize;
+    for (i, f) in y.faces().iter().enumerate() {
+        let yang_rs::Surface::Plane { normal, .. } = f.surface else {
+            continue;
+        };
+        planar += 1;
+        let n = normal.as_array();
+        if !input_bits.contains(&bits(n)) {
+            let drift = input_normals
+                .iter()
+                .map(|m| (0..3).map(|k| (n[k] - m[k]).abs()).fold(0.0, f64::max))
+                .fold(f64::INFINITY, f64::min);
+            panic!(
+                "output face {i} normal {n:?} is not an input plane's exact bits \
+                 (nearest input normal differs by {drift:.3e})"
+            );
+        }
+    }
+    assert!(
+        planar >= 10,
+        "fixture defect: expected a many-faced planar union, got {planar}"
+    );
+}
+
+/// Plane FIDELITY at the PRODUCER (F0067, 2026-09-18): a polygon extrude's
+/// two caps carry the profile plane's exact unit normal — for a sketch on
+/// `z = c` that is bit-exactly `(0, 0, ±1)` — not the Newell normal of the
+/// Euler-built loop, whose rounding tilt on a many-vertex profile (a gear:
+/// 1.5e-15) compounds through a chained stack once the boolean assembler
+/// carries stated planes faithfully, and walled F0067's tenth stacked
+/// extrude at Stage 0.
+#[test]
+fn extrude_caps_carry_the_profile_normal_exactly() {
+    // A 40-gon at irrational vertex angles with per-vertex radial jitter:
+    // its 3D Newell sum does not cancel to an exact axis vector.
+    let n = 40usize;
+    let pts: Vec<Point2> = (0..n)
+        .map(|i| {
+            let t = 2.0 * std::f64::consts::PI * (i as f64) / (n as f64) + 0.123;
+            let r = 1.0 + 0.07 * ((7 * i) % 5) as f64;
+            Point2::new(r * t.cos(), r * t.sin())
+        })
+        .collect();
+    let p = Profile::new(
+        Point3::new(0.31, -0.27, 1.7518978673859231),
+        Vector3::new(1.0, 0.0, 0.0),
+        Vector3::new(0.0, 1.0, 0.0),
+        pts,
+        vec![],
+    )
+    .unwrap();
+    let mut a = BrepArena::new();
+    let r = extrude(&mut a, &p, Vector3::new(0.0, 0.0, 1.0), 0.41).expect("extrude");
+    validate_solid(&a, r.solid).expect("valid");
+    let y = to_yang_brep(&a, r.solid).expect("yang conversion");
+    let mut caps = 0usize;
+    for f in y.faces() {
+        let yang_rs::Surface::Plane { normal, .. } = f.surface else {
+            continue;
+        };
+        let n = normal.as_array();
+        if n[2].abs() > 0.5 {
+            caps += 1;
+            assert_eq!(
+                [n[0].to_bits(), n[1].to_bits(), n[2].abs().to_bits()],
+                [0.0f64.to_bits(), 0.0f64.to_bits(), 1.0f64.to_bits()],
+                "cap normal is not the exact profile normal: {n:?}"
+            );
+        }
+    }
+    assert_eq!(caps, 2, "expected exactly two caps");
+}

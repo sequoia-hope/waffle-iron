@@ -43,6 +43,93 @@ after the reconciliation run (release, 8 jobs, 360 s; wall 577 s, F0085
 regression since 2026-08-01 is outstanding (checked over every commit of
 `results.json`).
 
+## 2026-09-18 (later) — PLANE FIDELITY at both producers (assembler + extrude caps) clears R0085's op-3 intra-solid pair; op 3 then STOPs loudly on a SUB-RESOLUTION cone triangle at a near-tangential torus × cone crossing; R0063 surfaces as a rounding-luck latent; canonical 292C / 0W / 14E / 4EE / 0T + 2 UNSUPPORTED(coplanar-boolean)
+
+The morning row's next wall — "an output face must carry its INPUT's exact
+plane" — had TWO producers, both storing a Newell recomputation where an
+analytic plane was available (pins: kernel-v2 `kv10_plane_canonicalization::
+output_planes_carry_input_normal_bits_exactly` and
+`extrude_caps_carry_the_profile_normal_exactly`, both certified red without
+the fix):
+
+1. **`from_yang_brep` stored the outer loop's Newell unit normal** as the
+   arena plane, not yang's stated normal (which Stage 5 inherits unchanged
+   from the input face). A per-fragment Newell drifts by vertex-noise /
+   fragment-size: R0085's op-2 output carried one gear flank as faces 227 and
+   476 with normals differing by (6.0e-13, 1.3e-12, 2.0e-13) and `d` by
+   2.1e-12 — past the KV10 sibling cluster band (`TAU_WORK` per component),
+   inside yang's intra-solid detection band. Newell is now the ORIENTATION
+   check only; the face stores the stated bits.
+2. **The polygon extrude's caps** came from the Euler operators' Newell of
+   the polygonal walk (`mvfs`/`mef`), carrying 1e-17 … 1e-15 tilts (a
+   many-vertex gear cap: 1.48e-15). With producer 1 faithful, those tilts
+   COMPOUND through a chained stack instead of being re-snapped at every
+   op: F0067 (ten stacked Z extrudes) walled at Extrude 10 — Stage 0 ring
+   triangulation of face 754 on pair (328, 0), A's cap normal
+   `(1.48e-15, −2.78e-16, 1)` from the op-8 gear extrude. The caps now carry
+   `±profile.unit_normal()` exactly (the arc-profile and circle paths
+   already did). F0067 is CORRECT again.
+
+**What op 3 of R0085 then does.** The op completes and its final mesh grades
+SUPPORTED_WRONG under the intermediate tree (`no_degenerate_triangles: 1 of
+29408`; `mesh_euler_characteristic … = 0 (expected 2)`). Measured from the
+`ASSAY_DUMP_OBJ` mesh:
+
+- 18 exactly-unpaired edges at THREE T-junction sites, all torus lateral
+  (22 457 tris) × ring cone faces (the 0.85°-tilted rectangle revolve's
+  walls): the developable refiner's `boundary chord split` (documented as
+  closure-safe) against a torus that never splits its boundary. The corpus
+  oracle HEALS collinear T-junctions (`subdivide_t_junctions` /
+  `t_split_chain`, within 2 weld-grid cells) — F0048's CORRECT final mesh
+  carries 51 such unpaired edges — so these are not the χ deficit. A
+  `RigidTwin` STOP on any boundary split against a plane / torus / sphere
+  twin was built and REFUTED on the corpus: 33 CORRECT cases fire it
+  (261C / 45E), 43 such splits corpus-wide, every one healed by the oracle.
+  Reverted; the census is in this row, not the code.
+- The χ deficit is the oracle-degenerate triangle: on cone face 5089 three
+  consecutive pair-curve samples within 2.4e-5 (area 1.5e-13 < 1e-12,
+  height 1.3e-8 < 4 f32 ulps · 5.83 = 2.8e-6). The torus × cone crossing is
+  near-tangential there (samples bunch to 1e-6 … 2e-5 spacing along the
+  curve; the torus side mints the matching needles at h ≈ 1e-6 over 4e-2
+  chords) and the oracle's 5.8e-5 weld grid fuses the cluster: χ short by 2.
+- The exact-membership ladder cannot adjudicate this document: boundary χ
+  reads −4 / 0 / 2 at 128 / 256 / 512 cells (phase 0.5), −4 / −8 / 2 at
+  phase 0.25, and −2 / −2 (0.5), 4 / −2 (0.25) at 768 / 1024 — unstable
+  (the gear teeth and the near-tangency are below its resolution).
+
+**P10 safety net (the only band in this row):** the developable emit gate
+gains the corpus oracle's own SUB-RESOLUTION rule (`render_subresolution_
+triangle`: all-f32, area < 1e-12 AND height < 4 f32 ulps of the FACE's
+coordinate scale — at most the mesh-wide scale the oracle uses, so never
+stricter than the oracle), loud at the producing face. R0085 op 3 now STOPs
+`TessellationFailed FaceId(1761): patch triangle below render resolution …
+surface-pair samples bunched at a near-tangential crossing`. Owner of the
+structural fix: the pair-curve sampler's bunching at a near-tangency (an
+R0050-class geometry: exact/near tangency, §4.5.2 refuted there) and, behind
+it, conformal cross-face boundary refinement (one split table per edge, both
+faces) so the torus × cone T-junctions stop existing rather than being
+healed by the oracle.
+
+**R0063 CORRECT → ERROR (unmasked latent).** Bisected to producer 2 alone:
+with the oblique sketch normal (−0.447, −0.278, 0.850) the cap normal moves
+from the Newell rounding to the `unit(u × v)` rounding (a ~1e-16 change) and
+Extrude 3's chained input then STOPs at yang Stage 1: `chart polygon of
+face 1 crosses itself 2 time(s): boundary sampling coarser than the face's
+feature size` (the holed cylinder lateral of the op-2 output). R0063 is the
+"genus one below its gap" document (`assay_exact_membership::
+r0063_reads_genus_one_below_its_gap`: its exact ladder is unstable below
+1024 cells, h = 2.83e-6 at scale 1.74e-3) — a sub-resolution feature at the
+`MIN_FEATURE_SIZE` floor whose CORRECT grade rode on one rounding of one
+cap normal. Loud by design; not chased (`feedback_no_regression_chasing`).
+
+Corpus (release, 8 jobs, 600 s; wall 831.8 s): **292C / 0W / 14E / 4EE /
+0T, 2 UNSUPPORTED(coplanar-boolean: F0064, F0072)** — per-id diff of the
+committed `results.json`: exactly TWO category moves (R0085 UNSUPPORTED →
+ERROR, R0063 SUPPORTED_CORRECT → ERROR), ZERO detail moves. Intermediate
+tree (producer 1 only): 292C / 1W / 12E + 3U — R0085 WRONG, F0067
+UNSUPPORTED; producer 2 restores F0067 and R0063's row above is the price.
+The coplanar UNSUPPORTED family is down to the N17 pair.
+
 ## 2026-09-18 — R0085 op 2 CONVERTED by Yang §4.5.2 with the ladder rung named by the STOP's own UNDER-RESOLUTION certificate (d_ε/32); the case advances ERROR → UNSUPPORTED(coplanar-boolean) on op 3's INTRA-SOLID near-coplanar pair; canonical 293C / 0W / 12E / 4EE / 0T + 3 UNSUPPORTED(coplanar-boolean)
 
 The 2026-09-17 evening row read R0085's op-2 wall as a corner-transit
@@ -2034,7 +2121,7 @@ moved. The 30 ERROR rows are the ACTIVE rows below.
 | ~~R0047~~ | ~~Stage-4 LRR (u32::MAX)~~ reassembled output non-2-manifold (Stage 6) | **FLIPPED CORRECT 2026-08-19 (c10820b8); reconciled 2026-09-04 from the committed results.json history** ~~probe 2026-07-17: `site=split_max_passes` — same class as R0009~~ **RE-DIAGNOSED + LAYER PEELED 2026-08-19:** the R0009 absolute-floor class exactly (2.09e-4 scale; 5168 healthy-triangle unzips in 62 s before the cap). Post-fix zero unzip actions; advances to a Stage-6 reassembly non-2-manifold wall (unprobed) | CONFIRMED (2026-08-19) | Reassembly non-2-manifold family (was P3-§4.5.2) |
 | ~~R0049~~ | ~~non-2-manifold (reassembly)~~ ~~ring rejected by CDT (FaceId 575)~~ **FLIPPED CORRECT 2026-09-07 (night): the live wall was the I6 `NonManifoldInput` backstop on a ROUNDING PLEAT (two sub-band slivers, cone × gear-flank plane, apexes welded bit-identically) — never fragmentation; I6.6 band-scoped membrane cancellation** | (history: ~~probe 2026-07-17: `s6-planar-loop-nonplanar` face 134 vert 337 off-plane 1.449e-6 (band 1.0e-7) — the F0064 class (N51)~~ **DRIFTED 2026-07-29:** now fails as a ring-reject on a **developable** patch (FaceId 575, `tessellate_developable_patch` — not planar). 214 origin nodes, 0 arc samples, folds at idx 1/45/46 (144.2°, 180.0°, 176.6°). **NOT counted as seam-class:** the ring breaks into **~97 adjacency runs**, so ~45% of ring indices are seams and "fold near seam" carries no information. The **fragmentation itself** is the signal — a boundary shattered into ~97 micro-chains against different neighbour faces, which reads as the near-coincident-surface incidence family (R0050/R0053 kin) and is consistent with the old `s6-planar-loop-nonplanar` diagnosis. **CAVEAT: the run-splitting heuristic (twin-id delta > 12 or sign change) is crude and may over-fragment on irregular id allocation — verify the 97 before building on it** | PARTIAL (builder + fragmentation measured 2026-07-29; mint unconfirmed) | Stage-2/3 incidence (near-coincident surfaces) — was P3a-#146) | CONFIRMED (i6-coincident-tris probe) | DONE |
 | R0050 | ~~Stage-4 LRR v58~~ ~~LRR v122 (op 2, torus∩conic endpoint mix)~~ op 3 `RelocationCrossedCarrierVertex` v413 (§4-I9) | **2026-09-13 RE-DIAGNOSED — EXACT TANGENCY, not a transit and not a resolution deficit.** A:5 (Torus R=3.9509 r=2.6339) and B:2 (Torus R=3.7759 r=2.5173) have parallel axes (axial offset 2.8e-16) offset perpendicularly by 0.1749237839 = `R_A − R_B` EXACTLY; min |d_B2| over A's torus refines to **0.0**. q=v209 is EXACTLY A's B-Rep vertex 76, the {torus, cap plane, meridian-disc plane} corner; the exact crossings of B:2 with A:9's 6-edge boundary are TWO and both far from q (t=0.84306 on seg v76–v41, t=0.15694 on seg v40–v86), so the mesh crossing at v413 is SPURIOUS (B's mesh 3.4e-2 off its own surface, within its honest `torus_chord_bound` 6.2932e-2) and `[451-transit] REFUSE NoRealCandidate` is CORRECT — there is no junction to transit to. Both candidate triples land outside A:9's face (the `{B:2,A:9,A:5}` one ON the meridian circle to 1.404e-15 but inside the chord-bitten gap). §4.5.2 REFUTED: op-level ladder converges at NO rung (d_ε/2 emits 55 illegal self-intersections; d_ε/3…d_ε/16 all `OffCurveBeyondChordBand` at a moving vertex) and the whole-case ladder OSCILLATES (f=3 ✗, 4 ✓, 5 ✗, 6 ✓, 8 ✗). Full measurement: `specs/yang_452_local_refinement.md` §6. ~~2026-09-12 (later): op 2's wall was the torus block's endpoint-mix STOP on a {cylinder, cap plane, torus} corner — the triple block now admits torus∩conic mixes; op 3 is the §4.5.1 corner-transit class, R0085 kin.~~ probe 2026-07-18: `YANG_TORUS_STOP site=gt2_partners` with **partners=[] (EMPTY)** — the model's two near-identical revolve tori, now certified EXACTLY TANGENT. #131/N28 theory refuted | CONFIRMED (2026-09-13, exact-tangency certificate) | ~~P3a-#146 / Stage-2/3 incidence~~ **§4.3.3 tangent-point insertion** (the R0015/C0065 arm) |
-| ~~R0063~~ | Stage-4 LRR (u32::MAX) | **FLIPPED CORRECT 2026-07-30 (1a9cee36); reconciled 2026-09-04 from the committed results.json history** probe 2026-07-17: `site=split_max_passes` — same class as R0009 (the #145 zigzag residual resolves into the split-budget class) | CONFIRMED (#171 sweep) | P3-§4.5.2 |
+| R0063 | ~~Stage-4 LRR (u32::MAX)~~ **2026-09-18 (later): CORRECT → ERROR, yang Stage-1 `chart polygon of face 1 crosses itself 2 time(s)` at Extrude 3 — a rounding-luck latent unmasked by the exact extrude-cap normal (a ~1e-16 change on the oblique sketch normal); the document's gap is at the `MIN_FEATURE_SIZE` floor (exact ladder unstable below 1024 cells). Loud by design.** | **FLIPPED CORRECT 2026-07-30 (1a9cee36); reconciled 2026-09-04 from the committed results.json history** probe 2026-07-17: `site=split_max_passes` — same class as R0009 (the #145 zigzag residual resolves into the split-budget class) | CONFIRMED (#171 sweep) | P3-§4.5.2 |
 | ~~R0077~~ | ~~Stage-4 LRR v3~~ OffCurve v154 (since 2026-07-28) | probe 2026-07-18: `YANG_TORUS_STOP site=pair_newton_none` — torus×plane implicit-pair Newton non-convergence at extreme scale (torus R=2051/r=1367, coords ~2700; the op's other two torus verts converge with rho ≈ 2e-13). Same class as R0025 | CONFIRMED (#171 pass 2) | ~~P3b-#137 (torus∩plane relocation family)~~ **FLIPPED CORRECT 2026-09-11: the pair-Newton wall was closed 2026-07-28 (ulp floor); the live wall was the torus block's `[s1, s2]` arm gating a box-edge × torus pierce (v154 / v161, 17° grazing, moves 259 / 371 along the edge) at the surface-pair corridor (251 / 243) instead of the KV11 LINE corridor (688 / 650) — `junction_line_divergence`, spec `yang_stage4_conic_triple_junction` "Junction-line amendment"; see the 2026-09-11 section** DONE |
 | ~~R0091~~ | Stage-4 LRR (u32::MAX) | **FLIPPED CORRECT 2026-07-21 (92188eaa); reconciled 2026-09-04 from the committed results.json history** probe 2026-07-17: `site=split_max_passes` — same class as R0009; STILL the historical silent-wrong trap: any fix must be re-CDT/refinement, never a merge | CONFIRMED (#171 sweep) | P3-§4.5.2 |
 
@@ -2496,7 +2583,7 @@ Two dead ends, closed by measurement (do not re-walk them):
 | ~~R0016~~ | ~~ring rejected by CDT (FaceId 1885)~~ | probe 2026-07-18: 646-pt micro-scale ring (r≈0.03) with **15 periodic near-dup pairs** at (i, i+2) ~1.1e-4 apart (spike/needle pattern repeating with period ~310) + 1 crossing — the #146 near-duplicate junction-vert mint materialized in an output ring | CONFIRMED (#171 pass 2) | P3a-#146 (near-dup junction mint) | **FLIPPED CORRECT 2026-08-19 (§5c.13 degeneracy identity):** its later "reassembled output would be non-2-manifold" wall was the §4.4.1(a) unzip flipping healthy sub-1e-12-area gear-tooth slivers under the absolute floor; post-fix zero unzip actions, all oracles incl. the in-line composition oracle pass |
 | ~~R0028~~ | ring rejected by CDT (FaceId 32) | **FLIPPED CORRECT 2026-08-24 (8461e823); reconciled 2026-09-04 from the committed results.json history** probe 2026-07-18: 146-pt ring, 2 crossings at the ring CLOSURE (segs 1×142, 4×138) — the chain tail folds back over the start (overlapping closure, not a mid-ring zigzag). **SPLIT OFF THE SEAM CLASS 2026-07-29 (`KV2_RING_PROVENANCE`, 70ccf32c):** FaceId 32 is **NOT planar** — it never calls `sampled_loop_points`; it is a **developable** patch (`tessellate_developable_patch`, unrolled (u,v) cut frame). Ring = 25 origin nodes + **121 arc-sample nodes**; only 3 adjacency runs (seams at 13, 71) and the single fold is at **idx 0 — the ring closure, 13 indices from any seam**. This is NOT the planar seam-overlap mechanism and must not be folded into its spec. Undiagnosed; the unroll cut at u≈0 is the obvious first suspect (idx 0 sits at x=4.3e-19) | PARTIAL (site + builder confirmed 2026-07-29; mint unknown) | **developable-patch ring (own row)** — was P3-junction S5/S6. **inc-3b 2026-08-22: R0028's Stage-4 OffCurve v64 wall is REPAIRED always-on (§4.5.1 torus arm, pair-Newton certificate 1e-18 + hull); the case now reaches THIS family's wall directly — VertexOffSurface FaceId 32 (same face as the recorded ring; gate differs — vertex-level anchor = next investigation)** **2026-08-24 (§4.5.1 inc-4 + §4.5.3 pair arm): the VertexOffSurface was the REPAIR'S OWN MINT — v64 is a torus∩plane∩cylinder q-point and the pair-Newton solved 2 of its 3 surfaces (spec `yang_451_optimize_across_boundaries.md` §14). inc-4 (always-on) repairs v64 onto all three via the triple Newton; the case then reaches the REAL fold: the torus-side ring's closure crosses because the torus-block pair-Newton relocated v66/v67 PAST the junction (entry cap −3.6e-5 → final +2.0e-4) — which RETRACTS this row's 'Stage 4 relocated NOTHING' exclusion (`n_relocations` is blind to torus-block moves, the 08-04 caveat materialized). The §4.5.3 pair-chain reversal sweep (spec `yang_453_pair_chain_reversal.md`, gated `YANG_453_PAIR`) collapses the two overshooters and R0028 goes SUPPORTED_CORRECT — all oracles pass.** |
 | ~~R0017~~ | KV9-F2 folded patch triangulation | **FLIPPED CORRECT 2026-08-27 (3252c787); reconciled 2026-09-04 from the committed results.json history** probe 2026-07-17: error class CHANGED — kernel-v2 `TessellationFailed` FaceId(14) "patch triangulation folded (inverted triangle)" (unrolled ear-clip fold), not the old holed-lateral CDT | CONFIRMED (#171 sweep) | kernel-v2 KV9-F2 **2026-08-24b: probed — F2b, NOT the deep-chord class: all three fold nodes ON-surface (dev ≤ 3e-12), dot=−0.998, r_unroll=4073 — a 2D-winding vs 3D-orientation disagreement (suspect development overlap / seam-copy connection); needs its own anchor, excluded from `yang_434_output_chord_refinement.md`** |
-| R0085 | ~~op1: ring rejected by CDT (FaceId 566); op2: LRR v5~~ ~~op 2 `RelocationCrossedCarrierVertex` v386~~ **op 2 CONVERTED 2026-09-18 (Yang §4.5.2, ladder rung named by the STOP's under-resolution certificate: d_ε/32; spec `yang_452_local_refinement.md` §8). Live: op 3 (`Revolve 3`) Stage-0 `CoplanarFacesUnsupported` INTRA-SOLID A faces (227, 476) — the op-2 output emitted one gear flank as two faces whose planes differ at 1e-12; graded UNSUPPORTED(coplanar-boolean). Owner: Stage-6 output-face plane fidelity (carry the INPUT's exact plane), NOT M8 and NOT the F0064/F0072 N17 deferral** | probe 2026-07-18: TWO independent failures. **op1** (Revolve 2 union): 42-pt ring, 3 fold crossings (0×33, 6×32, 33×41) — output-ring fold, same family as R0028. **op2** (Revolve 3 union): ~~`YANG_LRR_SITE site=lineseg_combo` edge (5,550) — the missing cone-generator LineSegment closed form~~ **op2's lineseg layer RESOLVED 2026-07-28 (cone-generator arm)**; the case stays ERROR on op1 regardless, and op2 now STOPs one layer deeper: `YANG_V_PROBE` v5 = `line=true + torus=true + endpoint=true` → the TORUS block's `endpoint_set` guard (`stage4_correct.rs`, "a torus-edge endpoint that is also a CONIC endpoint mixes the implicit-pair and closed-form relocations — out of v1 scope"). A torus × cone-generator junction: the R0044 endpoint-mix class with a line instead of a conic | CONFIRMED (2026-07-28 probe) | op1: P3-junction (output ring); op2: P3-junction (R0044 endpoint-mix, torus×line) |
+| R0085 | ~~op1: ring rejected by CDT (FaceId 566); op2: LRR v5~~ ~~op 2 `RelocationCrossedCarrierVertex` v386~~ ~~op 3 Stage-0 intra-solid pair (227, 476)~~ **2026-09-18 (later): op 3 intra-solid pair CLEARED by plane fidelity (assembler stores the stated normal; extrude caps exact); live: op 3 kernel-v2 `TessellationFailed FaceId(1761)` sub-resolution cone triangle at a near-tangential torus × cone crossing (pair-curve samples bunched to 1e-6 … 2e-5; P10 gate `render_subresolution_triangle`). Owner: pair-curve sampler near-tangency + conformal cross-face boundary refinement (3 torus × cone T-junction sites, oracle-healed).** **op 2 CONVERTED 2026-09-18 (Yang §4.5.2, ladder rung named by the STOP's under-resolution certificate: d_ε/32; spec `yang_452_local_refinement.md` §8). Live: op 3 (`Revolve 3`) Stage-0 `CoplanarFacesUnsupported` INTRA-SOLID A faces (227, 476) — the op-2 output emitted one gear flank as two faces whose planes differ at 1e-12; graded UNSUPPORTED(coplanar-boolean). Owner: Stage-6 output-face plane fidelity (carry the INPUT's exact plane), NOT M8 and NOT the F0064/F0072 N17 deferral** | probe 2026-07-18: TWO independent failures. **op1** (Revolve 2 union): 42-pt ring, 3 fold crossings (0×33, 6×32, 33×41) — output-ring fold, same family as R0028. **op2** (Revolve 3 union): ~~`YANG_LRR_SITE site=lineseg_combo` edge (5,550) — the missing cone-generator LineSegment closed form~~ **op2's lineseg layer RESOLVED 2026-07-28 (cone-generator arm)**; the case stays ERROR on op1 regardless, and op2 now STOPs one layer deeper: `YANG_V_PROBE` v5 = `line=true + torus=true + endpoint=true` → the TORUS block's `endpoint_set` guard (`stage4_correct.rs`, "a torus-edge endpoint that is also a CONIC endpoint mixes the implicit-pair and closed-form relocations — out of v1 scope"). A torus × cone-generator junction: the R0044 endpoint-mix class with a line instead of a conic | CONFIRMED (2026-07-28 probe) | op1: P3-junction (output ring); op2: P3-junction (R0044 endpoint-mix, torus×line) |
 | R0100 | KV9-F2 folded patch triangulation | probe 2026-07-17: error class CHANGED — kernel-v2 `TessellationFailed` FaceId(15) folded ear-clip, same class as R0017 | CONFIRMED (#171 sweep) | kernel-v2 KV9-F2 **2026-08-24b: probed — F2a deep-chord class (NOT R0017's): Chord-split node dev=1.893 off-surface at a seam-adjacent sliver (FaceId 14 today). Customer of `yang_434_output_chord_refinement.md`** |
 | ~~F0067~~ | converted-input CDT failed (face 272) | **FLIPPED CORRECT 2026-08-14 (17f83c21); reconciled 2026-09-04 from the committed results.json history** M8 opposite-rim projection class (#142/#143/#144) | CONFIRMED (task #144) | M8 |
 

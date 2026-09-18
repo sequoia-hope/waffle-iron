@@ -1882,6 +1882,7 @@ fn tessellate_developable_patch(
         out.positions.extend_from_slice(&pos);
         out.normals.extend_from_slice(&nrm);
     }
+    let height_floor = render_height_floor(nodes.iter().map(|n| &n.pos));
     for t in &wtris {
         // PR-KV9 fold tripwire (KV7-F1 class): a folded unrolled
         // triangulation emits triangles whose 3D winding faces INTO the
@@ -1903,6 +1904,20 @@ fn tessellate_developable_patch(
         // Always-on (I3) — never debug-gated, never a skip/snap (P9).
         if f32_render_degenerate(pa, pb, pc) {
             return Err(fail("patch triangle collapsed at render precision"));
+        }
+        // P10 safety net (R0085 op 3, 2026-09-18): the corpus oracle's own
+        // SUB-RESOLUTION rule (area < 1e-12 AND height < 4 f32 ulps of the
+        // coordinate scale). Surface-pair samples bunch at a near-tangential
+        // torus × cone crossing (consecutive samples 1e-6 … 2e-5 apart), and
+        // the cone patch then emits a needle triangle the bitwise gate
+        // cannot see; the render weld grid fuses its vertices and the mesh
+        // reads χ short by two. Loud at the producing face; the structural
+        // owner is the pair-curve sampler's bunching at a near-tangency.
+        if render_subresolution_triangle(pa, pb, pc, height_floor) {
+            return Err(fail(
+                "patch triangle below render resolution (area < 1e-12, height < 4 f32 ulps): \
+                 surface-pair samples bunched at a near-tangential crossing",
+            ));
         }
         let u = [pb[0] - pa[0], pb[1] - pa[1], pb[2] - pa[2]];
         let v = [pc[0] - pa[0], pc[1] - pa[1], pc[2] - pa[2]];
