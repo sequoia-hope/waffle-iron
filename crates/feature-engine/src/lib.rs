@@ -5,6 +5,7 @@ pub mod context;
 pub mod expr;
 pub mod opaque;
 pub mod params;
+pub mod pattern;
 pub mod preview_mesh;
 pub mod rebuild;
 pub mod resolve;
@@ -356,6 +357,30 @@ impl Engine {
             )
             .first()
             .map(|fid| (*fid, FeatureTree::body_id(*fid, &OutputKey::Main))),
+            // A pattern's Main is instance 0 of its first seed: it inherits
+            // that seed body's name.
+            Operation::PatternCircular { params } => params.seeds.first().and_then(|gr| {
+                if let Anchor::FeatureOutput {
+                    feature_id,
+                    output_key,
+                } = &gr.anchor
+                {
+                    Some((*feature_id, FeatureTree::body_id(*feature_id, output_key)))
+                } else {
+                    None
+                }
+            }),
+            Operation::PatternLinear { params } => params.seeds.first().and_then(|gr| {
+                if let Anchor::FeatureOutput {
+                    feature_id,
+                    output_key,
+                } = &gr.anchor
+                {
+                    Some((*feature_id, FeatureTree::body_id(*feature_id, output_key)))
+                } else {
+                    None
+                }
+            }),
             _ => None,
         }
     }

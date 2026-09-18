@@ -352,6 +352,61 @@ impl RigidPlacement {
             m[2][0] * v[0] + m[2][1] * v[1] + m[2][2] * v[2],
         ]
     }
+
+    /// A pure translation.
+    pub fn translation(t: [f64; 3]) -> RigidPlacement {
+        RigidPlacement {
+            translation: t,
+            rotation: RigidPlacement::IDENTITY.rotation,
+        }
+    }
+
+    /// Row-major matrix of a right-handed rotation by `angle` radians about
+    /// the UNIT axis `axis` (Rodrigues). The caller supplies a unit axis; a
+    /// non-unit axis yields a non-orthonormal matrix that the kernel's
+    /// rigidity check refuses, so the error is loud rather than a silently
+    /// scaled copy.
+    pub fn rotation_matrix(axis: [f64; 3], angle: f64) -> [[f64; 3]; 3] {
+        let (s, c) = angle.sin_cos();
+        let t = 1.0 - c;
+        let [x, y, z] = axis;
+        [
+            [t * x * x + c, t * x * y - s * z, t * x * z + s * y],
+            [t * x * y + s * z, t * y * y + c, t * y * z - s * x],
+            [t * x * z - s * y, t * y * z + s * x, t * z * z + c],
+        ]
+    }
+
+    /// Rotation by `angle` radians about the axis through `origin` along the
+    /// unit direction `axis`: `p' = R·(p − o) + o = R·p + (o − R·o)`.
+    pub fn rotation_about(origin: [f64; 3], axis: [f64; 3], angle: f64) -> RigidPlacement {
+        let rotation = Self::rotation_matrix(axis, angle);
+        let tmp = RigidPlacement {
+            translation: [0.0; 3],
+            rotation,
+        };
+        let ro = tmp.apply_dir(origin);
+        RigidPlacement {
+            translation: [origin[0] - ro[0], origin[1] - ro[1], origin[2] - ro[2]],
+            rotation,
+        }
+    }
+
+    /// `self` applied after `first`: `(self ∘ first)(p) = self(first(p))`.
+    pub fn after(&self, first: &RigidPlacement) -> RigidPlacement {
+        let a = &self.rotation;
+        let b = &first.rotation;
+        let mut rotation = [[0.0; 3]; 3];
+        for (i, row) in rotation.iter_mut().enumerate() {
+            for (j, cell) in row.iter_mut().enumerate() {
+                *cell = a[i][0] * b[0][j] + a[i][1] * b[1][j] + a[i][2] * b[2][j];
+            }
+        }
+        RigidPlacement {
+            translation: self.apply(first.translation),
+            rotation,
+        }
+    }
 }
 
 impl Default for RigidPlacement {

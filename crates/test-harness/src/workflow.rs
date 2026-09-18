@@ -520,6 +520,26 @@ impl ModelBuilder {
         self.extract_last_feature_id(name, "AddFeature(Extrude)", response)
     }
 
+    /// Add an arbitrary operation as a named feature (for operation kinds
+    /// without a dedicated shortcut — patterns, mate connectors, …).
+    pub fn add_operation(
+        &mut self,
+        name: &str,
+        operation: Operation,
+    ) -> Result<Uuid, HarnessError> {
+        self.check_name_available(name)?;
+        let label = format!("AddFeature({})", operation.type_tag());
+        let response = wasm_bridge::dispatch(
+            &mut self.state,
+            UiToEngine::AddFeature {
+                provenance: None,
+                operation,
+            },
+            self.kernel.as_mut(),
+        );
+        self.extract_last_feature_id(name, &label, response)
+    }
+
     /// Edit an existing extrude feature's depth and rebuild (KV13 F4
     /// edit-survival testing). Drives `Engine::edit_feature` directly.
     pub fn edit_extrude_depth(&mut self, name: &str, depth: f64) -> Result<(), HarnessError> {

@@ -156,6 +156,8 @@ impl ModelBuilder {
                 Operation::DatumPlane { .. } => "DatumPlane",
                 Operation::ImportedBody { .. } => "ImportedBody",
                 Operation::MateConnector { .. } => "MateConnector",
+                Operation::PatternCircular { .. } => "PatternCircular",
+                Operation::PatternLinear { .. } => "PatternLinear",
                 Operation::Unknown(_) => "Unknown",
             };
 
@@ -340,6 +342,29 @@ fn describe_operation(op: &Operation) -> String {
         Operation::DatumPlane { params } => {
             format!("Params: name={}", params.name)
         }
+        Operation::PatternCircular { params } => format!(
+            "Params: {} seed(s), count={}, angle={:.1}deg, skip={:?}, combine={:?}",
+            params.seeds.len(),
+            params.count,
+            params.angle_deg,
+            params.skip,
+            params.combine
+        ),
+        Operation::PatternLinear { params } => format!(
+            "Params: {} seed(s), count={}, spacing={:.4}m, second={}, skip={:?}, combine={:?}",
+            params.seeds.len(),
+            params.count,
+            params.spacing,
+            params
+                .second
+                .as_ref()
+                .map_or("none".to_string(), |s| format!(
+                    "{}x{:.4}m",
+                    s.count, s.spacing
+                )),
+            params.skip,
+            params.combine
+        ),
         Operation::MateConnector { params } => {
             format!(
                 "Params: on {}, flip_z={}, rotation={:.1}deg, offset=({:.3},{:.3},{:.3})m",

@@ -1399,6 +1399,8 @@ fn operation_name(op: &Operation) -> String {
             params.name.trim().to_string()
         }
         Operation::MateConnector { .. } => "Mate connector".to_string(),
+        Operation::PatternCircular { .. } => "Circular pattern".to_string(),
+        Operation::PatternLinear { .. } => "Linear pattern".to_string(),
         Operation::Unknown(_) => op.type_tag().to_string(),
     }
 }

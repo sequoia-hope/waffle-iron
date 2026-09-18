@@ -119,6 +119,8 @@ pub fn assert_tree_structure(
                 feature_engine::types::Operation::DatumPlane { .. } => "DatumPlane",
                 feature_engine::types::Operation::ImportedBody { .. } => "ImportedBody",
                 feature_engine::types::Operation::MateConnector { .. } => "MateConnector",
+                feature_engine::types::Operation::PatternCircular { .. } => "PatternCircular",
+                feature_engine::types::Operation::PatternLinear { .. } => "PatternLinear",
                 feature_engine::types::Operation::Unknown(_) => "Unknown",
             };
             (f.name.clone(), op_type.to_string())

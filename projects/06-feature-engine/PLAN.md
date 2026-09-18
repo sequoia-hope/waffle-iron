@@ -92,6 +92,31 @@
 - [x] `reference` (driven-dim) flag now persists on dimension constraints (was JS-only, lost on save)
 - Spec: `specs/parameterized_designs.md`; GUI spec `app/tests/gui/parameterized-designs.spec.js`
 
+### M12: Circular and linear patterns — B1 of `specs/custom_features_and_modeling_roadmap.md` ✅ (2026-09-18)
+- [x] `Kernel::transform_body` (rigid copy; kernel-v2 arena deep copy, exact on every
+      surface/curve variant; reflection/scale refused; journal `OpTag::Transform`) —
+      `crates/kernel-v2/src/transform.rs`, oracles `tests/transform_rigid_copy.rs`
+- [x] `RigidPlacement::{translation, rotation_about, rotation_matrix, after}` in waffle-types
+- [x] `modeling_ops::execute_pattern_instances` (seed re-emitted as instance 0, copies
+      created, `Role::PatternInstance { index }` on every instance's faces)
+- [x] `Operation::PatternCircular` / `PatternLinear` + `AxisRef { explicit | entity }`
+      (`src/pattern.rs`): placements, explicit-only targets, custody of seeds, Add fold /
+      Cut per piece / Intersect vs union-of-instances, sibling carry, expression fields
+- [x] P10 guards: consumed seed/target refused (Strict) or dropped (BestEffort);
+      seed==target refused; count/angle/spacing/axis validation; 10 000-instance budget
+- [x] MCP: `feature_add` authors both kinds; schema golden + agent manifest regenerated;
+      `docs/FILE_FORMAT.md` §7.9
+- [x] Tests: `tests/pattern.rs` (13, MockKernel), `test-harness/tests/pattern_kv2.rs`
+      (6, real kernel: N×seed volume, Add/Cut inclusion–exclusion exact to 1e-9 with
+      χ = 2, grid, entity axis from a cylindrical face, determinism)
+- [ ] App: no Pattern dialog / toolbar button yet (feature list icon, property editor
+      fields and Boolean-dialog body filter are in). Authoring is agent-link first.
+- [ ] Faces of instances that MERGE into a target lose `PatternInstance` roles (a
+      boolean's outputs carry fresh ids); NewBody instances keep them.
+- Note: torus/sphere render samplers derive their (u,v) grid from a world frame, so a
+  rotated copy tessellates differently (same exact surface). Not a defect; noted in
+  `transform_rigid_copy.rs`.
+
 ## Blockers
 
 - ~~Depends on kernel (Kernel + KernelIntrospect traits, especially MockKernel)~~ Resolved [SUPERSEDED by clean-sheet kernel]

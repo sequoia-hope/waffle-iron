@@ -166,6 +166,33 @@ pub fn apply_parameters(tree: &mut FeatureTree) -> ParamOutcome {
                 PlaneDefinition::PointNormal { .. } => false,
             },
             Operation::Sketch { sketch } => apply_sketch(sketch, &env, &mut errs),
+            Operation::PatternCircular { params } => apply_angle_field(
+                "angle",
+                &mut params.angle_deg,
+                params.angle_expr.as_deref(),
+                &env,
+                &mut errs,
+            ),
+            Operation::PatternLinear { params } => {
+                let mut changed = apply_length_field(
+                    "spacing",
+                    &mut params.spacing,
+                    params.spacing_expr.as_deref(),
+                    &env,
+                    &mut errs,
+                );
+                if let Some(second) = params.second.as_mut() {
+                    let expr = second.spacing_expr.clone();
+                    changed |= apply_length_field(
+                        "second spacing",
+                        &mut second.spacing,
+                        expr.as_deref(),
+                        &env,
+                        &mut errs,
+                    );
+                }
+                changed
+            }
             // Fillet/chamfer/shell are deferred (disabled in the UI);
             // booleans and imports carry no dimension measurements.
             _ => false,

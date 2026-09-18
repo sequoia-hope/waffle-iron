@@ -73,6 +73,20 @@
 				return [
 					{ key: 'params.thickness', label: 'Thickness', type: 'number', value: operation.params?.thickness },
 				];
+			case 'PatternCircular':
+				return [
+					{ key: 'params.count', label: 'Count', type: 'number', value: operation.params?.count },
+					{ key: 'params.angle_deg', label: 'Angle (°)', type: 'number', value: operation.params?.angle_deg },
+					{ key: '_info', label: 'Seeds', type: 'info', value: operation.params?.seeds?.length ?? 0 },
+					{ key: '_info2', label: 'Combine', type: 'info', value: operation.params?.combine?.type ?? 'NewBody' },
+				];
+			case 'PatternLinear':
+				return [
+					{ key: 'params.count', label: 'Count', type: 'number', value: operation.params?.count },
+					{ key: 'params.spacing', label: 'Spacing', type: 'number', value: operation.params?.spacing },
+					{ key: '_info', label: 'Seeds', type: 'info', value: operation.params?.seeds?.length ?? 0 },
+					{ key: '_info2', label: 'Combine', type: 'info', value: operation.params?.combine?.type ?? 'NewBody' },
+				];
 			case 'Sketch':
 				return [
 					{ key: '_info', label: 'Entities', type: 'info', value: operation.sketch?.entities?.length ?? 0 },

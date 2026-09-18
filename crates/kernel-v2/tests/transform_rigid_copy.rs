@@ -17,9 +17,8 @@ use std::f64::consts::PI;
 
 use cad_primitives::{BoolOp, Point2, Point3, Vector3};
 use kernel_v2::{
-    boolean_op, check_rigid, extrude, face_lineage, placement_rotation_about,
-    placement_translation, revolve, tessellate, transform_solid, validate_solid, BrepArena, Curve,
-    KernelV2Error, OpTag, Profile, RenderMesh, SolidId, Surface,
+    boolean_op, check_rigid, extrude, face_lineage, revolve, tessellate, transform_solid,
+    validate_solid, BrepArena, Curve, KernelV2Error, OpTag, Profile, RenderMesh, SolidId, Surface,
 };
 use waffle_types::kernel::RigidPlacement;
 
@@ -204,7 +203,7 @@ fn sphere(arena: &mut BrepArena) -> SolidId {
 fn skew_placement() -> RigidPlacement {
     let axis = [1.0, 2.0, 3.0];
     let n = (14.0f64).sqrt();
-    let mut p = placement_rotation_about(
+    let mut p = RigidPlacement::rotation_about(
         [0.3, -0.2, 0.7],
         [axis[0] / n, axis[1] / n, axis[2] / n],
         37.0_f64.to_radians(),
@@ -472,7 +471,7 @@ fn check_copy(build: fn(&mut BrepArena) -> SolidId, placement: &RigidPlacement, 
 fn box_translated_and_rotated() {
     check_copy(
         unit_box,
-        &placement_translation([3.0, -1.0, 0.5]),
+        &RigidPlacement::translation([3.0, -1.0, 0.5]),
         "box/translate",
     );
     check_copy(unit_box, &skew_placement(), "box/skew");
@@ -486,7 +485,7 @@ fn cylinder_rotated_keeps_cylinder_surface_and_circle_rims() {
     // rotated z axis; rims are circles of radius 0.5.
     let mut arena = BrepArena::new();
     let src = cylinder(&mut arena);
-    let p = placement_rotation_about([0.0, 0.0, 0.0], [1.0, 0.0, 0.0], PI / 2.0);
+    let p = RigidPlacement::rotation_about([0.0, 0.0, 0.0], [1.0, 0.0, 0.0], PI / 2.0);
     let copy = transform_solid(&mut arena, src, &p).unwrap();
     let shell = arena.shell(arena.solid(copy).unwrap().shells[0]).unwrap();
     let mut n_cyl = 0;
@@ -612,7 +611,12 @@ fn reflection_and_scale_are_refused() {
 fn copied_faces_carry_fresh_pids_rooted_at_source_faces() {
     let mut arena = BrepArena::new();
     let src = unit_box(&mut arena);
-    let copy = transform_solid(&mut arena, src, &placement_translation([5.0, 0.0, 0.0])).unwrap();
+    let copy = transform_solid(
+        &mut arena,
+        src,
+        &RigidPlacement::translation([5.0, 0.0, 0.0]),
+    )
+    .unwrap();
 
     let faces_of = |s: SolidId| -> Vec<kernel_v2::FaceId> {
         arena
@@ -646,7 +650,7 @@ fn translated_copy_is_a_boolean_operand() {
     // 1 + 1 − 0.5 = 1.5 exactly.
     let mut arena = BrepArena::new();
     let a = unit_box(&mut arena);
-    let b = transform_solid(&mut arena, a, &placement_translation([0.5, 0.0, 0.0])).unwrap();
+    let b = transform_solid(&mut arena, a, &RigidPlacement::translation([0.5, 0.0, 0.0])).unwrap();
     let u = boolean_op(&mut arena, a, b, BoolOp::Union).expect("union");
     validate_solid(&arena, u).unwrap();
     assert_close(volume(&arena, u), 1.5, 1e-12, "union volume");
@@ -654,7 +658,7 @@ fn translated_copy_is_a_boolean_operand() {
     // Disjoint copies: a rotated cylinder next to its source.
     let mut arena = BrepArena::new();
     let c = cylinder(&mut arena);
-    let p = placement_rotation_about([2.0, 0.0, 0.0], [0.0, 0.0, 1.0], PI / 3.0);
+    let p = RigidPlacement::rotation_about([2.0, 0.0, 0.0], [0.0, 0.0, 1.0], PI / 3.0);
     let d = transform_solid(&mut arena, c, &p).unwrap();
     let inter = boolean_op(&mut arena, c, d, BoolOp::Intersect);
     assert!(

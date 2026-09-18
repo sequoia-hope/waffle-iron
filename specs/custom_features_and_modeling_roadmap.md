@@ -1,6 +1,8 @@
 # Custom feature scripts, and the modeling features the bicycle asked for
 
-Status: **PROPOSED 2026-09-18**
+Status: **PROPOSED 2026-09-18** — **B1 patterns LANDED 2026-09-18** (kernel
+`transform_body` + `Operation::PatternCircular/PatternLinear`, agent-authorable;
+`projects/06-feature-engine/PLAN.md` M12). Next per Part C: A-M0 → A-M2.
 Sub-projects: `projects/06-feature-engine/` (owner), `projects/14-agent-link/`
 (tools), `projects/09-file-format/` (storage), `projects/08-ui-chrome/`
 (feature list, script editor), `kernel-v2` (Part B only).

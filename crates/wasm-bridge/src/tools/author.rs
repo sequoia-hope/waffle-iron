@@ -46,6 +46,8 @@ const AUTHORABLE: &[&str] = &[
     "BooleanCombine",
     "DatumPlane",
     "MateConnector",
+    "PatternCircular",
+    "PatternLinear",
 ];
 
 /// What a failing step does (JS `applyStep`'s `onError`).

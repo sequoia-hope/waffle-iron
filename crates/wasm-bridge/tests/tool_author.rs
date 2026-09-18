@@ -206,6 +206,94 @@ fn feature_add_answers_the_new_feature_and_an_otherwise_empty_delta() {
     assert_eq!(added["errors"], json!([]));
 }
 
+/// A pattern is authorable through `feature_add` as plain Operation JSON
+/// (`specs/custom_features_and_modeling_roadmap.md` §B1): the step adds the
+/// node, its seed's feature is consumed (custody), and every instance is an
+/// output of the pattern node. A malformed pattern (count 1) is a per-feature
+/// rebuild error and, by default, rolled back like any failing step.
+#[test]
+fn feature_add_authors_a_circular_pattern_and_rolls_back_a_bad_one() {
+    // One kernel across the steps: the pattern copies the extrude's body,
+    // which must live in the same kernel (the file's `tool` helper makes a
+    // fresh MockKernel per call, which is fine for every other test here).
+    let mut kernel = MockKernel::new();
+    let context = json!({ "agent_name": AGENT });
+    let mut run = |state: &mut EngineState, args: Value| -> ToolResult {
+        execute_tool(state, &mut kernel, "feature_add", &args, Some(&context))
+    };
+    let ok = |r: ToolResult| -> Value {
+        assert!(!r.is_error, "feature_add failed: {r:?}");
+        r.structured_content
+    };
+    let refused = |r: ToolResult| -> Value {
+        assert!(r.is_error, "feature_add was expected to refuse: {r:?}");
+        r.structured_content["error"].clone()
+    };
+
+    let mut state = EngineState::new();
+    let operation = serde_json::to_value(rectangle_sketch()).expect("a sketch operation");
+    let added = ok(run(&mut state, json!({ "operation": operation })));
+    let sketch_id = Uuid::parse_str(added["feature_id"].as_str().expect("id")).expect("uuid");
+    let added = ok(run(
+        &mut state,
+        json!({ "operation": extrude(sketch_id, Some(vec![1, 2, 3, 4])) }),
+    ));
+    let seed = added["feature_id"]
+        .as_str()
+        .expect("a feature id")
+        .to_string();
+    let seed_ref = serde_json::to_value(GeomRef {
+        kind: TopoKind::Solid,
+        anchor: Anchor::FeatureOutput {
+            feature_id: Uuid::parse_str(&seed).unwrap(),
+            output_key: OutputKey::Main,
+        },
+        selector: Selector::Role {
+            role: Role::EndCapPositive,
+            index: 0,
+        },
+        policy: ResolvePolicy::Strict,
+        scope: None,
+    })
+    .unwrap();
+    let pattern = |count: u32| {
+        json!({
+            "type": "PatternCircular",
+            "params": {
+                "seeds": [seed_ref],
+                "axis": { "method": "explicit", "origin": [0, 0, 0], "direction": [0, 0, 1] },
+                "count": count,
+                "angle_deg": 360
+            }
+        })
+    };
+
+    let bad = refused(run(&mut state, json!({ "operation": pattern(1) })));
+    assert_eq!(bad["code"], "FeatureRebuildFailed", "{bad}");
+    assert_eq!(bad["details"]["rolled_back"], json!(true));
+    assert!(
+        bad["message"]
+            .as_str()
+            .unwrap_or("")
+            .contains("count must be at least 2"),
+        "{bad}"
+    );
+    assert_eq!(
+        feature_ids(&state).len(),
+        2,
+        "the failing step was rolled back"
+    );
+
+    let good = ok(run(&mut state, json!({ "operation": pattern(5) })));
+    let id = Uuid::parse_str(good["feature_id"].as_str().expect("id")).expect("uuid");
+    assert_eq!(good["errors"], json!([]));
+    let seed_id = Uuid::parse_str(&seed).unwrap();
+    assert!(state.engine.consumed_features.contains(&seed_id));
+    let result = state.engine.get_result(id).expect("pattern result");
+    assert_eq!(result.outputs.len(), 5);
+    assert_eq!(result.outputs[0].0, OutputKey::Main);
+}
+
 // ── feature_edit ─────────────────────────────────────────────────────────
 
 #[test]

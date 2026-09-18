@@ -341,7 +341,7 @@ bridge actually sends and JS actually stores into the file) — a drift hazard
 
 `operation` is internally tagged with `type` ∈ `Sketch`, `Extrude`, `Revolve`,
 `Fillet`, `Chamfer`, `Shell`, `BooleanCombine`, `DatumPlane`, `ImportedBody`,
-`MateConnector`.
+`MateConnector`, `PatternCircular`, `PatternLinear`.
 Parameter payloads sit under `sketch` (for `Sketch`) or `params` (all others).
 
 **Unknown kinds (v4 Phase 1b, 2026-09-08).** A well-formed `{"type": …}`
@@ -463,6 +463,41 @@ no reader-floor bump (older readers keep it as `Unknown`).
 | `geom_ref` | GeomRef \| absent | opt | A face or an edge of this part; derived exactly as an assembly connector's `geom_ref` (§5.6). |
 | `frame` | `{origin, z_axis, x_axis}` | default origin, +z | The frame when there is no `geom_ref` (meters, part coordinates); with one, a non-zero `x_axis` is the secondary direction. |
 | `anchor`, `flip_z`, `rotation_deg`, `offset_m` | as §5.6 | defaults omitted | The same adjustments, same order. |
+
+### 7.9 `PatternCircular` / `PatternLinear` (types.rs, 2026-09-18)
+
+Rigid copies of seed BODIES (`specs/custom_features_and_modeling_roadmap.md`
+§B1). A pattern instances bodies, not features: the seed's body is copied
+exactly (`Kernel::transform_body`), never re-executed. The pattern takes
+custody of its seeds (their features are consumed) and emits every instance
+as its own output — `Main` is instance 0 (the seed body itself), then
+`Body:{i}` instance-major. New operation kinds, so no reader-floor bump
+(older readers keep them as `Unknown`).
+
+`AxisRef` (tagged `method`) names a line: `explicit` `{origin, direction}`
+(meters / any non-zero vector, normalized at rebuild) or `entity`
+`{geom_ref}` — a rotational face's axis, a circular edge's axis, a straight
+edge's line, or a planar face's normal, derived exactly as a mate
+connector's frame (§5.6). A pick with no derivable axis fails the feature.
+
+`PatternCircularParams`:
+
+| Field | Type | Req/default | Notes |
+|---|---|---|---|
+| `seeds` | GeomRef[] | ✔ | Solid references to feature outputs; each must resolve and not be already consumed. |
+| `axis` | AxisRef | ✔ | Rotation axis. |
+| `count` | u32 | ✔ (≥ 2) | Instances INCLUDING the seed. |
+| `angle_deg` | f64 | default `360` | TOTAL sweep. A full turn spaces `count` instances `360/count` apart; any other sweep puts the last instance exactly at `angle_deg`. |
+| `angle_expr` | string | opt | Driving expression (degrees), like `Revolve.angle_expr`. |
+| `skip` | u32[] | default `[]` | Instance indices (≥ 1) to omit. |
+| `combine` | CombineMode | default NewBody | `Add` folds targets + instances into connected lumps; `Cut` subtracts every instance from every target; `Intersect` keeps target ∩ (∪ instances). |
+| `targets` | GeomRef[] | opt | Explicit targets only; a pattern never auto-targets by position. `Cut`/`Intersect` need ≥ 1. |
+
+`PatternLinearParams`: `seeds`, `direction: AxisRef` (direction only),
+`count` (≥ 2), `spacing` (meters, negative reverses), `spacing_expr`,
+optional `second: {direction, count, spacing, spacing_expr}` (a grid;
+instance index `i + j·count`; a second direction parallel to the first is
+refused), `skip`, `combine`, `targets` as above.
 
 ---
 

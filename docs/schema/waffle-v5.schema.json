@@ -138,6 +138,61 @@
         }
       ]
     },
+    "AxisRef": {
+      "description": "A line in space named for a pattern: a circular pattern's rotation axis or\na linear pattern's direction (`specs/custom_features_and_modeling_roadmap.md`\n§B1). `#[serde(tag = \"method\")]`, like [`PlaneDefinition`].",
+      "oneOf": [
+        {
+          "description": "Explicit world-space line: `origin` in meters, `direction` any\nnon-zero vector (normalized at rebuild). A linear pattern reads only\nthe direction.",
+          "properties": {
+            "direction": {
+              "items": {
+                "format": "double",
+                "type": "number"
+              },
+              "maxItems": 3,
+              "minItems": 3,
+              "type": "array"
+            },
+            "method": {
+              "const": "explicit",
+              "type": "string"
+            },
+            "origin": {
+              "items": {
+                "format": "double",
+                "type": "number"
+              },
+              "maxItems": 3,
+              "minItems": 3,
+              "type": "array"
+            }
+          },
+          "required": [
+            "method",
+            "origin",
+            "direction"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "The axis a picked entity carries, resolved through the same derivation\nmate connectors use (`connector::resolve_connector_frame`): a\ncylindrical/conical/toroidal face's axis, a circular edge's axis, a\nstraight edge's line, or a planar face's normal through its centroid.\nA pick with no derivable axis (a spline edge, an imported mesh face)\nis a loud per-feature error, never a default.",
+          "properties": {
+            "geom_ref": {
+              "$ref": "#/$defs/GeomRef"
+            },
+            "method": {
+              "const": "entity",
+              "type": "string"
+            }
+          },
+          "required": [
+            "method",
+            "geom_ref"
+          ],
+          "type": "object"
+        }
+      ]
+    },
     "BooleanOp": {
       "description": "Boolean operation type.",
       "oneOf": [
@@ -1186,6 +1241,38 @@
       ],
       "type": "object"
     },
+    "LinearSecondDirection": {
+      "description": "A linear pattern's second direction (a 2D grid): `count` columns\n`spacing` apart along `direction`.",
+      "properties": {
+        "count": {
+          "description": "Instances along this direction INCLUDING the seed row (≥ 2).",
+          "format": "uint32",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "direction": {
+          "$ref": "#/$defs/AxisRef"
+        },
+        "spacing": {
+          "description": "Centre-to-centre spacing in meters (negative reverses the direction).",
+          "format": "double",
+          "type": "number"
+        },
+        "spacing_expr": {
+          "description": "Optional driving expression for `spacing` (mm-space → meters).",
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "direction",
+        "count",
+        "spacing"
+      ],
+      "type": "object"
+    },
     "Locator": {
       "description": "Where a source's content lives. Unknown `type`s are preserved verbatim and reported unresolvable.",
       "oneOf": [
@@ -1784,6 +1871,38 @@
           "type": "object"
         },
         {
+          "properties": {
+            "params": {
+              "$ref": "#/$defs/PatternCircularParams"
+            },
+            "type": {
+              "const": "PatternCircular",
+              "type": "string"
+            }
+          },
+          "required": [
+            "type",
+            "params"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "params": {
+              "$ref": "#/$defs/PatternLinearParams"
+            },
+            "type": {
+              "const": "PatternLinear",
+              "type": "string"
+            }
+          },
+          "required": [
+            "type",
+            "params"
+          ],
+          "type": "object"
+        },
+        {
           "description": "Unknown operation kind (opaque, preserved; rebuild fails loudly).",
           "properties": {
             "type": {
@@ -1798,7 +1917,9 @@
                   "BooleanCombine",
                   "DatumPlane",
                   "ImportedBody",
-                  "MateConnector"
+                  "MateConnector",
+                  "PatternCircular",
+                  "PatternLinear"
                 ]
               },
               "type": "string"
@@ -1900,6 +2021,161 @@
       },
       "required": [
         "tab_id"
+      ],
+      "type": "object"
+    },
+    "PatternCircularParams": {
+      "description": "Parameters for a circular pattern: rigid copies of the seed bodies about\nan axis, optionally combined into target bodies.\n\nInstances are equally spaced. `angle_deg` is the TOTAL sweep: a full\nturn (360°) spaces `count` instances `360/count` apart so the last does\nnot land on the seed; any other sweep puts the last instance exactly at\n`angle_deg` (step `angle_deg / (count − 1)`). Instance 0 is the seed body\nitself; `skip` omits instances by index (≥ 1). The pattern feature takes\ncustody of the seed bodies (their features are consumed) and emits every\ninstance as its own output: `Main` is instance 0 of the first seed, then\n`Body { index }` instance-major.",
+      "properties": {
+        "angle_deg": {
+          "default": 360.0,
+          "description": "Total sweep in degrees (see the struct docs). Default: a full turn.",
+          "format": "double",
+          "type": "number"
+        },
+        "angle_expr": {
+          "description": "Optional driving expression for `angle_deg` (evaluates to DEGREES).\nSee `ExtrudeParams::depth_expr`.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "axis": {
+          "$ref": "#/$defs/AxisRef",
+          "description": "Rotation axis."
+        },
+        "combine": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/CombineMode"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Boolean combine of the instances against `targets`. `None` ⇒ NewBody\n(every instance a separate body). `Add` folds targets and instances\ninto connected lumps; `Cut` subtracts every instance from every\ntarget; `Intersect` keeps each target ∩ (union of instances)."
+        },
+        "count": {
+          "description": "Total instances INCLUDING the seed (≥ 2).",
+          "format": "uint32",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "seeds": {
+          "description": "Seed bodies (`TopoKind::Solid` references to feature outputs).",
+          "items": {
+            "$ref": "#/$defs/GeomRef"
+          },
+          "type": "array"
+        },
+        "skip": {
+          "description": "Instance indices (≥ 1) to omit.",
+          "items": {
+            "format": "uint32",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "type": "array"
+        },
+        "targets": {
+          "description": "Explicit target bodies for `Add`/`Cut`/`Intersect`. `None` or empty ⇒\nno targets: `Add` then merges the instances among themselves only;\n`Cut`/`Intersect` with no targets is an error. A pattern never\nauto-targets by tree position.",
+          "items": {
+            "$ref": "#/$defs/GeomRef"
+          },
+          "type": [
+            "array",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "seeds",
+        "axis",
+        "count"
+      ],
+      "type": "object"
+    },
+    "PatternLinearParams": {
+      "description": "Parameters for a linear pattern: rigid copies of the seed bodies along a\ndirection (optionally a second direction for a grid), optionally\ncombined into target bodies. Same custody, output and combine rules as\n[`PatternCircularParams`]. With a second direction the instance index is\n`i + j · count` for row `i` along `direction` and column `j` along the\nsecond direction; instance 0 is the seed.",
+      "properties": {
+        "combine": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/CombineMode"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "See [`PatternCircularParams::combine`]."
+        },
+        "count": {
+          "description": "Total instances along `direction` INCLUDING the seed (≥ 2).",
+          "format": "uint32",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "direction": {
+          "$ref": "#/$defs/AxisRef",
+          "description": "Pattern direction (only the direction of the axis is used)."
+        },
+        "second": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/LinearSecondDirection"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Optional second direction (grid)."
+        },
+        "seeds": {
+          "description": "Seed bodies (`TopoKind::Solid` references to feature outputs).",
+          "items": {
+            "$ref": "#/$defs/GeomRef"
+          },
+          "type": "array"
+        },
+        "skip": {
+          "description": "Instance indices (≥ 1) to omit.",
+          "items": {
+            "format": "uint32",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "type": "array"
+        },
+        "spacing": {
+          "description": "Centre-to-centre spacing in meters (negative reverses the direction).",
+          "format": "double",
+          "type": "number"
+        },
+        "spacing_expr": {
+          "description": "Optional driving expression for `spacing` (mm-space → meters).",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "targets": {
+          "description": "See [`PatternCircularParams::targets`].",
+          "items": {
+            "$ref": "#/$defs/GeomRef"
+          },
+          "type": [
+            "array",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "seeds",
+        "direction",
+        "count",
+        "spacing"
       ],
       "type": "object"
     },

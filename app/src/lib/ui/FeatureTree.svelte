@@ -470,6 +470,8 @@
 			case 'BooleanCombine': return '\u2229';
 			case 'ImportedBody': return '\u2913';
 			case 'MateConnector': return '\u2295';
+			case 'PatternCircular': return '\u25CC';
+			case 'PatternLinear': return '\u2237';
 			default: return '\u2022';
 		}
 	}

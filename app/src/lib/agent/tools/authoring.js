@@ -64,8 +64,19 @@ export const sketchCreateTool = {
 };
 
 const operationNote =
-	'operation is an Operation: {"type":"Extrude","params":{…}}, Revolve, BooleanCombine, DatumPlane, MateConnector ' +
-	'or a full Sketch. A MateConnector is a named frame on the part that assemblies mate its instances by ' +
+	'operation is an Operation: {"type":"Extrude","params":{…}}, Revolve, BooleanCombine, DatumPlane, MateConnector, ' +
+	'PatternCircular, PatternLinear, or a full Sketch. A PatternCircular/PatternLinear makes rigid copies of seed ' +
+	'BODIES (params.seeds: Solid GeomRefs {kind:"Solid", anchor:{type:"FeatureOutput", feature_id, output_key}}, ' +
+	'from model_summary bodies) — it does not re-run the seed feature. Circular: axis {method:"explicit", origin, ' +
+	'direction} or {method:"entity", geom_ref: a cylindrical/conical face, a circular edge, or a straight edge}, ' +
+	'count (instances INCLUDING the seed, ≥ 2), angle_deg (TOTAL sweep; 360 spaces 360/count apart, otherwise the ' +
+	'last instance lands at angle_deg), skip?: [instance indices ≥ 1]. Linear: direction (AxisRef, direction only), ' +
+	'count, spacing (m; negative reverses), second?: {direction, count, spacing} for a grid (index i + j·count). ' +
+	'Both: combine?: NewBody (default: every instance its own body) | Add (folds targets + instances into connected ' +
+	'bodies) | Cut | Intersect, with targets?: explicit Solid GeomRefs (never auto by position; Cut/Intersect need ' +
+	'one). The pattern takes custody of its seeds (their features are consumed) and emits every instance: Main = ' +
+	'the seed itself, then Body:1… — so chain later booleans onto the PATTERN\'s outputs, not the seed feature\'s. ' +
+	'A MateConnector is a named frame on the part that assemblies mate its instances by ' +
 	'(model_summary lists the evaluated ones): params {name, geom_ref?: a Face or Edge GeomRef (face_list, ' +
 	'selection_get), frame?: {origin, z_axis, x_axis} in part coordinates when there is no geom_ref, anchor?: ' +
 	'"middle"|"positive_end"|"negative_end" along a cylindrical/conical/toroidal face\'s axis, flip_z?, ' +

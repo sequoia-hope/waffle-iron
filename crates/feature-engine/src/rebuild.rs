@@ -967,6 +967,23 @@ fn execute_feature(
             Ok(result)
         }
 
+        Operation::PatternCircular { params } => crate::pattern::execute(
+            feature,
+            kb,
+            feature_results,
+            tree,
+            already_consumed,
+            crate::pattern::PatternSpec::Circular(params),
+        ),
+        Operation::PatternLinear { params } => crate::pattern::execute(
+            feature,
+            kb,
+            feature_results,
+            tree,
+            already_consumed,
+            crate::pattern::PatternSpec::Linear(params),
+        ),
+
         Operation::BooleanCombine { params } => {
             // Find the solid handles from the referenced features
             let handle_a = find_solid_handle(&params.body_a, feature_results)?;
@@ -1364,6 +1381,14 @@ pub(crate) fn find_consumed_feature_ids(
             }
             consumed
         }
+        Operation::PatternCircular { params } => crate::pattern::consumed_feature_ids(
+            crate::pattern::PatternSpec::Circular(params),
+            feature_results,
+        ),
+        Operation::PatternLinear { params } => crate::pattern::consumed_feature_ids(
+            crate::pattern::PatternSpec::Linear(params),
+            feature_results,
+        ),
         _ => vec![],
     }
 }
@@ -1507,7 +1532,7 @@ fn find_sketch_result(
 }
 
 /// Find the solid handle from a feature's OpResult via GeomRef.
-fn find_solid_handle(
+pub(crate) fn find_solid_handle(
     geom_ref: &waffle_types::GeomRef,
     feature_results: &HashMap<Uuid, OpResult>,
 ) -> Result<waffle_types::kernel::KernelSolidHandle, EngineError> {
@@ -1801,10 +1826,21 @@ pub(crate) fn untargeted_sibling_sources(
     eff: &crate::types::EffectiveCombine,
     feature_results: &HashMap<Uuid, OpResult>,
 ) -> Vec<(Uuid, OutputKey)> {
-    let targeted = resolved_explicit_targets(eff, feature_results);
+    untargeted_sibling_sources_named(
+        &resolved_explicit_targets(eff, feature_results),
+        feature_results,
+    )
+}
+
+/// [`untargeted_sibling_sources`] for an explicit list of the outputs a
+/// feature takes custody of (a pattern's seeds and targets).
+pub(crate) fn untargeted_sibling_sources_named(
+    targeted: &[(Uuid, OutputKey)],
+    feature_results: &HashMap<Uuid, OpResult>,
+) -> Vec<(Uuid, OutputKey)> {
     let mut seen = std::collections::HashSet::new();
     let mut siblings = Vec::new();
-    for (fid, _) in &targeted {
+    for (fid, _) in targeted {
         if !seen.insert(*fid) {
             continue;
         }
@@ -1822,6 +1858,28 @@ pub(crate) fn untargeted_sibling_sources(
         }
     }
     siblings
+}
+
+/// [`carry_untargeted_siblings`] for an explicit custody list (patterns).
+pub(crate) fn carry_untargeted_named(
+    result: &mut OpResult,
+    named: &[(Uuid, OutputKey)],
+    feature_results: &HashMap<Uuid, OpResult>,
+) {
+    for (fid, key) in untargeted_sibling_sources_named(named, feature_results) {
+        let Some(body) = feature_results
+            .get(&fid)
+            .and_then(|r| r.outputs.iter().find(|(k, _)| *k == key))
+            .map(|(_, b)| b.clone())
+        else {
+            continue;
+        };
+        let index = result.outputs.len();
+        result.outputs.push((OutputKey::Body { index }, body));
+        result.diagnostics.warnings.push(format!(
+            "output {key:?} of feature {fid} was not targeted; kept unchanged as a separate body"
+        ));
+    }
 }
 
 /// Explicit targets that name only SOME outputs of a multi-output feature consume
@@ -2170,7 +2228,7 @@ fn body_face_shares_sketch(
 ///   `ResolutionFailed`; `BestEffort` ⇒ drop that target and push a warning so
 ///   the remaining live targets still combine. (Empty list ⇒ empty set.)
 /// - `ShareAFace` → **not yet implemented** (sub-increment N-mb-3); a loud STOP.
-fn resolve_combine_targets(
+pub(crate) fn resolve_combine_targets(
     targets: &TargetStrategy,
     feature: &Feature,
     feature_results: &HashMap<Uuid, OpResult>,
@@ -2381,7 +2439,7 @@ fn find_datum_plane_data(
 /// Stage-4 `LocalRefinementRequired` stop. The corpus normals are within
 /// 1 EPSILON of unit (67 of 312 cases carry one that renormalizing would
 /// change); the F1 defect class is a 6-decimal vector, 3×10⁹ EPSILON off.
-fn unit_normal(n: [f64; 3]) -> [f64; 3] {
+pub(crate) fn unit_normal(n: [f64; 3]) -> [f64; 3] {
     let len = (n[0] * n[0] + n[1] * n[1] + n[2] * n[2]).sqrt();
     if len < TAU_WORK || (len - 1.0).abs() <= UNIT_TO_ROUNDING {
         return n;

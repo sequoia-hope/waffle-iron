@@ -269,6 +269,15 @@ pub enum Operation {
     MateConnector {
         params: MateConnectorParams,
     },
+    /// Circular pattern of seed bodies about an axis
+    /// (`specs/custom_features_and_modeling_roadmap.md` §B1).
+    PatternCircular {
+        params: PatternCircularParams,
+    },
+    /// Linear (1D or 2D grid) pattern of seed bodies.
+    PatternLinear {
+        params: PatternLinearParams,
+    },
     /// A well-formed `{"type": …}` operation this build does not know — one
     /// from a newer build. Kept verbatim, re-emitted on save, and its rebuild
     /// is a loud `EngineError::UnsupportedOperation`; so adding an operation
@@ -296,6 +305,8 @@ enum KnownOperation {
     DatumPlane { params: DatumPlaneParams },
     ImportedBody { params: ImportedBodyParams },
     MateConnector { params: MateConnectorParams },
+    PatternCircular { params: PatternCircularParams },
+    PatternLinear { params: PatternLinearParams },
 }
 
 /// The operation `type` tags this build can rebuild.
@@ -310,6 +321,8 @@ pub const OPERATION_TAGS: &[&str] = &[
     "DatumPlane",
     "ImportedBody",
     "MateConnector",
+    "PatternCircular",
+    "PatternLinear",
 ];
 
 impl From<KnownOperation> for Operation {
@@ -325,6 +338,8 @@ impl From<KnownOperation> for Operation {
             KnownOperation::DatumPlane { params } => Operation::DatumPlane { params },
             KnownOperation::ImportedBody { params } => Operation::ImportedBody { params },
             KnownOperation::MateConnector { params } => Operation::MateConnector { params },
+            KnownOperation::PatternCircular { params } => Operation::PatternCircular { params },
+            KnownOperation::PatternLinear { params } => Operation::PatternLinear { params },
         }
     }
 }
@@ -358,6 +373,8 @@ impl Operation {
             Operation::DatumPlane { .. } => "DatumPlane",
             Operation::ImportedBody { .. } => "ImportedBody",
             Operation::MateConnector { .. } => "MateConnector",
+            Operation::PatternCircular { .. } => "PatternCircular",
+            Operation::PatternLinear { .. } => "PatternLinear",
             Operation::Unknown(v) => crate::opaque::type_tag(v),
         }
     }
@@ -728,6 +745,148 @@ pub struct RevolveParams {
 
 fn default_merge_true() -> bool {
     true
+}
+
+/// A line in space named for a pattern: a circular pattern's rotation axis or
+/// a linear pattern's direction (`specs/custom_features_and_modeling_roadmap.md`
+/// §B1). `#[serde(tag = "method")]`, like [`PlaneDefinition`].
+// `large_enum_variant`: `Entity` carries a `GeomRef` (with its signature
+// selector) next to six floats. Boxing it would change every construction site
+// for a type that lives once per pattern feature — same call as `Operation`.
+#[allow(clippy::large_enum_variant)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(tag = "method")]
+#[cfg_attr(feature = "json-schema", derive(schemars::JsonSchema))]
+pub enum AxisRef {
+    /// Explicit world-space line: `origin` in meters, `direction` any
+    /// non-zero vector (normalized at rebuild). A linear pattern reads only
+    /// the direction.
+    #[serde(rename = "explicit")]
+    Explicit {
+        origin: [f64; 3],
+        direction: [f64; 3],
+    },
+    /// The axis a picked entity carries, resolved through the same derivation
+    /// mate connectors use (`connector::resolve_connector_frame`): a
+    /// cylindrical/conical/toroidal face's axis, a circular edge's axis, a
+    /// straight edge's line, or a planar face's normal through its centroid.
+    /// A pick with no derivable axis (a spline edge, an imported mesh face)
+    /// is a loud per-feature error, never a default.
+    #[serde(rename = "entity")]
+    Entity { geom_ref: GeomRef },
+}
+
+/// Parameters for a circular pattern: rigid copies of the seed bodies about
+/// an axis, optionally combined into target bodies.
+///
+/// Instances are equally spaced. `angle_deg` is the TOTAL sweep: a full
+/// turn (360°) spaces `count` instances `360/count` apart so the last does
+/// not land on the seed; any other sweep puts the last instance exactly at
+/// `angle_deg` (step `angle_deg / (count − 1)`). Instance 0 is the seed body
+/// itself; `skip` omits instances by index (≥ 1). The pattern feature takes
+/// custody of the seed bodies (their features are consumed) and emits every
+/// instance as its own output: `Main` is instance 0 of the first seed, then
+/// `Body { index }` instance-major.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "json-schema", derive(schemars::JsonSchema))]
+pub struct PatternCircularParams {
+    /// Seed bodies (`TopoKind::Solid` references to feature outputs).
+    pub seeds: Vec<GeomRef>,
+    /// Rotation axis.
+    pub axis: AxisRef,
+    /// Total instances INCLUDING the seed (≥ 2).
+    pub count: u32,
+    /// Total sweep in degrees (see the struct docs). Default: a full turn.
+    #[serde(default = "default_full_turn")]
+    pub angle_deg: f64,
+    /// Optional driving expression for `angle_deg` (evaluates to DEGREES).
+    /// See `ExtrudeParams::depth_expr`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub angle_expr: Option<String>,
+    /// Instance indices (≥ 1) to omit.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub skip: Vec<u32>,
+    /// Boolean combine of the instances against `targets`. `None` ⇒ NewBody
+    /// (every instance a separate body). `Add` folds targets and instances
+    /// into connected lumps; `Cut` subtracts every instance from every
+    /// target; `Intersect` keeps each target ∩ (union of instances).
+    #[serde(default)]
+    pub combine: Option<CombineMode>,
+    /// Explicit target bodies for `Add`/`Cut`/`Intersect`. `None` or empty ⇒
+    /// no targets: `Add` then merges the instances among themselves only;
+    /// `Cut`/`Intersect` with no targets is an error. A pattern never
+    /// auto-targets by tree position.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub targets: Option<Vec<GeomRef>>,
+}
+
+fn default_full_turn() -> f64 {
+    360.0
+}
+
+/// A linear pattern's second direction (a 2D grid): `count` columns
+/// `spacing` apart along `direction`.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "json-schema", derive(schemars::JsonSchema))]
+pub struct LinearSecondDirection {
+    pub direction: AxisRef,
+    /// Instances along this direction INCLUDING the seed row (≥ 2).
+    pub count: u32,
+    /// Centre-to-centre spacing in meters (negative reverses the direction).
+    pub spacing: f64,
+    /// Optional driving expression for `spacing` (mm-space → meters).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub spacing_expr: Option<String>,
+}
+
+/// Parameters for a linear pattern: rigid copies of the seed bodies along a
+/// direction (optionally a second direction for a grid), optionally
+/// combined into target bodies. Same custody, output and combine rules as
+/// [`PatternCircularParams`]. With a second direction the instance index is
+/// `i + j · count` for row `i` along `direction` and column `j` along the
+/// second direction; instance 0 is the seed.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "json-schema", derive(schemars::JsonSchema))]
+pub struct PatternLinearParams {
+    /// Seed bodies (`TopoKind::Solid` references to feature outputs).
+    pub seeds: Vec<GeomRef>,
+    /// Pattern direction (only the direction of the axis is used).
+    pub direction: AxisRef,
+    /// Total instances along `direction` INCLUDING the seed (≥ 2).
+    pub count: u32,
+    /// Centre-to-centre spacing in meters (negative reverses the direction).
+    pub spacing: f64,
+    /// Optional driving expression for `spacing` (mm-space → meters).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub spacing_expr: Option<String>,
+    /// Optional second direction (grid).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub second: Option<LinearSecondDirection>,
+    /// Instance indices (≥ 1) to omit.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub skip: Vec<u32>,
+    /// See [`PatternCircularParams::combine`].
+    #[serde(default)]
+    pub combine: Option<CombineMode>,
+    /// See [`PatternCircularParams::targets`].
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub targets: Option<Vec<GeomRef>>,
+}
+
+/// The normalized combine decision of a pattern: `None` ⇒ NewBody; explicit
+/// targets only (a pattern never targets by tree position).
+pub(crate) fn normalize_pattern_combine(
+    combine: Option<CombineMode>,
+    targets: &Option<Vec<GeomRef>>,
+) -> EffectiveCombine {
+    let mode = combine.unwrap_or(CombineMode::NewBody);
+    EffectiveCombine {
+        mode,
+        targets: TargetStrategy::Explicit(match mode {
+            CombineMode::NewBody => Vec::new(),
+            _ => targets.clone().unwrap_or_default(),
+        }),
+    }
 }
 
 /// Parameters for a fillet operation.

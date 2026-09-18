@@ -108,8 +108,5 @@ pub use tessellate::{
     tessellate_with_chord_tolerance, FaceRange, RenderMesh, MIN_CIRCLE_SEGMENTS,
     RENDER_CHORD_TOLERANCE_REL,
 };
-pub use transform::{
-    check_rigid, placement_rotation_about, placement_translation, rotation_about_axis,
-    transform_solid,
-};
+pub use transform::{check_rigid, transform_solid};
 pub use validate::{validate_boolean_output_planarity, validate_solid, TopologyReport};
