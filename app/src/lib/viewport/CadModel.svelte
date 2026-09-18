@@ -33,6 +33,7 @@
 	import { SIDE_FACE_GROUP_THRESHOLD } from '$lib/config.js';
 	import { handleBodyFaceClick } from '$lib/sketch/tools.js';
 	import { buildSectionClipPlane } from './sectionPlane.js';
+	import { placementProps } from './placement.js';
 	import { getTheme } from '$lib/ui/theme.svelte.js';
 	import { getColorVersion } from '$lib/ui/settings.svelte.js';
 
@@ -292,19 +293,6 @@
 			...placementProps(m.transform)
 		}));
 	});
-
-	/**
-	 * Assembly instance placement (v4 Phase 3b) as Threlte props. The
-	 * quaternion is converted to Euler angles because the `quaternion` prop
-	 * does not take effect on T.Mesh (Threlte v8 quirk); `rotation` does.
-	 */
-	function placementProps(transform) {
-		if (!transform) return { position: [0, 0, 0], rotation: [0, 0, 0] };
-		const t = transform.translation_m ?? [0, 0, 0];
-		const q = transform.rotation_quat ?? [0, 0, 0, 1];
-		const euler = new THREE.Euler().setFromQuaternion(new THREE.Quaternion(q[0], q[1], q[2], q[3]));
-		return { position: [t[0], t[1], t[2]], rotation: [euler.x, euler.y, euler.z] };
-	}
 
 	/**
 	 * Build a single material that highlights an entire body. Returned as a

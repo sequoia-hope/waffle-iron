@@ -20,6 +20,7 @@
 	import { buildSectionClipPlane } from './sectionPlane.js';
 	import { getTheme } from '$lib/ui/theme.svelte.js';
 	import { getColorVersion } from '$lib/ui/settings.svelte.js';
+	import { placementMatrix } from './placement.js';
 
 	const { renderer } = useThrelte();
 
@@ -64,16 +65,19 @@
 			if (!isBodyVisible(mesh.bodyId)) continue;
 			if (!mesh.edges || !mesh.edges.vertices || !mesh.edges.ranges) continue;
 			const verts = mesh.edges.vertices;
+			// All the points share ONE geometry, so the owning instance's
+			// placement (identity in a Part) is baked into each position here.
+			const placement = placementMatrix(mesh.transform);
 
 			for (const range of mesh.edges.ranges) {
 				const si = range.start_index;
 				const ei = range.end_index;
 				if (ei - si < 2) continue; // Need at least 2 vertices
 
-				// First and last vertex of edge polyline
+				// First and last vertex of edge polyline, in world space
 				const endpoints = [
-					new THREE.Vector3(verts[si * 3], verts[si * 3 + 1], verts[si * 3 + 2]),
-					new THREE.Vector3(verts[(ei - 1) * 3], verts[(ei - 1) * 3 + 1], verts[(ei - 1) * 3 + 2])
+					new THREE.Vector3(verts[si * 3], verts[si * 3 + 1], verts[si * 3 + 2]).applyMatrix4(placement),
+					new THREE.Vector3(verts[(ei - 1) * 3], verts[(ei - 1) * 3 + 1], verts[(ei - 1) * 3 + 2]).applyMatrix4(placement)
 				];
 
 				for (const pos of endpoints) {

@@ -21,6 +21,7 @@
 	import { getTheme } from '$lib/ui/theme.svelte.js';
 	import { getColorVersion } from '$lib/ui/settings.svelte.js';
 	import { worldPerPixel, faceOccludes, OCCLUSION_DEPTH_EPS_PX } from './picking.js';
+	import { placementProps } from './placement.js';
 
 	const { renderer } = useThrelte();
 
@@ -228,11 +229,16 @@
 		const hitIndex = hit.index;
 		if (hitIndex == null) return null;
 
-		// Find which edge range owns this vertex index
+		// Find which edge range owns this vertex index. The index is local to
+		// the hit object's geometry, so only the body that object draws is
+		// searched: with several bodies (every assembly), the first body whose
+		// range bracket happened to contain the number used to win.
 		const meshData = getMeshes();
 		if (!meshData) return null;
+		const hitBodyId = hit.object?.userData?.bodyId ?? null;
 
 		for (const mesh of meshData) {
+			if (hitBodyId != null && mesh.bodyId !== hitBodyId) continue;
 			if (!mesh.edges || !mesh.edges.ranges) continue;
 			for (const range of mesh.edges.ranges) {
 				// The hit index is a vertex index in the LineSegments geometry
@@ -320,7 +326,10 @@
 				geometry: buildEdgeGeometry(m.edges),
 				ranges: m.edges.ranges || [],
 				featureId: m.featureId,
-				bodyId: m.bodyId
+				bodyId: m.bodyId,
+				// The owning instance's solved placement (identity in a Part):
+				// the edges are in part space, exactly like the faces.
+				...placementProps(m.transform)
 			}))
 			.filter((e) => e.geometry !== null);
 	});
@@ -384,6 +393,9 @@
 	<T.LineSegments
 		geometry={edge.geometry}
 		material={edgeMaterials[i]?.length > 1 ? edgeMaterials[i] : edgeMaterials[i]?.[0]}
+		position={edge.position}
+		rotation={edge.rotation}
+		userData={{ waffleType: 'edges', bodyId: edge.bodyId }}
 		renderOrder={1}
 	/>
 {/each}

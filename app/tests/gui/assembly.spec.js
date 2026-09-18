@@ -70,6 +70,22 @@ test.describe('Assemblies', () => {
 		const mb = meshes.find((m) => m.instanceId === b);
 		expect(mb.transform.translation_m).toEqual([0.03, 0, 0]);
 		expect(mb.bodyId.startsWith(b + '/')).toBe(true);
+		// The edge and vertex overlays follow the placement the faces follow:
+		// B's edges are drawn at x = 0.03, and the vertex cloud reaches B's far
+		// face (a 10 mm cube placed at 0.03 ends at 0.04). They used to render
+		// every instance's edges and vertices at the origin.
+		await page.waitForFunction(
+			(n) => window.__waffle.getRenderedOverlayPlacements().edges.length === n,
+			2,
+			{ timeout: 10000 }
+		);
+		const overlays = await page.evaluate(() => window.__waffle.getRenderedOverlayPlacements());
+		const edgesB = overlays.edges.find((e) => e.bodyId === mb.bodyId);
+		expect(edgesB).toBeTruthy();
+		expect(edgesB.position.map((v) => Math.round(v * 1e6) / 1e6)).toEqual([0.03, 0, 0]);
+		expect(overlays.vertexBounds).toBeTruthy();
+		expect(near(overlays.vertexBounds.max[0], 0.04)).toBe(true);
+		expect(near(overlays.vertexBounds.min[0], 0)).toBe(true);
 		const bodies = await page.evaluate(() => window.__waffle.getBodies?.() ?? []);
 		void bodies;
 		let status = await page.evaluate(() => window.__waffle.getAssemblyStatus());

@@ -1051,6 +1051,29 @@ export async function initEngine() {
 				edgeBodies: renderedEdgeBodyCount,
 				vertices: renderedVertexCount,
 			}),
+			// Where the overlays actually draw: each edge LineSegments object's
+			// world position per body, and the world bounds of the vertex
+			// points. An assembly's overlays must follow the instance
+			// placements the faces follow.
+			getRenderedOverlayPlacements: () => {
+				const scene = cameraObject?.parent;
+				const edges = [];
+				let vertexBounds = null;
+				if (!scene) return { edges, vertexBounds };
+				scene.updateMatrixWorld(true);
+				const p = new THREE.Vector3();
+				scene.traverse((obj) => {
+					if (obj.isLineSegments && obj.userData?.waffleType === 'edges') {
+						obj.getWorldPosition(p);
+						edges.push({ bodyId: obj.userData.bodyId, position: p.toArray() });
+					} else if (obj.isPoints && obj.geometry) {
+						obj.geometry.computeBoundingBox();
+						const bb = obj.geometry.boundingBox?.clone().applyMatrix4(obj.matrixWorld);
+						if (bb) vertexBounds = { min: bb.min.toArray(), max: bb.max.toArray() };
+					}
+				});
+				return { edges, vertexBounds };
+			},
 			getMeshBoundingBox: () => {
 				const min = [Infinity, Infinity, Infinity];
 				const max = [-Infinity, -Infinity, -Infinity];
