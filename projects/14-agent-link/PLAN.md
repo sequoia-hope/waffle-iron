@@ -402,6 +402,33 @@ the exercise found, in priority order:
   progress"; Phase 2's tab, viewport, export, import and connector tools have
   landed.
 
+### Findings from the gravel-bicycle assembly (2026-09-18)
+
+Ten Part tabs (frame, fork, wheel, cassette, crankset, cockpit, seatpost,
+derailleur, caliper, bottle — 212 sketch/extrude/connector calls, all green)
+and an Assembly tab of 13 instances, built over the user's own relay and
+page. Two defects, both fixed the same day:
+
+- [x] **Concurrent assembly edits overwrote each other.** The relay forwards
+  calls as they arrive, and an assembly tool runs a store flow (no engine
+  lock for the whole call); two `connector_add`s in flight each sent the tab
+  copy without the other's addition, and the slower answer replaced the
+  faster one's. 23 connectors requested in one burst, 6 survived. FIXED: the
+  document commands (assembly, tab, document) queue in `executor.js`
+  (`runDocumentCommand`); `agent-assembly.spec.js` fires six at once and
+  expects six (fails on the unfixed executor, verified).
+- [x] **Every assembly edit rebuilt every part.** `assembly_view::evaluate`
+  ran `rebuild_from_scratch` on all 13 instances' parts (≈130 features, 11
+  involute cogs, revolved rim and tyre, 24 spokes) and re-tessellated them —
+  minutes per connector, and a queued call idled past the MCP client's 30 min
+  timeout. FIXED: the view being replaced hands its part engines to the next
+  evaluation and a part whose tree is unchanged (document form compared) is
+  reused, meshes and all; a tab switch parks them in
+  `EngineState::part_cache` (`assembly_tests.rs` `edit_assembly_reuses_…`).
+- [ ] The progress-reporting gap above bit again: nothing told the client the
+  page was still working, so the client timed the call out while the page
+  went on to apply it.
+
 ## Blockers
 
 - Environment: the workspace disk is at ~100% (16 GB free on 2026-09-14);

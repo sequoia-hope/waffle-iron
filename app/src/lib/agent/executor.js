@@ -207,17 +207,34 @@ function renderStepOutcome(tool, result, before, ctx) {
  * @param {Record<string, unknown>} args
  * @param {CallContext} ctx
  */
+/** The tail of the document-command queue: the previous call's completion. */
+let documentCommandTail = Promise.resolve();
+
 async function runDocumentCommand(tool, run, args, ctx) {
-	const refusal = pausedOrBusy(ctx);
-	if (refusal) throw refusal;
-	setAgentActivity({ tool, agentName: ctx.agentName, quietErrors: false });
-	try {
-		return await run(args, ctx);
-	} finally {
-		setAgentActivity(null);
-		if (getToolHint() === AGENT_WORKING_HINT) setToolHint(null);
-	}
+	// One at a time (I6 for this path). The relay forwards calls as they
+	// arrive; two assembly edits in flight at once each mutate the store's tab
+	// copy and each send it — and the slower answer overwrites the faster
+	// one's edit (measured: connectors added concurrently vanished). Queue
+	// here, since these flows cannot hold the engine lock for the whole call.
+	const turn = documentCommandTail.then(async () => {
+		const refusal = pausedOrBusy(ctx);
+		if (refusal) throw refusal;
+		setAgentActivity({ tool, agentName: ctx.agentName, quietErrors: false });
+		try {
+			return await run(args, ctx);
+		} finally {
+			setAgentActivity(null);
+			if (getToolHint() === AGENT_WORKING_HINT) setToolHint(null);
+		}
+	});
+	// The chain never rejects: the next call must run whatever this one did.
+	documentCommandTail = turn.then(
+		() => undefined,
+		() => undefined
+	);
+	return turn;
 }
+
 
 /**
  * The engine's answer to a `Tool` send, in the `result` frame's shape.

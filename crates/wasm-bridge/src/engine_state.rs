@@ -47,6 +47,12 @@ pub struct EngineState {
     /// edited. Its OTHER leaves render as ghosts in the part's frame; the
     /// engine's `context` (the resolution snapshot) is derived from it.
     pub context_view: Option<crate::assembly_view::ContextView>,
+    /// Part engines of assembly views this state has LEFT (a tab switch away
+    /// from an assembly, out of an edit context), kept for the next
+    /// evaluation to reuse (`assembly_view::evaluate`'s `reuse`): a part whose
+    /// tree is unchanged is not rebuilt. At most one engine per part; the
+    /// newest wins.
+    pub part_cache: Vec<(feature_engine::assembly::PartRef, Engine)>,
 }
 
 /// An active sketch editing session.
@@ -75,7 +81,35 @@ impl EngineState {
             envelope_extra: serde_json::Map::new(),
             assembly: None,
             context_view: None,
+            part_cache: Vec::new(),
         }
+    }
+
+    /// Leave the open assembly view and the edit context, keeping their part
+    /// engines for the next evaluation. Every site that used to drop the
+    /// views goes through here, so a switch away from an assembly tab and
+    /// back does not rebuild parts that did not change.
+    pub fn stash_assembly_views(&mut self) {
+        let mut engines = Vec::new();
+        if let Some(view) = self.assembly.take() {
+            engines.extend(view.parts);
+        }
+        if let Some(cv) = self.context_view.take() {
+            engines.extend(cv.view.parts);
+        }
+        self.engine.context = None;
+        for (part, engine) in engines {
+            self.part_cache.retain(|(p, _)| *p != part);
+            self.part_cache.push((part, engine));
+        }
+    }
+
+    /// Every part engine available for reuse — the cache plus the views
+    /// currently open — leaving none behind. What the next
+    /// `assembly_view::evaluate` is handed; whatever it does not take is gone.
+    pub fn take_part_engines(&mut self) -> Vec<(feature_engine::assembly::PartRef, Engine)> {
+        self.stash_assembly_views();
+        std::mem::take(&mut self.part_cache)
     }
 
     /// The document's name, used for save and export file names.
@@ -233,6 +267,7 @@ impl EngineState {
     pub fn reset(&mut self) {
         self.assembly = None;
         self.context_view = None;
+        self.part_cache.clear();
         self.engine = Engine::new();
         self.active_sketch = None;
         self.selection.clear();

@@ -290,4 +290,38 @@ test.describe('Agent link assemblies', () => {
 		expectClose(apply(rev.instances[1].placement, faces.bottomCentre), faces.topCentre, 1e-6);
 		expectNoAnyCrash(crashes);
 	});
+
+	test('assembly edits sent concurrently all land: the page runs them one at a time', async ({ page }) => {
+		// Measured 2026-09-18 building a bicycle over the link: connectors
+		// added in one parallel burst vanished, each in-flight edit sending
+		// the tab copy without the others' additions and the slower answer
+		// overwriting the faster one's. The document commands now queue.
+		const crashes = collectCrashErrors(page);
+		await pairAgent(page, relay, AGENT);
+		const doc = ok(await relay.callTool('document_new', { name: 'Burst' }));
+		const partTab = doc.active_tab;
+		await block(0.01, 0.01, 0.005);
+		ok(await relay.callTool('tab_add', { kind: 'Assembly' }));
+		const inst = ok(await relay.callTool('instance_add', { tab_id: partTab, fixed: true }));
+
+		const names = ['c1', 'c2', 'c3', 'c4', 'c5', 'c6'];
+		const results = await Promise.all(
+			names.map((name, i) =>
+				relay.callTool('connector_add', {
+					instance_path: [inst.instance_id],
+					frame: { origin: [0.001 * i, 0, 0], z_axis: [0, 0, 1], x_axis: [1, 0, 0] },
+					name
+				})
+			)
+		);
+		for (const r of results) ok(r);
+		const state = ok(await relay.callTool('assembly_get'));
+		expect(state.connectors.map((c) => c.name).sort()).toEqual(names);
+		// Every answer described a state that contained its own connector.
+		for (const r of results) {
+			const s = r.structuredContent;
+			expect(s.connectors.map((c) => c.id)).toContain(s.connector_id);
+		}
+		expectNoAnyCrash(crashes);
+	});
 });

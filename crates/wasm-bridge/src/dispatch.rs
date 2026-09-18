@@ -382,8 +382,10 @@ fn handle_message(
             // first message (S2 C2).
             state.session = DocumentSession::from_document(doc);
             state.engine.tree = tree;
+            // Another document's parts are of no use to this one.
             state.assembly = None;
             state.clear_context();
+            state.part_cache.clear();
             state.engine.rebuild_from_scratch(kb);
             state.engine.warnings.extend(
                 loaded
@@ -541,8 +543,9 @@ fn handle_message(
             state.active_sketch = None;
             state.selection.clear();
             state.hover = None;
-            state.assembly = None;
-            state.clear_context();
+            // The views being left keep their part engines for this
+            // evaluation (the parts that did not change are not rebuilt).
+            let reuse = state.take_part_engines();
             // Opening a part in context is a tab switch too (the store leaves
             // the assembly tab for the part's), and it happens FIRST: the
             // stash must capture the outgoing tab's live tree before anything
@@ -559,6 +562,7 @@ fn handle_message(
                 &assembly_trees,
                 &state.engine.sources,
                 kb,
+                reuse,
             );
             let (context_view, context) =
                 crate::assembly_view::ContextView::new(view, assembly_tab_id, instance_path)
@@ -738,10 +742,13 @@ fn open_assembly(
     state.active_sketch = None;
     state.selection.clear();
     state.hover = None;
-    state.clear_context();
     // Refuse a tab that holds no assembly BEFORE switching to it: a loud
     // error must not leave the session on a tab it could not open.
     let assembly = state.session.assembly(tab_id)?.clone();
+    // The view being replaced (an `EditAssembly` re-evaluates the open tab on
+    // every connector, mate or instance edit) hands its part engines to this
+    // evaluation: only a part whose tree changed is rebuilt.
+    let reuse = state.take_part_engines();
     state.session.switch_tab(tab_id, &mut state.engine)?;
     // The live tree is not the assembly's content; keep the renderer on the
     // instances only. (An `Assembly` tab holds no tree, so the switch already
@@ -756,6 +763,7 @@ fn open_assembly(
         &assembly_trees,
         &state.engine.sources,
         kb,
+        reuse,
     );
     // The solved placements are derived, but they are saved WITH the tab
     // (v4 §2.5) and the session composes the file now (S2 C3c) — so they go
@@ -782,8 +790,9 @@ fn switch_to_tab(
     state.active_sketch = None;
     state.selection.clear();
     state.hover = None;
-    state.assembly = None;
-    state.clear_context();
+    // The assembly view and the edit context are left, not lost: their part
+    // engines wait in the cache for the next assembly evaluation.
+    state.stash_assembly_views();
     state.session.switch_tab(tab_id, &mut state.engine)?;
     state.engine.rebuild_from_scratch(kb);
     Ok(())

@@ -1581,3 +1581,130 @@ fn a_part_mate_connector_on_a_vertex_fails_its_feature() {
     assert!(errors.iter().any(|(fid, _)| *fid == id), "{errors:?}");
     assert!(connectors.is_empty(), "{connectors:?}");
 }
+
+/// An assembly-only edit (an instance, a connector, a mate) must not rebuild
+/// the parts: the view being replaced hands its part engines to the next
+/// evaluation, and only a part whose TREE changed is built again. The engine
+/// is marked through a field the evaluation never writes, so its survival is
+/// the proof of reuse; leaving the tab and coming back keeps it too.
+#[test]
+fn edit_assembly_reuses_the_part_engines_whose_trees_did_not_change() {
+    let mut state = EngineState::new();
+    let mut kernel = KernelV2Adapter::new();
+    let part_tree = cube_part(&mut state, &mut kernel);
+    let import_id = part_tree.features[0].id;
+    let part = part_tab(&state);
+
+    let a = instance("A", &part, Transform::identity(), true);
+    let tree = AssemblyTree {
+        instances: vec![a],
+        ..Default::default()
+    };
+    let tab_id = assembly_tab(&mut state, &tree);
+    dispatch(
+        &mut state,
+        UiToEngine::OpenAssembly {
+            tab_id: tab_id.clone(),
+        },
+        &mut kernel,
+    );
+    let view = state.assembly.as_mut().expect("an open assembly");
+    assert_eq!(view.parts.len(), 1);
+    assert_eq!(view.parts[0].1.feature_results.len(), 1);
+    view.parts[0].1.warnings.push("built once".into());
+    let marked = |state: &EngineState| {
+        state
+            .assembly
+            .as_ref()
+            .expect("an open assembly")
+            .parts
+            .iter()
+            .filter(|(_, e)| e.warnings.iter().any(|w| w == "built once"))
+            .count()
+    };
+
+    // A second instance of the same part: the assembly re-evaluates, the part
+    // engine is the one built before.
+    let mut edited = tree.clone();
+    edited.instances.push(instance(
+        "B",
+        &part,
+        Transform::translation([0.03, 0.0, 0.0]),
+        false,
+    ));
+    let r = dispatch(
+        &mut state,
+        UiToEngine::EditAssembly {
+            tab_id: tab_id.clone(),
+            assembly: edited.clone(),
+        },
+        &mut kernel,
+    );
+    let EngineToUi::ModelUpdated { assembly, .. } = r else {
+        panic!("{r:?}")
+    };
+    let status = assembly.expect("assembly status");
+    assert_eq!(status.placements.len(), 2);
+    assert_eq!(state.assembly.as_ref().unwrap().parts.len(), 1);
+    assert_eq!(
+        marked(&state),
+        1,
+        "the part was rebuilt for an assembly edit"
+    );
+    assert!(
+        state.part_cache.is_empty(),
+        "the taken engine is in the view, not the cache"
+    );
+
+    // Leaving for the Part tab parks the engine; coming back takes it again.
+    dispatch(
+        &mut state,
+        UiToEngine::SwitchTab {
+            tab_id: part.clone(),
+        },
+        &mut kernel,
+    );
+    assert!(state.assembly.is_none());
+    assert_eq!(state.part_cache.len(), 1);
+    dispatch(
+        &mut state,
+        UiToEngine::OpenAssembly {
+            tab_id: tab_id.clone(),
+        },
+        &mut kernel,
+    );
+    assert_eq!(marked(&state), 1, "the part was rebuilt after a tab switch");
+    assert!(state.part_cache.is_empty());
+
+    // A change to the part's own tree is a different part: built afresh.
+    dispatch(
+        &mut state,
+        UiToEngine::SwitchTab {
+            tab_id: part.clone(),
+        },
+        &mut kernel,
+    );
+    dispatch(
+        &mut state,
+        UiToEngine::DeleteFeature {
+            feature_id: import_id,
+        },
+        &mut kernel,
+    );
+    dispatch(
+        &mut state,
+        UiToEngine::OpenAssembly {
+            tab_id: tab_id.clone(),
+        },
+        &mut kernel,
+    );
+    let view = state.assembly.as_ref().unwrap();
+    assert_eq!(view.parts.len(), 1);
+    assert_eq!(
+        marked(&state),
+        0,
+        "a stale engine was reused for a changed tree"
+    );
+    assert!(view.parts[0].1.feature_results.is_empty());
+    assert!(state.part_cache.is_empty(), "the stale engine was kept");
+}

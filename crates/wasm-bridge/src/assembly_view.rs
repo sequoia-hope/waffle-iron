@@ -179,6 +179,10 @@ struct Ctx<'a> {
     assembly_trees: &'a HashMap<String, AssemblyTree>,
     sources: &'a feature_engine::sources::SourceStore,
     parts: Vec<(PartRef, Engine)>,
+    /// Part engines of an earlier evaluation, offered for reuse: one whose
+    /// tree is still the part's current tree is taken as is (its kernel
+    /// bodies and render meshes included) instead of being rebuilt.
+    reuse: Vec<(PartRef, Engine)>,
     errors: Vec<String>,
     warnings: Vec<String>,
 }
@@ -206,18 +210,27 @@ const MAX_DEPTH: usize = 8;
 /// placements. Never fails as a whole: a part that cannot be built leaves its
 /// instances unrendered and an error; a connector whose face cannot be
 /// resolved falls back to its explicit frame with an error.
+///
+/// `reuse` offers the part engines of an earlier evaluation (the view being
+/// replaced, or the host's cache of views it left): a part whose tree is
+/// unchanged is taken from it rather than rebuilt, so an edit to the
+/// assembly itself — a connector, a mate, an instance — costs the solve, not
+/// a rebuild and re-tessellation of every part. Engines whose part changed,
+/// or that no instance names any more, are dropped.
 pub fn evaluate(
     tree: AssemblyTree,
     part_trees: &HashMap<String, FeatureTree>,
     assembly_trees: &HashMap<String, AssemblyTree>,
     sources: &feature_engine::sources::SourceStore,
     kb: &mut dyn KernelBundle,
+    reuse: Vec<(PartRef, Engine)>,
 ) -> AssemblyView {
     let mut ctx = Ctx {
         part_trees,
         assembly_trees,
         sources,
         parts: Vec::new(),
+        reuse,
         errors: Vec::new(),
         warnings: Vec::new(),
     };
@@ -255,13 +268,35 @@ fn evaluate_tree(
         }
         match resolve_source(&inst.source, ctx) {
             Ok(Resolved::Part(part_tree)) => {
-                let mut engine = Engine::new();
-                engine.tree = part_tree;
-                // Same-document parts share the document's source content; a
-                // linked document's own sources are not resolved here (loud
-                // per feature).
-                engine.sources = ctx.sources.clone();
-                engine.rebuild_from_scratch(kb);
+                // An earlier evaluation's engine for this very tree is the
+                // same build: keep it, bodies and meshes included. Trees are
+                // compared by their document form (`FeatureTree` carries no
+                // equality of its own); serializing one is nothing next to
+                // rebuilding it.
+                let wanted = serde_json::to_value(&part_tree).ok();
+                let cached = wanted.and_then(|wanted| {
+                    ctx.reuse.iter().position(|(p, e)| {
+                        *p == inst.source
+                            && serde_json::to_value(&e.tree).ok() == Some(wanted.clone())
+                    })
+                });
+                let engine = match cached {
+                    Some(i) => {
+                        let (_, mut engine) = ctx.reuse.swap_remove(i);
+                        engine.sources = ctx.sources.clone();
+                        engine
+                    }
+                    None => {
+                        let mut engine = Engine::new();
+                        engine.tree = part_tree;
+                        // Same-document parts share the document's source
+                        // content; a linked document's own sources are not
+                        // resolved here (loud per feature).
+                        engine.sources = ctx.sources.clone();
+                        engine.rebuild_from_scratch(kb);
+                        engine
+                    }
+                };
                 for (fid, msg) in &engine.errors {
                     let name = engine
                         .tree
