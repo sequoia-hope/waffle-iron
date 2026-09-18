@@ -123,6 +123,24 @@ pub trait Kernel {
         })
     }
 
+    /// Rigid copy of a solid: a NEW solid whose every point, surface and
+    /// curve is moved by `placement` (`p' = R·p + t`). The source is
+    /// untouched. Exact on analytic geometry (a rotated cylinder is a
+    /// cylinder of the same radius). The substrate of circular/linear
+    /// patterns (`specs/custom_features_and_modeling_roadmap.md` §B1).
+    ///
+    /// A placement whose rotation is not a proper rotation (a reflection or
+    /// a scaled matrix) is an error, never a silently mirrored copy.
+    fn transform_body(
+        &mut self,
+        _solid: &KernelSolidHandle,
+        _placement: &RigidPlacement,
+    ) -> Result<KernelSolidHandle, KernelError> {
+        Err(KernelError::NotSupported {
+            operation: "transform_body".to_string(),
+        })
+    }
+
     /// Export a solid as an ISO 10303-21 (STEP, AP214) text file. The
     /// single-body form of [`Kernel::export_step_bodies`].
     fn export_step(

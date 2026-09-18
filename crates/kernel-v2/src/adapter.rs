@@ -699,6 +699,31 @@ impl Kernel for KernelV2Adapter {
         ))
     }
 
+    fn transform_body(
+        &mut self,
+        solid: &KernelSolidHandle,
+        placement: &waffle_types::kernel::RigidPlacement,
+    ) -> Result<KernelSolidHandle, KernelError> {
+        if self.imported_slot_of(solid).is_some() {
+            return Err(Self::not_supported(
+                "transform_body: imported (STEP) mesh-backed body — placing an imported \
+                 body is STEP-import roadmap SI2 (docs/step_import_roadmap.md)",
+            ));
+        }
+        let sid = self.solid_of(solid)?;
+        let copy = crate::transform::transform_solid(&mut self.arena, sid, placement).map_err(
+            |e| match e {
+                KernelV2Error::TransformNotRigid { reason } => KernelError::Other {
+                    message: format!("transform_body: {reason}"),
+                },
+                other => KernelError::Other {
+                    message: format!("kernel-v2 transform_body failed: {other}"),
+                },
+            },
+        )?;
+        Ok(self.alloc_handle(copy))
+    }
+
     fn import_body(
         &mut self,
         data: &waffle_types::kernel::ImportedBodyData,

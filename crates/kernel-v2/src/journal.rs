@@ -36,6 +36,9 @@ pub enum EvoKind {
 pub enum OpTag {
     /// A boolean of two operand solids.
     Boolean(BoolOp),
+    /// A rigid transform copy (`transform_solid`): every output face is the
+    /// `Same` as its source face, moved.
+    Transform,
 }
 
 /// One operation's effect on persistent FACE identities (KV13 F2;

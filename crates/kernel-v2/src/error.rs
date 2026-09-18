@@ -185,6 +185,11 @@ pub enum KernelV2Error {
     /// oracles pin its contract) but not implemented yet.
     NotImplemented(&'static str),
 
+    /// `transform_solid` was given a placement that is not a proper rigid
+    /// motion (non-orthonormal rotation, a reflection, or non-finite
+    /// entries). Refused rather than producing a scaled or inside-out copy.
+    TransformNotRigid { reason: &'static str },
+
     // ----- boolean delegation (PR-KV3, `boolean::boolean_op`) -------------
     /// The boolean inputs contain a coplanar face pair (touching or
     /// overlapping on a shared plane). The cherchi-rs arrangement defers
