@@ -64,8 +64,7 @@ export class McpRelay {
 	 * @param {{ port: number, appUrl: string, allowOrigin: string, extraArgs?: string[] }} opts
 	 */
 	constructor({ port, appUrl, allowOrigin, extraArgs = [] }) {
-		this.port = port;
-		this.stderr = '';
+		this._args = ['--app-url', appUrl, '--allow-origin', allowOrigin, ...extraArgs];
 		/** @type {string[]} */
 		this.stdoutLines = [];
 		/** @type {object[]} */
@@ -74,15 +73,18 @@ export class McpRelay {
 		/** @type {Map<number, (msg: any) => void>} */
 		this._pending = new Map();
 		this._buffer = '';
+		this._spawn(port);
+	}
+
+	/** @param {number} port */
+	_spawn(port) {
+		this.port = port;
+		this.stderr = '';
 		const env = { ...process.env };
 		delete env.PORT;
 		this.proc = spawn(
 			uvCommand(),
-			[
-				'run', '--project', path.join(REPO_ROOT, 'relay'), 'waffle-mcp-relay',
-				'--port', String(port), '--app-url', appUrl, '--allow-origin', allowOrigin,
-				...extraArgs
-			],
+			['run', '--project', path.join(REPO_ROOT, 'relay'), 'waffle-mcp-relay', '--port', String(port), ...this._args],
 			{ cwd: REPO_ROOT, env, stdio: ['pipe', 'pipe', 'pipe'] }
 		);
 		this.exited = new Promise((resolve) => this.proc.on('exit', (code) => resolve(code)));
@@ -111,11 +113,28 @@ export class McpRelay {
 		}
 	}
 
-	/** Resolves once the relay logs that its WebSocket is listening. */
-	async waitListening(timeoutMs = 60000) {
+	/**
+	 * Resolves once the relay logs that its WebSocket is listening.
+	 *
+	 * `relayTestPort()` releases the OS-assigned port before the relay binds it,
+	 * so a parallel worker can take it in between (CI run 35291254557: `[Errno
+	 * 98] address already in use`). An address-in-use exit on an allocated (not
+	 * $AGENT_RELAY_PORT-pinned) port respawns the relay on a fresh one; the
+	 * `port` field is final only after this resolves.
+	 */
+	async waitListening(timeoutMs = 60000, maxBindRetries = 5) {
 		const deadline = Date.now() + timeoutMs;
+		let bindRetries = 0;
 		while (!this.stderr.includes('listening on')) {
-			if (this.proc.exitCode !== null) throw new Error(`relay exited early:\n${this.stderr}`);
+			if (this.proc.exitCode !== null) {
+				const pinned = Boolean(process.env.AGENT_RELAY_PORT);
+				if (!pinned && this.stderr.includes('address already in use') && bindRetries < maxBindRetries) {
+					bindRetries += 1;
+					this._spawn(await relayTestPort());
+					continue;
+				}
+				throw new Error(`relay exited early:\n${this.stderr}`);
+			}
 			if (Date.now() > deadline) throw new Error(`relay did not start:\n${this.stderr}`);
 			await new Promise((r) => setTimeout(r, 50));
 		}

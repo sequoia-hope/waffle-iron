@@ -123,6 +123,23 @@ test.describe('Agent link reconnect', () => {
 		expectNoAnyCrash(crashes);
 	});
 
+	test('a relay whose allocated port was taken meanwhile comes up on a fresh one', async ({ baseURL }) => {
+		// Parallel workers race `relayTestPort()` (bind 0, release, hand over):
+		// CI run 35291254557 lost that race with `address already in use`.
+		test.skip(Boolean(process.env.AGENT_RELAY_PORT), 'the port is pinned by the environment');
+		const r = await startRelay(baseURL);
+		const origin = new URL(/** @type {string} */ (baseURL)).origin;
+		const contender = new McpRelay({ port: r.port, appUrl: `${origin}/`, allowOrigin: origin });
+		try {
+			await contender.waitListening();
+			expect(contender.port).not.toBe(r.port);
+			await contender.initialize(`${CLIENT_NAME}-contender`);
+			expect((await contender.callTool('waffle_status')).structuredContent.state).toBe('unpaired');
+		} finally {
+			expect(await contender.close()).toBe(0);
+		}
+	});
+
 	test('a persistent link pairs again after Disconnect', async ({ page, baseURL }) => {
 		const crashes = collectCrashErrors(page);
 		const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'waffle-persistent-link-'));
