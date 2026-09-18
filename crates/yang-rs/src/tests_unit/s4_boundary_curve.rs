@@ -157,7 +157,8 @@ fn s4bc_iv_beyond_chord_bound_is_a_loud_stop() {
             err,
             YangError::Stage4RegionInvalid {
                 vertex: 11,
-                reason: Stage4InvalidReason::LocalRefinementRequired
+                reason: Stage4InvalidReason::LocalRefinementRequired,
+                ..
             }
         ),
         "expected the loud Stage-4 STOP, got {err:?}"

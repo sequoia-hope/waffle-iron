@@ -115,6 +115,16 @@ pub enum YangError {
     Stage4RegionInvalid {
         vertex: u32,
         reason: Stage4InvalidReason,
+        /// Yang §4.5.2's own under-resolution certificate for the STOP
+        /// (spec `specs/yang_452_local_refinement.md` §8): the largest
+        /// `d_ε(far) / |d_far(q)|` over every §4-I9 corner-crossing fire of
+        /// the invocation — the factor by which the far surface's Stage-1
+        /// chord band must shrink before its mesh can decide which side of
+        /// the far surface every crossed model corner lies on. `None` when
+        /// the STOP is not a corner-crossing site or no fire had a verdict.
+        /// Read by the op-level refinement ladder to pick its first rung;
+        /// never part of the Display text (the corpus detail is stable).
+        under_resolution: Option<f64>,
     },
     /// PR-YR24/PR-YR26: input faces `face_a` (of solid `input_a`) and
     /// `face_b` (of solid `input_b`) are coplanar — bit-exactly or within a
@@ -272,7 +282,29 @@ impl YangError {
                 loc.line()
             );
         }
-        Self::Stage4RegionInvalid { vertex, reason }
+        Self::Stage4RegionInvalid {
+            vertex,
+            reason,
+            under_resolution: None,
+        }
+    }
+
+    /// [`Self::stage4_region_invalid`] carrying the §4.5.2 under-resolution
+    /// certificate measured at the STOP site (see the field's doc).
+    #[track_caller]
+    pub fn stage4_region_invalid_under_resolved(
+        vertex: u32,
+        reason: Stage4InvalidReason,
+        under_resolution: Option<f64>,
+    ) -> Self {
+        match Self::stage4_region_invalid(vertex, reason) {
+            Self::Stage4RegionInvalid { vertex, reason, .. } => Self::Stage4RegionInvalid {
+                vertex,
+                reason,
+                under_resolution,
+            },
+            other => other,
+        }
     }
 }
 
@@ -366,7 +398,7 @@ impl fmt::Display for YangError {
                  after {rounds} refinement round(s): a face's chord band reaches another face of \
                  the same solid"
             ),
-            Self::Stage4RegionInvalid { vertex, reason } => {
+            Self::Stage4RegionInvalid { vertex, reason, .. } => {
                 write!(
                     f,
                     "yang-rs: Stage-4 relocation region around vertex {vertex} is invalid: \

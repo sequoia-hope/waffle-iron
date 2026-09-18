@@ -52,6 +52,7 @@ mod s433_tangent_relocation;
 mod s434_output_restore;
 mod s451_crease_domain;
 mod s452_chord_refine;
+mod s452_under_resolution_ladder;
 mod s453_line_overtake;
 mod s4_boundary_curve;
 mod s4_circle_pair_corner;

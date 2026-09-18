@@ -5540,6 +5540,66 @@ fn corner_crossing_fires(
     fires
 }
 
+/// Yang §4.5.2's UNDER-RESOLUTION certificate for a §4-I9 STOP (spec
+/// `specs/yang_452_local_refinement.md` §8; the census verdict of
+/// [`relocation_domain_postcondition`]'s `-RESOLUTION` line made a production
+/// quantity). For every fire `(v, q)` and every FAR patch of the traveller
+/// (a patch `v` carries that the crossed corner `q` does not), the far
+/// surface's own Stage-1 chord band `d_ε(far)` against the corner's distance
+/// to that surface `|d_far(q)|`: while `d_ε(far) ≥ |d_far(q)|` the far mesh
+/// cannot decide which side of the far surface the corner lies on, so the
+/// discrete crossing the arrangement produced may not exist at all and no
+/// transit can be planned — refinement is the paper's remedy, and the ratio
+/// is the factor the band must shrink by. The MAX over the invocation's
+/// fires is the demand (R0085: the rider at the tooth corner nearest the
+/// exact exit reads 18.2 while the STOP'd site itself reads 0.54 — the
+/// ladder must resolve every corner the crossing chain touches). A corner
+/// exactly ON the far surface has no finite demand and contributes nothing
+/// (that is the transit planner's `JunctionAtCorner` class).
+fn under_resolution_ratio(
+    mesh: &Mesh,
+    attribution: &TriangleAttributionMap,
+    a: &BRep,
+    b: &BRep,
+    fires: &[(u32, u32)],
+) -> Option<f64> {
+    let patches = build_patch_map(mesh, &attribution.attributions);
+    let empty: std::collections::BTreeSet<(InputId, u32)> = Default::default();
+    let mut worst: Option<f64> = None;
+    for &(v, q) in fires {
+        let pv = patches.get(&v).unwrap_or(&empty);
+        let pq = patches.get(&q).unwrap_or(&empty);
+        let Some(qv) = mesh.verts.get(q as usize) else {
+            continue;
+        };
+        let qpos = qv.as_array();
+        for fp in pv.difference(pq) {
+            let brep = match fp.0 {
+                InputId::A => a,
+                InputId::B => b,
+            };
+            let Some(ff) = brep.faces().get(fp.1 as usize) else {
+                continue;
+            };
+            let Some(de) =
+                face_chord_bound(ff, brep.edges()).or_else(|| input_curved_chord_bound(brep))
+            else {
+                continue;
+            };
+            let Some(dq) = surface_distance_and_normal(ff.surface, qpos).map(|(f, _)| f.abs())
+            else {
+                continue;
+            };
+            if dq <= 0.0 || dq.is_nan() || !de.is_finite() {
+                continue;
+            }
+            let ratio = de / dq;
+            worst = Some(worst.map_or(ratio, |w| w.max(ratio)));
+        }
+    }
+    worst
+}
+
 /// inc-2c-3b-1 — the gated corner-transit CORRIDOR MUTATION (spec §3i).
 ///
 /// Re-runs the measured pipeline quietly — site planner → contract-band
@@ -8322,9 +8382,19 @@ fn relocation_domain_postcondition(
                     eprintln!("YANG_S4_CARRIER_DOMAIN-ANAT    v{v} vq-wedge tris: {wedge:?}");
                 }
             } else {
-                return Err(YangError::stage4_region_invalid(
+                // The STOP carries the §4.5.2 under-resolution certificate
+                // measured over EVERY fire of the invocation (not only this
+                // first one): the op-level ladder reads it to pick the rung
+                // that resolves every crossed corner at once instead of
+                // climbing through rungs the certificate already predicts
+                // futile (R0085 measured d_ε/2 … d_ε/16 all failing on the
+                // same chain while its demand read 18.2 — d_ε/32 converges).
+                let fires_all = corner_crossing_fires(mesh, attribution, a, b, entry);
+                let ratio = under_resolution_ratio(mesh, attribution, a, b, &fires_all);
+                return Err(YangError::stage4_region_invalid_under_resolved(
                     v,
                     Stage4InvalidReason::RelocationCrossedCarrierVertex,
+                    ratio,
                 ));
             }
         }
@@ -9275,7 +9345,7 @@ pub(crate) fn stage4_relocate_and_correct(
         // vertex is never written and "Stage 4 moved it" — the proxy for "the
         // optimization ran on it" — is false. It is nonetheless the clearest
         // §4.5 failure in the run, so classify it directly.
-        if let YangError::Stage4RegionInvalid { vertex, reason } = e {
+        if let YangError::Stage4RegionInvalid { vertex, reason, .. } = e {
             if (*vertex as usize) >= mesh.verts.len() {
                 // Sentinel STOPs (u32::MAX) name no vertex; nothing to classify.
                 eprintln!(

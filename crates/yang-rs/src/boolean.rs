@@ -553,13 +553,33 @@ fn refine_452_mode() -> Option<bool> {
 /// while `d_ε/8` opens a NEW wall on the much denser torus chart, so refining
 /// past the rung that resolves the failure buys nothing and costs
 /// correctness.
-const REFINE_452_ROUNDS: &[f64] = &[2.0, 4.0];
+pub(crate) const REFINE_452_ROUNDS: &[f64] = &[2.0, 4.0];
 
-/// The rung ladder in force. Production uses [`REFINE_452_ROUNDS`];
-/// `YANG_452_ROUNDS=3,6,8` overrides it for the census ladder that MEASURES
-/// the budget (spec `specs/yang_452_local_refinement.md` §6).
-fn refine_452_rounds() -> Vec<f64> {
-    std::env::var("YANG_452_ROUNDS")
+/// The ladder's ceiling when the STOP carries a §4.5.2 under-resolution
+/// certificate (spec `specs/yang_452_local_refinement.md` §8). The
+/// certificate names the FIRST rung (the smallest power of two that brings
+/// the far surface's chord band under every crossed corner's clearance);
+/// the ladder then keeps doubling under the same guard shell until this
+/// ceiling. Measured: R0085 demands 18.2 → d_ε/32 converges (b 312 → 9028
+/// tris, 95 s release for the whole case) and d_ε/64 converges too; the cost
+/// is geometric in the factor, so the last rung dominates and one doubling
+/// of headroom over the largest measured demand is the budget. A demand
+/// above the ceiling is a corner whose clearance no practical rim density
+/// resolves — the STOP stands, loudly, without paying futile rungs.
+pub(crate) const REFINE_452_MAX_FACTOR: f64 = 64.0;
+
+/// The rung ladder in force for one STOP. Production uses
+/// [`REFINE_452_ROUNDS`] unless the STOP's under-resolution certificate
+/// demands more than its last rung — then the ladder STARTS at the first
+/// power of two strictly above the demand (`d_ε/f < |d_far(q)|` for every
+/// crossed corner is the certificate's own inequality) and doubles up to
+/// [`REFINE_452_MAX_FACTOR`]. Rungs below the demand are certified futile
+/// (the far mesh still cannot place the corner) and are skipped — the paper's
+/// loop "repeated if optimization failure persists" reaches the same rung,
+/// one full op per skipped rung slower. `YANG_452_ROUNDS=3,6,8` overrides
+/// everything for the census ladder that MEASURES the budget (spec §6).
+fn refine_452_rounds(under_resolution: Option<f64>) -> Vec<f64> {
+    if let Some(v) = std::env::var("YANG_452_ROUNDS")
         .ok()
         .map(|s| {
             s.split(',')
@@ -568,7 +588,34 @@ fn refine_452_rounds() -> Vec<f64> {
                 .collect::<Vec<f64>>()
         })
         .filter(|v| !v.is_empty())
-        .unwrap_or_else(|| REFINE_452_ROUNDS.to_vec())
+    {
+        return v;
+    }
+    refine_452_rounds_for(under_resolution)
+}
+
+/// The pure half of [`refine_452_rounds`] (no environment): the ladder a
+/// STOP's under-resolution certificate derives. See there for the rule.
+pub(crate) fn refine_452_rounds_for(under_resolution: Option<f64>) -> Vec<f64> {
+    let last = REFINE_452_ROUNDS.last().copied().unwrap_or(1.0);
+    match under_resolution {
+        Some(demand) if !demand.is_nan() && demand >= last => {
+            if demand >= REFINE_452_MAX_FACTOR {
+                return Vec::new();
+            }
+            let mut f = last;
+            while f <= demand {
+                f *= 2.0;
+            }
+            let mut rungs = Vec::new();
+            while f <= REFINE_452_MAX_FACTOR {
+                rungs.push(f);
+                f *= 2.0;
+            }
+            rungs
+        }
+        _ => REFINE_452_ROUNDS.to_vec(),
+    }
 }
 
 /// The §4.5.2 topology-error functional: the number of unpaired undirected
@@ -636,15 +683,24 @@ fn refine_452(
     natural: &Result<BRep, YangError>,
 ) -> Option<BRep> {
     let adopt = refine_452_mode()?;
-    let Err(YangError::Stage4RegionInvalid { vertex, reason }) = natural else {
+    let Err(YangError::Stage4RegionInvalid {
+        vertex,
+        reason,
+        under_resolution,
+    }) = natural
+    else {
         return None;
     };
     let probe = !adopt || std::env::var_os("YANG_452_PROBE").is_some();
+    let rounds = refine_452_rounds(*under_resolution);
     if probe {
-        eprintln!("[s452] op={op:?} trigger v{vertex} {reason:?} adopt={adopt}");
+        eprintln!(
+            "[s452] op={op:?} trigger v{vertex} {reason:?} adopt={adopt} \
+             under_resolution={under_resolution:?} rungs={rounds:?}"
+        );
     }
     let mut best: Option<usize> = None;
-    for factor in refine_452_rounds() {
+    for factor in rounds {
         // Re-derive BOTH operands' discretizations at the refined `d_ε`
         // before re-running the op. Refining the bands ALONE would be the
         // inverse of the paper's remedy: it tightens every Stage-3/4/6
@@ -776,27 +832,36 @@ pub fn boolean(
     if let Ok(out) = &natural {
         brep_probe_out(out);
     }
-    // §4.5.2 local refinement (Yang :659-670) — an out-of-domain Stage-4
-    // optimization failure is the paper's own refinement trigger, and it must
-    // be consulted BEFORE the §4.5.4 rim×plane graze gate below returns early
-    // on the no-graze path (this class is surface-vs-surface under-resolution,
-    // not a rim under-sampling).
-    if let Some(refined) = refine_452(a, b, op, backend, &natural) {
-        brep_probe_out(&refined);
-        return Ok(refined);
-    }
+    // Two refinement remedies follow, TARGETED before WHOLE-OP:
+    //
+    //  1. §4.5.4 rim×plane graze retry — re-run the op with the grazed rims
+    //     boosted to the density the graze demands (the rim under-sampling
+    //     remedy). Cheap gate first: a rim×plane graze the natural
+    //     resolution under-samples must be present, else this remedy has
+    //     nothing to refine. Every §4.5.1 corner-transit corridor the retry
+    //     invocation applies rides here (R0044 converts on this path).
+    //  2. §4.5.2 local refinement (Yang :659-670) — an out-of-domain Stage-4
+    //     optimization failure is the paper's own refinement trigger; the
+    //     op-level ladder re-tessellates BOTH operands at d_ε/f. It runs
+    //     AFTER the targeted retry: measured 2026-09-18, a ladder consulted
+    //     first adopted R0044's d_ε/32 body (0 unpaired, 0 improper, 173k
+    //     triangles) and pre-empted the retry that converts the case — and
+    //     kernel-v2 then refused to tessellate one face of that body
+    //     (`surface-pair Newton projection did not converge`). Local
+    //     before global is the paper's own economy (§4.5.2 refines "the
+    //     surfaces traversed by C_p and a ring of neighbours", not the op),
+    //     and it is what keeps the whole-op cost off every case a targeted
+    //     retry already resolves. On the no-graze path the ladder is the
+    //     only remedy and runs at once (this class is surface-vs-surface
+    //     under-resolution, not a rim under-sampling).
     let probe = std::env::var_os("YANG_REFINE_PROBE").is_some();
-    // CHEAP GATE FIRST: a rim×plane graze the natural resolution
-    // under-samples must be present, else no refinement is possible — return
-    // immediately WITHOUT the output self-intersection scan. This keeps the
-    // per-op `detect_improper_contacts` cost off the common no-graze path (an
+    // `rim_plane_graze_min_segments` is self-limiting: `None` when both
+    // operands' natural N already suffice. Keeping the output
+    // self-intersection scan behind this gate keeps the per-op
+    // `detect_improper_contacts` cost off the common no-graze path (an
     // always-on scan pushed CORRECT large cases F0090/R0019/R0081 over the
-    // assay budget — the scan must ride the graze gate). `rim_plane_graze_min_segments`
-    // is self-limiting: `None` when both operands' natural N already suffice.
+    // assay budget — the scan must ride the graze gate).
     let graze = rim_plane_graze_min_segments(a, b);
-    if graze.is_none() {
-        return natural;
-    }
     // An INPUT-side non-manifold error is not a §4.5.4 self-intersection the
     // rim boost can address — non-manifoldness is topological, not a
     // resolution deficit — so refining it is a provably futile second full
@@ -804,57 +869,62 @@ pub fn boolean(
     // error is an OUTPUT-side failure (LocalRefinementRequired,
     // NonManifoldOutput, χ mismatch, …) that the refinement legitimately
     // attempts (measured R0072: LRR → Ok).
-    if matches!(&natural, Err(YangError::NonManifoldInput)) {
-        return natural;
-    }
-    // `Some(n)` = natural emitted a body with n self-intersections (n>0 ⇒
-    // broken); `None` = natural was a hard error (the strongest "broken").
-    let natural_selfx: Option<usize> = match &natural {
-        Ok(brep) => Some(output_improper_count(brep)),
-        Err(_) => None,
-    };
-    let natural_broken = !matches!(natural_selfx, Some(0));
-    if probe {
-        let nat = match (&natural, natural_selfx) {
-            (Ok(_), Some(n)) => format!("Ok improper={n}"),
-            (Err(e), _) => format!("Err({e:?})"),
-            _ => unreachable!(),
+    if graze.is_some() && !matches!(&natural, Err(YangError::NonManifoldInput)) {
+        // `Some(n)` = natural emitted a body with n self-intersections (n>0 ⇒
+        // broken); `None` = natural was a hard error (the strongest "broken").
+        let natural_selfx: Option<usize> = match &natural {
+            Ok(brep) => Some(output_improper_count(brep)),
+            Err(_) => None,
         };
-        eprintln!("[refine] op={op:?} natural={nat} broken={natural_broken} graze={graze:?}");
-    }
-    // Refine when the natural output is broken (the graze is already confirmed
-    // present above).
-    if natural_broken {
-        if let Ok(refined) = boolean_once(a, b, op, backend, true) {
-            let refined_improper = output_improper_count(&refined);
-            // Adopt the refinement unless it is WORSE than natural:
-            //  - natural was a hard error  ⇒ any emitted body is better;
-            //  - natural was Ok-but-selfx  ⇒ accept when the refined body has
-            //    NO MORE illegal intersections than natural (`<=`). The count
-            //    is a noisy ABSOLUTE (benign coplanar contacts survive
-            //    refinement, and repositioning a malignant crossing can trade
-            //    it for a benign one at equal count — measured R0095: 2→2 with
-            //    the downstream op fixed), so we never demand a reduction, only
-            //    that refinement did not ADD illegal geometry. Refinement is
-            //    the paper's §4.5.4 remedy; the tie goes to the more-sampled
-            //    body. Non-regressing: refined only for already-broken ops, and
-            //    only adopted when it does not increase the self-intersection
-            //    count. The full-corpus assay is the P10 verdict on `<=`.
-            let accept = match natural_selfx {
-                None => true,
-                Some(n) => refined_improper <= n,
+        let natural_broken = !matches!(natural_selfx, Some(0));
+        if probe {
+            let nat = match (&natural, natural_selfx) {
+                (Ok(_), Some(n)) => format!("Ok improper={n}"),
+                (Err(e), _) => format!("Err({e:?})"),
+                _ => unreachable!(),
             };
-            if probe {
-                eprintln!("[refine]   refined=Ok improper={refined_improper} accept={accept}");
-            }
-            if accept {
-                return Ok(refined);
-            }
-        } else if probe {
-            eprintln!("[refine]   refined=Err");
+            eprintln!("[refine] op={op:?} natural={nat} broken={natural_broken} graze={graze:?}");
         }
-        // Refinement did not improve on natural (or errored): keep the natural
-        // result (Ok-but-selfx or its original error) — never worse.
+        // Refine when the natural output is broken (the graze is already
+        // confirmed present above).
+        if natural_broken {
+            if let Ok(refined) = boolean_once(a, b, op, backend, true) {
+                let refined_improper = output_improper_count(&refined);
+                // Adopt the refinement unless it is WORSE than natural:
+                //  - natural was a hard error  ⇒ any emitted body is better;
+                //  - natural was Ok-but-selfx  ⇒ accept when the refined body
+                //    has NO MORE illegal intersections than natural (`<=`).
+                //    The count is a noisy ABSOLUTE (benign coplanar contacts
+                //    survive refinement, and repositioning a malignant
+                //    crossing can trade it for a benign one at equal count —
+                //    measured R0095: 2→2 with the downstream op fixed), so we
+                //    never demand a reduction, only that refinement did not
+                //    ADD illegal geometry. Refinement is the paper's §4.5.4
+                //    remedy; the tie goes to the more-sampled body.
+                //    Non-regressing: refined only for already-broken ops, and
+                //    only adopted when it does not increase the
+                //    self-intersection count. The full-corpus assay is the
+                //    P10 verdict on `<=`.
+                let accept = match natural_selfx {
+                    None => true,
+                    Some(n) => refined_improper <= n,
+                };
+                if probe {
+                    eprintln!("[refine]   refined=Ok improper={refined_improper} accept={accept}");
+                }
+                if accept {
+                    return Ok(refined);
+                }
+            } else if probe {
+                eprintln!("[refine]   refined=Err");
+            }
+            // Refinement did not improve on natural (or errored): fall
+            // through to the §4.5.2 ladder, then to natural — never worse.
+        }
+    }
+    if let Some(refined) = refine_452(a, b, op, backend, &natural) {
+        brep_probe_out(&refined);
+        return Ok(refined);
     }
     natural
 }

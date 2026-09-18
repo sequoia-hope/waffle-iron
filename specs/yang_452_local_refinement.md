@@ -533,3 +533,152 @@ eight exact corners as output vertices, volume within 2 % of the analytic
 tube-minus-bite).
 
 **Corpus proof (flip run, release, 8 jobs, 600 s; wall 776.9 s; F0085 327.9 s, R0044 390.2 s):** **292C / 0W / 13E / 4EE / 0T + 3 U** — per-id diff against the committed `results.json`: exactly ONE category move (C0065 ERROR → SUPPORTED_CORRECT), ZERO detail moves; R0038, R0050 and R0085 op 2 pay the ladder and keep their STOPs byte-identical. Ledger: `docs/yang_tail_triage.md` 2026-09-17 (later).
+
+## 8. The UNDER-RESOLUTION certificate picks the ladder (2026-09-18) — R0085 op 2 CONVERGES at d_ε/32; the case advances ERROR → UNSUPPORTED(coplanar-boolean) on its op 3
+
+### 8.1 The site, measured (`YANG_S4_CARRIER_DOMAIN=census` + `YANG_451_CORNER_PROBE`, release)
+
+R0085 op 2 (`Revolve 2` union: gear extrude A ∪ torus B, R 1.5723 / r 1.0482,
+d_ε(far) = 2.6205e-2). The §4-I9 STOP names v386 {A:0 cap, A:227 flank, B:2
+torus}, which relocated 3.84e-2 along the cap∩flank-227 rim edge (edge 226)
+and crossed the STILL corner v387 = A's B-Rep vertex 227 {cap, 227, 228} by
+3.29e-2. The corner probe shows WHY no transit exists: the gear's tooth-root
+polyline at that corner has rim edges of **1.683e-3, 5.052e-3, 8.420e-3,
+1.179e-2, 1.516e-2, 1.852e-2** (edges 227–232) — every one shorter than the
+torus's chord band — and the exact torus∩cap curve, computed along the rim,
+enters through edge 225 (t 0.54, the healthy junction v208) and EXITS through
+**edge 232 at t 0.354, 4.85e-2 past the corner**, five facets on. The two
+candidate corrected triples the planner solves are both off the bounded
+faces: {torus, cap, 228} lies on the line of edge 227 but 3.49e-2 past a
+1.68e-3 edge (`not-corner-incident` — the ranking lands on edge 231, 4.26e-3
+off); {torus, 227, 228} lies 2.5e-2 ABOVE the cap on the vertical crease
+(`on-line-past-end`). `NoRealCandidate` — the exact exit is not on either
+corner-incident edge, and the mesh chain (v386 → v4161 down flank 227 →
+riders v4163 / v4167 / v4172 / v4178 / v4195 / v4214 crossing the tops of
+creases 227|228 … 232|233) hugs the rim just under the cap while the exact
+curve stays inside the cap. The torus crosses every one of those vertical
+crease LINES above the cap (s = −0.083, −0.025, −0.024, −0.021, −0.016,
+−0.010, −0.002 along −n) until corner v233 (+0.0046): six rider fires, each
+`NoRealCandidate` or `AmbiguousExit(2)` walking INTO the base face (spec
+`yang_451_corner_transit.md` §3e requirement 5).
+
+This is Fig. 13's excluded shape by the paper's own sentence (`:637-651`):
+boundary points gliding along boundary curves toward a corner whose
+continuation direction is undecidable — "for other cases, we apply the second
+strategy", §4.5.2. The evening entry of 2026-09-17 in the ledger read the
+same STOP as a corner-transit generalization (a rim-scan entry + rider
+consumption for the corridor machinery); the paper assigns it to refinement,
+and refinement resolves it (§8.2).
+
+### 8.2 The census ladder CONVERGES — beyond the fixed budget
+
+`YANG_452_REFINE=census YANG_452_ROUNDS=2,4,8,16,32,64` (release):
+
+| rung | operands (tris) | result |
+|---|---|---|
+| natural | a 2236, b 312 | `Err RelocationCrossedCarrierVertex v386` |
+| d_ε/2 | b 646 | `Err RelocationCrossedCarrierVertex v388` |
+| d_ε/4 | b 1242 | `Err RelocationCrossedCarrierVertex v392` |
+| d_ε/8 | b 2294 | `Err RelocationCrossedCarrierVertex v394` (transit `assembly declines: 1`) |
+| d_ε/16 | b 4664 | `Err OffCurveBeyondChordBand v398` (a cap∩flank∩torus rim junction on another tooth) |
+| d_ε/32 | b 9028 | **Ok** tris 93 784, unpaired 0, improper 0 |
+| d_ε/64 | b 18 060 | **Ok** tris 134 290, unpaired 0, improper 0 |
+
+MONOTONE tail: once the rung resolves, every finer rung stays resolved (the
+C0065 shape, not R0050's oscillation). The fixed `[2, 4]` budget (§6.3's
+R0050-derived note) could never reach the converging rung; the question is
+what names it without guessing.
+
+### 8.3 The certificate — the census verdict made a production quantity
+
+`relocation_domain_postcondition`'s census `-RESOLUTION` line already
+separated the two §4-I9 mechanisms by the FAR surface's own chord band:
+`|d_far(q)| > d_ε(far)` = a REAL transit (the far mesh knows which side of
+the far surface the corner is on; §4.5.1's corner-transit arm owns it);
+`|d_far(q)| ≤ d_ε(far)` = UNDER-RESOLVED (the far mesh cannot place the
+corner; the discrete crossing may not exist at all; refinement is the
+remedy). Read over the invocation's fires:
+
+| fire | corner clearance `|d_far(q)|` | `d_ε(far) / |d_far(q)|` |
+|---|---|---|
+| v386 → v387 (the STOP'd site) | 1.4022e-2 | 1.87 |
+| v466 → v467 (the other tooth's base transit) | 1.8548e-2 | 1.41 |
+| v4167 → v389 (rider) | 1.3358e-2 | 1.96 |
+| **v4214 → v402 (rider at the corner nearest the exact exit)** | **1.4410e-3** | **18.19** |
+
+The demand is the MAX over fires — the ladder must resolve every corner the
+crossing chain touches, and the STOP'd site's own ratio (1.87, the fixed
+ladder's d_ε/2) says nothing about the rider five facets on. The rung the
+certificate names is the smallest power of two `f` with `d_ε/f < |d_far(q)|`
+at the tightest corner (the census inequality, strict): 18.19 → **32**
+(d_ε/16 = 1.64e-3 is still above 1.44e-3; d_ε/32 = 8.19e-4 is under it) —
+exactly the rung the blind census ladder found.
+
+Landed (`errors.rs`, `stage4_correct.rs`, `boolean.rs`):
+
+- `YangError::Stage4RegionInvalid` gains `under_resolution: Option<f64>`
+  (never in the Display text — the corpus detail strings are unchanged);
+  `stage4_region_invalid_under_resolved` constructs it. The §4-I9 STOP site
+  computes it over `corner_crossing_fires` (`under_resolution_ratio`: per
+  fire, per far patch of the traveller, `face_chord_bound ∨
+  input_curved_chord_bound` over `|surface_distance(far, q)|`; a corner ON
+  the far surface contributes nothing — that is the planner's
+  `JunctionAtCorner` class, with no finite demand).
+- `refine_452_rounds_for(demand)`: no certificate, or a demand the fixed
+  ladder's last rung already exceeds ⇒ `[2, 4]` unchanged (R0038's sentinel,
+  R0050's 3.38, C0065). Otherwise the ladder STARTS at the first power of two
+  strictly above the demand and doubles to `REFINE_452_MAX_FACTOR = 64`;
+  rungs below the demand are certified futile and skipped (the paper's
+  "repeated if optimization failure persists" reaches the same rung one full
+  op per rung slower). A demand ≥ 64 yields an EMPTY ladder: the STOP stands
+  immediately (clause 3, the budget, honest and without futile cost).
+- The ceiling: one doubling of headroom over the largest measured demand
+  (R0085's 32; 64 also converges). Cost is geometric in the factor, so the
+  last rung dominates: R0085 whole case 95 s release under the adopt arm.
+
+Production run (`YANG_452_PROBE=1`, release): `trigger v386
+RelocationCrossedCarrierVertex under_resolution=Some(18.18) rungs=[32, 64]`;
+`d_eps/32 -> Ok tris=93784 unpaired=0 improper=0`, adopted; op 2 completes.
+R0050: `under_resolution=Some(3.38) rungs=[2, 4]`, byte-identical verdict.
+R0038: sentinel, fixed ladder, byte-identical.
+
+Pins: `tests_unit/s452_under_resolution_ladder.rs` (the R0085 numbers; the
+strictness at a power of two; the empty ladder beyond the ceiling).
+
+### 8.4 Where R0085 lands
+
+Op 2 converts; op 3 (`Revolve 3`: the rectangle revolve, whose start/end
+caps lie in the sketch plane) now reaches the kernel and STOPs on a coplanar
+input face pair — the case grades **UNSUPPORTED(coplanar-boolean)**, joining
+F0064 / F0072 (whose wall is cherchi's N17 `CoplanarPairDeferred`; see the
+2026-09-17 evening ledger entry for the probe that tells the two apart).
+R0085's own wall classification is in the ledger row.
+
+### 8.5 Ordering: the targeted §4.5.4 retry runs BEFORE the whole-op ladder
+
+The first full-corpus run of §8.3 (release, 8 jobs, 600 s; wall 751.9 s)
+moved TWO cases: R0085 ERROR → UNSUPPORTED(coplanar-boolean) as designed,
+and **R0044 SUPPORTED_CORRECT → ERROR** (`TessellationFailed FaceId(458):
+surface-pair Newton projection did not converge`, 285 s). R0044's op-2
+natural STOP (`RelocationCrossedCarrierVertex v8`) now carries a demand of
+6.62, so the ladder ran `[8, 16, 32, 64]`: d_ε/8 STOPs again (v87, demand
+4.08), d_ε/16 emits improper 3, **d_ε/32 emits 0 unpaired / 0 improper on
+173 770 triangles** and is ADOPTED — pre-empting the path that had converted
+R0044 since inc-2c-3b (`yang_451_corner_transit.md` §3j): the §4.5.4
+rim×plane graze retry, on whose invocation the corner-transit corridors
+apply. The adopted body then failed kernel-v2's surface-pair projection on
+one output face — the §6.3 note ("refining past the rung that resolves the
+failure buys nothing and costs correctness") read at the case level.
+
+`boolean()` now consults the remedies TARGETED before WHOLE-OP: when a
+rim×plane graze is present and the natural output is broken, the §4.5.4
+retry runs first (its accept rule unchanged); the §4.5.2 ladder runs when
+that retry does not resolve the op, and immediately on the no-graze path
+(where it is the only remedy). This is the paper's own economy — §4.5.2
+refines "the surfaces traversed by C_p and a ring of neighbours", never the
+op — and it keeps the whole-op cost off every case a targeted retry already
+resolves. Pre-reorder the ladder's `[2, 4]` never adopted on a grazed case
+that the retry later converted (the C0065 flip proof moved exactly one case),
+so the reorder is byte-identical everywhere the demand stays ≤ 4.
+
+**Corpus proof (release, 8 jobs, 600 s; wall 760.2 s):** **293C / 0W / 12E / 4EE / 0T, 3 UNSUPPORTED(coplanar-boolean)** — per-id diff of the committed `results.json`: exactly ONE category move (R0085 ERROR → UNSUPPORTED(coplanar-boolean)), ZERO detail moves. A first run with the ladder consulted BEFORE the §4.5.4 retry moved TWO (R0044 CORRECT → ERROR, `TessellationFailed FaceId(458)`) — spec §8.5; the reorder restores it. The Stage-4 `RelocationCrossedCarrierVertex` family is down to R0050 (exact tangency).
