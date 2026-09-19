@@ -1401,6 +1401,7 @@ fn operation_name(op: &Operation) -> String {
         Operation::MateConnector { .. } => "Mate connector".to_string(),
         Operation::PatternCircular { .. } => "Circular pattern".to_string(),
         Operation::PatternLinear { .. } => "Linear pattern".to_string(),
+        Operation::Script { .. } => "Script".to_string(),
         Operation::Unknown(_) => op.type_tag().to_string(),
     }
 }

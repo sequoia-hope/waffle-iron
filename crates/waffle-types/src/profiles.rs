@@ -45,8 +45,9 @@ pub fn extract_profiles(
         }
     }
 
-    // Build directed edge graph for lines and arcs
-    // Each line/arc creates two directed half-edges: (start→end) and (end→start)
+    // Build directed edge graph for lines, arcs and splines (a spline's edge
+    // runs from its first control point to its last — `profiles.js`).
+    // Each edge creates two directed half-edges: (start→end) and (end→start)
     let mut edges: Vec<DirectedEdge> = Vec::new();
     for entity in entities {
         match entity {
@@ -84,6 +85,24 @@ pub fn extract_profiles(
                 edges.push(DirectedEdge {
                     from: *end_id,
                     to: *start_id,
+                    entity_id: *id,
+                });
+            }
+            SketchEntity::Spline {
+                id,
+                point_ids,
+                construction,
+            } if !construction && point_ids.len() >= 2 => {
+                let first = point_ids[0];
+                let last = point_ids[point_ids.len() - 1];
+                edges.push(DirectedEdge {
+                    from: first,
+                    to: last,
+                    entity_id: *id,
+                });
+                edges.push(DirectedEdge {
+                    from: last,
+                    to: first,
                     entity_id: *id,
                 });
             }
@@ -352,6 +371,12 @@ fn compute_profile_area(
                 }
                 SketchEntity::Arc { id, start_id, .. } if *id == *entity_id => {
                     vertices.push(*start_id);
+                    break;
+                }
+                SketchEntity::Spline { id, point_ids, .. }
+                    if *id == *entity_id && point_ids.len() >= 2 =>
+                {
+                    vertices.push(point_ids[0]);
                     break;
                 }
                 _ => {}

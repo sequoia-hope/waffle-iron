@@ -87,6 +87,11 @@
 					{ key: '_info', label: 'Seeds', type: 'info', value: operation.params?.seeds?.length ?? 0 },
 					{ key: '_info2', label: 'Combine', type: 'info', value: operation.params?.combine?.type ?? 'NewBody' },
 				];
+			case 'Script':
+				return [
+					{ key: '_info', label: 'Entry', type: 'info', value: operation.params?.entry ?? 'feature' },
+					{ key: '_info2', label: 'Arguments', type: 'info', value: Object.keys(operation.params?.args ?? {}).length + Object.keys(operation.params?.arg_exprs ?? {}).length },
+				];
 			case 'Sketch':
 				return [
 					{ key: '_info', label: 'Entities', type: 'info', value: operation.sketch?.entities?.length ?? 0 },

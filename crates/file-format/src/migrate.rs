@@ -127,6 +127,9 @@ fn migrate_feature_v1_to_v2(feature: &mut Feature) {
         Operation::PatternCircular { .. } | Operation::PatternLinear { .. } => {
             // Postdate v5; axis origins and spacings are meters by definition.
         }
+        Operation::Script { .. } => {
+            // Postdates v5; script arguments are model units by definition.
+        }
         Operation::Unknown(_) => {
             // Opaque (v4 Phase 1b): this reader cannot know which of its
             // fields are lengths. Preserved verbatim; its rebuild fails loudly.

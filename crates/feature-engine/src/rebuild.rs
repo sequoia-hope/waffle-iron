@@ -447,7 +447,7 @@ pub fn resolve_import_text(
     })
 }
 
-fn execute_feature(
+pub(crate) fn execute_feature(
     feature: &Feature,
     kb: &mut dyn KernelBundle,
     feature_results: &HashMap<Uuid, OpResult>,
@@ -982,6 +982,14 @@ fn execute_feature(
             tree,
             already_consumed,
             crate::pattern::PatternSpec::Linear(params),
+        ),
+        Operation::Script { .. } => crate::script::execute(
+            feature,
+            kb,
+            feature_results,
+            tree,
+            already_consumed,
+            sources,
         ),
 
         Operation::BooleanCombine { params } => {
@@ -2389,7 +2397,7 @@ pub fn resolve_datum_plane(
 ///
 /// Checks the three built-in planes first, then searches the feature tree
 /// for user-created DatumPlane features.
-fn find_datum_plane_data(
+pub(crate) fn find_datum_plane_data(
     datum_id: Uuid,
     tree: &FeatureTree,
     feature_results: &HashMap<Uuid, OpResult>,

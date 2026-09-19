@@ -278,6 +278,12 @@ pub enum Operation {
     PatternLinear {
         params: PatternLinearParams,
     },
+    /// A custom feature script (`specs/custom_features_and_modeling_roadmap.md`
+    /// Part A): a Rhai script from the document's sources table, run inside
+    /// the engine over the same operations the tree has.
+    Script {
+        params: ScriptParams,
+    },
     /// A well-formed `{"type": …}` operation this build does not know — one
     /// from a newer build. Kept verbatim, re-emitted on save, and its rebuild
     /// is a loud `EngineError::UnsupportedOperation`; so adding an operation
@@ -307,6 +313,7 @@ enum KnownOperation {
     MateConnector { params: MateConnectorParams },
     PatternCircular { params: PatternCircularParams },
     PatternLinear { params: PatternLinearParams },
+    Script { params: ScriptParams },
 }
 
 /// The operation `type` tags this build can rebuild.
@@ -323,6 +330,7 @@ pub const OPERATION_TAGS: &[&str] = &[
     "MateConnector",
     "PatternCircular",
     "PatternLinear",
+    "Script",
 ];
 
 impl From<KnownOperation> for Operation {
@@ -340,6 +348,7 @@ impl From<KnownOperation> for Operation {
             KnownOperation::MateConnector { params } => Operation::MateConnector { params },
             KnownOperation::PatternCircular { params } => Operation::PatternCircular { params },
             KnownOperation::PatternLinear { params } => Operation::PatternLinear { params },
+            KnownOperation::Script { params } => Operation::Script { params },
         }
     }
 }
@@ -375,6 +384,7 @@ impl Operation {
             Operation::MateConnector { .. } => "MateConnector",
             Operation::PatternCircular { .. } => "PatternCircular",
             Operation::PatternLinear { .. } => "PatternLinear",
+            Operation::Script { .. } => "Script",
             Operation::Unknown(v) => crate::opaque::type_tag(v),
         }
     }
@@ -873,6 +883,36 @@ pub struct PatternLinearParams {
     pub targets: Option<Vec<GeomRef>>,
 }
 
+/// Parameters of a custom feature script node
+/// (`specs/custom_features_and_modeling_roadmap.md` §A4).
+///
+/// The script text lives in the document's sources table (`source_id`, a
+/// `Script` source); `entry` names the function the engine calls as
+/// `entry(ctx, p)`. `args` are the values of the script's declared
+/// `@param`s in MODEL units (meters / degrees / plain numbers / bools /
+/// strings / plane objects); an `arg_exprs` entry drives that argument from
+/// a design-parameter expression instead (mm-space, converted by the
+/// parameter's declared type at rebuild), its last evaluated raw value
+/// cached in `arg_values` so a parameter change is detected like
+/// `depth_expr`.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "json-schema", derive(schemars::JsonSchema))]
+pub struct ScriptParams {
+    pub source_id: Uuid,
+    #[serde(default = "default_entry")]
+    pub entry: String,
+    #[serde(default, skip_serializing_if = "std::collections::BTreeMap::is_empty")]
+    pub args: std::collections::BTreeMap<String, serde_json::Value>,
+    #[serde(default, skip_serializing_if = "std::collections::BTreeMap::is_empty")]
+    pub arg_exprs: std::collections::BTreeMap<String, String>,
+    #[serde(default, skip_serializing_if = "std::collections::BTreeMap::is_empty")]
+    pub arg_values: std::collections::BTreeMap<String, f64>,
+}
+
+fn default_entry() -> String {
+    "feature".to_string()
+}
+
 /// The normalized combine decision of a pattern: `None` ⇒ NewBody; explicit
 /// targets only (a pattern never targets by tree position).
 pub(crate) fn normalize_pattern_combine(
@@ -1082,6 +1122,12 @@ pub enum EngineError {
         source_id: Option<Uuid>,
         reason: String,
     },
+
+    /// A custom feature script failed: a header/parse error, a runtime
+    /// error or `ctx.fail`, an exceeded limit, or a child operation's
+    /// failure (`stage` names which). The node's outputs are absent (P10).
+    #[error("script {stage}: {reason}")]
+    Script { stage: String, reason: String },
 }
 
 /// The class of a feature error — the machine-readable half that hosts
@@ -1136,6 +1182,11 @@ pub enum ErrorKind {
     Expression,
     /// A scoped reference could not be resolved through the assembly context.
     Context,
+    /// A custom feature script failed; `stage` is `header`, `parse`,
+    /// `runtime`, `limit`, `args`, or `child`.
+    Script {
+        stage: String,
+    },
 }
 
 impl From<&waffle_types::kernel::KernelError> for ErrorKind {
@@ -1194,6 +1245,9 @@ impl From<&EngineError> for ErrorKind {
             EngineError::NothingToRedo => ErrorKind::NothingToRedo,
             EngineError::SourceUnavailable { source_id, .. } => ErrorKind::SourceUnavailable {
                 source_id: *source_id,
+            },
+            EngineError::Script { stage, .. } => ErrorKind::Script {
+                stage: stage.clone(),
             },
         }
     }

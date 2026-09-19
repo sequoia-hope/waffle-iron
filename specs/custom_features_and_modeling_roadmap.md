@@ -2,7 +2,15 @@
 
 Status: **PROPOSED 2026-09-18** — **B1 patterns LANDED 2026-09-18** (kernel
 `transform_body` + `Operation::PatternCircular/PatternLinear`, agent-authorable;
-`projects/06-feature-engine/PLAN.md` M12). Next per Part C: A-M0 → A-M2.
+`projects/06-feature-engine/PLAN.md` M12). **A-M0 → A-M2 LANDED 2026-09-19**
+(`Operation::Script`, Rhai interpreter, `gear.rhai` bit-identical to the built-in
+generator; PLAN M13). Deviations from the text below, as built: (1) API calls
+RECORD children and the engine executes them afterwards (sketches are derived
+immediately, so `regions()` works; queries are values as §A6 intends) — this is
+what keeps the interpreter free of kernel lifetimes; (2) `v6` was not needed —
+`SourceKind::Script` is an additive kind under the format's own rule; (3) the gear
+`module` parameter is spelled `module_m` (`module` is a Rhai keyword). Next per
+Part C: B3 sprocket sketch entity, then A-M3.
 Sub-projects: `projects/06-feature-engine/` (owner), `projects/14-agent-link/`
 (tools), `projects/09-file-format/` (storage), `projects/08-ui-chrome/`
 (feature list, script editor), `kernel-v2` (Part B only).

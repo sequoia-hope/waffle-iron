@@ -158,6 +158,7 @@ impl ModelBuilder {
                 Operation::MateConnector { .. } => "MateConnector",
                 Operation::PatternCircular { .. } => "PatternCircular",
                 Operation::PatternLinear { .. } => "PatternLinear",
+                Operation::Script { .. } => "Script",
                 Operation::Unknown(_) => "Unknown",
             };
 
@@ -364,6 +365,12 @@ fn describe_operation(op: &Operation) -> String {
                 )),
             params.skip,
             params.combine
+        ),
+        Operation::Script { params } => format!(
+            "Params: source={}, entry={}, {} arg(s)",
+            params.source_id,
+            params.entry,
+            params.args.len() + params.arg_exprs.len()
         ),
         Operation::MateConnector { params } => {
             format!(

@@ -48,6 +48,7 @@ const AUTHORABLE: &[&str] = &[
     "MateConnector",
     "PatternCircular",
     "PatternLinear",
+    "Script",
 ];
 
 /// What a failing step does (JS `applyStep`'s `onError`).

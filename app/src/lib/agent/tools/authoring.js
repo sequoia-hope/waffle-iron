@@ -65,7 +65,12 @@ export const sketchCreateTool = {
 
 const operationNote =
 	'operation is an Operation: {"type":"Extrude","params":{…}}, Revolve, BooleanCombine, DatumPlane, MateConnector, ' +
-	'PatternCircular, PatternLinear, or a full Sketch. A PatternCircular/PatternLinear makes rigid copies of seed ' +
+	'PatternCircular, PatternLinear, Script, or a full Sketch. A Script runs a custom feature script (Rhai) that ' +
+	'the document carries as a `Script` source: params {source_id, entry?: "feature", args: {name: value in model ' +
+	'units, or {origin, normal} / a datum plane id for a plane param}, arg_exprs?: {name: "expression"}}; the ' +
+	'script declares its parameters in `// @param name: type` header lines and calls ctx.sketch / extrude / ' +
+	'revolve / boolean over the same operations as these tools. Adding script sources is not yet a tool (A-M4). ' +
+	'A PatternCircular/PatternLinear makes rigid copies of seed ' +
 	'BODIES (params.seeds: Solid GeomRefs {kind:"Solid", anchor:{type:"FeatureOutput", feature_id, output_key}}, ' +
 	'from model_summary bodies) — it does not re-run the seed feature. Circular: axis {method:"explicit", origin, ' +
 	'direction} or {method:"entity", geom_ref: a cylindrical/conical face, a circular edge, or a straight edge}, ' +

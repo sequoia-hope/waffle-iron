@@ -5014,7 +5014,7 @@ export function showBooleanDialog() {
 
 	// Find features that produce solid bodies
 	const bodies = tree.features
-		.filter(f => ['Extrude', 'Revolve', 'BooleanCombine', 'Chamfer', 'Fillet', 'Shell', 'ImportedBody', 'PatternCircular', 'PatternLinear'].includes(f.operation?.type))
+		.filter(f => ['Extrude', 'Revolve', 'BooleanCombine', 'Chamfer', 'Fillet', 'Shell', 'ImportedBody', 'PatternCircular', 'PatternLinear', 'Script'].includes(f.operation?.type))
 		.map(f => ({ featureId: f.id, name: f.name }));
 
 	log('ui', 'Show boolean dialog', { bodyCount: bodies.length });

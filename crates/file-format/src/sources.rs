@@ -346,6 +346,10 @@ pub enum SourceKind {
     Step,
     KicadPcb,
     Mesh,
+    /// A custom feature script (Rhai text; `Operation::Script` names it by
+    /// id — `specs/custom_features_and_modeling_roadmap.md` §A7). Added
+    /// 2026-09-19; a new kind, so no reader-floor bump.
+    Script,
     #[serde(untagged)]
     Unknown(Value),
 }
@@ -357,9 +361,10 @@ enum KnownSourceKind {
     Step,
     KicadPcb,
     Mesh,
+    Script,
 }
 
-const SOURCE_KIND_TAGS: &[&str] = &["Waffle", "Step", "KicadPcb", "Mesh"];
+const SOURCE_KIND_TAGS: &[&str] = &["Waffle", "Step", "KicadPcb", "Mesh", "Script"];
 
 impl<'de> Deserialize<'de> for SourceKind {
     fn deserialize<D: Deserializer<'de>>(d: D) -> Result<Self, D::Error> {
@@ -369,6 +374,7 @@ impl<'de> Deserialize<'de> for SourceKind {
                 Ok(KnownSourceKind::Step) => SourceKind::Step,
                 Ok(KnownSourceKind::KicadPcb) => SourceKind::KicadPcb,
                 Ok(KnownSourceKind::Mesh) => SourceKind::Mesh,
+                Ok(KnownSourceKind::Script) => SourceKind::Script,
                 Err(v) => SourceKind::Unknown(v),
             },
         )

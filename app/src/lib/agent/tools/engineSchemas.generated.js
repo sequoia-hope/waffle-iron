@@ -1238,6 +1238,22 @@ export const ENGINE_DEFS = {
         "type": "object"
       },
       {
+        "properties": {
+          "params": {
+            "$ref": "#/$defs/ScriptParams"
+          },
+          "type": {
+            "const": "Script",
+            "type": "string"
+          }
+        },
+        "required": [
+          "type",
+          "params"
+        ],
+        "type": "object"
+      },
+      {
         "description": "Unknown operation kind (opaque, preserved; rebuild fails loudly).",
         "properties": {
           "type": {
@@ -1254,7 +1270,8 @@ export const ENGINE_DEFS = {
                 "ImportedBody",
                 "MateConnector",
                 "PatternCircular",
-                "PatternLinear"
+                "PatternLinear",
+                "Script"
               ]
             },
             "type": "string"
@@ -2241,6 +2258,40 @@ export const ENGINE_DEFS = {
         "type": "object"
       }
     ]
+  },
+  "ScriptParams": {
+    "description": "Parameters of a custom feature script node\n(`specs/custom_features_and_modeling_roadmap.md` §A4).\n\nThe script text lives in the document's sources table (`source_id`, a\n`Script` source); `entry` names the function the engine calls as\n`entry(ctx, p)`. `args` are the values of the script's declared\n`@param`s in MODEL units (meters / degrees / plain numbers / bools /\nstrings / plane objects); an `arg_exprs` entry drives that argument from\na design-parameter expression instead (mm-space, converted by the\nparameter's declared type at rebuild), its last evaluated raw value\ncached in `arg_values` so a parameter change is detected like\n`depth_expr`.",
+    "properties": {
+      "arg_exprs": {
+        "additionalProperties": {
+          "type": "string"
+        },
+        "type": "object"
+      },
+      "arg_values": {
+        "additionalProperties": {
+          "format": "double",
+          "type": "number"
+        },
+        "type": "object"
+      },
+      "args": {
+        "additionalProperties": true,
+        "type": "object"
+      },
+      "entry": {
+        "default": "feature",
+        "type": "string"
+      },
+      "source_id": {
+        "format": "uuid",
+        "type": "string"
+      }
+    },
+    "required": [
+      "source_id"
+    ],
+    "type": "object"
   },
   "SecondDirection": {
     "description": "Second direction for bidirectional extrude.",

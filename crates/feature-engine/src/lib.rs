@@ -9,6 +9,7 @@ pub mod pattern;
 pub mod preview_mesh;
 pub mod rebuild;
 pub mod resolve;
+pub mod script;
 pub mod share_a_face;
 pub mod sources;
 pub mod tree;

@@ -117,6 +117,39 @@
   rotated copy tessellates differently (same exact surface). Not a defect; noted in
   `transform_rigid_copy.rs`.
 
+### M13: Custom feature scripts — A-M0 → A-M2 of `specs/custom_features_and_modeling_roadmap.md` ✅ (2026-09-19)
+- [x] A-M0: `Operation::Script { source_id, entry, args, arg_exprs, arg_values }`;
+      file-format `SourceKind::Script` (embedded text; no reader-floor bump);
+      `EngineError::Script { stage, reason }` / `ErrorKind::Script` — `docs/FILE_FORMAT.md` §7.10
+- [x] A-M1: Rhai interpreter (`src/script/`: `header.rs` `@feature`/`@param`/`@output`,
+      `host.rs` recording host, `interp.rs` sandbox + API, `mod.rs` execution). Built with
+      `rhai` default-features off (`std`, `no_time`): no clock, no runtime RNG, `eval`
+      disabled; limits on operations / call depth / array / map / string; geometry budget
+      2000 child ops. API: `ctx.sketch(plane)` → `point/line/circle/arc/spline/gear/
+      polygon/rect/finish`, `regions()`, `ctx.extrude/revolve/boolean/log/fail/param`,
+      `created_by/nth/role/side_face/faces/plane_of`, `mm()/inch()/plane()`.
+      Model: API calls RECORD children (private sub-tree, sketches derived in Rust so
+      the script sees regions); children then execute through the ordinary executor
+      with the outer results + earlier children. Node outputs = unconsumed child bodies.
+- [x] A-M2: `scripts/gear.rhai` — line-for-line port of `generate_gear_profile`;
+      `tests/script_gear_parity.rs` pins entities + positions BIT-IDENTICAL over a
+      56-case matrix (plus the `sk.gear` entity route incl. internal gears matching
+      `expand_gears` profile-for-profile). Built-in `Gear` entity is kept.
+- [x] Found on the way: the Rust port of `extractProfiles` omitted SPLINES from the
+      edge graph (the JS includes them) — fixed in `waffle-types/src/profiles.rs`.
+- [x] Tests: `tests/script.rs` (8, MockKernel — every failure class typed with no
+      output, limits, args, expressions, determinism, undo), parity (3),
+      `test-harness/tests/script_kv2.rs` (3, real kernel — exact box volume, gear both
+      routes watertight χ=2 within 0.5 %, script body as a boolean operand).
+- [ ] A-M3: query chains → `TopoQuery`, named outputs (`@output`), mate connectors,
+      OUTER references (needs post-execution consumption reporting to the loop).
+- [ ] A-M4: script editor panel, `@param` dialog generation, MCP `script_source_add` /
+      `script_feature_add` / `script_run_check` (an agent can `feature_add` a Script
+      today only if the document already carries the source).
+- [ ] Known limits: `module` is a Rhai keyword (the gear param is `module_m`);
+      `ctx.log` lines surface as warnings (`log: …`); child roles concatenate (no
+      `Role::ScriptChild`); `tree.clone()` + `feature_results.clone()` per script rebuild.
+
 ## Blockers
 
 - ~~Depends on kernel (Kernel + KernelIntrospect traits, especially MockKernel)~~ Resolved [SUPERSEDED by clean-sheet kernel]

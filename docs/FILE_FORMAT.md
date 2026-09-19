@@ -341,7 +341,7 @@ bridge actually sends and JS actually stores into the file) — a drift hazard
 
 `operation` is internally tagged with `type` ∈ `Sketch`, `Extrude`, `Revolve`,
 `Fillet`, `Chamfer`, `Shell`, `BooleanCombine`, `DatumPlane`, `ImportedBody`,
-`MateConnector`, `PatternCircular`, `PatternLinear`.
+`MateConnector`, `PatternCircular`, `PatternLinear`, `Script`.
 Parameter payloads sit under `sketch` (for `Sketch`) or `params` (all others).
 
 **Unknown kinds (v4 Phase 1b, 2026-09-08).** A well-formed `{"type": …}`
@@ -498,6 +498,30 @@ connector's frame (§5.6). A pick with no derivable axis fails the feature.
 optional `second: {direction, count, spacing, spacing_expr}` (a grid;
 instance index `i + j·count`; a second direction parallel to the first is
 refused), `skip`, `combine`, `targets` as above.
+
+### 7.10 `Script` — `ScriptParams` (types.rs, 2026-09-19)
+
+A custom feature script (`specs/custom_features_and_modeling_roadmap.md`
+Part A): a Rhai script the document carries as a `Script` source
+(§5.5 `SourceEntry.kind`, embedded text like a STEP source), run INSIDE the
+engine over the same operations the tree has, appearing as ONE node. The
+node's outputs are the bodies its script's child operations leave (`Main`
+first); the private sub-tree is re-derived on every rebuild and never
+persisted. New operation kind and new source kind, so no reader-floor bump.
+
+| Field | Type | Req/default | Notes |
+|---|---|---|---|
+| `source_id` | Uuid | ✔ | The `Script` source holding the text. |
+| `entry` | string | default `"feature"` | The function called as `entry(ctx, p)`. |
+| `args` | object | default `{}`, omitted when empty | Values of the script's `@param`s in MODEL units (meters / degrees / plain numbers / bools / strings); a `plane` param takes `{origin, normal}` or a datum plane id string. Unknown names are refused; missing ones take the header default or fail. |
+| `arg_exprs` | object | default `{}` | `name → expression` over the design parameters (mm-space / degrees), converted by the param's declared type at rebuild. |
+| `arg_values` | object | default `{}` | Last evaluated raw value of each `arg_exprs` entry (the change-detection cache, like `depth`/`depth_expr`). |
+
+The script header (`// @feature name="…" version=N`, `// @param name: type
+[= default] [min=…] [max=…]`) is parsed before evaluation; types are `int`,
+`number`, `length`, `angle`, `bool`, `string`, `plane`. Any failure —
+header, parse, runtime, `ctx.fail`, a sandbox limit, an argument, a child
+operation — is a typed `Script` feature error and the node has no outputs.
 
 ---
 

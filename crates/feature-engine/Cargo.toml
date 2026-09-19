@@ -13,6 +13,10 @@ uuid = { version = "1", features = ["v4", "serde"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 thiserror = "1"
+# Custom feature scripts (specs/custom_features_and_modeling_roadmap.md Part A):
+# no default features — `std` only, so there is no runtime RNG (deterministic
+# hashing) and, with `no_time`, no clock for a script to observe.
+rhai = { version = "1.26", default-features = false, features = ["std", "no_time"] }
 # Assembly mate solver (v4 Phase 3d): damped Gauss-Newton over instance poses.
 nalgebra = "0.34"
 schemars = { version = "1.2", features = ["uuid1"], optional = true }

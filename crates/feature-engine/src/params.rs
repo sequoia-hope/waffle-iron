@@ -173,6 +173,24 @@ pub fn apply_parameters(tree: &mut FeatureTree) -> ParamOutcome {
                 &env,
                 &mut errs,
             ),
+            Operation::Script { params } => {
+                // Expression-driven script arguments: evaluate each into the
+                // raw (mm-space / degrees / plain) cache; the script layer
+                // converts by the parameter's declared type.
+                let mut changed = false;
+                for (name, expression) in &params.arg_exprs {
+                    match expr::evaluate(expression, &env) {
+                        Ok(v) => {
+                            if params.arg_values.get(name) != Some(&v) {
+                                params.arg_values.insert(name.clone(), v);
+                                changed = true;
+                            }
+                        }
+                        Err(e) => errs.push(format!("{name} expression '{expression}': {e}")),
+                    }
+                }
+                changed
+            }
             Operation::PatternLinear { params } => {
                 let mut changed = apply_length_field(
                     "spacing",
