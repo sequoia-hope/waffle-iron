@@ -475,6 +475,15 @@ function gearDisplayIdBase(gearId) {
 let gearDialogState = $state(null);
 
 /**
+ * Sprocket dialog state — null when closed, else the object the placement
+ * tool (or the double-click edit gesture) seeded it with:
+ * `{ centerX, centerY, rotationOffset, editGearId?, params? }`. Mirrors
+ * `gearDialogState`; the sprocket lives in the same registry as gears.
+ * @type {object | null}
+ */
+let sprocketDialogState = $state(null);
+
+/**
  * Import-STEP edit dialog state — null when closed, else `{ featureId }`.
  * The dialog reads the feature's current ImportedBody params from the tree.
  * @type {object | null}
@@ -3403,6 +3412,24 @@ export function showGearDialog(params) {
  */
 export function hideGearDialog() {
 	gearDialogState = null;
+}
+
+/** @returns {object | null} */
+export function getSprocketDialogState() { return sprocketDialogState; }
+
+/**
+ * Show the sprocket dialog. Mirrors `showGearDialog`: the placement tool
+ * seeds `{ centerX, centerY, rotationOffset }`; the edit gesture adds
+ * `{ editGearId, params }` (the registry entry, `kind: 'Sprocket'`).
+ * @param {object} params
+ */
+export function showSprocketDialog(params) {
+	sprocketDialogState = params;
+}
+
+/** Hide the sprocket dialog. */
+export function hideSprocketDialog() {
+	sprocketDialogState = null;
 }
 
 /** @returns {boolean} */

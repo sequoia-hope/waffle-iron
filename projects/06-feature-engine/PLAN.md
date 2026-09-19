@@ -189,8 +189,21 @@
       circle through BOTH endpoints (centre snapped onto the chord bisector); fixtures with
       a centre already on the bisector are unchanged (regression test
       `transversal_corner_is_not_a_crossing`).
-- [ ] Checkpoint 2: Sprocket dialog + toolbar tool (mirror `GearDialog.svelte`, preview
-      via `GenerateSprocketPreview`), A-M5 `sprocket.rhai`.
+- [x] Checkpoint 2 (2026-09-19): `SprocketDialog.svelte` (teeth, chain preset — ISO
+      06B…16B, bicycle 1/2″×7.75, ANSI 25…60 — pitch, roller Ø, derived pitch Ø; live
+      preview via `GenerateSprocketPreview`; the engine's typed refusal is shown in
+      the dialog and disables Apply), `sprocket` placement tool (toolbar "Sprkt",
+      shortcut K, hover preview, click reuses a point as centre), double-click on a
+      sprocket opens the dialog in edit mode (`updateGear` keeps `kind`). GUI spec
+      `sketch-sprocket-dialog.spec.js` (8, gui-fast).
+- [x] A-M5 (2026-09-19): `scripts/sprocket.rhai` — line-for-line port of
+      `generate_sprocket_profile` (dimensions, gap template, placement, 4 arcs per gap);
+      `tests/script_sprocket_parity.rs` pins entities + positions BIT-IDENTICAL over a
+      41-case matrix (9 tooth counts × 4 chains + placement + overrides; refusals must
+      match the generator's too) plus the `sk.sprocket` entity route (id-offset range,
+      profile-for-profile). `test-harness/tests/script_kv2.rs` builds both routes on
+      kernel-v2: equal exact volumes, 4z+2 faces. Needed `cbrt` registered in the
+      Rhai engine (no cube root in Rhai's math package).
 - [ ] Bore with COPLANAR caps through a sprocket STOPs in yang Stage 0 (see Blockers);
       pinned `#[ignore = "M8 …"]` in `sprocket_kv2.rs`.
 

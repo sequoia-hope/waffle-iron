@@ -190,6 +190,7 @@
 		{ id: 'offset', label: 'Offset', shortcut: 'O' },
 		{ id: 'slot', label: 'Slot', shortcut: 'T' },
 		{ id: 'gear', label: 'Gear', shortcut: 'G' },
+		{ id: 'sprocket', label: 'Sprkt', shortcut: 'K' },
 		{ id: 'planetary', label: 'Planet', shortcut: '' },
 		{ id: 'trim', label: 'Trim', shortcut: '' },
 		{ id: 'sketch-fillet', label: 'Fillet', shortcut: 'F' },
@@ -412,6 +413,7 @@
 				case 'f': if (inSketch) setActiveTool('sketch-fillet'); break;
 				case 'd': if (inSketch) setActiveTool('dimension'); break;
 				case 'g': if (inSketch) setActiveTool('gear'); break;
+				case 'k': if (inSketch) setActiveTool('sprocket'); break;
 				case 'Escape':
 					if (planeSelecting) {
 						exitSketchPlaneSelection();

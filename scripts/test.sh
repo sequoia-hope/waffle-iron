@@ -125,6 +125,7 @@ GUI_FAST_SPECS=(
   selection/select-other.spec.js
   sketch-polyline-drag.spec.js
   sketch-sprocket-entity.spec.js
+  sketch-sprocket-dialog.spec.js
   tool-switching-mid-operation.spec.js
   unit-conversion-display.spec.js
   # Server-mode S3: the page's routing table vs the engine's MIGRATED list,

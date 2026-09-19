@@ -311,7 +311,7 @@ without knowing the sub-tree.
 | A-M2 | `gear.rhai` passes gear parity; built-in Gear becomes a thin call into the script (or is kept but tested against it) | A-M1 |
 | A-M3 | Query chain lowering to `TopoQuery`, named outputs, mate connectors from scripts | A-M1 |
 | A-M4 | Script editor panel, `@param` dialog generation, MCP `script_*` tools, agent authoring loop documented | A-M2 |
-| A-M5 | `sprocket.rhai` (needs Part B3's tooth form as sketch entities, or draws it from arcs directly) | A-M2 |
+| A-M5 | `sprocket.rhai` (needs Part B3's tooth form as sketch entities, or draws it from arcs directly) — **LANDED 2026-09-19**: draws the arcs directly, bit-identical to the generator (`tests/script_sprocket_parity.rs`) | A-M2 |
 | A-M6 | Git-sourced script libraries, versioning rules | A-M4 |
 
 ## Part B — Built-in features, ranked
@@ -399,8 +399,9 @@ and pitch round-trip from the expanded geometry.
 
 **Status (2026-09-19): LANDED** — `waffle_types::sprocket`, `SketchEntity::
 Sprocket`, `GenerateSprocket{Preview,Profile}`, `sk.sprocket(...)`,
-`createSprocket` in the app (display through the gear machinery; no dialog
-yet). ISO 606 only: the ANSI B29.1 form is a different construction whose
+`createSprocket` in the app (display through the gear machinery), and since
+checkpoint 2 the Sprocket dialog + placement tool (toolbar "Sprkt", key K,
+chain presets, live preview, edit on double-click). ISO 606 only: the ANSI B29.1 form is a different construction whose
 constants must come from the standard's text (not in `refs/`), so
 `SprocketStandard` has one variant. Two corrections to the ranges above as
 written: the flank range is `re ∈ [0.12·d1·(z+2), 0.008·d1·(z²+180)]` (min

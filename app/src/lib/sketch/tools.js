@@ -26,6 +26,7 @@ import {
 	getGearRegistry,
 	getGearDisplay,
 	showGearDialog,
+	showSprocketDialog,
 	showPlanetaryGearDialog,
 	getExtractedProfiles,
 	setSelectedProfileIndex,
@@ -86,7 +87,7 @@ import { showToast } from '$lib/ui/toast.svelte.js';
 import { setPreview, setSnapIndicator, setSnapCandidates, getPreview as _getPreview, getSnapIndicator as _getSnapIndicator, getSnapCandidates as _getSnapCandidates } from './sketchToolState.svelte.js';
 import { buildSketchPlane } from './sketchCoords.js';
 import { classifyDimension, isDimensionComplete, dimensionPreviewPolyline } from './dimensionHeuristic.js';
-import { DRAG_THRESHOLD_PX, DRAG_MIN_DURATION_MS, DRAG_COMMIT_PX, CANDIDATE_DEDUP_PX, GEAR_PREVIEW_MODULE_M, DEFAULT_GEAR_TOOTH_COUNT, DEFAULT_GEAR_PRESSURE_ANGLE } from '$lib/config.js';
+import { DRAG_THRESHOLD_PX, DRAG_MIN_DURATION_MS, DRAG_COMMIT_PX, CANDIDATE_DEDUP_PX, GEAR_PREVIEW_MODULE_M, DEFAULT_GEAR_TOOTH_COUNT, DEFAULT_GEAR_PRESSURE_ANGLE, DEFAULT_SPROCKET_TOOTH_COUNT, SPROCKET_CHAIN_PRESETS, DEFAULT_SPROCKET_CHAIN_PRESET } from '$lib/config.js';
 
 // -- Module state --
 
@@ -435,6 +436,9 @@ export function handleToolEvent(activeTool, eventType, sketchX, sketchY, screenP
 			break;
 		case 'gear':
 			handleGearTool(eventType, sketchX, sketchY, screenPixelSize);
+			break;
+		case 'sprocket':
+			handleSprocketTool(eventType, sketchX, sketchY, screenPixelSize);
 			break;
 		case 'planetary':
 			handlePlanetaryTool(eventType, sketchX, sketchY, screenPixelSize);
@@ -1278,11 +1282,19 @@ function handleSelectTool(eventType, x, y, screenPixelSize, shiftKey) {
 		const now = Date.now();
 		const gearId = getGearIdForEntity(hitId);
 		if (gearId != null && lastSelectClickEntity === hitId && lastSelectClickTime && (now - lastSelectClickTime) < 400) {
-			// Double-click on gear entity → open edit dialog (a sprocket has no
-			// dialog yet — B3 checkpoint 2; the gesture is absorbed, not routed
-			// to the gear dialog).
+			// Double-click on a generator entity → open its edit dialog. The
+			// registry entry's `kind` picks the dialog (gears and sprockets
+			// share the registry).
 			const gearData = getGearRegistry().get(gearId);
-			if (gearData && gearData.kind !== 'Sprocket') {
+			if (gearData && gearData.kind === 'Sprocket') {
+				showSprocketDialog({
+					editGearId: gearId,
+					params: gearData,
+					centerX: gearData.centerX ?? 0,
+					centerY: gearData.centerY ?? 0,
+					rotationOffset: gearData.rotationOffset ?? 0
+				});
+			} else if (gearData) {
 				showGearDialog({
 					editGearId: gearId,
 					params: gearData,
@@ -2469,6 +2481,57 @@ function handleGearTool(eventType, x, y, screenPixelSize) {
 
 			setPreview(null);
 			toolState = 'gearDialogOpen';
+		}
+	}
+}
+
+// ---- Sprocket Tool ----
+
+// Placement tool mirroring the gear tool: a hover preview of the default
+// sprocket (ISO 08B, `DEFAULT_SPROCKET_TOOTH_COUNT` teeth) follows the
+// cursor; a click opens the Sprocket dialog centred there (an existing point
+// under the click is reused as the centre, like the gear tool).
+function handleSprocketTool(eventType, x, y, screenPixelSize) {
+	const snap = detectSnaps(x, y, null, screenPixelSize);
+	setSnapIndicator(snap.indicator);
+
+	if (eventType === 'pointermove') {
+		updateSnapCandidates(snap, screenPixelSize);
+		if (toolState === 'idle') {
+			const b = getBridge();
+			if (b) {
+				const chain = SPROCKET_CHAIN_PRESETS.find(c => c.id === DEFAULT_SPROCKET_CHAIN_PRESET);
+				b.send({
+					type: 'GenerateSprocketPreview',
+					params: {
+						toothCount: DEFAULT_SPROCKET_TOOTH_COUNT,
+						pitch: chain.pitch,
+						rollerDiameter: chain.roller,
+						centerX: snap.x,
+						centerY: snap.y
+					}
+				}).then(response => {
+					setPreview({ type: 'gear-preview', data: { polyline: response.polyline } });
+				}).catch(() => {});
+			}
+		}
+		return;
+	}
+
+	if (eventType === 'pointerdown') {
+		if (toolState === 'idle') {
+			let centerX = snap.x;
+			let centerY = snap.y;
+			const nearPoint = findPointNear(snap.x, snap.y, 8 * screenPixelSize);
+			if (nearPoint) {
+				centerX = nearPoint.x;
+				centerY = nearPoint.y;
+			}
+
+			showSprocketDialog({ centerX, centerY, rotationOffset: 0 });
+
+			setPreview(null);
+			toolState = 'sprocketDialogOpen';
 		}
 	}
 }

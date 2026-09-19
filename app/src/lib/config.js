@@ -75,3 +75,26 @@ export const DEFAULT_GEAR_MODULE_DISPLAY = {
 export const GEAR_PREVIEW_MODULE_M = 0.001;
 export const DEFAULT_GEAR_TOOTH_COUNT = 20;
 export const DEFAULT_GEAR_PRESSURE_ANGLE = 20;
+
+// Sprocket defaults (ISO 606 roller chain; internal units are metres).
+export const DEFAULT_SPROCKET_TOOTH_COUNT = 20;
+/**
+ * Roller-chain presets the sprocket dialog offers: `pitch` and `roller` in
+ * metres, from ISO 606 (B series) and ANSI B29.1 (numbered) tables. The
+ * generator only needs `p` and `d1`; the dialog seeds both from a preset and
+ * lets either be overridden ("Custom").
+ */
+export const SPROCKET_CHAIN_PRESETS = [
+	{ id: '06B', label: 'ISO 06B (3/8″)', pitch: 0.009525, roller: 0.00635 },
+	{ id: '08B', label: 'ISO 08B (1/2″)', pitch: 0.0127, roller: 0.00851 },
+	{ id: '10B', label: 'ISO 10B (5/8″)', pitch: 0.015875, roller: 0.01016 },
+	{ id: '12B', label: 'ISO 12B (3/4″)', pitch: 0.01905, roller: 0.01207 },
+	{ id: '16B', label: 'ISO 16B (1″)', pitch: 0.0254, roller: 0.01588 },
+	{ id: 'bicycle', label: 'Bicycle (1/2″ × 7.75 mm)', pitch: 0.0127, roller: 0.00775 },
+	{ id: '25', label: 'ANSI 25 (1/4″)', pitch: 0.00635, roller: 0.0033 },
+	{ id: '35', label: 'ANSI 35 (3/8″)', pitch: 0.009525, roller: 0.00508 },
+	{ id: '40', label: 'ANSI 40 (1/2″)', pitch: 0.0127, roller: 0.00792 },
+	{ id: '50', label: 'ANSI 50 (5/8″)', pitch: 0.015875, roller: 0.01016 },
+	{ id: '60', label: 'ANSI 60 (3/4″)', pitch: 0.01905, roller: 0.01191 },
+];
+export const DEFAULT_SPROCKET_CHAIN_PRESET = '08B';

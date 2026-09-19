@@ -7,3 +7,10 @@
 /// and positions equal the generator's exactly (ids, coordinates) —
 /// `tests/script_gear_parity.rs`.
 pub const GEAR_RHAI: &str = include_str!("../../scripts/gear.rhai");
+
+/// The ISO 606 roller-chain sprocket as a script (`scripts/sprocket.rhai`):
+/// `waffle_types::sprocket::generate_sprocket_profile` re-expressed through
+/// the sketch API (points and arcs). The A-M5 acceptance gate: its sketch
+/// entities and positions equal the generator's exactly —
+/// `tests/script_sprocket_parity.rs`.
+pub const SPROCKET_RHAI: &str = include_str!("../../scripts/sprocket.rhai");

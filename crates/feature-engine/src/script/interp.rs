@@ -73,6 +73,11 @@ pub fn build_engine(limits: &Limits) -> Engine {
     engine.register_fn("mm", |x: i64| x as f64 * 1e-3);
     engine.register_fn("inch", |x: f64| x * 0.0254);
     engine.register_fn("inch", |x: i64| x as f64 * 0.0254);
+    // Rhai's math package has `sqrt`/`hypot`/`atan(y, x)` but no cube root;
+    // `sprocket.rhai` needs the same `f64::cbrt` the ISO 606 generator uses
+    // for its seating-radius range (bit-identical parity).
+    engine.register_fn("cbrt", |x: f64| x.cbrt());
+    engine.register_fn("cbrt", |x: i64| (x as f64).cbrt());
     engine.register_fn(
         "plane",
         |origin: Dynamic, normal: Dynamic| -> Result<PlaneRef, Box<EvalAltResult>> {

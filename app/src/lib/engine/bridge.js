@@ -289,6 +289,8 @@ export class EngineBridge {
 				break;
 			case 'GearPreviewGenerated':
 			case 'GearProfileGenerated':
+			case 'SprocketPreviewGenerated':
+			case 'SprocketProfileGenerated':
 			case 'PlanetaryGenerated':
 			case 'PlanetaryPreviewGenerated':
 				// Resolved via pending promise — no event dispatch needed

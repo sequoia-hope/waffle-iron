@@ -16,6 +16,7 @@
 	import AutoRestoreDialog from '$lib/ui/AutoRestoreDialog.svelte';
 	import SketchPlanePrompt from '$lib/ui/SketchPlanePrompt.svelte';
 	import GearDialog from '$lib/ui/GearDialog.svelte';
+	import SprocketDialog from '$lib/ui/SprocketDialog.svelte';
 	import ImportStepDialog from '$lib/ui/ImportStepDialog.svelte';
 	import PlanetaryGearDialog from '$lib/ui/PlanetaryGearDialog.svelte';
 	import { isRebuilding, getSketchMode } from '$lib/engine/store.svelte.js';
@@ -115,6 +116,7 @@
 	<AutoRestoreDialog />
 	<SketchPlanePrompt />
 	<GearDialog />
+	<SprocketDialog />
 	<ImportStepDialog />
 	<PlanetaryGearDialog />
 	{#if showSpinner}
