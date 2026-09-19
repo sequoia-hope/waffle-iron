@@ -80,8 +80,8 @@
 		const specs = [];
 		for (const feature of sketchFeatures) {
 			for (const e of (feature.operation.sketch.entities || [])) {
-				if (e.type === 'Gear') {
-					specs.push({ key: `${feature.id}:${e.id}`, entityId: e.id, params: e.params });
+				if (e.type === 'Gear' || e.type === 'Sprocket') {
+					specs.push({ key: `${feature.id}:${e.id}`, entityId: e.id, params: e.params, kind: e.type });
 				}
 			}
 		}
@@ -102,12 +102,12 @@
 			// wrong place/shape (the active-sketch renderer already uses live
 			// solver output, which is why edit mode looked correct and finish did
 			// not). Fall back to raw only for a point with no solved entry yet.
-			// Gear entities are replaced by their cached display expansion.
+			// Gear / Sprocket entities are replaced by their cached display expansion.
 			const solved = sketch.solved_positions || {};
 			const entities = [];
 			const positions = new Map();
 			for (const entity of (sketch.entities || [])) {
-				if (entity.type === 'Gear') {
+				if (entity.type === 'Gear' || entity.type === 'Sprocket') {
 					const exp = inactiveGears.get(`${feature.id}:${entity.id}`);
 					if (exp) {
 						entities.push(...exp.entities);

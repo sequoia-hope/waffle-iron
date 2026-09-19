@@ -203,6 +203,23 @@ pub(crate) fn point_strictly_inside(q: Point2, pts: &[Point2]) -> bool {
 // of strict linear sign constraints", which is settled by an exact
 // compare-root-against-rational predicate. All arithmetic is `RBig`; the
 // f64 → RBig conversion is lossless, so this is a decision procedure.
+//
+// THE CIRCLE AN ARC STANDS FOR (2026-09-19, found by the ISO 606 sprocket's
+// flank/tip corners): an arc arrives as f64 endpoints `a`, `b` plus an f64
+// `centre` and `radius`, and in general NO rational circle passes through
+// all of that — `|a − centre|² ≠ radius²` by rounding. Lifting the authored
+// centre/radius verbatim made two arcs that meet transversally at a shared
+// vertex `J` cross, exactly, at a point a few ulps AWAY from `J` (the
+// rounded circles cross near `J`, not at it), and that phantom point lay
+// inside both open arcs about half the time — a valid loop was rejected as
+// non-simple by the luck of rounding. So every predicate here lifts an arc
+// to [`exact_circle`]: the rational circle through BOTH endpoints whose
+// centre is the point of the chord's perpendicular bisector nearest the
+// authored centre. The endpoints are then exactly on the circle, a shared
+// vertex is exactly on both adjacent circles, and the only crossing at a
+// corner is the corner itself (excluded as the permitted junction). An
+// authored centre already on the bisector (every integer-coordinate test
+// fixture) lifts to itself, so the decision on those inputs is unchanged.
 
 /// Sign of a rational as `-1 / 0 / +1`.
 fn sgn(x: &RBig) -> i32 {
@@ -223,6 +240,44 @@ fn orient_det(a: Point2, b: Point2, c: Point2) -> RBig {
 fn orient_det_rq(a: Point2, b: Point2, qx: &RBig, qy: &RBig) -> RBig {
     (r(b.x()) - r(a.x())) * (qy.clone() - r(a.y()))
         - (r(b.y()) - r(a.y())) * (qx.clone() - r(a.x()))
+}
+
+/// The rational circle a Tier-2 arc stands for (see the module notes): it
+/// passes EXACTLY through both endpoints; its centre is the point of the
+/// chord's perpendicular bisector nearest the authored `centre`.
+pub(crate) struct ExactCircle {
+    pub cx: RBig,
+    pub cy: RBig,
+    /// Squared radius, `|a − c|² = |b − c|²` exactly.
+    pub r2: RBig,
+}
+
+/// Lift an authored arc (`a`, `b`, `centre`) to its [`ExactCircle`]. The
+/// caller guarantees `a != b` (validated upstream), so the bisector is a
+/// line and the projection is total.
+pub(crate) fn exact_circle(a: Point2, b: Point2, centre: Point2) -> ExactCircle {
+    let (ax, ay, bx, by) = (r(a.x()), r(a.y()), r(b.x()), r(b.y()));
+    let half = RBig::ONE / r(2.0);
+    let mx = (ax.clone() + bx.clone()) * half.clone();
+    let my = (ay.clone() + by.clone()) * half;
+    // Bisector direction n ⊥ chord.
+    let nx = -(by - ay.clone());
+    let ny = bx - ax.clone();
+    let nn = nx.clone() * nx.clone() + ny.clone() * ny.clone();
+    let t = ((r(centre.x()) - mx.clone()) * nx.clone() + (r(centre.y()) - my.clone()) * ny.clone())
+        / nn;
+    let cx = mx + t.clone() * nx;
+    let cy = my + t * ny;
+    let dx = ax - cx.clone();
+    let dy = ay - cy.clone();
+    let r2 = dx.clone() * dx + dy.clone() * dy;
+    ExactCircle { cx, cy, r2 }
+}
+
+/// Side of chord `a → b` on which the exact circle's centre lies
+/// (`+1` left, `−1` right; never `0` for a validated minor arc).
+fn centre_side(a: Point2, b: Point2, circle: &ExactCircle) -> i32 {
+    sgn(&orient_det_rq(a, b, &circle.cx, &circle.cy))
 }
 
 /// Compare the quadratic root `x_s = (−B + s·√Δ) / (2A)` (with `A > 0`,
@@ -300,11 +355,11 @@ pub(crate) fn segments_properly_cross(p1: Point2, p2: Point2, p3: Point2, p4: Po
             || (d3 == Ordering::Less && d4 == Ordering::Greater))
 }
 
-/// Is the rational point `(vx, vy)` exactly on the circle `(centre, radius)`?
-fn on_circle(vx: f64, vy: f64, cx: f64, cy: f64, radius: f64) -> bool {
-    let dx = r(vx) - r(cx);
-    let dy = r(vy) - r(cy);
-    (dx.clone() * dx + dy.clone() * dy).cmp(&(r(radius) * r(radius))) == Ordering::Equal
+/// Is the point `v` exactly on the circle?
+fn on_circle(v: Point2, circle: &ExactCircle) -> bool {
+    let dx = r(v.x()) - circle.cx.clone();
+    let dy = r(v.y()) - circle.cy.clone();
+    (dx.clone() * dx + dy.clone() * dy).cmp(&circle.r2) == Ordering::Equal
 }
 
 /// Is point `v` on the CLOSED minor arc from `a` to `b` about `centre` of
@@ -322,10 +377,12 @@ pub(crate) fn point_on_closed_arc(
     if v == a || v == b {
         return true;
     }
-    if !on_circle(v.x(), v.y(), centre.x(), centre.y(), radius) {
+    let _ = radius; // the exact circle is fixed by the endpoints (module notes)
+    let circle = exact_circle(a, b, centre);
+    if !on_circle(v, &circle) {
         return false;
     }
-    let side_c = sgn(&orient_det(a, b, centre));
+    let side_c = centre_side(a, b, &circle);
     sgn(&orient_det(a, b, v)) == -side_c
 }
 
@@ -340,19 +397,21 @@ pub(crate) fn arc_segment_interior_cross(
     p: Point2,
     q: Point2,
 ) -> bool {
-    // Segment X(t) = p + t·(q − p); circle |X − centre|² = radius².
+    // Segment X(t) = p + t·(q − p); circle |X − c|² = r² (the exact circle
+    // through a and b).
+    let _ = radius;
+    let circle = exact_circle(a, b, centre);
     let (dx, dy) = (r(q.x()) - r(p.x()), r(q.y()) - r(p.y()));
-    let (ex, ey) = (r(p.x()) - r(centre.x()), r(p.y()) - r(centre.y()));
+    let (ex, ey) = (r(p.x()) - circle.cx.clone(), r(p.y()) - circle.cy.clone());
     let aa = dx.clone() * dx.clone() + dy.clone() * dy.clone(); // |D|² > 0
     let bb = r(2.0) * (ex.clone() * dx.clone() + ey.clone() * dy.clone());
-    let r2 = r(radius) * r(radius);
-    let cc = ex.clone() * ex.clone() + ey.clone() * ey.clone() - r2;
+    let cc = ex.clone() * ex.clone() + ey.clone() * ey.clone() - circle.r2.clone();
     let disc = bb.clone() * bb.clone() - r(4.0) * aa.clone() * cc.clone();
     if disc < RBig::ZERO {
         return false;
     }
     // Arc-side: target sign = opposite of the centre's side of chord ab.
-    let target = -sgn(&orient_det(a, b, centre));
+    let target = -centre_side(a, b, &circle);
     // g(t) = orient(a, b, X(t)) = g0 + g1·t (affine).
     let g0 = orient_det(a, b, p);
     let g1 = orient_det(a, b, q) - g0.clone();
@@ -385,17 +444,18 @@ pub(crate) fn arc_segment_interior_crossings(
     p: Point2,
     q: Point2,
 ) -> Option<usize> {
+    let _ = radius;
+    let circle = exact_circle(a, b, centre);
     let (dx, dy) = (r(q.x()) - r(p.x()), r(q.y()) - r(p.y()));
-    let (ex, ey) = (r(p.x()) - r(centre.x()), r(p.y()) - r(centre.y()));
+    let (ex, ey) = (r(p.x()) - circle.cx.clone(), r(p.y()) - circle.cy.clone());
     let aa = dx.clone() * dx.clone() + dy.clone() * dy.clone();
     let bb = r(2.0) * (ex.clone() * dx.clone() + ey.clone() * dy.clone());
-    let r2 = r(radius) * r(radius);
-    let cc = ex.clone() * ex.clone() + ey.clone() * ey.clone() - r2;
+    let cc = ex.clone() * ex.clone() + ey.clone() * ey.clone() - circle.r2.clone();
     let disc = bb.clone() * bb.clone() - r(4.0) * aa.clone() * cc.clone();
     if disc < RBig::ZERO {
         return Some(0);
     }
-    let target = -sgn(&orient_det(a, b, centre));
+    let target = -centre_side(a, b, &circle);
     let g0 = orient_det(a, b, p);
     let g1 = orient_det(a, b, q) - g0.clone();
     let (zero, one) = (RBig::ZERO, RBig::ONE);
@@ -430,16 +490,19 @@ pub(crate) fn arc_arc_interior_cross(
     c2: Point2,
     r2: f64,
 ) -> bool {
-    let (c1x, c1y) = (r(c1.x()), r(c1.y()));
-    let (c2x, c2y) = (r(c2.x()), r(c2.y()));
+    let _ = (r1, r2);
+    let circle1 = exact_circle(a1, b1, c1);
+    let circle2 = exact_circle(a2, b2, c2);
+    let (c1x, c1y) = (circle1.cx.clone(), circle1.cy.clone());
+    let (c2x, c2y) = (circle2.cx.clone(), circle2.cy.clone());
     let nx = r(2.0) * (c2x.clone() - c1x.clone());
     let ny = r(2.0) * (c2y.clone() - c1y.clone());
     let nn = nx.clone() * nx.clone() + ny.clone() * ny.clone();
     if nn == RBig::ZERO {
         return false; // concentric (see doc comment)
     }
-    let r1sq = r(r1) * r(r1);
-    let r2sq = r(r2) * r(r2);
+    let r1sq = circle1.r2.clone();
+    let r2sq = circle2.r2.clone();
     // Radical line n·X = d, d = (|c2|² − r2²) − (|c1|² − r1²).
     let d = (c2x.clone() * c2x.clone() + c2y.clone() * c2y.clone() - r2sq.clone())
         - (c1x.clone() * c1x.clone() + c1y.clone() * c1y.clone() - r1sq.clone());
@@ -464,7 +527,7 @@ pub(crate) fn arc_arc_interior_cross(
         &(x0x.clone() + tx.clone()),
         &(x0y.clone() + ty.clone()),
     ) - p1.clone();
-    let target1 = -sgn(&orient_det(a1, b1, c1));
+    let target1 = -centre_side(a1, b1, &circle1);
     let p2 = orient_det_rq(a2, b2, &x0x, &x0y);
     let q2 = orient_det_rq(
         a2,
@@ -472,7 +535,7 @@ pub(crate) fn arc_arc_interior_cross(
         &(x0x.clone() + tx.clone()),
         &(x0y.clone() + ty.clone()),
     ) - p2.clone();
-    let target2 = -sgn(&orient_det(a2, b2, c2));
+    let target2 = -centre_side(a2, b2, &circle2);
     for s in [1, -1] {
         if linear_side_ok(&aa, &bb, &disc, s, &p1, &q1, target1)
             && linear_side_ok(&aa, &bb, &disc, s, &p2, &q2, target2)
@@ -620,6 +683,42 @@ mod arc_predicate_tests {
             p(0.0, 0.0),
             3.0
         ));
+    }
+
+    /// Two arcs meeting transversally at a shared f64 vertex — an ISO 606
+    /// sprocket's flank arc (9 teeth, 08B chain) running into its tip arc,
+    /// coordinates as the generator emitted them. Lifting the authored
+    /// centre/radius verbatim put the rounded circles' crossing a few ulps
+    /// off the corner and inside both open arcs: a phantom self-intersection.
+    /// The endpoint-exact circle puts the crossing AT the corner.
+    #[test]
+    fn transversal_corner_is_not_a_crossing() {
+        let corner = p(0.010979405354598229, 0.017772566589039057);
+        // Flank: seat end → corner, centre off to the left, r = re.
+        let (fa, fb, fc, fr) = (
+            p(0.01011793776711934, 0.013428035533350745),
+            corner,
+            p(-0.00350858251460195, 0.018387683312522003),
+            0.014501040000000003,
+        );
+        // Tip: corner → next flank's start, centred on the sprocket axis.
+        let (ta, tb, tc, tr) = (
+            corner,
+            p(0.00990179147925926, 0.018394727250048485),
+            p(0.0, 0.0),
+            0.02089046349659116,
+        );
+        assert!(!arc_arc_interior_cross(fa, fb, fc, fr, ta, tb, tc, tr));
+        assert!(!arc_arc_interior_cross(ta, tb, tc, tr, fa, fb, fc, fr));
+        // Both endpoints are exactly on the lifted circle, whatever the
+        // rounding of the authored centre.
+        let c = exact_circle(fa, fb, fc);
+        assert!(on_circle(fa, &c) && on_circle(fb, &c));
+        // A centre already on the bisector lifts to itself.
+        let c = exact_circle(p(4.0, 3.0), p(0.0, 5.0), p(0.0, 0.0));
+        assert_eq!(c.cx, RBig::ZERO);
+        assert_eq!(c.cy, RBig::ZERO);
+        assert_eq!(c.r2, r(25.0));
     }
 
     // ---- closed-arc membership -------------------------------------------

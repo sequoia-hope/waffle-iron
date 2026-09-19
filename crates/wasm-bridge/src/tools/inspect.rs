@@ -9,7 +9,7 @@ use std::collections::HashMap;
 
 use modeling_ops::KernelBundle;
 use serde_json::{json, Map, Value};
-use waffle_types::{GearParams, SketchEntity};
+use waffle_types::{generated_entity_id_base, GearParams, SketchEntity, SprocketParams};
 
 use crate::engine_state::EngineState;
 use crate::messages::{EngineToUi, UiToEngine};
@@ -227,27 +227,81 @@ pub(super) fn region_inputs(
     let mut positions = HashMap::new();
 
     for entity in entities {
-        if let SketchEntity::Gear { id, params, .. } = entity {
-            for expanded in expand_gear(state, kb, *id, params)? {
-                if let SketchEntity::Point { id, x, y, .. } = &expanded {
-                    positions.insert(*id, (*x, *y));
+        let expanded = match entity {
+            SketchEntity::Gear { id, params, .. } => Some(expand_gear(state, kb, *id, params)?),
+            SketchEntity::Sprocket { id, params, .. } => {
+                Some(expand_sprocket(state, kb, *id, params)?)
+            }
+            _ => None,
+        };
+        match expanded {
+            Some(primitives) => {
+                for expanded in primitives {
+                    if let SketchEntity::Point { id, x, y, .. } = &expanded {
+                        positions.insert(*id, (*x, *y));
+                    }
+                    out.push(expanded);
                 }
-                out.push(expanded);
             }
-        } else {
-            if let SketchEntity::Point { id, x, y, .. } = entity {
-                positions.insert(*id, solved.get(id).copied().unwrap_or((*x, *y)));
+            None => {
+                if let SketchEntity::Point { id, x, y, .. } = entity {
+                    positions.insert(*id, solved.get(id).copied().unwrap_or((*x, *y)));
+                }
+                out.push(entity.clone());
             }
-            out.push(entity.clone());
         }
     }
     Ok((out, positions))
 }
 
-/// Per-gear id range of a completed sketch's expansion, distinct from the
-/// range the active sketch editor uses (JS `inactiveGearIdBase`).
+/// Per-generator id range of a completed sketch's expansion, distinct from
+/// the range the active sketch editor uses (JS `inactiveGearIdBase`), and the
+/// same range `Sketch::expand_generators` gives a sprocket at rebuild.
 fn gear_id_base(entity_id: u32) -> u32 {
-    50_000_000 + entity_id * 100_000
+    generated_entity_id_base(entity_id)
+}
+
+/// One `Sprocket` entity as the points and arcs it stands for, shifted into
+/// its own id range like a gear, with the pitch circle as a construction
+/// reference on the centre point.
+fn expand_sprocket(
+    state: &mut EngineState,
+    kb: &mut dyn KernelBundle,
+    entity_id: u32,
+    params: &SprocketParams,
+) -> Result<Vec<SketchEntity>, ToolFailure> {
+    let response = engine_call(
+        state,
+        kb,
+        "GenerateSprocketProfile",
+        UiToEngine::GenerateSprocketProfile {
+            params: params.clone(),
+        },
+    )?;
+    let EngineToUi::SprocketProfileGenerated {
+        entities,
+        pitch_radius,
+        ..
+    } = &response
+    else {
+        return Err(unexpected(
+            "GenerateSprocketProfile",
+            "SprocketProfileGenerated",
+            &response,
+        ));
+    };
+
+    let base = gear_id_base(entity_id);
+    let mut out: Vec<SketchEntity> = entities.iter().map(|e| remap(e, base)).collect();
+    if let Some(first) = entities.first() {
+        out.push(SketchEntity::Circle {
+            id: base + 90_000,
+            center_id: base + first.id(),
+            radius: *pitch_radius,
+            construction: true,
+        });
+    }
+    Ok(out)
 }
 
 /// One `Gear` entity as the primitives it stands for, with every id shifted
@@ -300,72 +354,7 @@ fn expand_gear(
 
 /// One entity with its own id and every id it references shifted by `base`.
 fn remap(entity: &SketchEntity, base: u32) -> SketchEntity {
-    match entity {
-        SketchEntity::Point {
-            id,
-            x,
-            y,
-            construction,
-        } => SketchEntity::Point {
-            id: base + id,
-            x: *x,
-            y: *y,
-            construction: *construction,
-        },
-        SketchEntity::Line {
-            id,
-            start_id,
-            end_id,
-            construction,
-        } => SketchEntity::Line {
-            id: base + id,
-            start_id: base + start_id,
-            end_id: base + end_id,
-            construction: *construction,
-        },
-        SketchEntity::Circle {
-            id,
-            center_id,
-            radius,
-            construction,
-        } => SketchEntity::Circle {
-            id: base + id,
-            center_id: base + center_id,
-            radius: *radius,
-            construction: *construction,
-        },
-        SketchEntity::Arc {
-            id,
-            center_id,
-            start_id,
-            end_id,
-            construction,
-        } => SketchEntity::Arc {
-            id: base + id,
-            center_id: base + center_id,
-            start_id: base + start_id,
-            end_id: base + end_id,
-            construction: *construction,
-        },
-        SketchEntity::Spline {
-            id,
-            point_ids,
-            construction,
-        } => SketchEntity::Spline {
-            id: base + id,
-            point_ids: point_ids.iter().map(|p| base + p).collect(),
-            construction: *construction,
-        },
-        SketchEntity::Gear {
-            id,
-            params,
-            construction,
-        } => SketchEntity::Gear {
-            id: base + id,
-            params: params.clone(),
-            construction: *construction,
-        },
-    }
+    entity.with_ids_offset(base)
 }
 
 /// Evaluate one mm-space expression against the document's parameters.

@@ -8,6 +8,7 @@ pub mod regions;
 pub mod roles;
 pub mod sketch;
 pub mod sketch_plane;
+pub mod sprocket;
 pub mod topo;
 
 pub use gear::{
@@ -23,4 +24,8 @@ pub use regions::{compute_regions, resolve_region_by_identity, union_regions, Re
 pub use roles::*;
 pub use sketch::*;
 pub use sketch_plane::SketchPlaneBasis;
+pub use sprocket::{
+    generate_sprocket_preview_polyline, generate_sprocket_profile, sprocket_dimensions,
+    SprocketDimensions, SprocketError, SprocketParams, SprocketProfileResult, SprocketStandard,
+};
 pub use topo::*;

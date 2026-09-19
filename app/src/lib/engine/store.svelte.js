@@ -1401,6 +1401,7 @@ export async function initEngine() {
 			addSketchConstraint: (constraint) => addLocalConstraint(constraint),
 			removeSketchEntities: (ids) => removeSketchEntities(new Set(ids)),
 			createGear: (params) => createGear(params),
+			createSprocket: (params) => createSprocket(params),
 			createPlanetary: (params) => createPlanetary(params),
 			updateGear: (gearId, params) => updateGear(gearId, params),
 			deleteGear: (gearId) => deleteGear(gearId),
@@ -2743,7 +2744,7 @@ function maybeScaleSketchToFirstDimension(constraint) {
 	const others = sketchConstraints.slice(0, -1).filter((c) => LENGTH_DIMENSION_TYPES.has(c.type) && !c.reference && !c._isDrag);
 	if (others.length > 0) return null;
 	if (projectedBindings.length > 0) return null;
-	if (sketchEntities.some((e) => e.type === 'Gear')) return null;
+	if (sketchEntities.some((e) => e.type === 'Gear' || e.type === 'Sprocket')) return null;
 
 	const measured = measureLengthDimension(constraint);
 	if (measured == null || !(measured > 1e-12)) return null;
@@ -3312,11 +3313,22 @@ function remapGearResponse(response, base) {
 	return { entities, positions, pitchRadius: response.pitch_radius, outline };
 }
 
-async function expandGearForDisplay(gearId, gearParams) {
+/**
+ * The stateless engine message that expands a compact generator entity of
+ * `kind` (`'Gear'` | `'Sprocket'`) into its display primitives. Both answer
+ * with the same shape (`entities`, `positions`, `profiles`, `pitch_radius`),
+ * so one display path serves both.
+ * @param {string} kind
+ */
+function generatorProfileMessage(kind) {
+	return kind === 'Sprocket' ? 'GenerateSprocketProfile' : 'GenerateGearProfile';
+}
+
+async function expandGearForDisplay(gearId, gearParams, kind = 'Gear') {
 	// Deep-clone: gearParams may be a Svelte reactive proxy (e.g. from a loaded
 	// Gear entity), which postMessage cannot structured-clone to the worker.
 	const params = JSON.parse(JSON.stringify(gearParams));
-	const response = await bridge.send({ type: 'GenerateGearProfile', params });
+	const response = await bridge.send({ type: generatorProfileMessage(kind), params });
 	const entry = remapGearResponse(response, gearDisplayIdBase(gearId));
 	const next = new Map(gearDisplay);
 	next.set(gearId, entry);
@@ -3341,7 +3353,8 @@ export function getInactiveGearDisplay() { return inactiveGearDisplay; }
 /**
  * Ensure every gear in the given inactive sketches is expanded into
  * `inactiveGearDisplay`, and drop entries no longer present. Idempotent.
- * @param {Array<{ key: string, entityId: number, params: object }>} specs
+ * @param {Array<{ key: string, entityId: number, params: object, kind?: string }>} specs
+ *   — `kind` is the compact entity's type (`'Gear'` default, or `'Sprocket'`)
  * @param {(message: object) => Promise<any>} [send] - the agent link passes its
  *   own sender, because it already holds the engine lock
  */
@@ -3352,10 +3365,10 @@ export async function ensureInactiveGearsExpanded(specs, send = (message) => bri
 	for (const k of [...next.keys()]) {
 		if (!wanted.has(k)) { next.delete(k); changed = true; }
 	}
-	for (const { key, entityId, params } of specs) {
+	for (const { key, entityId, params, kind } of specs) {
 		if (next.has(key)) continue;
 		const p = JSON.parse(JSON.stringify(params));
-		const response = await send({ type: 'GenerateGearProfile', params: p });
+		const response = await send({ type: generatorProfileMessage(kind ?? 'Gear'), params: p });
 		next.set(key, remapGearResponse(response, inactiveGearIdBase(entityId)));
 		changed = true;
 	}
@@ -3440,31 +3453,65 @@ export async function createGear(gearParams) {
  * @returns {Promise<number>} The gear ID
  */
 async function addGearFromParams(gearParams) {
+	return addGeneratorFromParams('Gear', gearParams);
+}
+
+/**
+ * Add one compact generator entity (`Gear` or `Sprocket`): display expansion +
+ * the compact entity + registry bookkeeping. The gear registry/display maps
+ * serve both kinds — the registry entry records `kind` so the edit gesture and
+ * the update path know which generator they hold.
+ * @param {'Gear' | 'Sprocket'} kind
+ * @param {object} params - the entity's `params` (camelCase, as the engine takes them)
+ * @returns {Promise<number>} The registry id
+ */
+async function addGeneratorFromParams(kind, params) {
 	const gearId = nextGearId++;
 
-	// Build the (non-persisted) display expansion from the gear params.
-	await expandGearForDisplay(gearId, gearParams);
+	// Build the (non-persisted) display expansion from the params.
+	await expandGearForDisplay(gearId, params, kind);
 
-	// Store the single compact Gear entity — this is the persisted representation.
+	// Store the single compact entity — this is the persisted representation.
 	const gearEntityId = allocEntityId();
 	addLocalEntity({
-		type: 'Gear',
+		type: kind,
 		id: gearEntityId,
-		params: { ...gearParams },
+		params: { ...params },
 		construction: false
 	});
 
-	// Register gear: one entity id per gear (not a list of expanded primitives).
+	// Register: one entity id per generator (not a list of expanded primitives).
 	const newRegistry = new Map(gearRegistry);
-	newRegistry.set(gearId, { ...gearParams, entityId: gearEntityId });
+	newRegistry.set(gearId, { ...params, entityId: gearEntityId, kind });
 	gearRegistry = newRegistry;
 
 	const newEntityMap = new Map(entityToGearMap);
 	newEntityMap.set(gearEntityId, gearId);
 	entityToGearMap = newEntityMap;
 
-	log('sketch', `Gear created: ${gearParams.toothCount} teeth, module ${gearParams.module}`, { gearId });
+	if (kind === 'Sprocket') {
+		log('sketch', `Sprocket created: ${params.toothCount} teeth, pitch ${params.pitch}`, { gearId });
+	} else {
+		log('sketch', `Gear created: ${params.toothCount} teeth, module ${params.module}`, { gearId });
+	}
 	return gearId;
+}
+
+/**
+ * Create an ISO 606 roller-chain sprocket (spec
+ * `specs/custom_features_and_modeling_roadmap.md` §B3) as one compact
+ * `Sprocket` sketch entity, like `createGear`. Invalid parameters are the
+ * engine's typed refusal (the promise rejects; nothing is added).
+ * @param {object} params - { toothCount, pitch, rollerDiameter, centerX?, centerY?, rotationOffset?, seatingRadius?, flankRadius?, tipDiameter?, seatingAngleDeg? }
+ * @returns {Promise<number>} The registry id
+ */
+export async function createSprocket(params) {
+	beginSketchAction();
+	try {
+		return await addGeneratorFromParams('Sprocket', params);
+	} finally {
+		endSketchAction();
+	}
 }
 
 /**
@@ -3545,8 +3592,16 @@ export async function updateGear(gearId, newParams) {
 	// Recreate with merged params, then re-key the new gear back to gearId so
 	// callers (and the entity→gear map) keep referring to the same gear.
 	const mergedParams = { ...existing, ...newParams };
+	const kind = mergedParams.kind ?? 'Gear';
 	delete mergedParams.entityId;
-	const newGearId = await createGear(mergedParams);
+	delete mergedParams.kind;
+	beginSketchAction();
+	let newGearId;
+	try {
+		newGearId = await addGeneratorFromParams(kind, mergedParams);
+	} finally {
+		endSketchAction();
+	}
 
 	const newGearData = gearRegistry.get(newGearId);
 	const updatedRegistry = new Map(gearRegistry);
@@ -3843,12 +3898,12 @@ export function resetSketchState() {
  * are rendered and re-editable as gears.
  */
 async function rebuildGearsFromEntities() {
-	const gearEntities = sketchEntities.filter(e => e.type === 'Gear');
+	const gearEntities = sketchEntities.filter(e => e.type === 'Gear' || e.type === 'Sprocket');
 	for (const ge of gearEntities) {
 		const gearId = nextGearId++;
-		await expandGearForDisplay(gearId, ge.params);
+		await expandGearForDisplay(gearId, ge.params, ge.type);
 		const nextReg = new Map(gearRegistry);
-		nextReg.set(gearId, { ...ge.params, entityId: ge.id });
+		nextReg.set(gearId, { ...ge.params, entityId: ge.id, kind: ge.type });
 		gearRegistry = nextReg;
 		const nextMap = new Map(entityToGearMap);
 		nextMap.set(ge.id, gearId);
@@ -4053,8 +4108,8 @@ function regionInputs(feature, gears) {
 	const entities = [];
 	const solved_positions = {};
 	for (const e of (sketch.entities || [])) {
-		if (e.type === 'Gear') {
-			// Substitute the gear's cached primitive expansion (teeth + points).
+		if (e.type === 'Gear' || e.type === 'Sprocket') {
+			// Substitute the generator's cached primitive expansion (teeth + points).
 			const exp = gears.get(`${feature.id}:${e.id}`);
 			if (exp) {
 				for (const ge of exp.entities) {
@@ -4094,7 +4149,9 @@ export async function computeAllSketchRegions() {
 	for (const f of tree.features) {
 		if (f.operation?.type !== 'Sketch') continue;
 		for (const e of (f.operation.sketch.entities || [])) {
-			if (e.type === 'Gear') gearSpecs.push({ key: `${f.id}:${e.id}`, entityId: e.id, params: e.params });
+			if (e.type === 'Gear' || e.type === 'Sprocket') {
+				gearSpecs.push({ key: `${f.id}:${e.id}`, entityId: e.id, params: e.params, kind: e.type });
+			}
 		}
 	}
 	if (gearSpecs.length) await ensureInactiveGearsExpanded(gearSpecs);

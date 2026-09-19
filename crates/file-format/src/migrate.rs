@@ -159,6 +159,10 @@ fn migrate_sketch(sketch: &mut Sketch) {
             | SketchEntity::Gear { .. } => {
                 // No direct length fields (positions come from solved_positions / expansion)
             }
+            SketchEntity::Sprocket { .. } => {
+                // Post-dates the mm-era files this migration reads (added 2026-09-19,
+                // metres from day one): nothing to scale.
+            }
         }
     }
 

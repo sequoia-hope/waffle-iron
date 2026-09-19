@@ -1278,9 +1278,11 @@ function handleSelectTool(eventType, x, y, screenPixelSize, shiftKey) {
 		const now = Date.now();
 		const gearId = getGearIdForEntity(hitId);
 		if (gearId != null && lastSelectClickEntity === hitId && lastSelectClickTime && (now - lastSelectClickTime) < 400) {
-			// Double-click on gear entity → open edit dialog
+			// Double-click on gear entity → open edit dialog (a sprocket has no
+			// dialog yet — B3 checkpoint 2; the gesture is absorbed, not routed
+			// to the gear dialog).
 			const gearData = getGearRegistry().get(gearId);
-			if (gearData) {
+			if (gearData && gearData.kind !== 'Sprocket') {
 				showGearDialog({
 					editGearId: gearId,
 					params: gearData,
@@ -1461,7 +1463,7 @@ function entitiesInBox(box) {
 			}
 		} else if (e.type === 'Spline') {
 			pts = (e.point_ids ?? []).map(pos).filter(Boolean);
-		} else if (e.type === 'Gear') {
+		} else if (e.type === 'Gear' || e.type === 'Sprocket') {
 			// gearDisplay is keyed by gear id; map back through the registry.
 			for (const [gearId, disp] of gearDisplay) {
 				if (gearRegistry.get(gearId)?.entityId !== e.id) continue;

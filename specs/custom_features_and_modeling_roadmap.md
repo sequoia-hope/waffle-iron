@@ -397,6 +397,20 @@ mid-range by default with the two radii exposed as overrides.
 tooth clears the profile by ≥ 0 and ≤ the seating clearance; tooth count
 and pitch round-trip from the expanded geometry.
 
+**Status (2026-09-19): LANDED** — `waffle_types::sprocket`, `SketchEntity::
+Sprocket`, `GenerateSprocket{Preview,Profile}`, `sk.sprocket(...)`,
+`createSprocket` in the app (display through the gear machinery; no dialog
+yet). ISO 606 only: the ANSI B29.1 form is a different construction whose
+constants must come from the standard's text (not in `refs/`), so
+`SprocketStandard` has one variant. Two corrections to the ranges above as
+written: the flank range is `re ∈ [0.12·d1·(z+2), 0.008·d1·(z²+180)]` (min
+and max were listed in the other order) and `0.069·∛d1` takes `d1` in mm.
+Real-kernel oracles in `test-harness/tests/sprocket_kv2.rs`; the extrude is
+exact (one cylindrical wall per arc, volume = analytic area × depth) after
+a kernel-v2 arc-validator fix the sprocket's transversal flank/tip corners
+exposed. A bore with COPLANAR caps still STOPs in the M8 Stage-0
+mixed-loop path (PLAN.md M14 / Blockers); the general boolean path is fine.
+
 ### B4. Multi-body union as a first-class step
 
 **What.** `BooleanCombine` already exists; what is missing is a **many-body**

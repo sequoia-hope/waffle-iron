@@ -4375,6 +4375,33 @@
             "params"
           ],
           "type": "object"
+        },
+        {
+          "description": "A parametric roller-chain sprocket profile (ISO 606 tooth form). Stored\ncompactly; expanded to points and arcs on demand\n(`generate_sprocket_profile`).",
+          "properties": {
+            "construction": {
+              "default": false,
+              "type": "boolean"
+            },
+            "id": {
+              "format": "uint32",
+              "minimum": 0,
+              "type": "integer"
+            },
+            "params": {
+              "$ref": "#/$defs/SprocketParams"
+            },
+            "type": {
+              "const": "Sprocket",
+              "type": "string"
+            }
+          },
+          "required": [
+            "type",
+            "id",
+            "params"
+          ],
+          "type": "object"
         }
       ]
     },
@@ -4620,6 +4647,95 @@
         "control_points"
       ],
       "type": "object"
+    },
+    "SprocketParams": {
+      "description": "Parameters for generating a roller-chain sprocket profile.\n\nLengths are metres (model units), like `GearParams`. camelCase on the wire.",
+      "properties": {
+        "centerX": {
+          "default": 0.0,
+          "format": "double",
+          "type": "number"
+        },
+        "centerY": {
+          "default": 0.0,
+          "format": "double",
+          "type": "number"
+        },
+        "flankRadius": {
+          "description": "Tooth flank radius `re` override (m). Default: mid-range.",
+          "format": "double",
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "pitch": {
+          "description": "Chain pitch `p` (m). ISO 08B is 12.7 mm.",
+          "format": "double",
+          "type": "number"
+        },
+        "rollerDiameter": {
+          "description": "Roller diameter `d1` (m). ISO 08B is 8.51 mm.",
+          "format": "double",
+          "type": "number"
+        },
+        "rotationOffset": {
+          "default": 0.0,
+          "description": "Rotation of the whole profile about its centre (radians). At zero the\nfirst tooth GAP (roller seat) is centred on the +u axis.",
+          "format": "double",
+          "type": "number"
+        },
+        "seatingAngleDeg": {
+          "description": "Roller seating angle `α` override (degrees). Default: mid-range.",
+          "format": "double",
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "seatingRadius": {
+          "description": "Roller seating radius `ri` override (m). Default: mid-range.",
+          "format": "double",
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "standard": {
+          "$ref": "#/$defs/SprocketStandard",
+          "default": "Iso606"
+        },
+        "tipDiameter": {
+          "description": "Tip diameter `da` override (m). Default: mid-range.",
+          "format": "double",
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "toothCount": {
+          "description": "Number of teeth `z` (≥ 5).",
+          "format": "uint32",
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "toothCount",
+        "pitch",
+        "rollerDiameter"
+      ],
+      "type": "object"
+    },
+    "SprocketStandard": {
+      "description": "Which tooth-form standard a sprocket is cut to.",
+      "oneOf": [
+        {
+          "const": "Iso606",
+          "description": "ISO 606 tooth gap form (the only form implemented).",
+          "type": "string"
+        }
+      ]
     },
     "Tab": {
       "additionalProperties": true,

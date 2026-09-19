@@ -93,7 +93,7 @@
 	// `gearDisplay` with ids in a non-colliding high range. Points are NOT merged
 	// — gear vertices must not render as hundreds of draggable spheres.
 	let renderEntities = $derived.by(() => {
-		const merged = entities.filter(e => e.type !== 'Gear');
+		const merged = entities.filter(e => e.type !== 'Gear' && e.type !== 'Sprocket');
 		for (const disp of gearDisplay.values()) merged.push(...disp.entities);
 		return merged;
 	});

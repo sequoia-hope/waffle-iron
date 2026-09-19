@@ -6,7 +6,7 @@
 //!   Line   → no extra params (defined by its 2 point endpoints)
 //!   Arc    → no extra params (defined by 3 points: center, start, end)
 //!   Spline → not supported in PR-SS1
-//!   Gear   → expanded to primitives before reaching the solver
+//!   Gear / Sprocket → expanded to primitives before reaching the solver
 //!
 //! Determinism: the parameter vector is built by iterating `entities` in
 //! declaration order (a `Vec`, not a `HashMap`). The same input always
@@ -113,7 +113,8 @@ impl ParamLayout {
                 }
                 SketchEntity::Point { .. } => {} // handled in pass 1
                 SketchEntity::Spline { .. } => {} // not in PR-SS1 scope
-                SketchEntity::Gear { .. } => {}  // expanded before reaching solver
+                // Generators are expanded before reaching the solver.
+                SketchEntity::Gear { .. } | SketchEntity::Sprocket { .. } => {}
             }
         }
 

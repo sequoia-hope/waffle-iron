@@ -646,6 +646,30 @@ fn handle_message(
             })
         }
 
+        UiToEngine::GenerateSprocketPreview { params } => {
+            match waffle_types::generate_sprocket_preview_polyline(&params) {
+                Ok(polyline) => Ok(EngineToUi::SprocketPreviewGenerated { polyline }),
+                Err(e) => Err(BridgeError::InvalidRequest {
+                    reason: e.to_string(),
+                }),
+            }
+        }
+
+        UiToEngine::GenerateSprocketProfile { params } => {
+            match waffle_types::generate_sprocket_profile(&params) {
+                Ok(result) => Ok(EngineToUi::SprocketProfileGenerated {
+                    entities: result.entities,
+                    positions: result.positions,
+                    profiles: result.profiles,
+                    pitch_radius: result.pitch_radius,
+                    dimensions: result.dimensions,
+                }),
+                Err(e) => Err(BridgeError::InvalidRequest {
+                    reason: e.to_string(),
+                }),
+            }
+        }
+
         UiToEngine::GeneratePlanetary { params } => {
             match waffle_types::generate_planetary(&params) {
                 Ok(result) => Ok(EngineToUi::PlanetaryGenerated { result }),

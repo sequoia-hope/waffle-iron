@@ -18,6 +18,7 @@ use std::rc::Rc;
 use rhai::{Array, Dynamic, EvalAltResult, Map, Position};
 use uuid::Uuid;
 use waffle_types::gear::GearParams;
+use waffle_types::sprocket::SprocketParams;
 use waffle_types::{
     Anchor, ClosedProfile, GeomRef, OutputKey, ResolvePolicy, Role, Selector, Sketch, SketchEntity,
     SolveStatus, TopoKind,
@@ -477,6 +478,25 @@ impl SketchBuilder {
         Ok(id as i64)
     }
 
+    pub fn sprocket(
+        &mut self,
+        params: SprocketParams,
+        construction: bool,
+    ) -> Result<i64, Box<EvalAltResult>> {
+        // Refuse here what the generator would refuse at expansion, so the
+        // script line that wrote the parameters is the one that fails.
+        if let Err(e) = waffle_types::sprocket_dimensions(&params) {
+            return rt(e.to_string());
+        }
+        let id = self.alloc()?;
+        self.push(SketchEntity::Sprocket {
+            id,
+            params,
+            construction,
+        });
+        Ok(id as i64)
+    }
+
     /// Closed polyline through `pts` (`[[x, y], …]`); returns the line ids.
     pub fn polygon(&mut self, pts: &[(f64, f64)]) -> Result<Vec<i64>, Box<EvalAltResult>> {
         if pts.len() < 3 {
@@ -605,22 +625,28 @@ pub fn derive_sketch(sketch: &mut Sketch) {
             sketch.solved_positions.insert(*id, (*x, *y));
         }
     }
-    let has_gears = sketch
+    // Generators (gear, sprocket) expand into their own profiles; the plain
+    // entities drawn alongside them are finished as any hand-drawn sketch
+    // is. A sprocket the builder accepted cannot fail here (`sk.sprocket`
+    // validates the same parameters), so the expansion result is not a
+    // second failure path.
+    let plain: Vec<SketchEntity> = sketch
         .entities
         .iter()
-        .any(|e| matches!(e, SketchEntity::Gear { .. }));
-    if has_gears {
-        sketch.expand_gears();
-        return;
+        .filter(|e| !e.is_generator())
+        .cloned()
+        .collect();
+    let had_generators = plain.len() != sketch.entities.len();
+    if had_generators {
+        let _ = sketch.expand_generators();
+        if plain.is_empty() {
+            return;
+        }
     }
-    let extracted =
-        waffle_types::profiles::extract_profiles(&sketch.entities, &sketch.solved_positions);
-    let fp = waffle_types::profiles::build_finish_profiles(
-        &extracted,
-        &sketch.entities,
-        &sketch.solved_positions,
-    );
-    sketch.solved_profiles = fp.profiles;
+    let extracted = waffle_types::profiles::extract_profiles(&plain, &sketch.solved_positions);
+    let fp =
+        waffle_types::profiles::build_finish_profiles(&extracted, &plain, &sketch.solved_positions);
+    sketch.solved_profiles.extend(fp.profiles);
     sketch.solved_positions = fp.solved_positions;
 }
 
@@ -875,6 +901,39 @@ pub fn gear_params_from_map(m: &Map) -> Result<GearParams, Box<EvalAltResult>> {
         center_y: map_num(m, "center_y")?.unwrap_or(0.0),
         rotation_offset: map_num(m, "rotation_offset")?.unwrap_or(0.0),
         internal: map_bool(m, "internal", false)?,
+    })
+}
+
+/// Convert a Rhai map to `SprocketParams` (snake_case keys; `tooth_count`,
+/// `pitch` and `roller_diameter` required; `seating_radius`, `flank_radius`,
+/// `tip_diameter`, `seating_angle_deg` override the ISO 606 mid-range
+/// defaults).
+pub fn sprocket_params_from_map(m: &Map) -> Result<SprocketParams, Box<EvalAltResult>> {
+    let tooth_count = match map_get(m, "tooth_count") {
+        Some(v) => int(v, "sprocket.tooth_count")?,
+        None => return rt("sprocket: `tooth_count` is required"),
+    };
+    let pitch = match map_num(m, "pitch")? {
+        Some(v) => v,
+        None => return rt("sprocket: `pitch` is required"),
+    };
+    let roller_diameter = match map_num(m, "roller_diameter")? {
+        Some(v) => v,
+        None => return rt("sprocket: `roller_diameter` is required"),
+    };
+    Ok(SprocketParams {
+        tooth_count: u32::try_from(tooth_count)
+            .or_else(|_| rt(format!("sprocket: bad tooth_count {tooth_count}")))?,
+        pitch,
+        roller_diameter,
+        center_x: map_num(m, "center_x")?.unwrap_or(0.0),
+        center_y: map_num(m, "center_y")?.unwrap_or(0.0),
+        rotation_offset: map_num(m, "rotation_offset")?.unwrap_or(0.0),
+        standard: waffle_types::SprocketStandard::Iso606,
+        seating_radius: map_num(m, "seating_radius")?,
+        flank_radius: map_num(m, "flank_radius")?,
+        tip_diameter: map_num(m, "tip_diameter")?,
+        seating_angle_deg: map_num(m, "seating_angle_deg")?,
     })
 }
 

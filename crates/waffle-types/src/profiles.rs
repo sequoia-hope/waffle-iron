@@ -424,10 +424,23 @@ pub fn build_finish_profiles(
     entities: &[SketchEntity],
     positions: &HashMap<u32, (f64, f64)>,
 ) -> FinishProfiles {
+    build_finish_profiles_with_synth_base(extracted, entities, positions, ARC_SYNTH_ID_BASE)
+}
+
+/// [`build_finish_profiles`] with the synthetic arc-sample ids starting at
+/// `synth_base` instead of the sketch-wide base. A generator that expands
+/// into its own id range (a sprocket) uses this so its samples stay inside
+/// that range and cannot collide with the sketch's own arc samples.
+pub fn build_finish_profiles_with_synth_base(
+    extracted: &[ClosedProfile],
+    entities: &[SketchEntity],
+    positions: &HashMap<u32, (f64, f64)>,
+    synth_base: u32,
+) -> FinishProfiles {
     let mut solved_positions = positions.clone();
     // One counter across ALL profiles: two profiles must never mint the same
     // synthetic id, or their arcs would share points.
-    let mut next_synth_id = ARC_SYNTH_ID_BASE;
+    let mut next_synth_id = synth_base;
     let mut profiles = Vec::with_capacity(extracted.len());
 
     for p in extracted {

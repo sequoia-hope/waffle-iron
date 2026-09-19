@@ -150,7 +150,72 @@
       `ctx.log` lines surface as warnings (`log: …`); child roles concatenate (no
       `Role::ScriptChild`); `tree.clone()` + `feature_results.clone()` per script rebuild.
 
+### M14: Sprocket sketch entity — B3 of `specs/custom_features_and_modeling_roadmap.md` ✅ (2026-09-19)
+- [x] `SketchEntity::Sprocket { params: SprocketParams }` + `waffle_types::sprocket`:
+      ISO 606 tooth gap form (pitch `d = p/sin(π/z)`, seating arc `ri`, tangent convex
+      flank arcs `re`, tip arc at `da`), mid-range defaults with `seatingRadius` /
+      `flankRadius` / `tipDiameter` / `seatingAngleDeg` overrides; points + arcs only,
+      finished through `build_finish_profiles` (exact `arc_segments`). Every refusal is a
+      typed `SprocketError` naming the value (too few teeth, bad value, seat < roller,
+      flank never reaching the tip, flanks crossing — with the largest tip diameter that
+      still leaves a tip arc, by bisection). `SprocketStandard::Iso606` only — ANSI B29.1
+      needs the standard's text (not in `refs/`), left as an enum extension.
+- [x] Expansion: `Sketch::expand_generators` (gears + sprockets; `expand_gears` kept as
+      the gear-only alias) offsets a sprocket's primitives into `generated_entity_id_base`
+      (the same range the bridge / app use), so plain entities drawn beside it keep their
+      ids and loops (`recompute_derived_checked` extracts the plain loops from a
+      pre-expansion snapshot). Extrude/Revolve report a sprocket that cannot expand as
+      `EngineError::SketchGenerator` → `ErrorKind::InvalidParameter`.
+- [x] Bridge: `GenerateSprocketPreview` / `GenerateSprocketProfile` (stateless, the gear
+      pair's shape + `dimensions`); `sketch_regions` / `sketch_create` expand sprockets
+      like gears; `sketch_create` refuses bad params at `/entities/i/params`.
+- [x] Script API: `sk.sprocket(#{ tooth_count, pitch, roller_diameter, … })`.
+- [x] App: `createSprocket` (store, `__waffle.createSprocket`), display through the gear
+      registry/display maps (`kind: 'Sprocket'`), inactive-sketch rendering and region
+      computation; no Sprocket dialog / toolbar tool yet (checkpoint 2), double-click on
+      a sprocket is absorbed rather than opening the gear dialog.
+- [x] Oracles: `waffle-types` (roller clearance + pitch/tooth round-trip over 9 chains ×
+      9 tooth counts, tangency, rigidity, typed failures), `feature-engine/tests/sprocket.rs`
+      (7, MockKernel), `test-harness/tests/sprocket_kv2.rs` (real kernel: 4z+2 faces, exact
+      volume = analytic arc area × depth to 1e-9, watertight χ=2 for 9/20/52 T; bore cut via
+      the general boolean path; script route = entity route), GUI
+      `sketch-sprocket-entity.spec.js` (gui-fast).
+- [x] Found on the way (kernel-v2 `exact2d`): the Tier-2 arc validator lifted each arc's
+      f64 centre/radius verbatim, so two arcs meeting TRANSVERSALLY at a shared vertex
+      (a sprocket flank into its tip arc) crossed exactly a few ulps off the corner and
+      inside both open arcs ~half the time — a valid loop rejected as non-simple by
+      rounding luck (and the exact extrude silently fell back to the 16-facet chord
+      polygon: 578 faces for a 9T sprocket). Every arc predicate now lifts to the rational
+      circle through BOTH endpoints (centre snapped onto the chord bisector); fixtures with
+      a centre already on the bisector are unchanged (regression test
+      `transversal_corner_is_not_a_crossing`).
+- [ ] Checkpoint 2: Sprocket dialog + toolbar tool (mirror `GearDialog.svelte`, preview
+      via `GenerateSprocketPreview`), A-M5 `sprocket.rhai`.
+- [ ] Bore with COPLANAR caps through a sprocket STOPs in yang Stage 0 (see Blockers);
+      pinned `#[ignore = "M8 …"]` in `sprocket_kv2.rs`.
+
 ## Blockers
+
+- **M8 Stage-0 mixed-loop coplanar caps (found 2026-09-19 boring a 20T
+  sprocket with a through-cut whose caps are coplanar with the sprocket's):**
+  `face N: holed lateral CDT failed: duplicate (coincident) loop vertex`.
+  Both sprocket caps pair with the tool's caps; `collect_mixed_crossings`
+  (`yang-rs/src/stage0/rim_chords.rs`) inserts each cap's overlay split
+  points into its arc's chain AND mirrors them by an f64 axial projection
+  onto the opposite arc of the shared partial strip. The two caps' overlays
+  run in independent frames, so the mirrored points are ULP-twins of the
+  points the opposite arc already carries from its own overlay; the
+  bit-exact `contains` dedup keeps both (12 vs 13 overrides on one flank
+  pair), the two chains come out 15 vs 16 long, the strip cannot pair, the
+  face is routed to the chart CDT, and the twins collapse to exactly equal
+  `(u, v)` there. The disc path avoided this with the exact opposite-rim
+  projection + intra-opposite plane canonicalization
+  (`specs/m8_exact_opposite_rim_projection.md`,
+  `specs/m8_intra_opposite_plane_canonicalization.md`); the mixed-arc path
+  needs the same bit-consistency (or: skip the mirror when the opposite cap
+  is itself in a pair). The non-coplanar bore goes through the general
+  pipeline and is correct. Repro: `sprocket_bore_with_coplanar_caps`
+  (`test-harness/tests/sprocket_kv2.rs`, ignored).
 
 - ~~Depends on kernel (Kernel + KernelIntrospect traits, especially MockKernel)~~ Resolved [SUPERSEDED by clean-sheet kernel]
 - ~~Depends on modeling-ops (OpResult production with provenance)~~ Resolved

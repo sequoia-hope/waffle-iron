@@ -7,7 +7,7 @@ use feature_engine::types::{DesignParameter, FeatureTree, Operation};
 use waffle_types::kernel::{EdgeRenderData, RenderMesh};
 use waffle_types::{
     ClosedProfile, GearParams, GeomRef, PlanetaryParams, PlanetaryResult, ProjectedEntity, Region,
-    SketchConstraint, SketchEntity, SolvedSketch,
+    SketchConstraint, SketchEntity, SolvedSketch, SprocketDimensions, SprocketParams,
 };
 
 /// Serde helper for HashMap<u32, (f64, f64)> — JSON string keys ↔ u32.
@@ -421,6 +421,18 @@ pub enum UiToEngine {
     GenerateGearProfile {
         params: GearParams,
     },
+    /// Generate a sprocket preview polyline for live rendering. Stateless;
+    /// mirrors `GenerateGearPreview`. Invalid parameters are an
+    /// `InvalidRequest` naming the offending value.
+    GenerateSprocketPreview {
+        params: SprocketParams,
+    },
+    /// Generate a full ISO 606 sprocket profile with sketch entities (points
+    /// and arcs) and its kernel-ready profile. Stateless; mirrors
+    /// `GenerateGearProfile`.
+    GenerateSprocketProfile {
+        params: SprocketParams,
+    },
     /// Generate a planetary gear stage: validate + compute the positioned
     /// sun/planet/ring `GearParams`. Stateless.
     GeneratePlanetary {
@@ -664,6 +676,21 @@ pub enum EngineToUi {
         positions: HashMap<u32, (f64, f64)>,
         profiles: Vec<ClosedProfile>,
         pitch_radius: f64,
+    },
+
+    /// Sprocket preview polyline generated.
+    SprocketPreviewGenerated { polyline: Vec<(f64, f64)> },
+
+    /// Full sprocket profile generated: the same shape as
+    /// `GearProfileGenerated` (so hosts display both the same way) plus the
+    /// resolved ISO 606 dimensions.
+    SprocketProfileGenerated {
+        entities: Vec<SketchEntity>,
+        #[serde(with = "u32_key_map")]
+        positions: HashMap<u32, (f64, f64)>,
+        profiles: Vec<ClosedProfile>,
+        pitch_radius: f64,
+        dimensions: SprocketDimensions,
     },
 
     /// Minimal closed faces of a sketch, in selection order.

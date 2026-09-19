@@ -4,6 +4,7 @@ use uuid::Uuid;
 
 use crate::gear::{generate_gear_profile, GearParams};
 use crate::geom_ref::GeomRef;
+use crate::sprocket::{generate_sprocket_profile, SprocketError, SprocketParams};
 
 /// Serde helper for HashMap<u32, (f64, f64)>.
 /// JSON only supports string keys, so we need custom (de)serialization.
@@ -131,6 +132,15 @@ impl Sketch {
     /// Reconstructs positions from Point entity x/y values, expands Gear entities,
     /// and extracts closed profiles from the entity graph.
     pub fn recompute_derived(&mut self) {
+        // A sprocket whose parameters cannot be generated is left in place
+        // (unexpanded, so it contributes no profile); the checked form
+        // surfaces the error where a caller can report it.
+        let _ = self.recompute_derived_checked();
+    }
+
+    /// [`Self::recompute_derived`], reporting a generator (sprocket) that
+    /// could not be expanded instead of leaving it in place silently.
+    pub fn recompute_derived_checked(&mut self) -> Result<(), SprocketError> {
         // Step 1: Reconstruct solved_positions from Point entities' x/y values.
         // Only populate if empty (don't overwrite live session data).
         if self.solved_positions.is_empty() {
@@ -141,30 +151,75 @@ impl Sketch {
             }
         }
 
-        // Step 2: Expand gear entities (populates positions + profiles from gear generator)
-        self.expand_gears();
+        // Step 2: Expand generator entities (populates positions + profiles
+        // from the gear / sprocket generators). The plain entities drawn
+        // alongside a generator (a bore circle in a sprocket sketch) keep
+        // their own loops: they are extracted from a snapshot taken before
+        // the expansion, so a generator's minted ids cannot shadow them.
+        let plain: Vec<SketchEntity> = self
+            .entities
+            .iter()
+            .filter(|e| !e.is_generator())
+            .cloned()
+            .collect();
+        let had_generators = plain.len() != self.entities.len();
+        let plain_positions = if had_generators {
+            self.solved_positions.clone()
+        } else {
+            HashMap::new()
+        };
+        let had_profiles = !self.solved_profiles.is_empty();
+        let expanded = self.expand_generators();
 
-        // Step 3: Extract profiles from remaining entities if still empty
-        if self.solved_profiles.is_empty() {
-            self.solved_profiles =
-                crate::profiles::extract_profiles(&self.entities, &self.solved_positions);
+        // Step 3: Extract profiles from the plain entities if none were
+        // carried in (a generator's profiles come from step 2).
+        if !had_profiles && !plain.is_empty() {
+            let positions = if had_generators {
+                &plain_positions
+            } else {
+                &self.solved_positions
+            };
+            self.solved_profiles
+                .extend(crate::profiles::extract_profiles(&plain, positions));
         }
+        expanded
     }
 
     /// Expand all `Gear` entities into their primitive equivalents (Points, Lines, Arcs, Splines).
     /// Populates `solved_positions` and `solved_profiles` from the gear profile results.
     /// This is a no-op if the sketch has no Gear entities.
+    ///
+    /// Kept for callers that only know about gears; [`Self::expand_generators`]
+    /// expands sprockets too.
     pub fn expand_gears(&mut self) {
-        let has_gears = self
-            .entities
-            .iter()
-            .any(|e| matches!(e, SketchEntity::Gear { .. }));
-        if !has_gears {
-            return;
+        let _ = self.expand_generators();
+    }
+
+    /// Expand every compact generator entity (`Gear`, `Sprocket`) into the
+    /// primitives it stands for, appending their kernel-ready profiles to
+    /// `solved_profiles` and their points to `solved_positions`. A no-op for a
+    /// sketch with no generators.
+    ///
+    /// A sprocket's primitives are offset into the entity's own id range
+    /// (`generated_entity_id_base`) so they cannot collide with the sketch's
+    /// ids or another generator's. (Gears keep their historical unshifted ids:
+    /// the app's gear bookkeeping and the gear parity oracle pin them.)
+    ///
+    /// The first sprocket that cannot be generated stops the expansion with
+    /// its typed error; every generator before it is expanded, the failing
+    /// one and those after it are left in place.
+    pub fn expand_generators(&mut self) -> Result<(), SprocketError> {
+        if !self.entities.iter().any(SketchEntity::is_generator) {
+            return Ok(());
         }
 
         let mut expanded_entities = Vec::new();
+        let mut failure: Option<SprocketError> = None;
         for entity in &self.entities {
+            if failure.is_some() {
+                expanded_entities.push(entity.clone());
+                continue;
+            }
             match entity {
                 SketchEntity::Gear { params, .. } => {
                     let result = generate_gear_profile(params);
@@ -172,12 +227,33 @@ impl Sketch {
                     self.solved_positions.extend(result.positions);
                     self.solved_profiles.extend(result.profiles);
                 }
+                SketchEntity::Sprocket { id, params, .. } => {
+                    match generate_sprocket_profile(params) {
+                        Ok(result) => {
+                            let base = generated_entity_id_base(*id);
+                            expanded_entities
+                                .extend(result.entities.iter().map(|e| e.with_ids_offset(base)));
+                            self.solved_positions
+                                .extend(result.positions.iter().map(|(k, v)| (base + k, *v)));
+                            self.solved_profiles
+                                .extend(result.profiles.iter().map(|p| p.with_ids_offset(base)));
+                        }
+                        Err(e) => {
+                            failure = Some(e);
+                            expanded_entities.push(entity.clone());
+                        }
+                    }
+                }
                 other => {
                     expanded_entities.push(other.clone());
                 }
             }
         }
         self.entities = expanded_entities;
+        match failure {
+            Some(e) => Err(e),
+            None => Ok(()),
+        }
     }
 
     /// Recompute derived data (`solved_positions` and `solved_profiles`) from
@@ -264,6 +340,15 @@ pub enum SketchEntity {
         #[serde(default)]
         construction: bool,
     },
+    /// A parametric roller-chain sprocket profile (ISO 606 tooth form). Stored
+    /// compactly; expanded to points and arcs on demand
+    /// (`generate_sprocket_profile`).
+    Sprocket {
+        id: u32,
+        params: SprocketParams,
+        #[serde(default)]
+        construction: bool,
+    },
 }
 
 impl SketchEntity {
@@ -274,7 +359,8 @@ impl SketchEntity {
             | SketchEntity::Circle { id, .. }
             | SketchEntity::Arc { id, .. }
             | SketchEntity::Spline { id, .. }
-            | SketchEntity::Gear { id, .. } => *id,
+            | SketchEntity::Gear { id, .. }
+            | SketchEntity::Sprocket { id, .. } => *id,
         }
     }
 
@@ -285,9 +371,110 @@ impl SketchEntity {
             | SketchEntity::Circle { construction, .. }
             | SketchEntity::Arc { construction, .. }
             | SketchEntity::Spline { construction, .. }
-            | SketchEntity::Gear { construction, .. } => *construction,
+            | SketchEntity::Gear { construction, .. }
+            | SketchEntity::Sprocket { construction, .. } => *construction,
         }
     }
+
+    /// Whether this entity is a compact generator (gear, sprocket) that stands
+    /// for primitives minted at expansion time.
+    pub fn is_generator(&self) -> bool {
+        matches!(
+            self,
+            SketchEntity::Gear { .. } | SketchEntity::Sprocket { .. }
+        )
+    }
+
+    /// This entity with its own id and every id it references shifted by
+    /// `base` — how a generator's primitives (minted from id 1) are moved into
+    /// the generator entity's own range (`generated_entity_id_base`).
+    pub fn with_ids_offset(&self, base: u32) -> SketchEntity {
+        match self {
+            SketchEntity::Point {
+                id,
+                x,
+                y,
+                construction,
+            } => SketchEntity::Point {
+                id: base + id,
+                x: *x,
+                y: *y,
+                construction: *construction,
+            },
+            SketchEntity::Line {
+                id,
+                start_id,
+                end_id,
+                construction,
+            } => SketchEntity::Line {
+                id: base + id,
+                start_id: base + start_id,
+                end_id: base + end_id,
+                construction: *construction,
+            },
+            SketchEntity::Circle {
+                id,
+                center_id,
+                radius,
+                construction,
+            } => SketchEntity::Circle {
+                id: base + id,
+                center_id: base + center_id,
+                radius: *radius,
+                construction: *construction,
+            },
+            SketchEntity::Arc {
+                id,
+                center_id,
+                start_id,
+                end_id,
+                construction,
+            } => SketchEntity::Arc {
+                id: base + id,
+                center_id: base + center_id,
+                start_id: base + start_id,
+                end_id: base + end_id,
+                construction: *construction,
+            },
+            SketchEntity::Spline {
+                id,
+                point_ids,
+                construction,
+            } => SketchEntity::Spline {
+                id: base + id,
+                point_ids: point_ids.iter().map(|p| base + p).collect(),
+                construction: *construction,
+            },
+            SketchEntity::Gear {
+                id,
+                params,
+                construction,
+            } => SketchEntity::Gear {
+                id: base + id,
+                params: params.clone(),
+                construction: *construction,
+            },
+            SketchEntity::Sprocket {
+                id,
+                params,
+                construction,
+            } => SketchEntity::Sprocket {
+                id: base + id,
+                params: params.clone(),
+                construction: *construction,
+            },
+        }
+    }
+}
+
+/// The id range a compact generator entity's expansion occupies: every
+/// primitive a generator with sketch entity id `entity_id` mints is offset by
+/// this base, so the expansion collides neither with the sketch's own ids nor
+/// with another generator's. Shared with the app's inactive-sketch display
+/// expansion (JS `inactiveGearIdBase`) so region and profile ids agree
+/// between hosts.
+pub fn generated_entity_id_base(entity_id: u32) -> u32 {
+    50_000_000 + entity_id * 100_000
 }
 
 /// A constraint between sketch entities.
@@ -631,6 +818,21 @@ pub struct ClosedProfile {
     /// Arc segments within the polygon, used to assign cylindrical face geometry on extrude.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub arc_segments: Vec<ArcSegment>,
+}
+
+impl ClosedProfile {
+    /// This profile with every entity and vertex id shifted by `base` (the
+    /// segment records index vertices by position, so they are unchanged).
+    pub fn with_ids_offset(&self, base: u32) -> ClosedProfile {
+        ClosedProfile {
+            entity_ids: self.entity_ids.iter().map(|id| base + id).collect(),
+            is_outer: self.is_outer,
+            vertex_ids: self.vertex_ids.iter().map(|id| base + id).collect(),
+            circle: self.circle.clone(),
+            spline_segments: self.spline_segments.clone(),
+            arc_segments: self.arc_segments.clone(),
+        }
+    }
 }
 
 /// Circle profile data in sketch-local UV coordinates.

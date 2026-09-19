@@ -554,7 +554,12 @@ pub(crate) fn execute_feature(
                 sketch_expanded.solved_positions.clear();
                 sketch_expanded.solved_profiles.clear();
             }
-            sketch_expanded.recompute_derived();
+            sketch_expanded.recompute_derived_checked().map_err(|e| {
+                EngineError::SketchGenerator {
+                    sketch_id: params.sketch_id,
+                    reason: e.to_string(),
+                }
+            })?;
             let sketch = &sketch_expanded;
             let mut warnings_regions: Vec<String> = Vec::new();
 
@@ -897,7 +902,12 @@ pub(crate) fn execute_feature(
                 sketch_expanded.solved_positions.clear();
                 sketch_expanded.solved_profiles.clear();
             }
-            sketch_expanded.recompute_derived();
+            sketch_expanded.recompute_derived_checked().map_err(|e| {
+                EngineError::SketchGenerator {
+                    sketch_id: params.sketch_id,
+                    reason: e.to_string(),
+                }
+            })?;
             let sketch = &sketch_expanded;
 
             let profile_index = resolve_profile_index(

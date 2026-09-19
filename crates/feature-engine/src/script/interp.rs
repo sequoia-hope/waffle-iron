@@ -12,7 +12,8 @@ use rhai::{Array, Dynamic, Engine, EvalAltResult, Map, Scope, AST};
 
 use super::host::{
     dyn_ids, dyn_num, dyn_u32, gear_params_from_map, plane_from_dynamic, points_from_dynamic,
-    runtime, Ctx, FeatureRef, PlaneRef, PlaneSpec, Query, Region, Shared, SketchBuilder, SketchRef,
+    runtime, sprocket_params_from_map, Ctx, FeatureRef, PlaneRef, PlaneSpec, Query, Region, Shared,
+    SketchBuilder, SketchRef,
 };
 use waffle_types::{OutputKey, Role, TopoKind};
 
@@ -205,6 +206,12 @@ pub fn build_engine(limits: &Limits) -> Engine {
         "gear",
         |sk: &mut SketchBuilder, params: Map| -> Result<i64, Box<EvalAltResult>> {
             sk.gear(gear_params_from_map(&params)?, false)
+        },
+    );
+    engine.register_fn(
+        "sprocket",
+        |sk: &mut SketchBuilder, params: Map| -> Result<i64, Box<EvalAltResult>> {
+            sk.sprocket(sprocket_params_from_map(&params)?, false)
         },
     );
     engine.register_fn(

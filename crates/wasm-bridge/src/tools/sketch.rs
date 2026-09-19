@@ -295,6 +295,16 @@ pub(super) fn sketch_create(
 
     let entities: Vec<SketchEntity> = serde_json::from_value(json!(entities_json))
         .map_err(|e| invalid_sketch(format!("entities are not sketch entities: {e}")))?;
+    // A generator with parameters it cannot expand is refused here, where
+    // the author can fix them, not at the rebuild that would otherwise leave
+    // the sketch without a profile.
+    for (i, e) in entities.iter().enumerate() {
+        if let SketchEntity::Sprocket { params, .. } = e {
+            if let Err(err) = waffle_types::sprocket_dimensions(params) {
+                return Err(invalid_sketch(format!("/entities/{i}/params: {err}")));
+            }
+        }
+    }
     let constraints: Vec<SketchConstraint> = serde_json::from_value(json!(constraints_json))
         .map_err(|e| invalid_sketch(format!("constraints are not sketch constraints: {e}")))?;
     // A reference dimension is committed with the sketch but must not drive

@@ -1128,6 +1128,12 @@ pub enum EngineError {
     /// failure (`stage` names which). The node's outputs are absent (P10).
     #[error("script {stage}: {reason}")]
     Script { stage: String, reason: String },
+
+    /// A compact generator entity in the sketch (a sprocket) could not be
+    /// expanded: its parameters describe no profile. `reason` is the
+    /// generator's typed message, naming the offending value.
+    #[error("sketch {sketch_id} has a generator that cannot be expanded: {reason}")]
+    SketchGenerator { sketch_id: Uuid, reason: String },
 }
 
 /// The class of a feature error — the machine-readable half that hosts
@@ -1249,6 +1255,7 @@ impl From<&EngineError> for ErrorKind {
             EngineError::Script { stage, .. } => ErrorKind::Script {
                 stage: stage.clone(),
             },
+            EngineError::SketchGenerator { .. } => ErrorKind::InvalidParameter,
         }
     }
 }
