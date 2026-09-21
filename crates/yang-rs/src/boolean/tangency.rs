@@ -146,10 +146,22 @@ pub(crate) fn cyl_cyl_tangent_points(
 /// `None` for non-parallel axes (the point form's domain), a coaxial pair
 /// (`δ` below the rounding band: coincident or nested surfaces, no generator
 /// contact), or no admissible sign pair within `TAU_WORK·(1+scale)`.
+#[cfg(test)]
 pub(crate) fn cyl_cyl_tangent_generator(
     (ap1, ad1, r1): (Point3, Vector3, f64),
     (ap2, ad2, r2): (Point3, Vector3, f64),
 ) -> Option<(Point3, [f64; 3])> {
+    cyl_cyl_tangent_generator_contact((ap1, ad1, r1), (ap2, ad2, r2)).map(|(p, u, _)| (p, u))
+}
+
+/// [`cyl_cyl_tangent_generator`] plus the contact KIND: `true` for EXTERNAL
+/// contact (`(+,−)`, `δ = R_A + R_B` — the two solids touch from outside,
+/// a union of two lobes pinched along the line), `false` for INTERNAL
+/// contact (one tube inside the other).
+pub(crate) fn cyl_cyl_tangent_generator_contact(
+    (ap1, ad1, r1): (Point3, Vector3, f64),
+    (ap2, ad2, r2): (Point3, Vector3, f64),
+) -> Option<(Point3, [f64; 3], bool)> {
     let u = normalize3(ad1.as_array());
     let v = normalize3(ad2.as_array());
     let n = [
@@ -188,7 +200,7 @@ pub(crate) fn cyl_cyl_tangent_generator(
         }
         let g = sa * r1;
         let p0 = Point3::new(a[0] + g * m[0], a[1] + g * m[1], a[2] + g * m[2]);
-        return Some((p0, u));
+        return Some((p0, u, sa != sb));
     }
     None
 }
@@ -348,6 +360,33 @@ pub(crate) fn tangent_point_face_overrides(
     a: &BRep,
     b: &BRep,
 ) -> (TangentOverrides, TangentOverrides) {
+    tangent_overrides(a, b, false)
+}
+
+/// The GENERATOR arm alone, as plain rim-sample maps — the Stage-0 path's
+/// entry (spec `yang_433_tangent_point_mesh_update.md` §12). Stage 0 builds
+/// its meshes through the rim-override channel only (its cap overlays are
+/// replaced wholesale, there is no face-interior channel), and a generator
+/// mint IS rim samples only: a line needs no interior point. The point arm
+/// stays out — its face-interior half has no Stage-0 carrier, and a
+/// rim-only point mint is the mid-quad Steiner fan the doc above measured.
+///
+/// Same per-pair gates as [`mint_generator`]; a pair outside them yields
+/// nothing (status quo, never worse).
+pub(crate) fn tangent_generator_rim_overrides(
+    a: &BRep,
+    b: &BRep,
+) -> (BTreeMap<u32, Vec<Point3>>, BTreeMap<u32, Vec<Point3>>) {
+    let (oa, ob) = tangent_overrides(a, b, true);
+    debug_assert!(oa.face.is_empty() && ob.face.is_empty());
+    (oa.rim, ob.rim)
+}
+
+fn tangent_overrides(
+    a: &BRep,
+    b: &BRep,
+    generator_only: bool,
+) -> (TangentOverrides, TangentOverrides) {
     let mut out_a = TangentOverrides::default();
     let mut out_b = TangentOverrides::default();
     let probe = std::env::var_os("YANG_TANGENT_INSERT_PROBE").is_some();
@@ -382,10 +421,14 @@ pub(crate) fn tangent_point_face_overrides(
                 mint_generator(
                     (fa_idx as u32, &tube_a, (apa, ada, ra), &mut out_a),
                     (fb_idx as u32, &tube_b, (apb, adb, rb), &mut out_b),
+                    generator_only,
                     probe,
                 );
                 continue;
             };
+            if generator_only {
+                continue;
+            }
             for p in pts {
                 let pa = p.as_array();
                 let scale = pa.iter().fold(0.0f64, |m, &c| m.max(c.abs()));
@@ -505,16 +548,36 @@ pub(crate) fn tangent_point_face_overrides(
 /// MERGED by the rim build with the sample's exact bits (task #143), which is
 /// what makes a tube whose own grid already carries the azimuth — C0056's B,
 /// whose two rims disagreed in the last bits at that ruling — exact too.
+///
+/// `internal_only` (the Stage-0 path, §12): decline EXTERNAL contact. Two
+/// solids touching from outside along a line union into two lobes pinched
+/// along it — an output only the pinch-edge family can emit (C0042,
+/// measured: with the ruling minted Stage 5 hands kernel-v2 one shell whose
+/// contact line is a 4-valent edge, `InvalidBooleanOutput`; without it the
+/// tessellations never meet and the regularized two-lobe union is CORRECT).
+/// Stage 0 has an emission for INTERNAL contact only (the touching-disc
+/// containment), so that is the boost's scope; the idle-Stage-0 route keeps
+/// §11's full arm.
 #[allow(clippy::type_complexity)]
 fn mint_generator(
     (fa_idx, tube_a, cyl_a, out_a): (u32, &Tube, (Point3, Vector3, f64), &mut TangentOverrides),
     (fb_idx, tube_b, cyl_b, out_b): (u32, &Tube, (Point3, Vector3, f64), &mut TangentOverrides),
+    internal_only: bool,
     probe: bool,
 ) {
-    let Some((p0, u)) = cyl_cyl_tangent_generator(cyl_a, cyl_b) else {
+    let Some((p0, u, external)) = cyl_cyl_tangent_generator_contact(cyl_a, cyl_b) else {
         return;
     };
     let pa = p0.as_array();
+    if internal_only && external {
+        if probe {
+            eprintln!(
+                "[tangent-insert] A#{fa_idx} B#{fb_idx} generator {pa:?} + t·{u:?} SKIP: \
+                 external contact on the Stage-0 path (pinch-edge family)"
+            );
+        }
+        return;
+    }
     let scale = pa.iter().fold(0.0f64, |m, &c| m.max(c.abs()));
     // (3) Exact-collinearity frame.
     if !is_exact_coordinate_axis(u) {

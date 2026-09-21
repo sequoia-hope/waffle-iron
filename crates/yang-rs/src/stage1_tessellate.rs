@@ -96,6 +96,7 @@ pub(crate) fn stage1_tessellate_with_rim_overrides(
 /// BOTH chord bounds (a FINER tessellation is always chord-valid — it can only
 /// REDUCE the sagitta, never widen it; this is not a tolerance relaxation).
 /// `min_n_seg = None` is byte-identical to [`stage1_tessellate`].
+#[cfg(test)]
 pub(crate) fn stage1_tessellate_min_segments(
     verts: &[BRepVertex],
     edges: &[BRepEdge],

@@ -43,6 +43,63 @@ after the reconciliation run (release, 8 jobs, 360 s; wall 577 s, F0085
 regression since 2026-08-01 is outstanding (checked over every commit of
 `results.json`).
 
+## 2026-09-21 — C0043 CONVERTED ⇒ 293C: the §4.3.3 GENERATOR mint on the STAGE-0 path — STANDING rim samples on the B-Rep + a TOUCHING-disc containment emission (shared fan + pinched crescent); canonical 293C / 0W / 13E / 4EE / 0T + 2 UNSUPPORTED(coplanar-boolean)
+
+C0043 (internally tangent cyl×cyl, r 1 / r 0.4 at x = 0.6, COPLANAR caps,
+union == A by design; 0.1 s) carried the §11 signature — Stage 3
+`AmbiguousCurve {1, 0}`, chords 4.5e-2 off the exact generator — because
+every Stage-1 mint in `boolean()` is gated `stage0.is_none()`. Spec
+`yang_433_tangent_point_mesh_update.md` §12; the short form:
+
+1. **The naive wiring is one wall short (measured).** Pushing the §11 rim
+   samples into Stage 0's `RimSplitMap` after the pair loop moves the STOP
+   to the I6 `NonManifoldInput` backstop: both cap pairs are a lens
+   (`DiscPair::Empty`, own fans, left to the arrangement), and with the
+   ruling minted B's centre→tangent fan edge lies ON A's radial fan edge,
+   so the arrangement splits both caps into ONE identical sub-triangle,
+   single-labelled on each side. cherchi pocket-dedup merges identical
+   INPUT triangles only; the membrane rule resolves multi-label sheets
+   only. The paper's rule is the fix: mesh the overlap identically BEFORE
+   the arrangement.
+2. **STANDING rim samples** (`BRep::standing_rim`, the `forced_rim_n`
+   precedent for points): the generator arm alone
+   (`tangent_generator_rim_overrides`) now runs FIRST in `boolean()`,
+   rebuilds both operands, and the inserted map is honored by every later
+   from-topology re-tessellation — Stage 0's ring readers, the §4.5.2
+   re-derivation, the phantom-guard boost, the spike normalization — and
+   COMPOSED bit-deduped by later rebuilds (closing the "overrides do not
+   compose across rebuilds" trap for rim samples; the P3a re-mint on the
+   idle route is a no-op).
+3. **Touching containment** in the disc∩disc builder: exactly one
+   bit-identical shared ring vertex, the rest strictly inside ⇒ the inner
+   fan to both caps + a CRESCENT to the outer cap (ear-clip of
+   `[T, o₁…o_{n−1}, i_{m−1}…i₁]` plus the tip triangle, exact coverage
+   certificate). Stage 0 then emits 24 bit-identical cap triangles, cherchi
+   dedups them into `{A, B}` sheets, the union keeps A's copy; on the real
+   kernel the exact volume is π to 1e-12, χ = 2.
+
+**Scope, set by the FIRST corpus run:** with the boost admitting EXTERNAL
+contact, C0042 (two equal cylinders touching from outside, coplanar caps,
+union) regressed CORRECT → ERROR — the two-lobe union pinched along the
+contact line is the pinch-edge family's output (Stage 5 handed kernel-v2
+one shell with a 4-valent contact edge), whereas without the ruling the
+tessellations never meet and the regularized two-lobe union is CORRECT.
+The Stage-0 entry now declines external contact (`internal_only`); the idle
+route keeps §11's full arm. **Named, not fixed:** the same internal pair as
+a FULL-HEIGHT CUT (a pinch running cap to cap) completes in yang but Stage 5
+emits both walls as closed tubes with a 4-vs-14 rim-chain mismatch on the
+outer wall — kernel-v2 `InvalidBooleanOutput`, loud, one stage later than
+before; quarantined in `cyl_cyl_tangent_union_kv2.rs`, owner the pinch-edge
+family (F0060 / §11 `split_pinch_vertices`).
+
+Corpus (release, 8 jobs, 600 s; wall 802.6 s): **293C / 0W / 13E / 4EE /
+0T, 2 UNSUPPORTED(coplanar-boolean: F0064, F0072)** — per-id diff of the
+committed `results.json`: exactly ONE category move (C0043 ERROR →
+SUPPORTED_CORRECT), ZERO detail moves. (The first run, before the scoping:
+292C with C0042 CORRECT → ERROR and C0043 ERROR → CORRECT.) Remaining
+actionable tail: R0019, R0038, R0050, R0063, R0085, R0100; loud by design:
+C0046, C0107, C0108, C0109, C0111, C0113, C0118.
+
 ## 2026-09-18 (later) — PLANE FIDELITY at both producers (assembler + extrude caps) clears R0085's op-3 intra-solid pair; op 3 then STOPs loudly on a SUB-RESOLUTION cone triangle at a near-tangential torus × cone crossing; R0063 surfaces as a rounding-luck latent; canonical 292C / 0W / 14E / 4EE / 0T + 2 UNSUPPORTED(coplanar-boolean)
 
 The morning row's next wall — "an output face must carry its INPUT's exact
@@ -2591,7 +2648,7 @@ Two dead ends, closed by measurement (do not re-walk them):
 
 | Case | Loud error | Root cause | Confidence | Vehicle |
 |---|---|---|---|---|
-| C0043 | AmbiguousCurve {1, 0} edge (23,93) | probe 2026-07-18 (`YANG_S3_AMBIG_PROBE`): the two surfaces are **internally tangent cylinders BY DESIGN** (r=1.0 at origin, r=0.4 at x=0.6; axis distance 0.6 = 1.0−0.4; gen_complexity.rs: "the degenerate tangency is the test", union == operand A by design). The single candidate IS the exact tangent generator Line{[1,0,0], ẑ}; the mesh intersection chords sit 4.5e-2 off it (= tol, the near-parallel-surface amplification at tangency) so matched=0 — a correct loud STOP on 1D line-contact tangency. Same contact-degeneracy family as C0107–C0110 | CONFIRMED (#171 pass 2) | degenerate-tangency SSI vocabulary (C0109 family) or scope sign-off |
+| ~~C0043~~ | ~~AmbiguousCurve {1, 0} edge (23,93)~~ **CONVERTED 2026-09-21 (§4.3.3 generator arm on the Stage-0 path: STANDING rim samples + touching-disc containment; spec `yang_433_tangent_point_mesh_update.md` §12; section above)** | probe 2026-07-18 (`YANG_S3_AMBIG_PROBE`): the two surfaces are **internally tangent cylinders BY DESIGN** (r=1.0 at origin, r=0.4 at x=0.6; axis distance 0.6 = 1.0−0.4; gen_complexity.rs: "the degenerate tangency is the test", union == operand A by design). The single candidate IS the exact tangent generator Line{[1,0,0], ẑ}; the mesh intersection chords sit 4.5e-2 off it (= tol, the near-parallel-surface amplification at tangency) so matched=0 — a correct loud STOP on 1D line-contact tangency. Same contact-degeneracy family as C0107–C0110 | CONFIRMED (#171 pass 2) | degenerate-tangency SSI vocabulary (C0109 family) or scope sign-off |
 | ~~C0056~~ | ~~AmbiguousCurve {1, 0} edge (37,70)~~ **CONVERTED 2026-09-17 (§4.3.3 generator arm + M3d slit + spur facet fraction + per-fan χ; section above)** | probe 2026-07-18: same signature, also BY DESIGN — internal lateral tangency cut (r=1.0 origin × r=0.5 at x=0.5, axis distance 0.5 = 1.0−0.5; "wall thins to zero at the tangent line"); candidate = Line{[1,0,0], ẑ}, chords 4.9e-2 off. Output would be zero-thickness at the tangent line (C0114/C0115 kin) | CONFIRMED (#171 pass 2) | degenerate-tangency SSI vocabulary or scope sign-off |
 
 ### NonPlanarFace (3)

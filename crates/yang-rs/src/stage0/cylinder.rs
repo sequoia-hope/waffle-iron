@@ -494,10 +494,20 @@ pub(crate) fn coincident_cylinder_stage0(a: &BRep, b: &BRep) -> Result<Option<St
             return Ok(None);
         }
     };
-    let tess_a =
-        crate::stage1_tessellate_min_segments(&verts_a, a.edges(), a.faces(), Some(shared_n))?;
-    let tess_b =
-        crate::stage1_tessellate_min_segments(&verts_b, b.edges(), b.faces(), Some(shared_n))?;
+    let tess_a = crate::stage1_tessellate_with_rim_overrides(
+        &verts_a,
+        a.edges(),
+        a.faces(),
+        a.standing_rim(),
+        Some(shared_n),
+    )?;
+    let tess_b = crate::stage1_tessellate_with_rim_overrides(
+        &verts_b,
+        b.edges(),
+        b.faces(),
+        b.standing_rim(),
+        Some(shared_n),
+    )?;
 
     let outer_tess = if outer_is_a { &tess_a } else { &tess_b };
     let outer_faces = if outer_is_a { &g.faces_a } else { &g.faces_b };

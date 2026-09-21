@@ -49,6 +49,7 @@ mod s1_chart_chord_seed;
 mod s1_chart_crossing;
 mod s1_planar_chart_crossing;
 mod s1_self_contact;
+mod s433_generator_stage0;
 mod s433_tangent_relocation;
 mod s434_output_restore;
 mod s451_crease_domain;

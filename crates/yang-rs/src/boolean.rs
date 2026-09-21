@@ -1057,6 +1057,62 @@ fn boolean_once(
         junction_mint_probe(a, b);
     }
 
+    // P3b inc-4a: bit-keys of every Stage-1 minted junction point actually
+    // inserted by ANY Stage-1 mint mechanism below — the §4.3.3 generator
+    // boost, the increment-2/4 rim-junction insertion and the P3a conformal
+    // junction sampling — mapped (inc-4b) to the mint's owner-edge trim
+    // provenance (default, i.e. no trim verdict, for rim mints). Threaded
+    // into Stage 4 so the §4.3 coincident weld can recognize a relocated
+    // vertex converging onto a minted junction (the moved×minted arm;
+    // survivor = the mint) and the beyond-corner trim can test the owner
+    // planes. Empty when no mint happened.
+    let mut minted_junction_keys: std::collections::BTreeMap<[u64; 3], MintProvenance> =
+        std::collections::BTreeMap::new();
+
+    // (−1) Yang §4.3.3 GENERATOR tangency, BEFORE Stage 0 (spec
+    // `yang_433_tangent_point_mesh_update.md` §12). Two parallel-axis
+    // cylinder laterals tangent along a line get that line as a RULING of
+    // both prisms: four exact rim samples with identical bits on both
+    // solids, carried as STANDING Stage-1 rim samples of the rebuilt
+    // operands so every re-tessellation from topology keeps them — Stage
+    // 0's ring readers included. The junction sampler below mints the same
+    // arm again when Stage 0 is idle (C0056); on a boosted operand that
+    // re-mint composes bit-for-bit (`BRep::standing_rim`), so this pass
+    // changes the idle-Stage-0 route only in the order the samples enter
+    // (the rim build sorts by azimuth). Its customer is the Stage-0 route:
+    // C0043, the same internal tangency with COPLANAR caps, whose caps the
+    // disc∩disc builder can now classify as a TOUCHING containment and
+    // emit identically (a shared fan + a pinched crescent) instead of
+    // leaving a lens to the arrangement. `YANG_433_TANGENT_INSERT=off|0`
+    // disables it together with the point arm (dev A/B).
+    let generator_boosted: Option<(BRep, BRep)> = if matches!(
+        std::env::var("YANG_433_TANGENT_INSERT").as_deref(),
+        Ok("off") | Ok("0")
+    ) {
+        None
+    } else {
+        let (ga, gb) = tangent_generator_rim_overrides(a, b);
+        if ga.is_empty() && gb.is_empty() {
+            None
+        } else {
+            for p in ga.values().chain(gb.values()).flatten() {
+                minted_junction_keys
+                    .entry([p.x().to_bits(), p.y().to_bits(), p.z().to_bits()])
+                    .or_insert(MintProvenance {
+                        owner_planes: [MintTrimPlane::default(); 2],
+                    });
+            }
+            Some((
+                a.rebuilt_with_rim_overrides(&ga)?,
+                b.rebuilt_with_rim_overrides(&gb)?,
+            ))
+        }
+    };
+    let (a, b): (&BRep, &BRep) = match &generator_boosted {
+        Some((ba, bb)) => (ba, bb),
+        None => (a, b),
+    };
+
     // (0) Stage 0 — §4.5.5 coplanar preprocessing (PR-YR26, M8 slice b).
     // Near-coplanar planar A×B face pairs are HANDLED: both faces snapped
     // onto one canonical shared plane, segmented by the exact 2D overlay,
@@ -1104,17 +1160,6 @@ fn boolean_once(
     // Rim re-tessellation changes neither surfaces nor topology, so the
     // Stage-0 detectors' verdicts (computed above) remain valid for the
     // rebuilt operands.
-    // P3b inc-4a: bit-keys of every Stage-1 minted junction point actually
-    // inserted by EITHER Stage-1 mint mechanism below — the increment-2/4
-    // rim-junction insertion and the P3a conformal junction sampling —
-    // mapped (inc-4b) to the mint's owner-edge trim provenance (default,
-    // i.e. no trim verdict, for rim-junction mints). Threaded into Stage 4
-    // so the §4.3 coincident weld can recognize a relocated vertex
-    // converging onto a minted junction (the moved×minted arm; survivor =
-    // the mint) and the beyond-corner trim can test the owner planes. Empty
-    // when no mint happened.
-    let mut minted_junction_keys: std::collections::BTreeMap<[u64; 3], MintProvenance> =
-        std::collections::BTreeMap::new();
     if std::env::var_os("YANG_RIM_JUNCTION_PROBE").is_some() {
         eprintln!(
             "[rim-junction] gate: stage0_none={} cyl_pairs_empty={}",
@@ -2886,6 +2931,7 @@ fn boolean_once(
         // attribution (until the output reconstruction also emits a tri→face map).
         tri_face: Vec::new(),
         forced_rim_n: None,
+        standing_rim: std::collections::BTreeMap::new(),
     })
 }
 

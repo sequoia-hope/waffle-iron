@@ -272,6 +272,44 @@ pub(crate) fn build_disc_disc_containment(
         return identical;
     }
 
+    // INTERNALLY TANGENT discs (spec `yang_433_tangent_point_mesh_update.md`
+    // §12, C0043): the two rings share exactly ONE vertex bit-for-bit — the
+    // §4.3.3 generator mint gave both laterals a ruling on the tangent line,
+    // so both rims carry its endpoint with identical bits — and every other
+    // inner vertex is strictly inside. The overlap is still the inner disc
+    // (fanned, emitted to both); the remainder is a CRESCENT pinched at the
+    // shared vertex, not an annulus. Left to the arrangement as a lens the
+    // caps keep different fans, and the one sub-triangle they then split
+    // identically (inner centre → tangent point lies on the outer fan's
+    // radial edge) survives single-labelled on BOTH sides — the I6
+    // `NonManifoldInput` backstop, measured.
+    if let Some((inner_is_a, ti, to)) = touching_containment(&ring_a, &ring_b) {
+        let (inner, outer, inner_center) = if inner_is_a {
+            (&ring_a, &ring_b, &center_a)
+        } else {
+            (&ring_b, &ring_a, &center_b)
+        };
+        let Some(overlap) = fan_tris(inner_center, inner) else {
+            return DiscPair::Wall("disc-overlap-tri");
+        };
+        let Some(crescent) = crescent_tris(outer, inner, to, ti) else {
+            return DiscPair::Wall("disc-crescent-tri");
+        };
+        let mut outer_t = overlap.clone();
+        outer_t.extend(crescent);
+        let (tris_a, mut tris_b) = if inner_is_a {
+            (overlap, outer_t)
+        } else {
+            (outer_t, overlap)
+        };
+        if opposite {
+            for t in &mut tris_b {
+                t.swap(1, 2);
+            }
+        }
+        return DiscPair::Handled { tris_a, tris_b };
+    }
+
     // Strict containment (a tangency or crossing falls through, as in the
     // disc∩polygon path).
     let a_in_b = ring_a.iter().all(|v| strictly_inside_convex(&ring_b, &v.e));
@@ -766,6 +804,109 @@ pub(crate) fn annulus_tris(outer: &[V2], inner: &[V2]) -> Option<Vec<[Point3; 3]
         } else {
             -a
         }
+    };
+    if covered2 != shoelace2(outer) - shoelace2(inner) {
+        return None;
+    }
+    Some(out)
+}
+
+/// Is one ring inside the other, TOUCHING it at exactly one shared vertex?
+/// `Some((inner_is_a, inner_idx, outer_idx))` when every vertex of the inner
+/// ring is strictly inside the outer ring except exactly one that is
+/// bit-identical (exact 2D) to an outer vertex. Two shared vertices, or a
+/// shared vertex with another inner vertex not strictly inside, is not this
+/// class (`None` — the caller's crossing / disjoint reading applies).
+pub(crate) fn touching_containment(ring_a: &[V2], ring_b: &[V2]) -> Option<(bool, usize, usize)> {
+    let classify = |inner: &[V2], outer: &[V2]| -> Option<(usize, usize)> {
+        let mut shared: Option<(usize, usize)> = None;
+        for (i, v) in inner.iter().enumerate() {
+            if let Some(j) = outer.iter().position(|w| w.e == v.e) {
+                if shared.is_some() {
+                    return None;
+                }
+                shared = Some((i, j));
+            } else if !strictly_inside_convex(outer, &v.e) {
+                return None;
+            }
+        }
+        shared
+    };
+    if let Some((i, j)) = classify(ring_a, ring_b) {
+        return Some((true, i, j));
+    }
+    if let Some((i, j)) = classify(ring_b, ring_a) {
+        return Some((false, i, j));
+    }
+    None
+}
+
+/// Triangulate the CRESCENT between a convex CCW `outer` ring and a convex
+/// CCW `inner` ring nested inside it and touching it at exactly one shared
+/// vertex `T = outer[t_outer] = inner[t_inner]` (bit-identical).
+///
+/// The crescent is a weakly simple polygon (T appears twice on its
+/// boundary). Split it at the tip: the polygon `P = [T, o₁ … o_{n−1},
+/// i_{m−1} … i₁]` (outer CCW from T, then inner CW back to T, with the bridge
+/// `o_{n−1} → i_{m−1}` between the two vertices adjacent to T on the same
+/// side) is simple and ear-clipped; the TIP triangle `[T, o_{n−1}, i_{m−1}]`
+/// it cut off is added back. Exact coverage certificate (the annulus E-F4
+/// pattern): Σ area = area(outer) − area(inner), rational shoelace, else
+/// `None` (loud residue, never a pleat or a gap).
+pub(crate) fn crescent_tris(
+    outer: &[V2],
+    inner: &[V2],
+    t_outer: usize,
+    t_inner: usize,
+) -> Option<Vec<[Point3; 3]>> {
+    let (no, ni) = (outer.len(), inner.len());
+    if no < 3 || ni < 3 || outer[t_outer].e != inner[t_inner].e {
+        return None;
+    }
+    let o = |k: usize| &outer[(t_outer + k) % no];
+    let i = |k: usize| &inner[(t_inner + k) % ni];
+    // P: T, o₁ … o_{n−1}, i_{m−1} … i₁ (inner traversed CW).
+    let mut poly: Vec<&V2> = Vec::with_capacity(no + ni - 1);
+    for k in 0..no {
+        poly.push(o(k));
+    }
+    for k in (1..ni).rev() {
+        poly.push(i(k));
+    }
+    let pts: Vec<ExactPoint2> = poly.iter().map(|v| v.e.clone()).collect();
+    let idx = crate::coplanar_overlay::ear_clip(&pts).ok()?;
+    let abs = |x: RBig| if x > RBig::ZERO { x } else { -x };
+    let mut covered2 = RBig::ZERO;
+    let mut out: Vec<[Point3; 3]> = Vec::with_capacity(idx.len() + 1);
+    for [a, b, c] in idx {
+        let area2 = cross_r(&poly[a].e, &poly[b].e, &poly[c].e);
+        if area2 <= RBig::ZERO {
+            return None;
+        }
+        covered2 += area2;
+        out.push([poly[a].p, poly[b].p, poly[c].p]);
+    }
+    // The tip: T, o_{n−1}, i_{m−1}, oriented CCW by the exact sign.
+    let (t, on, im) = (o(0), o(no - 1), i(ni - 1));
+    let tip2 = cross_r(&t.e, &on.e, &im.e);
+    if tip2 == RBig::ZERO {
+        return None;
+    }
+    covered2 += abs(tip2.clone());
+    out.push(if tip2 > RBig::ZERO {
+        [t.p, on.p, im.p]
+    } else {
+        [t.p, im.p, on.p]
+    });
+    let shoelace2 = |ring: &[V2]| -> RBig {
+        let n = ring.len();
+        let mut a = RBig::ZERO;
+        for k in 0..n {
+            let p = &ring[k].e;
+            let q = &ring[(k + 1) % n].e;
+            a += &p.x * &q.y - &q.x * &p.y;
+        }
+        abs(a)
     };
     if covered2 != shoelace2(outer) - shoelace2(inner) {
         return None;

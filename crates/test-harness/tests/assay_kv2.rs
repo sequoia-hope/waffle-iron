@@ -1389,6 +1389,12 @@ fn smoke_corpus_boundary_categories() {
         // §4.3.3 generator arm + M3d slit + per-fan χ (2026-09-17): the
         // internally tangent blind hole, 0.4 s release.
         ("C0056", Category::SupportedCorrect),
+        // C0043 FLIPPED (2026-09-21, spec `yang_433_tangent_point_mesh_update`
+        // §12): the same internal tangency with COPLANAR caps — the generator
+        // mint runs before Stage 0 as STANDING rim samples and the disc∩disc
+        // builder emits the touching pair identically (shared fan + pinched
+        // crescent). 0.5 s release.
+        ("C0043", Category::SupportedCorrect),
         // C0065 FLIPPED (2026-09-17, Yang §4.5.2 local refinement ALWAYS-ON
         // + KV14 Slice F-4): the x = 1.45 wall grazes the torus 0.05 deep
         // while the natural rim chord sags 0.038, so the mesh loop reached

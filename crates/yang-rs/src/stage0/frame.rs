@@ -221,10 +221,11 @@ pub(crate) fn disc_rim_ring(
         return None;
     };
     let verts: Vec<BRepVertex> = coords.iter().map(|&p| BRepVertex { point: p }).collect();
-    let tess = crate::stage1_tessellate_min_segments(
+    let tess = crate::stage1_tessellate_with_rim_overrides(
         &verts,
         brep.edges(),
         brep.faces(),
+        brep.standing_rim(),
         brep.forced_rim_n(),
     )
     .ok()?;
@@ -305,10 +306,11 @@ pub(crate) fn annular_rim_rings(
     }
 
     let verts: Vec<BRepVertex> = coords.iter().map(|&p| BRepVertex { point: p }).collect();
-    let tess = crate::stage1_tessellate_min_segments(
+    let tess = crate::stage1_tessellate_with_rim_overrides(
         &verts,
         brep.edges(),
         brep.faces(),
+        brep.standing_rim(),
         brep.forced_rim_n(),
     )
     .ok()?;
@@ -996,10 +998,11 @@ pub(crate) fn mixed_face_polygon_2d(
     frame: &Frame,
 ) -> Option<TessellatedFacePolygon> {
     let verts: Vec<BRepVertex> = coords.iter().map(|&p| BRepVertex { point: p }).collect();
-    let tess = crate::stage1_tessellate_min_segments(
+    let tess = crate::stage1_tessellate_with_rim_overrides(
         &verts,
         brep.edges(),
         brep.faces(),
+        brep.standing_rim(),
         brep.forced_rim_n(),
     )
     .ok()?;

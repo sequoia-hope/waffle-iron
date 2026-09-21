@@ -538,10 +538,120 @@ guard rewritten as `m3d_two_vertex_subring_is_a_slit_and_emits_no_degenerate_tri
 cherchi-rs `floodfill_constrained_keeps_the_interior_and_the_constraint_edge`;
 oracle per-fan test above; smoke pin C0056 (0.4 s release). Corpus: Canonical corpus after the flip run (release, 8 jobs, 600 s; wall 738.1 s; F0085 321.6 s, R0044 293.3 s, F0065 110.9 s): **291C / 0W / 14E / 4EE / 0T + 3 UNSUPPORTED(coplanar-boolean)** — per-id diff of the committed `results.json`: exactly ONE category move (C0056 ERROR → SUPPORTED_CORRECT), ZERO detail moves.
 
-**Not covered (still).** C0043 — the same tangency with COPLANAR caps — takes
+**Not covered (still).** ~~C0043 — the same tangency with COPLANAR caps — takes
 the Stage-0 path (`stage0: true`), where the P3a/tangency mint is not wired;
-it stays at its Stage-3 wall, M8 territory. A slit whose BOTH ends are
+it stays at its Stage-3 wall, M8 territory.~~ **§12 (2026-09-21).** A slit whose BOTH ends are
 interior to the face (a slot fully inside the outer wall's span) would arrive
 as a zero-area INNER loop, which the M3d peel does not see. R0038
 (plane-tangent-cylinder generator), torus tangency (R0050, C0065), and oblique
 axes (the exact-collinearity gate) are unchanged.
+
+## 12. Increment 5 (LANDED 2026-09-21, ALWAYS-ON) — the generator arm on the STAGE-0 path: coplanar caps (C0043)
+
+**Configuration.** C0043: A = cylinder `r 1`, `z ∈ [0, 1]`; B = cylinder
+`r 0.4` on the axis through `(0.6, 0, 0)`, `z ∈ [0, 1]`, UNION (the union
+IS A by design — B lies inside A, touching its wall along the generator
+`x = 1, y = 0`). The same internal tangency as §11 with the two cap pairs
+COPLANAR, so `stage0_preprocess` is active and every Stage-1 mint in
+`boolean()` (rim junction, P3a, the §11 tangency arm) was gated off by
+`stage0.is_none()`. Reproduced in 0.1 s: Stage 3 `AmbiguousCurve {1, 0}` on
+edge (23, 93), the §11 signature (chords 4.5e-2 off the generator).
+
+**Why the naive wiring is one wall short (measured).** Pushing the §11 rim
+samples into Stage 0's `RimSplitMap` after the pair loop moves the wall to the
+I6 `NonManifoldInput` backstop: `NONMANIFOLD_SITE_PROBE` names one coincident
+cap triangle `[(0.9464, 0.2, 0), (1, 0, 0), (0.6, 0, 0)]` kept from BOTH
+inputs with single labels (`source [(A, 9)]` / `[(B, 8)]`). Both cap pairs
+had been classified `DiscPair::Empty` (a lens: neither ring strictly contains
+the other, they overlap) and left to the arrangement with their own fans;
+with the ruling minted, B's fan edge from its centre to the tangent point
+lies ON A's radial fan edge along the x-axis, the arrangement splits A's
+triangle at B's centre, and the two caps agree on exactly that one
+sub-triangle. cherchi's pocket dedup merges IDENTICAL INPUT triangles into a
+multi-label sheet; a coincidence minted by the split is two single-label
+copies, and the §4.5.5 membrane rule (which resolves multi-label sheets
+only) never sees it. The paper's rule is the fix, not another dedup: the
+overlap must be meshed identically BEFORE the arrangement.
+
+**Two pieces.**
+
+1. **STANDING rim samples (`BRep::standing_rim`, the `forced_rim_n`
+   precedent for points).** The generator mint now runs FIRST in
+   `boolean()` — before Stage 0 — through
+   `tangent_generator_rim_overrides` (the §11 arm alone; the point arm's
+   face-interior half has no Stage-0 carrier) and rebuilds both operands
+   with `rebuilt_with_rim_overrides`. The map it inserted is stored on the
+   rebuilt B-Rep and honored by every later re-tessellation from topology:
+   Stage 0's ring readers (`disc_rim_ring`, the annular and mixed readers,
+   the coincident-cylinder build, `build_stage0_mesh` — all through
+   `stage1_tessellate_with_rim_overrides`), the §4.5.2 re-derivation, the
+   phantom-guard boost, the spike normalization, and the two `rebuilt_*`
+   entries, which COMPOSE new overrides over the standing ones bit-deduped
+   (`merge_rim_points`). So the P3a sampler's re-mint of the same generator
+   on the idle-Stage-0 route (C0056) is a no-op instead of a refused
+   duplicate slot, and the "overrides do not compose across rebuilds" trap
+   (`boolean.rs` P3a scope gate) is closed for rim samples. Mint keys are
+   registered in `minted_junction_keys` like the rim-junction path's.
+2. **Touching containment in the disc∩disc builder
+   (`stage0::disc_pair::touching_containment` + `crescent_tris`).** With the
+   standing sample on both rims, each cap ring carries the tangent point
+   with identical bits (A: a 14th slot; B: its uniform slot k = 3 takes the
+   override's bits, #143). The classification now recognizes "every inner
+   vertex strictly inside the outer ring except exactly ONE bit-identical
+   shared vertex" and emits the inner disc's fan to BOTH caps (the shared
+   overlap) plus the CRESCENT to the outer cap. The crescent is weakly
+   simple (the cusp T twice on its boundary); it is triangulated as the
+   simple polygon `[T, o₁ … o_{n−1}, i_{m−1} … i₁]` (outer CCW from T, inner
+   CW back, bridged between the two vertices adjacent to T) ear-clipped,
+   plus the TIP triangle `[T, o_{n−1}, i_{m−1}]` the bridge cut off —
+   under the annulus builder's exact coverage certificate (Σ area =
+   area(outer) − area(inner), rational shoelace; any other outcome is the
+   loud `disc-crescent-tri` residue). Two shared vertices, or a shared
+   vertex with a non-interior neighbour, is not this class.
+
+**What the pipeline then does.** Stage 0 emits 24 bit-identical cap
+triangles on B (12 per cap) that all exist in A's mesh; cherchi dedups them
+into `{A, B}` sheets; the union keeps A's copy (`!opposite`); B's lateral
+falls inside A's along the shared ruling; the output is A's three surfaces,
+closed 2-manifold, volume = A's own 14-gon prism (`s433_internally_tangent_
+cylinders_with_coplanar_caps_union_is_a`), and on the real kernel the exact
+B-Rep volume is π to 1e-12 with χ = 2 (`cyl_cyl_tangent_union_kv2`, both the
+mid-quad C0043 placement and the on-seam placement where the mint's A-side
+samples are skipped because the ruling already exists).
+
+**Scope: INTERNAL contact only (measured on the first corpus run).** With
+the boost admitting external contact too, C0042 — two equal cylinders
+touching from OUTSIDE along a line, coplanar caps, union — regressed
+CORRECT → ERROR: the two-lobe union pinched along the contact line is an
+output only the pinch-edge family can emit (Stage 5 handed kernel-v2 one
+shell whose contact line is a 4-valent edge, `InvalidBooleanOutput`),
+whereas without the ruling the two tessellations never meet and the
+regularized two-lobe union is CORRECT. Stage 0 has an emission for internal
+contact only (the touching containment), so `mint_generator` declines
+external contact under `internal_only` on the Stage-0 entry; the
+idle-Stage-0 route keeps §11's full arm (`cyl_cyl_tangent_generator_contact`
+now reports the kind; pin `s433_stage0_entry_declines_external_contact`).
+
+**Not this increment (measured, quarantined).** The same pair as a
+FULL-HEIGHT CUT (`internally_tangent_full_height_cut_leaves_a_crescent_prism`,
+`#[ignore]`): yang completes with the cusp duplicated per cap, but Stage 5
+hands kernel-v2 both walls as CLOSED tubes (outer loop = one rim, inner loop
+= the other) and the outer wall's bottom rim chain is 4 coarse arcs
+(`1→10→7→4`) against the cap's 14 — `InvalidBooleanOutput("an undirected
+output edge is not used by exactly two directed edges")`, loud, one stage
+later than before (Stage 3). A pinch that runs cap to cap is the pinch-edge
+family's (F0060 / §11's `split_pinch_vertices`), not §12's.
+
+**Oracles.** yang-rs `tests_unit::s433_generator_stage0` (touching
+containment finds the one shared vertex and rejects strict containment and
+crossing; crescent covered exactly — 24 triangles, CCW, no degenerate;
+standing samples survive `retessellated_at_current_d_eps` /
+`rebuilt_with_all_overrides` / a re-mint; Stage 0 emits the touching-disc
+overlap identically; end-to-end union == A); test-harness
+`cyl_cyl_tangent_union_kv2` (two union placements pass, the cut
+quarantined). Full yang-rs suite 983 + integration binaries green; clippy
+`--all-targets` clean on yang-rs and test-harness. Corpus (release, 8 jobs,
+600 s; wall 802.6 s): **293C / 0W / 13E / 4EE / 0T + 2
+UNSUPPORTED(coplanar-boolean)** — per-id diff of the committed
+`results.json`: exactly ONE category move (C0043 ERROR →
+SUPPORTED_CORRECT), ZERO detail moves.

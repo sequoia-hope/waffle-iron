@@ -307,6 +307,21 @@ pub struct BRep {
     /// re-triangulation) MUST honor it so their rims stay conformal with
     /// `as_mesh()`. `None` = the solid's own Stage-1 chord bound (the default).
     pub(crate) forced_rim_n: Option<usize>,
+    /// STANDING Stage-1 rim samples (spec `yang_433_tangent_point_mesh_update`
+    /// §12): per full-circle rim edge, exact extra ring samples every
+    /// re-tessellation of this B-Rep from topology must carry — the
+    /// `forced_rim_n` precedent for POINTS instead of a density. Populated by
+    /// [`Self::rebuilt_with_rim_overrides`] / [`Self::rebuilt_with_all_overrides`]
+    /// (the map they inserted, composed with any standing samples already in
+    /// force) and honored by Stage 0's internal re-tessellations
+    /// (`disc_rim_ring`, the annular / mixed ring readers, the coincident-
+    /// cylinder build, `build_stage0_mesh`) and by the §4.5.2 / phantom-guard
+    /// rebuilds — so a §4.3.3 mint made BEFORE Stage 0 (the generator ruling
+    /// of an internally tangent cylinder pair whose caps are coplanar, C0043)
+    /// is part of the rings Stage 0 classifies and emits, not lost at the
+    /// next `from_topology`. Empty for `new` / `from_mesh`; an empty map is
+    /// the Stage-1 byte-identical identity.
+    pub(crate) standing_rim: std::collections::BTreeMap<u32, Vec<Point3>>,
 }
 
 impl BRep {
@@ -422,7 +437,27 @@ impl BRep {
     ) -> Result<Self, YangError> {
         let tess =
             stage1_tessellate_with_rim_overrides(&verts, &edges, &faces, rim_overrides, min_n_seg)?;
-        Self::from_topology_and_tess(verts, edges, faces, min_n_seg, tess)
+        let mut out = Self::from_topology_and_tess(verts, edges, faces, min_n_seg, tess)?;
+        out.standing_rim = rim_overrides.clone();
+        Ok(out)
+    }
+
+    /// `extra` composed over this B-Rep's standing rim samples: per rim edge
+    /// the standing points first, then every `extra` point not already present
+    /// bit-for-bit. Insertion order is immaterial to the rim build (it sorts
+    /// by azimuth); the dedup is what makes a re-mint of a standing sample
+    /// (the §4.3.3 generator arm minted again by the junction sampler on an
+    /// already boosted operand) a no-op instead of a refused duplicate slot.
+    fn compose_rim_overrides(
+        &self,
+        extra: &std::collections::BTreeMap<u32, Vec<Point3>>,
+    ) -> std::collections::BTreeMap<u32, Vec<Point3>> {
+        merge_rim_points(&self.standing_rim, extra)
+    }
+
+    /// The standing Stage-1 rim samples (see the field docs).
+    pub(crate) fn standing_rim(&self) -> &std::collections::BTreeMap<u32, Vec<Point3>> {
+        &self.standing_rim
     }
 
     /// Shared tail of the `from_topology*` constructors: fold a Stage-1
@@ -484,6 +519,7 @@ impl BRep {
             face_attribution: Vec::new(),
             tri_face,
             forced_rim_n: min_n_seg,
+            standing_rim: std::collections::BTreeMap::new(),
         })
     }
 
@@ -503,20 +539,22 @@ impl BRep {
     /// force (`forced_rim_n`) is preserved, so the two mechanisms compose. At
     /// the natural rung this returns a byte-identical rebuild.
     pub(crate) fn retessellated_at_current_d_eps(&self) -> Result<Self, YangError> {
-        Self::from_topology(
+        Self::from_topology_with_rim_overrides(
             self.vertices.clone(),
             self.edges.clone(),
             self.faces.clone(),
             self.forced_rim_n,
+            &self.standing_rim,
         )
     }
 
     pub(crate) fn rebuilt_with_min_rim_segments(&self, n: usize) -> Result<Self, YangError> {
-        Self::from_topology(
+        Self::from_topology_with_rim_overrides(
             self.vertices.clone(),
             self.edges.clone(),
             self.faces.clone(),
             Some(n),
+            &self.standing_rim,
         )
     }
 
@@ -529,20 +567,12 @@ impl BRep {
         &self,
         rim_overrides: &std::collections::BTreeMap<u32, Vec<Point3>>,
     ) -> Result<Self, YangError> {
-        if rim_overrides.is_empty() {
-            return Self::from_topology(
-                self.vertices.clone(),
-                self.edges.clone(),
-                self.faces.clone(),
-                self.forced_rim_n,
-            );
-        }
         Self::from_topology_with_rim_overrides(
             self.vertices.clone(),
             self.edges.clone(),
             self.faces.clone(),
             self.forced_rim_n,
-            rim_overrides,
+            &self.compose_rim_overrides(rim_overrides),
         )
     }
 
@@ -581,6 +611,7 @@ impl BRep {
         edge_overrides: &std::collections::BTreeMap<u32, Vec<Point3>>,
         face_overrides: &std::collections::BTreeMap<u32, Vec<Point3>>,
     ) -> Result<Self, YangError> {
+        let rim_overrides = self.compose_rim_overrides(rim_overrides);
         if rim_overrides.is_empty() && edge_overrides.is_empty() && face_overrides.is_empty() {
             return Self::from_topology(
                 self.vertices.clone(),
@@ -593,19 +624,21 @@ impl BRep {
             &self.vertices,
             &self.edges,
             &self.faces,
-            rim_overrides,
+            &rim_overrides,
             edge_overrides,
             face_overrides,
             self.forced_rim_n,
         )
         .map(|(t, _)| t)?;
-        Self::from_topology_and_tess(
+        let mut out = Self::from_topology_and_tess(
             self.vertices.clone(),
             self.edges.clone(),
             self.faces.clone(),
             self.forced_rim_n,
             tess,
-        )
+        )?;
+        out.standing_rim = rim_overrides;
+        Ok(out)
     }
 
     /// Normalize away BACKTRACK-SPIKE needle vertices in every face loop.
@@ -675,11 +708,14 @@ impl BRep {
         if !changed {
             return Ok(None);
         }
-        Ok(Some(Self::from_topology(
+        // The spike merge only rewrites `LineSegment` runs; circle rim edges
+        // keep their indices, so the standing rim samples stay addressable.
+        Ok(Some(Self::from_topology_with_rim_overrides(
             self.vertices.clone(),
             edges,
             faces,
             self.forced_rim_n,
+            &self.standing_rim,
         )?))
     }
 
@@ -699,6 +735,7 @@ impl BRep {
             face_attribution: Vec::new(),
             tri_face: Vec::new(),
             forced_rim_n: None,
+            standing_rim: std::collections::BTreeMap::new(),
         }
     }
 
@@ -717,6 +754,25 @@ impl BRep {
     pub(crate) fn forced_rim_n(&self) -> Option<usize> {
         self.forced_rim_n
     }
+}
+
+/// Per rim edge, `base` followed by every `extra` point not already present
+/// bit-for-bit (the standing-sample composition; see `BRep::standing_rim`).
+pub(crate) fn merge_rim_points(
+    base: &std::collections::BTreeMap<u32, Vec<Point3>>,
+    extra: &std::collections::BTreeMap<u32, Vec<Point3>>,
+) -> std::collections::BTreeMap<u32, Vec<Point3>> {
+    let mut out = base.clone();
+    for (&e, pts) in extra {
+        let slot = out.entry(e).or_default();
+        for &p in pts {
+            if !slot.contains(&p) {
+                slot.push(p);
+            }
+        }
+    }
+    out.retain(|_, v| !v.is_empty());
+    out
 }
 
 impl BRep {

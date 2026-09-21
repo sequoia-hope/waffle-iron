@@ -880,7 +880,10 @@ pub(crate) fn build_stage0_mesh(
         .iter()
         .map(|&p| BRepVertex { point: p })
         .collect();
-    let rim_points = rim_overrides.to_points();
+    // The B-Rep's STANDING rim samples (a pre-Stage-0 §4.3.3 mint) compose
+    // under the overlay's own rim tables, bit-deduped: the ring readers the
+    // overlay classified on already carried them (`disc_rim_ring`).
+    let rim_points = crate::brep::merge_rim_points(brep.standing_rim(), &rim_overrides.to_points());
     let tess = stage1_tessellate_with_rim_overrides(
         &brep_verts,
         brep.edges(),
