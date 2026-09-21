@@ -443,8 +443,8 @@ pub(crate) fn stage0_preprocess(a: &BRep, b: &BRep) -> Result<Option<Stage0>, Ya
     let mut overrides_b: BTreeMap<usize, Vec<[Point3; 3]>> = BTreeMap::new();
     let mut splits_a: SplitMap = BTreeMap::new();
     let mut splits_b: SplitMap = BTreeMap::new();
-    let mut rim_overrides_a: RimSplitMap = BTreeMap::new();
-    let mut rim_overrides_b: RimSplitMap = BTreeMap::new();
+    let mut rim_overrides_a = RimSplitMap::new();
+    let mut rim_overrides_b = RimSplitMap::new();
     let mut pairs: Vec<PairPlane> = Vec::with_capacity(scan.cross.len());
 
     for (g, frame) in groups.iter().zip(&frames) {
@@ -559,21 +559,15 @@ pub(crate) fn stage0_preprocess(a: &BRep, b: &BRep) -> Result<Option<Stage0>, Ya
                 } => {
                     overrides_a.insert(p.face_a, tris_a);
                     overrides_b.insert(p.face_b, tris_b);
-                    rim_overrides_a
-                        .entry(rim_edge_a)
-                        .or_default()
-                        .extend(shared_rim.iter().copied());
-                    rim_overrides_b
-                        .entry(rim_edge_b)
-                        .or_default()
-                        .extend(shared_rim);
+                    rim_overrides_a.extend_own(rim_edge_a, shared_rim.iter().copied());
+                    rim_overrides_b.extend_own(rim_edge_b, shared_rim);
                     // Inserted samples pair 1:1 across each lateral: their
                     // exact images go onto the opposite rims.
                     if let Some((e, pts)) = opp_a {
-                        rim_overrides_a.entry(e).or_default().extend(pts);
+                        rim_overrides_a.extend_mirror(e, pts);
                     }
                     if let Some((e, pts)) = opp_b {
-                        rim_overrides_b.entry(e).or_default().extend(pts);
+                        rim_overrides_b.extend_mirror(e, pts);
                     }
                     if let Some((bi, pt)) = seam_weld {
                         vb[bi as usize] = pt;
@@ -855,7 +849,7 @@ pub(crate) fn stage0_preprocess(a: &BRep, b: &BRep) -> Result<Option<Stage0>, Ya
                 } else {
                     &mut rim_overrides_a
                 };
-                ov.entry(rim_edge).or_default().push(f.v);
+                ov.push_own(rim_edge, f.v);
                 if std::env::var_os("YANG_SPLIT_PROBE").is_some() {
                     eprintln!(
                         "[rim-table-fuse] pair=({},{}) losing_{} {:?} -> {:?} (ring edge \

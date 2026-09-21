@@ -380,21 +380,47 @@ fn disc_crossing_hole_edge_cut_succeeds() {
     check(&plate, &tool, BoolOp::Subtract, "crossing cut", analytic);
 }
 
-/// PRE-EXISTING BOUNDARY (must stay loud, not silent): a tool whose BOTH caps
-/// are flush with the plate's caps (two coplanar pairs sharing one cylinder
-/// lateral) while its rim crosses a straight edge. The two pairs' rim splits
-/// are merged independently and the lateral's azimuth-merge rejects them.
-/// Measured 2026-09-17 on an UNHOLED plate too (outer-edge crossing →
-/// `FaceResolutionFailed`), so it is not a hole effect; ledgered in the spec
-/// (§7), out of this slice. Pinned so a future silent pass-through is caught.
+/// DOUBLY FLUSH CROSSING (cut): a tool whose BOTH caps are flush with the
+/// plate's caps (two coplanar pairs sharing one cylinder lateral) while its
+/// rim crosses a straight hole edge. Was the §7 boundary pin
+/// (`doubly_flush_crossing_stays_loud`, loud `azimuth-merge rims disagree`):
+/// each pair's overlay emitted the same geometric rim crossings in its own
+/// frame and each mirrored them onto the other rim in f64, so the two rims
+/// carried ULP-twin sample sets. Converted 2026-09-21 by rim-override
+/// PROVENANCE (spec `m8_rim_override_provenance.md`): each rim keeps its
+/// cap's own bits, the mirrors are absorbed. Removed volume = the disc minus
+/// the segment already inside the hole, through the full plate height.
 #[test]
-fn doubly_flush_crossing_stays_loud() {
+fn doubly_flush_crossing_cut_succeeds() {
     let plate = holed_box(LO, HI, HLO, HHI);
-    let tool = z_cylinder(0.8, 0.0, 0.0, 0.45, 1.0);
-    let res = boolean(&plate, &tool, BoolOp::Subtract, &nb());
-    assert!(
-        res.is_err(),
-        "two flush crossing pairs on one lateral are out of scope and must stay loud"
+    let (cx, r) = (0.8, 0.45);
+    let tool = z_cylinder(cx, 0.0, 0.0, r, 1.0);
+    let seg = segment_area(r, cx - 0.5);
+    let analytic = PLATE_VOL - (std::f64::consts::PI * r * r - seg);
+    check(
+        &plate,
+        &tool,
+        BoolOp::Subtract,
+        "doubly flush crossing cut",
+        analytic,
+    );
+}
+
+/// The same doubly flush tool as a UNION: the boss adds only the segment that
+/// hangs over the hole (the rest of the disc is already plate material).
+#[test]
+fn doubly_flush_crossing_union_succeeds() {
+    let plate = holed_box(LO, HI, HLO, HHI);
+    let (cx, r) = (0.8, 0.45);
+    let tool = z_cylinder(cx, 0.0, 0.0, r, 1.0);
+    let seg = segment_area(r, cx - 0.5);
+    let analytic = PLATE_VOL + seg;
+    check(
+        &plate,
+        &tool,
+        BoolOp::Union,
+        "doubly flush crossing union",
+        analytic,
     );
 }
 

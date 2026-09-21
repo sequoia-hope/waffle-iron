@@ -20,6 +20,7 @@ mod m4_substitute;
 mod m5_case_iii;
 mod m5_case_iv;
 mod m5_k11_pair_chain;
+mod m8_rim_override_provenance;
 mod m8_rim_refine;
 mod matching;
 mod membrane;

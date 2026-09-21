@@ -217,20 +217,17 @@ fn sprocket_is_a_boolean_operand() {
 }
 
 /// The same bore with COPLANAR caps (the tool's caps on the sprocket's cap
-/// planes) goes through yang's M8 Stage-0 mixed-loop overlay and STOPs:
-/// `face N: holed lateral CDT failed: duplicate (coincident) loop vertex`.
-/// Diagnosis (2026-09-19): both sprocket caps pair with the bore's caps;
-/// `collect_mixed_crossings` inserts each cap's overlay split points into
-/// its arc's chain AND mirrors them (f64 axial projection) onto the
-/// opposite arc, but the two caps' overlays run in independent frames, so
-/// the mirrored points are ULP-twins of the points the opposite arc already
-/// carries; the bit-exact dedup keeps both, the two chains end up 15 vs 16
-/// long, the strip cannot pair, and the chart CDT sees exact duplicate
-/// (u, v) vertices. The fix is Stage-0 work (bit-consistent mixed-path
-/// projection, the disc path's `m8_exact_opposite_rim_projection` /
-/// intra-opposite canonicalization extended to arcs) — un-ignore then.
+/// planes) goes through yang's M8 Stage-0 mixed-loop overlay. It used to
+/// STOP with `face N: holed lateral CDT failed: duplicate (coincident) loop
+/// vertex`: both sprocket caps pair with the bore's caps, each cap's overlay
+/// emits the same on-circle split points in its own frame, and
+/// `collect_mixed_crossings` mirrored them onto the opposite arc by an f64
+/// projection — three ULP-twin spellings of one point, kept apart by the
+/// bit-exact dedup (strip chains 15 vs 16 → chart CDT → duplicate (u, v)).
+/// Fixed by rim-override PROVENANCE (spec `m8_rim_override_provenance.md`):
+/// a cap's own emission replaces a near-twin mirror, a mirror is absorbed by
+/// a near own sample. This test is the end-to-end pin.
 #[test]
-#[ignore = "M8 Stage-0 mixed-loop coplanar caps: ULP-twin opposite-arc projection (see doc comment)"]
 fn sprocket_bore_with_coplanar_caps() {
     let before = analytic_sprocket_area(&iso_08b(20)) * DEPTH;
     let mut b = bore_through_sprocket(0.0, DEPTH);

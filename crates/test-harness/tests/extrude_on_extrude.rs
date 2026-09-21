@@ -85,7 +85,6 @@ fn rect_boss_on_top_face_auto_union() {
 
 /// Circle (polygon-approximated) boss on top face, auto-unioned.
 #[test]
-#[ignore = "kernel-v2: coplanar cap-on-cap auto-union NotSupported until Yang Stage 0 (roadmap M8)"]
 fn circle_boss_on_top_face_auto_union() {
     let mut m = base_cube();
 

@@ -553,50 +553,58 @@ pub(crate) fn collect_rim_crossings(
     Err("rim-not-disc")
 }
 
-/// Bit-exact dedup + push of one projected opposite-rim sample, shared by
-/// the translation and renormalisation arms (task #144). The env-gated
-/// probe reports skips, distinguishing a pairwise collapse (two cap
-/// samples → one image, the C0048/F0067 count-deficit mechanism) from a
-/// dedup against a pre-existing entry.
+/// Push one projected opposite-rim sample as a MIRROR (spec
+/// `m8_rim_override_provenance`): bit-exact dedup, plus absorption by an
+/// existing sample within `TAU_WORK` (the opposite cap's OWN emission of the
+/// same point, or an earlier mirror). The env-gated probe reports skips,
+/// distinguishing a pairwise collapse (two cap samples → one image, the
+/// C0048/F0067 count-deficit mechanism) from a dedup against a pre-existing
+/// entry and from a near-twin absorption.
 #[allow(clippy::too_many_arguments)]
 fn push_opp(
-    opp_entry: &mut Vec<Point3>,
+    rim_overrides: &mut RimSplitMap,
+    opp_edge: u32,
     opp_pt: Point3,
     pt: Point3,
     opp_preexisting: usize,
     pushed_srcs: &mut Vec<Point3>,
     rim_probe: bool,
     cap_edge: u32,
-    opp_edge: u32,
 ) {
-    if let Some(hit) = opp_entry.iter().position(|q| *q == opp_pt) {
-        if rim_probe {
-            let kind = if hit < opp_preexisting {
-                "PREEXISTING"
-            } else {
-                "PAIRWISE-COLLAPSE"
-            };
-            // For a pairwise collapse, name the OTHER cap sample whose image
-            // this one collided with — the twin-pair identity is the whole
-            // diagnosis (task #144).
-            let partner = if hit >= opp_preexisting {
-                pushed_srcs
-                    .get(hit - opp_preexisting)
-                    .map(|s| format!(" partner_src={:?}", s.as_array()))
-                    .unwrap_or_default()
-            } else {
-                String::new()
-            };
-            eprintln!(
-                "[opp-proj] cap_edge={cap_edge} opp_edge={opp_edge} pt={:?} \
-                 opp_pt={:?} SKIPPED ({kind} idx={hit}){partner}",
-                pt.as_array(),
-                opp_pt.as_array()
-            );
+    match rim_overrides.push_mirror(opp_edge, opp_pt) {
+        RimPush::Inserted => pushed_srcs.push(pt),
+        RimPush::DuplicateBits(hit) | RimPush::AbsorbedByNear(hit) => {
+            if rim_probe {
+                let kind = if hit < opp_preexisting {
+                    "PREEXISTING"
+                } else {
+                    "PAIRWISE-COLLAPSE"
+                };
+                // For a pairwise collapse, name the OTHER cap sample whose
+                // image this one collided with — the twin-pair identity is
+                // the whole diagnosis (task #144).
+                let partner = if hit >= opp_preexisting {
+                    pushed_srcs
+                        .get(hit - opp_preexisting)
+                        .map(|s| format!(" partner_src={:?}", s.as_array()))
+                        .unwrap_or_default()
+                } else {
+                    String::new()
+                };
+                let bits = if rim_overrides.samples(opp_edge)[hit].p == opp_pt {
+                    "bits"
+                } else {
+                    "near"
+                };
+                eprintln!(
+                    "[opp-proj] cap_edge={cap_edge} opp_edge={opp_edge} pt={:?} \
+                     opp_pt={:?} SKIPPED ({kind} {bits} idx={hit}){partner}",
+                    pt.as_array(),
+                    opp_pt.as_array()
+                );
+            }
         }
-    } else {
-        opp_entry.push(opp_pt);
-        pushed_srcs.push(pt);
+        RimPush::ReplacedMirror(_) => unreachable!("push_mirror never replaces"),
     }
 }
 
@@ -641,7 +649,6 @@ pub(crate) fn collect_ring_crossings(
     if n < 2 {
         return Err("rim-poly-degenerate");
     }
-    let cap_entry = rim_overrides.entry(cap_edge).or_default();
     // Collected as (chord index, exact chord parameter, point) and sorted
     // before pushing (spec `m8_holed_disc_coplanar_overlay` §8 F1): the
     // override insertion order is then the EXACT boundary order along the rim
@@ -729,9 +736,7 @@ pub(crate) fn collect_ring_crossings(
     found.sort_by(|a, b| a.0.cmp(&b.0).then_with(|| a.1.cmp(&b.1)));
     let cap_pts: Vec<Point3> = found.into_iter().map(|(_, _, p)| p).collect();
     for &pt in &cap_pts {
-        if !cap_entry.contains(&pt) {
-            cap_entry.push(pt);
-        }
+        rim_overrides.push_own(cap_edge, pt);
     }
 
     // Place each cap crossing onto the OPPOSITE rim by an exact 1:1 map (NO
@@ -766,8 +771,7 @@ pub(crate) fn collect_ring_crossings(
     // merge-MIRRORING, and exact-order-consistent — snap-rounding grade
     // ([#52] Hobby), a design increment. Until then the collapse stays and
     // the downstream azimuth-merge count wall stays LOUD (never silent).
-    let opp_entry = rim_overrides.entry(opp_edge).or_default();
-    let opp_preexisting = opp_entry.len();
+    let opp_preexisting = rim_overrides.count(opp_edge);
     let rim_probe = std::env::var_os("YANG_SPLIT_PROBE").is_some();
     let mut pushed_srcs: Vec<Point3> = Vec::new();
     let _ = (axis_point, axis_dir); // axis now read inside `opposite_rim_image`
@@ -778,22 +782,22 @@ pub(crate) fn collect_ring_crossings(
             continue;
         };
         push_opp(
-            opp_entry,
+            rim_overrides,
+            opp_edge,
             opp_pt,
             pt,
             opp_preexisting,
             &mut pushed_srcs,
             rim_probe,
             cap_edge,
-            opp_edge,
         );
     }
-    if std::env::var_os("YANG_SPLIT_PROBE").is_some() {
+    if rim_probe {
         eprintln!(
             "[rim-count] cap_edge={cap_edge} cap_pts={} cap_entry={} opp_edge={opp_edge} opp_entry={}",
             cap_pts.len(),
-            rim_overrides.get(&cap_edge).map(|v| v.len()).unwrap_or(0),
-            rim_overrides.get(&opp_edge).map(|v| v.len()).unwrap_or(0),
+            rim_overrides.count(cap_edge),
+            rim_overrides.count(opp_edge),
         );
     }
     Ok(consumed)
@@ -1089,22 +1093,14 @@ pub(crate) fn refine_rim_membership(
             return Err("rim-refine-opp-not-circle");
         };
         let oc = opp_center.as_array();
-        {
-            let cap_entry = rim_overrides.entry(cap_edge).or_default();
-            for &pt in &new_pts {
-                if !cap_entry.contains(&pt) {
-                    cap_entry.push(pt);
-                }
-            }
+        for &pt in &new_pts {
+            rim_overrides.push_own(cap_edge, pt);
         }
-        let opp_entry = rim_overrides.entry(opp_edge).or_default();
         for &pt in &new_pts {
             let Some(opp_pt) = opposite_rim_image(&lateral, oc, opp_radius, pt)? else {
                 continue;
             };
-            if !opp_entry.contains(&opp_pt) {
-                opp_entry.push(opp_pt);
-            }
+            rim_overrides.push_mirror(opp_edge, opp_pt);
         }
         if split_probe {
             eprintln!(
@@ -1217,11 +1213,27 @@ pub(crate) fn collect_mixed_crossings(
             // a chain-consuming (holed CDT) lateral takes the point from the
             // arc's own chain — one-sided.
             let lateral = arc_lateral_opposite(brep, fi, e)?;
+            let mixed_probe = std::env::var_os("YANG_SPLIT_PROBE").is_some();
+            if mixed_probe {
+                let Curve::Circle { center, radius, .. } = brep.edges()[e as usize].curve else {
+                    unreachable!()
+                };
+                for pt in &pts {
+                    let d = (pt.as_array()[0] - center.as_array()[0])
+                        .hypot(pt.as_array()[1] - center.as_array()[1]);
+                    eprintln!(
+                        "[mixed-cross] face={fi} edge={e} pt={:?} dr={:e} pre_entry={}",
+                        pt.as_array(),
+                        d - radius,
+                        rim_overrides.count(e)
+                    );
+                }
+            }
 
-            let cap_entry = rim_overrides.entry(e).or_default();
             for &pt in &pts {
-                if !cap_entry.contains(&pt) {
-                    cap_entry.push(pt);
+                let r = rim_overrides.push_own(e, pt);
+                if mixed_probe {
+                    eprintln!("[mixed-cross] face={fi} edge={e} own {r:?}");
                 }
             }
             let ArcLateral::Strip {
@@ -1243,7 +1255,6 @@ pub(crate) fn collect_mixed_crossings(
             // `collect_ring_crossings` map: strip the axial component,
             // renormalise the radial offset to the opposite radius).
             let oc = opp_center;
-            let opp_entry = rim_overrides.entry(opp_edge).or_default();
             for &pt in &pts {
                 let p = pt.as_array();
                 let w = [
@@ -1268,9 +1279,21 @@ pub(crate) fn collect_mixed_crossings(
                     oc[1] + radial[1] * scale,
                     oc[2] + radial[2] * scale,
                 );
-                if !opp_entry.contains(&opp_pt) {
-                    opp_entry.push(opp_pt);
+                let r = rim_overrides.push_mirror(opp_edge, opp_pt);
+                if mixed_probe {
+                    eprintln!(
+                        "[mixed-cross] face={fi} edge={e} -> opp_edge={opp_edge} opp_pt={:?} scale-1={:e} {r:?}",
+                        opp_pt.as_array(),
+                        scale - 1.0,
+                    );
                 }
+            }
+            if mixed_probe {
+                eprintln!(
+                    "[mixed-cross] face={fi} edge={e} entry={} opp_edge={opp_edge} opp_entry={}",
+                    rim_overrides.count(e),
+                    rim_overrides.count(opp_edge)
+                );
             }
         }
     }

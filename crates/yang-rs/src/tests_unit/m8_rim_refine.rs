@@ -74,7 +74,7 @@ fn crescent_feature_refines_to_containment() {
     // 0.9239 < 0.95 < 1 ⇒ strictly inside the circle, strictly outside
     // the chord — the misclassification geometry.
     let partner = vec![feat2(&frame, 0.95, std::f64::consts::PI / 8.0)];
-    let mut overrides: RimSplitMap = BTreeMap::new();
+    let mut overrides = RimSplitMap::new();
     let n = refine_rim_membership(
         &cyl,
         1,
@@ -99,12 +99,8 @@ fn crescent_feature_refines_to_containment() {
     }
     // Overrides: cap rim edge 0 and opposite rim edge 1, matched counts
     // (the shared lateral's azimuth-merge conformality requirement).
-    assert_eq!(overrides.get(&0).map(Vec::len), Some(n), "cap overrides");
-    assert_eq!(
-        overrides.get(&1).map(Vec::len),
-        Some(n),
-        "opposite overrides"
-    );
+    assert_eq!(overrides.count(0), n, "cap overrides");
+    assert_eq!(overrides.count(1), n, "opposite overrides");
     // Fixpoint: the violation is cleared.
     let n2 = refine_rim_membership(
         &cyl,
@@ -126,7 +122,7 @@ fn crescent_feature_refines_to_containment() {
 fn band_floor_feature_is_untouched() {
     let (cyl, frame, mut poly, mut rim) = disc_fixture();
     let partner = vec![feat2(&frame, 1.0 - 1e-10, std::f64::consts::PI / 8.0)];
-    let mut overrides: RimSplitMap = BTreeMap::new();
+    let mut overrides = RimSplitMap::new();
     let n = refine_rim_membership(
         &cyl,
         1,
@@ -147,7 +143,7 @@ fn band_floor_feature_is_untouched() {
 fn outside_feature_is_untouched() {
     let (cyl, frame, mut poly, mut rim) = disc_fixture();
     let partner = vec![feat2(&frame, 1.05, std::f64::consts::PI / 8.0)];
-    let mut overrides: RimSplitMap = BTreeMap::new();
+    let mut overrides = RimSplitMap::new();
     let n = refine_rim_membership(
         &cyl,
         1,
@@ -172,7 +168,7 @@ fn multiple_features_multiple_spans_converge() {
         feat2(&frame, 0.97, 3.0 * std::f64::consts::PI / 8.0),
         feat2(&frame, 0.999, 5.0 * std::f64::consts::PI / 8.0),
     ];
-    let mut overrides: RimSplitMap = BTreeMap::new();
+    let mut overrides = RimSplitMap::new();
     let n = refine_rim_membership(
         &cyl,
         1,

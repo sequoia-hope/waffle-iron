@@ -90,11 +90,11 @@ pub(crate) fn opposite_rim_projection_lands_on_circle_within_band() {
     collect_ring_crossings(&brep, 0, &ring, &overlay, &[cap_pt], &[], &mut ov)
         .expect("ring crossings must collect");
 
-    let cap_entry = ov.get(&0).expect("cap rim entry");
+    let cap_entry = ov.points(0).expect("cap rim entry");
     assert_eq!(cap_entry.len(), 1);
     assert_eq!(BITS(&cap_entry[0]), BITS(&cap_pt));
 
-    let opp_entry = ov.get(&1).expect("opposite rim entry");
+    let opp_entry = ov.points(1).expect("opposite rim entry");
     assert_eq!(opp_entry.len(), 1, "one cap crossing → one opposite sample");
     let o = opp_entry[0].as_array();
     let band = 1e-9 * (1.0 + r);
@@ -148,11 +148,11 @@ pub(crate) fn opposite_rim_projection_same_ray_twins_land_on_circle() {
         .expect("ring crossings must collect");
 
     assert_eq!(
-        ov.get(&0).map(Vec::len),
+        ov.points(0).map(|v| v.len()),
         Some(2),
         "both twins on the cap rim"
     );
-    let opp = ov.get(&1).expect("opposite rim entry");
+    let opp = ov.points(1).expect("opposite rim entry");
     let band = 1e-9 * (1.0 + r);
     for o in opp.iter().map(|p| p.as_array()) {
         let opp_r = (o[0] * o[0] + o[1] * o[1]).sqrt();
@@ -227,7 +227,7 @@ pub(crate) fn opposite_rim_projection_unequal_radius_keeps_renormalisation() {
         oc[2] + radial[2] * scale,
     );
 
-    let opp = ov.get(&1).expect("opposite rim entry");
+    let opp = ov.points(1).expect("opposite rim entry");
     assert_eq!(opp.len(), 1);
     assert_eq!(
         BITS(&opp[0]),

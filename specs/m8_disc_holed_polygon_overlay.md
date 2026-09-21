@@ -102,7 +102,7 @@ all-line planar faces, holed top and bottom caps) and the sibling suites'
 | `disc_crossing_hole_edge_cut_succeeds` | through-cut overhanging the hole across one edge | 15 − (0.2025π − segment) |
 | `disc_over_hole_union_succeeds` | r = 1 boss covering the hole | 15 + π |
 | `disc_over_hole_cut_succeeds` | counterbore, tool top on the cap | 15 − 0.5(π − 1) |
-| `doubly_flush_crossing_stays_loud` | §7 boundary pin | must `Err` |
+| ~~`doubly_flush_crossing_stays_loud`~~ `doubly_flush_crossing_cut_succeeds` / `_union_succeeds` | both tool caps flush with the plate's, rim crossing the hole edge (§7, CONVERTED 2026-09-21) | 15 − (0.2025π − segment) / 15 + segment |
 
 ## 7. Boundary found on the way (pre-existing, out of scope)
 
@@ -115,6 +115,15 @@ lateral independently and the two rims end up with different sample sets.
 Containment with both caps flush passes. Ledgered here and pinned loud
 (`doubly_flush_crossing_stays_loud`); the fix belongs to the rim-override
 merge (`m8_rim_override_uniform_merge`), not to this slice.
+
+> **CONVERTED 2026-09-21** (spec `m8_rim_override_provenance.md`): the two
+> rims did not merge "independently" so much as each carry the other's f64
+> MIRROR of the same crossing next to its own emission (ULP-twins the
+> bit-exact dedup kept). With rim-override provenance each rim keeps its
+> cap's own bits and the mirrors are absorbed; the pin is now the pair of
+> positive oracles `doubly_flush_crossing_cut_succeeds` /
+> `doubly_flush_crossing_union_succeeds` (analytic volumes within the chord
+> band, watertight, outward).
 
 ## 8. Corpus outcome
 

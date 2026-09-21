@@ -1012,7 +1012,7 @@ mod tests {
             &va,
             &BTreeMap::new(),
             &BTreeMap::new(),
-            &BTreeMap::new(),
+            &RimSplitMap::new(),
         )
         .unwrap_or_else(|_| panic!("emission failed"));
         let key = |v: u32| {

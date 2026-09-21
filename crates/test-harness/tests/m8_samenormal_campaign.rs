@@ -332,8 +332,26 @@ fn red_r0076_residual_pair() {
 
 #[test]
 // PIN MOVED 2026-07-11: completes CORRECT (release baseline agrees).
+// PIN MOVED AGAIN 2026-09-21: R0088 is EXPECTED_ERROR by its meta
+// (`expect_rebuild_error: true`) since 0eabbb28 — its second cut consumed the
+// only body, so the third op has nothing to subtract from (the "resurrected
+// consumed body" silent-wrong made honest). The same-normal residual pair is
+// no longer reachable in this document; the pin asserts the declared rebuild
+// error and nothing else (a geometry failure would surface as a different
+// message).
 fn red_r0088_residual_pair() {
-    assert_correct("R0088");
+    let failures = replay_failures("R0088");
+    assert_eq!(
+        failures.len(),
+        1,
+        "R0088 must fail with exactly its declared rebuild error:\n  {}",
+        failures.join("\n  ")
+    );
+    assert!(
+        failures[0].contains("Cut extrude requires an existing body to subtract from"),
+        "R0088: unexpected failure: {}",
+        failures[0]
+    );
 }
 
 #[test]

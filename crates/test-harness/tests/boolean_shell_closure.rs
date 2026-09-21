@@ -112,7 +112,6 @@ fn shell_closure_boss_cut_boss_repeatable() {
 /// matching) improved truck-level tests, but harness-level test still fails
 /// due to perturbation exhaustion on 3rd overlapping cut (14-face shell).
 #[test]
-#[ignore = "kernel-v2: overlapping cuts hit the coplanar wall mid-chain, NotSupported until Yang Stage 0 (roadmap M8)"]
 fn shell_closure_overlapping_cuts() {
     let mut m = ModelBuilder::kernel_v2();
     m.rect_sketch("base_sk", [0., 0., 0.], [0., 0., 1.], 0., 0., 10., 10.)

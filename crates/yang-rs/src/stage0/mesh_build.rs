@@ -17,12 +17,179 @@ use super::*;
 /// the canonical `min(vi) → max(vi)` direction + the shared 3D coordinate.
 pub(crate) type SplitMap = BTreeMap<(u32, u32), Vec<(RBig, Point3)>>;
 
+/// Provenance of one rim-override sample (spec
+/// `m8_rim_override_provenance.md`).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum RimSampleKind {
+    /// Emitted by THIS rim's own cap overlay (or the rim's own membership
+    /// refinement): bit-shared with the cap's Stage-0 mesh, so it is the
+    /// authoritative sample of the point on this rim.
+    Own,
+    /// The exact 1:1 image of a sample on the OPPOSITE rim of the shared
+    /// lateral — scaffolding that keeps the lateral's two chains
+    /// count-matched. Nothing but the lateral consumes it.
+    Mirror,
+}
+
+/// One rim-override sample with its provenance.
+#[derive(Clone, Copy, Debug)]
+pub(crate) struct RimSample {
+    pub(crate) p: Point3,
+    pub(crate) kind: RimSampleKind,
+}
+
+/// Outcome of one [`RimSplitMap`] push (probe / oracle vocabulary).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum RimPush {
+    /// A new sample entered the rim.
+    Inserted,
+    /// Bit-identical to the sample already at this index — nothing changed.
+    DuplicateBits(usize),
+    /// An OWN push found a MIRROR ULP-twin at this index and took its slot:
+    /// the rim now carries the cap's own bits there.
+    ReplacedMirror(usize),
+    /// A MIRROR push found an OWN sample at this index within `TAU_WORK` and
+    /// was dropped: the rim already carries that point in its cap's bits.
+    AbsorbedByNear(usize),
+}
+
 /// PR-M8 disc-rim crossing: extra 3D crossing points to insert into a
-/// full-circle rim edge's Stage-1 ring, keyed by the rim's `Curve::Circle`
-/// edge index (one map per solid). Threaded into
-/// [`stage1_tessellate_with_rim_overrides`] so the cap, the cylinder lateral,
-/// and the opposite cap all share the SAME subdivided rim (no T-junction).
-pub(crate) type RimSplitMap = BTreeMap<u32, Vec<Point3>>;
+/// circular rim / arc edge's Stage-1 chain, keyed by the `Curve::Circle`
+/// edge index (one map per solid). Threaded (as plain points, see
+/// [`RimSplitMap::to_points`]) into [`stage1_tessellate_with_rim_overrides`]
+/// so the cap, the cylinder lateral, and the opposite cap all share the SAME
+/// subdivided rim (no T-junction).
+///
+/// **Provenance rule (spec `m8_rim_override_provenance.md`).** Two coplanar
+/// pairs on the two caps of one lateral each emit the same geometric split
+/// point in their OWN overlay frame, and each mirrors it onto the other cap's
+/// rim by an f64 projection — three f64 spellings of one point, ULP-twins,
+/// which bit-exact dedup keeps as distinct samples (measured: a 20T sprocket
+/// bored with coplanar caps, strip chains 15 vs 16). The rim's own emission
+/// is the authoritative sample (its bits are the cap mesh's), a mirror is
+/// scaffolding:
+/// - an OWN push that lands within `TAU_WORK` of a MIRROR replaces it in
+///   place ([`RimPush::ReplacedMirror`]);
+/// - a MIRROR push that lands within `TAU_WORK` of an OWN sample is dropped
+///   ([`RimPush::AbsorbedByNear`]);
+/// - OWN vs OWN and MIRROR vs MIRROR stay bit-exact: genuinely distinct
+///   band-close crossings of one overlay (the R0088/R0070 twin population)
+///   both enter, and same-ray twin images (task #144 record) are unchanged.
+///
+/// `TAU_WORK` (1e-12) is the working-precision constant: ULP-twins sit at
+/// 1e-18…1e-15, real band-close crossings at ≥ TAU_MODEL (1e-7).
+#[derive(Clone, Debug, Default)]
+pub(crate) struct RimSplitMap {
+    edges: BTreeMap<u32, Vec<RimSample>>,
+}
+
+impl RimSplitMap {
+    pub(crate) fn new() -> Self {
+        Self::default()
+    }
+
+    #[cfg(test)]
+    pub(crate) fn is_empty(&self) -> bool {
+        self.edges.values().all(Vec::is_empty)
+    }
+
+    /// Number of samples on `edge`.
+    pub(crate) fn count(&self, edge: u32) -> usize {
+        self.edges.get(&edge).map_or(0, Vec::len)
+    }
+
+    /// The samples on `edge`, in insertion order.
+    pub(crate) fn samples(&self, edge: u32) -> &[RimSample] {
+        self.edges.get(&edge).map_or(&[], Vec::as_slice)
+    }
+
+    /// The points on `edge` (provenance erased), `None` when it has none.
+    #[cfg(test)]
+    pub(crate) fn points(&self, edge: u32) -> Option<Vec<Point3>> {
+        let v = self.samples(edge);
+        (!v.is_empty()).then(|| v.iter().map(|s| s.p).collect())
+    }
+
+    /// Every (edge, samples) pair.
+    pub(crate) fn iter(&self) -> impl Iterator<Item = (u32, &[RimSample])> {
+        self.edges.iter().map(|(&e, v)| (e, v.as_slice()))
+    }
+
+    /// Bit-identical index, if any.
+    fn find_bits(v: &[RimSample], p: Point3) -> Option<usize> {
+        v.iter().position(|s| s.p == p)
+    }
+
+    /// Index of the first sample of `kind` within `TAU_WORK` (Euclidean)
+    /// of `p`.
+    fn find_near(v: &[RimSample], p: Point3, kind: RimSampleKind) -> Option<usize> {
+        let tau2 = cad_primitives::TAU_WORK * cad_primitives::TAU_WORK;
+        let q = p.as_array();
+        v.iter().position(|s| {
+            let a = s.p.as_array();
+            let d = [a[0] - q[0], a[1] - q[1], a[2] - q[2]];
+            s.kind == kind && d[0] * d[0] + d[1] * d[1] + d[2] * d[2] <= tau2
+        })
+    }
+
+    /// Push a sample emitted by `edge`'s OWN overlay / refinement.
+    pub(crate) fn push_own(&mut self, edge: u32, p: Point3) -> RimPush {
+        let v = self.edges.entry(edge).or_default();
+        if let Some(i) = Self::find_bits(v, p) {
+            return RimPush::DuplicateBits(i);
+        }
+        if let Some(i) = Self::find_near(v, p, RimSampleKind::Mirror) {
+            v[i] = RimSample {
+                p,
+                kind: RimSampleKind::Own,
+            };
+            return RimPush::ReplacedMirror(i);
+        }
+        v.push(RimSample {
+            p,
+            kind: RimSampleKind::Own,
+        });
+        RimPush::Inserted
+    }
+
+    /// Push the opposite-rim image of a sample (scaffolding).
+    pub(crate) fn push_mirror(&mut self, edge: u32, p: Point3) -> RimPush {
+        let v = self.edges.entry(edge).or_default();
+        if let Some(i) = Self::find_bits(v, p) {
+            return RimPush::DuplicateBits(i);
+        }
+        if let Some(i) = Self::find_near(v, p, RimSampleKind::Own) {
+            return RimPush::AbsorbedByNear(i);
+        }
+        v.push(RimSample {
+            p,
+            kind: RimSampleKind::Mirror,
+        });
+        RimPush::Inserted
+    }
+
+    pub(crate) fn extend_own(&mut self, edge: u32, pts: impl IntoIterator<Item = Point3>) {
+        for p in pts {
+            self.push_own(edge, p);
+        }
+    }
+
+    pub(crate) fn extend_mirror(&mut self, edge: u32, pts: impl IntoIterator<Item = Point3>) {
+        for p in pts {
+            self.push_mirror(edge, p);
+        }
+    }
+
+    /// The plain per-edge point lists Stage 1 consumes (provenance erased;
+    /// insertion order preserved).
+    pub(crate) fn to_points(&self) -> BTreeMap<u32, Vec<Point3>> {
+        self.edges
+            .iter()
+            .filter(|(_, v)| !v.is_empty())
+            .map(|(&e, v)| (e, v.iter().map(|s| s.p).collect()))
+            .collect()
+    }
+}
 
 // ════════════════════════════════════════════════════════════════════════
 // Sub-floor shared-mint grouping: admission predicate (spec
@@ -713,11 +880,12 @@ pub(crate) fn build_stage0_mesh(
         .iter()
         .map(|&p| BRepVertex { point: p })
         .collect();
+    let rim_points = rim_overrides.to_points();
     let tess = stage1_tessellate_with_rim_overrides(
         &brep_verts,
         brep.edges(),
         brep.faces(),
-        rim_overrides,
+        &rim_points,
         brep.forced_rim_n(),
     )?;
 
@@ -762,8 +930,8 @@ pub(crate) fn build_stage0_mesh(
                     }
                 }
             }
-            for (&e, pts) in rim_overrides.iter() {
-                for p in pts {
+            for (e, pts) in rim_overrides.iter() {
+                for p in pts.iter().map(|s| &s.p) {
                     if near(p) {
                         let q = p.as_array();
                         eprintln!(

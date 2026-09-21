@@ -204,8 +204,9 @@
       profile-for-profile). `test-harness/tests/script_kv2.rs` builds both routes on
       kernel-v2: equal exact volumes, 4z+2 faces. Needed `cbrt` registered in the
       Rhai engine (no cube root in Rhai's math package).
-- [ ] Bore with COPLANAR caps through a sprocket STOPs in yang Stage 0 (see Blockers);
-      pinned `#[ignore = "M8 …"]` in `sprocket_kv2.rs`.
+- [x] Bore with COPLANAR caps through a sprocket STOPped in yang Stage 0 (see Blockers);
+      was pinned `#[ignore = "M8 …"]` in `sprocket_kv2.rs`; RESOLVED 2026-09-21
+      (`specs/m8_rim_override_provenance.md`).
 
 ### M15: Pipe sweep — B2 checkpoint 2 of `specs/custom_features_and_modeling_roadmap.md` ✅ (2026-09-21)
 - [x] `Kernel::pipe` (defaulted `NotSupported`; `waffle_types::kernel::PipePathSegment`),
@@ -234,26 +235,22 @@
 
 ## Blockers
 
-- **M8 Stage-0 mixed-loop coplanar caps (found 2026-09-19 boring a 20T
+- ~~**M8 Stage-0 mixed-loop coplanar caps (found 2026-09-19 boring a 20T
   sprocket with a through-cut whose caps are coplanar with the sprocket's):**
-  `face N: holed lateral CDT failed: duplicate (coincident) loop vertex`.
-  Both sprocket caps pair with the tool's caps; `collect_mixed_crossings`
-  (`yang-rs/src/stage0/rim_chords.rs`) inserts each cap's overlay split
-  points into its arc's chain AND mirrors them by an f64 axial projection
-  onto the opposite arc of the shared partial strip. The two caps' overlays
-  run in independent frames, so the mirrored points are ULP-twins of the
-  points the opposite arc already carries from its own overlay; the
-  bit-exact `contains` dedup keeps both (12 vs 13 overrides on one flank
-  pair), the two chains come out 15 vs 16 long, the strip cannot pair, the
-  face is routed to the chart CDT, and the twins collapse to exactly equal
-  `(u, v)` there. The disc path avoided this with the exact opposite-rim
-  projection + intra-opposite plane canonicalization
-  (`specs/m8_exact_opposite_rim_projection.md`,
-  `specs/m8_intra_opposite_plane_canonicalization.md`); the mixed-arc path
-  needs the same bit-consistency (or: skip the mirror when the opposite cap
-  is itself in a pair). The non-coplanar bore goes through the general
-  pipeline and is correct. Repro: `sprocket_bore_with_coplanar_caps`
-  (`test-harness/tests/sprocket_kv2.rs`, ignored).
+  `face N: holed lateral CDT failed: duplicate (coincident) loop vertex`.~~
+  **RESOLVED 2026-09-21** (spec `specs/m8_rim_override_provenance.md`): the
+  measured mechanism was three f64 spellings of ONE geometric split point —
+  each cap's own overlay emission (independent frames) plus each one's f64
+  mirror onto the other cap's rim — kept apart by the bit-exact dedup
+  (probe `[mixed-cross]`: 13 vs 12 overrides on the flank pair, strip
+  chains 15 vs 16; the bore's own full-circle rims 121 vs 124 by the same
+  latent). Fix: `RimSplitMap` carries PROVENANCE — a cap's own sample
+  replaces a near-twin (`TAU_WORK`) mirror in place and a mirror is absorbed
+  by a near own sample; own-vs-own and mirror-vs-mirror stay bit-exact.
+  `sprocket_bore_with_coplanar_caps` un-quarantined (mesh volume, χ = 0,
+  watertight). Not done: the two overlays are still frame-independent by
+  design (bit-consistency was never the contract; the rim carrying each
+  cap's own bits is).
 
 - ~~Depends on kernel (Kernel + KernelIntrospect traits, especially MockKernel)~~ Resolved [SUPERSEDED by clean-sheet kernel]
 - ~~Depends on modeling-ops (OpResult production with provenance)~~ Resolved
