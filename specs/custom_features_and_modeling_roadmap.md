@@ -373,6 +373,25 @@ that is a sketch tool, not a kernel feature.
 for lines and arcs); the union has one shell; a pipe along a closed
 rectangle-with-fillets loop is watertight with genus 1.
 
+**Status (2026-09-21): checkpoint 1 LANDED — `specs/b2_pipe_sweep.md`.**
+The join decision: NO union and NO shared cap — the pipe is ONE directly
+assembled solid (`kernel_v2::pipe`, `PipePath`), consecutive laterals
+sharing their rim circle as one edge, every seam on the path binormal
+(the torus tessellators and yang Stage 1 now take a seam at any poloidal
+phase). Solid and hollow (`inner_radius`, genus 1), any arc sweep, exact
+`signed_volume = π(r² − rᵢ²)·L` (new torus-band flux term), typed refusals
+(closed loop, non-tangent joint, bend ≤ tube radius). Boolean re-entry is
+proven on line→arc→line, an S-bend (opposite senses, torus↔torus rim), a
+hollow bend and a chained double cut; it needed four round-trip fixes
+listed in the spec's §2.1. Known wall: a bend over ≈149° that survives a
+boolean (the recovered seam must be one sub-π arc). **Checkpoint 2 LANDED the same day**: `Kernel::pipe`, `Operation::Pipe`
+(`PipeParams`), `waffle_types::path::extract_open_chain`, `modeling_ops::execute_pipe`,
+script `ctx.pipe`, `feature_add` authoring, FILE_FORMAT §7.11 (feature-engine PLAN.md
+M15). **Checkpoint 3 LANDED too**: `PipeDialog.svelte` + toolbar "Pipe" (one
+viewport click on an inactive-sketch line/arc selects its whole connected chain),
+edit on double-click, `pipe-dialog.spec.js`. B2 is COMPLETE except the later
+slices the spec lists (closed loops, mitres, non-planar chains).
+
 ### B3. Sprocket profile generator
 
 **What.** `SketchEntity::Sprocket { params: SprocketParams { tooth_count,

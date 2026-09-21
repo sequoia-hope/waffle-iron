@@ -26,7 +26,7 @@ use waffle_types::{
 
 use crate::types::{
     BooleanOp, BooleanParams, CombineMode, DepthMode, ExtrudeParams, Feature, Operation,
-    RevolveParams,
+    PipeParams, RevolveParams,
 };
 
 /// Geometry budget (spec §A5): more child operations than this is a runaway
@@ -823,6 +823,69 @@ impl Ctx {
             references: Vec::new(),
         };
         self.record(feature, "revolve")
+    }
+
+    /// `ctx.pipe(sketch, [entity ids], #{ radius, inner_radius, combine,
+    /// targets })` — a pipe swept along the sketch's open line/arc chain
+    /// (`specs/b2_pipe_sweep.md` checkpoint 2).
+    pub fn pipe(
+        &mut self,
+        sketch: &SketchRef,
+        entity_ids: &Array,
+        opts: &Map,
+    ) -> Result<FeatureRef, Box<EvalAltResult>> {
+        let mut ids: Vec<u32> = Vec::with_capacity(entity_ids.len());
+        for d in entity_ids {
+            let Some(v) = d.as_int().ok() else {
+                return rt("pipe: entity ids must be integers");
+            };
+            if v < 0 {
+                return rt(format!("pipe: entity id {v} is negative"));
+            }
+            ids.push(v as u32);
+        }
+        if ids.is_empty() {
+            return rt("pipe: at least one path entity is required");
+        }
+        let Some(radius) = map_num(opts, "radius")? else {
+            return rt("pipe: `radius` is required");
+        };
+        if !(radius.is_finite() && radius > 0.0) {
+            return rt(format!("pipe: radius must be positive, got {radius}"));
+        }
+        let inner_radius = map_num(opts, "inner_radius")?;
+        if let Some(ri) = inner_radius {
+            if !(ri.is_finite() && ri > 0.0 && ri < radius) {
+                return rt(format!(
+                    "pipe: inner_radius must be in (0, radius), got {ri}"
+                ));
+            }
+        }
+        let combine = combine_mode(opts)?;
+        let targets = body_refs(map_get(opts, "targets"), "pipe.targets")?;
+        if !matches!(combine, CombineMode::NewBody) && targets.is_empty() {
+            return rt(format!("pipe: combine {combine:?} needs `targets`"));
+        }
+        let id = Uuid::new_v4();
+        let feature = Feature {
+            id,
+            name: "script pipe".into(),
+            operation: Operation::Pipe {
+                params: PipeParams {
+                    sketch_id: sketch.id,
+                    entity_ids: ids,
+                    radius,
+                    radius_expr: None,
+                    inner_radius,
+                    inner_radius_expr: None,
+                    combine: Some(combine),
+                    targets: Some(targets),
+                },
+            },
+            suppressed: false,
+            references: Vec::new(),
+        };
+        self.record(feature, "pipe")
     }
 
     pub fn boolean(

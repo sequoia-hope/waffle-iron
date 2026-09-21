@@ -612,6 +612,65 @@ impl Kernel for MockKernel {
         Ok(handle)
     }
 
+    /// Pipe: validate the arguments the way the real kernel does (typed
+    /// refusals, arena untouched), then emit the box topology every mock
+    /// solid has (8V/12E/6F) — the census, not the geometry, is what
+    /// MockKernel tests read.
+    fn pipe(
+        &mut self,
+        _plane_origin: [f64; 3],
+        _plane_normal: [f64; 3],
+        _plane_x_axis: [f64; 3],
+        path: &[PipePathSegment],
+        radius: f64,
+        inner_radius: Option<f64>,
+    ) -> Result<KernelSolidHandle, KernelError> {
+        if path.is_empty() {
+            return Err(KernelError::Other {
+                message: "pipe: empty path".to_string(),
+            });
+        }
+        if !(radius.is_finite() && radius > 0.0) {
+            return Err(KernelError::Other {
+                message: format!("pipe: radius must be positive, got {radius}"),
+            });
+        }
+        if let Some(ri) = inner_radius {
+            if !(ri.is_finite() && ri > 0.0 && ri < radius) {
+                return Err(KernelError::Other {
+                    message: format!("pipe: inner radius {ri} must be in (0, {radius})"),
+                });
+            }
+        }
+        for (i, seg) in path.iter().enumerate() {
+            if let PipePathSegment::Arc { radius: rho, .. } = seg {
+                if *rho <= radius {
+                    return Err(KernelError::Other {
+                        message: format!(
+                            "pipe: segment {i} bends tighter than the tube radius ({rho} <= {radius})"
+                        ),
+                    });
+                }
+            }
+            if i + 1 < path.len() {
+                let end = match seg {
+                    PipePathSegment::Line { b, .. } | PipePathSegment::Arc { b, .. } => *b,
+                };
+                let start = match path[i + 1] {
+                    PipePathSegment::Line { a, .. } | PipePathSegment::Arc { a, .. } => a,
+                };
+                if end != start {
+                    return Err(KernelError::Other {
+                        message: format!("pipe: segments {i} and {} are not chained", i + 1),
+                    });
+                }
+            }
+        }
+        let (handle, solid) = self.make_box_solid(1.0, 1.0, 1.0);
+        self.solids.insert(handle.raw(), solid);
+        Ok(handle)
+    }
+
     /// Rigid copy: re-ID every entity and move positions, centroids and
     /// normals by the placement. Lengths and areas are invariant under a
     /// rigid motion, so they are carried verbatim.

@@ -12822,6 +12822,36 @@ fn stage4_relocate_and_correct_inner(
         // relocated onto all three. More than two partners is out of scope (STOP).
         let mut vert_torus: BTreeMap<u32, Surface> = BTreeMap::new();
         let mut vert_partners: BTreeMap<u32, Vec<Surface>> = BTreeMap::new();
+        // Which vertices lie ON the intersection curve (an `inc0` edge spanning
+        // both operands). An operand's OWN boundary vertex (§4.4.2: original
+        // boundary curves are restored as they are) is still projected onto
+        // its two surfaces below when they are TRANSVERSAL there — Stage-1
+        // samples of a recovered rim can sit off the exact torus by more than
+        // the on-surface band (R0026), and the projection is the same
+        // well-posed Newton the intersection vertices get. Where the two
+        // surfaces are TANGENT at such a vertex (the G1 cylinder↔torus rim of
+        // a pipe, spec `b2_pipe_sweep.md`) the pair Newton is rank-deficient
+        // by construction, and the vertex lies on their shared curve exactly
+        // (both faces carry the one rim circle): nothing to solve, skip. A
+        // tangency at a vertex ON the intersection curve stays the loud STOP
+        // it always was.
+        let mut on_curve: std::collections::BTreeSet<u32> = std::collections::BTreeSet::new();
+        for (&(s, e), entries) in &inc0 {
+            let has_a = entries.iter().any(|&(i, _)| i == InputId::A);
+            let has_b = entries.iter().any(|&(i, _)| i == InputId::B);
+            if has_a && has_b {
+                on_curve.insert(s);
+                on_curve.insert(e);
+            }
+        }
+        for (&(s, e), entries) in &inc0 {
+            let has_a = entries.iter().any(|&(i, _)| i == InputId::A);
+            let has_b = entries.iter().any(|&(i, _)| i == InputId::B);
+            if has_a && has_b {
+                on_curve.insert(s);
+                on_curve.insert(e);
+            }
+        }
         for (&(s, e), entries) in &inc0 {
             let mut tori: Vec<Surface> = Vec::new();
             let mut others: Vec<Surface> = Vec::new();
@@ -12884,6 +12914,25 @@ fn stage4_relocate_and_correct_inner(
             let p = mesh.verts[v as usize];
             let (proj, n0, n1, line_div) = match partners.as_slice() {
                 [s1] => {
+                    if !on_curve.contains(&v) {
+                        // An operand's own boundary vertex: skip where the
+                        // pair is tangent there (see the note above).
+                        let tangent = match (
+                            surface_distance_and_normal(t_surf, p.as_array()),
+                            surface_distance_and_normal(*s1, p.as_array()),
+                        ) {
+                            (Some((_, a)), Some((_, b))) => {
+                                let d = a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
+                                1.0 - d * d
+                                    <= cad_primitives::MIN_FEATURE_SIZE
+                                        * cad_primitives::MIN_FEATURE_SIZE
+                            }
+                            _ => false,
+                        };
+                        if tangent {
+                            continue 'torus_verts;
+                        }
+                    }
                     if std::env::var_os("YANG_TORUS_PROBE").is_some()
                         && relocate_onto_implicit_pair(p, t_surf, *s1).is_none()
                     {

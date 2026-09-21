@@ -64,8 +64,11 @@ export const sketchCreateTool = {
 };
 
 const operationNote =
-	'operation is an Operation: {"type":"Extrude","params":{…}}, Revolve, BooleanCombine, DatumPlane, MateConnector, ' +
-	'PatternCircular, PatternLinear, Script, or a full Sketch. A Script runs a custom feature script (Rhai) that ' +
+	'operation is an Operation: {"type":"Extrude","params":{…}}, Revolve, Pipe, BooleanCombine, DatumPlane, MateConnector, ' +
+	'PatternCircular, PatternLinear, Script, or a full Sketch. A Pipe sweeps a circle along an OPEN, tangent-continuous ' +
+	'chain of sketch lines and arcs (construction geometry is fine) as ONE solid: params {sketch_id, entity_ids: [the ' +
+	'path entities, any order], radius (m), inner_radius? (m, hollow), combine?, targets?} — no boolean between segments, ' +
+	'so a handlebar or hose is one body; a corner or a bend tighter than the tube radius is refused. A Script runs a custom feature script (Rhai) that ' +
 	'the document carries as a `Script` source: params {source_id, entry?: "feature", args: {name: value in model ' +
 	'units, or {origin, normal} / a datum plane id for a plane param}, arg_exprs?: {name: "expression"}}; the ' +
 	'script declares its parameters in `// @param name: type` header lines and calls ctx.sketch / extrude / ' +

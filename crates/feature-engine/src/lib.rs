@@ -349,15 +349,17 @@ impl Engine {
                 .first()
                 .map(|fid| (*fid, FeatureTree::body_id(*fid, &OutputKey::Main)))
             }
-            Operation::Revolve { .. } => rebuild::find_consumed_feature_ids(
-                feature,
-                &self.feature_results,
-                &self.tree,
-                &self.consumed_features,
-                None,
-            )
-            .first()
-            .map(|fid| (*fid, FeatureTree::body_id(*fid, &OutputKey::Main))),
+            Operation::Revolve { .. } | Operation::Pipe { .. } => {
+                rebuild::find_consumed_feature_ids(
+                    feature,
+                    &self.feature_results,
+                    &self.tree,
+                    &self.consumed_features,
+                    None,
+                )
+                .first()
+                .map(|fid| (*fid, FeatureTree::body_id(*fid, &OutputKey::Main)))
+            }
             // A pattern's Main is instance 0 of its first seed: it inherits
             // that seed body's name.
             Operation::PatternCircular { params } => params.seeds.first().and_then(|gr| {
@@ -404,6 +406,7 @@ impl Engine {
         let explicit = match &feature.operation {
             Operation::Extrude { params } => Some(types::normalize_extrude_combine(params)),
             Operation::Revolve { params } => Some(types::normalize_revolve_combine(params)),
+            Operation::Pipe { params } => Some(types::normalize_pipe_combine(params)),
             _ => None,
         }
         .filter(|eff| {

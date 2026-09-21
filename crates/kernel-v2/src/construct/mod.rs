@@ -83,6 +83,12 @@ pub use revolve::{
     REVOLVE_FULL_TURN_TOLERANCE, REVOLVE_MIN_AXIS_CLEARANCE_REL,
 };
 
+mod pipe;
+pub use pipe::{
+    pipe, PipePath, PipeResult, PIPE_ARC_ENDPOINT_TOLERANCE, PIPE_MIN_BEND_CLEARANCE_REL,
+    PIPE_TANGENT_TOLERANCE,
+};
+
 mod extrude;
 pub use extrude::{
     extrude, make_face_from_profile, ExtrudeResult, LaminaResult, CIRCLE_EXTRUDE_MAX_AXIS_SINE,

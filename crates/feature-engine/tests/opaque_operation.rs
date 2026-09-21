@@ -59,7 +59,7 @@ fn known_tags_round_trip_as_before_and_report_their_tag() {
     for tag in OPERATION_TAGS {
         assert!(!tag.is_empty());
     }
-    assert_eq!(OPERATION_TAGS.len(), 13);
+    assert_eq!(OPERATION_TAGS.len(), 14);
 }
 
 #[test]

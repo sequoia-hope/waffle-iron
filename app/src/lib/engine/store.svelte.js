@@ -248,6 +248,15 @@ let revolveDialogState = $state(null);
 /** @type {{ sketchId: string, profileIndex: number, angle: number, axisOrigin: [number,number,number], axisDir: [number,number,number] } | null} */
 let revolvePreviewParams = $state(null);
 
+/**
+ * Pipe dialog (spec `specs/b2_pipe_sweep.md` checkpoint 3).
+ * @type {{ sketchId: string, sketchName: string, entityIds: number[], editingFeatureId?: string, editParams?: any } | null}
+ */
+let pipeDialogState = $state(null);
+
+/** Viewport pick mode for the pipe path: clicks on inactive-sketch lines/arcs toggle path entities. */
+let pathPickMode = $state(false);
+
 /** @type {{ edges: Array<any>, edgeCount: number } | null} */
 let chamferDialogState = $state(null);
 
@@ -1229,6 +1238,12 @@ export async function initEngine() {
 			removeExtrudeRegion: (index) => removeExtrudeRegion(index),
 			changeExtrudeSketch: (sketchId) => changeExtrudeSketch(sketchId),
 			getRevolveDialogState: () => revolveDialogState,
+			getPipeDialogState: () => pipeDialogState,
+			showPipeDialog: () => showPipeDialog(),
+			// Test SETUP only (the pick-mode interaction has its own coverage):
+			// sets the pipe dialog's path as viewport picks would (a single id
+			// expands to its connected chain, like a click).
+			setPipePath: (sketchId, ids, opts = {}) => setPipePath(sketchId, ids, opts),
 			getRevolvePreviewParams: () => revolvePreviewParams,
 			setRevolvePreviewParams: (params) => setRevolvePreviewParams(params),
 			getChamferDialogState: () => chamferDialogState,
@@ -4206,6 +4221,9 @@ export async function computeAllSketchRegions() {
 export function getAxisPickMode() { return axisPickMode; }
 export function setAxisPickMode(active) { axisPickMode = active; }
 
+export function getPathPickMode() { return pathPickMode; }
+export function setPathPickMode(active) { pathPickMode = active; }
+
 export function getRevolvePreviewParams() { return revolvePreviewParams; }
 export function setRevolvePreviewParams(params) { revolvePreviewParams = params; }
 
@@ -4821,6 +4839,180 @@ export async function applyRevolve(angleDeg, axisOrigin, axisDir, profileIndex, 
 	} catch (err) {
 		log('error', `Revolve failed: ${err.message}`);
 		showToast('error', `Revolve failed: ${err.message}`);
+	}
+}
+
+// -- Pipe dialog (spec `specs/b2_pipe_sweep.md` checkpoint 3) --
+
+export function getPipeDialogState() { return pipeDialogState; }
+
+/** Show the pipe dialog on the last sketch in the feature tree. */
+export function showPipeDialog() {
+	const tree = featureTree;
+	if (!tree || !tree.features) return;
+	let lastSketch = null;
+	for (let i = tree.features.length - 1; i >= 0; i--) {
+		const f = tree.features[i];
+		if (f.operation?.type === 'Sketch') {
+			lastSketch = f;
+			break;
+		}
+	}
+	if (!lastSketch) return;
+	log('ui', 'Show pipe dialog', { sketchId: lastSketch.id });
+	pipeDialogState = {
+		sketchId: lastSketch.id,
+		sketchName: lastSketch.name,
+		entityIds: []
+	};
+}
+
+export function hidePipeDialog() {
+	pipeDialogState = null;
+	pathPickMode = false;
+	restoreEditRollback();
+}
+
+/**
+ * Show the pipe dialog pre-populated for editing an existing feature.
+ * @param {string} featureId
+ */
+export function showPipeDialogForEdit(featureId) {
+	const tree = featureTree;
+	if (!tree || !tree.features) return;
+	const feature = tree.features.find(f => f.id === featureId);
+	if (!feature || feature.operation?.type !== 'Pipe') return;
+	const params = feature.operation.params;
+	const sketch = tree.features.find(f => f.id === params.sketch_id);
+	if (!sketch) return;
+	log('ui', 'Show pipe dialog for edit', { featureId, sketchId: params.sketch_id });
+	pipeDialogState = {
+		sketchId: params.sketch_id,
+		sketchName: sketch.name,
+		entityIds: [...(params.entity_ids ?? [])],
+		editingFeatureId: featureId,
+		editParams: params
+	};
+	beginEditRollback(featureId);
+}
+
+/**
+ * The connected chain of lines/arcs (by shared point ids) containing
+ * `entityId` in the sketch feature `sketchId`. Construction entities count:
+ * a sweep path is usually drawn as construction geometry.
+ * @returns {number[]}
+ */
+function connectedPathChain(sketchId, entityId) {
+	const feature = featureTree?.features?.find(f => f.id === sketchId);
+	const entities = feature?.operation?.sketch?.entities ?? [];
+	const segs = entities.filter(e => e.type === 'Line' || e.type === 'Arc');
+	const byId = new Map(segs.map(e => [e.id, e]));
+	if (!byId.has(entityId)) return [entityId];
+	const incident = new Map();
+	for (const e of segs) {
+		for (const pid of [e.start_id, e.end_id]) {
+			if (!incident.has(pid)) incident.set(pid, []);
+			incident.get(pid).push(e.id);
+		}
+	}
+	const seen = new Set([entityId]);
+	const queue = [entityId];
+	while (queue.length) {
+		const id = queue.shift();
+		const e = byId.get(id);
+		for (const pid of [e.start_id, e.end_id]) {
+			for (const other of incident.get(pid) ?? []) {
+				if (!seen.has(other)) {
+					seen.add(other);
+					queue.push(other);
+				}
+			}
+		}
+	}
+	return [...seen].sort((a, b) => a - b);
+}
+
+/**
+ * Toggle a sketch entity in the pipe dialog's path. A click on an entity not
+ * yet in the path adds its WHOLE connected chain (`expand`, default true);
+ * a click on one already in the path removes just that entity.
+ * @param {string} sketchId - sketch feature id
+ * @param {number} entityId
+ */
+export function togglePipePathEntity(sketchId, entityId, opts = {}) {
+	if (!pipeDialogState) return;
+	const { expand = true } = opts;
+	if (pipeDialogState.sketchId !== sketchId) {
+		// The path lives on ONE sketch: switching sketches restarts the pick.
+		const feature = featureTree?.features?.find(f => f.id === sketchId);
+		pipeDialogState = {
+			...pipeDialogState,
+			sketchId,
+			sketchName: feature?.name ?? pipeDialogState.sketchName,
+			entityIds: []
+		};
+	}
+	const current = pipeDialogState.entityIds;
+	let next;
+	if (current.includes(entityId)) {
+		next = current.filter(id => id !== entityId);
+	} else {
+		const add = expand ? connectedPathChain(sketchId, entityId) : [entityId];
+		next = [...current, ...add.filter(id => !current.includes(id))];
+	}
+	pipeDialogState = { ...pipeDialogState, entityIds: next };
+}
+
+/** Test/agent setup: replace the path with `ids` (each expanded like a click). */
+export function setPipePath(sketchId, ids, opts = {}) {
+	if (!pipeDialogState) return;
+	const { expand = true } = opts;
+	const feature = featureTree?.features?.find(f => f.id === sketchId);
+	pipeDialogState = {
+		...pipeDialogState,
+		sketchId,
+		sketchName: feature?.name ?? pipeDialogState.sketchName,
+		entityIds: []
+	};
+	for (const id of ids) togglePipePathEntity(sketchId, id, { expand });
+}
+
+/**
+ * Apply a pipe operation from the dialog.
+ * @param {number} radius - tube radius, meters
+ * @param {number|null} innerRadius - bore radius, meters (null = solid)
+ */
+export async function applyPipe(radius, innerRadius, opts = {}) {
+	if (!pipeDialogState || !bridge || !engineReady) return;
+	const { combine = null, targets = null, radiusExpr = null, innerRadiusExpr = null } = opts;
+	const combineObj = combine ? { type: combine } : null;
+	const operation = {
+		type: 'Pipe',
+		params: {
+			sketch_id: pipeDialogState.sketchId,
+			entity_ids: [...pipeDialogState.entityIds],
+			radius,
+			radius_expr: radiusExpr,
+			inner_radius: innerRadius,
+			inner_radius_expr: innerRadiusExpr,
+			combine: combineObj,
+			targets
+		}
+	};
+	const editingId = pipeDialogState.editingFeatureId;
+	log('action', editingId ? 'Edit pipe' : 'Apply pipe', { radius, innerRadius, entities: operation.params.entity_ids.length });
+	try {
+		if (editingId) {
+			await editFeature(editingId, operation);
+		} else {
+			await sendRebuild({ type: 'AddFeature', operation });
+		}
+		await restoreEditRollback();
+		pipeDialogState = null;
+		pathPickMode = false;
+	} catch (err) {
+		log('error', `Pipe failed: ${err.message}`);
+		showToast('error', `Pipe failed: ${err.message}`);
 	}
 }
 
@@ -7758,6 +7950,7 @@ export function showEditFeatureDialog(featureId) {
 	const opType = feature.operation?.type;
 	if (opType === 'Extrude') showExtrudeDialogForEdit(featureId);
 	else if (opType === 'Revolve') showRevolveDialogForEdit(featureId);
+	else if (opType === 'Pipe') showPipeDialogForEdit(featureId);
 	else if (opType === 'ImportedBody') showImportDialogForEdit(featureId);
 	else if (opType === 'MateConnector') showMateConnectorDialog(featureId);
 }

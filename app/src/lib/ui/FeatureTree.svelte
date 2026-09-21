@@ -288,7 +288,7 @@
 		const opType = feature.operation?.type;
 		if (opType === 'Sketch') {
 			enterSketchEditMode(feature.id);
-		} else if (opType === 'Extrude' || opType === 'Revolve' || opType === 'MateConnector') {
+		} else if (opType === 'Extrude' || opType === 'Revolve' || opType === 'Pipe' || opType === 'MateConnector') {
 			showEditFeatureDialog(feature.id);
 		} else {
 			renaming = { featureId: feature.id, value: feature.name };
@@ -464,6 +464,7 @@
 			case 'Sketch': return '\u270E';
 			case 'Extrude': return '\u25A7';
 			case 'Revolve': return '\u21BB';
+			case 'Pipe': return '\u2312';
 			case 'Fillet': return '\u25CF';
 			case 'Chamfer': return '\u25C6';
 			case 'Shell': return '\u25A1';
@@ -892,7 +893,7 @@
 		{#if contextMenu.isSketch}
 			<button class="ctx-item" data-testid="ft-ctx-edit-sketch" onclick={handleEditSketch}>Edit Sketch</button>
 		{/if}
-		{#if contextMenu.operationType === 'Extrude' || contextMenu.operationType === 'Revolve' || contextMenu.operationType === 'MateConnector'}
+		{#if contextMenu.operationType === 'Extrude' || contextMenu.operationType === 'Revolve' || contextMenu.operationType === 'Pipe' || contextMenu.operationType === 'MateConnector'}
 			<button class="ctx-item" data-testid="ft-ctx-edit-feature" onclick={handleEditFeature}>Edit Feature</button>
 		{/if}
 		<button class="ctx-item" data-testid="ft-ctx-rename" onclick={handleRenameFromMenu}>Rename</button>

@@ -16,6 +16,8 @@
 		setReferenceSnapPoints,
 		getProfilePickMode,
 		getAxisPickMode,
+		getPathPickMode,
+		togglePipePathEntity,
 		addProfileRegion,
 		getSketchRegions,
 		setRevolveAxis,
@@ -515,7 +517,7 @@
 
 		// Don't hover profiles when a face or edge is under the cursor,
 		// UNLESS a pick mode is active (profile or axis picking needs priority)
-		const hasPickMode = getProfilePickMode() || getAxisPickMode();
+		const hasPickMode = getProfilePickMode() || getAxisPickMode() || getPathPickMode();
 		if (getHoveredRef() && !hasPickMode) {
 			if (getInactiveHoveredProfile()) setInactiveHoveredProfile(null);
 			if (hoveredAxisEntity) hoveredAxisEntity = null;
@@ -658,7 +660,8 @@
 
 		const pickMode = getProfilePickMode();
 		const axisMode = getAxisPickMode();
-		if (!pickMode && !axisMode) return;
+		const pathMode = getPathPickMode();
+		if (!pickMode && !axisMode && !pathMode) return;
 
 		const camera = getCameraObject();
 		if (!camera || !renderer) return;
@@ -676,6 +679,57 @@
 				addProfileRegion(hovered.featureId, hovered.profileIndex, hovered.region ?? null);
 				return;
 			}
+		}
+
+		// Pipe path picking (spec `specs/b2_pipe_sweep.md` checkpoint 3): the
+		// nearest line or arc of any inactive sketch (construction included)
+		// toggles into the dialog's path — a first click brings its whole
+		// connected chain along.
+		if (pathMode) {
+			let best = null;
+			let bestDist = ENTITY_PICK_THRESHOLD_2D;
+			for (const data of sketchData) {
+				const origin = data.sketch.plane_origin || [0, 0, 0];
+				const normal = data.sketch.plane_normal || [0, 0, 1];
+				const n = new THREE.Vector3(normal[0], normal[1], normal[2]).normalize();
+				const o = new THREE.Vector3(origin[0], origin[1], origin[2]);
+				_planeObj.setFromNormalAndCoplanarPoint(n, o);
+				if (!_raycaster.ray.intersectPlane(_planeObj, _intersection)) continue;
+				const rel = _intersection.clone().sub(o);
+				const sx = rel.dot(data.plane.xAxis);
+				const sy = rel.dot(data.plane.yAxis);
+				for (const entity of data.entities) {
+					let dist = Infinity;
+					if (entity.type === 'Line') {
+						const p1 = data.positions.get(entity.start_id);
+						const p2 = data.positions.get(entity.end_id);
+						if (!p1 || !p2) continue;
+						dist = pointToSegmentDist2D(sx, sy, p1.x, p1.y, p2.x, p2.y);
+					} else if (entity.type === 'Arc') {
+						const c = data.positions.get(entity.center_id);
+						const a = data.positions.get(entity.start_id);
+						const b = data.positions.get(entity.end_id);
+						if (!c || !a || !b) continue;
+						const r = Math.hypot(a.x - c.x, a.y - c.y);
+						const radial = Math.abs(Math.hypot(sx - c.x, sy - c.y) - r);
+						// Within the CCW span start → end?
+						const a0 = Math.atan2(a.y - c.y, a.x - c.x);
+						const a1 = Math.atan2(b.y - c.y, b.x - c.x);
+						const ap = Math.atan2(sy - c.y, sx - c.x);
+						const span = ((a1 - a0) % (2 * Math.PI) + 2 * Math.PI) % (2 * Math.PI);
+						const off = ((ap - a0) % (2 * Math.PI) + 2 * Math.PI) % (2 * Math.PI);
+						dist = off <= span ? radial : Infinity;
+					} else {
+						continue;
+					}
+					if (dist < bestDist) {
+						bestDist = dist;
+						best = { featureId: data.featureId, entityId: entity.id };
+					}
+				}
+			}
+			if (best) togglePipePathEntity(best.featureId, best.entityId);
+			return;
 		}
 
 		// Axis picking from sketch entities: raycast to each sketch plane and find nearest entity

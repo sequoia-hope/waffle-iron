@@ -1240,6 +1240,22 @@ export const ENGINE_DEFS = {
       {
         "properties": {
           "params": {
+            "$ref": "#/$defs/PipeParams"
+          },
+          "type": {
+            "const": "Pipe",
+            "type": "string"
+          }
+        },
+        "required": [
+          "type",
+          "params"
+        ],
+        "type": "object"
+      },
+      {
+        "properties": {
+          "params": {
             "$ref": "#/$defs/ScriptParams"
           },
           "type": {
@@ -1271,6 +1287,7 @@ export const ENGINE_DEFS = {
                 "MateConnector",
                 "PatternCircular",
                 "PatternLinear",
+                "Pipe",
                 "Script"
               ]
             },
@@ -1509,6 +1526,80 @@ export const ENGINE_DEFS = {
       "direction",
       "count",
       "spacing"
+    ],
+    "type": "object"
+  },
+  "PipeParams": {
+    "description": "Parameters for a pipe sweep (`specs/b2_pipe_sweep.md` checkpoint 2): a\ncircle of `radius` (hollow when `inner_radius` is set) swept along the\nopen chain the sketch entities `entity_ids` (lines and arcs, construction\nallowed) form. The chain is re-extracted from the CURRENT sketch at every\nrebuild (`waffle_types::path::extract_open_chain`), so editing the path\nre-sweeps the pipe. Lengths in meters.",
+    "properties": {
+      "combine": {
+        "anyOf": [
+          {
+            "$ref": "#/$defs/CombineMode"
+          },
+          {
+            "type": "null"
+          }
+        ],
+        "default": null,
+        "description": "Boolean combine against `targets`; `None` ⇒ NewBody."
+      },
+      "entity_ids": {
+        "description": "Sketch entity ids of the path (lines and arcs forming one open,\ntangent-continuous chain; order-insensitive — the chain starts at the\nfree end holding the first listed entity).",
+        "items": {
+          "format": "uint32",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "type": "array"
+      },
+      "inner_radius": {
+        "description": "Bore radius for a hollow pipe, meters (`0 < inner < radius`).",
+        "format": "double",
+        "type": [
+          "number",
+          "null"
+        ]
+      },
+      "inner_radius_expr": {
+        "description": "Optional driving expression for `inner_radius`.",
+        "type": [
+          "string",
+          "null"
+        ]
+      },
+      "radius": {
+        "description": "Tube (outer) radius, meters.",
+        "format": "double",
+        "type": "number"
+      },
+      "radius_expr": {
+        "description": "Optional driving expression for `radius` (mm-space, like\n`ExtrudeParams::depth_expr`).",
+        "type": [
+          "string",
+          "null"
+        ]
+      },
+      "sketch_id": {
+        "description": "The sketch FEATURE's id.",
+        "format": "uuid",
+        "type": "string"
+      },
+      "targets": {
+        "description": "Explicit target bodies for `Add`/`Cut`/`Intersect`. A pipe has no\nprofile to share a face with, so a combine with no targets falls\nback to the most recent solid body (the legacy rule).",
+        "items": {
+          "$ref": "#/$defs/GeomRef"
+        },
+        "type": [
+          "array",
+          "null"
+        ]
+      }
+    },
+    "required": [
+      "sketch_id",
+      "entity_ids",
+      "radius"
     ],
     "type": "object"
   },

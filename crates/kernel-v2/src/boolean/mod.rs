@@ -122,7 +122,9 @@ mod to_yang;
 pub use self::to_yang::{to_yang_brep, to_yang_brep_indexed};
 
 mod from_yang;
-pub use self::from_yang::{from_yang_brep, from_yang_brep_indexed};
+pub use self::from_yang::{
+    from_yang_brep, from_yang_brep_indexed, from_yang_brep_indexed_with_operands,
+};
 
 // ---------------------------------------------------------------------------
 // small vector helpers (component math local to this module)
@@ -138,6 +140,14 @@ fn dot3(a: [f64; 3], b: [f64; 3]) -> f64 {
 
 fn norm3(a: [f64; 3]) -> f64 {
     dot3(a, a).sqrt()
+}
+
+fn cross3(a: [f64; 3], b: [f64; 3]) -> [f64; 3] {
+    [
+        a[1] * b[2] - a[2] * b[1],
+        a[2] * b[0] - a[0] * b[2],
+        a[0] * b[1] - a[1] * b[0],
+    ]
 }
 
 fn normalize3_arr(a: [f64; 3]) -> [f64; 3] {
@@ -413,7 +423,19 @@ pub fn boolean_op(
             }
         }
     }
-    let (out_solid, out_face_ids) = from_yang_brep_indexed(arena, &out)?;
+    // The operands' vertex positions (bit-exact), so output-curve recovery
+    // can anchor re-minted seams at surviving ORIGINAL vertices.
+    let operand_points: std::collections::BTreeSet<[u64; 3]> = ya
+        .vertices()
+        .iter()
+        .chain(yb.vertices().iter())
+        .map(|v| {
+            let p = v.point.as_array();
+            [p[0].to_bits(), p[1].to_bits(), p[2].to_bits()]
+        })
+        .collect();
+    let (out_solid, out_face_ids) =
+        from_yang_brep_indexed_with_operands(arena, &out, &operand_points)?;
     // F1 (design review 2026-07-12): PRODUCTION planarity gate for the
     // assembled boolean output. The debug-only tripwire in `validate_solid`
     // rests on "planar by construction", which is false for yang re-entry —

@@ -100,6 +100,7 @@ Presented 2026-07-16; the user's answer (2026-07-17) was **"i have no opinion on
 | N60 | RESOLVED (flipped always-on 2026-08-26; blockers R0054/F0085 fixed structurally) | §4.4.2 output boundary-curve restoration — carried same-input circles re-typed onto their input rims; the KV9-F2a fold family's owner |
 | N61 | RESOLVED for cylinders (2026-09-11, KV14 Slice G); OPEN for cones | Stage-1 curved chart CDT (holed / partial laterals) was boundary-only — no §4.1 domain triangulation to d_ε; interior diagonals exceeded the chord budget downstream bands read back (R0026) |
 | N62 | PERMANENT (flipped always-on 2026-09-17, C0065) | §4.5.2 refines the WHOLE op at d_ε/2, d_ε/4 under the Q3 guard shell instead of the traversed patches + one-ring with a local splice — strictly more refinement, paid only by an already-failed op |
+| N63 | RESOLVED (2026-09-21, B2 pipe checkpoint 1) | Stage-4 torus implicit-pair relocation STOPped on an operand's OWN G1 cylinder↔torus rim (a tangent pair, rank-deficient by construction) although the vertex lies on the shared rim exactly; now skipped at a tangent pair off the intersection curve. NOTE: the projection of an operand's own transversal rim vertices is KEPT — it corrects Stage-1 samples of recovered rims that sit off the torus (R0026), a §4.4.2 restoration gap in its own right |
 | #137 diag | HISTORICAL | #137 (2026-07-15): C0065/R0074 — the torus∩plane solver EXISTS and RUNS; the blocker is mesh RESOLUTION nea… |
 | #137 diag 2 | HISTORICAL | #137 (2026-07-15, follow-up): resolution ALONE is not the fix — it flips the loud STOP into a silent-wrong … |
 
@@ -3179,6 +3180,39 @@ paper's pipeline maintains natively.
 ---
 
 ## RESOLVED deviations (implementation brought into line with the paper)
+
+### N63 — Stage-4 torus relocation STOPped on an operand's OWN tangent rim (found and fixed 2026-09-21, B2 pipe checkpoint 1)
+
+**Paper:** §4.3 (`refs/text/yang2025_hybrid_boolean.txt:520-540`) — the
+optimization targets "the intersection points of the meshes"; §4.4.2
+(`:574-583`) — output patches are bounded by "either the original boundary
+curves or the intersection curves", the original ones restored as they are.
+
+**Implementation (before):** the KV6d Tier-B torus arm in
+`stage4_correct.rs` aggregates its relocation set from `inc0` — EVERY
+patch-boundary edge bearing a torus — which includes an operand's own
+cylinder↔torus and torus↔torus rims. On a G1 rim (a pipe bend joining its
+straight, spec `b2_pipe_sweep.md`) the two surfaces are TANGENT, so the
+implicit-pair Newton's rank gate fires by construction and every such
+operand STOPped `LocalRefinementRequired` — for a vertex that lies on the
+shared rim circle exactly and was never an intersection point.
+
+**Fix:** at a vertex that is NOT on the intersection curve (no `inc0` edge
+spanning both operands) the arm measures the pair's tangency at the vertex
+and skips a tangent pair. Transversal operand-own vertices are STILL
+projected, deliberately: a blanket "intersection vertices only" filter was
+measured to regress R0026 CORRECT→ERROR (`VertexOffSurface`) — Stage-1
+samples of a rim recovered from a previous boolean's chords sit off the
+exact torus by more than the on-surface band, and the old arm's projection
+was silently correcting them. That is a separate §4.4.2 restoration gap
+(the recovered rim circle is a chord fit, not the exact torus∩plane
+section), left as it is and now documented. Byte-identical everywhere the
+old arm converged.
+
+**State:** RESOLVED (2026-09-21, B2 pipe checkpoint 1; oracles
+`crates/kernel-v2/tests/b2_pipe.rs` — handlebar / S-bend / hollow / chained
+cuts re-enter yang; full release assay 291C→292C re-verified after the
+R0026 refinement, recorded in the session memory).
 
 ### N60 — §4.4.2 output boundary-curve restoration partial: carried same-input curves emitted as mesh polylines
 

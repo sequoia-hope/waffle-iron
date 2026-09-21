@@ -23,6 +23,7 @@
 //! | `make_faces_from_profiles` | SUPPORTED (polygon + circle + exact arc + spline-via-polygon + holed regions) | `ClosedProfile` polygon → `kernel_v2::Profile::new`; `CircleProfile` → `Profile::circle` (staged); arc-annotated single loops → `Profile::arc_polygon` with EXACT cylinder side patches (KV12 Tier 2, E4 — arc runs reconstructed into minor sub-arcs), falling back LOUDLY to the Tier-1 `vertex_ids` chord polygon when reconstruction / simplicity declines or the loop is holed; spline-annotated profiles (gears) extrude via their chord polygon; inner (`is_outer=false`) loops are grouped into the strictly-larger outer that contains them → one holed `Profile` (KV14); arc/spline WITHOUT a `vertex_ids` polygon → `NotSupported` |
 //! | `extrude_face` | SUPPORTED | staged profile → `kernel_v2::extrude` (sweep vector = `direction · depth`, exactly the legacy semantics); circle profiles → cylinder solids (PR-KV5a) |
 //! | `revolve_face` | SUPPORTED (PR-KV6a incl. KV6a-tilted non-alternating profiles; cones PR-KV6c incl. increment-5 partial patches) | staged polygon profile → `kernel_v2::revolve` (degrees → radians; world-space in-plane axis). Oblique edges sweep `Surface::Cone`: frustum bands on a FULL-turn revolve (KV6c) and arc-bounded cone patches on a PARTIAL turn (KV6c increment 5, spec `kv6c_partial_revolve_cone_patch.md`). Full-turn profiles need NOT alternate wall/annulus edges (KV6a-tilted, spec `kv6a_nonalternating_full_revolve.md` — an all-oblique tilted-axis rectangle builds the capless cone-frustum ring); only consecutive ANNULAR edges keep a typed `NotImplemented`. A PARTIAL-turn circle profile sweeps a `Surface::Torus` (a bent solid tube, KV6d); a FULL-turn circle profile builds the CLOSED genus-1 torus (off-axis) or the CLOSED sphere (on-axis, KV6d increment 2, spec `kv6d_sphere_revolve.md`). Typed walls: holed profiles → `NotSupported`; axis touching/crossing the profile and out-of-range angles → `KernelError::Other` (INVALID INPUT — the F0073/F0074 expected-rebuild-error path, never the NotSupported marker) |
+//! | `pipe` | SUPPORTED (spec `b2_pipe_sweep.md`, checkpoint 1) | sketch-plane line/arc chain → `kernel_v2::pipe` (ONE directly assembled solid: shared rim circles, binormal seams; solid or hollow). Typed walls: closed loops → `NotSupported`; a non-G1 joint, a bend tighter than the tube, a bad radius → `KernelError::Other` (invalid input) |
 //! | `boolean_union` / `_subtract` / `_intersect` | SUPPORTED (non-coplanar; cylinder×box class PR-KV5b) | `kernel_v2::boolean_op` (yang-rs native pipeline); coplanar input face pairs → `NotSupported` (Yang Stage 0 / roadmap M8); curved partial-patch RESULT operands re-enter through the KV14 patch path (ellipse / hyperbola / M5 K11 surface-pair boundary edges included); the remaining shapes → `NotSupported`; cone-frustum, apex-cone (C0063) and conic-bounded cone-patch operands SUPPORTED (KV6c increment 5c, the apex-cone operand and the KV14 ellipse/hyperbola re-entry); cylinder×cylinder (KV9 special cases and the general degree-4 surface-pair curve, M5) SUPPORTED; a yang STOP on specific geometry (Stage-3 `AmbiguousCurve`, Stage-4 `LocalRefinementRequired` / `OffCurveBeyondChordBand`, Stage-5 non-2-manifold reassembly, CDT ring reject) → `BooleanFailed` carrying the typed wall text |
 //! | `boolean_*_multi` | default impl | delegates to the single-body methods |
 //! | `fillet_edges` / `chamfer_edges` / `shell` | NOT SUPPORTED | deferred indefinitely (root CLAUDE.md) |
@@ -60,7 +61,8 @@ use crate::{BrepArena, FaceId, HalfEdgeId, KernelV2Error, SolidId, Surface, Vert
 use cad_primitives::{BoolOp, Point2, Point3, Vector3};
 use waffle_types::kernel::{
     AxisKind, ClosedProfile, EdgeRange, EdgeRenderData, EntityAxis, FaceRange, KernelError,
-    KernelId, KernelSolidHandle, RenderMesh, StepExportBody, TopoKind, TopoSignature,
+    KernelId, KernelSolidHandle, PipePathSegment, RenderMesh, StepExportBody, TopoKind,
+    TopoSignature,
 };
 use waffle_types::kernel::{Kernel, KernelIntrospect};
 
@@ -697,6 +699,66 @@ impl Kernel for KernelV2Adapter {
         Err(Self::not_supported(
             "shell (deferred indefinitely; not in kernel-v2)",
         ))
+    }
+
+    fn pipe(
+        &mut self,
+        plane_origin: [f64; 3],
+        plane_normal: [f64; 3],
+        plane_x_axis: [f64; 3],
+        path: &[PipePathSegment],
+        radius: f64,
+        inner_radius: Option<f64>,
+    ) -> Result<KernelSolidHandle, KernelError> {
+        // Same frame convention as `make_faces_from_profiles`: y = n × x.
+        let n = plane_normal;
+        let x = plane_x_axis;
+        let y = [
+            n[1] * x[2] - n[2] * x[1],
+            n[2] * x[0] - n[0] * x[2],
+            n[0] * x[1] - n[1] * x[0],
+        ];
+        let origin = Point3::new(plane_origin[0], plane_origin[1], plane_origin[2]);
+        let ux = Vector3::new(x[0], x[1], x[2]);
+        let vy = Vector3::new(y[0], y[1], y[2]);
+        let edges: Vec<crate::ProfileEdge> = path
+            .iter()
+            .map(|seg| match *seg {
+                PipePathSegment::Line { a, b } => crate::ProfileEdge::Line {
+                    a: Point2::new(a.0, a.1),
+                    b: Point2::new(b.0, b.1),
+                },
+                PipePathSegment::Arc {
+                    a,
+                    b,
+                    center,
+                    radius,
+                    ccw,
+                } => crate::ProfileEdge::Arc {
+                    a: Point2::new(a.0, a.1),
+                    b: Point2::new(b.0, b.1),
+                    center: Point2::new(center.0, center.1),
+                    radius,
+                    ccw,
+                },
+            })
+            .collect();
+        let map_err = |e: KernelV2Error| {
+            match e {
+            // Capability walls: typed NotSupported (assay UNSUPPORTED).
+            KernelV2Error::PipeClosedPathUnsupported => Self::not_supported(
+                "pipe: closed path loops (a genus-1 ring) are a later slice (spec b2_pipe_sweep.md)",
+            ),
+            // Invalid input: plain errors — never the NotSupported marker.
+            other => KernelError::Other {
+                message: format!("kernel-v2 pipe failed: {other}"),
+            },
+        }
+        };
+        let path = crate::PipePath::new(origin, ux, vy, edges).map_err(map_err)?;
+        let result = crate::pipe(&mut self.arena, &path, radius, inner_radius).map_err(map_err)?;
+        self.subfloor_twin_probe(result.solid, "pipe OUTPUT");
+        Ok(self.alloc_handle(result.solid))
     }
 
     fn transform_body(

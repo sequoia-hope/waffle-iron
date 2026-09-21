@@ -35,23 +35,29 @@ pub(crate) fn tessellate_torus_lateral(
     let ax = [axis_dir.x, axis_dir.y, axis_dir.z];
     let c = [center.x(), center.y(), center.z()];
 
-    // Recover (w0, α) from the +axis seam arc (radius major+minor). The
-    // CLOSED torus (KV6d full turn, spec `kv6d_closed_torus_revolve.md`)
-    // has no seam ARC — its toroidal seam is the closed outer-equator
-    // CIRCLE; anchor θ = 0 at its seam vertex and sweep the full 2π with
-    // wrapped θ rows.
+    // Recover (w0, φ0, α) from the +axis seam arc. The revolve builders put
+    // the seam on the OUTER EQUATOR (radius major+minor, φ0 = 0 exactly —
+    // matched first, byte-identical to the pre-B2 path). The CLOSED torus
+    // (KV6d full turn, spec `kv6d_closed_torus_revolve.md`) has no seam
+    // ARC — its toroidal seam is the closed outer-equator CIRCLE; anchor
+    // θ = 0 at its seam vertex and sweep the full 2π with wrapped θ rows.
+    // Otherwise (spec `b2_pipe_sweep.md` §2: a pipe band's seam runs along
+    // the path binormal, φ0 = ±π/2) the seam is any open arc about the
+    // +axis; its poloidal phase follows from the arc's own centre offset
+    // and radius: `r·sin φ0 = (c_seam − C)·â`, `r·cos φ0 = ρ_seam − R`.
     let hes = arena.loop_half_edges(face.outer_loop)?;
     let mut seam = None;
     let mut closed = false;
+    let rr = r_maj + r_min;
     for &h in &hes {
         let he = arena.half_edge(h)?;
         if let Curve::Arc { radius, normal, .. } = he.curve {
-            if (radius - (r_maj + r_min)).abs() <= 1e-9 * (1.0 + r_maj + r_min)
+            if (radius - rr).abs() <= 1e-9 * (1.0 + rr)
                 && (normal.x * ax[0] + normal.y * ax[1] + normal.z * ax[2]) > 0.0
             {
                 let v0 = arena.vertex(he.origin)?.point;
                 let dest = arena.half_edge(he.next)?.origin;
-                seam = Some((v0, arena.vertex(dest)?.point));
+                seam = Some((v0, arena.vertex(dest)?.point, 0.0));
                 break;
             }
         }
@@ -60,18 +66,56 @@ pub(crate) fn tessellate_torus_lateral(
         for &h in &hes {
             let he = arena.half_edge(h)?;
             if let Curve::Circle { radius, normal, .. } = he.curve {
-                if (radius - (r_maj + r_min)).abs() <= 1e-9 * (1.0 + r_maj + r_min)
+                if (radius - rr).abs() <= 1e-9 * (1.0 + rr)
                     && (normal.x * ax[0] + normal.y * ax[1] + normal.z * ax[2]) > 0.0
                 {
                     let v0 = arena.vertex(he.origin)?.point;
-                    seam = Some((v0, v0));
+                    seam = Some((v0, v0, 0.0));
                     closed = true;
                     break;
                 }
             }
         }
     }
-    let Some((v0, valpha)) = seam else {
+    if seam.is_none() {
+        for &h in &hes {
+            let he = arena.half_edge(h)?;
+            if let Curve::Arc {
+                center: cs,
+                radius,
+                normal,
+            } = he.curve
+            {
+                if (normal.x * ax[0] + normal.y * ax[1] + normal.z * ax[2]) > 0.0 {
+                    let d = [cs.x() - c[0], cs.y() - c[1], cs.z() - c[2]];
+                    let tau = d[0] * ax[0] + d[1] * ax[1] + d[2] * ax[2];
+                    let off = [d[0] - tau * ax[0], d[1] - tau * ax[1], d[2] - tau * ax[2]];
+                    if (off[0] * off[0] + off[1] * off[1] + off[2] * off[2]).sqrt()
+                        > 1e-9 * (1.0 + rr)
+                    {
+                        return Err(fail("torus seam arc is not centred on the torus axis"));
+                    }
+                    let phi0 = tau.atan2(radius - r_maj);
+                    let v0 = arena.vertex(he.origin)?.point;
+                    let dest = arena.half_edge(he.next)?.origin;
+                    seam = Some((v0, arena.vertex(dest)?.point, phi0));
+                    break;
+                }
+            }
+        }
+    }
+    let Some((v0, valpha, phi0)) = seam else {
+        if std::env::var_os("KV2_TORUS_SEAM_PROBE").is_some() {
+            eprintln!("[torus-seam-probe] face {fid:?} surface {:?}", face.surface);
+            for &h in &hes {
+                let he = arena.half_edge(h)?;
+                eprintln!(
+                    "[torus-seam-probe]   {h:?} origin {:?} curve {:?}",
+                    arena.vertex(he.origin)?.point,
+                    he.curve
+                );
+            }
+        }
         return Err(fail("torus lateral missing its +axis seam arc"));
     };
     let wv = [v0.x() - c[0], v0.y() - c[1], v0.z() - c[2]];
@@ -135,7 +179,8 @@ pub(crate) fn tessellate_torus_lateral(
     for i in 0..n_rows {
         let theta = alpha * (i as f64) / (n_theta as f64);
         for j in 0..n_phi {
-            let phi = 2.0 * PI * (j as f64) / (n_phi as f64);
+            // `0.0 + x` is bitwise `x`: the equator-seam path is unchanged.
+            let phi = phi0 + 2.0 * PI * (j as f64) / (n_phi as f64);
             let (p, nrm) = point(theta, phi);
             out.positions.extend_from_slice(&p);
             out.normals.extend_from_slice(&nrm);

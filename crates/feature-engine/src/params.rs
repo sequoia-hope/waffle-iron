@@ -149,6 +149,34 @@ pub fn apply_parameters(tree: &mut FeatureTree) -> ParamOutcome {
                 &env,
                 &mut errs,
             ),
+            Operation::Pipe { params } => {
+                let a = apply_length_field(
+                    "radius",
+                    &mut params.radius,
+                    params.radius_expr.as_deref(),
+                    &env,
+                    &mut errs,
+                );
+                let b = match (
+                    &mut params.inner_radius,
+                    params.inner_radius_expr.as_deref(),
+                ) {
+                    (Some(ri), expr @ Some(_)) => {
+                        apply_length_field("inner_radius", ri, expr, &env, &mut errs)
+                    }
+                    (None, Some(expr)) => {
+                        let mut v = 0.0;
+                        let changed =
+                            apply_length_field("inner_radius", &mut v, Some(expr), &env, &mut errs);
+                        if changed {
+                            params.inner_radius = Some(v);
+                        }
+                        changed
+                    }
+                    _ => false,
+                };
+                a || b
+            }
             Operation::DatumPlane { params } => match &mut params.definition {
                 PlaneDefinition::Offset {
                     distance,

@@ -102,9 +102,11 @@ pub(crate) fn tessellate_torus_face(
     let band = 1e-9 * (1.0 + major + minor);
 
     // Classify the boundary edges: 2 profile circles (closed, radius ≈ minor)
-    // + 1 seam arc (open, radius ≈ major+minor) — the partial tube — OR
-    // 1 profile circle + 1 closed outer-equator circle (the CLOSED torus,
-    // KV6d full turn, spec `kv6d_closed_torus_revolve.md`).
+    // + 1 seam arc (open; on the outer equator, radius ≈ major+minor, for
+    // the revolve builders — at ANY poloidal phase for a pipe band, spec
+    // `b2_pipe_sweep.md` §2, whose seam runs along the path binormal) — the
+    // partial tube — OR 1 profile circle + 1 closed outer-equator circle
+    // (the CLOSED torus, KV6d full turn, spec `kv6d_closed_torus_revolve.md`).
     let mut profiles: Vec<u32> = Vec::new();
     let mut seam: Option<u32> = None;
     let mut equator: Option<u32> = None;
@@ -117,7 +119,7 @@ pub(crate) fn tessellate_torus_face(
             let ed = &edges[e as usize];
             if ed.start == ed.end && (radius - minor).abs() <= band {
                 profiles.push(e);
-            } else if ed.start != ed.end && (radius - (major + minor)).abs() <= band {
+            } else if ed.start != ed.end {
                 seam = Some(e);
             } else if ed.start == ed.end && (radius - (major + minor)).abs() <= band {
                 equator = Some(e);
@@ -215,12 +217,23 @@ pub(crate) fn tessellate_torus_face(
             _ => None,
         }
     };
+    // The column the seam chain occupies: slot 0 for an outer-equator seam
+    // (φ = 0, the revolve builders — unchanged), the seam's own φ slot for
+    // a pipe band (spec `b2_pipe_sweep.md` §2). The non-uniform arm anchors
+    // its columns at the seam (`base`), so there it is always column 0.
+    let mut seam_col = 0usize;
     let (row0, rowa, interior_phi): (Vec<u32>, Vec<u32>, Vec<f64>) =
         if let Some((row0, rowa)) = uniform_rows {
             // Historical interior column angles (bit-identical to pre-#131).
             let phis = (0..n_phi)
                 .map(|j| 2.0 * PI * (j as f64) / (n_phi as f64))
                 .collect();
+            seam_col = phi_slot(out_verts, seam_start);
+            if row0[seam_col] != seam_start {
+                return Err(malformed(format!(
+                    "face {f_idx}: torus seam anchor is not in its φ column"
+                )));
+            }
             (row0, rowa, phis)
         } else {
             // Task #131 (spec `m8_torus_profile_rim_crossing` §1.3): the grid
@@ -295,8 +308,11 @@ pub(crate) fn tessellate_torus_face(
             let theta = dot(d, e2).atan2(dot(d, e1));
             let (st, ct) = theta.sin_cos();
             let mut row = vec![0u32; n_phi];
-            row[0] = s; // φ=0 column reuses the seam chain
-            for (j, slot) in row.iter_mut().enumerate().skip(1) {
+            row[seam_col] = s; // the seam's column reuses the seam chain
+            for (j, slot) in row.iter_mut().enumerate() {
+                if j == seam_col {
+                    continue;
+                }
                 let phi = interior_phi[j];
                 let rad = major + minor * phi.cos();
                 let sp = minor * phi.sin();
@@ -318,8 +334,13 @@ pub(crate) fn tessellate_torus_face(
         }
     }
 
-    // Emit quads, each triangle wound to agree with the torus outward normal
-    // (direction from the nearest tube-center-circle point).
+    // Emit quads, each triangle wound to agree with the face's outward
+    // normal: the torus's own (direction from the nearest tube-center-circle
+    // point), NEGATED for a `reversed` cavity band (the bore of a hollow pipe
+    // bend, spec `b2_pipe_sweep.md` §3 — the same rule the cylinder lateral,
+    // the Slice-F band and the UV patch already apply; byte-identical for
+    // `reversed == false`).
+    let reversed = f.reversed;
     let emit = |a: u32, b: u32, c: u32, out_verts: &[Point3], out_tris: &mut Vec<[u32; 3]>| {
         let pa = out_verts[a as usize].as_array();
         let pb = out_verts[b as usize].as_array();
@@ -346,7 +367,7 @@ pub(crate) fn tessellate_torus_face(
             ctr[1] - (cen[1] + major * rhat[1]),
             ctr[2] - (cen[2] + major * rhat[2]),
         ];
-        if dot(gn, on) >= 0.0 {
+        if (dot(gn, on) >= 0.0) != reversed {
             out_tris.push([a, b, c]);
         } else {
             out_tris.push([a, c, b]);
@@ -380,7 +401,7 @@ pub(crate) fn tessellate_torus_face(
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn tessellate_torus_closed(
     f_idx: usize,
-    _f: &BRepFace,
+    f: &BRepFace,
     _edges: &[BRepEdge],
     rim_rings: &std::collections::BTreeMap<u32, Vec<u32>>,
     center: Point3,
@@ -485,7 +506,9 @@ pub(crate) fn tessellate_torus_closed(
     }
 
     // Emit quads with BOTH directions wrapped, each triangle wound to agree
-    // with the torus outward normal (same rule as `tessellate_torus_face`).
+    // with the face's outward normal (same rule as `tessellate_torus_face`,
+    // negated for a `reversed` toroidal void).
+    let reversed = f.reversed;
     let emit = |a: u32, b: u32, c: u32, out_verts: &[Point3], out_tris: &mut Vec<[u32; 3]>| {
         let pa = out_verts[a as usize].as_array();
         let pb = out_verts[b as usize].as_array();
@@ -512,7 +535,7 @@ pub(crate) fn tessellate_torus_closed(
             ctr[1] - (cen[1] + major * rhat[1]),
             ctr[2] - (cen[2] + major * rhat[2]),
         ];
-        if dot(gn, on) >= 0.0 {
+        if (dot(gn, on) >= 0.0) != reversed {
             out_tris.push([a, b, c]);
         } else {
             out_tris.push([a, c, b]);

@@ -181,6 +181,40 @@ pub enum KernelV2Error {
     /// profiles).
     RevolveProfileHolesUnsupported,
 
+    // ----- constructor argument validation (pipe, spec b2_pipe_sweep) -----
+    /// `PipePath::new` was given no segments.
+    PipePathEmpty,
+
+    /// Path segment `segment` does not end exactly where segment
+    /// `segment + 1` starts.
+    PipePathNotChained { segment: usize },
+
+    /// The path returns to its start: a closed pipe (a genus-1 ring) is a
+    /// later slice.
+    PipeClosedPathUnsupported,
+
+    /// Path segment `segment` is malformed: non-finite endpoint, a
+    /// zero-length line, an arc with a non-positive radius, an endpoint off
+    /// its circle, or a full-circle arc.
+    PipePathEdgeInvalid { segment: usize },
+
+    /// The tangents meeting at interior joint `joint` disagree beyond
+    /// `construct::PIPE_TANGENT_TOLERANCE`: the chain is not G1. A mitred
+    /// (non-tangent) joint is a later slice.
+    PipeJoinNotTangent { joint: usize },
+
+    /// `pipe` radius must be finite and strictly positive.
+    PipeNonPositiveRadius,
+
+    /// `pipe` inner radius must be finite and in `(0, radius)`.
+    PipeInnerRadiusInvalid,
+
+    /// Arc segment `segment` bends tighter than the tube radius (bend
+    /// radius `ρ ≤ r + clearance`): the inner side of the tube would pinch
+    /// to a non-manifold seam. Invalid input, like the revolve
+    /// axis-clearance rule.
+    PipeBendRadiusTooSmall { segment: usize },
+
     /// Slice under construction: the named entry point is specified (RED
     /// oracles pin its contract) but not implemented yet.
     NotImplemented(&'static str),

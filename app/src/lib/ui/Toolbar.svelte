@@ -18,6 +18,7 @@
 		finishSketch,
 		showExtrudeDialog,
 		showRevolveDialog,
+		showPipeDialog,
 		showChamferDialog,
 		showFilletDialog,
 		showShellDialog,
@@ -168,6 +169,7 @@
 		{ id: 'sketch', label: 'Sketch', shortcut: 'S' },
 		{ id: 'extrude', label: 'Extrude', shortcut: 'E' },
 		{ id: 'revolve', label: 'Revolve', shortcut: '' },
+		{ id: 'pipe', label: 'Pipe', shortcut: '' },
 		{ id: 'fillet', label: 'Fillet', shortcut: '' },
 		{ id: 'chamfer', label: 'Chamfer', shortcut: '' },
 		{ id: 'shell', label: 'Shell', shortcut: '' },
@@ -228,6 +230,10 @@
 		}
 		if (toolId === 'revolve' && !inSketch) {
 			showRevolveDialog();
+			return;
+		}
+		if (toolId === 'pipe' && !inSketch) {
+			showPipeDialog();
 			return;
 		}
 		if (toolId === 'chamfer' && !inSketch) {

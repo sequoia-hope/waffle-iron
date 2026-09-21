@@ -160,6 +160,15 @@ export async function clickRevolve(page) {
 }
 
 /**
+ * Click the Pipe tool and wait for its dialog.
+ * @param {import('@playwright/test').Page} page
+ */
+export async function clickPipe(page) {
+	await page.locator('[data-testid="toolbar-btn-pipe"]').click();
+	await page.locator('[data-testid="pipe-dialog"]').waitFor({ state: 'visible', timeout: 5000 });
+}
+
+/**
  * Press a keyboard shortcut key.
  * @param {import('@playwright/test').Page} page
  * @param {string} key

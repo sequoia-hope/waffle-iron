@@ -396,3 +396,118 @@ pub(crate) fn cone_arc_patch_flux(
     }
     Ok(tan_a * sum / 3.0)
 }
+
+/// Divergence-theorem flux `(1/3)∮ x·n dA` through a TORUS BAND — the
+/// bent-tube lateral of `build_torus_revolve` / the pipe (spec
+/// `b2_pipe_sweep.md` §3): the outer loop is two closed profile rims
+/// (`Curve::Circle`, radius = minor) plus the seam-arc twin pair.
+///
+/// Derivation: the band, its two disc caps and the tube they bound satisfy
+/// `3V = Φ_band + Φ_cap₀ + Φ_cap_α` with `V = α·R·π·r²` (Pappus) and, on a
+/// planar cap, `Φ_cap = (c · n_out)·π r²`. The cap's outward normal is the
+/// negation of the band's rim directional normal `ν` (the rim traverses
+/// TOWARD the opposite rim, i.e. into the tube at that cap), so
+/// `Φ_band = 3αRπr² + πr²(c₀·ν₀ + c_α·ν_α)`. For a cavity band
+/// (`reversed`, the bore of a hollow pipe) the material sense flips: the
+/// Pappus term negates while the rim normals — already reversed by the
+/// builder — keep the cap terms' signs, giving `−3αRπr² + πr²(Σ c·ν)`.
+/// The sweep `α` is read off the seam arc about the `+axis`.
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn torus_band_flux(
+    arena: &crate::arena::BrepArena,
+    f: crate::arena::FaceId,
+    face: &crate::arena::Face,
+    center: Point3,
+    axis_dir: crate::arena::UnitVector3,
+    major: f64,
+    minor: f64,
+    reversed: bool,
+) -> Result<f64, crate::error::KernelV2Error> {
+    use crate::arena::Curve;
+    use std::f64::consts::PI;
+    let mismatch = |reason: &'static str| crate::error::KernelV2Error::CurvedGeometryMismatch {
+        face: f,
+        reason,
+    };
+    if !face.inner_loops.is_empty() {
+        return Err(mismatch(
+            "signed_volume: torus band with inner loops has no closed form",
+        ));
+    }
+    let a = [axis_dir.x, axis_dir.y, axis_dir.z];
+    let hes = arena.loop_half_edges(face.outer_loop)?;
+    let mut rim_dots = 0.0f64;
+    let mut rims = 0usize;
+    let mut alpha: Option<f64> = None;
+    for &h in &hes {
+        let he = arena.half_edge(h)?;
+        match he.curve {
+            Curve::Circle {
+                center: c,
+                normal,
+                radius,
+            } => {
+                if (radius - minor).abs() > 1e-9 * minor {
+                    return Err(mismatch(
+                        "signed_volume: torus band rim radius disagrees with the minor radius",
+                    ));
+                }
+                rims += 1;
+                rim_dots += c.x() * normal.x + c.y() * normal.y + c.z() * normal.z;
+            }
+            Curve::Arc {
+                center: cs,
+                normal,
+                radius: _,
+            } => {
+                let nu = [normal.x, normal.y, normal.z];
+                let along = nu[0] * a[0] + nu[1] * a[1] + nu[2] * a[2];
+                if along.abs() < 1.0 - 1e-9 {
+                    return Err(mismatch(
+                        "signed_volume: torus band seam arc is not about the torus axis",
+                    ));
+                }
+                let d = [
+                    cs.x() - center.x(),
+                    cs.y() - center.y(),
+                    cs.z() - center.z(),
+                ];
+                let tau = d[0] * a[0] + d[1] * a[1] + d[2] * a[2];
+                let off = [d[0] - tau * a[0], d[1] - tau * a[1], d[2] - tau * a[2]];
+                if (off[0] * off[0] + off[1] * off[1] + off[2] * off[2]).sqrt()
+                    > 1e-9 * (1.0 + major + minor)
+                {
+                    return Err(mismatch(
+                        "signed_volume: torus band seam arc is not centred on the axis",
+                    ));
+                }
+                if along > 0.0 && alpha.is_none() {
+                    let p0 = arena.vertex(he.origin)?.point;
+                    let p1 = arena.vertex(arena.half_edge(he.next)?.origin)?.point;
+                    alpha = Some(
+                        ccw_sweep(cs, nu, p0, p1)
+                            .ok_or(mismatch("signed_volume: degenerate torus seam arc"))?,
+                    );
+                }
+            }
+            _ => {
+                return Err(mismatch(
+                    "signed_volume: torus band loop outside the rim + seam vocabulary",
+                ));
+            }
+        }
+    }
+    let Some(alpha) = alpha else {
+        return Err(mismatch(
+            "signed_volume: torus band without a +axis seam arc",
+        ));
+    };
+    if rims != 2 {
+        return Err(mismatch(
+            "signed_volume: torus band must be bounded by exactly two profile rims",
+        ));
+    }
+    let sigma = if reversed { -1.0 } else { 1.0 };
+    let r2 = minor * minor;
+    Ok(sigma * alpha * major * PI * r2 + PI * r2 * rim_dots / 3.0)
+}

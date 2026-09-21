@@ -1,8 +1,8 @@
 use std::collections::HashMap;
 
 use modeling_ops::{
-    execute_boolean, execute_chamfer, execute_extrude, execute_fillet, execute_revolve,
-    execute_shell, BooleanKind, OpResult,
+    execute_boolean, execute_chamfer, execute_extrude, execute_fillet, execute_pipe,
+    execute_revolve, execute_shell, BooleanKind, OpResult,
 };
 use uuid::Uuid;
 use waffle_types::kernel::units::TAU_WORK;
@@ -362,6 +362,11 @@ fn depends_on_tree_position(feature: &Feature, tree: &FeatureTree) -> bool {
         ),
         Operation::Revolve { params } => (
             crate::types::normalize_revolve_combine(params),
+            params.sketch_id,
+            false,
+        ),
+        Operation::Pipe { params } => (
+            crate::types::normalize_pipe_combine(params),
             params.sketch_id,
             false,
         ),
@@ -977,6 +982,67 @@ pub(crate) fn execute_feature(
             Ok(result)
         }
 
+        Operation::Pipe { params } => {
+            let _sketch_result = find_sketch_result(params.sketch_id, feature_results)?;
+            let sketch_ref = find_sketch_in_tree(params.sketch_id, tree)?;
+            let mut sketch_expanded = sketch_ref.clone();
+            if !sketch_expanded.projected.is_empty() {
+                reproject_sketch(
+                    &mut sketch_expanded,
+                    feature_results,
+                    kb.as_introspect(),
+                    context,
+                );
+                sketch_expanded.solved_positions.clear();
+                sketch_expanded.solved_profiles.clear();
+            }
+            sketch_expanded.recompute_derived_checked().map_err(|e| {
+                EngineError::SketchGenerator {
+                    sketch_id: params.sketch_id,
+                    reason: e.to_string(),
+                }
+            })?;
+            let sketch = &sketch_expanded;
+            let chain = waffle_types::path::extract_open_chain(
+                &sketch.entities,
+                &sketch.solved_positions,
+                &params.entity_ids,
+            )
+            .map_err(|e| EngineError::SketchGenerator {
+                sketch_id: params.sketch_id,
+                reason: e.to_string(),
+            })?;
+            let normal = unit_normal(sketch.plane_normal);
+            let x_axis = tangent_x_from_normal(normal);
+            let pipe_result = execute_pipe(
+                kb,
+                sketch.plane_origin,
+                normal,
+                x_axis,
+                &chain.segments,
+                params.radius,
+                params.inner_radius,
+                None,
+            )?;
+            let eff = crate::types::normalize_pipe_combine(params);
+            let mut combine_warnings: Vec<String> = Vec::new();
+            let combine_targets = match eff.mode {
+                CombineMode::NewBody => Vec::new(),
+                _ => resolve_combine_targets(
+                    &eff.targets,
+                    feature,
+                    feature_results,
+                    tree,
+                    already_consumed,
+                    &mut combine_warnings,
+                )?,
+            };
+            let mut result = dispatch_combine(kb, &eff, &combine_targets, pipe_result, "pipe")?;
+            carry_untargeted_siblings(&mut result, &eff, feature_results);
+            result.diagnostics.warnings.extend(combine_warnings);
+            Ok(result)
+        }
+
         Operation::PatternCircular { params } => crate::pattern::execute(
             feature,
             kb,
@@ -1384,6 +1450,32 @@ pub(crate) fn find_consumed_feature_ids(
                         .into_iter()
                         .map(|(id, _)| id)
                         .collect(),
+                    }
+                }
+            }
+        }
+        Operation::Pipe { params } => {
+            let eff = crate::types::normalize_pipe_combine(params);
+            match eff.mode {
+                CombineMode::NewBody => vec![],
+                CombineMode::Add | CombineMode::Cut | CombineMode::Intersect => {
+                    match &eff.targets {
+                        TargetStrategy::Explicit(list) => list
+                            .iter()
+                            .filter(|gr| find_solid_handle(gr, feature_results).is_ok())
+                            .filter_map(|gr| match &gr.anchor {
+                                waffle_types::Anchor::FeatureOutput { feature_id, .. } => {
+                                    Some(*feature_id)
+                                }
+                                _ => None,
+                            })
+                            .collect(),
+                        _ => find_most_recent_consumed(
+                            feature,
+                            feature_results,
+                            tree,
+                            already_consumed,
+                        ),
                     }
                 }
             }

@@ -961,6 +961,41 @@ impl ModelBuilder {
         self.extract_last_feature_id(name, "AddFeature(Revolve)", response)
     }
 
+    /// Add a pipe sweep along the sketch entities `entity_ids` of
+    /// `sketch_name` (`specs/b2_pipe_sweep.md`): `radius` / `inner_radius`
+    /// in meters, `NewBody`.
+    pub fn pipe(
+        &mut self,
+        name: &str,
+        sketch_name: &str,
+        entity_ids: &[u32],
+        radius: f64,
+        inner_radius: Option<f64>,
+    ) -> Result<Uuid, HarnessError> {
+        self.check_name_available(name)?;
+        let sketch_id = self.feature_id(sketch_name)?;
+        let response = wasm_bridge::dispatch(
+            &mut self.state,
+            UiToEngine::AddFeature {
+                provenance: None,
+                operation: Operation::Pipe {
+                    params: PipeParams {
+                        sketch_id,
+                        entity_ids: entity_ids.to_vec(),
+                        radius,
+                        radius_expr: None,
+                        inner_radius,
+                        inner_radius_expr: None,
+                        combine: None,
+                        targets: None,
+                    },
+                },
+            },
+            self.kernel.as_mut(),
+        );
+        self.extract_last_feature_id(name, "AddFeature(Pipe)", response)
+    }
+
     /// Add a fillet feature targeting edges of another feature.
     pub fn fillet(&mut self, name: &str, target: &str, radius: f64) -> Result<Uuid, HarnessError> {
         self.check_name_available(name)?;

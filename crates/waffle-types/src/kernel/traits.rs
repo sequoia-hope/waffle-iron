@@ -199,6 +199,28 @@ pub trait Kernel {
             operation: "make_face_from_region".to_string(),
         })
     }
+
+    /// Sweep a circle of `radius` (hollow when `inner_radius` is `Some`,
+    /// `0 < rᵢ < radius`) along an OPEN, tangent-continuous chain of lines
+    /// and arcs in the sketch plane (`plane_origin`, `plane_normal`,
+    /// `plane_x_axis`, the same frame `make_faces_from_profiles` takes),
+    /// producing ONE solid whose laterals share their rim circles — no
+    /// boolean (`specs/b2_pipe_sweep.md`). A path that is not a single open
+    /// G1 chain, a bend tighter than the tube radius, or a bad radius is an
+    /// error, never a guess.
+    fn pipe(
+        &mut self,
+        _plane_origin: [f64; 3],
+        _plane_normal: [f64; 3],
+        _plane_x_axis: [f64; 3],
+        _path: &[PipePathSegment],
+        _radius: f64,
+        _inner_radius: Option<f64>,
+    ) -> Result<KernelSolidHandle, KernelError> {
+        Err(KernelError::NotSupported {
+            operation: "pipe".to_string(),
+        })
+    }
 }
 
 /// What kind of analytic geometry an [`EntityAxis`] came from. Reported so a

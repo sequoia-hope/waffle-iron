@@ -207,6 +207,31 @@
 - [ ] Bore with COPLANAR caps through a sprocket STOPs in yang Stage 0 (see Blockers);
       pinned `#[ignore = "M8 …"]` in `sprocket_kv2.rs`.
 
+### M15: Pipe sweep — B2 checkpoint 2 of `specs/custom_features_and_modeling_roadmap.md` ✅ (2026-09-21)
+- [x] `Kernel::pipe` (defaulted `NotSupported`; `waffle_types::kernel::PipePathSegment`),
+      `KernelV2Adapter::pipe` → `kernel_v2::pipe` (ONE directly assembled solid, spec
+      `specs/b2_pipe_sweep.md`), `MockKernel::pipe` (typed refusals + box topology).
+- [x] `waffle_types::path::extract_open_chain`: sketch lines/arcs (construction allowed)
+      → one open, oriented, G1 chain by shared point ids; typed `PathError` naming the
+      entity/point (branching, disconnected, closed, non-tangent, degenerate).
+- [x] `Operation::Pipe { PipeParams { sketch_id, entity_ids, radius(_expr),
+      inner_radius(_expr), combine, targets } }` (5 sites in `types.rs`, rebuild arm,
+      consumed ids, tree-position dependence, `params.rs` length expressions);
+      `modeling_ops::execute_pipe` (roles: `EndCapNegative`/`EndCapPositive` by end
+      tangents, `SideFace{i}`); script `ctx.pipe(sketch, [ids], #{ radius, inner_radius,
+      combine, targets })`; `AUTHORABLE` + dispatch name; `docs/FILE_FORMAT.md` §7.11 (no
+      reader-floor bump); golden schema + agent manifest regenerated; `ModelBuilder::pipe`.
+- [x] Tests: `tests/pipe.rs` (6, MockKernel), `waffle-types` path (2),
+      `test-harness/tests/pipe_kv2.rs` (4, real kernel: exact `π r² L` / `π (r² − rᵢ²) L`
+      to 1e-9, χ = 2 / 0, box cut through the lead-in, loud malformed path).
+- [x] Checkpoint 3 (same day): `PipeDialog.svelte` (path pick box — a viewport click on
+      an inactive-sketch line/arc brings its whole connected chain, `setPipePath` test
+      API; radius + wall inputs in the display unit with expressions; combine/targets),
+      toolbar "Pipe", feature list double-click / context edit, property editor fields,
+      `showEditFeatureDialog` routing; GUI spec `pipe-dialog.spec.js` (5, gui-fast).
+- [ ] Known walls (typed): closed loops, mitred (non-G1) joints, non-planar chains; a bend
+      over ≈149° that SURVIVES a boolean (the recovered seam must be one sub-π arc).
+
 ## Blockers
 
 - **M8 Stage-0 mixed-loop coplanar caps (found 2026-09-19 boring a 20T

@@ -341,7 +341,7 @@ bridge actually sends and JS actually stores into the file) — a drift hazard
 
 `operation` is internally tagged with `type` ∈ `Sketch`, `Extrude`, `Revolve`,
 `Fillet`, `Chamfer`, `Shell`, `BooleanCombine`, `DatumPlane`, `ImportedBody`,
-`MateConnector`, `PatternCircular`, `PatternLinear`, `Script`.
+`MateConnector`, `PatternCircular`, `PatternLinear`, `Pipe`, `Script`.
 Parameter payloads sit under `sketch` (for `Sketch`) or `params` (all others).
 
 **Unknown kinds (v4 Phase 1b, 2026-09-08).** A well-formed `{"type": …}`
@@ -524,6 +524,27 @@ header, parse, runtime, `ctx.fail`, a sandbox limit, an argument, a child
 operation — is a typed `Script` feature error and the node has no outputs.
 
 ---
+
+### 7.11 `Pipe` — `PipeParams` (types.rs, 2026-09-21)
+
+A circle (optionally hollow) swept along an OPEN, tangent-continuous chain
+of sketch lines and arcs, built by the kernel as ONE solid whose laterals
+share their rim circles (`specs/b2_pipe_sweep.md`). The chain is
+re-extracted from the current sketch at every rebuild
+(`waffle_types::path::extract_open_chain`): a branching, disconnected,
+closed or non-tangent selection is a loud per-feature error. New operation
+kind, no reader-floor bump.
+
+| Field | Type | Req/default | Notes |
+|---|---|---|---|
+| `sketch_id` | UUID | ✔ | The sketch **feature's** id. |
+| `entity_ids` | u32[] | ✔ | Path entities (lines / arcs, construction allowed), order-insensitive; the chain starts at the free end holding the first listed entity. |
+| `radius` | f64 (m) | ✔ | Tube (outer) radius. |
+| `radius_expr` | string \| null | opt | Driving expression (mm-space), as `depth_expr`. |
+| `inner_radius` | f64 (m) \| null | opt | Bore radius of a hollow pipe, `0 < inner < radius`. |
+| `inner_radius_expr` | string \| null | opt | Driving expression for `inner_radius`. |
+| `combine` | CombineMode \| null | opt | `null` ⇒ NewBody. |
+| `targets` | GeomRef[] \| null | opt | Explicit targets; a combine with none falls back to the most recent solid body (a pipe has no profile to share a face with). |
 
 ## 8. Persistent geometry references — `GeomRef`
 

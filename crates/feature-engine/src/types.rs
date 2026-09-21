@@ -278,6 +278,11 @@ pub enum Operation {
     PatternLinear {
         params: PatternLinearParams,
     },
+    /// Pipe sweep: a circle (optionally hollow) along an open tangent chain
+    /// of sketch lines and arcs, one solid (`specs/b2_pipe_sweep.md`).
+    Pipe {
+        params: PipeParams,
+    },
     /// A custom feature script (`specs/custom_features_and_modeling_roadmap.md`
     /// Part A): a Rhai script from the document's sources table, run inside
     /// the engine over the same operations the tree has.
@@ -313,6 +318,7 @@ enum KnownOperation {
     MateConnector { params: MateConnectorParams },
     PatternCircular { params: PatternCircularParams },
     PatternLinear { params: PatternLinearParams },
+    Pipe { params: PipeParams },
     Script { params: ScriptParams },
 }
 
@@ -330,6 +336,7 @@ pub const OPERATION_TAGS: &[&str] = &[
     "MateConnector",
     "PatternCircular",
     "PatternLinear",
+    "Pipe",
     "Script",
 ];
 
@@ -348,6 +355,7 @@ impl From<KnownOperation> for Operation {
             KnownOperation::MateConnector { params } => Operation::MateConnector { params },
             KnownOperation::PatternCircular { params } => Operation::PatternCircular { params },
             KnownOperation::PatternLinear { params } => Operation::PatternLinear { params },
+            KnownOperation::Pipe { params } => Operation::Pipe { params },
             KnownOperation::Script { params } => Operation::Script { params },
         }
     }
@@ -384,6 +392,7 @@ impl Operation {
             Operation::MateConnector { .. } => "MateConnector",
             Operation::PatternCircular { .. } => "PatternCircular",
             Operation::PatternLinear { .. } => "PatternLinear",
+            Operation::Pipe { .. } => "Pipe",
             Operation::Script { .. } => "Script",
             Operation::Unknown(v) => crate::opaque::type_tag(v),
         }
@@ -719,6 +728,59 @@ pub(crate) fn normalize_revolve_combine(params: &RevolveParams) -> EffectiveComb
         params.merge,
         &None,
     )
+}
+
+/// Parameters for a pipe sweep (`specs/b2_pipe_sweep.md` checkpoint 2): a
+/// circle of `radius` (hollow when `inner_radius` is set) swept along the
+/// open chain the sketch entities `entity_ids` (lines and arcs, construction
+/// allowed) form. The chain is re-extracted from the CURRENT sketch at every
+/// rebuild (`waffle_types::path::extract_open_chain`), so editing the path
+/// re-sweeps the pipe. Lengths in meters.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "json-schema", derive(schemars::JsonSchema))]
+pub struct PipeParams {
+    /// The sketch FEATURE's id.
+    pub sketch_id: Uuid,
+    /// Sketch entity ids of the path (lines and arcs forming one open,
+    /// tangent-continuous chain; order-insensitive — the chain starts at the
+    /// free end holding the first listed entity).
+    pub entity_ids: Vec<u32>,
+    /// Tube (outer) radius, meters.
+    pub radius: f64,
+    /// Optional driving expression for `radius` (mm-space, like
+    /// `ExtrudeParams::depth_expr`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub radius_expr: Option<String>,
+    /// Bore radius for a hollow pipe, meters (`0 < inner < radius`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub inner_radius: Option<f64>,
+    /// Optional driving expression for `inner_radius`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub inner_radius_expr: Option<String>,
+    /// Boolean combine against `targets`; `None` ⇒ NewBody.
+    #[serde(default)]
+    pub combine: Option<CombineMode>,
+    /// Explicit target bodies for `Add`/`Cut`/`Intersect`. A pipe has no
+    /// profile to share a face with, so a combine with no targets falls
+    /// back to the most recent solid body (the legacy rule).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub targets: Option<Vec<GeomRef>>,
+}
+
+/// Normalize a pipe's combine choice: `None` ⇒ NewBody; a mode with no
+/// explicit targets ⇒ the most recent solid body (no share-a-face rule — a
+/// pipe has no profile).
+#[allow(dead_code)]
+pub(crate) fn normalize_pipe_combine(params: &PipeParams) -> EffectiveCombine {
+    let mode = params.combine.unwrap_or(CombineMode::NewBody);
+    let targets = match mode {
+        CombineMode::NewBody => TargetStrategy::Explicit(Vec::new()),
+        _ => match &params.targets {
+            Some(list) if !list.is_empty() => TargetStrategy::Explicit(list.clone()),
+            _ => TargetStrategy::MostRecentLegacy,
+        },
+    };
+    EffectiveCombine { mode, targets }
 }
 
 /// Parameters for a revolve operation.

@@ -117,6 +117,12 @@ pub fn build_engine(limits: &Limits) -> Engine {
         ctx.revolve(&region, &opts)
     });
     engine.register_fn(
+        "pipe",
+        |ctx: &mut Ctx, sketch: SketchRef, entity_ids: Array, opts: Map| {
+            ctx.pipe(&sketch, &entity_ids, &opts)
+        },
+    );
+    engine.register_fn(
         "boolean",
         |ctx: &mut Ctx, op: &str, a: Dynamic, b: Dynamic| ctx.boolean(op, &a, &b),
     );

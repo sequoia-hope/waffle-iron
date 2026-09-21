@@ -5,6 +5,7 @@
 //! strategy and the circle-edge sense derivation.
 
 use super::*;
+use std::collections::BTreeSet;
 
 mod classify;
 mod keys;
@@ -82,13 +83,26 @@ pub fn from_yang_brep_indexed(
     arena: &mut BrepArena,
     brep: &yang_rs::BRep,
 ) -> Result<(SolidId, Vec<Option<FaceId>>), KernelV2Error> {
+    from_yang_brep_indexed_with_operands(arena, brep, &BTreeSet::new())
+}
+
+/// [`from_yang_brep_indexed`] with the boolean OPERANDS' vertex positions
+/// (bit-exact keys). The recovery pass uses them to anchor a re-minted torus
+/// seam at a rim's ORIGINAL vertex (spec `b2_pipe_sweep.md` §5 — a pipe
+/// chain's rims must all anchor at one phase); an empty set means "no
+/// operand knowledge" (the lowest-index aligned vertex is used instead).
+pub fn from_yang_brep_indexed_with_operands(
+    arena: &mut BrepArena,
+    brep: &yang_rs::BRep,
+    operand_points: &BTreeSet<[u64; 3]>,
+) -> Result<(SolidId, Vec<Option<FaceId>>), KernelV2Error> {
     // PR-KV7: recover B-Rep granularity (output curve tagging) before
     // classification — chord runs on recovered exact circles become arcs /
     // full rims, canonical-pairable cylinder faces become the 4-edge
     // [rim, seam, rim, seam] form. Conservative: bails to the original
     // lists on any structural anomaly, so pass-1 below stays the single
     // validation authority.
-    let (rverts, redges, rfaces) = crate::recover::recover_output_curves(brep);
+    let (rverts, redges, rfaces) = crate::recover::recover_output_curves(brep, operand_points);
     let yverts: &[yang_rs::BRepVertex] = &rverts;
     let yedges: &[yang_rs::BRepEdge] = &redges;
     let yfaces: &[yang_rs::BRepFace] = &rfaces;
@@ -622,6 +636,104 @@ pub fn from_yang_brep_indexed(
                     z: s * stored[2],
                 })
             };
+            // A rim shared by two CURVED laterals (a pipe's G1 joint —
+            // cylinder↔torus or torus↔torus, spec `b2_pipe_sweep.md`) has no
+            // planar cap to read the sense from. Derive it from the lateral's
+            // own material sense, the rule `validate_solid` enforces: an
+            // outward lateral's rim traverses TOWARD the face (the rim's
+            // directional normal is the surface direction perpendicular to
+            // the rim, INTO the face — `±axis` on a cylinder, `±` the
+            // tube-centre tangent on a torus); a cavity wall (`reversed`)
+            // traverses AWAY. "Into the face" is read off the loop edge that
+            // leaves the rim's anchor vertex: its initial direction lies in
+            // the face and has a positive component along the into-face
+            // direction (the seam, or whatever boundary edge follows the rim).
+            let derive_curved = |u: &EdgeUse| -> Option<UnitVector3> {
+                let spec = &loops[u.loop_idx];
+                let m = spec.cycle.len();
+                if m < 2 {
+                    return None;
+                }
+                let EdgeKind::Full {
+                    center: rim_c,
+                    normal: rim_n,
+                    ..
+                } = spec.edges[u.pos]
+                else {
+                    return None;
+                };
+                let anchor = spec.cycle[u.pos];
+                let next_pos = (u.pos + 1) % m;
+                let p_anchor = yverts[anchor as usize].point;
+                // Initial direction of the edge leaving the anchor: the exact
+                // tangent for a circular arc (its sweep may exceed π/2 — a
+                // pipe seam spans the whole bend), the chord for every other
+                // kind (minor / sampled pieces, whose chord keeps a positive
+                // component along the initial tangent).
+                let leave = match spec.edges[next_pos] {
+                    EdgeKind::Arc {
+                        center,
+                        forward_normal,
+                        ..
+                    } => {
+                        let r = sub(p_anchor, center);
+                        cross3(forward_normal, r)
+                    }
+                    _ => {
+                        let q = yverts[spec.cycle[(next_pos + 1) % m] as usize].point;
+                        sub(q, p_anchor)
+                    }
+                };
+                let (into, reversed) = match surfs[spec.face] {
+                    FaceSurf::Cylinder {
+                        axis_dir, reversed, ..
+                    } => (axis_dir, reversed),
+                    FaceSurf::Torus {
+                        center,
+                        axis_dir,
+                        reversed,
+                        ..
+                    } => {
+                        // Tube-centre tangent at this rim's centre (CCW about
+                        // the axis), which is also the rim's own axis.
+                        let radial = sub(rim_c, center);
+                        let t = cross3(axis_dir, radial);
+                        let l = norm3(t);
+                        if !(l.is_finite() && l > 0.0) {
+                            return None;
+                        }
+                        ([t[0] / l, t[1] / l, t[2] / l], reversed)
+                    }
+                    _ => return None,
+                };
+                // The rim's axis must be the into-face direction (up to sign).
+                if dot3(into, rim_n).abs() < 1.0 - YANG_NORMAL_AGREEMENT_TOLERANCE {
+                    return None;
+                }
+                let ll = norm3(leave);
+                if !(ll.is_finite() && ll > 0.0) {
+                    return None;
+                }
+                let along = dot3(leave, into) / ll;
+                if along.abs() < YANG_NORMAL_AGREEMENT_TOLERANCE {
+                    return None; // leaving edge tangent to the rim: no reading
+                }
+                let mut s = if along > 0.0 { 1.0 } else { -1.0 };
+                if reversed {
+                    s = -s;
+                }
+                // Return the STORED axis (bit-exact twin negation below).
+                let flip = if dot3(into, rim_n) * s > 0.0 {
+                    1.0
+                } else {
+                    -1.0
+                };
+                Some(UnitVector3 {
+                    x: flip * rim_n[0],
+                    y: flip * rim_n[1],
+                    z: flip * rim_n[2],
+                })
+            };
             let n_for = |u: &EdgeUse, partner: &EdgeUse| -> Result<UnitVector3, KernelV2Error> {
                 if let Some(nu) = derive_planar(u) {
                     return Ok(nu);
@@ -637,8 +749,14 @@ pub fn from_yang_brep_indexed(
                         return Ok(neg_unit(nu));
                     }
                 }
+                if let Some(nu) = derive_curved(u) {
+                    return Ok(nu);
+                }
+                if let Some(nu) = derive_curved(partner) {
+                    return Ok(neg_unit(nu));
+                }
                 Err(KernelV2Error::InvalidBooleanOutput(
-                    "full-circle edge sense is underivable (no planar cap use with an aligned plane)",
+                    "full-circle edge sense is underivable (no planar cap use with an aligned plane, no curved use with a readable material sense)",
                 ))
             };
             let nu0 = n_for(u0, u1)?;

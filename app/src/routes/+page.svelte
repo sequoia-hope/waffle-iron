@@ -13,6 +13,7 @@
 	import StatusBar from '$lib/ui/StatusBar.svelte';
 	import Viewport from '$lib/viewport/Viewport.svelte';
 	import RevolveDialog from '$lib/ui/RevolveDialog.svelte';
+	import PipeDialog from '$lib/ui/PipeDialog.svelte';
 	import SketchPlaneDialog from '$lib/ui/SketchPlaneDialog.svelte';
 	import ToastContainer from '$lib/ui/ToastContainer.svelte';
 	import {
@@ -194,6 +195,7 @@
 {/if}
 
 <RevolveDialog />
+<PipeDialog />
 <SketchPlaneDialog />
 <ImportLinkDialog />
 <ToastContainer />

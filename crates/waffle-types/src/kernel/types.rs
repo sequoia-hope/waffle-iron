@@ -319,6 +319,26 @@ impl<'de> Deserialize<'de> for KernelId {
 }
 
 /// A rigid motion `p' = R·p + t` in meters: an assembly instance's world
+/// One segment of a pipe path in sketch `(u, v)` coordinates
+/// (`specs/b2_pipe_sweep.md`; `Kernel::pipe`). Segments chain head-to-tail
+/// (`b` of one is `a` of the next). Unlike `RegionEdge::Arc`, an arc here
+/// may sweep any angle in `(0, 2π)` — a U-bend is a π arc; `ccw` is its
+/// sense about the sketch normal from `a` to `b`.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum PipePathSegment {
+    /// Straight segment `a → b`.
+    Line { a: (f64, f64), b: (f64, f64) },
+    /// Circular arc `a → b` about `center` of `radius`, `ccw` about the
+    /// sketch normal.
+    Arc {
+        a: (f64, f64),
+        b: (f64, f64),
+        center: (f64, f64),
+        radius: f64,
+        ccw: bool,
+    },
+}
+
 /// placement applied to a body at export (`Kernel::export_step_bodies`).
 /// `rotation` is row-major, orthonormal, determinant +1.
 #[derive(Debug, Clone, Copy, PartialEq)]

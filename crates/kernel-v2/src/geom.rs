@@ -271,6 +271,26 @@ pub fn signed_volume(
                         flux_f64 +=
                             cone_arc_patch_flux(arena, f, face, apex, axis_dir, half_angle)?;
                     }
+                    Some(Surface::Torus {
+                        center,
+                        axis_dir,
+                        major_radius,
+                        minor_radius,
+                        reversed,
+                    }) => {
+                        // Spec `b2_pipe_sweep.md` §3: the bent-tube band
+                        // (two full profile rims + a seam-arc twin pair).
+                        flux_f64 += torus_band_flux(
+                            arena,
+                            f,
+                            face,
+                            center,
+                            axis_dir,
+                            major_radius,
+                            minor_radius,
+                            reversed,
+                        )?;
+                    }
                     _ => {
                         return Err(crate::error::KernelV2Error::CurvedGeometryMismatch {
                             face: f,

@@ -61,6 +61,11 @@
 				return [
 					{ key: 'params.angle', label: 'Angle (°)', type: 'number', value: operation.params?.angle },
 				];
+			case 'Pipe':
+				return [
+					{ key: 'params.radius', label: 'Radius', type: 'number', value: operation.params?.radius },
+					{ key: 'params.inner_radius', label: 'Bore radius', type: 'number', value: operation.params?.inner_radius },
+				];
 			case 'Fillet':
 				return [
 					{ key: 'params.radius', label: 'Radius', type: 'number', value: operation.params?.radius },

@@ -188,6 +188,7 @@ struct Chain {
 /// of the originals when recovery does not apply / bails out.
 pub(crate) fn recover_output_curves(
     brep: &yang_rs::BRep,
+    operand_points: &std::collections::BTreeSet<[u64; 3]>,
 ) -> (Vec<BRepVertex>, Vec<BRepEdge>, Vec<BRepFace>) {
     // Diagnostic probe (env-gated, zero-cost off): dump the RAW yang output
     // faces + loop edges (pre-recovery), with azimuth-around-z for each
@@ -229,7 +230,7 @@ pub(crate) fn recover_output_curves(
             brep.faces().to_vec(),
         )
     };
-    match try_recover(brep) {
+    match try_recover(brep, operand_points) {
         Some(out) => out,
         None => {
             // KNOWN DEBT (design review 2026-07-12 F6, spec
@@ -252,7 +253,10 @@ pub(crate) fn recover_output_curves(
 }
 
 #[allow(clippy::type_complexity)]
-fn try_recover(brep: &yang_rs::BRep) -> Option<(Vec<BRepVertex>, Vec<BRepEdge>, Vec<BRepFace>)> {
+fn try_recover(
+    brep: &yang_rs::BRep,
+    operand_points: &std::collections::BTreeSet<[u64; 3]>,
+) -> Option<(Vec<BRepVertex>, Vec<BRepEdge>, Vec<BRepFace>)> {
     let yverts = brep.vertices();
     let yedges = brep.edges();
     let yfaces = brep.faces();
@@ -628,6 +632,12 @@ fn try_recover(brep: &yang_rs::BRep) -> Option<(Vec<BRepVertex>, Vec<BRepEdge>, 
     // face -> (outer chain ids per loop) for cylinder faces whose every loop
     // is exactly one closed circle chain.
     let mut lateral_pairs: BTreeMap<usize, ((usize, u32), (usize, u32))> = BTreeMap::new();
+    // Torus bands claimed by PASS 0: (rim a chain, foot a), (rim b chain,
+    // foot b), seam circle centre, unit axis (the band runs CCW about it from
+    // a to b), seam circle radius.
+    #[allow(clippy::type_complexity)]
+    let mut torus_pairs: BTreeMap<usize, ((usize, u32), (usize, u32), Point3, [f64; 3], f64)> =
+        BTreeMap::new();
     // Seam-foot vertices MINTED by pass 2 below (appended after the original
     // vertex list; index = yverts.len() + position).
     let mut minted: Vec<BRepVertex> = Vec::new();
@@ -655,6 +665,252 @@ fn try_recover(brep: &yang_rs::BRep) -> Option<(Vec<BRepVertex>, Vec<BRepEdge>, 
             };
             entry.push(single);
         }
+        // ---- PASS 0 — TORUS BANDS (spec `b2_pipe_sweep.md` §2, §5) ---------
+        // A torus band (a bent tube's lateral, a pipe bend) whose seam twin
+        // pair was patch-INTERIOR to yang's segmentation comes back as two
+        // closed profile rims and NO seam. Re-mint the seam exactly as the
+        // cylinder passes below re-mint a ruling: both rims anchored at the
+        // SAME poloidal phase, joined by the longitude arc through them
+        // (`centre + r·sin φ·â`, radius `R + r·cos φ`, about `+â`). Two
+        // things the cylinder form does not need:
+        //  * WHICH way round the band runs (the two rims bound two
+        //    complementary bands) is read off the output MESH: the triangle
+        //    attributed to this face nearest rim a in toroidal angle lies on
+        //    the band's side of it (yang §4.4.2 — the mesh segmentation is
+        //    what locates the retained patch).
+        //  * the anchor phase must be COHERENT along a whole pipe chain
+        //    (every rim is shared with the next lateral), so the anchor is
+        //    the rim's ORIGINAL input vertex whenever one survives (its
+        //    position bit-matches an operand vertex — the constructors put
+        //    every seam foot at one phase), else the lowest-index vertex
+        //    with an aligned partner.
+        // Runs FIRST so the anchors it fixes are the presets the cylinder
+        // passes align their free rims to. Faces this pass does not claim
+        // are left exactly as before (a seam wider than one sub-π arc piece,
+        // a preset-phase conflict, no attributed triangle) — bail, typed
+        // downstream, never a guess.
+        let mesh = brep.as_mesh();
+        let tri_attr = brep.triangle_attribution();
+        let face_attr = brep.face_attribution();
+        let tau = 2.0 * std::f64::consts::PI;
+        for (&fi, loop_chains) in &face_loop_chains {
+            let Surface::Torus {
+                center: tc,
+                axis_dir,
+                major_radius: rmaj,
+                minor_radius: rmin,
+            } = yfaces[fi].surface
+            else {
+                continue;
+            };
+            let [Some(ca), Some(cb)] = loop_chains.as_slice() else {
+                continue;
+            };
+            let (ca, cb) = (*ca, *cb);
+            let (
+                EffCurve::Circle {
+                    center: cca,
+                    radius: ra,
+                    ..
+                },
+                EffCurve::Circle {
+                    center: ccb,
+                    radius: rb,
+                    ..
+                },
+            ) = (chains[ca].curve, chains[cb].curve)
+            else {
+                continue;
+            };
+            let Some(axis) = normalize3(axis_dir.as_array()) else {
+                continue;
+            };
+            // Both rims are PROFILE circles: radius = minor, centre on the
+            // tube-centre circle (axial 0, radial R).
+            let radial_of = |c: Point3| -> [f64; 3] {
+                let d = sub(c, tc);
+                let t = dot3(d, axis);
+                [d[0] - t * axis[0], d[1] - t * axis[1], d[2] - t * axis[2]]
+            };
+            let on_tube_circle = |c: Point3| -> bool {
+                let d = sub(c, tc);
+                dot3(d, axis).abs() <= band && (norm3(radial_of(c)) - rmaj).abs() <= band
+            };
+            if (ra - rmin).abs() > band
+                || (rb - rmin).abs() > band
+                || !on_tube_circle(cca)
+                || !on_tube_circle(ccb)
+            {
+                continue;
+            }
+            // Band side from the mesh.
+            let (e1, e2) = ortho_basis(axis);
+            let theta_of = |p: [f64; 3]| -> f64 {
+                let d = [p[0] - tc.x(), p[1] - tc.y(), p[2] - tc.z()];
+                dot3(d, e2).atan2(dot3(d, e1))
+            };
+            let th_a = theta_of(cca.as_array());
+            let th_b = theta_of(ccb.as_array());
+            let Some(attr) = face_attr.get(fi).copied() else {
+                continue;
+            };
+            let mut nearest: Option<(f64, bool)> = None; // (Δθ, band is CCW from a)
+            for (ti, tri) in mesh.tris.iter().enumerate() {
+                if tri_attr.lookup(ti as u32) != Some(attr) {
+                    continue;
+                }
+                let (p0, p1, p2) = (
+                    mesh.verts[tri[0] as usize].as_array(),
+                    mesh.verts[tri[1] as usize].as_array(),
+                    mesh.verts[tri[2] as usize].as_array(),
+                );
+                let c = [
+                    (p0[0] + p1[0] + p2[0]) / 3.0,
+                    (p0[1] + p1[1] + p2[1]) / 3.0,
+                    (p0[2] + p1[2] + p2[2]) / 3.0,
+                ];
+                let d = (theta_of(c) - th_a).rem_euclid(tau);
+                let (dist, ccw) = if d <= std::f64::consts::PI {
+                    (d, true)
+                } else {
+                    (tau - d, false)
+                };
+                if dist <= 0.0 || !dist.is_finite() {
+                    continue;
+                }
+                if nearest.is_none_or(|(bd, _)| dist < bd) {
+                    nearest = Some((dist, ccw));
+                }
+            }
+            let Some((_, ccw)) = nearest else {
+                continue;
+            };
+            let (ca, cb, cca, ccb, th_a, th_b) = if ccw {
+                (ca, cb, cca, ccb, th_a, th_b)
+            } else {
+                (cb, ca, ccb, cca, th_b, th_a)
+            };
+            let sweep = (th_b - th_a).rem_euclid(tau);
+            if !(sweep > 0.0 && sweep < MAX_ARC_PIECE_SWEEP) {
+                continue; // one sub-π seam piece only; wider bands bail (typed downstream)
+            }
+            // Poloidal phase of a rim vertex in its rim's own frame.
+            let phase_on = |p: Point3, c: Point3| -> Option<f64> {
+                let er = normalize3(radial_of(c))?;
+                let d = sub(p, c);
+                Some(dot3(d, axis).atan2(dot3(d, er)))
+            };
+            let dphase = |x: f64, y: f64| -> f64 {
+                let mut d = (x - y).abs();
+                if d > std::f64::consts::PI {
+                    d = tau - d;
+                }
+                d
+            };
+            let is_original = |v: u32| -> bool {
+                (v as usize) < yverts.len() && {
+                    let p = yverts[v as usize].point.as_array();
+                    operand_points.contains(&[p[0].to_bits(), p[1].to_bits(), p[2].to_bits()])
+                }
+            };
+            let point_any = |v: u32, minted: &[BRepVertex]| -> Point3 {
+                if (v as usize) < yverts.len() {
+                    yverts[v as usize].point
+                } else {
+                    minted[v as usize - yverts.len()].point
+                }
+            };
+            // Rim-a anchor: preset, else the first ORIGINAL vertex with an
+            // aligned partner on rim b, else the first vertex with one.
+            let partner_on_b = |phi: f64, minted: &[BRepVertex]| -> Option<u32> {
+                let mut best: Option<(f64, u32)> = None;
+                for &vb in &chains[cb].verts {
+                    let Some(pb) = phase_on(point_any(vb, minted), ccb) else {
+                        continue;
+                    };
+                    let d = dphase(pb, phi);
+                    if d * rmin <= band
+                        && best.is_none_or(|(bd, bv)| d < bd || (d == bd && vb < bv))
+                    {
+                        best = Some((d, vb));
+                    }
+                }
+                best.map(|(_, v)| v)
+            };
+            let pre_a = chains[ca].anchor;
+            let pre_b = chains[cb].anchor;
+            let va = match pre_a {
+                Some(a0) => a0,
+                None => {
+                    let mut sorted: Vec<u32> = chains[ca].verts.clone();
+                    sorted.sort_unstable();
+                    let pick = |want_original: bool| -> Option<u32> {
+                        sorted.iter().copied().find(|&v| {
+                            (!want_original || is_original(v))
+                                && phase_on(point_any(v, &minted), cca)
+                                    .and_then(|phi| match pre_b {
+                                        Some(b0) => phase_on(point_any(b0, &minted), ccb)
+                                            .filter(|pb| {
+                                                dphase(*pb, phi) * rmin <= SEAM_RULING_TOLERANCE
+                                            })
+                                            .map(|_| b0),
+                                        None => partner_on_b(phi, &minted),
+                                    })
+                                    .is_some()
+                        })
+                    };
+                    match pick(true).or_else(|| pick(false)) {
+                        Some(v) => v,
+                        None => continue,
+                    }
+                }
+            };
+            let Some(phi) = phase_on(point_any(va, &minted), cca) else {
+                continue;
+            };
+            let vb = match pre_b {
+                Some(b0) => {
+                    let Some(pb) = phase_on(point_any(b0, &minted), ccb) else {
+                        continue;
+                    };
+                    if dphase(pb, phi) * rmin > SEAM_RULING_TOLERANCE {
+                        continue; // both feet preset at different phases: not a longitude
+                    }
+                    b0
+                }
+                None => match partner_on_b(phi, &minted) {
+                    Some(v) => v,
+                    None => {
+                        // Mint the exact on-rim point at phase φ.
+                        let Some(er) = normalize3(radial_of(ccb)) else {
+                            continue;
+                        };
+                        let (sp, cp) = phi.sin_cos();
+                        let c = ccb.as_array();
+                        let p = Point3::new(
+                            c[0] + rmin * (cp * er[0] + sp * axis[0]),
+                            c[1] + rmin * (cp * er[1] + sp * axis[1]),
+                            c[2] + rmin * (cp * er[2] + sp * axis[2]),
+                        );
+                        let new_v = (yverts.len() + minted.len()) as u32;
+                        minted.push(BRepVertex { point: p });
+                        new_v
+                    }
+                },
+            };
+            chains[ca].anchor = Some(va);
+            chains[cb].anchor = Some(vb);
+            // Seam longitude through both feet.
+            let (sp, cp) = phi.sin_cos();
+            let seam_center = Point3::new(
+                tc.x() + rmin * sp * axis[0],
+                tc.y() + rmin * sp * axis[1],
+                tc.z() + rmin * sp * axis[2],
+            );
+            let seam_radius = rmaj + rmin * cp;
+            torus_pairs.insert(fi, ((ca, va), (cb, vb), seam_center, axis, seam_radius));
+        }
+
         // Lateral candidates in face order: (face, chain a, chain b, unit
         // axis, band radius, center a, center b, radius a, radius b).
         struct LateralCand {
@@ -1203,6 +1459,33 @@ fn try_recover(brep: &yang_rs::BRep) -> Option<(Vec<BRepVertex>, Vec<BRepEdge>, 
     }
 
     for (fi, f) in yfaces.iter().enumerate() {
+        // Torus band (PASS 0): the 4-edge [rim, seam, rim, seam] form with a
+        // longitude-arc seam — `construct::pipe`'s own vocabulary, so the
+        // output re-enters `to_yang_brep` and the lateral tessellator as-is.
+        if let Some(&((ca, va), (cb, vb), sc, axis, sr)) = torus_pairs.get(&fi) {
+            let curve_a = chain_curve_for_edge(&chains[ca]);
+            let curve_b = chain_curve_for_edge(&chains[cb]);
+            let seam = |sign: f64| Curve::Circle {
+                center: sc,
+                normal: cad_primitives::Vector3::new(
+                    sign * axis[0],
+                    sign * axis[1],
+                    sign * axis[2],
+                ),
+                radius: sr,
+            };
+            let e0 = push_edge(&mut new_edges, va, va, curve_a);
+            let e1 = push_edge(&mut new_edges, va, vb, seam(1.0));
+            let e2 = push_edge(&mut new_edges, vb, vb, curve_b);
+            let e3 = push_edge(&mut new_edges, vb, va, seam(-1.0));
+            new_faces.push(BRepFace {
+                surface: f.surface,
+                outer_loop: vec![e0, e1, e2, e3],
+                inner_loops: vec![],
+                reversed: f.reversed,
+            });
+            continue;
+        }
         // Canonical lateral: replace the whole face with the 4-edge form.
         if let Some(&((ca, va), (cb, vb))) = lateral_pairs.get(&fi) {
             let curve_a = chain_curve_for_edge(&chains[ca]);
