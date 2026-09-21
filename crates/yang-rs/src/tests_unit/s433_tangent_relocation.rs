@@ -528,6 +528,48 @@ pub(crate) fn s433_crossing_declines_tangent_nested_disjoint_coaxial_and_crossin
     assert!((feet[0].y() - feet[1].y()).abs() > 0.0);
 }
 
+/// §13 checkpoint 2 — the SECTOR gate: an arc rim from azimuth 0 to 90°
+/// (CCW about +z) contains a ruling at 45°, declines one at 135° (outside
+/// the sweep), one at 270° (the other way round), and one within the chord
+/// margin of either endpoint; the mirrored arc (normal −z, walked end →
+/// start) reads the same containment.
+#[test]
+pub(crate) fn s433_sector_arc_gate_contains_only_the_open_sweep() {
+    use crate::boolean::ArcGate;
+    let c = Point3::new(0.0, 0.0, 1.0);
+    let at = |deg: f64| {
+        let t = deg.to_radians();
+        Point3::new(2.0 * t.cos(), 2.0 * t.sin(), 1.0)
+    };
+    let gate = ArcGate {
+        center: c,
+        normal: [0.0, 0.0, 1.0],
+        radius: 2.0,
+        start: at(0.0),
+        end: at(90.0),
+    };
+    let margin = 1e-7 * 3.0;
+    assert!(gate.contains(at(45.0), margin));
+    assert!(gate.contains(at(1.0), margin));
+    assert!(!gate.contains(at(135.0), margin));
+    assert!(!gate.contains(at(270.0), margin));
+    assert!(!gate.contains(at(0.0), margin));
+    assert!(!gate.contains(at(90.0), margin));
+    assert!(!gate.contains(at(1e-9), margin));
+    // The same arc stored the other way (the top rim of a sector: normal
+    // −z, loop walks 90° → 0°, which is CCW about −z).
+    let mirrored = ArcGate {
+        center: c,
+        normal: [0.0, 0.0, -1.0],
+        radius: 2.0,
+        start: at(90.0),
+        end: at(0.0),
+    };
+    assert!(mirrored.contains(at(45.0), margin));
+    assert!(!mirrored.contains(at(135.0), margin));
+    assert!(!mirrored.contains(at(270.0), margin));
+}
+
 // =========================================================================
 // §7 (2026-09-13, later): the amplified band is not a bound on the MOVE.
 //

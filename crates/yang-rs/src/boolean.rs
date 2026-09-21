@@ -1091,7 +1091,7 @@ fn boolean_once(
     ) {
         None
     } else {
-        let (ga, gb) = tangent_generator_rim_overrides(a, b);
+        let (ga, gb, min_rim_n) = tangent_generator_rim_overrides(a, b);
         if ga.is_empty() && gb.is_empty() {
             None
         } else {
@@ -1102,9 +1102,11 @@ fn boolean_once(
                         owner_planes: [MintTrimPlane::default(); 2],
                     });
             }
+            // §13: the crossing arm's rim-density demand rides along (a
+            // stored minimum, so Stage 0's and §4.5.2's rebuilds keep it).
             Some((
-                a.rebuilt_with_rim_overrides(&ga)?,
-                b.rebuilt_with_rim_overrides(&gb)?,
+                a.rebuilt_with_rim_overrides_at_least(&ga, min_rim_n)?,
+                b.rebuilt_with_rim_overrides_at_least(&gb, min_rim_n)?,
             ))
         }
     };

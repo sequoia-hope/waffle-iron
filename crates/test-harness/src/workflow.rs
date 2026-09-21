@@ -961,6 +961,45 @@ impl ModelBuilder {
         self.extract_last_feature_id(name, "AddFeature(Revolve)", response)
     }
 
+    /// [`Self::revolve`] as a CUT that merges into the existing body (the
+    /// corpus generator's `revolve(…, cut)` op: `cut: true, merge: true`).
+    pub fn revolve_cut(
+        &mut self,
+        name: &str,
+        sketch_name: &str,
+        axis_origin: [f64; 3],
+        axis_dir: [f64; 3],
+        angle_deg: f64,
+    ) -> Result<Uuid, HarnessError> {
+        self.check_name_available(name)?;
+        let sketch_id = self.feature_id(sketch_name)?;
+
+        let response = wasm_bridge::dispatch(
+            &mut self.state,
+            UiToEngine::AddFeature {
+                provenance: None,
+                operation: Operation::Revolve {
+                    params: RevolveParams {
+                        combine: None,
+                        targets: None,
+                        sketch_id,
+                        profile_index: 0,
+                        profile_entity_ids: None,
+                        axis_origin,
+                        axis_direction: axis_dir,
+                        angle: angle_deg,
+                        cut: true,
+                        merge: true,
+                        angle_expr: None,
+                    },
+                },
+            },
+            self.kernel.as_mut(),
+        );
+
+        self.extract_last_feature_id(name, "AddFeature(Revolve cut)", response)
+    }
+
     /// Add a pipe sweep along the sketch entities `entity_ids` of
     /// `sketch_name` (`specs/b2_pipe_sweep.md`): `radius` / `inner_radius`
     /// in meters, `NewBody`.
@@ -1324,6 +1363,25 @@ impl ModelBuilder {
             meshes.push(mesh);
         }
         Ok(meshes)
+    }
+
+    /// Every output body handle of a named feature, in output order — a
+    /// multi-body result (a cut that splits its target into disjoint shells)
+    /// has more than one, and [`Self::solid_handle`] returns only the first.
+    pub fn solid_handles(&self, name: &str) -> Result<Vec<KernelSolidHandle>, HarnessError> {
+        let id = self.feature_id(name)?;
+        let result = self
+            .state
+            .engine
+            .get_result(id)
+            .ok_or_else(|| HarnessError::NoSolid {
+                name: name.to_string(),
+            })?;
+        Ok(result
+            .outputs
+            .iter()
+            .map(|(_, b)| b.handle.clone())
+            .collect())
     }
 
     /// Tessellate a feature and merge ALL its bodies into one `RenderMesh`

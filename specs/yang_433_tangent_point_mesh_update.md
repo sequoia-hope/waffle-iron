@@ -770,3 +770,86 @@ CW, two half-ellipse arcs = πab, hyperbola segment sign both ways);
 test-harness `cyl_cyl_grazing_ruling_kv2` (3 tests) and the sweep driver
 (`#[ignore]`). Corpus: recorded in the ledger row (`docs/yang_tail_triage.md`,
 2026-09-21 later).
+
+### 13.1 Checkpoint 2 (2026-09-21, later, ALWAYS-ON) — the SECTOR vocabulary and the crossing-angle rim-density demand; R0038 replicated in a coordinate frame CONVERTS
+
+**Sector laterals.** `tube_axial_span` now also accepts a partial-revolve
+lateral — the Stage-1 partial patch strip's own `[Arc, Line, Arc, Line]`
+pattern (two `Circle` edges with `start != end`, two `LineSegment`
+rulings, four edges) — with the two ARC edges as its rims and, per arc, an
+`ArcGate` (centre, normal, radius, start, end). A ruling is minted only when
+its rim sample lies STRICTLY inside BOTH arcs' CCW sweeps in their own
+frames and farther than the chord margin from both endpoints
+(`ArcGate::contains`); a ruling at an arc endpoint is the sector's own
+boundary ruling, a corner of higher order, never a mid-face mint. Arc rims
+already take rim overrides with the full rim's merge policy (the M8-mixed
+amendment), and the partial strip pairs its two chains index-for-index, so a
+sample inserted at one azimuth on both arcs keeps the pairing conformal. In
+the crossing arm a declined ruling skips that ruling, not the pair (a sector
+contains at most one of the two); in the generator arm it skips the mint.
+Unit pin `s433_sector_arc_gate_contains_only_the_open_sweep`.
+
+**The second crossing, measured on the replica (`r0038_replica_kv2`:
+R0038's two revolves with their parallel axes moved onto z, Stage 0 ACTIVE
+on the shared sketch plane).** With the ruling minted on both operands'
+arc rims (all four samples bit-collinear, B's longer ruling split by the
+arrangement at A's rim heights exactly as designed), the cut STOPped at
+R0038's own site: ONE zero-area triangle `[53, 50, 19]` on B's outer face,
+its long edge the ruling between A's rim heights and its off-vertex an
+arrangement vertex 0.020 above A's bottom rim, RELOCATED onto the ruling.
+The Stage-1 dump named the cause: A's arc has a uniform slot 0.118° past
+the mint (at 22.82°, ON A's circle), while B's next vertex after the mint
+is 6.87° away, so B's chord there is already `s(L − s)/2R_B = 1.65e-3`
+inside its circle against a surface separation of only `sin α · s =
+1.35e-3` — B's polygon dips back inside A's at A's slot and crosses out
+again 0.02° later, a sliver strip between the ruling and that second
+crossing, and relocation collapses it. This is exactly the chord-depth
+ordering §13 named and did not build: with parallel axes the two polygons
+must cross ONCE, at the minted vertex, and the sufficient condition on
+both sides is that every chord step adjacent to the mint has
+`sin(θ/2) < sin α` — the shared rim count **`N ≥ π/α`** (R0038: α =
+2.806°, N ≥ 66).
+
+**The demand (Yang §4.5.2's resolution rule, decided at mint time from the
+geometry).** `mint_crossing_rulings` computes α from the two radial
+directions at the foot, demands `N = ⌈π/α⌉ + 1`, and returns it through
+`TangentOverrides::min_rim_n` / `tangent_generator_rim_overrides`'s third
+element; the pre-Stage-0 boost rebuilds both operands with
+`BRep::rebuilt_with_rim_overrides_at_least`, which raises `forced_rim_n`
+(the phantom-guard channel — a STORED minimum, so Stage 0's and §4.5.2's
+from-topology rebuilds keep it, and the larger of an existing boost and the
+demand wins). Past `CROSSING_RIM_N_CEILING = 512` (α below 0.35°) the mint
+DECLINES — status quo, the loud STOP — rather than tessellate every rim of
+both solids at thousands of segments. Not a band: the demand is the
+mesh-resolution certificate the crossing needs, the same class as the
+§4.5.4 chart scan's rim demand (F0082).
+
+**Result.** The replica completes as TWO bodies — the inner band between
+A's inner arc and B's inner cylinder (which threads A's annulus without
+crossing A's inner circle) and the outer crescent from the sketch plane to
+the ruling — with exact volumes 7.560 and 3.474 against the closed-form
+polar-grid components to 2e-3, each shell watertight with χ = 2 (the
+harness gained `solid_handles` for multi-body results; `solid_handle`
+returns only the first). The grazing sweep and fixtures, C0043/C0056's
+pins, all still pass at the demanded density. Corpus (release, 8 jobs,
+600 s; wall 803.8 s): **293C / 0W / 13E / 4EE / 0T + 2 UNSUPPORTED**,
+results.json byte-identical — no corpus revolve pair with parallel
+coordinate axes crosses at a grazing angle, and R0038's own axis is
+oblique, so it declines at the collinearity gate exactly as before.
+
+**Remaining for R0038 (checkpoint 3): the OBLIQUE frame.** In a coordinate
+frame the four rim samples `p₀ + h·û` are exactly collinear (two
+coordinates bit-identical); on `(0.4034, 0.9150, 0)` they are collinear
+only to rounding and the exact arrangement would see two skew
+femto-segments. The remedy is to make the SHARED segment bit-identical in
+both meshes without relying on the frame: mint the overlap span's two
+endpoints (whichever operand's rim sample bounds it) into the OTHER
+operand's lateral as face-interior points ON its ruling — the P3b inc-4e
+splice already performs a conforming 2+2 edge split for a point within the
+weld band of a grid edge — so B's ruling becomes the chain `q_B0 → P → Q →
+q_B1` and `[P, Q]` is one identical edge in both meshes. Two prerequisites
+are named: the face-interior channel must become STANDING (a `standing_rim`
+analog carried by every from-topology rebuild, Stage 0's
+`build_stage0_mesh` included — today that path threads rim overrides only),
+and the coordinate-axis route stays rim-only so C0043 / C0056 / the
+replica remain byte-identical.

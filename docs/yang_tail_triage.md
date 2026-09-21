@@ -98,6 +98,27 @@ as on-ruling interior points so the shared segment is bit-identical in both
 meshes in any frame), and it is on the Stage-0 path whose from-topology
 rebuilds carry `standing_rim` but no face-interior overrides.
 
+**Checkpoint 2 (same day, later; spec §13.1) — SECTOR vocabulary +
+crossing-angle rim-density demand; R0038 REPLICATED in a coordinate frame
+CONVERTS.** `tube_axial_span` accepts the `[Arc, Line, Arc, Line]` sector
+lateral with per-arc `ArcGate` containment (strictly inside both sweeps).
+The replica (`r0038_replica_kv2`: R0038's two revolves on parallel z-axes,
+Stage 0 ACTIVE) then STOPped at R0038's exact site with ONE collapsed
+triangle, and the Stage-1 dump named why: A's uniform slot 0.118° past the
+mint sits ON A's circle while B's next vertex is 6.87° away, so B's chord is
+1.65e-3 deep against a 1.35e-3 separation — the polygons cross a second
+time right after the mint. Sufficient condition for a single crossing:
+chord steps adjacent to the mint with `sin(θ/2) < sin α` ⇒ shared rim
+count `N ≥ π/α` (66 here), demanded at mint time through `forced_rim_n`
+(`rebuilt_with_rim_overrides_at_least`), ceiling 512 (decline beyond).
+The replica completes as TWO bodies (inner band 7.560, outer crescent
+3.474 — exact to 2e-3 against the polar-grid components; each shell
+watertight, χ = 2). Corpus: **293C / 0W / 13E / 4EE / 0T + 2
+UNSUPPORTED**, results.json byte-identical (wall 803.8 s). R0038 still
+declines at the coordinate-axis gate: checkpoint 3 = the oblique frame
+(bit-identical shared segment via on-ruling face-interior splices, and a
+STANDING face-interior channel through Stage 0's rebuild).
+
 Corpus (release, 8 jobs, 600 s; wall 818.3 s; F0085 340.6 s, F0090
 167.2 s): **293C / 0W / 13E / 4EE / 0T, 2 UNSUPPORTED(coplanar-boolean)** —
 per-id diff of the committed `results.json`: ZERO category moves, ZERO

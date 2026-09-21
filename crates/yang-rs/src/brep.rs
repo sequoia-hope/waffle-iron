@@ -567,11 +567,29 @@ impl BRep {
         &self,
         rim_overrides: &std::collections::BTreeMap<u32, Vec<Point3>>,
     ) -> Result<Self, YangError> {
+        self.rebuilt_with_rim_overrides_at_least(rim_overrides, None)
+    }
+
+    /// [`Self::rebuilt_with_rim_overrides`] that also raises the forced
+    /// minimum rim segment count to `min_n` (§4.3.3 §13: the crossing arm's
+    /// density demand, `N ≥ π/α`, so the two cross-section polygons cross
+    /// once at the minted ruling). Composes with an existing boost (the
+    /// larger wins) and is stored, so every later from-topology rebuild
+    /// keeps it.
+    pub(crate) fn rebuilt_with_rim_overrides_at_least(
+        &self,
+        rim_overrides: &std::collections::BTreeMap<u32, Vec<Point3>>,
+        min_n: Option<usize>,
+    ) -> Result<Self, YangError> {
+        let forced = match (self.forced_rim_n, min_n) {
+            (Some(x), Some(y)) => Some(x.max(y)),
+            (x, y) => x.or(y),
+        };
         Self::from_topology_with_rim_overrides(
             self.vertices.clone(),
             self.edges.clone(),
             self.faces.clone(),
-            self.forced_rim_n,
+            forced,
             &self.compose_rim_overrides(rim_overrides),
         )
     }

@@ -292,15 +292,74 @@ struct Tube {
     hi: f64,
     /// `(rim edge index, rim circle centre, rim SEAM vertex)` for each of the
     /// two rims. The seam vertex is the B-Rep vertex the full-circle rim edge
-    /// starts and ends at — the ruling the tube grid already carries.
+    /// starts and ends at — the ruling the tube grid already carries. For a
+    /// SECTOR (§13 checkpoint 2) the "seam" is the arc's start vertex.
     rims: [(u32, Point3, Point3); 2],
+    /// §13 checkpoint 2: a partial-revolve SECTOR lateral (`[Arc, Line, Arc,
+    /// Line]`, the Stage-1 partial patch strip) carries its two ARC rims'
+    /// angular extent, one gate per rim, so a ruling is minted only when it
+    /// lies strictly inside BOTH arcs' sweeps. `None` for a canonical tube
+    /// (full circles contain every azimuth).
+    arcs: Option<[ArcGate; 2]>,
+}
+
+/// One arc rim's sweep, in the arc's own frame (`ortho_basis(normal)`):
+/// the loop walks `start → end` counter-clockwise about `normal`.
+#[derive(Clone, Copy)]
+pub(crate) struct ArcGate {
+    pub(crate) center: Point3,
+    pub(crate) normal: [f64; 3],
+    pub(crate) radius: f64,
+    pub(crate) start: Point3,
+    pub(crate) end: Point3,
+}
+
+impl ArcGate {
+    /// Does the ruling through `sample` (a point on this rim's circle) lie
+    /// STRICTLY inside the arc — its azimuth inside the CCW sweep from
+    /// `start` to `end`, and the sample farther than `margin` from both
+    /// endpoints? A ruling AT an endpoint is the sector's own boundary
+    /// ruling: a corner of higher order (the line-edge pierce vehicle), never
+    /// a mid-face mint. Fail-closed on any degenerate reading.
+    pub(crate) fn contains(&self, sample: Point3, margin: f64) -> bool {
+        let (e1v, e2v) = ortho_basis(Vector3::new(self.normal[0], self.normal[1], self.normal[2]));
+        let (e1, e2) = (e1v.as_array(), e2v.as_array());
+        let c = self.center.as_array();
+        let angle = |p: Point3| -> f64 {
+            let q = p.as_array();
+            let w = [q[0] - c[0], q[1] - c[1], q[2] - c[2]];
+            let x = w[0] * e1[0] + w[1] * e1[1] + w[2] * e1[2];
+            let y = w[0] * e2[0] + w[1] * e2[1] + w[2] * e2[2];
+            y.atan2(x)
+        };
+        let two_pi = 2.0 * std::f64::consts::PI;
+        let phi0 = angle(self.start);
+        let sweep = (angle(self.end) - phi0).rem_euclid(two_pi);
+        let off = (angle(sample) - phi0).rem_euclid(two_pi);
+        if !(sweep.is_finite() && off.is_finite()) || sweep <= 0.0 || self.radius <= 0.0 {
+            return false;
+        }
+        // Angular margin from the chord margin, plus the endpoint distances
+        // themselves (the rim build refuses a sample that coincides with an
+        // endpoint but differs in bits; decline before it can).
+        let ang_margin = margin / self.radius;
+        if off <= ang_margin || off >= sweep - ang_margin {
+            return false;
+        }
+        let far = |p: Point3| -> bool {
+            let (a, b) = (sample.as_array(), p.as_array());
+            let d2 = (a[0] - b[0]).powi(2) + (a[1] - b[1]).powi(2) + (a[2] - b[2]).powi(2);
+            d2 > margin * margin
+        };
+        far(self.start) && far(self.end)
+    }
 }
 
 fn tube_axial_span(f: &BRepFace, y: &BRep) -> Option<Tube> {
     let Surface::Cylinder {
         axis_point,
         axis_dir,
-        ..
+        radius,
     } = f.surface
     else {
         return None;
@@ -314,29 +373,95 @@ fn tube_axial_span(f: &BRepFace, y: &BRep) -> Option<Tube> {
         .map(|&ei| (ei, &y.edges()[ei as usize]))
         .filter(|(_, e)| matches!(e.curve, Curve::Circle { .. }) && e.start == e.end)
         .collect();
-    let [(ei0, rim0), (ei1, rim1)] = rims.as_slice() else {
-        return None;
-    };
+    // §13 checkpoint 2: the SECTOR vocabulary — exactly two ARC rims
+    // (`start != end`) and two ruling LineSegments, four edges in all (the
+    // Stage-1 partial patch strip's own dispatch pattern).
+    let arcs: Vec<(u32, &BRepEdge)> = f
+        .outer_loop
+        .iter()
+        .map(|&ei| (ei, &y.edges()[ei as usize]))
+        .filter(|(_, e)| matches!(e.curve, Curve::Circle { .. }) && e.start != e.end)
+        .collect();
+    let lines = f
+        .outer_loop
+        .iter()
+        .filter(|&&ei| matches!(y.edges()[ei as usize].curve, Curve::LineSegment))
+        .count();
+    // A canonical tube: exactly two full-circle rims (its seam rulings ride
+    // along in the loop). A sector: exactly the four-edge pattern.
+    let (rim_pair, is_sector): ([(u32, &BRepEdge); 2], bool) =
+        match (rims.as_slice(), arcs.as_slice()) {
+            ([r0, r1], []) => ([*r0, *r1], false),
+            ([], [a0, a1]) if lines == 2 && f.outer_loop.len() == 4 => ([*a0, *a1], true),
+            _ => return None,
+        };
     let ap = axis_point.as_array();
     let ah = normalize3(axis_dir.as_array());
     let axial = |p: Point3| -> f64 {
         let q = p.as_array();
         (q[0] - ap[0]) * ah[0] + (q[1] - ap[1]) * ah[1] + (q[2] - ap[2]) * ah[2]
     };
-    let centre = |e: &BRepEdge| -> Point3 {
-        let Curve::Circle { center, .. } = e.curve else {
+    let circle = |e: &BRepEdge| -> (Point3, [f64; 3]) {
+        let Curve::Circle { center, normal, .. } = e.curve else {
             unreachable!("filtered to circles above");
         };
-        center
+        (center, normalize3(normal.as_array()))
     };
-    let (c0, c1) = (centre(rim0), centre(rim1));
+    let [(ei0, rim0), (ei1, rim1)] = rim_pair;
+    let ((c0, n0), (c1, n1)) = (circle(rim0), circle(rim1));
     let (v0, v1) = (axial(c0), axial(c1));
-    let seam = |e: &BRepEdge| y.vertices()[e.start as usize].point;
+    let vertex = |v: u32| y.vertices()[v as usize].point;
+    let gate = |e: &BRepEdge, c: Point3, n: [f64; 3]| ArcGate {
+        center: c,
+        normal: n,
+        radius,
+        start: vertex(e.start),
+        end: vertex(e.end),
+    };
     Some(Tube {
         lo: v0.min(v1),
         hi: v0.max(v1),
-        rims: [(*ei0, c0, seam(rim0)), (*ei1, c1, seam(rim1))],
+        rims: [(ei0, c0, vertex(rim0.start)), (ei1, c1, vertex(rim1.start))],
+        arcs: is_sector.then(|| [gate(rim0, c0, n0), gate(rim1, c1, n1)]),
     })
+}
+
+/// The four rim samples of a ruling `p₀ + h·û` (one per rim of each tube),
+/// or `None` when either tube is a SECTOR whose arc does not strictly contain
+/// the ruling — both operands get the ruling or neither (fail closed).
+fn ruling_rim_samples(
+    p0: Point3,
+    u: [f64; 3],
+    tubes: [&Tube; 2],
+    margin: f64,
+    probe: bool,
+    label: &str,
+) -> Option<[[(u32, Point3, Point3); 2]; 2]> {
+    let pa = p0.as_array();
+    let h_of = |c: Point3| -> f64 {
+        let q = c.as_array();
+        (q[0] - pa[0]) * u[0] + (q[1] - pa[1]) * u[1] + (q[2] - pa[2]) * u[2]
+    };
+    let mut out = [[(0u32, p0, p0); 2]; 2];
+    for (t, tube) in tubes.iter().enumerate() {
+        for (k, &(ei, centre, seam)) in tube.rims.iter().enumerate() {
+            let h = h_of(centre);
+            let sample = Point3::new(pa[0] + h * u[0], pa[1] + h * u[1], pa[2] + h * u[2]);
+            if let Some(gates) = &tube.arcs {
+                if !gates[k].contains(sample, margin) {
+                    if probe {
+                        eprintln!(
+                            "[tangent-insert] {label} {pa:?} + t·{u:?} SKIP: outside the \
+                             sector arc rim {ei} of tube {t}"
+                        );
+                    }
+                    return None;
+                }
+            }
+            out[t][k] = (ei, seam, sample);
+        }
+    }
+    Some(out)
 }
 
 /// One operand's Stage-1 override payload for the tangency mint.
@@ -347,7 +472,18 @@ pub(crate) struct TangentOverrides {
     /// rim edge index → the rim-circle samples that carry the tangency's
     /// azimuth, so the tube grid has a RULING through each minted point.
     pub rim: BTreeMap<u32, Vec<Point3>>,
+    /// §13: the minimum full-circle rim segment count the CROSSING arm
+    /// demands so the two polygons cross ONCE at the minted ruling (chord
+    /// steps below twice the crossing angle, `N ≥ π/α`); the max over every
+    /// minted crossing. `None` when nothing demanded.
+    pub min_rim_n: Option<usize>,
 }
+
+/// The largest rim density the crossing arm will demand. Past it the
+/// crossing is so grazing that the mint declines (status quo: the loud
+/// Stage-4 STOP) rather than tessellate every rim of both solids at
+/// thousands of segments — a mesh blow-up is not a fix.
+const CROSSING_RIM_N_CEILING: usize = 512;
 
 /// Bit-exact dedup push into an override channel.
 fn push_unique(m: &mut BTreeMap<u32, Vec<Point3>>, k: u32, q: Point3) {
@@ -440,6 +576,14 @@ pub(crate) fn tangent_point_face_overrides(
     tangent_overrides(a, b, false)
 }
 
+/// `(rim samples for A, rim samples for B, the §13 minimum rim segment
+/// count both operands must be rebuilt at)`.
+pub(crate) type GeneratorRimOverrides = (
+    BTreeMap<u32, Vec<Point3>>,
+    BTreeMap<u32, Vec<Point3>>,
+    Option<usize>,
+);
+
 /// The GENERATOR arm alone, as plain rim-sample maps — the Stage-0 path's
 /// entry (spec `yang_433_tangent_point_mesh_update.md` §12). Stage 0 builds
 /// its meshes through the rim-override channel only (its cap overlays are
@@ -450,13 +594,14 @@ pub(crate) fn tangent_point_face_overrides(
 ///
 /// Same per-pair gates as [`mint_generator`]; a pair outside them yields
 /// nothing (status quo, never worse).
-pub(crate) fn tangent_generator_rim_overrides(
-    a: &BRep,
-    b: &BRep,
-) -> (BTreeMap<u32, Vec<Point3>>, BTreeMap<u32, Vec<Point3>>) {
+pub(crate) fn tangent_generator_rim_overrides(a: &BRep, b: &BRep) -> GeneratorRimOverrides {
     let (oa, ob) = tangent_overrides(a, b, true);
     debug_assert!(oa.face.is_empty() && ob.face.is_empty());
-    (oa.rim, ob.rim)
+    let min_n = match (oa.min_rim_n, ob.min_rim_n) {
+        (Some(x), Some(y)) => Some(x.max(y)),
+        (x, y) => x.or(y),
+    };
+    (oa.rim, ob.rim, min_n)
 }
 
 fn tangent_overrides(
@@ -714,16 +859,24 @@ fn mint_generator(
         }
         return;
     }
+    let Some(samples) = ruling_rim_samples(
+        p0,
+        u,
+        [tube_a, tube_b],
+        margin,
+        probe,
+        &format!("A#{fa_idx} B#{fb_idx} generator"),
+    ) else {
+        return;
+    };
     if probe {
         eprintln!(
             "[tangent-insert] A#{fa_idx} B#{fb_idx} MINT generator {pa:?} + t·{u:?} \
              over h ∈ [{lo:.6},{hi:.6}]"
         );
     }
-    for (tube, out) in [(tube_a, out_a), (tube_b, out_b)] {
-        for &(ei, centre, seam) in &tube.rims {
-            let h = h_of(centre);
-            let sample = Point3::new(pa[0] + h * u[0], pa[1] + h * u[1], pa[2] + h * u[2]);
+    for (rims, out) in samples.iter().zip([out_a, out_b]) {
+        for &(ei, seam, sample) in rims {
             push_rim_unless_seam(out, ei, seam, sample, probe);
         }
     }
@@ -774,6 +927,41 @@ fn mint_crossing_rulings(
     for p0 in feet {
         let pa = p0.as_array();
         let scale = pa.iter().fold(0.0f64, |m, &c| m.max(c.abs()));
+        // The crossing angle α between the two radial directions at the
+        // foot, and the rim density it demands. With parallel axes the two
+        // cross-section POLYGONS must cross exactly once, at the minted
+        // vertex: on the side where B's circle is outside A's the surfaces
+        // separate as `sin α · s` while B's chord adjacent to the mint sags
+        // `s(L − s)/2R_B` inside its circle — and A's polygon may have a
+        // vertex ON its circle anywhere along that chord (measured on the
+        // R0038 replica: A's uniform slot 0.12° past the mint, B's next
+        // vertex 6.9° away, B's chord 1.6e-3 deep against a 1.3e-3
+        // separation ⇒ a second crossing, a sliver, the collapsed chain).
+        // Sufficient on both sides: every chord step adjacent to the mint
+        // has `sin(θ/2) < sin α`, i.e. the shared rim count `N ≥ π/α`.
+        let radial = |ap: Point3, ad: Vector3| -> [f64; 3] {
+            let (ap, ah) = (ap.as_array(), normalize3(ad.as_array()));
+            let w = [pa[0] - ap[0], pa[1] - ap[1], pa[2] - ap[2]];
+            let h = w[0] * ah[0] + w[1] * ah[1] + w[2] * ah[2];
+            normalize3([w[0] - h * ah[0], w[1] - h * ah[1], w[2] - h * ah[2]])
+        };
+        let (na, nb) = (radial(cyl_a.0, cyl_a.1), radial(cyl_b.0, cyl_b.1));
+        let cos_alpha = (na[0] * nb[0] + na[1] * nb[1] + na[2] * nb[2]).clamp(-1.0, 1.0);
+        let alpha = cos_alpha.acos();
+        if alpha.is_nan() || alpha <= 0.0 || !alpha.is_finite() {
+            return;
+        }
+        let demand = (std::f64::consts::PI / alpha).ceil() as usize + 1;
+        if demand > CROSSING_RIM_N_CEILING {
+            if probe {
+                eprintln!(
+                    "[tangent-insert] A#{fa_idx} B#{fb_idx} crossing ruling {pa:?} SKIP: \
+                     crossing angle {:.4}° demands N = {demand} > {CROSSING_RIM_N_CEILING}",
+                    alpha.to_degrees()
+                );
+            }
+            return;
+        }
         let h_of = |c: Point3| -> f64 {
             let q = c.as_array();
             (q[0] - pa[0]) * u[0] + (q[1] - pa[1]) * u[1] + (q[2] - pa[2]) * u[2]
@@ -812,18 +1000,30 @@ fn mint_crossing_rulings(
             }
             return;
         }
+        // A sector contains at most one of the two rulings (the other lies
+        // outside its sweep): a declined ruling is skipped, not the pair.
+        let Some(samples) = ruling_rim_samples(
+            p0,
+            u,
+            [tube_a, tube_b],
+            margin,
+            probe,
+            &format!("A#{fa_idx} B#{fb_idx} crossing ruling"),
+        ) else {
+            continue;
+        };
         if probe {
             eprintln!(
                 "[tangent-insert] A#{fa_idx} B#{fb_idx} MINT crossing ruling {pa:?} + t·{u:?} \
-                 over h ∈ [{lo:.6},{hi:.6}]"
+                 over h ∈ [{lo:.6},{hi:.6}] (crossing {:.4}°, rim N ≥ {demand})",
+                alpha.to_degrees()
             );
         }
-        for (tube, out) in [(tube_a, &mut *out_a), (tube_b, &mut *out_b)] {
-            for &(ei, centre, seam) in &tube.rims {
-                let h = h_of(centre);
-                let sample = Point3::new(pa[0] + h * u[0], pa[1] + h * u[1], pa[2] + h * u[2]);
+        for (rims, out) in samples.iter().zip([&mut *out_a, &mut *out_b]) {
+            for &(ei, seam, sample) in rims {
                 push_rim_unless_seam(out, ei, seam, sample, probe);
             }
+            out.min_rim_n = Some(out.min_rim_n.map_or(demand, |n| n.max(demand)));
         }
     }
 }

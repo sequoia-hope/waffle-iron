@@ -121,7 +121,7 @@ fn s433_crescent_between_touching_rings_is_covered_exactly() {
 fn s433_standing_rim_samples_survive_from_topology_rebuilds() {
     let a = rj_cylinder([0.0, 0.0, 0.0], [0.0, 0.0, 1.0], 1.0, 1.0);
     let b = rj_cylinder([0.6, 0.0, 0.0], [0.0, 0.0, 1.0], 0.4, 1.0);
-    let (ga, _) = tangent_generator_rim_overrides(&a, &b);
+    let (ga, _, _) = tangent_generator_rim_overrides(&a, &b);
     assert_eq!(ga.len(), 2, "one sample on each of A's two rims: {ga:?}");
     let has = |brep: &BRep| -> bool {
         ga.values()
@@ -160,7 +160,7 @@ fn s433_standing_rim_samples_survive_from_topology_rebuilds() {
 fn s433_stage0_emits_the_touching_disc_overlap_identically() {
     let a = rj_cylinder([0.0, 0.0, 0.0], [0.0, 0.0, 1.0], 1.0, 1.0);
     let b = rj_cylinder([0.6, 0.0, 0.0], [0.0, 0.0, 1.0], 0.4, 1.0);
-    let (ga, gb) = tangent_generator_rim_overrides(&a, &b);
+    let (ga, gb, _) = tangent_generator_rim_overrides(&a, &b);
     let a2 = a.rebuilt_with_rim_overrides(&ga).unwrap();
     let b2 = b.rebuilt_with_rim_overrides(&gb).unwrap();
     let s0 = crate::stage0::stage0_preprocess(&a2, &b2)
@@ -209,7 +209,7 @@ fn s433_stage0_emits_the_touching_disc_overlap_identically() {
 fn s433_stage0_entry_declines_external_contact() {
     let a = rj_cylinder([0.0, 0.0, 0.0], [0.0, 0.0, 1.0], 0.5, 1.0);
     let b = rj_cylinder([1.0, 0.0, 0.0], [0.0, 0.0, 1.0], 0.5, 1.0);
-    let (ga, gb) = tangent_generator_rim_overrides(&a, &b);
+    let (ga, gb, _) = tangent_generator_rim_overrides(&a, &b);
     assert!(
         ga.is_empty() && gb.is_empty(),
         "external contact must not boost: {ga:?} {gb:?}"
@@ -273,7 +273,7 @@ fn s433_internally_tangent_cylinders_with_coplanar_caps_union_is_a() {
     let out = crate::boolean(&a, &b, BoolOp::Union, &nb).expect("union completes");
     let m = out.as_mesh();
     assert_closed_2_manifold(m);
-    let (ga, _) = tangent_generator_rim_overrides(&a, &b);
+    let (ga, _, _) = tangent_generator_rim_overrides(&a, &b);
     let expect = mesh_signed_volume(a.rebuilt_with_rim_overrides(&ga).unwrap().as_mesh()).abs();
     let got = mesh_signed_volume(m).abs();
     assert!(
