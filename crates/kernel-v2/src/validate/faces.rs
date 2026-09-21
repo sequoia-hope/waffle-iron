@@ -54,15 +54,18 @@ pub(crate) fn validate_planar_face(
     let outer_hes = arena.loop_half_edges(face.outer_loop)?;
     let outer_circles = loop_circles(arena, &outer_hes)?;
     if outer_circles.is_empty() {
-        // Stored normal ≡ Newell(outer loop) — hard rule 2. Arc-bearing
-        // loops use the midpoint-augmented winding polyline (see
-        // `winding_points`) so ANY sweep < 2π winds correctly.
+        // Stored normal ≡ orientation of the outer loop — hard rule 2. The
+        // loop's EXACT signed area about the stored normal (chords plus
+        // every arc's closed-form segment, `geom::planar_loop_signed_area`)
+        // must be positive; no sampled polygon stands in for the boundary,
+        // so a region thinner than any sampling sagitta still reads right.
         arcs_in_plane(&outer_hes)?;
-        let pts = winding_points(arena, &outer_hes)?;
-        let Some(newell) = geom::newell_unit(&pts) else {
+        let (pts, curves) = loop_area_input(arena, &outer_hes)?;
+        let n = [plane.normal.x, plane.normal.y, plane.normal.z];
+        let Some(area) = geom::planar_loop_signed_area(n, &pts, &curves) else {
             return Err(KernelV2Error::NewellMismatch { face: f });
         };
-        if geom::dot(plane.normal, newell) < 1.0 - NORMAL_AGREEMENT_TOLERANCE {
+        if area.is_nan() || area <= 0.0 {
             return Err(KernelV2Error::NewellMismatch { face: f });
         }
     } else {
@@ -88,13 +91,16 @@ pub(crate) fn validate_planar_face(
         let circles = loop_circles(arena, &hes)?;
         if circles.is_empty() {
             arcs_in_plane(&hes)?;
-            let ring_pts = winding_points(arena, &hes)?;
+            let (ring_pts, curves) = loop_area_input(arena, &hes)?;
             if ring_pts.is_empty() {
                 continue; // lone-vertex ring has no winding
             }
-            let rn = geom::newell(&ring_pts);
-            let d = rn[0] * plane.normal.x + rn[1] * plane.normal.y + rn[2] * plane.normal.z;
-            if d >= 0.0 {
+            let n = [plane.normal.x, plane.normal.y, plane.normal.z];
+            // A ring winds CW about the face normal: exact area < 0.
+            let Some(area) = geom::planar_loop_signed_area(n, &ring_pts, &curves) else {
+                return Err(KernelV2Error::RingWindingMismatch { face: f, ring: rid });
+            };
+            if area >= 0.0 {
                 return Err(KernelV2Error::RingWindingMismatch { face: f, ring: rid });
             }
         } else {

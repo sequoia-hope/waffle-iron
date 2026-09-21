@@ -43,6 +43,68 @@ after the reconciliation run (release, 8 jobs, 360 s; wall 577 s, F0085
 regression since 2026-08-01 is outstanding (checked over every commit of
 `results.json`).
 
+## 2026-09-21 (later) — R0038 RE-DIAGNOSED as a grazing parallel-cylinder CROSSING ruling (not a plane tangency); the §4.3.3 mint gains its CROSSING arm (§13, checkpoint 1: coordinate-axis full tubes) and kernel-v2's planar-loop orientation oracle becomes an EXACT signed area; the reduced class converts end to end, R0038 itself byte-identical; canonical 293C / 0W / 13E / 4EE / 0T + 2 UNSUPPORTED(coplanar-boolean)
+
+**R0038 is not what the ledger said.** Its row (below, and N2 spec §5c.10)
+reads "plane tangent to cylinder along one generator". Measured from the
+document and the STOP probe's own vertex positions: the collapsed chain
+lies exactly 13.418501 from A's revolve axis and 15.217519 from B's — A's
+OUTER cylinder (`A#2`; the LRR probe's attribution tuple is `(is_a, face)`,
+and a face at radius 13.4185 is not a plane) crossing B's outer cylinder
+(`B#2`) on parallel OBLIQUE axes 1.9303 apart at a **2.81°** grazing angle,
+along one ruling inside both sectors. Stage 0 is ACTIVE on the pair (both
+revolves start on the same sketch plane — A#0 × B#0). Pin:
+`s433_crossing_rulings_match_the_r0038_probe_vertex` (yang-rs).
+
+**Mechanism.** Parallel axes ⇒ every facet-pair intersection is an
+axis-parallel line, so the arrangement returns one chord per crossing of
+the two cross-section POLYGONS, and at a grazing angle the chord sags
+(`s(L−s)/2R`) outrun the surface separation (`sin α · s`): three chords for
+one ruling (`n_degen=3`, six vertices at one θ over the full 7.5 span).
+Stage 3 matches all of them to the ruling, Stage 4 relocates all onto it,
+and the strips between collapse — `degenerate_no_longedge` →
+`LocalRefinementRequired`. §5c.10's one-sided re-CDT refutation stands; the
+owner is §4.4.1's rule a stage earlier — mesh the curve into BOTH operands
+before the arrangement — i.e. §11's generator mint for a CROSSING ruling.
+
+**Landed (spec `yang_433_tangent_point_mesh_update.md` §13).**
+1. `cyl_cyl_crossing_generators` / `mint_crossing_rulings` (yang-rs
+   `boolean/tangency.rs`): the two feet `a + x·m ± y·n`,
+   `x = (R_A² − R_B² + δ²)/2δ`, minted as rulings of both tubes through the
+   §11 rim channel; strictly transversal in δ (disjoint from the tangent
+   band), same fail-closed gates (canonical tubes, exact coordinate axis,
+   axial overlap, on-surface). Both routes (pre-Stage-0 boost, idle re-mint).
+2. kernel-v2 `geom::planar_loop_signed_area` replaces the midpoint-sampled
+   Newell polygon in `from_yang` 1d AND `validate_planar_face`: with the
+   ruling minted the fixture COMPLETED in yang and kernel-v2 then refused
+   the CORRECT 0.10-thick crescent cap ("plane normal disagrees with its
+   outer-loop Newell normal") because one midpoint per 118° arc sags 0.13.
+   Exact `½∮ n̂·(p×dp)`: shoelace + per-arc closed-form segment (circle,
+   ellipse, hyperbola), signed by traversal sense; no sample, no tolerance.
+   The 10.7° sweep member failed on this wall ALONE and converts on it alone.
+
+**Measured** (`cyl_cyl_grazing_ruling_sweep`, A r 1 × B r 1.15 cut, z-axis):
+offsets 0.16 / 0.18 / 0.20 / 0.22 (3.0° – 8.6°) `NonManifoldOutput` →
+OK-exact; 0.25 (10.7°) Newell-refused → OK-exact; 0.30 – 0.50 byte-identical
+OK. Fixture `cyl_cyl_grazing_ruling_kv2` (cut, union, 25.7° control) exact
+volumes to 1e-9.
+
+**R0038 itself: ERROR, byte-identical** — three named checkpoints remain:
+its laterals are revolve SECTORS (arc rims + ruling edges, outside the
+full-circle tube vocabulary; the samples would go on ARC edges), its axis is
+oblique (the four rounded rim samples are not exactly collinear — the
+remedy is to splice the overlap segment's endpoints into the OTHER lateral
+as on-ruling interior points so the shared segment is bit-identical in both
+meshes in any frame), and it is on the Stage-0 path whose from-topology
+rebuilds carry `standing_rim` but no face-interior overrides.
+
+Corpus (release, 8 jobs, 600 s; wall 818.3 s; F0085 340.6 s, F0090
+167.2 s): **293C / 0W / 13E / 4EE / 0T, 2 UNSUPPORTED(coplanar-boolean)** —
+per-id diff of the committed `results.json`: ZERO category moves, ZERO
+detail moves (the crossing arm found no full-tube grazing pair in the
+corpus; the exact-area oracle changed no verdict). Remaining actionable
+tail unchanged: R0019, R0038, R0050, R0063, R0085, R0100.
+
 ## 2026-09-21 — C0043 CONVERTED ⇒ 293C: the §4.3.3 GENERATOR mint on the STAGE-0 path — STANDING rim samples on the B-Rep + a TOUCHING-disc containment emission (shared fan + pinched crescent); canonical 293C / 0W / 13E / 4EE / 0T + 2 UNSUPPORTED(coplanar-boolean)
 
 C0043 (internally tangent cyl×cyl, r 1 / r 0.4 at x = 0.6, COPLANAR caps,
@@ -2165,7 +2227,7 @@ moved. The 30 ERROR rows are the ACTIVE rows below.
 |---|---|---|---|---|
 | ~~R0044~~ | ~~Stage-4 LRR ~~v11~~ v13~~ | ~~torus×torus (N52)~~ ~~**RE-DIAGNOSED (#172):** the surface-pair endpoint-mix STOP~~ **ENDPOINT-MIX LAYER RESOLVED 2026-07-28 (triple-block wiring):** the mix vertices (v8, v12) have exactly 3 incident surfaces `{cyl_A, plane_B, cone_B}` and relocate through the increment-5 triple block. R0044 now STOPs one layer deeper at `stage4_correct.rs:5646` — v13 is a **pure** surface-pair vertex (`n_maps == 1`, correctly not a triple) whose `relocate_onto_implicit_pair` NEWTON DIVERGES. Same family as the torus `pair_newton_none` cases | CONFIRMED (2026-07-28 `#[track_caller]` LRR-site trace) | M5 surface-pair Newton convergence (with R0025/R0032/R0077) **2026-08-19 (M5 spec §"2026-08-19"): the pair-Newton "divergence" was the cone step overshoot (sec α, KV16 fix missing from the pair solver) → FIXED; then the same-type SurfacePair junction (cyl×cone_B1 ∩ cyl×cone_B2, one-slot map) → FIXED via `same_type_junction`; then kernel-v2 K9 cone sag radius 0 → FIXED (`pair_surface_local_scale`); then the projector's bare 1e-13 tau at |x|≈6e3 → FIXED (8·ε·L floor). NOW: kernel-v2 render `ring rejected by CDT` FaceId(460) — ring-reject family; MEASURED (`KV2_RING_REJECT_PROBE`/`KV2_PATCH_PROV`): face 460 is a curved patch, 184-node ring, with a REVERSAL at idx 176→177→178 in the unrolled frame (177 sits ~3.8 units BEHIND 176 along the 176→178 direction at coordinate scale 3e3; twins 34907/34990/35000 — three different neighbour edges, i.e. the crease-adjacent chain vertices) — a §4.5.3 reversed-intersection on a PROCEDURAL (surface-pair) chain, which the conic-loop sweep does not cover; NOT the K9 samples (n_interior/positions are the ring's own vertices). Vehicle: §4.5.3 sweep over surface-pair chains / junction placement at the crease **2026-08-24: the pair-chain sweep LANDED always-on (N59) but R0044 is census-QUIET — no eligible pair site fires; the case now STOPs at §4-I9 `RelocationCrossedCarrierVertex` v8 (exact collinear crossing — the overshoot class I9's certificate CAN see). The crease reversal is junction-adjacent (the pair changes across the site), outside the arm's same-pair eligibility — junction-site handling is the recorded next increment** **FLIPPED CORRECT 2026-09-05 (thin-band chart guard + genus adjudication):** after K11 inc-1 the case STOPped in Stage 1 at `face 166: holed lateral CDT failed` — a CONE band whose two rim circles sit 1.07 apart along the axis (slant gap 2.02 at r ≈ 3682) sampled at N = 41 (sag 10.8): 20 chart crossings. Probed, the gear revolve carries SEVENTY such bands (rim pairs ≈ 2 apart at radii 1024…3870). `face_rim_pair_phantom_n` (the Case-IV statement for one face's own rims: `sag_outer ≤ gap/2`, gap = the in-chart separation) folds N = 131 into the shared rim N; the top band still crossed itself twice at that N (a 176-unit rim chord over the hyperbola × surface-pair junction vertex 0.5 inside the band — a vertex no rim-pair rule can see), so the §4.5.4 chart scan + bounded retry (`Stage1ChartCrossing`, demand N = 272, one round) lands it and every band tessellates. The chain then completed with χ = 0, which the authored `euler_target: 2` graded WRONG — the exact-membership ladder reads the composed solid at χ = 0 / 1 component on 128, 256 and 512 cells and two phases (the circle cut bores THROUGH the union: genus 1), so the target was the generator's guess (the R0011 protocol: meta corrected to 0, `r0044_reads_genus_one` + `historical_authoring_fixes_pinned`). SUPPORTED_CORRECT, 268 s (was 30 s to the Stage-1 STOP; the time is the re-entering union's boolean, not the rim density — 269 s at N = 185 and 268 s at N = 272) | CONFIRMED (2026-09-05) | DONE |
 | ~~R0096~~ | ~~Stage-4 LRR v7~~ | ~~torus×torus~~ **FLIPPED CORRECT 2026-07-17 (#172):** torus×torus lateral∩lateral + torus×torus×plane junctions now relocate via the implicit-pair/triple Newton (torus-block scope lift) | — | ~~P2-M5~~ DONE |
-| R0038 | Stage-4 LRR (u32::MAX) | plane tangent to cylinder along one generator; degree-2 gate self-validates (`bad_degree=[(18,4),(19,4)]`) — near-tangency pinch, NOT a CDT ring | CONFIRMED (#168 WIP4, 9f4cb604) | P3b-#137 |
+| R0038 | Stage-4 LRR (u32::MAX) | ~~plane tangent to cylinder along one generator~~ **RE-DIAGNOSED 2026-09-21 (later): A's outer cylinder r 13.4185 × B's outer cylinder r 15.2175, parallel OBLIQUE revolve axes 1.9303 apart, CROSSING along one mid-sector ruling at 2.81° — three arrangement chords for one exact ruling collapse under relocation. Owner: §4.3.3 §13 crossing-ruling mint (checkpoint 1 landed for coordinate-axis full tubes; R0038 needs the sector vocabulary, the oblique frame splice, and standing face-interior overrides on the Stage-0 path).** degree-2 gate self-validates (`bad_degree=[(18,4),(19,4)]`) — NOT a CDT ring | CONFIRMED (#168 WIP4, 9f4cb604) | §4.3.3 §13 |
 | ~~R0072~~ | ~~Stage-4 LRR (u32::MAX)~~ | ~~real ~1e-7 micro-scale edge (0.4% span); force-merge is the R0091 silent-wrong trap — needs curved re-CDT~~ **FLIPPED CORRECT 2026-07-28 (#195 inc-5):** the §4.5.4 detect-then-refine rim boost + §4.4.1 rim-snap, both now always-on, resolve it WITHOUT a curved re-CDT — the micro-scale edge was an under-sampled rim, not an irreducible feature | — | ~~P3c~~ DONE |
 | ~~C0058~~ | **FLIPPED CORRECT 2026-09-13** (§4.3.3 tangent-point Stage-1 mint) — non-2-manifold (reassembly) | probe 2026-07-17: `NONMANIFOLD_SITE s6-curved-degenerate-loop` — Stage-6 curved face 2 emits a 64-vertex loop with \|Newell N\| = 2.3e-16 (degenerate junction loop). **2026-09-13 RE-DIAGNOSED (`specs/yang_433_tangent_point_mesh_update.md`):** the loop is the HONEST boundary of the patch — the wedge orbit pairs it correctly — and A stays one patch because two A-triangles reach across the zero-width band at the seam-coincident tangent point (0, −0.4, 1). The two meshes never meet there (no vertex within 1e-9 at Stage-4 entry; nearest 1.334403e-1 ×2, 1.868510e-1 ×2), so relocation cannot create the crossing; §4.4.1 trim+CDT must CUT the mesh along both branches | CONFIRMED (2026-09-13, `YANG_STAR_PROBE` star anatomy) | ~~P3a-#146~~ **§4.4.1 mesh update (deviation N2) / #169 phase 3** |
 | ~~C0067~~ | ~~Stage-4 LRR v128~~ | **CONVERTED 2026-09-12: the two circles are NOT coplanar — a {sphere, wall, wall} three-surface corner the triple block now admits from the junction map (section above).** probe 2026-07-18 (#171 pass 2): v128 is a **circle×circle junction** (`circle_junction=true`, endpoint) — two sphere-section Circles (both r=0.371, centers [0.15,0,0.5]/[0,0.15,0.5], normals x̂/ŷ) meet at [0.15,0.15,0.83]; junction relocation region invalid. Needs two-curve junction relocation (mint-once contract) | CONFIRMED (#171 pass 2) | P3-junction |

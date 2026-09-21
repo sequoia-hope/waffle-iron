@@ -205,6 +205,83 @@ pub(crate) fn cyl_cyl_tangent_generator_contact(
     None
 }
 
+/// The two rulings along which two PARALLEL-axis cylinders CROSS transversally
+/// (spec `yang_433_tangent_point_mesh_update.md` §13 — R0038's configuration).
+///
+/// In the cross-section plane the two circles (radii `R_A`, `R_B`, centres
+/// `δ = |w⊥|` apart along `m`) meet where
+///
+/// ```text
+///   x = (R_A² − R_B² + δ²) / (2δ)      along m, from A's axis
+///   y = ±√(R_A² − x²)                  along n = û × m
+/// ```
+///
+/// which requires `|R_A − R_B| < δ < R_A + R_B` STRICTLY — outside the
+/// rounding band on both ends, since the band itself is the tangent arm's
+/// domain ([`cyl_cyl_tangent_generator_contact`]) and a δ inside it must not
+/// be minted as two rulings a rounding apart. The crossing angle is the angle
+/// between the radial directions `(x, y)/R_A` and `(x − δ, y)/R_B`; the
+/// grazing class this serves has it at a few degrees.
+///
+/// Returns the two feet `a + x·m ± y·n` and A's unit axis, or `None` for
+/// non-parallel axes, a coaxial pair, a tangent pair (the band), or disjoint /
+/// nested circles.
+pub(crate) fn cyl_cyl_crossing_generators(
+    (ap1, ad1, r1): (Point3, Vector3, f64),
+    (ap2, ad2, r2): (Point3, Vector3, f64),
+) -> Option<([Point3; 2], [f64; 3])> {
+    let u = normalize3(ad1.as_array());
+    let v = normalize3(ad2.as_array());
+    let n = [
+        u[1] * v[2] - u[2] * v[1],
+        u[2] * v[0] - u[0] * v[2],
+        u[0] * v[1] - u[1] * v[0],
+    ];
+    let n_len = (n[0] * n[0] + n[1] * n[1] + n[2] * n[2]).sqrt();
+    if n_len >= 1e-9 {
+        return None;
+    }
+    let (a, b) = (ap1.as_array(), ap2.as_array());
+    let w0 = [b[0] - a[0], b[1] - a[1], b[2] - a[2]];
+    let axial = w0[0] * u[0] + w0[1] * u[1] + w0[2] * u[2];
+    let wp = [
+        w0[0] - axial * u[0],
+        w0[1] - axial * u[1],
+        w0[2] - axial * u[2],
+    ];
+    let delta = (wp[0] * wp[0] + wp[1] * wp[1] + wp[2] * wp[2]).sqrt();
+    let scale = a
+        .iter()
+        .chain(b.iter())
+        .chain([r1, r2, delta].iter())
+        .fold(0.0f64, |acc, &c| acc.max(c.abs()));
+    let band = cad_primitives::TAU_WORK * (1.0 + scale);
+    // Strictly transversal: beyond the tangency band on BOTH ends.
+    if delta <= (r1 - r2).abs() + band || delta >= r1 + r2 - band {
+        return None;
+    }
+    let m = [wp[0] / delta, wp[1] / delta, wp[2] / delta];
+    let nn = [
+        u[1] * m[2] - u[2] * m[1],
+        u[2] * m[0] - u[0] * m[2],
+        u[0] * m[1] - u[1] * m[0],
+    ];
+    let x = (r1 * r1 - r2 * r2 + delta * delta) / (2.0 * delta);
+    let y2 = r1 * r1 - x * x;
+    if y2 <= 0.0 {
+        return None;
+    }
+    let y = y2.sqrt();
+    let foot = |s: f64| {
+        Point3::new(
+            a[0] + x * m[0] + s * y * nn[0],
+            a[1] + x * m[1] + s * y * nn[1],
+            a[2] + x * m[2] + s * y * nn[2],
+        )
+    };
+    Some(([foot(1.0), foot(-1.0)], u))
+}
+
 /// A canonical TUBE: its axial span plus the two full-circle rim edges (index
 /// and centre). `None` when the face is outside that vocabulary (holed, or an
 /// outer loop that is not exactly two full-circle rims). Identical gate and
@@ -424,6 +501,14 @@ fn tangent_overrides(
                     generator_only,
                     probe,
                 );
+                // …or the two CROSSING rulings of a transversal pair (§13):
+                // the tangent and crossing forms are disjoint in δ, so at
+                // most one of the two arms mints.
+                mint_crossing_rulings(
+                    (fa_idx as u32, &tube_a, (apa, ada, ra), &mut out_a),
+                    (fb_idx as u32, &tube_b, (apb, adb, rb), &mut out_b),
+                    probe,
+                );
                 continue;
             };
             if generator_only {
@@ -640,6 +725,105 @@ fn mint_generator(
             let h = h_of(centre);
             let sample = Point3::new(pa[0] + h * u[0], pa[1] + h * u[1], pa[2] + h * u[2]);
             push_rim_unless_seam(out, ei, seam, sample, probe);
+        }
+    }
+}
+
+/// The CROSSING arm of the generator mint (spec §13): two canonical tubes
+/// with parallel axes whose cross-section circles cross transversally get
+/// BOTH crossing rulings as rulings of both Stage-1 grids, exactly as
+/// [`mint_generator`] gives a tangent pair its one contact line.
+///
+/// Why a crossing needs the mint at all: with parallel axes every facet-pair
+/// intersection of the two prisms is an axis-parallel line, so the exact
+/// arrangement's answer for one ruling is however many times the two
+/// cross-section POLYGONS cross near it — and at a grazing angle (R0038:
+/// 2.8°; the surfaces separate as `sin α · s` while the chords sag as
+/// `s(L − s)/2R`) they cross several times. Stage 3 matches every one of
+/// those parallel chords to the single exact ruling and Stage 4 relocates
+/// them all onto it, collapsing the strips between them into zero-area
+/// collinear chains (`degenerate_no_longedge`, `LocalRefinementRequired`)
+/// or an inconsistent cap boundary (the Stage-6 walk dead-end of
+/// `cyl_cyl_grazing_ruling_kv2`). With the ruling minted the two polygons
+/// SHARE the crossing vertex and cross exactly once there — the paper's
+/// "the two polylines in the meshes coincide with the intersection curve".
+///
+/// Same per-pair gates as [`mint_generator`] (canonical tubes; an exact
+/// coordinate axis; axial overlap beyond the rim margin; on-surface
+/// postcondition of each foot against both cylinders), each fail-closed to
+/// the status quo. Both rulings lie on both tubes' full circles, so there is
+/// no angular containment to check in this vocabulary.
+#[allow(clippy::type_complexity)]
+fn mint_crossing_rulings(
+    (fa_idx, tube_a, cyl_a, out_a): (u32, &Tube, (Point3, Vector3, f64), &mut TangentOverrides),
+    (fb_idx, tube_b, cyl_b, out_b): (u32, &Tube, (Point3, Vector3, f64), &mut TangentOverrides),
+    probe: bool,
+) {
+    let Some((feet, u)) = cyl_cyl_crossing_generators(cyl_a, cyl_b) else {
+        return;
+    };
+    if !is_exact_coordinate_axis(u) {
+        if probe {
+            eprintln!(
+                "[tangent-insert] A#{fa_idx} B#{fb_idx} crossing rulings + t·{u:?} SKIP: \
+                 the axis is not a coordinate axis (rim samples would not be exactly collinear)"
+            );
+        }
+        return;
+    }
+    for p0 in feet {
+        let pa = p0.as_array();
+        let scale = pa.iter().fold(0.0f64, |m, &c| m.max(c.abs()));
+        let h_of = |c: Point3| -> f64 {
+            let q = c.as_array();
+            (q[0] - pa[0]) * u[0] + (q[1] - pa[1]) * u[1] + (q[2] - pa[2]) * u[2]
+        };
+        let span = |t: &Tube| -> (f64, f64) {
+            let (h0, h1) = (h_of(t.rims[0].1), h_of(t.rims[1].1));
+            (h0.min(h1), h0.max(h1))
+        };
+        let (la, ha) = span(tube_a);
+        let (lb, hb) = span(tube_b);
+        let (lo, hi) = (la.max(lb), ha.min(hb));
+        let margin = cad_primitives::TAU_MODEL * (1.0 + scale.max(hi.abs()).max(lo.abs()));
+        if hi - lo <= margin {
+            if probe {
+                eprintln!(
+                    "[tangent-insert] A#{fa_idx} B#{fb_idx} crossing ruling {pa:?} + t·{u:?} \
+                     SKIP: axial spans do not overlap (A [{la:.6},{ha:.6}] B [{lb:.6},{hb:.6}])"
+                );
+            }
+            return;
+        }
+        let on = [cyl_a, cyl_b].into_iter().all(|(ap, ad, r)| {
+            let (ap, ah) = (ap.as_array(), normalize3(ad.as_array()));
+            let w = [pa[0] - ap[0], pa[1] - ap[1], pa[2] - ap[2]];
+            let h = w[0] * ah[0] + w[1] * ah[1] + w[2] * ah[2];
+            let rad = [w[0] - h * ah[0], w[1] - h * ah[1], w[2] - h * ah[2]];
+            let len = (rad[0] * rad[0] + rad[1] * rad[1] + rad[2] * rad[2]).sqrt();
+            (len - r).abs() <= cad_primitives::TAU_EVAL * (1.0 + scale)
+        });
+        if !on {
+            if probe {
+                eprintln!(
+                    "[tangent-insert] A#{fa_idx} B#{fb_idx} crossing ruling {pa:?} + t·{u:?} \
+                     REJECT off-surface"
+                );
+            }
+            return;
+        }
+        if probe {
+            eprintln!(
+                "[tangent-insert] A#{fa_idx} B#{fb_idx} MINT crossing ruling {pa:?} + t·{u:?} \
+                 over h ∈ [{lo:.6},{hi:.6}]"
+            );
+        }
+        for (tube, out) in [(tube_a, &mut *out_a), (tube_b, &mut *out_b)] {
+            for &(ei, centre, seam) in &tube.rims {
+                let h = h_of(centre);
+                let sample = Point3::new(pa[0] + h * u[0], pa[1] + h * u[1], pa[2] + h * u[2]);
+                push_rim_unless_seam(out, ei, seam, sample, probe);
+            }
         }
     }
 }

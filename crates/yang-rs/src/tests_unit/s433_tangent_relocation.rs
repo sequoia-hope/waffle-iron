@@ -414,6 +414,121 @@ pub(crate) fn s433_generator_declines_coaxial_and_crossing_axes() {
 }
 
 // =========================================================================
+// §13 (2026-09-21): the CROSSING arm — parallel axes whose cross-section
+// circles cross transversally, along two rulings `a + x·m ± y·n`,
+// `x = (R_A² − R_B² + δ²)/(2δ)`, `y = √(R_A² − x²)`. Every expectation is
+// derived from the configuration.
+// =========================================================================
+
+use crate::boolean::cyl_cyl_crossing_generators;
+
+fn radial_distance(p: Point3, (ap, ad, _): (Point3, Vector3, f64)) -> f64 {
+    let u = normalize3(ad.as_array());
+    let w = [p.x() - ap.x(), p.y() - ap.y(), p.z() - ap.z()];
+    let h = w[0] * u[0] + w[1] * u[1] + w[2] * u[2];
+    let r = [w[0] - h * u[0], w[1] - h * u[1], w[2] - h * u[2]];
+    (r[0] * r[0] + r[1] * r[1] + r[2] * r[2]).sqrt()
+}
+
+/// The `cyl_cyl_grazing_ruling_kv2` pair: A r 1 on the z-axis, B r 1.15
+/// on the axis through (0.16, 0). Two feet, mirror images in y, each on
+/// BOTH circles, and the crossing angle between the radial directions is
+/// the grazing 2.98°.
+#[test]
+pub(crate) fn s433_crossing_rulings_lie_on_both_circles() {
+    let a = cyl([0.0, 0.0, 0.0], [0.0, 0.0, 1.0], 1.0);
+    let b = cyl([0.16, 0.0, 0.0], [0.0, 0.0, 1.0], 1.15);
+    let (feet, u) = cyl_cyl_crossing_generators(a, b).expect("transversal crossing");
+    assert_eq!(u, [0.0, 0.0, 1.0]);
+    let x: f64 = (1.0 - 1.15 * 1.15 + 0.16 * 0.16) / (2.0 * 0.16);
+    let y = (1.0 - x * x).sqrt();
+    assert!(
+        (feet[0].x() - x).abs() < 1e-15 && (feet[0].y() - y).abs() < 1e-15,
+        "{feet:?}"
+    );
+    assert!(
+        (feet[1].x() - x).abs() < 1e-15 && (feet[1].y() + y).abs() < 1e-15,
+        "{feet:?}"
+    );
+    for p in feet {
+        assert!((radial_distance(p, a) - 1.0).abs() < 1e-15, "{p:?}");
+        assert!((radial_distance(p, b) - 1.15).abs() < 1e-15, "{p:?}");
+        assert!(p.z().abs() < 1e-15, "{p:?}");
+    }
+    let na = [x, y];
+    let nb = [(x - 0.16) / 1.15, y / 1.15];
+    let angle = (na[0] * nb[0] + na[1] * nb[1]).acos().to_degrees();
+    assert!((angle - 2.975).abs() < 1e-2, "crossing angle {angle}");
+}
+
+/// R0038's REAL geometry (the corpus case's op 2, read off the document):
+/// A's outer cylinder r 13.4185 and B's outer cylinder r 15.2175 on
+/// parallel OBLIQUE axes 1.9303 apart. The vertex the Stage-4 STOP probe
+/// printed on the collapsed chain, `(−2.5584, −5.8076, 13.2564)`, lies on
+/// the returned ruling to 1e-12 — the case is a crossing ruling, not the
+/// plane tangency §5c.10 recorded.
+#[test]
+pub(crate) fn s433_crossing_rulings_match_the_r0038_probe_vertex() {
+    let axis = [0.40337748311323784, 0.9150336639256664, 0.0];
+    let a = cyl(
+        [-10.871657291983455, -6.2441717370226595, 2.0832269500797818],
+        axis,
+        13.418501040494824,
+    );
+    let b = cyl(
+        [-11.206382487514404, -6.09661366104041, 0.18787820533635902],
+        axis,
+        15.217518737937626,
+    );
+    let (feet, u) = cyl_cyl_crossing_generators(a, b).expect("transversal crossing");
+    let probe = Point3::new(-2.5584423736243105, -5.807640305735914, 13.256391723795382);
+    let on_line = feet.iter().any(|p0| {
+        let w = [probe.x() - p0.x(), probe.y() - p0.y(), probe.z() - p0.z()];
+        let h = w[0] * u[0] + w[1] * u[1] + w[2] * u[2];
+        let d = [w[0] - h * u[0], w[1] - h * u[1], w[2] - h * u[2]];
+        (d[0] * d[0] + d[1] * d[1] + d[2] * d[2]).sqrt() < 1e-12
+    });
+    assert!(
+        on_line,
+        "probe vertex off both rulings: feet {feet:?} u {u:?}"
+    );
+    for p in feet {
+        assert!(
+            (radial_distance(p, a) - 13.418501040494824).abs() < 1e-12,
+            "{p:?}"
+        );
+        assert!(
+            (radial_distance(p, b) - 15.217518737937626).abs() < 1e-12,
+            "{p:?}"
+        );
+    }
+}
+
+/// The crossing form is DISJOINT from the tangent form in δ and declines
+/// everything else: exact tangency (the band is the generator arm's),
+/// nested and disjoint circles, coaxial and non-parallel axes.
+#[test]
+pub(crate) fn s433_crossing_declines_tangent_nested_disjoint_coaxial_and_crossing_axes() {
+    let a = cyl([0.0, 0.0, 0.0], [0.0, 0.0, 1.0], 1.0);
+    let tangent = cyl([0.5, 0.0, 0.0], [0.0, 0.0, 1.0], 0.5);
+    assert!(cyl_cyl_crossing_generators(a, tangent).is_none());
+    assert!(cyl_cyl_tangent_generator(a, tangent).is_some());
+    let nested = cyl([0.3, 0.0, 0.0], [0.0, 0.0, 1.0], 0.5);
+    assert!(cyl_cyl_crossing_generators(a, nested).is_none());
+    let disjoint = cyl([2.0, 0.0, 0.0], [0.0, 0.0, 1.0], 0.5);
+    assert!(cyl_cyl_crossing_generators(a, disjoint).is_none());
+    let coaxial = cyl([0.0, 0.0, 0.5], [0.0, 0.0, 1.0], 1.0);
+    assert!(cyl_cyl_crossing_generators(a, coaxial).is_none());
+    let crossing_axes = cyl([0.0, 0.5, 1.0], [1.0, 0.0, 0.0], 0.5);
+    assert!(cyl_cyl_crossing_generators(a, crossing_axes).is_none());
+    // Just beyond the tangency band on the crossing side: two rulings a
+    // hair apart, both honest.
+    let barely = cyl([0.5 + 1e-6, 0.0, 0.0], [0.0, 0.0, 1.0], 0.5);
+    let (feet, _) = cyl_cyl_crossing_generators(a, barely).expect("crossing");
+    assert!((feet[0].y() - feet[1].y()).abs() > 0.0);
+}
+
+// =========================================================================
 // §7 (2026-09-13, later): the amplified band is not a bound on the MOVE.
 //
 // The morning's move check compares `az_move` against `gate = amp · budget`,

@@ -590,6 +590,16 @@ case.
 
 ### 5c.10 REFUTATION: R0038 is a plane-tangent-to-cylinder case; its degenerate caps are LOAD-BEARING conformal seam triangles — re-CDT CANNOT green it (probes `YANG_RECDT_INC` / `NONMANIFOLD_SITE_PROBE`)
 
+> **CORRECTION (2026-09-21, later).** The geometry named here is wrong,
+> though the refutation of the one-sided re-CDT stands. The "plane"
+> neighbour `(true, 2)` is A's OUTER CYLINDER (the tuple is `(is_a, face)`;
+> the six collinear vertices stand exactly 13.418501 from A's revolve axis
+> and 15.217519 from B's), and the pair is two parallel-axis cylinders
+> CROSSING along a ruling at 2.81°, not a tangency. The collinear chain is
+> three arrangement chords for one exact ruling, relocated onto it. Owner:
+> `yang_433_tangent_point_mesh_update.md` §13 (mesh the ruling into both
+> operands before the arrangement); ledger row 2026-09-21 (later).
+
 The §5c.9 framing ("R0038 needs a wedge-aware junction walk to green it") is
 **refuted by the edge-incidence ground truth**. mykey here is the *cylinder*
 (`(false,2)`); the neighbour is the *plane* (`(true,2)`). All six generator

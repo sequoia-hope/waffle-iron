@@ -641,88 +641,68 @@ fn loop_arcs(
     Ok(out)
 }
 
-/// Winding polyline of a loop for Newell-orientation checks: the loop's
-/// vertex cycle with each [`Curve::Arc`]'s sweep MIDPOINT sample inserted
-/// after its origin.
+/// The loop's vertex cycle and per-edge curve descriptors for the EXACT
+/// signed-area orientation oracle (`geom::planar_loop_signed_area`).
 ///
-/// The raw vertex chord polygon winds identically to the true boundary
-/// only for minor arcs (sweep < π) — the original KV5b assumption. Revolve
-/// (PR-KV6a) produces sweep arcs anywhere in (0, 2π): a >180° annular
-/// sector's chord quad has zero or NEGATIVE shoelace area, so the chord
-/// Newell would wrongly reject a correctly wound face. One midpoint per
-/// arc makes the polyline's winding match the true boundary for ANY sweep
-/// < 2π; mis-wound loops still fail (the oracle's domain widens, its
-/// strictness does not change).
-fn winding_points(arena: &BrepArena, hes: &[HalfEdgeId]) -> Result<Vec<Point3>, KernelV2Error> {
-    let mut pts = Vec::with_capacity(hes.len() * 2);
+/// History: KV5b checked the vertex chord polygon's Newell normal, which
+/// winds like the true boundary only for minor arcs; PR-KV6a/KV9/KV11/KV16
+/// inserted one parametric midpoint per arc so any sweep < 2π wound
+/// correctly — but a region thinner than that midpoint's sagitta (a
+/// crescent cap 0.10·R thick under a 118° arc) still sampled to a mis-signed
+/// polygon and a correct face was refused. The exact area needs no sample:
+/// each arc contributes its closed-form segment term.
+fn loop_area_input(
+    arena: &BrepArena,
+    hes: &[HalfEdgeId],
+) -> Result<(Vec<Point3>, Vec<geom::LoopEdgeCurve>), KernelV2Error> {
+    let mut pts = Vec::with_capacity(hes.len());
+    let mut curves = Vec::with_capacity(hes.len());
     for &h in hes {
         let he = arena.half_edge(h)?;
-        let p0 = arena.vertex(he.origin)?.point;
-        pts.push(p0);
-        if let Curve::Arc { center, normal, .. } = he.curve {
-            let p1 = arena.vertex(arena.half_edge(he.next)?.origin)?.point;
-            let nu = [normal.x, normal.y, normal.z];
-            if let Some(sweep) = geom::ccw_sweep(center, nu, p0, p1) {
-                pts.push(geom::rotate_about_axis(center, nu, p0, sweep / 2.0));
-            }
-        }
-        if let Curve::EllipseArc {
-            center,
-            normal,
-            major_axis,
-            major_radius,
-            minor_radius,
-        } = he.curve
-        {
-            // PR-KV9: midpoint at half the PARAMETRIC sweep (the bulge point
-            // the chord polygon misses), same role as the arc midpoint.
-            let p1 = arena.vertex(arena.half_edge(he.next)?.origin)?.point;
-            let nu = [normal.x, normal.y, normal.z];
-            let mr = [major_axis.x, major_axis.y, major_axis.z];
-            if let (Some(t0), Some(sweep)) = (
-                geom::ellipse_param(center, nu, mr, major_radius, minor_radius, p0),
-                geom::ellipse_ccw_sweep(center, nu, mr, major_radius, minor_radius, p0, p1),
-            ) {
-                pts.push(geom::ellipse_point_at(
-                    center,
-                    nu,
-                    mr,
-                    major_radius,
-                    minor_radius,
-                    t0 + sweep / 2.0,
-                ));
-            }
-        }
-        if let Curve::HyperbolaArc {
-            center,
-            normal,
-            major_axis,
-            semi_transverse,
-            semi_conjugate,
-        } = he.curve
-        {
-            // KV16: parametric midpoint — the hyperbola arc dips toward its
-            // center relative to the chord, the same winding-bulge role as
-            // the arc/ellipse midpoints.
-            let p1 = arena.vertex(arena.half_edge(he.next)?.origin)?.point;
-            let nu = [normal.x, normal.y, normal.z];
-            let mr = [major_axis.x, major_axis.y, major_axis.z];
-            if let (Some(t0), Some(t1)) = (
-                geom::hyperbola_param(center, nu, mr, semi_conjugate, p0),
-                geom::hyperbola_param(center, nu, mr, semi_conjugate, p1),
-            ) {
-                pts.push(geom::hyperbola_point_at(
-                    center,
-                    nu,
-                    mr,
-                    semi_transverse,
-                    semi_conjugate,
-                    0.5 * (t0 + t1),
-                ));
-            }
-        }
+        pts.push(arena.vertex(he.origin)?.point);
+        curves.push(match he.curve {
+            Curve::Arc {
+                center,
+                normal,
+                radius,
+            } => geom::LoopEdgeCurve::Circle {
+                center,
+                normal: [normal.x, normal.y, normal.z],
+                radius,
+            },
+            Curve::EllipseArc {
+                center,
+                normal,
+                major_axis,
+                major_radius,
+                minor_radius,
+            } => geom::LoopEdgeCurve::Ellipse {
+                center,
+                normal: [normal.x, normal.y, normal.z],
+                major_axis: [major_axis.x, major_axis.y, major_axis.z],
+                major_radius,
+                minor_radius,
+            },
+            Curve::HyperbolaArc {
+                center,
+                normal,
+                major_axis,
+                semi_transverse,
+                semi_conjugate,
+            } => geom::LoopEdgeCurve::Hyperbola {
+                center,
+                normal: [normal.x, normal.y, normal.z],
+                major_axis: [major_axis.x, major_axis.y, major_axis.z],
+                semi_transverse,
+                semi_conjugate,
+            },
+            // Straight segments (a full circle never reaches this oracle —
+            // `loop_circles` routes it — and a surface-pair piece is never
+            // planar) contribute their chord only.
+            _ => geom::LoopEdgeCurve::Line,
+        });
     }
-    Ok(pts)
+    Ok((pts, curves))
 }
 
 /// Debug-band for IMPORTED curved geometry (PR-KV5b): yang-rs boolean

@@ -655,3 +655,118 @@ quarantined). Full yang-rs suite 983 + integration binaries green; clippy
 UNSUPPORTED(coplanar-boolean)** — per-id diff of the committed
 `results.json`: exactly ONE category move (C0043 ERROR →
 SUPPORTED_CORRECT), ZERO detail moves.
+
+## 13. Increment 6 (2026-09-21, ALWAYS-ON) — the CROSSING arm: parallel axes whose circles cross at a grazing angle (R0038's class, checkpoint 1)
+
+**R0038 re-diagnosed.** The ledger and `yang_n2_stage4_cdt_mesh_updating.md`
+§5c.10 recorded R0038 as "a plane tangent to a cylinder along a single
+generator". Read off the document and the Stage-4 STOP probe's own
+positions, it is not: the collapsed six-vertex chain
+(`pa = (−2.5584, −5.8076, 13.2564)` … along `(0.4034, 0.9150, 0)`) stands
+exactly 13.418501 from A's revolve axis and exactly 15.217519 from B's —
+A's OUTER cylinder (`A#2`, the attribution tuple is `(is_a, face)`) and
+B's outer cylinder (`B#2`), parallel oblique axes 1.9303 apart, radii
+differing by 1.7990. The two cross-section circles CROSS, along one ruling
+inside both 30.4° / 71.4° sectors, and the radial directions there differ by
+**2.81°** (pin `s433_crossing_rulings_match_the_r0038_probe_vertex`). Stage 0
+is active on the pair (both revolves start on the same sketch plane: A#0 ×
+B#0 coplanar) and `cyl_pairs` is empty.
+
+**The mechanism, in the point form's terms.** With parallel axes every
+facet-pair intersection of the two prisms is an axis-parallel LINE, so the
+exact arrangement's answer for one ruling is however many times the two
+cross-section POLYGONS cross near it. The surfaces separate as `sin α · s`
+(`α` the crossing angle, `s` the arc distance from the ruling) while each
+polygon's chord sags as `s(L − s)/2R` inside its circle; at a grazing `α`
+the sags dominate and the polygons cross several times (R0038: three
+chords, `YANG_LRR_PATCH n_degen=3`, all six vertices at one θ over the full
+7.5 axial span). Stage 3 matches every chord to the one exact ruling, Stage
+4 relocates them all onto it, and the strips between them collapse into
+zero-area collinear chains — `degenerate_no_longedge` →
+`LocalRefinementRequired` (R0038), or on the reduced fixture an A-cap
+boundary the Stage-6 walk cannot close (`s6-boundary-walk-deadend`). The
+§5c.10 re-CDT refutation stands for what it measured (a ONE-SIDED keep-
+interior re-CDT cannot reproduce the other side's collinear seam); it does
+not name the owner, which is §4.4.1's rule applied one stage earlier: give
+both meshes the curve BEFORE the arrangement, exactly as §11 does for a
+tangent ruling.
+
+**The mint (`boolean::tangency::cyl_cyl_crossing_generators` +
+`mint_crossing_rulings`).** In the cross-section plane the circles (radii
+`R_A`, `R_B`, centres `δ = |w⊥|` apart along `m`, `n = û × m`) meet at
+`x = (R_A² − R_B² + δ²)/(2δ)`, `y = ±√(R_A² − x²)`: two feet `a + x·m ± y·n`,
+each minted as a ruling of BOTH tubes through the §11 rim-sample channel
+(four exact samples `p₀ + h·û`, `push_rim_unless_seam`). Admissibility is
+STRICTLY transversal — `|R_A − R_B| + band < δ < R_A + R_B − band` with the
+KV10 rounding band — so the crossing and tangent forms are disjoint in δ
+and a δ inside the band is never minted as two rulings a rounding apart.
+Same fail-closed gates as `mint_generator`: canonical tubes, an EXACT
+coordinate axis (the collinearity frame), axial overlap beyond the rim
+margin, on-surface postcondition of each foot; both rulings lie on both
+full circles so there is no angular containment in this vocabulary. Runs
+on both the pre-Stage-0 boost and the idle-route re-mint (rim samples only,
+no Stage-0 emission concern: a crossing ruling is an ordinary transversal
+edge, not a pinch — the C0042 external-contact scope of §12 does not
+apply). With the ruling minted the two polygons SHARE the crossing vertex
+and cross exactly once there — the chord-depth ordering `sin(θ_B/2) −
+sin(θ_A/2) < sin α` holds on the fixture and R0038 (0.017 / 0.025 against
+0.052 / 0.049); a member that violates it keeps its loud STOP (named, not
+built: a rim-density demand from the same inequality, the §4.5.4 channel).
+
+**The second wall, in kernel-v2 (`geom::planar_loop_signed_area`).** With
+the ruling minted the fixture's cut and union both COMPLETE in yang and
+were then refused by `from_yang` step 1d: "output face plane normal
+disagrees with its outer-loop Newell normal". The refused face was the
+CORRECT top cap — the 0.10-thick crescent between A's 118° arc (through
+(−1, 0)) and B's arc back. The orientation oracle (PR-KV9 / KV11 / KV16)
+sampled each arc by ONE parametric midpoint and took the polygon's Newell
+normal; a 118° arc's one-midpoint polygon sags `R(1 − cos 29.5°) = 0.13`,
+more than the crescent's thickness, so the sampled polygon was CLOCKWISE
+(shoelace −0.014) and a correct output was refused. Finer sampling only
+moves the threshold. Both consumers (`from_yang` 1d and
+`validate_planar_face`) now take the EXACT signed area `½∮ n̂·(p × dp)`:
+the vertex shoelace plus, per curved edge, the closed-form chord-to-curve
+segment — circle `(R²/2)(θ − sin θ)`, ellipse `(ab/2)(θ − sin θ)` in the
+parametric angle, hyperbola `(ab/2)(θ − sinh θ)` — each signed by the
+traversal sense about the face normal. Positive = outer, negative = ring,
+zero = degenerate; no sample, no tolerance. The δ = 0.25 sweep member
+(10.7°, crescent 0.10) was failing on THIS wall alone (the arm off) and
+converts on the oracle fix alone: the two pieces are independent and both
+needed.
+
+**Measured (`cyl_cyl_grazing_ruling_sweep`, A r 1 × B r 1.15, cut).**
+
+| axis offset | crossing | crescent | before | arm on, oracle old | both |
+|---|---|---|---|---|---|
+| 0.16 | 2.98° | 0.010 | `NonManifoldOutput` (s6 walk dead-end) | Newell refused | OK, exact |
+| 0.18 | 5.32° | 0.030 | same | Newell refused | OK, exact |
+| 0.20 | 7.07° | 0.050 | same | Newell refused | OK, exact |
+| 0.22 | 8.61° | 0.070 | same | Newell refused | OK, exact |
+| 0.25 | 10.70° | 0.100 | Newell refused | Newell refused | OK, exact |
+| 0.30 … 0.50 | 13.9° … 25.7° | ≥ 0.15 | OK | OK | OK, byte-identical |
+
+"Exact" = kernel-v2's exact volume against the closed-form disc-minus-lens
+to 1e-9 (`cyl_cyl_grazing_ruling_kv2`: cut, union, and the 25.7° control).
+
+**Not this increment (R0038 itself stays ERROR, byte-identical).** R0038
+needs three more things the fixture does not: (1) its laterals are partial
+REVOLVE sectors (arc rims + two ruling edges), outside `tube_axial_span`'s
+full-circle vocabulary — the rim samples would go on ARC edges; (2) its axis
+is oblique, `(0.4034, 0.9150, 0)`, so the four rounded rim samples are not
+exactly collinear and the coordinate-axis gate declines (the honest
+remedy: splice the overlap segment's two endpoints into the OTHER operand's
+lateral as on-ruling interior points, so the shared segment is bit-identical
+in both meshes regardless of frame); (3) it is on the Stage-0 path, whose
+from-topology rebuilds carry `standing_rim` but no face-interior overrides.
+Each is a named checkpoint of this increment's sequel.
+
+**Oracles.** yang-rs `tests_unit::s433_tangent_relocation` +3 (feet on both
+circles at the fixture's 2.98°; R0038's real oblique geometry puts the
+probe vertex on a returned ruling to 1e-12; declines: tangent band, nested,
+disjoint, coaxial, crossing axes; a δ just past the band gives two honest
+rulings); kernel-v2 `geom::loop_area::tests` (square, two half-arcs = π,
+270° major arc, the thin crescent EXACT and its sampled polygon pinned
+CW, two half-ellipse arcs = πab, hyperbola segment sign both ways);
+test-harness `cyl_cyl_grazing_ruling_kv2` (3 tests) and the sweep driver
+(`#[ignore]`). Corpus: recorded in the ledger row (`docs/yang_tail_triage.md`,
+2026-09-21 later).

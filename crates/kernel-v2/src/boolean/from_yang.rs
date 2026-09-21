@@ -793,120 +793,88 @@ pub fn from_yang_brep_indexed_with_operands(
             }
             continue;
         }
-        // PR-KV9: ARC-MIDPOINT-AUGMENTED loop points (the same mechanism as
-        // `validate::winding_points`, KV6a). A chord-only polygon mis-signs
-        // the Newell normal when concave arcs dominate the loop — e.g. the
-        // CRESCENT cap of a parallel cylinder×cylinder boolean, whose only
-        // interior vertex can sit on the concave arc. Each arc contributes
-        // its midpoint, which restores the bulge's signed area.
+        // The loop's EXACT signed area about yang's stated plane normal
+        // (`geom::planar_loop_signed_area`: the vertex chords plus every
+        // arc's closed-form segment term). This replaces the PR-KV9 / KV11 /
+        // KV16 midpoint-augmented Newell polygon, which sampled a long arc by
+        // one interior point and so mis-signed any planar region THINNER
+        // than that sample's sagitta — the crescent cap of a grazing
+        // parallel-cylinder boolean (0.10·R thick under a 118° arc whose
+        // one-midpoint polygon sags 0.13·R) was a correct output refused
+        // here (`cyl_cyl_grazing_ruling_kv2`, 2026-09-21). The exact area
+        // has no sampling and no threshold: positive = outer, negative =
+        // ring, zero = degenerate.
         let m = spec.cycle.len();
-        let mut pts: Vec<Point3> = Vec::with_capacity(2 * m);
-        for k in 0..m {
-            let p0 = yverts[spec.cycle[k] as usize].point;
-            pts.push(p0);
-            if let EdgeKind::Arc {
-                center,
-                forward_normal,
-                radius: _,
-            } = spec.edges[k]
-            {
-                let p1 = yverts[spec.cycle[(k + 1) % m] as usize].point;
-                if let Some(sweep) = geom::ccw_sweep(center, forward_normal, p0, p1) {
-                    pts.push(geom::rotate_about_axis(
-                        center,
-                        forward_normal,
-                        p0,
-                        sweep / 2.0,
-                    ));
-                }
-            }
-            // PR-KV11: the EllipseArc analog (same role as validate.rs
-            // `winding_points`) — a planar face whose boundary is dominated
-            // by a concave ELLIPSE arc (the box-face bite of an oblique
-            // cylinder) mis-signs the chord-only Newell normal exactly like
-            // the KV9 crescent did for circle arcs.
-            if let EdgeKind::EllipseArc {
-                center,
-                forward_normal,
-                major_axis,
-                major_radius,
-                minor_radius,
-            } = spec.edges[k]
-            {
-                let p1 = yverts[spec.cycle[(k + 1) % m] as usize].point;
-                if let (Some(t0), Some(sweep)) = (
-                    geom::ellipse_param(
-                        center,
-                        forward_normal,
-                        major_axis,
-                        major_radius,
-                        minor_radius,
-                        p0,
-                    ),
-                    geom::ellipse_ccw_sweep(
-                        center,
-                        forward_normal,
-                        major_axis,
-                        major_radius,
-                        minor_radius,
-                        p0,
-                        p1,
-                    ),
-                ) {
-                    pts.push(geom::ellipse_point_at(
-                        center,
-                        forward_normal,
-                        major_axis,
-                        major_radius,
-                        minor_radius,
-                        t0 + sweep / 2.0,
-                    ));
-                }
-            }
-            // KV16: the HyperbolaArc analog — parametric midpoint (the
-            // arc dips toward the hyperbola center relative to its chord;
-            // same winding-restoration role as the arc/ellipse midpoints).
-            if let EdgeKind::HyperbolaArc {
-                center,
-                normal,
-                major_axis,
-                semi_transverse,
-                semi_conjugate,
-            } = spec.edges[k]
-            {
-                let p1 = yverts[spec.cycle[(k + 1) % m] as usize].point;
-                if let (Some(t0), Some(t1)) = (
-                    geom::hyperbola_param(center, normal, major_axis, semi_conjugate, p0),
-                    geom::hyperbola_param(center, normal, major_axis, semi_conjugate, p1),
-                ) {
-                    pts.push(geom::hyperbola_point_at(
-                        center,
-                        normal,
-                        major_axis,
-                        semi_transverse,
-                        semi_conjugate,
-                        0.5 * (t0 + t1),
-                    ));
-                }
-            }
-        }
+        let pts: Vec<Point3> = spec
+            .cycle
+            .iter()
+            .map(|&v| yverts[v as usize].point)
+            .collect();
+        let curves: Vec<geom::LoopEdgeCurve> = spec
+            .edges
+            .iter()
+            .map(|e| match *e {
+                EdgeKind::Arc {
+                    center,
+                    forward_normal,
+                    radius,
+                } => geom::LoopEdgeCurve::Circle {
+                    center,
+                    normal: forward_normal,
+                    radius,
+                },
+                EdgeKind::EllipseArc {
+                    center,
+                    forward_normal,
+                    major_axis,
+                    major_radius,
+                    minor_radius,
+                } => geom::LoopEdgeCurve::Ellipse {
+                    center,
+                    normal: forward_normal,
+                    major_axis,
+                    major_radius,
+                    minor_radius,
+                },
+                EdgeKind::HyperbolaArc {
+                    center,
+                    normal,
+                    major_axis,
+                    semi_transverse,
+                    semi_conjugate,
+                } => geom::LoopEdgeCurve::Hyperbola {
+                    center,
+                    normal,
+                    major_axis,
+                    semi_transverse,
+                    semi_conjugate,
+                },
+                // Straight segments, and the never-planar surface-pair
+                // piece (rejected on a plane by the curved validation),
+                // contribute their chord only.
+                _ => geom::LoopEdgeCurve::Line,
+            })
+            .collect();
+        debug_assert_eq!(curves.len(), m);
+        let area = geom::planar_loop_signed_area(*normal, &pts, &curves);
         match spec.kind {
             LoopKind::Outer => {
-                let Some(nu) = geom::newell_unit(&pts) else {
+                let Some(area) = area else {
+                    return Err(KernelV2Error::InvalidBooleanOutput(
+                        "output face outer loop has a degenerate curved edge",
+                    ));
+                };
+                if area == 0.0 || !area.is_finite() {
                     return Err(KernelV2Error::InvalidBooleanOutput(
                         "output face outer loop has a degenerate (zero) Newell normal",
                     ));
-                };
-                let dotn = nu.x * normal[0] + nu.y * normal[1] + nu.z * normal[2];
-                if dotn < 1.0 - YANG_NORMAL_AGREEMENT_TOLERANCE {
+                }
+                if area < 0.0 {
                     if std::env::var("KV11_PROBE").is_ok() {
                         eprintln!(
-                            "KV11_PROBE newell reject: face={} dotn={dotn:.6} plane_n={normal:?} \
-                             newell=({:.6},{:.6},{:.6}) cycle_len={} kinds={:?} pts={:?}",
+                            "KV11_PROBE newell reject: face={} area={area:.6e} plane_n={normal:?} \
+                             cycle_len={} kinds={:?} pts={:?}",
                             spec.face,
-                            nu.x,
-                            nu.y,
-                            nu.z,
                             spec.cycle.len(),
                             spec.edges.iter().map(edge_kind_tag).collect::<Vec<_>>(),
                             pts
@@ -937,8 +905,7 @@ pub fn from_yang_brep_indexed_with_operands(
                 });
             }
             LoopKind::Inner => {
-                let nw = geom::newell(&pts);
-                if nw[0] * normal[0] + nw[1] * normal[1] + nw[2] * normal[2] >= 0.0 {
+                if !matches!(area, Some(a) if a < 0.0) {
                     return Err(KernelV2Error::InvalidBooleanOutput(
                         "output face ring does not wind opposite to its outer loop",
                     ));

@@ -12,8 +12,10 @@ use cad_primitives::Point3;
 
 mod conics;
 mod flux;
+mod loop_area;
 pub(crate) use conics::*;
 pub(crate) use flux::*;
+pub(crate) use loop_area::*;
 
 /// A loop's Newell normal must exceed this (squared-norm) floor before it is
 /// considered orientable and a `Plane` is stored on the face. Below the
@@ -725,24 +727,6 @@ pub fn face_centroid(
             Ok(Point3::new(s[0] / n, s[1] / n, s[2] / n))
         }
     }
-}
-
-/// Rodrigues rotation of `p` about the axis (`center`, unit `axis`) by
-/// `theta` (right-handed).
-pub(crate) fn rotate_about_axis(center: Point3, axis: [f64; 3], p: Point3, theta: f64) -> Point3 {
-    let v = [p.x() - center.x(), p.y() - center.y(), p.z() - center.z()];
-    let (c, s) = (theta.cos(), theta.sin());
-    let dot = axis[0] * v[0] + axis[1] * v[1] + axis[2] * v[2];
-    let cx = [
-        axis[1] * v[2] - axis[2] * v[1],
-        axis[2] * v[0] - axis[0] * v[2],
-        axis[0] * v[1] - axis[1] * v[0],
-    ];
-    Point3::new(
-        center.x() + v[0] * c + cx[0] * s + axis[0] * dot * (1.0 - c),
-        center.y() + v[1] * c + cx[1] * s + axis[1] * dot * (1.0 - c),
-        center.z() + v[2] * c + cx[2] * s + axis[2] * dot * (1.0 - c),
-    )
 }
 
 #[cfg(test)]
