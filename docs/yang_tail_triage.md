@@ -43,6 +43,56 @@ after the reconciliation run (release, 8 jobs, 360 s; wall 577 s, F0085
 regression since 2026-08-01 is outstanding (checked over every commit of
 `results.json`).
 
+## 2026-09-21 (late) — R0100 CONVERTED ⇒ 295C: the §4.3.3 Case-IV RULE-OUT lands at Stage 4 as a LOOP-level certificate (`PhantomIntersectionLoop`) feeding the always-on §4.5.2 op-level ladder; canonical 295C / 0W / 11E / 4EE / 0T + 2 UNSUPPORTED(coplanar-boolean)
+
+Spec `yang_433_case_iv_corner_phantom.md` §8. The 2026-08-27 anchor stood:
+B's prism cap-corner wedge clears A's face-15 cone by 1.33 while the natural
+mesh sags 2.29, the arrangement mints a 3-vertex loop [v62, v63, v64] the
+surfaces do not have, relocation solves each corner to an exact-but-VIRTUAL
+pierce (both roots of every edge×cone solve outside the edge's segment),
+and the everted loop surfaced as a misnamed kernel-v2 face-15 CDT reject.
+Both §7 refusals were about WHERE the certificate lives, and both dissolve
+once it lives at the paper's own vantage:
+
+1. **A Stage-1 density trigger cannot know whether a buried corner will
+   mint a CLOSED junction loop** — 26 corpus cases share the geometry and
+   most are CORRECT (six regressed under the gated guard). After
+   relocation the question is exact: the inc-0 census's per-claim verdict
+   (`classify_claims`, now shared) lifted to the loop — a connected
+   component of A×B edges whose EVERY vertex is refuted (≥1 claim, all
+   phantom), CLOSED within the refuted set and CYCLIC (degree ≥ 2, size
+   ≥ 3). A MIXED loop is never certified (P10). The graph half is
+   unit-tested (`closed_refuted_components`).
+2. **"Ruling out leaves the B side bounded by phantom vertices whose
+   missed Case-III crossings must be CREATED"** — that is Yang §4.5.2's job,
+   not a mesh surgery: refine the surfaces of the erroneous region and
+   re-run (`refs/text:659-670`). The op-level ladder has been always-on
+   since 2026-09-17 and steered by the STOP's own under-resolution
+   certificate since 2026-09-18 (R0085); the typed STOP
+   `Stage4RegionInvalid { PhantomIntersectionLoop, under_resolution }` is
+   its trigger. The certificate is `max d_ε(pierced owner) / g_edge` over
+   the loop's claims, `g_edge` the certified lower bound on the claiming
+   edge's distance to the pierced FACE (65 in-band samples minus the
+   Lipschitz slack, the inc-1 guard's band superset) — in the ladder's own
+   units (the operand-wide chord budget it divides): R0100 reads
+   9.77 / 0.848 = 11.5 ⇒ first rung d_ε/16, A 156 → 604 tris, 0 unpaired /
+   0 improper, adopted. SUPPORTED_CORRECT on all oracles in 1.3 s.
+
+The §5 census population re-measured (the only cases that ever carried
+phantom claims): R0004 3.6 s, R0011 1.8 s, R0044 263.2 s, R0049 1.6 s,
+R0053 170.7 s — all SUPPORTED_CORRECT, no MIXED-loop certificate fires,
+and the §7 R0011 silent-WRONG does not recur (the ladder adopts only on
+the oracle). `YANG_433_RULEOUT=0|off` is the dev A/B off-knob; the inc-1
+Stage-1 guard stays gated (`YANG_433_GUARD`), the census
+(`YANG_433_PHANTOM`) now also prints the `[s433-ruleout]` verdict and each
+phantom claim's clearance.
+
+Corpus (release, 8 jobs, 600 s; wall 810.0 s, F0085 332.0 s): **295C / 0W /
+11E / 4EE / 0T + 2 UNSUPPORTED(coplanar-boolean)** — per-id diff of the
+committed `results.json`: exactly ONE category move (R0100 ERROR →
+SUPPORTED_CORRECT), ZERO detail moves. Remaining actionable tail: R0019,
+R0050, R0063, R0085. Smoke pin moved (`("R0100", SupportedCorrect)`).
+
 ## 2026-09-21 (night) — R0038 CONVERTED ⇒ 294C: the §4.3.3 crossing arm's checkpoint 3 (the OBLIQUE frame — the shared ruling segment made bit-identical in both meshes by STANDING on-ruling interior splices), and the answer adjudicated as TWO bodies, one holed by the torus cut; canonical 294C / 0W / 12E / 4EE / 0T + 2 UNSUPPORTED(coplanar-boolean)
 
 Spec `yang_433_tangent_point_mesh_update.md` §13.2. Three things landed
@@ -2765,7 +2815,7 @@ Two dead ends, closed by measurement (do not re-walk them):
 | ~~R0028~~ | ring rejected by CDT (FaceId 32) | **FLIPPED CORRECT 2026-08-24 (8461e823); reconciled 2026-09-04 from the committed results.json history** probe 2026-07-18: 146-pt ring, 2 crossings at the ring CLOSURE (segs 1×142, 4×138) — the chain tail folds back over the start (overlapping closure, not a mid-ring zigzag). **SPLIT OFF THE SEAM CLASS 2026-07-29 (`KV2_RING_PROVENANCE`, 70ccf32c):** FaceId 32 is **NOT planar** — it never calls `sampled_loop_points`; it is a **developable** patch (`tessellate_developable_patch`, unrolled (u,v) cut frame). Ring = 25 origin nodes + **121 arc-sample nodes**; only 3 adjacency runs (seams at 13, 71) and the single fold is at **idx 0 — the ring closure, 13 indices from any seam**. This is NOT the planar seam-overlap mechanism and must not be folded into its spec. Undiagnosed; the unroll cut at u≈0 is the obvious first suspect (idx 0 sits at x=4.3e-19) | PARTIAL (site + builder confirmed 2026-07-29; mint unknown) | **developable-patch ring (own row)** — was P3-junction S5/S6. **inc-3b 2026-08-22: R0028's Stage-4 OffCurve v64 wall is REPAIRED always-on (§4.5.1 torus arm, pair-Newton certificate 1e-18 + hull); the case now reaches THIS family's wall directly — VertexOffSurface FaceId 32 (same face as the recorded ring; gate differs — vertex-level anchor = next investigation)** **2026-08-24 (§4.5.1 inc-4 + §4.5.3 pair arm): the VertexOffSurface was the REPAIR'S OWN MINT — v64 is a torus∩plane∩cylinder q-point and the pair-Newton solved 2 of its 3 surfaces (spec `yang_451_optimize_across_boundaries.md` §14). inc-4 (always-on) repairs v64 onto all three via the triple Newton; the case then reaches the REAL fold: the torus-side ring's closure crosses because the torus-block pair-Newton relocated v66/v67 PAST the junction (entry cap −3.6e-5 → final +2.0e-4) — which RETRACTS this row's 'Stage 4 relocated NOTHING' exclusion (`n_relocations` is blind to torus-block moves, the 08-04 caveat materialized). The §4.5.3 pair-chain reversal sweep (spec `yang_453_pair_chain_reversal.md`, gated `YANG_453_PAIR`) collapses the two overshooters and R0028 goes SUPPORTED_CORRECT — all oracles pass.** |
 | ~~R0017~~ | KV9-F2 folded patch triangulation | **FLIPPED CORRECT 2026-08-27 (3252c787); reconciled 2026-09-04 from the committed results.json history** probe 2026-07-17: error class CHANGED — kernel-v2 `TessellationFailed` FaceId(14) "patch triangulation folded (inverted triangle)" (unrolled ear-clip fold), not the old holed-lateral CDT | CONFIRMED (#171 sweep) | kernel-v2 KV9-F2 **2026-08-24b: probed — F2b, NOT the deep-chord class: all three fold nodes ON-surface (dev ≤ 3e-12), dot=−0.998, r_unroll=4073 — a 2D-winding vs 3D-orientation disagreement (suspect development overlap / seam-copy connection); needs its own anchor, excluded from `yang_434_output_chord_refinement.md`** |
 | R0085 | ~~op1: ring rejected by CDT (FaceId 566); op2: LRR v5~~ ~~op 2 `RelocationCrossedCarrierVertex` v386~~ ~~op 3 Stage-0 intra-solid pair (227, 476)~~ **2026-09-18 (later): op 3 intra-solid pair CLEARED by plane fidelity (assembler stores the stated normal; extrude caps exact); live: op 3 kernel-v2 `TessellationFailed FaceId(1761)` sub-resolution cone triangle at a near-tangential torus × cone crossing (pair-curve samples bunched to 1e-6 … 2e-5; P10 gate `render_subresolution_triangle`). Owner: pair-curve sampler near-tangency + conformal cross-face boundary refinement (3 torus × cone T-junction sites, oracle-healed).** **op 2 CONVERTED 2026-09-18 (Yang §4.5.2, ladder rung named by the STOP's under-resolution certificate: d_ε/32; spec `yang_452_local_refinement.md` §8). Live: op 3 (`Revolve 3`) Stage-0 `CoplanarFacesUnsupported` INTRA-SOLID A faces (227, 476) — the op-2 output emitted one gear flank as two faces whose planes differ at 1e-12; graded UNSUPPORTED(coplanar-boolean). Owner: Stage-6 output-face plane fidelity (carry the INPUT's exact plane), NOT M8 and NOT the F0064/F0072 N17 deferral** | probe 2026-07-18: TWO independent failures. **op1** (Revolve 2 union): 42-pt ring, 3 fold crossings (0×33, 6×32, 33×41) — output-ring fold, same family as R0028. **op2** (Revolve 3 union): ~~`YANG_LRR_SITE site=lineseg_combo` edge (5,550) — the missing cone-generator LineSegment closed form~~ **op2's lineseg layer RESOLVED 2026-07-28 (cone-generator arm)**; the case stays ERROR on op1 regardless, and op2 now STOPs one layer deeper: `YANG_V_PROBE` v5 = `line=true + torus=true + endpoint=true` → the TORUS block's `endpoint_set` guard (`stage4_correct.rs`, "a torus-edge endpoint that is also a CONIC endpoint mixes the implicit-pair and closed-form relocations — out of v1 scope"). A torus × cone-generator junction: the R0044 endpoint-mix class with a line instead of a conic | CONFIRMED (2026-07-28 probe) | op1: P3-junction (output ring); op2: P3-junction (R0044 endpoint-mix, torus×line) |
-| R0100 | KV9-F2 folded patch triangulation | probe 2026-07-17: error class CHANGED — kernel-v2 `TessellationFailed` FaceId(15) folded ear-clip, same class as R0017 | CONFIRMED (#171 sweep) | kernel-v2 KV9-F2 **2026-08-24b: probed — F2a deep-chord class (NOT R0017's): Chord-split node dev=1.893 off-surface at a seam-adjacent sliver (FaceId 14 today). Customer of `yang_434_output_chord_refinement.md`** |
+| ~~R0100~~ | ~~KV9-F2 folded patch triangulation~~ ~~kernel-v2 face-15 CDT ring reject~~ **CONVERTED 2026-09-21 (late): §4.3.3 Case-IV LOOP-level rule-out at Stage 4 (`PhantomIntersectionLoop`) + §4.5.2 ladder d_ε/16 — spec `yang_433_case_iv_corner_phantom.md` §8, section above** | probe 2026-07-17: error class CHANGED — kernel-v2 `TessellationFailed` FaceId(15) folded ear-clip, same class as R0017; **2026-08-27: ANCHORED as a Case-IV corner phantom (prism corner buried 2.12 under face-15's cone, mesh sag 2.29)** | CONFIRMED | §4.3.3 rule-out + §4.5.2 |
 | ~~F0067~~ | converted-input CDT failed (face 272) | **FLIPPED CORRECT 2026-08-14 (17f83c21); reconciled 2026-09-04 from the committed results.json history** M8 opposite-rim projection class (#142/#143/#144) | CONFIRMED (task #144) | M8 |
 
 ### Stage-3 SSI (2)

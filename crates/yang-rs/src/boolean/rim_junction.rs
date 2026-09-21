@@ -680,7 +680,7 @@ pub(crate) fn rim_plane_graze_min_segments(a: &BRep, b: &BRep) -> Option<usize> 
 /// Negative = radially INSIDE the flank (toward the axis) — the side the
 /// inscribed Stage-1 chords dip toward, the only side a mesh sag can
 /// phantom-cross from.
-fn point_surface_signed(p: [f64; 3], s: Surface) -> Option<f64> {
+pub(crate) fn point_surface_signed(p: [f64; 3], s: Surface) -> Option<f64> {
     let sub = |a: [f64; 3], b: [f64; 3]| [a[0] - b[0], a[1] - b[1], a[2] - b[2]];
     let dot = |a: [f64; 3], b: [f64; 3]| a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
     match s {
@@ -772,7 +772,10 @@ pub(crate) fn edge_graze_min_rim_segments(a: &BRep, b: &BRep) -> Option<usize> {
 /// THIS face. `None` for a face with fewer than one rim circle or a
 /// non-axial surface — the guard then skips the face (fail closed: no
 /// demand, the downstream STOP remains).
-fn face_station_band(f: &BRepFace, brep: &BRep) -> Option<([f64; 3], [f64; 3], f64, f64)> {
+pub(crate) fn face_station_band(
+    f: &BRepFace,
+    brep: &BRep,
+) -> Option<([f64; 3], [f64; 3], f64, f64)> {
     let (origin, axis) = match f.surface {
         Surface::Cone { apex, axis_dir, .. } => (apex.as_array(), axis_dir.as_array()),
         Surface::Cylinder {

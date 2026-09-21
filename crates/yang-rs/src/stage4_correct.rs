@@ -14619,6 +14619,29 @@ fn stage4_relocate_and_correct_inner(
         if std::env::var_os("YANG_433_PHANTOM").is_some() {
             crate::stage4_phantom::census_case_iv_phantom(mesh, brep_a, brep_b, &inc_bc);
         }
+        // §4.3.3 Case-IV RULE-OUT (spec inc-2, ALWAYS-ON; `YANG_433_RULEOUT=0`
+        // off-knob): a CLOSED loop of A×B edges whose every corner is a refuted
+        // pierce claim is an intersection the surfaces do not have (the
+        // paper's "no solution in one of the two parametric domains ⇒ rule
+        // out Case IV", `refs/text:518-537`). Its relocated corners are
+        // virtual, so no downstream stage can consume the loop; the typed
+        // STOP names the site and carries the §4.5.2 under-resolution
+        // certificate for the op-level refinement ladder (`boolean`), which
+        // is the paper's remedy for a detected local error (`:659-670`).
+        // Before inc-2 the loop rode into Stage 6 and surfaced as a misnamed
+        // kernel-v2 CDT ring reject (R0100 face 15).
+        if crate::stage4_phantom::ruleout_enabled() {
+            if let Some(cert) =
+                crate::stage4_phantom::certify_phantom_loops(brep_a, brep_b, &inc_bc)
+            {
+                let v = cert.loop_vertices[0];
+                return Err(YangError::stage4_region_invalid_under_resolved(
+                    v,
+                    Stage4InvalidReason::PhantomIntersectionLoop,
+                    cert.under_resolution,
+                ));
+            }
+        }
         if !rim_curves.is_empty() {
             // Vertices claimed by a CROSS-input curve are A×B junctions that
             // must lie on BOTH curves; moving one would break that.

@@ -1187,6 +1187,9 @@ fn err_variant_name(e: &YangError) -> &'static str {
             yang_rs::Stage4InvalidReason::RelocationCrossedCrease => {
                 "Stage4RegionInvalid::RelocationCrossedCrease"
             }
+            yang_rs::Stage4InvalidReason::PhantomIntersectionLoop => {
+                "Stage4RegionInvalid::PhantomIntersectionLoop"
+            }
         },
     }
 }

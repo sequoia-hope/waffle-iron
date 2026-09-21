@@ -1,8 +1,13 @@
 # Spec: §4.3.3 Case-IV corner-phantom rule-out — the ring-CDT family's R0100 wall
 
-**Status: inc-1 BUILT GATED (`YANG_433_GUARD=1|on`) — 2026-08-27. R0100
-converts gated (SUPPORTED_CORRECT, all oracles, 1.2 s). inc-0 census run
-corpus-wide; results in §5. Gate-on corpus measurement in flight.** Vehicle: R0100
+**Status: inc-2 RULE-OUT LANDED ALWAYS-ON 2026-09-21 (late) (§8) — the loop-level
+certificate at Stage 4 (`stage4_phantom::certify_phantom_loops`, typed
+`Stage4InvalidReason::PhantomIntersectionLoop` carrying the §4.5.2
+under-resolution certificate) feeds the always-on §4.5.2 op-level ladder;
+R0100 CONVERTS (SUPPORTED_CORRECT, 1.3 s, rung d_ε/16). `YANG_433_RULEOUT=0|off`
+is the dev A/B off-knob. inc-1's Stage-1 guard stays BUILT GATED
+(`YANG_433_GUARD=1|on`, §6–§7: flip REFUSED 2026-08-27 as a density trigger).**
+Vehicle: R0100
 (0.2 s), `TessellationFailed { face: FaceId(15), "ring rejected by CDT" }`
 on the op-1 extrude-cut subtract. This is the third of the three standing
 ring-CDT verdicts (R0003 face 577 / R0053 face 474 / R0100 face 15,
@@ -261,3 +266,82 @@ not an increment of this spec.
 keeps its loud wall, now correctly NAMED (Case-IV corner phantom, this
 spec §1). The family's structural fix rides the junction layer. R0049's
 gated conversion is recorded as a second would-be customer.
+
+## 8. inc-2 — the LOOP-level rule-out at Stage 4 + §4.5.2 refinement (2026-09-21 (late), ALWAYS-ON)
+
+§7's two refusals were both about WHERE the certificate lives. A Stage-1
+density trigger fires on geometry (a buried corner) that 26 corpus cases
+share with R0100 — most of them CORRECT — because the trigger cannot know
+whether the mesh will actually mint a closed junction loop there. That
+knowledge exists only AFTER the arrangement and relocation: it is the
+paper's own §4.3.3 vantage ("if there is no solution in one of the two
+parametric domains … rule out Case IV", `refs/text:518-537`). And §7's
+second refusal ("ruling out the loop leaves the B-side pieces bounded by
+phantom vertices, whose true boundary needs the missed Case-III crossings
+CREATED") is answered by the paper's §4.5.2, not by a mesh surgery: a
+detected local error is remedied by refining the surfaces associated with
+the erroneous region and re-running (`:659-670`). Since 2026-09-17 that
+remedy is an always-on op-level ladder in `boolean()` (spec
+`yang_452_local_refinement.md` §7–§8), triggered by any typed
+`Stage4RegionInvalid` and steered by the STOP's own under-resolution
+certificate (R0085's precedent, 2026-09-18). So inc-2 is exactly the
+missing half of the paper's clause: CERTIFY the loop, STOP typed, let
+§4.5.2 refine.
+
+**The certificate** (`stage4_phantom.rs`, at the same post-relocation
+`inc_bc` vantage the inc-0 census reads):
+
+1. inc-0's per-claim verdict, unchanged (`classify_claims`, now shared by
+   the census printer and the certificate): a junction vertex carrying
+   exactly two same-input surfaces and ≥1 other-input surface claims an
+   edge pierce; PHANTOM iff every shared LineSegment edge's exact roots
+   lie strictly outside the segment (endpoint / parallel / curved-edge /
+   unsupported / no-shared-edge are NOT phantom).
+2. A vertex is REFUTED iff it carries ≥1 claim and EVERY claim is phantom
+   (a valid claim in the other direction, or any no-verdict row, keeps it
+   out — P10, no repair claim under uncertainty).
+3. The A×B intersection edges (incidence entries carrying both inputs)
+   restricted to refuted vertices: a connected component is a PHANTOM LOOP
+   iff it is CLOSED (no cross edge joins any of its vertices to a
+   non-refuted vertex), CYCLIC (every vertex has ≥2 cross neighbours) and
+   has ≥3 vertices. `closed_refuted_components` is the pure graph half,
+   unit-tested (isolated triangle certified; a loop continuing into a
+   VALID corner is MIXED and refused; a two-vertex chain and a pendant on a
+   closed triangle both refuse).
+4. The STOP: `Stage4RegionInvalid { vertex: min of the loop, reason:
+   PhantomIntersectionLoop, under_resolution }` where the certificate is
+   `max over the loop's claims of d_ε(pierced owner) / g_edge`, `g_edge`
+   the certified lower bound on the claiming edge's distance to the
+   pierced FACE (65 samples within the face's own rim-station band
+   extended by each sample's distance — the inc-1 guard's conservative
+   superset — minus the Lipschitz slack `len/128`). `d_ε` is the same
+   operand-wide chord budget the ladder divides (`chord_tol_for_curved_owner`),
+   so the ratio is in the ladder's own units: R0100 reads 9.77 / 0.848 =
+   11.5 ⇒ the ladder starts at d_ε/16 (`refine_452_rounds_for`).
+
+**Measured, R0100:** the natural pass STOPs at Stage 4 (`v62
+PhantomIntersectionLoop`, loop [62, 63, 64]); the ladder's first rung
+d_ε/16 re-tessellates A 156 → 604 tris (B's prism unchanged), completes
+with 0 unpaired / 0 improper and is adopted; the case grades
+SUPPORTED_CORRECT on all oracles in 1.3 s (was ERROR at 0.2 s, the
+misnamed kernel-v2 face-15 CDT reject).
+
+**Measured, the §5 census population** (the only cases that carried
+phantom claims; all were ERRORs on 2026-08-27, R0004/R0011/R0044 behind
+other walls, R0053's 64 claims a seam-population signature): R0004 3.6 s,
+R0011 1.8 s, R0044 263.2 s, R0049 1.6 s, R0053 170.7 s — all
+SUPPORTED_CORRECT (every one had converted through other work since; the
+certificate does not fire a MIXED loop on any of them, and the §7 R0011
+silent-WRONG that the Stage-1 guard produced does not recur: the ladder's
+adoption gate is the oracle). Full-corpus proof: §8.1.
+
+### 8.1 Full-corpus proof (2026-09-21 late)
+
+Release, 8 jobs, 600 s budget, wall 810.0 s (F0085 332.0 s): **295C / 0W /
+11E / 4EE / 0T + 2 UNSUPPORTED(coplanar-boolean)** against the committed
+294C baseline — per-id diff of `results.json`: exactly ONE category move
+(R0100 ERROR → SUPPORTED_CORRECT) and ZERO detail moves. The certificate
+fires on no other corpus case (every other case's `results.json` row is
+byte-identical), which is the census's 2026-08-27 denominator statement
+("zero CORRECT cases carry a phantom claim") re-measured at the loop level.
+Smoke pin moved in the same commit.

@@ -1404,6 +1404,16 @@ fn smoke_corpus_boundary_categories() {
         // adjudicated by the coordinate-frame replica's 3D grid oracle).
         // 0.9 s release.
         ("R0038", Category::SupportedCorrect),
+        // R0100 FLIPPED (2026-09-21 late, spec `yang_433_case_iv_corner_phantom`
+        // §8): the prism cap-corner wedge clears face-15's cone by 1.33 while
+        // the natural mesh sags 2.29, so the arrangement minted a 3-vertex
+        // loop the surfaces do not have (Yang Fig. 8 Case IV). Stage 4 now
+        // CERTIFIES the closed fully-refuted loop (every corner's exact
+        // edge×surface roots outside the edge's segment — the paper's §4.3.3
+        // rule-out clause), STOPs typed `PhantomIntersectionLoop` with the
+        // §4.5.2 certificate (chord band / edge clearance = 11.5), and the
+        // op-level ladder converges at d_ε/16. 1.3 s release.
+        ("R0100", Category::SupportedCorrect),
         // C0065 FLIPPED (2026-09-17, Yang §4.5.2 local refinement ALWAYS-ON
         // + KV14 Slice F-4): the x = 1.45 wall grazes the torus 0.05 deep
         // while the natural rim chord sags 0.038, so the mesh loop reached

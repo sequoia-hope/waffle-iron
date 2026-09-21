@@ -223,6 +223,20 @@ pub enum Stage4InvalidReason {
     /// stage where it happens rather than surfacing three stages later as a
     /// folded output loop.
     RelocationCrossedCarrierVertex,
+    /// §4.3.3 Case-IV rule-out (spec `specs/yang_433_case_iv_corner_phantom.md`
+    /// inc-2): a CLOSED loop of A×B intersection edges every one of whose
+    /// corner vertices claims "a B-Rep edge of one operand pierces a curved
+    /// face of the other here" while the exact line×surface solve has NO root
+    /// inside that edge's own segment — the paper's "no solution in one of the
+    /// two parametric domains ⇒ rule out Case IV" clause
+    /// (`refs/text/yang2025_hybrid_boolean.txt:518-537`). The meshes detected
+    /// an intersection the surfaces do not have (an operand corner buried
+    /// under a curved face by less than the face mesh's chord sag); the loop
+    /// is a PHANTOM and its relocated corners are virtual. §4.5.2 local
+    /// refinement is the remedy: the STOP carries the under-resolution
+    /// certificate (chord band over the wedge's clearance) so the op-level
+    /// ladder can shrink the sag below the clearance and re-run.
+    PhantomIntersectionLoop,
     /// §4.5.1 inc-2c-3b-12: a TRIPLE-JUNCTION relocation left the trimmed
     /// domain of the face it started on by crossing that operand's own CREASE
     /// (the analytic rim circle shared by two of its surfaces). The three-
