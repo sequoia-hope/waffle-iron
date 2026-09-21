@@ -1395,6 +1395,15 @@ fn smoke_corpus_boundary_categories() {
         // builder emits the touching pair identically (shared fan + pinched
         // crescent). 0.5 s release.
         ("C0043", Category::SupportedCorrect),
+        // R0038 FLIPPED (2026-09-21, spec `yang_433_tangent_point_mesh_update`
+        // §13–§13.2): the grazing parallel-cylinder CROSSING ruling (2.81°,
+        // oblique axes, revolve sectors, Stage 0 active) minted into both
+        // operands with the crossing-angle rim demand (N ≥ 66) and the
+        // oblique-frame interior splice; the answer is two bodies, one with
+        // the torus cut's through-hole (authored `expected_shell_count: 2`,
+        // adjudicated by the coordinate-frame replica's 3D grid oracle).
+        // 0.9 s release.
+        ("R0038", Category::SupportedCorrect),
         // C0065 FLIPPED (2026-09-17, Yang §4.5.2 local refinement ALWAYS-ON
         // + KV14 Slice F-4): the x = 1.45 wall grazes the torus 0.05 deep
         // while the natural rim chord sags 0.038, so the mesh loop reached

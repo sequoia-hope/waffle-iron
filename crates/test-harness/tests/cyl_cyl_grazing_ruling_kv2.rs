@@ -126,3 +126,50 @@ fn well_resolved_parallel_cylinder_cut_control() {
     let expect = (PI * R_A * R_A - lens_area(R_A, R_B, 0.5)) * 1.0;
     check(pair_at(0.5, true), "control cut", expect);
 }
+
+/// The same pair on an OBLIQUE axis (§13.2 — R0038's frame class): the
+/// common axis is the unit normal `n = (0.36, 0.48, 0.8)`, and B's axis is
+/// offset by `delta` along the sketch plane's own x-axis (the UI basis:
+/// `x̂ = normalize(ẑ × n̂)`). On this frame the four rim samples of the
+/// minted ruling are not exactly collinear, so the shared segment's
+/// endpoints (A's rim samples) are spliced into B's lateral as on-ruling
+/// interior points instead.
+fn oblique_pair_at(delta: f64, op_cut: bool) -> ModelBuilder {
+    let n = [0.36, 0.48, 0.8];
+    // ẑ × n̂, normalized — the sketch plane's x-axis.
+    let xr: [f64; 3] = [-n[1], n[0], 0.0];
+    let xl = (xr[0] * xr[0] + xr[1] * xr[1]).sqrt();
+    let x = [xr[0] / xl, xr[1] / xl, 0.0];
+    let mut b = ModelBuilder::kernel_v2();
+    b.true_circle_sketch("a_sk", [0.0, 0.0, 0.0], n, 0.0, 0.0, R_A)
+        .unwrap();
+    b.extrude("a", "a_sk", 1.0).unwrap();
+    // B's sketch plane: the same plane shifted back 0.2 along n and its
+    // origin moved `delta` along x̂, so B's axis is parallel to A's at
+    // distance `delta` and its span [−0.2, 1.2] contains A's [0, 1].
+    let origin = [
+        delta * x[0] - 0.2 * n[0],
+        delta * x[1] - 0.2 * n[1],
+        delta * x[2] - 0.2 * n[2],
+    ];
+    b.true_circle_sketch("b_sk", origin, n, 0.0, 0.0, R_B)
+        .unwrap();
+    if op_cut {
+        b.extrude_cut("b", "b_sk", 1.4).unwrap();
+    } else {
+        b.extrude("b", "b_sk", 1.4).unwrap();
+    }
+    b
+}
+
+#[test]
+fn oblique_grazing_parallel_cylinder_cut_leaves_a_crescent_prism() {
+    let expect = (PI * R_A * R_A - lens_area(R_A, R_B, DELTA)) * 1.0;
+    check(oblique_pair_at(DELTA, true), "oblique cut", expect);
+}
+
+#[test]
+fn oblique_grazing_parallel_cylinder_union() {
+    let expect = PI * R_B * R_B * 1.4 + (PI * R_A * R_A - lens_area(R_A, R_B, DELTA)) * 1.0;
+    check(oblique_pair_at(DELTA, false), "oblique union", expect);
+}

@@ -88,6 +88,34 @@ pub(crate) fn stage1_tessellate_with_rim_overrides(
     stage1_tessellate_inner(verts, edges, faces, rim_overrides, min_n_seg).map(|(t, _)| t)
 }
 
+/// [`stage1_tessellate_with_rim_overrides`] plus STANDING face-interior
+/// points (`BRep::standing_face` — §4.3.3 §13.2, the oblique-frame ruling
+/// splice): the composed Stage-1 tessellation with rim samples and interior
+/// Steiner points, no straight-edge overrides. An empty `face_overrides`
+/// is byte-identical to the rim-only entry.
+pub(crate) fn stage1_tessellate_with_standing_overrides(
+    verts: &[BRepVertex],
+    edges: &[BRepEdge],
+    faces: &[BRepFace],
+    rim_overrides: &std::collections::BTreeMap<u32, Vec<Point3>>,
+    face_overrides: &std::collections::BTreeMap<u32, Vec<Point3>>,
+    min_n_seg: Option<usize>,
+) -> Result<Stage1Tess, YangError> {
+    if face_overrides.is_empty() {
+        return stage1_tessellate_with_rim_overrides(verts, edges, faces, rim_overrides, min_n_seg);
+    }
+    stage1_tessellate_inner_overrides(
+        verts,
+        edges,
+        faces,
+        rim_overrides,
+        &std::collections::BTreeMap::new(),
+        face_overrides,
+        min_n_seg,
+    )
+    .map(|(t, _)| t)
+}
+
 /// Stage 1 tessellation forcing the circle-rim segment count to AT LEAST
 /// `min_n_seg` (M8-cyl Increment 1). The cylinder rim N is normally derived
 /// from this solid's own chord-error AABB; for two COINCIDENT cylinders to get

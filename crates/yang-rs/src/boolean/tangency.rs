@@ -426,9 +426,37 @@ fn tube_axial_span(f: &BRepFace, y: &BRep) -> Option<Tube> {
     })
 }
 
-/// The four rim samples of a ruling `p₀ + h·û` (one per rim of each tube),
-/// or `None` when either tube is a SECTOR whose arc does not strictly contain
-/// the ruling — both operands get the ruling or neither (fail closed).
+/// The Stage-1 samples that give BOTH operands one ruling on the exact line
+/// `p₀ + t·û`: per operand, its two rim samples `(rim edge, seam, sample)`
+/// and — on an OBLIQUE axis only — the face-interior points spliced onto
+/// its ruling (§13.2).
+struct RulingPlan {
+    rims: [[(u32, Point3, Point3); 2]; 2],
+    face: [Vec<Point3>; 2],
+}
+
+/// Rims closer than this many chord margins to the shared segment's
+/// endpoint, yet not AT it, decline the oblique splice: an interior point
+/// that close to a rim ring would sit inside the weld band of the ring's
+/// edges as well as the ruling's — an ambiguous 2+2 split (fail closed).
+const FLUSH_RIM_GUARD: f64 = 64.0;
+
+/// Plan the ruling's samples, or `None` when either tube is a SECTOR whose
+/// arc does not strictly contain the ruling — both operands get the ruling
+/// or neither (fail closed).
+///
+/// **Frames (§13.2).** On an exact coordinate axis the four rim samples
+/// `p₀ + h·û` keep two coordinates bit-identical and are exactly collinear,
+/// so the exact arrangement sees ONE shared segment — rim samples suffice
+/// (byte-identical to §11/§12). On an oblique axis they are collinear only
+/// to rounding — two skew femto-segments to an exact predicate — so the
+/// SHARED segment is made bit-identical instead: its endpoints `S_lo`,
+/// `S_hi` (the overlap of the two axial spans, computed once) are the rim
+/// samples of whichever operand's rim bounds the overlap, and the OTHER
+/// operand — whose ruling runs past them — gets them as face-interior
+/// points on its lateral, where the P3b inc-4e splice performs a conforming
+/// 2+2 split of its ruling edge (the point lies within the weld band of
+/// that edge). Both meshes then carry `[S_lo, S_hi]` as one identical edge.
 fn ruling_rim_samples(
     p0: Point3,
     u: [f64; 3],
@@ -436,17 +464,19 @@ fn ruling_rim_samples(
     margin: f64,
     probe: bool,
     label: &str,
-) -> Option<[[(u32, Point3, Point3); 2]; 2]> {
+) -> Option<RulingPlan> {
     let pa = p0.as_array();
     let h_of = |c: Point3| -> f64 {
         let q = c.as_array();
         (q[0] - pa[0]) * u[0] + (q[1] - pa[1]) * u[1] + (q[2] - pa[2]) * u[2]
     };
-    let mut out = [[(0u32, p0, p0); 2]; 2];
+    let at = |h: f64| Point3::new(pa[0] + h * u[0], pa[1] + h * u[1], pa[2] + h * u[2]);
+    let mut rims = [[(0u32, p0, p0); 2]; 2];
+    let mut heights = [[0.0f64; 2]; 2];
     for (t, tube) in tubes.iter().enumerate() {
         for (k, &(ei, centre, seam)) in tube.rims.iter().enumerate() {
             let h = h_of(centre);
-            let sample = Point3::new(pa[0] + h * u[0], pa[1] + h * u[1], pa[2] + h * u[2]);
+            let sample = at(h);
             if let Some(gates) = &tube.arcs {
                 if !gates[k].contains(sample, margin) {
                     if probe {
@@ -458,10 +488,42 @@ fn ruling_rim_samples(
                     return None;
                 }
             }
-            out[t][k] = (ei, seam, sample);
+            rims[t][k] = (ei, seam, sample);
+            heights[t][k] = h;
         }
     }
-    Some(out)
+    let mut face: [Vec<Point3>; 2] = [Vec::new(), Vec::new()];
+    if !is_exact_coordinate_axis(u) {
+        let span = |t: usize| -> (f64, f64) {
+            let (h0, h1) = (heights[t][0], heights[t][1]);
+            (h0.min(h1), h0.max(h1))
+        };
+        let ((la, ha), (lb, hb)) = (span(0), span(1));
+        let (lo, hi) = (la.max(lb), ha.min(hb));
+        for bound in [lo, hi] {
+            let s = at(bound);
+            for (t, pts) in face.iter_mut().enumerate() {
+                let d = heights[t]
+                    .iter()
+                    .map(|h| (h - bound).abs())
+                    .fold(f64::INFINITY, f64::min);
+                if d == 0.0 {
+                    continue; // this operand's own rim sample IS the endpoint
+                }
+                if d < FLUSH_RIM_GUARD * margin {
+                    if probe {
+                        eprintln!(
+                            "[tangent-insert] {label} {pa:?} + t·{u:?} SKIP: tube {t}'s rim \
+                             is {d:.3e} from the shared segment's endpoint (flush guard)"
+                        );
+                    }
+                    return None;
+                }
+                pts.push(s);
+            }
+        }
+    }
+    Some(RulingPlan { rims, face })
 }
 
 /// One operand's Stage-1 override payload for the tangency mint.
@@ -576,13 +638,26 @@ pub(crate) fn tangent_point_face_overrides(
     tangent_overrides(a, b, false)
 }
 
-/// `(rim samples for A, rim samples for B, the §13 minimum rim segment
-/// count both operands must be rebuilt at)`.
-pub(crate) type GeneratorRimOverrides = (
-    BTreeMap<u32, Vec<Point3>>,
-    BTreeMap<u32, Vec<Point3>>,
-    Option<usize>,
-);
+/// The pre-Stage-0 boost's payload: rim samples for both operands, the
+/// §13.2 oblique-frame face-interior splices for both, and the §13 minimum
+/// rim segment count both operands must be rebuilt at.
+#[derive(Default)]
+pub(crate) struct GeneratorBoost {
+    pub rim_a: BTreeMap<u32, Vec<Point3>>,
+    pub rim_b: BTreeMap<u32, Vec<Point3>>,
+    pub face_a: BTreeMap<u32, Vec<Point3>>,
+    pub face_b: BTreeMap<u32, Vec<Point3>>,
+    pub min_rim_n: Option<usize>,
+}
+
+impl GeneratorBoost {
+    pub(crate) fn is_empty(&self) -> bool {
+        self.rim_a.is_empty()
+            && self.rim_b.is_empty()
+            && self.face_a.is_empty()
+            && self.face_b.is_empty()
+    }
+}
 
 /// The GENERATOR arm alone, as plain rim-sample maps — the Stage-0 path's
 /// entry (spec `yang_433_tangent_point_mesh_update.md` §12). Stage 0 builds
@@ -594,14 +669,19 @@ pub(crate) type GeneratorRimOverrides = (
 ///
 /// Same per-pair gates as [`mint_generator`]; a pair outside them yields
 /// nothing (status quo, never worse).
-pub(crate) fn tangent_generator_rim_overrides(a: &BRep, b: &BRep) -> GeneratorRimOverrides {
+pub(crate) fn tangent_generator_rim_overrides(a: &BRep, b: &BRep) -> GeneratorBoost {
     let (oa, ob) = tangent_overrides(a, b, true);
-    debug_assert!(oa.face.is_empty() && ob.face.is_empty());
-    let min_n = match (oa.min_rim_n, ob.min_rim_n) {
+    let min_rim_n = match (oa.min_rim_n, ob.min_rim_n) {
         (Some(x), Some(y)) => Some(x.max(y)),
         (x, y) => x.or(y),
     };
-    (oa.rim, ob.rim, min_n)
+    GeneratorBoost {
+        rim_a: oa.rim,
+        rim_b: ob.rim,
+        face_a: oa.face,
+        face_b: ob.face,
+        min_rim_n,
+    }
 }
 
 fn tangent_overrides(
@@ -809,16 +889,9 @@ fn mint_generator(
         return;
     }
     let scale = pa.iter().fold(0.0f64, |m, &c| m.max(c.abs()));
-    // (3) Exact-collinearity frame.
-    if !is_exact_coordinate_axis(u) {
-        if probe {
-            eprintln!(
-                "[tangent-insert] A#{fa_idx} B#{fb_idx} generator {pa:?} + t·{u:?} SKIP: \
-                 the axis is not a coordinate axis (rim samples would not be exactly collinear)"
-            );
-        }
-        return;
-    }
+    // (3) The frame is handled by the planner (§13.2): rim samples alone on
+    // a coordinate axis, plus the shared segment's endpoints spliced into
+    // the longer operand's lateral on an oblique one.
     // (4) Axial overlap of the two tubes along û, measured from p₀.
     let h_of = |c: Point3| -> f64 {
         let q = c.as_array();
@@ -859,7 +932,7 @@ fn mint_generator(
         }
         return;
     }
-    let Some(samples) = ruling_rim_samples(
+    let Some(plan) = ruling_rim_samples(
         p0,
         u,
         [tube_a, tube_b],
@@ -872,12 +945,22 @@ fn mint_generator(
     if probe {
         eprintln!(
             "[tangent-insert] A#{fa_idx} B#{fb_idx} MINT generator {pa:?} + t·{u:?} \
-             over h ∈ [{lo:.6},{hi:.6}]"
+             over h ∈ [{lo:.6},{hi:.6}] (interior splices A {} B {})",
+            plan.face[0].len(),
+            plan.face[1].len()
         );
     }
-    for (rims, out) in samples.iter().zip([out_a, out_b]) {
+    for ((rims, pts), (f_idx, out)) in plan
+        .rims
+        .iter()
+        .zip(plan.face.iter())
+        .zip([(fa_idx, out_a), (fb_idx, out_b)])
+    {
         for &(ei, seam, sample) in rims {
             push_rim_unless_seam(out, ei, seam, sample, probe);
+        }
+        for &p in pts {
+            push_unique(&mut out.face, f_idx, p);
         }
     }
 }
@@ -915,15 +998,6 @@ fn mint_crossing_rulings(
     let Some((feet, u)) = cyl_cyl_crossing_generators(cyl_a, cyl_b) else {
         return;
     };
-    if !is_exact_coordinate_axis(u) {
-        if probe {
-            eprintln!(
-                "[tangent-insert] A#{fa_idx} B#{fb_idx} crossing rulings + t·{u:?} SKIP: \
-                 the axis is not a coordinate axis (rim samples would not be exactly collinear)"
-            );
-        }
-        return;
-    }
     for p0 in feet {
         let pa = p0.as_array();
         let scale = pa.iter().fold(0.0f64, |m, &c| m.max(c.abs()));
@@ -1002,7 +1076,7 @@ fn mint_crossing_rulings(
         }
         // A sector contains at most one of the two rulings (the other lies
         // outside its sweep): a declined ruling is skipped, not the pair.
-        let Some(samples) = ruling_rim_samples(
+        let Some(plan) = ruling_rim_samples(
             p0,
             u,
             [tube_a, tube_b],
@@ -1015,13 +1089,24 @@ fn mint_crossing_rulings(
         if probe {
             eprintln!(
                 "[tangent-insert] A#{fa_idx} B#{fb_idx} MINT crossing ruling {pa:?} + t·{u:?} \
-                 over h ∈ [{lo:.6},{hi:.6}] (crossing {:.4}°, rim N ≥ {demand})",
-                alpha.to_degrees()
+                 over h ∈ [{lo:.6},{hi:.6}] (crossing {:.4}°, rim N ≥ {demand}, interior \
+                 splices A {} B {})",
+                alpha.to_degrees(),
+                plan.face[0].len(),
+                plan.face[1].len()
             );
         }
-        for (rims, out) in samples.iter().zip([&mut *out_a, &mut *out_b]) {
+        for ((rims, pts), (f_idx, out)) in plan
+            .rims
+            .iter()
+            .zip(plan.face.iter())
+            .zip([(fa_idx, &mut *out_a), (fb_idx, &mut *out_b)])
+        {
             for &(ei, seam, sample) in rims {
                 push_rim_unless_seam(out, ei, seam, sample, probe);
+            }
+            for &p in pts {
+                push_unique(&mut out.face, f_idx, p);
             }
             out.min_rim_n = Some(out.min_rim_n.map_or(demand, |n| n.max(demand)));
         }

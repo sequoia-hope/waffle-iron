@@ -884,11 +884,14 @@ pub(crate) fn build_stage0_mesh(
     // under the overlay's own rim tables, bit-deduped: the ring readers the
     // overlay classified on already carried them (`disc_rim_ring`).
     let rim_points = crate::brep::merge_rim_points(brep.standing_rim(), &rim_overrides.to_points());
-    let tess = stage1_tessellate_with_rim_overrides(
+    // …and its STANDING face-interior points (§13.2, the oblique-frame
+    // ruling splice) ride along the same way.
+    let tess = crate::stage1_tessellate_with_standing_overrides(
         &brep_verts,
         brep.edges(),
         brep.faces(),
         &rim_points,
+        brep.standing_face(),
         brep.forced_rim_n(),
     )?;
 

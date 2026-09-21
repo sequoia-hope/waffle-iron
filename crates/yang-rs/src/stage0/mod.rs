@@ -95,9 +95,8 @@ use crate::coplanar_overlay::{
     coplanar_overlay, cross_r, rat, ClassifiedOverlay, ExactPoint2, PolygonWithHoles, RegionClass,
 };
 use crate::{
-    normalize3, ortho_basis, scan_near_coplanar, stage1_tessellate,
-    stage1_tessellate_with_rim_overrides, BRep, BRepEdge, BRepVertex, Curve, InputId, Mesh,
-    Surface, YangError,
+    normalize3, ortho_basis, scan_near_coplanar, stage1_tessellate, BRep, BRepEdge, BRepVertex,
+    Curve, InputId, Mesh, Surface, YangError,
 };
 use cad_primitives::Point2;
 

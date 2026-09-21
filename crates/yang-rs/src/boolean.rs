@@ -1091,22 +1091,30 @@ fn boolean_once(
     ) {
         None
     } else {
-        let (ga, gb, min_rim_n) = tangent_generator_rim_overrides(a, b);
-        if ga.is_empty() && gb.is_empty() {
+        let boost = tangent_generator_rim_overrides(a, b);
+        if boost.is_empty() {
             None
         } else {
-            for p in ga.values().chain(gb.values()).flatten() {
+            for p in boost
+                .rim_a
+                .values()
+                .chain(boost.rim_b.values())
+                .chain(boost.face_a.values())
+                .chain(boost.face_b.values())
+                .flatten()
+            {
                 minted_junction_keys
                     .entry([p.x().to_bits(), p.y().to_bits(), p.z().to_bits()])
                     .or_insert(MintProvenance {
                         owner_planes: [MintTrimPlane::default(); 2],
                     });
             }
-            // §13: the crossing arm's rim-density demand rides along (a
-            // stored minimum, so Stage 0's and §4.5.2's rebuilds keep it).
+            // §13: the crossing arm's rim-density demand and the §13.2
+            // oblique-frame interior splices ride along as STANDING state
+            // (stored, so Stage 0's and §4.5.2's rebuilds keep them).
             Some((
-                a.rebuilt_with_rim_overrides_at_least(&ga, min_rim_n)?,
-                b.rebuilt_with_rim_overrides_at_least(&gb, min_rim_n)?,
+                a.rebuilt_with_overrides_at_least(&boost.rim_a, &boost.face_a, boost.min_rim_n)?,
+                b.rebuilt_with_overrides_at_least(&boost.rim_b, &boost.face_b, boost.min_rim_n)?,
             ))
         }
     };
@@ -2934,6 +2942,7 @@ fn boolean_once(
         tri_face: Vec::new(),
         forced_rim_n: None,
         standing_rim: std::collections::BTreeMap::new(),
+        standing_face: std::collections::BTreeMap::new(),
     })
 }
 

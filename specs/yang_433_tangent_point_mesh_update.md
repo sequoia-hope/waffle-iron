@@ -853,3 +853,68 @@ analog carried by every from-topology rebuild, Stage 0's
 `build_stage0_mesh` included — today that path threads rim overrides only),
 and the coordinate-axis route stays rim-only so C0043 / C0056 / the
 replica remain byte-identical.
+
+### 13.2 Checkpoint 3 (2026-09-21, night, ALWAYS-ON) — the OBLIQUE frame: the shared segment made bit-identical by on-ruling interior splices, standing through every rebuild; R0038 CONVERTS
+
+**The planner (`ruling_rim_samples` → `RulingPlan`).** On an exact
+coordinate axis nothing changes: rim samples only, byte-identical to
+§11/§12/§13.1. On an oblique axis the overlap of the two axial spans
+`[lo, hi]` (measured from `p₀` along `û`) has endpoints `S_lo = p₀ + lo·û`
+and `S_hi = p₀ + hi·û`, computed ONCE; whichever operand's rim height
+equals the bound bit-for-bit already has `S` as its rim sample (the same
+expression, the same bits), and the OTHER operand — whose ruling runs past
+the bound — receives `S` as a face-interior point on its lateral. The P3b
+inc-4e splice finds `S` within the weld band of that lateral's ruling edge
+(it is ulps away) and performs the conforming 2+2 split, so B's ruling
+becomes the chain `q_B0 → S_lo → S_hi → q_B1` and `[S_lo, S_hi]` is ONE
+identical edge in both meshes — the exact arrangement has nothing skew to
+see. A rim within `FLUSH_RIM_GUARD = 64` chord margins of a bound, yet not
+at it, declines the whole ruling (an interior point that close to a rim
+ring would also lie in the weld band of the ring's edges — an ambiguous
+split; fail closed). Both arms use the planner; the coordinate-axis SKIP is
+gone.
+
+**Standing face-interior points (`BRep::standing_face`).** The
+`standing_rim` analog: populated by `rebuilt_with_all_overrides` /
+`rebuilt_with_overrides_at_least` (composed bit-deduped with what stands),
+carried by every `from_topology*` rebuild (`retessellated_at_current_d_eps`,
+`rebuilt_with_min_rim_segments`, the spike normalization) and by Stage 0's
+EMITTED-mesh builds — `build_stage0_mesh` and the coincident-cylinder build
+now tessellate through `stage1_tessellate_with_standing_overrides` (rim +
+face; an empty face map is the byte-identical rim-only path). The three
+Stage-0 ring readers (`frame.rs`) read planar rings only and are untouched.
+The pre-Stage-0 boost carries the payload as `GeneratorBoost { rim_a,
+rim_b, face_a, face_b, min_rim_n }`, registers every point in
+`minted_junction_keys`, and rebuilds both operands with
+`rebuilt_with_overrides_at_least`.
+
+**R0038, measured.** `[tangent-insert] A#2 B#2 MINT crossing ruling … over
+h ∈ [−3.7528, 3.7528] (crossing 2.8061°, rim N ≥ 66, interior splices A 0
+B 2)` — A's rims bound the overlap, B's lateral takes the two endpoints —
+and all three operations COMPLETE. The final answer is TWO bodies: the
+inner band between A's inner arc and B's inner cylinder, through which op
+3's torus tube (minor radius 1.55, crossing the 0.13–0.35-thick band at
+A-azimuth ≈ 15°, mid-height, its end cap in A's bore) bores a clean
+THROUGH-HOLE — yang emits inner loops on both cylinder walls and the torus
+face as the tunnel wall (genus 1, χ = 0) — and the outer crescent (r ≥
+13.29, beyond the torus's farthest reach of 12.81; χ = 2). Total χ = 2 with
+2 shells, which the corpus meta's single `euler_target = 2` decodes as ONE
+shell (the oracle then expects 4): the first run graded SUPPORTED_WRONG on
+that expectation, not on the geometry. Adjudication: the cubical
+exact-membership ladder cannot read this document (the crescent tapers to a
+knife edge at the ruling — 7/8 components and χ 10–12 at 128–512 cells,
+the R0091 scope note), so the coordinate-frame replica carries the full
+chain (`r0038_replica_full_chain_is_a_holed_band_and_a_crescent`): a
+deterministic 3D polar-grid integral of A − B − T gives the two bodies'
+volumes (the crescent's exact volume to 5e-3, the holed band's mesh volume
+to 2e-2 — its cylinder patches carry boolean chord facets, outside the
+exact closed form's declared scope), each shell watertight, the band χ = 0
+and the crescent χ = 2. R0038's meta now authors
+`expected_shell_count: 2` (the R0003 precedent; strict: the count must
+match exactly and χ must equal 2), and the case grades SUPPORTED_CORRECT.
+
+**Oracles.** test-harness `cyl_cyl_grazing_ruling_kv2` +2 (the grazing
+pair on the oblique axis `(0.36, 0.48, 0.8)`, cut and union, exact
+volumes to 1e-9); `r0038_replica_kv2` +1 (the full chain); the §12/§13
+fixtures and all 29 §4.3.3 unit pins byte-identical; yang-rs lib 988
+green; smoke pin R0038 (0.9 s release). Corpus: the ledger row.

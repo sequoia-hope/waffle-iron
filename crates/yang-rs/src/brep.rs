@@ -3,7 +3,6 @@
 //! lib.rs — spec `specs/yang_rs_lib_decomposition.md`, increment 3).
 
 use crate::stage1_tessellate_inner_overrides;
-use crate::stage1_tessellate_with_rim_overrides;
 use crate::{ellipse_point, hyperbola_point, normalize3, ortho_basis, parabola_point};
 use crate::{Curve, Point3, Surface, YangError};
 use cherchi_rs::Mesh;
@@ -322,6 +321,20 @@ pub struct BRep {
     /// next `from_topology`. Empty for `new` / `from_mesh`; an empty map is
     /// the Stage-1 byte-identical identity.
     pub(crate) standing_rim: std::collections::BTreeMap<u32, Vec<Point3>>,
+    /// STANDING Stage-1 face-interior points (spec
+    /// `yang_433_tangent_point_mesh_update` §13.2): per face index, exact
+    /// interior Steiner points every re-tessellation of this B-Rep from
+    /// topology must carry — the `standing_rim` analog for the face
+    /// channel. Populated by [`Self::rebuilt_with_all_overrides`] /
+    /// [`Self::rebuilt_with_overrides_at_least`] (composed bit-deduped with
+    /// what already stands) and honored by every `from_topology*` rebuild
+    /// and by Stage 0's emitted-mesh builds (`build_stage0_mesh`, the
+    /// coincident-cylinder build). Its customer is the oblique-frame ruling
+    /// splice: the overlap span's endpoints minted into the OTHER operand's
+    /// lateral ON its ruling, so the shared segment is one bit-identical
+    /// edge in both meshes. Empty for `new` / `from_mesh`; an empty map is
+    /// the Stage-1 byte-identical identity.
+    pub(crate) standing_face: std::collections::BTreeMap<u32, Vec<Point3>>,
 }
 
 impl BRep {
@@ -421,6 +434,7 @@ impl BRep {
             faces,
             min_n_seg,
             &std::collections::BTreeMap::new(),
+            &std::collections::BTreeMap::new(),
         )
     }
 
@@ -434,11 +448,19 @@ impl BRep {
         faces: Vec<BRepFace>,
         min_n_seg: Option<usize>,
         rim_overrides: &std::collections::BTreeMap<u32, Vec<Point3>>,
+        face_overrides: &std::collections::BTreeMap<u32, Vec<Point3>>,
     ) -> Result<Self, YangError> {
-        let tess =
-            stage1_tessellate_with_rim_overrides(&verts, &edges, &faces, rim_overrides, min_n_seg)?;
+        let tess = crate::stage1_tessellate_with_standing_overrides(
+            &verts,
+            &edges,
+            &faces,
+            rim_overrides,
+            face_overrides,
+            min_n_seg,
+        )?;
         let mut out = Self::from_topology_and_tess(verts, edges, faces, min_n_seg, tess)?;
         out.standing_rim = rim_overrides.clone();
+        out.standing_face = face_overrides.clone();
         Ok(out)
     }
 
@@ -458,6 +480,11 @@ impl BRep {
     /// The standing Stage-1 rim samples (see the field docs).
     pub(crate) fn standing_rim(&self) -> &std::collections::BTreeMap<u32, Vec<Point3>> {
         &self.standing_rim
+    }
+
+    /// The standing Stage-1 face-interior points (see the field docs).
+    pub(crate) fn standing_face(&self) -> &std::collections::BTreeMap<u32, Vec<Point3>> {
+        &self.standing_face
     }
 
     /// Shared tail of the `from_topology*` constructors: fold a Stage-1
@@ -520,6 +547,7 @@ impl BRep {
             tri_face,
             forced_rim_n: min_n_seg,
             standing_rim: std::collections::BTreeMap::new(),
+            standing_face: std::collections::BTreeMap::new(),
         })
     }
 
@@ -545,6 +573,7 @@ impl BRep {
             self.faces.clone(),
             self.forced_rim_n,
             &self.standing_rim,
+            &self.standing_face,
         )
     }
 
@@ -555,6 +584,7 @@ impl BRep {
             self.faces.clone(),
             Some(n),
             &self.standing_rim,
+            &self.standing_face,
         )
     }
 
@@ -581,6 +611,23 @@ impl BRep {
         rim_overrides: &std::collections::BTreeMap<u32, Vec<Point3>>,
         min_n: Option<usize>,
     ) -> Result<Self, YangError> {
+        self.rebuilt_with_overrides_at_least(
+            rim_overrides,
+            &std::collections::BTreeMap::new(),
+            min_n,
+        )
+    }
+
+    /// [`Self::rebuilt_with_rim_overrides_at_least`] plus STANDING
+    /// face-interior points (§13.2): both maps compose bit-deduped with
+    /// what already stands and are stored, so every later from-topology
+    /// rebuild — Stage 0's emitted-mesh builds included — keeps them.
+    pub(crate) fn rebuilt_with_overrides_at_least(
+        &self,
+        rim_overrides: &std::collections::BTreeMap<u32, Vec<Point3>>,
+        face_overrides: &std::collections::BTreeMap<u32, Vec<Point3>>,
+        min_n: Option<usize>,
+    ) -> Result<Self, YangError> {
         let forced = match (self.forced_rim_n, min_n) {
             (Some(x), Some(y)) => Some(x.max(y)),
             (x, y) => x.or(y),
@@ -591,6 +638,7 @@ impl BRep {
             self.faces.clone(),
             forced,
             &self.compose_rim_overrides(rim_overrides),
+            &merge_rim_points(&self.standing_face, face_overrides),
         )
     }
 
@@ -630,6 +678,10 @@ impl BRep {
         face_overrides: &std::collections::BTreeMap<u32, Vec<Point3>>,
     ) -> Result<Self, YangError> {
         let rim_overrides = self.compose_rim_overrides(rim_overrides);
+        // Face-interior points compose with the STANDING ones the same way
+        // (§13.2); the standing set is carried on, the caller's extras
+        // bit-deduped in.
+        let face_overrides = merge_rim_points(&self.standing_face, face_overrides);
         if rim_overrides.is_empty() && edge_overrides.is_empty() && face_overrides.is_empty() {
             return Self::from_topology(
                 self.vertices.clone(),
@@ -644,7 +696,7 @@ impl BRep {
             &self.faces,
             &rim_overrides,
             edge_overrides,
-            face_overrides,
+            &face_overrides,
             self.forced_rim_n,
         )
         .map(|(t, _)| t)?;
@@ -656,6 +708,7 @@ impl BRep {
             tess,
         )?;
         out.standing_rim = rim_overrides;
+        out.standing_face = face_overrides;
         Ok(out)
     }
 
@@ -734,6 +787,7 @@ impl BRep {
             faces,
             self.forced_rim_n,
             &self.standing_rim,
+            &self.standing_face,
         )?))
     }
 
@@ -754,6 +808,7 @@ impl BRep {
             tri_face: Vec::new(),
             forced_rim_n: None,
             standing_rim: std::collections::BTreeMap::new(),
+            standing_face: std::collections::BTreeMap::new(),
         }
     }
 

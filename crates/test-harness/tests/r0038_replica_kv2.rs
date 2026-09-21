@@ -38,6 +38,15 @@ const AXIS_SEP: f64 = 1.9303267097854921;
 /// Both profiles are centred at the same sketch u (the corpus documents'
 /// shared sketch origin, 11.2584 from A's axis and 13.1887 from B's).
 const CENTRE_U: f64 = (A_R0 + A_R1) / 2.0;
+/// Op 3: the circle r 1.5497 at the shared origin, revolved 102.579° about
+/// the parallel axis 2.3245 from the origin toward the other axes — a
+/// partial ring torus (major 2.3245, minor 1.5497), CUT.
+const T_MINOR: f64 = 1.5496706876700923;
+const T_MAJOR: f64 = 2.3245060315051385;
+const T_ANGLE_DEG: f64 = 102.57949081843903;
+/// World x of the torus axis: the origin is at x = −CENTRE_U, the axis
+/// 2.3245 toward +x.
+const T_AXIS_X: f64 = -CENTRE_U + T_MAJOR;
 /// B's radii about ITS axis.
 const B_R0: f64 = CENTRE_U + AXIS_SEP - B_HALF_W;
 const B_R1: f64 = CENTRE_U + AXIS_SEP + B_HALF_W;
@@ -92,6 +101,79 @@ fn replica() -> ModelBuilder {
     b
 }
 
+/// The full three-op chain: the replica plus op 3's torus cut.
+fn replica_full() -> ModelBuilder {
+    let mut b = replica();
+    b.true_circle_sketch(
+        "t_sk",
+        [0.0, 0.0, 0.0],
+        [0.0, 1.0, 0.0],
+        CENTRE_U,
+        0.0,
+        T_MINOR,
+    )
+    .unwrap();
+    b.revolve_cut(
+        "t",
+        "t_sk",
+        [T_AXIS_X, 0.0, 0.0],
+        [0.0, 0.0, 1.0],
+        T_ANGLE_DEG,
+    )
+    .unwrap();
+    b
+}
+
+/// Is `(x, y, z)` inside the partial torus of op 3? Azimuth about the torus
+/// axis measured from the sketch half-plane (the −x direction from the
+/// axis) in the revolve's sense (either sense: the sector geometry is
+/// mirror-symmetric in y, so the volume is the same), within the sweep; and
+/// the tube condition `(ρ − R)² + z² ≤ r²`.
+fn in_torus(x: f64, y: f64, z: f64) -> bool {
+    let (dx, dy) = (x - T_AXIS_X, y);
+    let rho = (dx * dx + dy * dy).sqrt();
+    let az = (-dy).atan2(-dx).to_degrees();
+    if !(0.0..=T_ANGLE_DEG).contains(&az) {
+        return false;
+    }
+    (rho - T_MAJOR).powi(2) + z * z <= T_MINOR * T_MINOR
+}
+
+/// Volumes of the two components of A − B − T by a deterministic 3D polar
+/// midpoint grid over A's sector: `(inner band, outer crescent)`.
+fn a_minus_b_minus_t_volumes() -> (f64, f64) {
+    let (nr, nt, nz) = (600usize, 300usize, 300usize);
+    let dr = (A_R1 - A_R0) / nr as f64;
+    let dt = A_ANGLE_DEG.to_radians() / nt as f64;
+    let dz = A_H / nz as f64;
+    let (mut inner, mut outer) = (0.0, 0.0);
+    for i in 0..nr {
+        let r = A_R0 + (i as f64 + 0.5) * dr;
+        for j in 0..nt {
+            let t = (j as f64 + 0.5) * dt;
+            let (x, y) = (-r * t.cos(), -r * t.sin());
+            let rb = ((x - AXIS_SEP).powi(2) + y * y).sqrt();
+            let cell = r * dr * dt * dz;
+            if rb < B_R0 {
+                for k in 0..nz {
+                    let z = -A_H / 2.0 + (k as f64 + 0.5) * dz;
+                    if !in_torus(x, y, z) {
+                        inner += cell;
+                    }
+                }
+            } else if rb > B_R1 {
+                for k in 0..nz {
+                    let z = -A_H / 2.0 + (k as f64 + 0.5) * dz;
+                    if !in_torus(x, y, z) {
+                        outer += cell;
+                    }
+                }
+            }
+        }
+    }
+    (inner, outer)
+}
+
 /// Areas of A's cross-section sector outside B's radial band — `(inside
 /// B's inner circle, outside B's outer circle)` — by a polar midpoint grid
 /// over A's sector (deterministic; B's 71° sweep contains all of A's 30°
@@ -122,7 +204,7 @@ fn a_minus_b_section_areas() -> (f64, f64) {
 /// `(θ/2)(R² − r²)·h`, so the rectangle sits where the doc comment says.
 #[test]
 fn boss_alone_has_the_exact_sector_volume() {
-    let mut b = boss_only();
+    let b = boss_only();
     assert_clean(&b, "boss");
     let handle = b.solid_handle("a").expect("boss");
     let exact = b
@@ -194,5 +276,81 @@ fn r0038_replica_cut_completes_with_the_exact_volume() {
     assert!(
         ((v - total) / total).abs() < 2e-2,
         "cut mesh volume {v} vs {total}"
+    );
+}
+
+/// R0038's whole chain in a coordinate frame: op 3's torus tube (minor
+/// radius 1.55) crosses the 0.13–0.35-thick inner band at A-azimuth ≈ 15°,
+/// mid-height — entering from B's inner wall and leaving into A's bore
+/// with its end cap in the void — so the band gets a clean THROUGH-HOLE
+/// (genus 1, χ = 0) while the crescent (r ≥ 13.3, beyond the torus's
+/// reach of 12.8) is untouched (χ = 2). Two bodies, total χ = 2; the
+/// per-body exact volumes match a deterministic 3D grid integral. This is
+/// the adjudication behind R0038's authored `expected_shell_count: 2`
+/// (the cubical exact-membership ladder cannot read this document: the
+/// crescent tapers to a knife edge at the ruling).
+#[test]
+fn r0038_replica_full_chain_is_a_holed_band_and_a_crescent() {
+    let mut b = replica_full();
+    assert_clean(&b, "replica chain");
+    let handles = b.solid_handles("t").expect("chain bodies");
+    assert_eq!(handles.len(), 2, "two disjoint shells");
+    // Per body: the exact volume where the closed form covers it (the
+    // crescent), else the render mesh's (the holed band's cylinder patches
+    // carry boolean chord facets, outside `signed_volume`'s scope — a
+    // declared limit, not a defect), together with the body's χ.
+    let meshes = b.tessellate_all("t").unwrap();
+    assert_eq!(meshes.len(), 2);
+    let mut bodies: Vec<(f64, bool, i64)> = Vec::new();
+    for (h, mesh) in handles.iter().zip(&meshes) {
+        let wt = oracle::check_watertight_mesh(mesh);
+        assert!(wt.passed, "{}", wt.detail);
+        let chi0 = oracle::check_mesh_euler_characteristic(mesh, 0);
+        let chi2 = oracle::check_mesh_euler_characteristic(mesh, 2);
+        assert!(
+            chi0.passed || chi2.passed,
+            "{} / {}",
+            chi0.detail,
+            chi2.detail
+        );
+        let chi = if chi0.passed { 0 } else { 2 };
+        match b.kernel_ref().as_introspect().solid_volume(h) {
+            Ok(v) => bodies.push((v, true, chi)),
+            Err(_) => bodies.push((mesh_signed_volume(mesh).abs(), false, chi)),
+        }
+    }
+    bodies.sort_by(|p, q| p.0.total_cmp(&q.0));
+    let (inner, outer) = a_minus_b_minus_t_volumes();
+    let mut expect = [outer, inner];
+    expect.sort_by(f64::total_cmp);
+    for ((got, exact, _), want) in bodies.iter().zip(expect) {
+        let tol = if *exact { 5e-3 } else { 2e-2 };
+        assert!(
+            ((got - want) / want).abs() < tol,
+            "chain volumes {bodies:?} vs {expect:?}"
+        );
+    }
+    // The band lost volume to the tube; the crescent did not.
+    let (band_area, crescent_area) = a_minus_b_section_areas();
+    assert!(
+        inner < A_H * band_area - 1.0,
+        "the tube removed a macroscopic bite: {inner}"
+    );
+    // Exact geometry: the torus's farthest reach from A's axis is short of
+    // the crescent's inner boundary (B's outer circle at the sketch plane,
+    // 13.29), so the crescent cannot be touched; the two grids agree to
+    // their own resolution.
+    assert!(T_AXIS_X.abs() + T_MAJOR + T_MINOR < B_R1 - AXIS_SEP);
+    assert!(
+        ((outer - A_H * crescent_area) / outer).abs() < 2e-2,
+        "crescent untouched: {outer} vs {}",
+        A_H * crescent_area
+    );
+    // The smaller body is the crescent (χ = 2), the larger the holed band
+    // (χ = 0).
+    assert_eq!(bodies[0].2, 2, "the crescent is a sphere: {bodies:?}");
+    assert_eq!(
+        bodies[1].2, 0,
+        "the band has the tube's through-hole: {bodies:?}"
     );
 }
