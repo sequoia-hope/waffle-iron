@@ -830,6 +830,40 @@ pub fn surface_pair_interior_samples(
     Ok(out)
 }
 
+/// Interior render samples of ONE boundary half-edge, endpoints excluded,
+/// in the half-edge's walk direction — the canonical per-curve-kind
+/// dispatcher every trimmed-patch tessellator gathers its loops through
+/// (crate hard rule 5: one sampling contract per curve kind, shared by
+/// every face that carries the edge).
+///
+/// R0050 / R0085 (2026-09-22): the torus and sphere patch gathers took
+/// `Arc` samples only, so a surface-pair (or conic) boundary edge on a torus
+/// patch stayed at the boolean mesh's own coarse polyline — the Stage-6
+/// output vertices, chords of 0.3 with 4.5e-3 of curve sag on R0050's
+/// torus × torus curve — while the developable side of the same edge refined
+/// it to the render bound. That is the T-junction class R0085's op 3 carries
+/// (18 unpaired edges where a ring cone's boundary split against a torus
+/// that never split its own), and on R0050 it is the shadow the render
+/// self-intersection gate flagged: B's boundary sample sat 3.5e-3 under A's
+/// boundary-adjacent facet (a chord facet that did not own that sample) at
+/// a 4.4° knife-edge void, where B's sheet needs 0.045 to climb clear.
+/// Every kind's sampler is twin-canonical, so the two faces of an edge
+/// gather identical positions and the render mesh closes across it.
+pub(crate) fn boundary_half_edge_samples(
+    arena: &BrepArena,
+    h: crate::arena::HalfEdgeId,
+    n_seg: u32,
+) -> Result<Vec<Point3>, KernelV2Error> {
+    let he = arena.half_edge(h)?;
+    match he.curve {
+        Curve::LineSegment => Ok(Vec::new()),
+        Curve::Arc { .. } | Curve::Circle { .. } => arc_interior_samples(arena, h, n_seg),
+        Curve::EllipseArc { .. } => ellipse_interior_samples(arena, h, n_seg),
+        Curve::HyperbolaArc { .. } => hyperbola_interior_samples(arena, h, n_seg),
+        Curve::SurfacePair { .. } => surface_pair_edge_samples(arena, h, n_seg),
+    }
+}
+
 /// Interior sample points of a surface-pair half-edge at the render chord
 /// bound, endpoints excluded, in the half-edge's walk direction.
 /// Twin-canonical exactly like [`arc_interior_samples`] (computed on the

@@ -342,8 +342,17 @@ it is a ρ-ACCEPTANCE change and needs its own corpus run.
   2026-09-13 addendum; measured unchanged by this increment.~~ **Parallel-axis
   cylinder×cylinder: LANDED 2026-09-17 as the generator arm (§11, C0056).**
   Plane×cylinder generators (R0038) remain out.
-- **Torus tangency.** R0050 (exact torus×torus tangency) and C0065 need the same
-  idea with a torus tangent-point solver; measured unchanged.
+- **Torus tangency.** ~~R0050 (exact torus×torus tangency) and C0065 need the same
+  idea with a torus tangent-point solver; measured unchanged.~~ **R0050 is NOT a
+  tangency (2026-09-22):** its two parallel-axis tori cross transversally at a
+  minimum dihedral of 4.19° (a 1440² scan of A's torus against B's implicit;
+  the nearest point with normals within 0.5° is 0.112 off B's surface). For
+  parallel-axis tori a tangent point must have its normal along the axis or
+  lie in the plane of both axes, and R0050's pair satisfies neither; the
+  2026-09-13 certificate ("min |d_B| refines to 0.0") measured the transversal
+  crossing itself. R0050 is R0038's shallow-crossing class on tori, not a
+  §4.3.3 customer — see `docs/yang_tail_triage.md` 2026-09-22 (later). C0065
+  converted 2026-09-17 by §4.5.2. No torus tangent-point arm has a customer.
 - **R0038**, the plane-tangent-cylinder generator, whose §4.4.1 remedy is
   already banked behind `YANG_N2_RECDT_ENABLE` (task #168); measured unchanged.
 - **Deviation N2 proper.** The general pre-boolean trim + CDT is untouched. This

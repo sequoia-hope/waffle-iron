@@ -282,16 +282,40 @@ pub(crate) fn tessellate_torus_patch(
     let ax = [axis_dir.x, axis_dir.y, axis_dir.z];
 
     // Gather a loop as an ordered 3D polyline: each half-edge's origin, then its
-    // arc interior samples (empty for a line segment), in walk order. Arc
-    // samples are twin-canonical, so a surviving seam arc shared with a cap is
-    // sampled identically on both faces.
+    // curve's interior samples (empty for a line segment), in walk order —
+    // every curve kind through the one canonical dispatcher
+    // (`boundary_half_edge_samples`), so a surface-pair or conic boundary
+    // edge is refined to the render bound exactly like an arc (2026-09-22:
+    // the arc-only gather left a torus × torus curve at the boolean mesh's
+    // coarse polyline — the R0085 T-junction class and R0050's shadow). All
+    // samplers are twin-canonical, so an edge shared with a cap, a
+    // developable, or another torus patch is sampled identically on both
+    // faces.
     let gather = |loop_id| -> Result<Vec<Point3>, KernelV2Error> {
         let hes = arena.loop_half_edges(loop_id)?;
         let mut pts: Vec<Point3> = Vec::with_capacity(hes.len());
         for &h in &hes {
             let he = arena.half_edge(h)?;
             pts.push(arena.vertex(he.origin)?.point);
-            pts.extend(arc_interior_samples(arena, h, n_seg)?);
+            let n0 = pts.len();
+            pts.extend(boundary_half_edge_samples(arena, h, n_seg)?);
+            if std::env::var("KV2_TORUS_PATCH_EDGES").is_ok_and(|v| v == format!("{}", fid.0)) {
+                let kind = match he.curve {
+                    Curve::LineSegment => "LineSegment",
+                    Curve::Arc { .. } => "Arc",
+                    Curve::Circle { .. } => "Circle",
+                    Curve::EllipseArc { .. } => "EllipseArc",
+                    Curve::HyperbolaArc { .. } => "HyperbolaArc",
+                    Curve::SurfacePair { .. } => "SurfacePair",
+                };
+                eprintln!(
+                    "[torus-patch-edges] face={} he={:?} kind={kind} samples={} origin={:?}",
+                    fid.0,
+                    h,
+                    pts.len() - n0,
+                    pts[n0 - 1]
+                );
+            }
         }
         Ok(pts)
     };

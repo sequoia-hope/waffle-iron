@@ -6739,7 +6739,7 @@ pub(crate) fn reconstruct_topology_stage4(
                 .improper_pairs
                 .iter()
                 .chain(contacts.unresolved_pairs.iter())
-                .take(8)
+                .take(256)
             {
                 eprintln!(
                     "  pair ({ta},{tb}) attr=({:?},{:?}) A={:?} B={:?}",

@@ -43,6 +43,112 @@ after the reconciliation run (release, 8 jobs, 360 s; wall 577 s, F0085
 regression since 2026-08-01 is outstanding (checked over every commit of
 `results.json`).
 
+## 2026-09-22 (later) — R0050 RE-DIAGNOSED: NOT a tangency but a 4.19° torus × torus crossing (R0038's class); the Stage-4 triple gates gain the THREE-SLAB junction bound (every ladder rung then completes but self-contacts); the torus / sphere patch tessellators gather every curve kind on their boundary; the two structural walls named — torus curves leave Stage 3 as chord polylines, and the render gate's band sits below a shared boundary chord's sag; canonical 296C / 0W / 10E / 4EE / 0T + 2 UNSUPPORTED(coplanar-boolean) UNCHANGED
+
+**The exact-tangency certificate (2026-09-13) was wrong.** For two tori
+with parallel axes a tangent point must have its shared normal along the
+axis or lie in the plane containing both axes (a torus normal lies in the
+meridian plane through the point; two distinct parallel-axis meridian
+planes meet in an axis-parallel line or coincide as the axes' plane), and
+R0050's pair (A:5 R 3.9509 r 2.6339, B:2 R 3.7759 r 2.5173, axes
+0.1749 = R_A − R_B apart) satisfies neither: in the axes' plane the four
+meridian-circle pairs sit 0 / 0.35 / 7.55 / 7.90 apart against
+r_A ± r_B = 0.117 / 5.15. A 1440² scan of A's torus against B's implicit
+puts the minimum dihedral along the intersection curve at **4.19°** and the
+nearest near-collinear-normal point 0.112 off B's surface; "min |d_B2|
+refines to 0.0" was the transversal crossing itself. R0050 op 3 is the
+R0038 shallow-crossing class on tori. Corrections recorded in
+`specs/yang_452_local_refinement.md` §6.8 and
+`specs/yang_433_tangent_point_mesh_update.md` §8; §4.3.3 has no torus
+customer.
+
+**What the ladder actually hits (re-measured today, `YANG_452_REFINE=census
+YANG_452_ROUNDS=3,4,5,6,8,12,16` + `YANG_451=census` + `YANG_TORUS_PROBE`).**
+The natural op STOPs at v413 (`RelocationCrossedCarrierVertex`, corner
+transit `NoRealCandidate`, under-resolution certificate 3.38 → ladder
+[2, 4]). d_ε/2 completes with 54 improper contacts; d_ε/3 … d_ε/16 ALL fail
+`OffCurveBeyondChordBand` at ONE site type: the corner where B's boss torus
+pierces A's torus∩cap-plane parallel circle (v324 / 547 / 595 / 685 / 775 /
+1197 / 1254). Measured at d_ε/4 (v547): |t̂·n_B| = 0.0347 — B crosses the
+circle at 2.0° — the chord vertex is exact on the cap, 1.98e-2 off A's torus
+and 6.2e-3 off B's (d_ε 8.18e-2), and the exact junction (Newton on all
+three; the only crossing of that circle within 6.7 of arc) lies 0.332 away,
+0.327 of it ALONG the circle. The torus-block gate measured it against the
+pair corridor `2·d_ε/sin θ` with θ between A's torus and its cap (0.567 →
+0.289) and refused; ρ/d_ε climbed 4 → 11 across the rungs because the
+along-curve error is the pierce angle's, not the density's — refinement can
+never clear it. The bound the three chord slabs actually give is the
+parallelepiped `{d : |n_k·d| ≤ d_ε}` (`d_ε·max_σ|N⁻¹σ|`), of which the
+two-plane and line-curve arms are the zero-width-carrier special cases:
+`stage4_relocate::junction_slab_divergence`, wired at both triple arms as
+the line arms' fallback, taken only where it admits more than the pair
+corridor (never below it; a move the slabs cannot explain stays a loud
+STOP). Pins `tests_unit/s4_slab_junction_metric.rs`. Spec
+`yang_stage4_conic_triple_junction.md` "the three-slab bound".
+
+**With the slab bound every rung COMPLETES — and self-contacts** (improper
+pairs 22 / 29 / 31 / 58 / 103 / 45 at d_ε/3 / 4 / 6 / 8 / 12 / 16; not
+monotone), every pair an A:5 torus triangle against a B:2 torus triangle in
+the strip adjacent to the 4.4° crossing, so the ladder's `improper == 0`
+clause does not adopt and R0050's STOP stands byte-identical. Adopting
+d_ε/2 anyway (diagnostic `YANG_452_ADOPT_IMPROPER=1`) hands kernel-v2 a body
+its render gate refuses: `SelfIntersectingBooleanOutput { 27, 38,
+penetrations: 1 }`. That penetration is NOT a B-Rep defect (measured from
+the `KV2_SELFX_SITE_PROBE` pair): triangle a is exact on torus A, triangle b
+exact on torus B, both kept regions on the correct sides (A's material is
+OUTSIDE its cut tube, B's boss lies inside that void, so the union has a
+4.4° knife-edge VOID between the tube wall and the boss); b's boundary
+vertex b0 — a shared output vertex of both faces — sits 3.5e-3 under A's
+boundary-adjacent facet (a0, a1, a2), a facet that does not own b0, and B's
+sheet needs 3.5e-3 / sin 4.4° = 0.045 to climb clear, inside that facet's
+footprint (an interior Steiner vertex a2 lies 0.08 from b0). Two structural
+walls, both named, neither a band:
+
+1. **Torus curves leave Stage 3 as chord polylines.** Every edge of face 27
+   is `LineSegment` (probe `KV2_TORUS_PATCH_EDGES=<face>`): `stage3_ssi`
+   skips any pair with a torus ("KV6d Tier B", no analytic curve), Stage 4
+   relocates the ENDPOINTS onto the implicit pair, and the output B-Rep
+   carries the Stage-4 mesh chords (0.3 long, 4.5e-3 of curve sag) as its
+   edge geometry. The render tessellation cannot refine a `LineSegment`, so
+   the shared boundary's sag is the boolean mesh's, not the render band's.
+   The pair-surface vocabulary (`ssi_rs::QuadricSurface`, kernel-v2
+   `PairSurface`, yang `Curve::SurfacePair`) has Cylinder / Cone / Sphere
+   and no Torus, although the P8 procedural model (implicit-pair Newton,
+   `project_onto_surface_pair`) needs only an implicit and its gradient,
+   which `surface_value_and_normal` already has for a torus. Owner: the
+   M5 surface-pair curve, torus arm — a B-Rep fidelity item in its own right
+   (edges on the surfaces, not chords; STEP export of torus intersections).
+2. **The render gate's band sits below a shared boundary chord's sag.** The
+   penetration band is `max_abs·TAU_WELD_MAX` = 1.66e-3 here; the render
+   chord bound is `1e-3·r` = 2.5e-3 on these tubes. At a knife edge the
+   neighbour's sheet starts ON the shared curve, so a facet whose boundary
+   chord sags more than the band shadows it by more than the band, and the
+   depth test fires however dense the interior is; at a steep dihedral the
+   climb-out lies inside the chord's own triangle (shared vertex, skipped),
+   which is why the corpus's CORRECT cases never see it. The flag is
+   avoided exactly when boundary chords along shared curved edges sag no
+   more than the band (d ≤ 0.18 here) — i.e. shared curved edges sampled
+   to the WELD band, not the render band — which needs (1) first, since a
+   `LineSegment` cannot be resampled. Not a gate widening: the gate is the
+   corpus-calibrated production net and stays as it is.
+
+Also landed today, the canonical boundary sampler: the torus and sphere
+patch tessellators gathered `Arc` samples ONLY on their loops, so a
+surface-pair / conic boundary edge on a sphere patch stayed at the boolean
+polyline while the developable across it refined to the render bound
+(`tessellate::sampling::boundary_half_edge_samples`, one dispatcher for all
+three patch paths). On today's tree torus patches carry only `LineSegment`
+and `Arc` (wall 1 above), so the change reaches sphere patches with F10
+pair edges; its corpus effect is in the run below.
+
+Corpus (release, 8 jobs, 600 s; wall 816.3 s): **296C / 0W / 10E / 4EE / 0T +
+2 UNSUPPORTED(coplanar-boolean)** — per-id diff of the committed `results.json`:
+ZERO category moves, ZERO detail moves (the slab bound admits only what a
+STOP had refused; the boundary sampler reaches no CORRECT case's mesh).
+R0050's row moves from the §4.3.3 tangency vehicle to the two walls above
+(M5 surface-pair curve, torus arm; shared-edge weld-band sampling).
+Remaining actionable tail: R0019, R0050, R0085.
+
 ## 2026-09-22 — R0063 CONVERTED ⇒ 296C: the KV14 Slice B ribbon opened an encircling loop by a neighbour-u comparison that a generator-line wall at the anchor turns into a coin flip; the chain now takes its sense from the loop's winding and starts after its seam wrap; canonical 296C / 0W / 10E / 4EE / 0T + 2 UNSUPPORTED(coplanar-boolean)
 
 The 2026-09-18 (later) row named R0063's STOP a rounding-luck latent

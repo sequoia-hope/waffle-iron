@@ -754,7 +754,11 @@ fn refine_452(
         if unpaired == 0 {
             // Converged: the refinement produced a watertight 2-manifold
             // output. Every downstream gate still applies unchanged.
-            if adopt && improper == 0 {
+            // DIAGNOSTIC (2026-09-22, R0050): `YANG_452_ADOPT_IMPROPER=1`
+            // adopts a self-contacting rung so the downstream crate's own
+            // verdict on it can be measured. Never production.
+            let adopt_improper = std::env::var_os("YANG_452_ADOPT_IMPROPER").is_some();
+            if adopt && (improper == 0 || adopt_improper) {
                 return Some(brep);
             }
             continue; // census, or a self-intersecting rung: keep climbing

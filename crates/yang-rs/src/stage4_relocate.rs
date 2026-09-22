@@ -517,6 +517,92 @@ pub(crate) fn junction_line_curve_divergence(
     pierced
 }
 
+/// Junction metric, the THREE-SLAB arm (R0050, 2026-09-22; spec
+/// `yang_stage4_conic_triple_junction.md`, "Junction-line amendment — the
+/// three-slab bound"): the displacement bound of a 3-surface junction
+/// relocation derived from nothing but the Stage-1 chord contract on all
+/// THREE surfaces.
+///
+/// A Stage-2 crossing vertex `p` lies on a facet of every surface it is
+/// attributed to, so it is within the chord band `d_ε` of each: `|F_k(p)| ≤
+/// d_ε`, `k = 0..3`. To first order about the exact junction `q`,
+/// `F_k(p) = −n_k·(q − p)`, so the displacement `d = q − p` lies in the
+/// PARALLELEPIPED `{ d : |n_k·d| ≤ d_ε ∀k } = N⁻¹·[−d_ε, d_ε]³` with `N` the
+/// matrix of unit normals at `q`. Its farthest point from the origin is a
+/// vertex `N⁻¹·σ·d_ε`, `σ ∈ {±1}³`, so `|d| ≤ d_ε · max_σ |N⁻¹σ|` — the
+/// exact first-order bound, with no choice of which two surfaces "carry the
+/// curve". The surface-pair corridor `2·d_ε/sin θ` (θ between two of the
+/// normals) is the bound for a vertex sliding within the two surfaces'
+/// slabs toward their curve and ignores the third slab entirely: it says
+/// nothing about a move ALONG the curve, which the third surface's slab
+/// bounds by `d_ε/|t̂·n₃|` — enormous where the third surface pierces the
+/// curve at a grazing angle. Measured on R0050 op 3 (`YANG_TORUS_PROBE`,
+/// 2026-09-22, the §4.5.2 ladder's d_ε/4 rung): B's torus pierces A's
+/// torus∩cap-plane parallel circle at |t̂·n_B| = 0.0347 (2.0°); the chord
+/// vertex sits 1.98e-2 off A's torus and 6.2e-3 off B's (d_ε 8.18e-2), the
+/// exact junction — Newton-converged on all three, and the only crossing of
+/// that circle within 6.7 units of arc — lies 0.332 away, 0.327 of it along
+/// the circle; the pair corridor (sin θ 0.567 between A's torus and its cap)
+/// refused it at 0.289, and every rung of the ladder refused the same site
+/// (ρ/d_ε 4 → 11 as d_ε shrank: the along-curve error is the pierce angle's,
+/// not the density's). The line arms ([`junction_line_divergence`],
+/// [`junction_line_curve_divergence`]) are this bound's special cases with
+/// two of the slabs collapsed to zero width (the vertex is EXACT on its two
+/// carriers), which is why they stay tighter and keep precedence.
+///
+/// Returned as a DIVERGENCE `1/max_σ|N⁻¹σ|` so the caller's
+/// `tangent_plane_corridor(d_ε, ·) = 2·d_ε/divergence` is the bound in the
+/// same `2·d_ε` budget convention as every other Stage-4 gate. The caller
+/// takes the SMALLER of this and the pair divergence, so the gate is never
+/// below the pair corridor — this admits ONLY junctions the pair corridor
+/// mis-measured — and a relocation the three chord slabs cannot explain
+/// stays a loud STOP.
+///
+/// `None` (the caller keeps its metric, byte-identical): a normal is
+/// undefined at `q`, or the three normals are rank-deficient to
+/// `MIN_FEATURE_SIZE` (the triple Newton is singular there and STOPs before
+/// any gate). Measurement gate `YANG_JUNCTION_SLAB=0|off`.
+pub(crate) fn junction_slab_divergence(surfs: [Surface; 3], q: [f64; 3]) -> Option<f64> {
+    if matches!(
+        std::env::var("YANG_JUNCTION_SLAB").as_deref(),
+        Ok("0") | Ok("off")
+    ) {
+        return None;
+    }
+    let mut n = [[0.0f64; 3]; 3];
+    for (k, s) in surfs.into_iter().enumerate() {
+        let (_, nk) = surface_value_and_normal(s, q)?;
+        n[k] = normalize3(nk);
+    }
+    let cross = |a: [f64; 3], b: [f64; 3]| -> [f64; 3] {
+        [
+            a[1] * b[2] - a[2] * b[1],
+            a[2] * b[0] - a[0] * b[2],
+            a[0] * b[1] - a[1] * b[0],
+        ]
+    };
+    // N⁻¹ = [n₁×n₂ | n₂×n₀ | n₀×n₁] / det, columns.
+    let c0 = cross(n[1], n[2]);
+    let c1 = cross(n[2], n[0]);
+    let c2 = cross(n[0], n[1]);
+    let det = n[0][0] * c0[0] + n[0][1] * c0[1] + n[0][2] * c0[2];
+    if !det.is_finite() || det.abs() < cad_primitives::MIN_FEATURE_SIZE {
+        return None;
+    }
+    // The eight parallelepiped vertices come in antipodal pairs; four suffice.
+    let mut max_sq = 0.0f64;
+    for (s1, s2) in [(1.0, 1.0), (1.0, -1.0), (-1.0, 1.0), (-1.0, -1.0)] {
+        let d = [
+            (c0[0] + s1 * c1[0] + s2 * c2[0]) / det,
+            (c0[1] + s1 * c1[1] + s2 * c2[1]) / det,
+            (c0[2] + s1 * c1[2] + s2 * c2[2]) / det,
+        ];
+        max_sq = max_sq.max(d[0] * d[0] + d[1] * d[1] + d[2] * d[2]);
+    }
+    let max = max_sq.sqrt();
+    (max.is_finite() && max > 0.0).then(|| 1.0 / max)
+}
+
 /// #137 N-137.1 (spec `specs/yang_137_torus_plane_grazing_corner.md`): the exact
 /// grazing-CORNER junction `torus ∩ cutting_plane ∩ clip_plane`, refined from a
 /// mesh `seed` via the existing 3-surface Newton and then VALIDATED to lie on all

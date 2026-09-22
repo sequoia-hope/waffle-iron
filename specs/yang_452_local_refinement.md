@@ -380,6 +380,33 @@ this adjudication was made with, and as the ladder any future §4.5.2 claim
 must be re-measured against; its adopt arm (`YANG_452_REFINE=1`) is a dev A/B
 knob whose adoption is REFUTED by §6.4–§6.5, not a candidate for a flip.
 
+> **2026-09-22 CORRECTION — the exact-tangency certificate of §6.5 was
+> wrong.** The two tori (A:5 R 3.9509 r 2.6339, B:2 R 3.7759 r 2.5173,
+> parallel axes 0.1749 = R_A − R_B apart) are NOT tangent: a tangent point of
+> two parallel-axis tori must have its shared normal along the axis or lie in
+> the plane containing both axes (the normal of a torus at `x` lies in the
+> meridian plane through `x`; two distinct parallel-axis meridian planes meet
+> only in a line parallel to the axis, or coincide as the plane of both
+> axes), and neither configuration solves here (in the axes' plane the four
+> meridian-circle pairs sit at centre distances 0 / 0.35 / 7.55 / 7.90
+> against r_A ± r_B = 0.117 / 5.15). Scanned directly (1440² samples of A's
+> torus against B's implicit), the minimum dihedral along the intersection
+> curve is **4.19°** and the closest any near-collinear-normal point comes
+> to B's surface is 0.112. "min |d_B2| refines to 0.0" was the transversal
+> crossing itself (a signed distance crosses zero along any intersection).
+> So R0050 op 3 is the R0038 class — a SHALLOW CROSSING whose chord sags
+> outrun the surfaces' separation — on tori, and the ladder's oscillation
+> was not tangency-driven. The op-level ladder re-measured on 2026-09-22
+> (every rung d_ε/3 … d_ε/16) failed at ONE site type with ONE reason:
+> `OffCurveBeyondChordBand` at B's torus piercing A's torus∩cap parallel
+> circle at 2.0°, where the pair corridor mis-measures an along-curve move
+> (the three-slab amendment, `specs/yang_stage4_conic_triple_junction.md`).
+> With that metric every rung completes and self-contacts (54 / 29 improper
+> pairs at d_ε/2 / 4, non-monotone in the count through d_ε/16); the ladder
+> does not adopt. The walls behind that are recorded in
+> `docs/yang_tail_triage.md` 2026-09-22 (later). §6.8's routing to §4.3.3
+> tangent-point insertion is therefore RETRACTED.
+
 ### 6.8 Where R0050 actually lands (routing, so it is not re-derived)
 
 The Case-IV reading of v413 is exact and matches `stage4_phantom.rs`'s claim

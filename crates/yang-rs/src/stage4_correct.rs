@@ -10912,14 +10912,26 @@ fn stage4_relocate_and_correct_inner(
                 None
             };
             let line_div = plane_pair_div.or(line_curve_div);
-            let sin_theta =
-                line_div.unwrap_or_else(|| (cx[0] * cx[0] + cx[1] * cx[1] + cx[2] * cx[2]).sqrt());
+            // R0050 (2026-09-22): the THREE-SLAB arm — the chord contract on
+            // all three surfaces bounds the move (`junction_slab_divergence`,
+            // certificate inside); taken only where it admits MORE than the
+            // pair corridor, so the gate is never below it.
+            let pair_sin = (cx[0] * cx[0] + cx[1] * cx[1] + cx[2] * cx[2]).sqrt();
+            let slab_div = if line_div.is_none() {
+                crate::stage4_relocate::junction_slab_divergence([surfs[0], surfs[1], surfs[2]], qa)
+                    .filter(|s| *s < pair_sin)
+            } else {
+                None
+            };
+            let sin_theta = line_div.or(slab_div).unwrap_or(pair_sin);
             let gate = tangent_plane_corridor(d_eps, sin_theta);
             if probe_v || std::env::var_os("YANG_LRR_PROBE").is_some() {
                 let metric = if plane_pair_div.is_some() {
                     "line"
                 } else if line_curve_div.is_some() {
                     "line-curve"
+                } else if slab_div.is_some() {
+                    "slab"
                 } else {
                     "curve"
                 };
@@ -12912,7 +12924,7 @@ fn stage4_relocate_and_correct_inner(
             }
             let partners = &vert_partners[&v];
             let p = mesh.verts[v as usize];
-            let (proj, n0, n1, line_div) = match partners.as_slice() {
+            let (proj, n0, n1, line_div, slab_div) = match partners.as_slice() {
                 [s1] => {
                     if !on_curve.contains(&v) {
                         // An operand's own boundary vertex: skip where the
@@ -12960,7 +12972,7 @@ fn stage4_relocate_and_correct_inner(
                             Stage4InvalidReason::LocalRefinementRequired,
                         )
                     })?;
-                    (proj, n0, n1, None)
+                    (proj, n0, n1, None, None)
                 }
                 [s1, s2] => {
                     // 3-surface junction: relocate onto {torus, s1, s2}. The
@@ -13010,7 +13022,14 @@ fn stage4_relocate_and_correct_inner(
                             )
                         })
                     });
-                    (proj, n0, n1, line_div)
+                    // R0050 (2026-09-22): the THREE-SLAB arm, same as the
+                    // conic triple block ("fix all gates sharing a metric").
+                    let slab_div = if line_div.is_none() {
+                        crate::stage4_relocate::junction_slab_divergence([t_surf, *s1, *s2], qa)
+                    } else {
+                        None
+                    };
+                    (proj, n0, n1, line_div, slab_div)
                 }
                 _ => {
                     if std::env::var_os("YANG_TORUS_PROBE").is_some() {
@@ -13041,14 +13060,23 @@ fn stage4_relocate_and_correct_inner(
                 n0[2] * n1[0] - n0[0] * n1[2],
                 n0[0] * n1[1] - n0[1] * n1[0],
             ];
-            let sin_theta =
-                line_div.unwrap_or_else(|| (cx[0] * cx[0] + cx[1] * cx[1] + cx[2] * cx[2]).sqrt());
+            let pair_sin = (cx[0] * cx[0] + cx[1] * cx[1] + cx[2] * cx[2]).sqrt();
+            // The slab arm is taken only where it admits MORE than the pair
+            // corridor (never below it — see `junction_slab_divergence`).
+            let slab_div = slab_div.filter(|s| *s < pair_sin);
+            let sin_theta = line_div.or(slab_div).unwrap_or(pair_sin);
             let gate = tangent_plane_corridor(d_eps, sin_theta);
             if std::env::var_os("YANG_TORUS_PROBE").is_some() {
                 let fv = surface_value_and_normal(t_surf, proj.as_array())
                     .map(|(f, _)| f)
                     .unwrap_or(f64::NAN);
-                let metric = if line_div.is_some() { "line" } else { "curve" };
+                let metric = if line_div.is_some() {
+                    "line"
+                } else if slab_div.is_some() {
+                    "slab"
+                } else {
+                    "curve"
+                };
                 eprintln!(
                     "YANG_TORUS_PROBE v={v} rho={rho:.4e} gate={gate:.4e} d_eps={d_eps:.4e} \
                      sin_theta={sin_theta:.4e} metric={metric} F_torus(proj)={fv:.2e} p={p:?} \

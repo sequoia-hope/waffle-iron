@@ -179,7 +179,10 @@ pub(crate) fn tessellate_sphere_patch(
                     ));
                 }
             } else {
-                pts.extend(arc_interior_samples(arena, h, n_seg)?);
+                // Every other curve kind through the canonical dispatcher
+                // (2026-09-22: was arc-only — a surface-pair / conic
+                // boundary edge stayed at the boolean mesh's polyline).
+                pts.extend(boundary_half_edge_samples(arena, h, n_seg)?);
             }
         }
         Ok(pts)

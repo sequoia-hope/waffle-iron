@@ -256,8 +256,8 @@ pub fn tessellate_with_chord_tolerance(
 mod sampling;
 pub use sampling::surface_pair_interior_samples;
 pub(crate) use sampling::{
-    arc_interior_samples, arc_interior_samples_frac, ellipse_interior_samples,
-    hyperbola_interior_samples, surface_pair_edge_samples,
+    arc_interior_samples, arc_interior_samples_frac, boundary_half_edge_samples,
+    ellipse_interior_samples, hyperbola_interior_samples, surface_pair_edge_samples,
 };
 
 /// A loop's boundary polyline for planar tessellation: origin vertices in

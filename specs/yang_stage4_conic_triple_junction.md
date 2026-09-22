@@ -159,6 +159,49 @@
 > `tests_unit/s4_line_curve_junction_metric.rs` (R0070's v88 numbers; the
 > two-plane arm declines; off-line vertex, wrong carrier counts → `None`).
 
+> **Junction-line amendment — the three-slab bound (2026-09-22, R0050):
+> the displacement bound of ANY 3-surface junction relocation follows from
+> the Stage-1 chord contract on all three surfaces, with no choice of which
+> two "carry the curve".** A Stage-2 crossing vertex `p` lies on a facet of
+> every surface it is attributed to, so `|F_k(p)| ≤ d_ε` for each of the
+> three; to first order about the exact junction `q`, `F_k(p) = −n_k·(q−p)`,
+> so the displacement lies in the PARALLELEPIPED `{d : |n_k·d| ≤ d_ε}` =
+> `N⁻¹·[−d_ε, d_ε]³` (`N` the matrix of unit normals at `q`), whose farthest
+> vertex is `d_ε·max_σ|N⁻¹σ|`, `σ ∈ {±1}³`. The surface-pair corridor
+> `2·d_ε/sin θ` bounds a vertex sliding within two surfaces' slabs toward
+> their curve and ignores the third slab — it says nothing about a move
+> ALONG the curve, which the third surface's slab bounds by `d_ε/|t̂·n₃|`,
+> enormous where that surface pierces the curve at a grazing angle. The two
+> line arms above are this bound with two slabs collapsed to zero width
+> (the vertex is exact on its carriers), which is why they stay tighter and
+> keep precedence. Measured on R0050 op 3 (`YANG_TORUS_PROBE`, the §4.5.2
+> ladder's d_ε/4 rung, v547): B's boss torus pierces A's torus∩cap-plane
+> parallel circle at |t̂·n_B| = 0.0347 (2.0°); the chord vertex is exact on
+> the cap, 1.98e-2 off A's torus and 6.2e-3 off B's (d_ε 8.18e-2); the
+> exact junction — converged on all three, and the ONLY crossing of that
+> circle within 6.7 units of arc — lies 0.332 away, 0.327 of it along the
+> circle; the pair corridor (sin θ 0.567 between A's torus and its cap)
+> refused it at 0.289, and EVERY rung d_ε/3 … d_ε/16 refused the same site
+> with ρ/d_ε climbing 4 → 11 as d_ε shrank (the along-curve error is the
+> pierce angle's, not the density's — refinement can never clear it). The
+> three-slab divergence there is 0.0172 (gate 9.5). Fix:
+> `stage4_relocate::junction_slab_divergence(surfs, q)` → `1/max_σ|N⁻¹σ|`
+> (`None` on a rank-deficient triple, where the Newton STOPs first); wired
+> at BOTH triple arms as the fallback of the line arms, taken ONLY where it
+> admits more than the pair corridor (`min(pair_sin, slab)`), so the gate is
+> never below it — a metric correction, not a band; a move the three chord
+> slabs cannot explain stays a loud `OffCurveBeyondChordBand`. Probe label
+> `metric=slab`; measurement gate `YANG_JUNCTION_SLAB=0|off`. Pins:
+> `tests_unit/s4_slab_junction_metric.rs` (R0050's v547 numbers RED under
+> the pair corridor and GREEN under the slab bound; the orthogonal cube
+> diagonal; the grazing third plane recovering the line metric; the
+> rank-deficient decline). What it does NOT do: R0050's op then completes
+> at every rung but self-contacts (54 / 29 improper pairs at d_ε/2 / 4,
+> all A-torus × B-torus in the strip adjacent to the 4.4° crossing) and the
+> ladder does not adopt it — see `docs/yang_tail_triage.md` 2026-09-22
+> (later) for the two structural walls behind that (torus curves leave
+> Stage 3 as chord polylines; the render gate's band vs boundary chord sag).
+
 > **Junction-map candidates amendment — the line × plane-pair corner
 > (2026-09-17, R0070): `vert_pp_planes` is the FIFTH map found counting zero
 > toward `n_maps`.** With the corridor admitting v88, R0070 op 3 advanced to
