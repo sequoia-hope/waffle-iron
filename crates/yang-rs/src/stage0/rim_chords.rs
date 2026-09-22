@@ -1370,8 +1370,20 @@ pub(crate) fn arc_lateral_opposite(
                             let ed = &brep.edges()[ge as usize];
                             match ed.curve {
                                 Curve::LineSegment => true,
-                                Curve::Circle { .. } | Curve::Ellipse { .. } => ed.start != ed.end,
-                                _ => false,
+                                // Exactly the open-chain kinds `loop_polyline`
+                                // splices from the Stage-1 pre-pass chains
+                                // (the holed-lateral CDT gate lists the same
+                                // set): conic arcs, the KV16 hyperbola arc and
+                                // the M5 procedural surface-pair edge (K11
+                                // re-entry; the torus arm makes torus × cone /
+                                // cylinder edges pair edges too — R0026/R0051
+                                // measured 2026-09-22 refusing here while
+                                // Stage 1 accepts the loop).
+                                Curve::Circle { .. }
+                                | Curve::Ellipse { .. }
+                                | Curve::Hyperbola { .. }
+                                | Curve::SurfacePair { .. } => ed.start != ed.end,
+                                Curve::Parabola { .. } => false,
                             }
                         })
                 });

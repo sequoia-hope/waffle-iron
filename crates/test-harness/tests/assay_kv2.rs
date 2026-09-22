@@ -1352,6 +1352,14 @@ fn smoke_corpus_boundary_categories() {
         // the bit-exact hull saw only the base cap and refused a junction on
         // the cap outside the cylinder's disk. 4.1 s release.
         ("R0026", Category::SupportedCorrect),
+        // R0019 CONVERTED (2026-09-22 night, M5 torus arm increment 2): the
+        // §4.5.3 reversal sweep's cycle qualification gained the typed
+        // procedural `SurfacePair` edge — R0019's cylinder × cone pair chains
+        // (M5 cone-pair producer) were never swept, so the Stage-4 fold
+        // vertices that kernel-v2's CDT ring-reject refused (FaceId 651)
+        // survived; swept, the ring is simple. A/B: `YANG_453_SPAIR=0`
+        // restores the ERROR (289.4 s), 314 s CORRECT with the sweep.
+        ("R0019", Category::SupportedCorrect),
         // R0015 FLIPPED (2026-09-11, M8 slice h closing): the torus cap's
         // n-ary Stage-0 group carried ONE `opposite` flag (B vs the group
         // frame) for all four pairs while A's sketch-plane fragments have

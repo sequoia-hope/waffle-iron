@@ -100,16 +100,18 @@ pub(crate) fn surface_to_quadric(s: Surface) -> Result<ssi_rs::QuadricSurface, S
     }
 }
 
-/// M5 torus arm (YT4) gate: `YANG_TORUS_PAIR=1` (or any value other than
-/// `0`/`off`) sends torus × {cylinder, cone, sphere, torus} intersection
-/// edges through ssi so they emit as `Curve::SurfacePair`; unset (the
-/// default while increment 2's corpus measurement is pending) keeps the
-/// KV6d Tier-B `LineSegment` path byte-identical.
+/// M5 torus arm (YT4) gate — ALWAYS-ON since the increment-2 flip
+/// (2026-09-22 night, spec `m5_surface_pair_curve` "Torus arm": the arm-on
+/// corpus equals the arm-off corpus except one ERROR-detail move on R0050,
+/// and both carry the R0019 conversion). Unset/other = act: torus ×
+/// {cylinder, cone, sphere, torus} intersection edges go through ssi and
+/// emit as `Curve::SurfacePair`. `YANG_TORUS_PAIR=0|off` is the dev A/B
+/// off-knob restoring the KV6d Tier-B `LineSegment` path.
 pub(crate) fn torus_pair_arm_enabled() -> bool {
-    match std::env::var("YANG_TORUS_PAIR") {
-        Ok(v) => !(v == "0" || v.eq_ignore_ascii_case("off")),
-        Err(_) => false,
-    }
+    !matches!(
+        std::env::var("YANG_TORUS_PAIR").as_deref(),
+        Ok("0") | Ok("off") | Ok("OFF") | Ok("Off")
+    )
 }
 
 /// M5 (Y1): map an `ssi_rs::QuadricSurface` back to a yang `Surface`, the

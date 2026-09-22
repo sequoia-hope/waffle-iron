@@ -1393,13 +1393,33 @@ pub(crate) fn stage1_tessellate_once(
                     + (pma[1] - mida[1]).powi(2)
                     + (pma[2] - mida[2]).powi(2))
                 .sqrt();
-                if sag <= d_eps {
-                    return Ok(());
-                }
                 let chord = ((pba[0] - paa[0]).powi(2)
                     + (pba[1] - paa[1]).powi(2)
                     + (pba[2] - paa[2]).powi(2))
                 .sqrt();
+                // M5 torus arm probe (`YANG_K11_CHAIN_PROBE`, read-only): the
+                // projected midpoint's FOOT parameter along its chord and its
+                // distance to each endpoint — the R0032 (arm-on) census of
+                // chain samples that land past a chord end.
+                if std::env::var_os("YANG_K11_CHAIN_PROBE").is_some() {
+                    let d = [pba[0] - paa[0], pba[1] - paa[1], pba[2] - paa[2]];
+                    let w = [pma[0] - paa[0], pma[1] - paa[1], pma[2] - paa[2]];
+                    let u = (w[0] * d[0] + w[1] * d[1] + w[2] * d[2]) / (chord * chord);
+                    let da = (w[0] * w[0] + w[1] * w[1] + w[2] * w[2]).sqrt();
+                    let db = ((pma[0] - pba[0]).powi(2)
+                        + (pma[1] - pba[1]).powi(2)
+                        + (pma[2] - pba[2]).powi(2))
+                    .sqrt();
+                    eprintln!(
+                        "[k11-chain] edge={e_idx} t=[{ta:.4},{tb:.4}] chord={chord:.4e} \
+                         sag={sag:.4e} d_eps={d_eps:.4e} foot_u={u:.4} da={da:.4e} db={db:.4e} \
+                         accept={} pa={paa:?} pm={pma:?}",
+                        sag <= d_eps
+                    );
+                }
+                if sag <= d_eps {
+                    return Ok(());
+                }
                 // NaN-safe: a NaN sag / chord must fail, not recurse.
                 if sag >= chord || sag.is_nan() || chord.is_nan() {
                     return Err(YangError::MalformedTopology(format!(

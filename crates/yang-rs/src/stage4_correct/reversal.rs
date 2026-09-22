@@ -91,6 +91,17 @@ pub(crate) fn sweep_reversed_intersections(
                 // skips every position whose incident edges are not BOTH
                 // intersection edges (real face boundaries mix solid edges
                 // with seam runs — whole-cycle gates never fire on them).
+                // M5 torus arm (2026-09-22, R0032): the typed PROCEDURAL
+                // surface-pair edge joins the population. An untyped
+                // pair-relocated edge (the torus-block class) already
+                // qualified through the pair arm below; once Stage 3 tags
+                // the same edge `SurfacePair` it left BOTH lists and its
+                // cycle was never swept — R0032's torus × cone chain kept
+                // the eight zig-zag arrangement vertices the untyped sweep
+                // had collapsed, and kernel-v2's torus-patch UV-CDT refused
+                // the self-crossing loop. The site test for a pair site is
+                // the tangent-order arm (`conic_param_deltas`), never the
+                // angle band.
                 let any_intersection = cycle.iter().any(|&(s, e)| {
                     let key = if s < e { (s, e) } else { (e, s) };
                     matches!(
@@ -98,6 +109,7 @@ pub(crate) fn sweep_reversed_intersections(
                         Some(Curve::Circle { .. })
                             | Some(Curve::Ellipse { .. })
                             | Some(Curve::LineSegment)
+                            | Some(Curve::SurfacePair { .. })
                     )
                 });
                 // Spec `yang_453_pair_chain_reversal` §3: under the pair arm,

@@ -43,6 +43,84 @@ after the reconciliation run (release, 8 jobs, 360 s; wall 577 s, F0085
 regression since 2026-08-01 is outstanding (checked over every commit of
 `results.json`).
 
+## 2026-09-22 (night) — M5 TORUS ARM: `Torus` joins the pair-surface vocabulary in ssi-rs / yang-rs / kernel-v2 and torus × {cylinder, cone, sphere, torus} intersection edges emit as `Curve::SurfacePair` (default ON); the §4.5.3 sweep's cycle population gains the typed pair edge — R0019 CONVERTS; Stage 0's holed-lateral splice check learns the K11 kinds; canonical **297C / 0W / 9E / 4EE / 0T + 2 UNSUPPORTED(coplanar-boolean)**
+
+**Wall 1 of the 2026-09-22 (later) row is closed at the vocabulary.** A torus
+intersection edge no longer leaves Stage 3 as a `LineSegment` chord polyline:
+`ssi_rs::QuadricSurface::Torus` (perpendicular plane section → circles; every
+other torus pair → the `SurfacePair` descriptor; identical tori →
+`DegenerateInput`), yang `surface_to_quadric` / `quadric_to_surface` /
+membership / tangent torus arms, kernel-v2 `PairSurface::Torus` (signed tube
+distance `√((ρ−R)²+h²) − r` with its unit gradient; band scale `r`, sag
+scale `min(r, R − r)`; key / transform / re-entry / classify arms;
+`surface_pair_project` public). Stage 4 still relocates such an edge through
+the (2t) torus block — the M5 pair arm defers any torus-bearing pair — so
+only the OUTPUT TAG changed: the B-Rep edge is now the procedural curve the
+render sampler and STEP export refine to the render band (spec
+`m5_surface_pair_curve.md` "Torus arm"). Torus × PLANE (the spiric section)
+stays on the `LineSegment` path: it needs a `Plane` pair operand and a
+revision of the K8 "never on a planar face" rule (increment 3).
+
+**Checkpoint 1** (vocabulary + producer arms, Stage-3 emission gated OFF;
+commit b6bd976e): corpus (release, 8 jobs, 600 s; wall 826.7 s)
+byte-identical to the canonical — 296C / 0W / 10E / 4EE / 0T + 2U.
+
+**Checkpoint 2 — the arm-on measurement** (`YANG_TORUS_PAIR=1`, same tree;
+wall 822.4 s): 293C / 0W / 11E / 4EE / 0T + 4U — FIVE moves, three of them
+CORRECT → not, every one the TAG changing which machinery sees the edge:
+
+- **R0026 / R0051 → UNSUPPORTED(coplanar)**: Stage 0's holed-lateral splice
+  check (`stage0/rim_chords.rs::arc_lateral_opposite`) predates K11 and
+  refused any `SurfacePair` on a lateral loop (`mixed-arc-lateral-holed` →
+  `CoplanarFacesUnsupported`) while Stage 1's holed-lateral CDT gate splices
+  the same loop. It now lists exactly the open-chain kinds `loop_polyline`
+  splices (conic arcs, hyperbola, surface-pair). Both CORRECT arm-on after
+  (3.9 s / 1.1 s).
+- **R0032 → ERROR** (kernel-v2 torus-patch UV-CDT, face 593): the §4.5.3
+  reversal sweep's cycle qualification (`reversal.rs`, `any_intersection`)
+  listed Circle / Ellipse / LineSegment; an UNTYPED torus edge qualified
+  through the pair arm, but typed `SurfacePair` it left BOTH lists and its
+  cycle was never swept. Measured on face 593 (torus × cone, R 45.6 / r 30.4):
+  arm-off 146 loop edges, arm-on 154 — the eight extra vertices are the
+  arrangement's own zig-zag crossings at the near-tangential crossing (one
+  pair 0.002 apart) that the untyped sweep had collapsed; the 175-point
+  (u, v) loop self-intersects at exactly those four sites and yang's
+  `tessellate_torus_patch` declines. Refuted by probe on the way: the conic
+  seam chain-merge (conic-only), the §4.3.4 seam insert
+  (`YANG_434_INSERT=0`), the §4.3.3 tangent insert, the sweep's SPAIR
+  switch, and the Stage-1 K11 chain pre-pass (`YANG_K11_CHAIN_PROBE`: zero
+  prints — the curve is the op's own intersection). Fix: the typed
+  `SurfacePair` joins the sweep population; the site test is the
+  tangent-order arm (`conic_param_deltas`), never the angle band. Arm-on:
+  170 reversals collapsed, 0 gate refusals, face 593 back to 146 edges,
+  SUPPORTED_CORRECT (78.2 s).
+- **R0085** arm-on had moved to the same UV-CDT decline (face 1631); after
+  the sweep fix it is back on its canonical wall (face 1761 sub-resolution
+  cone triangle, 250.2 s).
+- **R0050** arm-on STOPs at `RelocationCrossedCarrierVertex` v389 in 2.9 s
+  (canonical: v413 after the full §4.5.2 ladder). The ladder apparently is
+  not consulted on the typed edge — unprobed; the case is ERROR either way
+  and its real walls are the render band (row above).
+
+**The sweep fix converts R0019 with the arm OFF too.** R0019's cylinder ×
+cone pair chains (the M5 cone-pair producer, typed `SurfacePair` since
+2026-07-08) were in the same never-swept population; swept, the Stage-4
+fold vertices kernel-v2's CDT ring-reject refused (FaceId 651, the
+2026-09-12 wall) are gone and the case grades CORRECT (314 s). A/B
+`YANG_453_SPAIR=0` (sweep's pair action off, arm off) restores the ERROR at
+289.4 s. Smoke pin `("R0019", SupportedCorrect)` added.
+
+**Corpus after both fixes** (release, 8 jobs, 600 s): arm OFF (wall 818.6 s)
+**297C / 0W / 9E / 4EE / 0T + 2U** — exactly one move vs the canonical,
+R0019 ERROR → SUPPORTED_CORRECT; arm ON (wall 823.8 s) **297C / 0W / 9E /
+4EE / 0T + 2U** — the R0019 conversion plus the R0050 detail move above,
+nothing else. That meets the spec's flip bar: **the torus arm is the
+default** (`YANG_TORUS_PAIR=0|off` is the dev A/B off-knob); the committed
+`results.json` is the arm-on run. Remaining actionable tail: R0050, R0085
+(R0050's wall 2 — shared curved edges sampled to the WELD band — is now
+buildable, since the edge is a `SurfacePair` the render sampler can
+refine).
+
 ## 2026-09-22 (later) — R0050 RE-DIAGNOSED: NOT a tangency but a 4.19° torus × torus crossing (R0038's class); the Stage-4 triple gates gain the THREE-SLAB junction bound (every ladder rung then completes but self-contacts); the torus / sphere patch tessellators gather every curve kind on their boundary; the two structural walls named — torus curves leave Stage 3 as chord polylines, and the render gate's band sits below a shared boundary chord's sag; canonical 296C / 0W / 10E / 4EE / 0T + 2 UNSUPPORTED(coplanar-boolean) UNCHANGED
 
 **The exact-tangency certificate (2026-09-13) was wrong.** For two tori
@@ -3001,7 +3079,7 @@ Two dead ends, closed by measurement (do not re-walk them):
 | C0046 | NonManifoldVertex(17) | probe 2026-07-18: **0D corner contact BY DESIGN** (gen_complexity.rs: two boxes sharing exactly one vertex, "legitimately non-manifold, loud rejection acceptable"); kernel-v2 `validate.rs` vertex-fan check rejects the union output — the DESIRED posture, same as C0107/C0108 | CONFIRMED (#171 pass 2, by construction) | none (scope boundary; sign-off candidate) |
 | ~~C0048~~ | azimuth-merge rims mismatched (66 vs 69) | **FLIPPED CORRECT 2026-07-31 (2d88ef4a); reconciled 2026-09-04 from the committed results.json history** M8 rim-crossing/uniform-sample merge (#143 landed; residual = #144 snap-rounding) | CONFIRMED (#144) | M8 |
 | ~~C0075~~ | ~~InvalidBooleanOutput (undirected edge ≠ 2 directed)~~ **CONVERTED 2026-08-19** | ~~probe 2026-07-18: two overlapping 12-tooth gear extrudes, union, BY CONSTRUCTION — the known non-convex gear-profile capability tail~~ **The real wall was the Stage-0 split collector's exact-collinearity test dropping rounding-perturbed boundary subdivisions (4 splits on this case) → T-junctions → the unpaired-edge reject. With the identity fix the union completes and measures χ=−2 — the two interleaved gears enclose TWO through-pockets (genus 2; independently derived); the authored `euler_target: 2` was the wrong one and is corrected + pinned.** | CONVERTED | SUPPORTED_CORRECT |
-| R0019 | ~~input B-Rep not 2-manifold~~ ~~kernel-v2 `TessellationFailed` FaceId(649) ring rejected by CDT (317.9 s)~~ ~~input B-Rep not 2-manifold (I6 backstop on a NEEDLE pleat, 164 s — re-walled between 2026-09-07 and 2026-09-12)~~ kernel-v2 `TessellationFailed` FaceId(651) ring rejected by CDT (348 s; 2026-09-12 night, I6.6 generalized to the f64-area form — spec `yang_146_collapsed_wedge_dedup.md` §7.1) | ~~probe 2026-07-17 … 2-vertex/3-face revolve-primitive B-Rep the yang input gate cannot accept (KV6-class)~~ **RE-DIAGNOSED 2026-09-07 (night): the live `input B-Rep is not 2-manifold` text was the I6 `NonManifoldInput` backstop on a rounding pleat (the R0049 class); cleared by I6.6, now a developable/planar ring-reject one crate later (R0100 kin)** | ~~CONFIRMED~~ ~~PROBE (next wall unprobed)~~ CONFIRMED (2026-09-12 night, `KV2_RING_REJECT_PROBE` + `YANG_S5_FOLD_PROBE` + `YANG_S6_LOOP_SIMPLICITY`): the rejected ring is A's cylinder LATERAL in its unrolled chart (750 vertices, 4 crossings, micro-spikes 7e-7…1e-5 with 175–180° turns); the folds are Stage-4 relocations of Line×Ellipse / Hyperbola×Line junction vertices on `A:Cylinder+B:Cone` / `A:Plane+B:Cone` moved 2e-5 … 1.3e-3 across pre-edges of 1.9e-7 … 2e-6 (natural pass: A cap loop `MINTED_BY_S4`, disp/min_seg 6459; refine pass: the cap is simple, the lateral keeps folds k=343/k=380) — the I7 OFF-CURVE GROSS class (displacement ≫ 10 × the local edge), §4.5.2's trigger, R0085/R0011 kin | ~~KV6/scope~~ ~~CDT ring-reject family~~ §4.4.1/§4.5.2 relocation-overrun epic (I7 GROSS half) |
+| ~~R0019~~ **CONVERTED 2026-09-22 (night): the §4.5.3 sweep's population gains the typed `SurfacePair` edge — row above** | ~~input B-Rep not 2-manifold~~ ~~kernel-v2 `TessellationFailed` FaceId(649) ring rejected by CDT (317.9 s)~~ ~~input B-Rep not 2-manifold (I6 backstop on a NEEDLE pleat, 164 s — re-walled between 2026-09-07 and 2026-09-12)~~ kernel-v2 `TessellationFailed` FaceId(651) ring rejected by CDT (348 s; 2026-09-12 night, I6.6 generalized to the f64-area form — spec `yang_146_collapsed_wedge_dedup.md` §7.1) | ~~probe 2026-07-17 … 2-vertex/3-face revolve-primitive B-Rep the yang input gate cannot accept (KV6-class)~~ **RE-DIAGNOSED 2026-09-07 (night): the live `input B-Rep is not 2-manifold` text was the I6 `NonManifoldInput` backstop on a rounding pleat (the R0049 class); cleared by I6.6, now a developable/planar ring-reject one crate later (R0100 kin)** | ~~CONFIRMED~~ ~~PROBE (next wall unprobed)~~ CONFIRMED (2026-09-12 night, `KV2_RING_REJECT_PROBE` + `YANG_S5_FOLD_PROBE` + `YANG_S6_LOOP_SIMPLICITY`): the rejected ring is A's cylinder LATERAL in its unrolled chart (750 vertices, 4 crossings, micro-spikes 7e-7…1e-5 with 175–180° turns); the folds are Stage-4 relocations of Line×Ellipse / Hyperbola×Line junction vertices on `A:Cylinder+B:Cone` / `A:Plane+B:Cone` moved 2e-5 … 1.3e-3 across pre-edges of 1.9e-7 … 2e-6 (natural pass: A cap loop `MINTED_BY_S4`, disp/min_seg 6459; refine pass: the cap is simple, the lateral keeps folds k=343/k=380) — the I7 OFF-CURVE GROSS class (displacement ≫ 10 × the local edge), §4.5.2's trigger, R0085/R0011 kin | ~~KV6/scope~~ ~~CDT ring-reject family~~ §4.4.1/§4.5.2 relocation-overrun epic (I7 GROSS half) |
 | ~~R0053~~ | patch flood-fill LabelMismatch {seed 2, tri 3890} | **FLIPPED CORRECT 2026-09-03 (edd1bb57); reconciled 2026-09-04 from the committed results.json history** probe 2026-07-18 (new `CHERCHI_PATCH_PROBE`): the flood from a seed labeled `[InputId(0)]` reaches tri 3890 labeled `[InputId(1)]` after 956 triangles — **genuinely DISJOINT single labels** (not the L2a compatible coplanar-sheet case). An A-only region floods into a B-only region across 2-incident MANIFOLD edges ⇒ the A×B intersection curve is missing/unsplit there — a Stage-2 arrangement incidence gap (revolve×revolve op, kin to R0050's empty-partner signature) | CONFIRMED (#171 pass 2) | Stage-2/3 arrangement incidence (near-coincident revolve surfaces, R0050 kin) **2026-08-19: DRIFTED long before this date** — the live wall was the pure surface-pair pair-Newton at `:6097` (cyl×cone, ratio −2.6 cone overshoot) → FIXED with R0032/R0044. NOW: Stage-6 `reassembled output would be non-2-manifold` (unprobed) |
 
 ### Capability / scope (4)

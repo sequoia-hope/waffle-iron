@@ -415,9 +415,12 @@ triple Newton with the junction maps counted as curve-bearing).
 ## Torus arm — the pair vocabulary gains `Torus` (R0050 / R0085 wall 1)
 
 **Status**: checkpoint 1 LANDED 2026-09-22 (vocabulary + producer arms,
-Stage-3 emission gated OFF by default; corpus byte-identical by
-construction). **Owner of**: `docs/yang_tail_triage.md` 2026-09-22 (later)
-wall 1 — "torus curves leave Stage 3 as chord polylines".
+Stage-3 emission gated OFF; corpus byte-identical by construction);
+increment 2 MEASURED and FLIPPED DEFAULT-ON the same night (see
+"Increments" 2 below). **Owner of**: `docs/yang_tail_triage.md` 2026-09-22
+(later) wall 1 — "torus curves leave Stage 3 as chord polylines" — CLOSED
+at the vocabulary for curved partners; wall 2 (weld-band sampling of
+shared curved edges) is now buildable.
 
 ### Why
 
@@ -497,11 +500,49 @@ kernel-v2:
    (`tests/m5_surface_pair_curve.rs` torus samplers + `geom` residual).
    Corpus byte-identical by construction (no Stage-3 emission change with
    the knob unset).
-2. **Measure with `YANG_TORUS_PAIR=1`** on every torus case (R0050, R0085,
-   R0096, R0044, C0065/R0074 partners, the KV6d torus fixtures) then the
-   full corpus; a case that moves CORRECT → anything is a real finding
-   (the Stage-3 owner band for a torus owner — `chord_tol_for_curved_owner`
-   has no torus-specific bound; a closed torus has no Circle rim to derive
-   one from — is the expected first wall). Flip the default when clean.
+2. **Measure with `YANG_TORUS_PAIR=1`** — DONE 2026-09-22 (later). The
+   first arm-on corpus (release, 8 jobs, 600 s; wall 822.4 s) read
+   293C / 0W / 11E / 4EE / 0T + 4 UNSUPPORTED: FIVE moves, three of them
+   CORRECT → not (R0026, R0051 → UNSUPPORTED(coplanar); R0032 → ERROR) and
+   two ERROR-detail moves (R0050, R0085). All three regressions were the
+   TAG changing which machinery sees the edge, never the geometry:
+   - **R0026 / R0051** — Stage 0's holed-lateral splice check
+     (`stage0/rim_chords.rs::arc_lateral_opposite`) predates K11 and still
+     refused any `SurfacePair` on a lateral loop (`mixed-arc-lateral-holed`
+     → `CoplanarFacesUnsupported`), while Stage 1's holed-lateral CDT gate
+     splices the same loop. The check now lists exactly the open-chain kinds
+     `loop_polyline` splices (conic arcs, hyperbola, surface-pair). Both
+     cases CORRECT arm-on afterwards (3.9 s / 1.1 s).
+   - **R0032** — the §4.5.3 reversal sweep's cycle qualification
+     (`reversal.rs`, `any_intersection`) listed Circle / Ellipse /
+     LineSegment; an UNTYPED torus edge qualified through the pair arm, but
+     once typed `SurfacePair` the edge left BOTH lists and its cycle was
+     never swept. Measured on face 593 (torus × cone): arm-off 146 loop
+     edges; arm-on 154 — the eight extra vertices are the arrangement's own
+     zig-zag crossings at the near-tangential crossing (one pair 0.002
+     apart) that the untyped sweep had collapsed; the 175-point (u,v) loop
+     self-intersects at those four sites and yang's torus-patch UV-CDT
+     declines (`TriangulationFailed`). Refuted along the way (probed, not
+     inferred): the seam chain-merge (conic-only), the §4.3.4 seam insert,
+     the §4.3.3 tangent insert, the sweep's own SPAIR arm switch, and the
+     Stage-1 K11 chain pre-pass (`YANG_K11_CHAIN_PROBE`, zero prints — the
+     curve is the op's own intersection). Fix: `SurfacePair` joins the
+     population; the site test is the tangent-order arm. Arm-on: 170
+     reversals collapsed, 0 gate refusals, face 593 back to 146 edges,
+     SUPPORTED_CORRECT (78.2 s).
+   - **R0085** arm-on moved from its canonical wall to a torus-patch UV-CDT
+     decline (face 1631) — the same sweep gap; after the fix it is back on
+     its canonical wall (face 1761 sub-resolution cone triangle, 250.2 s).
+   - **R0050** arm-on: `RelocationCrossedCarrierVertex` at v389 in 2.9 s
+     (canonical: v413 after the full §4.5.2 ladder). The ladder apparently
+     does not run on the typed edge — to be probed; the case stays ERROR
+     either way (its walls are the render band, spec "Torus arm" scope).
+   Corpus after the two fixes (release, 8 jobs, 600 s): arm OFF (wall
+   818.6 s) 297C / 0W / 9E / 4EE / 0T + 2U — one move vs canonical, R0019
+   ERROR → CORRECT (the never-swept population held its cylinder × cone
+   pair chains too; A/B `YANG_453_SPAIR=0` restores the ERROR); arm ON
+   (wall 823.8 s) the same 297C plus only the R0050 detail move. **FLIPPED
+   DEFAULT-ON** (`YANG_TORUS_PAIR=0|off` = the A/B off-knob); the committed
+   `results.json` is the arm-on run. Ledger row 2026-09-22 (night).
 3. **Torus × plane** (spiric): `Plane` as a pair operand + the K8 revision.
 4. **Coaxial circle arms** in ssi-rs (T3/T5 special cases → `Circle`).
