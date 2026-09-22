@@ -43,6 +43,61 @@ after the reconciliation run (release, 8 jobs, 360 s; wall 577 s, F0085
 regression since 2026-08-01 is outstanding (checked over every commit of
 `results.json`).
 
+## 2026-09-22 — R0063 CONVERTED ⇒ 296C: the KV14 Slice B ribbon opened an encircling loop by a neighbour-u comparison that a generator-line wall at the anchor turns into a coin flip; the chain now takes its sense from the loop's winding and starts after its seam wrap; canonical 296C / 0W / 10E / 4EE / 0T + 2 UNSUPPORTED(coplanar-boolean)
+
+The 2026-09-18 (later) row named R0063's STOP a rounding-luck latent
+("its CORRECT grade rode on one rounding of one cap normal") and left it.
+Measured today from the `YANG_T133_PROBE` dump of Extrude 3's operand A
+(the op-2 output: a cylinder r 4.54e-4 with a rectangular notch cut
+6.39e-4 deep into its lateral), the mechanism is not in the geometry at all:
+
+1. **The unroll.** `tessellate_lateral_holed_cdt`'s periodic-strip arm
+   (spec `yang_stage1_curved_holed_patch` Slice B) opens each encircling
+   loop into a u-ascending chain with `open_chain`: anchor at the global
+   min-u vertex, then "walk toward whichever neighbour continues upward"
+   (`succ <= pred` on the two neighbours' u). The lower loop's min-u vertex
+   was v12, a notch corner on the bottom rim, and its loop successor v11 is
+   the TOP of the notch's generator-line wall — the same azimuth, so the
+   same u to within one ulp (1.0989040709823172e-4 vs …183e-4). The rule
+   compared v11's u against the arc neighbour v33's (1.63e-4), took v11 as
+   "continuing upward", and walked the loop in its stored (θ-DEcreasing)
+   order: v12 → v11 → v32 (u 2.744e-3) → … → v33 → v12' (u + 2πr). Two
+   chords ran the long way round the strip (at the notch height and at the
+   rim), collinear with the notch's own arcs, and `chart_polygon_crossings`
+   reported 2 — the loud `Stage1ChartCrossing`, `demand_n: None` because a
+   cylinder's rim chords are straight in its strip (nothing to refine).
+2. **Why the cap normal mattered.** Which of v12 / v11 rounds lower decides
+   the anchor. With the pre-09-18 Newell cap the anchor was v11: its
+   successor v32 sits at 2.744e-3, its predecessor v12 ties, `succ <= pred`
+   is false, the walk went backward — ascending by luck. The exact
+   `unit(u × v)` cap moved the corners by ~1e-16 and flipped the tie.
+3. **The fix** (`stage1_tessellate.rs` `open_chain`): the chain's sense is
+   the loop's WINDING sign (Σ wrapped Δθ ≈ ±2π, the quantity `encircles`
+   already classifies on), and the chain starts just after the loop's ONE
+   seam wrap (the single large descending u-step in the ascending
+   traversal). A loop whose two anchor neighbours differ in u is opened
+   identically to before. Pin: `yang-rs tests_unit/s1_ribbon_open_chain.rs`
+   — a unit strip with a 25° notch whose wall rises from the min-u anchor
+   (the seam forced there by making 182° → 209° the unique widest gap in
+   the union of both rims' boundary angles — the rim splitter floors every
+   arc at two pieces, so a bare notch never wins the gap), both loop
+   senses; RED on the old rule in the descending sense (certified by
+   stashing the fix: the chain opened v13 → v7 → v35 at u 0.24 → 0.24 →
+   6.05 and Slice G's chord contract refused it), GREEN and
+   sense-identical (same triangle count, boundary, area) with it.
+
+Not a band, not a tolerance: the old rule was reading orientation off a
+quantity that a generator line at the anchor makes exactly ambiguous.
+R0063 then completes all three ops — SUPPORTED_CORRECT in 15.1 s release
+(the gap at the feature-size floor, `r0063_reads_genus_one_below_its_gap`,
+is unchanged and grades on the composition oracle as before).
+
+Corpus (release, 8 jobs, 600 s; wall 819.3 s, F0085 338.3 s): **296C / 0W /
+10E / 4EE / 0T + 2 UNSUPPORTED(coplanar-boolean)** — per-id diff of the
+committed `results.json`: exactly ONE category move (R0063 ERROR →
+SUPPORTED_CORRECT), ZERO detail moves. Remaining actionable tail: R0019,
+R0050, R0085. Smoke pin `("R0063", SupportedCorrect)`.
+
 ## 2026-09-21 (late) — R0100 CONVERTED ⇒ 295C: the §4.3.3 Case-IV RULE-OUT lands at Stage 4 as a LOOP-level certificate (`PhantomIntersectionLoop`) feeding the always-on §4.5.2 op-level ladder; canonical 295C / 0W / 11E / 4EE / 0T + 2 UNSUPPORTED(coplanar-boolean)
 
 Spec `yang_433_case_iv_corner_phantom.md` §8. The 2026-08-27 anchor stood:
@@ -2352,7 +2407,7 @@ moved. The 30 ERROR rows are the ACTIVE rows below.
 | ~~R0047~~ | ~~Stage-4 LRR (u32::MAX)~~ reassembled output non-2-manifold (Stage 6) | **FLIPPED CORRECT 2026-08-19 (c10820b8); reconciled 2026-09-04 from the committed results.json history** ~~probe 2026-07-17: `site=split_max_passes` — same class as R0009~~ **RE-DIAGNOSED + LAYER PEELED 2026-08-19:** the R0009 absolute-floor class exactly (2.09e-4 scale; 5168 healthy-triangle unzips in 62 s before the cap). Post-fix zero unzip actions; advances to a Stage-6 reassembly non-2-manifold wall (unprobed) | CONFIRMED (2026-08-19) | Reassembly non-2-manifold family (was P3-§4.5.2) |
 | ~~R0049~~ | ~~non-2-manifold (reassembly)~~ ~~ring rejected by CDT (FaceId 575)~~ **FLIPPED CORRECT 2026-09-07 (night): the live wall was the I6 `NonManifoldInput` backstop on a ROUNDING PLEAT (two sub-band slivers, cone × gear-flank plane, apexes welded bit-identically) — never fragmentation; I6.6 band-scoped membrane cancellation** | (history: ~~probe 2026-07-17: `s6-planar-loop-nonplanar` face 134 vert 337 off-plane 1.449e-6 (band 1.0e-7) — the F0064 class (N51)~~ **DRIFTED 2026-07-29:** now fails as a ring-reject on a **developable** patch (FaceId 575, `tessellate_developable_patch` — not planar). 214 origin nodes, 0 arc samples, folds at idx 1/45/46 (144.2°, 180.0°, 176.6°). **NOT counted as seam-class:** the ring breaks into **~97 adjacency runs**, so ~45% of ring indices are seams and "fold near seam" carries no information. The **fragmentation itself** is the signal — a boundary shattered into ~97 micro-chains against different neighbour faces, which reads as the near-coincident-surface incidence family (R0050/R0053 kin) and is consistent with the old `s6-planar-loop-nonplanar` diagnosis. **CAVEAT: the run-splitting heuristic (twin-id delta > 12 or sign change) is crude and may over-fragment on irregular id allocation — verify the 97 before building on it** | PARTIAL (builder + fragmentation measured 2026-07-29; mint unconfirmed) | Stage-2/3 incidence (near-coincident surfaces) — was P3a-#146) | CONFIRMED (i6-coincident-tris probe) | DONE |
 | R0050 | ~~Stage-4 LRR v58~~ ~~LRR v122 (op 2, torus∩conic endpoint mix)~~ op 3 `RelocationCrossedCarrierVertex` v413 (§4-I9) | **2026-09-13 RE-DIAGNOSED — EXACT TANGENCY, not a transit and not a resolution deficit.** A:5 (Torus R=3.9509 r=2.6339) and B:2 (Torus R=3.7759 r=2.5173) have parallel axes (axial offset 2.8e-16) offset perpendicularly by 0.1749237839 = `R_A − R_B` EXACTLY; min |d_B2| over A's torus refines to **0.0**. q=v209 is EXACTLY A's B-Rep vertex 76, the {torus, cap plane, meridian-disc plane} corner; the exact crossings of B:2 with A:9's 6-edge boundary are TWO and both far from q (t=0.84306 on seg v76–v41, t=0.15694 on seg v40–v86), so the mesh crossing at v413 is SPURIOUS (B's mesh 3.4e-2 off its own surface, within its honest `torus_chord_bound` 6.2932e-2) and `[451-transit] REFUSE NoRealCandidate` is CORRECT — there is no junction to transit to. Both candidate triples land outside A:9's face (the `{B:2,A:9,A:5}` one ON the meridian circle to 1.404e-15 but inside the chord-bitten gap). §4.5.2 REFUTED: op-level ladder converges at NO rung (d_ε/2 emits 55 illegal self-intersections; d_ε/3…d_ε/16 all `OffCurveBeyondChordBand` at a moving vertex) and the whole-case ladder OSCILLATES (f=3 ✗, 4 ✓, 5 ✗, 6 ✓, 8 ✗). Full measurement: `specs/yang_452_local_refinement.md` §6. ~~2026-09-12 (later): op 2's wall was the torus block's endpoint-mix STOP on a {cylinder, cap plane, torus} corner — the triple block now admits torus∩conic mixes; op 3 is the §4.5.1 corner-transit class, R0085 kin.~~ probe 2026-07-18: `YANG_TORUS_STOP site=gt2_partners` with **partners=[] (EMPTY)** — the model's two near-identical revolve tori, now certified EXACTLY TANGENT. #131/N28 theory refuted | CONFIRMED (2026-09-13, exact-tangency certificate) | ~~P3a-#146 / Stage-2/3 incidence~~ **§4.3.3 tangent-point insertion** (the R0015/C0065 arm) |
-| R0063 | ~~Stage-4 LRR (u32::MAX)~~ **2026-09-18 (later): CORRECT → ERROR, yang Stage-1 `chart polygon of face 1 crosses itself 2 time(s)` at Extrude 3 — a rounding-luck latent unmasked by the exact extrude-cap normal (a ~1e-16 change on the oblique sketch normal); the document's gap is at the `MIN_FEATURE_SIZE` floor (exact ladder unstable below 1024 cells). Loud by design.** | **FLIPPED CORRECT 2026-07-30 (1a9cee36); reconciled 2026-09-04 from the committed results.json history** probe 2026-07-17: `site=split_max_passes` — same class as R0009 (the #145 zigzag residual resolves into the split-budget class) | CONFIRMED (#171 sweep) | P3-§4.5.2 |
+| ~~R0063~~ **CONVERTED 2026-09-22 (Slice B `open_chain`: sense from the loop winding, start after the seam wrap — row above)** | ~~Stage-4 LRR (u32::MAX)~~ **2026-09-18 (later): CORRECT → ERROR, yang Stage-1 `chart polygon of face 1 crosses itself 2 time(s)` at Extrude 3 — a rounding-luck latent unmasked by the exact extrude-cap normal (a ~1e-16 change on the oblique sketch normal); the document's gap is at the `MIN_FEATURE_SIZE` floor (exact ladder unstable below 1024 cells). Loud by design.** | **FLIPPED CORRECT 2026-07-30 (1a9cee36); reconciled 2026-09-04 from the committed results.json history** probe 2026-07-17: `site=split_max_passes` — same class as R0009 (the #145 zigzag residual resolves into the split-budget class) | CONFIRMED (#171 sweep) | P3-§4.5.2 |
 | ~~R0077~~ | ~~Stage-4 LRR v3~~ OffCurve v154 (since 2026-07-28) | probe 2026-07-18: `YANG_TORUS_STOP site=pair_newton_none` — torus×plane implicit-pair Newton non-convergence at extreme scale (torus R=2051/r=1367, coords ~2700; the op's other two torus verts converge with rho ≈ 2e-13). Same class as R0025 | CONFIRMED (#171 pass 2) | ~~P3b-#137 (torus∩plane relocation family)~~ **FLIPPED CORRECT 2026-09-11: the pair-Newton wall was closed 2026-07-28 (ulp floor); the live wall was the torus block's `[s1, s2]` arm gating a box-edge × torus pierce (v154 / v161, 17° grazing, moves 259 / 371 along the edge) at the surface-pair corridor (251 / 243) instead of the KV11 LINE corridor (688 / 650) — `junction_line_divergence`, spec `yang_stage4_conic_triple_junction` "Junction-line amendment"; see the 2026-09-11 section** DONE |
 | ~~R0091~~ | Stage-4 LRR (u32::MAX) | **FLIPPED CORRECT 2026-07-21 (92188eaa); reconciled 2026-09-04 from the committed results.json history** probe 2026-07-17: `site=split_max_passes` — same class as R0009; STILL the historical silent-wrong trap: any fix must be re-CDT/refinement, never a merge | CONFIRMED (#171 sweep) | P3-§4.5.2 |
 

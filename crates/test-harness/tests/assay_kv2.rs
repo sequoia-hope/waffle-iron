@@ -1414,6 +1414,16 @@ fn smoke_corpus_boundary_categories() {
         // §4.5.2 certificate (chord band / edge clearance = 11.5), and the
         // op-level ladder converges at d_ε/16. 1.3 s release.
         ("R0100", Category::SupportedCorrect),
+        // R0063 FLIPPED (2026-09-22, spec `yang_stage1_curved_holed_patch`
+        // "Slice B seam — R0063"): the op-2 holed cylinder lateral's lower
+        // encircling loop had its min-u anchor at a notch corner whose
+        // generator-line wall rises from it at the same azimuth, so the old
+        // "walk toward the neighbour that continues upward" rule compared
+        // two u values one ulp apart and — by which cap-normal rounding the
+        // corner carried — opened the ribbon DESCENDING (the loud Stage-1
+        // chart self-crossing). The chain now takes its sense from the
+        // loop's winding and starts after its one seam wrap. 15 s release.
+        ("R0063", Category::SupportedCorrect),
         // C0065 FLIPPED (2026-09-17, Yang §4.5.2 local refinement ALWAYS-ON
         // + KV14 Slice F-4): the x = 1.45 wall grazes the torus 0.05 deep
         // while the natural rim chord sags 0.038, so the mesh loop reached

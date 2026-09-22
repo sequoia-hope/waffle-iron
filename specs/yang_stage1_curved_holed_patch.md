@@ -808,3 +808,35 @@ either coordinate, mixed loop senses.
 **Measured:** C0065 SUPPORTED_CORRECT end to end (1.7 s release) once the
 §4.5.2 pass supplies the body (`specs/yang_452_local_refinement.md` §7);
 kernel-v2 pin `tests/kv6d_c0065_through_slot.rs`.
+
+## Slice B seam — R0063 (2026-09-22): opening an encircling loop is a function of its winding, not of the anchor's neighbours
+
+`open_chain` (the periodic-strip arm) laid each encircling loop into its
+u-ascending chain by anchoring at the min-u vertex and walking toward
+"whichever neighbour continues upward" (`succ <= pred` on the neighbours'
+u). That reads the loop's orientation off a comparison a GENERATOR LINE at
+the anchor makes exactly ambiguous: R0063's op-2 holed lateral has a notch
+whose wall rises from the anchor corner at the same azimuth, so the two
+corners tie in u to within one ulp and the tie is decided by which
+cap-normal rounding the corners carried (the 09-18 exact `unit(u × v)` cap
+flipped it). Laid descending, the ribbon ran the long way round the strip
+at two heights and `chart_polygon_crossings` fired (`Stage1ChartCrossing`,
+demand `None` — a cylinder's rim chords are straight in its strip).
+
+**Rule now:** the chain's sense is the loop's WINDING sign (Σ wrapped Δθ,
+≈ ±2π — the quantity `encircles` already classifies on); the chain starts
+just after the loop's single seam wrap (the one large descending u-step in
+the ascending traversal). A loop whose anchor neighbours differ in u is
+opened identically to before (the corpus per-id diff: one move, R0063).
+
+**Pin:** `tests_unit/s1_ribbon_open_chain.rs` — a unit strip with a 25°
+notch whose wall rises from the min-u anchor with IDENTICAL azimuth bits,
+in both loop senses; sense-identical output (triangle count, boundary edge
+count, area). Forcing the seam next to the notch needed the rim splitter's
+own rule: every arc is floored at two pieces, so a bare notch never owns
+the widest boundary-vertex gap; the upper rim's vertex set breaks the
+symmetry (a vertex at 170° splits the wrap half of the 155° → 209° arc and
+a 54° arc 182° → 236° puts its midpoint sample on the notch corner's
+azimuth), leaving 182° → 209° the unique widest gap in the union. RED on
+the old rule in the descending sense (stash-certified: the chain opened at
+u 0.24 → 0.24 → 6.05 and Slice G's chord contract refused it).

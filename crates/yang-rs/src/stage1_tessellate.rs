@@ -2855,27 +2855,37 @@ pub(crate) fn tessellate_lateral_holed_cdt(
             // Open a closed encircling loop into a u-ASCENDING chain. The loop
             // is u-monotone with a single seam wrap, but its traversal sense
             // depends on the winding sign (a +2π rim ascends in u, a −2π rim
-            // descends), so anchor at the global-min-u vertex and walk toward
-            // whichever neighbor continues upward — orientation-agnostic.
+            // descends). The sense is read from the loop's WINDING (an exact
+            // ±2π quantity), and the chain starts just after its one seam
+            // wrap (the single descending u-step, ≈ −2πr) — never from a
+            // comparison of the anchor's two neighbours' u. R0063 (2026-09-22,
+            // `docs/yang_tail_triage.md`): the min-u vertex of the op-2 holed
+            // lateral was a notch corner whose GENERATOR-LINE wall rises from
+            // it at the same azimuth, so both neighbours tied at the anchor's
+            // u to within one ulp and the tie — decided by which cap-normal
+            // rounding the corner carried — laid the chain DESCENDING; the
+            // ribbon then ran the long way round at two heights and the chart
+            // polygon crossed itself (the loud Stage-1 STOP, demand `None`
+            // because no rim chord was involved). A loop whose two neighbours
+            // differ in u is opened identically to before.
             let open_chain = |poly: &[u32]| -> Vec<u32> {
                 let n = poly.len();
-                let us: Vec<f64> = poly.iter().map(|&g| project(g).x()).collect();
-                let m = (0..n)
-                    .min_by(|&a, &b| {
-                        us[a]
-                            .partial_cmp(&us[b])
-                            .unwrap_or(std::cmp::Ordering::Equal)
-                    })
-                    .unwrap_or(0);
-                let succ = us[(m + 1) % n];
-                let pred = us[(m + n - 1) % n];
-                if succ <= pred {
-                    // Successor continues the ascending run.
-                    (0..n).map(|k| poly[(m + k) % n]).collect()
+                let ascending: Vec<u32> = if winding(poly) >= 0.0 {
+                    poly.to_vec()
                 } else {
-                    // Predecessor is the ascending run — walk backward from m.
-                    (0..n).map(|k| poly[(m + n - k) % n]).collect()
+                    poly.iter().rev().copied().collect()
+                };
+                let us: Vec<f64> = ascending.iter().map(|&g| project(g).x()).collect();
+                let mut start = 0usize;
+                let mut drop = f64::INFINITY;
+                for k in 0..n {
+                    let d = us[(k + 1) % n] - us[k];
+                    if d < drop {
+                        drop = d;
+                        start = (k + 1) % n;
+                    }
                 }
+                (0..n).map(|k| ascending[(start + k) % n]).collect()
             };
             let mean_v = |poly: &[u32]| -> f64 {
                 poly.iter().map(|&g| raw(g).1).sum::<f64>() / poly.len() as f64
