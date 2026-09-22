@@ -738,12 +738,29 @@ fn refine_452(
             }
         };
         let unpaired = refine_452_unpaired(&brep);
-        // Clause 4 reads BOTH halves of "a valid body": the pairing
-        // functional above and the output's improper-contact census (the
-        // kernel-v2 render gate's own test). A rung that pairs every edge
-        // but self-intersects (R0050 at d_ε/2: unpaired 0, improper 55) is
-        // not adopted — it would only be refused one crate later, and the
-        // standing STOP names the defect better than a render-gate reject.
+        // Clause 4 is the natural path's OWN acceptance: a watertight
+        // 2-manifold emission (the pairing functional at zero), with every
+        // downstream gate — kernel-v2's render-mesh self-intersection gate on
+        // the RESAMPLED B-Rep, the composition oracle — applying unchanged.
+        //
+        // The improper-contact census below is a PROBE number, not a gate.
+        // From 2026-09-13 to 2026-09-22 adoption also demanded `improper ==
+        // 0` on the Stage-4 mesh, justified only by "kernel-v2's gate refuses
+        // the same body one crate later" (R0050 at d_ε/2: unpaired 0,
+        // improper 55, render gate `SelfIntersectingBooleanOutput`). That
+        // held while torus intersection edges left Stage 3 as `LineSegment`
+        // chord polylines the render sampler could not refine. With the M5
+        // torus arm the edge is a `Curve::SurfacePair` the render sampler
+        // resamples to the render band, the gate passes, and R0050's d_ε/2
+        // body is SUPPORTED_CORRECT on every oracle — the exact contacts it
+        // carries are the Stage-4 mesh's OWN chords crossing at a 4.4°
+        // knife-edge void (an A-torus facet against a B-torus facet in the
+        // strip beside the shared curve), the discretization's artifact, not
+        // the B-Rep's. The mesh is the computational tool (A15), the B-Rep
+        // is the output; an absolute test on the tool's chords is the
+        // contradiction `output_improper_count`'s own contract names
+        // ("never as an absolute 'is this output valid?' test"). The strict
+        // clause survives as the A/B knob `YANG_452_REQUIRE_CLEAN=1`.
         let improper = output_improper_count(&brep);
         if probe {
             eprintln!(
@@ -754,14 +771,11 @@ fn refine_452(
         if unpaired == 0 {
             // Converged: the refinement produced a watertight 2-manifold
             // output. Every downstream gate still applies unchanged.
-            // DIAGNOSTIC (2026-09-22, R0050): `YANG_452_ADOPT_IMPROPER=1`
-            // adopts a self-contacting rung so the downstream crate's own
-            // verdict on it can be measured. Never production.
-            let adopt_improper = std::env::var_os("YANG_452_ADOPT_IMPROPER").is_some();
-            if adopt && (improper == 0 || adopt_improper) {
+            let require_clean = std::env::var_os("YANG_452_REQUIRE_CLEAN").is_some();
+            if adopt && (improper == 0 || !require_clean) {
                 return Some(brep);
             }
-            continue; // census, or a self-intersecting rung: keep climbing
+            continue; // census, or (A/B strict mode) a self-contacting rung
         }
         // Strict-decrease monitor: abort the ladder on the first rung that did
         // not improve on the previous one.

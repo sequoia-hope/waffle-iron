@@ -1359,7 +1359,10 @@ fn smoke_corpus_boundary_categories() {
         // vertices that kernel-v2's CDT ring-reject refused (FaceId 651)
         // survived; swept, the ring is simple. A/B: `YANG_453_SPAIR=0`
         // restores the ERROR (289.4 s), 314 s CORRECT with the sweep.
-        ("R0019", Category::SupportedCorrect),
+        // NOT pinned here: at 314–324 s release it is far beyond this gate's
+        // 120 s CPU budget (the pin added 2026-09-22 night read TIMEOUT and
+        // went red in CI the same day); the categorized corpus
+        // (`results.json`, `full_corpus_categorized`) carries it.
         // R0015 FLIPPED (2026-09-11, M8 slice h closing): the torus cap's
         // n-ary Stage-0 group carried ONE `opposite` flag (B vs the group
         // frame) for all four pairs while A's sketch-plane fragments have
@@ -1432,6 +1435,17 @@ fn smoke_corpus_boundary_categories() {
         // chart self-crossing). The chain now takes its sense from the
         // loop's winding and starts after its one seam wrap. 15 s release.
         ("R0063", Category::SupportedCorrect),
+        // R0050 FLIPPED (2026-09-22 night, spec `yang_452_local_refinement`
+        // §9): the op-3 torus×torus union STOPs at natural resolution
+        // (`RelocationCrossedCarrierVertex`, certificate 3.38 → ladder
+        // [2, 4]); the d_ε/2 rung pairs every edge and is now ADOPTED —
+        // clause 4 reads the natural path's own acceptance, no longer the
+        // Stage-4 mesh's exact chord-contact count (57 A-torus × B-torus
+        // facet crossings in the strip beside a 4.4° knife-edge void, the
+        // discretization's artifact). With the M5 torus arm the shared edge
+        // is a SurfacePair the render sampler refines, and every downstream
+        // oracle passes. 9.2 s release.
+        ("R0050", Category::SupportedCorrect),
         // C0065 FLIPPED (2026-09-17, Yang §4.5.2 local refinement ALWAYS-ON
         // + KV14 Slice F-4): the x = 1.45 wall grazes the torus 0.05 deep
         // while the natural rim chord sags 0.038, so the mesh loop reached

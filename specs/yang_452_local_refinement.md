@@ -709,3 +709,63 @@ that the retry later converted (the C0065 flip proof moved exactly one case),
 so the reorder is byte-identical everywhere the demand stays ≤ 4.
 
 **Corpus proof (release, 8 jobs, 600 s; wall 760.2 s):** **293C / 0W / 12E / 4EE / 0T, 3 UNSUPPORTED(coplanar-boolean)** — per-id diff of the committed `results.json`: exactly ONE category move (R0085 ERROR → UNSUPPORTED(coplanar-boolean)), ZERO detail moves. A first run with the ladder consulted BEFORE the §4.5.4 retry moved TWO (R0044 CORRECT → ERROR, `TessellationFailed FaceId(458)`) — spec §8.5; the reorder restores it. The Stage-4 `RelocationCrossedCarrierVertex` family is down to R0050 (exact tangency).
+
+## 9. Clause 4 is the natural path's own acceptance (2026-09-22, night) — the `improper == 0` demand retired; R0050 CONVERTS at d_ε/2
+
+### 9.1 What the arm-on measurement had left open
+
+The M5 torus arm's arm-on corpus (`m5_surface_pair_curve.md` "Torus arm"
+increment 2) moved R0050's detail from the canonical v413 STOP to a v389
+`RelocationCrossedCarrierVertex` in 2.9 s, and the note read "the ladder
+apparently does not run on the typed edge — to be probed". Probed
+(`YANG_452_PROBE=1`, release): the ladder DOES run. The certificate reads
+3.38 → rungs `[2, 4]`; **both rungs complete** (d_ε/2: 1774 tris, 0
+unpaired, 57 improper; d_ε/4: 3086 tris, 0 unpaired, 25 improper) and
+neither is adopted, because clause 4 (as amended 2026-09-13, §7) demanded
+`improper == 0` on the Stage-4 mesh. The 2.9 s is the whole ladder — there
+was never a missing invocation.
+
+### 9.2 The d_ε/2 body is CORRECT one crate later
+
+`YANG_452_ADOPT_IMPROPER=1` (the §6.7 diagnostic) handed the d_ε/2 body to
+kernel-v2: **SUPPORTED_CORRECT, all checks passed** — the render-mesh
+self-intersection gate, watertightness, χ, exact volume, the composition
+oracle. The 2026-09-22 (later) ledger row had already measured what those
+57 contacts are: every pair an A:5 torus triangle against a B:2 torus
+triangle in the strip beside the 4.4° knife-edge void, where the Stage-4
+mesh's own chords on two sheets meeting at that dihedral must cross. They
+are the discretization's artifact, not the B-Rep's — and the same row
+recorded that the only reason the clause was kept was that kernel-v2's
+render gate refused the same body (`SelfIntersectingBooleanOutput 27/38`)
+because a torus edge left Stage 3 as a `LineSegment` chord polyline the
+render sampler could not refine. The torus arm removed that: the edge is a
+`Curve::SurfacePair`, `surface_pair_edge_samples` resamples it to the
+render band, and the render gate passes.
+
+### 9.3 The change
+
+Clause 4 reads the natural path's own acceptance: the pairing functional at
+zero (a watertight 2-manifold emission), with every downstream gate applying
+unchanged. The improper-contact count stays a PROBE number (printed under
+`YANG_452_PROBE`) and the RELATIVE monotone measure of the §4.5.4 retry —
+which is exactly the contract `output_improper_count`'s doc comment always
+stated ("never as an absolute 'is this output valid?' test"); the 09-13
+amendment had contradicted it. The strict clause survives as the A/B knob
+`YANG_452_REQUIRE_CLEAN=1` (restores R0050's STOP byte-for-byte);
+`YANG_452_ADOPT_IMPROPER` is retired.
+
+Why this is the structural reading, not a band: the mesh is the
+computational tool (invariant A15), the B-Rep is the output. An exact test
+on the tool's chords at a knife-edge dihedral fails for every correct answer
+whose two sheets meet at a small angle, at every density (the count was
+22 / 29 / 31 / 58 / 103 / 45 across d_ε/3 … 16 — non-monotone, because it
+measures chord crossings, not a defect). The output's validity is judged
+where the output exists: on the resampled render mesh (kernel-v2's gate)
+and by the composition oracle (0W enforced).
+
+### 9.4 Measurements
+
+- R0050 single case (release): natural STOP v389, d_ε/2 adopted,
+  **SUPPORTED_CORRECT 9.2 s**. `YANG_452_REQUIRE_CLEAN=1`: ERROR v389, 2.9 s
+  (the pre-change verdict).
+- Full corpus (release, 8 jobs, 600 s): **298C / 0W / 8E / 4EE / 0T + 2 UNSUPPORTED(coplanar-boolean)** (wall 809.8 s, F0085 325.4 s) — per-id diff of the committed `results.json`: exactly ONE category move (R0050 ERROR → SUPPORTED_CORRECT), ZERO detail moves.
