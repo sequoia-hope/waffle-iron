@@ -3155,6 +3155,27 @@ sorts out is an artifact of the port's N2 relocation-only Stage 4, and
 the canonicalization restores exactly the ordered-by-parameter state the
 paper's pipeline maintains natively.
 
+**2026-09-22 addendum — the same criterion at the OUTPUT (R0085).** The
+ratified §4.3.4 acceptance test now also governs the emitted B-Rep's
+intersection runs (`stage5_chain_decimate`, after the I5-1b merge; spec
+`yang_434_output_chord_refinement.md` "Stage-5 chain decimation"): an
+interior run vertex with exactly 4 loop-edge uses on 2 faces whose two
+edges are A×B intersection edges of one descriptor is dropped iff the
+paper's h/l/α test holds between its kept neighbours — the output
+polyline is then one the paper's refinement would itself terminate at,
+and the arrangement's grazing-facet density (R0085: 69 splits of one
+generator, pair-chain vertices 3e-7 apart) never reaches kernel-v2 as
+edge endpoints. A second, STRICTER class covers the sub-resolution
+subdivision points of a straight operand edge (no intersection edge
+attached; R0085 op 2's gear cap∩flank edge at 2e-5 … 1e-4): dropped only
+when on the segment through their kept neighbours to working precision
+(`h ≤ TAU_WORK·(1+scale)`) within the same chord bound — a corner of the
+operand's own profile never qualifies. Both classes are port conventions
+in the paper's terms, not new tolerances: the paper's polylines carry no
+such points because they are built by parameter-domain subdivision
+(`:579-583`), and its input edges are never split by a ruled-out mesh
+crossing.
+
 ### Batch C — scope (D14)
 
 #### D14 — No NURBS / Bézier surface support; only analytic primitives

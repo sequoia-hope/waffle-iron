@@ -1907,16 +1907,144 @@ fn tessellate_developable_patch(
         }
         // P10 safety net (R0085 op 3, 2026-09-18): the corpus oracle's own
         // SUB-RESOLUTION rule (area < 1e-12 AND height < 4 f32 ulps of the
-        // coordinate scale). Surface-pair samples bunch at a near-tangential
-        // torus × cone crossing (consecutive samples 1e-6 … 2e-5 apart), and
-        // the cone patch then emits a needle triangle the bitwise gate
-        // cannot see; the render weld grid fuses its vertices and the mesh
-        // reads χ short by two. Loud at the producing face; the structural
-        // owner is the pair-curve sampler's bunching at a near-tangency.
+        // coordinate scale). A needle triangle the bitwise gate cannot see
+        // (vertices ~1e-6 apart, height ~1e-8) is fused by the render weld
+        // grid and the mesh reads χ short by two. Loud at the producing
+        // face. The 2026-09-18 reading ("surface-pair samples bunched at a
+        // near-tangential crossing") was a misattribution: the R0085 ear
+        // spans three CONSECUTIVE boundary vertices of a collinear run and
+        // was MINTED by the M1 grid-degeneracy flip pass (spec
+        // `kv2_cdt_triangulation_core` §6e M1c, 2026-09-22) — the CDT itself
+        // fanned the run legally.
         if render_subresolution_triangle(pa, pb, pc, height_floor) {
+            // Diagnostic probe (env-gated, zero-cost off): the triangle's
+            // corners with node provenance, then the face's boundary loops
+            // edge by edge (curve kind, chord length, interior sample
+            // count, tightest consecutive sample spacing) so a bunching
+            // class self-localizes to its producing edge.
+            if std::env::var_os("KV2_SUBRES_PROBE").is_some() {
+                eprintln!(
+                    "[subres-probe] face={fid:?} height_floor={height_floor:.3e} \
+                     r_unroll={r_unroll:.6e} tan_a={tan_a:.6e}"
+                );
+                for (label, w) in [("a", t[0]), ("b", t[1]), ("c", t[2])] {
+                    let wn = &wnodes[w];
+                    let p = nodes[wn.node].pos;
+                    eprintln!(
+                        "  {label}: node={}{} p2=({:.9e},{:.9e}) pos=({:.17e},{:.17e},{:.17e})",
+                        wn.node,
+                        if wn.node < n_prerefine {
+                            " (pool)"
+                        } else {
+                            " (split)"
+                        },
+                        wn.p2.x(),
+                        wn.p2.y(),
+                        p[0],
+                        p[1],
+                        p[2]
+                    );
+                }
+                eprintln!("  surface: {:?}", face.surface);
+                // Replay dump: the chart polygon exactly as the CDT saw it,
+                // plus the raw CDT triangles, so the triangulation can be
+                // reproduced offline (`KV2_SUBRES_DUMP=<path>`).
+                if let Ok(path) = std::env::var("KV2_SUBRES_DUMP") {
+                    let mut s = String::new();
+                    for (i, p) in pool_p2.iter().enumerate() {
+                        s.push_str(&format!("P {i} {:e} {:e}\n", p.x(), p.y()));
+                    }
+                    s.push_str(&format!(
+                        "O {}\n",
+                        outer_cdt
+                            .iter()
+                            .map(|v| v.to_string())
+                            .collect::<Vec<_>>()
+                            .join(" ")
+                    ));
+                    for hcdt in &holes_cdt {
+                        s.push_str(&format!(
+                            "H {}\n",
+                            hcdt.iter()
+                                .map(|v| v.to_string())
+                                .collect::<Vec<_>>()
+                                .join(" ")
+                        ));
+                    }
+                    for tri in &cdt_tris {
+                        s.push_str(&format!("T {} {} {}\n", tri[0], tri[1], tri[2]));
+                    }
+                    s.push_str(&format!("X {} {} {}\n", t[0], t[1], t[2]));
+                    let _ = std::fs::write(path, s);
+                }
+                let mut twin_faces_seen: Vec<FaceId> = Vec::new();
+                for (li, lp) in all_loops.iter().enumerate() {
+                    let hes = arena.loop_half_edges(*lp)?;
+                    eprintln!("  loop {li}: {} half-edges", hes.len());
+                    for h in hes {
+                        let he = arena.half_edge(h)?;
+                        let twin_face = arena.loop_(arena.half_edge(he.twin)?.loop_id)?.face;
+                        if !twin_faces_seen.contains(&twin_face) {
+                            twin_faces_seen.push(twin_face);
+                            eprintln!(
+                                "  twin face {:?}: {:?}",
+                                twin_face,
+                                arena.face(twin_face)?.surface
+                            );
+                        }
+                        // Out-degree of the origin vertex (walk twin.next).
+                        let mut valence = 0usize;
+                        let mut cur = h;
+                        loop {
+                            valence += 1;
+                            cur = arena.half_edge(arena.half_edge(cur)?.twin)?.next;
+                            if cur == h || valence > 64 {
+                                break;
+                            }
+                        }
+                        let p = arena.vertex(he.origin)?.point;
+                        let q = arena.vertex(arena.half_edge(he.next)?.origin)?.point;
+                        let samples = boundary_half_edge_samples(arena, h, n_seg)?;
+                        let mut chain = vec![p];
+                        chain.extend(samples.iter().copied());
+                        chain.push(q);
+                        let mut min_gap = f64::INFINITY;
+                        for w in chain.windows(2) {
+                            let d = ((w[1].x() - w[0].x()).powi(2)
+                                + (w[1].y() - w[0].y()).powi(2)
+                                + (w[1].z() - w[0].z()).powi(2))
+                            .sqrt();
+                            min_gap = min_gap.min(d);
+                        }
+                        let len = ((q.x() - p.x()).powi(2)
+                            + (q.y() - p.y()).powi(2)
+                            + (q.z() - p.z()).powi(2))
+                        .sqrt();
+                        let kind = match he.curve {
+                            Curve::LineSegment => "line",
+                            Curve::Arc { .. } => "arc",
+                            Curve::Circle { .. } => "circle",
+                            Curve::EllipseArc { .. } => "ellipse",
+                            Curve::HyperbolaArc { .. } => "hyperbola",
+                            Curve::SurfacePair { .. } => "pair",
+                        };
+                        eprintln!(
+                            "    he={} twin={} tf={} v={} val={valence} kind={kind} len={len:.6e} \
+                             n_samples={} min_gap={min_gap:.6e} origin=({:.17e},{:.17e},{:.17e})",
+                            h.0,
+                            he.twin.0,
+                            twin_face.0,
+                            he.origin.0,
+                            samples.len(),
+                            p.x(),
+                            p.y(),
+                            p.z()
+                        );
+                    }
+                }
+            }
             return Err(fail(
-                "patch triangle below render resolution (area < 1e-12, height < 4 f32 ulps): \
-                 surface-pair samples bunched at a near-tangential crossing",
+                "patch triangle below render resolution (area < 1e-12, height < 4 f32 ulps)",
             ));
         }
         let u = [pb[0] - pa[0], pb[1] - pa[1], pb[2] - pa[2]];

@@ -186,6 +186,41 @@ fn r0081_reads_genus_three() {
     assert_stable("R0081 phase ¼", &ladder(&c, &[256], 0.25), -4, 1);
 }
 
+/// R0085 (corrected 2026-09-22): gear extrude + 289° circle revolve +
+/// 219° rectangle revolve — genus 1. The FULL chain is outside the
+/// ladder's scope (the 0.85° near-tangential plate × tube crossing is a
+/// knife edge the lattice perforates at every cell size: −2 / 2 / −2 / −2
+/// at 384 … 1024 cells), so the adjudication is by Mayer–Vietoris on two
+/// STABLE readings: ops 1–2 (gear ∪ tube) is genus 1 — the tube leaves the
+/// gear at 0° and re-enters it at 180° — and the plate ∩ that body is one
+/// ball (χ_solid 1; its stray 1–10-cube phase-flickering components are
+/// the knife-edge slivers, so only χ is pinned):
+/// χ_solid(union) = 0 + 1 − 1 = 0 ⇒ boundary χ 0.
+#[test]
+fn r0085_reads_genus_one_by_mayer_vietoris() {
+    let c = chain("R0085");
+    assert_eq!(c.ops.len(), 3);
+    let prefix: Vec<ExactReadout> = [320usize, 448]
+        .iter()
+        .map(|&n| readout_exact(&c, 2, n, 0.5).expect("bbox"))
+        .collect();
+    assert_stable("R0085 ops 1–2", &prefix, 0, 1);
+    let mut inter = c.clone();
+    inter.ops[2].combine = test_harness::assay::exact_membership::Combine::Intersect;
+    inter.ops[2].targets = test_harness::assay::exact_membership::Targets::MostRecent;
+    for n in [320usize, 448] {
+        let r = readout_exact(&inter, 3, n, 0.5).expect("bbox");
+        eprintln!(
+            "[exact] R0085 plate∩body cells={n} h={:.4e} chi_solid={} components={}",
+            r.h, r.readout.chi, r.readout.components
+        );
+        assert_eq!(
+            r.readout.chi, 1,
+            "R0085 plate ∩ (gear ∪ tube) must be one ball"
+        );
+    }
+}
+
 /// R0099 (fix 74564242): circle boss + circle through-cut + rectangle
 /// revolve cut — genus 1.
 #[test]
@@ -524,4 +559,30 @@ fn kernel_volume(
         }
     }
     Some(Ok(total))
+}
+
+/// R0085 adjudication instrument (2026-09-22): the plate (Revolve 3) ∩ the
+/// op-2 body (gear ∪ tube, itself a STABLE genus 1) on the lattice. By
+/// Mayer–Vietoris χ_solid(A ∪ B) = χ(A) + χ(B) − χ(A ∩ B) = 0 + 1 − χ(A ∩ B);
+/// the kernel's χ = 0 (genus 1) needs a single contractible contact
+/// (χ(A ∩ B) = 1, one component), the lattice's fine-rung −2 readings need
+/// two. Rewrites op 2's combine to `Intersect` and reads the result.
+#[test]
+#[ignore = "manual instrument"]
+fn r0085_plate_contact_ladder() {
+    let (waffle, _) = read_case("R0085");
+    let mut c = ExactChain::from_waffle(&waffle).expect("covered");
+    assert_eq!(c.ops.len(), 3);
+    c.ops[2].combine = test_harness::assay::exact_membership::Combine::Intersect;
+    c.ops[2].targets = test_harness::assay::exact_membership::Targets::MostRecent;
+    for phase in phases_env() {
+        for cells in cells_env(&[256, 512]) {
+            let r = readout_exact(&c, 3, cells, phase).expect("bbox");
+            eprintln!(
+                "[exact] R0085 plate∩body cells={cells} phase={phase} n={:?} h={:.4e} chi_solid={} boundary_chi={} components={} sizes={:?} volume={:.6e} bodies={}",
+                r.n, r.h, r.readout.chi, r.boundary_chi(), r.readout.components,
+                r.component_sizes.iter().take(8).collect::<Vec<_>>(), r.volume, r.bodies
+            );
+        }
+    }
 }

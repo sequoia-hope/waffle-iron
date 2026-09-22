@@ -284,6 +284,47 @@ consecutive-duplicate guard and on `DegenerateInput` for a constraint whose
 endpoints weld), cherchi-rs
 `floodfill_constrained_keeps_the_interior_and_the_constraint_edge`.
 
+## 6e. M1c — the flip pass never mints a gate-refused triangle (2026-09-22, R0085)
+
+| # | Configuration | Behavior |
+|---|---|---|
+| M1c | A candidate M1 flip whose replacement pair contains a triangle the loud emit gates refuse (`f32_render_degenerate`, or the render SUB-RESOLUTION rule `render_subresolution_triangle`: area < 1e-12 AND height < 4 f32 ulps of the face's coordinate scale — the corpus oracle's own degenerate rule, the P10 net of 2026-09-18) | REFUSED. Acceptance is the lexicographic severity pair `(gate-refused count, below-grid count)` over the two triangles, which must strictly decrease; each accepted flip lowers the global pair, so the fixpoint still terminates |
+
+**Measured mechanism (R0085 op 3, cone face 1761, chart dumped with
+`KV2_SUBRES_DUMP` and replayed through `cdt_polygon_with_holes_floodfill`
+offline — `tests/subres_dump_replay.rs`).** The face's outer loop carries a
+plane∩cone GENERATOR the arrangement split 69 times (consecutive vertices
+2.6e-6 … 1.1e-2 apart, chart azimuth `u = ±1e-16` — collinear up to
+rounding) fanned by the raw CDT from one apex beside the run's end
+(`(0,1,71) (1,2,71) (2,3,71) (3,4,71) …`, a legal Delaunay fan; the chart is
+67× anisotropic on this 89.15° cone, so the fans are fat in 2D and 6e-6
+high in 3D against a 1.9e-5 weld grid). The M1 objective — the below-grid
+COUNT — accepted `(2,3,71)+(3,4,71) → (2,3,4)+(2,4,71)`: two flat-but-legal
+fans for one above-grid triangle plus the EAR over three consecutive
+collinear vertices (height 1.3e-8, area 1.5e-13, render sub-resolution),
+"2 → 1". The developable emit gate then refused the face:
+`patch triangle below render resolution` — the R0085 STOP the 2026-09-18
+ledger row attributed to "surface-pair samples bunched at a near-tangential
+crossing". That reading was a MISATTRIBUTION: the offending triple lies on
+the LineSegment run, every edge has `n_samples = 0`, and the raw CDT has no
+such ear. The pair-curve density is a real (separate) defect — owned by the
+yang-rs Stage-5 chain decimation of the same date.
+
+Pin: `cdt_core_m1c_tests::m1c_flip_never_mints_a_subresolution_ear` — the
+planar analogue (an isotropic chart cannot reproduce the anisotropic fans,
+so the fixture is a thin strip whose every apex is flat: a six-vertex run
+at 4.4e-4 with alternate two-ulp outward bulges, apices 2e-3 aside over a
+0.069 reach), certified RED on the count objective (the flip minted the
+ear; the planar G1 gate refused the face) and GREEN on the pair;
+`m1c_keeps_the_concyclic_tie_flip` re-asserts the §6c-i killer's premise
+(a below-grid, NOT sub-resolution tie still flips: `(0,1) → (0,0)`).
+
+Dev probes added: `KV2_SUBRES_PROBE` (the refused triangle's corners with
+pool/split provenance, then the face's boundary loops edge by edge: curve
+kind, twin face and surface, vertex valence, length, interior sample count,
+tightest consecutive spacing) and `KV2_SUBRES_DUMP=<path>` (the chart
+polygon, holes and CDT triangles for offline replay).
+
 ## 7. Research basis
 
 - Constrained Delaunay triangulation and its max-min-angle optimality:

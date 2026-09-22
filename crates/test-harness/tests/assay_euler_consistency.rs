@@ -388,7 +388,17 @@ fn historical_authoring_fixes_pinned() {
         "R0003 adjudicated shell count regressed (3 shells, main genus 2)"
     );
 
-    eprintln!("historical_authoring_fixes_pinned: R0099, R0006, R0091, R0063, R0011, R0053, C0075 & R0003 held");
+    // R0085 corrected 2026-09-22 by Mayer–Vietoris on two stable exact-
+    // membership readings (`assay_exact_membership::
+    // r0085_reads_genus_one_by_mayer_vietoris`): gear ∪ 289° tube is genus
+    // 1 and the 219° plate meets it in one ball, so the union is genus 1.
+    let r0085 = load_meta("R0085");
+    assert_eq!(
+        r0085.oracles.euler_target, 0,
+        "R0085 corrected target regressed (must stay genus-1 χ=0)"
+    );
+
+    eprintln!("historical_authoring_fixes_pinned: R0099, R0006, R0091, R0063, R0011, R0053, C0075, R0003 & R0085 held");
 }
 
 /// Check 4 — the randomized generator must only ever emit even targets.

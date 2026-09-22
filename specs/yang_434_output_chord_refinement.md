@@ -400,6 +400,70 @@ rejected.
   (n_interior = 0 everywhere measured), so the tol never engages; a future
   I5-1b-merged long HyperbolaArc edge is its customer.
 
+### Stage-5 chain decimation — the §4.3.4 acceptance test applied at the OUTPUT (2026-09-22, R0085; ALWAYS-ON, `YANG_434_DECIMATE=0|off`)
+
+**Owner of.** The render-sub-resolution DENSITY of emitted intersection
+runs. The exact arrangement mints intersection vertices wherever a mesh
+facet crosses the other operand's, and where a mesh GRAZES the other
+operand (a near-tangential torus × cone, a generator lying almost in a
+torus, a gear flank against a tube) it crosses back and forth at chord
+level: R0085 op 3 emitted a plane∩cone generator split 69 times
+(2.6e-6 … 1.1e-2 apart), a torus × cone `SurfacePair` chain with vertices
+3e-7 apart, and op 2 a gear cap∩flank edge carrying split points 2e-5 …
+1e-4 apart with NO intersection edge attached (valence 2 on both faces —
+the crossings that made them were ruled out, the splits stayed; origin
+PROBE, see the ledger row). Every such vertex reached the output B-Rep as
+an edge endpoint. Downstream that density is poison: kernel-v2's chart CDT
+legitimately forms an ear over three consecutive collinear-by-noise
+boundary vertices — on BOTH faces of a shared run when the residual noise
+exceeds the curve's sag at that spacing — a zero-thickness pleat the
+watertight oracle reads as two 4-use edges (R0085's post-M1c wall: two
+non-manifold residue edges at the op-2 gear-edge sites, both faces carrying
+the ear `(v1759, v1760, v1761)` over vertices 2.1e-5 / 2.5e-5 apart), and
+the render weld grid (1e-5 · scale = 5.8e-5) fuses neighbours 2e-5 apart.
+
+**The paper's own rule.** The B-Rep output restores "surfaces and their
+boundary curves" (`refs/text:581-605`) — the edge is the CURVE, the dense
+polyline belongs to the mesh (the I5-1b principle). And the paper's
+intersection polylines are exactly as dense as its §4.3.4 refinement makes
+them: a chord `p → q` is final once `h < d_p·10², l < d_p·10³, α < π/18`
+(`:586-592`; `paper_chain_sample_redundant`, deviation N58's ratified
+form, d_p = TAU_MODEL·(1+scale)). A sample the paper's loop would never
+have inserted is redundant.
+
+**Mechanism** (`stage5_chain_decimate::decimate_intersection_runs`, after
+the I5-1b merge in `emit_topology`): walk every emitted loop; a vertex is a
+candidate iff it has exactly 4 loop-edge uses on exactly 2 faces (the
+I5-1b global count — junctions, curve changes, pinches all fail it) and its
+two edges share one descriptor (`LineSegment` ↔ `LineSegment`, identical
+`SurfacePair`; conics are the merge's), in one of two classes:
+
+| class | eligibility | drop test |
+|---|---|---|
+| (a) intersection run | both edges KEYS of `intersection_curves` | `paper_chain_sample_redundant(prev KEPT, v, next ORIGINAL)` — the greedy walk of the I5 seam-reorder cleanup; a kept pair is ≥ d_p·10³ apart along the run |
+| (b) straight-edge subdivision | neither edge a key, both `LineSegment` | STRICT: on the segment through its kept neighbours to WORKING precision (`h ≤ TAU_WORK·(1+scale)`, so no geometry the model resolves changes) AND within the same chord bound (`l < d_p·10³`: only the render-sub-resolution class moves; an operand's profile CORNER bends far above working precision and never qualifies) |
+
+Decisions are made once per canonical undirected chain and reused by the
+twin loop (identical piece boundaries on both owners); a loop that would
+fall below three edges declines every chain it owns, iterated to a
+fixpoint; a closed whole-loop run keeps a tripod of anchors. Pieces keep
+the run's own descriptor (the same line / the same pair; kernel-v2
+resamples both at render density). Sources: a dropped vertex becomes
+`BRepEdge { piece, t }` with `t` the chord fraction of its own position —
+both piece kinds evaluate as the endpoint lerp in `eval_source`. Verbatim
+edges keep their indices and every rebuilt loop is rotated back to its
+original start, so a pass that drops nothing is byte-identical.
+
+Measured on R0085 (release): op 2 drops 12 vertices over 6 runs, op 3
+666 over 30 (edges 18322 → 16990); the watertight wall clears and the case
+advances to the χ oracle (`V − E + F = 0` against the authored 2 — the
+adjudication is the ledger row's). Pins:
+`tests_unit/s434_chain_decimate.rs` — dense intersection run (twin
+conformance, kept spacing ≥ d_p·10³, endpoints kept, loops chain, sources
+round-trip through the piece lerp within 1e-12), collinear operand
+subdivision run (dropped), BENT operand run (1e-9 zigzag: untouched),
+coarse runs (byte-identical), the 3-edge loop floor.
+
 ## 4. Constraints
 
 - The Chord collinear-split closure rule in kernel-v2 is LOAD-BEARING

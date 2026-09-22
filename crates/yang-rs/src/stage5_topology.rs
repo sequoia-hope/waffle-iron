@@ -8430,6 +8430,32 @@ pub(crate) fn emit_topology(
             st.skipped_discontinuous_loops
         );
     }
+    // §4.3.4 chain decimation (ALWAYS-ON; `YANG_434_DECIMATE=0|off` is the
+    // dev off-knob; spec `yang_434_output_chord_refinement.md` "Stage-5
+    // chain decimation", R0085 2026-09-22): drop the interior vertices of
+    // LineSegment / SurfacePair INTERSECTION runs that the paper's own
+    // refinement acceptance (h/l/α) calls redundant — the arrangement's
+    // grazing-mesh density never reaches the output B-Rep as edge
+    // endpoints. Twin-conformant per canonical chain; declines to the
+    // per-segment status quo.
+    if crate::stage5_chain_decimate::decimate_gate_enabled() {
+        let st = crate::stage5_chain_decimate::decimate_intersection_runs(
+            &mesh.verts,
+            &mut edges,
+            &mut faces,
+            &mut sources,
+            intersection_curves,
+        );
+        c441_log!(
+            "[s434-decimate] runs={} dropped={} edges {}->{} declined_floor={} disc_loops={}",
+            st.runs_decimated,
+            st.verts_dropped,
+            st.edges_before,
+            st.edges_after,
+            st.declined_floor,
+            st.skipped_discontinuous_loops
+        );
+    }
     // Output-chord census (`YANG_434_OUT=census`, read-only, apply off;
     // spec `yang_434_output_chord_refinement.md` inc-1): every untyped
     // seam chord's owner class, depth, and carried input-circle match —

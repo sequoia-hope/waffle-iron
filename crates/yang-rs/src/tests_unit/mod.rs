@@ -52,6 +52,7 @@ mod s1_ribbon_open_chain;
 mod s1_self_contact;
 mod s433_generator_stage0;
 mod s433_tangent_relocation;
+mod s434_chain_decimate;
 mod s434_output_restore;
 mod s451_crease_domain;
 mod s452_chord_refine;

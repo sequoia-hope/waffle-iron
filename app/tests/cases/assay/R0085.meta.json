@@ -1,6 +1,6 @@
 {
   "id": "R0085",
-  "description": "3 ops, scale=2.79e0, extrude(gear,boss)+revolve(circle,boss)+revolve(rectangle,boss)",
+  "description": "3 ops, scale=2.79e0, extrude(gear,boss)+revolve(circle,boss)+revolve(rectangle,boss) \u2014 CORRECTED 2026-09-22: euler_target 2 \u2192 0 (genus 1). The gear \u222a the 289\u00b0 tube (ops 1\u20132) is a STABLE genus 1 on the exact-membership ladder (boundary \u03c7 0 / 1 component at 384, 512 and 768 cells on two phases): the tube leaves the gear at 0\u00b0 and re-enters it at 180\u00b0. The plate (op 3) \u2229 that body is one ball (\u03c7_solid 1 at 256 \u2026 1024 cells on two phases, `assay_exact_membership::r0085_plate_contact_ladder`; the extra 1\u201310-cube components that flicker with phase are the knife-edge slivers of the 0.85\u00b0 near-tangential plate \u00d7 tube crossing \u2014 the cubical ladder's documented scope limit, which is why the FULL chain reads \u22122 / 2 / 4 unstably), so by Mayer\u2013Vietoris \u03c7_solid(union) = 0 + 1 \u2212 1 = 0: boundary \u03c7 0. The kernel's \u03c7 = 0 output is the true topology; the authored 2 was the generator's guess.",
   "master_seed": 42,
   "test_seed": 9039304369631583670,
   "scale": 2.787749520524505,
@@ -39,7 +39,7 @@
     }
   ],
   "oracles": {
-    "euler_target": 2,
+    "euler_target": 0,
     "expect_watertight": true,
     "max_bbox_extent": 27.87749520524505,
     "expect_positive_volume": true,

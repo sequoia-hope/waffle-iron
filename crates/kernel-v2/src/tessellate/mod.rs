@@ -619,10 +619,12 @@ fn other_tri_on_edge(tris: &[[u32; 3]], ti: usize, p: u32, q: u32) -> Option<usi
 /// diagonal with a neighbor: flip to the other diagonal iff the two triangles
 /// form a STRICTLY convex quad (exact orient2d, all four turns strict — this
 /// also guarantees both replacements are strictly CCW, so winding is preserved,
-/// I4) AND the flip STRICTLY reduces the grid-degenerate count among the two.
-/// Each accepted flip strictly lowers the global grid-degenerate count, so the
-/// fixpoint terminates in ≤ n flips; the `4·n` budget is a loud tripwire, never
-/// a silent loop.
+/// I4) AND the flip STRICTLY reduces the severity pair
+/// `(gate-refused count, grid-degenerate count)` among the two (M1c, below —
+/// the grid count alone once traded two legal flat fan triangles for a
+/// render-sub-resolution ear). Each accepted flip strictly lowers that global
+/// pair in lexicographic order, so the fixpoint terminates in finitely many
+/// flips; the `4·n` budget is a loud tripwire, never a silent loop.
 ///
 /// `p2` / `p3` are the 2D triangulation-frame coordinates and 3D positions
 /// indexed by pool index; `is_constraint` reports whether an undirected pool
@@ -648,6 +650,29 @@ fn grid_degeneracy_flip_pass(
     let degen = |t: &[u32; 3]| -> bool {
         let (pa, pb, pc) = (p3[t[0] as usize], p3[t[1] as usize], p3[t[2] as usize]);
         f32_render_degenerate(pa, pb, pc) || tri_height_below_grid(pa, pb, pc, grid)
+    };
+    // M1c (spec `kv2_cdt_triangulation_core` §6e, R0085 2026-09-22): a flip
+    // must never MINT a triangle the loud emit gates refuse. The grid count
+    // alone is blind to how far below the grid a triangle is: on a chart
+    // whose boundary carries a run of collinear vertices (a plane∩cone
+    // generator split 69 times by the arrangement) fanned from one far
+    // apex, every fan triangle sits a little under the grid (height 6e-6 at
+    // grid 1.9e-5, vertices 4e-4 apart — legal for the render channel), and
+    // swapping two of them for the ear over three consecutive collinear
+    // vertices (height 1.3e-8, area 1.5e-13 — render SUB-RESOLUTION, the
+    // oracle's own degenerate rule) plus one above-grid triangle reads as a
+    // 2 → 1 "improvement". The acceptance is therefore lexicographic:
+    // (gate-refused triangles, below-grid triangles) must strictly decrease.
+    let height_floor = render_height_floor(p3.iter());
+    let refused = |t: &[u32; 3]| -> bool {
+        let (pa, pb, pc) = (p3[t[0] as usize], p3[t[1] as usize], p3[t[2] as usize]);
+        f32_render_degenerate(pa, pb, pc) || render_subresolution_triangle(pa, pb, pc, height_floor)
+    };
+    let severity = |x: &[u32; 3], y: &[u32; 3]| -> (usize, usize) {
+        (
+            refused(x) as usize + refused(y) as usize,
+            degen(x) as usize + degen(y) as usize,
+        )
     };
     let len2 = |a: u32, b: u32| -> f64 {
         let (pa, pb) = (p2[a as usize], p2[b as usize]);
@@ -696,8 +721,8 @@ fn grid_degeneracy_flip_pass(
             }
             let new1 = [p, s, r];
             let new2 = [s, q, r];
-            let before = degen(&t) as usize + degen(&tris[tj]) as usize;
-            let after = degen(&new1) as usize + degen(&new2) as usize;
+            let before = severity(&t, &tris[tj]);
+            let after = severity(&new1, &new2);
             if after >= before {
                 continue;
             }
@@ -1202,6 +1227,8 @@ mod cdt_core_round2_red_tests;
 
 #[cfg(test)]
 mod cdt_core_adversary_tests;
+#[cfg(test)]
+mod cdt_core_m1c_tests;
 
 #[cfg(test)]
 mod pinched_ring_patch_tests;

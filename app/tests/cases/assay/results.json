@@ -1,8 +1,8 @@
 {
-  "errored": 8,
+  "errored": 7,
   "failed": 0,
   "generated": "kernel-v2 (assay_kv2 categorized run)",
-  "passed": 298,
+  "passed": 299,
   "results": [
     {
       "category": "SUPPORTED_CORRECT",
@@ -509,10 +509,10 @@
       "status": "pass"
     },
     {
-      "category": "ERROR",
-      "detail": "1 auto-union failure(s): Revolve 3: Auto-union failed: kernel error: boolean operation failed: kernel-v2 boolean_union failed: TessellationFailed { face: FaceId(1761), reason: \"patch triangle below render resolution (area < 1e-12, height < 4 f32 ulps): surface-pair samples bunched at a near-tangential crossing\" }. Body created as standalone.",
+      "category": "SUPPORTED_CORRECT",
+      "detail": "all checks passed",
       "id": "R0085",
-      "status": "error"
+      "status": "pass"
     },
     {
       "category": "SUPPORTED_CORRECT",

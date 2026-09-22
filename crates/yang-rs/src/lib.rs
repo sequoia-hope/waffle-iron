@@ -122,6 +122,7 @@ mod stage5_loop_simplicity;
 // solver + §7.6 op-resolved band classifier), UNWIRED — de-risked on the
 // F0082 pinned fixture (`tests_unit/s188_envelope.rs`); inc-2 wires them
 // into `emit_topology` behind `YANG_S5_ENVELOPE_ENABLE`.
+mod stage5_chain_decimate;
 pub mod stage5_envelope;
 mod stage5_output_refine;
 mod stage5_seam_merge;

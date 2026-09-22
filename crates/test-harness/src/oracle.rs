@@ -672,6 +672,26 @@ pub fn check_watertight_mesh(mesh: &RenderMesh) -> OracleVerdict {
 
     let non_paired: Vec<_> = edge_counts.iter().filter(|(_, &c)| c != 2).collect();
 
+    // `ASSAY_WATERTIGHT_PROBE`: print every unpaired residue edge with its
+    // use count and dequantized endpoints (grid-cell centres), so a
+    // non-manifold residue can be located in the `ASSAY_DUMP_OBJ` mesh.
+    if std::env::var_os("ASSAY_WATERTIGHT_PROBE").is_some() {
+        let grid = 1.0 / inv_grid;
+        for (e, c) in &non_paired {
+            let ((ax, ay, az), (bx, by, bz)) = **e;
+            eprintln!(
+                "[watertight-probe] count={c} grid={grid:.3e} a=({:.7e},{:.7e},{:.7e}) \
+                 b=({:.7e},{:.7e},{:.7e})",
+                ax as f64 * grid,
+                ay as f64 * grid,
+                az as f64 * grid,
+                bx as f64 * grid,
+                by as f64 * grid,
+                bz as f64 * grid
+            );
+        }
+    }
+
     // ── PR-Y38 grid-sensitivity probe (INFRA-CLASS, env-gated, additive) ──
     //
     // Re-runs edge pairing at multiple TAU_TESS_GRID_FACTOR multipliers and
