@@ -718,6 +718,23 @@ pub(crate) fn collect_edge_splits(
                 }
                 continue;
             }
+            // The stored parameter is the split's RESOLVED position projected
+            // exactly onto the 3D edge — the order the adjacent face's ring
+            // must follow (F0064/F0072, 2026-09-22: a rim-chord crossing mint
+            // relocated along the edge to the true circle∩line junction
+            // slides PAST the overlay's event-column lifts on the same edge;
+            // the overlay face re-fans coherently around the moved mint, but
+            // a chain ordered by the pre-relocation 2D parameter reverses
+            // direction at the mint — a non-simple ring, `triangulate_ring`
+            // stalls, the N17 wall). The 2D parameter `t` above decides
+            // MEMBERSHIP (exactly on the open segment); it is not a position
+            // once relocation has moved the vertex. Exact rationals over the
+            // f64 coordinates — a total order along the edge, no band.
+            let Some(t_res) =
+                exact_edge_param(coords[lo as usize], coords[hi as usize], resolved[i])
+            else {
+                continue;
+            };
             let entry = splits.entry((lo, hi)).or_default();
             let key = {
                 let a = resolved[i].as_array();
@@ -730,24 +747,67 @@ pub(crate) fn collect_edge_splits(
                     let b = p0.as_array();
                     [b[0].to_bits(), b[1].to_bits(), b[2].to_bits()] == key
                 });
-            if !merged_dup && !entry.iter().any(|(t0, _)| *t0 == t) {
+            // One entry per resolved point: a second overlay vertex resolving
+            // to the SAME bits at the same parameter is the same split (the
+            // same vertex seen from a second face of the side, or a femto twin
+            // whose lift coincides — the ring's B6 dedup collapsed those
+            // consecutive copies anyway). Distinct bits at one parameter (an
+            // off-line provenance survivor beside an on-line point) both stay.
+            let same_point = entry.iter().any(|(t0, p0)| {
+                let b = p0.as_array();
+                *t0 == t_res && [b[0].to_bits(), b[1].to_bits(), b[2].to_bits()] == key
+            });
+            if !merged_dup && !same_point {
                 if std::env::var_os("YANG_SPLIT_PROBE").is_some() {
                     eprintln!(
-                        "[split-probe] f={fi} edge ({lo},{hi}) vert {i} SPLIT t={} pos={:?} \
+                        "[split-probe] f={fi} edge ({lo},{hi}) vert {i} SPLIT t={} t_res={} pos={:?} \
                          merged={} n_on_edge={}",
                         t.to_f64().value(),
+                        t_res.to_f64().value(),
                         resolved[i].as_array(),
                         merged_pts.contains(&key),
                         entry.len() + 1
                     );
                 }
-                entry.push((t, resolved[i]));
+                entry.push((t_res, resolved[i]));
             }
         }
     }
     for v in splits.values_mut() {
-        v.sort_by(|a, b| a.0.cmp(&b.0));
+        // Resolved-position order along lo→hi; equal parameters (distinct
+        // bits) tie-break on the coordinate bits — deterministic.
+        v.sort_by(|a, b| {
+            a.0.cmp(&b.0).then_with(|| {
+                let (pa, pb) = (a.1.as_array(), b.1.as_array());
+                [pa[0].to_bits(), pa[1].to_bits(), pa[2].to_bits()].cmp(&[
+                    pb[0].to_bits(),
+                    pb[1].to_bits(),
+                    pb[2].to_bits(),
+                ])
+            })
+        });
     }
+}
+
+/// Exact parameter of `p` along the 3D segment `lo → hi`
+/// (`((p−lo)·(hi−lo)) / |hi−lo|²` over rationals lifted from the f64
+/// coordinates). `None` for a zero-length segment or a non-finite input.
+/// The projection parameter, not an on-line test: a point a rounding
+/// residue off the line (an R0081 provenance survivor) still orders.
+pub(crate) fn exact_edge_param(lo: Point3, hi: Point3, p: Point3) -> Option<RBig> {
+    let r3 = |q: Point3| -> Option<[RBig; 3]> {
+        let a = q.as_array();
+        Some([rat(a[0]).ok()?, rat(a[1]).ok()?, rat(a[2]).ok()?])
+    };
+    let (l, h, q) = (r3(lo)?, r3(hi)?, r3(p)?);
+    let d = [&h[0] - &l[0], &h[1] - &l[1], &h[2] - &l[2]];
+    let w = [&q[0] - &l[0], &q[1] - &l[1], &q[2] - &l[2]];
+    let dd = &(&(&d[0] * &d[0]) + &(&d[1] * &d[1])) + &(&d[2] * &d[2]);
+    if dd == RBig::ZERO {
+        return None;
+    }
+    let wd = &(&(&w[0] * &d[0]) + &(&w[1] * &d[1])) + &(&w[2] * &d[2]);
+    Some(wd / dd)
 }
 
 // ════════════════════════════════════════════════════════════════════════
@@ -2430,7 +2490,17 @@ mod edge_split_merge_dedup_tests {
             &mut splits,
         );
         let entry = splits.get(&(0, 1)).expect("edge (0,1) split");
-        assert_eq!(entry.len(), 2, "no-merge path keeps both entries");
+        // Until 2026-09-22 this path kept BOTH entries (the inc-3.5 merge
+        // identification was scoped to merge targets so gate-OFF stayed
+        // byte-identical). The split table now keys on the RESOLVED position
+        // (the F0064/F0072 order fix), and one resolved point on an edge is
+        // one split whatever produced the identification — the ring's B6
+        // dedup collapsed the consecutive copies anyway.
+        assert_eq!(
+            entry.len(),
+            1,
+            "one resolved point on the edge is one split"
+        );
         assert!(entry.iter().all(|(_, p)| *p == junction));
 
         // Merge-aware path: the identification propagates — ONE entry.
@@ -2568,6 +2638,159 @@ mod edge_split_identity_tests {
         let t = on_01[0].0.to_f64().value();
         assert!((t - 0.6).abs() < 1e-9, "split parameter {t} must be the boundary vertex's t≈0.6 (not the interior vertex at 0.3)");
         assert_eq!(splits.len(), 1, "no other edge gains a split: {splits:?}");
+    }
+}
+
+#[cfg(test)]
+mod edge_split_order_tests {
+    //! F0064 / F0072 (2026-09-22): the propagated split table orders by the
+    //! RESOLVED position along the edge. A rim-chord crossing mint relocated
+    //! along an input edge to the true circle∩line junction can slide PAST
+    //! the overlay's event-column lifts on that edge; the overlay face
+    //! re-fans coherently around it, but a chain ordered by the
+    //! pre-relocation 2D parameter reverses direction at the mint and the
+    //! neighbour's ring is non-simple (`triangulate_ring` → None → the N17
+    //! wall). RED under parameter order, GREEN under resolved order.
+    use super::*;
+    use crate::coplanar_overlay::{ClassifiedOverlay, ExactPoint2, RegionClass};
+    use crate::stage0::frame::canonical_frame;
+    use crate::{BRep, BRepEdge, BRepFace, BRepVertex, Curve, Surface, Vector3};
+    use cad_primitives::{Point2, Point3};
+
+    fn unit_square_face() -> BRep {
+        let p = |x: f64, y: f64| BRepVertex {
+            point: Point3::new(x, y, 0.0),
+        };
+        let verts = vec![p(0.0, 0.0), p(1.0, 0.0), p(1.0, 1.0), p(0.0, 1.0)];
+        let e = |s: u32, t: u32| BRepEdge {
+            start: s,
+            end: t,
+            curve: Curve::LineSegment,
+        };
+        let edges = vec![e(0, 1), e(1, 2), e(2, 3), e(3, 0)];
+        let faces = vec![BRepFace {
+            surface: Surface::Plane {
+                normal: Vector3::new(0.0, 0.0, 1.0),
+                d: 0.0,
+            },
+            outer_loop: vec![0, 1, 2, 3],
+            inner_loops: Vec::new(),
+            reversed: false,
+        }];
+        BRep::new(verts, edges, faces).expect("unit square face")
+    }
+
+    #[test]
+    fn relocated_mint_slid_past_column_lifts_orders_by_resolved_position() {
+        let brep = unit_square_face();
+        let frame = canonical_frame(&brep, 0).expect("frame");
+        let coords: Vec<Point3> = brep.vertices().iter().map(|v| v.point).collect();
+        let pts2 = [
+            frame.project(coords[0]),
+            frame.project(coords[1]),
+            frame.project(coords[2]),
+            frame.project(coords[3]),
+        ];
+        let along = |t: f64| {
+            (
+                pts2[0].0 + t * (pts2[1].0 - pts2[0].0),
+                pts2[0].1 + t * (pts2[1].1 - pts2[0].1),
+            )
+        };
+        // Boundary chain on edge (0,1): corner 0 → 4 (t=0.5, column lift)
+        // → 5 (t=0.6, column lift) → 6 (t=0.7, the crossing mint) → corner 1.
+        // Interior apex 7.
+        let all = [
+            pts2[0],
+            pts2[1],
+            pts2[2],
+            pts2[3],
+            along(0.5),
+            along(0.6),
+            along(0.7),
+            (0.5, 0.5),
+        ];
+        let verts: Vec<Point2> = all.iter().map(|&(x, y)| Point2::new(x, y)).collect();
+        let exact_verts: Vec<ExactPoint2> = all
+            .iter()
+            .map(|&(x, y)| ExactPoint2::from_f64(x, y).expect("finite"))
+            .collect();
+        // The overlay AFTER relocation re-fanned around the moved mint: the
+        // chain it emits along the edge is 0 → 6 → 4 → 5 → 1.
+        let tris = vec![
+            [0, 6, 7],
+            [6, 4, 7],
+            [4, 5, 7],
+            [5, 1, 7],
+            [1, 2, 7],
+            [2, 3, 7],
+            [3, 0, 7],
+        ];
+        let class = vec![RegionClass::AOnly; tris.len()];
+        let overlay = ClassifiedOverlay {
+            verts,
+            exact_verts,
+            tris,
+            class,
+            poly_a: vec![0; 7],
+            poly_b: vec![u32::MAX; 7],
+            fused: BTreeMap::new(),
+        };
+        let mut resolved: Vec<Point3> = all.iter().map(|&(u, v)| frame.lift(u, v)).collect();
+        // The mint slid along the edge from t=0.7 to the junction at t=0.45,
+        // past both column lifts.
+        let slid = frame.lift(along(0.45).0, along(0.45).1);
+        resolved[6] = slid;
+
+        let mut splits: SplitMap = BTreeMap::new();
+        collect_edge_splits(
+            &brep,
+            0,
+            &coords,
+            &frame,
+            &BTreeMap::new(),
+            &overlay,
+            [RegionClass::AOnly, RegionClass::Overlap],
+            &resolved,
+            &std::collections::BTreeSet::new(),
+            &mut splits,
+        );
+        let on_01 = splits.get(&(0, 1)).cloned().unwrap_or_default();
+        assert_eq!(
+            on_01.len(),
+            3,
+            "all three boundary vertices split edge (0,1): {on_01:?}"
+        );
+        // lo→hi order along the edge must be monotone in the RESOLVED position
+        // (the chain the overlay face actually emits: slid mint first).
+        let xs: Vec<f64> = on_01.iter().map(|(_, p)| p.x()).collect();
+        assert!(
+            xs.windows(2).all(|w| w[0] < w[1]),
+            "split order must follow the resolved positions along the edge; got x = {xs:?}"
+        );
+        assert_eq!(on_01[0].1, slid, "the slid mint comes first");
+        // The stored parameter IS the resolved position's parameter.
+        let t0 = on_01[0].0.to_f64().value();
+        assert!(
+            (t0 - 0.45).abs() < 1e-12,
+            "stored parameter is the resolved one (0.45), got {t0}"
+        );
+    }
+
+    #[test]
+    fn exact_edge_param_is_the_projection_parameter() {
+        let lo = Point3::new(0.0, 0.0, 0.0);
+        let hi = Point3::new(2.0, 0.0, 0.0);
+        let t = exact_edge_param(lo, hi, Point3::new(0.5, 1e-13, 0.0)).expect("finite");
+        assert_eq!(
+            t.to_f64().value(),
+            0.25,
+            "off-line residue does not change the parameter"
+        );
+        assert!(
+            exact_edge_param(lo, lo, hi).is_none(),
+            "zero-length segment has no parameter"
+        );
     }
 }
 

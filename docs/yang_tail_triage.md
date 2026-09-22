@@ -43,6 +43,51 @@ after the reconciliation run (release, 8 jobs, 360 s; wall 577 s, F0085
 regression since 2026-08-01 is outstanding (checked over every commit of
 `results.json`).
 
+## 2026-09-22 (late night, later) — F0064 CONVERTED, F0072 UNSUPPORTED → ERROR: the propagated split table ordered a relocated rim-crossing mint by its PRE-relocation sweep parameter; it now orders by the RESOLVED position along the edge (spec `m8_stage0_multiclass_cavity_arm.md` §19, amendment 21); the N17 `coplanar input face pair` NotSupported boundary is EMPTY on the corpus; canonical **300C / 0W / 8E / 4EE / 0T + 0 UNSUPPORTED**
+
+Anchored, not designed against: `YANG_COPLANAR_PROBE` put both walls at
+`build-mesh-triangulate` (F0064 op 3 face 593 ring 11; F0072 op 11 face 3
+ring 11), `YANG_RING_PROBE` showed each ring's subdivided chain reversing
+direction twice, and `YANG_STAGE0_DUMP_DIR` on F0064's `pair=(590,0)`
+located the culprit: overlay vertex v12, the rim-chord ∩ cap-edge crossing
+(2D u = −0.15415), relocated by amendment 15's open-link slide to the true
+circle ∩ line junction (x = −0.15936, bit-exact for r = 0.1691, y = −0.0566)
+— sliding PAST the sweep's event-column lifts v5 (−0.15852) and v8
+(−0.15811) on the same edge. The overlay face itself was coherent (its
+post-splice chain is 2 → 12 → 5 → 8 → 16 with classes in order); only
+`collect_edge_splits` still sorted the propagated splits by the 2D
+parameter while storing the resolved point, so the neighbour lateral got
+the chain in the order 2, 5, 8, 12, 16 with 12's resolved position — a
+non-simple ring every fan and the B3 ear-clip refuse.
+
+Fix (`stage0/mesh_build.rs`): the split table keys each entry on the exact
+projection parameter of its RESOLVED point onto the 3D edge
+(`exact_edge_param`, rationals over the f64 coordinates — a total order,
+no band); membership is unchanged (the exact on-open-segment test plus the
+R0053 identity / R0081 provenance arms); dedup is one entry per resolved
+point (bits + parameter). Killer
+`edge_split_order_tests::relocated_mint_slid_past_column_lifts_orders_by_resolved_position`
+— RED under parameter order (measured `x = [0.5, 0.6, 0.45]`), GREEN
+under resolved order. The inc-3.5 pin's "no-merge keeps both entries" half
+now pins ONE entry (the position identity is general).
+
+- **F0064**: UNSUPPORTED(coplanar-boolean) → **SUPPORTED_CORRECT** (37.8 s
+  release single; all in-line oracles; too heavy for the smoke gate, which
+  stays on R0050).
+- **F0072**: UNSUPPORTED(coplanar-boolean) → **ERROR** — op 11 clears
+  Stage 0 and STOPs at `reassembled output would be non-2-manifold`
+  (166.9 s in the corpus run), its next honest typed wall. PROBE row: the
+  20-op stacked-extrude chain's Stage-5/6 reassembly (anchor before
+  assuming the R0025/R0026 region form).
+
+Corpus (release, 8 jobs, 600 s): **300C / 0W / 8E / 4EE / 0T + 0
+UNSUPPORTED** — per-id diff of the committed `results.json`: exactly TWO
+category moves (F0064, F0072 as above), ZERO detail moves. wall 828.1 s;
+F0085 340.1 s, F0065 191.1 s. Actionable ERROR tail after this: F0072
+alone (the other seven ERROR rows stay the loud-by-design set C0046, C0107,
+C0108, C0109, C0111, C0113, C0118). The UNSUPPORTED bucket is empty for
+the first time.
+
 ## 2026-09-22 (late night) — R0085 CONVERTED: the "bunched pair samples" STOP was an ear MINTED by kernel-v2's M1 flip pass (M1c: a flip never mints a gate-refused triangle); the residual WRONG was output-chain DENSITY (yang Stage-5 §4.3.4 chain decimation, always-on); the authored euler_target 2 → 0 by Mayer–Vietoris on two stable exact readings; canonical **299C / 0W / 7E / 4EE / 0T + 2 UNSUPPORTED(coplanar-boolean)**
 
 Three layers, each measured before the next was touched.

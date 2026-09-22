@@ -1980,3 +1980,97 @@ jobs, 600 s; wall 702.9 s, F0085 314.7 s honest): **281C / 0W / 25E /
 moves on the other 311 rows — the oracle changes no other case's ladder
 decisions. Ledger: `docs/yang_tail_triage.md` §"2026-09-11 (late) — R0025
 CONVERTED".
+
+## 19. AMENDMENT 21 — the propagated split table orders by RESOLVED position: the N17 pair F0064 / F0072 (2026-09-22)
+
+### 19a. The anchor chain (measured end to end)
+
+F0064 op 3 (a Ø0.338 disc extruded on the plus-shaped cap of op 2's
+prism, `pair=(590,0)`, band 1e-7, gap 0) and F0072 op 11 (`pair=(1741,1)`)
+both stopped at the `build-mesh-triangulate` residue (`YANG_COPLANAR_PROBE`),
+mapped by kernel-v2 to the `coplanar input face pair` `NotSupported` — the
+two rows the corpus carried as UNSUPPORTED(coplanar-boolean) since
+2026-07-30 (F0064 since amendment 15, F0072 since inc-3.6).
+
+`YANG_RING_PROBE` on F0064's face 593 (the prism lateral under the cap's
+edge (1191,1192), ring of 11): the top chain runs x = −0.0566, −0.0786,
+−0.1121, −0.1392, **−0.1594, −0.1581, −0.1585**, −0.1679, −0.2757 — it
+reverses direction twice. `YANG_STAGE0_DUMP_DIR` on the pair:
+
+| overlay vertex | 2D `u` (pre-relocation) | resolved x | tag |
+|---|---|---|---|
+| v2 | −0.16787 | −0.16787 | lift (event column of rim vertex v3) |
+| v5 | −0.15852 | −0.15852 | lift (column of the opposite edge's crossing v7) |
+| v8 | −0.15811 | −0.15811 | lift (column of rim vertex v11) |
+| **v12** | **−0.15415** (chord ∩ edge) | **−0.15936** (circle ∩ edge) | mint |
+| v16 | −0.13917 | −0.13917 | lift (column of rim vertex v15) |
+
+v12 is the rim-chord crossing mint relocated ALONG the cap edge to the
+true circle∩line junction (r = 0.1691, y = −0.0566 ⇒ x = −0.15936, exact
+to the bit), i.e. the §13g slide amendment 15 built for this very vertex
+(`open-link pure-SLIDE splice`, "F0064 q=12/63/22"). The overlay's
+triangle list AFTER relocation is coherent — its chain along the edge is
+2 → 12 → 5 → 8 → 16 with the classes in the right order (AOnly on 2–12,
+Overlap from 12 on) — the splice did its job on the overlay face.
+
+What amendment 15 did NOT carry: `collect_edge_splits` stored each split
+under the exact parameter of its **pre-relocation 2D position** and
+sorted by it, while storing the **resolved** 3D point. The neighbour's
+ring therefore received the chain in the order 2, 5, 8, 12, 16 with 12's
+resolved position — a chain that runs left past 5 and 8 and jumps back:
+non-simple, every apex fan and the B3 ear-clip refuse it, `triangulate_ring`
+returns `None`, the pair is walled. F0072's face 3 shows the same signature
+(y = −0.1595, −0.1569, −0.1620 on the chain).
+
+### 19b. The rule
+
+A split's position along its edge is where the overlay RESOLVED it, not
+where the sweep minted it. The split table now keys each entry on the
+exact projection parameter of the resolved point onto the 3D edge
+`lo → hi` (`exact_edge_param`: `((p−lo)·(hi−lo)) / |hi−lo|²` over
+rationals lifted from the f64 coordinates — a total order along the edge,
+no band; a provenance survivor a rounding residue off the line still
+orders). Membership is unchanged: the exact on-open-segment test (and the
+R0053 identity / R0081 provenance arms) decides WHETHER a vertex splits the
+edge; the resolved parameter decides WHERE. The sort is
+`(parameter, coordinate bits)` — deterministic under equal parameters.
+
+Dedup: one entry per resolved point — a second vertex resolving to the
+same bits at the same parameter is the same split (the same overlay
+vertex seen from a second face of the side, or a femto twin whose f64
+lift coincides; the ring's B6 dedup collapsed those consecutive copies
+anyway). The inc-3.5 merge identification (`merged_pts` / provenance) is
+subsumed for on-edge points and kept as written. Two DISTINCT bit
+patterns at one parameter both stay.
+
+Why this is the whole fix and not a band: the fold/validity gates already
+guarantee every kept overlay triangle has strictly positive exact area on
+the RESOLVED positions, so the overlay face's emitted chain along a
+straight edge is monotone in resolved position; ordering the propagated
+splits the same way is the only order that conforms to it.
+
+### 19c. Tests
+
+- `stage0::mesh_build::edge_split_order_tests::relocated_mint_slid_past_column_lifts_orders_by_resolved_position`
+  — unit-square face, chain 0 → 4 (t .5) → 5 (t .6) → 6 (t .7) → 1 with the
+  overlay re-fanned as 0 → 6 → 4 → 5 → 1 and v6 resolved to t = .45. RED
+  under parameter order (measured: `x = [0.5, 0.6, 0.45]`), GREEN under
+  resolved order; the stored parameter is the resolved one.
+- `exact_edge_param_is_the_projection_parameter` — off-line residue does
+  not change the parameter; zero-length segment → `None`.
+- `edge_split_merge_dedup_tests::merged_twin_collapses_to_one_split_entry`
+  — its no-merge half pinned the historical two-entries scoping; it now
+  pins one entry (the position identity is general).
+
+### 19d. Results
+
+F0064: UNSUPPORTED(coplanar-boolean) → **SUPPORTED_CORRECT** (37.8 s
+release, all in-line oracles). F0072: UNSUPPORTED(coplanar-boolean) →
+ERROR — op 11 now clears Stage 0 and STOPs at `reassembled output would be
+non-2-manifold` (152.6 s), its next honest typed wall. The N17
+`coplanar input face pair` `NotSupported` boundary is EMPTY on the corpus.
+Corpus (release, 8 jobs, 600 s; wall 828.1 s, F0085 340.1 s): **300C /
+0W / 8E / 4EE / 0T + 0 UNSUPPORTED — NEW CANONICAL**, exactly two
+category moves (F0064, F0072 as above), ZERO detail moves on the other
+310 rows. Ledger: `docs/yang_tail_triage.md` "2026-09-22 (late night,
+later) — F0064 CONVERTED".

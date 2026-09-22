@@ -420,7 +420,6 @@ pub(crate) fn decimate_intersection_runs(
     // stretches, so the floor pass and the rebuild see the same data.
     struct LoopPlan {
         part: LoopPartition,
-        cycle: Vec<u32>,
         /// Per stretch: (canonical chain, reversed) — `None` for a stretch
         /// that is not a run.
         chains: Vec<Option<(Vec<u32>, bool)>>,
@@ -499,11 +498,7 @@ pub(crate) fn decimate_intersection_runs(
                     chains.push(Some((canon, reversed)));
                 }
             }
-            face_plans.push(Some(LoopPlan {
-                part,
-                cycle,
-                chains,
-            }));
+            face_plans.push(Some(LoopPlan { part, chains }));
         }
         plans.push(face_plans);
     }

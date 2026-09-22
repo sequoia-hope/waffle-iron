@@ -1295,6 +1295,13 @@ case) and behavior-identical to the C++ on benign coplanar adjacency; the
 unhandled positive-area / interior-crossing cases are loud typed errors deferred
 to M8. **Sign-off:** candidate.
 
+**2026-09-22 addendum.** The corpus no longer has a customer for this
+deferral: F0064 converts and F0072 advances past Stage 0 once the Stage-0
+propagated split table orders by RESOLVED position (spec
+`m8_stage0_multiclass_cavity_arm.md` §19). The deferral itself is unchanged
+and stays the loud wall for any coplanar overlap the §4.5.5 overlay does not
+resolve.
+
 ### N18 — PR-CR-AR3b exact-coordinate canonicalization welds coincident implicit points across triangles
 
 **State:** PERMANENT — disposition delegated by user 2026-07-17 ("no opinion on A/B/C"); recommended default applied (batch A). N5 reopens if NURBS/Bézier support is ever scheduled.

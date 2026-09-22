@@ -52,8 +52,10 @@ operations it does not implement yet. These surface as error toasts in the app
 and as `#[ignore]`-tagged tests / `test.skip` GUI quarantines in the suites.
 They are ROADMAP ITEMS, not bugs:
 
-- **Coplanar boolean inputs** (flush/stacked faces) — Yang Stage 0, roadmap
-  M8 (the only `NotSupported` boundary left in the corpus: F0064, F0072)
+- **Coplanar boolean inputs** the §4.5.5 Stage-0 overlay cannot resolve —
+  the typed `coplanar input face pair` wall stays LOUD (deviation N17), but
+  as of 2026-09-22 **no corpus case hits it** (F0064 converted, F0072
+  advanced to a typed Stage-5/6 ERROR); the UNSUPPORTED bucket is empty
 - **Holed revolve profiles** and **arc/spline profiles without a chord
   polygon** — typed `NotSupported` at profile staging (no corpus case)
 - **Fillet / chamfer / shell** — deferred indefinitely (see below)
@@ -96,8 +98,9 @@ Do NOT skip to lower-priority items because they are easier.
    ERROR-tail families of `docs/yang_tail_triage.md` (Stage-4 relocation
    walls — `LocalRefinementRequired` / `OffCurveBeyondChordBand` —,
    Stage-5/6 non-2-manifold reassembly, Stage-3 `AmbiguousCurve`, the
-   thin-band chord-density CDT class) and **M8 coplanar Stage 0** (the last
-   `NotSupported` boundary). The correctness oracle is **reference parity against the Cherchi
+   thin-band chord-density CDT class); M8 coplanar Stage 0 has no corpus
+   customer left (2026-09-22) — its residue is whatever the next coplanar
+   document surfaces, loud. The correctness oracle is **reference parity against the Cherchi
    C++ sidecar** (roadmap §6) plus the categorized kernel-v2 assay. Run the
    assay in **`--release`** — it is reliable even in a sandbox or under other
    compute load (per-case timeouts are CPU-time-budgeted, so verdicts are
