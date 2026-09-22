@@ -411,3 +411,97 @@ ellipse have no junction map at all (the single-map overwrite is the
 is the same shape as this fix (an in-plane conic∩conic closed form, or the
 triple Newton with the junction maps counted as curve-bearing).
 
+
+## Torus arm — the pair vocabulary gains `Torus` (R0050 / R0085 wall 1)
+
+**Status**: checkpoint 1 LANDED 2026-09-22 (vocabulary + producer arms,
+Stage-3 emission gated OFF by default; corpus byte-identical by
+construction). **Owner of**: `docs/yang_tail_triage.md` 2026-09-22 (later)
+wall 1 — "torus curves leave Stage 3 as chord polylines".
+
+### Why
+
+`stage3_ssi::build_intersection_curves` skips every pair with a torus
+("KV6d Tier B") and leaves the edge `Curve::LineSegment`; Stage 4's torus
+block relocates the ENDPOINTS onto the implicit pair, but the output B-Rep
+then carries the Stage-4 mesh chords as its edge geometry. kernel-v2 cannot
+resample a `LineSegment`, so a torus intersection's render/STEP fidelity is
+the boolean mesh's (R0050 face 27: chords 0.3 long, 4.5e-3 of sag against a
+render band of 2.5e-3), and the render self-intersection gate sees the
+shadow at a knife-edge void. The P8 procedural model needs only an implicit
+and its gradient, and `surface_value_and_normal` / `relocate_onto_implicit_
+pair` already have the torus; only the VOCABULARY lacked it.
+
+### Scope of this arm
+
+Partners covered: torus × {cylinder, cone, sphere, torus} — the two corpus
+walls (R0050 torus × torus, R0085 torus × cone). **Torus × PLANE is NOT in
+this arm**: a torus plane section is quartic (spiric) in general, so a
+`Plane` would have to become a pair operand, and the K8 rule ("a surface-pair
+edge is never on a planar face": `validate.rs`, `validate/faces.rs`,
+`tessellate/mod.rs`, `geom.rs` signed area) would need its own increment.
+Torus × plane keeps today's `LineSegment` + Stage-4 torus-block path.
+
+### Parameters (the new vocabulary, per crate)
+
+| Crate | Variant | Fields |
+|---|---|---|
+| ssi-rs | `QuadricSurface::Torus` | `center, axis_dir, major_radius, minor_radius` (the enum is the natural-surface vocabulary; a torus is degree 4, not a quadric — the name stays for churn's sake) |
+| yang-rs | `Surface::Torus` (existing) | now a legal `Curve::SurfacePair` operand |
+| kernel-v2 | `PairSurface::Torus` | `center, axis_dir: UnitVector3, major_radius, minor_radius` (`R > r > 0`, the arena contract) |
+
+### Branch table
+
+ssi-rs (`intersect`), every arm E1-validated (finite positive radii,
+`R > r + TAU_MODEL`, finite center, normalizable axis):
+
+| # | Pair | Output |
+|---|---|---|
+| T1 | torus × plane, plane ⊥ axis (`|n̂ × â| < TAU_MODEL`) | parallel circles: `|h| > r` ⇒ `[]`; `||h| − r| ≤ TAU_MODEL` ⇒ 1 circle radius `R`; else 2 circles radii `R ± √(r² − h²)` (normal `â`, centre `c + h·â`) |
+| T2 | torus × plane, oblique | `[SurfacePair { a, b }]` (spiric section; NOT consumed by yang in this arm — see scope) |
+| T3 | torus × cylinder / cone / sphere, any position | `[SurfacePair { a, b }]` (argument order preserved) |
+| T4 | torus × torus, identical (same centre, parallel axes, both radii equal within TAU_MODEL) | `Err(DegenerateInput)` (the coincident-cylinder precedent) |
+| T5 | torus × torus otherwise | `[SurfacePair { a, b }]` |
+
+Coaxial torus × cylinder / cone / sphere / torus have circle closed forms
+(the meridian-plane circle∩circle / circle∩line); they are NOT special-cased
+here — the descriptor is exact for them too (membership and Newton are the
+same), only the output curve TYPE is less specific. Recorded, not chased.
+
+yang-rs:
+
+| # | Site | Behavior |
+|---|---|---|
+| YT1 | `surface_to_quadric` / `quadric_to_surface` | Torus arms, field-for-field |
+| YT2 | `curve_contains_point` SurfacePair arm | Torus residual = the exact signed distance `√((ρ−R)² + h²) − r` (the `surface_value_and_normal` form) |
+| YT3 | Stage-3 tangent tie-break | Torus normal from `surface_value_and_normal` |
+| YT4 | Stage 3 emission | the Tier-B skip becomes: skip when a partner is a Plane, or when the arm is OFF (`YANG_TORUS_PAIR` unset). ON: the pair goes through `ssi_rs::intersect` + membership like every other pair and the edge is tagged `Curve::SurfacePair` |
+| YT5 | Stage 4 | the M5 pair arm DEFERS any torus-bearing pair to the torus block (which keys on surface incidence, not the curve tag) — relocation is byte-identical to today's; only the output TAG changes |
+| YT6 | `surface_pair_local_scale` (K11 re-entry chain bound) | Torus: `min(r, R − r)` — the tightest normal-curvature radius on a ring torus (meridian `r`; inner-equator parallel `R − r`) |
+
+kernel-v2:
+
+| # | Site | Behavior |
+|---|---|---|
+| KT1 | `yang_surface_to_pair_surface` (K1) | Torus accepted with `R > r > 0` finite; else typed |
+| KT2 | `pair_surface_residual_gradient` | signed distance `√((ρ−R)² + h²) − r`, unit gradient `(x − q)/|x − q|`, `q = c + R·ρ̂`; `None` on the axis or the tube-centre circle |
+| KT3 | `pair_surface_scale` / `pair_surface_local_scale` | `r` (band scale) / `min(r, R − r)` (sag scale, as YT6) |
+| KT4 | `PairSurfaceKey::Torus`, `map_pair_surface`, `pair_surface_to_yang` | field-for-field |
+| KT5 | `surface_pair_project` | the K9 Newton exposed publicly (a certified point from a seed) — the sampler tests' endpoint source |
+
+### Increments
+
+1. **Vocabulary + producer arms, gated OFF** (this checkpoint): all of the
+   above; unit pins in ssi-rs (`tests/ssi13_torus.rs`), yang-rs
+   (`tests_unit/m5_case_iv.rs` torus block), kernel-v2
+   (`tests/m5_surface_pair_curve.rs` torus samplers + `geom` residual).
+   Corpus byte-identical by construction (no Stage-3 emission change with
+   the knob unset).
+2. **Measure with `YANG_TORUS_PAIR=1`** on every torus case (R0050, R0085,
+   R0096, R0044, C0065/R0074 partners, the KV6d torus fixtures) then the
+   full corpus; a case that moves CORRECT → anything is a real finding
+   (the Stage-3 owner band for a torus owner — `chord_tol_for_curved_owner`
+   has no torus-specific bound; a closed torus has no Circle rim to derive
+   one from — is the expected first wall). Flip the default when clean.
+3. **Torus × plane** (spiric): `Plane` as a pair operand + the K8 revision.
+4. **Coaxial circle arms** in ssi-rs (T3/T5 special cases → `Circle`).

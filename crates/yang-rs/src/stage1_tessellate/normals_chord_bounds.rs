@@ -400,7 +400,16 @@ pub(crate) fn surface_pair_local_scale(s: Surface, p: Point3) -> Option<f64> {
             let h = (pa[0] - aa[0]) * au[0] + (pa[1] - aa[1]) * au[1] + (pa[2] - aa[2]) * au[2];
             Some(h.abs() * half_angle.tan())
         }
-        Surface::Plane { .. } | Surface::Torus { .. } => None,
+        // M5 torus arm (YT6): the tightest normal-curvature radius on a ring
+        // torus — the meridian `r` everywhere, the inner-equator parallel
+        // `R − r` (`|cos φ / (R + r·cos φ)|` at `cos φ = −1`). The kernel-v2
+        // render rule (`pair_surface_local_scale`) uses the same value.
+        Surface::Torus {
+            major_radius,
+            minor_radius,
+            ..
+        } => Some(minor_radius.min(major_radius - minor_radius)),
+        Surface::Plane { .. } => None,
     }
 }
 

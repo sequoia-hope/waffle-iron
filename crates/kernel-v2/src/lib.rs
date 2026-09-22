@@ -105,7 +105,7 @@ pub use journal::{descendants, face_lineage, EvoKind, Evolution, FaceLineage, Op
 pub use profile::{Profile, ProfileEdge, ProfileRegion};
 pub use step_export::{write_step, StepSolid};
 pub use tessellate::{
-    circle_segment_count, surface_pair_interior_samples, tessellate,
+    circle_segment_count, surface_pair_interior_samples, surface_pair_project, tessellate,
     tessellate_with_chord_tolerance, FaceRange, RenderMesh, MIN_CIRCLE_SEGMENTS,
     RENDER_CHORD_TOLERANCE_REL,
 };

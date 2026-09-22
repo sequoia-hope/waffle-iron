@@ -122,6 +122,14 @@ pub(crate) enum PairSurfaceKey {
     /// F10: sphere operand of a general-position sphere×cyl / sphere×cone
     /// degree-4 pair.
     Sphere { center: [u64; 3], radius: u64 },
+    /// M5 torus arm: torus operand of a torus × {cyl, cone, sphere, torus}
+    /// pair.
+    Torus {
+        center: [u64; 3],
+        axis_dir: [u64; 3],
+        major_radius: u64,
+        minor_radius: u64,
+    },
 }
 
 pub(crate) fn pair_surface_key(s: &crate::arena::PairSurface) -> PairSurfaceKey {
@@ -163,6 +171,25 @@ pub(crate) fn pair_surface_key(s: &crate::arena::PairSurface) -> PairSurfaceKey 
                 center.z().to_bits(),
             ],
             radius: radius.to_bits(),
+        },
+        crate::arena::PairSurface::Torus {
+            center,
+            axis_dir,
+            major_radius,
+            minor_radius,
+        } => PairSurfaceKey::Torus {
+            center: [
+                center.x().to_bits(),
+                center.y().to_bits(),
+                center.z().to_bits(),
+            ],
+            axis_dir: [
+                axis_dir.x.to_bits(),
+                axis_dir.y.to_bits(),
+                axis_dir.z.to_bits(),
+            ],
+            major_radius: major_radius.to_bits(),
+            minor_radius: minor_radius.to_bits(),
         },
     }
 }

@@ -198,6 +198,17 @@ fn map_pair_surface(p: &RigidPlacement, s: &PairSurface) -> PairSurface {
             center: map_point(p, center),
             radius,
         },
+        PairSurface::Torus {
+            center,
+            axis_dir,
+            major_radius,
+            minor_radius,
+        } => PairSurface::Torus {
+            center: map_point(p, center),
+            axis_dir: map_dir(p, axis_dir),
+            major_radius,
+            minor_radius,
+        },
     }
 }
 

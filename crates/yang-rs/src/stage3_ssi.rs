@@ -81,9 +81,34 @@ pub(crate) fn surface_to_quadric(s: Surface) -> Result<ssi_rs::QuadricSurface, S
             axis_dir,
             half_angle,
         }),
-        // A torus is a DEGREE-4 surface, not a quadric — its SSI refinement is
-        // out of the quadric-solver vocabulary (KV6d boolean increment).
-        Surface::Torus { .. } => Err(SsiRefinementError::UnsupportedSurfaceForSsi),
+        // M5 torus arm (spec `m5_surface_pair_curve` "Torus arm", YT1): a
+        // torus is degree 4, not a quadric, but the pair vocabulary carries
+        // it field-for-field — every torus pair in general position is the
+        // procedural `SurfacePair` (only the perpendicular plane section has
+        // a circle closed form in ssi-rs).
+        Surface::Torus {
+            center,
+            axis_dir,
+            major_radius,
+            minor_radius,
+        } => Ok(ssi_rs::QuadricSurface::Torus {
+            center,
+            axis_dir,
+            major_radius,
+            minor_radius,
+        }),
+    }
+}
+
+/// M5 torus arm (YT4) gate: `YANG_TORUS_PAIR=1` (or any value other than
+/// `0`/`off`) sends torus × {cylinder, cone, sphere, torus} intersection
+/// edges through ssi so they emit as `Curve::SurfacePair`; unset (the
+/// default while increment 2's corpus measurement is pending) keeps the
+/// KV6d Tier-B `LineSegment` path byte-identical.
+pub(crate) fn torus_pair_arm_enabled() -> bool {
+    match std::env::var("YANG_TORUS_PAIR") {
+        Ok(v) => !(v == "0" || v.eq_ignore_ascii_case("off")),
+        Err(_) => false,
     }
 }
 
@@ -121,8 +146,24 @@ pub(crate) fn quadric_to_surface(q: ssi_rs::QuadricSurface) -> Result<Surface, S
         // the F10 promotion would only move the wall from ssi-rs's ASNA to
         // here.
         ssi_rs::QuadricSurface::Sphere { center, radius } => Ok(Surface::Sphere { center, radius }),
-        // No producer emits a bare `Plane` as a surface-pair operand (a
-        // plane section is always a conic, never a degree-4 pair).
+        // M5 torus arm (YT1): the torus operand of a torus × {cylinder, cone,
+        // sphere, torus} pair, field-for-field.
+        ssi_rs::QuadricSurface::Torus {
+            center,
+            axis_dir,
+            major_radius,
+            minor_radius,
+        } => Ok(Surface::Torus {
+            center,
+            axis_dir,
+            major_radius,
+            minor_radius,
+        }),
+        // No CONSUMED producer emits a bare `Plane` as a surface-pair operand:
+        // a quadric's plane section is always a conic, and the torus × plane
+        // spiric section (ssi-rs T2) is outside the torus arm's scope (the K8
+        // "never on a planar face" rule; spec "Torus arm" scope) — Stage 3
+        // never sends that pair to ssi.
         ssi_rs::QuadricSurface::Plane { .. } => Err(SsiRefinementError::UnsupportedSurfaceForSsi),
     }
 }
@@ -406,6 +447,27 @@ pub(crate) fn curve_contains_point(
                         let r = (perp[0] * perp[0] + perp[1] * perp[1] + perp[2] * perp[2]).sqrt();
                         Some((r - h.abs() * half_angle.tan()).abs())
                     }
+                    // M5 torus arm (YT2): the exact signed distance
+                    // `√((ρ − R)² + h²) − r` — the `surface_value_and_normal`
+                    // torus form, so membership, Stage-4 relocation and the
+                    // kernel-v2 endpoint check all measure the same length.
+                    // `None` on the axis / tube-centre circle (no curve
+                    // point can be there).
+                    ssi_rs::QuadricSurface::Torus {
+                        center,
+                        axis_dir,
+                        major_radius,
+                        minor_radius,
+                    } => crate::stage4_relocate::surface_value_and_normal(
+                        Surface::Torus {
+                            center: *center,
+                            axis_dir: *axis_dir,
+                            major_radius: *major_radius,
+                            minor_radius: *minor_radius,
+                        },
+                        x,
+                    )
+                    .map(|(f, _)| f.abs()),
                     _ => None,
                 }
             };
@@ -825,13 +887,25 @@ pub(crate) fn build_intersection_curves(
             continue;
         }
 
-        // KV6d Tier B: a TORUS intersection edge is degree-4 — there is no
-        // analytic SSI curve (`surface_to_quadric` refuses a torus). Leave it as
-        // the `Curve::LineSegment` fallback (the `emit_topology` default); Stage
-        // 4 relocates its endpoints onto the exact torus∩surface curve via the
-        // implicit-pair Newton (`relocate_onto_implicit_pair`/`_triple`).
+        // KV6d Tier B / M5 torus arm (spec `m5_surface_pair_curve` "Torus
+        // arm", YT4): a TORUS intersection edge is degree 4. With the arm OFF
+        // (default until the corpus measurement of increment 2), or for a
+        // PLANE partner (the spiric section is outside the arm's scope — the
+        // K8 "never on a planar face" rule), the edge stays the
+        // `Curve::LineSegment` fallback (the `emit_topology` default) and
+        // Stage 4's torus block relocates its endpoints onto the exact
+        // torus∩surface curve via the implicit-pair Newton. With the arm ON a
+        // torus × {cylinder, cone, sphere, torus} pair takes the ssi route
+        // below and is tagged `Curve::SurfacePair`, so the output B-Rep
+        // carries the analytic curve instead of the Stage-4 mesh chords
+        // (R0050 / R0085 wall 1). Stage 4 still routes the edge through the
+        // torus block (YT5) — only the output tag changes.
         if matches!(surf0, Surface::Torus { .. }) || matches!(surf1, Surface::Torus { .. }) {
-            continue;
+            let plane_partner =
+                matches!(surf0, Surface::Plane { .. }) || matches!(surf1, Surface::Plane { .. });
+            if plane_partner || !torus_pair_arm_enabled() {
+                continue;
+            }
         }
 
         let q0 = surface_to_quadric(surf0).map_err(|reason| YangError::SsiRefinementFailed {

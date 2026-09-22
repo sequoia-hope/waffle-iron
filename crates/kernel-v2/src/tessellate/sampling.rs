@@ -766,6 +766,20 @@ fn project_onto_surface_pair(
     Err("surface-pair Newton projection did not converge")
 }
 
+/// Project `seed` onto the intersection curve of the pair `(a, b)` — the K9
+/// Newton exposed publicly (M5 torus arm, KT5): a certified on-both-surfaces
+/// point from a nearby seed, or the typed reason it cannot be one (tangency,
+/// an axis, non-convergence, divergence). The sampler tests draw their
+/// endpoints from it; it is the same operator [`surface_pair_interior_samples`]
+/// certifies every interior sample with.
+pub fn surface_pair_project(
+    a: &crate::arena::PairSurface,
+    b: &crate::arena::PairSurface,
+    seed: Point3,
+) -> Result<Point3, &'static str> {
+    project_onto_surface_pair(a, b, seed)
+}
+
 /// Interior render samples of a procedural surface-pair curve piece between
 /// two CERTIFIED on-curve endpoints (M5, `specs/m5_surface_pair_curve.md`
 /// K9): recursive chord bisection, each midpoint Newton-projected onto BOTH

@@ -44,6 +44,20 @@ fn cross(a: [f64; 3], b: [f64; 3]) -> [f64; 3] {
 
 fn implicit_residual(surf: &QuadricSurface, x: [f64; 3]) -> f64 {
     match surf {
+        QuadricSurface::Torus {
+            center,
+            axis_dir,
+            major_radius,
+            minor_radius,
+        } => {
+            // M5 torus arm: the signed tube distance √((ρ − R)² + h²) − r.
+            let rel = sub(x, center.as_array());
+            let a = axis_dir.as_array();
+            let alen = norm(a);
+            let h = dot(rel, a) / alen;
+            let rho = norm(cross(rel, a)) / alen;
+            (((rho - major_radius).powi(2) + h * h).sqrt() - minor_radius).abs()
+        }
         QuadricSurface::Plane { point, normal } => {
             // |n·(x − point)|, n assumed unit.
             dot(normal.as_array(), sub(x, point.as_array())).abs()

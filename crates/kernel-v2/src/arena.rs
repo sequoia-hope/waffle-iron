@@ -423,10 +423,12 @@ pub enum Curve {
 /// curve is a point set, so unlike [`Surface`] there is NO `reversed`
 /// cavity flag (orientation lives on faces, traversal on half-edges).
 ///
-/// `#[non_exhaustive]`: both producers ship — general-position
-/// cylinder×cylinder (M5) and the cone-pair arms (cyl×cone, cone×cone; the
-/// R0008/R0003/R0019 `AmbiguousCurve` class). Sphere/torus operands are not
-/// yet surface-pair producers.
+/// `#[non_exhaustive]`: the producers are general-position
+/// cylinder×cylinder (M5), the cone-pair arms (cyl×cone, cone×cone; the
+/// R0008/R0003/R0019 `AmbiguousCurve` class), the F10 sphere pairs, and the
+/// torus arm (torus × cylinder / cone / sphere / torus,
+/// `specs/m5_surface_pair_curve.md` "Torus arm"). A `Plane` operand (the
+/// torus × plane spiric section) is not in the vocabulary.
 #[derive(Debug, Clone, Copy, PartialEq)]
 #[non_exhaustive]
 pub enum PairSurface {
@@ -458,6 +460,19 @@ pub enum PairSurface {
         center: Point3,
         /// Sphere radius (meters, > 0).
         radius: f64,
+    },
+    /// Ring torus (M5 torus arm): the zero set of the signed distance
+    /// `√((ρ − R)² + h²) − r`, `h = (x − c)·â`, `ρ = |x − c − h·â|`. Same
+    /// fields as [`Surface::Torus`] minus the cavity flag (`R > r > 0`).
+    Torus {
+        /// A point on the axis, in the plane of the tube centre circle.
+        center: Point3,
+        /// Unit axis direction.
+        axis_dir: UnitVector3,
+        /// Major radius `R` (meters, `> minor_radius`).
+        major_radius: f64,
+        /// Minor radius `r` (meters, > 0).
+        minor_radius: f64,
     },
 }
 

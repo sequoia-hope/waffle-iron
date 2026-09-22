@@ -10271,6 +10271,15 @@ fn stage4_relocate_and_correct_inner(
             // bookkeeping (a procedural curve has no `t`). Only record the
             // pair here.
             Curve::SurfacePair { a, b } => {
+                // M5 torus arm (YT5): a torus-bearing pair (Stage 3 tags it
+                // with `YANG_TORUS_PAIR` on) is relocated by the (2t) torus
+                // block below, which keys on the edge's surface INCIDENCE,
+                // not its curve tag — exactly as the same edge was when it
+                // carried `LineSegment`. Recording it here too would relocate
+                // it twice under two different junction rules. Defer.
+                if matches!(a, Surface::Torus { .. }) || matches!(b, Surface::Torus { .. }) {
+                    continue;
+                }
                 for v in [s, e] {
                     // Increment 3: certified exact junction — enters no map (see above).
                     if exact_junctions.contains(&v) {

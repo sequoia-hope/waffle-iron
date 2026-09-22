@@ -647,6 +647,38 @@ pub(crate) fn pair_surface_residual_gradient(
             }
             Some((dl - radius, [d[0] / dl, d[1] / dl, d[2] / dl]))
         }
+        // Torus (M5 torus arm, KT2): the exact signed distance to the tube,
+        // `|x − q| − r` with `q = c + R·ρ̂` the nearest tube-centre-circle
+        // point, whose gradient `(x − q)/|x − q|` is already unit — the
+        // yang-rs `surface_value_and_normal` torus form, so the shared
+        // Gauss-Newton step is exact. `None` on the axis (ρ̂ undefined) or on
+        // the tube-centre circle (the normal is undefined there).
+        crate::arena::PairSurface::Torus {
+            center,
+            axis_dir,
+            major_radius,
+            minor_radius,
+        } => {
+            let a = [axis_dir.x, axis_dir.y, axis_dir.z];
+            let w = [p[0] - center.x(), p[1] - center.y(), p[2] - center.z()];
+            let h = w[0] * a[0] + w[1] * a[1] + w[2] * a[2];
+            let rad = [w[0] - h * a[0], w[1] - h * a[1], w[2] - h * a[2]];
+            let rho = (rad[0] * rad[0] + rad[1] * rad[1] + rad[2] * rad[2]).sqrt();
+            if !(rho.is_finite() && rho > 0.0) {
+                return None;
+            }
+            let q = [
+                center.x() + major_radius * rad[0] / rho,
+                center.y() + major_radius * rad[1] / rho,
+                center.z() + major_radius * rad[2] / rho,
+            ];
+            let xq = [p[0] - q[0], p[1] - q[1], p[2] - q[2]];
+            let l = (xq[0] * xq[0] + xq[1] * xq[1] + xq[2] * xq[2]).sqrt();
+            if !(l.is_finite() && l > 0.0) {
+                return None;
+            }
+            Some((l - minor_radius, [xq[0] / l, xq[1] / l, xq[2] / l]))
+        }
     }
 }
 
@@ -662,6 +694,8 @@ pub(crate) fn pair_surface_scale(s: &crate::arena::PairSurface) -> f64 {
         crate::arena::PairSurface::Cone { .. } => 0.0,
         // A sphere has a constant radius, like the cylinder (F10).
         crate::arena::PairSurface::Sphere { radius, .. } => radius,
+        // A torus's constant length is its tube radius (M5 torus arm, KT3).
+        crate::arena::PairSurface::Torus { minor_radius, .. } => minor_radius,
     }
 }
 
@@ -688,6 +722,14 @@ pub(crate) fn pair_surface_local_scale(s: &crate::arena::PairSurface, p: Point3)
             let h = d[0] * a[0] + d[1] * a[1] + d[2] * a[2];
             h.abs() * half_angle.tan()
         }
+        // Torus (M5 torus arm, KT3): the tightest normal-curvature radius on
+        // a ring torus — the meridian `r` everywhere, the inner-equator
+        // parallel `R − r`. Same value as yang-rs `surface_pair_local_scale`.
+        crate::arena::PairSurface::Torus {
+            major_radius,
+            minor_radius,
+            ..
+        } => minor_radius.min(major_radius - minor_radius),
     }
 }
 
@@ -889,6 +931,65 @@ mod tests {
         assert!(pair_surface_residual_gradient(&s, [1.0, -2.0, 0.5]).is_none());
         // Scale is the radius.
         assert_eq!(pair_surface_scale(&s), 3.0);
+    }
+
+    #[test]
+    fn torus_pair_surface_residual_and_gradient() {
+        // M5 torus arm (KT2/KT3): PairSurface::Torus residual = |x − q| − r
+        // with q the nearest tube-centre-circle point; gradient = unit
+        // (x − q). On-surface ⇒ ~0; off by d along the tube normal ⇒ d; the
+        // Gauss-Newton step lands back on the surface; the axis and the
+        // tube-centre circle are degenerate; scales are r and min(r, R − r).
+        use crate::arena::PairSurface;
+        let s = PairSurface::Torus {
+            center: Point3::new(1.0, -2.0, 0.5),
+            axis_dir: UnitVector3 {
+                x: 0.0,
+                y: 0.0,
+                z: 1.0,
+            },
+            major_radius: 3.0,
+            minor_radius: 1.0,
+        };
+        // Outer equator point: centre + (R + r)·x̂.
+        let on = [5.0, -2.0, 0.5];
+        let (res_on, g_on) = pair_surface_residual_gradient(&s, on).unwrap();
+        assert!(res_on.abs() < 1e-12, "on-surface residual {res_on:e}");
+        assert!((g_on[0] - 1.0).abs() < 1e-12 && g_on[1].abs() < 1e-12 && g_on[2].abs() < 1e-12);
+        // Crown + 0.4: centre + R·ŷ + 1.4·ẑ ⇒ residual 0.4, gradient +ẑ.
+        let off = [1.0, 1.0, 1.9];
+        let (res_off, g_off) = pair_surface_residual_gradient(&s, off).unwrap();
+        assert!((res_off - 0.4).abs() < 1e-12, "off residual {res_off}");
+        assert!(g_off[0].abs() < 1e-12 && g_off[1].abs() < 1e-12 && (g_off[2] - 1.0).abs() < 1e-12);
+        let stepped = [
+            off[0] - res_off * g_off[0],
+            off[1] - res_off * g_off[1],
+            off[2] - res_off * g_off[2],
+        ];
+        let (res2, _) = pair_surface_residual_gradient(&s, stepped).unwrap();
+        assert!(res2.abs() < 1e-12, "post-step residual {res2:e}");
+        // Axis point and tube-centre-circle point are degenerate.
+        assert!(pair_surface_residual_gradient(&s, [1.0, -2.0, 7.0]).is_none());
+        assert!(pair_surface_residual_gradient(&s, [4.0, -2.0, 0.5]).is_none());
+        assert_eq!(pair_surface_scale(&s), 1.0);
+        assert_eq!(
+            pair_surface_local_scale(&s, Point3::new(9.0, 9.0, 9.0)),
+            1.0
+        );
+        let fat = PairSurface::Torus {
+            center: Point3::new(0.0, 0.0, 0.0),
+            axis_dir: UnitVector3 {
+                x: 0.0,
+                y: 0.0,
+                z: 1.0,
+            },
+            major_radius: 1.5,
+            minor_radius: 1.0,
+        };
+        assert_eq!(
+            pair_surface_local_scale(&fat, Point3::new(9.0, 9.0, 9.0)),
+            0.5
+        );
     }
 
     /// The LOCAL pair-surface radius (2026-08-19, R0020/R0044): a cone's is

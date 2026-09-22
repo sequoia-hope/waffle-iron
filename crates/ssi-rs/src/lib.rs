@@ -92,8 +92,9 @@ fn normalize(a: [f64; 3]) -> Result<[f64; 3], SsiError> {
 // Public types (see spec §Types).
 // ---------------------------------------------------------------------------
 
-/// A natural-quadric surface in implicit form. `Plane`/`Sphere`/`Cylinder`/
-/// `Cone` are present; `Torus` arrives with its solver.
+/// A natural surface in implicit form. `Plane`/`Sphere`/`Cylinder`/`Cone`
+/// are quadrics; `Torus` (M5 torus arm, 2026-09-22) is degree 4 — the enum
+/// keeps its historical name as the pair-surface vocabulary.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum QuadricSurface {
     /// Plane through `point` with unit `normal`: `n·(x − point) = 0`.
@@ -128,6 +129,24 @@ pub enum QuadricSurface {
         /// Half-angle `α ∈ (0, π/2)` between the axis and a generator.
         half_angle: f64,
     }, // implicit: radial distance from axis = |h|·tanα, h=(x−apex)·â; both nappes
+    /// Ring torus: the circle of radius `minor_radius` (the tube) revolved
+    /// about the axis through `center` along `axis_dir`, its centre tracing
+    /// the circle of radius `major_radius` in the plane through `center` ⊥
+    /// the axis. `major_radius > minor_radius > 0`. Implicit (signed distance
+    /// form): `√((ρ − R)² + h²) − r` with `h = (x − c)·â`, `ρ = |x − c − h·â|`.
+    /// M5 torus arm (`specs/m5_surface_pair_curve.md` "Torus arm"): every
+    /// torus pair in general position is the procedural `SurfacePair`; only
+    /// the perpendicular plane section has a circle closed form here.
+    Torus {
+        /// A point on the axis, in the plane of the tube centre circle.
+        center: Point3,
+        /// Axis direction (normalized defensively; need not be unit on input).
+        axis_dir: Vector3,
+        /// Major radius `R` (axis → tube centre circle).
+        major_radius: f64,
+        /// Minor radius `r` (the tube).
+        minor_radius: f64,
+    },
 }
 
 /// An exact analytical intersection curve (never a polyline).
@@ -423,7 +442,217 @@ pub fn intersect(a: &QuadricSurface, b: &QuadricSurface) -> Result<Vec<SsiCurve>
         (QuadricSurface::Cylinder { .. }, QuadricSurface::Cylinder { .. }) => {
             cylinder_cylinder(a, b)
         }
+        // M5 torus arm: the perpendicular plane section has a circle closed
+        // form (T1); every other torus pair is the procedural surface-pair
+        // descriptor (T2/T3/T5), argument order preserved.
+        (QuadricSurface::Plane { .. }, QuadricSurface::Torus { .. }) => plane_torus(a, b, false),
+        (QuadricSurface::Torus { .. }, QuadricSurface::Plane { .. }) => plane_torus(b, a, true),
+        (QuadricSurface::Torus { .. }, QuadricSurface::Torus { .. }) => torus_torus(a, b),
+        (QuadricSurface::Torus { .. }, _) | (_, QuadricSurface::Torus { .. }) => {
+            torus_general(a, b)
+        }
     }
+}
+
+// ---------------------------------------------------------------------------
+// M5 torus arm (`specs/m5_surface_pair_curve.md` "Torus arm").
+// ---------------------------------------------------------------------------
+
+/// E1 validation of a `Torus` operand: finite positive radii with
+/// `R > r + TAU_MODEL` (a ring torus; a spindle/horn torus self-intersects
+/// and has no producer), finite centre, normalizable axis. Returns the unit
+/// axis.
+fn torus_axis_checked(t: &QuadricSurface) -> Result<[f64; 3], SsiError> {
+    let QuadricSurface::Torus {
+        center,
+        axis_dir,
+        major_radius,
+        minor_radius,
+    } = t
+    else {
+        return Err(SsiError::AnalyticalSolutionNotAvailable);
+    };
+    let (rr, r) = (*major_radius, *minor_radius);
+    if !(rr.is_finite() && r.is_finite() && r > 0.0 && rr > r + TAU_MODEL) {
+        return Err(SsiError::DegenerateInput);
+    }
+    if !center.as_array().iter().all(|c| c.is_finite()) {
+        return Err(SsiError::DegenerateInput);
+    }
+    normalize(axis_dir.as_array())
+}
+
+/// E1 validation of the NON-torus partner of a torus pair (T3): the same
+/// radius / half-angle / finiteness gates the partner's own solvers apply.
+fn partner_checked(s: &QuadricSurface) -> Result<(), SsiError> {
+    match s {
+        QuadricSurface::Plane { point, normal } => {
+            if !point.as_array().iter().all(|c| c.is_finite()) {
+                return Err(SsiError::DegenerateInput);
+            }
+            normalize(normal.as_array()).map(|_| ())
+        }
+        QuadricSurface::Sphere { center, radius } => {
+            if !(radius.is_finite() && *radius > 0.0)
+                || !center.as_array().iter().all(|c| c.is_finite())
+            {
+                return Err(SsiError::DegenerateInput);
+            }
+            Ok(())
+        }
+        QuadricSurface::Cylinder {
+            axis_point,
+            axis_dir,
+            radius,
+        } => {
+            if !(radius.is_finite() && *radius > 0.0)
+                || !axis_point.as_array().iter().all(|c| c.is_finite())
+            {
+                return Err(SsiError::DegenerateInput);
+            }
+            normalize(axis_dir.as_array()).map(|_| ())
+        }
+        QuadricSurface::Cone {
+            apex,
+            axis_dir,
+            half_angle,
+        } => {
+            let alpha = *half_angle;
+            if !alpha.is_finite()
+                || alpha <= TAU_MODEL
+                || alpha >= std::f64::consts::FRAC_PI_2 - TAU_MODEL
+                || !apex.as_array().iter().all(|c| c.is_finite())
+            {
+                return Err(SsiError::DegenerateInput);
+            }
+            normalize(axis_dir.as_array()).map(|_| ())
+        }
+        QuadricSurface::Torus { .. } => torus_axis_checked(s).map(|_| ()),
+    }
+}
+
+/// Plane ∩ torus (M5 torus arm T1/T2). `plane` is the plane operand, `torus`
+/// the torus; `torus_first` records the CALL order so the T2 descriptor
+/// preserves it (I4 symmetry: the same curve set either way).
+///
+/// - T1 (plane ⊥ axis, `|n̂ × â| < TAU_MODEL`): the section is the pair of
+///   parallel circles at signed height `h = n̂·(p − c)` along `â` (signed so
+///   that `h·â` is the plane's offset from the tube-centre plane):
+///   `|h| > r` ⇒ `Ok([])`; `||h| − r| ≤ TAU_MODEL` ⇒ one circle of radius
+///   `R` (the plane is tangent to the tube's crown); else two circles of
+///   radii `R ± √(r² − h²)`, normal `â`, centre `c + h·â`. The inner circle
+///   is omitted only if its radius is `≤ TAU_MODEL` (impossible for a ring
+///   torus, kept as the defensive guard).
+/// - T2 (oblique): `Ok([SurfacePair { a, b }])` in call order — the spiric
+///   section is degree 4 (Patrikalakis & Maekawa §5.8: plane ∩ torus is a
+///   quartic; only the perpendicular and axial sections are circles).
+/// - E1: `Err(DegenerateInput)` (either operand invalid).
+fn plane_torus(
+    plane: &QuadricSurface,
+    torus: &QuadricSurface,
+    torus_first: bool,
+) -> Result<Vec<SsiCurve>, SsiError> {
+    let QuadricSurface::Plane { point, normal } = plane else {
+        return Err(SsiError::AnalyticalSolutionNotAvailable);
+    };
+    let QuadricSurface::Torus {
+        center,
+        major_radius,
+        minor_radius,
+        ..
+    } = torus
+    else {
+        return Err(SsiError::AnalyticalSolutionNotAvailable);
+    };
+    partner_checked(plane)?;
+    let ahat = torus_axis_checked(torus)?;
+    let nhat = normalize(normal.as_array())?;
+    let (rr, r) = (*major_radius, *minor_radius);
+
+    if norm(cross(nhat, ahat)) >= TAU_MODEL {
+        let (a, b) = if torus_first {
+            (torus, plane)
+        } else {
+            (plane, torus)
+        };
+        return Ok(vec![SsiCurve::SurfacePair { a: *a, b: *b }]);
+    }
+
+    // Perpendicular: the plane's signed offset from the tube-centre plane,
+    // measured along the torus axis (sign-independent of n̂'s orientation).
+    let c = center.as_array();
+    let h = dot(sub(point.as_array(), c), ahat);
+    let circle_centre = Point3::from(add(c, scale(ahat, h)));
+    let axis = Vector3::new(ahat[0], ahat[1], ahat[2]);
+    let circle = |radius: f64| SsiCurve::Circle {
+        center: circle_centre,
+        normal: axis,
+        radius,
+    };
+    let gap = h.abs() - r;
+    if gap > TAU_MODEL {
+        return Ok(vec![]);
+    }
+    if gap.abs() <= TAU_MODEL {
+        return Ok(vec![circle(rr)]);
+    }
+    let s = (r * r - h * h).sqrt();
+    let mut out = vec![circle(rr + s)];
+    if rr - s > TAU_MODEL {
+        out.push(circle(rr - s));
+    }
+    Ok(out)
+}
+
+/// Torus ∩ {cylinder, cone, sphere} (M5 torus arm T3): the intersection is
+/// degree 8 in general with no conic closed form ([#1] Patrikalakis Ch.5) —
+/// the procedural surface-pair descriptor, both operands verbatim in call
+/// order. Coaxial configurations (circles in closed form) are NOT
+/// special-cased: the descriptor is exact for them too (membership and the
+/// Newton projection are the same zero set); only the curve TYPE is less
+/// specific — recorded in the spec, not chased. E1 on either operand.
+fn torus_general(a: &QuadricSurface, b: &QuadricSurface) -> Result<Vec<SsiCurve>, SsiError> {
+    partner_checked(a)?;
+    partner_checked(b)?;
+    Ok(vec![SsiCurve::SurfacePair { a: *a, b: *b }])
+}
+
+/// Torus ∩ torus (M5 torus arm T4/T5).
+///
+/// - T4 (identical tori: centres within TAU_MODEL, parallel axes, both radii
+///   within TAU_MODEL): `Err(DegenerateInput)` — the overlap is a surface,
+///   not a curve (the coincident-cylinder / concentric-sphere precedent).
+/// - T5 otherwise: `Ok([SurfacePair { a, b }])`, call order preserved
+///   (degree 8 in general; the coaxial circle closed forms are not
+///   special-cased, as in `torus_general`).
+fn torus_torus(a: &QuadricSurface, b: &QuadricSurface) -> Result<Vec<SsiCurve>, SsiError> {
+    let (
+        QuadricSurface::Torus {
+            center: c1,
+            major_radius: rr1,
+            minor_radius: r1,
+            ..
+        },
+        QuadricSurface::Torus {
+            center: c2,
+            major_radius: rr2,
+            minor_radius: r2,
+            ..
+        },
+    ) = (a, b)
+    else {
+        return Err(SsiError::AnalyticalSolutionNotAvailable);
+    };
+    let a1 = torus_axis_checked(a)?;
+    let a2 = torus_axis_checked(b)?;
+    let identical = norm(cross(a1, a2)) < TAU_MODEL
+        && norm(sub(c2.as_array(), c1.as_array())) < TAU_MODEL
+        && (rr1 - rr2).abs() <= TAU_MODEL
+        && (r1 - r2).abs() <= TAU_MODEL;
+    if identical {
+        return Err(SsiError::DegenerateInput);
+    }
+    Ok(vec![SsiCurve::SurfacePair { a: *a, b: *b }])
 }
 
 // ---------------------------------------------------------------------------

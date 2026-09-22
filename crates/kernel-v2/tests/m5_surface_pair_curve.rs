@@ -625,3 +625,165 @@ fn surface_pair_reentry_enters_yang() {
         v1 - v2
     );
 }
+
+// ---------------------------------------------------------------------------
+// M5 torus arm (`specs/m5_surface_pair_curve.md` "Torus arm", KT2/KT3/KT5).
+// ---------------------------------------------------------------------------
+
+/// Torus about +ẑ: centre `c`, `R`, `r`.
+fn torus_z(c: Point3, rr: f64, r: f64) -> PairSurface {
+    PairSurface::Torus {
+        center: c,
+        axis_dir: up(),
+        major_radius: rr,
+        minor_radius: r,
+    }
+}
+
+/// Signed distance to a z-axis torus at `c` (the implicit the descriptor
+/// denotes), for the test-side residual oracle.
+fn torus_residual(c: Point3, rr: f64, r: f64, p: Point3) -> f64 {
+    let (dx, dy, dz) = (p.x() - c.x(), p.y() - c.y(), p.z() - c.z());
+    let rho = (dx * dx + dy * dy).sqrt();
+    ((rho - rr).powi(2) + dz * dz).sqrt() - r
+}
+
+/// K9 with a TORUS operand: a torus about +ẑ (R = 2, r = 0.5) meets an
+/// x-axis cylinder (r = 0.3) in a closed curve on the tube's inner wall.
+/// Parametrized by the cylinder azimuth ψ: `y = 0.3 cos ψ`, `z = 0.3 sin ψ`,
+/// `ρ = 2 − √(0.25 − z²)`, `x = √(ρ² − y²)`. Sampled from ψ = 0 to ψ = π/2;
+/// every sample must satisfy BOTH implicit residuals tightly, advance
+/// monotonically in ψ, and the chain must meet the chord bound against the
+/// closed form.
+#[test]
+fn surface_pair_sampler_torus_cylinder() {
+    let c = Point3::new(0.0, 0.0, 0.0);
+    let a = torus_z(c, 2.0, 0.5);
+    let b = PairSurface::Cylinder {
+        axis_point: c,
+        axis_dir: UnitVector3 {
+            x: 1.0,
+            y: 0.0,
+            z: 0.0,
+        },
+        radius: 0.3,
+    };
+    let p_of = |psi: f64| {
+        let y = 0.3 * psi.cos();
+        let z = 0.3 * psi.sin();
+        let rho = 2.0 - (0.25 - z * z).sqrt();
+        Point3::new((rho * rho - y * y).sqrt(), y, z)
+    };
+    let start = p_of(0.0);
+    let end = p_of(PI / 2.0);
+    let tol = 1e-4;
+    let samples =
+        surface_pair_interior_samples(&a, &b, start, end, tol).expect("sampler converges");
+    assert!(samples.len() >= 3, "got {} samples", samples.len());
+    for s in &samples {
+        let rb = (s.y() * s.y() + s.z() * s.z()).sqrt();
+        assert!(
+            torus_residual(c, 2.0, 0.5, *s).abs() < 1e-9 && (rb - 0.3).abs() < 1e-9,
+            "sample {s:?} on both surfaces"
+        );
+    }
+    let psi = |p: &Point3| p.z().atan2(p.y());
+    let mut prev = psi(&start);
+    for s in &samples {
+        let cur = psi(s);
+        assert!(cur > prev, "samples advance monotonically along the curve");
+        prev = cur;
+    }
+    assert!(psi(&end) > prev);
+    let mut chain = vec![start];
+    chain.extend(samples.iter().copied());
+    chain.push(end);
+    for w in chain.windows(2) {
+        let (p0, p1) = (w[0], w[1]);
+        let (f0, f1) = (psi(&p0), psi(&p1));
+        for k in 1..8 {
+            let t = f0 + (f1 - f0) * (k as f64) / 8.0;
+            let q = p_of(t);
+            let d = [p1.x() - p0.x(), p1.y() - p0.y(), p1.z() - p0.z()];
+            let v = [q.x() - p0.x(), q.y() - p0.y(), q.z() - p0.z()];
+            let dd = d[0] * d[0] + d[1] * d[1] + d[2] * d[2];
+            let t_proj = (v[0] * d[0] + v[1] * d[1] + v[2] * d[2]) / dd;
+            let cc = [
+                v[0] - t_proj * d[0],
+                v[1] - t_proj * d[1],
+                v[2] - t_proj * d[2],
+            ];
+            let dist = (cc[0] * cc[0] + cc[1] * cc[1] + cc[2] * cc[2]).sqrt();
+            assert!(dist < 2.0 * tol, "chord sag {dist} exceeds 2·tol at ψ={t}");
+        }
+    }
+}
+
+/// R0050's class — two PARALLEL-axis tori (R = 3, r = 1, axes 1.5 apart)
+/// crossing transversally. The y = 0 meridian circles about (3, 0) and
+/// (4.5, 0) meet at `(3.75, 0, ±√0.4375)`; the second endpoint is the
+/// certified projection of that point rotated 8° about A's axis (KT5,
+/// `surface_pair_project`). Every sample lies on both tori and the chain
+/// advances monotonically in A's azimuth.
+#[test]
+fn surface_pair_sampler_parallel_tori_r0050_class() {
+    let ca = Point3::new(0.0, 0.0, 0.0);
+    let cb = Point3::new(1.5, 0.0, 0.0);
+    let a = torus_z(ca, 3.0, 1.0);
+    let b = torus_z(cb, 3.0, 1.0);
+    let p1 = Point3::new(3.75, 0.0, 0.4375f64.sqrt());
+    assert!(torus_residual(ca, 3.0, 1.0, p1).abs() < 1e-12);
+    assert!(torus_residual(cb, 3.0, 1.0, p1).abs() < 1e-12);
+    let ang = 8.0f64.to_radians();
+    let seed = Point3::new(
+        p1.x() * ang.cos() - p1.y() * ang.sin(),
+        p1.x() * ang.sin() + p1.y() * ang.cos(),
+        p1.z(),
+    );
+    let p2 = kernel_v2::surface_pair_project(&a, &b, seed).expect("seed projects");
+    assert!(torus_residual(ca, 3.0, 1.0, p2).abs() < 1e-11);
+    assert!(torus_residual(cb, 3.0, 1.0, p2).abs() < 1e-11);
+    let tol = 1e-5;
+    let samples = surface_pair_interior_samples(&a, &b, p1, p2, tol).expect("sampler converges");
+    assert!(
+        !samples.is_empty(),
+        "an 8° quartic piece needs refinement at tol {tol}"
+    );
+    let az = |p: &Point3| p.y().atan2(p.x());
+    let mut prev = az(&p1);
+    for s in &samples {
+        assert!(
+            torus_residual(ca, 3.0, 1.0, *s).abs() < 1e-9,
+            "sample {s:?} on A"
+        );
+        assert!(
+            torus_residual(cb, 3.0, 1.0, *s).abs() < 1e-9,
+            "sample {s:?} on B"
+        );
+        let cur = az(s);
+        assert!(cur > prev, "samples advance monotonically in A's azimuth");
+        prev = cur;
+    }
+    assert!(az(&p2) > prev);
+}
+
+/// KT5 failure mode: a coaxial cylinder of radius R + r touches the torus
+/// along its outer equator with PARALLEL normals — the projection is a
+/// typed tangency failure, never a guessed point.
+#[test]
+fn surface_pair_project_torus_tangency_fails_loud() {
+    let c = Point3::new(0.0, 0.0, 0.0);
+    let a = torus_z(c, 2.0, 0.5);
+    let b = PairSurface::Cylinder {
+        axis_point: c,
+        axis_dir: up(),
+        radius: 2.5,
+    };
+    // A seed in the equatorial plane just off both surfaces: both normals
+    // are the same radial, so the first Newton step meets det = 0. (Exactly
+    // on the contact point the projector would return the seed itself —
+    // residuals already zero — which is correct, not a failure.)
+    let err = kernel_v2::surface_pair_project(&a, &b, Point3::new(2.52, 0.01, 0.0))
+        .expect_err("tangency fails loud");
+    assert!(err.contains("tangency"), "{err}");
+}

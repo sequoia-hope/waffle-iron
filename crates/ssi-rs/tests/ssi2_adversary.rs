@@ -146,6 +146,19 @@ fn assert_curve_finite(c: &SsiCurve) {
 /// cylinder via `|(x−q)×â|/|â| − r`).
 fn implicit_residual(surf: &QuadricSurface, x: [f64; 3]) -> f64 {
     match surf {
+        QuadricSurface::Torus {
+            center,
+            axis_dir,
+            major_radius,
+            minor_radius,
+        } => {
+            // M5 torus arm: the signed tube distance √((ρ − R)² + h²) − r.
+            let ahat = unit(axis_dir.as_array());
+            let rel = sub(x, center.as_array());
+            let h = dot(rel, ahat);
+            let rho = norm(sub(rel, scale(ahat, h)));
+            (((rho - major_radius).powi(2) + h * h).sqrt() - minor_radius).abs()
+        }
         QuadricSurface::Plane { point, normal } => {
             dot(unit(normal.as_array()), sub(x, point.as_array())).abs()
         }

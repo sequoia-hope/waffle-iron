@@ -1028,5 +1028,16 @@ fn pair_surface_to_yang(s: PairSurface) -> yang_rs::Surface {
             half_angle,
         },
         PairSurface::Sphere { center, radius } => yang_rs::Surface::Sphere { center, radius },
+        PairSurface::Torus {
+            center,
+            axis_dir,
+            major_radius,
+            minor_radius,
+        } => yang_rs::Surface::Torus {
+            center,
+            axis_dir: Vector3::new(axis_dir.x, axis_dir.y, axis_dir.z),
+            major_radius,
+            minor_radius,
+        },
     }
 }

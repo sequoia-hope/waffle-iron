@@ -2612,3 +2612,133 @@ pub(crate) fn kv15b_i1b_adopts_surface_incidence_richer_junction_coordinates() {
     );
     assert!(on(cone1, mesh.verts[0]) && on(cone2, mesh.verts[0]));
 }
+
+// ── M5 torus arm (YT1–YT3, YT6; spec "Torus arm") ────────────────────
+
+pub(crate) fn ytorus(c: [f64; 3], a: [f64; 3], rr: f64, r: f64) -> Surface {
+    Surface::Torus {
+        center: Point3::new(c[0], c[1], c[2]),
+        axis_dir: Vector3::new(a[0], a[1], a[2]),
+        major_radius: rr,
+        minor_radius: r,
+    }
+}
+
+/// The torus × x-axis-cylinder fixture shared by the YT pins: torus about
+/// +ẑ (R = 2, r = 0.5), cylinder about +x̂ (r = 0.3). The inner-wall curve
+/// point at z = 0, y = 0.3 has ρ = 1.5 ⇒ x = √(1.5² − 0.3²) = √2.16.
+fn torus_cyl_fixture() -> (Surface, Surface, Point3) {
+    let torus = ytorus([0.0, 0.0, 0.0], [0.0, 0.0, 1.0], 2.0, 0.5);
+    let cyl = Surface::Cylinder {
+        axis_point: Point3::new(0.0, 0.0, 0.0),
+        axis_dir: Vector3::new(1.0, 0.0, 0.0),
+        radius: 0.3,
+    };
+    (torus, cyl, Point3::new(2.16f64.sqrt(), 0.3, 0.0))
+}
+
+/// YT1: `surface_to_quadric` carries a torus field-for-field, ssi returns
+/// the descriptor for a torus × cylinder pair, and `ssi_curve_to_curve`
+/// maps it back to a `Curve::SurfacePair` with the torus operand intact.
+#[test]
+pub(crate) fn m5_torus_pair_maps_to_curve_surface_pair() {
+    let (torus, cyl, _) = torus_cyl_fixture();
+    let qt = surface_to_quadric(torus).expect("torus enters the pair vocabulary");
+    assert!(matches!(
+        qt,
+        ssi_rs::QuadricSurface::Torus {
+            major_radius,
+            minor_radius,
+            ..
+        } if major_radius == 2.0 && minor_radius == 0.5
+    ));
+    let qc = surface_to_quadric(cyl).expect("cyl quadric");
+    let returned = ssi_rs::intersect(&qt, &qc).expect("torus × cylinder ⇒ SurfacePair");
+    assert_eq!(returned.len(), 1);
+    let curve = ssi_curve_to_curve(returned[0]).expect("torus pair maps");
+    match curve {
+        Curve::SurfacePair {
+            a: Surface::Torus { major_radius, .. },
+            b: Surface::Cylinder { radius, .. },
+        } => {
+            assert_eq!(major_radius, 2.0);
+            assert_eq!(radius, 0.3);
+        }
+        other => panic!("expected Curve::SurfacePair(torus, cylinder), got {other:?}"),
+    }
+    // A Plane operand stays outside the arm (K8 scope): loud.
+    let plane = ssi_rs::QuadricSurface::Plane {
+        point: Point3::new(0.0, 0.0, 0.0),
+        normal: Vector3::new(1.0, 0.0, 1.0),
+    };
+    assert!(ssi_curve_to_curve(ssi_rs::SsiCurve::SurfacePair { a: qt, b: plane }).is_err());
+}
+
+/// YT2: on-both-surfaces membership with a torus operand — the exact
+/// signed-distance residual; a point off the torus by 0.05 ≫ tol fails.
+#[test]
+pub(crate) fn m5_torus_pair_membership() {
+    let (torus, cyl, on) = torus_cyl_fixture();
+    let sp = ssi_rs::SsiCurve::SurfacePair {
+        a: surface_to_quadric(torus).unwrap(),
+        b: surface_to_quadric(cyl).unwrap(),
+    };
+    assert!(curve_contains_point(&sp, on, 1e-9, None));
+    // Push 0.05 inward along −x̂: still on the cylinder (y, z unchanged),
+    // off the torus.
+    let off = Point3::new(on.x() - 0.05, on.y(), on.z());
+    assert!(!curve_contains_point(&sp, off, 1e-9, None));
+    assert!(curve_contains_point(&sp, off, 0.1, None));
+}
+
+/// YT3: the tangent at the fixture point is `n̂_torus × n̂_cyl`. The torus
+/// normal there is −ρ̂ (inner wall, in the z = 0 plane) and the cylinder's
+/// is +ŷ, so the tangent is ±ẑ.
+#[test]
+pub(crate) fn m5_torus_pair_tangent_is_normal_cross() {
+    let (torus, cyl, on) = torus_cyl_fixture();
+    let sp = ssi_rs::SsiCurve::SurfacePair {
+        a: surface_to_quadric(torus).unwrap(),
+        b: surface_to_quadric(cyl).unwrap(),
+    };
+    let t = curve_tangent_at(&sp, on).expect("transversal ⇒ tangent");
+    assert!(t[2].abs() > 0.999, "tangent should be ±ẑ, got {t:?}");
+    assert!(t[0].abs() < 1e-9 && t[1].abs() < 1e-9);
+    // Tangency: a coaxial cylinder of radius R + r touches the torus along
+    // the outer equator with parallel normals ⇒ no finite tangent.
+    let coax = Surface::Cylinder {
+        axis_point: Point3::new(0.0, 0.0, 0.0),
+        axis_dir: Vector3::new(0.0, 0.0, 1.0),
+        radius: 2.5,
+    };
+    let sp_t = ssi_rs::SsiCurve::SurfacePair {
+        a: surface_to_quadric(torus).unwrap(),
+        b: surface_to_quadric(coax).unwrap(),
+    };
+    assert!(curve_tangent_at(&sp_t, Point3::new(2.5, 0.0, 0.0)).is_none());
+}
+
+/// YT4-adjacent (the relocation the torus block performs on the same edge):
+/// a perturbed near-curve point relocates onto both surfaces.
+#[test]
+pub(crate) fn m5_torus_pair_relocation_onto_both() {
+    let (torus, cyl, on) = torus_cyl_fixture();
+    let seed = Point3::new(on.x() + 0.02, on.y() - 0.03, on.z() + 0.025);
+    let p = relocate_onto_implicit_pair(seed, torus, cyl).expect("near-curve point relocates");
+    assert!(signed_distance_to_surface(torus, p).unwrap().abs() < 1e-9);
+    assert!(signed_distance_to_surface(cyl, p).unwrap().abs() < 1e-9);
+    // It is the nearby root, not a far branch.
+    let d = ((p.x() - on.x()).powi(2) + (p.y() - on.y()).powi(2) + (p.z() - on.z()).powi(2)).sqrt();
+    assert!(d < 0.1, "relocated {d} from the seed's true point");
+}
+
+/// YT6: the K11 chain-bound scale of a torus operand is `min(r, R − r)`.
+#[test]
+pub(crate) fn m5_torus_pair_local_scale_is_tightest_curvature_radius() {
+    use crate::stage1_tessellate::surface_pair_local_scale;
+    let p = Point3::new(9.0, 9.0, 9.0);
+    let ring = ytorus([0.0, 0.0, 0.0], [0.0, 0.0, 1.0], 3.0, 1.0);
+    assert_eq!(surface_pair_local_scale(ring, p), Some(1.0));
+    let fat = ytorus([0.0, 0.0, 0.0], [0.0, 0.0, 1.0], 1.5, 1.0);
+    assert_eq!(surface_pair_local_scale(fat, p), Some(0.5));
+}

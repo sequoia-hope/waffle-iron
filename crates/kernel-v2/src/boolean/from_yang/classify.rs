@@ -357,8 +357,38 @@ pub(crate) fn yang_surface_to_pair_surface(
             }
             Ok(PairSurface::Sphere { center, radius })
         }
-        _ => Err(KernelV2Error::UnsupportedBooleanOutputCurve {
-            curve: "surface-pair with a plane/torus operand (only cyl/cone/sphere are produced)",
+        yang_rs::Surface::Torus {
+            center,
+            axis_dir,
+            major_radius,
+            minor_radius,
+        } => {
+            // M5 torus arm (KT1): a ring torus, `R > r > 0` (the arena's
+            // `Surface::Torus` contract; a spindle/horn torus has no producer).
+            if !(major_radius.is_finite()
+                && minor_radius.is_finite()
+                && minor_radius > 0.0
+                && major_radius > minor_radius)
+            {
+                return Err(KernelV2Error::InvalidBooleanOutput(
+                    "surface-pair torus operand is not a ring torus (needs R > r > 0)",
+                ));
+            }
+            let ad = normalize3_arr(axis_dir.as_array());
+            Ok(PairSurface::Torus {
+                center,
+                axis_dir: UnitVector3 {
+                    x: ad[0],
+                    y: ad[1],
+                    z: ad[2],
+                },
+                major_radius,
+                minor_radius,
+            })
+        }
+        yang_rs::Surface::Plane { .. } => Err(KernelV2Error::UnsupportedBooleanOutputCurve {
+            curve: "surface-pair with a plane operand (the torus × plane spiric section is not \
+                    in the pair vocabulary)",
         }),
     }
 }

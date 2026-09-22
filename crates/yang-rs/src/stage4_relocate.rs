@@ -1108,6 +1108,23 @@ pub(crate) fn curve_tangent_at(curve: &ssi_rs::SsiCurve, x: Point3) -> Option<[f
                             ])
                         })
                     }
+                    // M5 torus arm (YT3): the torus normal is the unit
+                    // gradient `surface_value_and_normal` already computes.
+                    ssi_rs::QuadricSurface::Torus {
+                        center,
+                        axis_dir,
+                        major_radius,
+                        minor_radius,
+                    } => surface_value_and_normal(
+                        Surface::Torus {
+                            center: *center,
+                            axis_dir: *axis_dir,
+                            major_radius: *major_radius,
+                            minor_radius: *minor_radius,
+                        },
+                        [x.x(), x.y(), x.z()],
+                    )
+                    .map(|(_, n)| n),
                     _ => None,
                 }
             };
