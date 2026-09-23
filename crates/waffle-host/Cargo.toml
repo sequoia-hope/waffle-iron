@@ -1,0 +1,29 @@
+[package]
+name = "waffle-host"
+version = "0.1.0"
+edition = "2021"
+license = "MIT"
+description = "Native headless host of the Waffle Iron engine: speaks waffle-host/1 over stdio to the agent-link relay (specs/waffle_server_mode.md S4)"
+
+# NATIVE ONLY. The host wraps the same target-independent document session
+# and tool semantics the browser worker runs (`wasm_bridge::process`,
+# `wasm_bridge::tools`); nothing here compiles for wasm32 and nothing here
+# is a second implementation of a tool (constraint C3: one kernel, two hosts).
+
+[[bin]]
+name = "waffle-host"
+path = "src/main.rs"
+
+[dependencies]
+wasm-bridge = { path = "../wasm-bridge" }
+kernel-v2 = { path = "../kernel-v2" }
+feature-engine = { path = "../feature-engine" }
+file-format = { path = "../file-format" }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+uuid = { version = "1", features = ["v4"] }
+chrono = { version = "0.4", features = ["serde"] }
+base64 = "0.22"
+
+[dev-dependencies]
+tempfile = "3"

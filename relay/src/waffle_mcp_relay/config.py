@@ -49,6 +49,10 @@ class RelayConfig:
     resume_window_s: float = SESSION_RESUME_S
     persistent_code: str | None = None
     persistent_link_file: str | None = None
+    # `specs/waffle_server_mode.md` §3.2: which engine host runs the tools.
+    kernel: str = "page"
+    documents: Path | None = None
+    host_binary: Path | None = None
 
     @property
     def relay_url(self) -> str:
@@ -94,6 +98,25 @@ def build_parser() -> argparse.ArgumentParser:
         f"(default {int(SESSION_RESUME_S)})",
     )
     p.add_argument(
+        "--kernel",
+        choices=("page", "host"),
+        default="page",
+        help="where tools run: the paired browser page (default) or a native "
+        "`waffle-host` child process (specs/waffle_server_mode.md §3.2)",
+    )
+    p.add_argument(
+        "--documents",
+        metavar="DIR",
+        help="host mode: the directory the host's file storage provider keeps documents "
+        "in (default $XDG_DATA_HOME/waffle-iron/documents)",
+    )
+    p.add_argument(
+        "--host-binary",
+        metavar="PATH",
+        help="host mode: the `waffle-host` executable (default $WAFFLE_HOST_BIN, "
+        "else `waffle-host` on PATH)",
+    )
+    p.add_argument(
         "--persistent-link",
         nargs="?",
         const="",
@@ -114,6 +137,12 @@ def parse_resume_window(text: str) -> float:
     if not 0 <= seconds <= MAX_RESUME_WINDOW_S:
         raise ConfigError("invalid resume window")
     return float(seconds)
+
+
+def default_documents_dir(env: Mapping[str, str]) -> Path:
+    """`$XDG_DATA_HOME/waffle-iron/documents` (XDG default `~/.local/share`)."""
+    base = env.get("XDG_DATA_HOME") or str(Path(env.get("HOME", "~")) / ".local" / "share")
+    return Path(base) / "waffle-iron" / "documents"
 
 
 def default_persistent_link_file(env: Mapping[str, str], port: int) -> Path:
@@ -322,6 +351,18 @@ def build_config(
         persistent_code = load_persistent_code(link_file)
         persistent_link_file = str(link_file)
 
+    documents = host_binary = None
+    if args.kernel == "host":
+        documents = (
+            Path(args.documents) if args.documents else default_documents_dir(env)
+        ).expanduser()
+        try:
+            from waffle_mcp_relay.host import HostError, find_host_binary
+
+            host_binary = find_host_binary(args.host_binary, dict(env))
+        except HostError as err:
+            raise ConfigError(str(err)) from None
+
     return RelayConfig(
         port=port,
         bind=str(bind_ip),
@@ -334,4 +375,7 @@ def build_config(
         resume_window_s=resume_window_s,
         persistent_code=persistent_code,
         persistent_link_file=persistent_link_file,
+        kernel=args.kernel,
+        documents=documents,
+        host_binary=host_binary,
     )

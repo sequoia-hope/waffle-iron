@@ -8,6 +8,7 @@ from mcp.shared.exceptions import MCPError
 from mcp.shared.subscriptions import ToolsListChanged
 from support import APP_ORIGIN, APP_URL
 
+from waffle_mcp_relay.backend import PageBackend
 from waffle_mcp_relay.config import RelayConfig
 from waffle_mcp_relay.link import LinkServer
 from waffle_mcp_relay.manifest import Manifest, ManifestError, load_bundled
@@ -90,7 +91,7 @@ def make_app() -> RelayApp:
         manifest=load_bundled(),
         agent_name=lambda: "test-agent",
     )
-    return RelayApp(config, link)
+    return RelayApp(config, PageBackend(link))
 
 
 async def test_tools_changed_is_published_for_listen_streams() -> None:

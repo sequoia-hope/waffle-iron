@@ -1,7 +1,9 @@
 # Waffle Iron Server Mode — Headless Kernel Host, Dual-Transport MCP, Viewer Sync
 
 Status: **rev 1 — P-A (S0, S1, S2) complete 2026-09-16; P-B (S3) C1–C6
-complete 2026-09-17; S4 not started.** First written 2026-09-15 as
+complete 2026-09-17; P-C (S4) checkpoint 1 landed 2026-09-23 (§3.5): the
+`waffle-host` binary and the relay's `--kernel host`; wheels (H6), H1/H2/H5
+measurements and the viewer (P-D) are open.** First written 2026-09-15 as
 rev 0 (investigation + spec, no implementation); §2.3 carries the landed
 state, and the audit sections (§0, §1, §3.1) are kept as the survey that
 motivated it — read them as "before S0", not as current.
@@ -193,12 +195,16 @@ proven by the existing GUI suites plus the named oracle.
 | **S1** — landed 2026-09-16 | Request ids in the bridge (`{id, msg}` envelope; worker echoes `id`), replacing FIFO pairing. Needed by any multiplexed transport | `sketch-drawing-regression.spec.js` + agent-link specs green |
 | **S2** — landed 2026-09-16 (C1–C4) | **Document session in Rust.** `EngineState` gains the tab list, inactive tab trees, assembly trees, document metadata, a per-tab undo stack, and a monotonic `revision`. New messages `AddTab`/`CloseTab`/`RenameTab`/`MoveTab`/`EditAssembly`/`SetDocumentMeta`; `SwitchTab` takes an id, not a tree. The JS store keeps its `$state` fields as **mirrors** refreshed from `ModelUpdated` (A2.1 compliant) | `format_tests` round trip; new `document_session.rs`; GUI tabs/assembly specs unchanged |
 | **S3** — C1–C4b landed 2026-09-16, C5–C6 2026-09-17 — **DONE** | **Agent tool semantics in Rust**: `wasm-bridge/src/tools/` implements `execute_tool(session, name, args, ctx) -> ToolResult` for every non-render tool (gates that are document state, rollback, `modelDelta`, results shaping; `sketch_create` uses `sketch-solver` profiles; the export pair hands a `deliver:"download"` file to the host in `ToolResult::download`). New message `UiToEngine::Tool{name, arguments, context}`. Host-only concerns stay per host (§3.3). Migrated tool by tool: the read-only tools **shadowed** (the page ran both and asserted equal `structuredContent`) until green, then their JS bodies deleted (C5b); the authoring tools against goldens recorded from the JS arm (C4b); the export pair against the real-relay spec that predates it (C6) | read-only: `agent-rust-tools.spec.js` (one `Tool` send each, none of the former JS sends); authoring: the C4b goldens; export: `agent-export-import.spec.js` |
-| **S4** | Host binary `waffle-host` (new crate `crates/waffle-host`, native only) wrapping the session | §2.7 oracles |
+| **S4** — checkpoint 1 landed 2026-09-23 (§3.5) | Host binary `waffle-host` (new crate `crates/waffle-host`, native only) wrapping the session; relay `Backend` split, `--kernel host`, file provider | `crates/waffle-host/tests/host_stdio.rs` (the binary on the real kernel: document life, exact volume, download to disk, typed refusals, progress frames); `relay/tests/test_host.py` (H4 crash → `EngineCrashed` → restart → reopen against a fake host; the real host over MCP stdio) |
 
-**Status and next step (2026-09-17).** S0–S2 and all of S3 (C1–C6) are
-landed. Next: **S4**, the native host — which now has one `execute_tool`
-to wrap for every non-render tool, and one field (`ToolResult::download`)
-to honour for the export pair.
+**Status and next step (2026-09-23).** S0–S3 and S4 checkpoint 1 are
+landed: the relay can run every engine tool with no browser at all. Open
+in P-C: the wheels (H6), the H1/H5 measurements in host mode, the H2 page
+vs host differential over the O1–O22 scripts (today the host is exercised
+by its own suites and the real-binary MCP test, not by the page's
+goldens), and the tab/assembly tools, which still run only in the page's
+JS and answer `HostCapability` in host mode until they move into
+`wasm_bridge::tools`.
 Open debt found by the 2026-09-17 consistency review and not yet paid (the
 agent-rust-* specs run in CI — gui-fast, `.github/workflows/gui-tests.yml`,
 since C6 — and, since later the same day, so do the relay's pytest suite
@@ -503,10 +509,11 @@ plus two new codes, `ViewerUnavailable` and `HostCapability`.
 | Storage tools (`storage_list`, `document_open/save/new`) | IndexedDB / git providers | host file provider rooted at `--documents DIR` (git providers: `HostCapability` in v1) |
 | `window.confirm` on unsaved changes | page dialog | host policy: autosave makes "unsaved" transient; `document_open` saves first |
 
-The manifest gains `x-hosts: ["page","host"]` per tool; the relay filters
-`tools/list` by the active kernel and emits `tools/list_changed` when it
-changes. Tool **names, schemas and result shapes are identical** across
-modes; only availability differs.
+~~The manifest gains `x-hosts: ["page","host"]` per tool~~ — withdrawn in
+S4 (§3.5): the host's `ready.tools` names what it serves and the relay
+filters `tools/list` by it, so the manifest stays host-agnostic and no
+per-tool tag can drift from the code. Tool **names, schemas and result
+shapes are identical** across modes; only availability differs.
 
 ### 3.4 `waffle-host/1` frames (relay ↔ host, stdio)
 
@@ -520,6 +527,62 @@ modes; only availability differs.
 | either | `bye` | `reason` |
 
 ---
+
+### 3.5 S4 as landed (2026-09-23, checkpoint 1)
+
+What exists, against §2.4 / §3.2 / §3.3 / §3.4:
+
+- **`crates/waffle-host`** (native only; `cargo build -p waffle-host
+  --release`). `waffle-host --documents DIR` holds ONE `EngineState` on
+  kernel-v2 and runs every tool through `wasm_bridge::process::process_message`
+  with `UiToEngine::Tool` — the same pipeline the browser worker runs, so
+  tessellation and the preview happen exactly as in the page (C3). The
+  router (`host.rs`) answers: every `MIGRATED` name from the engine; the
+  five storage tools from a file provider (`documents.rs`, provider id
+  `file`, one `DIR/<document id>.waffle` per document, the page's result
+  shapes); `selection_get` / `viewport_*` → `ViewerUnavailable`; the tab
+  and assembly tools → `HostCapability` (their semantics are still the
+  page's JS; never reimplemented here); anything else → `ToolUnavailable`.
+- **Durability (§4.8)**: the record is rewritten (atomically, temp file +
+  rename) after every tool `wasm_bridge::tools::mutates`, synchronously
+  rather than debounced — composing the file costs far less than any
+  rebuild — and a failed autosave is reported on the tool's answer
+  (`autosave_error` + a content note), never swallowed. So `document_info`
+  answers `unsaved: false` always and `discard_unsaved` never needs a
+  confirmation.
+- **Downloads (§3.3)**: `export_* deliver:"download"` is written to
+  `DIR/exports/<file_name>` and the answer gains `path` (an addition to
+  the page's shape, not a change; `deliver:"agent"` is byte-identical).
+- **Frames (§3.4)**: `u32 BE header_len | u32 BE payload_len | header JSON
+  | payload` (`frames.rs`; payload empty for every S4 frame). `ready`
+  carries `protocol`, `host_build`, `epoch`, and **`tools`** — the host is
+  the authority on what it serves, so the manifest carries no `x-hosts`
+  tag (a departure from §3.3's last paragraph, which is withdrawn): the
+  relay lists `RELAY_TOOLS` + the manifest tools the host named. `tool`
+  carries `context{agent_name, progress}`; `progress` frames ride only
+  while a call that asked is running; `cancel` is logged — the engine is
+  synchronous and finishes the tool it is on, as the page's worker does.
+  A kernel panic is NOT caught in the host: the process ends, which is
+  the crash-isolation contract.
+- **Relay** (`relay/src/waffle_mcp_relay/backend.py`, `host.py`):
+  `Backend` (`PageBackend` over `LinkServer`, `HostBackend` over the
+  child) behind an unchanged `server.py`. `--kernel host` (`--documents
+  DIR`, default `$XDG_DATA_HOME/waffle-iron/documents`; `--host-binary
+  PATH`, else `$WAFFLE_HOST_BIN`, else `waffle-host` on PATH; loud
+  otherwise). In host mode the relay opens no WebSocket at all (the port
+  is still resolved — it is the viewer's in P-D); `waffle_connect` answers
+  `HostCapability`; `waffle_status` answers `{state: ready | host_down,
+  kernel: "host", documents, host_build, document_name?, host_restarts?}`.
+  **H4**: a host exit fails every in-flight call with `EngineCrashed
+  {state_unknown: true}`; the next call restarts the child, reopens the
+  last known document (`document_open` of its id, from the host's own
+  autosave) and appends a one-time note to its answer that the undo
+  history is gone.
+
+Not in checkpoint 1: wheels (H6) — the binary is found on PATH or by
+flag; the H1/H5 host timings; the H2 differential; git storage providers
+(`HostCapability`); `decimate_mesh`'s `HashMap` order (H3), which matters
+only once a viewer content-addresses previews.
 
 ## 4. Phase 4 — Viewer sync protocol (`waffle-viewer/1`)
 
@@ -734,7 +797,7 @@ untouched (C1).
 |---|---|---|
 | **P-A: A2.1 compliance** — DONE 2026-09-16 | S0, S1, S2 | browser suites green; `document_session.rs`; no behavior change |
 | **P-B: tools in Rust** — DONE 2026-09-17 | S3, shadowed tool by tool | H2-style differential green in page mode; JS tool bodies deleted |
-| **P-C: host** | S4, relay `Backend` split, `--kernel host`, file provider, wheels | H1–H6 |
+| **P-C: host** — checkpoint 1 DONE 2026-09-23 (§3.5); wheels, H1/H2/H5 open | S4, relay `Backend` split, `--kernel host`, file provider, wheels | H1–H6 |
 | **P-D: viewer v1** | `/view` route, `waffle-viewer/1` snapshot/update/blobs, `raw/1` + `mq/1`, cache, auth, reconnect | V1–V3, V5, V6, V8 |
 | **P-E: viewer v2+** | multiple viewers (V4), capture forwarding, `command` (V3 frames), face-chunk encoding if V7 justifies | V4, V7 |
 

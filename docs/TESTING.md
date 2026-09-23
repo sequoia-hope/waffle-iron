@@ -76,6 +76,14 @@ relay's committed copy). Runs standalone and as part of `all-fast` and `all`,
 and in CI on every push and PR (`.github/workflows/relay-tests.yml`, job
 `relay`).
 
+The suite includes `tests/test_host.py`, the relay's `--kernel host` path
+(`specs/waffle_server_mode.md` §3.5): a fake host in `tests/fake_host.py`
+covers the frames, progress and the crash → restart → reopen contract; one
+test drives the REAL `waffle-host` binary over MCP and is skipped unless it
+is built (`target/release/waffle-host`, or `$WAFFLE_HOST_BIN`). The host
+crate's own suite (`crates/waffle-host/tests/host_stdio.rs`, real kernel)
+runs in the Rust fast and full tiers.
+
 ### GUI Relay (`gui-relay`, 9 spec files, ~1min)
 
 The page side of the agent link: the `app/tests/gui/agent-*.spec.js` files

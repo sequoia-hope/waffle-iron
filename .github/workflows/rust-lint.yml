@@ -50,6 +50,7 @@ env:
     -p sketch-solver
     -p waffle-types
     -p wasm-bridge
+    -p waffle-host
     -p feature-engine
     -p modeling-ops
     -p file-format

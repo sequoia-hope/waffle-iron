@@ -51,6 +51,27 @@ it still asks for consent, and it takes over from a tab that is already
 connected. Anyone who has the link and can reach the relay from an allowed
 origin can pair, so keep it private; delete the file to rotate the code.
 
+## Host mode (no browser)
+
+`--kernel host` runs the engine in a native `waffle-host` child process
+instead of a paired browser tab (`specs/waffle_server_mode.md` §3.5). Every
+engine tool (sketching, features, scripts, patterns, export, …) works with
+no page open; documents live as `.waffle` files in `--documents DIR`
+(default `$XDG_DATA_HOME/waffle-iron/documents`) and exports land in
+`DIR/exports/`. The tools that need a page — the viewport, selection, and
+for now the tab and assembly tools — are not listed in this mode.
+
+```
+cargo build -p waffle-host --release
+uv run --project relay waffle-mcp-relay --port <port> --kernel host \
+  --host-binary target/release/waffle-host --documents ~/waffle-docs
+```
+
+The binary is also found through `$WAFFLE_HOST_BIN` or as `waffle-host` on
+PATH. A host that crashes (a kernel abort, out of memory) is restarted on
+the next call and reopens the document from its own autosave; the call in
+flight answers `EngineCrashed`.
+
 ## Runtime dependencies and licences
 
 Three runtime dependencies (spec §7), checked 2026-09-14 from the installed

@@ -1175,7 +1175,9 @@ fn add_import_feature(
 }
 
 /// The `sources` table as the host sees it (`SourceStatus` rows).
-fn source_statuses(state: &EngineState) -> Vec<SourceStatus> {
+/// Every source of the open document with its availability, as
+/// `ModelUpdated.sources` carries them.
+pub fn source_statuses(state: &EngineState) -> Vec<SourceStatus> {
     state
         .sources
         .iter()
@@ -1287,7 +1289,10 @@ pub fn attach_preview_mesh(state: &mut EngineState, response: &mut EngineToUi) {
 
 /// The session as `ModelUpdated` reports it (S2 C2): what a host needs to draw
 /// a tab bar and name a document state. Never a tab's tree.
-fn document_info(state: &EngineState) -> DocumentInfo {
+/// The open document as the session knows it (`DocumentInfo`), for any
+/// host that needs it outside a `ModelUpdated` (the native host's
+/// `document_info` tool, `specs/waffle_server_mode.md` §3.3).
+pub fn document_info(state: &EngineState) -> DocumentInfo {
     let meta = state.session.document();
     DocumentInfo {
         id: meta.id,

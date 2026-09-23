@@ -28,6 +28,9 @@ RUST_FAST_FULL_CRATES=(
   feature-engine
   modeling-ops
   file-format
+  # The native engine host (specs/waffle_server_mode.md S4): its stdio suite
+  # spawns the real binary on the real kernel; seconds.
+  waffle-host
 )
 
 # wasm-bridge is special — needs --no-default-features
@@ -80,6 +83,7 @@ RUST_FULL_CRATES=(
   feature-engine
   modeling-ops
   file-format
+  waffle-host
   test-harness
 )
 

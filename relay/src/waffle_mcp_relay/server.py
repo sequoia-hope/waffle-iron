@@ -30,7 +30,9 @@ from mcp_types import INVALID_PARAMS
 from pydantic import ValidationError
 
 from waffle_mcp_relay import __version__
+from waffle_mcp_relay.backend import Backend, PageBackend
 from waffle_mcp_relay.config import FALLBACK_AGENT_NAME, RelayConfig, valid_agent_name
+from waffle_mcp_relay.host import HostBackend, HostError
 from waffle_mcp_relay.link import LinkError, LinkServer, epoch_to_iso
 from waffle_mcp_relay.manifest import canonical_json, load_bundled
 from waffle_mcp_relay.pairing import Pairing
@@ -148,9 +150,9 @@ class ArgumentValidator:
 
 
 class RelayApp:
-    def __init__(self, config: RelayConfig, link: LinkServer) -> None:
+    def __init__(self, config: RelayConfig, backend: Backend) -> None:
         self._config = config
-        self._link = link
+        self._backend = backend
         self._session: ServerSession | None = None
         self._client_name: str | None = None
         self._validator = ArgumentValidator()
@@ -196,7 +198,15 @@ class RelayApp:
     # -- handlers ----------------------------------------------------------
 
     def _all_tools(self) -> list[dict[str, Any]]:
-        page_tools = [t for t in self._link.manifest.tools if t["name"] not in RELAY_TOOL_NAMES]
+        # In host mode the host's `ready` frame names what it serves (§3.2);
+        # a tool it does not is not listed, so an agent never learns a name
+        # that would only answer HostCapability.
+        served = self._backend.tool_names()
+        page_tools = [
+            t
+            for t in self._backend.manifest.tools
+            if t["name"] not in RELAY_TOOL_NAMES and (served is None or t["name"] in served)
+        ]
         return RELAY_TOOLS + page_tools
 
     def _tool(self, name: str) -> dict[str, Any] | None:
@@ -223,7 +233,7 @@ class RelayApp:
         if name == "waffle_connect":
             return await self._connect()
         if name == "waffle_status":
-            return ok_result(self._link.status())
+            return ok_result(await self._backend.status())
         # Rebuild progress (`specs/b4_balanced_union.md` §2.3): forwarded as
         # MCP progress notifications when the client sent a progressToken.
         # Without one nobody is listening, so the page is not asked for
@@ -243,7 +253,7 @@ class RelayApp:
             )
 
         try:
-            frame = await self._link.call(
+            frame = await self._backend.call(
                 name, arguments, on_progress=on_progress if token is not None else None
             )
         except LinkError as err:
@@ -269,7 +279,10 @@ class RelayApp:
         return f"{self._config.app_url}agent?{query}"
 
     async def _connect(self) -> types.CallToolResult:
-        code, expires_at = await self._link.new_pairing()
+        try:
+            code, expires_at = await self._backend.connect()
+        except LinkError as err:
+            return error_result(err.code, err.message, err.details)
         url = self.pairing_url(code)
         expires = None if expires_at is None else epoch_to_iso(expires_at)
         if self._config.open_browser:
@@ -285,32 +298,56 @@ class RelayApp:
 
 
 async def run_relay(config: RelayConfig) -> None:
-    pairing = Pairing(resume_s=config.resume_window_s, persistent_code=config.persistent_code)
     app_ref: list[RelayApp] = []
-    link = LinkServer(
-        pairing=pairing,
-        allow_origins=config.allow_origins,
-        manifest=load_bundled(),
-        agent_name=lambda: app_ref[0].agent_name(),
-        ssl_context=config.ssl_context,
-    )
-    app = RelayApp(config, link)
-    app_ref.append(app)
-    link.set_on_tools_changed(app.notify_tools_changed)
-
-    await link.start(config.bind, config.port)
-    log.info(
-        "listening on %s, advertised as %s (allowed origins: %s)",
-        config.listen_address,
-        config.relay_url,
-        ", ".join(config.allow_origins),
-    )
-    if config.persistent_code is not None:
-        log.info(
-            "persistent pairing link (reusable; code kept in %s): %s",
-            config.persistent_link_file,
-            app.pairing_url(config.persistent_code),
+    backend: Backend
+    if config.kernel == "host":
+        # §3.2: the host runs the tools; there is no page link. The port stays
+        # the relay's (viewers attach on it in P-D) but nothing listens yet.
+        assert config.host_binary is not None and config.documents is not None
+        host = HostBackend(
+            config.host_binary,
+            config.documents,
+            agent_name=lambda: app_ref[0].agent_name(),
         )
+        backend = host
+        app = RelayApp(config, backend)
+        app_ref.append(app)
+        try:
+            await host.start()
+        except HostError as err:
+            raise SystemExit(f"waffle-mcp-relay: {err}") from None
+        log.info(
+            "kernel host: %s (documents in %s); no page link — viewers arrive in P-D",
+            config.host_binary,
+            config.documents,
+        )
+    else:
+        pairing = Pairing(resume_s=config.resume_window_s, persistent_code=config.persistent_code)
+        link = LinkServer(
+            pairing=pairing,
+            allow_origins=config.allow_origins,
+            manifest=load_bundled(),
+            agent_name=lambda: app_ref[0].agent_name(),
+            ssl_context=config.ssl_context,
+        )
+        backend = PageBackend(link)
+        app = RelayApp(config, backend)
+        app_ref.append(app)
+        link.set_on_tools_changed(app.notify_tools_changed)
+
+        await link.start(config.bind, config.port)
+        log.info(
+            "listening on %s, advertised as %s (allowed origins: %s)",
+            config.listen_address,
+            config.relay_url,
+            ", ".join(config.allow_origins),
+        )
+        if config.persistent_code is not None:
+            log.info(
+                "persistent pairing link (reusable; code kept in %s): %s",
+                config.persistent_link_file,
+                app.pairing_url(config.persistent_code),
+            )
     try:
         async with stdio_server() as (read_stream, write_stream):
             await app.server.run(
@@ -319,4 +356,4 @@ async def run_relay(config: RelayConfig) -> None:
                 app.server.create_initialization_options(NotificationOptions(tools_changed=True)),
             )
     finally:
-        await link.close()
+        await backend.close()

@@ -5,6 +5,9 @@ members = [
     "crates/modeling-ops",
     "crates/feature-engine",
     "crates/wasm-bridge",
+    # Native headless host of the engine (specs/waffle_server_mode.md S4):
+    # wraps wasm-bridge's session + tools over stdio for the relay. Never wasm.
+    "crates/waffle-host",
     "crates/file-format",
     "crates/test-harness",
 
