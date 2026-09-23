@@ -79,9 +79,7 @@ class PageConnection:
     pending: dict[str, asyncio.Future[dict[str, Any]]] = field(default_factory=dict)
     # Per in-flight call: the `progress` frame consumer (§2.3), when the
     # caller asked for progress.
-    progress: dict[str, Callable[[dict[str, Any]], Awaitable[None]]] = field(
-        default_factory=dict
-    )
+    progress: dict[str, Callable[[dict[str, Any]], Awaitable[None]]] = field(default_factory=dict)
 
 
 def _parse(raw: str | bytes) -> dict[str, Any] | None:
