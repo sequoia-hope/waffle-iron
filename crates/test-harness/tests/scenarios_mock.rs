@@ -185,7 +185,7 @@ fn test_boolean_union() {
 
     m.rect_sketch("sk2", [5., 5., 0.], [0., 0., 1.], 0., 0., 10., 10.)
         .unwrap();
-    m.extrude("box2", "sk2", 10.0).unwrap();
+    m.extrude_no_merge("box2", "sk2", 10.0).unwrap();
 
     m.boolean_union("merged", "box1", "box2").unwrap();
     m.assert_has_solid("merged").unwrap();
@@ -202,7 +202,7 @@ fn test_boolean_subtract() {
 
     m.rect_sketch("sk2", [5., 5., 0.], [0., 0., 1.], 0., 0., 10., 10.)
         .unwrap();
-    m.extrude("box2", "sk2", 10.0).unwrap();
+    m.extrude_no_merge("box2", "sk2", 10.0).unwrap();
 
     m.boolean_subtract("result", "box1", "box2").unwrap();
     m.assert_has_solid("result").unwrap();
@@ -219,7 +219,7 @@ fn test_multi_body_no_boolean() {
 
     m.rect_sketch("sk2", [50., 0., 0.], [0., 0., 1.], 0., 0., 10., 10.)
         .unwrap();
-    m.extrude("box2", "sk2", 10.0).unwrap();
+    m.extrude_no_merge("box2", "sk2", 10.0).unwrap();
 
     // Both should exist independently
     m.assert_has_solid("box1").unwrap();

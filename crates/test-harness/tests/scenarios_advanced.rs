@@ -199,7 +199,7 @@ fn test_extrude_fillet_boolean_union() {
     // Body B: plain box
     m.rect_sketch("sk2", [5., 5., 0.], [0., 0., 1.], 0., 0., 10., 10.)
         .unwrap();
-    m.extrude("box2", "sk2", 10.0).unwrap();
+    m.extrude_no_merge("box2", "sk2", 10.0).unwrap();
 
     // Union of filleted body with plain body
     m.boolean_union("merged", "fillet1", "box2").unwrap();
@@ -217,11 +217,11 @@ fn test_chained_booleans() {
 
     m.rect_sketch("sk2", [5., 5., 0.], [0., 0., 1.], 0., 0., 10., 10.)
         .unwrap();
-    m.extrude("box_b", "sk2", 10.0).unwrap();
+    m.extrude_no_merge("box_b", "sk2", 10.0).unwrap();
 
     m.rect_sketch("sk3", [3., 3., 0.], [0., 0., 1.], 0., 0., 4., 4.)
         .unwrap();
-    m.extrude("box_c", "sk3", 10.0).unwrap();
+    m.extrude_no_merge("box_c", "sk3", 10.0).unwrap();
 
     // union(A, B) → subtract(AB, C)
     m.boolean_union("ab", "box_a", "box_b").unwrap();
@@ -243,7 +243,7 @@ fn test_boolean_intersect_overlap() {
 
     m.rect_sketch("sk2", [5., 5., 0.], [0., 0., 1.], 0., 0., 10., 10.)
         .unwrap();
-    m.extrude("box2", "sk2", 10.0).unwrap();
+    m.extrude_no_merge("box2", "sk2", 10.0).unwrap();
 
     m.boolean_intersect("inter", "box1", "box2").unwrap();
     m.assert_has_solid("inter").unwrap();
@@ -266,7 +266,7 @@ fn test_revolve_boolean_subtract() {
     // Body B: box
     m.rect_sketch("sk_box", [0., 0., 0.], [0., 0., 1.], 0., 0., 10., 10.)
         .unwrap();
-    m.extrude("box", "sk_box", 10.0).unwrap();
+    m.extrude_no_merge("box", "sk_box", 10.0).unwrap();
 
     // Cross-type boolean: subtract box from cylinder
     m.boolean_subtract("result", "cyl", "box").unwrap();
@@ -389,15 +389,15 @@ fn test_deep_feature_tree() {
 
     m.rect_sketch("sk2", [20., 0., 0.], [0., 0., 1.], 0., 0., 10., 10.)
         .unwrap();
-    m.extrude("box2", "sk2", 10.0).unwrap();
+    m.extrude_no_merge("box2", "sk2", 10.0).unwrap();
 
     m.rect_sketch("sk3", [40., 0., 0.], [0., 0., 1.], 0., 0., 10., 10.)
         .unwrap();
-    m.extrude("box3", "sk3", 10.0).unwrap();
+    m.extrude_no_merge("box3", "sk3", 10.0).unwrap();
 
     m.rect_sketch("sk4", [60., 0., 0.], [0., 0., 1.], 0., 0., 10., 10.)
         .unwrap();
-    m.extrude("box4", "sk4", 10.0).unwrap();
+    m.extrude_no_merge("box4", "sk4", 10.0).unwrap();
 
     // Fillet + chamfer on box1
     m.fillet("fillet1", "box1", 0.5).unwrap();
@@ -427,7 +427,7 @@ fn test_save_load_complex_model() {
 
     m.rect_sketch("sk2", [20., 0., 0.], [0., 0., 1.], 0., 0., 10., 10.)
         .unwrap();
-    m.extrude("box2", "sk2", 10.0).unwrap();
+    m.extrude_no_merge("box2", "sk2", 10.0).unwrap();
 
     m.boolean_union("merged", "fillet", "box2").unwrap();
     let original_count = m.feature_count();
@@ -567,7 +567,7 @@ fn test_boolean_roles_assigned() {
 
     m.rect_sketch("sk2", [5., 5., 0.], [0., 0., 1.], 0., 0., 10., 10.)
         .unwrap();
-    m.extrude("box2", "sk2", 10.0).unwrap();
+    m.extrude_no_merge("box2", "sk2", 10.0).unwrap();
 
     m.boolean_union("merged", "box1", "box2").unwrap();
 
