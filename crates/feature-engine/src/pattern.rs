@@ -49,6 +49,7 @@ use crate::types::{
     normalize_pattern_combine, AxisRef, CombineMode, EffectiveCombine, EngineError, Feature,
     FeatureTree, LinearSecondDirection, PatternCircularParams, PatternLinearParams,
 };
+use crate::union_all::{absorb, fold_into, rekey, Lump};
 
 /// Geometry budget: more instances than this is a runaway parameter, not a
 /// design (the spec's "fails loud in milliseconds" rule).
@@ -450,73 +451,23 @@ pub(crate) fn execute(
     Ok(result)
 }
 
-/// Extend `acc`'s provenance and warnings with a boolean's.
-fn absorb(acc: &mut OpResult, res: &OpResult) {
-    acc.provenance
-        .created
-        .extend(res.provenance.created.iter().cloned());
-    acc.provenance
-        .deleted
-        .extend(res.provenance.deleted.iter().cloned());
-    acc.provenance
-        .role_assignments
-        .extend(res.provenance.role_assignments.iter().cloned());
-    acc.diagnostics
-        .warnings
-        .extend(res.diagnostics.warnings.iter().cloned());
-}
-
-fn rekey(bodies: Vec<modeling_ops::BodyOutput>) -> Vec<(OutputKey, modeling_ops::BodyOutput)> {
-    bodies
-        .into_iter()
-        .enumerate()
-        .map(|(i, b)| {
-            let key = if i == 0 {
-                OutputKey::Main
-            } else {
-                OutputKey::Body { index: i }
-            };
-            (key, b)
-        })
-        .collect()
-}
-
-/// Fold `bodies` into pairwise-disjoint connected lumps by union. An incoming
-/// body merges with every existing lump it touches (continuing the scan with
-/// the merged body, so it can bridge two lumps); a body disjoint from every
-/// lump becomes its own lump. Lumps keep insertion order, so the first body
-/// (a target, when there is one) seeds lump 0 — the `Main` output.
+/// Fold `bodies` into pairwise-disjoint connected lumps by union, in chain
+/// order (the first body — a target, when there is one — seeds lump 0, the
+/// `Main` output). The fold primitive is `crate::union_all::fold_into`: the
+/// same bridging scan, plus the conservative-box gate that skips pairs
+/// that cannot touch (`specs/b4_balanced_union.md` §2.2 — byte-identical
+/// output, fewer kernel runs).
 fn fold_union(
     kb: &mut dyn KernelBundle,
     bodies: Vec<KernelSolidHandle>,
     prov: &mut OpResult,
 ) -> Result<Vec<KernelSolidHandle>, EngineError> {
-    let mut lumps: Vec<KernelSolidHandle> = Vec::new();
+    let mut lumps: Vec<Lump> = Vec::new();
     for body in bodies {
-        let mut cur = body;
-        let mut i = 0;
-        while i < lumps.len() {
-            let res = execute_boolean(kb, &lumps[i], &cur, BooleanKind::Union)?;
-            match res.outputs.len() {
-                0 => {
-                    return Err(EngineError::ResolutionFailed {
-                        reason: "pattern Add: a union produced no solid".into(),
-                    });
-                }
-                1 => {
-                    absorb(prov, &res);
-                    cur = res.outputs.into_iter().next().unwrap().1.handle;
-                    lumps.remove(i);
-                    // continue at the same index (next un-scanned lump)
-                }
-                // Disjoint: the split result duplicates the operands — keep
-                // the originals.
-                _ => i += 1,
-            }
-        }
-        lumps.push(cur);
+        let lump = Lump::of(&*kb, body);
+        fold_into(kb, &mut lumps, lump, prov, "pattern Add", &mut || {})?;
     }
-    Ok(lumps)
+    Ok(lumps.into_iter().map(|l| l.handle).collect())
 }
 
 fn combine_add(

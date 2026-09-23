@@ -289,6 +289,13 @@ pub enum Operation {
     Script {
         params: ScriptParams,
     },
+    /// Many-body union as one feature (`specs/b4_balanced_union.md`): every
+    /// live body of the part (or an explicit list) folded into connected
+    /// lumps by a balanced tree of ordinary pairwise unions, with an exact
+    /// bounding-box gate that skips pairs that cannot touch.
+    UnionAll {
+        params: UnionAllParams,
+    },
     /// A well-formed `{"type": …}` operation this build does not know — one
     /// from a newer build. Kept verbatim, re-emitted on save, and its rebuild
     /// is a loud `EngineError::UnsupportedOperation`; so adding an operation
@@ -320,6 +327,7 @@ enum KnownOperation {
     PatternLinear { params: PatternLinearParams },
     Pipe { params: PipeParams },
     Script { params: ScriptParams },
+    UnionAll { params: UnionAllParams },
 }
 
 /// The operation `type` tags this build can rebuild.
@@ -338,6 +346,7 @@ pub const OPERATION_TAGS: &[&str] = &[
     "PatternLinear",
     "Pipe",
     "Script",
+    "UnionAll",
 ];
 
 impl From<KnownOperation> for Operation {
@@ -357,6 +366,7 @@ impl From<KnownOperation> for Operation {
             KnownOperation::PatternLinear { params } => Operation::PatternLinear { params },
             KnownOperation::Pipe { params } => Operation::Pipe { params },
             KnownOperation::Script { params } => Operation::Script { params },
+            KnownOperation::UnionAll { params } => Operation::UnionAll { params },
         }
     }
 }
@@ -394,6 +404,7 @@ impl Operation {
             Operation::PatternLinear { .. } => "PatternLinear",
             Operation::Pipe { .. } => "Pipe",
             Operation::Script { .. } => "Script",
+            Operation::UnionAll { .. } => "UnionAll",
             Operation::Unknown(v) => crate::opaque::type_tag(v),
         }
     }
@@ -1032,6 +1043,33 @@ pub enum BooleanOp {
     Union,
     Subtract,
     Intersect,
+}
+
+/// Parameters of a many-body union (`specs/b4_balanced_union.md` §2).
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[cfg_attr(feature = "json-schema", derive(schemars::JsonSchema))]
+pub struct UnionAllParams {
+    /// Which bodies to fold. Default: every live body before this feature.
+    #[serde(default)]
+    pub targets: UnionTargets,
+}
+
+/// The body set of a [`UnionAllParams`].
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(tag = "type")]
+#[cfg_attr(feature = "json-schema", derive(schemars::JsonSchema))]
+pub enum UnionTargets {
+    /// Every live solid output of every active, unsuppressed, not-yet-consumed
+    /// feature before this one, in tree order. Consumes all of them.
+    #[default]
+    All,
+    /// An explicit list of `TopoKind::Solid` feature-output references. A body
+    /// whose feature was already consumed is refused (`Strict`) or dropped
+    /// with a warning (`BestEffort`).
+    Selected {
+        #[serde(default)]
+        bodies: Vec<GeomRef>,
+    },
 }
 
 /// How a construction plane is defined.

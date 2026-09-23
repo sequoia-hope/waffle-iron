@@ -157,6 +157,129 @@ pub(crate) fn edge_polyline(
     })
 }
 
+/// An axis-aligned box, `(lo, hi)`.
+pub type Aabb = ([f64; 3], [f64; 3]);
+
+/// A CONSERVATIVE axis-aligned box of the solid (`specs/b4_balanced_union.md`
+/// §2.2): every point of the solid lies inside it, so two solids with
+/// disjoint boxes share no material. Per face:
+///
+/// - the vertex hull of its loops, grown by every circular / arc /
+///   elliptical edge's `center ± radius` (major) on every axis (a chord or
+///   arc of a circle lies within the circle's box);
+/// - a **cylinder** face by the box of the cylinder slab between its
+///   boundary vertices' extreme axial stations (the surface is ruled along
+///   the axis, so its axial extent is its boundary's; a boundary that is a
+///   chord polyline still bulges radially past the vertex hull — the slab
+///   covers that);
+/// - a **cone** face by the box of the enclosing cylinder of the slab's
+///   larger rim radius;
+/// - a **sphere** by `center ± r`, a **torus** by `center ± (R + r)`;
+/// - a **plane** by its vertex hull and edge bulges (convexity).
+///
+/// `None` when an edge carries an unbounded-bulge curve (a hyperbola piece
+/// or a surface-pair curve): no cheap bound, and the caller must assume
+/// overlap. Never under-covers. Same family of bound as yang-rs's
+/// disjoint-union passthrough (`specs/yang_disjoint_union_passthrough.md`).
+pub fn conservative_aabb(arena: &BrepArena, solid: SolidId) -> Result<Option<Aabb>, KernelV2Error> {
+    use crate::arena::Curve;
+    struct Bx {
+        lo: [f64; 3],
+        hi: [f64; 3],
+    }
+    impl Bx {
+        fn grow(&mut self, p: [f64; 3], r: f64) {
+            for ((lo, hi), &pk) in self.lo.iter_mut().zip(self.hi.iter_mut()).zip(p.iter()) {
+                *lo = lo.min(pk - r);
+                *hi = hi.max(pk + r);
+            }
+        }
+        /// The box of the slab of a cylinder of `radius` about the axis
+        /// through `c` along unit `a`, between axial stations `t_min ≤
+        /// t_max`: along axis k the radial disc contributes
+        /// `radius · sqrt(1 − a_k²)`.
+        fn grow_slab(&mut self, c: [f64; 3], a: [f64; 3], radius: f64, t_min: f64, t_max: f64) {
+            for k in 0..3 {
+                let perp = radius * (1.0 - a[k] * a[k]).max(0.0).sqrt();
+                let s0 = c[k] + t_min * a[k];
+                let s1 = c[k] + t_max * a[k];
+                self.lo[k] = self.lo[k].min(s0.min(s1) - perp);
+                self.hi[k] = self.hi[k].max(s0.max(s1) + perp);
+            }
+        }
+    }
+    let mut bx = Bx {
+        lo: [f64::INFINITY; 3],
+        hi: [f64::NEG_INFINITY; 3],
+    };
+    for &sh in &arena.solid(solid)?.shells {
+        for &f in &arena.shell(sh)?.faces {
+            let face = arena.face(f)?;
+            match face.surface {
+                Some(Surface::Sphere { center, radius, .. }) => bx.grow(center.as_array(), radius),
+                Some(Surface::Torus {
+                    center,
+                    major_radius,
+                    minor_radius,
+                    ..
+                }) => bx.grow(center.as_array(), major_radius + minor_radius),
+                _ => {}
+            }
+            let mut loops = vec![face.outer_loop];
+            loops.extend(face.inner_loops.iter().copied());
+            // Axial station range of the face's vertices, for ruled surfaces.
+            let (mut t_min, mut t_max) = (f64::INFINITY, f64::NEG_INFINITY);
+            let axis = match face.surface {
+                Some(Surface::Cylinder {
+                    axis_point,
+                    axis_dir,
+                    ..
+                }) => Some((axis_point.as_array(), [axis_dir.x, axis_dir.y, axis_dir.z])),
+                Some(Surface::Cone { apex, axis_dir, .. }) => {
+                    Some((apex.as_array(), [axis_dir.x, axis_dir.y, axis_dir.z]))
+                }
+                _ => None,
+            };
+            for lid in loops {
+                for h in arena.loop_half_edges(lid)? {
+                    let he = arena.half_edge(h)?;
+                    let p = arena.vertex(he.origin)?.point.as_array();
+                    bx.grow(p, 0.0);
+                    if let Some((c, a)) = axis {
+                        let t = (0..3).map(|k| (p[k] - c[k]) * a[k]).sum::<f64>();
+                        t_min = t_min.min(t);
+                        t_max = t_max.max(t);
+                    }
+                    match he.curve {
+                        Curve::LineSegment => {}
+                        Curve::Circle { center, radius, .. }
+                        | Curve::Arc { center, radius, .. } => bx.grow(center.as_array(), radius),
+                        Curve::EllipseArc {
+                            center,
+                            major_radius,
+                            ..
+                        } => bx.grow(center.as_array(), major_radius),
+                        Curve::HyperbolaArc { .. } | Curve::SurfacePair { .. } => return Ok(None),
+                    }
+                }
+            }
+            if let Some((c, a)) = axis {
+                if t_min.is_finite() {
+                    let radius = match face.surface {
+                        Some(Surface::Cylinder { radius, .. }) => radius,
+                        Some(Surface::Cone { half_angle, .. }) => {
+                            t_min.abs().max(t_max.abs()) * half_angle.tan().abs()
+                        }
+                        _ => 0.0,
+                    };
+                    bx.grow_slab(c, a, radius, t_min, t_max);
+                }
+            }
+        }
+    }
+    Ok(bx.lo[0].is_finite().then_some((bx.lo, bx.hi)))
+}
+
 /// Total surface area of `solid`, analytically per surface type
 /// (tessellation-independent, mirroring [`geom::signed_volume`]):
 ///

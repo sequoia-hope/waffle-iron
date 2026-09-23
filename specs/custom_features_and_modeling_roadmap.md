@@ -433,6 +433,22 @@ mixed-loop path (PLAN.md M14 / Blockers); the general boolean path is fine.
 
 ### B4. Multi-body union as a first-class step
 
+**Status (2026-09-23): LANDED — `specs/b4_balanced_union.md`.**
+`Operation::UnionAll { targets: All | Selected }` folds every live body (or
+the listed ones) by a balanced tree of ordinary pairwise unions gated by
+`KernelIntrospect::solid_aabb` (a conservative box; disjoint pairs never
+reach the kernel); the pattern's `Add`/`Intersect` fold shares the gate.
+Progress frames per pairwise union reach the status bar (worker → bridge →
+store) and the link (page `progress` frame → relay → MCP
+`notifications/progress` when the client sent a `progressToken`). The
+Boolean dialog gained "Union all bodies" and lists only LIVE bodies
+(`ModelUpdated.consumed_features`); `feature_add` authors `UnionAll`;
+scripts call `ctx.union_all()` / `ctx.union_all([bodies])`. On the way: the
+2026-09-17 gearbox defect — a `BooleanCombine` or explicit combine target on
+a CONSUMED body silently duplicated it — is now a loud refusal. Oracles:
+`crates/test-harness/tests/union_all_kv2.rs` (exact inclusion–exclusion
+volume, χ = 2, gate skip count, tree ≡ chain, bit-identical rebuilds).
+
 **What.** `BooleanCombine` already exists; what is missing is a **many-body**
 union that is fast and loud on a part with tens of overlapping `NewBody`
 solids, and a UI/tool affordance "union all bodies of this part".

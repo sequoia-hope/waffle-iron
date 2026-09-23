@@ -217,6 +217,37 @@ async def test_status_frames_reach_waffle_status(env: Env) -> None:
 # -- O17: page drops mid-call (P9) -----------------------------------------------
 
 
+async def test_progress_frames_reach_the_calls_consumer_while_in_flight(env: Env) -> None:
+    # §2.3: a `progress` frame for the call in flight reaches its consumer;
+    # the `call` frame advertises the listener; a frame for an unknown or
+    # finished id is dropped, not an error.
+    page, _ = await pair(env)
+    seen: list[dict[str, Any]] = []
+
+    async def on_progress(frame: dict[str, Any]) -> None:
+        seen.append(frame)
+
+    call = asyncio.create_task(env.link.call("feature_add", {}, on_progress=on_progress))
+    frame = await page.recv_type("call")
+    assert frame["progress"] is True
+    await page.send({"type": "progress", "id": "not-a-call", "message": "stray", "elapsed_ms": 1})
+    await page.send(
+        {"type": "progress", "id": frame["id"], "message": "Union: union 1 of ≤ 4", "elapsed_ms": 120, "progress": 1, "total": 4}
+    )
+    await wait_until(lambda: len(seen) == 1)
+    await page.send({"type": "result", "id": frame["id"], "content": [], "isError": False})
+    assert (await call)["isError"] is False
+    # After the result the id is finished: a late frame is dropped.
+    await page.send({"type": "progress", "id": frame["id"], "message": "late", "elapsed_ms": 999})
+    silent = asyncio.create_task(env.link.call("model_summary", {}))
+    frame2 = await page.recv_type("call")
+    assert frame2["progress"] is False
+    await page.send({"type": "result", "id": frame2["id"], "content": [], "isError": False})
+    await silent
+    assert [f["message"] for f in seen] == ["Union: union 1 of ≤ 4"]
+    await page.close()
+
+
 async def test_o17_page_drop_mid_call_is_page_disconnected(env: Env) -> None:
     page, _ = await pair(env)
     call = asyncio.create_task(env.link.call("model_summary", {}))

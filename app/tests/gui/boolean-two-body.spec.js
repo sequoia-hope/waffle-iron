@@ -81,7 +81,10 @@ async function createTwoBodies(page) {
 
 	await page.evaluate(() => window.__waffle.showExtrudeDialog());
 	await page.waitForTimeout(100);
-	await page.evaluate(() => window.__waffle.applyExtrude(30, 0, false));
+	// A genuine SECOND body: the legacy default would auto-merge this box into
+	// the first and consume it, leaving one live body (which the dialog now
+	// refuses to pair with, `specs/b4_balanced_union.md` §2.4).
+	await page.evaluate(() => window.__waffle.applyExtrude(30, 0, false, { combine: 'NewBody' }));
 	await waitForFeatureCount(page, 4, 15000);
 	await waitForMeshWithGeometry(page);
 	await page.waitForTimeout(300);
@@ -285,6 +288,52 @@ test.describe('boolean intersect', () => {
 		// Intersection of two overlapping boxes should produce geometry
 		const hasMesh = await hasMeshWithGeometry(waffle.page);
 		expect(hasMesh).toBe(true);
+
+		expectNoCrash(tracker);
+	});
+});
+
+test.describe('union all bodies', () => {
+	test('Union all folds every live body with one UnionAll feature', async ({ waffle }) => {
+		const tracker = collectCrashErrors(waffle.page);
+		await createTwoBodies(waffle.page);
+		const featuresBefore = await getFeatureCount(waffle.page);
+
+		await waffle.page.evaluate(() => window.__waffle.showBooleanDialog());
+		await waffle.page.waitForTimeout(200);
+		const dialog = waffle.page.locator('[data-testid="boolean-dialog"]');
+		await expect(dialog).toBeVisible();
+
+		// The option hides the pair pickers and names the live body count.
+		await dialog.locator('[data-testid="boolean-union-all"]').check();
+		await expect(waffle.page.locator('[data-testid="boolean-target"]')).toHaveCount(0);
+		await expect(waffle.page.locator('[data-testid="boolean-union-all-hint"]')).toContainText('2 live bodies');
+		const applyBtn = waffle.page.locator('[data-testid="boolean-apply"]');
+		await expect(applyBtn).toBeEnabled();
+		await applyBtn.click();
+
+		await waitForFeatureCount(waffle.page, featuresBefore + 1, 15000);
+		await expect(dialog).not.toBeVisible();
+
+		const tree = await waffle.page.evaluate(() => window.__waffle.getFeatureTree());
+		const union = tree.features.find(f => f.operation?.type === 'UnionAll');
+		expect(union).toBeDefined();
+		expect(union.operation.params.targets.type).toBe('All');
+
+		// Both extrudes are consumed: one body renders, and the dialog no
+		// longer offers them as operands.
+		const consumed = await waffle.page.evaluate(() => window.__waffle.getConsumedFeatures());
+		const extrudes = tree.features.filter(f => f.operation?.type === 'Extrude').map(f => f.id);
+		for (const id of extrudes) expect(consumed).toContain(id);
+		await waitForMeshWithGeometry(waffle.page, 5000);
+		const bodies = await waffle.page.evaluate(() => window.__waffle.getMeshes().filter(m => m.triangleCount > 0).length);
+		expect(bodies).toBe(1);
+
+		await waffle.page.evaluate(() => window.__waffle.showBooleanDialog());
+		await waffle.page.waitForTimeout(200);
+		const state = await waffle.page.evaluate(() => window.__waffle.getBooleanDialogState());
+		expect(state.bodies.map(b => b.featureId)).toEqual([union.id]);
+		await waffle.page.evaluate(() => window.__waffle.hideBooleanDialog());
 
 		expectNoCrash(tracker);
 	});

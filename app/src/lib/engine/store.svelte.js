@@ -113,6 +113,23 @@ let rebuilding = $state(false);
 
 let statusMessage = $state('Initializing...');
 
+/**
+ * The latest rebuild progress frame of the command in flight
+ * (`specs/b4_balanced_union.md` §2.3), cleared by the next model update.
+ * @type {{ feature_id: string, feature_name: string, done: number, remaining: number, label: string } | null}
+ */
+let rebuildProgress = $state(null);
+
+/** @type {Set<(msg: any) => void>} */
+const progressListeners = new Set();
+
+/**
+ * Features whose bodies a later feature consumed (from `ModelUpdated`):
+ * not live, so not a boolean operand.
+ * @type {Set<string>}
+ */
+let consumedFeatures = $state(new Set());
+
 /** @type {any | null} */
 let hoveredRef = $state(null);
 
@@ -812,6 +829,8 @@ export async function initEngine() {
 		// into its own tab now — S2 C3c — so this copy would only be a second
 		// one that can disagree.)
 		lastError = null;
+		rebuildProgress = null;
+		consumedFeatures = new Set(msg.consumed_features ?? []);
 		statusMessage = `Model updated (${meshes.length} ${meshes.length === 1 ? 'body' : 'bodies'})`;
 
 		// The thumbnail saved with the tab is the engine's decimated preview.
@@ -946,6 +965,18 @@ export async function initEngine() {
 		};
 		recomputeOverConstrained();
 		log('engine', 'Sketch solved', { status: statusStr, dof });
+	});
+
+	bridge.on('progress', (msg) => {
+		rebuildProgress = msg;
+		statusMessage = `${msg.feature_name}: ${msg.label}`;
+		for (const cb of progressListeners) {
+			try {
+				cb(msg);
+			} catch (err) {
+				log('error', `Progress listener failed: ${err}`);
+			}
+		}
 	});
 
 	bridge.on('error', (msg) => {
@@ -1262,6 +1293,9 @@ export async function initEngine() {
 			showBooleanDialog: () => showBooleanDialog(),
 			hideBooleanDialog: () => hideBooleanDialog(),
 			applyBoolean: (op, target, tool) => applyBoolean(op, target, tool),
+			applyUnionAll: () => applyUnionAll(),
+			getRebuildProgress: () => rebuildProgress,
+			getConsumedFeatures: () => [...consumedFeatures],
 			getSelectedRefs: () => [...selectedRefs],
 			getHoveredRef: () => hoveredRef,
 			getSketchHover: () => getSketchHover(),
@@ -1740,6 +1774,26 @@ export function isRebuilding() {
 
 export function getStatusMessage() {
 	return statusMessage;
+}
+
+/** The rebuild progress frame in flight, or null. */
+export function getRebuildProgress() {
+	return rebuildProgress;
+}
+
+/**
+ * Subscribe to rebuild progress frames (the agent link forwards them to the
+ * relay for the call in flight). Returns the unsubscribe function.
+ * @param {(msg: any) => void} cb
+ */
+export function subscribeRebuildProgress(cb) {
+	progressListeners.add(cb);
+	return () => progressListeners.delete(cb);
+}
+
+/** Feature ids whose bodies a later feature consumed (not live). */
+export function getConsumedFeatures() {
+	return consumedFeatures;
 }
 
 // Transient tool hint: shown in the status bar (over the engine status)
@@ -5288,9 +5342,12 @@ export function showBooleanDialog() {
 	const tree = featureTree;
 	if (!tree || !tree.features) return;
 
-	// Find features that produce solid bodies
+	// Find LIVE solid-producing features: a consumed or suppressed feature's
+	// body is not an operand (the engine refuses a consumed one loudly,
+	// `specs/b4_balanced_union.md` §2.4).
 	const bodies = tree.features
-		.filter(f => ['Extrude', 'Revolve', 'BooleanCombine', 'Chamfer', 'Fillet', 'Shell', 'ImportedBody', 'PatternCircular', 'PatternLinear', 'Script'].includes(f.operation?.type))
+		.filter(f => ['Extrude', 'Revolve', 'Pipe', 'BooleanCombine', 'UnionAll', 'Chamfer', 'Fillet', 'Shell', 'ImportedBody', 'PatternCircular', 'PatternLinear', 'Script'].includes(f.operation?.type))
+		.filter(f => !f.suppressed && !consumedFeatures.has(f.id))
 		.map(f => ({ featureId: f.id, name: f.name }));
 
 	log('ui', 'Show boolean dialog', { bodyCount: bodies.length });
@@ -5435,6 +5492,27 @@ export async function applyBoolean(operation, targetFeatureId, toolFeatureId) {
 		const msg = err.message || String(err);
 		log('error', `Boolean failed: ${msg}`);
 		showToast('error', `Boolean operation failed: ${msg}`);
+	}
+}
+
+/**
+ * Union every live body of the part into connected solids with ONE feature
+ * (`specs/b4_balanced_union.md`): a balanced tree of pairwise unions with a
+ * bounding-box fast path, progress in the status bar.
+ */
+export async function applyUnionAll() {
+	if (!bridge || !engineReady) return;
+	log('action', 'Apply union all');
+	try {
+		await sendRebuild({
+			type: 'AddFeature',
+			operation: { type: 'UnionAll', params: { targets: { type: 'All' } } }
+		});
+		booleanDialogState = null;
+	} catch (err) {
+		const msg = err.message || String(err);
+		log('error', `Union all failed: ${msg}`);
+		showToast('error', `Union all failed: ${msg}`);
 	}
 }
 

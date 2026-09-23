@@ -1718,6 +1718,21 @@ impl KernelIntrospect for MockKernel {
             })
             .collect()
     }
+
+    /// The mock's solids are polyhedral (vertex-defined), so the vertex hull
+    /// IS a conservative box. A solid with no vertices has no box.
+    fn solid_aabb(&self, solid: &KernelSolidHandle) -> Option<([f64; 3], [f64; 3])> {
+        let s = self.solids.get(&solid.raw())?;
+        let mut lo = [f64::INFINITY; 3];
+        let mut hi = [f64::NEG_INFINITY; 3];
+        for v in &s.vertices {
+            for k in 0..3 {
+                lo[k] = lo[k].min(v.position[k]);
+                hi[k] = hi[k].max(v.position[k]);
+            }
+        }
+        lo[0].is_finite().then_some((lo, hi))
+    }
 }
 
 #[cfg(test)]

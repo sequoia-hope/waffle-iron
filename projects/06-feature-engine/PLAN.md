@@ -233,6 +233,37 @@
 - [ ] Known walls (typed): closed loops, mitred (non-G1) joints, non-planar chains; a bend
       over ≈149° that SURVIVES a boolean (the recovered seam must be one sub-π arc).
 
+### M16: Union all — B4 of `specs/custom_features_and_modeling_roadmap.md` ✅ (2026-09-23)
+- [x] `Operation::UnionAll { UnionAllParams { targets: All | Selected { bodies } } }`
+      (`specs/b4_balanced_union.md`): 5 sites in `types.rs`, rebuild arm, consumed ids,
+      name inheritance via the new `Engine::consumed_by` (consumer → consumed, in order),
+      `migrate.rs`, harness name tables, `AUTHORABLE` + dispatch name, FILE_FORMAT §7.12,
+      golden schema + agent manifest regenerated.
+- [x] `crate::union_all`: `All` = every live solid output before the feature (tree order);
+      `Selected` honors `ResolvePolicy` on consumed bodies, refuses duplicates and self;
+      balanced fold (`union_balanced` / `fold_into`) gated by the new
+      `KernelIntrospect::solid_aabb` (MockKernel: vertex hull; kernel-v2:
+      `introspect::conservative_aabb` — curve/sphere/torus bulge + cylinder/cone slab).
+      The pattern's `fold_union` reuses `fold_into` (same order, gate added).
+- [x] `crate::progress`: thread-local sink; `UnionAll` reports one frame per union RUN.
+      `wasm_api::set_progress_sink` → worker bare `Progress` frames → `bridge.on('progress')`
+      → store status bar + `subscribeRebuildProgress` → `link.js` `progress` frames →
+      relay `on_progress` → MCP `notifications/progress` (only with a `progressToken`).
+- [x] P10: `BooleanCombine` refuses a consumed operand (either policy); explicit combine
+      targets apply the pattern's rule (Strict error / BestEffort drop + warning);
+      `ModelUpdated.consumed_features`; the Boolean dialog lists live bodies only and
+      gained "Union all bodies"; script `ctx.union_all()`.
+- [x] Tests: `tests/union_all.rs` (8, MockKernel), `progress` unit test,
+      `test-harness/tests/union_all_kv2.rs` (4, real kernel: 5-box chain exact
+      inclusion–exclusion volume to 1e-9, χ = 2, far cluster skipped by the gate, tree ≡
+      chain, bit-identical rebuilds, consumed operand loud), relay
+      `test_progress_frames_reach_the_calls_consumer_while_in_flight`, GUI
+      `boolean-two-body.spec.js` "union all bodies". Six `engine_tests` boolean fixtures
+      moved to a NewBody second extrude (they re-targeted a consumed body).
+- [ ] Follow-ups: spatially sorted body order for a better tree (order is tree order today);
+      a `UnionAll` edit dialog for `Selected` (authoring is `feature_add`/script only);
+      progress frames for other long features (chained pattern folds).
+
 ## Blockers
 
 - ~~**M8 Stage-0 mixed-loop coplanar caps (found 2026-09-19 boring a 20T

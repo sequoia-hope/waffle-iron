@@ -340,6 +340,18 @@ pub trait KernelIntrospect {
         })
     }
 
+    /// A CONSERVATIVE axis-aligned bounding box of the solid, `(lo, hi)` in
+    /// meters: every point of the solid lies inside it, so two solids whose
+    /// boxes do not overlap have no material in common. Used as the exact
+    /// disjointness gate of the many-body union (`specs/b4_balanced_union.md`
+    /// §2.2). `None` when the kernel cannot bound the solid cheaply (an
+    /// unbounded-bulge curve, a kernel that does not implement it — the
+    /// default): the consumer must then treat the pair as possibly
+    /// overlapping. Never an approximation that could under-cover.
+    fn solid_aabb(&self, _solid: &KernelSolidHandle) -> Option<([f64; 3], [f64; 3])> {
+        None
+    }
+
     /// The solid's total surface area in m², exactly from its B-Rep. Same
     /// contract as [`Self::solid_volume`].
     fn solid_surface_area(

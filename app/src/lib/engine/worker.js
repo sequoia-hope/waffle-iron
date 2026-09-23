@@ -92,6 +92,7 @@ async function initEngine(wasmUrl) {
 		// `memory` (trap classification), not for calling into.
 		wasmExports = await wasm.default();
 		wasm.init();
+		installProgressSink(wasm);
 		wasmModule = wasm;
 
 		self.postMessage({ type: 'ready' });
@@ -106,6 +107,26 @@ async function initEngine(wasmUrl) {
 
 /** URL used for WASM module init — stored for crash recovery re-init. */
 let lastWasmUrl = '';
+
+/**
+ * Rebuild progress (`specs/b4_balanced_union.md` §2.3): the engine calls the
+ * sink from INSIDE `process_message`, one JSON frame per step. The frame
+ * leaves bare — it answers no request id; the bridge routes it on `type`
+ * ("Progress") to the store, which shows it while the command's own answer
+ * is still being computed. Reinstalled after a crash restart (the sink
+ * lives in the module instance).
+ * @param {any} wasm
+ */
+function installProgressSink(wasm) {
+	if (typeof wasm.set_progress_sink !== 'function') return;
+	wasm.set_progress_sink((/** @type {string} */ json) => {
+		try {
+			self.postMessage(JSON.parse(json));
+		} catch (err) {
+			console.warn('[worker] dropped malformed progress frame', err);
+		}
+	});
+}
 
 /**
  * Process a UiToEngine message and return the EngineToUi response.
@@ -393,6 +414,7 @@ self.onmessage = async function (event) {
 			const wasmBinaryUrl = lastWasmUrl.replace(/\.js$/, '_bg.wasm');
 			wasmExports = await freshWasm.default(wasmBinaryUrl);
 			freshWasm.init();
+			installProgressSink(freshWasm);
 			wasmModule = freshWasm;
 			console.log('WASM module restarted successfully');
 			// An OOM message already states the cause and the limit; burying it

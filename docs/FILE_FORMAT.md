@@ -341,7 +341,8 @@ bridge actually sends and JS actually stores into the file) — a drift hazard
 
 `operation` is internally tagged with `type` ∈ `Sketch`, `Extrude`, `Revolve`,
 `Fillet`, `Chamfer`, `Shell`, `BooleanCombine`, `DatumPlane`, `ImportedBody`,
-`MateConnector`, `PatternCircular`, `PatternLinear`, `Pipe`, `Script`.
+`MateConnector`, `PatternCircular`, `PatternLinear`, `Pipe`, `Script`,
+`UnionAll`.
 Parameter payloads sit under `sketch` (for `Sketch`) or `params` (all others).
 
 **Unknown kinds (v4 Phase 1b, 2026-09-08).** A well-formed `{"type": …}`
@@ -545,6 +546,24 @@ kind, no reader-floor bump.
 | `inner_radius_expr` | string \| null | opt | Driving expression for `inner_radius`. |
 | `combine` | CombineMode \| null | opt | `null` ⇒ NewBody. |
 | `targets` | GeomRef[] \| null | opt | Explicit targets; a combine with none falls back to the most recent solid body (a pipe has no profile to share a face with). |
+
+### 7.12 `UnionAll` — `UnionAllParams` (types.rs, 2026-09-23)
+
+Many-body union as one feature (`specs/b4_balanced_union.md`): the target
+bodies are folded into connected lumps by a balanced tree of ordinary
+pairwise unions, skipping pairs whose conservative bounding boxes are
+disjoint. Output `Main` is the first body's lump, `Body{index}` the rest.
+Every source body's feature is consumed. New operation kind, no reader-floor
+bump.
+
+| Field | Type | Req/default | Notes |
+|---|---|---|---|
+| `targets` | `{"type":"All"}` \| `{"type":"Selected","bodies":[GeomRef…]}` | `All` | `All`: every live solid output of every active, unsuppressed, not-yet-consumed feature before this one, in tree order. `Selected`: `TopoKind::Solid` feature-output refs; a consumed body is refused (`Strict`) or dropped with a warning (`BestEffort`); duplicates are refused. |
+
+Zero live bodies is a per-feature error; one body passes through unchanged
+(with a warning). Since the same date a `BooleanCombine` (§7.5) whose
+operand's feature an earlier feature consumed is a per-feature error rather
+than a silent duplicate of the stale body.
 
 ## 8. Persistent geometry references — `GeomRef`
 

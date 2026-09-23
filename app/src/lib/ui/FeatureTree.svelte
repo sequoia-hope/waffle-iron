@@ -469,6 +469,7 @@
 			case 'Chamfer': return '\u25C6';
 			case 'Shell': return '\u25A1';
 			case 'BooleanCombine': return '\u2229';
+			case 'UnionAll': return '\u222A';
 			case 'ImportedBody': return '\u2913';
 			case 'MateConnector': return '\u2295';
 			case 'PatternCircular': return '\u25CC';

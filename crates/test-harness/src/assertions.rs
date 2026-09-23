@@ -123,6 +123,7 @@ pub fn assert_tree_structure(
                 feature_engine::types::Operation::PatternCircular { .. } => "PatternCircular",
                 feature_engine::types::Operation::PatternLinear { .. } => "PatternLinear",
                 feature_engine::types::Operation::Script { .. } => "Script",
+                feature_engine::types::Operation::UnionAll { .. } => "UnionAll",
                 feature_engine::types::Operation::Unknown(_) => "Unknown",
             };
             (f.name.clone(), op_type.to_string())

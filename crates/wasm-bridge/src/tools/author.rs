@@ -50,6 +50,7 @@ const AUTHORABLE: &[&str] = &[
     "PatternLinear",
     "Pipe",
     "Script",
+    "UnionAll",
 ];
 
 /// What a failing step does (JS `applyStep`'s `onError`).

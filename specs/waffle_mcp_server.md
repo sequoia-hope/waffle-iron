@@ -122,7 +122,7 @@ match; the dev port comes from the registry as for any project.
 | relay → page | `welcome` | `session`, `agent_name`, `protocol`, `manifest_required: bool` (true when `hello.manifest_hash` differs from the bundled manifest) |
 | page → relay | `manifest` | `tools` — sent only after `manifest_required`; adopted only if its hash equals `hello.manifest_hash` |
 | relay → page | `call` | `id`, `tool`, `arguments`, `progress: bool` |
-| page → relay | `progress` | `id`, `message`, `elapsed_ms` |
+| page → relay | `progress` | `id`, `message`, `elapsed_ms`, `progress?`, `total?` — sent only for a call whose `call.progress` was true (the client passed a `progressToken`); the relay forwards each as an MCP `notifications/progress`. Source today: rebuild progress of a `UnionAll` feature (`specs/b4_balanced_union.md` §2.3) |
 | page → relay | `result` | `id`, `content[]`, `structuredContent`, `isError` |
 | relay → page | `cancel` | `id` |
 | page → relay | `status` | `state`: `ready` \| `paused` \| `busy{reason}`, `document_name?` |

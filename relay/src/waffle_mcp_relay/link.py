@@ -77,6 +77,11 @@ class PageConnection:
     revoked: bool = False
     last_pong: float = 0.0
     pending: dict[str, asyncio.Future[dict[str, Any]]] = field(default_factory=dict)
+    # Per in-flight call: the `progress` frame consumer (§2.3), when the
+    # caller asked for progress.
+    progress: dict[str, Callable[[dict[str, Any]], Awaitable[None]]] = field(
+        default_factory=dict
+    )
 
 
 def _parse(raw: str | bytes) -> dict[str, Any] | None:
@@ -176,8 +181,19 @@ class LinkServer:
             await self._bye(old.ws, "revoked")
         return code, expires_at
 
-    async def call(self, tool: str, arguments: dict[str, Any]) -> dict[str, Any]:
-        """Forward a page tool call; returns the page's `result` frame."""
+    async def call(
+        self,
+        tool: str,
+        arguments: dict[str, Any],
+        on_progress: Callable[[dict[str, Any]], Awaitable[None]] | None = None,
+    ) -> dict[str, Any]:
+        """Forward a page tool call; returns the page's `result` frame.
+
+        `on_progress` receives every `progress` frame the page sends for this
+        call (`{id, message, elapsed_ms, progress?, total?}`, §2.3) while the
+        call is in flight; the `call` frame's `progress` flag tells the page
+        whether anyone is listening.
+        """
         page = self._page
         if page is None and self._pairing.state() == "page_away":
             page = await self._wait_for_page()
@@ -192,17 +208,20 @@ class LinkServer:
         call_id = uuid.uuid4().hex
         future: asyncio.Future[dict[str, Any]] = asyncio.get_running_loop().create_future()
         page.pending[call_id] = future
+        if on_progress is not None:
+            page.progress[call_id] = on_progress
         frame = {
             "type": "call",
             "id": call_id,
             "tool": tool,
             "arguments": arguments,
-            "progress": False,
+            "progress": on_progress is not None,
         }
         try:
             await page.ws.send(json.dumps(frame))
         except ConnectionClosed:
             page.pending.pop(call_id, None)
+            page.progress.pop(call_id, None)
             raise LinkError(
                 "PageDisconnected", PAGE_DISCONNECTED_MESSAGE, {"state_unknown": True}
             ) from None
@@ -210,6 +229,7 @@ class LinkServer:
             result = await future
         except asyncio.CancelledError:
             page.pending.pop(call_id, None)
+            page.progress.pop(call_id, None)
             try:
                 await page.ws.send(json.dumps({"type": "cancel", "id": call_id}))
             except ConnectionClosed:
@@ -339,7 +359,9 @@ class LinkServer:
                     continue
                 kind = frame["type"]
                 if kind == "result":
-                    future = page.pending.pop(str(frame.get("id")), None)
+                    call_id = str(frame.get("id"))
+                    page.progress.pop(call_id, None)
+                    future = page.pending.pop(call_id, None)
                     if future is not None and not future.done():
                         future.set_result(frame)
                 elif kind == "pong":
@@ -351,7 +373,15 @@ class LinkServer:
                 elif kind == "manifest":
                     await self._adopt_manifest(page, frame)
                 elif kind == "progress":
-                    pass  # Phase 0 has no long-running page tools.
+                    # A rebuild step of the call in flight (a many-body
+                    # union, `specs/b4_balanced_union.md` §2.3). Unknown or
+                    # finished ids are dropped: a late frame is not an error.
+                    on_progress = page.progress.get(str(frame.get("id")))
+                    if on_progress is not None:
+                        try:
+                            await on_progress(frame)
+                        except Exception:  # noqa: BLE001 — a client that rejects a notification must not kill the reader
+                            log.warning("progress consumer failed", exc_info=True)
                 elif kind == "bye":
                     reason = frame.get("reason")
                     if reason == "user_disconnected":

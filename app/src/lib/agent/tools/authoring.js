@@ -64,8 +64,12 @@ export const sketchCreateTool = {
 };
 
 const operationNote =
-	'operation is an Operation: {"type":"Extrude","params":{…}}, Revolve, Pipe, BooleanCombine, DatumPlane, MateConnector, ' +
-	'PatternCircular, PatternLinear, Script, or a full Sketch. A Pipe sweeps a circle along an OPEN, tangent-continuous ' +
+	'operation is an Operation: {"type":"Extrude","params":{…}}, Revolve, Pipe, BooleanCombine, UnionAll, DatumPlane, MateConnector, ' +
+	'PatternCircular, PatternLinear, Script, or a full Sketch. A UnionAll folds EVERY live body of the part (or ' +
+	'params.targets {type:"Selected", bodies:[Solid GeomRefs]}) into connected solids with ONE feature — a balanced ' +
+	'tree of pairwise unions with a bounding-box fast path — so prefer it over a chain of BooleanCombine steps on many ' +
+	'overlapping bodies: params {targets?: {type:"All"}}. A BooleanCombine whose operand was already consumed by an ' +
+	'earlier feature is refused (chain onto that feature\'s own output instead). A Pipe sweeps a circle along an OPEN, tangent-continuous ' +
 	'chain of sketch lines and arcs (construction geometry is fine) as ONE solid: params {sketch_id, entity_ids: [the ' +
 	'path entities, any order], radius (m), inner_radius? (m, hollow), combine?, targets?} — no boolean between segments, ' +
 	'so a handlebar or hose is one body; a corner or a bend tighter than the tube radius is refused. A Script runs a custom feature script (Rhai) that ' +

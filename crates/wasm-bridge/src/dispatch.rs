@@ -1211,6 +1211,11 @@ fn model_updated_response(state: &EngineState) -> EngineToUi {
         errors: state.engine.errors.clone(),
         feature_errors: state.engine.feature_errors.clone(),
         warnings: state.engine.warnings.clone(),
+        consumed_features: {
+            let mut v: Vec<uuid::Uuid> = state.engine.consumed_features.iter().copied().collect();
+            v.sort();
+            v
+        },
         preview_mesh,
         sources: source_statuses(state),
         assembly: state.assembly.as_ref().map(|v| AssemblyStatus {
@@ -1418,6 +1423,7 @@ fn operation_name(op: &Operation) -> String {
         Operation::Chamfer { .. } => "Chamfer".to_string(),
         Operation::Shell { .. } => "Shell".to_string(),
         Operation::BooleanCombine { .. } => "Boolean Combine".to_string(),
+        Operation::UnionAll { .. } => "Union All".to_string(),
         Operation::DatumPlane { params } => params.name.clone(),
         Operation::ImportedBody { params } => format!("Import {}", params.file_name),
         Operation::MateConnector { params } if !params.name.trim().is_empty() => {

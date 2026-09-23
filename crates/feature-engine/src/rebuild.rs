@@ -109,6 +109,8 @@ pub struct RebuildState {
     /// Feature IDs whose solid was consumed by a later boolean union.
     /// These features should not be rendered (their geometry is merged into the consuming feature).
     pub consumed_features: std::collections::HashSet<Uuid>,
+    /// Consumer → the features it consumed, in target order.
+    pub consumed_by: HashMap<Uuid, Vec<Uuid>>,
     /// KV13 F6: persistent-id → the feature that INTRODUCED it. Captured per
     /// feature right after its op runs (before later ops churn the arena), by
     /// querying `face_provenance` for the faces it created. A face's
@@ -158,6 +160,7 @@ pub fn rebuild(
         errors: Vec::new(),
         feature_errors: Vec::new(),
         consumed_features: std::collections::HashSet::new(),
+        consumed_by: HashMap::new(),
         pid_to_feature: HashMap::new(),
     };
 
@@ -231,9 +234,10 @@ pub fn rebuild(
                         .iter()
                         .any(|w| w.contains("Auto-union failed"));
                     if !union_failed {
-                        for target_id in consumed_ids {
-                            state.consumed_features.insert(target_id);
+                        for target_id in &consumed_ids {
+                            state.consumed_features.insert(*target_id);
                         }
+                        state.consumed_by.insert(feature.id, consumed_ids);
                     }
                 }
             }
@@ -280,6 +284,7 @@ pub fn rebuild(
                         for target_id in &consumed_ids {
                             state.consumed_features.insert(*target_id);
                         }
+                        state.consumed_by.insert(feature.id, consumed_ids.clone());
                     }
                 }
                 // KV13 F6: capture this feature's created-face persistent ids
@@ -1068,7 +1073,27 @@ pub(crate) fn execute_feature(
             sources,
         ),
 
+        Operation::UnionAll { params } => {
+            crate::union_all::execute(feature, params, kb, feature_results, tree, already_consumed)
+        }
+
         Operation::BooleanCombine { params } => {
+            // A pair op cannot drop an operand, so a consumed one is loud
+            // under either policy (`specs/b4_balanced_union.md` §2.4): the
+            // stale pre-consumption handle would otherwise duplicate the
+            // body silently (the 2026-09-17 gearbox finding).
+            for (what, gr) in [("target", &params.body_a), ("tool", &params.body_b)] {
+                if let waffle_types::Anchor::FeatureOutput { feature_id, .. } = &gr.anchor {
+                    if already_consumed.contains(feature_id) {
+                        return Err(EngineError::ResolutionFailed {
+                            reason: format!(
+                                "boolean {what} body of feature {feature_id} was already \
+                                 consumed by an earlier feature"
+                            ),
+                        });
+                    }
+                }
+            }
             // Find the solid handles from the referenced features
             let handle_a = find_solid_handle(&params.body_a, feature_results)?;
             let handle_b = find_solid_handle(&params.body_b, feature_results)?;
@@ -1491,6 +1516,13 @@ pub(crate) fn find_consumed_feature_ids(
             }
             consumed
         }
+        Operation::UnionAll { params } => crate::union_all::consumed_feature_ids(
+            feature,
+            params,
+            feature_results,
+            tree,
+            already_consumed,
+        ),
         Operation::PatternCircular { params } => crate::pattern::consumed_feature_ids(
             crate::pattern::PatternSpec::Circular(params),
             feature_results,
@@ -2377,6 +2409,25 @@ pub(crate) fn resolve_combine_targets(
                         });
                     }
                 };
+                // A target whose feature an earlier feature CONSUMED is not
+                // live: its stale handle would duplicate the body
+                // (`specs/b4_balanced_union.md` §2.4). Same policy split as
+                // an unresolvable target.
+                if already_consumed.contains(&feature_id) {
+                    let msg = format!(
+                        "combine target body of feature {feature_id} was already consumed by \
+                         an earlier feature"
+                    );
+                    match gr.policy {
+                        waffle_types::ResolvePolicy::Strict => {
+                            return Err(EngineError::ResolutionFailed { reason: msg });
+                        }
+                        waffle_types::ResolvePolicy::BestEffort => {
+                            warnings.push(format!("{msg}; dropped"));
+                            continue;
+                        }
+                    }
+                }
                 // Honor the target's ResolvePolicy on failure (spec §9): a Strict
                 // target that no longer resolves stops the feature loudly; a
                 // BestEffort one is dropped with a warning so the surviving live

@@ -14,7 +14,7 @@
  * while the user is in another app; nothing retries while hidden.
  */
 import { get, writable } from 'svelte/store';
-import { getDocumentName, whenStartupRestoreSettled } from '$lib/engine/store.svelte.js';
+import { getDocumentName, subscribeRebuildProgress, whenStartupRestoreSettled } from '$lib/engine/store.svelte.js';
 import { executeCall, toolError } from './executor.js';
 import { TOOLS } from './tools/index.js';
 import { LINK_PROTOCOL, canonicalJson, toManifestTool, webSha256Hex } from './tools/manifest.js';
@@ -84,6 +84,28 @@ let manifestHashPromise = null;
 
 /** Ids of calls the relay cancelled (A18). */
 const cancelledCalls = new Set();
+
+/** The call being executed (the page runs one at a time), for progress. */
+/** @type {string | null} */
+let activeCallId = null;
+let activeCallStartedAt = 0;
+
+// Rebuild progress of the call in flight goes to the relay as `progress`
+// frames (`specs/waffle_mcp_server.md` §2.3; `specs/b4_balanced_union.md`
+// §2.3). A frame that arrives between calls belongs to the user's own
+// action and stays on the page.
+subscribeRebuildProgress((msg) => {
+	const ws = socket;
+	if (!ws || ws.readyState !== WebSocket.OPEN || activeCallId === null) return;
+	send(ws, {
+		type: 'progress',
+		id: activeCallId,
+		message: `${msg.feature_name}: ${msg.label}`,
+		elapsed_ms: Math.round(performance.now() - activeCallStartedAt),
+		progress: msg.done,
+		total: msg.done + msg.remaining
+	});
+});
 
 /** Last status frame sent on the current socket, to send only changes. */
 let lastStatusKey = '';
@@ -203,12 +225,15 @@ async function handleCall(ws, frame) {
 		isCancelled: () => cancelledCalls.has(frame.id)
 	};
 	let result;
+	activeCallId = String(frame.id);
+	activeCallStartedAt = performance.now();
 	try {
 		result = await executeCall(frame, ctx);
 	} catch (err) {
 		result = { type: 'result', id: frame.id, ...toolError('Internal', String(err?.message ?? err)) };
 	} finally {
 		cancelledCalls.delete(frame.id);
+		if (activeCallId === String(frame.id)) activeCallId = null;
 	}
 	send(ws, result);
 }

@@ -160,6 +160,7 @@ impl ModelBuilder {
                 Operation::PatternLinear { .. } => "PatternLinear",
                 Operation::Pipe { .. } => "Pipe",
                 Operation::Script { .. } => "Script",
+                Operation::UnionAll { .. } => "UnionAll",
                 Operation::Unknown(_) => "Unknown",
             };
 
@@ -371,6 +372,12 @@ fn describe_operation(op: &Operation) -> String {
             "Pipe: sketch={} entities={:?} radius={:.4} inner={:?}",
             params.sketch_id, params.entity_ids, params.radius, params.inner_radius
         ),
+        Operation::UnionAll { params } => match &params.targets {
+            feature_engine::types::UnionTargets::All => "UnionAll: all live bodies".to_string(),
+            feature_engine::types::UnionTargets::Selected { bodies } => {
+                format!("UnionAll: {} selected bodies", bodies.len())
+            }
+        },
         Operation::Script { params } => format!(
             "Params: source={}, entry={}, {} arg(s)",
             params.source_id,

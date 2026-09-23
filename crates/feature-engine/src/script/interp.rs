@@ -126,6 +126,10 @@ pub fn build_engine(limits: &Limits) -> Engine {
         "boolean",
         |ctx: &mut Ctx, op: &str, a: Dynamic, b: Dynamic| ctx.boolean(op, &a, &b),
     );
+    engine.register_fn("union_all", |ctx: &mut Ctx| ctx.union_all(None));
+    engine.register_fn("union_all", |ctx: &mut Ctx, bodies: Dynamic| {
+        ctx.union_all(Some(&bodies))
+    });
     engine.register_fn("log", |ctx: &mut Ctx, msg: &str| ctx.log(msg));
     engine.register_fn("fail", |ctx: &mut Ctx, msg: &str| ctx.fail(msg));
     engine.register_fn("param", |ctx: &mut Ctx, name: &str| ctx.param(name));

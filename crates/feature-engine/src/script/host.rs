@@ -26,7 +26,7 @@ use waffle_types::{
 
 use crate::types::{
     BooleanOp, BooleanParams, CombineMode, DepthMode, ExtrudeParams, Feature, Operation,
-    PipeParams, RevolveParams,
+    PipeParams, RevolveParams, UnionAllParams, UnionTargets,
 };
 
 /// Geometry budget (spec §A5): more child operations than this is a runaway
@@ -921,6 +921,32 @@ impl Ctx {
             references: Vec::new(),
         };
         self.record(feature, "boolean")
+    }
+
+    /// `union_all()` / `union_all([bodies…])` (`specs/b4_balanced_union.md`):
+    /// fold every live body before this step (or the listed ones) into
+    /// connected lumps with one feature.
+    pub fn union_all(
+        &mut self,
+        bodies: Option<&Dynamic>,
+    ) -> Result<FeatureRef, Box<EvalAltResult>> {
+        let targets = match bodies {
+            None => UnionTargets::All,
+            Some(d) => UnionTargets::Selected {
+                bodies: body_refs(Some(d), "union_all body")?,
+            },
+        };
+        let id = Uuid::new_v4();
+        let feature = Feature {
+            id,
+            name: "script union all".into(),
+            operation: Operation::UnionAll {
+                params: UnionAllParams { targets },
+            },
+            suppressed: false,
+            references: Vec::new(),
+        };
+        self.record(feature, "union_all")
     }
 
     pub fn log(&mut self, msg: &str) {

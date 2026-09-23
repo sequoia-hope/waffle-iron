@@ -91,6 +91,26 @@ pub fn process_message(json_input: &str) -> String {
     })
 }
 
+/// Install the rebuild-progress sink (`specs/b4_balanced_union.md` §2.3):
+/// `sink` receives one JSON string per frame, shaped as the bare
+/// `{"type":"Progress", feature_id, feature_name, done, remaining, label}`
+/// message the worker posts unsolicited. Call after `init()` (and again
+/// after a crash restart — the sink lives in the module instance).
+#[wasm_bindgen]
+pub fn set_progress_sink(sink: js_sys::Function) {
+    feature_engine::progress::install(Box::new(move |event| {
+        let frame = serde_json::json!({
+            "type": "Progress",
+            "feature_id": event.feature_id,
+            "feature_name": event.feature_name,
+            "done": event.done,
+            "remaining": event.remaining,
+            "label": event.label,
+        });
+        let _ = sink.call1(&JsValue::NULL, &JsValue::from_str(&frame.to_string()));
+    }));
+}
+
 /// Get the current feature tree as JSON.
 ///
 /// Useful for the UI to query state without sending a full command.

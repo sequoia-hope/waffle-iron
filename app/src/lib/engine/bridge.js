@@ -190,6 +190,9 @@ export class EngineBridge {
 			case 'error':
 				this._onError = callback;
 				break;
+			case 'progress':
+				this._onProgress = callback;
+				break;
 		}
 	}
 
@@ -230,6 +233,14 @@ export class EngineBridge {
 		const envelope = !!frame && typeof frame === 'object' && 'msg' in frame;
 		const msg = envelope ? frame.msg : frame;
 		const id = envelope ? frame.id : null;
+		// A rebuild progress frame (`specs/b4_balanced_union.md` §2.3) is
+		// unsolicited too: it arrives WHILE the command it belongs to is still
+		// computing, and answers nothing. Not logged per frame (a long union
+		// posts many).
+		if (!envelope && msg?.type === 'Progress') {
+			if (this._onProgress) this._onProgress(msg);
+			return;
+		}
 		const pending = id ? this._pending.get(id) : null;
 		if (pending) this._pending.delete(id);
 		if (pending?.entry) {

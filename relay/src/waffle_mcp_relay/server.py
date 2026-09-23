@@ -224,8 +224,28 @@ class RelayApp:
             return await self._connect()
         if name == "waffle_status":
             return ok_result(self._link.status())
+        # Rebuild progress (`specs/b4_balanced_union.md` §2.3): forwarded as
+        # MCP progress notifications when the client sent a progressToken.
+        # Without one nobody is listening, so the page is not asked for
+        # frames (it still shows them in its own status bar).
+        token = getattr(ctx.meta, "progress_token", None) if ctx.meta is not None else None
+        session = ctx.session
+
+        async def on_progress(frame: dict[str, Any]) -> None:
+            progress = frame.get("progress")
+            total = frame.get("total")
+            message = frame.get("message")
+            await session.send_progress_notification(
+                token,
+                float(progress) if isinstance(progress, (int, float)) else 0.0,
+                total=float(total) if isinstance(total, (int, float)) else None,
+                message=str(message) if message is not None else None,
+            )
+
         try:
-            frame = await self._link.call(name, arguments)
+            frame = await self._link.call(
+                name, arguments, on_progress=on_progress if token is not None else None
+            )
         except LinkError as err:
             return error_result(err.code, err.message, err.details)
         try:

@@ -133,6 +133,9 @@ fn migrate_feature_v1_to_v2(feature: &mut Feature) {
         Operation::Pipe { .. } => {
             // Postdates v5; radii are meters by definition.
         }
+        Operation::UnionAll { .. } => {
+            // Postdates v5; no lengths.
+        }
         Operation::Unknown(_) => {
             // Opaque (v4 Phase 1b): this reader cannot know which of its
             // fields are lengths. Preserved verbatim; its rebuild fails loudly.

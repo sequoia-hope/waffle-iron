@@ -2,7 +2,8 @@
 	import {
 		getBooleanDialogState,
 		hideBooleanDialog,
-		applyBoolean
+		applyBoolean,
+		applyUnionAll
 	} from '$lib/engine/store.svelte.js';
 	import { log } from '$lib/engine/logger.js';
 
@@ -23,7 +24,12 @@
 		dialogState ? dialogState.bodies.filter(b => b.featureId !== targetFeatureId) : []
 	);
 
-	let canApply = $derived(targetFeatureId && toolFeatureId && targetFeatureId !== toolFeatureId);
+	let unionAll = $derived(operation === 'UnionAll');
+	let canApply = $derived(
+		unionAll
+			? (dialogState?.bodies.length ?? 0) >= 1
+			: targetFeatureId && toolFeatureId && targetFeatureId !== toolFeatureId
+	);
 
 	// Listen for keydown at window level so Escape works even without focus
 	$effect(() => {
@@ -44,8 +50,8 @@
 	});
 
 	function handleApply() {
-		applyBoolean(operation, targetFeatureId, toolFeatureId)
-			.catch(err => log('error', `Boolean dialog apply failed: ${err}`));
+		const run = unionAll ? applyUnionAll() : applyBoolean(operation, targetFeatureId, toolFeatureId);
+		run.catch(err => log('error', `Boolean dialog apply failed: ${err}`));
 	}
 
 	function handleCancel() {
@@ -86,26 +92,37 @@
 						<input type="radio" bind:group={operation} value="Intersect" />
 						Intersect
 					</label>
+					<label class="radio-option">
+						<input type="radio" bind:group={operation} value="UnionAll" data-testid="boolean-union-all" />
+						Union all bodies
+					</label>
 				</div>
 			</div>
-			<div class="field">
-				<label for="boolean-target">Target body</label>
-				<select id="boolean-target" data-testid="boolean-target" bind:value={targetFeatureId}>
-					<option value="" disabled>Select target...</option>
-					{#each dialogState.bodies as body}
-						<option value={body.featureId}>{body.name}</option>
-					{/each}
-				</select>
-			</div>
-			<div class="field">
-				<label for="boolean-tool">Tool body</label>
-				<select id="boolean-tool" data-testid="boolean-tool" bind:value={toolFeatureId}>
-					<option value="" disabled>Select tool...</option>
-					{#each toolBodies as body}
-						<option value={body.featureId}>{body.name}</option>
-					{/each}
-				</select>
-			</div>
+			{#if unionAll}
+				<p class="hint" data-testid="boolean-union-all-hint">
+					Folds all {dialogState.bodies.length} live {dialogState.bodies.length === 1 ? 'body' : 'bodies'}
+					into connected solids in one step. Progress shows in the status bar.
+				</p>
+			{:else}
+				<div class="field">
+					<label for="boolean-target">Target body</label>
+					<select id="boolean-target" data-testid="boolean-target" bind:value={targetFeatureId}>
+						<option value="" disabled>Select target...</option>
+						{#each dialogState.bodies as body}
+							<option value={body.featureId}>{body.name}</option>
+						{/each}
+					</select>
+				</div>
+				<div class="field">
+					<label for="boolean-tool">Tool body</label>
+					<select id="boolean-tool" data-testid="boolean-tool" bind:value={toolFeatureId}>
+						<option value="" disabled>Select tool...</option>
+						{#each toolBodies as body}
+							<option value={body.featureId}>{body.name}</option>
+						{/each}
+					</select>
+				</div>
+			{/if}
 		</div>
 		<div class="dialog-footer">
 			<button class="btn btn-cancel" data-testid="boolean-cancel" onclick={handleCancel}>Cancel</button>

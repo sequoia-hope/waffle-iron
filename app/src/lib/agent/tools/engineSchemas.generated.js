@@ -1270,6 +1270,22 @@ export const ENGINE_DEFS = {
         "type": "object"
       },
       {
+        "properties": {
+          "params": {
+            "$ref": "#/$defs/UnionAllParams"
+          },
+          "type": {
+            "const": "UnionAll",
+            "type": "string"
+          }
+        },
+        "required": [
+          "type",
+          "params"
+        ],
+        "type": "object"
+      },
+      {
         "description": "Unknown operation kind (opaque, preserved; rebuild fails loudly).",
         "properties": {
           "type": {
@@ -1288,7 +1304,8 @@ export const ENGINE_DEFS = {
                 "PatternCircular",
                 "PatternLinear",
                 "Pipe",
-                "Script"
+                "Script",
+                "UnionAll"
               ]
             },
             "type": "string"
@@ -4145,5 +4162,56 @@ export const ENGINE_DEFS = {
       }
     },
     "type": "object"
+  },
+  "UnionAllParams": {
+    "description": "Parameters of a many-body union (`specs/b4_balanced_union.md` §2).",
+    "properties": {
+      "targets": {
+        "$ref": "#/$defs/UnionTargets",
+        "default": {
+          "type": "All"
+        },
+        "description": "Which bodies to fold. Default: every live body before this feature."
+      }
+    },
+    "type": "object"
+  },
+  "UnionTargets": {
+    "description": "The body set of a [`UnionAllParams`].",
+    "oneOf": [
+      {
+        "description": "Every live solid output of every active, unsuppressed, not-yet-consumed\nfeature before this one, in tree order. Consumes all of them.",
+        "properties": {
+          "type": {
+            "const": "All",
+            "type": "string"
+          }
+        },
+        "required": [
+          "type"
+        ],
+        "type": "object"
+      },
+      {
+        "description": "An explicit list of `TopoKind::Solid` feature-output references. A body\nwhose feature was already consumed is refused (`Strict`) or dropped\nwith a warning (`BestEffort`).",
+        "properties": {
+          "bodies": {
+            "default": [],
+            "items": {
+              "$ref": "#/$defs/GeomRef"
+            },
+            "type": "array"
+          },
+          "type": {
+            "const": "Selected",
+            "type": "string"
+          }
+        },
+        "required": [
+          "type"
+        ],
+        "type": "object"
+      }
+    ]
   }
 };

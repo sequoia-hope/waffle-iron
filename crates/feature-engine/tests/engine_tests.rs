@@ -95,6 +95,17 @@ fn make_extrude_op(sketch_id: Uuid) -> Operation {
     }
 }
 
+/// A second body that does NOT auto-merge into the previous one, so a later
+/// `BooleanCombine` finds both operands live (a consumed operand is a loud
+/// error since `specs/b4_balanced_union.md` §2.4).
+fn make_extrude_op_new_body(sketch_id: Uuid) -> Operation {
+    let Operation::Extrude { mut params } = make_extrude_op(sketch_id) else {
+        unreachable!()
+    };
+    params.combine = Some(CombineMode::NewBody);
+    Operation::Extrude { params }
+}
+
 // ── Feature Tree Tests ─────────────────────────────────────────────────────
 
 #[test]
@@ -995,7 +1006,11 @@ fn full_pipeline_sketch_extrude_boolean_rebuild() {
         .add_feature("Sketch 2".to_string(), make_sketch_op(), &mut kernel)
         .unwrap();
     let e2 = engine
-        .add_feature("Extrude 2".to_string(), make_extrude_op(s2), &mut kernel)
+        .add_feature(
+            "Extrude 2".to_string(),
+            make_extrude_op_new_body(s2),
+            &mut kernel,
+        )
         .unwrap();
     let bool_id = engine
         .add_feature(
@@ -1034,7 +1049,11 @@ fn full_pipeline_edit_early_feature_rebuilds_downstream() {
         .add_feature("Sketch 2".to_string(), make_sketch_op(), &mut kernel)
         .unwrap();
     let e2 = engine
-        .add_feature("Extrude 2".to_string(), make_extrude_op(s2), &mut kernel)
+        .add_feature(
+            "Extrude 2".to_string(),
+            make_extrude_op_new_body(s2),
+            &mut kernel,
+        )
         .unwrap();
     let bool_id = engine
         .add_feature(
@@ -2094,7 +2113,11 @@ fn boolean_subtract_at_engine_level() {
         .add_feature("Sketch 2".to_string(), make_sketch_op(), &mut kernel)
         .unwrap();
     let e2 = engine
-        .add_feature("Extrude 2".to_string(), make_extrude_op(s2), &mut kernel)
+        .add_feature(
+            "Extrude 2".to_string(),
+            make_extrude_op_new_body(s2),
+            &mut kernel,
+        )
         .unwrap();
 
     let bool_id = engine
@@ -2134,7 +2157,11 @@ fn boolean_intersect_at_engine_level() {
         .add_feature("Sketch 2".to_string(), make_sketch_op(), &mut kernel)
         .unwrap();
     let e2 = engine
-        .add_feature("Extrude 2".to_string(), make_extrude_op(s2), &mut kernel)
+        .add_feature(
+            "Extrude 2".to_string(),
+            make_extrude_op_new_body(s2),
+            &mut kernel,
+        )
         .unwrap();
 
     let bool_id = engine
@@ -3736,7 +3763,11 @@ fn boolean_with_wrong_output_key_errors() {
         .add_feature("Sketch 2".to_string(), make_sketch_op(), &mut kernel)
         .unwrap();
     let e2 = engine
-        .add_feature("Extrude 2".to_string(), make_extrude_op(s2), &mut kernel)
+        .add_feature(
+            "Extrude 2".to_string(),
+            make_extrude_op_new_body(s2),
+            &mut kernel,
+        )
         .unwrap();
 
     // Use Body { index: 5 } which doesn't exist in extrude results
@@ -4475,7 +4506,11 @@ fn engine_with_union() -> (Engine, Uuid, Uuid, Uuid) {
         .add_feature("Sketch 2".into(), make_sketch_op(), &mut kernel)
         .unwrap();
     let e2 = engine
-        .add_feature("Extrude 2".into(), make_extrude_op(s2), &mut kernel)
+        .add_feature(
+            "Extrude 2".into(),
+            make_extrude_op_new_body(s2),
+            &mut kernel,
+        )
         .unwrap();
     let bool_id = engine
         .add_feature(

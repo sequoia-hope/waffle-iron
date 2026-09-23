@@ -558,6 +558,12 @@ pub enum EngineToUi {
         /// Non-fatal warnings from rebuild (e.g., auto-union fallback).
         #[serde(default, skip_serializing_if = "Vec::is_empty")]
         warnings: Vec<String>,
+        /// Features whose bodies a later feature consumed (a merge, cut or
+        /// union took custody): not live, not rendered, not a valid boolean
+        /// operand (`specs/b4_balanced_union.md` §2.4). Sorted for a stable
+        /// wire form.
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        consumed_features: Vec<Uuid>,
         /// Decimated preview mesh for thumbnail rendering (optional).
         #[serde(default, skip_serializing_if = "Option::is_none")]
         preview_mesh: Option<feature_engine::preview_mesh::PreviewMesh>,

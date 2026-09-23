@@ -286,12 +286,28 @@ export function process_message(json_input) {
     }
 }
 
+/**
+ * Install the rebuild-progress sink (`specs/b4_balanced_union.md` §2.3):
+ * `sink` receives one JSON string per frame, shaped as the bare
+ * `{"type":"Progress", feature_id, feature_name, done, remaining, label}`
+ * message the worker posts unsolicited. Call after `init()` (and again
+ * after a crash restart — the sink lives in the module instance).
+ * @param {Function} sink
+ */
+export function set_progress_sink(sink) {
+    wasm.set_progress_sink(sink);
+}
+
 function __wbg_get_imports() {
     const import0 = {
         __proto__: null,
         __wbg___wbindgen_throw_6ddd609b62940d55: function(arg0, arg1) {
             throw new Error(getStringFromWasm0(arg0, arg1));
         },
+        __wbg_call_2d781c1f4d5c0ef8: function() { return handleError(function (arg0, arg1, arg2) {
+            const ret = arg0.call(arg1, arg2);
+            return ret;
+        }, arguments); },
         __wbg_error_8d9a8e04cd1d3588: function(arg0) {
             console.error(arg0);
         },

@@ -1434,6 +1434,29 @@ impl KernelIntrospect for KernelV2Adapter {
         })
     }
 
+    /// `specs/b4_balanced_union.md` §2.2: the conservative box
+    /// (`introspect::conservative_aabb`). An imported (mesh-backed) body IS
+    /// its mesh, so its vertex hull is exact.
+    fn solid_aabb(&self, solid: &KernelSolidHandle) -> Option<([f64; 3], [f64; 3])> {
+        if let Some(slot) = self.imported_slot_of(solid) {
+            let mut lo = [f64::INFINITY; 3];
+            let mut hi = [f64::NEG_INFINITY; 3];
+            for face in &self.imported[slot].faces {
+                for p in face.positions.chunks_exact(3) {
+                    for k in 0..3 {
+                        lo[k] = lo[k].min(p[k]);
+                        hi[k] = hi[k].max(p[k]);
+                    }
+                }
+            }
+            return lo[0].is_finite().then_some((lo, hi));
+        }
+        let sid = self.solid_of(solid).ok()?;
+        crate::introspect::conservative_aabb(&self.arena, sid)
+            .ok()
+            .flatten()
+    }
+
     /// ICR-1: the exact-rational B-Rep surface area
     /// (`introspect::surface_area`); same contract as `solid_volume`.
     fn solid_surface_area(&self, solid: &KernelSolidHandle) -> Result<f64, KernelError> {

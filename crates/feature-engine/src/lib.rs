@@ -7,6 +7,7 @@ pub mod opaque;
 pub mod params;
 pub mod pattern;
 pub mod preview_mesh;
+pub mod progress;
 pub mod rebuild;
 pub mod resolve;
 pub mod script;
@@ -15,6 +16,7 @@ pub mod sources;
 pub mod tree;
 pub mod types;
 pub mod undo;
+pub mod union_all;
 
 use std::collections::HashMap;
 use uuid::Uuid;
@@ -46,6 +48,10 @@ pub struct Engine {
     pub feature_errors: Vec<FeatureError>,
     /// Feature IDs consumed by a later boolean (should not be rendered).
     pub consumed_features: std::collections::HashSet<Uuid>,
+    /// Which feature consumed which (consumer → consumed, in target order),
+    /// so name inheritance can find a consumer's FIRST target after the
+    /// rebuild (`consumed_features` alone has lost that).
+    pub consumed_by: HashMap<Uuid, Vec<Uuid>>,
     /// The last rebuild's feature errors (not expression or context errors): a
     /// failed feature the next rebuild does not re-execute reports these again.
     rebuild_errors: Vec<FeatureError>,
@@ -84,6 +90,7 @@ impl Engine {
             errors: Vec::new(),
             feature_errors: Vec::new(),
             consumed_features: std::collections::HashSet::new(),
+            consumed_by: HashMap::new(),
             rebuild_errors: Vec::new(),
             pid_to_feature: HashMap::new(),
             inherited_body_names: HashMap::new(),
@@ -384,6 +391,14 @@ impl Engine {
                     None
                 }
             }),
+            // A union's Main is the first body's lump: it inherits that
+            // body's name (`specs/b4_balanced_union.md` §2.2).
+            Operation::UnionAll { params } => union_all::name_source(
+                params,
+                self.consumed_by
+                    .get(&feature.id)
+                    .and_then(|v| v.first().copied()),
+            ),
             _ => None,
         }
     }
@@ -770,6 +785,7 @@ impl Engine {
         self.errors.extend(context_outcome.errors);
         self.errors.extend(state.errors);
         self.consumed_features = state.consumed_features;
+        self.consumed_by = state.consumed_by;
         // KV13 F6: accumulate the pid→feature map. A full rebuild (from 0, all
         // changed) re-executes and re-captures every feature, so clear first;
         // any other rebuild carries features forward WITHOUT re-executing
