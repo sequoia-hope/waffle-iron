@@ -19,30 +19,28 @@ fn repo_root() -> PathBuf {
         .expect("repo root")
 }
 
-fn waffle_files_in(dir: &Path) -> Vec<PathBuf> {
-    let Ok(entries) = std::fs::read_dir(dir) else {
-        return Vec::new();
-    };
-    let mut files: Vec<PathBuf> = entries
-        .filter_map(|e| e.ok().map(|e| e.path()))
-        .filter(|p| p.extension().and_then(|e| e.to_str()) == Some("waffle"))
-        .collect();
-    files.sort();
-    files
-}
-
+/// Every TRACKED `.waffle` file, from `git ls-files` at the repo root, in
+/// git's (sorted) order. Tracked, not "present": the root is where the app
+/// saves a user's own documents (gitignored by `/*.waffle`), and a
+/// directory walk used to pick those up — a saved assembly document then
+/// failed this pin locally while CI stayed green.
 fn all_corpus_files() -> Vec<PathBuf> {
     let root = repo_root();
-    let mut files = Vec::new();
-    for dir in [
-        "app/tests/cases/assay",
-        "app/tests/gui/fixtures",
-        "crates/test-harness/tests/fixtures",
-        ".",
-    ] {
-        files.extend(waffle_files_in(&root.join(dir)));
-    }
-    files
+    let out = std::process::Command::new("git")
+        .args(["ls-files", "-z", "--", "*.waffle"])
+        .current_dir(&root)
+        .output()
+        .expect("git ls-files runs at the repo root");
+    assert!(
+        out.status.success(),
+        "git ls-files failed: {}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    out.stdout
+        .split(|&b| b == 0)
+        .filter(|rel| !rel.is_empty())
+        .map(|rel| root.join(String::from_utf8_lossy(rel).as_ref()))
+        .collect()
 }
 
 /// First path at which two JSON values differ, for readable failures.
