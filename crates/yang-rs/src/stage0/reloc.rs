@@ -1372,6 +1372,7 @@ pub(crate) fn fig11_split_cavity(
     mergeable_mark: &mut Vec<bool>,
     frame: &Frame,
     coords0: &[Point3],
+    host: &[Option<(ExactPoint2, ExactPoint2)>],
     sagitta: Option<f64>,
     own_chords: &[(ExactPoint2, ExactPoint2)],
     other_segs: &[(ExactPoint2, ExactPoint2)],
@@ -1395,6 +1396,7 @@ pub(crate) fn fig11_split_cavity(
             verts: &overlay.verts,
             coords0,
             minted: minted_mark,
+            host,
         };
         match carve_star_cavity(
             &overlay.tris,
@@ -1426,6 +1428,7 @@ pub(crate) fn fig11_split_cavity(
             minted_mark,
             frame,
             coords0,
+            host,
             own_chords,
             other_segs,
             other_is_b,
@@ -1667,11 +1670,14 @@ pub(crate) fn fig11_split_cavity(
 
     // Amendment 20: the exact position oracle over the EXTENDED vertex
     // tables (q_a / q_b are residents: exact UVs on C, coords = their lift).
+    // Amendment 22: q_a / q_b are past the host table's end — they resolve
+    // as residents before the host lookup is reached.
     let ex = ExactPos {
         exact: &overlay.exact_verts,
         verts: &overlay.verts,
         coords0,
         minted: minted_mark,
+        host,
     };
     let build = || -> Result<Vec<([u32; 3], RegionClass)>, String> {
         let mut ears: Vec<([u32; 3], RegionClass)> = Vec::with_capacity(cavity.len() + 2);
@@ -1935,6 +1941,7 @@ pub(crate) fn fig11_slide_splice(
     minted_mark: &[bool],
     frame: &Frame,
     coords0: &[Point3],
+    host: &[Option<(ExactPoint2, ExactPoint2)>],
     own_chords: &[(ExactPoint2, ExactPoint2)],
     other_segs: &[(ExactPoint2, ExactPoint2)],
     other_is_b: bool,
@@ -1953,36 +1960,38 @@ pub(crate) fn fig11_slide_splice(
     let cavity = &carved.cavity;
     let n = link.len();
 
-    // Rational frame positions — the SAME projection every exact ring test
-    // uses (`rat` is exact on finite f64s).
+    // Exact positions through the amendment-20/22 oracle: a resident's
+    // sweep rational, a moved mint's rounded projection — ON its host line
+    // when it has one (amendment 22, spec §20). Before amendment 22 this
+    // read `frame.project(coords)` rationals, which put an OBLIQUE flank's
+    // column lifts and slid mint each a femto off the exact line, so every
+    // collinearity certificate below failed on noise (`mint off the chord
+    // line`, measured F0072 op 11 verts 186/795/800; F0064's host lines
+    // were axis-aligned and rounded onto themselves).
+    let ex = ExactPos {
+        exact: &overlay.exact_verts,
+        verts: &overlay.verts,
+        coords0,
+        minted: minted_mark,
+        host,
+    };
     let rp = |i: u32| -> Option<(RBig, RBig)> {
-        let (x, y) = frame.project(coords[i as usize]);
-        Some((
-            crate::coplanar_overlay::rat(x).ok()?,
-            crate::coplanar_overlay::rat(y).ok()?,
-        ))
+        let q = ex.at(i, coords, frame)?;
+        Some((q.x, q.y))
     };
 
     // ── C on the link ring, side class, boundary + other-edge certs ──────
-    let Some(e_c) = (0..n).find(|&i| {
+    let Some(e_hint) = (0..n).find(|&i| {
         let (a, b, _) = link[i];
         (a, b) == chord || (b, a) == chord
     }) else {
         return reject("chord not on ring");
     };
-    let side_cls = link[e_c].2;
     let want_side = if other_is_b {
         RegionClass::BOnly
     } else {
         RegionClass::AOnly
     };
-    if side_cls != want_side {
-        return reject("class pair");
-    }
-    let (la, lb) = (link[e_c].0, link[e_c].1);
-    if edge_map.get(&edge_key(la, lb)).map(|e| e.len()) != Some(1) {
-        return reject("chord not boundary");
-    }
     let on_seg = |p: &ExactPoint2, s: &ExactPoint2, e: &ExactPoint2| {
         let dx = &e.x - &s.x;
         let dy = &e.y - &s.y;
@@ -1990,6 +1999,62 @@ pub(crate) fn fig11_slide_splice(
         let wy = &p.y - &s.y;
         &dx * &wy - &dy * &wx == RBig::ZERO
     };
+
+    // ── The host LINE: the hinted chord's line, through v's minted position ─
+    // The line parameter is measured from the hinted chord's tail `pa` along
+    // its direction — one origin for every station, tail and spoke test
+    // below (the ordering is all that matters).
+    let (ha, hb) = (link[e_hint].0, link[e_hint].1);
+    let (Some(pa), Some(pb), Some(pv)) = (rp(ha), rp(hb), rp(v)) else {
+        return reject("non-finite position");
+    };
+    let dx = &pb.0 - &pa.0;
+    let dy = &pb.1 - &pa.1;
+    let len2 = &dx * &dx + &dy * &dy;
+    if len2 == RBig::ZERO {
+        return reject("degenerate chord");
+    }
+    let cross_l = |p: &(RBig, RBig)| &dx * &(&p.1 - &pa.1) - &dy * &(&p.0 - &pa.0);
+    let param = |p: &(RBig, RBig)| (&(&p.0 - &pa.0) * &dx + &(&p.1 - &pa.1) * &dy) / &len2;
+    if cross_l(&pv) != RBig::ZERO {
+        return reject("mint off the chord line");
+    }
+    let t_v = param(&pv);
+
+    // ── C: the link edge ON that line whose interior holds v's mint ─────
+    // Amendment 22 inc-2: the ladder's hint is the FIRST ring crossing in
+    // scan order (F0072: (166,158), the second station pair), while the
+    // slide's C is the station pair the mint LANDED in ((148,137)); both
+    // lie on one host line, so C is re-selected on it — unique by the
+    // monotone station order the amendment-13 settle guarantees.
+    let mut e_c: Option<usize> = None;
+    for (j, &(a, b, cls)) in link.iter().enumerate() {
+        if cls != want_side {
+            continue;
+        }
+        let (Some(qa), Some(qb)) = (rp(a), rp(b)) else {
+            continue;
+        };
+        if cross_l(&qa) != RBig::ZERO || cross_l(&qb) != RBig::ZERO {
+            continue;
+        }
+        let (ta, tb) = (param(&qa), param(&qb));
+        let (lo, hi) = if ta < tb { (ta, tb) } else { (tb, ta) };
+        if t_v > lo && t_v < hi {
+            if e_c.is_some() {
+                return reject("mint interior to two collinear link edges");
+            }
+            e_c = Some(j);
+        }
+    }
+    let Some(e_c) = e_c else {
+        return reject("mint not interior to C");
+    };
+    let side_cls = link[e_c].2;
+    let (la, lb) = (link[e_c].0, link[e_c].1);
+    if edge_map.get(&edge_key(la, lb)).map(|e| e.len()) != Some(1) {
+        return reject("chord not boundary");
+    }
     let (ka, kb) = (
         &overlay.exact_verts[la as usize],
         &overlay.exact_verts[lb as usize],
@@ -2005,26 +2070,6 @@ pub(crate) fn fig11_slide_splice(
     // chord geometry too (pre-mint exact UV collinear with the same edge).
     if !on_seg(&overlay.exact_verts[v as usize], seg_s, seg_e) {
         return reject("pre position off the model line");
-    }
-
-    // ── v's minted position exactly ON C's line, strictly interior ───────
-    let (Some(pa), Some(pb), Some(pv)) = (rp(la), rp(lb), rp(v)) else {
-        return reject("non-finite position");
-    };
-    let dx = &pb.0 - &pa.0;
-    let dy = &pb.1 - &pa.1;
-    let len2 = &dx * &dx + &dy * &dy;
-    if len2 == RBig::ZERO {
-        return reject("degenerate chord");
-    }
-    let cross_l = |p: &(RBig, RBig)| &dx * &(&p.1 - &pa.1) - &dy * &(&p.0 - &pa.0);
-    let param = |p: &(RBig, RBig)| (&(&p.0 - &pa.0) * &dx + &(&p.1 - &pa.1) * &dy) / &len2;
-    if cross_l(&pv) != RBig::ZERO {
-        return reject("mint off the chord line");
-    }
-    let t_v = param(&pv);
-    if !(t_v > RBig::ZERO && t_v < RBig::ONE) {
-        return reject("mint not interior to C");
     }
 
     // ── Rim-chain angular-order guard (the amendment-13 settle predicate,
@@ -2204,13 +2249,8 @@ pub(crate) fn fig11_slide_splice(
     }
 
     let mut new_tris: Vec<([u32; 3], RegionClass)> = Vec::with_capacity(cavity.len() + tail.len());
-    // Amendment 20: the exact position oracle (the splice inserts no vertex).
-    let ex = ExactPos {
-        exact: &overlay.exact_verts,
-        verts: &overlay.verts,
-        coords0,
-        minted: minted_mark,
-    };
+    // Amendment 20: the exact position oracle (the splice inserts no vertex)
+    // is `ex` above.
     match earclip_cavity_polygon(
         &side_poly,
         cavity,
@@ -3835,6 +3875,7 @@ mod split_tests {
             &mut mergeable,
             &frame,
             &[],
+            &[],
             Some(0.1),
             &own_chords(),
             &other_segs(),
@@ -3863,6 +3904,7 @@ mod split_tests {
             &mut minted,
             &mut mergeable,
             &frame,
+            &[],
             &[],
             Some(0.1),
             &own_chords(),
@@ -3928,6 +3970,7 @@ mod split_tests {
             &mut mergeable,
             &frame_z0(),
             &[],
+            &[],
             Some(0.01), // overshoot 0.05 exceeds the sagitta premise
             &own_chords(),
             &other_segs(),
@@ -3958,6 +4001,7 @@ mod split_tests {
             &mut mergeable,
             &frame_z0(),
             &[],
+            &[],
             Some(0.1),
             &own_chords(),
             &[],
@@ -3977,6 +4021,7 @@ mod split_tests {
             &mut minted,
             &mut mergeable,
             &frame_z0(),
+            &[],
             &[],
             Some(0.1),
             &[],
@@ -4163,6 +4208,7 @@ mod slide_tests {
             &minted,
             &frame,
             &[],
+            &[],
             &own_chords_v(),
             &other_segs(),
             false, // chord on input A's edge ⇒ side class AOnly
@@ -4228,6 +4274,7 @@ mod slide_tests {
             &minted,
             &frame_z0(),
             &[],
+            &[],
             &own_chords_v(),
             &other_segs(),
             false,
@@ -4259,6 +4306,7 @@ mod slide_tests {
             &coords,
             &minted,
             &frame_z0(),
+            &[],
             &[],
             &own_chords_v(),
             &other_segs(),
@@ -4304,6 +4352,7 @@ mod slide_tests {
             &minted,
             &frame_z0(),
             &[],
+            &[],
             &own_chords_v(),
             &other_segs(),
             false,
@@ -4348,6 +4397,7 @@ mod slide_tests {
             &coords,
             &minted,
             &frame_z0(),
+            &[],
             &[],
             &own_chords_v(),
             &other_segs(),
@@ -4431,6 +4481,7 @@ mod slide_tests {
             &coords,
             &minted,
             &frame,
+            &[],
             &[],
             &own_chords_mirror(),
             &segs,
@@ -4749,6 +4800,7 @@ mod exact_pos_tests {
             verts: &f.verts,
             coords0: &coords0,
             minted: &f.minted,
+            host: &[],
         };
         // The moved mint answers with its rounded projection, not its stale
         // sweep coordinate.
@@ -4776,6 +4828,7 @@ mod exact_pos_tests {
             verts: &f.verts,
             coords0: &coords0,
             minted: &minted,
+            host: &[],
         };
         assert!(ex2.is_resident(2, &f.coords, &frame));
         // A Fig-11 merge target (position changed, not a mint) is moved.
@@ -4793,6 +4846,7 @@ mod exact_pos_tests {
             verts: &f.verts,
             coords0: &coords0b,
             minted: &f.minted,
+            host: &[],
         };
         assert!(ex3.is_resident(1, &coords, &frame));
         // NONE: nothing is resident.
@@ -4814,6 +4868,7 @@ mod exact_pos_tests {
             verts: &f.verts,
             coords0: &coords0,
             minted: &f.minted,
+            host: &[],
         };
         let chain: Vec<u32> = f.chain.iter().copied().collect();
         let mut historical_accepts = 0usize;
@@ -4870,6 +4925,7 @@ mod exact_pos_tests {
             verts: &f.verts,
             coords0: &coords0,
             minted: &f.minted,
+            host: &[],
         };
         let edge_map: BTreeMap<[u32; 2], Vec<usize>> = BTreeMap::new();
         let cavity: BTreeSet<usize> = BTreeSet::new();
@@ -4920,5 +4976,310 @@ mod exact_pos_tests {
             .map(|(t, _)| area(t))
             .fold(RBig::ZERO, |acc, x| acc + x);
         assert_eq!(total, area(&f.poly));
+    }
+}
+
+#[cfg(test)]
+mod host_line_tests {
+    //! Amendment 22 (spec `m8_stage0_multiclass_cavity_arm` §20) unit
+    //! oracles: the F0072 op-11 anatomy in miniature. B's gear-flank edge
+    //! (363 → 364) carries a collinear chain of sweep-column lifts
+    //! (187, 174, 166, 158, 148, 137 — exact points on the exact flank
+    //! line); the circle∩flank crossing mint 181 was minted at the chord
+    //! crossing between 187 and 174 and slid along the flank to the true
+    //! circle junction between 148 and 137. Its rounded f64 position is a
+    //! femto OFF the exact flank line, so exact arithmetic on that noise
+    //! blessed the station fans (181,174,166) … (148,137,181) as positively
+    //! oriented ears and read the region polygon
+    //! [137,147,157,165,173,181,174,166,158,148] as simple (measured:
+    //! `[reloc-earclip] region … cavity=8 tris`, then `i6-input-overuse`).
+    //! With the host line the oracle answers ON the line: every station fan
+    //! is a zero-area needle and the polygon's return edge 181 → 174 covers
+    //! 158 → 148 exactly (`NotSimple`).
+
+    use super::{
+        earclip_cavity_polygon, foot_on_line, gate_tri_valid_ex, EarclipErr, ExactPos, Frame,
+    };
+    use crate::coplanar_overlay::{cross_r, rat, ExactPoint2, RegionClass};
+    use cad_primitives::{Point2, Point3};
+    use dashu::rational::RBig;
+    use std::collections::{BTreeMap, BTreeSet};
+
+    /// The pair plane z = 2.1237107187601687 with an identity in-plane
+    /// basis: `project` is exact on f64 input, `lift` its exact inverse.
+    const Z0: f64 = 2.1237107187601687;
+    fn frame() -> Frame {
+        Frame {
+            n: [0.0, 0.0, 1.0],
+            d: -Z0,
+            o: [0.0, 0.0, Z0],
+            e1: [1.0, 0.0, 0.0],
+            e2: [0.0, 1.0, 0.0],
+        }
+    }
+
+    /// The exact flank line: through B's corner 363 and the lift 251
+    /// (`overlay_008_pair1741_1.txt`).
+    const S: (f64, f64) = (-0.15889577912930067, 0.08396757299526618);
+    const E: (f64, f64) = (-0.12895940354005553, 0.06814786515734969);
+    fn host() -> (ExactPoint2, ExactPoint2) {
+        (
+            ExactPoint2::from_f64(S.0, S.1).unwrap(),
+            ExactPoint2::from_f64(E.0, E.1).unwrap(),
+        )
+    }
+    /// An exact point ON the flank line at the column `u` (the sweep's
+    /// construction), its f64 rounding and its lift.
+    fn on_line(u_f: f64) -> (ExactPoint2, Point2, Point3) {
+        let (s, e) = host();
+        let u = rat(u_f).unwrap();
+        let v = &s.y + &(&(&u - &s.x) * &(&e.y - &s.y)) / &(&e.x - &s.x);
+        let v_f = v.to_f64().value();
+        (
+            ExactPoint2 { x: u, y: v },
+            Point2::new(u_f, v_f),
+            frame().lift(u_f, v_f),
+        )
+    }
+
+    struct Fx {
+        exact: Vec<ExactPoint2>,
+        verts: Vec<Point2>,
+        coords: Vec<Point3>,
+        minted: Vec<bool>,
+        host: Vec<Option<(ExactPoint2, ExactPoint2)>>,
+        /// ids: [137, 147, 157, 165, 173, 181, 174, 166, 158, 148]
+        ids: Vec<u32>,
+    }
+
+    fn fixture() -> Fx {
+        let mut fx = Fx {
+            exact: Vec::new(),
+            verts: Vec::new(),
+            coords: Vec::new(),
+            minted: Vec::new(),
+            host: Vec::new(),
+            ids: Vec::new(),
+        };
+        let fr = frame();
+        // Column lifts on the flank (residents).
+        let mut lift = |u: f64| -> u32 {
+            let (e, q, p) = on_line(u);
+            fx.exact.push(e);
+            fx.verts.push(q);
+            fx.coords.push(p);
+            fx.minted.push(false);
+            fx.host.push(None);
+            (fx.coords.len() - 1) as u32
+        };
+        let v137 = lift(-0.14347552727522986);
+        let v174 = lift(-0.1397670805966398);
+        let v166 = lift(-0.14133843084694564);
+        let v158 = lift(-0.1419913406726752);
+        let v148 = lift(-0.1426106295088273);
+        // Interior rim mints (moved, no host): sweep uv → resolved xyz.
+        let mut mint = |uv: (f64, f64), xyz: (f64, f64), host: bool| -> u32 {
+            fx.exact.push(ExactPoint2::from_f64(uv.0, uv.1).unwrap());
+            fx.verts.push(Point2::new(uv.0, uv.1));
+            fx.coords.push(fr.lift(xyz.0, xyz.1));
+            fx.minted.push(true);
+            fx.host.push(if host { Some(self::host()) } else { None });
+            (fx.coords.len() - 1) as u32
+        };
+        let v147 = mint(
+            (-0.1426106295088273, 0.06633626181491473),
+            (-0.1467755873574709, 0.06827361904590994),
+            false,
+        );
+        let v157 = mint(
+            (-0.1419913406726752, 0.0673606906766765),
+            (-0.14625439431292822, 0.06938308328342807),
+            false,
+        );
+        let v165 = mint(
+            (-0.14133843084694564, 0.0684407354482908),
+            (-0.14569493884185372, 0.07055030047863095),
+            false,
+        );
+        let v173 = mint(
+            (-0.1397670805966398, 0.0710400662522365),
+            (-0.14430694647391853, 0.07334756506613031),
+            false,
+        );
+        // 181: the crossing mint — sweep position ON the flank between 187
+        // and 174, resolved to the circle junction between 148 and 137.
+        let (e181, _, _) = on_line(-0.13847550420553584);
+        fx.exact.push(e181.clone());
+        fx.verts.push(Point2::new(
+            e181.x.to_f64().value(),
+            e181.y.to_f64().value(),
+        ));
+        fx.coords
+            .push(fr.lift(-0.14312268940671993, 0.07563237321904018));
+        fx.minted.push(true);
+        fx.host.push(Some(host()));
+        let v181 = (fx.coords.len() - 1) as u32;
+        fx.ids = vec![v137, v147, v157, v165, v173, v181, v174, v166, v158, v148];
+        fx
+    }
+
+    fn oracle<'a>(fx: &'a Fx, coords0: &'a [Point3], with_host: bool) -> ExactPos<'a> {
+        ExactPos {
+            exact: &fx.exact,
+            verts: &fx.verts,
+            coords0,
+            minted: &fx.minted,
+            host: if with_host { &fx.host } else { &[] },
+        }
+    }
+
+    #[test]
+    fn foot_on_line_is_exactly_on_the_line() {
+        let (s, e) = host();
+        let q = ExactPoint2::from_f64(-0.14312268940671993, 0.07563237321904018).unwrap();
+        assert_ne!(
+            cross_r(&s, &e, &q),
+            RBig::ZERO,
+            "premise: rounded position off the line"
+        );
+        let f = foot_on_line(&s, &e, &q);
+        assert_eq!(cross_r(&s, &e, &f), RBig::ZERO);
+        // A point already on the line is a fixed point.
+        let (on, _, _) = on_line(-0.14);
+        assert_eq!(foot_on_line(&s, &e, &on), on);
+        // Degenerate line: unchanged.
+        assert_eq!(foot_on_line(&s, &s, &q), q);
+    }
+
+    #[test]
+    fn slid_mint_answers_on_its_host_line() {
+        let fx = fixture();
+        let coords0 = fx.coords.clone();
+        let fr = frame();
+        let v181 = fx.ids[5];
+        let (s, e) = host();
+        // Historical predicate (no host): the rounded projection, a femto
+        // off the flank — exact arithmetic on noise.
+        let old = oracle(&fx, &coords0, false);
+        assert!(!old.is_resident(v181, &fx.coords, &fr));
+        let q_old = old.at(v181, &fx.coords, &fr).unwrap();
+        assert_ne!(cross_r(&s, &e, &q_old), RBig::ZERO);
+        // Amendment 22: exactly on the line, at the rounded parameter.
+        let new = oracle(&fx, &coords0, true);
+        let q_new = new.at(v181, &fx.coords, &fr).unwrap();
+        assert_eq!(cross_r(&s, &e, &q_new), RBig::ZERO);
+        // Residents and host-less moved mints are unchanged by the table.
+        for &i in &fx.ids {
+            if i == v181 {
+                continue;
+            }
+            assert_eq!(
+                old.at(i, &fx.coords, &fr),
+                new.at(i, &fx.coords, &fr),
+                "vert {i}"
+            );
+        }
+    }
+
+    #[test]
+    fn station_fans_over_a_slid_mint_are_needles_only_the_host_oracle_rejects() {
+        let fx = fixture();
+        let coords0 = fx.coords.clone();
+        let fr = frame();
+        let [v137, _, _, _, _, v181, v174, v166, v158, v148] = fx.ids[..] else {
+            unreachable!()
+        };
+        let old = oracle(&fx, &coords0, false);
+        let new = oracle(&fx, &coords0, true);
+        let fans = [
+            [v181, v174, v166],
+            [v181, v166, v158],
+            [v181, v158, v148],
+            [v148, v137, v181],
+        ];
+        for t in fans {
+            let rev = [t[0], t[2], t[1]];
+            assert!(
+                gate_tri_valid_ex(&t, &fx.coords, &fr, &old)
+                    || gate_tri_valid_ex(&rev, &fx.coords, &fr, &old),
+                "premise: the historical oracle blesses one winding of {t:?}"
+            );
+            assert!(
+                !gate_tri_valid_ex(&t, &fx.coords, &fr, &new)
+                    && !gate_tri_valid_ex(&rev, &fx.coords, &fr, &new),
+                "host oracle blessed the needle {t:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn region_polygon_with_a_slid_mint_is_not_simple_under_the_host_oracle() {
+        let fx = fixture();
+        let coords0 = fx.coords.clone();
+        let fr = frame();
+        // The measured BOnly sub-region polygon of the op-11 joint relocation
+        // (`[reloc-poly] region [157,164,165,172,173] poly=[137,147,157,165,
+        // 173,181,174,166,158,148]`), in the frame's CCW sense.
+        let mut poly = fx.ids.clone();
+        let two_a = |ex: &ExactPos| {
+            let mut s = RBig::ZERO;
+            for k in 0..poly.len() {
+                let a = ex.at(poly[k], &fx.coords, &fr).unwrap();
+                let b = ex.at(poly[(k + 1) % poly.len()], &fx.coords, &fr).unwrap();
+                s += &a.x * &b.y - &b.x * &a.y;
+            }
+            s
+        };
+        let old = oracle(&fx, &coords0, false);
+        if two_a(&old) < RBig::ZERO {
+            poly.reverse();
+        }
+        let edge_map: BTreeMap<[u32; 2], Vec<usize>> = BTreeMap::new();
+        let cavity: BTreeSet<usize> = BTreeSet::new();
+        // Historical: the ring passes as simple and ear-clips (the measured
+        // production outcome — the needles among its ears).
+        let ears = earclip_cavity_polygon(
+            &poly,
+            &cavity,
+            RegionClass::BOnly,
+            &fx.coords,
+            &fr,
+            &old,
+            &edge_map,
+            false,
+            "old",
+        );
+        assert!(
+            matches!(ears, Ok(ref e) if e.len() == poly.len() - 2),
+            "premise: the historical oracle ear-clips the folded polygon: {}",
+            match &ears {
+                Ok(e) => format!("{} ears", e.len()),
+                Err(EarclipErr::NotSimple { .. }) => "NotSimple".to_string(),
+                Err(EarclipErr::Other(w)) => (*w).to_string(),
+            }
+        );
+        // Amendment 22: the return edge 181 → 174 runs back over the
+        // stations exactly — NotSimple, the joint-relocation reject.
+        let new = oracle(&fx, &coords0, true);
+        let r = earclip_cavity_polygon(
+            &poly,
+            &cavity,
+            RegionClass::BOnly,
+            &fx.coords,
+            &fr,
+            &new,
+            &edge_map,
+            false,
+            "new",
+        );
+        assert!(
+            matches!(r, Err(EarclipErr::NotSimple { .. })),
+            "host oracle must refuse the self-overlapping ring, got {}",
+            match &r {
+                Ok(e) => format!("{} ears", e.len()),
+                Err(EarclipErr::NotSimple { .. }) => "NotSimple".to_string(),
+                Err(EarclipErr::Other(w)) => (*w).to_string(),
+            }
+        );
     }
 }

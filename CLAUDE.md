@@ -54,8 +54,8 @@ They are ROADMAP ITEMS, not bugs:
 
 - **Coplanar boolean inputs** the §4.5.5 Stage-0 overlay cannot resolve —
   the typed `coplanar input face pair` wall stays LOUD (deviation N17), but
-  as of 2026-09-22 **no corpus case hits it** (F0064 converted, F0072
-  advanced to a typed Stage-5/6 ERROR); the UNSUPPORTED bucket is empty
+  as of 2026-09-22 **no corpus case hits it** (F0064 and F0072 both
+  converted); the UNSUPPORTED bucket is empty
 - **Holed revolve profiles** and **arc/spline profiles without a chord
   polygon** — typed `NotSupported` at profile staging (no corpus case)
 - **Fillet / chamfer / shell** — deferred indefinitely (see below)
@@ -94,13 +94,17 @@ Do NOT skip to lower-priority items because they are easier.
    plan of record is `docs/yang_functional_roadmap.md`** — read it first; it
    defines the `LabeledArrangement` interface and milestones M0–M8 (M0, M1,
    M2, M6, M7 and the Phase-6 migration are COMPLETE; the kernel is live in
-   the app). The remaining capability gaps, in priority order, are the
-   ERROR-tail families of `docs/yang_tail_triage.md` (Stage-4 relocation
-   walls — `LocalRefinementRequired` / `OffCurveBeyondChordBand` —,
+   the app). As of 2026-09-22 (night) the **actionable ERROR tail of
+   `docs/yang_tail_triage.md` is EMPTY** — the seven remaining ERROR rows
+   (C0046, C0107, C0108, C0109, C0111, C0113, C0118) are loud-by-design
+   walls, each its own design call; the historical families (Stage-4
+   relocation walls `LocalRefinementRequired` / `OffCurveBeyondChordBand`,
    Stage-5/6 non-2-manifold reassembly, Stage-3 `AmbiguousCurve`, the
-   thin-band chord-density CDT class); M8 coplanar Stage 0 has no corpus
-   customer left (2026-09-22) — its residue is whatever the next coplanar
-   document surfaces, loud. The correctness oracle is **reference parity against the Cherchi
+   thin-band chord-density CDT class, M8 coplanar Stage 0) have no corpus
+   customer left — their residue is whatever the next document surfaces,
+   loud (anchor it with the probes before assuming a family: a
+   "reassembly" STOP was a non-manifold Stage-0 INPUT, F0072). The
+   correctness oracle is **reference parity against the Cherchi
    C++ sidecar** (roadmap §6) plus the categorized kernel-v2 assay. Run the
    assay in **`--release`** — it is reliable even in a sandbox or under other
    compute load (per-case timeouts are CPU-time-budgeted, so verdicts are
@@ -108,9 +112,10 @@ Do NOT skip to lower-priority items because they are easier.
    artifact). Full recipe and env knobs (`ASSAY_JOBS`, `ASSAY_CASE_TIMEOUT_SECS`,
    `ASSAY_CASE=<id> single_case`): `docs/TESTING.md` §"Running the categorized
    assay". Quick form:
-   `ASSAY_JOBS=8 ASSAY_CASE_TIMEOUT_SECS=360 cargo test -p test-harness --test assay_kv2 --release full_corpus_categorized -- --ignored --nocapture`.
-   (Budget is ≥360s: the heaviest true-completing cases are the 20-op
-   chained-boolean stacks — F0085 ≈ 302s honest CORRECT since the I5-2
+   `ASSAY_JOBS=8 ASSAY_CASE_TIMEOUT_SECS=600 cargo test -p test-harness --test assay_kv2 --release full_corpus_categorized -- --ignored --nocapture`.
+   (Budget is ≥600s: the heaviest true-completing cases are the 20-op
+   chained-boolean stacks — F0072 ≈ 517 s at 8 jobs since its
+   2026-09-22 conversion, F0085 ≈ 302s honest CORRECT since the I5-2
    flip (2026-08-19; §4.3.4 seam insert + §4.4.2 seam chain-merge
    always-on; previously an ERROR at ≈242s) and F0065 ≈ 164s — which a
    300s budget clips to a spurious `TIMEOUT`; on a host loaded by other

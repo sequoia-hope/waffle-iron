@@ -190,7 +190,19 @@ pub(crate) enum RimResolve {
     /// with another input's edge — I2 pins it to that edge, so a sub-floor
     /// shared-mint group prefers it as the collapse target) and false for a
     /// pure x-event radial projection.
-    OnCircle { point: Point3, crossing: bool },
+    OnCircle {
+        point: Point3,
+        crossing: bool,
+        /// Amendment 22 (spec `m8_stage0_multiclass_cavity_arm` §20): for
+        /// the circle∩line branch, the index into `ctx.other_segs` of the
+        /// OTHER input's exact edge sub-segment the mint was minted on —
+        /// the line the mint SLID along. The ladder's exact position oracle
+        /// (`ExactPos`) keeps the moved mint exactly on this line (its
+        /// rounded lift is a femto off it, which turned a slid mint's
+        /// zero-area station fans into "positively oriented" ears — F0072
+        /// op 11). `None` for the radial branch.
+        host: Option<usize>,
+    },
     /// The exact discriminant of the circle∩line quadratic is negative for a
     /// claimed rim×other-edge crossing — a loud Stage-0 stop (spec §6).
     NoIntersection,
@@ -243,8 +255,8 @@ pub(crate) fn resolve_rim_chord_vertex(
     // that solid's edge-split propagation. An other-edge COLLINEAR with the
     // chord defines no transversal junction and is skipped (the vertex then
     // radially projects like a pure subdivision point).
-    let mut crossing: Option<(&ExactPoint2, RBig, RBig)> = None;
-    for (s2, e2) in &ctx.other_segs {
+    let mut crossing: Option<(usize, &ExactPoint2, RBig, RBig)> = None;
+    for (si, (s2, e2)) in ctx.other_segs.iter().enumerate() {
         let dx = &e2.x - &s2.x;
         let dy = &e2.y - &s2.y;
         let len2 = &dx * &dx + &dy * &dy;
@@ -263,11 +275,11 @@ pub(crate) fn resolve_rim_chord_vertex(
         if &cdx * &dy - &cdy * &dx == RBig::ZERO {
             continue;
         }
-        crossing = Some((s2, dx, dy));
+        crossing = Some((si, s2, dx, dy));
         break;
     }
 
-    if let Some((s2, dx, dy)) = crossing {
+    if let Some((si, s2, dx, dy)) = crossing {
         // ── Exact 2D circle∩line intersection (spec §3 row 4, I2) ───────
         // Line p(t) = s + t·d against circle |p − c|² = r²: the quadratic
         // a·t² + b·t + c₀ = 0 with exact rational coefficients; the
@@ -331,6 +343,7 @@ pub(crate) fn resolve_rim_chord_vertex(
         return RimResolve::OnCircle {
             point: frame.lift(chosen[0], chosen[1]),
             crossing: true,
+            host: Some(si),
         };
     }
 
@@ -351,6 +364,7 @@ pub(crate) fn resolve_rim_chord_vertex(
     RimResolve::OnCircle {
         point: Point3::new(c3[0] + w[0] * s, c3[1] + w[1] * s, c3[2] + w[2] * s),
         crossing: false,
+        host: None,
     }
 }
 

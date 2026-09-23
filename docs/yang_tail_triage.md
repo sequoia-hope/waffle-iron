@@ -43,6 +43,48 @@ after the reconciliation run (release, 8 jobs, 360 s; wall 577 s, F0085
 regression since 2026-08-01 is outstanding (checked over every commit of
 `results.json`).
 
+## 2026-09-22 (night) — F0072 CONVERTED: the exact position oracle answered for a SLID crossing mint with a femto-off-line rounded position, so the joint region relocation ear-clipped a self-overlapping ring into four zero-area station fans (the `i6-input-overuse` non-manifold INPUT); amendment 22 keeps a moved mint on its host line, the ladder tries every split candidate, and the slide splice selects C on the host line (spec `m8_stage0_multiclass_cavity_arm.md` §20); canonical **301C / 0W / 7E / 4EE / 0T + 0 UNSUPPORTED** — the ACTIONABLE ERROR TAIL IS EMPTY
+
+Anchored, not designed against: `NONMANIFOLD_SITE_PROBE` put the "Stage-5/6
+reassembly" wall at `i6-input-overuse` — the Stage-0 mesh of B was already
+non-manifold on one gear-flank line of the cap coplanar with op 10's circle;
+`YANG_STAGE0_DUMP_DIR` joined the overused edges to four BOnly fans from the
+circle∩flank crossing mint 181 over the column lifts it had slid past
+(174, 166, 158, 148 — the §13g pure-SLIDE form, four stale stations);
+`YANG_SPLIT_PROBE` named the emitter: the amendment-6 joint region
+relocation's BOnly polygon `[137,147,157,165,173,181,174,166,158,148]`,
+ear-clipped as SIMPLE because the amendment-20 oracle answers for a moved
+mint with its rounded projection, ~2e-17 off the oblique flank line (an
+axis-aligned line — F0064's — rounds onto itself). Two more layers measured
+after the oracle fix: the ladder tried only the first split candidate
+(q = 173, a 2-incident chord — 181 never reached the split arm), and the
+slide splice read rounded positions (`slide: mint off the chord line` for
+the mirrored mints 186/795/800) and demanded the scan-order hint chord
+contain the mint ((166,158) vs the landing span (148,137)).
+
+Fix (`stage0/frame.rs`, `rim_chords.rs`, `mod.rs`, `nary.rs`, `reloc.rs`):
+`ExactPos::host` — a circle∩line crossing mint records the other input's
+exact edge it was minted on; a moved vertex with a host answers the exact
+foot of its rounded projection on that line (`foot_on_line`, rationals;
+collapse-group members inherit the target's host). `split_pairs` tries one
+candidate per NonSimple mint of the folded triangle. `fig11_slide_splice`
+reads positions through the oracle and re-selects C as the unique
+side-class link edge on the hinted chord's line containing the mint. Four
+`host_line_tests` pins (RED/GREEN on the oracle, the needle fans, the
+polygon simplicity).
+
+- **F0072**: ERROR → **SUPPORTED_CORRECT** (740.1 s single, probes on, host
+  load ≈ 12; all in-line oracles) — sixteen `[fold-slide]` commits over op
+  11, `NONMANIFOLD_SITE_PROBE` silent.
+
+Corpus (release, 8 jobs, 900 s): **301C / 0W / 7E / 4EE / 0T + 0 UNSUPPORTED** — per-id diff
+of the committed `results.json`: exactly ONE category move (F0072 ERROR →
+SUPPORTED_CORRECT), ZERO detail moves. wall 907.0 s; F0085 359.7 s, F0065
+191.8 s, F0072 517.0 s (too heavy for the smoke gate — pin stays R0050; the
+≥ 600 s budget stands). Actionable ERROR tail after this: **EMPTY** — the
+seven ERROR rows are the loud-by-design set (C0046, C0107, C0108, C0109,
+C0111, C0113, C0118).
+
 ## 2026-09-22 (late night, later) — F0064 CONVERTED, F0072 UNSUPPORTED → ERROR: the propagated split table ordered a relocated rim-crossing mint by its PRE-relocation sweep parameter; it now orders by the RESOLVED position along the edge (spec `m8_stage0_multiclass_cavity_arm.md` §19, amendment 21); the N17 `coplanar input face pair` NotSupported boundary is EMPTY on the corpus; canonical **300C / 0W / 8E / 4EE / 0T + 0 UNSUPPORTED**
 
 Anchored, not designed against: `YANG_COPLANAR_PROBE` put both walls at
@@ -3204,7 +3246,7 @@ Two dead ends, closed by measurement (do not re-walk them):
 | Case | Loud error | Root cause | Confidence | Vehicle |
 |---|---|---|---|---|
 | ~~F0069~~ | NonPlanarFace FaceId(6227) | **FLIPPED CORRECT 2026-07-22 (4a5f13a2); reconciled 2026-09-04 from the committed results.json history** off-plane planar-face emission 3e-8 @ 2m | CONFIRMED (task #153) | #153 |
-| F0072 | NonPlanarFace FaceId(10329) | same class (also the known assay-timeout artifact case) | CONFIRMED (#153) | #153 |
+| ~~F0072~~ | ~~NonPlanarFace FaceId(10329)~~ **CONVERTED 2026-09-22 (night): amendment 22 (spec `m8_stage0_multiclass_cavity_arm.md` §20) — the slid crossing mint's exact position on its host line; see that section** | same class (also the known assay-timeout artifact case) | CONFIRMED (#153) | #153 |
 | ~~R0081~~ | ~~NonPlanarFace FaceId(666)~~ ~~non-2-manifold (reassembly)~~ **FLIPPED CORRECT 2026-09-12 (night, latest): Stage-0 cluster-band corner weld + provenance split identity (spec `m8_shared_boundary_identity.md` §2d); χ = −4 is the true genus 3, authored target corrected — see the section above** | ~~likely same class~~ **RE-DIAGNOSED 2026-07-28 (cone-generator arm): the #153 vehicle was wrong.** R0081's live failure was a Stage-4 LRR at v590, and `YANG_LRR_SITE site=lineseg_combo` edge (590,592) shows **Plane(A) × Cone(B, half-angle 0.954 rad ≈ 54.7°)** — the R0008 class, a THIRD case this bucket never identified (it was never probed; the row was `SUSPECTED` by proximity). With the arm wired, that layer is gone and R0081 STOPs at Stage-6 `reassembled output would be non-2-manifold` | CONFIRMED (2026-07-28 probe) | P3a-#146 (reassembly non-2-manifold) |
 
 ### Misc structural (5)

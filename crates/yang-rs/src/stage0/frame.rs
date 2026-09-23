@@ -655,6 +655,20 @@ pub(crate) fn gate_tri_valid(t: &[u32; 3], coords: &[Point3], frame: &Frame) -> 
 /// moved). Anything else is moved. A vertex outside every table (the
 /// synthetic unit fixtures, [`ExactPos::NONE`]) is moved — the historical
 /// predicate, bit for bit.
+///
+/// Amendment 22 (spec §20, the F0072 op-11 anchor): a MOVED vertex that
+/// carries a HOST line — a circle∩line crossing mint, resolved to the
+/// exact circle ∩ the other input's edge, i.e. a vertex that slid ALONG
+/// that edge — answers with the exact foot of its rounded projection on
+/// the host line (rationals; a point exactly on the line at the rounded
+/// parameter). The rounded projection alone sits a femto OFF the line the
+/// sweep put the vertex on, and exact arithmetic on that noise blessed a
+/// slid mint's fans over the collinear stations it passed as "positively
+/// oriented" ears (measured F0072 op 11: four zero-area BOnly triangles on
+/// B's flank edge, emitted, `i6-input-overuse`). A group member collapsed
+/// onto such a mint inherits its host (same position, same line). The
+/// domain in which the sweep decided collinearity is the host line — the
+/// oracle answers in it (P9).
 pub(crate) struct ExactPos<'a> {
     /// `ClassifiedOverlay::exact_verts` — the sweep's rational coordinates.
     pub(crate) exact: &'a [ExactPoint2],
@@ -664,6 +678,10 @@ pub(crate) struct ExactPos<'a> {
     pub(crate) coords0: &'a [Point3],
     /// N2-3a mint marks (`minted_mark`).
     pub(crate) minted: &'a [bool],
+    /// Amendment 22: per-vertex HOST line (the other input's exact edge
+    /// sub-segment a circle∩line mint was minted on), `None` elsewhere.
+    /// Empty ⇔ no vertex carries one (the historical predicate).
+    pub(crate) host: &'a [Option<(ExactPoint2, ExactPoint2)>],
 }
 
 impl ExactPos<'_> {
@@ -676,6 +694,7 @@ impl ExactPos<'_> {
         verts: &[],
         coords0: &[],
         minted: &[],
+        host: &[],
     };
 
     /// Does vertex `i` still sit at its sweep resolution (type docs)?
@@ -701,7 +720,12 @@ impl ExactPos<'_> {
             return Some(self.exact[i as usize].clone());
         }
         let (u, v) = frame.project(coords[i as usize]);
-        ExactPoint2::from_f64(u, v)
+        let q = ExactPoint2::from_f64(u, v)?;
+        // Amendment 22: a moved vertex with a host line answers ON the line.
+        match self.host.get(i as usize) {
+            Some(Some((s, e))) => Some(foot_on_line(s, e, &q)),
+            _ => Some(q),
+        }
     }
 
     /// Exact orientation sign of the vertex triple `(a, b, c)`.
@@ -719,6 +743,23 @@ impl ExactPos<'_> {
             self.at(c, coords, frame)?,
         );
         Some(sign_r(&cross_r(&pa, &pb, &pc)))
+    }
+}
+
+/// Amendment 22: the exact foot of `q` on the line through `s` and `e`
+/// (`s + t·(e−s)`, `t = ((q−s)·(e−s)) / |e−s|²` — all rational). A
+/// degenerate line (`s == e`) returns `q` unchanged (no line to be on).
+pub(crate) fn foot_on_line(s: &ExactPoint2, e: &ExactPoint2, q: &ExactPoint2) -> ExactPoint2 {
+    let dx = &e.x - &s.x;
+    let dy = &e.y - &s.y;
+    let len2 = &dx * &dx + &dy * &dy;
+    if len2 == RBig::ZERO {
+        return q.clone();
+    }
+    let t = (&(&q.x - &s.x) * &dx + &(&q.y - &s.y) * &dy) / &len2;
+    ExactPoint2 {
+        x: &s.x + &t * &dx,
+        y: &s.y + &t * &dy,
     }
 }
 

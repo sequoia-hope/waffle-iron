@@ -2074,3 +2074,133 @@ Corpus (release, 8 jobs, 600 s; wall 828.1 s, F0085 340.1 s): **300C /
 category moves (F0064, F0072 as above), ZERO detail moves on the other
 310 rows. Ledger: `docs/yang_tail_triage.md` "2026-09-22 (late night,
 later) — F0064 CONVERTED".
+
+## 20. AMENDMENT 22 — the exact position oracle keeps a slid crossing mint ON its host line; the ladder tries every split candidate; the slide splice selects C on the host line: F0072 op 11 (2026-09-22, night)
+
+### 20a. The anchor chain (measured end to end)
+
+F0072 op 11 (`pair=(1741,1)`: op 10's Ø0.324 circular cap under op 11's
+gear, band 1e-7, gap 0) cleared Stage 0 after amendment 21 and STOPped at
+`reassembled output would be non-2-manifold` (166.9 s). `NONMANIFOLD_SITE_PROBE`
+self-localized it to **`i6-input-overuse`** — the Stage-0 mesh of B handed
+to the arrangement already carried asymmetric directed edges, all on ONE
+gear-flank radial line of B's bottom cap (face 1, z = 2.1237107) under the
+lateral face 199: `(643,670) fwd=1 rev=2`, `(643,671) fwd=1 rev=0`,
+`(669,670) fwd=0 rev=1`, `(669,675) fwd=1 rev=0`. Not a Stage-5/6 defect:
+the boolean's input was non-manifold.
+
+`YANG_STAGE0_DUMP_DIR` (`overlay_008_pair1741_1.txt`) joined the mesh ids to
+the overlay: the cap's kept BOnly triangles included **four fans from the
+crossing mint 181 over the collinear column lifts of B's edge (363,364)** —
+`(181,174,166)`, `(181,166,158)`, `(181,158,148)`, `(148,137,181)` — with
+exact 2D areas of the printed coordinates ≈ 1e-20 (zero to the bit on the
+sweep's rationals) — and the Overlap triangle `(187,181,173)` whose edge
+187 → 181 spans those same stations in 3D. Vertex 181 is the rim-chord ∩
+flank crossing minted at 2D u = −0.138476 (between lifts 187 and 174) and
+resolved by the circle∩line branch to u = −0.143123 — the true circle
+junction, PAST four lifts (174, 166, 158, 148) to the span (148, 137): the
+§13g pure-SLIDE form with four stale stations.
+
+`YANG_SPLIT_PROBE` named the arm that emitted the needles: the amendment-6
+JOINT region relocation, seeds `[157,164,165,172,173]` (the tooth's
+on-circle rim mints), class BOnly sub-region polygon
+`[137,147,157,165,173,181,174,166,158,148]` — **ear-clipped as simple (8
+ears)**. On exact positions that ring is NOT simple: its return edge
+181 → 174 runs back over 174 → 166 → 158 → 148 exactly. The amendment-20
+oracle answers for a MOVED vertex with the rational of its rounded frame
+projection, and 181's rounded position sits ~2e-17 off the exact flank line
+(the line is oblique; an axis-aligned line — F0064's — rounds onto itself).
+Exact arithmetic on that noise made the four station fans "positively
+oriented" ears (all the same sign — one point, one side of the line) and
+`segments_cross_exact` saw parallel non-crossing segments instead of
+collinear overlap. The R0025 lesson (§18) one vertex further: amendment 20
+made the LIFTS exact; the slid MINT was still noise.
+
+Two further layers, measured after the oracle fix (inc-1 alone: the region
+path rejects `NotSimple`, the tooth's mints fold-revert to the chord, the
+Stage-0 mesh is manifold, and the op STOPs one crate later at kernel-v2's
+`InvalidBooleanOutput("an undirected output edge is not used by exactly two
+directed edges")` — 155.9 s):
+
+1. **The ladder tried only the FIRST split candidate.** `split_pair` was
+   `Option`, set by the first NonSimple mint of the folded triangle
+   (q = 173, chord (166,165), 2-incident → `split-chord-not-boundary`);
+   181 — the triangle's second NonSimple vertex, whose own wedge polygon
+   `[181,174,166,158,148,137,157,165,173]` carried the crossing — never
+   reached `fig11_split_cavity`.
+2. **The slide splice read positions as rounded projections and demanded
+   the hinted chord contain the mint.** `fig11_slide_splice` computed
+   `rp(i)` from `frame.project(coords[i])`: on the oblique flank every
+   collinearity certificate failed on noise (`slide: mint off the chord
+   line`, measured for the mirrored crossing mints 186 / 795 / 800). And
+   the ladder's hint is the FIRST ring crossing in scan order — for 181
+   the chord (166,158), the second station pair — while the slide's C is
+   the station pair the mint landed in, (148,137).
+
+### 20b. The rule
+
+- **`ExactPos::host`** (`frame.rs`): every circle∩line crossing mint
+  records the OTHER input's exact edge sub-segment it was minted on
+  (`RimResolve::OnCircle { host: Some(index into ctx.other_segs) }`,
+  `rim_chords.rs`; `host_line` tables in the pair and n-ary paths; a
+  sub-floor collapse-group member or absorbed lift inherits the target's
+  host — same position, same line). `ExactPos::at` for a MOVED vertex with
+  a host answers the exact foot of its rounded projection on that line
+  (`foot_on_line`: `s + t·(e−s)`, `t = ((q−s)·(e−s))/|e−s|²`, rationals) —
+  a point exactly ON the line at the rounded parameter. Residents, hostless
+  mints, `ExactPos::NONE` and the f64 gates are unchanged. The domain in
+  which the sweep decided collinearity is the host line; the oracle answers
+  in it (P9, the §18 argument extended to the vertex the pipeline moved
+  ALONG a line).
+- **Every split candidate gets a turn** (`mod.rs`): `split_pairs` collects
+  one `(q, a, b)` per NonSimple mint of the folded triangle, tried in vertex
+  order until one arm commits (one live commit, as before).
+- **The slide splice selects C on the host line** (`reloc.rs`): positions
+  come from the oracle (`ex.at`); the hinted chord fixes the LINE (v's
+  mint must be exactly on it, else `mint off the chord line`); C is then
+  the unique side-class link edge on that line whose interior holds the
+  mint's parameter (`mint interior to two collinear link edges` and `mint
+  not interior to C` reject). Every other certificate (1-incident, on the
+  other input's edge, pre-position on the line, rim-chain order, the tail
+  and w* closure, exact signed-area conservation) is unchanged.
+
+### 20c. Tests
+
+`stage0::reloc::host_line_tests` (F0072 op 11 in miniature: the flank line
+through corner 363 and lift 251, lifts 137/174/166/158/148 exact on it, the
+tooth's rim mints at their resolved positions, mint 181 with the flank as
+host):
+
+- `foot_on_line_is_exactly_on_the_line` — the rounded position is off the
+  line (premise), its foot is on it; on-line points are fixed points; a
+  degenerate line returns the input.
+- `slid_mint_answers_on_its_host_line` — RED under the historical
+  predicate (cross ≠ 0), GREEN with the host; every other vertex answers
+  identically with or without the table.
+- `station_fans_over_a_slid_mint_are_needles_only_the_host_oracle_rejects`
+  — the historical oracle blesses one winding of each of the four measured
+  fans (premise); the host oracle rejects both windings of all four.
+- `region_polygon_with_a_slid_mint_is_not_simple_under_the_host_oracle` —
+  the measured BOnly sub-region polygon ear-clips to 8 ears under the
+  historical oracle (the production outcome) and is `NotSimple` under the
+  host oracle.
+
+The six `slide_tests` and four `split_tests` rows pass unchanged through the
+re-selected C (axis-aligned fixtures: the hint IS the containing edge).
+
+### 20d. Results
+
+F0072 single (release, probes on, host load ≈ 12): **SUPPORTED_CORRECT
+(740.1 s, all in-line oracles)** — the slide splice commits for the four
+crossing mints of op 11's two tooth pairs (`[fold-slide] vert 181 chord
+(148,137) tail=[148,158,166,174] w*=187 cavity=9 -> 13 tris`, likewise
+186 / 795 / 800) plus 109 / 115 / 866 / 872, sixteen slides over the op
+(the second attempt included), `NONMANIFOLD_SITE_PROBE` silent. Corpus (release, 8 jobs, 900 s; wall 907.0 s; F0085 359.7 s, F0065
+191.8 s, F0072 517.0 s): **301C / 0W / 7E / 4EE / 0T + 0 UNSUPPORTED — NEW CANONICAL**,
+exactly ONE category move (F0072 ERROR → SUPPORTED_CORRECT), ZERO detail
+moves on the other 311 rows (per-id diff of the committed `results.json`).
+The actionable ERROR tail is EMPTY: the seven ERROR rows are the
+loud-by-design set (C0046, C0107, C0108, C0109, C0111, C0113, C0118). F0072
+at 517 s is too heavy for the smoke gate (pin stays R0050); the ≥ 600 s
+assay budget stands. Ledger: `docs/yang_tail_triage.md` "2026-09-22
+(night) — F0072 CONVERTED".

@@ -497,6 +497,9 @@ pub(crate) fn overlay_nary_group(
     let mut coords: Vec<Point3> = Vec::with_capacity(overlay.verts.len());
     let mut minted_mark = vec![false; overlay.verts.len()];
     let mut minted_info: Vec<(usize, usize, bool)> = Vec::new();
+    // Amendment 22: per-vertex host line of a circle∩line crossing mint
+    // (`ExactPos::host`; see the pair path).
+    let mut host_line: Vec<Option<(ExactPoint2, ExactPoint2)>> = vec![None; overlay.verts.len()];
     // Resolution-branch census (probe only): 0 corner_a, 1 corner_b, 2 rim_a,
     // 3 rim_b, 4 rim-snap, 5 mint, 6 lift.
     let mut how: Vec<u8> = vec![6; overlay.verts.len()];
@@ -527,9 +530,14 @@ pub(crate) fn overlay_nary_group(
                 for (slot, ctx) in ctxs.iter().enumerate() {
                     match resolve_rim_chord_vertex(ctx, exact, qx, qy, frame) {
                         RimResolve::NotOnChord => {}
-                        RimResolve::OnCircle { point, crossing } => {
+                        RimResolve::OnCircle {
+                            point,
+                            crossing,
+                            host,
+                        } => {
                             minted = Some(point);
                             minted_info.push((i, slot, crossing));
+                            host_line[i] = host.map(|si| ctx.other_segs[si].clone());
                             break;
                         }
                         RimResolve::NoIntersection => {
@@ -635,6 +643,9 @@ pub(crate) fn overlay_nary_group(
             let target = coords[target_vi];
             for &(vi, _) in g {
                 coords[vi] = target;
+                // Amendment 22: a member at the target's position is on the
+                // target's host line.
+                host_line[vi] = host_line[target_vi].clone();
             }
         }
     }
@@ -705,6 +716,7 @@ pub(crate) fn overlay_nary_group(
                     verts: &overlay.verts,
                     coords0: &coords0,
                     minted: &minted_mark,
+                    host: &host_line,
                 };
                 if !gate_tri_valid_ex(&n1, &coords, frame, &ex)
                     || !gate_tri_valid_ex(&n2, &coords, frame, &ex)

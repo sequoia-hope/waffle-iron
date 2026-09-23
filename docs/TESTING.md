@@ -372,7 +372,10 @@ becomes the effective limit.
   COMPLETES — SUPPORTED_CORRECT ≈ 302s** (all 20 unions + the composition
   oracle's second full build) and F0065 ≈ 164s — a 300s budget clips F0085
   to a spurious `TIMEOUT`; 360s gives ~20% headroom over the slowest ON A
-  QUIET HOST. Re-measured 2026-09-04: F0085 ≈ 317 s in a clean 8-job run
+  QUIET HOST. Since 2026-09-22 (night) F0072 is the heaviest CORRECT case:
+  ≈ 517 s CPU in an 8-job run (a 20-op gear/circle stack with eight
+  Stage-0 slide splices per coplanar op) — the ≥ 600 s budget is NOT slack.
+  Re-measured 2026-09-04: F0085 ≈ 317 s in a clean 8-job run
   (load ≈ 8 on 24 cores), but on the SAME kernel with the host loaded by
   other containers (load average ≈ 27 on 24 cores, none of it ours) the
   8-job run clipped it at 361 s and F0085 ALONE took 510 s CPU — CPU time

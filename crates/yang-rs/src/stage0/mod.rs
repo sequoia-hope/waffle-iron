@@ -1094,6 +1094,12 @@ pub(crate) fn stage0_preprocess(a: &BRep, b: &BRep) -> Result<Option<Stage0>, Ya
         // never merges mints of two DIFFERENT rim circles (a shared target
         // cannot lie on both).
         let mut minted_info: Vec<(usize, usize, bool)> = Vec::new();
+        // Amendment 22 (spec `m8_stage0_multiclass_cavity_arm` §20): the
+        // HOST line of every circle∩line crossing mint — the other input's
+        // exact edge sub-segment it slid along — for the ladder's exact
+        // position oracle (`ExactPos::host`).
+        let mut host_line: Vec<Option<(ExactPoint2, ExactPoint2)>> =
+            vec![None; overlay.verts.len()];
         for (i, mark) in minted_mark.iter_mut().enumerate() {
             let exact = &overlay.exact_verts[i];
             let pt = if let Some(&ai) = corners_a.get(exact) {
@@ -1134,9 +1140,14 @@ pub(crate) fn stage0_preprocess(a: &BRep, b: &BRep) -> Result<Option<Stage0>, Ya
                     for (slot, ctx) in rim_ctxs_a.iter().chain(rim_ctxs_b.iter()).enumerate() {
                         match resolve_rim_chord_vertex(ctx, exact, qx, qy, frame) {
                             RimResolve::NotOnChord => {}
-                            RimResolve::OnCircle { point, crossing } => {
+                            RimResolve::OnCircle {
+                                point,
+                                crossing,
+                                host,
+                            } => {
                                 minted = Some(point);
                                 minted_info.push((i, slot, crossing));
+                                host_line[i] = host.map(|si| ctx.other_segs[si].clone());
                                 break;
                             }
                             RimResolve::NoIntersection => {
@@ -1404,6 +1415,9 @@ pub(crate) fn stage0_preprocess(a: &BRep, b: &BRep) -> Result<Option<Stage0>, Ya
                 }
                 for &(vi, _) in g {
                     coords[vi] = target;
+                    // Amendment 22: a member at the target's position is on
+                    // the target's host line.
+                    host_line[vi] = host_line[target_vi].clone();
                 }
                 let elected_2d = overlay.verts[target_vi];
                 let shared = frame.lift(elected_2d.x(), elected_2d.y());
@@ -1468,6 +1482,7 @@ pub(crate) fn stage0_preprocess(a: &BRep, b: &BRep) -> Result<Option<Stage0>, Ya
                         }
                         coords[vi] = target;
                         minted_mark[vi] = true;
+                        host_line[vi] = host_line[target_vi].clone();
                         member_ids.push(vi);
                     }
                     for &vi in &member_ids {
@@ -1519,6 +1534,7 @@ pub(crate) fn stage0_preprocess(a: &BRep, b: &BRep) -> Result<Option<Stage0>, Ya
                     verts: &overlay.verts,
                     coords0: &coords0,
                     minted: &minted_mark,
+                    host: &host_line,
                 }
             };
         }
@@ -1694,11 +1710,15 @@ pub(crate) fn stage0_preprocess(a: &BRep, b: &BRep) -> Result<Option<Stage0>, Ya
                 // Amendment 13: the first Fig-11 backtrack pair surfaced by
                 // a per-vertex NonSimple reject (the SINGLETON class never
                 // reaches the joint form); a region-form candidate below
-                // takes precedence when the joint path runs. `split_pair`
-                // is the Fig-11(a) form: (q, a, b) — reroute chord (a,b)
-                // through the mint q.
+                // takes precedence when the joint path runs. `split_pairs`
+                // are the Fig-11(a) form: (q, a, b) — reroute chord (a,b)
+                // through the mint q — ONE per NonSimple mint of the
+                // triangle, tried in vertex order until one arm commits
+                // (amendment 22 inc-2: F0072's slid crossing mint 181 was
+                // the triangle's SECOND NonSimple vertex, and the first's
+                // chord was 2-incident — the slide splice never got a turn).
                 let mut merge_pair: Option<(u32, u32, f64, f64)> = None;
-                let mut split_pair: Option<(u32, u32, u32)> = None;
+                let mut split_pairs: Vec<(u32, u32, u32)> = Vec::new();
                 for &vv in &t {
                     if !minted_mark[vv as usize] {
                         continue;
@@ -1737,8 +1757,8 @@ pub(crate) fn stage0_preprocess(a: &BRep, b: &BRep) -> Result<Option<Stage0>, Ya
                             if merge_pair.is_none() {
                                 merge_pair = merge_candidate;
                             }
-                            if split_pair.is_none() {
-                                split_pair = split_chord.map(|(a, b)| (vv, a, b));
+                            if let Some((a, b)) = split_chord {
+                                split_pairs.push((vv, a, b));
                             }
                         }
                         RelocOutcome::Rejected => {
@@ -1912,7 +1932,10 @@ pub(crate) fn stage0_preprocess(a: &BRep, b: &BRep) -> Result<Option<Stage0>, Ya
                 // the rim-override chains below.
                 let mut split_done = false;
                 if !relocated && !merged {
-                    if let Some((sq, sa, sb)) = split_pair {
+                    for &(sq, sa, sb) in &split_pairs {
+                        if split_done {
+                            break;
+                        }
                         let slot = minted_info
                             .iter()
                             .find(|&&(vi, _, _)| vi == sq as usize)
@@ -1934,6 +1957,7 @@ pub(crate) fn stage0_preprocess(a: &BRep, b: &BRep) -> Result<Option<Stage0>, Ya
                                 &mut mergeable_mark,
                                 frame,
                                 &coords0,
+                                &host_line,
                                 Some(sag),
                                 &ctx.chords,
                                 &ctx.other_segs,
@@ -1951,7 +1975,7 @@ pub(crate) fn stage0_preprocess(a: &BRep, b: &BRep) -> Result<Option<Stage0>, Ya
                     }
                 }
                 if probe_flip && !relocated && !merged && !split_done {
-                    if let Some((sq, sa, sb)) = split_pair {
+                    for &(sq, sa, sb) in &split_pairs {
                         let inc_n = edge_map
                             .get(&edge_key(sa, sb))
                             .map(|e| e.len())
