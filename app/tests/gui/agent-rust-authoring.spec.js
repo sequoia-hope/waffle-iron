@@ -244,7 +244,21 @@ test.describe('Authoring tools run in the engine and still answer as the page di
 				'script_source_add',
 				'script_source_update',
 				'sketch_create',
-				'undo'
+				'undo',
+				// The tab tools and the assembly edits (2026-09-23).
+				'tab_switch',
+				'tab_add',
+				'tab_move',
+				'tab_rename',
+				'instance_add',
+				'instance_edit',
+				'instance_delete',
+				'connector_add',
+				'connector_edit',
+				'connector_delete',
+				'mate_add',
+				'mate_edit',
+				'mate_delete'
 			].sort()
 		);
 	});

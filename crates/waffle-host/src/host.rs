@@ -25,26 +25,6 @@ pub const DOCUMENT_TOOLS: &[&str] = &[
 /// Page tools that read or drive a viewer (§3.3): refused until P-D.
 pub const VIEWER_TOOLS: &[&str] = &["selection_get", "viewport_view", "viewport_capture"];
 
-/// Page tools whose semantics still live in the page's JS (never migrated to
-/// `wasm_bridge::tools`): refused with `HostCapability`, never reimplemented
-/// here (C3).
-pub const PAGE_ONLY_TOOLS: &[&str] = &[
-    "tab_switch",
-    "tab_add",
-    "tab_move",
-    "tab_rename",
-    "assembly_get",
-    "instance_add",
-    "instance_edit",
-    "instance_delete",
-    "connector_add",
-    "connector_edit",
-    "connector_delete",
-    "mate_add",
-    "mate_edit",
-    "mate_delete",
-];
-
 /// The host's build, reported in `ready.host_build`.
 pub fn host_build() -> Value {
     json!({
@@ -138,16 +118,6 @@ impl Host {
                 json!({ "tool": name }),
             );
         }
-        if PAGE_ONLY_TOOLS.contains(&name) {
-            return ToolResult::error(
-                "HostCapability",
-                &format!(
-                    "{name} runs only in the browser page in this version: its semantics have \
-                     not moved into the engine yet."
-                ),
-                json!({ "tool": name, "kernel": "host" }),
-            );
-        }
         ToolResult::error(
             "ToolUnavailable",
             &format!("This host has no tool named \"{name}\"."),
@@ -197,6 +167,19 @@ impl Host {
                         &format!("the export was produced but could not be written: {err}"),
                         json!({ "file_name": file.file_name }),
                     );
+                }
+            }
+        }
+        // A tab tool answers the document as the session knows it; what only
+        // this host knows — the storage record and provider, read-only,
+        // unsaved — is overlaid here, so the agent sees `document_info`'s
+        // shape (the page overlays the same from its store).
+        if !result.is_error && wasm_bridge::tools::TAB_TOOLS.contains(&name) {
+            if let (Value::Object(map), Value::Object(info)) =
+                (&mut result.structured_content, documents::info(self))
+            {
+                for (k, v) in info {
+                    map.entry(k).or_insert(v);
                 }
             }
         }

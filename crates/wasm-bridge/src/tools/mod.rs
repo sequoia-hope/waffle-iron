@@ -25,14 +25,18 @@ use serde_json::{json, Value};
 use crate::engine_state::EngineState;
 use crate::messages::{EngineToUi, UiToEngine};
 
+mod assembly;
 mod author;
 mod export;
 mod inspect;
 mod script;
 mod sketch;
 mod summary;
+mod tabs;
 
+pub use assembly::ASSEMBLY_TOOLS;
 pub use export::{ExportFile, MAX_AGENT_PAYLOAD_BYTES};
+pub use tabs::{document_core, TAB_TOOLS};
 
 /// The tools [`execute_tool`] implements — every non-render agent tool. The
 /// page routes exactly these to `Tool` and implements none of them; what it
@@ -66,16 +70,32 @@ pub const MIGRATED: &[&str] = &[
     "script_source_get",
     "script_source_update",
     "script_feature_add",
+    "tab_switch",
+    "tab_add",
+    "tab_move",
+    "tab_rename",
+    "assembly_get",
+    "instance_add",
+    "instance_edit",
+    "instance_delete",
+    "connector_add",
+    "connector_edit",
+    "connector_delete",
+    "mate_add",
+    "mate_edit",
+    "mate_delete",
 ];
 
 /// Whether this tool can change the document.
 ///
-/// The mutating tools are C4's twelve plus C5's `sketch_create` and the A-M4
+/// The mutating tools are C4's twelve plus C5's `sketch_create`, the A-M4
 /// script tools that change the document (a source add changes the `sources`
-/// table the host mirrors, so it carries the update too): their answers carry a model
-/// update (`EngineToUi::ToolResult::model`), because a `ToolResult` is not a
-/// `ModelUpdated` and nothing else would refresh the host's view. A tool that
-/// is not listed here is read-only and answers with no model.
+/// table the host mirrors, so it carries the update too), and since
+/// 2026-09-23 the tab tools and the assembly edits (a tab switch changes what
+/// is on screen; an assembly edit re-solves the tab): their answers carry a
+/// model update (`EngineToUi::ToolResult::model`), because a `ToolResult` is
+/// not a `ModelUpdated` and nothing else would refresh the host's view. A
+/// tool that is not listed here is read-only and answers with no model.
 pub fn mutates(name: &str) -> bool {
     matches!(
         name,
@@ -95,6 +115,19 @@ pub fn mutates(name: &str) -> bool {
             | "script_source_add"
             | "script_source_update"
             | "script_feature_add"
+            | "tab_switch"
+            | "tab_add"
+            | "tab_move"
+            | "tab_rename"
+            | "instance_add"
+            | "instance_edit"
+            | "instance_delete"
+            | "connector_add"
+            | "connector_edit"
+            | "connector_delete"
+            | "mate_add"
+            | "mate_edit"
+            | "mate_delete"
     )
 }
 
@@ -221,6 +254,20 @@ fn run(
         "script_source_get" => script::script_source_get(state, args),
         "script_source_update" => script::script_source_update(state, kb, args),
         "script_feature_add" => script::script_feature_add(state, kb, args, context),
+        "tab_switch" => tabs::tab_switch(state, kb, args),
+        "tab_add" => tabs::tab_add(state, kb, args),
+        "tab_move" => tabs::tab_move(state, kb, args),
+        "tab_rename" => tabs::tab_rename(state, kb, args),
+        "assembly_get" => assembly::assembly_get(state, kb),
+        "instance_add" => assembly::instance_add(state, kb, args),
+        "instance_edit" => assembly::instance_edit(state, kb, args),
+        "instance_delete" => assembly::instance_delete(state, kb, args),
+        "connector_add" => assembly::connector_add(state, kb, args),
+        "connector_edit" => assembly::connector_edit(state, kb, args),
+        "connector_delete" => assembly::connector_delete(state, kb, args),
+        "mate_add" => assembly::mate_add(state, kb, args),
+        "mate_edit" => assembly::mate_edit(state, kb, args),
+        "mate_delete" => assembly::mate_delete(state, kb, args),
         other => Err(ToolFailure::new(
             "ToolUnavailable",
             format!("This engine has no tool named \"{other}\"."),

@@ -198,13 +198,15 @@ proven by the existing GUI suites plus the named oracle.
 | **S4** — checkpoint 1 landed 2026-09-23 (§3.5) | Host binary `waffle-host` (new crate `crates/waffle-host`, native only) wrapping the session; relay `Backend` split, `--kernel host`, file provider | `crates/waffle-host/tests/host_stdio.rs` (the binary on the real kernel: document life, exact volume, download to disk, typed refusals, progress frames); `relay/tests/test_host.py` (H4 crash → `EngineCrashed` → restart → reopen against a fake host; the real host over MCP stdio) |
 
 **Status and next step (2026-09-23).** S0–S3 and S4 checkpoint 1 are
-landed: the relay can run every engine tool with no browser at all. Open
-in P-C: the wheels (H6), the H1/H5 measurements in host mode, the H2 page
-vs host differential over the O1–O22 scripts (today the host is exercised
-by its own suites and the real-binary MCP test, not by the page's
-goldens), and the tab/assembly tools, which still run only in the page's
-JS and answer `HostCapability` in host mode until they move into
-`wasm_bridge::tools`.
+landed: the relay can run every engine tool with no browser at all, and
+since checkpoint 2 (the same day) that includes the tab tools and the
+assembly tools (`wasm_bridge::tools::{tabs, assembly}`), so a native host
+holds an assembly document — every non-render tool now has its semantics
+in the engine, and the page keeps only the storage, viewport and gate
+concerns of §3.3. Open in P-C: the wheels (H6), the H1/H5 measurements in
+host mode, the H2 page vs host differential over the O1–O22 scripts (today
+the host is exercised by its own suites and the real-binary MCP test, not
+by the page's goldens), and the H3 `decimate_mesh` order.
 Open debt found by the 2026-09-17 consistency review and not yet paid (the
 agent-rust-* specs run in CI — gui-fast, `.github/workflows/gui-tests.yml`,
 since C6 — and, since later the same day, so do the relay's pytest suite
@@ -540,9 +542,17 @@ What exists, against §2.4 / §3.2 / §3.3 / §3.4:
   router (`host.rs`) answers: every `MIGRATED` name from the engine; the
   five storage tools from a file provider (`documents.rs`, provider id
   `file`, one `DIR/<document id>.waffle` per document, the page's result
-  shapes); `selection_get` / `viewport_*` → `ViewerUnavailable`; the tab
-  and assembly tools → `HostCapability` (their semantics are still the
-  page's JS; never reimplemented here); anything else → `ToolUnavailable`.
+  shapes); `selection_get` / `viewport_*` → `ViewerUnavailable`; anything
+  else → `ToolUnavailable`. (Checkpoint 1 answered the tab and assembly
+  tools with `HostCapability`; checkpoint 2, 2026-09-23, moved them into
+  the engine — `tools/tabs.rs`, `tools/assembly.rs` — with the page's
+  refusal codes and result shapes, pinned by `tests/tool_tabs.rs`,
+  `tests/tool_assembly.rs` and the unchanged `agent-tabs-viewport` /
+  `agent-assembly` / `agent-documents` GUI specs. A tab tool answers the
+  session's share of `document_info`; each host overlays its own fields
+  (storage record and provider, read-only, unsaved) — the page from its
+  store, this host from `documents::info`. The Assembly-tab gate is
+  semantic and lives in the engine; the page keeps `DocumentReadOnly`.)
 - **Durability (§4.8)**: the record is rewritten (atomically, temp file +
   rename) after every tool `wasm_bridge::tools::mutates`, synchronously
   rather than debounced — composing the file costs far less than any
@@ -579,7 +589,7 @@ What exists, against §2.4 / §3.2 / §3.3 / §3.4:
   autosave) and appends a one-time note to its answer that the undo
   history is gone.
 
-Not in checkpoint 1: wheels (H6) — the binary is found on PATH or by
+Not in checkpoints 1–2: wheels (H6) — the binary is found on PATH or by
 flag; the H1/H5 host timings; the H2 differential; git storage providers
 (`HostCapability`); `decimate_mesh`'s `HashMap` order (H3), which matters
 only once a viewer content-addresses previews.

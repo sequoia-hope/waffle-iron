@@ -352,8 +352,9 @@ fn the_migrated_list_is_exactly_what_this_checkpoint_implements() {
     // a name MISSING here is a tool the page would report as one it lacks.
     //
     // C2/C3 added the six read-only tools, C4 the twelve authoring ones, C5
-    // `sketch_create` and C6 the export pair, which is why this list grew
-    // rather than a second one appearing.
+    // `sketch_create` and C6 the export pair, and the P-C remainder
+    // (2026-09-23) the tab tools and the assembly tools, which is why this
+    // list grew rather than a second one appearing.
     assert_eq!(
         wasm_bridge::tools::MIGRATED,
         &[
@@ -383,6 +384,20 @@ fn the_migrated_list_is_exactly_what_this_checkpoint_implements() {
             "script_source_get",
             "script_source_update",
             "script_feature_add",
+            "tab_switch",
+            "tab_add",
+            "tab_move",
+            "tab_rename",
+            "assembly_get",
+            "instance_add",
+            "instance_edit",
+            "instance_delete",
+            "connector_add",
+            "connector_edit",
+            "connector_delete",
+            "mate_add",
+            "mate_edit",
+            "mate_delete",
         ]
     );
 }

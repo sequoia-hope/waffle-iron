@@ -25,10 +25,9 @@ import {
 	withEngineLock
 } from '$lib/engine/store.svelte.js';
 import { showToast } from '$lib/ui/toast.svelte.js';
-import { ASSEMBLY_COMMANDS, ASSEMBLY_QUERIES } from './assembly.js';
 import { snapshotNow } from './commands.js';
 import { newlyErroring, sameModel } from './delta.js';
-import { DOCUMENT_COMMANDS, DOCUMENT_QUERIES } from './documents.js';
+import { DOCUMENT_COMMANDS, DOCUMENT_QUERIES, documentInfo } from './documents.js';
 import { deliverDownload } from './export.js';
 import { QUERIES } from './queries.js';
 import { ToolFailure, toolError } from './results.js';
@@ -99,19 +98,54 @@ function pausedOrBusy(ctx) {
 }
 
 /**
+ * The tab tools (engine, 2026-09-23): they navigate the document, so a
+ * read-only document does not refuse `tab_switch`, and none of them needs a
+ * tab of a particular kind. Their engine answer is the document as the
+ * session knows it; this page overlays what only it knows (the storage record
+ * and provider, read-only, unsaved) — `documentInfo()`'s shape, as before.
+ */
+const TAB_TOOLS = new Set(['tab_switch', 'tab_add', 'tab_move', 'tab_rename']);
+
+/**
+ * The assembly edits (engine, 2026-09-23): the inverse of G7 — they need an
+ * Assembly tab. The engine refuses too; this gate answers before a call
+ * waits for the lock.
+ */
+const ASSEMBLY_COMMANDS = new Set([
+	'instance_add',
+	'instance_edit',
+	'instance_delete',
+	'connector_add',
+	'connector_edit',
+	'connector_delete',
+	'mate_add',
+	'mate_edit',
+	'mate_delete'
+]);
+
+/**
  * The first page state gate that refuses an authoring command (§3.2), or null.
  * @param {CallContext} ctx
+ * @param {string} tool
  */
-function commandRefusal(ctx) {
+function commandRefusal(ctx, tool) {
 	if (ctx.isPaused()) {
 		return new ToolFailure('AgentPaused', 'The user paused the agent in Waffle Iron. Wait until they resume it.', {});
 	}
-	if (isDocumentReadOnly()) {
+	if (isDocumentReadOnly() && tool !== 'tab_switch') {
 		return new ToolFailure('DocumentReadOnly', 'The open document is linked read-only; the user must fork it to allow edits.', {});
 	}
 	const tab = getDocumentTabs().find((t) => t.id === getActiveTabId());
 	const kind = tab?.kind?.type ?? 'Part';
-	if (kind !== 'Part') {
+	if (ASSEMBLY_COMMANDS.has(tool)) {
+		if (kind !== 'Assembly') {
+			return new ToolFailure(
+				'TabKindNotSupported',
+				`The active tab is a ${kind} tab; assembly tools need an Assembly tab (tab_add kind:"Assembly" or tab_switch).`,
+				{ kind }
+			);
+		}
+	} else if (!TAB_TOOLS.has(tool) && kind !== 'Part') {
 		return new ToolFailure('TabKindNotSupported', `The active tab is a ${kind} tab; agent edits work on Part tabs.`, { kind });
 	}
 	const busy = getUserBusyReason();
@@ -134,11 +168,11 @@ function commandRefusal(ctx) {
  * @param {CallContext} ctx
  */
 async function runEngineCommand(tool, args, ctx) {
-	const refusal = commandRefusal(ctx);
+	const refusal = commandRefusal(ctx, tool);
 	if (refusal) throw refusal;
 	return withAgentLock(async () => {
 		// The page may have changed while the call waited for the lock (I12).
-		const late = commandRefusal(ctx);
+		const late = commandRefusal(ctx, tool);
 		if (late) throw late;
 		const before = snapshotNow();
 		// `quietErrors`: the store must not toast the rebuild failures of this
@@ -152,6 +186,12 @@ async function runEngineCommand(tool, args, ctx) {
 				context: { agent_name: ctx.agentName }
 			});
 			const result = toolAnswer(answer);
+			if (!result.isError && TAB_TOOLS.has(tool)) {
+				// The model update rode back with the answer and the store
+				// mirrored it, so `documentInfo()` already describes the new
+				// tab bar; its host fields complete the engine's answer.
+				result.structuredContent = { ...result.structuredContent, ...documentInfo() };
+			}
 			renderStepOutcome(tool, result, before, ctx);
 
 			if (ctx.isCancelled() && !NOT_UNDOABLE.has(tool) && !sameModel(before, snapshotNow())) {
@@ -195,14 +235,12 @@ function renderStepOutcome(tool, result, before, ctx) {
 }
 
 /**
- * Document-level tools (open, new, save, tab switch) and the assembly tools
- * run the store's own multi-message flows, which send through the gated user
- * path; they cannot hold the agent lock for the whole call, because each of
- * their sends waits for it. The agent activity still refuses the modeling UI
- * meanwhile (G8), and G3 and G4 apply. (An assembly edit is one
- * `EditAssembly` send, which the store's `editAssembly` makes through the
- * gated path too; its own gate — an Assembly tab must be active — is the
- * inverse of G7 and lives in `assembly.js`.)
+ * Document-level tools (open, new, import, save) run the store's own
+ * multi-message flows, which send through the gated user path; they cannot
+ * hold the agent lock for the whole call, because each of their sends waits
+ * for it. The agent activity still refuses the modeling UI meanwhile (G8),
+ * and G3 and G4 apply. (The tab and assembly tools ran here until 2026-09-23;
+ * they are engine commands now.)
  * @param {string} tool
  * @param {(args: any, ctx: CallContext) => Promise<object>} run
  * @param {Record<string, unknown>} args
@@ -213,10 +251,11 @@ let documentCommandTail = Promise.resolve();
 
 async function runDocumentCommand(tool, run, args, ctx) {
 	// One at a time (I6 for this path). The relay forwards calls as they
-	// arrive; two assembly edits in flight at once each mutate the store's tab
-	// copy and each send it — and the slower answer overwrites the faster
-	// one's edit (measured: connectors added concurrently vanished). Queue
-	// here, since these flows cannot hold the engine lock for the whole call.
+	// arrive; two of these flows in flight at once each mutate the store and
+	// each send — and the slower answer overwrites the faster one's edit
+	// (measured on the assembly edits when they ran here: connectors added
+	// concurrently vanished). Queue here, since these flows cannot hold the
+	// engine lock for the whole call.
 	const turn = documentCommandTail.then(async () => {
 		const refusal = pausedOrBusy(ctx);
 		if (refusal) throw refusal;
@@ -283,7 +322,8 @@ const ENGINE_QUERIES = new Set([
 	'export_step',
 	'export_stl',
 	'script_run_check',
-	'script_source_get'
+	'script_source_get',
+	'assembly_get'
 ]);
 
 const ENGINE_COMMANDS = new Set([
@@ -302,7 +342,9 @@ const ENGINE_COMMANDS = new Set([
 	'sketch_create',
 	'script_source_add',
 	'script_source_update',
-	'script_feature_add'
+	'script_feature_add',
+	...TAB_TOOLS,
+	...ASSEMBLY_COMMANDS
 ]);
 
 /**
@@ -338,10 +380,8 @@ async function runEngineQuery(tool, args) {
  */
 export async function executeTool(tool, args, ctx) {
 	const known = TOOL_NAMES.has(tool);
-	const query = known
-		? (QUERIES[tool] ?? DOCUMENT_QUERIES[tool] ?? VIEWPORT_QUERIES[tool] ?? ASSEMBLY_QUERIES[tool])
-		: undefined;
-	const documentCommand = known ? (DOCUMENT_COMMANDS[tool] ?? ASSEMBLY_COMMANDS[tool]) : undefined;
+	const query = known ? (QUERIES[tool] ?? DOCUMENT_QUERIES[tool] ?? VIEWPORT_QUERIES[tool]) : undefined;
+	const documentCommand = known ? DOCUMENT_COMMANDS[tool] : undefined;
 	// The engine sets are where those tools' implementations live now: none
 	// of them has a JS body, so without them every one would be reported as a
 	// tool this page lacks.

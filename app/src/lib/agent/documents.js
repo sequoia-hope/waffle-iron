@@ -4,19 +4,14 @@
  * button and the tab bar (I1, I2).
  */
 import {
-	addTab,
 	cancelPendingAutoSave,
 	getDocumentInfo,
-	getDocumentTabs,
 	getSources,
 	hasPendingAutoSave,
 	isDocumentReadOnly,
-	moveTab,
 	openDocumentRecord,
-	renameTab,
 	saveDocumentOrThrow,
-	setProjectName,
-	switchTab
+	setProjectName
 } from '$lib/engine/store.svelte.js';
 import { FORMAT_VERSION, fileTooNew } from '$lib/engine/format.js';
 import { getActiveProvider, getProvider } from '$lib/storage/index.js';
@@ -25,7 +20,12 @@ import { fail, plain, toolOk } from './results.js';
 
 const READ_ONLY_MESSAGE = 'The open document is linked read-only; the user must fork it to allow edits and saves.';
 
-function documentInfo() {
+/**
+ * The open document as `document_info` answers it. Also what the executor
+ * overlays on a tab tool's engine answer (the engine knows the session's
+ * share; the storage record, provider, read-only and unsaved are this page's).
+ */
+export function documentInfo() {
 	const info = getDocumentInfo();
 	const provider = getActiveProvider();
 	return {
@@ -55,18 +55,6 @@ const reasonOf = (err) => String(err?.message ?? err);
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 /** @param {unknown} s */
 const isUuid = (s) => typeof s === 'string' && UUID_RE.test(s);
-
-/** @param {string} tab_id */
-function requireTab(tab_id) {
-	const tab = getDocumentTabs().find((t) => t.id === tab_id);
-	if (!tab) throw fail('TabNotFound', `The document has no tab with id ${tab_id}.`, { tab_id });
-	return tab;
-}
-
-/** G5 for the tab-list edits: a linked read-only document's tabs are not the agent's to change. */
-function requireEditable() {
-	if (isDocumentReadOnly()) throw fail('DocumentReadOnly', READ_ONLY_MESSAGE, {});
-}
 
 /**
  * S3: leaving a document whose latest changes are not stored yet.
@@ -230,41 +218,8 @@ export const DOCUMENT_COMMANDS = {
 			const provider = getActiveProvider().id;
 			throw fail('SaveFailed', `Saving failed: ${reasonOf(err)}`, { provider, reason: reasonOf(err) });
 		}
-	},
-
-	async tab_switch({ tab_id }) {
-		const tab = requireTab(tab_id);
-		const kind = tab.kind?.type ?? 'Part';
-		// Part tabs take the feature tools, Assembly tabs the assembly tools;
-		// anything else (a kind from a newer build) has no tool to work it.
-		if (kind !== 'Part' && kind !== 'Assembly') {
-			throw fail('TabKindNotSupported', `Tab ${tab.name} is a ${kind} tab; agents work on Part and Assembly tabs.`, { kind });
-		}
-		await switchTab(tab_id);
-		return toolOk(documentInfo());
-	},
-
-	async tab_add({ kind = 'Part', name, activate = true }) {
-		requireEditable();
-		// The engine mints the tab (S2 C3); the store follows it.
-		const id = await addTab(kind);
-		if (!id) throw fail('Internal', 'The engine did not add the tab.', { kind });
-		if (name) await renameTab(id, name);
-		if (activate) await switchTab(id);
-		return toolOk({ tab_id: id, ...documentInfo() });
-	},
-
-	async tab_move({ tab_id, index }) {
-		requireEditable();
-		requireTab(tab_id);
-		await moveTab(tab_id, index);
-		return toolOk(documentInfo());
-	},
-
-	async tab_rename({ tab_id, name }) {
-		requireEditable();
-		requireTab(tab_id);
-		await renameTab(tab_id, name);
-		return toolOk(documentInfo());
 	}
 };
+// (The four tab tools ran here until 2026-09-23; they are engine commands
+// now — `crates/wasm-bridge/src/tools/tabs.rs` — and the executor overlays
+// `documentInfo()` on their answers.)

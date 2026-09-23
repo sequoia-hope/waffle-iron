@@ -150,10 +150,17 @@ fn a_document_lives_through_the_frames_and_lands_on_disk() {
         "sketch_create",
         "document_new",
         "storage_list",
+        // The tab and assembly tools moved into the engine (2026-09-23), so
+        // the host serves an assembly document.
+        "tab_add",
+        "tab_switch",
+        "assembly_get",
+        "instance_add",
+        "mate_add",
     ] {
         assert!(tools.contains(&name), "ready.tools lacks {name}");
     }
-    for name in ["selection_get", "tab_add", "viewport_capture"] {
+    for name in ["selection_get", "viewport_capture"] {
         assert!(!tools.contains(&name), "ready.tools must not list {name}");
     }
     assert!(
@@ -312,8 +319,20 @@ fn a_document_lives_through_the_frames_and_lands_on_disk() {
     assert_eq!(err["code"], "HostCapability");
     let err = client.refused("selection_get", json!({}));
     assert_eq!(err["code"], "ViewerUnavailable");
-    let err = client.refused("tab_add", json!({}));
-    assert_eq!(err["code"], "HostCapability");
+    // The assembly tools answer from the engine: a Part tab refuses them the
+    // way the page did.
+    let err = client.refused("assembly_get", json!({}));
+    assert_eq!(err["code"], "TabKindNotSupported");
+    // A tab tool's answer is the page's `document_info` shape: the engine's
+    // share overlaid with this host's storage fields.
+    let added = client.ok("tab_add", json!({ "kind": "Assembly", "name": "Asm" }));
+    assert_eq!(added["tabs"].as_array().unwrap().len(), 2);
+    assert_eq!(added["active_tab"], added["tab_id"]);
+    assert_eq!(added["storage_provider"]["id"], "file");
+    assert_eq!(added["unsaved"], false);
+    let asm = client.ok("assembly_get", json!({}));
+    assert_eq!(asm["tab_id"], added["tab_id"]);
+    assert_eq!(asm["instances"].as_array().unwrap().len(), 0);
     let err = client.refused("no_such_tool", json!({}));
     assert_eq!(err["code"], "ToolUnavailable");
     let err = client.refused("feature_get", json!({ "feature_id": "not-a-uuid" }));

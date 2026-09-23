@@ -1313,6 +1313,58 @@ pub fn document_info(state: &EngineState) -> DocumentInfo {
     }
 }
 
+/// The open assembly as evaluated, in the shape the UI and the assembly tools
+/// read (`ModelUpdated.assembly`): solved placements, every connector's frame
+/// and every rendered part's named connectors in WORLD coordinates. `None`
+/// while no assembly is open.
+pub fn assembly_status(state: &EngineState) -> Option<AssemblyStatus> {
+    state.assembly.as_ref().map(|v| AssemblyStatus {
+        placements: v.placements.clone(),
+        errors: v.errors.clone(),
+        warnings: v.warnings.clone(),
+        parts: v.parts.iter().map(|(p, _)| p.clone()).collect(),
+        connectors: v
+            .tree
+            .connectors
+            .iter()
+            .filter_map(|c| {
+                // In WORLD coordinates: the frame is in its top-level
+                // instance's space, which the placement puts in the world.
+                let world = v
+                    .frames
+                    .get(&c.id)?
+                    .transformed(&v.placement(c.top_instance_id()?));
+                let (x_axis, y_axis, z_axis) = world.basis().ok()?;
+                let derived = v.connector_geometry.get(&c.id).map(|k| k.label());
+                Some(ConnectorFrameInfo {
+                    id: c.id,
+                    kind: match (c.part_connector, derived) {
+                        (Some(_), Some(label)) => Some(format!("part connector · {label}")),
+                        (Some(_), None) => Some("part connector".to_string()),
+                        (None, label) => label.map(str::to_string),
+                    },
+                    origin: world.origin,
+                    x_axis,
+                    y_axis,
+                    z_axis,
+                })
+            })
+            .collect(),
+        part_connectors: v
+            .leaves
+            .iter()
+            .flat_map(|leaf| {
+                v.parts[leaf.part]
+                    .1
+                    .connectors
+                    .iter()
+                    .filter_map(|pc| PartConnectorInfo::new(pc, leaf.path.clone(), &leaf.transform))
+                    .collect::<Vec<_>>()
+            })
+            .collect(),
+    })
+}
+
 fn model_updated_response(state: &EngineState) -> EngineToUi {
     let preview_mesh = preview_mesh(state);
 
@@ -1331,53 +1383,7 @@ fn model_updated_response(state: &EngineState) -> EngineToUi {
         },
         preview_mesh,
         sources: source_statuses(state),
-        assembly: state.assembly.as_ref().map(|v| AssemblyStatus {
-            placements: v.placements.clone(),
-            errors: v.errors.clone(),
-            warnings: v.warnings.clone(),
-            parts: v.parts.iter().map(|(p, _)| p.clone()).collect(),
-            connectors: v
-                .tree
-                .connectors
-                .iter()
-                .filter_map(|c| {
-                    // In WORLD coordinates: the frame is in its top-level
-                    // instance's space, which the placement puts in the world.
-                    let world = v
-                        .frames
-                        .get(&c.id)?
-                        .transformed(&v.placement(c.top_instance_id()?));
-                    let (x_axis, y_axis, z_axis) = world.basis().ok()?;
-                    let derived = v.connector_geometry.get(&c.id).map(|k| k.label());
-                    Some(ConnectorFrameInfo {
-                        id: c.id,
-                        kind: match (c.part_connector, derived) {
-                            (Some(_), Some(label)) => Some(format!("part connector · {label}")),
-                            (Some(_), None) => Some("part connector".to_string()),
-                            (None, label) => label.map(str::to_string),
-                        },
-                        origin: world.origin,
-                        x_axis,
-                        y_axis,
-                        z_axis,
-                    })
-                })
-                .collect(),
-            part_connectors: v
-                .leaves
-                .iter()
-                .flat_map(|leaf| {
-                    v.parts[leaf.part]
-                        .1
-                        .connectors
-                        .iter()
-                        .filter_map(|pc| {
-                            PartConnectorInfo::new(pc, leaf.path.clone(), &leaf.transform)
-                        })
-                        .collect::<Vec<_>>()
-                })
-                .collect(),
-        }),
+        assembly: assembly_status(state),
         context: state.context_view.as_ref().map(|cv| ContextStatus {
             assembly_tab_id: cv.assembly_tab_id.clone(),
             instance_path: cv.instance_path.clone(),

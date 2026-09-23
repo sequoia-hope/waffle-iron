@@ -8045,11 +8045,11 @@ export function cancelPendingAutoSave() {
 }
 
 /**
- * Whether a composed `.waffle` holds nothing: every Part tab without a
- * feature, every Assembly tab without an instance, and no sources. Such a
- * document is what a freshly booted tab has, and an agent saving one after an
- * unnoticed reload only litters the storage list (the "Untitled" junk of
- * 2026-09-23).
+ * Whether a composed `.waffle` is the blank startup document: one tab with
+ * no feature or instance, and no sources. That is what a freshly booted tab
+ * has, and an agent saving it after an unnoticed reload only litters the
+ * storage list (the "Untitled" junk of 2026-09-23). A second tab is already
+ * work, features or not.
  * @param {string} jsonData
  */
 function documentTextIsEmpty(jsonData) {
@@ -8060,6 +8060,7 @@ function documentTextIsEmpty(jsonData) {
 		return false;
 	}
 	if ((parsed?.sources ?? []).length > 0) return false;
+	if ((parsed?.tabs ?? []).length > 1) return false;
 	for (const tab of parsed?.tabs ?? []) {
 		const kind = tab?.kind ?? {};
 		if ((kind.features?.features ?? []).length > 0) return false;

@@ -94,7 +94,11 @@ test.describe('Script agent tools run in the engine (A-M4)', () => {
 				const sends = window.__waffle.getEngineSendLog().filter((s) => s.origin === 'agent');
 				window.__waffle.recordEngineSends(false);
 				out.toolSends = sends.filter((s) => s.type === 'Tool').map((s) => s.message?.name);
-				out.otherAgentSends = sends.filter((s) => s.type !== 'Tool').map((s) => s.type);
+				// The two sends of the page's own commit after every mutating tool
+				// (the document composed for the draft and the storage record,
+				// 2026-09-23) are not a tool body's: the tool itself is one `Tool` send.
+				const commit = new Set(['SetDocumentMeta', 'SaveDocument']);
+				out.otherAgentSends = sends.filter((s) => s.type !== 'Tool' && !commit.has(s.type)).map((s) => s.type);
 				return out;
 			},
 			{ xy: XY, box: BOX_SCRIPT }

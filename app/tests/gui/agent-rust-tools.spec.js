@@ -221,6 +221,9 @@ test.describe('Read-only agent tools run in the engine (S3 C5b)', () => {
 		const routed = await page.evaluate(() => window.__waffleAgentExecutor.engineQueries());
 		// Keep in sync with `tools::MIGRATED` minus `tools::mutates`
 		// (`agent-rust-authoring.spec.js` pins the mutating half).
-		expect(routed).toEqual(READ_ONLY);
+		// `assembly_get` joined the engine on 2026-09-23 with the assembly
+		// edits; it needs an Assembly tab, so the sequence above does not
+		// call it.
+		expect(routed).toEqual([...READ_ONLY, 'assembly_get']);
 	});
 });
