@@ -18,6 +18,7 @@ pub const DOCUMENT_TOOLS: &[&str] = &[
     "storage_list",
     "document_open",
     "document_new",
+    "document_import",
     "document_save",
 ];
 

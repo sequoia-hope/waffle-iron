@@ -30,6 +30,7 @@ import {
 	mateEditTool
 } from './assembly.js';
 import {
+	documentImportTool,
 	documentInfoTool,
 	documentNewTool,
 	documentOpenTool,
@@ -65,6 +66,7 @@ export const TOOLS = [
 	storageListTool,
 	documentOpenTool,
 	documentNewTool,
+	documentImportTool,
 	documentSaveTool,
 	tabSwitchTool,
 	tabAddTool,

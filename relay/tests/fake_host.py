@@ -31,6 +31,7 @@ TOOLS = [
     "document_info",
     "document_open",
     "document_new",
+    "document_import",
     "storage_list",
 ]
 

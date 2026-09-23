@@ -174,6 +174,7 @@ agent renames with `feature_rename`. ICR-5 (§9) would add the field.
 | `storage_list` | query | `provider? (active)` | `{provider, documents: [{id, name, created, modified, tab_count, linked}]}` from `DocumentSummary` (`storage/types.js`) |
 | `document_open` | command | `provider?`, `id`, `discard_unsaved (false)` | `DocumentInfo` (`openDocumentRecord`, the path the Home screen's `/doc/[id]` handoff takes) |
 | `document_new` | command | `name ("Untitled")`, `discard_unsaved (false)` | `DocumentInfo` (the Home screen's `newDocumentRecord`, stored in the active provider, then opened) |
+| `document_import` | command | `file_name`, `text` (the `.waffle` JSON), `name? (file name without extension)`, `discard_unsaved (false)` | `DocumentInfo` (the Home screen's file picker without the dialog: the file's own `document.id` keys the record — an existing record with that id is replaced — stored in the active provider, opened, named after the file) |
 | `document_save` | command | — | `{provider, id, saved_at}` via `saveDocumentOrThrow`, the core `saveToStorage` shares |
 | `tab_switch` | command | `tab_id` | `DocumentInfo` (Part tabs in Phase 1) |
 | `tab_add` | command | `kind ("Part" \| "Assembly", "Part")`, `name?`, `activate (true)` | `{tab_id}` + `DocumentInfo` (the tab bar's + buttons, `addTab`) |
@@ -528,6 +529,7 @@ Tool results with `isError: true`:
 | `SaveFailed` | S1 |
 | `UnsavedChanges` / `UserDeclined` | S3 |
 | `DocumentNotFound` | S4 |
+| `InvalidDocument` / `FormatTooNew` | `document_import` with text that is not a `.waffle` document (`file_name`, `reason`) or one that needs a newer reader (`file_version`, `supported_version`) |
 | `ProviderNotFound` | `storage_list` / `document_open` naming a storage provider this tab has not connected |
 | `StorageFailed` | a provider's list/get failed or the engine did not load the record (`provider`, `reason` verbatim) |
 | `TabNotFound` | `tab_switch`, `tab_move` or `tab_rename` naming an id the document does not have; `instance_add` naming a tab that is not a placeable part (or the open assembly itself) |

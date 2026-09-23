@@ -15,10 +15,12 @@ import {
 	openDocumentRecord,
 	renameTab,
 	saveDocumentOrThrow,
+	setProjectName,
 	switchTab
 } from '$lib/engine/store.svelte.js';
+import { FORMAT_VERSION, fileTooNew } from '$lib/engine/format.js';
 import { getActiveProvider, getProvider } from '$lib/storage/index.js';
-import { newDocumentRecord } from '$lib/storage/newDocument.js';
+import { newDocumentRecord, newUuid } from '$lib/storage/newDocument.js';
 import { fail, plain, toolOk } from './results.js';
 
 const READ_ONLY_MESSAGE = 'The open document is linked read-only; the user must fork it to allow edits and saves.';
@@ -49,6 +51,10 @@ function providerFor(id) {
 
 /** @param {any} err */
 const reasonOf = (err) => String(err?.message ?? err);
+
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+/** @param {unknown} s */
+const isUuid = (s) => typeof s === 'string' && UUID_RE.test(s);
 
 /** @param {string} tab_id */
 function requireTab(tab_id) {
@@ -153,6 +159,57 @@ export const DOCUMENT_COMMANDS = {
 			});
 		}
 		await open(record.id, record.json, null, store.id);
+		return toolOk(documentInfo());
+	},
+
+	async document_import(args) {
+		const fileName = String(args.file_name);
+		let parsed;
+		try {
+			parsed = JSON.parse(args.text);
+		} catch (err) {
+			throw fail('InvalidDocument', `${fileName} is not a .waffle document: ${reasonOf(err)}`, {
+				file_name: fileName,
+				reason: reasonOf(err)
+			});
+		}
+		if (fileTooNew(parsed)) {
+			throw fail('FormatTooNew', `${fileName} was saved by a newer version of Waffle Iron.`, {
+				file_name: fileName,
+				file_version: Math.max(parsed?.version ?? 0, parsed?.min_reader_version ?? 0),
+				supported_version: FORMAT_VERSION
+			});
+		}
+		confirmLeaving(args);
+		const store = getActiveProvider();
+		// The file's own identity is the storage key (v4 P2-5, the picker's
+		// rule): re-importing an export of a stored document re-homes to that
+		// record; a legacy file without one gets a fresh identity.
+		const id = isUuid(parsed?.document?.id) ? parsed.document.id : newUuid();
+		const now = Date.now();
+		const created = Date.parse(parsed?.document?.created ?? '') || now;
+		try {
+			await store.put({ id, json: args.text, created, modified: now });
+		} catch (err) {
+			throw fail('SaveFailed', `Storing the document in ${store.label} failed: ${reasonOf(err)}`, {
+				provider: store.id,
+				reason: reasonOf(err)
+			});
+		}
+		await open(id, args.text, null, store.id);
+		// The file name wins over the stored name, as it does in the picker.
+		const name = args.name ?? fileName.replace(/\.(waffle|json)$/i, '');
+		if (name && name !== getDocumentInfo().name) {
+			setProjectName(name);
+			try {
+				await saveDocumentOrThrow();
+			} catch (err) {
+				throw fail('SaveFailed', `Saving the imported document failed: ${reasonOf(err)}`, {
+					provider: store.id,
+					reason: reasonOf(err)
+				});
+			}
+		}
 		return toolOk(documentInfo());
 	},
 

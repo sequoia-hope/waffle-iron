@@ -326,6 +326,92 @@ fn a_document_lives_through_the_frames_and_lands_on_disk() {
 }
 
 #[test]
+fn a_waffle_file_imports_under_its_own_identity_and_lands_on_disk() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut client = Client::spawn(dir.path());
+    let ready = client.recv();
+    assert!(ready.header["tools"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .any(|t| t == "document_import"));
+
+    // Compose a real file with the engine, then import that text as if it
+    // came from disk (the file's own identity is the record key).
+    let info = client.ok("document_new", json!({ "name": "Source" }));
+    let source_id = info["document_id"].as_str().unwrap().to_string();
+    client.ok(
+        "sketch_create",
+        json!({
+            "plane": { "origin": [0.0, 0.0, 0.0], "normal": [0.0, 0.0, 1.0] },
+            "entities": rectangle(),
+        }),
+    );
+    let text = std::fs::read_to_string(dir.path().join(format!("{source_id}.waffle"))).unwrap();
+    client.ok("document_new", json!({ "name": "Other" }));
+
+    let imported = client.ok(
+        "document_import",
+        json!({ "file_name": "Pinwheel.waffle", "text": text }),
+    );
+    assert_eq!(imported["document_id"], source_id, "identity from the file");
+    assert_eq!(imported["storage_id"], source_id);
+    assert_eq!(
+        imported["name"], "Pinwheel",
+        "the file name wins over the stored name"
+    );
+    let summary = client.ok("model_summary", json!({}));
+    assert_eq!(
+        summary["features"].as_array().unwrap().len(),
+        1,
+        "loaded, not just stored"
+    );
+    let stored: Value = serde_json::from_str(
+        &std::fs::read_to_string(dir.path().join(format!("{source_id}.waffle"))).unwrap(),
+    )
+    .unwrap();
+    assert_eq!(
+        stored["document"]["name"], "Pinwheel",
+        "the record on disk follows"
+    );
+    let listed = client.ok("storage_list", json!({}));
+    assert_eq!(
+        listed["documents"].as_array().unwrap().len(),
+        2,
+        "re-homed, not duplicated"
+    );
+
+    let named = client.ok(
+        "document_import",
+        json!({ "file_name": "x.json", "text": text, "name": "Given" }),
+    );
+    assert_eq!(named["name"], "Given");
+
+    let err = client.refused(
+        "document_import",
+        json!({ "file_name": "bad.waffle", "text": "{not json" }),
+    );
+    assert_eq!(err["code"], "InvalidDocument");
+    let err = client.refused(
+        "document_import",
+        json!({ "file_name": "future.waffle", "text": "{\"format\":\"waffle-iron\",\"version\":999,\"min_reader_version\":999}" }),
+    );
+    assert_eq!(err["code"], "FormatTooNew");
+    assert_eq!(err["details"]["file_version"], 999);
+    let err = client.refused(
+        "document_import",
+        json!({ "file_name": "wrong.waffle", "text": "{\"format\":\"other\"}" }),
+    );
+    assert_eq!(err["code"], "InvalidDocument");
+    assert_eq!(
+        client.ok("document_info", json!({}))["name"],
+        "Given",
+        "a refused import leaves the open document alone"
+    );
+    assert_eq!(client.bye(), 0);
+}
+
+#[test]
 fn progress_frames_ride_only_for_a_call_that_asked() {
     let dir = tempfile::tempdir().unwrap();
     let mut client = Client::spawn(dir.path());

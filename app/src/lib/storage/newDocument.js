@@ -5,7 +5,8 @@
  */
 import { FORMAT_VERSION, MIN_READER_VERSION } from '$lib/engine/format.js';
 
-function newUuid() {
+/** A v4 UUID; also the identity an imported file without one is given. */
+export function newUuid() {
 	return typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function'
 		? crypto.randomUUID()
 		: ([1e7] + -1e3 + -4e3 + -8e3 + -1e11).replace(/[018]/g, (c) =>

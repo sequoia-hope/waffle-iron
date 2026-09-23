@@ -145,6 +145,45 @@ test.describe('Agent link documents (Phase 1)', () => {
 		expectNoAnyCrash(crashes);
 	});
 
+	test('document_import: a .waffle file\'s text is stored under its own identity, opened and named after the file', async ({ page }) => {
+		const crashes = collectCrashErrors(page);
+		await pairAgent(page, relay, AGENT);
+		// A real file: compose one with the engine, read its stored record back.
+		const source = ok(await relay.callTool('document_new', { name: 'Source' }));
+		await buildAndSave();
+		const text = await page.evaluate(async (id) => {
+			const { getStore } = await import('/src/lib/storage/index.js');
+			return (await getStore().get(id)).json;
+		}, source.storage_id);
+		ok(await relay.callTool('document_new', { name: 'Elsewhere' }));
+
+		const imported = ok(await relay.callTool('document_import', { file_name: 'Pinwheel.waffle', text }));
+		expect(imported.document_id).toBe(source.document_id);
+		expect(imported.storage_id).toBe(source.storage_id);
+		expect(imported.name).toBe('Pinwheel');
+		expect(imported.unsaved).toBe(false);
+		const summary = ok(await relay.callTool('model_summary', {}));
+		expect(summary.features.length).toBe(2);
+		expect(summary.bodies.length).toBe(1);
+		const listed = ok(await relay.callTool('storage_list', {}));
+		const record = listed.documents.find((d) => d.id === source.storage_id);
+		expect(record.name).toBe('Pinwheel');
+		expect(listed.documents.filter((d) => d.name === 'Source')).toEqual([]);
+
+		const named = ok(await relay.callTool('document_import', { file_name: 'x.json', text, name: 'Given' }));
+		expect(named.name).toBe('Given');
+		refused(await relay.callTool('document_import', { file_name: 'bad.waffle', text: '{not json' }), 'InvalidDocument');
+		refused(
+			await relay.callTool('document_import', {
+				file_name: 'future.waffle',
+				text: JSON.stringify({ format: 'waffle-iron', version: 999, min_reader_version: 999 })
+			}),
+			'FormatTooNew'
+		);
+		expect(ok(await relay.callTool('document_info', {})).name).toBe('Given');
+		expectNoAnyCrash(crashes);
+	});
+
 	test('G5/S2: a linked read-only document refuses edits and saves', async ({ page }) => {
 		const crashes = collectCrashErrors(page);
 		await pairAgent(page, relay, AGENT);

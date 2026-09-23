@@ -134,6 +134,28 @@ export const documentNewTool = {
 	annotations: { title: 'New document', readOnlyHint: false, destructiveHint: false, openWorldHint: false }
 };
 
+export const documentImportTool = {
+	name: 'document_import',
+	description:
+		'Load a .waffle file\'s text as a document, as opening a file from the Home screen\'s picker does: the ' +
+		'document keeps its own identity (a record with that id in the active storage provider is replaced), is ' +
+		'stored there, named after the file unless name is given, and opened. Refused with UnsavedChanges while ' +
+		'the current document has changes waiting for autosave (call document_save first).',
+	inputSchema: {
+		type: 'object',
+		properties: {
+			file_name: { type: 'string', minLength: 1, description: 'The file\'s name, e.g. "Pinwheel.waffle"; the document is named after it without the extension.' },
+			text: { type: 'string', minLength: 1, description: 'The .waffle file contents (JSON).' },
+			name: { type: 'string', minLength: 1, description: 'Document name to use instead of the file name.' },
+			discard_unsaved: discardUnsaved
+		},
+		required: ['file_name', 'text'],
+		additionalProperties: false
+	},
+	outputSchema: documentInfoSchema,
+	annotations: { title: 'Import document file', readOnlyHint: false, destructiveHint: true, openWorldHint: false }
+};
+
 export const documentSaveTool = {
 	name: 'document_save',
 	description:

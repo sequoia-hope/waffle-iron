@@ -57,6 +57,7 @@ async def test_ready_names_the_tools_and_status_says_host(
             "document_info",
             "document_open",
             "document_new",
+            "document_import",
             "storage_list",
         }
     )
@@ -218,6 +219,7 @@ async def test_host_mode_over_mcp_lists_only_served_tools(
         "document_info",
         "document_open",
         "document_new",
+        "document_import",
         "storage_list",
     }, "only what the host's ready frame names"
 

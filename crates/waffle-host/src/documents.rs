@@ -28,6 +28,7 @@ pub fn run(host: &mut Host, name: &str, args: &Value) -> ToolResult {
         "storage_list" => storage_list(host, args),
         "document_open" => document_open(host, args),
         "document_new" => document_new(host, args),
+        "document_import" => document_import(host, args),
         "document_save" => document_save(host),
         other => Err(refuse(
             "ToolUnavailable",
@@ -251,6 +252,101 @@ fn document_new(host: &mut Host, args: &Value) -> Result<Value, Box<ToolResult>>
         )
     })?;
     Ok(info(host))
+}
+
+/// `document_import`: a `.waffle` file's text becomes a stored, open
+/// document (the page's file-picker rule: the file's own identity is the
+/// record key, the file name wins over the stored name).
+fn document_import(host: &mut Host, args: &Value) -> Result<Value, Box<ToolResult>> {
+    let file_name = args
+        .get("file_name")
+        .and_then(Value::as_str)
+        .unwrap_or("")
+        .to_string();
+    let text = args.get("text").and_then(Value::as_str).unwrap_or("");
+    let parsed: Value = serde_json::from_str(text).map_err(|e| {
+        refuse(
+            "InvalidDocument",
+            &format!("{file_name} is not a .waffle document: {e}"),
+            json!({ "file_name": file_name, "reason": e.to_string() }),
+        )
+    })?;
+    let required = ["version", "min_reader_version"]
+        .iter()
+        .filter_map(|k| parsed.get(k).and_then(Value::as_u64))
+        .max()
+        .unwrap_or(0);
+    if required > u64::from(file_format::FORMAT_VERSION) {
+        return Err(refuse(
+            "FormatTooNew",
+            &format!("{file_name} was saved by a newer version of Waffle Iron."),
+            json!({
+                "file_name": file_name,
+                "file_version": required,
+                "supported_version": file_format::FORMAT_VERSION,
+            }),
+        ));
+    }
+    match host.engine(UiToEngine::LoadProject {
+        data: text.to_string(),
+    }) {
+        EngineToUi::ModelUpdated { .. } => {}
+        EngineToUi::Error { message, .. } => {
+            return Err(refuse(
+                "InvalidDocument",
+                &format!("{file_name} did not load: {message}"),
+                json!({ "file_name": file_name, "reason": message }),
+            ))
+        }
+        _ => {
+            return Err(refuse(
+                "Internal",
+                "the engine answered LoadProject with an unexpected message",
+                json!({}),
+            ))
+        }
+    }
+    let name = match args.get("name").and_then(Value::as_str) {
+        Some(n) if !n.is_empty() => n.to_string(),
+        _ => strip_document_extension(&file_name).to_string(),
+    };
+    if !name.is_empty() && name != wasm_bridge::dispatch::document_info(host.state()).name {
+        if let EngineToUi::Error { message, .. } = host.engine(UiToEngine::SetDocumentMeta {
+            name: Some(name),
+            display_unit: None,
+            id: None,
+            created: None,
+        }) {
+            return Err(refuse(
+                "Internal",
+                &format!("the engine did not take the imported document's name: {message}"),
+                json!({}),
+            ));
+        }
+    }
+    save(host).map_err(|reason| {
+        refuse(
+            "SaveFailed",
+            &format!(
+                "Storing the imported document in {} failed: {reason}",
+                provider_label(host)
+            ),
+            json!({ "provider": PROVIDER_ID, "reason": reason }),
+        )
+    })?;
+    Ok(info(host))
+}
+
+/// `Pinwheel.waffle` / `Pinwheel.json` → `Pinwheel` (case-insensitive, as the page's picker).
+fn strip_document_extension(file_name: &str) -> &str {
+    for ext in [".waffle", ".json"] {
+        if file_name.len() > ext.len()
+            && file_name[file_name.len() - ext.len()..].eq_ignore_ascii_case(ext)
+        {
+            return &file_name[..file_name.len() - ext.len()];
+        }
+    }
+    file_name
 }
 
 fn document_save(host: &mut Host) -> Result<Value, Box<ToolResult>> {

@@ -506,7 +506,7 @@ plus two new codes, `ViewerUnavailable` and `HostCapability`.
 | `selection_get` | page selection | the **focused viewer's** selection (most recent input); none attached → `ViewerUnavailable` |
 | `viewport_view`, `viewport_capture` | page camera / canvas | forwarded to the focused visible viewer (`capture_request`); none → `ViewerUnavailable` |
 | `export_*` `deliver:"download"` — the file arrives in `ToolResult::download` (C6) | browser download | host writes into `--documents DIR/exports/` and returns the path (`deliver:"agent"` unchanged) |
-| Storage tools (`storage_list`, `document_open/save/new`) | IndexedDB / git providers | host file provider rooted at `--documents DIR` (git providers: `HostCapability` in v1) |
+| Storage tools (`storage_list`, `document_open/save/new/import`) | IndexedDB / git providers | host file provider rooted at `--documents DIR` (git providers: `HostCapability` in v1) |
 | `window.confirm` on unsaved changes | page dialog | host policy: autosave makes "unsaved" transient; `document_open` saves first |
 
 ~~The manifest gains `x-hosts: ["page","host"]` per tool~~ — withdrawn in

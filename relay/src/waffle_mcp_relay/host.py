@@ -311,7 +311,7 @@ class HostBackend:
         structured = result.get("structuredContent")
         if not isinstance(structured, dict):
             return
-        if tool in ("document_info", "document_new", "document_open"):
+        if tool in ("document_info", "document_new", "document_open", "document_import"):
             doc_id = structured.get("storage_id")
             if isinstance(doc_id, str):
                 self._document_id = doc_id
