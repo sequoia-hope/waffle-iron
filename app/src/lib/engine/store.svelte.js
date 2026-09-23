@@ -791,6 +791,42 @@ export function isEngineCrashed() {
 	return engineCrashed;
 }
 
+/** True on the `/view` route: the model is streamed from a host; no engine runs here. */
+let viewerMode = $state(false);
+export function isViewerMode() {
+	return viewerMode;
+}
+
+/**
+ * Draw a host's snapshot (`$lib/viewer/link.js`, specs/waffle_server_mode.md
+ * §4): the same mirrors a `ModelUpdated` fills — the tree, the bodies, the
+ * tab bar, the sources, the assembly status, the errors — and none of the
+ * editor's side effects: no autosave (the document is the host's), no
+ * thumbnail, no toasts (the errors are the tree's badges).
+ * @param {any} snapshot - the host's `snapshot` frame
+ * @param {any[]} viewerMeshes - the decoded bodies, in the worker's shape
+ */
+export function applyViewerSnapshot(snapshot, viewerMeshes) {
+	viewerMode = true;
+	if (snapshot.tree) featureTree = snapshot.tree;
+	meshes = viewerMeshes;
+	mirrorSessionDocument(snapshot.document);
+	documentSources = snapshot.sources ?? [];
+	assemblyStatus = snapshot.assembly
+		? { errors: [], warnings: [], parts: [], connectors: [], part_connectors: [], ...snapshot.assembly }
+		: null;
+	consumedFeatures = new Set(snapshot.consumed_features ?? []);
+	lastError = null;
+	rebuildProgress = null;
+	statusMessage = `Viewing (${meshes.length} ${meshes.length === 1 ? 'body' : 'bodies'})`;
+	const errors = new Map();
+	for (const e of snapshot.errors ?? []) {
+		if (e && typeof e === 'object') errors.set(e.feature_id, e.message);
+	}
+	featureErrors = errors;
+	lastRebuildWarnings = new Set(snapshot.warnings ?? []);
+}
+
 /**
  * Initialize the engine bridge and WASM worker.
  */

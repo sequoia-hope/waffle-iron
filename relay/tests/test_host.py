@@ -227,9 +227,14 @@ async def test_host_mode_over_mcp_lists_only_served_tools(
     assert status["state"] == "ready" and status["kernel"] == "host"
     assert status["documents"] == str(docs)
 
+    # A viewer link (spec §4.7): the page attaches to the relay's viewer
+    # socket and draws what the host computes.
     connect = await proc.call_tool("waffle_connect")
-    assert connect["isError"] is True
-    assert connect["structuredContent"]["error"]["code"] == "HostCapability"
+    assert connect["isError"] is False, connect
+    url = connect["structuredContent"]["pairing_url"]
+    assert url.startswith(f"{APP_URL}view?host=ws"), url
+    assert "code=" in url and connect["structuredContent"]["viewer"] is True
+    assert status.get("viewers") == 0
 
     summary = await proc.call_tool("model_summary")
     assert summary["isError"] is False
@@ -266,7 +271,8 @@ async def test_the_real_host_builds_a_part_over_mcp(tmp_path: Path) -> None:
         listed = await proc.request("tools/list")
         names = {t["name"] for t in listed["result"]["tools"]}
         assert {"sketch_create", "feature_add", "script_feature_add", "document_new"} <= names
-        assert "selection_get" not in names and "tab_add" not in names
+        # The tab and assembly tools are the engine's since 2026-09-23.
+        assert "selection_get" not in names and "tab_add" in names
 
         created = await proc.call_tool("document_new", {"name": "Host part"})
         assert created["isError"] is False, created

@@ -161,6 +161,7 @@ GUI_RELAY_SPECS=(
   agent-parity.spec.js
   agent-reconnect.spec.js
   agent-tabs-viewport.spec.js
+  viewer.spec.js
 )
 
 # ---------------------------------------------------------------------------

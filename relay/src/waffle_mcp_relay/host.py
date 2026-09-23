@@ -46,8 +46,11 @@ CRASHED_MESSAGE = (
 )
 NO_VIEWER_MESSAGE = (
     "The relay runs the engine in a native host (--kernel host); there is no browser page "
-    "to pair. Viewers attach in server mode P-D."
+    "to pair, and this relay has no viewer link to hand out."
 )
+# Blobs the relay keeps so several viewers, or one that reconnects, do not
+# ask the host for the same bytes twice.
+BLOB_CACHE_BYTES = 256 * 1024 * 1024
 
 
 class HostError(Exception):
@@ -130,6 +133,14 @@ class HostBackend:
         self._document_id: str | None = None
         self._document_name: str | None = None
         self._closing = False
+        # Viewer sync (viewer.py): the host's latest snapshot, the viewer
+        # requests in flight (`snapshot` / `blob` by id), a bounded blob cache,
+        # and the server that fans snapshots out.
+        self._snapshot: dict[str, Any] | None = None
+        self._viewer_pending: dict[str, asyncio.Future[tuple[dict[str, Any], bytes]]] = {}
+        self._blobs: dict[str, tuple[dict[str, Any], bytes]] = {}
+        self._blob_bytes = 0
+        self._viewers: Any | None = None
 
     # -- lifecycle ---------------------------------------------------------
 
@@ -140,6 +151,85 @@ class HostBackend:
     @property
     def host_build(self) -> Any:
         return None if self._ready is None else self._ready.get("host_build")
+
+    @property
+    def epoch(self) -> str | None:
+        """The host's current epoch: the latest snapshot's, else the ready frame's."""
+        if self._snapshot is not None:
+            epoch = self._snapshot.get("epoch")
+            if isinstance(epoch, str):
+                return epoch
+        if self._ready is not None:
+            epoch = self._ready.get("epoch")
+            if isinstance(epoch, str):
+                return epoch
+        return None
+
+    # -- viewer sync (spec §4) -----------------------------------------------
+
+    def attach_viewers(self, viewers: Any) -> None:
+        """The viewer server that receives every snapshot the host pushes."""
+        self._viewers = viewers
+
+    async def latest_snapshot(self) -> dict[str, Any] | None:
+        """The host's latest snapshot, asking for one if none arrived yet."""
+        if self._snapshot is None and self._proc is not None:
+            try:
+                header, _ = await self._viewer_request({"type": "snapshot"})
+            except LinkError:
+                return None
+            self._snapshot = header
+        return self._snapshot
+
+    async def request_blob(self, mesh_id: str) -> tuple[dict[str, Any], bytes] | None:
+        """A mesh blob by id: from the relay's cache, else from the host; None if unknown."""
+        cached = self._blobs.get(mesh_id)
+        if cached is not None:
+            return cached
+        if self._proc is None:
+            return None
+        try:
+            header, payload = await self._viewer_request({"type": "blob", "mesh_id": mesh_id})
+        except LinkError:
+            return None
+        if header.get("missing"):
+            return None
+        self._remember_blob(mesh_id, header, payload)
+        return header, payload
+
+    def _remember_blob(self, mesh_id: str, header: dict[str, Any], payload: bytes) -> None:
+        if mesh_id in self._blobs:
+            return
+        self._blobs[mesh_id] = (header, payload)
+        self._blob_bytes += len(payload)
+        while self._blob_bytes > BLOB_CACHE_BYTES and len(self._blobs) > 1:
+            oldest = next(iter(self._blobs))
+            _, gone = self._blobs.pop(oldest)
+            self._blob_bytes -= len(gone)
+
+    async def _viewer_request(self, frame: dict[str, Any]) -> tuple[dict[str, Any], bytes]:
+        proc = self._proc
+        assert proc is not None and proc.stdin is not None
+        request_id = uuid.uuid4().hex
+        future: asyncio.Future[tuple[dict[str, Any], bytes]] = (
+            asyncio.get_running_loop().create_future()
+        )
+        self._viewer_pending[request_id] = future
+        try:
+            proc.stdin.write(encode_frame({**frame, "id": request_id}))
+            await proc.stdin.drain()
+        except (ConnectionError, OSError):
+            self._viewer_pending.pop(request_id, None)
+            raise LinkError("EngineCrashed", CRASHED_MESSAGE, {"state_unknown": True}) from None
+        return await future
+
+    async def _on_snapshot(self, header: dict[str, Any]) -> None:
+        self._snapshot = header
+        if self._viewers is not None:
+            try:
+                await self._viewers.broadcast(header)
+            except Exception:  # noqa: BLE001 — a viewer's failure must not stop the host reader
+                log.exception("viewer broadcast failed")
 
     @property
     def crashes(self) -> int:
@@ -242,10 +332,15 @@ class HostBackend:
             out["document_name"] = self._document_name
         if self._crashes:
             out["host_restarts"] = self._crashes
+        if self._viewers is not None:
+            out["viewers"] = self._viewers.viewer_count
         return out
 
     async def connect(self) -> tuple[str, float | None]:
-        raise LinkError("HostCapability", NO_VIEWER_MESSAGE, {"kernel": "host"})
+        """A viewer code (§4.7): the link the agent hands the user opens `/view`."""
+        if self._viewers is None:
+            raise LinkError("HostCapability", NO_VIEWER_MESSAGE, {"kernel": "host"})
+        return self._viewers.pairing.issue_code()
 
     # -- calls -------------------------------------------------------------
 
@@ -334,9 +429,27 @@ class HostBackend:
                 frame = await read_frame(proc.stdout)
                 if frame is None:
                     break
-                header, _ = frame
+                header, payload = frame
                 kind = header.get("type")
                 call_id = header.get("id")
+                if kind in ("snapshot", "blob"):
+                    # Viewer sync: an answer to a request by id, or (a
+                    # snapshot without one) the host's push after a change,
+                    # which every viewer gets.
+                    future = (
+                        self._viewer_pending.pop(call_id, None)
+                        if isinstance(call_id, str)
+                        else None
+                    )
+                    if kind == "snapshot":
+                        header.pop("id", None)
+                        if future is None:
+                            await self._on_snapshot(header)
+                        else:
+                            self._snapshot = header
+                    if future is not None and not future.done():
+                        future.set_result((header, payload))
+                    continue
                 if kind == "result" and isinstance(call_id, str):
                     self._progress.pop(call_id, None)
                     future = self._pending.pop(call_id, None)
@@ -379,6 +492,14 @@ class HostBackend:
                 )
         self._pending.clear()
         self._progress.clear()
+        for viewer_future in self._viewer_pending.values():
+            if not viewer_future.done():
+                viewer_future.set_exception(
+                    LinkError("EngineCrashed", CRASHED_MESSAGE, {"state_unknown": True})
+                )
+        self._viewer_pending.clear()
+        # The restarted host mints a new epoch; its first snapshot replaces this.
+        self._snapshot = None
 
     async def _restart(self) -> None:
         """Spawn a fresh host and reopen the document it last had open (§4.8)."""

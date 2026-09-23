@@ -40,6 +40,12 @@ pub struct Host {
     documents: PathBuf,
     epoch: String,
     started: Instant,
+    /// The mesh blobs of recent snapshots (viewer sync, `viewer.rs`).
+    meshes: crate::viewer::MeshStore,
+    /// Names the document state a viewer holds (§4.1): incremented after
+    /// every tool that changed the document. The session's own revision
+    /// counts tab-level commits only, so it is not this.
+    revision: u64,
 }
 
 impl Host {
@@ -55,7 +61,37 @@ impl Host {
             documents,
             epoch: uuid::Uuid::new_v4().to_string(),
             started: Instant::now(),
+            meshes: Default::default(),
+            revision: 0,
         })
+    }
+
+    /// The document state's name for viewers (see `revision`).
+    pub fn revision(&self) -> u64 {
+        self.revision
+    }
+
+    /// The state, the kernel and the mesh store at once, for the snapshot
+    /// (the borrow checker wants them split before the loop).
+    pub(crate) fn viewer_parts(
+        &mut self,
+    ) -> (
+        &EngineState,
+        &kernel_v2::KernelV2Adapter,
+        &mut crate::viewer::MeshStore,
+    ) {
+        (&self.state, &self.kernel, &mut self.meshes)
+    }
+
+    pub(crate) fn meshes(&self) -> &crate::viewer::MeshStore {
+        &self.meshes
+    }
+
+    /// A new epoch: the document a viewer holds is not this one any more
+    /// (§4.1 — "epoch changes when the host process restarts or the document
+    /// is reopened"), so a viewer's `have` can never match across it.
+    fn new_epoch(&mut self) {
+        self.epoch = uuid::Uuid::new_v4().to_string();
     }
 
     /// Every tool this host answers. The relay lists exactly these (plus its
@@ -102,11 +138,25 @@ impl Host {
     /// (§2.4, oracle H4): the relay answers `EngineCrashed`, restarts the
     /// host and reopens the autosaved document.
     pub fn call(&mut self, name: &str, arguments: &Value, context: Option<&Value>) -> ToolResult {
+        let result = self.route(name, arguments, context);
+        if !result.is_error && Self::model_changed(name) {
+            self.revision += 1;
+        }
+        result
+    }
+
+    fn route(&mut self, name: &str, arguments: &Value, context: Option<&Value>) -> ToolResult {
         if MIGRATED.contains(&name) {
             return self.engine_tool(name, arguments, context);
         }
         if DOCUMENT_TOOLS.contains(&name) {
-            return documents::run(self, name, arguments);
+            let result = documents::run(self, name, arguments);
+            if !result.is_error
+                && matches!(name, "document_open" | "document_new" | "document_import")
+            {
+                self.new_epoch();
+            }
+            return result;
         }
         if VIEWER_TOOLS.contains(&name) {
             return ToolResult::error(

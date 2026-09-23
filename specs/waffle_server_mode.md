@@ -799,6 +799,68 @@ untouched (C1).
 - **V8** real iOS Safari: terminal ↔ browser switching for 10 minutes
   during an agent session, no loss (manual cell, as rev-2 O23).
 
+### 4.12 As landed (2026-09-23, checkpoint 1)
+
+What exists, against §4.1–§4.10:
+
+- **Host** (`crates/waffle-host/src/viewer.rs`): `snapshot{id?}` answers
+  the document as a viewer draws it — `document`, `tree`, `errors`,
+  `feature_errors`, `warnings`, `sources`, `assembly`, and `bodies`, each
+  body its worker metadata plus `mesh_id`, `encoding`, `byte_length`,
+  `triangle_count`, `bbox` — and is also emitted UNSOLICITED after every
+  tool that changed the document (`Host::model_changed`: every mutating
+  engine tool and `document_open/new/import`). `blob{id, mesh_id}` answers
+  the bytes as the frame payload or `missing: true`. `revision` is the
+  host's own counter (the session's counts tab commits only); `epoch` is
+  re-minted on every document open/new/import. `raw/1` is the encoding
+  (§4.5): `u32 LE header_len | JSON header {counts, face_ranges,
+  edge_ranges} padded to 4 | f32 positions | f32 normals | u32 indices |
+  f32 edge polylines`. **`mesh_id` is sha1 of the blob for now** (`sha1`
+  was already in the lock; xxh3 changes only the id's length). A
+  `MeshStore` keeps the current snapshot's blobs pinned and the rest up
+  to 512 MB. Oracle: `host_stdio.rs` "a snapshot names every body and
+  blobs answer by id" (unsolicited push, ids, the blob's layout, `missing`,
+  an unchanged body keeps its id).
+- **Relay** (`relay/src/waffle_mcp_relay/viewer.py`): in `--kernel host`
+  the port carries the viewer WebSocket; `waffle_connect` answers
+  `<app-url>view?host=<ws>&code=…` (`viewer: true`); `waffle_status` adds
+  `viewers`. `attach{protocol, code|session, have?, visible}` → `welcome
+  {viewer_id, session, epoch, host_build}` → `snapshot` unless `have`
+  matches → `want{mesh_ids}` → binary `blob` frames (`u32 BE header_len |
+  header | payload`) or a text `blob{missing}`; `ping`/`pong`, `visible`,
+  `bye`; the page link's origin gate and heartbeat. Every unsolicited host
+  snapshot is broadcast to every viewer; a blob is cached in the relay
+  (256 MB) so several viewers cost the host one encode. `ViewerPairing`:
+  many single-use codes (300 s) or the `--persistent-link` code, sessions
+  resumable for the resume window; **tokens are random and in-process**
+  (the HMAC tokens of §4.7 that survive a relay restart are not built).
+  **v1 sends a whole `snapshot` for every change** rather than §4.3's
+  keyed `update`: the geometry is not in it, so it is KB. Oracles:
+  `relay/tests/test_viewer.py` (attach/snapshot/blobs/missing, push to
+  every viewer, matching `have` ⇒ welcome only, refusals, pairing clock).
+- **Page** (`app/src/routes/view/+page.svelte`, `app/src/lib/viewer/`):
+  the root layout skips `initEngine` on `/view` — no worker, no wasm.
+  `link.js` attaches with the code, then rewrites the address without it;
+  the session goes to `sessionStorage` AND `localStorage` under the host
+  URL (§4.6); every snapshot and blob goes to IndexedDB (`waffle-iron-viewer`,
+  blobs bounded at 256 MB oldest-first); a reload paints the last snapshot
+  from the cache at once (`stale` until `welcome`), attaches with `have`,
+  and asks only for the blobs it lacks; reconnect policy as the agent
+  link's. `decode.js` turns a `raw/1` blob into the worker's per-body
+  object, so the editor's viewport, overlays and picking draw a streamed
+  body unchanged; the store's `applyViewerSnapshot` fills the same mirrors
+  a `ModelUpdated` does, without autosave, thumbnail or toasts. Oracle:
+  `app/tests/gui/viewer.spec.js` (V1 kill-and-resume with a cache hit and
+  zero blob requests; V5 an unchanged body transfers no blob; a new
+  document empties the view) — needs the release host binary, so it runs
+  in `gui-relay` locally and skips in CI until that job builds the host.
+
+Not in checkpoint 1: `rebuild` progress frames; `selection`, `capture_request`
+(the viewer keeps `AgentCapture.svelte`, so forwarding `viewport_capture`
+is wiring); `command` (V3); presence in `activity`; `mq/1` (V6 is
+unmeasured); face-chunk encoding (V7); HMAC tokens; the H3 `decimate_mesh`
+order (previews are not content-addressed yet — a snapshot carries none).
+
 ---
 
 ## 5. Phasing
@@ -808,7 +870,7 @@ untouched (C1).
 | **P-A: A2.1 compliance** — DONE 2026-09-16 | S0, S1, S2 | browser suites green; `document_session.rs`; no behavior change |
 | **P-B: tools in Rust** — DONE 2026-09-17 | S3, shadowed tool by tool | H2-style differential green in page mode; JS tool bodies deleted |
 | **P-C: host** — checkpoint 1 DONE 2026-09-23 (§3.5); wheels, H1/H2/H5 open | S4, relay `Backend` split, `--kernel host`, file provider, wheels | H1–H6 |
-| **P-D: viewer v1** | `/view` route, `waffle-viewer/1` snapshot/update/blobs, `raw/1` + `mq/1`, cache, auth, reconnect | V1–V3, V5, V6, V8 |
+| **P-D: viewer v1** — checkpoint 1 landed 2026-09-23 (§4.12) | `/view` route, `waffle-viewer/1` snapshot/update/blobs, `raw/1` + `mq/1`, cache, auth, reconnect | V1–V3, V5, V6, V8 |
 | **P-E: viewer v2+** | multiple viewers (V4), capture forwarding, `command` (V3 frames), face-chunk encoding if V7 justifies | V4, V7 |
 
 P-A and P-B are useful even if P-C is never built: they remove a governance

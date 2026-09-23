@@ -97,7 +97,15 @@ impl Client {
 
     fn bye(mut self) -> i32 {
         self.send(&json!({ "type": "bye", "reason": "test done" }));
-        let frame = self.recv();
+        // A snapshot the host pushed after the last change may still be
+        // unread; the host answers `bye` after it.
+        let frame = loop {
+            let frame = self.recv();
+            if frame.kind() == "bye" {
+                break frame;
+            }
+            self.aside.push(frame);
+        };
         assert_eq!(frame.kind(), "bye");
         let status = self.child.wait().expect("wait");
         status.code().unwrap_or(-1)
@@ -523,4 +531,135 @@ fn a_missing_documents_flag_is_a_usage_error() {
         .unwrap();
     assert_eq!(out.status.code(), Some(2));
     assert!(String::from_utf8_lossy(&out.stderr).contains("--documents"));
+}
+
+/// Viewer sync (`specs/waffle_server_mode.md` §4): a snapshot names every
+/// rendered body by the content id of its `raw/1` blob, a blob answers by id
+/// with the bytes as the frame's payload, an unknown id is `missing`, an
+/// unchanged body keeps its id, and every tool that changed the document is
+/// followed by an unsolicited snapshot.
+#[test]
+fn a_snapshot_names_every_body_and_blobs_answer_by_id() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut client = Client::spawn(dir.path());
+    assert_eq!(client.recv().kind(), "ready");
+
+    let sketch = client.ok(
+        "sketch_create",
+        json!({
+            "plane": { "origin": [0.0, 0.0, 0.0], "normal": [0.0, 0.0, 1.0] },
+            "entities": rectangle(),
+        }),
+    );
+    let sketch_id = sketch["feature_id"].as_str().unwrap().to_string();
+    client.ok(
+        "feature_add",
+        json!({
+            "operation": {
+                "type": "Extrude",
+                "params": {
+                    "sketch_id": sketch_id,
+                    "profile_index": 0,
+                    "profile_entity_ids": [5, 6, 7, 8],
+                    "depth": 0.005,
+                    "symmetric": false,
+                    "cut": false,
+                }
+            }
+        }),
+    );
+    // The push after `feature_add` is read on the way to the next result.
+    client.ok("model_summary", json!({}));
+    let pushed: Vec<&Frame> = client
+        .aside
+        .iter()
+        .filter(|f| f.kind() == "snapshot")
+        .collect();
+    assert!(
+        pushed.iter().any(|f| f.header.get("id").is_none()),
+        "a change is followed by an unsolicited snapshot: {:?}",
+        client.aside.iter().map(|f| f.kind()).collect::<Vec<_>>()
+    );
+
+    client.send(&json!({ "type": "snapshot", "id": "s1" }));
+    let snapshot = loop {
+        let frame = client.recv();
+        if frame.kind() == "snapshot" && frame.header["id"] == "s1" {
+            break frame.header;
+        }
+    };
+    assert_eq!(snapshot["protocol"], "waffle-viewer/1");
+    assert!(snapshot["epoch"].as_str().is_some_and(|e| !e.is_empty()));
+    assert!(snapshot["revision"].as_u64().unwrap() > 0);
+    assert_eq!(snapshot["document"]["tabs"].as_array().unwrap().len(), 1);
+    assert_eq!(snapshot["tree"]["features"].as_array().unwrap().len(), 2);
+    let bodies = snapshot["bodies"].as_array().unwrap();
+    assert_eq!(bodies.len(), 1, "one extruded body");
+    let body = &bodies[0];
+    let mesh_id = body["mesh_id"].as_str().unwrap().to_string();
+    assert_eq!(mesh_id.len(), 40, "a content hash, hex");
+    assert_eq!(body["encoding"], "raw/1");
+    assert!(body["byte_length"].as_u64().unwrap() > 0);
+    assert_eq!(body["triangle_count"], 12, "a box is twelve triangles");
+    assert!(body["bodyId"].as_str().unwrap().ends_with("/Main"));
+    // The bbox is from the f32 render mesh.
+    assert!((body["bbox"]["max"][2].as_f64().unwrap() - 0.005).abs() < 1e-6);
+
+    client.send(&json!({ "type": "blob", "id": "b1", "mesh_id": mesh_id }));
+    let blob = loop {
+        let frame = client.recv();
+        if frame.kind() == "blob" && frame.header["id"] == "b1" {
+            break frame;
+        }
+    };
+    assert_eq!(blob.header["mesh_id"], mesh_id);
+    assert_eq!(blob.header["encoding"], "raw/1");
+    assert_eq!(blob.header["byte_length"], blob.payload.len());
+    assert_eq!(
+        blob.payload.len(),
+        body["byte_length"].as_u64().unwrap() as usize
+    );
+    // raw/1: u32 LE header length (padded to 4), JSON header, then the buffers.
+    let header_len = u32::from_le_bytes(blob.payload[0..4].try_into().unwrap()) as usize;
+    assert_eq!(header_len % 4, 0);
+    let header_text = std::str::from_utf8(&blob.payload[4..4 + header_len])
+        .unwrap()
+        .trim_end_matches('\0');
+    let header: Value = serde_json::from_str(header_text).unwrap();
+    let v = header["vertex_count"].as_u64().unwrap() as usize;
+    let i = header["index_count"].as_u64().unwrap() as usize;
+    let e = header["edge_vertex_count"].as_u64().unwrap() as usize;
+    assert_eq!(i, 36);
+    assert_eq!(
+        header["face_ranges"].as_array().unwrap().len(),
+        6,
+        "six faces"
+    );
+    assert!(!header["edge_ranges"].as_array().unwrap().is_empty());
+    assert_eq!(
+        blob.payload.len(),
+        4 + header_len + v * 12 + v * 12 + i * 4 + e * 12
+    );
+
+    client.send(&json!({ "type": "blob", "id": "b2", "mesh_id": "nope" }));
+    let missing = loop {
+        let frame = client.recv();
+        if frame.kind() == "blob" && frame.header["id"] == "b2" {
+            break frame;
+        }
+    };
+    assert_eq!(missing.header["missing"], true);
+    assert!(missing.payload.is_empty());
+
+    // An unchanged body keeps its id across snapshots.
+    client.send(&json!({ "type": "snapshot", "id": "s2" }));
+    let again = loop {
+        let frame = client.recv();
+        if frame.kind() == "snapshot" && frame.header["id"] == "s2" {
+            break frame.header;
+        }
+    };
+    assert_eq!(again["bodies"][0]["mesh_id"], mesh_id);
+
+    assert_eq!(client.bye(), 0);
 }

@@ -36,6 +36,7 @@ from waffle_mcp_relay.host import HostBackend, HostError
 from waffle_mcp_relay.link import LinkError, LinkServer, epoch_to_iso
 from waffle_mcp_relay.manifest import canonical_json, load_bundled
 from waffle_mcp_relay.pairing import Pairing
+from waffle_mcp_relay.viewer import ViewerPairing, ViewerServer
 
 log = logging.getLogger("waffle_mcp_relay")
 
@@ -273,6 +274,11 @@ class RelayApp:
             )
 
     def pairing_url(self, code: str) -> str:
+        if self._backend.kernel == "host":
+            # §4.7: a viewer link — the page attaches to the relay's viewer
+            # socket and draws what the host computes; no engine in the browser.
+            query = urlencode({"host": self._config.relay_url, "code": code})
+            return f"{self._config.app_url}view?{query}"
         query = urlencode(
             {"relay": self._config.relay_url, "code": code, "name": self.agent_name()}
         )
@@ -290,6 +296,12 @@ class RelayApp:
         lifetime = (
             "reusable, does not expire" if expires is None else f"single use, expires {expires}"
         )
+        if self._backend.kernel == "host":
+            text = (
+                "Ask the user to open this viewer link on any device to watch the model as it "
+                f"is built — no engine runs in that browser ({lifetime}):\n{url}"
+            )
+            return ok_result({"pairing_url": url, "expires_at": expires, "viewer": True}, text)
         text = (
             "Ask the user to open this link in the browser where Waffle Iron runs and click "
             f"Allow ({lifetime}):\n{url}"
@@ -300,9 +312,11 @@ class RelayApp:
 async def run_relay(config: RelayConfig) -> None:
     app_ref: list[RelayApp] = []
     backend: Backend
+    viewers: ViewerServer | None = None
     if config.kernel == "host":
-        # §3.2: the host runs the tools; there is no page link. The port stays
-        # the relay's (viewers attach on it in P-D) but nothing listens yet.
+        # §3.2: the host runs the tools; there is no page link. The port is
+        # the VIEWER link's (§4): browsers attach to watch what the host
+        # computes, and `waffle_connect` hands out their codes.
         assert config.host_binary is not None and config.documents is not None
         host = HostBackend(
             config.host_binary,
@@ -316,11 +330,30 @@ async def run_relay(config: RelayConfig) -> None:
             await host.start()
         except HostError as err:
             raise SystemExit(f"waffle-mcp-relay: {err}") from None
+        viewers = ViewerServer(
+            host=host,
+            pairing=ViewerPairing(
+                resume_s=config.resume_window_s, persistent_code=config.persistent_code
+            ),
+            allow_origins=config.allow_origins,
+            ssl_context=config.ssl_context,
+        )
+        await viewers.start(config.bind, config.port)
         log.info(
-            "kernel host: %s (documents in %s); no page link — viewers arrive in P-D",
+            "kernel host: %s (documents in %s); viewer link on %s, advertised as %s "
+            "(allowed origins: %s)",
             config.host_binary,
             config.documents,
+            config.listen_address,
+            config.relay_url,
+            ", ".join(config.allow_origins),
         )
+        if config.persistent_code is not None:
+            log.info(
+                "persistent viewer link (reusable; code kept in %s): %s",
+                config.persistent_link_file,
+                app.pairing_url(config.persistent_code),
+            )
     else:
         pairing = Pairing(resume_s=config.resume_window_s, persistent_code=config.persistent_code)
         link = LinkServer(
@@ -356,4 +389,6 @@ async def run_relay(config: RelayConfig) -> None:
                 app.server.create_initialization_options(NotificationOptions(tools_changed=True)),
             )
     finally:
+        if viewers is not None:
+            await viewers.close()
         await backend.close()

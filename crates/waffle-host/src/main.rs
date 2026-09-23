@@ -2,9 +2,13 @@
 //! §3.4). stdout carries frames only; logs go to stderr.
 //!
 //! Frames in: `tool{id, name, arguments, context{agent_name, progress}}`,
-//! `cancel{id}`, `bye{reason}`. Frames out: `ready`, `progress{id, message,
+//! `cancel{id}`, `bye{reason}`, and for viewer sync (§4) `snapshot{id?}` and
+//! `blob{id, mesh_id}`. Frames out: `ready`, `progress{id, message,
 //! elapsed_ms, progress, total}` (only while a call that asked for progress
-//! is running), `result{id, content, structuredContent, isError}`, `bye`.
+//! is running), `result{id, content, structuredContent, isError}`, `bye`,
+//! `snapshot{…}` (answering a request by `id`, and unsolicited after every
+//! tool that changed the document), `blob{id, mesh_id, encoding,
+//! byte_length}` + payload (or `missing: true`).
 //!
 //! One engine thread runs tools in arrival order; a reader thread feeds it,
 //! so a `bye` or a `cancel` is seen as soon as it arrives even during a long
@@ -54,9 +58,14 @@ fn parse_args() -> PathBuf {
 
 /// Write one frame to stdout under its lock (a frame is one `write_all`).
 fn emit(header: &Value) {
+    emit_with(header, b"");
+}
+
+/// Write one frame with a binary payload (a viewer blob).
+fn emit_with(header: &Value, payload: &[u8]) {
     let stdout = io::stdout();
     let mut out = stdout.lock();
-    if let Err(err) = write_frame(&mut out, header, b"") {
+    if let Err(err) = write_frame(&mut out, header, payload) {
         // The relay is gone: nothing to answer to. Exit quietly; the relay
         // sees EOF on its side and treats the host as crashed.
         eprintln!("waffle-host: stdout closed ({err}); exiting");
@@ -115,6 +124,43 @@ fn handle_tool(host: &mut Host, header: &Value) {
         map.remove("download");
     }
     emit(&frame);
+    // Viewer sync (§4.6 step 2): every committed change is followed by the
+    // document as a viewer draws it, so the relay can push an `update`
+    // without asking. A refusal moved nothing a viewer shows.
+    if Host::model_changed(name) && !result.is_error {
+        emit(&host.snapshot());
+    }
+}
+
+/// `snapshot{id?}`: the document as a viewer draws it, answered with the
+/// request's `id` when it had one.
+fn handle_snapshot(host: &mut Host, header: &Value) {
+    let mut snapshot = host.snapshot();
+    if let Some(id) = header.get("id") {
+        snapshot["id"] = id.clone();
+    }
+    emit(&snapshot);
+}
+
+/// `blob{id, mesh_id}`: the named blob as the frame's payload, or
+/// `missing: true` when no recent snapshot named it (the viewer then asks
+/// for a fresh snapshot).
+fn handle_blob(host: &Host, header: &Value) {
+    let id = header.get("id").cloned().unwrap_or(Value::Null);
+    let mesh_id = header.get("mesh_id").and_then(Value::as_str).unwrap_or("");
+    match host.blob(mesh_id) {
+        Some(bytes) => emit_with(
+            &json!({
+                "type": "blob",
+                "id": id,
+                "mesh_id": mesh_id,
+                "encoding": waffle_host::viewer::ENCODING,
+                "byte_length": bytes.len(),
+            }),
+            &bytes,
+        ),
+        None => emit(&json!({ "type": "blob", "id": id, "mesh_id": mesh_id, "missing": true })),
+    }
 }
 
 fn main() {
@@ -168,6 +214,8 @@ fn main() {
         };
         match frame.kind() {
             "tool" => handle_tool(&mut host, &frame.header),
+            "snapshot" => handle_snapshot(&mut host, &frame.header),
+            "blob" => handle_blob(&host, &frame.header),
             "cancel" => eprintln!(
                 "waffle-host: cancel for {} noted; the engine finishes the tool it is on",
                 frame.header.get("id").cloned().unwrap_or(Value::Null)

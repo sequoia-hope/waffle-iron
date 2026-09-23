@@ -36,10 +36,43 @@ TOOLS = [
 ]
 
 
-def write(header: dict[str, Any]) -> None:
+def write(header: dict[str, Any], payload: bytes = b"") -> None:
     body = json.dumps(header).encode()
-    sys.stdout.buffer.write(PREFIX.pack(len(body), 0) + body)
+    sys.stdout.buffer.write(PREFIX.pack(len(body), len(payload)) + body + payload)
     sys.stdout.buffer.flush()
+
+
+# Viewer sync (spec §4): one body whose blob is these bytes; `feature_add`
+# bumps the revision and pushes a snapshot, as the real host does.
+BLOB_ID = "m1"
+BLOB_BYTES = b"BLOB-BYTES"
+REVISION = 0
+
+
+def snapshot(epoch: str, request_id: str | None = None) -> None:
+    header: dict[str, Any] = {
+        "type": "snapshot",
+        "protocol": "waffle-viewer/1",
+        "epoch": epoch,
+        "revision": REVISION,
+        "document": {"id": "doc", "name": "Fake", "tabs": [], "active_tab": "t1"},
+        "tree": {"features": [], "active_index": None},
+        "errors": [],
+        "warnings": [],
+        "bodies": [
+            {
+                "body_index": 0,
+                "bodyId": "f1/Main",
+                "name": "Body",
+                "mesh_id": BLOB_ID,
+                "encoding": "raw/1",
+                "byte_length": len(BLOB_BYTES),
+            }
+        ],
+    }
+    if request_id is not None:
+        header["id"] = request_id
+    write(header)
 
 
 def read() -> dict[str, Any] | None:
@@ -82,6 +115,8 @@ def main() -> int:
     )
     state_file = os.environ.get("FAKE_HOST_STATE_FILE")
     open_id: str | None = None
+    epoch = f"epoch-{os.getpid()}"
+    global REVISION
     while True:
         frame = read()
         if frame is None:
@@ -90,6 +125,25 @@ def main() -> int:
         if kind == "bye":
             write({"type": "bye", "reason": "requested"})
             return 0
+        if kind == "snapshot":
+            snapshot(epoch, frame.get("id"))
+            continue
+        if kind == "blob":
+            mesh_id = frame.get("mesh_id")
+            if mesh_id == BLOB_ID:
+                write(
+                    {
+                        "type": "blob",
+                        "id": frame.get("id"),
+                        "mesh_id": mesh_id,
+                        "encoding": "raw/1",
+                        "byte_length": len(BLOB_BYTES),
+                    },
+                    BLOB_BYTES,
+                )
+            else:
+                write({"type": "blob", "id": frame.get("id"), "mesh_id": mesh_id, "missing": True})
+            continue
         if kind != "tool":
             continue
         call_id = frame["id"]
@@ -113,6 +167,8 @@ def main() -> int:
                         }
                     )
             result(call_id, {"done": True})
+            REVISION += 1
+            snapshot(epoch)
             continue
         if name == "document_open":
             open_id = arguments.get("id")

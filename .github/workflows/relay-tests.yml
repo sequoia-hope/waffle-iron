@@ -20,6 +20,12 @@ name: Relay tests
 # Both jobs run against the COMMITTED WASM bundle in app/static/pkg/ — no Rust
 # toolchain — the same way gui-tests.yml does. Measured locally (2026-09-17):
 # relay 13 s; gui-relay 60 tests in 57 s with 4 workers.
+#
+# viewer.spec.js (the `/view` route against the REAL native host, server
+# mode P-D) needs `target/release/waffle-host` and SKIPS here for want of a
+# Rust toolchain; it runs in `scripts/test.sh gui-relay` locally after
+# `cargo build -p waffle-host --release`. Building the host in this job is
+# the open item to make it a CI oracle.
 
 on:
   push:

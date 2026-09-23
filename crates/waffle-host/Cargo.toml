@@ -24,6 +24,11 @@ serde_json = "1"
 uuid = { version = "1", features = ["v4"] }
 chrono = { version = "0.4", features = ["serde"] }
 base64 = "0.22"
+# Viewer sync (spec §4): the kernel trait for face entries, and the content
+# hash that names a mesh blob (`sha1` is already in the lock via file-format;
+# the spec's xxh3 is a later swap, it changes only the id's length).
+waffle-types = { path = "../waffle-types" }
+sha1 = "0.10"
 
 [dev-dependencies]
 tempfile = "3"
