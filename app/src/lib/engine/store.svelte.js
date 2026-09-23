@@ -301,6 +301,13 @@ let saveTestCaseDialogState = $state(null);
 /** @type {{ visible: boolean, cases: Array<object>, activeCase: string | null, activeMeta: object | null, loading: boolean, error: string | null, results: Object<string, { status: string, category: string, detail: string }> }} */
 let assayBrowserState = $state({ visible: false, cases: [], activeCase: null, activeMeta: null, loading: false, error: null, results: {} });
 
+/**
+ * The Examples panel (`app/static/examples/`): the official example documents,
+ * which one is open, and whether the development write endpoint is there.
+ * @type {{ visible: boolean, examples: Array<object>, active: string | null, loading: boolean, error: string | null, writable: boolean, saving: boolean, opening: string | null }}
+ */
+let examplesBrowserState = $state({ visible: false, examples: [], active: null, loading: false, error: null, writable: false, saving: false, opening: null });
+
 /** @type {{ entityA: number, entityB: number | null, sketchX: number, sketchY: number, dimType: 'distance'|'radius'|'angle', defaultValue: number } | null} */
 let dimensionPopup = $state(null);
 
@@ -8299,8 +8306,111 @@ export function toggleAssayBrowser() {
 	if (assayBrowserState.visible) {
 		assayBrowserState.visible = false;
 	} else {
+		// The two side panels share the right edge: one at a time.
+		examplesBrowserState.visible = false;
 		assayBrowserState.visible = true;
 		refreshAssayCases();
+	}
+}
+
+// -- Examples panel --
+
+export function getExamplesBrowserState() { return examplesBrowserState; }
+
+export function toggleExamplesBrowser() {
+	if (examplesBrowserState.visible) {
+		examplesBrowserState.visible = false;
+	} else {
+		assayBrowserState.visible = false;
+		examplesBrowserState.visible = true;
+		refreshExamples();
+	}
+}
+
+export function hideExamplesBrowser() {
+	examplesBrowserState.visible = false;
+}
+
+export async function refreshExamples() {
+	examplesBrowserState.loading = true;
+	examplesBrowserState.error = null;
+	try {
+		const { fetchExamplesManifest, examplesWritable } = await import('./examplesApi.js');
+		const [manifest, writable] = await Promise.all([fetchExamplesManifest(), examplesWritable()]);
+		examplesBrowserState.examples = manifest.examples || [];
+		examplesBrowserState.writable = writable;
+	} catch (err) {
+		examplesBrowserState.error = err.message;
+	} finally {
+		examplesBrowserState.loading = false;
+	}
+}
+
+/**
+ * Open an official example as a NEW document: a copy under a fresh identity,
+ * so edits autosave to a record of their own and the shipped file is never
+ * the one being written. Goes through `openDocumentRecord`, the same path a
+ * stored document takes (every tab adopted, sources resolved, an active
+ * assembly evaluated).
+ * @param {string} id - manifest entry id
+ */
+export async function loadExample(id) {
+	const entry = examplesBrowserState.examples.find((e) => e.id === id);
+	if (!entry) {
+		showToast('error', `No example "${id}"`);
+		return false;
+	}
+	examplesBrowserState.opening = id;
+	try {
+		const { fetchExampleDocument } = await import('./examplesApi.js');
+		const text = await fetchExampleDocument(entry);
+		const parsed = JSON.parse(text);
+		if (fileTooNew(parsed)) {
+			showToast('error', 'This example was saved by a newer version of Waffle Iron');
+			return false;
+		}
+		const docId = generateUUID();
+		const now = new Date().toISOString();
+		parsed.document = { ...(parsed.document || {}), id: docId, name: entry.name, created: now, modified: now };
+		await openDocumentRecord(docId, JSON.stringify(parsed));
+		examplesBrowserState.active = id;
+		setTimeout(() => window.dispatchEvent(new Event('waffle-fit-all')), 100);
+		showToast('info', `Example "${entry.name}" opened as a new document`);
+		return true;
+	} catch (err) {
+		showToast('error', `Failed to open example: ${err.message || err}`);
+		return false;
+	} finally {
+		examplesBrowserState.opening = null;
+	}
+}
+
+/**
+ * Save the open document as a new official example (development only: the
+ * Vite plugin writes `static/examples/<id>.waffle` and the manifest entry).
+ * @param {string} name
+ * @param {string} description
+ */
+export async function saveAsExample(name, description) {
+	if (!examplesBrowserState.writable) {
+		showToast('error', 'Examples can only be saved from the development server');
+		return false;
+	}
+	examplesBrowserState.saving = true;
+	try {
+		const waffleData = await buildDocumentJson();
+		if (!waffleData) throw new Error('the engine did not compose the document');
+		const { createExample } = await import('./examplesApi.js');
+		const entry = await createExample({ name, description, waffleData });
+		showToast('info', `Example "${entry.name}" saved to app/static/examples/${entry.filename}`);
+		await refreshExamples();
+		examplesBrowserState.active = entry.id;
+		return true;
+	} catch (err) {
+		showToast('error', `Failed to save example: ${err.message || err}`);
+		return false;
+	} finally {
+		examplesBrowserState.saving = false;
 	}
 }
 

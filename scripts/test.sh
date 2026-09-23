@@ -141,6 +141,8 @@ GUI_FAST_SPECS=(
   agent-rust-authoring.spec.js
   # A-M4: the script tools through the page's executor (real engine).
   agent-script-tools.spec.js
+  # The Examples panel: opens the shipped gravel bike as a new document.
+  examples.spec.js
 )
 
 # ---------------------------------------------------------------------------

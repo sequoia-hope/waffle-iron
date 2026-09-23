@@ -45,6 +45,7 @@
 		setProjectName,
 		toggleTestCaseBrowser,
 		toggleAssayBrowser,
+		toggleExamplesBrowser,
 		getShowDatumPlanes,
 		getShowOriginTriad,
 		toggleDatumPlanes,
@@ -829,6 +830,9 @@
 						data-testid="toolbar-btn-tests"
 						onclick={() => { closeOverflow(); toggleTestCaseBrowser(); }}>Tests</button>
 					<button class="overflow-item" disabled={!ready}
+						data-testid="toolbar-btn-examples"
+						onclick={() => { closeOverflow(); toggleExamplesBrowser(); }}>Examples</button>
+					<button class="overflow-item" disabled={!ready}
 						data-testid="toolbar-btn-assay"
 						onclick={() => { closeOverflow(); toggleAssayBrowser(); }}>Assay</button>
 					<div class="overflow-separator"></div>
@@ -885,6 +889,9 @@
 			<button class="toolbar-btn" disabled={!ready} title="Test Cases (Ctrl+Shift+T)"
 				data-testid="toolbar-btn-tests"
 				onclick={() => toggleTestCaseBrowser()}>Tests</button>
+			<button class="toolbar-btn" disabled={!ready} title="Official example documents"
+				data-testid="toolbar-btn-examples"
+				onclick={() => toggleExamplesBrowser()}>Examples</button>
 			<button class="toolbar-btn" disabled={!ready} title="Assay Browser"
 				data-testid="toolbar-btn-assay"
 				onclick={() => toggleAssayBrowser()}>Assay</button>

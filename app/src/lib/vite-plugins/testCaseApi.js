@@ -162,6 +162,75 @@ export default function testCaseApiPlugin() {
 				}
 			});
 
+			// Official examples (static/examples): the panel reads the manifest
+			// as static files; this endpoint is the development-only WRITE side
+			// ("Save current as example"), so a document built in the page can
+			// become a shipped example without leaving the browser.
+			const EXAMPLES_DIR = path.resolve(server.config.root, 'static/examples');
+			const EXAMPLES_MANIFEST = path.join(EXAMPLES_DIR, 'manifest.json');
+			function readExamples() {
+				if (!fs.existsSync(EXAMPLES_MANIFEST)) return { examples: [] };
+				const manifest = JSON.parse(fs.readFileSync(EXAMPLES_MANIFEST, 'utf-8'));
+				if (!Array.isArray(manifest.examples)) manifest.examples = [];
+				return manifest;
+			}
+			server.middlewares.use('/api/examples', async (req, res) => {
+				res.setHeader('Content-Type', 'application/json');
+				try {
+					if (req.method === 'OPTIONS') {
+						res.end(JSON.stringify({ writable: true }));
+						return;
+					}
+					if (req.method === 'GET') {
+						res.end(JSON.stringify(readExamples()));
+						return;
+					}
+					if (req.method === 'POST') {
+						const body = await parseBody(req);
+						const { name, description, waffleData } = body;
+						if (!name || !waffleData) {
+							res.statusCode = 400;
+							res.end(JSON.stringify({ error: 'name and waffleData are required' }));
+							return;
+						}
+						let parsed;
+						try {
+							parsed = JSON.parse(waffleData);
+						} catch {
+							res.statusCode = 400;
+							res.end(JSON.stringify({ error: 'waffleData is not a .waffle document' }));
+							return;
+						}
+						const manifest = readExamples();
+						let id = slugify(name) || 'example';
+						const taken = new Set(manifest.examples.map(e => e.id));
+						for (let i = 2; taken.has(id); i++) id = `${slugify(name) || 'example'}-${i}`;
+						const filename = `${id}.waffle`;
+						const entry = {
+							id,
+							name,
+							filename,
+							description: description || '',
+							tabs: Array.isArray(parsed.tabs) ? parsed.tabs.map(t => t?.name).filter(Boolean) : [],
+							built: new Date().toISOString().slice(0, 10),
+							built_with: 'saved from the page (Examples panel)'
+						};
+						fs.mkdirSync(EXAMPLES_DIR, { recursive: true });
+						fs.writeFileSync(path.join(EXAMPLES_DIR, filename), waffleData);
+						manifest.examples.push(entry);
+						fs.writeFileSync(EXAMPLES_MANIFEST, JSON.stringify(manifest, null, 2) + '\n');
+						res.statusCode = 201;
+						res.end(JSON.stringify(entry));
+						return;
+					}
+					res.statusCode = 405;
+					res.end(JSON.stringify({ error: 'Method not allowed' }));
+				} catch (err) {
+					res.statusCode = 500;
+					res.end(JSON.stringify({ error: err.message }));
+				}
+			});
+
 			// Assay cases API
 			server.middlewares.use('/api/assay-cases', async (req, res, next) => {
 				res.setHeader('Content-Type', 'application/json');

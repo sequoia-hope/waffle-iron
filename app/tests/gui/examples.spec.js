@@ -1,0 +1,67 @@
+/**
+ * The Examples panel (toolbar → Examples, beside Assay): lists the official
+ * examples shipped in `app/static/examples/`, and opening one loads a COPY as
+ * a new document — every tab adopted, the active assembly evaluated, bodies
+ * rendered — under a fresh identity, so the shipped file is never written.
+ */
+import { test, expect } from '@playwright/test';
+import { collectCrashErrors, expectNoAnyCrash } from './helpers/state.js';
+
+/** @param {import('@playwright/test').Page} page */
+async function documentInfo(page) {
+	return page.evaluate(() => window.__waffle.getDocumentInfo());
+}
+
+test.describe('Examples panel', () => {
+	test.beforeEach(async ({ page }) => {
+		await page.goto('/');
+		await page.waitForFunction(() => window.__waffle?.getState()?.engineReady === true, null, { timeout: 30000 });
+	});
+
+	test('lists the shipped examples and opens the gravel bike as a new document', async ({ page }) => {
+		const crashes = collectCrashErrors(page);
+		const before = await documentInfo(page);
+
+		await page.getByTestId('toolbar-btn-examples').click();
+		await expect(page.getByTestId('examples-browser')).toBeVisible();
+		const bike = page.getByTestId('example-gravel-bike-v2');
+		await expect(bike).toBeVisible();
+		await expect(bike).toContainText('Gravel bike v2');
+		await expect(page.getByTestId('examples-count')).toHaveText(/^[1-9]\d*$/);
+
+		// Closes from its own header and reopens from the toolbar (the open panel
+		// covers the toolbar's right end, as the Assay browser does).
+		await page.getByTestId('examples-browser-close').click();
+		await expect(page.getByTestId('examples-browser')).toBeHidden();
+		await page.getByTestId('toolbar-btn-examples').click();
+		await expect(page.getByTestId('examples-browser')).toBeVisible();
+
+		await bike.click();
+		// The whole document arrives: twelve tabs, the assembly active, and its
+		// placed parts rendered (the bike is fourteen instances).
+		await expect.poll(async () => (await documentInfo(page)).tabs?.length ?? 0, { timeout: 120000 }).toBe(12);
+		const info = await documentInfo(page);
+		expect(info.name).toBe('Gravel bike v2');
+		expect(info.tabs.map((t) => t.name)).toEqual([
+			'Frame', 'Fork', 'Wheel 700c', 'Cassette 11-42', 'Crankset', 'Chain', 'Cockpit',
+			'Seatpost & saddle', 'Rear derailleur', 'Brake caliper', 'Water bottle', 'Gravel bike'
+		]);
+		const active = info.tabs.find((t) => t.id === info.activeTab);
+		expect(active?.name).toBe('Gravel bike');
+		await expect
+			.poll(async () => page.evaluate(() => (window.__waffle.getMeshes() ?? []).filter((m) => m.triangleCount > 0).length), { timeout: 120000 })
+			.toBeGreaterThanOrEqual(14);
+		// A copy: the example opens under an identity of its own, never the file's.
+		expect(info.storageId).not.toBe(before.storageId);
+		const shipped = await (await page.request.get('/examples/gravel-bike-v2.waffle')).json();
+		expect(info.documentId).not.toBe(shipped.document.id);
+		expect(info.documentId).toBe(info.storageId);
+
+		// The details name the generator, served beside the document.
+		await expect(page.getByTestId('examples-details')).toContainText('Gravel bike v2');
+		const generator = page.getByTestId('example-generator-link');
+		await expect(generator).toHaveAttribute('href', /gravel-bike-v2\.py$/);
+		expect((await page.request.get('/examples/gravel-bike-v2.py')).ok()).toBe(true);
+		expectNoAnyCrash(crashes);
+	});
+});

@@ -26,6 +26,7 @@
 	import TestCaseBrowser from '$lib/ui/TestCaseBrowser.svelte';
 	import SaveTestCaseDialog from '$lib/ui/SaveTestCaseDialog.svelte';
 	import AssayBrowser from '$lib/ui/AssayBrowser.svelte';
+	import ExamplesBrowser from '$lib/ui/ExamplesBrowser.svelte';
 	import TabBar from '$lib/ui/TabBar.svelte';
 
 	let tabs = $derived(getDocumentTabs().length > 0
@@ -206,6 +207,7 @@
 <TestCaseBrowser />
 <SaveTestCaseDialog />
 <AssayBrowser />
+<ExamplesBrowser />
 
 <style>
 	.app-shell {
