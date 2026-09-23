@@ -231,13 +231,7 @@ fn handle_message(
         } => {
             let text = match (text, source_id) {
                 (Some(t), _) => t,
-                (None, Some(id)) => state.engine.sources.text(id).ok_or_else(|| {
-                    BridgeError::InvalidRequest {
-                        reason: format!(
-                            "CheckScript: source {id} is not loaded (is it in the sources table?)"
-                        ),
-                    }
-                })?,
+                (None, Some(id)) => stored_script_text(state, id)?,
                 (None, None) => {
                     return Err(BridgeError::InvalidRequest {
                         reason: "CheckScript: `text` or `source_id` is required".to_string(),
@@ -1540,6 +1534,17 @@ pub(crate) fn library_script(name: &str) -> Result<&'static str, BridgeError> {
             reason: format!("no built-in script library `{other}` (gear, sprocket)"),
         }),
     }
+}
+
+/// A source's text from the store, or a loud refusal (`CheckScript`).
+fn stored_script_text(state: &EngineState, id: uuid::Uuid) -> Result<String, BridgeError> {
+    state
+        .engine
+        .sources
+        .text(id)
+        .ok_or_else(|| BridgeError::InvalidRequest {
+            reason: format!("CheckScript: source {id} is not loaded (is it in the sources table?)"),
+        })
 }
 
 /// The names of the built-in library scripts, for hosts and tool schemas.
