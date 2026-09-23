@@ -38,11 +38,19 @@ export function exampleGeneratorUrl(entry) {
 	return entry.generator ? `${STATIC_BASE}/${entry.generator}` : null;
 }
 
-/** Whether the development write endpoint is available. */
+/**
+ * Whether the development write endpoint is available.
+ *
+ * A static host answers an unknown path with the SPA's own index.html and a
+ * 200, so `res.ok` alone would put a Save button in a production build that
+ * could never work. The endpoint must actually say so, in JSON.
+ */
 export async function examplesWritable() {
 	try {
 		const res = await fetch(DEV_BASE, { method: 'OPTIONS' });
-		return res.ok;
+		if (!res.ok) return false;
+		const body = await res.json();
+		return body?.writable === true;
 	} catch {
 		return false;
 	}
