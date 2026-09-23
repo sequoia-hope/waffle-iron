@@ -26,8 +26,9 @@ use waffle_types::{
 
 use crate::assembly::{AxialAnchor, Frame};
 use crate::types::{
-    BooleanOp, BooleanParams, CombineMode, DepthMode, ExtrudeParams, Feature, MateConnectorParams,
-    Operation, PipeParams, RevolveParams, UnionAllParams, UnionTargets,
+    AxisRef, BooleanOp, BooleanParams, CombineMode, DepthMode, ExtrudeParams, Feature,
+    LinearSecondDirection, MateConnectorParams, Operation, PatternCircularParams,
+    PatternLinearParams, PipeParams, RevolveParams, UnionAllParams, UnionTargets,
 };
 
 /// Geometry budget (spec §A5): more child operations than this is a runaway
@@ -385,6 +386,114 @@ fn body_refs(d: Option<&Dynamic>, what: &str) -> Result<Vec<GeomRef>, Box<EvalAl
         return arr.iter().map(|v| body_ref(v, what)).collect();
     }
     Ok(vec![body_ref(d, what)?])
+}
+
+/// An axis for a pattern: `#{ origin?, direction }`, a bare `[x, y, z]`
+/// direction (origin at the world origin), or a face/edge query the engine
+/// derives the axis from (`AxisRef::Entity`).
+fn axis_ref(d: &Dynamic, what: &str) -> Result<AxisRef, Box<EvalAltResult>> {
+    if let Some(m) = d.clone().try_cast::<Map>() {
+        let origin = match map_get(&m, "origin") {
+            Some(v) => vec3(v, &format!("{what}.origin"))?,
+            None => [0.0; 3],
+        };
+        let Some(dir) = map_get(&m, "direction") else {
+            return rt(format!("{what}: needs `direction: [x, y, z]`"));
+        };
+        return Ok(AxisRef::Explicit {
+            origin,
+            direction: vec3(dir, &format!("{what}.direction"))?,
+        });
+    }
+    if let Some(q) = d.clone().try_cast::<Query>() {
+        if !matches!(q.kind, TopoKind::Face | TopoKind::Edge) {
+            return rt(format!(
+                "{what}: an entity axis must be a face or edge query"
+            ));
+        }
+        return Ok(AxisRef::Entity {
+            geom_ref: q.to_geom_ref()?,
+        });
+    }
+    if d.is_array() {
+        return Ok(AxisRef::Explicit {
+            origin: [0.0; 3],
+            direction: vec3(d, what)?,
+        });
+    }
+    rt(format!(
+        "{what}: expected #{{ origin, direction }}, [x, y, z], or a face/edge query, got {}",
+        d.type_name()
+    ))
+}
+
+/// `count` of a pattern leg: an integer ≥ 2 (the seed counts).
+fn pattern_count(m: &Map, what: &str) -> Result<u32, Box<EvalAltResult>> {
+    let Some(v) = map_get(m, "count") else {
+        return rt(format!(
+            "{what}: `count` (instances including the seed, ≥ 2) is required"
+        ));
+    };
+    let n = num(v, &format!("{what}.count"))?;
+    if n.fract() != 0.0 || n < 2.0 {
+        return rt(format!("{what}: count must be an integer ≥ 2, got {n}"));
+    }
+    Ok(n as u32)
+}
+
+/// One linear leg: `direction`, `count`, `spacing` (meters).
+fn linear_leg(m: &Map, what: &str) -> Result<(AxisRef, u32, f64), Box<EvalAltResult>> {
+    let direction = match map_get(m, "direction") {
+        Some(v) => axis_ref(v, &format!("{what}.direction"))?,
+        None => return rt(format!("{what}: `direction` is required")),
+    };
+    let count = pattern_count(m, what)?;
+    let Some(spacing) = map_num(m, "spacing")? else {
+        return rt(format!("{what}: `spacing` (meters) is required"));
+    };
+    if !(spacing.is_finite() && spacing != 0.0) {
+        return rt(format!("{what}: spacing must be non-zero, got {spacing}"));
+    }
+    Ok((direction, count, spacing))
+}
+
+/// `skip: [i, …]` instance indices (≥ 1).
+fn skip_list(m: &Map) -> Result<Vec<u32>, Box<EvalAltResult>> {
+    let Some(v) = map_get(m, "skip") else {
+        return Ok(Vec::new());
+    };
+    let Some(arr) = v.clone().try_cast::<Array>() else {
+        return rt("skip: expected an array of instance indices");
+    };
+    arr.iter()
+        .map(|d| {
+            let i = num(d, "skip")?;
+            if i.fract() != 0.0 || i < 1.0 {
+                return rt(format!("skip: instance indices are integers ≥ 1, got {i}"));
+            }
+            Ok(i as u32)
+        })
+        .collect()
+}
+
+/// A pattern's `combine` / `targets`: `None` combine ⇒ NewBody; explicit
+/// targets only (a pattern never targets by tree position).
+#[allow(clippy::type_complexity)]
+fn pattern_combine(
+    m: &Map,
+    what: &str,
+) -> Result<(Option<CombineMode>, Option<Vec<GeomRef>>), Box<EvalAltResult>> {
+    let combine = combine_mode(m)?;
+    let targets = body_refs(map_get(m, "targets"), &format!("{what}.targets"))?;
+    if matches!(combine, CombineMode::Cut | CombineMode::Intersect) && targets.is_empty() {
+        return rt(format!(
+            "{what}: combine {combine:?} needs `targets` (a pattern never targets by position)"
+        ));
+    }
+    Ok((
+        (!matches!(combine, CombineMode::NewBody)).then_some(combine),
+        (!targets.is_empty()).then_some(targets),
+    ))
 }
 
 fn combine_mode(m: &Map) -> Result<CombineMode, Box<EvalAltResult>> {
@@ -1036,6 +1145,112 @@ impl Ctx {
             references: Vec::new(),
         };
         self.record(feature, "boolean")
+    }
+
+    /// `ctx.pattern_circular(seed | [seeds], #{ axis, count, angle_deg?,
+    /// skip?, combine?, targets? })` (B1, `Operation::PatternCircular`):
+    /// rigid copies of the seed bodies about `axis` — `#{ origin, direction }`
+    /// or a face/edge query whose axis the engine derives (a cylindrical
+    /// face, a circular edge, a straight edge, a planar face's normal).
+    /// `count` INCLUDES the seed; `angle_deg` is the TOTAL sweep (default a
+    /// full turn). The pattern takes custody of the seeds, exactly as the
+    /// tree feature does.
+    pub fn pattern_circular(
+        &mut self,
+        seeds: &Dynamic,
+        opts: &Map,
+    ) -> Result<FeatureRef, Box<EvalAltResult>> {
+        let seeds = body_refs(Some(seeds), "pattern_circular seed")?;
+        if seeds.is_empty() {
+            return rt("pattern_circular: at least one seed body is required");
+        }
+        let axis = match map_get(opts, "axis") {
+            Some(a) => axis_ref(a, "pattern_circular.axis")?,
+            None => return rt("pattern_circular: `axis` is required"),
+        };
+        let count = pattern_count(opts, "pattern_circular")?;
+        let angle_deg = map_num(opts, "angle_deg")?.unwrap_or(360.0);
+        if !(angle_deg.is_finite() && angle_deg != 0.0) {
+            return rt(format!(
+                "pattern_circular: angle_deg must be a non-zero angle, got {angle_deg}"
+            ));
+        }
+        let (combine, targets) = pattern_combine(opts, "pattern_circular")?;
+        let id = Uuid::new_v4();
+        let feature = Feature {
+            id,
+            name: "script circular pattern".into(),
+            operation: Operation::PatternCircular {
+                params: PatternCircularParams {
+                    seeds,
+                    axis,
+                    count,
+                    angle_deg,
+                    angle_expr: None,
+                    skip: skip_list(opts)?,
+                    combine,
+                    targets,
+                },
+            },
+            suppressed: false,
+            references: Vec::new(),
+        };
+        self.record(feature, "pattern_circular")
+    }
+
+    /// `ctx.pattern_linear(seed | [seeds], #{ direction, count, spacing,
+    /// second?: #{ direction, count, spacing }, skip?, combine?, targets? })`
+    /// (B1, `Operation::PatternLinear`): rigid copies along `direction`
+    /// (`[x, y, z]`, `#{ direction }`, or a face/edge query) every `spacing`
+    /// meters (negative reverses); `second` makes a grid (instance index
+    /// `i + j·count`).
+    pub fn pattern_linear(
+        &mut self,
+        seeds: &Dynamic,
+        opts: &Map,
+    ) -> Result<FeatureRef, Box<EvalAltResult>> {
+        let seeds = body_refs(Some(seeds), "pattern_linear seed")?;
+        if seeds.is_empty() {
+            return rt("pattern_linear: at least one seed body is required");
+        }
+        let (direction, count, spacing) = linear_leg(opts, "pattern_linear")?;
+        let second = match map_get(opts, "second") {
+            None => None,
+            Some(s) => {
+                let Some(m) = s.clone().try_cast::<Map>() else {
+                    return rt("pattern_linear: `second` must be #{ direction, count, spacing }");
+                };
+                let (direction, count, spacing) = linear_leg(&m, "pattern_linear.second")?;
+                Some(LinearSecondDirection {
+                    direction,
+                    count,
+                    spacing,
+                    spacing_expr: None,
+                })
+            }
+        };
+        let (combine, targets) = pattern_combine(opts, "pattern_linear")?;
+        let id = Uuid::new_v4();
+        let feature = Feature {
+            id,
+            name: "script linear pattern".into(),
+            operation: Operation::PatternLinear {
+                params: PatternLinearParams {
+                    seeds,
+                    direction,
+                    count,
+                    spacing,
+                    spacing_expr: None,
+                    second,
+                    skip: skip_list(opts)?,
+                    combine,
+                    targets,
+                },
+            },
+            suppressed: false,
+            references: Vec::new(),
+        };
+        self.record(feature, "pattern_linear")
     }
 
     /// `union_all()` / `union_all([bodies…])` (`specs/b4_balanced_union.md`):

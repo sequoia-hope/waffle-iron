@@ -987,3 +987,70 @@ fn a_script_connector_is_carried_and_dropped_with_its_node() {
     engine.remove_feature(id, &mut kernel).unwrap();
     assert!(!engine.connectors.iter().any(|c| c.name == "pin"));
 }
+
+// ── B1 in the script API: ctx.pattern_circular / ctx.pattern_linear ────────
+
+#[test]
+fn patterns_copy_a_child_body_and_take_custody_of_the_seed() {
+    let (mut engine, mut kernel, src) = with_source(
+        r#"
+// @feature name="Spokes" version=1
+// @param plane: plane
+// @param count: int = 6 min=2
+fn feature(ctx, p) {
+    let sk = ctx.sketch(p.plane);
+    sk.rect(0.01, -0.001, 0.02, 0.002);
+    let spoke = ctx.extrude(sk.finish().regions()[0], #{ depth: 0.003 });
+    let ring = ctx.pattern_circular(spoke, #{ axis: #{ origin: [0.0, 0.0, 0.0], direction: [0.0, 0.0, 1.0] }, count: p.count });
+    let sk2 = ctx.sketch(p.plane);
+    sk2.rect(0.1, 0.0, 0.005, 0.005);
+    let block = ctx.extrude(sk2.finish().regions()[0], #{ depth: 0.003 });
+    let row = ctx.pattern_linear(block, #{ direction: [1.0, 0.0, 0.0], count: 3, spacing: 0.05, skip: [2] });
+    #{ main: ring, row: row }
+}
+"#,
+    );
+    let id = engine
+        .add_feature(
+            "Spokes".into(),
+            script_op(src, json!({ "plane": plane_json() })),
+            &mut kernel,
+        )
+        .unwrap();
+    assert_eq!(error_of(&engine, id), None);
+    // Each pattern takes custody of its seed (not an output) and emits its
+    // instances: 6 spokes + (3 − 1 skipped) blocks.
+    assert_eq!(body_count(&engine, id), 8);
+    let result = engine.get_result(id).unwrap();
+    assert!(matches!(result.outputs[0].0, OutputKey::Main));
+    assert!(result
+        .outputs
+        .iter()
+        .any(|(k, _)| matches!(k, OutputKey::Named { name } if name == "row")));
+
+    // Every argument problem is a typed runtime failure with no output.
+    for (label, body) in [
+        ("no axis", "ctx.pattern_circular(spoke, #{ count: 4 })"),
+        ("count 1", "ctx.pattern_circular(spoke, #{ axis: [0.0, 0.0, 1.0], count: 1 })"),
+        ("zero angle", "ctx.pattern_circular(spoke, #{ axis: [0.0, 0.0, 1.0], count: 4, angle_deg: 0 })"),
+        ("cut without targets", "ctx.pattern_circular(spoke, #{ axis: [0.0, 0.0, 1.0], count: 4, combine: \"Cut\" })"),
+        ("no spacing", "ctx.pattern_linear(spoke, #{ direction: [1.0, 0.0, 0.0], count: 3 })"),
+        ("bad skip", "ctx.pattern_linear(spoke, #{ direction: [1.0, 0.0, 0.0], count: 3, spacing: 0.1, skip: [0] })"),
+        ("seed not a body", "ctx.pattern_linear(spoke.faces(), #{ direction: [1.0, 0.0, 0.0], count: 3, spacing: 0.1 })"),
+    ] {
+        let text = format!(
+            "// @feature name=\"x\"\n// @param plane: plane\nfn feature(ctx, p) {{\n let sk = ctx.sketch(p.plane);\n sk.rect(0.0, 0.0, 0.01, 0.01);\n let spoke = ctx.extrude(sk.finish().regions()[0], #{{ depth: 0.01 }});\n {body}\n}}\n"
+        );
+        let (mut engine, mut kernel, src) = with_source(&text);
+        let id = engine
+            .add_feature(
+                "bad".into(),
+                script_op(src, json!({ "plane": plane_json() })),
+                &mut kernel,
+            )
+            .unwrap();
+        let (stage, _) = error_of(&engine, id).unwrap_or_else(|| panic!("{label}: no error"));
+        assert_eq!(stage, "runtime", "{label}");
+        assert_eq!(body_count(&engine, id), 0, "{label}");
+    }
+}

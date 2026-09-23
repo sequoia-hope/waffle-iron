@@ -88,6 +88,8 @@ limit`.
 | `ctx.revolve(region, #{ axis: #{ origin, direction }, angle_deg?, combine?, targets? })` | a Revolve | `angle_deg` default 360 |
 | `ctx.pipe(sketch_ref, [entity_ids], #{ radius, inner_radius?, combine?, targets? })` | a Pipe | an open tangent chain of the sketch's lines/arcs |
 | `ctx.boolean("union" \| "subtract" \| "intersect", a, b)` | a BooleanCombine | `a`, `b`: feature refs, queries or `body` params |
+| `ctx.pattern_circular(seed \| [seeds], #{ axis, count, angle_deg?, skip?, combine?, targets? })` | a PatternCircular | `axis`: `#{ origin?, direction }`, a bare `[x, y, z]`, or a face/edge query the engine derives an axis from; `count` INCLUDES the seed (≥ 2); `angle_deg` is the TOTAL sweep (default 360); the pattern takes custody of the seed; `ring.bodies().nth(i)` addresses instance i |
+| `ctx.pattern_linear(seed \| [seeds], #{ direction, count, spacing, second?: #{ direction, count, spacing }, skip?, combine?, targets? })` | a PatternLinear | `spacing` in meters (negative reverses); `second` makes a grid (index `i + j·count`) |
 | `ctx.union_all()` / `ctx.union_all([bodies])` | a UnionAll | every live body (of the script) or the listed ones |
 | `ctx.mate_connector(#{ name, on?, frame?, x_axis?, anchor?, flip_z?, rotation_deg?, offset_m? })` | a MateConnector | `on`: a face/edge query; exposed on the node under `name` |
 | `ctx.log(msg)` | — | shown on the node as a warning `log: …` |

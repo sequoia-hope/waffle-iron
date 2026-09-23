@@ -158,6 +158,14 @@ pub fn build_engine(limits: &Limits) -> Engine {
         "boolean",
         |ctx: &mut Ctx, op: &str, a: Dynamic, b: Dynamic| ctx.boolean(op, &a, &b),
     );
+    engine.register_fn(
+        "pattern_circular",
+        |ctx: &mut Ctx, seeds: Dynamic, opts: Map| ctx.pattern_circular(&seeds, &opts),
+    );
+    engine.register_fn(
+        "pattern_linear",
+        |ctx: &mut Ctx, seeds: Dynamic, opts: Map| ctx.pattern_linear(&seeds, &opts),
+    );
     engine.register_fn("union_all", |ctx: &mut Ctx| ctx.union_all(None));
     engine.register_fn("union_all", |ctx: &mut Ctx, bodies: Dynamic| {
         ctx.union_all(Some(&bodies))

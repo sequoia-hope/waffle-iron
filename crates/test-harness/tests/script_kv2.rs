@@ -439,3 +439,75 @@ fn feature(ctx, p) {
     let expect = 0.02 * 0.02 * 0.01 - 0.005 * 0.005 * 0.01;
     assert!((v - expect).abs() < 1e-15, "{v} vs {expect}");
 }
+
+// ── B1 in the script API ────────────────────────────────────────────────────
+
+/// A circular pattern of disjoint blocks from a script has exactly N × the
+/// seed volume; a linear grid of the same seed N·M ×; both exact.
+#[test]
+fn script_patterns_have_n_times_the_seed_volume_on_the_real_kernel() {
+    let mut b = ModelBuilder::kernel_v2();
+    let src = add_source(
+        &mut b,
+        r#"
+// @feature name="Ring" version=1
+// @param plane: plane
+// @param count: int = 8
+// @param grid: bool = false
+fn feature(ctx, p) {
+    let sk = ctx.sketch(p.plane);
+    sk.rect(0.05, -0.005, 0.02, 0.01);
+    let block = ctx.extrude(sk.finish().regions()[0], #{ depth: 0.004 });
+    if p.grid {
+        ctx.pattern_linear(block, #{ direction: [1.0, 0.0, 0.0], count: 3, spacing: 0.03,
+                                     second: #{ direction: [0.0, 1.0, 0.0], count: 2, spacing: 0.02 } })
+    } else {
+        ctx.pattern_circular(block, #{ axis: #{ origin: [0.0, 0.0, 0.0], direction: [0.0, 0.0, 1.0] }, count: p.count })
+    }
+}
+"#,
+    );
+    let seed = 0.02 * 0.01 * 0.004;
+    b.add_operation("Ring", script_op(src, json!({ "plane": plane_z() })))
+        .unwrap();
+    assert_clean(&b, "circular pattern script");
+    let handles = b.solid_handles("Ring").unwrap();
+    assert_eq!(handles.len(), 8, "seed + 7 copies");
+    let total: f64 = handles
+        .iter()
+        .map(|h| {
+            b.kernel_ref()
+                .as_introspect()
+                .solid_volume(h)
+                .expect("exact volume")
+        })
+        .sum();
+    assert!(
+        (total - 8.0 * seed).abs() < 1e-14,
+        "{total} vs {}",
+        8.0 * seed
+    );
+
+    b.add_operation(
+        "Grid",
+        script_op(src, json!({ "plane": plane_z(), "grid": true })),
+    )
+    .unwrap();
+    assert_clean(&b, "linear grid script");
+    let handles = b.solid_handles("Grid").unwrap();
+    assert_eq!(handles.len(), 6, "3 × 2 grid");
+    let total: f64 = handles
+        .iter()
+        .map(|h| {
+            b.kernel_ref()
+                .as_introspect()
+                .solid_volume(h)
+                .expect("exact volume")
+        })
+        .sum();
+    assert!(
+        (total - 6.0 * seed).abs() < 1e-14,
+        "{total} vs {}",
+        6.0 * seed
+    );
+}

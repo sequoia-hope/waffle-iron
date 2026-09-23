@@ -18,7 +18,7 @@ const SCRIPT_NOTE =
 	'[min=..] [max=..]` (types: int, number, length (meters), angle (degrees), bool, string, plane, body, face, ' +
 	'edge) and `// @output name: main|body|face|edge|connector` lines, then `fn feature(ctx, p) { … }` calling ' +
 	'ctx.sketch(p.plane) → sk.point/line/circle/arc/rect/polygon/gear/sprocket → sk.finish().regions(), ' +
-	'ctx.extrude / revolve / boolean / pipe / union_all / mate_connector, ' +
+	'ctx.extrude / revolve / boolean / pattern_circular / pattern_linear / pipe / union_all / mate_connector, ' +
 	'and query chains (.faces().normal_near([0,0,1], 5).largest_area()). Its return value names the node\'s ' +
 	'outputs. See docs/CUSTOM_FEATURE_SCRIPTS.md. ';
 

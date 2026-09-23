@@ -189,6 +189,12 @@
       edit, Sources-panel "edit", property-editor argument rows. Docs:
       `docs/CUSTOM_FEATURE_SCRIPTS.md`. Tests: `wasm-bridge/tests/tool_script.rs`
       (15), `app/tests/gui/script-dialog.spec.js`, `agent-script-tools.spec.js`.
+      Same day: `ctx.pattern_circular(seeds, #{ axis, count, angle_deg?, skip?,
+      combine?, targets? })` / `ctx.pattern_linear(seeds, #{ direction, count,
+      spacing, second?, … })` bound (spec §A6 listed them; they were never
+      registered) — `host.rs` `axis_ref` (map / `[x,y,z]` / face-edge query ⇒
+      `AxisRef::Entity`); tests `script.rs` (+1: custody, `.nth(i)` as a seed,
+      7 argument refusals typed) and `script_kv2.rs` (+1: exact N× volumes).
 - [ ] Known limits: `module` is a Rhai keyword (the gear param is `module_m`);
       `ctx.log` lines surface as warnings (`log: …`); child roles concatenate (no
       `Role::ScriptChild`); `tree.clone()` + `feature_results.clone()` per script rebuild;
