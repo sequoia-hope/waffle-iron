@@ -3936,6 +3936,7 @@ fn rebuild_carries_forward_existing_results() {
         &feature_engine::rebuild::Changed::All,
         &existing,
         &[],
+        feature_engine::rebuild::Carried::default(),
         &engine.sources,
         None,
     );

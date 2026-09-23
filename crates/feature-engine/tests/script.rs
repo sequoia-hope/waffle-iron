@@ -474,3 +474,516 @@ fn script_operation_round_trips_and_is_a_known_tag() {
     };
     assert_eq!(params.entry, "feature");
 }
+
+// ── A-M3: query chains, named outputs, connectors, outer references ─────────
+
+/// A `GeomRef` JSON value for a feature's Main body.
+fn body_ref_json(feature_id: Uuid) -> serde_json::Value {
+    serde_json::to_value(GeomRef {
+        kind: TopoKind::Solid,
+        anchor: Anchor::FeatureOutput {
+            feature_id,
+            output_key: OutputKey::Main,
+        },
+        selector: Selector::Role {
+            role: Role::EndCapPositive,
+            index: 0,
+        },
+        policy: ResolvePolicy::Strict,
+        scope: None,
+    })
+    .unwrap()
+}
+
+/// A tree extrude of a `w × h` rect on the XY plane, `depth` deep (MockKernel
+/// builds every extrusion at the origin).
+fn tree_box(engine: &mut Engine, kernel: &mut MockKernel, name: &str, depth: f64) -> Uuid {
+    let mut sketch = Sketch {
+        id: Uuid::new_v4(),
+        plane: GeomRef {
+            kind: TopoKind::Face,
+            anchor: Anchor::Datum {
+                datum_id: Uuid::nil(),
+            },
+            selector: Selector::Role {
+                role: Role::EndCapPositive,
+                index: 0,
+            },
+            policy: ResolvePolicy::Strict,
+            scope: None,
+        },
+        plane_origin: [0.0; 3],
+        plane_normal: [0.0, 0.0, 1.0],
+        entities: vec![
+            SketchEntity::Point {
+                id: 1,
+                x: 0.0,
+                y: 0.0,
+                construction: false,
+            },
+            SketchEntity::Point {
+                id: 2,
+                x: 0.02,
+                y: 0.0,
+                construction: false,
+            },
+            SketchEntity::Point {
+                id: 3,
+                x: 0.02,
+                y: 0.02,
+                construction: false,
+            },
+            SketchEntity::Point {
+                id: 4,
+                x: 0.0,
+                y: 0.02,
+                construction: false,
+            },
+            SketchEntity::Line {
+                id: 5,
+                start_id: 1,
+                end_id: 2,
+                construction: false,
+            },
+            SketchEntity::Line {
+                id: 6,
+                start_id: 2,
+                end_id: 3,
+                construction: false,
+            },
+            SketchEntity::Line {
+                id: 7,
+                start_id: 3,
+                end_id: 4,
+                construction: false,
+            },
+            SketchEntity::Line {
+                id: 8,
+                start_id: 4,
+                end_id: 1,
+                construction: false,
+            },
+        ],
+        constraints: Vec::new(),
+        solve_status: SolveStatus::FullyConstrained,
+        solved_positions: std::collections::HashMap::new(),
+        projected: Vec::new(),
+        solved_profiles: Vec::new(),
+    };
+    script::host::derive_sketch(&mut sketch);
+    // An extrude names its sketch by the sketch FEATURE's id.
+    let sketch_id = engine
+        .add_feature(
+            format!("{name} sketch"),
+            Operation::Sketch { sketch },
+            kernel,
+        )
+        .unwrap();
+    engine
+        .add_feature(
+            name.into(),
+            Operation::Extrude {
+                params: ExtrudeParams {
+                    sketch_id,
+                    profile_index: 0,
+                    profile_entity_ids: None,
+                    depth,
+                    depth_expr: None,
+                    direction: None,
+                    symmetric: false,
+                    cut: false,
+                    merge: false,
+                    target_body: None,
+                    depth_mode: DepthMode::Blind,
+                    second_direction: None,
+                    region: None,
+                    regions: Vec::new(),
+                    combine: Some(CombineMode::NewBody),
+                    targets: Some(Vec::new()),
+                },
+            },
+            kernel,
+        )
+        .unwrap()
+}
+
+const BOSS_SCRIPT: &str = r#"
+// @feature name="Boss on top" version=1
+// @param plane: plane
+// @output base: main
+// @output boss: body
+// @output top: face
+// @output pin: connector
+fn feature(ctx, p) {
+    let a = ctx.sketch(p.plane);
+    a.rect(0.0, 0.0, 0.02, 0.02);
+    let base = ctx.extrude(a.finish().regions()[0], #{ depth: 0.01 });
+    // The query chain lowers to ONE TopoQuery: planar faces, farthest along +z.
+    let top = created_by(base).faces().surface_type("planar").farthest_along([0.0, 0.0, 1.0]);
+    let b = ctx.sketch(top);
+    b.rect(0.005, 0.005, 0.01, 0.01);
+    let boss = ctx.extrude(b.finish().regions()[0], #{ depth: 0.004 });
+    ctx.mate_connector(#{ name: "pin", on: created_by(boss).faces().normal_near([0.0, 0.0, 1.0], 1.0) });
+    #{ base: base, boss: boss, top: top }
+}
+"#;
+
+#[test]
+fn query_chains_named_outputs_and_connectors_are_public_on_the_node() {
+    let (mut engine, mut kernel, src) = with_source(BOSS_SCRIPT);
+    let id = engine
+        .add_feature(
+            "Boss".into(),
+            script_op(src, json!({ "plane": plane_json() })),
+            &mut kernel,
+        )
+        .unwrap();
+    assert_eq!(error_of(&engine, id), None, "{:?}", engine.warnings);
+    let r = engine.get_result(id).unwrap();
+    // Two bodies: the declared main first, the named boss second.
+    let keys: Vec<OutputKey> = r.outputs.iter().map(|(k, _)| k.clone()).collect();
+    assert_eq!(
+        keys,
+        vec![
+            OutputKey::Main,
+            OutputKey::Named {
+                name: "boss".into()
+            }
+        ]
+    );
+    // The face output is a Role::Named assignment on the node.
+    let named: Vec<&Role> = r
+        .provenance
+        .role_assignments
+        .iter()
+        .map(|(_, role)| role)
+        .filter(|role| matches!(role, Role::Named { .. }))
+        .collect();
+    assert_eq!(named, vec![&Role::Named { name: "top".into() }]);
+
+    // A later feature references the named face without knowing the sub-tree:
+    // a tree mate connector on `top` derives the top plane (z = 0.01, +z).
+    let top_ref = GeomRef {
+        kind: TopoKind::Face,
+        anchor: Anchor::FeatureOutput {
+            feature_id: id,
+            output_key: OutputKey::Main,
+        },
+        selector: Selector::Role {
+            role: Role::Named { name: "top".into() },
+            index: 0,
+        },
+        policy: ResolvePolicy::Strict,
+        scope: None,
+    };
+    let mc = engine
+        .add_feature(
+            "On top".into(),
+            Operation::MateConnector {
+                params: MateConnectorParams {
+                    name: "On top".into(),
+                    geom_ref: Some(top_ref),
+                    ..Default::default()
+                },
+            },
+            &mut kernel,
+        )
+        .unwrap();
+    assert_eq!(
+        engine.errors.iter().find(|(f, _)| *f == mc),
+        None,
+        "{:?}",
+        engine.errors
+    );
+    let on_top = engine
+        .connectors
+        .iter()
+        .find(|c| c.name == "On top")
+        .unwrap();
+    assert!(
+        (on_top.frame.origin[2] - 0.01).abs() < 1e-12,
+        "{:?}",
+        on_top.frame
+    );
+    assert_eq!(on_top.frame.z_axis, [0.0, 0.0, 1.0]);
+
+    // The script's own connector is exposed on the node, after the tree's.
+    let pin = engine.connectors.iter().find(|c| c.name == "pin").unwrap();
+    assert_eq!(pin.feature_id, id);
+    assert_eq!(pin.frame.z_axis, [0.0, 0.0, 1.0]);
+    assert!(
+        engine.connectors.iter().position(|c| c.name == "On top")
+            < engine.connectors.iter().position(|c| c.name == "pin")
+    );
+
+    // A later boolean references the NAMED body.
+    let named_boss = GeomRef {
+        kind: TopoKind::Solid,
+        anchor: Anchor::FeatureOutput {
+            feature_id: id,
+            output_key: OutputKey::Named {
+                name: "boss".into(),
+            },
+        },
+        selector: Selector::Role {
+            role: Role::EndCapPositive,
+            index: 0,
+        },
+        policy: ResolvePolicy::Strict,
+        scope: None,
+    };
+    let tool = tree_box(&mut engine, &mut kernel, "Tool", 0.03);
+    let cut = engine
+        .add_feature(
+            "Cut boss".into(),
+            Operation::BooleanCombine {
+                params: BooleanParams {
+                    body_a: named_boss,
+                    body_b: serde_json::from_value(body_ref_json(tool)).unwrap(),
+                    operation: BooleanOp::Subtract,
+                },
+            },
+            &mut kernel,
+        )
+        .unwrap();
+    assert_eq!(
+        engine.errors.iter().find(|(f, _)| *f == cut),
+        None,
+        "{:?}",
+        engine.errors
+    );
+    assert!(engine.consumed_features.contains(&id));
+}
+
+#[test]
+fn a_bare_return_is_main_and_a_declared_main_is_satisfied_by_it() {
+    // `gear.rhai` declares `@output body: main` and returns the extrude.
+    let (mut engine, mut kernel, src) = with_source(
+        r#"
+// @feature name="Declared main" version=1
+// @param plane: plane
+// @output body: main
+fn feature(ctx, p) {
+    let sk = ctx.sketch(p.plane);
+    sk.rect(0.0, 0.0, 0.02, 0.02);
+    ctx.extrude(sk.finish().regions()[0], #{ depth: 0.01 })
+}
+"#,
+    );
+    let id = engine
+        .add_feature(
+            "Declared".into(),
+            script_op(src, json!({ "plane": plane_json() })),
+            &mut kernel,
+        )
+        .unwrap();
+    assert_eq!(error_of(&engine, id), None);
+    assert_eq!(engine.get_result(id).unwrap().outputs[0].0, OutputKey::Main);
+}
+
+#[test]
+fn output_contract_violations_are_loud_with_no_output() {
+    let prelude = r#"
+// @param plane: plane
+fn body(ctx, p) {
+    let sk = ctx.sketch(p.plane);
+    sk.rect(0.0, 0.0, 0.02, 0.02);
+    ctx.extrude(sk.finish().regions()[0], #{ depth: 0.01 })
+}
+"#;
+    let cases: Vec<(&str, String, &str)> = vec![
+        (
+            "declared output missing",
+            format!("// @feature name=\"x\"\n// @output top: face\n{prelude}\nfn feature(ctx, p) {{ body(ctx, p) }}"),
+            "declared output `top` (face) is missing",
+        ),
+        (
+            "declared kind mismatch",
+            format!("// @feature name=\"x\"\n// @output top: face\n{prelude}\nfn feature(ctx, p) {{ let b = body(ctx, p); #{{ main: b, top: b }} }}"),
+            "declared `face` but the script returned a body",
+        ),
+        (
+            "declared connector not placed",
+            format!("// @feature name=\"x\"\n// @output pin: connector\n{prelude}\nfn feature(ctx, p) {{ body(ctx, p) }}"),
+            "declared connector `pin` was not placed",
+        ),
+        (
+            "two names one body",
+            format!("// @feature name=\"x\"\n{prelude}\nfn feature(ctx, p) {{ let b = body(ctx, p); #{{ main: b, again: b }} }}"),
+            "another output already names",
+        ),
+        (
+            "unnarrowed face query",
+            format!("// @feature name=\"x\"\n{prelude}\nfn feature(ctx, p) {{ let b = body(ctx, p); #{{ main: b, f: created_by(b).faces() }} }}"),
+            "must name one entity",
+        ),
+        (
+            "role plus filter",
+            format!("// @feature name=\"x\"\n{prelude}\nfn feature(ctx, p) {{ let b = body(ctx, p); #{{ main: b, f: created_by(b).role(\"EndCapPositive\", 0).largest_area() }} }}"),
+            "do not combine it with filters",
+        ),
+        (
+            "two tie-breaks",
+            format!("// @feature name=\"x\"\n{prelude}\nfn feature(ctx, p) {{ let b = body(ctx, p); #{{ main: b, f: created_by(b).faces().largest_area().first() }} }}"),
+            "already has a tie-break",
+        ),
+        (
+            "connector on a body",
+            format!("// @feature name=\"x\"\n{prelude}\nfn feature(ctx, p) {{ let b = body(ctx, p); ctx.mate_connector(#{{ name: \"c\", on: created_by(b) }}); b }}"),
+            "sits on a face or an edge",
+        ),
+        (
+            "connector twice",
+            format!("// @feature name=\"x\"\n{prelude}\nfn feature(ctx, p) {{ let b = body(ctx, p); let f = created_by(b).faces().largest_area(); ctx.mate_connector(#{{ name: \"c\", on: f }}); ctx.mate_connector(#{{ name: \"c\", on: f }}); b }}"),
+            "already exists",
+        ),
+        (
+            "named body consumed later",
+            format!("// @feature name=\"x\"\n{prelude}\nfn feature(ctx, p) {{ let a = body(ctx, p); let b = body(ctx, p); let u = ctx.boolean(\"union\", a, b); #{{ main: u, lost: a }} }}"),
+            "a later child consumed",
+        ),
+        (
+            "output not a handle",
+            format!("// @feature name=\"x\"\n{prelude}\nfn feature(ctx, p) {{ let b = body(ctx, p); #{{ main: b, n: 3 }} }}"),
+            "must be a feature ref or a query",
+        ),
+    ];
+    for (label, text, needle) in cases {
+        let (mut engine, mut kernel, src) = with_source(&text);
+        let id = engine
+            .add_feature(
+                label.into(),
+                script_op(src, json!({ "plane": plane_json() })),
+                &mut kernel,
+            )
+            .unwrap();
+        let (stage, msg) =
+            error_of(&engine, id).unwrap_or_else(|| panic!("{label}: expected an error"));
+        assert_eq!(stage, "runtime", "{label}: {msg}");
+        assert!(msg.contains(needle), "{label}: {msg}");
+        assert!(
+            engine.get_result(id).is_none(),
+            "{label}: no partial output"
+        );
+        assert!(
+            !engine.connectors.iter().any(|c| c.feature_id == id),
+            "{label}: a failed node exposes no connector"
+        );
+    }
+}
+
+const CUT_SCRIPT: &str = r#"
+// @feature name="Bore" version=1
+// @param target: body
+// @param plane: plane
+fn feature(ctx, p) {
+    let sk = ctx.sketch(p.plane);
+    sk.rect(0.005, 0.005, 0.005, 0.005);
+    ctx.extrude(sk.finish().regions()[0], #{ depth: 0.03, combine: "Cut", targets: [p.target] })
+}
+"#;
+
+#[test]
+fn an_outer_body_parameter_is_consumed_by_the_node_and_stays_consumed_when_carried() {
+    let (mut engine, mut kernel, src) = with_source(CUT_SCRIPT);
+    let block = tree_box(&mut engine, &mut kernel, "Block", 0.01);
+    let bore = engine
+        .add_feature(
+            "Bore".into(),
+            script_op(
+                src,
+                json!({ "plane": plane_json(), "target": body_ref_json(block) }),
+            ),
+            &mut kernel,
+        )
+        .unwrap();
+    assert_eq!(error_of(&engine, bore), None, "{:?}", engine.errors);
+    assert_eq!(body_count(&engine, bore), 1);
+    assert!(engine.consumed_features.contains(&block));
+    assert_eq!(engine.consumed_by.get(&bore), Some(&vec![block]));
+
+    // An unrelated later feature: the rebuild carries the script node
+    // without re-executing it — the consumption must survive the carry.
+    let block_result_before = engine.get_result(bore).unwrap().outputs[0].1.handle.raw();
+    let _other = tree_box(&mut engine, &mut kernel, "Other", 0.002);
+    assert_eq!(
+        engine.get_result(bore).unwrap().outputs[0].1.handle.raw(),
+        block_result_before,
+        "the script node was carried, not re-executed"
+    );
+    assert!(
+        engine.consumed_features.contains(&block),
+        "carried consumption"
+    );
+    assert_eq!(engine.consumed_by.get(&bore), Some(&vec![block]));
+
+    // Wrong kinds are refused at the argument boundary.
+    let (mut engine, mut kernel, src) = with_source(CUT_SCRIPT);
+    let block = tree_box(&mut engine, &mut kernel, "Block", 0.01);
+    let mut face_ref = body_ref_json(block);
+    face_ref["kind"] = json!({ "type": "Face" });
+    let bad = engine
+        .add_feature(
+            "Bad".into(),
+            script_op(src, json!({ "plane": plane_json(), "target": face_ref })),
+            &mut kernel,
+        )
+        .unwrap();
+    let (stage, msg) = error_of(&engine, bad).unwrap();
+    assert_eq!(stage, "args", "{msg}");
+    assert!(msg.contains("kind Solid"), "{msg}");
+    assert!(!engine.consumed_features.contains(&block));
+
+    // An outer reference cannot be a named output (the caller has it already).
+    let (mut engine, mut kernel, src) = with_source(
+        r#"
+// @feature name="x" version=1
+// @param target: body
+// @param plane: plane
+fn feature(ctx, p) {
+    let sk = ctx.sketch(p.plane);
+    sk.rect(0.0, 0.0, 0.002, 0.002);
+    let b = ctx.extrude(sk.finish().regions()[0], #{ depth: 0.001 });
+    #{ main: b, theirs: p.target }
+}
+"#,
+    );
+    let block = tree_box(&mut engine, &mut kernel, "Block", 0.01);
+    let bad = engine
+        .add_feature(
+            "Bad".into(),
+            script_op(
+                src,
+                json!({ "plane": plane_json(), "target": body_ref_json(block) }),
+            ),
+            &mut kernel,
+        )
+        .unwrap();
+    let (stage, msg) = error_of(&engine, bad).unwrap();
+    assert_eq!(stage, "runtime", "{msg}");
+    assert!(msg.contains("outside the script"), "{msg}");
+}
+
+#[test]
+fn a_script_connector_is_carried_and_dropped_with_its_node() {
+    let (mut engine, mut kernel, src) = with_source(BOSS_SCRIPT);
+    let id = engine
+        .add_feature(
+            "Boss".into(),
+            script_op(src, json!({ "plane": plane_json() })),
+            &mut kernel,
+        )
+        .unwrap();
+    assert!(engine.connectors.iter().any(|c| c.name == "pin"));
+    // Carried through a rebuild that does not re-execute the node.
+    let _other = tree_box(&mut engine, &mut kernel, "Other", 0.002);
+    assert!(engine.connectors.iter().any(|c| c.name == "pin"), "carried");
+    // Suppressed: gone. Unsuppressed: back.
+    engine.set_suppressed(id, true, &mut kernel).unwrap();
+    assert!(!engine.connectors.iter().any(|c| c.name == "pin"));
+    engine.set_suppressed(id, false, &mut kernel).unwrap();
+    assert!(engine.connectors.iter().any(|c| c.name == "pin"));
+    // Deleted: gone.
+    engine.remove_feature(id, &mut kernel).unwrap();
+    assert!(!engine.connectors.iter().any(|c| c.name == "pin"));
+}

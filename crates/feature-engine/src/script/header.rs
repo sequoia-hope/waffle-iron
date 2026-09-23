@@ -30,6 +30,15 @@ pub enum ParamType {
     String,
     /// A sketch plane: `{origin, normal}`, a datum plane id, or a face query.
     Plane,
+    /// A body of the tree OUTSIDE the script (a `GeomRef` of kind `Solid`):
+    /// the script may target it (`combine: "Cut", targets: [p.target]`),
+    /// consuming it like any boolean would.
+    Body,
+    /// A face outside the script (a `GeomRef` of kind `Face`): a sketch
+    /// plane, a connector pick, or a query base.
+    Face,
+    /// An edge outside the script (a `GeomRef` of kind `Edge`).
+    Edge,
 }
 
 impl ParamType {
@@ -42,6 +51,9 @@ impl ParamType {
             "bool" => ParamType::Bool,
             "string" => ParamType::String,
             "plane" => ParamType::Plane,
+            "body" => ParamType::Body,
+            "face" => ParamType::Face,
+            "edge" => ParamType::Edge,
             _ => return None,
         })
     }
@@ -55,7 +67,18 @@ impl ParamType {
             ParamType::Bool => "bool",
             ParamType::String => "string",
             ParamType::Plane => "plane",
+            ParamType::Body => "body",
+            ParamType::Face => "face",
+            ParamType::Edge => "edge",
         }
+    }
+
+    /// Geometry-valued parameters (a `GeomRef` argument, no literal default).
+    pub fn is_geometry(self) -> bool {
+        matches!(
+            self,
+            ParamType::Plane | ParamType::Body | ParamType::Face | ParamType::Edge
+        )
     }
 }
 
@@ -77,20 +100,72 @@ pub struct ParamDecl {
     pub max: Option<f64>,
 }
 
+/// What kind of thing a declared `@output` is.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum OutputKind {
+    /// The node's primary body (`OutputKey::Main`).
+    Main,
+    /// A secondary body (`OutputKey::Named { name }`).
+    Body,
+    /// A face (`Role::Named { name }` on the resolved face).
+    Face,
+    /// An edge (`Role::Named { name }` on the resolved edge).
+    Edge,
+    /// A mate connector the script places (`ctx.mate_connector`).
+    Connector,
+}
+
+impl OutputKind {
+    fn parse(s: &str) -> Option<Self> {
+        Some(match s {
+            "main" => OutputKind::Main,
+            "body" => OutputKind::Body,
+            "face" => OutputKind::Face,
+            "edge" => OutputKind::Edge,
+            "connector" => OutputKind::Connector,
+            _ => return None,
+        })
+    }
+
+    pub fn label(self) -> &'static str {
+        match self {
+            OutputKind::Main => "main",
+            OutputKind::Body => "body",
+            OutputKind::Face => "face",
+            OutputKind::Edge => "edge",
+            OutputKind::Connector => "connector",
+        }
+    }
+}
+
+/// One `@output name: kind` declaration. A declared output is a CONTRACT:
+/// the script's return value must provide it (a `connector` is provided by
+/// `ctx.mate_connector(#{ name })`), and its kind must match.
+#[derive(Debug, Clone, PartialEq)]
+pub struct OutputDecl {
+    pub name: String,
+    pub kind: OutputKind,
+}
+
 /// The parsed header.
 #[derive(Debug, Clone, PartialEq, Default)]
 pub struct ScriptInterface {
     pub name: String,
     pub version: u32,
     pub params: Vec<ParamDecl>,
-    /// `@output` names, in order (M3 consumes them; parsed now so a header
-    /// that declares them is not rejected).
-    pub outputs: Vec<String>,
+    /// `@output` declarations, in order. A script with none may still return
+    /// named outputs; declaring them documents the interface and makes a
+    /// missing one loud.
+    pub outputs: Vec<OutputDecl>,
 }
 
 impl ScriptInterface {
     pub fn param(&self, name: &str) -> Option<&ParamDecl> {
         self.params.iter().find(|p| p.name == name)
+    }
+
+    pub fn output(&self, name: &str) -> Option<&OutputDecl> {
+        self.outputs.iter().find(|o| o.name == name)
     }
 }
 
@@ -254,7 +329,7 @@ pub fn parse_header(text: &str) -> Result<ScriptInterface, String> {
                 let default_matches = match (&decl.default, decl.ty) {
                     (None, _) => true,
                     (Some(Literal::Number(_)), t) => {
-                        !matches!(t, ParamType::Bool | ParamType::String | ParamType::Plane)
+                        !matches!(t, ParamType::Bool | ParamType::String) && !t.is_geometry()
                     }
                     (Some(Literal::Bool(_)), t) => t == ParamType::Bool,
                     (Some(Literal::Text(_)), t) => t == ParamType::String,
@@ -269,10 +344,34 @@ pub fn parse_header(text: &str) -> Result<ScriptInterface, String> {
                 iface.params.push(decl);
             }
             "output" => {
-                let name = rest.split_once(':').map_or(rest, |(n, _)| n).trim();
-                if !name.is_empty() {
-                    iface.outputs.push(name.to_string());
+                // name: kind   (kind ∈ main | body | face | edge | connector)
+                let (name, kind_s) = rest
+                    .split_once(':')
+                    .ok_or_else(|| at("@output needs `name: kind`".into()))?;
+                let name = name.trim().to_string();
+                if name.is_empty()
+                    || !name.chars().all(|c| c.is_ascii_alphanumeric() || c == '_')
+                    || name.chars().next().is_some_and(|c| c.is_ascii_digit())
+                {
+                    return Err(at(format!("`{name}` is not a valid output name")));
                 }
+                if iface.outputs.iter().any(|o| o.name == name) {
+                    return Err(at(format!("output `{name}` declared twice")));
+                }
+                let kind_s = kind_s
+                    .trim()
+                    .split(char::is_whitespace)
+                    .next()
+                    .unwrap_or("");
+                let kind = OutputKind::parse(kind_s).ok_or_else(|| {
+                    at(format!(
+                        "unknown output kind `{kind_s}` (main, body, face, edge, connector)"
+                    ))
+                })?;
+                if kind == OutputKind::Main && iface.outputs.iter().any(|o| o.kind == kind) {
+                    return Err(at("only one output can be `main`".into()));
+                }
+                iface.outputs.push(OutputDecl { name, kind });
             }
             other => return Err(at(format!("unknown header directive `@{other}`"))),
         }
@@ -309,7 +408,33 @@ fn feature(ctx, p) { }
         assert_eq!(t.default, Some(Literal::Number(24.0)));
         assert_eq!((t.min, t.max), (Some(6.0), Some(400.0)));
         assert_eq!(h.param("plane").unwrap().ty, ParamType::Plane);
-        assert_eq!(h.outputs, vec!["body"]);
+        assert_eq!(
+            h.outputs,
+            vec![OutputDecl {
+                name: "body".into(),
+                kind: OutputKind::Main
+            }]
+        );
+    }
+
+    #[test]
+    fn output_declarations_are_typed_and_unique() {
+        let ok = parse_header(
+            "// @feature name=\"x\"\n// @output body: main\n// @output top: face\n// @output pin: connector\n",
+        )
+        .unwrap();
+        assert_eq!(ok.outputs.len(), 3);
+        assert_eq!(ok.output("top").unwrap().kind, OutputKind::Face);
+        assert!(parse_header("// @feature name=\"x\"\n// @output body\n").is_err());
+        assert!(parse_header("// @feature name=\"x\"\n// @output body: solid\n").is_err());
+        assert!(
+            parse_header("// @feature name=\"x\"\n// @output a: face\n// @output a: edge\n")
+                .is_err()
+        );
+        assert!(
+            parse_header("// @feature name=\"x\"\n// @output a: main\n// @output b: main\n")
+                .is_err()
+        );
     }
 
     #[test]

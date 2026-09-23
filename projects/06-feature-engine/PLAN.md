@@ -141,14 +141,46 @@
       output, limits, args, expressions, determinism, undo), parity (3),
       `test-harness/tests/script_kv2.rs` (3, real kernel — exact box volume, gear both
       routes watertight χ=2 within 0.5 %, script body as a boolean operand).
-- [ ] A-M3: query chains → `TopoQuery`, named outputs (`@output`), mate connectors,
-      OUTER references (needs post-execution consumption reporting to the loop).
+- [x] A-M3 (2026-09-23): **query chains → `TopoQuery`** — `Query` carries
+      `filters` + `tie_break`; `.faces()/.edges()`, `.surface_type(s)`,
+      `.normal_near(dir, tol_deg)`, `.near_point(pt, d)`, `.area_between(a, b)`,
+      `.largest_area()`, `.nearest_to(pt)`, `.farthest_along(dir)` (new
+      `TieBreak::FarthestAlong`), `.first()`; `.role()` stays `Selector::Role`
+      and refuses to mix with filters; an unnarrowed face/edge query is loud.
+      **Named outputs** — the return value `#{ main, hub, top }` keys the node:
+      `Main`, `OutputKey::Named{name}` (bodies), `Role::Named{name}` (faces /
+      edges, resolved at execution); a bare feature ref is `main`; `@output
+      name: main|body|face|edge|connector` is a contract (missing / wrong kind /
+      unplaced connector ⇒ loud, no outputs). **Mate connectors from scripts** —
+      `ctx.mate_connector(#{ name, on: face_or_edge_query | frame, x_axis,
+      anchor, flip_z, rotation_deg, offset_m })` records a `MateConnector` child;
+      the node exposes the evaluated frames (`Engine::script_connectors`,
+      appended to `Engine::connectors` in tree order; carried across a rebuild
+      that does not re-execute the node; dropped with suppression / deletion).
+      **OUTER references** — `@param x: body|face|edge` takes a `GeomRef` JSON
+      argument (kind-checked, unscoped, feature-anchored); a child that targets
+      it consumes it on the node's behalf: `script::execute` returns a
+      `ScriptOutcome { result, consumed_outer, connectors }`, the rebuild loop
+      calls it directly for `Script` nodes and applies the consumption; a carried
+      node re-applies its previous `consumed_by` entry (`rebuild::Carried`).
+      **Found on the way:** `Selector::Query` resolved over the feature's
+      provenance DIFF, so a query on a merged/cut body saw only the seam faces
+      (and could name deleted ones) — `resolve::resolve_geom_ref_live` answers a
+      query over the anchor body's CURRENT entities via `compute_all_signatures`
+      and is now what sketch-plane, connector and script-output resolution use.
+      Tests: `tests/script.rs` (+5, MockKernel), `resolve.rs` (FarthestAlong),
+      `header.rs` (typed outputs), `test-harness/tests/script_kv2.rs` (+2, real
+      kernel: boss-on-top via a query chain has the exact summed volume with the
+      named face and both connectors at z = 0.014; a script cuts an outer body
+      parameter to the exact remaining volume and consumes it).
 - [ ] A-M4: script editor panel, `@param` dialog generation, MCP `script_source_add` /
       `script_feature_add` / `script_run_check` (an agent can `feature_add` a Script
       today only if the document already carries the source).
 - [ ] Known limits: `module` is a Rhai keyword (the gear param is `module_m`);
       `ctx.log` lines surface as warnings (`log: …`); child roles concatenate (no
-      `Role::ScriptChild`); `tree.clone()` + `feature_results.clone()` per script rebuild.
+      `Role::ScriptChild`); `tree.clone()` + `feature_results.clone()` per script rebuild;
+      a script's `.nth(i)` bodies are not separately nameable (name a child's main);
+      `Named` bodies render as "Feature (n)" (no name-derived display label yet).
 
 ### M14: Sprocket sketch entity — B3 of `specs/custom_features_and_modeling_roadmap.md` ✅ (2026-09-19)
 - [x] `SketchEntity::Sprocket { params: SprocketParams }` + `waffle_types::sprocket`:

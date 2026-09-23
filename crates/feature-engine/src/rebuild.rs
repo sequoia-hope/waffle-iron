@@ -119,6 +119,20 @@ pub struct RebuildState {
     /// (Populated only for features executed this pass; the kernel must track
     /// persistent ids — empty under `MockKernel`.)
     pub pid_to_feature: HashMap<u64, Uuid>,
+    /// Mate connectors placed by `Script` nodes (`ctx.mate_connector`), by
+    /// node, in placement order — a script's connectors live in its private
+    /// sub-tree, so `connector::part_connectors` (which walks the tree)
+    /// cannot see them. Carried for a node this pass did not re-execute.
+    pub script_connectors: HashMap<Uuid, Vec<crate::connector::PartConnector>>,
+}
+
+/// What the previous rebuild established that a feature this pass does NOT
+/// re-execute keeps: for a `Script` node, the outer features it consumed and
+/// the connectors it placed — neither is recoverable from its `OpResult`.
+#[derive(Debug, Clone, Copy, Default)]
+pub struct Carried<'a> {
+    pub consumed_by: Option<&'a HashMap<Uuid, Vec<Uuid>>>,
+    pub script_connectors: Option<&'a HashMap<Uuid, Vec<crate::connector::PartConnector>>>,
 }
 
 /// What changed since the last rebuild, which decides what a rebuild
@@ -141,8 +155,9 @@ pub enum Changed {
 /// Features before `from_index`, and later features `changed` does not reach,
 /// keep their entry in `existing_results` (or re-report their entry in
 /// `previous_errors`, the last rebuild's errors).
-// Eight inputs: the tree, the kernel, what changed, the last rebuild's
-// outcome, and the document/assembly environment the operations read.
+// Nine inputs: the tree, the kernel, what changed, the last rebuild's
+// outcome (results, errors, what scripts established), and the
+// document/assembly environment the operations read.
 #[allow(clippy::too_many_arguments)]
 pub fn rebuild(
     tree: &FeatureTree,
@@ -151,6 +166,7 @@ pub fn rebuild(
     changed: &Changed,
     existing_results: &HashMap<Uuid, OpResult>,
     previous_errors: &[crate::types::FeatureError],
+    carried: Carried<'_>,
     sources: &SourceStore,
     context: Option<&EditContext>,
 ) -> RebuildState {
@@ -162,6 +178,7 @@ pub fn rebuild(
         consumed_features: std::collections::HashSet::new(),
         consumed_by: HashMap::new(),
         pid_to_feature: HashMap::new(),
+        script_connectors: HashMap::new(),
     };
 
     let active = tree.active_features();
@@ -219,13 +236,27 @@ pub fn rebuild(
                 state.warnings.push(format!("{}: {}", feature.name, w));
             }
             state.feature_results.insert(feature.id, result.clone());
-            let consumed_ids = find_consumed_feature_ids(
-                feature,
-                &state.feature_results,
-                tree,
-                &state.consumed_features,
-                Some(kb.as_introspect()),
-            );
+            let consumed_ids = if matches!(feature.operation, Operation::Script { .. }) {
+                // A script's consumption of OUTER bodies is not derivable from
+                // its result; what the last rebuild established stands (its
+                // children are private; `find_consumed_feature_ids` sees none).
+                if let Some(cs) = carried.script_connectors.and_then(|m| m.get(&feature.id)) {
+                    state.script_connectors.insert(feature.id, cs.clone());
+                }
+                carried
+                    .consumed_by
+                    .and_then(|m| m.get(&feature.id))
+                    .cloned()
+                    .unwrap_or_default()
+            } else {
+                find_consumed_feature_ids(
+                    feature,
+                    &state.feature_results,
+                    tree,
+                    &state.consumed_features,
+                    Some(kb.as_introspect()),
+                )
+            };
             if !consumed_ids.is_empty() {
                 if let Some(result) = state.feature_results.get(&feature.id) {
                     let union_failed = result
@@ -251,7 +282,7 @@ pub fn rebuild(
         resolve_feature_refs(feature, &state.feature_results, &mut state.warnings);
 
         // Track which features' solids would be consumed by a successful merge/boolean
-        let consumed_ids = find_consumed_feature_ids(
+        let mut consumed_ids = find_consumed_feature_ids(
             feature,
             &state.feature_results,
             tree,
@@ -259,15 +290,36 @@ pub fn rebuild(
             Some(kb.as_introspect()),
         );
 
-        match execute_feature(
-            feature,
-            kb,
-            &state.feature_results,
-            tree,
-            &state.consumed_features,
-            sources,
-            context,
-        ) {
+        // A `Script` node reports what it consumed and placed AFTER running
+        // (its children are private); every other operation is known before.
+        let outcome = if matches!(feature.operation, Operation::Script { .. }) {
+            crate::script::execute(
+                feature,
+                kb,
+                &state.feature_results,
+                tree,
+                &state.consumed_features,
+                sources,
+            )
+            .map(|o| {
+                consumed_ids = o.consumed_outer;
+                if !o.connectors.is_empty() {
+                    state.script_connectors.insert(feature.id, o.connectors);
+                }
+                o.result
+            })
+        } else {
+            execute_feature(
+                feature,
+                kb,
+                &state.feature_results,
+                tree,
+                &state.consumed_features,
+                sources,
+                context,
+            )
+        };
+        match outcome {
             Ok(result) => {
                 for w in &result.diagnostics.warnings {
                     state.warnings.push(format!("{}: {}", feature.name, w));
@@ -1064,6 +1116,9 @@ pub(crate) fn execute_feature(
             already_consumed,
             crate::pattern::PatternSpec::Linear(params),
         ),
+        // The rebuild loop calls `script::execute` directly for the outer
+        // consumption and connectors it reports; this arm serves the other
+        // callers (tests, nested execution), which need only the result.
         Operation::Script { .. } => crate::script::execute(
             feature,
             kb,
@@ -1071,7 +1126,8 @@ pub(crate) fn execute_feature(
             tree,
             already_consumed,
             sources,
-        ),
+        )
+        .map(|o| o.result),
 
         Operation::UnionAll { params } => {
             crate::union_all::execute(feature, params, kb, feature_results, tree, already_consumed)
@@ -2526,7 +2582,7 @@ pub fn resolve_face_plane(
     feature_results: &HashMap<Uuid, OpResult>,
     introspect: &dyn waffle_types::kernel::KernelIntrospect,
 ) -> Result<([f64; 3], [f64; 3]), EngineError> {
-    let resolved = resolve_with_fallback(base, feature_results)?;
+    let resolved = crate::resolve::resolve_geom_ref_live(base, feature_results, introspect)?;
     crate::connector::planar_face_plane(resolved.kernel_id, introspect, "Datum plane base face")
 }
 
@@ -3155,6 +3211,7 @@ mod tests {
             &Changed::All,
             &existing,
             &[],
+            Carried::default(),
             &SourceStore::new(),
             None,
         );
@@ -3186,6 +3243,7 @@ mod tests {
             &Changed::All,
             &existing,
             &[],
+            Carried::default(),
             &SourceStore::new(),
             None,
         );
@@ -3320,6 +3378,7 @@ mod tests {
             &Changed::All,
             &existing,
             &[],
+            Carried::default(),
             &SourceStore::new(),
             None,
         );
@@ -3579,6 +3638,7 @@ mod tests {
             &Changed::All,
             &existing,
             &[],
+            Carried::default(),
             &SourceStore::new(),
             None,
         );
@@ -3671,6 +3731,7 @@ mod tests {
             &Changed::All,
             &existing,
             &[],
+            Carried::default(),
             &SourceStore::new(),
             None,
         );
@@ -3721,6 +3782,7 @@ mod tests {
             &Changed::All,
             &existing,
             &[],
+            Carried::default(),
             &SourceStore::new(),
             None,
         );

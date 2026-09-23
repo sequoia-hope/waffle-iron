@@ -9,8 +9,9 @@ RECORD children and the engine executes them afterwards (sketches are derived
 immediately, so `regions()` works; queries are values as §A6 intends) — this is
 what keeps the interpreter free of kernel lifetimes; (2) `v6` was not needed —
 `SourceKind::Script` is an additive kind under the format's own rule; (3) the gear
-`module` parameter is spelled `module_m` (`module` is a Rhai keyword). Next per
-Part C: B3 sprocket sketch entity, then A-M3.
+`module` parameter is spelled `module_m` (`module` is a Rhai keyword). **A-M3
+LANDED 2026-09-23** (queries, named outputs, script connectors, outer
+references; §A10). Next per Part C: A-M4 (editor + MCP `script_*` tools).
 Sub-projects: `projects/06-feature-engine/` (owner), `projects/14-agent-link/`
 (tools), `projects/09-file-format/` (storage), `projects/08-ui-chrome/`
 (feature list, script editor), `kernel-v2` (Part B only).
@@ -309,7 +310,7 @@ without knowing the sub-tree.
 | A-M0 | `Operation::Script` type, `SourceKind::Script`, v6 format, no interpreter (node errors "no interpreter") | — |
 | A-M1 | Rhai interpreter with limits; API: `sketch`, `extrude`, `revolve`, `boolean`, `query.created_by/role/nth`; sub-tree execution; errors on node | A-M0 |
 | A-M2 | `gear.rhai` passes gear parity; built-in Gear becomes a thin call into the script (or is kept but tested against it) | A-M1 |
-| A-M3 | Query chain lowering to `TopoQuery`, named outputs, mate connectors from scripts | A-M1 |
+| A-M3 | Query chain lowering to `TopoQuery`, named outputs, mate connectors from scripts — **LANDED 2026-09-23** (PLAN M13): chains lower to one `TopoQuery` (+ `TieBreak::FarthestAlong`); the return value keys the node (`Main` / `OutputKey::Named` / `Role::Named`), `@output` lines are its contract; `ctx.mate_connector`; `body`/`face`/`edge` params for OUTER references with post-execution consumption reporting; `Selector::Query` now resolves over the anchor body's live entities (`resolve_geom_ref_live`) | A-M1 |
 | A-M4 | Script editor panel, `@param` dialog generation, MCP `script_*` tools, agent authoring loop documented | A-M2 |
 | A-M5 | `sprocket.rhai` (needs Part B3's tooth form as sketch entities, or draws it from arcs directly) — **LANDED 2026-09-19**: draws the arcs directly, bit-identical to the generator (`tests/script_sprocket_parity.rs`) | A-M2 |
 | A-M6 | Git-sourced script libraries, versioning rules | A-M4 |

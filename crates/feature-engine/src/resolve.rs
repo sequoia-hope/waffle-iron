@@ -242,24 +242,77 @@ pub fn resolve_with_fallback(
     }
 }
 
-/// Resolve by user-specified geometric query.
+/// Resolve a GeomRef with the kernel at hand: a `Selector::Query` anchored at
+/// a body output is answered over that body's CURRENT entities (every face /
+/// edge of the body, with live signatures), not over the feature's
+/// provenance diff. The diff records what an operation CREATED — right for a
+/// standalone extrude, but a merged or cut body's surviving faces are absent
+/// from it and its deleted faces present, so a query over the diff can miss
+/// the face the caller means or name one that no longer exists. Every other
+/// selector, and a query when the body cannot be listed, takes
+/// [`resolve_with_fallback`].
+pub fn resolve_geom_ref_live(
+    geom_ref: &GeomRef,
+    feature_results: &std::collections::HashMap<Uuid, OpResult>,
+    introspect: &dyn KernelIntrospect,
+) -> Result<ResolvedRef, EngineError> {
+    if let (
+        Selector::Query { query },
+        Anchor::FeatureOutput {
+            feature_id,
+            output_key,
+        },
+    ) = (&geom_ref.selector, &geom_ref.anchor)
+    {
+        refuse_scoped(geom_ref)?;
+        if let Some(body) = feature_results.get(feature_id).and_then(|r| {
+            r.outputs
+                .iter()
+                .find(|(k, _)| key_matches(k, output_key))
+                .map(|(_, b)| b)
+        }) {
+            let live = introspect.compute_all_signatures(&body.handle, geom_ref.kind);
+            if !live.is_empty() {
+                let candidates: Vec<(KernelId, &TopoSignature)> =
+                    live.iter().map(|(id, sig)| (*id, sig)).collect();
+                return resolve_query_over(&candidates, query, geom_ref.kind, geom_ref.policy);
+            }
+        }
+    }
+    resolve_with_fallback(geom_ref, feature_results)
+}
+
+/// Resolve by user-specified geometric query over the feature's provenance
+/// (what the operation created). See [`resolve_geom_ref_live`] for the
+/// body-wide form.
 fn resolve_by_query(
     op_result: &OpResult,
     query: &TopoQuery,
     kind: TopoKind,
     policy: ResolvePolicy,
 ) -> Result<ResolvedRef, EngineError> {
-    // Collect candidates: entities matching the requested kind that pass all filters.
-    let mut matches: Vec<(KernelId, &TopoSignature)> = Vec::new();
+    let candidates: Vec<(KernelId, &TopoSignature)> = op_result
+        .provenance
+        .created
+        .iter()
+        .filter(|e| e.kind == kind)
+        .map(|e| (e.kernel_id, &e.signature))
+        .collect();
+    resolve_query_over(&candidates, query, kind, policy)
+}
 
-    for entity in &op_result.provenance.created {
-        if entity.kind != kind {
-            continue;
-        }
-        if passes_all_filters(&entity.signature, &query.filters) {
-            matches.push((entity.kernel_id, &entity.signature));
-        }
-    }
+/// Apply a query's filters and tie-break to `candidates` (all of `kind`).
+fn resolve_query_over(
+    candidates: &[(KernelId, &TopoSignature)],
+    query: &TopoQuery,
+    kind: TopoKind,
+    policy: ResolvePolicy,
+) -> Result<ResolvedRef, EngineError> {
+    let matches: Vec<(KernelId, &TopoSignature)> = candidates
+        .iter()
+        .filter(|(_, sig)| passes_all_filters(sig, &query.filters))
+        .copied()
+        .collect();
 
     if matches.is_empty() {
         return match policy {
@@ -267,23 +320,13 @@ fn resolve_by_query(
                 reason: format!(
                     "Query matched no {:?} entities ({} candidates, {} filters)",
                     kind,
-                    op_result
-                        .provenance
-                        .created
-                        .iter()
-                        .filter(|e| e.kind == kind)
-                        .count(),
+                    candidates.len(),
                     query.filters.len()
                 ),
             }),
             ResolvePolicy::BestEffort => {
                 // Fall back to first entity of matching kind
-                let fallback = op_result
-                    .provenance
-                    .created
-                    .iter()
-                    .find(|e| e.kind == kind)
-                    .map(|e| e.kernel_id);
+                let fallback = candidates.first().map(|(id, _)| *id);
                 match fallback {
                     Some(id) => Ok(ResolvedRef {
                         kernel_id: id,
@@ -405,6 +448,21 @@ fn apply_tie_break(
                 })
                 .unwrap()
                 .0
+        }
+        Some(TieBreak::FarthestAlong { direction }) => {
+            // Strictly-greater comparison keeps the FIRST of equals.
+            let along = |sig: &TopoSignature| -> f64 {
+                sig.centroid.map_or(f64::MIN, |c| {
+                    c[0] * direction[0] + c[1] * direction[1] + c[2] * direction[2]
+                })
+            };
+            let mut best = matches[0];
+            for m in &matches[1..] {
+                if along(m.1) > along(best.1) {
+                    best = *m;
+                }
+            }
+            best.0
         }
         Some(TieBreak::SmallestIndex) | None => {
             // First in iteration order
@@ -728,6 +786,49 @@ mod tests {
         };
         let gref = pos_ref(fid, 9.0, 9.0, 9.0, ResolvePolicy::Strict);
         assert!(resolve_by_position(&gref, &results, &intro, [9.0, 9.0, 9.0]).is_err());
+    }
+
+    #[test]
+    fn query_farthest_along_tie_break_picks_the_top_face_and_keeps_the_first_of_equals() {
+        // A box's six planar faces: farthest along +z is the top (centroid
+        // z = 5); the four side faces tie at z = 2.5 and the FIRST one wins
+        // when the direction is +x-and-nothing-else-distinguishes.
+        let op = make_op_result(vec![
+            make_face(1, "planar", 10.0, [2.0, 2.0, 0.0], [0.0, 0.0, -1.0]),
+            make_face(2, "planar", 10.0, [2.0, 2.0, 5.0], [0.0, 0.0, 1.0]),
+            make_face(3, "planar", 20.0, [2.0, 0.0, 2.5], [0.0, -1.0, 0.0]),
+            make_face(4, "planar", 20.0, [4.0, 2.0, 2.5], [1.0, 0.0, 0.0]),
+            make_face(5, "planar", 20.0, [2.0, 4.0, 2.5], [0.0, 1.0, 0.0]),
+            make_face(6, "planar", 20.0, [0.0, 2.0, 2.5], [-1.0, 0.0, 0.0]),
+        ]);
+        let top = TopoQuery {
+            filters: vec![Filter::SurfaceType {
+                surface_type: "planar".to_string(),
+            }],
+            tie_break: Some(TieBreak::FarthestAlong {
+                direction: [0.0, 0.0, 1.0],
+            }),
+        };
+        let r = resolve_by_query(&op, &top, TopoKind::Face, ResolvePolicy::Strict).unwrap();
+        assert_eq!(r.kernel_id, KernelId(2));
+        let plus_x = TopoQuery {
+            filters: vec![],
+            tie_break: Some(TieBreak::FarthestAlong {
+                direction: [1.0, 0.0, 0.0],
+            }),
+        };
+        let r = resolve_by_query(&op, &plus_x, TopoKind::Face, ResolvePolicy::Strict).unwrap();
+        assert_eq!(r.kernel_id, KernelId(4));
+        // Equal projections keep the first: -z direction, faces 3..6 tie at
+        // -2.5 but the bottom (face 1, z = 0) is farthest along -z.
+        let minus_z = TopoQuery {
+            filters: vec![],
+            tie_break: Some(TieBreak::FarthestAlong {
+                direction: [0.0, 0.0, -1.0],
+            }),
+        };
+        let r = resolve_by_query(&op, &minus_z, TopoKind::Face, ResolvePolicy::Strict).unwrap();
+        assert_eq!(r.kernel_id, KernelId(1));
     }
 
     #[test]

@@ -282,3 +282,160 @@ fn feature(ctx, p) {
     let expect = 0.1 * 0.1 * 0.02 - std::f64::consts::PI * 0.01 * 0.01 * 0.02;
     assert!((v - expect).abs() < expect * 2e-3, "{v} vs {expect}");
 }
+
+// ── A-M3: query chains, named outputs, connectors, outer references ─────────
+
+/// 5. A boss placed on the base's top face through a QUERY CHAIN (planar,
+///    farthest along +z) and merged into it: one body with the exact summed
+///    volume; the named top face and the script's connector both sit at the
+///    boss's top plane.
+#[test]
+fn boss_on_top_via_query_chain_named_face_and_connector_on_the_real_kernel() {
+    let mut b = ModelBuilder::kernel_v2();
+    let src = add_source(
+        &mut b,
+        r#"
+// @feature name="Boss on top" version=1
+// @param plane: plane
+// @output main: main
+// @output top: face
+// @output top_pin: connector
+fn feature(ctx, p) {
+    let a = ctx.sketch(p.plane);
+    a.rect(0.0, 0.0, 0.02, 0.02);
+    let base = ctx.extrude(a.finish().regions()[0], #{ depth: 0.01 });
+    let base_top = created_by(base).faces().surface_type("planar").farthest_along([0.0, 0.0, 1.0]);
+    let s = ctx.sketch(base_top);
+    s.rect(-0.005, -0.005, 0.01, 0.01);
+    let boss = ctx.extrude(s.finish().regions()[0], #{ depth: 0.004, combine: "Add", targets: [base] });
+    let top = created_by(boss).faces().surface_type("planar").farthest_along([0.0, 0.0, 1.0]);
+    ctx.mate_connector(#{ name: "top_pin", on: top });
+    #{ main: boss, top: top }
+}
+"#,
+    );
+    let id = b
+        .add_operation("Boss", script_op(src, json!({ "plane": plane_z() })))
+        .unwrap();
+    assert_clean(&b, "boss on top");
+    assert_eq!(b.distinct_solid_count(), 1);
+    let v = b
+        .kernel_ref()
+        .as_introspect()
+        .solid_volume(&b.solid_handle("Boss").unwrap())
+        .expect("exact volume");
+    let expect = 0.02 * 0.02 * 0.01 + 0.01 * 0.01 * 0.004;
+    assert!((v - expect).abs() < 1e-15, "{v} vs {expect}");
+
+    // The script's connector: on the boss top, z up, at z = 0.014.
+    let pin = b
+        .state
+        .engine
+        .connectors
+        .iter()
+        .find(|c| c.name == "top_pin")
+        .expect("script connector exposed")
+        .clone();
+    assert_eq!(pin.feature_id, id);
+    assert!(
+        (pin.frame.origin[2] - 0.014).abs() < 1e-12,
+        "{:?}",
+        pin.frame
+    );
+    assert!((pin.frame.z_axis[2] - 1.0).abs() < 1e-12, "{:?}", pin.frame);
+
+    // A tree connector on the NAMED face lands on the same plane.
+    let on_top = Operation::MateConnector {
+        params: MateConnectorParams {
+            name: "On top".into(),
+            geom_ref: Some(waffle_types::GeomRef {
+                kind: waffle_types::TopoKind::Face,
+                anchor: waffle_types::Anchor::FeatureOutput {
+                    feature_id: id,
+                    output_key: waffle_types::OutputKey::Main,
+                },
+                selector: waffle_types::Selector::Role {
+                    role: waffle_types::Role::Named { name: "top".into() },
+                    index: 0,
+                },
+                policy: waffle_types::ResolvePolicy::Strict,
+                scope: None,
+            }),
+            ..Default::default()
+        },
+    };
+    b.add_operation("On top", on_top).unwrap();
+    assert_clean(&b, "connector on the named face");
+    let c = b
+        .state
+        .engine
+        .connectors
+        .iter()
+        .find(|c| c.name == "On top")
+        .unwrap();
+    assert!((c.frame.origin[2] - 0.014).abs() < 1e-12, "{:?}", c.frame);
+    // Same face as the script's own connector ⇒ the same frame (the boss is
+    // centred on the base top, 10 mm from each edge; the sketch plane's v axis
+    // is not world y, so compare frames rather than hard-code the basis).
+    assert_eq!(
+        c.frame.origin, pin.frame.origin,
+        "{:?} vs {:?}",
+        c.frame, pin.frame
+    );
+    assert!(
+        (c.frame.origin[0].abs() - 0.01).abs() < 1e-12
+            && (c.frame.origin[1].abs() - 0.01).abs() < 1e-12,
+        "{:?}",
+        c.frame
+    );
+}
+
+/// 6. A script CUTS an OUTER body handed in as a `body` parameter: the tree
+///    body is consumed by the node, and the node's body has the exact
+///    remaining volume.
+#[test]
+fn a_script_cuts_an_outer_body_parameter_on_the_real_kernel() {
+    let mut b = ModelBuilder::kernel_v2();
+    b.rect_sketch("Sk", [0.0; 3], [0.0, 0.0, 1.0], 0.0, 0.0, 0.02, 0.02)
+        .unwrap();
+    let block = b.extrude_no_merge("Block", "Sk", 0.01).unwrap();
+    let src = add_source(
+        &mut b,
+        r#"
+// @feature name="Square bore" version=1
+// @param target: body
+// @param plane: plane
+fn feature(ctx, p) {
+    let sk = ctx.sketch(p.plane);
+    sk.rect(0.005, 0.005, 0.005, 0.005);
+    ctx.extrude(sk.finish().regions()[0], #{ depth: 0.03, combine: "Cut", targets: [p.target] })
+}
+"#,
+    );
+    let target = json!({
+        "kind": { "type": "Solid" },
+        "anchor": { "type": "FeatureOutput", "feature_id": block, "output_key": { "type": "Main" } },
+        "selector": { "type": "Role", "role": { "type": "EndCapPositive" }, "index": 0 },
+        "policy": { "type": "Strict" }
+    });
+    let bore = b
+        .add_operation(
+            "Bore",
+            script_op(src, json!({ "plane": plane_z(), "target": target })),
+        )
+        .unwrap();
+    assert_clean(&b, "square bore");
+    assert!(
+        b.consumed_features().contains(&block),
+        "the outer block is consumed"
+    );
+    assert_eq!(b.state.engine.consumed_by.get(&bore), Some(&vec![block]));
+    assert_eq!(b.distinct_solid_count(), 1);
+    let v = b
+        .kernel_ref()
+        .as_introspect()
+        .solid_volume(&b.solid_handle("Bore").unwrap())
+        .expect("exact volume");
+    let expect = 0.02 * 0.02 * 0.01 - 0.005 * 0.005 * 0.01;
+    assert!((v - expect).abs() < 1e-15, "{v} vs {expect}");
+}

@@ -15,7 +15,7 @@ use super::host::{
     runtime, sprocket_params_from_map, Ctx, FeatureRef, PlaneRef, PlaneSpec, Query, Region, Shared,
     SketchBuilder, SketchRef,
 };
-use waffle_types::{OutputKey, Role, TopoKind};
+use waffle_types::{Filter, OutputKey, Role, TieBreak, TopoKind};
 
 /// Interpreter limits (spec §A5).
 #[derive(Debug, Clone, Copy)]
@@ -45,6 +45,38 @@ pub struct Failure {
     /// `parse`, `runtime`, `limit`, or `fail` (an explicit `ctx.fail`).
     pub stage: &'static str,
     pub reason: String,
+}
+
+/// `[x, y, z]` from a script value.
+fn vec3_of(d: &Dynamic, what: &str) -> Result<[f64; 3], Box<EvalAltResult>> {
+    let Some(arr) = d.clone().try_cast::<Array>() else {
+        return runtime(format!("{what}: expected [x, y, z]"));
+    };
+    if arr.len() != 3 {
+        return runtime(format!(
+            "{what}: expected [x, y, z], got {} values",
+            arr.len()
+        ));
+    }
+    let v = [
+        dyn_num(&arr[0], what)?,
+        dyn_num(&arr[1], what)?,
+        dyn_num(&arr[2], what)?,
+    ];
+    if !v.iter().all(|c| c.is_finite()) {
+        return runtime(format!("{what}: non-finite component"));
+    }
+    Ok(v)
+}
+
+/// A unit direction from a script value (zero-length is refused).
+fn unit3(d: &Dynamic, what: &str) -> Result<[f64; 3], Box<EvalAltResult>> {
+    let v = vec3_of(d, what)?;
+    let len = (v[0] * v[0] + v[1] * v[1] + v[2] * v[2]).sqrt();
+    if len <= 0.0 || !len.is_finite() {
+        return runtime(format!("{what}: zero-length direction"));
+    }
+    Ok([v[0] / len, v[1] / len, v[2] / len])
 }
 
 fn opt_bool(m: &Map, key: &str) -> Result<bool, Box<EvalAltResult>> {
@@ -129,6 +161,9 @@ pub fn build_engine(limits: &Limits) -> Engine {
     engine.register_fn("union_all", |ctx: &mut Ctx| ctx.union_all(None));
     engine.register_fn("union_all", |ctx: &mut Ctx, bodies: Dynamic| {
         ctx.union_all(Some(&bodies))
+    });
+    engine.register_fn("mate_connector", |ctx: &mut Ctx, opts: Map| {
+        ctx.mate_connector(&opts)
     });
     engine.register_fn("log", |ctx: &mut Ctx, msg: &str| ctx.log(msg));
     engine.register_fn("fail", |ctx: &mut Ctx, msg: &str| ctx.fail(msg));
@@ -289,23 +324,22 @@ pub fn build_engine(limits: &Limits) -> Engine {
     engine.register_get("id", |f: &mut FeatureRef| f.id.to_string());
     engine.register_type_with_name::<Query>("Query");
     engine.register_type_with_name::<PlaneRef>("Plane");
-    fn created_by(f: FeatureRef) -> Query {
-        Query {
-            feature: f,
-            key: OutputKey::Main,
-            kind: TopoKind::Solid,
-            role: None,
-        }
-    }
-    engine.register_fn("created_by", created_by);
-    engine.register_fn("bodies", created_by);
+    engine.register_fn("created_by", Query::of_child);
+    engine.register_fn("bodies", Query::of_child);
+    // `faces(f)` / `edges(f)` on a feature ref directly, and as chain steps.
+    engine.register_fn("faces", |f: FeatureRef| {
+        Query::of_child(f).with_kind(TopoKind::Face)
+    });
+    engine.register_fn("edges", |f: FeatureRef| {
+        Query::of_child(f).with_kind(TopoKind::Edge)
+    });
     engine.register_fn(
         "nth",
         |q: &mut Query, i: i64| -> Result<Query, Box<EvalAltResult>> {
             if i < 0 {
                 return runtime("nth: index must be ≥ 0");
             }
-            let mut out = q.clone();
+            let mut out = q.step();
             out.key = if i == 0 {
                 OutputKey::Main
             } else {
@@ -314,23 +348,15 @@ pub fn build_engine(limits: &Limits) -> Engine {
             Ok(out)
         },
     );
-    engine.register_fn("faces", |q: &mut Query| -> Query {
-        let mut out = q.clone();
-        out.kind = TopoKind::Face;
-        out
-    });
-    engine.register_fn("edges", |q: &mut Query| -> Query {
-        let mut out = q.clone();
-        out.kind = TopoKind::Edge;
-        out
-    });
+    engine.register_fn("faces", |q: &mut Query| q.with_kind(TopoKind::Face));
+    engine.register_fn("edges", |q: &mut Query| q.with_kind(TopoKind::Edge));
     engine.register_fn("role", |q: &mut Query, name: &str, index: i64| -> Result<Query, Box<EvalAltResult>> {
         let role: Role = serde_json::from_value(serde_json::json!({ "type": name }))
             .or_else(|_| runtime(format!("role: `{name}` is not a role name (EndCapPositive, EndCapNegative, SideFace, …)")))?;
         if index < 0 {
             return runtime("role: index must be ≥ 0");
         }
-        let mut out = q.clone();
+        let mut out = q.step();
         if out.kind == TopoKind::Solid {
             out.kind = TopoKind::Face;
         }
@@ -343,7 +369,7 @@ pub fn build_engine(limits: &Limits) -> Engine {
             if index < 0 {
                 return runtime("side_face: index must be ≥ 0");
             }
-            let mut out = q.clone();
+            let mut out = q.step();
             out.kind = TopoKind::Face;
             out.role = Some((
                 Role::SideFace {
@@ -352,6 +378,79 @@ pub fn build_engine(limits: &Limits) -> Engine {
                 0,
             ));
             Ok(out)
+        },
+    );
+    // ── Query filters (lower to `TopoQuery` filters) ─────────────────────
+    engine.register_fn(
+        "surface_type",
+        |q: &mut Query, s: &str| -> Result<Query, Box<EvalAltResult>> {
+            if s.trim().is_empty() {
+                return runtime(
+                    "surface_type: expected planar, cylindrical, conical, spherical, toroidal, …",
+                );
+            }
+            Ok(q.with_filter(Filter::SurfaceType {
+                surface_type: s.trim().to_string(),
+            }))
+        },
+    );
+    engine.register_fn(
+        "normal_near",
+        |q: &mut Query, dir: Dynamic, tol_deg: Dynamic| -> Result<Query, Box<EvalAltResult>> {
+            let direction = unit3(&dir, "normal_near.direction")?;
+            let tol = dyn_num(&tol_deg, "normal_near.tolerance_deg")?;
+            if !(tol.is_finite() && tol >= 0.0) {
+                return runtime("normal_near: tolerance_deg must be ≥ 0");
+            }
+            Ok(q.with_filter(Filter::NormalDirection {
+                direction,
+                tolerance: tol.to_radians(),
+            }))
+        },
+    );
+    engine.register_fn(
+        "near_point",
+        |q: &mut Query, pt: Dynamic, dist: Dynamic| -> Result<Query, Box<EvalAltResult>> {
+            let point = vec3_of(&pt, "near_point.point")?;
+            let distance = dyn_num(&dist, "near_point.distance")?;
+            if !(distance.is_finite() && distance >= 0.0) {
+                return runtime("near_point: distance must be ≥ 0");
+            }
+            Ok(q.with_filter(Filter::NearPoint { point, distance }))
+        },
+    );
+    engine.register_fn(
+        "area_between",
+        |q: &mut Query, min: Dynamic, max: Dynamic| -> Result<Query, Box<EvalAltResult>> {
+            let (min, max) = (
+                dyn_num(&min, "area_between.min")?,
+                dyn_num(&max, "area_between.max")?,
+            );
+            if !(min.is_finite() && max.is_finite() && min <= max) {
+                return runtime("area_between: needs min ≤ max, both finite");
+            }
+            Ok(q.with_filter(Filter::AreaRange { min, max }))
+        },
+    );
+    // ── Query tie-breaks (lower to `TopoQuery.tie_break`) ─────────────────
+    engine.register_fn("largest_area", |q: &mut Query| {
+        q.with_tie_break(TieBreak::LargestArea, "largest_area")
+    });
+    engine.register_fn("first", |q: &mut Query| {
+        q.with_tie_break(TieBreak::SmallestIndex, "first")
+    });
+    engine.register_fn(
+        "nearest_to",
+        |q: &mut Query, pt: Dynamic| -> Result<Query, Box<EvalAltResult>> {
+            let point = vec3_of(&pt, "nearest_to.point")?;
+            q.with_tie_break(TieBreak::NearestTo { point }, "nearest_to")
+        },
+    );
+    engine.register_fn(
+        "farthest_along",
+        |q: &mut Query, dir: Dynamic| -> Result<Query, Box<EvalAltResult>> {
+            let direction = unit3(&dir, "farthest_along.direction")?;
+            q.with_tie_break(TieBreak::FarthestAlong { direction }, "farthest_along")
         },
     );
     engine.register_fn(

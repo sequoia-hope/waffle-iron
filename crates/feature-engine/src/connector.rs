@@ -47,7 +47,7 @@ use waffle_types::kernel::{AxisKind, EntityAxis, KernelId, KernelIntrospect};
 use waffle_types::{GeomRef, TopoKind};
 
 use crate::assembly::{adjust_frame, AxialAnchor, Frame};
-use crate::resolve::resolve_with_fallback;
+use crate::resolve::resolve_geom_ref_live;
 use crate::types::{EngineError, FeatureTree, MateConnectorParams, Operation};
 
 /// A part's named mate connector (a `MateConnector` feature) as evaluated:
@@ -172,7 +172,7 @@ pub fn resolve_connector_frame(
     introspect: &dyn KernelIntrospect,
     anchor: AxialAnchor,
 ) -> Result<(Frame, ConnectorGeometry), EngineError> {
-    let resolved = resolve_with_fallback(geom_ref, feature_results)?;
+    let resolved = resolve_geom_ref_live(geom_ref, feature_results, introspect)?;
     let id = resolved.kernel_id;
 
     match geom_ref.kind {

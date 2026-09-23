@@ -20,13 +20,14 @@ use uuid::Uuid;
 use waffle_types::gear::GearParams;
 use waffle_types::sprocket::SprocketParams;
 use waffle_types::{
-    Anchor, ClosedProfile, GeomRef, OutputKey, ResolvePolicy, Role, Selector, Sketch, SketchEntity,
-    SolveStatus, TopoKind,
+    Anchor, ClosedProfile, Filter, GeomRef, OutputKey, ResolvePolicy, Role, Selector, Sketch,
+    SketchEntity, SolveStatus, TieBreak, TopoKind, TopoQuery,
 };
 
+use crate::assembly::{AxialAnchor, Frame};
 use crate::types::{
-    BooleanOp, BooleanParams, CombineMode, DepthMode, ExtrudeParams, Feature, Operation,
-    PipeParams, RevolveParams, UnionAllParams, UnionTargets,
+    BooleanOp, BooleanParams, CombineMode, DepthMode, ExtrudeParams, Feature, MateConnectorParams,
+    Operation, PipeParams, RevolveParams, UnionAllParams, UnionTargets,
 };
 
 /// Geometry budget (spec §A5): more child operations than this is a runaway
@@ -199,37 +200,157 @@ pub struct FeatureRef {
     pub id: Uuid,
 }
 
+/// Where a query's geometry lives.
+#[derive(Debug, Clone)]
+pub enum QueryBase {
+    /// A child the script recorded.
+    Child(FeatureRef),
+    /// Geometry OUTSIDE the script, handed in through a `body` / `face` /
+    /// `edge` parameter: the reference exactly as the caller wrote it.
+    Outer(Box<GeomRef>),
+}
+
 /// A geometry query (spec §A6): a VALUE that lowers to one `GeomRef` when
-/// consumed. M1 covers `created_by`, `nth` (body) and `role` (face).
+/// consumed. A chain narrows it — `.faces()`, `.surface_type("planar")`,
+/// `.normal_near([0,0,1], 5)`, `.farthest_along([0,0,1])` — and lowers to
+/// one `TopoQuery` (`Selector::Query`); `.role(name, i)` lowers to
+/// `Selector::Role`; `.nth(i)` picks a body output.
 #[derive(Debug, Clone)]
 pub struct Query {
-    pub feature: FeatureRef,
+    pub base: QueryBase,
     pub key: OutputKey,
     pub kind: TopoKind,
     pub role: Option<(Role, usize)>,
+    pub filters: Vec<Filter>,
+    pub tie_break: Option<TieBreak>,
+    /// Set once a chain method changed an OUTER reference's shape; an
+    /// unrefined outer reference lowers to itself, verbatim.
+    pub refined: bool,
 }
 
 impl Query {
+    /// The query over a child's Main body.
+    pub fn of_child(f: FeatureRef) -> Self {
+        Query {
+            base: QueryBase::Child(f),
+            key: OutputKey::Main,
+            kind: TopoKind::Solid,
+            role: None,
+            filters: Vec::new(),
+            tie_break: None,
+            refined: false,
+        }
+    }
+
+    /// The query an outer `GeomRef` parameter starts as.
+    pub fn of_outer(gr: GeomRef) -> Self {
+        let key = match &gr.anchor {
+            Anchor::FeatureOutput { output_key, .. } => output_key.clone(),
+            Anchor::Datum { .. } => OutputKey::Main,
+        };
+        Query {
+            key,
+            kind: gr.kind,
+            base: QueryBase::Outer(Box::new(gr)),
+            role: None,
+            filters: Vec::new(),
+            tie_break: None,
+            refined: false,
+        }
+    }
+
+    /// The feature the query is anchored at.
+    pub fn feature_id(&self) -> Uuid {
+        match &self.base {
+            QueryBase::Child(f) => f.id,
+            QueryBase::Outer(gr) => match &gr.anchor {
+                Anchor::FeatureOutput { feature_id, .. } => *feature_id,
+                Anchor::Datum { datum_id } => *datum_id,
+            },
+        }
+    }
+
+    pub fn is_outer(&self) -> bool {
+        matches!(self.base, QueryBase::Outer(_))
+    }
+
+    /// A chain step: the same query, marked refined.
+    pub fn step(&self) -> Query {
+        let mut out = self.clone();
+        out.refined = true;
+        out
+    }
+
+    /// Narrow to faces / edges (a filter on a body query implies faces).
+    pub fn with_kind(&self, kind: TopoKind) -> Query {
+        let mut out = self.step();
+        out.kind = kind;
+        out
+    }
+
+    pub fn with_filter(&self, f: Filter) -> Query {
+        let mut out = self.step();
+        if out.kind == TopoKind::Solid {
+            out.kind = TopoKind::Face;
+        }
+        out.filters.push(f);
+        out
+    }
+
+    pub fn with_tie_break(&self, t: TieBreak, what: &str) -> Result<Query, Box<EvalAltResult>> {
+        if let Some(existing) = &self.tie_break {
+            return rt(format!(
+                "{what}: the query already has a tie-break ({existing:?}); one query picks one entity one way"
+            ));
+        }
+        let mut out = self.step();
+        if out.kind == TopoKind::Solid {
+            out.kind = TopoKind::Face;
+        }
+        out.tie_break = Some(t);
+        Ok(out)
+    }
+
     pub fn to_geom_ref(&self) -> Result<GeomRef, Box<EvalAltResult>> {
+        if let QueryBase::Outer(gr) = &self.base {
+            if !self.refined {
+                return Ok((**gr).clone());
+            }
+        }
         let selector = match (&self.kind, &self.role) {
             (TopoKind::Solid, _) => Selector::Role {
                 role: Role::EndCapPositive,
                 index: 0,
             },
-            (_, Some((role, index))) => Selector::Role {
-                role: role.clone(),
-                index: *index,
+            (_, Some((role, index))) => {
+                if !self.filters.is_empty() || self.tie_break.is_some() {
+                    return rt(
+                        "query: .role() names one entity by itself; do not combine it with filters or a tie-break",
+                    );
+                }
+                Selector::Role {
+                    role: role.clone(),
+                    index: *index,
+                }
+            }
+            (_, None) if !self.filters.is_empty() || self.tie_break.is_some() => Selector::Query {
+                query: TopoQuery {
+                    filters: self.filters.clone(),
+                    tie_break: self.tie_break.clone(),
+                },
             },
             (kind, None) => {
                 return rt(format!(
-                    "query: a {kind:?} query needs .role(name, index) to name one entity (query filters are M3)"
-                ))
+                "query: a {kind:?} query must name one entity — add .role(name, index), a filter \
+                     (.surface_type, .normal_near, .near_point, .area_between) or a tie-break \
+                     (.largest_area, .nearest_to, .farthest_along, .first)"
+            ))
             }
         };
         Ok(GeomRef {
             kind: self.kind,
             anchor: Anchor::FeatureOutput {
-                feature_id: self.feature.id,
+                feature_id: self.feature_id(),
                 output_key: self.key.clone(),
             },
             selector,
@@ -242,13 +363,7 @@ impl Query {
 /// A solid reference from a `FeatureRef` or `Query` value.
 fn body_ref(d: &Dynamic, what: &str) -> Result<GeomRef, Box<EvalAltResult>> {
     if let Some(f) = d.clone().try_cast::<FeatureRef>() {
-        return Query {
-            feature: f,
-            key: OutputKey::Main,
-            kind: TopoKind::Solid,
-            role: None,
-        }
-        .to_geom_ref();
+        return Query::of_child(f).to_geom_ref();
     }
     if let Some(q) = d.clone().try_cast::<Query>() {
         if q.kind != TopoKind::Solid {
@@ -949,6 +1064,113 @@ impl Ctx {
         self.record(feature, "union_all")
     }
 
+    /// `ctx.mate_connector(#{ name, on: face_or_edge_query, frame: #{ origin,
+    /// z_axis, x_axis }, x_axis, anchor: "Middle" | "PositiveEnd" |
+    /// "NegativeEnd", flip_z, rotation_deg, offset_m: [x, y, z] })` — a
+    /// named mate connector on the script's own geometry (or an outer face
+    /// handed in as a parameter), exactly a `MateConnector` feature's frame
+    /// rule (`specs/part_mate_connectors.md`). The node exposes it under
+    /// `name`; an assembly mates to it like any part connector.
+    pub fn mate_connector(&mut self, opts: &Map) -> Result<FeatureRef, Box<EvalAltResult>> {
+        let name = match map_get(opts, "name")
+            .and_then(|v| v.clone().try_cast::<rhai::ImmutableString>())
+        {
+            Some(s) if !s.trim().is_empty() => s.trim().to_string(),
+            _ => return rt("mate_connector: `name` (a non-empty string) is required"),
+        };
+        {
+            let rec = self.rec.borrow();
+            if rec.children.iter().any(|c| {
+                matches!(c.feature.operation, Operation::MateConnector { .. })
+                    && c.feature.name == name
+            }) {
+                return rt(format!(
+                    "mate_connector: a connector named `{name}` already exists in this script"
+                ));
+            }
+        }
+        let geom_ref = match map_get(opts, "on") {
+            None => None,
+            Some(d) => {
+                let Some(q) = d.clone().try_cast::<Query>() else {
+                    return rt(format!(
+                        "mate_connector.on: expected a face or edge query, got {}",
+                        d.type_name()
+                    ));
+                };
+                if !matches!(q.kind, TopoKind::Face | TopoKind::Edge) {
+                    return rt(
+                        "mate_connector.on: a connector sits on a face or an edge — narrow the \
+                         query with .faces() / .edges() / .role(...)",
+                    );
+                }
+                Some(q.to_geom_ref()?)
+            }
+        };
+        let mut frame = Frame::default();
+        if let Some(fd) = map_get(opts, "frame") {
+            let Some(fm) = fd.clone().try_cast::<Map>() else {
+                return rt("mate_connector.frame: expected #{ origin, z_axis, x_axis }");
+            };
+            if let Some(v) = map_get(&fm, "origin") {
+                frame.origin = vec3(v, "mate_connector.frame.origin")?;
+            }
+            if let Some(v) = map_get(&fm, "z_axis") {
+                frame.z_axis = vec3(v, "mate_connector.frame.z_axis")?;
+            }
+            if let Some(v) = map_get(&fm, "x_axis") {
+                frame.x_axis = vec3(v, "mate_connector.frame.x_axis")?;
+            }
+        }
+        if let Some(v) = map_get(opts, "x_axis") {
+            frame.x_axis = vec3(v, "mate_connector.x_axis")?;
+        }
+        if geom_ref.is_none() && map_get(opts, "frame").is_none() {
+            return rt("mate_connector: give `on: <face or edge query>` or an explicit `frame`");
+        }
+        let anchor = match map_get(opts, "anchor") {
+            None => AxialAnchor::Middle,
+            Some(v) => match v.clone().try_cast::<rhai::ImmutableString>().as_deref() {
+                Some("Middle") | Some("middle") => AxialAnchor::Middle,
+                Some("PositiveEnd") | Some("positive_end") => AxialAnchor::PositiveEnd,
+                Some("NegativeEnd") | Some("negative_end") => AxialAnchor::NegativeEnd,
+                _ => {
+                    return rt(
+                        "mate_connector.anchor: expected \"Middle\", \"PositiveEnd\" or \"NegativeEnd\"",
+                    )
+                }
+            },
+        };
+        let flip_z = map_bool(opts, "flip_z", false)?;
+        let rotation_deg = map_num(opts, "rotation_deg")?.unwrap_or(0.0);
+        let offset_m = match map_get(opts, "offset_m") {
+            Some(v) => vec3(v, "mate_connector.offset_m")?,
+            None => [0.0; 3],
+        };
+        if !(rotation_deg.is_finite() && offset_m.iter().all(|c| c.is_finite())) {
+            return rt("mate_connector: rotation_deg and offset_m must be finite");
+        }
+        let id = Uuid::new_v4();
+        let feature = Feature {
+            id,
+            name: name.clone(),
+            operation: Operation::MateConnector {
+                params: MateConnectorParams {
+                    name,
+                    geom_ref,
+                    frame,
+                    anchor,
+                    flip_z,
+                    rotation_deg,
+                    offset_m,
+                },
+            },
+            suppressed: false,
+            references: Vec::new(),
+        };
+        self.record(feature, "mate_connector")
+    }
+
     pub fn log(&mut self, msg: &str) {
         self.rec.borrow_mut().logs.push(msg.to_string());
     }
@@ -964,6 +1186,89 @@ impl Ctx {
             None => rt(format!("param: no parameter named `{name}`")),
         }
     }
+}
+
+// ── Named outputs ───────────────────────────────────────────────────────────
+
+/// One public output the script's return value named (spec §A6).
+#[derive(Debug, Clone)]
+pub enum OutputValue {
+    /// A child's Main body (`main` ⇒ `OutputKey::Main`, else
+    /// `OutputKey::Named { name }`).
+    Body { child: usize, id: Uuid },
+    /// A face or edge of the script's own geometry, resolved when the node
+    /// executes and tagged `Role::Named { name }`.
+    Entity(Box<GeomRef>),
+}
+
+/// Lower the script's return value to named outputs:
+///
+/// - `()` (no return) ⇒ none — the node's bodies are its unconsumed children;
+/// - a `FeatureRef` (or a body query of a child) ⇒ `main`;
+/// - `#{ name: FeatureRef | Query, … }` ⇒ each entry: a body query is a body
+///   output, a face/edge query an entity output.
+///
+/// An output must be the script's OWN geometry: a query over an outer
+/// parameter is refused (the caller already has that reference).
+pub fn lower_outputs(returned: &Dynamic) -> Result<Vec<(String, OutputValue)>, String> {
+    fn one(name: &str, d: &Dynamic) -> Result<OutputValue, String> {
+        if let Some(f) = d.clone().try_cast::<FeatureRef>() {
+            return Ok(OutputValue::Body {
+                child: f.child,
+                id: f.id,
+            });
+        }
+        let Some(q) = d.clone().try_cast::<Query>() else {
+            return Err(format!(
+                "output `{name}` must be a feature ref or a query, got {}",
+                d.type_name()
+            ));
+        };
+        let QueryBase::Child(f) = &q.base else {
+            return Err(format!(
+                "output `{name}` refers to geometry outside the script; an output names the \
+                 script's own geometry"
+            ));
+        };
+        match q.kind {
+            TopoKind::Solid => {
+                if q.key != OutputKey::Main {
+                    return Err(format!(
+                        "output `{name}`: name a child's main body (`.nth(i)` bodies are not \
+                         separately nameable)"
+                    ));
+                }
+                Ok(OutputValue::Body {
+                    child: f.child,
+                    id: f.id,
+                })
+            }
+            TopoKind::Face | TopoKind::Edge => Ok(OutputValue::Entity(Box::new(
+                q.to_geom_ref()
+                    .map_err(|e| format!("output `{name}`: {e}"))?,
+            ))),
+            other => Err(format!("output `{name}`: a {other:?} cannot be an output")),
+        }
+    }
+    if returned.is_unit() {
+        return Ok(Vec::new());
+    }
+    if let Some(m) = returned.clone().try_cast::<Map>() {
+        let mut out = Vec::with_capacity(m.len());
+        for (k, v) in &m {
+            let name = k.to_string();
+            if name.is_empty() {
+                return Err("an output name is empty".into());
+            }
+            out.push((name.clone(), one(&name, v)?));
+        }
+        // Rhai maps iterate in insertion order only with the `std`
+        // feature's ordered map; sort so the node's output order is a
+        // function of the names, not of the interpreter's table.
+        out.sort_by(|a, b| a.0.cmp(&b.0));
+        return Ok(out);
+    }
+    Ok(vec![("main".to_string(), one("main", returned)?)])
 }
 
 /// Convert a Rhai map to `GearParams` (snake_case keys; `tooth_count` and

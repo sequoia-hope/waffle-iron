@@ -88,6 +88,10 @@ pub enum OutputKey {
     Profile { index: usize },
     /// A datum plane/axis/point output.
     Datum { name: String },
+    /// A body a custom feature script named in its return value
+    /// (`specs/custom_features_and_modeling_roadmap.md` §A6: `#{ hub: … }`
+    /// ⇒ `Named { name: "hub" }`). The script's `main` body stays `Main`.
+    Named { name: String },
 }
 
 impl OutputKey {
@@ -100,6 +104,7 @@ impl OutputKey {
             OutputKey::Body { index } => format!("Body:{index}"),
             OutputKey::Profile { index } => format!("Profile:{index}"),
             OutputKey::Datum { name } => format!("Datum:{name}"),
+            OutputKey::Named { name } => format!("Named:{name}"),
         }
     }
 }

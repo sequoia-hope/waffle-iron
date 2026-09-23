@@ -74,8 +74,14 @@ pub struct Engine {
     pub context: Option<context::EditContext>,
     /// The part's named mate connectors (`MateConnector` features) as the
     /// last rebuild evaluated them, in part coordinates. Recomputed every
-    /// rebuild; what an assembly's connectors on this part draw on.
+    /// rebuild; what an assembly's connectors on this part draw on. Tree
+    /// `MateConnector` features first, then the connectors `Script` nodes
+    /// placed (`ctx.mate_connector`), in tree order.
     pub connectors: Vec<connector::PartConnector>,
+    /// The connectors each `Script` node placed, by node — kept so a rebuild
+    /// that does not re-execute a script carries them (its private sub-tree
+    /// is not otherwise recoverable).
+    pub script_connectors: HashMap<Uuid, Vec<connector::PartConnector>>,
     /// Undo/redo history.
     undo_stack: UndoStack,
 }
@@ -97,6 +103,7 @@ impl Engine {
             sources: SourceStore::new(),
             context: None,
             connectors: Vec::new(),
+            script_connectors: HashMap::new(),
             undo_stack: UndoStack::new(),
         }
     }
@@ -756,10 +763,15 @@ impl Engine {
             &changed,
             &self.feature_results,
             &self.rebuild_errors,
+            rebuild::Carried {
+                consumed_by: Some(&self.consumed_by),
+                script_connectors: Some(&self.script_connectors),
+            },
             &self.sources,
             self.context.as_ref(),
         );
         self.feature_results = state.feature_results;
+        self.script_connectors = state.script_connectors;
         self.rebuild_errors = state.feature_errors.clone();
         self.warnings = state.warnings;
         self.warnings.extend(context_outcome.warnings);
@@ -807,6 +819,16 @@ impl Engine {
         }
         self.connectors =
             connector::part_connectors(&self.tree, &self.feature_results, kb.as_introspect());
+        // Script-placed connectors, in tree order, for live (built,
+        // unsuppressed) script nodes only.
+        for f in self.tree.active_features() {
+            if f.suppressed || !self.feature_results.contains_key(&f.id) {
+                continue;
+            }
+            if let Some(cs) = self.script_connectors.get(&f.id) {
+                self.connectors.extend(cs.iter().cloned());
+            }
+        }
         self.recompute_body_name_inheritance();
     }
 

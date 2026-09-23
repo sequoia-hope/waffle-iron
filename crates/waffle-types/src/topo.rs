@@ -81,6 +81,9 @@ pub enum TieBreak {
     LargestArea,
     /// Pick the entity nearest to the given point.
     NearestTo { point: [f64; 3] },
+    /// Pick the entity whose centroid lies farthest along `direction`
+    /// (the top face of a boss: `[0, 0, 1]`). Ties keep the first.
+    FarthestAlong { direction: [f64; 3] },
     /// Pick the entity with the smallest index (arbitrary but deterministic).
     SmallestIndex,
 }

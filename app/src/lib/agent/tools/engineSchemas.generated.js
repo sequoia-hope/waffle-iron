@@ -1388,6 +1388,23 @@ export const ENGINE_DEFS = {
           "name"
         ],
         "type": "object"
+      },
+      {
+        "description": "A body a custom feature script named in its return value\n(`specs/custom_features_and_modeling_roadmap.md` §A6: `#{ hub: … }`\n⇒ `Named { name: \"hub\" }`). The script's `main` body stays `Main`.",
+        "properties": {
+          "name": {
+            "type": "string"
+          },
+          "type": {
+            "const": "Named",
+            "type": "string"
+          }
+        },
+        "required": [
+          "type",
+          "name"
+        ],
+        "type": "object"
       }
     ]
   },
@@ -2362,6 +2379,23 @@ export const ENGINE_DEFS = {
         "required": [
           "type",
           "index"
+        ],
+        "type": "object"
+      },
+      {
+        "description": "A face or edge a custom feature script named in its return value\n(`#{ hub_face: query }` ⇒ `Named { name: \"hub_face\" }` on the entity\nthe query resolved to). Later features select it by name without\nknowing the script's private sub-tree.",
+        "properties": {
+          "name": {
+            "type": "string"
+          },
+          "type": {
+            "const": "Named",
+            "type": "string"
+          }
+        },
+        "required": [
+          "type",
+          "name"
         ],
         "type": "object"
       }
@@ -3941,6 +3975,29 @@ export const ENGINE_DEFS = {
         "required": [
           "type",
           "point"
+        ],
+        "type": "object"
+      },
+      {
+        "description": "Pick the entity whose centroid lies farthest along `direction`\n(the top face of a boss: `[0, 0, 1]`). Ties keep the first.",
+        "properties": {
+          "direction": {
+            "items": {
+              "format": "double",
+              "type": "number"
+            },
+            "maxItems": 3,
+            "minItems": 3,
+            "type": "array"
+          },
+          "type": {
+            "const": "FarthestAlong",
+            "type": "string"
+          }
+        },
+        "required": [
+          "type",
+          "direction"
         ],
         "type": "object"
       },

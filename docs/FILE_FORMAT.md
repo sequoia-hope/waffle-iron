@@ -519,10 +519,21 @@ persisted. New operation kind and new source kind, so no reader-floor bump.
 | `arg_values` | object | default `{}` | Last evaluated raw value of each `arg_exprs` entry (the change-detection cache, like `depth`/`depth_expr`). |
 
 The script header (`// @feature name="…" version=N`, `// @param name: type
-[= default] [min=…] [max=…]`) is parsed before evaluation; types are `int`,
-`number`, `length`, `angle`, `bool`, `string`, `plane`. Any failure —
+[= default] [min=…] [max=…]`, `// @output name: kind`) is parsed before
+evaluation; parameter types are `int`, `number`, `length`, `angle`, `bool`,
+`string`, `plane`, and (A-M3, 2026-09-23) `body` / `face` / `edge` — a
+`GeomRef` of that kind (§8) naming geometry OUTSIDE the script, which the
+script may target (`combine: "Cut", targets: [p.target]`); the node then
+consumes that feature exactly as a boolean would. Output kinds are `main`,
+`body`, `face`, `edge`, `connector`: the script's return value
+(`#{ main: …, hub: …, top: face_query }`) keys the node's outputs —
+`Main`, `OutputKey::Named { name: "hub" }`, and `Role::Named { name: "top" }`
+on the resolved face — so a later feature references them by name (§8)
+without knowing the private sub-tree; `ctx.mate_connector(#{ name, on })`
+places a part mate connector the node exposes under `name`. Any failure —
 header, parse, runtime, `ctx.fail`, a sandbox limit, an argument, a child
-operation — is a typed `Script` feature error and the node has no outputs.
+operation, a broken output contract — is a typed `Script` feature error and
+the node has no outputs.
 
 ---
 
@@ -586,7 +597,16 @@ than a silent duplicate of the stale body.
 | `policy` | `Strict` (fail rebuild on ambiguity) \| `BestEffort` (closest match + warning) | default `BestEffort` |
 | `scope` | `{ source_id?: UUID, tab_id?: string, instance_path: UUID[] }` (**v5**) | opt; omitted when local |
 
-`OutputKey`: `Main` \| `Body {index}` \| `Profile {index}` \| `Datum {name}`.
+`OutputKey`: `Main` \| `Body {index}` \| `Profile {index}` \| `Datum {name}`
+\| `Named {name}` (2026-09-23, additive: a body a custom feature script named
+in its return value, §7.10; tag `Named:{name}` in body ids).
+
+Additive on the same date, both for scripts (§7.10): `Role::Named {name}`
+(a face or edge a script named — selected as `Role { role: {type: "Named",
+name}, index: 0 }`) and `TieBreak::FarthestAlong {direction}` (the query
+entity whose centroid lies farthest along `direction`; ties keep the first).
+Per §4/§13 an older reader given a file that uses them fails with a raw
+serde parse error rather than a clean message.
 
 **`scope` (v5, in-context editing — v4 spec §2.8, `feature_engine::context`).**
 Absent ⇒ the reference is local to the tab that holds it. Present ⇒ the
