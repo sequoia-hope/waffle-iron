@@ -684,7 +684,7 @@ little for float geometry. gzip reaches 0.66 and brotli-5 0.62 of 30.4 MB, a
 | Encoding | Content | Use |
 |---|---|---|
 | `raw/1` | `Float32` positions + normals, `Uint32` indices, edge `Float32`, as the worker transfers today | loopback / LAN |
-| `mq/1` | quantized positions and edges (16-bit per axis within the body bbox: ≤ 11 µm on a 0.7 m body; display only, all measurement stays on the host), oct-encoded 1-byte normals, `meshoptimizer` vertex/index codec (the glTF `EXT_meshopt_compression` scheme; the wasm decoder three.js already ships), then gzip | **any viewer that can decode it** — the browser says so in `attach.encodings`. **Measured (V6, 2026-09-23): 0.206 of `raw/1`** over the gravel bike — 36.1 MB → 7.4 MB across 271 bodies and 1.15 M triangles, 0.12 s of host CPU to transcode the lot. Per part it runs 0.055 (the chain: 164 k triangles of swept pipe) to 0.92 (a 12-triangle caliper, where the header dominates) |
+| `mq/1` | quantized positions and edges (16-bit per axis within the body bbox: ≤ 11 µm on a 0.7 m body; display only, all measurement stays on the host), oct-encoded 1-byte normals, `meshoptimizer` vertex/index codec (the glTF `EXT_meshopt_compression` scheme; the wasm decoder three.js already ships), then gzip | **any viewer that can decode it** — the browser says so in `attach.encodings`. **Measured (V6, 2026-09-23): 0.206 of `raw/1`** over the gravel bike — 36.1 MB → 7.4 MB across 271 bodies and 1.15 M triangles, and 0.12 s to fetch every one of them in `mq/1` after having fetched them all in `raw/1` — the transcode is inside that, so it is an upper bound, not a CPU reading. Per part it runs 0.055 (the chain: 164 k triangles of swept pipe) to 0.92 (a 12-triangle caliper, where the header dominates) |
 | `raw/1+br` | `raw/1` brotli-compressed | not built: `mq/1` did not slip, and gzip is what browsers decode without a library |
 
 The index buffer stays full precision; face ranges and `GeomRef` picking are
@@ -816,7 +816,8 @@ untouched (C1).
   sketch) transfers zero blobs. **GREEN** (`viewer.spec.js`).
 - **V6** bytes on the wire per edit, per encoding. **MEASURED 2026-09-23**
   over the gravel bike example: `mq/1` is **0.206 of `raw/1`** (36.1 MB →
-  7.4 MB, 271 bodies, 1.15 M triangles, 0.12 s host CPU). See §4.5.
+  7.4 MB, 271 bodies, 1.15 M triangles; transcoding them all costs under
+  0.12 s, measured as request wall time). See §4.5.
 - **V7** face-chunk hash hit rate (gates encoding v2). Unmeasured; `mq/1`
   moved the number far enough that this is no longer urgent.
 - **V8** real iOS Safari: terminal ↔ browser switching for 10 minutes
