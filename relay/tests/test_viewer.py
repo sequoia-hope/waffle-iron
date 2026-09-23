@@ -455,6 +455,40 @@ async def test_presence_changes_reach_every_viewer_as_an_activity_update(
     await first.close()
 
 
+async def test_a_host_crash_resyncs_every_viewer_without_refetching_its_blobs(
+    stack: tuple[HostBackend, ViewerServer, str],
+) -> None:
+    """Oracle V2: the host dies mid-session; the next call restarts it and
+    reopens its document; the viewer converges on the new epoch and asks for
+    no blob it already holds (mesh ids are content hashes, so a restart keeps
+    them — pinned host-side by `a_restarted_host_names_the_same_mesh_ids`)."""
+    backend, server, url = stack
+    viewer, welcome, snapshot = await attached(url, server)
+    await viewer.send({"type": "want", "mesh_ids": ["m1"]})
+    await viewer.recv_type("blob", skip=("update",))
+    first_epoch = snapshot["epoch"]
+
+    # Name the document the restarted host must reopen. Inside one process
+    # this is an ordinary change: a keyed update, not a snapshot.
+    await backend.call("document_open", {"id": "doc-1"})
+    reopened = await viewer.recv_type("update", skip=("rebuild",))
+    assert reopened["epoch"] == first_epoch
+
+    with pytest.raises(LinkError) as crashed:
+        await backend.call("feature_add", {"crash": True})
+    assert crashed.value.code == "EngineCrashed"
+
+    # The next call restarts the child and reopens the document; its snapshot
+    # carries the NEW epoch, so the viewer takes the whole thing rather than
+    # trying to apply an update across processes.
+    await backend.call("model_summary", {})
+    resynced = await viewer.recv_type("snapshot", skip=("update", "rebuild"))
+    assert resynced["epoch"] != first_epoch
+    assert [b["mesh_id"] for b in resynced["bodies"]] == ["m1"], "the same content, the same id"
+    assert backend.crashes == 1
+    await viewer.close()
+
+
 async def test_a_wrong_origin_or_protocol_is_refused_before_any_state(
     stack: tuple[HostBackend, ViewerServer, str],
 ) -> None:

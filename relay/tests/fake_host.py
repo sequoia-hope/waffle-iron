@@ -204,6 +204,10 @@ def main() -> int:
             if state_file:
                 Path(state_file).write_text(json.dumps({"opened": open_id, "pid": os.getpid()}))
             result(call_id, {"storage_id": open_id, "name": f"doc {open_id}"})
+            # As the real host: opening a document is a change a viewer draws,
+            # so it moves the revision and pushes (spec §4.3).
+            REVISION += 1
+            snapshot(epoch)
             continue
         if name == "document_new":
             open_id = "new-" + str(os.getpid())

@@ -874,3 +874,87 @@ fn a_snapshot_names_every_body_and_blobs_answer_by_id() {
 
     assert_eq!(client.bye(), 0);
 }
+
+/// Oracle V2, the half that is the host's: a mesh id is the CONTENT's, so a
+/// document reopened in a FRESH host process names the same blobs and a
+/// viewer's cache answers for every one of them — "zero blob requests when H3
+/// holds" (§4.4). Two processes, the same document, the same ids.
+#[test]
+fn a_restarted_host_names_the_same_mesh_ids() {
+    let dir = tempfile::tempdir().unwrap();
+
+    let ids_of = |client: &mut Client, tag: &str| -> Vec<String> {
+        client.send(&json!({ "type": "snapshot", "id": tag }));
+        loop {
+            let frame = client.recv();
+            if frame.kind() == "snapshot" && frame.header["id"] == tag {
+                break frame.header["bodies"]
+                    .as_array()
+                    .unwrap()
+                    .iter()
+                    .map(|b| b["mesh_id"].as_str().unwrap().to_string())
+                    .collect();
+            }
+        }
+    };
+
+    let mut first = Client::spawn(dir.path());
+    assert_eq!(first.recv().kind(), "ready");
+    let doc = first.ok("document_new", json!({ "name": "Restart" }));
+    let id = doc["document_id"].as_str().unwrap().to_string();
+    let sketch = first.ok(
+        "sketch_create",
+        json!({ "plane": { "origin": [0, 0, 0], "normal": [0, 0, 1] }, "entities": rectangle() }),
+    );
+    first.ok(
+        "feature_add",
+        json!({ "operation": { "type": "Extrude", "params": {
+            "sketch_id": sketch["feature_id"], "profile_index": 0, "profile_entity_ids": [5, 6, 7, 8],
+            "depth": 0.005, "symmetric": false, "cut": false
+        } } }),
+    );
+    let before = ids_of(&mut first, "before");
+    assert_eq!(before.len(), 1);
+    let first_epoch = {
+        first.send(&json!({ "type": "snapshot", "id": "e1" }));
+        loop {
+            let frame = first.recv();
+            if frame.kind() == "snapshot" && frame.header["id"] == "e1" {
+                break frame.header["epoch"].as_str().unwrap().to_string();
+            }
+        }
+    };
+    assert_eq!(first.bye(), 0);
+
+    // A new process over the same documents directory: the autosaved record is
+    // reopened and re-tessellated from scratch.
+    let mut second = Client::spawn(dir.path());
+    assert_eq!(second.recv().kind(), "ready");
+    second.ok("document_open", json!({ "id": id }));
+    let after = ids_of(&mut second, "after");
+    assert_eq!(after, before, "the same geometry hashes to the same ids");
+    let second_epoch = {
+        second.send(&json!({ "type": "snapshot", "id": "e2" }));
+        loop {
+            let frame = second.recv();
+            if frame.kind() == "snapshot" && frame.header["id"] == "e2" {
+                break frame.header["epoch"].as_str().unwrap().to_string();
+            }
+        }
+    };
+    assert_ne!(
+        second_epoch, first_epoch,
+        "a new process is a new epoch, so a viewer resyncs rather than assuming"
+    );
+    // And the blob still answers by that id in the new process.
+    second.send(&json!({ "type": "blob", "id": "b", "mesh_id": after[0] }));
+    let blob = loop {
+        let frame = second.recv();
+        if frame.kind() == "blob" {
+            break frame;
+        }
+    };
+    assert!(blob.header["missing"].is_null());
+    assert_eq!(blob.header["byte_length"], blob.payload.len());
+    assert_eq!(second.bye(), 0);
+}
