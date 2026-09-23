@@ -76,7 +76,8 @@ const operationNote =
 	'the document carries as a `Script` source: params {source_id, entry?: "feature", args: {name: value in model ' +
 	'units, or {origin, normal} / a datum plane id for a plane param}, arg_exprs?: {name: "expression"}}; the ' +
 	'script declares its parameters in `// @param name: type` header lines and calls ctx.sketch / extrude / ' +
-	'revolve / boolean over the same operations as these tools. Adding script sources is not yet a tool (A-M4). ' +
+	'revolve / boolean over the same operations as these tools; add the source with script_source_add and prefer ' +
+	'script_feature_add (same node, takes the args directly) — see docs/CUSTOM_FEATURE_SCRIPTS.md. ' +
 	'A PatternCircular/PatternLinear makes rigid copies of seed ' +
 	'BODIES (params.seeds: Solid GeomRefs {kind:"Solid", anchor:{type:"FeatureOutput", feature_id, output_key}}, ' +
 	'from model_summary bodies) — it does not re-run the seed feature. Circular: axis {method:"explicit", origin, ' +

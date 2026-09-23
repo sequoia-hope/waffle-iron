@@ -46,6 +46,7 @@
 		pinSource,
 		updateSourceToTip,
 		fetchSource,
+		showScriptEditor,
 		getAgentActivity,
 		setToolHint,
 		AGENT_WORKING_HINT
@@ -288,7 +289,7 @@
 		const opType = feature.operation?.type;
 		if (opType === 'Sketch') {
 			enterSketchEditMode(feature.id);
-		} else if (opType === 'Extrude' || opType === 'Revolve' || opType === 'Pipe' || opType === 'MateConnector') {
+		} else if (opType === 'Extrude' || opType === 'Revolve' || opType === 'Pipe' || opType === 'MateConnector' || opType === 'Script') {
 			showEditFeatureDialog(feature.id);
 		} else {
 			renaming = { featureId: feature.id, value: feature.name };
@@ -791,6 +792,9 @@
 							<span class="tree-icon" class:src-missing={!s.available}>{s.available ? '⛁' : '⚠'}</span>
 							<span class="tree-label src-name">{s.name}</span>
 							<span class="src-meta" data-testid="source-status-{i}">{sourceStatus(s)}</span>
+							{#if s.kind === 'Script' && s.available}
+								<button class="src-action" data-testid="source-edit-{i}" title="Open the script in the editor" disabled={sourceBusy !== null} onclick={() => showScriptEditor(s.id)}>edit</button>
+							{/if}
 							{#if !s.available}
 								<button class="src-action" data-testid="source-fetch-{i}" title="Fetch through the link" disabled={sourceBusy !== null} onclick={() => withBusy(s.id, () => fetchSource(s.id))}>fetch</button>
 							{/if}

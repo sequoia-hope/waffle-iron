@@ -279,6 +279,21 @@ redo-stack entry left by a rollback.
 
 ## Phase 2 — Collaboration (IN PROGRESS)
 
+- [x] **Script tools** (2026-09-23, A-M4 of
+  `specs/custom_features_and_modeling_roadmap.md`): `script_run_check`
+  (header + compile + entry; with `args` a kernel-free dry run listing the
+  recorded children, logs and outputs), `script_source_add` (text or the
+  built-in `gear`/`sprocket` library; refuses a script that does not check),
+  `script_source_get`, `script_source_update` (every node naming the source
+  regenerates; a breaking edit is rolled back by re-setting the previous
+  text — sources are outside undo), `script_feature_add` (one node, named by
+  the script). All engine-side (`crates/wasm-bridge/src/tools/script.rs`);
+  `MIGRATED` + `executor.js` routing + the spec pins updated; manifest
+  regenerated. Codes `InvalidScript`, `SourceNotFound`. Authoring loop:
+  `docs/CUSTOM_FEATURE_SCRIPTS.md` §4. Tests: `tool_script.rs` (15),
+  `agent-script-tools.spec.js` (real engine through the executor: exact
+  volumes, rollback, document round trip, one `Tool` send per call).
+
 - [x] **Tab tools** (2026-09-14): `tab_add`, `tab_move`, `tab_rename`
   (`$lib/agent/documents.js`, document-command path). Store `moveTab` (clamped,
   autosaved); `addTab` now schedules an autosave like close/rename/move did

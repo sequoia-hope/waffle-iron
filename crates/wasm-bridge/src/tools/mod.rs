@@ -28,6 +28,7 @@ use crate::messages::{EngineToUi, UiToEngine};
 mod author;
 mod export;
 mod inspect;
+mod script;
 mod sketch;
 mod summary;
 
@@ -60,11 +61,18 @@ pub const MIGRATED: &[&str] = &[
     "undo",
     "redo",
     "sketch_create",
+    "script_run_check",
+    "script_source_add",
+    "script_source_get",
+    "script_source_update",
+    "script_feature_add",
 ];
 
 /// Whether this tool can change the document.
 ///
-/// The mutating tools are C4's twelve plus C5's `sketch_create`: their answers carry a model
+/// The mutating tools are C4's twelve plus C5's `sketch_create` and the A-M4
+/// script tools that change the document (a source add changes the `sources`
+/// table the host mirrors, so it carries the update too): their answers carry a model
 /// update (`EngineToUi::ToolResult::model`), because a `ToolResult` is not a
 /// `ModelUpdated` and nothing else would refresh the host's view. A tool that
 /// is not listed here is read-only and answers with no model.
@@ -84,6 +92,9 @@ pub fn mutates(name: &str) -> bool {
             | "undo"
             | "redo"
             | "sketch_create"
+            | "script_source_add"
+            | "script_source_update"
+            | "script_feature_add"
     )
 }
 
@@ -205,6 +216,11 @@ fn run(
         "undo" => author::undo(state, kb),
         "redo" => author::redo(state, kb),
         "sketch_create" => sketch::sketch_create(state, kb, args, context),
+        "script_run_check" => script::script_run_check(state, args),
+        "script_source_add" => script::script_source_add(state, kb, args),
+        "script_source_get" => script::script_source_get(state, args),
+        "script_source_update" => script::script_source_update(state, kb, args),
+        "script_feature_add" => script::script_feature_add(state, kb, args, context),
         other => Err(ToolFailure::new(
             "ToolUnavailable",
             format!("This engine has no tool named \"{other}\"."),

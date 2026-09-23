@@ -15,8 +15,13 @@
 
 use std::collections::BTreeMap;
 
-/// The type of a declared `@param`.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+use serde::Serialize;
+
+/// The type of a declared `@param`. Serializes as its header spelling
+/// (`"int"`, `"length"`, …) — what the dialog generator and the
+/// `script_run_check` tool hand to hosts (A-M4).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "lowercase")]
 pub enum ParamType {
     /// An integer (script sees `INT`).
     Int,
@@ -83,7 +88,8 @@ impl ParamType {
 }
 
 /// A literal default value from the header.
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Serialize)]
+#[serde(untagged)]
 pub enum Literal {
     Number(f64),
     Bool(bool),
@@ -91,17 +97,22 @@ pub enum Literal {
 }
 
 /// One `@param` declaration.
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Serialize)]
 pub struct ParamDecl {
     pub name: String,
+    #[serde(rename = "type")]
     pub ty: ParamType,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub default: Option<Literal>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub min: Option<f64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub max: Option<f64>,
 }
 
 /// What kind of thing a declared `@output` is.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "lowercase")]
 pub enum OutputKind {
     /// The node's primary body (`OutputKey::Main`).
     Main,
@@ -141,14 +152,14 @@ impl OutputKind {
 /// One `@output name: kind` declaration. A declared output is a CONTRACT:
 /// the script's return value must provide it (a `connector` is provided by
 /// `ctx.mate_connector(#{ name })`), and its kind must match.
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Serialize)]
 pub struct OutputDecl {
     pub name: String,
     pub kind: OutputKind,
 }
 
 /// The parsed header.
-#[derive(Debug, Clone, PartialEq, Default)]
+#[derive(Debug, Clone, PartialEq, Default, Serialize)]
 pub struct ScriptInterface {
     pub name: String,
     pub version: u32,

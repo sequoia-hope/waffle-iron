@@ -206,6 +206,21 @@ agent renames with `feature_rename`. ICR-5 (§9) would add the field.
 | `undo` / `redo` | command | — | `ModelDelta` |
 | `import_step` | command | `file_name`, `step_text`, `on_error` | `{feature_id}` + `ModelDelta`. Sends `ImportStep` (the engine records `Import` provenance) through the command path, so it is one undo step with A2 rollback; unlike `importStepFromText` it opens no placement dialog |
 
+**Custom feature scripts** (2026-09-23, A-M4 of
+`specs/custom_features_and_modeling_roadmap.md`; reference
+`docs/CUSTOM_FEATURE_SCRIPTS.md`). All run in the engine
+(`crates/wasm-bridge/src/tools/script.rs`). A source add/update is NOT an
+undo step (sources are assets, v4 §2.3); `script_source_update` rolls a
+breaking edit back by re-setting the previous text.
+
+| Tool | Kind | Inputs (defaults) | Result |
+|---|---|---|---|
+| `script_run_check` | query | `text` \| `source_id`, `entry ("feature")`, `args?` | `{ok, entry, interface?, error?{stage, reason}, dry_run?}` — header + compile + entry; with `args` a dry run (no kernel): recorded `children[]`, `logs[]`, `outputs[]` or the typed failure |
+| `script_source_add` | command | `text` \| `library ("gear" \| "sprocket")`, `name?` | `{source_id, name, interface}` (+ the model update on the wire so the host's Sources panel refreshes); `InvalidScript` when the script does not check |
+| `script_source_get` | query | `source_id?` | `{source_id, name, text, check, features[{feature_id, name}]}`; without an id `{scripts[], library[]}` |
+| `script_source_update` | command | `source_id`, `text`, `on_error` | `ModelDelta` + `{source_id, interface}`; every node naming the source regenerates; a node the text newly breaks ⇒ `FeatureRebuildFailed{rolled_back}` (text restored) unless `keep` |
+| `script_feature_add` | command | `source_id`, `entry`, `args?`, `arg_exprs?`, `on_error` | `{feature_id}` + `ModelDelta` — one `Script` node named by the script's `@feature name`; `feature_add`/`feature_edit` with a `Script` operation are equivalent |
+
 **Export**
 
 | Tool | Kind | Inputs (defaults) | Result |
@@ -502,6 +517,7 @@ Tool results with `isError: true`:
 | `OperationKindMismatch` | A8 |
 | `DerivedFeatureReadOnly` | A9 |
 | `InvalidSketch` | A13 |
+| `InvalidScript` / `SourceNotFound` | script tools: a script that does not check (`details.stage`, `reason`), a malformed script argument; an id that is not a Script source of the document |
 | `SketchSolveFailed` | A11 |
 | `FeatureNotFound` / `BodyNotFound` | A14 |
 | `FeatureRebuildFailed` | A2 (`feature_id`, `engine_error`) |

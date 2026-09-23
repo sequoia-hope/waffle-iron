@@ -50,6 +50,13 @@ import {
 } from './inspection.js';
 import { exportStepTool, exportStlTool, importStepTool } from './export.js';
 import { modelSummaryTool } from './model_summary.js';
+import {
+	scriptFeatureAddTool,
+	scriptRunCheckTool,
+	scriptSourceAddTool,
+	scriptSourceGetTool,
+	scriptSourceUpdateTool
+} from './scripts.js';
 import { viewportCaptureTool, viewportViewTool } from './viewport.js';
 
 /** Tool definitions, in manifest order. */
@@ -84,6 +91,11 @@ export const TOOLS = [
 	parametersSetTool,
 	undoTool,
 	redoTool,
+	scriptRunCheckTool,
+	scriptSourceAddTool,
+	scriptSourceGetTool,
+	scriptSourceUpdateTool,
+	scriptFeatureAddTool,
 	importStepTool,
 	exportStepTool,
 	exportStlTool,

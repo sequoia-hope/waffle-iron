@@ -1271,6 +1271,23 @@ export async function initEngine() {
 			getRevolveDialogState: () => revolveDialogState,
 			getPipeDialogState: () => pipeDialogState,
 			showPipeDialog: () => showPipeDialog(),
+			// Custom feature scripts (A-M4). Test SETUP + agent-free driving of
+			// the editor/dialog flows; the tools go through the executor.
+			getScriptDialogState: () => (scriptDialogState ? JSON.parse(JSON.stringify(scriptDialogState)) : null),
+			showScriptDialog: () => showScriptDialog(),
+			showScriptDialogForEdit: (id) => showScriptDialogForEdit(id),
+			setScriptDialogSource: (id) => setScriptDialogSource(id),
+			hideScriptDialog: () => hideScriptDialog(),
+			applyScript: (choice) => applyScript(choice),
+			getScriptEditorState: () => (scriptEditorState ? JSON.parse(JSON.stringify(scriptEditorState)) : null),
+			showScriptEditor: (id, opts) => showScriptEditor(id ?? null, opts ?? {}),
+			hideScriptEditor: () => hideScriptEditor(),
+			saveScriptEditor: (draft) => saveScriptEditor(draft),
+			checkScript: (what) => checkScript(what),
+			readSource: (id) => readSource(id),
+			addScriptSource: (what) => addScriptSource(what),
+			setScriptSource: (id, text) => setScriptSource(id, text),
+			getScriptSources: () => JSON.parse(JSON.stringify(getScriptSources())),
 			// Test SETUP only (the pick-mode interaction has its own coverage):
 			// sets the pipe dialog's path as viewport picks would (a single id
 			// expands to its connected chain, like a click).
@@ -5070,6 +5087,243 @@ export async function applyPipe(radius, innerRadius, opts = {}) {
 	}
 }
 
+// -- Custom feature scripts (specs/custom_features_and_modeling_roadmap.md
+//    §A8, A-M4): the Script dialog (a node's arguments, generated from the
+//    script's `@param` header) and the Script editor (the source text). The
+//    engine owns the sources; the editor's Check / Save are engine messages
+//    (`CheckScript`, `AddScriptSource`, `SetScriptSource`) so the page has
+//    no second parser. --
+
+/** The document's `Script` sources (from the mirrored `sources` table). */
+export function getScriptSources() {
+	return documentSources.filter((s) => s.kind === 'Script');
+}
+
+/** Built-in library scripts the engine ships (`AddScriptSource { library }`). */
+export const SCRIPT_LIBRARY = [
+	{ id: 'gear', label: 'Spur gear (gear.rhai)' },
+	{ id: 'sprocket', label: 'Roller-chain sprocket (sprocket.rhai)' }
+];
+
+/** A starting point for a new script in the editor. */
+export const SCRIPT_TEMPLATE = `// @feature name="My feature" version=1
+// @param width: length = 0.02 min=0.001
+// @param height: length = 0.01
+// @param depth: length = 0.005
+// @param plane: plane
+// @output body: main
+
+fn feature(ctx, p) {
+    let sk = ctx.sketch(p.plane);
+    sk.rect(0.0, 0.0, p.width, p.height);
+    let regions = sk.finish().regions();
+    ctx.extrude(regions[0], #{ depth: p.depth, combine: "NewBody" })
+}
+`;
+
+/**
+ * Check a script (header + compile + entry; with `args`, a dry run).
+ * @param {{ text?: string, sourceId?: string, entry?: string, args?: object }} what
+ * @returns {Promise<{ ok: boolean, interface?: object, error?: {stage: string, reason: string}, dry_run?: object }>}
+ */
+export async function checkScript({ text = null, sourceId = null, entry = null, args = null } = {}) {
+	if (!bridge || !engineReady) return { ok: false, error: { stage: 'engine', reason: 'Engine not ready' } };
+	try {
+		const resp = await bridge.send({
+			type: 'CheckScript',
+			source_id: sourceId,
+			text,
+			entry,
+			args
+		});
+		if (resp?.type === 'ScriptChecked') return resp.check;
+		return { ok: false, error: { stage: 'engine', reason: 'Unexpected engine response' } };
+	} catch (err) {
+		return { ok: false, error: { stage: 'engine', reason: err?.message || String(err) } };
+	}
+}
+
+/**
+ * The text of a source the engine holds.
+ * @param {string} sourceId
+ * @returns {Promise<{ source_id: string, name: string, kind: string, text: string } | null>}
+ */
+export async function readSource(sourceId) {
+	if (!bridge || !engineReady) return null;
+	const resp = await bridge.send({ type: 'ReadSource', source_id: sourceId });
+	return resp?.type === 'SourceContent' ? resp : null;
+}
+
+/**
+ * Add an embedded Script source (text, or a built-in library script). Any
+ * text is accepted — the editor saves work in progress — and the answer
+ * carries the check. Not an undo step (sources are assets).
+ * @param {{ name?: string, text?: string, library?: string }} what
+ * @returns {Promise<{ source_id: string, name: string, check: object } | null>}
+ */
+export async function addScriptSource({ name = null, text = null, library = null } = {}) {
+	if (!bridge || !engineReady) return null;
+	log('action', 'Add script source', { name, library, chars: text?.length ?? 0 });
+	const resp = await bridge.send({ type: 'AddScriptSource', name, text, library });
+	if (resp?.type !== 'ScriptSourceAdded') return null;
+	// The `sources` table changed without a model update: mirror it now.
+	documentSources = resp.sources ?? [];
+	scheduleAutoSave();
+	return resp;
+}
+
+/**
+ * Replace a Script source's text and rebuild every node naming it. Not an
+ * undo step; a node the text breaks shows its typed error (never stale
+ * geometry).
+ * @param {string} sourceId
+ * @param {string} text
+ */
+export async function setScriptSource(sourceId, text) {
+	if (!bridge || !engineReady) return false;
+	log('action', 'Set script source', { sourceId, chars: text.length });
+	await sendRebuild({ type: 'SetScriptSource', source_id: sourceId, text });
+	scheduleAutoSave();
+	return true;
+}
+
+// The Script dialog: which source, and (editing) which node.
+let scriptDialogState = $state(null);
+export function getScriptDialogState() { return scriptDialogState; }
+
+/** Open the Script dialog (toolbar "Script"). */
+export function showScriptDialog() {
+	if (sketchMode.active) return;
+	log('ui', 'Show script dialog');
+	scriptDialogState = { editingFeatureId: null, sourceId: getScriptSources()[0]?.id ?? null, editParams: null };
+}
+
+/** Open the Script dialog on an existing Script node (double-click). */
+export function showScriptDialogForEdit(featureId) {
+	const feature = featureTree?.features?.find((f) => f.id === featureId);
+	if (!feature || feature.operation?.type !== 'Script') return;
+	const params = feature.operation.params;
+	log('ui', 'Show script dialog for edit', { featureId, sourceId: params.source_id });
+	scriptDialogState = {
+		editingFeatureId: featureId,
+		sourceId: params.source_id,
+		editParams: JSON.parse(JSON.stringify(params))
+	};
+	beginEditRollback(featureId);
+}
+
+/** Point the open dialog at another source (or a source just added). */
+export function setScriptDialogSource(sourceId) {
+	if (!scriptDialogState) return;
+	scriptDialogState = { ...scriptDialogState, sourceId };
+}
+
+export function hideScriptDialog() {
+	scriptDialogState = null;
+	restoreEditRollback();
+}
+
+/**
+ * Add (or, editing, replace) the Script node the dialog describes.
+ * @param {{ sourceId: string, entry?: string, args: object, argExprs?: object }} choice
+ * @returns {Promise<string | null>} the feature id, or null when refused
+ */
+export async function applyScript({ sourceId, entry = 'feature', args = {}, argExprs = {} } = {}) {
+	if (!bridge || !engineReady || !sourceId) return null;
+	const editing = scriptDialogState?.editingFeatureId ?? null;
+	const params = { source_id: sourceId, entry, args: JSON.parse(JSON.stringify(args)) };
+	if (argExprs && Object.keys(argExprs).length > 0) params.arg_exprs = { ...argExprs };
+	const operation = { type: 'Script', params };
+	log('action', editing ? 'Edit script feature' : 'Add script feature', { sourceId, args: Object.keys(args) });
+	const before = new Set((featureTree?.features ?? []).map((f) => f.id));
+	try {
+		if (editing) {
+			await editFeature(editing, operation);
+		} else {
+			await sendRebuild({ type: 'AddFeature', operation });
+		}
+	} catch (err) {
+		const msg = err?.message || String(err);
+		log('error', `Script feature failed: ${msg}`);
+		showToast('error', `Script feature failed: ${msg}`);
+		return null;
+	}
+	const id = editing ?? (featureTree?.features ?? []).find((f) => !before.has(f.id))?.id ?? null;
+	const error = id ? featureErrors.get(id) : null;
+	if (error) {
+		// Loud in the tree and here; the dialog stays open on the node so the
+		// arguments can be changed (like the mate connector dialog).
+		showToast('error', `Script feature failed — ${error}`);
+		if (scriptDialogState) scriptDialogState = { ...scriptDialogState, editingFeatureId: id };
+		return id;
+	}
+	await restoreEditRollback();
+	scriptDialogState = null;
+	return id;
+}
+
+// The Script editor: a source's text (or a new script's).
+let scriptEditorState = $state(null);
+export function getScriptEditorState() { return scriptEditorState; }
+
+/**
+ * Open the editor on a Script source, or (no id) on a new script.
+ * @param {string | null} sourceId
+ * @param {{ text?: string, name?: string, forDialog?: boolean }} [opts] — `forDialog`:
+ *   a save from a new script points the open Script dialog at it.
+ */
+export async function showScriptEditor(sourceId = null, opts = {}) {
+	if (sketchMode.active) return;
+	let text = opts.text ?? SCRIPT_TEMPLATE;
+	let name = opts.name ?? '';
+	if (sourceId) {
+		const content = await readSource(sourceId);
+		if (!content) {
+			showToast('error', 'That script source is not loaded');
+			return;
+		}
+		text = content.text;
+		name = content.name;
+	}
+	log('ui', 'Show script editor', { sourceId });
+	scriptEditorState = { sourceId, name, text, forDialog: !!opts.forDialog };
+}
+
+export function hideScriptEditor() {
+	scriptEditorState = null;
+}
+
+/**
+ * Save the editor's text: a new script becomes a Script source; an existing
+ * one is replaced and every node using it regenerates.
+ * @param {{ name: string, text: string }} draft
+ * @returns {Promise<string | null>} the source id
+ */
+export async function saveScriptEditor({ name, text }) {
+	if (!scriptEditorState) return null;
+	const { sourceId, forDialog } = scriptEditorState;
+	try {
+		if (sourceId) {
+			await setScriptSource(sourceId, text);
+			scriptEditorState = { ...scriptEditorState, name, text };
+			return sourceId;
+		}
+		const added = await addScriptSource({ name: name?.trim() || null, text });
+		if (!added) {
+			showToast('error', 'The script could not be added');
+			return null;
+		}
+		scriptEditorState = { ...scriptEditorState, sourceId: added.source_id, name: added.name, text };
+		if (forDialog && scriptDialogState) setScriptDialogSource(added.source_id);
+		return added.source_id;
+	} catch (err) {
+		const msg = err?.message || String(err);
+		log('error', `Script save failed: ${msg}`);
+		showToast('error', `Script save failed: ${msg}`);
+		return null;
+	}
+}
+
 // -- Viewport pick mode helpers --
 
 /**
@@ -8029,6 +8283,7 @@ export function showEditFeatureDialog(featureId) {
 	if (opType === 'Extrude') showExtrudeDialogForEdit(featureId);
 	else if (opType === 'Revolve') showRevolveDialogForEdit(featureId);
 	else if (opType === 'Pipe') showPipeDialogForEdit(featureId);
+	else if (opType === 'Script') showScriptDialogForEdit(featureId);
 	else if (opType === 'ImportedBody') showImportDialogForEdit(featureId);
 	else if (opType === 'MateConnector') showMateConnectorDialog(featureId);
 }

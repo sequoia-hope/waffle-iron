@@ -14,6 +14,8 @@
 	import Viewport from '$lib/viewport/Viewport.svelte';
 	import RevolveDialog from '$lib/ui/RevolveDialog.svelte';
 	import PipeDialog from '$lib/ui/PipeDialog.svelte';
+	import ScriptDialog from '$lib/ui/ScriptDialog.svelte';
+	import ScriptEditor from '$lib/ui/ScriptEditor.svelte';
 	import SketchPlaneDialog from '$lib/ui/SketchPlaneDialog.svelte';
 	import ToastContainer from '$lib/ui/ToastContainer.svelte';
 	import {
@@ -196,6 +198,8 @@
 
 <RevolveDialog />
 <PipeDialog />
+<ScriptDialog />
+<ScriptEditor />
 <SketchPlaneDialog />
 <ImportLinkDialog />
 <ToastContainer />

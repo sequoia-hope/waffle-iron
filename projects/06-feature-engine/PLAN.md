@@ -173,9 +173,22 @@
       kernel: boss-on-top via a query chain has the exact summed volume with the
       named face and both connectors at z = 0.014; a script cuts an outer body
       parameter to the exact remaining volume and consumes it).
-- [ ] A-M4: script editor panel, `@param` dialog generation, MCP `script_source_add` /
-      `script_feature_add` / `script_run_check` (an agent can `feature_add` a Script
-      today only if the document already carries the source).
+- [x] A-M4 (2026-09-23): `script::check(text, entry)` (header + compile + entry,
+      no kernel) and `script::display_name`; the header types serialize
+      (`ScriptInterface` → `{name, version, params[{name, type, default?, min?,
+      max?}], outputs[{name, kind}]}`) — what generates the app's Script dialog and
+      the `script_run_check` answer. Bridge: `AddScriptSource` (text or the built-in
+      `gear`/`sprocket` library; any text — the editor saves work in progress),
+      `SetScriptSource` (replace + rebuild; Script kind only), `CheckScript` (with
+      `args` ⇒ a `record` dry run), `ReadSource`; a `Script` node added through
+      `AddFeature` takes the header's `@feature name`. Tools `script_run_check`,
+      `script_source_add` (refuses a script that does not check), `script_source_get`,
+      `script_source_update` (a node the text newly breaks ⇒ the previous text is
+      re-set and verified, `rolled_back`), `script_feature_add`. App:
+      `ScriptDialog.svelte` + `ScriptEditor.svelte`, toolbar "Script", double-click
+      edit, Sources-panel "edit", property-editor argument rows. Docs:
+      `docs/CUSTOM_FEATURE_SCRIPTS.md`. Tests: `wasm-bridge/tests/tool_script.rs`
+      (15), `app/tests/gui/script-dialog.spec.js`, `agent-script-tools.spec.js`.
 - [ ] Known limits: `module` is a Rhai keyword (the gear param is `module_m`);
       `ctx.log` lines surface as warnings (`log: …`); child roles concatenate (no
       `Role::ScriptChild`); `tree.clone()` + `feature_results.clone()` per script rebuild;

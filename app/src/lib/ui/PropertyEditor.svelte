@@ -92,11 +92,28 @@
 					{ key: '_info', label: 'Seeds', type: 'info', value: operation.params?.seeds?.length ?? 0 },
 					{ key: '_info2', label: 'Combine', type: 'info', value: operation.params?.combine?.type ?? 'NewBody' },
 				];
-			case 'Script':
-				return [
-					{ key: '_info', label: 'Entry', type: 'info', value: operation.params?.entry ?? 'feature' },
-					{ key: '_info2', label: 'Arguments', type: 'info', value: Object.keys(operation.params?.args ?? {}).length + Object.keys(operation.params?.arg_exprs ?? {}).length },
-				];
+			case 'Script': {
+				// The node's arguments as the script sees them (A-M4): an
+				// expression-driven one shows its expression; geometry
+				// arguments show their kind. Double-click the node to edit.
+				const args = operation.params?.args ?? {};
+				const exprs = operation.params?.arg_exprs ?? {};
+				const rows = [{ key: '_info', label: 'Entry', type: 'info', value: operation.params?.entry ?? 'feature' }];
+				for (const [name, expr] of Object.entries(exprs)) {
+					rows.push({ key: `_arg_${name}`, label: name, type: 'info', value: `= ${expr}` });
+				}
+				for (const [name, value] of Object.entries(args)) {
+					if (name in exprs) continue;
+					let shown;
+					if (value && typeof value === 'object') {
+						shown = value.kind?.type ? value.kind.type.toLowerCase() : Array.isArray(value.normal) ? `plane n=(${value.normal.map((c) => +(+c).toFixed(3)).join(', ')})` : 'object';
+					} else {
+						shown = String(value);
+					}
+					rows.push({ key: `_arg_${name}`, label: name, type: 'info', value: shown });
+				}
+				return rows;
+			}
 			case 'Sketch':
 				return [
 					{ key: '_info', label: 'Entities', type: 'info', value: operation.sketch?.entities?.length ?? 0 },

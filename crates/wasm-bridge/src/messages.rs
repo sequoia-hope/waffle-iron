@@ -221,6 +221,54 @@ pub enum UiToEngine {
     /// ones through their locators and answers with `ProvideSource`
     /// (v4 §2.3 content resolution order, Phase 2 P2-3).
     ListSources,
+    /// The content of one source the engine's store holds, as text — what
+    /// the script editor opens (A-M4). Refused for a source whose content
+    /// is not in the store (resolve it first).
+    ReadSource {
+        source_id: Uuid,
+    },
+    /// Add an EMBEDDED `Script` source to the document
+    /// (`specs/custom_features_and_modeling_roadmap.md` §A7/§A8): the text
+    /// as given, or one of the engine's built-in library scripts
+    /// (`library`: `gear` | `sprocket`). Any text is accepted — a script
+    /// that does not parse is an inert asset until a node names it, and the
+    /// editor saves work in progress — the answer reports the header check
+    /// so a host can show it. Not an undo step: sources are assets, not
+    /// edits (v4 §2.3). `name` defaults to the header's `@feature name`,
+    /// else `script.rhai`.
+    AddScriptSource {
+        #[serde(default)]
+        name: Option<String>,
+        #[serde(default)]
+        text: Option<String>,
+        #[serde(default)]
+        library: Option<String>,
+    },
+    /// Replace a `Script` source's text and rebuild, so every node naming
+    /// it regenerates (the editor's Save, A-M4). Refused for a non-script
+    /// source. Not an undo step (the editor keeps its own history); a node
+    /// the new text breaks shows its typed error, never stale geometry
+    /// (P10).
+    SetScriptSource {
+        source_id: Uuid,
+        text: String,
+    },
+    /// Check a script without a node (A-M4 `script_run_check`): parse the
+    /// header, compile, confirm the entry function. `text` checks unsaved
+    /// text; `source_id` checks a stored script source. With `args` the
+    /// script is also DRY-RUN — evaluated against a recorder with no
+    /// kernel, so runtime errors, `ctx.fail`, limits and the output
+    /// contract are exercised — and the recorded children are counted.
+    CheckScript {
+        #[serde(default)]
+        source_id: Option<Uuid>,
+        #[serde(default)]
+        text: Option<String>,
+        #[serde(default)]
+        entry: Option<String>,
+        #[serde(default)]
+        args: Option<std::collections::BTreeMap<String, serde_json::Value>>,
+    },
     /// Import a STEP file the host fetched through a locator (a git file
     /// URL, a share link): a LINKED `Step` source — not packed, with its
     /// content hash and resolved commit recorded — plus an ImportedBody
@@ -644,6 +692,32 @@ pub enum EngineToUi {
     /// Answer to `ListSources`.
     SourcesListed { sources: Vec<SourceStatus> },
 
+    /// Answer to `ReadSource`: the source's text.
+    SourceContent {
+        source_id: Uuid,
+        name: String,
+        /// The source kind's `type` tag (`Script`, `Step`, …).
+        kind: String,
+        text: String,
+    },
+
+    /// Answer to `AddScriptSource`: the new source's id and the `sources`
+    /// table as it now stands (so a host's Sources panel stays in step
+    /// without a model update), plus the header check of the text.
+    ScriptSourceAdded {
+        source_id: Uuid,
+        name: String,
+        sources: Vec<SourceStatus>,
+        check: ScriptCheck,
+    },
+
+    /// Answer to `CheckScript`.
+    ScriptChecked {
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        source_id: Option<Uuid>,
+        check: ScriptCheck,
+    },
+
     /// Answer to `ListSourceTabs`.
     SourceTabsListed {
         source_id: Uuid,
@@ -873,4 +947,53 @@ pub struct SourceTabInfo {
     pub name: String,
     /// `Part`, `Assembly`, or an unknown kind's tag.
     pub kind: String,
+}
+
+/// The result of checking a script (`CheckScript`, `AddScriptSource`):
+/// the parsed interface when the header parses and the script compiles,
+/// else the typed failure (`stage`: `header` | `parse`); with arguments,
+/// the dry run's outcome too (A-M4).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ScriptCheck {
+    /// Header parsed, script compiled, entry function present.
+    pub ok: bool,
+    /// The declared interface (`name`, `version`, `params`, `outputs`),
+    /// present when `ok`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub interface: Option<serde_json::Value>,
+    /// The failure when not `ok`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub error: Option<ScriptCheckError>,
+    /// The dry run, when arguments were supplied and the check passed.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub dry_run: Option<ScriptDryRun>,
+}
+
+/// A typed script failure: the stage (`header`, `parse`, `args`, `runtime`,
+/// `limit`, `fail`) and the interpreter's own message (a header failure
+/// starts with `line N:`; a parse failure ends with `(line N, position M)`).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ScriptCheckError {
+    pub stage: String,
+    pub reason: String,
+}
+
+/// What a dry run of a script recorded, without a kernel.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ScriptDryRun {
+    /// The arguments resolved, the script ran to completion, and its return
+    /// value satisfied the header's `@output` contract.
+    pub ok: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub error: Option<ScriptCheckError>,
+    /// The recorded child operations, in order, by label (`sketch`,
+    /// `extrude`, …).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub children: Vec<String>,
+    /// `ctx.log` / `print` lines.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub logs: Vec<String>,
+    /// The public output names the return value provides, in node order.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub outputs: Vec<String>,
 }

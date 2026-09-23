@@ -11,7 +11,9 @@ what keeps the interpreter free of kernel lifetimes; (2) `v6` was not needed —
 `SourceKind::Script` is an additive kind under the format's own rule; (3) the gear
 `module` parameter is spelled `module_m` (`module` is a Rhai keyword). **A-M3
 LANDED 2026-09-23** (queries, named outputs, script connectors, outer
-references; §A10). Next per Part C: A-M4 (editor + MCP `script_*` tools).
+references; §A10). **A-M4 LANDED 2026-09-23** (editor, generated dialog,
+MCP `script_*` tools, `docs/CUSTOM_FEATURE_SCRIPTS.md`). Next per Part C:
+A-M6 (git-sourced script libraries, versioning rules).
 Sub-projects: `projects/06-feature-engine/` (owner), `projects/14-agent-link/`
 (tools), `projects/09-file-format/` (storage), `projects/08-ui-chrome/`
 (feature list, script editor), `kernel-v2` (Part B only).
@@ -311,7 +313,7 @@ without knowing the sub-tree.
 | A-M1 | Rhai interpreter with limits; API: `sketch`, `extrude`, `revolve`, `boolean`, `query.created_by/role/nth`; sub-tree execution; errors on node | A-M0 |
 | A-M2 | `gear.rhai` passes gear parity; built-in Gear becomes a thin call into the script (or is kept but tested against it) | A-M1 |
 | A-M3 | Query chain lowering to `TopoQuery`, named outputs, mate connectors from scripts — **LANDED 2026-09-23** (PLAN M13): chains lower to one `TopoQuery` (+ `TieBreak::FarthestAlong`); the return value keys the node (`Main` / `OutputKey::Named` / `Role::Named`), `@output` lines are its contract; `ctx.mate_connector`; `body`/`face`/`edge` params for OUTER references with post-execution consumption reporting; `Selector::Query` now resolves over the anchor body's live entities (`resolve_geom_ref_live`) | A-M1 |
-| A-M4 | Script editor panel, `@param` dialog generation, MCP `script_*` tools, agent authoring loop documented | A-M2 |
+| A-M4 | Script editor panel, `@param` dialog generation, MCP `script_*` tools, agent authoring loop documented — **LANDED 2026-09-23**: `ScriptDialog.svelte` (fields generated from the engine's `CheckScript` interface; datum/face planes, body/face/edge picks, expressions ⇒ `arg_exprs`; edit on double-click), `ScriptEditor.svelte` (Check with the failing line, Save regenerates every node; a new script becomes a `Script` source), engine messages `AddScriptSource` / `SetScriptSource` / `CheckScript` / `ReadSource`, tools `script_run_check` (dry run) / `script_source_add` (text or library) / `script_source_get` / `script_source_update` (rollback of a breaking edit) / `script_feature_add`; a node takes the header's name; `docs/CUSTOM_FEATURE_SCRIPTS.md` documents the loop | A-M2 |
 | A-M5 | `sprocket.rhai` (needs Part B3's tooth form as sketch entities, or draws it from arcs directly) — **LANDED 2026-09-19**: draws the arcs directly, bit-identical to the generator (`tests/script_sprocket_parity.rs`) | A-M2 |
 | A-M6 | Git-sourced script libraries, versioning rules | A-M4 |
 

@@ -127,6 +127,7 @@ GUI_FAST_SPECS=(
   sketch-sprocket-entity.spec.js
   sketch-sprocket-dialog.spec.js
   pipe-dialog.spec.js
+  script-dialog.spec.js
   tool-switching-mid-operation.spec.js
   unit-conversion-display.spec.js
   # Server-mode S3: the page's routing table vs the engine's MIGRATED list,
@@ -134,6 +135,8 @@ GUI_FAST_SPECS=(
   # executor), so they belong in the fast tier.
   agent-rust-tools.spec.js
   agent-rust-authoring.spec.js
+  # A-M4: the script tools through the page's executor (real engine).
+  agent-script-tools.spec.js
 )
 
 # ---------------------------------------------------------------------------

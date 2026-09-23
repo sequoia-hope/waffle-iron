@@ -352,6 +352,34 @@ fn check_output_contract(
     Ok(())
 }
 
+/// Phases 1–2 without arguments or a kernel: parse the header, compile the
+/// script, and confirm it defines `fn entry(ctx, p)`. What an editor's
+/// "Check" and the `script_run_check` tool do before a node exists (A-M4,
+/// §A8); the interface it returns is what generates the parameter dialog.
+/// A dry run with arguments is [`record`].
+pub fn check(text: &str, entry: &str) -> Result<ScriptInterface, EngineError> {
+    let interface = header::parse_header(text).map_err(|e| err("header", e))?;
+    let limits = interp::Limits::default();
+    let engine = interp::build_engine(&limits);
+    let ast = interp::compile(&engine, text).map_err(|f| err(f.stage, f.reason))?;
+    if !ast.iter_functions().any(|f| f.name == entry) {
+        return Err(err(
+            "parse",
+            format!("the script defines no `fn {entry}(ctx, p)`"),
+        ));
+    }
+    Ok(interface)
+}
+
+/// The header's declared `@feature name`, when `text` has a valid header:
+/// the display name a `Script` node takes on creation.
+pub fn display_name(text: &str) -> Option<String> {
+    header::parse_header(text)
+        .ok()
+        .map(|h| h.name)
+        .filter(|n| !n.trim().is_empty())
+}
+
 /// Phases 1–3 without the kernel: parse, resolve arguments, evaluate,
 /// return the recorded children. `args` are the node's `ScriptParams`.
 pub fn record(text: &str, params: &ScriptParams) -> Result<Recorded, EngineError> {

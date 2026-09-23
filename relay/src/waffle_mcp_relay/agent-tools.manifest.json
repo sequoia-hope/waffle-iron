@@ -1,5 +1,5 @@
 {
-  "manifest_hash": "9da868b873e8d389ef495e8e347eeb2c9d3df859c34b4ea99171473d95b7d75c",
+  "manifest_hash": "7a5f36e04283499d2a520cbabef366de3479f80742a4b7cc73a5b7c9327597aa",
   "protocol": "waffle-agent-link/1",
   "tools": [
     {
@@ -4188,7 +4188,7 @@
         "readOnlyHint": false,
         "title": "Add feature"
       },
-      "description": "Add a feature at the end of the feature tree (one undo step). operation is an Operation: {\"type\":\"Extrude\",\"params\":{…}}, Revolve, Pipe, BooleanCombine, UnionAll, DatumPlane, MateConnector, PatternCircular, PatternLinear, Script, or a full Sketch. A UnionAll folds EVERY live body of the part (or params.targets {type:\"Selected\", bodies:[Solid GeomRefs]}) into connected solids with ONE feature — a balanced tree of pairwise unions with a bounding-box fast path — so prefer it over a chain of BooleanCombine steps on many overlapping bodies: params {targets?: {type:\"All\"}}. A BooleanCombine whose operand was already consumed by an earlier feature is refused (chain onto that feature's own output instead). A Pipe sweeps a circle along an OPEN, tangent-continuous chain of sketch lines and arcs (construction geometry is fine) as ONE solid: params {sketch_id, entity_ids: [the path entities, any order], radius (m), inner_radius? (m, hollow), combine?, targets?} — no boolean between segments, so a handlebar or hose is one body; a corner or a bend tighter than the tube radius is refused. A Script runs a custom feature script (Rhai) that the document carries as a `Script` source: params {source_id, entry?: \"feature\", args: {name: value in model units, or {origin, normal} / a datum plane id for a plane param}, arg_exprs?: {name: \"expression\"}}; the script declares its parameters in `// @param name: type` header lines and calls ctx.sketch / extrude / revolve / boolean over the same operations as these tools. Adding script sources is not yet a tool (A-M4). A PatternCircular/PatternLinear makes rigid copies of seed BODIES (params.seeds: Solid GeomRefs {kind:\"Solid\", anchor:{type:\"FeatureOutput\", feature_id, output_key}}, from model_summary bodies) — it does not re-run the seed feature. Circular: axis {method:\"explicit\", origin, direction} or {method:\"entity\", geom_ref: a cylindrical/conical face, a circular edge, or a straight edge}, count (instances INCLUDING the seed, ≥ 2), angle_deg (TOTAL sweep; 360 spaces 360/count apart, otherwise the last instance lands at angle_deg), skip?: [instance indices ≥ 1]. Linear: direction (AxisRef, direction only), count, spacing (m; negative reverses), second?: {direction, count, spacing} for a grid (index i + j·count). Both: combine?: NewBody (default: every instance its own body) | Add (folds targets + instances into connected bodies) | Cut | Intersect, with targets?: explicit Solid GeomRefs (never auto by position; Cut/Intersect need one). The pattern takes custody of its seeds (their features are consumed) and emits every instance: Main = the seed itself, then Body:1… — so chain later booleans onto the PATTERN's outputs, not the seed feature's. A MateConnector is a named frame on the part that assemblies mate its instances by (model_summary lists the evaluated ones): params {name, geom_ref?: a Face or Edge GeomRef (face_list, selection_get), frame?: {origin, z_axis, x_axis} in part coordinates when there is no geom_ref, anchor?: \"middle\"|\"positive_end\"|\"negative_end\" along a cylindrical/conical/toroidal face's axis, flip_z?, rotation_deg?, offset_m?: [x, y, z] along its own axes}; a pick with no frame (a vertex, a freeform face) fails the feature. Address a sketch loop with params.sketch_id = the Sketch feature id and params.profile_entity_ids = the loop's entity ids (from sketch_create or sketch_regions); profile_index is then ignored but still required (use 0). Fillet, Chamfer and Shell are refused (Deferred); STEP imports are not authored here. A step whose feature or any downstream feature newly fails to rebuild is rolled back by default; kernel capability limits (NotSupported) are reported verbatim — do not retry them with altered parameters. Units: lengths in meters, angles in degrees; *_expr expressions are mm-space (a bare 20 means 20 mm).",
+      "description": "Add a feature at the end of the feature tree (one undo step). operation is an Operation: {\"type\":\"Extrude\",\"params\":{…}}, Revolve, Pipe, BooleanCombine, UnionAll, DatumPlane, MateConnector, PatternCircular, PatternLinear, Script, or a full Sketch. A UnionAll folds EVERY live body of the part (or params.targets {type:\"Selected\", bodies:[Solid GeomRefs]}) into connected solids with ONE feature — a balanced tree of pairwise unions with a bounding-box fast path — so prefer it over a chain of BooleanCombine steps on many overlapping bodies: params {targets?: {type:\"All\"}}. A BooleanCombine whose operand was already consumed by an earlier feature is refused (chain onto that feature's own output instead). A Pipe sweeps a circle along an OPEN, tangent-continuous chain of sketch lines and arcs (construction geometry is fine) as ONE solid: params {sketch_id, entity_ids: [the path entities, any order], radius (m), inner_radius? (m, hollow), combine?, targets?} — no boolean between segments, so a handlebar or hose is one body; a corner or a bend tighter than the tube radius is refused. A Script runs a custom feature script (Rhai) that the document carries as a `Script` source: params {source_id, entry?: \"feature\", args: {name: value in model units, or {origin, normal} / a datum plane id for a plane param}, arg_exprs?: {name: \"expression\"}}; the script declares its parameters in `// @param name: type` header lines and calls ctx.sketch / extrude / revolve / boolean over the same operations as these tools; add the source with script_source_add and prefer script_feature_add (same node, takes the args directly) — see docs/CUSTOM_FEATURE_SCRIPTS.md. A PatternCircular/PatternLinear makes rigid copies of seed BODIES (params.seeds: Solid GeomRefs {kind:\"Solid\", anchor:{type:\"FeatureOutput\", feature_id, output_key}}, from model_summary bodies) — it does not re-run the seed feature. Circular: axis {method:\"explicit\", origin, direction} or {method:\"entity\", geom_ref: a cylindrical/conical face, a circular edge, or a straight edge}, count (instances INCLUDING the seed, ≥ 2), angle_deg (TOTAL sweep; 360 spaces 360/count apart, otherwise the last instance lands at angle_deg), skip?: [instance indices ≥ 1]. Linear: direction (AxisRef, direction only), count, spacing (m; negative reverses), second?: {direction, count, spacing} for a grid (index i + j·count). Both: combine?: NewBody (default: every instance its own body) | Add (folds targets + instances into connected bodies) | Cut | Intersect, with targets?: explicit Solid GeomRefs (never auto by position; Cut/Intersect need one). The pattern takes custody of its seeds (their features are consumed) and emits every instance: Main = the seed itself, then Body:1… — so chain later booleans onto the PATTERN's outputs, not the seed feature's. A MateConnector is a named frame on the part that assemblies mate its instances by (model_summary lists the evaluated ones): params {name, geom_ref?: a Face or Edge GeomRef (face_list, selection_get), frame?: {origin, z_axis, x_axis} in part coordinates when there is no geom_ref, anchor?: \"middle\"|\"positive_end\"|\"negative_end\" along a cylindrical/conical/toroidal face's axis, flip_z?, rotation_deg?, offset_m?: [x, y, z] along its own axes}; a pick with no frame (a vertex, a freeform face) fails the feature. Address a sketch loop with params.sketch_id = the Sketch feature id and params.profile_entity_ids = the loop's entity ids (from sketch_create or sketch_regions); profile_index is then ignored but still required (use 0). Fillet, Chamfer and Shell are refused (Deferred); STEP imports are not authored here. A step whose feature or any downstream feature newly fails to rebuild is rolled back by default; kernel capability limits (NotSupported) are reported verbatim — do not retry them with altered parameters. Units: lengths in meters, angles in degrees; *_expr expressions are mm-space (a bare 20 means 20 mm).",
       "inputSchema": {
         "$defs": {
           "Anchor": {
@@ -8506,7 +8506,7 @@
         "readOnlyHint": false,
         "title": "Edit feature"
       },
-      "description": "Replace a feature's operation (same type; read it with feature_get first) and rebuild (one undo step). The feature becomes agent-authored. Imported and derived features cannot be edited. operation is an Operation: {\"type\":\"Extrude\",\"params\":{…}}, Revolve, Pipe, BooleanCombine, UnionAll, DatumPlane, MateConnector, PatternCircular, PatternLinear, Script, or a full Sketch. A UnionAll folds EVERY live body of the part (or params.targets {type:\"Selected\", bodies:[Solid GeomRefs]}) into connected solids with ONE feature — a balanced tree of pairwise unions with a bounding-box fast path — so prefer it over a chain of BooleanCombine steps on many overlapping bodies: params {targets?: {type:\"All\"}}. A BooleanCombine whose operand was already consumed by an earlier feature is refused (chain onto that feature's own output instead). A Pipe sweeps a circle along an OPEN, tangent-continuous chain of sketch lines and arcs (construction geometry is fine) as ONE solid: params {sketch_id, entity_ids: [the path entities, any order], radius (m), inner_radius? (m, hollow), combine?, targets?} — no boolean between segments, so a handlebar or hose is one body; a corner or a bend tighter than the tube radius is refused. A Script runs a custom feature script (Rhai) that the document carries as a `Script` source: params {source_id, entry?: \"feature\", args: {name: value in model units, or {origin, normal} / a datum plane id for a plane param}, arg_exprs?: {name: \"expression\"}}; the script declares its parameters in `// @param name: type` header lines and calls ctx.sketch / extrude / revolve / boolean over the same operations as these tools. Adding script sources is not yet a tool (A-M4). A PatternCircular/PatternLinear makes rigid copies of seed BODIES (params.seeds: Solid GeomRefs {kind:\"Solid\", anchor:{type:\"FeatureOutput\", feature_id, output_key}}, from model_summary bodies) — it does not re-run the seed feature. Circular: axis {method:\"explicit\", origin, direction} or {method:\"entity\", geom_ref: a cylindrical/conical face, a circular edge, or a straight edge}, count (instances INCLUDING the seed, ≥ 2), angle_deg (TOTAL sweep; 360 spaces 360/count apart, otherwise the last instance lands at angle_deg), skip?: [instance indices ≥ 1]. Linear: direction (AxisRef, direction only), count, spacing (m; negative reverses), second?: {direction, count, spacing} for a grid (index i + j·count). Both: combine?: NewBody (default: every instance its own body) | Add (folds targets + instances into connected bodies) | Cut | Intersect, with targets?: explicit Solid GeomRefs (never auto by position; Cut/Intersect need one). The pattern takes custody of its seeds (their features are consumed) and emits every instance: Main = the seed itself, then Body:1… — so chain later booleans onto the PATTERN's outputs, not the seed feature's. A MateConnector is a named frame on the part that assemblies mate its instances by (model_summary lists the evaluated ones): params {name, geom_ref?: a Face or Edge GeomRef (face_list, selection_get), frame?: {origin, z_axis, x_axis} in part coordinates when there is no geom_ref, anchor?: \"middle\"|\"positive_end\"|\"negative_end\" along a cylindrical/conical/toroidal face's axis, flip_z?, rotation_deg?, offset_m?: [x, y, z] along its own axes}; a pick with no frame (a vertex, a freeform face) fails the feature. Address a sketch loop with params.sketch_id = the Sketch feature id and params.profile_entity_ids = the loop's entity ids (from sketch_create or sketch_regions); profile_index is then ignored but still required (use 0). Fillet, Chamfer and Shell are refused (Deferred); STEP imports are not authored here. A step whose feature or any downstream feature newly fails to rebuild is rolled back by default; kernel capability limits (NotSupported) are reported verbatim — do not retry them with altered parameters. Units: lengths in meters, angles in degrees; *_expr expressions are mm-space (a bare 20 means 20 mm).",
+      "description": "Replace a feature's operation (same type; read it with feature_get first) and rebuild (one undo step). The feature becomes agent-authored. Imported and derived features cannot be edited. operation is an Operation: {\"type\":\"Extrude\",\"params\":{…}}, Revolve, Pipe, BooleanCombine, UnionAll, DatumPlane, MateConnector, PatternCircular, PatternLinear, Script, or a full Sketch. A UnionAll folds EVERY live body of the part (or params.targets {type:\"Selected\", bodies:[Solid GeomRefs]}) into connected solids with ONE feature — a balanced tree of pairwise unions with a bounding-box fast path — so prefer it over a chain of BooleanCombine steps on many overlapping bodies: params {targets?: {type:\"All\"}}. A BooleanCombine whose operand was already consumed by an earlier feature is refused (chain onto that feature's own output instead). A Pipe sweeps a circle along an OPEN, tangent-continuous chain of sketch lines and arcs (construction geometry is fine) as ONE solid: params {sketch_id, entity_ids: [the path entities, any order], radius (m), inner_radius? (m, hollow), combine?, targets?} — no boolean between segments, so a handlebar or hose is one body; a corner or a bend tighter than the tube radius is refused. A Script runs a custom feature script (Rhai) that the document carries as a `Script` source: params {source_id, entry?: \"feature\", args: {name: value in model units, or {origin, normal} / a datum plane id for a plane param}, arg_exprs?: {name: \"expression\"}}; the script declares its parameters in `// @param name: type` header lines and calls ctx.sketch / extrude / revolve / boolean over the same operations as these tools; add the source with script_source_add and prefer script_feature_add (same node, takes the args directly) — see docs/CUSTOM_FEATURE_SCRIPTS.md. A PatternCircular/PatternLinear makes rigid copies of seed BODIES (params.seeds: Solid GeomRefs {kind:\"Solid\", anchor:{type:\"FeatureOutput\", feature_id, output_key}}, from model_summary bodies) — it does not re-run the seed feature. Circular: axis {method:\"explicit\", origin, direction} or {method:\"entity\", geom_ref: a cylindrical/conical face, a circular edge, or a straight edge}, count (instances INCLUDING the seed, ≥ 2), angle_deg (TOTAL sweep; 360 spaces 360/count apart, otherwise the last instance lands at angle_deg), skip?: [instance indices ≥ 1]. Linear: direction (AxisRef, direction only), count, spacing (m; negative reverses), second?: {direction, count, spacing} for a grid (index i + j·count). Both: combine?: NewBody (default: every instance its own body) | Add (folds targets + instances into connected bodies) | Cut | Intersect, with targets?: explicit Solid GeomRefs (never auto by position; Cut/Intersect need one). The pattern takes custody of its seeds (their features are consumed) and emits every instance: Main = the seed itself, then Body:1… — so chain later booleans onto the PATTERN's outputs, not the seed feature's. A MateConnector is a named frame on the part that assemblies mate its instances by (model_summary lists the evaluated ones): params {name, geom_ref?: a Face or Edge GeomRef (face_list, selection_get), frame?: {origin, z_axis, x_axis} in part coordinates when there is no geom_ref, anchor?: \"middle\"|\"positive_end\"|\"negative_end\" along a cylindrical/conical/toroidal face's axis, flip_z?, rotation_deg?, offset_m?: [x, y, z] along its own axes}; a pick with no frame (a vertex, a freeform face) fails the feature. Address a sketch loop with params.sketch_id = the Sketch feature id and params.profile_entity_ids = the loop's entity ids (from sketch_create or sketch_regions); profile_index is then ignored but still required (use 0). Fillet, Chamfer and Shell are refused (Deferred); STEP imports are not authored here. A step whose feature or any downstream feature newly fails to rebuild is rolled back by default; kernel capability limits (NotSupported) are reported verbatim — do not retry them with altered parameters. Units: lengths in meters, angles in degrees; *_expr expressions are mm-space (a bare 20 means 20 mm).",
       "inputSchema": {
         "$defs": {
           "Anchor": {
@@ -13794,6 +13794,999 @@
               "type": "object"
             },
             "type": "array"
+          },
+          "features_added": {
+            "description": "Feature ids added, in tree order.",
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "features_changed": {
+            "description": "Feature ids whose definition or provenance changed.",
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "features_removed": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "kept_with_error": {
+            "description": "Present and true when on_error was \"keep\" and the step left features failing.",
+            "type": "boolean"
+          },
+          "order_changed": {
+            "description": "The relative order of surviving features changed.",
+            "type": "boolean"
+          },
+          "warnings": {
+            "description": "Rebuild warnings, verbatim.",
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "features_added",
+          "features_changed",
+          "features_removed",
+          "bodies_added",
+          "bodies_removed",
+          "errors",
+          "warnings"
+        ],
+        "type": "object"
+      }
+    },
+    {
+      "annotations": {
+        "openWorldHint": false,
+        "readOnlyHint": true,
+        "title": "Check script"
+      },
+      "description": "Check a custom feature script without adding anything: parse its header, compile it and confirm the entry function. Pass text (unsaved script) or source_id (a stored script source). With args the script is also DRY-RUN against a recorder with no kernel — runtime errors, ctx.fail, limits and the @output contract are exercised and the recorded child operations listed — so run it with the args you intend to use before script_feature_add. Errors carry the stage and the interpreter's message verbatim. A script is Rhai text with a header of `// @feature name=\"…\" version=N`, `// @param name: type [= default] [min=..] [max=..]` (types: int, number, length (meters), angle (degrees), bool, string, plane, body, face, edge) and `// @output name: main|body|face|edge|connector` lines, then `fn feature(ctx, p) { … }` calling ctx.sketch(p.plane) → sk.point/line/circle/arc/rect/polygon/gear/sprocket → sk.finish().regions(), ctx.extrude / revolve / boolean / pipe / union_all / mate_connector, and query chains (.faces().normal_near([0,0,1], 5).largest_area()). Its return value names the node's outputs. See docs/CUSTOM_FEATURE_SCRIPTS.md. Units: lengths in meters, angles in degrees; *_expr expressions are mm-space (a bare 20 means 20 mm).",
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "args": {
+            "additionalProperties": true,
+            "description": "Values for the script's @param declarations, by name, in MODEL units: int/number as numbers, length in meters, angle in degrees, bool, string; a plane as {origin, normal} or a datum plane id; a body/face/edge as a GeomRef (from model_summary bodies, face_list, selection_get). Undeclared names are refused; declared parameters without a default are required.",
+            "type": "object"
+          },
+          "entry": {
+            "description": "Entry function name (default \"feature\").",
+            "type": "string"
+          },
+          "source_id": {
+            "description": "A stored script source (from script_source_add / script_source_get).",
+            "format": "uuid",
+            "type": "string"
+          },
+          "text": {
+            "description": "Script text to check (unsaved).",
+            "type": "string"
+          }
+        },
+        "type": "object"
+      },
+      "name": "script_run_check",
+      "outputSchema": {
+        "properties": {
+          "dry_run": {
+            "description": "Present when args were given and the check passed.",
+            "properties": {
+              "children": {
+                "description": "Recorded child operations in order (sketch, extrude, …).",
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              "error": {
+                "properties": {
+                  "reason": {
+                    "description": "Verbatim; header failures start with \"line N:\", parse failures end with \"(line N, position M)\".",
+                    "type": "string"
+                  },
+                  "stage": {
+                    "description": "header | parse | args | runtime | limit | fail | child",
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "stage",
+                  "reason"
+                ],
+                "type": "object"
+              },
+              "logs": {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              "ok": {
+                "type": "boolean"
+              },
+              "outputs": {
+                "description": "Output names the return value provides.",
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              }
+            },
+            "required": [
+              "ok"
+            ],
+            "type": "object"
+          },
+          "entry": {
+            "type": "string"
+          },
+          "error": {
+            "properties": {
+              "reason": {
+                "description": "Verbatim; header failures start with \"line N:\", parse failures end with \"(line N, position M)\".",
+                "type": "string"
+              },
+              "stage": {
+                "description": "header | parse | args | runtime | limit | fail | child",
+                "type": "string"
+              }
+            },
+            "required": [
+              "stage",
+              "reason"
+            ],
+            "type": "object"
+          },
+          "interface": {
+            "description": "The header the script declares.",
+            "properties": {
+              "name": {
+                "type": "string"
+              },
+              "outputs": {
+                "items": {
+                  "properties": {
+                    "kind": {
+                      "enum": [
+                        "main",
+                        "body",
+                        "face",
+                        "edge",
+                        "connector"
+                      ],
+                      "type": "string"
+                    },
+                    "name": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "name",
+                    "kind"
+                  ],
+                  "type": "object"
+                },
+                "type": "array"
+              },
+              "params": {
+                "items": {
+                  "properties": {
+                    "default": {
+                      "description": "Number, boolean or string; absent for a required parameter."
+                    },
+                    "max": {
+                      "type": "number"
+                    },
+                    "min": {
+                      "type": "number"
+                    },
+                    "name": {
+                      "type": "string"
+                    },
+                    "type": {
+                      "enum": [
+                        "int",
+                        "number",
+                        "length",
+                        "angle",
+                        "bool",
+                        "string",
+                        "plane",
+                        "body",
+                        "face",
+                        "edge"
+                      ],
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "name",
+                    "type"
+                  ],
+                  "type": "object"
+                },
+                "type": "array"
+              },
+              "version": {
+                "type": "integer"
+              }
+            },
+            "required": [
+              "name",
+              "version",
+              "params",
+              "outputs"
+            ],
+            "type": "object"
+          },
+          "ok": {
+            "description": "Header parsed, script compiled, entry function present.",
+            "type": "boolean"
+          },
+          "source_id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "ok",
+          "entry"
+        ],
+        "type": "object"
+      }
+    },
+    {
+      "annotations": {
+        "destructiveHint": false,
+        "openWorldHint": false,
+        "readOnlyHint": false,
+        "title": "Add script source"
+      },
+      "description": "Add a custom feature script to the document as an embedded Script source (saved with the file, shareable by many nodes). Pass text, or library (\"gear\" or \"sprocket\") for one of the built-in scripts. Refused with InvalidScript (stage + reason) when the script does not check — run script_run_check first. The name defaults to the header's @feature name. Not an undo step (sources are assets); the source stays in the document even with no node using it. A script is Rhai text with a header of `// @feature name=\"…\" version=N`, `// @param name: type [= default] [min=..] [max=..]` (types: int, number, length (meters), angle (degrees), bool, string, plane, body, face, edge) and `// @output name: main|body|face|edge|connector` lines, then `fn feature(ctx, p) { … }` calling ctx.sketch(p.plane) → sk.point/line/circle/arc/rect/polygon/gear/sprocket → sk.finish().regions(), ctx.extrude / revolve / boolean / pipe / union_all / mate_connector, and query chains (.faces().normal_near([0,0,1], 5).largest_area()). Its return value names the node's outputs. See docs/CUSTOM_FEATURE_SCRIPTS.md. ",
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "library": {
+            "description": "A built-in script instead of text.",
+            "enum": [
+              "gear",
+              "sprocket"
+            ],
+            "type": "string"
+          },
+          "name": {
+            "description": "Display name (default: the header's @feature name).",
+            "type": "string"
+          },
+          "text": {
+            "description": "The script text.",
+            "type": "string"
+          }
+        },
+        "type": "object"
+      },
+      "name": "script_source_add",
+      "outputSchema": {
+        "properties": {
+          "bodies_added": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "bodies_removed": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "errors": {
+            "description": "Every current rebuild error in tree order, verbatim from the engine; kind is the typed class when known.",
+            "items": {
+              "properties": {
+                "feature_id": {
+                  "type": "string"
+                },
+                "kind": {
+                  "description": "Engine ErrorKind, e.g. {\"type\":\"NotSupported\",\"operation\":\"…\"}.",
+                  "type": "object"
+                },
+                "message": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "feature_id",
+                "message"
+              ],
+              "type": "object"
+            },
+            "type": "array"
+          },
+          "features_added": {
+            "description": "Feature ids added, in tree order.",
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "features_changed": {
+            "description": "Feature ids whose definition or provenance changed.",
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "features_removed": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "interface": {
+            "description": "The header the script declares.",
+            "properties": {
+              "name": {
+                "type": "string"
+              },
+              "outputs": {
+                "items": {
+                  "properties": {
+                    "kind": {
+                      "enum": [
+                        "main",
+                        "body",
+                        "face",
+                        "edge",
+                        "connector"
+                      ],
+                      "type": "string"
+                    },
+                    "name": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "name",
+                    "kind"
+                  ],
+                  "type": "object"
+                },
+                "type": "array"
+              },
+              "params": {
+                "items": {
+                  "properties": {
+                    "default": {
+                      "description": "Number, boolean or string; absent for a required parameter."
+                    },
+                    "max": {
+                      "type": "number"
+                    },
+                    "min": {
+                      "type": "number"
+                    },
+                    "name": {
+                      "type": "string"
+                    },
+                    "type": {
+                      "enum": [
+                        "int",
+                        "number",
+                        "length",
+                        "angle",
+                        "bool",
+                        "string",
+                        "plane",
+                        "body",
+                        "face",
+                        "edge"
+                      ],
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "name",
+                    "type"
+                  ],
+                  "type": "object"
+                },
+                "type": "array"
+              },
+              "version": {
+                "type": "integer"
+              }
+            },
+            "required": [
+              "name",
+              "version",
+              "params",
+              "outputs"
+            ],
+            "type": "object"
+          },
+          "kept_with_error": {
+            "description": "Present and true when on_error was \"keep\" and the step left features failing.",
+            "type": "boolean"
+          },
+          "name": {
+            "type": "string"
+          },
+          "order_changed": {
+            "description": "The relative order of surviving features changed.",
+            "type": "boolean"
+          },
+          "source_id": {
+            "description": "Pass to script_feature_add.",
+            "type": "string"
+          },
+          "warnings": {
+            "description": "Rebuild warnings, verbatim.",
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "source_id",
+          "name"
+        ],
+        "type": "object"
+      }
+    },
+    {
+      "annotations": {
+        "openWorldHint": false,
+        "readOnlyHint": true,
+        "title": "Get script source"
+      },
+      "description": "Read a script source: its text, its check (interface or error) and the features using it. Without source_id, list the document's script sources and the built-in library names.",
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "source_id": {
+            "description": "The script source; omit to list them all.",
+            "format": "uuid",
+            "type": "string"
+          }
+        },
+        "type": "object"
+      },
+      "name": "script_source_get",
+      "outputSchema": {
+        "properties": {
+          "check": {
+            "properties": {
+              "dry_run": {
+                "description": "Present when args were given and the check passed.",
+                "properties": {
+                  "children": {
+                    "description": "Recorded child operations in order (sketch, extrude, …).",
+                    "items": {
+                      "type": "string"
+                    },
+                    "type": "array"
+                  },
+                  "error": {
+                    "properties": {
+                      "reason": {
+                        "description": "Verbatim; header failures start with \"line N:\", parse failures end with \"(line N, position M)\".",
+                        "type": "string"
+                      },
+                      "stage": {
+                        "description": "header | parse | args | runtime | limit | fail | child",
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "stage",
+                      "reason"
+                    ],
+                    "type": "object"
+                  },
+                  "logs": {
+                    "items": {
+                      "type": "string"
+                    },
+                    "type": "array"
+                  },
+                  "ok": {
+                    "type": "boolean"
+                  },
+                  "outputs": {
+                    "description": "Output names the return value provides.",
+                    "items": {
+                      "type": "string"
+                    },
+                    "type": "array"
+                  }
+                },
+                "required": [
+                  "ok"
+                ],
+                "type": "object"
+              },
+              "error": {
+                "properties": {
+                  "reason": {
+                    "description": "Verbatim; header failures start with \"line N:\", parse failures end with \"(line N, position M)\".",
+                    "type": "string"
+                  },
+                  "stage": {
+                    "description": "header | parse | args | runtime | limit | fail | child",
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "stage",
+                  "reason"
+                ],
+                "type": "object"
+              },
+              "interface": {
+                "description": "The header the script declares.",
+                "properties": {
+                  "name": {
+                    "type": "string"
+                  },
+                  "outputs": {
+                    "items": {
+                      "properties": {
+                        "kind": {
+                          "enum": [
+                            "main",
+                            "body",
+                            "face",
+                            "edge",
+                            "connector"
+                          ],
+                          "type": "string"
+                        },
+                        "name": {
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "name",
+                        "kind"
+                      ],
+                      "type": "object"
+                    },
+                    "type": "array"
+                  },
+                  "params": {
+                    "items": {
+                      "properties": {
+                        "default": {
+                          "description": "Number, boolean or string; absent for a required parameter."
+                        },
+                        "max": {
+                          "type": "number"
+                        },
+                        "min": {
+                          "type": "number"
+                        },
+                        "name": {
+                          "type": "string"
+                        },
+                        "type": {
+                          "enum": [
+                            "int",
+                            "number",
+                            "length",
+                            "angle",
+                            "bool",
+                            "string",
+                            "plane",
+                            "body",
+                            "face",
+                            "edge"
+                          ],
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "name",
+                        "type"
+                      ],
+                      "type": "object"
+                    },
+                    "type": "array"
+                  },
+                  "version": {
+                    "type": "integer"
+                  }
+                },
+                "required": [
+                  "name",
+                  "version",
+                  "params",
+                  "outputs"
+                ],
+                "type": "object"
+              },
+              "ok": {
+                "description": "Header parsed, script compiled, entry function present.",
+                "type": "boolean"
+              }
+            },
+            "required": [
+              "ok"
+            ],
+            "type": "object"
+          },
+          "features": {
+            "items": {
+              "properties": {
+                "feature_id": {
+                  "type": "string"
+                },
+                "name": {
+                  "type": "string"
+                }
+              },
+              "type": "object"
+            },
+            "type": "array"
+          },
+          "library": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "name": {
+            "type": "string"
+          },
+          "scripts": {
+            "description": "List form: every Script source of the document.",
+            "items": {
+              "properties": {
+                "available": {
+                  "type": "boolean"
+                },
+                "feature_name": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "features": {
+                  "items": {
+                    "type": "object"
+                  },
+                  "type": "array"
+                },
+                "name": {
+                  "type": "string"
+                },
+                "ok": {
+                  "type": [
+                    "boolean",
+                    "null"
+                  ]
+                },
+                "source_id": {
+                  "type": "string"
+                }
+              },
+              "type": "object"
+            },
+            "type": "array"
+          },
+          "source_id": {
+            "type": "string"
+          },
+          "text": {
+            "type": "string"
+          }
+        },
+        "type": "object"
+      }
+    },
+    {
+      "annotations": {
+        "destructiveHint": false,
+        "openWorldHint": false,
+        "readOnlyHint": false,
+        "title": "Update script source"
+      },
+      "description": "Replace a script source's text and rebuild: every node using it regenerates. Refused with InvalidScript when the new text does not check. A node the new text newly breaks rolls the text back (rolled_back, with the node's error) unless on_error is \"keep\". Not an undo step: sources are outside the feature-level history, so undo does not restore the previous text.",
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "on_error": {
+            "default": "rollback",
+            "description": "What to do when the step makes a feature fail to rebuild. \"rollback\" (default) undoes the step and returns an error; \"keep\" leaves it in place and reports kept_with_error with the failing features.",
+            "enum": [
+              "rollback",
+              "keep"
+            ],
+            "type": "string"
+          },
+          "source_id": {
+            "description": "The script source to replace.",
+            "format": "uuid",
+            "type": "string"
+          },
+          "text": {
+            "description": "The new script text.",
+            "type": "string"
+          }
+        },
+        "required": [
+          "source_id",
+          "text"
+        ],
+        "type": "object"
+      },
+      "name": "script_source_update",
+      "outputSchema": {
+        "properties": {
+          "bodies_added": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "bodies_removed": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "errors": {
+            "description": "Every current rebuild error in tree order, verbatim from the engine; kind is the typed class when known.",
+            "items": {
+              "properties": {
+                "feature_id": {
+                  "type": "string"
+                },
+                "kind": {
+                  "description": "Engine ErrorKind, e.g. {\"type\":\"NotSupported\",\"operation\":\"…\"}.",
+                  "type": "object"
+                },
+                "message": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "feature_id",
+                "message"
+              ],
+              "type": "object"
+            },
+            "type": "array"
+          },
+          "features_added": {
+            "description": "Feature ids added, in tree order.",
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "features_changed": {
+            "description": "Feature ids whose definition or provenance changed.",
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "features_removed": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "interface": {
+            "description": "The header the script declares.",
+            "properties": {
+              "name": {
+                "type": "string"
+              },
+              "outputs": {
+                "items": {
+                  "properties": {
+                    "kind": {
+                      "enum": [
+                        "main",
+                        "body",
+                        "face",
+                        "edge",
+                        "connector"
+                      ],
+                      "type": "string"
+                    },
+                    "name": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "name",
+                    "kind"
+                  ],
+                  "type": "object"
+                },
+                "type": "array"
+              },
+              "params": {
+                "items": {
+                  "properties": {
+                    "default": {
+                      "description": "Number, boolean or string; absent for a required parameter."
+                    },
+                    "max": {
+                      "type": "number"
+                    },
+                    "min": {
+                      "type": "number"
+                    },
+                    "name": {
+                      "type": "string"
+                    },
+                    "type": {
+                      "enum": [
+                        "int",
+                        "number",
+                        "length",
+                        "angle",
+                        "bool",
+                        "string",
+                        "plane",
+                        "body",
+                        "face",
+                        "edge"
+                      ],
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "name",
+                    "type"
+                  ],
+                  "type": "object"
+                },
+                "type": "array"
+              },
+              "version": {
+                "type": "integer"
+              }
+            },
+            "required": [
+              "name",
+              "version",
+              "params",
+              "outputs"
+            ],
+            "type": "object"
+          },
+          "kept_with_error": {
+            "description": "Present and true when on_error was \"keep\" and the step left features failing.",
+            "type": "boolean"
+          },
+          "order_changed": {
+            "description": "The relative order of surviving features changed.",
+            "type": "boolean"
+          },
+          "source_id": {
+            "type": "string"
+          },
+          "warnings": {
+            "description": "Rebuild warnings, verbatim.",
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "features_added",
+          "features_changed",
+          "features_removed",
+          "bodies_added",
+          "bodies_removed",
+          "errors",
+          "warnings"
+        ],
+        "type": "object"
+      }
+    },
+    {
+      "annotations": {
+        "destructiveHint": false,
+        "openWorldHint": false,
+        "readOnlyHint": false,
+        "title": "Add script feature"
+      },
+      "description": "Add one custom feature node running a script source, at the end of the tree (one undo step). The node takes the script's declared name; feature_edit with a Script operation later changes its args, and feature_get shows its error. args are model units; arg_exprs drive int/number/length/angle parameters from design-parameter expressions instead (mm-space, converted by the parameter's type). Equivalent to feature_add with {\"type\":\"Script\",\"params\":{source_id, entry, args, arg_exprs}}. A node that fails to build is rolled back by default with the script's typed error (stage args | runtime | child …). Units: lengths in meters, angles in degrees; *_expr expressions are mm-space (a bare 20 means 20 mm).",
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "arg_exprs": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "description": "Parameter name → expression over design parameters (mm-space), for numeric parameters.",
+            "type": "object"
+          },
+          "args": {
+            "additionalProperties": true,
+            "description": "Values for the script's @param declarations, by name, in MODEL units: int/number as numbers, length in meters, angle in degrees, bool, string; a plane as {origin, normal} or a datum plane id; a body/face/edge as a GeomRef (from model_summary bodies, face_list, selection_get). Undeclared names are refused; declared parameters without a default are required.",
+            "type": "object"
+          },
+          "entry": {
+            "description": "Entry function (default \"feature\").",
+            "type": "string"
+          },
+          "on_error": {
+            "default": "rollback",
+            "description": "What to do when the step makes a feature fail to rebuild. \"rollback\" (default) undoes the step and returns an error; \"keep\" leaves it in place and reports kept_with_error with the failing features.",
+            "enum": [
+              "rollback",
+              "keep"
+            ],
+            "type": "string"
+          },
+          "source_id": {
+            "description": "The script source (from script_source_add / script_source_get).",
+            "format": "uuid",
+            "type": "string"
+          }
+        },
+        "required": [
+          "source_id"
+        ],
+        "type": "object"
+      },
+      "name": "script_feature_add",
+      "outputSchema": {
+        "properties": {
+          "bodies_added": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "bodies_removed": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "errors": {
+            "description": "Every current rebuild error in tree order, verbatim from the engine; kind is the typed class when known.",
+            "items": {
+              "properties": {
+                "feature_id": {
+                  "type": "string"
+                },
+                "kind": {
+                  "description": "Engine ErrorKind, e.g. {\"type\":\"NotSupported\",\"operation\":\"…\"}.",
+                  "type": "object"
+                },
+                "message": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "feature_id",
+                "message"
+              ],
+              "type": "object"
+            },
+            "type": "array"
+          },
+          "feature_id": {
+            "type": "string"
           },
           "features_added": {
             "description": "Feature ids added, in tree order.",

@@ -280,7 +280,9 @@ const ENGINE_QUERIES = new Set([
 	'sketch_regions',
 	'expression_evaluate',
 	'export_step',
-	'export_stl'
+	'export_stl',
+	'script_run_check',
+	'script_source_get'
 ]);
 
 const ENGINE_COMMANDS = new Set([
@@ -296,7 +298,10 @@ const ENGINE_COMMANDS = new Set([
 	'import_step',
 	'undo',
 	'redo',
-	'sketch_create'
+	'sketch_create',
+	'script_source_add',
+	'script_source_update',
+	'script_feature_add'
 ]);
 
 /**

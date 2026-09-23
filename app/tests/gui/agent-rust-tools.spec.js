@@ -42,7 +42,9 @@ const READ_ONLY = [
 	'sketch_regions',
 	'expression_evaluate',
 	'export_step',
-	'export_stl'
+	'export_stl',
+	'script_run_check',
+	'script_source_get'
 ];
 
 /** What the JS bodies sent to the engine themselves before C5b and C6. */
@@ -210,7 +212,7 @@ test.describe('Read-only agent tools run in the engine (S3 C5b)', () => {
 		expectNoAnyCrash(crashes);
 	});
 
-	test('the read-only routing table is exactly the eight the engine implements', async ({ waffle }) => {
+	test('the read-only routing table is exactly the ten the engine implements', async ({ waffle }) => {
 		const page = waffle.page;
 		await page.waitForFunction(() => typeof window.__waffleAgentExecutor?.engineQueries === 'function', {
 			timeout: 15000

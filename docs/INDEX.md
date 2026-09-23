@@ -57,6 +57,7 @@ The live kernel is the layered `kernel-v2` stack (Phase-6 migration COMPLETE
 | `SELECTION-ENHANCEMENT-PLAN.md` | Interactive viewport picking and face region selection |
 | `SKETCH-SYSTEM-PLAN.md` | Sketch system development roadmap (also listed under Architecture) |
 | `PROMPTING.md` | Recommendations for backlog management and agent workflow |
+| `CUSTOM_FEATURE_SCRIPTS.md` | Custom feature scripts (Rhai): the language, the API, the Script dialog/editor, the MCP `script_*` tools and the agent authoring loop |
 
 ## References
 

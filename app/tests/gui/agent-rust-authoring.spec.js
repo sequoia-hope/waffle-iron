@@ -240,6 +240,9 @@ test.describe('Authoring tools run in the engine and still answer as the page di
 				'parameters_set',
 				'redo',
 				'rollback_set',
+				'script_feature_add',
+				'script_source_add',
+				'script_source_update',
 				'sketch_create',
 				'undo'
 			].sort()

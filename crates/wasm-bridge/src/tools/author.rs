@@ -76,7 +76,7 @@ impl OnError {
 }
 
 /// The model state one step can change (JS `takeSnapshot`).
-struct Snapshot {
+pub(super) struct Snapshot {
     /// The feature tree as JSON: features, rollback index, provenance,
     /// parameters, body names. Compared as a `Value`, whose maps are ordered,
     /// so this is the JS canonical-JSON comparison without the string.
@@ -129,7 +129,7 @@ impl Snapshot {
 }
 
 /// The document as it stands (JS `snapshotNow`).
-fn snapshot(state: &EngineState) -> Snapshot {
+pub(super) fn snapshot(state: &EngineState) -> Snapshot {
     Snapshot {
         tree: serde_json::to_value(&state.engine.tree).unwrap_or(Value::Null),
         errors: state
@@ -146,14 +146,14 @@ fn snapshot(state: &EngineState) -> Snapshot {
 }
 
 /// Whether two snapshots hold the same document model (JS `sameModel`).
-fn same_model(a: &Snapshot, b: &Snapshot) -> bool {
+pub(super) fn same_model(a: &Snapshot, b: &Snapshot) -> bool {
     a.tree == b.tree
 }
 
 /// Features whose rebuild error is new or changed, in `after`'s tree order
 /// (errors for ids outside the tree last, sorted). An error that merely
 /// persists is not "new" (JS `newlyErroring`).
-fn newly_erroring(before: &Snapshot, after: &Snapshot) -> Vec<(String, String)> {
+pub(super) fn newly_erroring(before: &Snapshot, after: &Snapshot) -> Vec<(String, String)> {
     let mut out = Vec::new();
     for id in error_ids_in_order(after) {
         let Some(message) = after.errors.get(&id) else {
@@ -191,7 +191,7 @@ fn error_ids_in_order(snapshot: &Snapshot) -> Vec<String> {
 /// `features_changed` lists features present in both whose definition or
 /// provenance origin changed; a pure reorder changes no record, so it is
 /// reported by `order_changed` instead.
-fn model_delta(
+pub(super) fn model_delta(
     before: &Snapshot,
     after: &Snapshot,
     typed_errors: &[feature_engine::types::FeatureError],
@@ -910,7 +910,7 @@ pub(super) fn redo(state: &mut EngineState, kb: &mut dyn KernelBundle) -> Answer
 
 /// A delta with the step's feature id in front of it, as the tools that
 /// create a feature answer (`{feature_id, ...delta}`).
-fn with_feature_id(step: Step) -> Value {
+pub(super) fn with_feature_id(step: Step) -> Value {
     let mut out = step.delta;
     merge_first(&mut out, json!({ "feature_id": step.feature_id }));
     out

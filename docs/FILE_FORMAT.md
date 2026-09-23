@@ -282,7 +282,7 @@ as a part.
 |---|---|---|---|
 | `id` | UUID | ✔ | Referenced by `ImportedBody.source_id` (and by assembly instances / drawing views / `scope.source_id` in later phases). Duplicate ids ⇒ `ParseError`. |
 | `name` | string | ✔ | Display. |
-| `kind` | `{"type": "Waffle"\|"Step"\|"KicadPcb"\|"Mesh"}` | ✔ | Unknown types preserved opaquely + warned. |
+| `kind` | `{"type": "Waffle"\|"Step"\|"KicadPcb"\|"Mesh"\|"Script"}` | ✔ | Unknown types preserved opaquely + warned. `Script` (2026-09-19): a custom feature script's Rhai text (§7.10), embedded like a STEP import; added by the editor / `script_source_add` (A-M4), replaced in place by a save / `script_source_update` — neither is an undo step (sources are assets). |
 | `locator` | `Git{remote,path,ref,host?}` \| `Relative{path}` \| `Url{url}` \| `Local{provider,doc_id}` \| `Embedded` | ✔ | `ref` ∈ `Commit{sha}` (pinned) \| `Branch{name}` \| `Tag{name}` (floating). `remote` normalized without `.git`; `host` ∈ `github`\|`gitlab`\|`gitea`\|`generic`, inferred from the hostname when absent. Structural problems (non-https, absolute/`..` paths, bad ref names, non-hex sha) are load **warnings**; the entry stays, unresolvable. Unknown types preserved opaquely. |
 | `resolved` | `{commit, at}` \| null | opt | Commit actually loaded last (git locators). |
 | `content_hash` | string \| null | opt | `git-blob-sha1:<40 hex>` of the exact bytes (= `git hash-object`); unknown prefixes are "no hash", never a mismatch. |
@@ -534,6 +534,12 @@ places a part mate connector the node exposes under `name`. Any failure —
 header, parse, runtime, `ctx.fail`, a sandbox limit, an argument, a child
 operation, a broken output contract — is a typed `Script` feature error and
 the node has no outputs.
+
+A-M4 (2026-09-23): the header is what generates the Script dialog's fields
+and the `script_run_check` tool's `interface` (`{name, version, params:
+[{name, type, default?, min?, max?}], outputs: [{name, kind}]}`); a node
+added from the dialog or `script_feature_add` takes the header's `name`.
+User/agent reference: `docs/CUSTOM_FEATURE_SCRIPTS.md`.
 
 ---
 

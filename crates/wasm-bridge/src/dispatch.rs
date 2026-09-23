@@ -139,6 +139,120 @@ fn handle_message(
             sources: source_statuses(state),
         }),
 
+        UiToEngine::ReadSource { source_id } => {
+            let entry = state
+                .sources
+                .iter()
+                .find(|s| s.id == source_id)
+                .ok_or_else(|| BridgeError::InvalidRequest {
+                    reason: format!("ReadSource: {source_id} is not in the sources table"),
+                })?;
+            let text = state.engine.sources.text(source_id).ok_or_else(|| {
+                BridgeError::InvalidRequest {
+                    reason: format!(
+                        "ReadSource: the content of `{}` ({source_id}) is not loaded",
+                        entry.name
+                    ),
+                }
+            })?;
+            Ok(EngineToUi::SourceContent {
+                source_id,
+                name: entry.name.clone(),
+                kind: source_kind_tag(&entry.kind),
+                text,
+            })
+        }
+
+        UiToEngine::AddScriptSource {
+            name,
+            text,
+            library,
+        } => {
+            let text = match (text, library.as_deref()) {
+                (Some(t), None) => t,
+                (None, Some(lib)) => library_script(lib)?.to_string(),
+                (Some(_), Some(_)) => {
+                    return Err(BridgeError::InvalidRequest {
+                        reason: "AddScriptSource: give `text` or `library`, not both".to_string(),
+                    })
+                }
+                (None, None) => {
+                    return Err(BridgeError::InvalidRequest {
+                        reason: "AddScriptSource: `text` or `library` is required".to_string(),
+                    })
+                }
+            };
+            let check = check_script(&text, DEFAULT_SCRIPT_ENTRY, None);
+            let name = name
+                .map(|n| n.trim().to_string())
+                .filter(|n| !n.is_empty())
+                .or_else(|| feature_engine::script::display_name(&text))
+                .unwrap_or_else(|| "script.rhai".to_string());
+            let entry = SourceEntry::embedded(name.clone(), SourceKind::Script, &text);
+            let source_id = entry.id;
+            state.engine.sources.insert_text(source_id, &text);
+            state.sources.push(entry);
+            Ok(EngineToUi::ScriptSourceAdded {
+                source_id,
+                name,
+                sources: source_statuses(state),
+                check,
+            })
+        }
+
+        UiToEngine::SetScriptSource { source_id, text } => {
+            let entry = state
+                .sources
+                .iter_mut()
+                .find(|s| s.id == source_id)
+                .ok_or_else(|| BridgeError::InvalidRequest {
+                    reason: format!("SetScriptSource: {source_id} is not in the sources table"),
+                })?;
+            if !matches!(entry.kind, SourceKind::Script) {
+                return Err(BridgeError::InvalidRequest {
+                    reason: format!(
+                        "SetScriptSource: `{}` is a {} source, not a script",
+                        entry.name,
+                        source_kind_tag(&entry.kind)
+                    ),
+                });
+            }
+            entry.content_hash = Some(git_blob_sha1(text.as_bytes()));
+            state.engine.sources.insert_text(source_id, &text);
+            state.engine.rebuild_from_scratch(kb);
+            Ok(model_updated_response(state))
+        }
+
+        UiToEngine::CheckScript {
+            source_id,
+            text,
+            entry,
+            args,
+        } => {
+            let text = match (text, source_id) {
+                (Some(t), _) => t,
+                (None, Some(id)) => state.engine.sources.text(id).ok_or_else(|| {
+                    BridgeError::InvalidRequest {
+                        reason: format!(
+                            "CheckScript: source {id} is not loaded (is it in the sources table?)"
+                        ),
+                    }
+                })?,
+                (None, None) => {
+                    return Err(BridgeError::InvalidRequest {
+                        reason: "CheckScript: `text` or `source_id` is required".to_string(),
+                    })
+                }
+            };
+            let entry = entry
+                .filter(|e| !e.trim().is_empty())
+                .unwrap_or_else(|| DEFAULT_SCRIPT_ENTRY.to_string());
+            Ok(EngineToUi::ScriptChecked {
+                source_id,
+                check: check_script(&text, &entry, args.map(|a| (source_id, a))),
+            })
+        }
+
         UiToEngine::UpdateSourceEntry {
             source_id,
             pack,
@@ -212,7 +326,7 @@ fn handle_message(
             operation,
             provenance,
         } => {
-            let name = operation_name(&operation);
+            let name = feature_name_for(state, &operation);
             let id = state
                 .engine
                 .add_feature_with_provenance(name, operation, provenance, kb)?;
@@ -1410,6 +1524,109 @@ fn find_last_mesh(state: &EngineState) -> Option<RenderMesh> {
         }
     }
     None
+}
+
+/// The entry function a script node calls when none is named
+/// (`ScriptParams::entry`'s default).
+pub(crate) const DEFAULT_SCRIPT_ENTRY: &str = "feature";
+
+/// A built-in library script by name (A-M4 `AddScriptSource { library }`).
+pub(crate) fn library_script(name: &str) -> Result<&'static str, BridgeError> {
+    use feature_engine::script::library;
+    match name {
+        "gear" => Ok(library::GEAR_RHAI),
+        "sprocket" => Ok(library::SPROCKET_RHAI),
+        other => Err(BridgeError::InvalidRequest {
+            reason: format!("no built-in script library `{other}` (gear, sprocket)"),
+        }),
+    }
+}
+
+/// The names of the built-in library scripts, for hosts and tool schemas.
+pub(crate) const LIBRARY_SCRIPTS: &[&str] = &["gear", "sprocket"];
+
+/// Check a script the way `CheckScript` answers (A-M4): header + compile +
+/// entry, and — when `args` are given — a dry run against the recorder.
+/// `args` carries the source id the run should name (any id works for a
+/// dry run; the recorder never reads the store) with the argument map.
+pub(crate) fn check_script(
+    text: &str,
+    entry: &str,
+    args: Option<(
+        Option<uuid::Uuid>,
+        std::collections::BTreeMap<String, serde_json::Value>,
+    )>,
+) -> crate::messages::ScriptCheck {
+    use crate::messages::{ScriptCheck, ScriptCheckError, ScriptDryRun};
+    use feature_engine::types::{EngineError, ScriptParams};
+
+    let typed = |e: EngineError| match e {
+        EngineError::Script { stage, reason } => ScriptCheckError { stage, reason },
+        other => ScriptCheckError {
+            stage: "engine".to_string(),
+            reason: other.to_string(),
+        },
+    };
+    let interface = match feature_engine::script::check(text, entry) {
+        Ok(iface) => iface,
+        Err(e) => {
+            return ScriptCheck {
+                ok: false,
+                interface: None,
+                error: Some(typed(e)),
+                dry_run: None,
+            }
+        }
+    };
+    let dry_run = args.map(|(source_id, args)| {
+        let params = ScriptParams {
+            source_id: source_id.unwrap_or_else(uuid::Uuid::nil),
+            entry: entry.to_string(),
+            args,
+            arg_exprs: Default::default(),
+            arg_values: Default::default(),
+        };
+        match feature_engine::script::record(text, &params) {
+            Ok(rec) => ScriptDryRun {
+                ok: true,
+                error: None,
+                children: rec.children.iter().map(|c| c.label.to_string()).collect(),
+                logs: rec.logs,
+                outputs: rec.outputs.into_iter().map(|(n, _)| n).collect(),
+            },
+            Err(e) => ScriptDryRun {
+                ok: false,
+                error: Some(typed(e)),
+                children: Vec::new(),
+                logs: Vec::new(),
+                outputs: Vec::new(),
+            },
+        }
+    });
+    ScriptCheck {
+        ok: true,
+        interface: serde_json::to_value(&interface).ok(),
+        error: None,
+        dry_run,
+    }
+}
+
+/// The display name a new feature takes: the operation's kind, or — for a
+/// `Script` node — its script's declared `@feature name` when the source is
+/// loaded and its header parses (A-M4: the tree shows "Spur gear", not
+/// "Script").
+pub(crate) fn feature_name_for(state: &EngineState, op: &Operation) -> String {
+    if let Operation::Script { params } = op {
+        if let Some(name) = state
+            .engine
+            .sources
+            .text(params.source_id)
+            .and_then(|text| feature_engine::script::display_name(&text))
+        {
+            return name;
+        }
+    }
+    operation_name(op)
 }
 
 /// Derive a human-readable feature name from an operation.

@@ -378,6 +378,11 @@ fn the_migrated_list_is_exactly_what_this_checkpoint_implements() {
             "undo",
             "redo",
             "sketch_create",
+            "script_run_check",
+            "script_source_add",
+            "script_source_get",
+            "script_source_update",
+            "script_feature_add",
         ]
     );
 }
