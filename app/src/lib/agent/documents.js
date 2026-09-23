@@ -213,12 +213,20 @@ export const DOCUMENT_COMMANDS = {
 		return toolOk(documentInfo());
 	},
 
-	async document_save() {
+	async document_save({ allow_empty = false } = {}) {
 		if (isDocumentReadOnly()) throw fail('DocumentReadOnly', READ_ONLY_MESSAGE, {});
 		try {
-			return toolOk(await saveDocumentOrThrow());
+			return toolOk(await saveDocumentOrThrow({ allowEmpty: allow_empty }));
 		} catch (err) {
 			if (err?.readOnly) throw fail('DocumentReadOnly', READ_ONLY_MESSAGE, {});
+			if (err?.emptyDocument) {
+				throw fail(
+					'EmptyDocument',
+					'The open document is empty (no features, instances or sources) — after a page reload this is the blank ' +
+						'startup document, not your work. Call storage_list and document_open to get back to it, or pass allow_empty: true to store an empty document.',
+					{}
+				);
+			}
 			const provider = getActiveProvider().id;
 			throw fail('SaveFailed', `Saving failed: ${reasonOf(err)}`, { provider, reason: reasonOf(err) });
 		}

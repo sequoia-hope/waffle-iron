@@ -14,7 +14,14 @@
  * while the user is in another app; nothing retries while hidden.
  */
 import { get, writable } from 'svelte/store';
-import { getDocumentName, subscribeRebuildProgress, whenStartupRestoreSettled } from '$lib/engine/store.svelte.js';
+import {
+	getDocumentInfo,
+	getDocumentName,
+	reopenDocumentById,
+	subscribeRebuildProgress,
+	whenStartupRestoreSettled
+} from '$lib/engine/store.svelte.js';
+import { showToast } from '$lib/ui/toast.svelte.js';
 import { executeCall, toolError } from './executor.js';
 import { TOOLS } from './tools/index.js';
 import { LINK_PROTOCOL, canonicalJson, toManifestTool, webSha256Hex } from './tools/manifest.js';
@@ -138,7 +145,7 @@ function readStored() {
 	}
 }
 
-/** @param {{relay: string, session: string, agentName: string} | null} value */
+/** @param {{relay: string, session: string, agentName: string, docId?: string | null} | null} value */
 function writeStored(value) {
 	try {
 		if (value) sessionStorage.setItem(STORAGE_KEY, JSON.stringify(value));
@@ -146,6 +153,20 @@ function writeStored(value) {
 	} catch {
 		/* storage unavailable: the tab simply cannot resume after a reload */
 	}
+}
+
+/**
+ * Remember, with the session, which storage record the agent is working on,
+ * so a reloaded tab can land on it again (`resumeAgentLink`) whatever its
+ * restore policy does with the blank startup document. Written when it
+ * changes: after every call and on every status frame.
+ */
+function noteAgentDocument() {
+	const stored = readStored();
+	if (!stored?.session) return;
+	const docId = getDocumentInfo().storageId ?? null;
+	if (stored.docId === docId) return;
+	writeStored({ ...stored, docId });
 }
 
 /**
@@ -210,6 +231,7 @@ export function sendAgentStatus(status) {
 	if (!ws || ws.readyState !== WebSocket.OPEN) return;
 	const frame = { type: 'status', state: status.state, document_name: status.document_name ?? getDocumentName() };
 	if (status.state === 'busy' && status.reason) frame.reason = status.reason;
+	noteAgentDocument();
 	const key = JSON.stringify(frame);
 	if (key === lastStatusKey) return;
 	lastStatusKey = key;
@@ -235,6 +257,7 @@ async function handleCall(ws, frame) {
 		cancelledCalls.delete(frame.id);
 		if (activeCallId === String(frame.id)) activeCallId = null;
 	}
+	noteAgentDocument();
 	send(ws, result);
 }
 
@@ -299,7 +322,7 @@ function open({ relay, code, session, agentName, reloaded = false, phase = 'conn
 					welcomed = true;
 					reconnectDelayMs = RECONNECT_FIRST_MS;
 					const name = frame.agent_name || agentName;
-					writeStored({ relay, session: frame.session, agentName: name });
+					writeStored({ relay, session: frame.session, agentName: name, docId: getDocumentInfo().storageId ?? null });
 					agentLink.set({ state: 'connected', agentName: name, relay, reason: null, errorClass: null });
 					if (frame.manifest_required) send(ws, { type: 'manifest', tools: TOOLS.map(toManifestTool) });
 					lastStatusKey = '';
@@ -472,6 +495,20 @@ export async function resumeAgentLink() {
 	agentLink.set({ state: 'reconnecting', agentName: stored.agentName, relay: stored.relay, reason: null, errorClass: null });
 	await whenStartupRestoreSettled();
 	if (socket || !readStored()?.session) return;
+	// The agent's document, whatever the restore policy did: a `never` (or a
+	// discarded offer) leaves the blank startup document, and an agent mid-work
+	// then builds on nothing — what happened on 2026-09-23 when iOS reloaded
+	// the tab between two assembly calls.
+	if (stored.docId && getDocumentInfo().storageId !== stored.docId) {
+		try {
+			if (await reopenDocumentById(stored.docId)) {
+				showToast('info', `Reopened the agent's document: ${getDocumentName()}`);
+			}
+		} catch (err) {
+			// The relay's reload note tells the agent to check; the page can only try.
+			console.warn('Reopening the agent document failed:', err?.message ?? err);
+		}
+	}
 	open({ relay: stored.relay, session: stored.session, agentName: stored.agentName, reloaded: true, phase: 'reconnecting' }).catch(() => {
 		// The failure is already reflected in `agentLink` (and a terminal bye cleared storage).
 	});

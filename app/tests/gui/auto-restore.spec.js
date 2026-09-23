@@ -96,6 +96,28 @@ test.describe('Reload restore', () => {
 		expectNoAnyCrash(crashes);
 	});
 
+	test('a reload that lost sessionStorage still reopens this tab\'s work', async ({ page }) => {
+		const crashes = collectCrashErrors(page);
+		const seeded = await seedTwoTabDocument(page);
+
+		// An iOS tab discard does not reliably keep sessionStorage, and with it
+		// the tab key the draft is filed under. The key of the last hidden tab is
+		// mirrored to localStorage on hide/unload and adopted once by a tab that
+		// has none — the reload's own pagehide is that moment.
+		await page.evaluate(() => sessionStorage.clear());
+		await page.reload();
+		await waitEngine(page);
+		await page.waitForFunction(() => window.__waffle.getMeshes().length >= 1, null, { timeout: 30000 });
+
+		const info = await page.evaluate(() => window.__waffle.getDocumentInfo());
+		expect(info.storageId).toBe(seeded.docId);
+		expect(info.tabs).toHaveLength(2);
+		// Adopted, not copied: the tab now files its draft under the same key.
+		const drafts = await records(page, 'drafts');
+		expect(drafts.map((d) => d.docId)).toEqual([seeded.docId]);
+		expectNoAnyCrash(crashes);
+	});
+
 	test('hiding the tab stores a pending edit at once', async ({ page }) => {
 		const crashes = collectCrashErrors(page);
 		await seedTwoTabDocument(page);

@@ -1,5 +1,5 @@
 {
-  "manifest_hash": "72db75068594b9540f7db9291e7823b702adb7e5b4901c8a414b951193b62f50",
+  "manifest_hash": "b0ee00f97971bed277d24895a1ef5c7865bbbfb8b4df3bd26a593171e167efe7",
   "protocol": "waffle-agent-link/1",
   "tools": [
     {
@@ -101,7 +101,7 @@
             "type": "array"
           },
           "unsaved": {
-            "description": "Changes from the last few seconds are still waiting for autosave.",
+            "description": "The user's own edits of the last few seconds are still waiting for autosave. An agent tool's edit is stored before the tool answers, so it never leaves this true.",
             "type": "boolean"
           }
         },
@@ -299,7 +299,7 @@
             "type": "array"
           },
           "unsaved": {
-            "description": "Changes from the last few seconds are still waiting for autosave.",
+            "description": "The user's own edits of the last few seconds are still waiting for autosave. An agent tool's edit is stored before the tool answers, so it never leaves this true.",
             "type": "boolean"
           }
         },
@@ -429,7 +429,7 @@
             "type": "array"
           },
           "unsaved": {
-            "description": "Changes from the last few seconds are still waiting for autosave.",
+            "description": "The user's own edits of the last few seconds are still waiting for autosave. An agent tool's edit is stored before the tool answers, so it never leaves this true.",
             "type": "boolean"
           }
         },
@@ -573,7 +573,7 @@
             "type": "array"
           },
           "unsaved": {
-            "description": "Changes from the last few seconds are still waiting for autosave.",
+            "description": "The user's own edits of the last few seconds are still waiting for autosave. An agent tool's edit is stored before the tool answers, so it never leaves this true.",
             "type": "boolean"
           }
         },
@@ -599,10 +599,15 @@
         "readOnlyHint": false,
         "title": "Save document"
       },
-      "description": "Save the open document to its storage provider now, exactly as the Save button does. A provider failure (git authentication, a conflict) is returned verbatim as SaveFailed.",
+      "description": "Save the open document to its storage provider now, exactly as the Save button does. A provider failure (git authentication, a conflict) is returned verbatim as SaveFailed. An EMPTY document (no features, instances or sources — what a reloaded tab shows before it reopens its work) is refused as EmptyDocument unless allow_empty is true. Every mutating tool already stores its edit before answering; this tool is for an explicit save point.",
       "inputSchema": {
         "additionalProperties": false,
-        "properties": {},
+        "properties": {
+          "allow_empty": {
+            "description": "Store the document even when it is empty (a new document saved before its first feature).",
+            "type": "boolean"
+          }
+        },
         "type": "object"
       },
       "name": "document_save",
@@ -736,7 +741,7 @@
             "type": "array"
           },
           "unsaved": {
-            "description": "Changes from the last few seconds are still waiting for autosave.",
+            "description": "The user's own edits of the last few seconds are still waiting for autosave. An agent tool's edit is stored before the tool answers, so it never leaves this true.",
             "type": "boolean"
           }
         },
@@ -875,7 +880,7 @@
             "type": "array"
           },
           "unsaved": {
-            "description": "Changes from the last few seconds are still waiting for autosave.",
+            "description": "The user's own edits of the last few seconds are still waiting for autosave. An agent tool's edit is stored before the tool answers, so it never leaves this true.",
             "type": "boolean"
           }
         },
@@ -1009,7 +1014,7 @@
             "type": "array"
           },
           "unsaved": {
-            "description": "Changes from the last few seconds are still waiting for autosave.",
+            "description": "The user's own edits of the last few seconds are still waiting for autosave. An agent tool's edit is stored before the tool answers, so it never leaves this true.",
             "type": "boolean"
           }
         },
@@ -1142,7 +1147,7 @@
             "type": "array"
           },
           "unsaved": {
-            "description": "Changes from the last few seconds are still waiting for autosave.",
+            "description": "The user's own edits of the last few seconds are still waiting for autosave. An agent tool's edit is stored before the tool answers, so it never leaves this true.",
             "type": "boolean"
           }
         },

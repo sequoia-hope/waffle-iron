@@ -36,7 +36,11 @@ const documentInfoSchema = {
 				}
 			}
 		},
-		unsaved: { type: 'boolean', description: 'Changes from the last few seconds are still waiting for autosave.' }
+		unsaved: {
+			type: 'boolean',
+			description:
+				"The user's own edits of the last few seconds are still waiting for autosave. An agent tool's edit is stored before the tool answers, so it never leaves this true."
+		}
 	},
 	required: ['document_id', 'storage_id', 'name', 'storage_provider', 'tabs', 'active_tab', 'read_only', 'sources', 'unsaved']
 };
@@ -160,8 +164,20 @@ export const documentSaveTool = {
 	name: 'document_save',
 	description:
 		'Save the open document to its storage provider now, exactly as the Save button does. A provider ' +
-		'failure (git authentication, a conflict) is returned verbatim as SaveFailed.',
-	inputSchema: { type: 'object', properties: {}, additionalProperties: false },
+		'failure (git authentication, a conflict) is returned verbatim as SaveFailed. An EMPTY document (no ' +
+		'features, instances or sources — what a reloaded tab shows before it reopens its work) is refused as ' +
+		'EmptyDocument unless allow_empty is true. Every mutating tool already stores its edit before answering; ' +
+		'this tool is for an explicit save point.',
+	inputSchema: {
+		type: 'object',
+		properties: {
+			allow_empty: {
+				type: 'boolean',
+				description: 'Store the document even when it is empty (a new document saved before its first feature).'
+			}
+		},
+		additionalProperties: false
+	},
 	outputSchema: {
 		type: 'object',
 		properties: {

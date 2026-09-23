@@ -5,6 +5,7 @@
 import { test, expect } from '@playwright/test';
 import { McpRelay, pairAgent, relayTestPort } from './helpers/mcp-relay.js';
 import { collectCrashErrors, expectNoAnyCrash } from './helpers/state.js';
+import { createExtrudedBox } from './helpers/geometry.js';
 
 const AGENT = 'agent-documents-test';
 const P = (id, x, y) => ({ type: 'Point', id, x, y });
@@ -54,6 +55,18 @@ test.describe('Agent link documents (Phase 1)', () => {
 		return ok(await relay.callTool('document_save'));
 	}
 
+	test('document_save refuses the empty startup document unless allow_empty is set', async ({ page }) => {
+		const crashes = collectCrashErrors(page);
+		await pairAgent(page, relay, AGENT);
+		// A freshly booted tab holds an empty document — what an agent sees after
+		// an unnoticed reload. Saving it only litters the storage list.
+		refused(await relay.callTool('document_save'), 'EmptyDocument');
+		const saved = ok(await relay.callTool('document_save', { allow_empty: true }));
+		const listed = ok(await relay.callTool('storage_list'));
+		expect(listed.documents.map((d) => d.id)).toContain(saved.id);
+		expectNoAnyCrash(crashes);
+	});
+
 	test('S1/S4: new, save, list and reopen a document through the storage provider', async ({ page }) => {
 		const crashes = collectCrashErrors(page);
 		await pairAgent(page, relay, AGENT);
@@ -98,7 +111,9 @@ test.describe('Agent link documents (Phase 1)', () => {
 		const crashes = collectCrashErrors(page);
 		await pairAgent(page, relay, AGENT);
 		const start = ok(await relay.callTool('document_new', { name: 'Pending' }));
-		ok(await relay.callTool('sketch_create', { plane: XY, entities: RECT }));
+		// The pending change is the USER's: an agent tool stores its edit before
+		// it answers, so only the user's own edits can be waiting for autosave.
+		await createExtrudedBox(page);
 		expect(ok(await relay.callTool('document_info')).unsaved).toBe(true);
 
 		refused(await relay.callTool('document_new', {}), 'UnsavedChanges');
@@ -107,7 +122,7 @@ test.describe('Agent link documents (Phase 1)', () => {
 		refused(await relay.callTool('document_new', { discard_unsaved: true }), 'UserDeclined');
 		const still = ok(await relay.callTool('document_info'));
 		expect(still.storage_id).toBe(start.storage_id);
-		expect(ok(await relay.callTool('model_summary')).features).toHaveLength(1);
+		expect(ok(await relay.callTool('model_summary')).features).toHaveLength(2);
 
 		page.once('dialog', (dialog) => dialog.accept());
 		const fresh = ok(await relay.callTool('document_new', { name: 'Fresh', discard_unsaved: true }));

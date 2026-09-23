@@ -6,6 +6,10 @@
  * - A reloaded tab (what iOS does to a discarded background tab) reopens its
  *   work from the draft, THEN resumes the session; the agent is told once.
  * - `--persistent-link`: the same link pairs again after Disconnect.
+ * - A mutating tool answers only once its edit is stored (draft + record), so
+ *   a tab discarded a moment later loses nothing that was answered.
+ * - After a reload the link reopens the document it was working on, whatever
+ *   the tab's restoreOnReload policy left open.
  */
 import fs from 'node:fs';
 import os from 'node:os';
@@ -16,6 +20,10 @@ import { collectCrashErrors, expectNoAnyCrash } from './helpers/state.js';
 import { createExtrudedBox } from './helpers/geometry.js';
 
 const CLIENT_NAME = 'agent-reconnect-gui-test';
+const P = (id, x, y) => ({ type: 'Point', id, x, y });
+const L = (id, a, b) => ({ type: 'Line', id, start_id: a, end_id: b });
+const XY = { origin: [0, 0, 0], normal: [0, 0, 1] };
+const RECT = [P(1, 0, 0), P(2, 0.02, 0), P(3, 0.02, 0.01), P(4, 0, 0.01), L(5, 1, 2), L(6, 2, 3), L(7, 3, 4), L(8, 4, 1)];
 
 /** @param {import('@playwright/test').Page} page */
 async function draftFeatureCount(page) {
@@ -120,6 +128,65 @@ test.describe('Agent link reconnect', () => {
 
 		const next = await r.callTool('model_summary');
 		expect(next.content.map((c) => c.text).join('\n')).not.toContain('reloaded');
+		expectNoAnyCrash(crashes);
+	});
+
+	test('a mutating tool is stored before it answers; nothing is left pending', async ({ page, baseURL }) => {
+		const crashes = collectCrashErrors(page);
+		const r = await startRelay(baseURL);
+		await pairAgent(page, r, CLIENT_NAME);
+
+		const sketch = await r.callTool('sketch_create', { plane: XY, entities: RECT });
+		expect(sketch.isError).toBe(false);
+		const extrude = await r.callTool('feature_add', {
+			operation: {
+				type: 'Extrude',
+				params: { sketch_id: sketch.structuredContent.feature_id, profile_index: 0, profile_entity_ids: [5, 6, 7, 8], depth: 0.005, symmetric: false, cut: false }
+			}
+		});
+		expect(extrude.isError).toBe(false);
+		expect(extrude.structuredContent.autosave_error).toBeUndefined();
+		// Read at once, not polled: the autosave delay is 3 s, and the answer
+		// means the edit is already in this tab's draft and its storage record.
+		expect(await draftFeatureCount(page)).toBe(2);
+		expect((await r.callTool('document_info')).structuredContent.unsaved).toBe(false);
+		expectNoAnyCrash(crashes);
+	});
+
+	test('with restoreOnReload "never", a reloaded tab still lands on the agent\'s document', async ({ page, baseURL }) => {
+		const crashes = collectCrashErrors(page);
+		// The policy is read at boot, so it is planted before the first navigation.
+		await page.addInitScript(() => {
+			try {
+				if (!localStorage.getItem('waffle:settings')) {
+					localStorage.setItem('waffle:settings', JSON.stringify({ restoreOnReload: 'never' }));
+				}
+			} catch {}
+		});
+		const r = await startRelay(baseURL);
+		await pairAgent(page, r, CLIENT_NAME);
+		const sketch = await r.callTool('sketch_create', { plane: XY, entities: RECT });
+		expect(sketch.isError).toBe(false);
+		const extrude = await r.callTool('feature_add', {
+			operation: {
+				type: 'Extrude',
+				params: { sketch_id: sketch.structuredContent.feature_id, profile_index: 0, profile_entity_ids: [5, 6, 7, 8], depth: 0.005, symmetric: false, cut: false }
+			}
+		});
+		expect(extrude.isError).toBe(false);
+		const before = (await r.callTool('document_info')).structuredContent;
+
+		await page.reload();
+		await expect(page.getByTestId('agent-bar-label')).toHaveText(`Agent connected — ${CLIENT_NAME}`, { timeout: 30000 });
+
+		// The tab's own policy left the blank startup document; the link
+		// reopened the agent's one before resuming.
+		const info = (await r.callTool('document_info')).structuredContent;
+		expect(info.storage_id).toBe(before.storage_id);
+		expect(info.tabs.map((t) => t.id)).toEqual(before.tabs.map((t) => t.id));
+		const summary = await r.callTool('model_summary');
+		expect(summary.isError).toBe(false);
+		expect(summary.structuredContent.features.map((f) => f.kind)).toEqual(['Sketch', 'Extrude']);
 		expectNoAnyCrash(crashes);
 	});
 

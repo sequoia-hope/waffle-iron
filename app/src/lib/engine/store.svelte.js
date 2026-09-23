@@ -21,7 +21,7 @@ import { computeConstraintBadges } from '$lib/sketch/constraintBadges.js';
 import { stepConstraintModal, modalInstruction, isModalConstraint } from '$lib/sketch/constraintModalEngine.js';
 import { classifyDimension } from '$lib/sketch/dimensionHeuristic.js';
 import { getSetting, getSettings, updateSettings } from '$lib/ui/settings.svelte.js';
-import { deleteDraft, getDraft, listDrafts, pruneDrafts, putDraft, tabKey } from '$lib/storage/drafts.js';
+import { deleteDraft, getDraft, listDrafts, pruneDrafts, putDraft, rememberTabKey, tabKey } from '$lib/storage/drafts.js';
 import { findConnectedChain, orderChain } from '$lib/sketch/chain.js';
 import { resolveChainSegments, offsetChainSegments } from '$lib/sketch/offset.js';
 import { isDatumPlaneRef, getPlaneIdFromRef, getPlaneById, resolvePlane, BUILTIN_PLANES } from './planes.js';
@@ -7557,8 +7557,13 @@ export function initDocumentState(docId, parsed, link = null) {
  * @returns {Promise<string | null>} the file text, or null when the engine
  *   refused (the last good stored copy is then left untouched).
  */
-export async function buildDocumentJson() {
+export async function buildDocumentJson({ via = 'user' } = {}) {
 	if (!bridge || !engineReady) return null;
+	// `via: 'agent'` composes through the agent's own entry point (the caller
+	// holds the engine lock as 'agent'): the two sends are then recorded with
+	// the agent's origin, so an agent step that stores itself leaves no
+	// user-origin send in the engine log (parity oracle O3/O7).
+	const sendMessage = via === 'agent' ? (m) => sendAgentMessage(m) : (m) => bridge.send(m);
 
 	// Latch identity + creation time on first save so they stay stable. These
 	// stay the STORE's to mint: the storage record is keyed by the document's
@@ -7578,7 +7583,7 @@ export async function buildDocumentJson() {
 	// autosave still gets one, and a save on a clean document leaves it clean.
 	const wasPending = hasPendingAutoSave();
 	try {
-		await bridge.send({
+		await sendMessage({
 			type: 'SetDocumentMeta',
 			id: documentId,
 			name: documentName,
@@ -7595,7 +7600,7 @@ export async function buildDocumentJson() {
 	try {
 		// No payload: metadata, every tab with its tree and thumbnail, and
 		// which one is active all live in the session (v4 §4 inv. 7).
-		response = await bridge.send({ type: 'SaveDocument' });
+		response = await sendMessage({ type: 'SaveDocument' });
 	} catch (err) {
 		log('error', `SaveDocument failed: ${err?.message || err}`);
 		return null;
@@ -7884,40 +7889,117 @@ function installAutosaveLifecycle() {
 	if (autosaveLifecycleInstalled || typeof document === 'undefined') return;
 	autosaveLifecycleInstalled = true;
 	document.addEventListener('visibilitychange', () => {
-		if (document.visibilityState === 'hidden') flushAutoSave();
+		if (document.visibilityState === 'hidden') {
+			// The OS may discard the tab from here without another event; a
+			// reloaded tab that lost its sessionStorage finds its draft by this.
+			rememberTabKey();
+			flushAutoSave();
+		}
 	});
-	window.addEventListener('pagehide', () => flushAutoSave());
+	window.addEventListener('pagehide', () => {
+		rememberTabKey();
+		flushAutoSave();
+	});
 }
 
-/** Compose the document once; store it as this tab's draft and in the active provider. */
-async function autosaveNow() {
-	if (!activeDocId) return;
+/**
+ * Store a pending autosave NOW and wait for it, so that whoever asked can
+ * answer "stored" truthfully — the agent link does this after every mutating
+ * tool, as the native host rewrites its record after every one
+ * (specs/waffle_server_mode.md §3.5): a tab the OS discards a moment later
+ * loses nothing that was already answered. Nothing pending: resolves true at
+ * once. Resolves false when neither the draft nor a storage record took it.
+ * `via: 'agent'` composes through the agent entry point (see
+ * `buildDocumentJson`); the caller then holds the engine lock as 'agent'.
+ * @param {{ via?: 'user' | 'agent' }} [opts]
+ * @returns {Promise<boolean>}
+ */
+export async function commitPendingAutoSave({ via = 'user' } = {}) {
+	if (!autoSaveTimer) return true;
+	clearTimeout(autoSaveTimer);
+	autoSaveTimer = null;
+	return autosaveNow({ via });
+}
+
+/**
+ * Compose the document once; store it as this tab's draft and in the active
+ * provider. Resolves true when at least one of them took it.
+ * @param {{ via?: 'user' | 'agent' }} [opts]
+ * @returns {Promise<boolean>}
+ */
+async function autosaveNow({ via = 'user' } = {}) {
+	if (!activeDocId) return false;
 	const docId = activeDocId;
-	const jsonData = await buildDocumentJson();
-	if (!jsonData) return;
-	await saveDraft(docId, jsonData);
+	const jsonData = await buildDocumentJson({ via });
+	if (!jsonData) return false;
+	let stored = await saveDraft(docId, jsonData);
 	try {
 		const { getActiveProvider } = await import('$lib/storage/index.js');
 		await putRecord(getActiveProvider(), docId, jsonData);
+		stored = true;
 	} catch (err) {
 		// If remote provider fails, fall back to local IndexedDB
 		console.warn('Auto-save to provider failed, falling back to local:', err.message || err);
 		try {
 			const { getStore } = await import('$lib/storage/index.js');
 			await putRecord(getStore(), docId, jsonData);
+			stored = true;
 		} catch {
 			console.warn('Local fallback auto-save also failed');
 		}
 	}
+	return stored;
 }
 
-/** This tab's draft (`$lib/storage/drafts.js`); a failure never blocks the real save. */
+/**
+ * This tab's draft (`$lib/storage/drafts.js`); a failure never blocks the real save.
+ * @returns {Promise<boolean>} whether the draft was written
+ */
 async function saveDraft(docId, jsonData) {
 	try {
 		await putDraft({ docId, name: documentName, json: jsonData, sketch: sketchSessionSnapshot() });
+		return true;
 	} catch (err) {
 		console.warn('Draft save failed:', err?.message || err);
+		return false;
 	}
+}
+
+/**
+ * Reopen a document in this tab by its storage id, from the newest draft that
+ * holds it (any tab of this browser — the draft can be newer than the stored
+ * record) or else from the active provider, then the local store. The agent
+ * link uses it after a reload to land on the document it was working on,
+ * whatever the tab's restore policy did. Resolves false when nothing holds it.
+ * @param {string} docId
+ * @returns {Promise<boolean>}
+ */
+export async function reopenDocumentById(docId) {
+	try {
+		const draft = (await listDrafts()).find((d) => d.docId === docId);
+		if (draft?.json) {
+			await openDocumentRecord(docId, draft.json);
+			await restoreSketchSession(draft.sketch);
+			scheduleAutoSave();
+			return true;
+		}
+	} catch {
+		// drafts unavailable
+	}
+	const { getActiveProvider, getStore } = await import('$lib/storage/index.js');
+	for (const store of [getActiveProvider(), getStore()]) {
+		let doc = null;
+		try {
+			doc = await store.get(docId);
+		} catch {
+			continue;
+		}
+		if (doc?.json) {
+			await openDocumentRecord(doc.id, doc.json, doc.link ?? null);
+			return true;
+		}
+	}
+	return false;
 }
 
 /** Create or update storage record `docId`, keeping its `created` time. */
@@ -7935,11 +8017,14 @@ async function putRecord(store, docId, jsonData) {
  * Save current document state to the active storage provider (and this tab's draft).
  * Builds full v3 JSON including all tabs.
  */
-async function saveToProvider() {
+async function saveToProvider({ allowEmpty = true } = {}) {
 	if (!activeDocId) return false;
 	const docId = activeDocId;
 	const jsonData = await buildDocumentJson();
 	if (!jsonData) return false;
+	if (!allowEmpty && documentTextIsEmpty(jsonData)) {
+		throw Object.assign(new Error('the document has no features, instances or sources'), { emptyDocument: true });
+	}
 	await saveDraft(docId, jsonData);
 	const { getActiveProvider } = await import('$lib/storage/index.js');
 	await putRecord(getActiveProvider(), docId, jsonData);
@@ -7960,18 +8045,44 @@ export function cancelPendingAutoSave() {
 }
 
 /**
+ * Whether a composed `.waffle` holds nothing: every Part tab without a
+ * feature, every Assembly tab without an instance, and no sources. Such a
+ * document is what a freshly booted tab has, and an agent saving one after an
+ * unnoticed reload only litters the storage list (the "Untitled" junk of
+ * 2026-09-23).
+ * @param {string} jsonData
+ */
+function documentTextIsEmpty(jsonData) {
+	let parsed;
+	try {
+		parsed = JSON.parse(jsonData);
+	} catch {
+		return false;
+	}
+	if ((parsed?.sources ?? []).length > 0) return false;
+	for (const tab of parsed?.tabs ?? []) {
+		const kind = tab?.kind ?? {};
+		if ((kind.features?.features ?? []).length > 0) return false;
+		if ((kind.assembly?.instances ?? []).length > 0) return false;
+	}
+	return true;
+}
+
+/**
  * Save the open document to the active storage provider now, throwing instead
  * of toasting (Ctrl+S and the agent link's document_save). A pending autosave
- * is superseded.
+ * is superseded. With `allowEmpty: false` an empty document (see
+ * `documentTextIsEmpty`) is refused with `err.emptyDocument`.
+ * @param {{ allowEmpty?: boolean }} [opts]
  * @returns {Promise<{ provider: string, id: string, saved_at: string }>}
  */
-export async function saveDocumentOrThrow() {
+export async function saveDocumentOrThrow({ allowEmpty = true } = {}) {
 	if (documentLink?.readOnly) {
 		throw Object.assign(new Error('This document is linked read-only — fork it to edit'), { readOnly: true });
 	}
 	if (!activeDocId) throw new Error('no storage record is open in this tab');
 	cancelPendingAutoSave();
-	if (!(await saveToProvider())) {
+	if (!(await saveToProvider({ allowEmpty }))) {
 		throw new Error('the engine did not compose the document for saving');
 	}
 	const { getActiveProvider } = await import('$lib/storage/index.js');

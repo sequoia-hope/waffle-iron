@@ -10,6 +10,7 @@
 import {
 	AGENT_WORKING_HINT,
 	EngineLockTimeout,
+	commitPendingAutoSave,
 	getActiveTabId,
 	getDocumentLoadBusyReason,
 	getDocumentTabs,
@@ -370,15 +371,46 @@ export async function executeTool(tool, args, ctx) {
 			const env = { send: (message) => sendAgentMessage(message) };
 			return query.engine ? await withAgentLock(() => query.run(args, env)) : await query.run(args, env);
 		}
-		if (documentCommand) return await runDocumentCommand(tool, documentCommand, args, ctx);
 		if (ENGINE_QUERIES.has(tool)) return await runEngineQuery(tool, args);
-		// Whatever reaches here is an engine command: the guard above refused
-		// anything that is not a query, a document command, or one of these.
-		return await runEngineCommand(tool, args, ctx);
+		const result = documentCommand
+			? await runDocumentCommand(tool, documentCommand, args, ctx)
+			: // Whatever reaches here is an engine command: the guard above refused
+				// anything that is not a query, a document command, or one of these.
+				await runEngineCommand(tool, args, ctx);
+		return result.isError ? result : await committed(result);
 	} catch (err) {
 		if (err instanceof ToolFailure) return toolError(err.code, err.detail, err.details);
 		return toolError('Internal', `${tool} failed in the page: ${err?.message ?? String(err)}`, {});
 	}
+}
+
+/**
+ * A command's answer once its edit is STORED (this tab's draft and the storage
+ * record), the way the native host answers only after rewriting its record
+ * (specs/waffle_server_mode.md §3.5). A mobile OS discards a background tab
+ * without warning and the page reloads on return; with the autosave still
+ * pending its delay, every step answered in the last seconds was lost
+ * (measured 2026-09-23: 7 instances, then 4 connectors of the gravel bike).
+ * A store failure is reported on the answer, never swallowed.
+ * @param {{content: object[], structuredContent: object, isError: boolean}} result
+ */
+async function committed(result) {
+	// Under the agent lock and through the agent's entry point, so the store
+	// leaves no user-origin send in the engine log (parity oracle O7).
+	if (await withAgentLock(() => commitPendingAutoSave({ via: 'agent' }))) return result;
+	return {
+		...result,
+		structuredContent: { ...result.structuredContent, autosave_error: true },
+		content: [
+			...result.content,
+			{
+				type: 'text',
+				text:
+					'Note: the step is applied, but the page could not store the document (draft and storage provider both failed). ' +
+					'Call document_save to retry before relying on it.'
+			}
+		]
+	};
 }
 
 // Test hook (agent-document-load-gate.spec.js, agent-rust-*.spec.js): run a

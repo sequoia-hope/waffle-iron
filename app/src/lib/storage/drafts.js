@@ -12,9 +12,23 @@ const DB_NAME = 'waffle-iron-drafts';
 const DB_VERSION = 1;
 const STORE_NAME = 'drafts';
 const TAB_KEY = 'waffle-tab-key';
+/**
+ * The key of the tab that was hidden last, in `localStorage`. An iOS tab
+ * discard does not reliably keep `sessionStorage` (specs/waffle_server_mode.md
+ * §4.6): a reloaded tab that finds no key of its own adopts this one, once,
+ * and so still finds its draft. Another tab of the same browser could adopt
+ * it instead — drafts are copies, so that costs nothing but a restore offer.
+ */
+const LAST_HIDDEN_TAB_KEY = 'waffle-tab-key-last-hidden';
+/** A hidden tab's key is adopted only this long after it was hidden. */
+const LAST_HIDDEN_MAX_AGE_MS = 24 * 60 * 60 * 1000;
 
 /** Drafts untouched this long are dropped at startup. */
 export const DRAFT_MAX_AGE_MS = 30 * 24 * 60 * 60 * 1000;
+
+/** This tab's key once minted or adopted, so a later `sessionStorage` loss cannot change it. */
+/** @type {string | null} */
+let cachedTabKey = null;
 
 /**
  * `sketch` is the open sketch session, which the document does not hold until
@@ -67,17 +81,48 @@ async function run(mode, op) {
  * @returns {string | null}
  */
 export function tabKey() {
+	if (cachedTabKey) return cachedTabKey;
 	try {
 		let key = sessionStorage.getItem(TAB_KEY);
+		if (!key) key = adoptLastHiddenTabKey();
 		if (!key) {
 			key = typeof crypto !== 'undefined' && crypto.randomUUID
 				? crypto.randomUUID()
 				: `${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`;
-			sessionStorage.setItem(TAB_KEY, key);
 		}
+		sessionStorage.setItem(TAB_KEY, key);
+		cachedTabKey = key;
 		return key;
 	} catch {
 		return null;
+	}
+}
+
+/** The last hidden tab's key, taken (single use) when it is recent; else null. */
+function adoptLastHiddenTabKey() {
+	try {
+		const raw = localStorage.getItem(LAST_HIDDEN_TAB_KEY);
+		if (!raw) return null;
+		localStorage.removeItem(LAST_HIDDEN_TAB_KEY);
+		const { key, at } = JSON.parse(raw);
+		if (typeof key !== 'string' || typeof at !== 'number') return null;
+		return Date.now() - at <= LAST_HIDDEN_MAX_AGE_MS ? key : null;
+	} catch {
+		return null;
+	}
+}
+
+/**
+ * Record this tab's key as the last hidden one. Called when the tab is hidden
+ * or unloaded — the moment before the OS may discard it.
+ */
+export function rememberTabKey() {
+	const key = tabKey();
+	if (!key) return;
+	try {
+		localStorage.setItem(LAST_HIDDEN_TAB_KEY, JSON.stringify({ key, at: Date.now() }));
+	} catch {
+		/* storage unavailable */
 	}
 }
 
