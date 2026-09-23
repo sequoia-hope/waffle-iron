@@ -232,7 +232,14 @@ async def test_progress_frames_reach_the_calls_consumer_while_in_flight(env: Env
     assert frame["progress"] is True
     await page.send({"type": "progress", "id": "not-a-call", "message": "stray", "elapsed_ms": 1})
     await page.send(
-        {"type": "progress", "id": frame["id"], "message": "Union: union 1 of ≤ 4", "elapsed_ms": 120, "progress": 1, "total": 4}
+        {
+            "type": "progress",
+            "id": frame["id"],
+            "message": "Union: union 1 of ≤ 4",
+            "elapsed_ms": 120,
+            "progress": 1,
+            "total": 4,
+        }
     )
     await wait_until(lambda: len(seen) == 1)
     await page.send({"type": "result", "id": frame["id"], "content": [], "isError": False})
