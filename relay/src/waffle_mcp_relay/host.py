@@ -134,13 +134,15 @@ class HostBackend:
         self._document_name: str | None = None
         self._closing = False
         # Viewer sync (viewer.py): the host's latest snapshot, the viewer
-        # requests in flight (`snapshot` / `blob` by id), a bounded blob cache,
-        # and the server that fans snapshots out.
+        # requests in flight (`snapshot` / `blob` by id), a bounded blob cache
+        # keyed by (mesh id, encoding), the server that fans changes out, and
+        # the tool in flight (the `activity` block a viewer shows).
         self._snapshot: dict[str, Any] | None = None
         self._viewer_pending: dict[str, asyncio.Future[tuple[dict[str, Any], bytes]]] = {}
-        self._blobs: dict[str, tuple[dict[str, Any], bytes]] = {}
+        self._blobs: dict[tuple[str, str], tuple[dict[str, Any], bytes]] = {}
         self._blob_bytes = 0
         self._viewers: Any | None = None
+        self._active_tool: str | None = None
 
     # -- lifecycle ---------------------------------------------------------
 
@@ -181,31 +183,41 @@ class HostBackend:
             self._snapshot = header
         return self._snapshot
 
-    async def request_blob(self, mesh_id: str) -> tuple[dict[str, Any], bytes] | None:
-        """A mesh blob by id: from the relay's cache, else from the host; None if unknown."""
-        cached = self._blobs.get(mesh_id)
+    async def request_blob(
+        self, mesh_id: str, encoding: str = "raw/1"
+    ) -> tuple[dict[str, Any], bytes] | None:
+        """A mesh blob by id in `encoding` (§4.5): from the relay's cache, else
+        from the host; None if the host knows neither the id nor the encoding."""
+        key = (mesh_id, encoding)
+        cached = self._blobs.get(key)
         if cached is not None:
             return cached
         if self._proc is None:
             return None
         try:
-            header, payload = await self._viewer_request({"type": "blob", "mesh_id": mesh_id})
+            header, payload = await self._viewer_request(
+                {"type": "blob", "mesh_id": mesh_id, "encoding": encoding}
+            )
         except LinkError:
             return None
         if header.get("missing"):
             return None
-        self._remember_blob(mesh_id, header, payload)
+        self._remember_blob(key, header, payload)
         return header, payload
 
-    def _remember_blob(self, mesh_id: str, header: dict[str, Any], payload: bytes) -> None:
-        if mesh_id in self._blobs:
+    def _remember_blob(self, key: tuple[str, str], header: dict[str, Any], payload: bytes) -> None:
+        if key in self._blobs:
             return
-        self._blobs[mesh_id] = (header, payload)
+        self._blobs[key] = (header, payload)
         self._blob_bytes += len(payload)
         while self._blob_bytes > BLOB_CACHE_BYTES and len(self._blobs) > 1:
             oldest = next(iter(self._blobs))
             _, gone = self._blobs.pop(oldest)
             self._blob_bytes -= len(gone)
+
+    def activity(self) -> dict[str, Any]:
+        """The agent's doing, for a snapshot's `activity` block (§4.3)."""
+        return {"agent": self._agent_name(), "tool": self._active_tool, "paused": False}
 
     async def _viewer_request(self, frame: dict[str, Any]) -> tuple[dict[str, Any], bytes]:
         proc = self._proc
@@ -224,12 +236,22 @@ class HostBackend:
         return await future
 
     async def _on_snapshot(self, header: dict[str, Any]) -> None:
+        from waffle_mcp_relay.viewer import snapshot_update
+
+        previous = self._snapshot
         self._snapshot = header
         if self._viewers is not None:
             try:
-                await self._viewers.broadcast(header)
+                await self._viewers.push(header, snapshot_update(previous, header))
             except Exception:  # noqa: BLE001 — a viewer's failure must not stop the host reader
-                log.exception("viewer broadcast failed")
+                log.exception("viewer push failed")
+
+    async def _on_rebuild(self, header: dict[str, Any]) -> None:
+        if self._viewers is not None:
+            try:
+                await self._viewers.broadcast_frame(header)
+            except Exception:  # noqa: BLE001
+                log.exception("viewer rebuild broadcast failed")
 
     @property
     def crashes(self) -> int:
@@ -240,6 +262,12 @@ class HostBackend:
         return self._manifest
 
     def tool_names(self) -> frozenset[str] | None:
+        # The viewer tools are served by the relay from an attached viewer
+        # (viewer.py), so they are listed whenever a viewer CAN attach.
+        if self._tools is not None and self._viewers is not None:
+            from waffle_mcp_relay.viewer import VIEWER_TOOLS
+
+            return self._tools | frozenset(VIEWER_TOOLS)
         return self._tools
 
     async def start(self) -> None:
@@ -334,6 +362,7 @@ class HostBackend:
             out["host_restarts"] = self._crashes
         if self._viewers is not None:
             out["viewers"] = self._viewers.viewer_count
+            out["viewer_presence"] = self._viewers.presence()
         return out
 
     async def connect(self) -> tuple[str, float | None]:
@@ -350,6 +379,18 @@ class HostBackend:
         arguments: dict[str, Any],
         on_progress: Callable[[dict[str, Any]], Awaitable[None]] | None = None,
     ) -> dict[str, Any]:
+        from waffle_mcp_relay.viewer import VIEWER_TOOLS
+
+        if tool in VIEWER_TOOLS:
+            # A viewer's, not the host's (host.rs answers ViewerUnavailable):
+            # read-only, so it needs no place in the host queue.
+            if self._viewers is None:
+                raise LinkError(
+                    "ViewerUnavailable",
+                    "This relay has no viewer link; the viewport and selection are a viewer's.",
+                    {"tool": tool},
+                )
+            return await self._viewers.serve_tool(tool, arguments)
         async with self._queue:
             if self._proc is None:
                 await self._restart()
@@ -367,12 +408,14 @@ class HostBackend:
                 "arguments": arguments,
                 "context": {"agent_name": self._agent_name(), "progress": on_progress is not None},
             }
+            self._active_tool = tool
             try:
                 proc.stdin.write(encode_frame(frame))
                 await proc.stdin.drain()
             except (ConnectionError, OSError):
                 self._pending.pop(call_id, None)
                 self._progress.pop(call_id, None)
+                self._active_tool = None
                 raise LinkError("EngineCrashed", CRASHED_MESSAGE, {"state_unknown": True}) from None
             try:
                 result = await future
@@ -385,6 +428,8 @@ class HostBackend:
                 except (ConnectionError, OSError):
                     pass
                 raise
+            finally:
+                self._active_tool = None
         self._track_document(tool, result)
         if self._crashed_note_pending:
             self._crashed_note_pending = False
@@ -461,6 +506,8 @@ class HostBackend:
                                 "isError": bool(header.get("isError")),
                             }
                         )
+                elif kind == "rebuild":
+                    await self._on_rebuild(header)
                 elif kind == "progress" and isinstance(call_id, str):
                     callback = self._progress.get(call_id)
                     if callback is not None:

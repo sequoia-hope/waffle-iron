@@ -87,6 +87,10 @@ impl Host {
         &self.meshes
     }
 
+    pub(crate) fn meshes_mut(&mut self) -> &mut crate::viewer::MeshStore {
+        &mut self.meshes
+    }
+
     /// A new epoch: the document a viewer holds is not this one any more
     /// (§4.1 — "epoch changes when the host process restarts or the document
     /// is reopened"), so a viewer's `have` can never match across it.

@@ -307,6 +307,8 @@ let assayBrowserState = $state({ visible: false, cases: [], activeCase: null, ac
  * @type {{ visible: boolean, examples: Array<object>, active: string | null, loading: boolean, error: string | null, writable: boolean, saving: boolean, opening: string | null }}
  */
 let examplesBrowserState = $state({ visible: false, examples: [], active: null, loading: false, error: null, writable: false, saving: false, opening: null });
+/** Set by an example open: fit the view to the first model update that carries geometry. */
+let fitAllOnNextModel = false;
 
 /** @type {{ entityA: number, entityB: number | null, sketchX: number, sketchY: number, dimType: 'distance'|'radius'|'angle', defaultValue: number } | null} */
 let dimensionPopup = $state(null);
@@ -849,6 +851,13 @@ export async function initEngine() {
 		}
 		if (msg.meshes) {
 			meshes = msg.meshes;
+		}
+		// A load that asked to be framed (an example opening): the first model
+		// with geometry is the one to fit, however many rebuilds the open
+		// took (an assembly evaluates after the file lands).
+		if (fitAllOnNextModel && meshes.some((m) => m.triangleCount > 0)) {
+			fitAllOnNextModel = false;
+			setTimeout(() => window.dispatchEvent(new Event('waffle-fit-all')), 50);
 		}
 		// The tab bar, the active tab and the document's metadata are MIRRORS
 		// of the session now (S2 C4, invariant A2.1): the engine is
@@ -8372,9 +8381,10 @@ export async function loadExample(id) {
 		const docId = generateUUID();
 		const now = new Date().toISOString();
 		parsed.document = { ...(parsed.document || {}), id: docId, name: entry.name, created: now, modified: now };
+		fitAllOnNextModel = true;
+		setTimeout(() => { fitAllOnNextModel = false; }, 120000);
 		await openDocumentRecord(docId, JSON.stringify(parsed));
 		examplesBrowserState.active = id;
-		setTimeout(() => window.dispatchEvent(new Event('waffle-fit-all')), 100);
 		showToast('info', `Example "${entry.name}" opened as a new document`);
 		return true;
 	} catch (err) {

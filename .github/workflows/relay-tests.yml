@@ -17,15 +17,16 @@ name: Relay tests
 #              and viewport, export/import, assemblies. gui-tests.yml deliberately leaves
 #              these out of gui-fast because they need uv.
 #
-# Both jobs run against the COMMITTED WASM bundle in app/static/pkg/ — no Rust
-# toolchain — the same way gui-tests.yml does. Measured locally (2026-09-17):
-# relay 13 s; gui-relay 60 tests in 57 s with 4 workers.
+# The page side of both jobs runs against the COMMITTED WASM bundle in
+# app/static/pkg/, the same way gui-tests.yml does. Measured locally
+# (2026-09-17): relay 13 s; gui-relay 60 tests in 57 s with 4 workers.
 #
-# viewer.spec.js (the `/view` route against the REAL native host, server
-# mode P-D) needs `target/release/waffle-host` and SKIPS here for want of a
-# Rust toolchain; it runs in `scripts/test.sh gui-relay` locally after
-# `cargo build -p waffle-host --release`. Building the host in this job is
-# the open item to make it a CI oracle.
+# gui-relay additionally builds `waffle-host` (release), because viewer.spec.js
+# drives the `/view` route against the REAL native host (server mode P-D) and
+# skipped here until 2026-09-23 for want of a Rust toolchain. Only that one
+# binary is built — not the test pyramid, which is rust-test.yml's — and the
+# cargo registry and target directory are cached, so a steady-state run is a
+# no-op link.
 
 on:
   push:
@@ -73,6 +74,21 @@ jobs:
           node-version: 20
           cache: npm
           cache-dependency-path: app/package-lock.json
+
+      # The native host viewer.spec.js drives (§4 P-D). Cached on Cargo.lock,
+      # so only a dependency change pays the full compile.
+      - name: Cache cargo and the host build
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: cargo-host-${{ runner.os }}-${{ hashFiles('Cargo.lock') }}
+          restore-keys: cargo-host-${{ runner.os }}-
+
+      - name: Build waffle-host (release)
+        run: cargo build -p waffle-host --release
 
       - name: Install dependencies
         run: npm ci

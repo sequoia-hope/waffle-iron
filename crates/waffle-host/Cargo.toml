@@ -29,6 +29,8 @@ base64 = "0.22"
 # the spec's xxh3 is a later swap, it changes only the id's length).
 waffle-types = { path = "../waffle-types" }
 sha1 = "0.10"
+meshopt = "0.6"
+flate2 = "1.1.10"
 
 [dev-dependencies]
 tempfile = "3"

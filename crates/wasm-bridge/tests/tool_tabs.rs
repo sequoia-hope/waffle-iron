@@ -184,3 +184,68 @@ fn every_tab_tool_is_migrated_mutating_and_carries_the_model() {
     assert_eq!(document.tabs[1].name, "Bracket");
     assert_eq!(document.active_tab, document.tabs[1].id);
 }
+
+/// Switching back to a Part tab must render its bodies again (found
+/// 2026-09-23 through the native host: the switch rebuilt the tree but
+/// nothing tessellated it, so `model_summary` and a viewer's snapshot showed
+/// the tab empty). Real kernel: the bodies have to exist to be missing.
+#[test]
+fn tab_switch_back_to_a_part_renders_its_bodies() {
+    let mut state = EngineState::new();
+    let mut kernel = kernel_v2::KernelV2Adapter::new();
+    let mut run = |state: &mut EngineState, name: &str, args: Value| -> Value {
+        let result = execute_tool(state, &mut kernel, name, &args, None);
+        assert!(!result.is_error, "{name} failed: {result:?}");
+        result.structured_content
+    };
+    let first = state.session.tabs()[0].id.clone();
+    let sketch = run(
+        &mut state,
+        "sketch_create",
+        json!({
+            "plane": { "origin": [0, 0, 0], "normal": [0, 0, 1] },
+            "entities": [
+                { "type": "Point", "id": 1, "x": 0, "y": 0 },
+                { "type": "Circle", "id": 2, "center_id": 1, "radius": 0.01 }
+            ]
+        }),
+    );
+    run(
+        &mut state,
+        "feature_add",
+        json!({ "operation": { "type": "Extrude", "params": {
+            "sketch_id": sketch["feature_id"], "profile_index": 0, "profile_entity_ids": [2],
+            "depth": 0.02, "symmetric": false, "cut": false, "combine": { "type": "NewBody" }
+        } } }),
+    );
+    assert_eq!(
+        run(&mut state, "model_summary", json!({}))["bodies"]
+            .as_array()
+            .unwrap()
+            .len(),
+        1
+    );
+
+    let other = run(
+        &mut state,
+        "tab_add",
+        json!({ "kind": "Part", "name": "Other" }),
+    );
+    assert_eq!(
+        run(&mut state, "model_summary", json!({}))["bodies"]
+            .as_array()
+            .unwrap()
+            .len(),
+        0
+    );
+    run(&mut state, "tab_switch", json!({ "tab_id": first }));
+    assert_eq!(
+        run(&mut state, "model_summary", json!({}))["bodies"]
+            .as_array()
+            .unwrap()
+            .len(),
+        1,
+        "the switched-to tab's bodies are tessellated"
+    );
+    let _ = other;
+}

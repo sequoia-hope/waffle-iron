@@ -46,6 +46,8 @@ def write(header: dict[str, Any], payload: bytes = b"") -> None:
 # bumps the revision and pushes a snapshot, as the real host does.
 BLOB_ID = "m1"
 BLOB_BYTES = b"BLOB-BYTES"
+# The same body in the compact encoding (spec §4.5) — different bytes, same id.
+BLOB_MQ_BYTES = b"MQ-BYTES"
 REVISION = 0
 
 
@@ -56,7 +58,10 @@ def snapshot(epoch: str, request_id: str | None = None) -> None:
         "epoch": epoch,
         "revision": REVISION,
         "document": {"id": "doc", "name": "Fake", "tabs": [], "active_tab": "t1"},
-        "tree": {"features": [], "active_index": None},
+        "tree": {
+            "features": [{"name": f"Body {REVISION}"}] if REVISION else [],
+            "active_index": None,
+        },
         "errors": [],
         "warnings": [],
         "bodies": [
@@ -130,19 +135,29 @@ def main() -> int:
             continue
         if kind == "blob":
             mesh_id = frame.get("mesh_id")
-            if mesh_id == BLOB_ID:
+            encoding = frame.get("encoding", "raw/1")
+            payload = {"raw/1": BLOB_BYTES, "mq/1": BLOB_MQ_BYTES}.get(encoding)
+            if mesh_id == BLOB_ID and payload is not None:
                 write(
                     {
                         "type": "blob",
                         "id": frame.get("id"),
                         "mesh_id": mesh_id,
-                        "encoding": "raw/1",
-                        "byte_length": len(BLOB_BYTES),
+                        "encoding": encoding,
+                        "byte_length": len(payload),
                     },
-                    BLOB_BYTES,
+                    payload,
                 )
             else:
-                write({"type": "blob", "id": frame.get("id"), "mesh_id": mesh_id, "missing": True})
+                write(
+                    {
+                        "type": "blob",
+                        "id": frame.get("id"),
+                        "mesh_id": mesh_id,
+                        "encoding": encoding,
+                        "missing": True,
+                    }
+                )
             continue
         if kind != "tool":
             continue
@@ -154,7 +169,20 @@ def main() -> int:
             print("fake-host: simulated kernel abort", file=sys.stderr)
             os._exit(134)
         if name == "feature_add":
+            # As the real host: a rebuild bracket around a tool that can change
+            # the document (spec §4.3), whether or not progress was asked for.
+            write({"type": "rebuild", "state": "started", "tool": name, "elapsed_ms": 0})
             for i in range(3):
+                write(
+                    {
+                        "type": "rebuild",
+                        "state": "progress",
+                        "tool": name,
+                        "feature_name": "Body",
+                        "message": f"step {i + 1}",
+                        "elapsed_ms": i * 10,
+                    }
+                )
                 if context.get("progress"):
                     write(
                         {
@@ -166,6 +194,7 @@ def main() -> int:
                             "total": 3,
                         }
                     )
+            write({"type": "rebuild", "state": "done", "tool": name, "ok": True, "elapsed_ms": 30})
             result(call_id, {"done": True})
             REVISION += 1
             snapshot(epoch)

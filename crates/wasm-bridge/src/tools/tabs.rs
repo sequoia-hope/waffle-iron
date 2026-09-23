@@ -91,6 +91,12 @@ fn activate(
             },
         )?;
     }
+    // The switch rebuilt the tab's tree; its bodies have no meshes until
+    // they are tessellated, and only `process_message` tessellates a
+    // top-level `ModelUpdated` — a tool's inner engine call must do it
+    // itself, as the authoring tools do, or the answer (and a viewer's
+    // snapshot) shows the tab with no bodies at all.
+    crate::tessellation_runner::tessellate_missing_meshes(state, kb);
     Ok(())
 }
 

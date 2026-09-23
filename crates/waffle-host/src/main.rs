@@ -3,12 +3,15 @@
 //!
 //! Frames in: `tool{id, name, arguments, context{agent_name, progress}}`,
 //! `cancel{id}`, `bye{reason}`, and for viewer sync (§4) `snapshot{id?}` and
-//! `blob{id, mesh_id}`. Frames out: `ready`, `progress{id, message,
-//! elapsed_ms, progress, total}` (only while a call that asked for progress
-//! is running), `result{id, content, structuredContent, isError}`, `bye`,
-//! `snapshot{…}` (answering a request by `id`, and unsolicited after every
-//! tool that changed the document), `blob{id, mesh_id, encoding,
-//! byte_length}` + payload (or `missing: true`).
+//! `blob{id, mesh_id, encoding?}`. Frames out: `ready`, `progress{id,
+//! message, elapsed_ms, progress, total}` (only while a call that asked for
+//! progress is running), `rebuild{state: started | progress | done, tool,
+//! feature_id?, feature_name?, message?, elapsed_ms}` (unsolicited, around
+//! every tool that can change the document — the viewer's spinner, §4.3),
+//! `result{id, content, structuredContent, isError}`, `bye`, `snapshot{…}`
+//! (answering a request by `id`, and unsolicited after every tool that
+//! changed the document), `blob{id, mesh_id, encoding, byte_length}` +
+//! payload (or `missing: true`).
 //!
 //! One engine thread runs tools in arrival order; a reader thread feeds it,
 //! so a `bye` or a `cancel` is seen as soon as it arrives even during a long
@@ -27,9 +30,18 @@ use std::time::Instant;
 use serde_json::{json, Value};
 use waffle_host::{read_frame, write_frame, Frame, Host, PROTOCOL};
 
+/// The call in flight on the engine thread: its id when it asked for
+/// `progress` frames, and whether it can change the document (then every
+/// progress event is also a `rebuild` frame for the viewers).
+struct ActiveCall {
+    progress_id: Option<String>,
+    tool: String,
+    rebuild: bool,
+    started: Instant,
+}
+
 thread_local! {
-    /// The call in flight on the engine thread, when it asked for progress.
-    static ACTIVE_CALL: RefCell<Option<(String, Instant)>> = const { RefCell::new(None) };
+    static ACTIVE_CALL: RefCell<Option<ActiveCall>> = const { RefCell::new(None) };
 }
 
 fn usage() -> ! {
@@ -76,12 +88,36 @@ fn emit_with(header: &Value, payload: &[u8]) {
 fn install_progress_sink() {
     feature_engine::progress::install(Box::new(|event| {
         ACTIVE_CALL.with(|active| {
-            if let Some((id, started)) = active.borrow().as_ref() {
+            let Some(call) = active.borrow().as_ref().map(|c| {
+                (
+                    c.progress_id.clone(),
+                    c.tool.clone(),
+                    c.rebuild,
+                    c.started.elapsed().as_millis() as u64,
+                )
+            }) else {
+                return;
+            };
+            let (progress_id, tool, rebuild, elapsed_ms) = call;
+            if let Some(id) = progress_id {
                 emit(&json!({
                     "type": "progress",
                     "id": id,
                     "message": format!("{}: {}", event.feature_name, event.label),
-                    "elapsed_ms": started.elapsed().as_millis() as u64,
+                    "elapsed_ms": elapsed_ms,
+                    "progress": event.done,
+                    "total": event.done + event.remaining,
+                }));
+            }
+            if rebuild {
+                emit(&json!({
+                    "type": "rebuild",
+                    "state": "progress",
+                    "tool": tool,
+                    "feature_id": event.feature_id,
+                    "feature_name": event.feature_name,
+                    "message": event.label,
+                    "elapsed_ms": elapsed_ms,
                     "progress": event.done,
                     "total": event.done + event.remaining,
                 }));
@@ -103,13 +139,37 @@ fn handle_tool(host: &mut Host, header: &Value) {
         .and_then(|c| c.get("progress"))
         .and_then(Value::as_bool)
         .unwrap_or(false);
-    if wants_progress {
-        if let Some(call_id) = id.as_str() {
-            ACTIVE_CALL.with(|a| *a.borrow_mut() = Some((call_id.to_string(), Instant::now())));
-        }
+    // Viewer sync (§4.3 `rebuild`): a tool that can change the document is
+    // announced before it runs and after, so a viewer shows a spinner with
+    // the feature the engine is on rather than a frozen model.
+    let rebuild = Host::model_changed(name);
+    let started = Instant::now();
+    if rebuild {
+        emit(&json!({ "type": "rebuild", "state": "started", "tool": name, "elapsed_ms": 0 }));
     }
+    ACTIVE_CALL.with(|a| {
+        *a.borrow_mut() = Some(ActiveCall {
+            progress_id: if wants_progress {
+                id.as_str().map(str::to_string)
+            } else {
+                None
+            },
+            tool: name.to_string(),
+            rebuild,
+            started,
+        })
+    });
     let result = host.call(name, &arguments, context.as_ref());
     ACTIVE_CALL.with(|a| *a.borrow_mut() = None);
+    if rebuild {
+        emit(&json!({
+            "type": "rebuild",
+            "state": "done",
+            "tool": name,
+            "ok": !result.is_error,
+            "elapsed_ms": started.elapsed().as_millis() as u64,
+        }));
+    }
     let mut frame = serde_json::to_value(&result).unwrap_or_else(|e| {
         json!({
             "content": [{ "type": "text", "text": format!("Internal: {e}") }],
@@ -142,24 +202,35 @@ fn handle_snapshot(host: &mut Host, header: &Value) {
     emit(&snapshot);
 }
 
-/// `blob{id, mesh_id}`: the named blob as the frame's payload, or
-/// `missing: true` when no recent snapshot named it (the viewer then asks
-/// for a fresh snapshot).
-fn handle_blob(host: &Host, header: &Value) {
+/// `blob{id, mesh_id, encoding?}`: the named blob as the frame's payload in
+/// the encoding asked for (`raw/1` by default, §4.5), or `missing: true`
+/// when no recent snapshot named it or the encoding is unknown (the viewer
+/// then asks for a fresh snapshot, or falls back to `raw/1`).
+fn handle_blob(host: &mut Host, header: &Value) {
     let id = header.get("id").cloned().unwrap_or(Value::Null);
     let mesh_id = header.get("mesh_id").and_then(Value::as_str).unwrap_or("");
-    match host.blob(mesh_id) {
+    let encoding = header
+        .get("encoding")
+        .and_then(Value::as_str)
+        .unwrap_or(waffle_host::viewer::ENCODING);
+    match host.blob_encoded(mesh_id, encoding) {
         Some(bytes) => emit_with(
             &json!({
                 "type": "blob",
                 "id": id,
                 "mesh_id": mesh_id,
-                "encoding": waffle_host::viewer::ENCODING,
+                "encoding": encoding,
                 "byte_length": bytes.len(),
             }),
             &bytes,
         ),
-        None => emit(&json!({ "type": "blob", "id": id, "mesh_id": mesh_id, "missing": true })),
+        None => emit(&json!({
+            "type": "blob",
+            "id": id,
+            "mesh_id": mesh_id,
+            "encoding": encoding,
+            "missing": true,
+        })),
     }
 }
 
@@ -215,7 +286,7 @@ fn main() {
         match frame.kind() {
             "tool" => handle_tool(&mut host, &frame.header),
             "snapshot" => handle_snapshot(&mut host, &frame.header),
-            "blob" => handle_blob(&host, &frame.header),
+            "blob" => handle_blob(&mut host, &frame.header),
             "cancel" => eprintln!(
                 "waffle-host: cancel for {} noted; the engine finishes the tool it is on",
                 frame.header.get("id").cloned().unwrap_or(Value::Null)

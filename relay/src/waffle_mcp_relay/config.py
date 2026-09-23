@@ -53,6 +53,11 @@ class RelayConfig:
     kernel: str = "page"
     documents: Path | None = None
     host_binary: Path | None = None
+    # `specs/waffle_server_mode.md` §4.7: the secret viewer session tokens are
+    # signed with, kept in a 0600 file so tokens survive a relay restart;
+    # deleting the file revokes every viewer.
+    viewer_secret: bytes | None = None
+    viewer_secret_file: str | None = None
 
     @property
     def relay_url(self) -> str:
@@ -117,6 +122,11 @@ def build_parser() -> argparse.ArgumentParser:
         "else `waffle-host` on PATH)",
     )
     p.add_argument(
+        "--viewer-secret",
+        help="file holding the secret viewer session tokens are signed with (host mode; "
+        "default $XDG_STATE_HOME/waffle-mcp-relay/host-<port>.secret, created 0600)",
+    )
+    p.add_argument(
         "--persistent-link",
         nargs="?",
         const="",
@@ -150,6 +160,38 @@ def default_persistent_link_file(env: Mapping[str, str], port: int) -> Path:
         Path(env.get("HOME") or Path.home()) / ".local" / "state"
     )
     return Path(state) / "waffle-mcp-relay" / f"link-{port}.code"
+
+
+def default_viewer_secret_file(env: Mapping[str, str], port: int) -> Path:
+    state = env.get("XDG_STATE_HOME") or str(
+        Path(env.get("HOME") or Path.home()) / ".local" / "state"
+    )
+    return Path(state) / "waffle-mcp-relay" / f"host-{port}.secret"
+
+
+def load_viewer_secret(path: Path) -> bytes:
+    """The viewer token secret kept in `path`, created (mode 0600, 32 random bytes) on first use."""
+    try:
+        text = path.read_text(encoding="ascii").strip()
+    except FileNotFoundError:
+        text = None
+    except (OSError, UnicodeDecodeError):
+        raise ConfigError("cannot use viewer secret file") from None
+    if text is not None:
+        if not PERSISTENT_CODE_RE.fullmatch(text):
+            raise ConfigError("invalid viewer secret file")
+        return text.encode("ascii")
+    secret = new_token()
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+        with os.fdopen(fd, "w", encoding="ascii") as f:
+            f.write(secret + "\n")
+    except FileExistsError:
+        return load_viewer_secret(path)
+    except OSError:
+        raise ConfigError("cannot use viewer secret file") from None
+    return secret.encode("ascii")
 
 
 def load_persistent_code(path: Path) -> str:
@@ -352,10 +394,18 @@ def build_config(
         persistent_link_file = str(link_file)
 
     documents = host_binary = None
+    viewer_secret = viewer_secret_file = None
     if args.kernel == "host":
         documents = (
             Path(args.documents) if args.documents else default_documents_dir(env)
         ).expanduser()
+        secret_file = (
+            Path(args.viewer_secret).expanduser()
+            if args.viewer_secret
+            else default_viewer_secret_file(env, port)
+        )
+        viewer_secret = load_viewer_secret(secret_file)
+        viewer_secret_file = str(secret_file)
         try:
             from waffle_mcp_relay.host import HostError, find_host_binary
 
@@ -378,4 +428,6 @@ def build_config(
         kernel=args.kernel,
         documents=documents,
         host_binary=host_binary,
+        viewer_secret=viewer_secret,
+        viewer_secret_file=viewer_secret_file,
     )

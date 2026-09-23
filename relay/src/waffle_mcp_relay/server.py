@@ -333,7 +333,9 @@ async def run_relay(config: RelayConfig) -> None:
         viewers = ViewerServer(
             host=host,
             pairing=ViewerPairing(
-                resume_s=config.resume_window_s, persistent_code=config.persistent_code
+                resume_s=config.resume_window_s,
+                persistent_code=config.persistent_code,
+                secret=config.viewer_secret,
             ),
             allow_origins=config.allow_origins,
             ssl_context=config.ssl_context,
@@ -341,12 +343,13 @@ async def run_relay(config: RelayConfig) -> None:
         await viewers.start(config.bind, config.port)
         log.info(
             "kernel host: %s (documents in %s); viewer link on %s, advertised as %s "
-            "(allowed origins: %s)",
+            "(allowed origins: %s; viewer tokens signed with %s)",
             config.host_binary,
             config.documents,
             config.listen_address,
             config.relay_url,
             ", ".join(config.allow_origins),
+            config.viewer_secret_file,
         )
         if config.persistent_code is not None:
             log.info(

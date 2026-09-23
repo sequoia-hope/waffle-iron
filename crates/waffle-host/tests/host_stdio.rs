@@ -514,6 +514,217 @@ fn progress_frames_ride_only_for_a_call_that_asked() {
     assert_eq!(client.bye(), 0);
 }
 
+/// Viewer sync, §4.3 `rebuild` and §4.5 `mq/1`: a tool that can change the
+/// document is bracketed by `rebuild{started}` / `rebuild{done}` frames
+/// (a read-only tool by none), and a blob asked for in `mq/1` decodes to the
+/// same triangles within quantization — while an unknown encoding is
+/// `missing`, never a guess.
+#[test]
+fn a_rebuild_is_announced_and_a_blob_answers_in_the_compact_encoding() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut client = Client::spawn(dir.path());
+    assert_eq!(client.recv().kind(), "ready");
+    client.ok("document_new", json!({ "name": "Compact" }));
+    // The push after document_new is read during the next call; a read-only
+    // tool drains it so the frames counted below are sketch_create's own.
+    client.ok("model_summary", json!({}));
+    client.aside.clear();
+    let sketch = client.ok(
+        "sketch_create",
+        json!({ "plane": { "origin": [0, 0, 0], "normal": [0, 0, 1] }, "entities": rectangle() }),
+    );
+    let rebuilds: Vec<Value> = client
+        .aside
+        .iter()
+        .filter(|f| f.kind() == "rebuild")
+        .map(|f| f.header.clone())
+        .collect();
+    // `started` first, `done` last, any number of `progress` between (the
+    // engine reports per feature), and the snapshot push after `done`.
+    assert!(
+        rebuilds.len() >= 2,
+        "started + done around sketch_create: {rebuilds:?}"
+    );
+    assert_eq!(rebuilds[0]["state"], "started");
+    assert_eq!(rebuilds[0]["tool"], "sketch_create");
+    assert_eq!(rebuilds.last().unwrap()["state"], "done");
+    assert_eq!(rebuilds.last().unwrap()["ok"], true);
+    for middle in &rebuilds[1..rebuilds.len() - 1] {
+        assert_eq!(middle["state"], "progress", "{middle}");
+    }
+    // Every frame before the result is a rebuild frame; the snapshot push
+    // follows the result (and is read during the next call).
+    assert!(client.aside.iter().all(|f| f.kind() == "rebuild"));
+
+    client.aside.clear();
+    client.ok("model_summary", json!({}));
+    let kinds: Vec<&str> = client.aside.iter().map(Frame::kind).collect();
+    assert_eq!(
+        kinds,
+        vec!["snapshot"],
+        "the push after sketch_create; a read-only tool announces no rebuild"
+    );
+
+    client.ok(
+        "feature_add",
+        json!({
+            "operation": {
+                "type": "Extrude",
+                "params": {
+                    "sketch_id": sketch["feature_id"],
+                    "profile_index": 0,
+                    "profile_entity_ids": [5, 6, 7, 8],
+                    "depth": 0.005,
+                    "symmetric": false,
+                    "cut": false
+                }
+            }
+        }),
+    );
+    client.send(&json!({ "type": "snapshot", "id": "s1" }));
+    let snapshot = loop {
+        let frame = client.recv();
+        if frame.kind() == "snapshot" && frame.header["id"] == "s1" {
+            break frame.header;
+        }
+    };
+    let mesh_id = snapshot["bodies"][0]["mesh_id"]
+        .as_str()
+        .unwrap()
+        .to_string();
+
+    client.send(&json!({ "type": "blob", "id": "raw", "mesh_id": mesh_id }));
+    let raw = loop {
+        let frame = client.recv();
+        if frame.kind() == "blob" {
+            break frame;
+        }
+    };
+    client.send(&json!({ "type": "blob", "id": "mq", "mesh_id": mesh_id, "encoding": "mq/1" }));
+    let compact = loop {
+        let frame = client.recv();
+        if frame.kind() == "blob" {
+            break frame;
+        }
+    };
+    assert_eq!(compact.header["encoding"], "mq/1");
+    assert_eq!(compact.header["byte_length"], compact.payload.len());
+    let raw_mesh = waffle_host::mq::parse_raw(&raw.payload).expect("raw/1 parses");
+    let mq_mesh = waffle_host::mq::decode(&compact.payload).expect("mq/1 decodes");
+    assert_eq!(
+        waffle_host::mq::canonical_triangles(&mq_mesh.indices),
+        waffle_host::mq::canonical_triangles(&raw_mesh.indices),
+        "the triangles are exact (the codec may rotate a triangle's start vertex)"
+    );
+    assert_eq!(
+        mq_mesh.header["face_ranges"],
+        raw_mesh.header["face_ranges"]
+    );
+    for (a, b) in mq_mesh.positions.iter().zip(&raw_mesh.positions) {
+        assert!((a - b).abs() < 1e-5, "{a} vs {b}");
+    }
+    // The same id in the same encoding is the same bytes (a cache answers it).
+    client.send(&json!({ "type": "blob", "id": "mq2", "mesh_id": mesh_id, "encoding": "mq/1" }));
+    let again = loop {
+        let frame = client.recv();
+        if frame.kind() == "blob" {
+            break frame;
+        }
+    };
+    assert_eq!(again.payload, compact.payload);
+
+    client.send(&json!({ "type": "blob", "id": "x", "mesh_id": mesh_id, "encoding": "nope/9" }));
+    let unknown = loop {
+        let frame = client.recv();
+        if frame.kind() == "blob" {
+            break frame;
+        }
+    };
+    assert_eq!(unknown.header["missing"], true);
+    assert_eq!(client.bye(), 0);
+}
+
+/// A document whose active tab is an Assembly is evaluated when the host
+/// opens or imports it, as the page evaluates it on open — otherwise the
+/// host (and every viewer) shows the assembly with no bodies. Found
+/// 2026-09-23 importing the gravel bike example headless.
+#[test]
+fn an_opened_assembly_document_is_evaluated() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut client = Client::spawn(dir.path());
+    assert_eq!(client.recv().kind(), "ready");
+    let doc = client.ok("document_new", json!({ "name": "Asm" }));
+    let part = doc["tabs"][0]["id"].as_str().unwrap().to_string();
+    let sketch = client.ok(
+        "sketch_create",
+        json!({ "plane": { "origin": [0, 0, 0], "normal": [0, 0, 1] }, "entities": rectangle() }),
+    );
+    client.ok(
+        "feature_add",
+        json!({ "operation": { "type": "Extrude", "params": {
+            "sketch_id": sketch["feature_id"], "profile_index": 0, "profile_entity_ids": [5, 6, 7, 8],
+            "depth": 0.005, "symmetric": false, "cut": false
+        } } }),
+    );
+    client.ok("tab_add", json!({ "kind": "Assembly", "name": "Top" }));
+    client.ok("instance_add", json!({ "tab_id": part, "name": "One" }));
+    let bodies_on_assembly = |client: &mut Client, tag: &str| -> usize {
+        client.send(&json!({ "type": "snapshot", "id": tag }));
+        loop {
+            let frame = client.recv();
+            if frame.kind() == "snapshot" && frame.header["id"] == tag {
+                break frame.header["bodies"].as_array().unwrap().len();
+            }
+        }
+    };
+    assert_eq!(
+        bodies_on_assembly(&mut client, "built"),
+        1,
+        "the placed instance renders"
+    );
+    let saved = client.ok("document_save", json!({}));
+    let id = saved["id"].as_str().unwrap().to_string();
+    let text = std::fs::read_to_string(dir.path().join(format!("{id}.waffle"))).unwrap();
+
+    // Reopen from disk: the active Assembly tab is evaluated on open.
+    client.ok("document_new", json!({ "name": "Other" }));
+    assert_eq!(bodies_on_assembly(&mut client, "empty"), 0);
+    let reopened = client.ok("document_open", json!({ "id": id }));
+    assert_eq!(
+        reopened["active_tab"],
+        doc["tabs"][0]["id"]
+            .as_str()
+            .map(|_| reopened["active_tab"].clone())
+            .unwrap()
+    );
+    assert_eq!(
+        bodies_on_assembly(&mut client, "reopened"),
+        1,
+        "document_open evaluates the assembly"
+    );
+
+    // And on import.
+    client.ok("document_new", json!({ "name": "Other 2" }));
+    client.ok(
+        "document_import",
+        json!({ "file_name": "asm.waffle", "text": text }),
+    );
+    assert_eq!(
+        bodies_on_assembly(&mut client, "imported"),
+        1,
+        "document_import evaluates the assembly"
+    );
+
+    // Switching to the part and back to the assembly keeps rendering.
+    client.ok("tab_switch", json!({ "tab_id": part }));
+    assert_eq!(
+        bodies_on_assembly(&mut client, "part"),
+        1,
+        "the part's own body after the switch"
+    );
+    assert_eq!(client.bye(), 0);
+}
+
 #[test]
 fn a_closed_stdin_ends_the_host_cleanly() {
     let dir = tempfile::tempdir().unwrap();

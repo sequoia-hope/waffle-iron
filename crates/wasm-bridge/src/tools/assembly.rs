@@ -326,6 +326,11 @@ fn commit(
             json!({ "reason": message }),
         ));
     }
+    // The evaluation (re)built part engines whose bodies have no meshes
+    // yet; only a top-level `ModelUpdated` is tessellated by
+    // `process_message`, so the tool does it here — else the answer's model
+    // update, and a viewer's snapshot, list the assembly with no bodies.
+    crate::tessellation_runner::tessellate_missing_meshes(state, kb);
     Ok(())
 }
 

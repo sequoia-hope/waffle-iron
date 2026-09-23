@@ -22,11 +22,16 @@ use crate::host::Host;
 
 pub const PROTOCOL: &str = "waffle-viewer/1";
 
-/// The one encoding this version writes (§4.5): a JSON header, then the
-/// buffers the browser worker transfers today — `Float32` positions,
-/// `Float32` normals, `Uint32` indices, `Float32` edge polylines — all
-/// little-endian, the header padded so every buffer starts 4-byte aligned.
+/// The canonical encoding (§4.5), the one a `mesh_id` names: a JSON header,
+/// then the buffers the browser worker transfers today — `Float32`
+/// positions, `Float32` normals, `Uint32` indices, `Float32` edge polylines —
+/// all little-endian, the header padded so every buffer starts 4-byte
+/// aligned. The compact `mq/1` (`crate::mq`) is derived from it on request:
+/// the id is the content's, the encoding is the viewer's choice.
 pub const ENCODING: &str = "raw/1";
+
+/// Every encoding a blob can be asked for.
+pub const ENCODINGS: &[&str] = &[ENCODING, crate::mq::ENCODING];
 
 /// Blobs kept beyond the current snapshot's, so a viewer that reconnects
 /// after an edit still finds the body it asks for a moment later.
@@ -36,6 +41,8 @@ const STORE_CAP_BYTES: usize = 512 << 20;
 #[derive(Default)]
 pub struct MeshStore {
     blobs: HashMap<String, Arc<Vec<u8>>>,
+    /// `mq/1` transcodings, made on first request and kept while the raw blob is.
+    compact: HashMap<String, Arc<Vec<u8>>>,
     /// Insertion order, oldest first, for eviction.
     order: Vec<String>,
     bytes: usize,
@@ -46,6 +53,24 @@ pub struct MeshStore {
 impl MeshStore {
     pub fn get(&self, mesh_id: &str) -> Option<Arc<Vec<u8>>> {
         self.blobs.get(mesh_id).cloned()
+    }
+
+    /// The blob in `encoding`: `raw/1` as stored, `mq/1` transcoded once.
+    /// `None` for an unknown id or encoding.
+    pub fn get_encoded(&mut self, mesh_id: &str, encoding: &str) -> Option<Arc<Vec<u8>>> {
+        if encoding == ENCODING {
+            return self.get(mesh_id);
+        }
+        if encoding != crate::mq::ENCODING {
+            return None;
+        }
+        if let Some(done) = self.compact.get(mesh_id) {
+            return Some(done.clone());
+        }
+        let raw = self.blobs.get(mesh_id)?;
+        let encoded = Arc::new(crate::mq::encode(raw)?);
+        self.compact.insert(mesh_id.to_string(), encoded.clone());
+        Some(encoded)
     }
 
     pub fn len(&self) -> usize {
@@ -79,6 +104,7 @@ impl MeshStore {
                 if let Some(blob) = self.blobs.remove(&id) {
                     over = over.saturating_sub(blob.len());
                     self.bytes -= blob.len();
+                    self.compact.remove(&id);
                     evicted.push(id);
                     continue;
                 }
@@ -232,8 +258,14 @@ impl Host {
         })
     }
 
-    /// A blob by its id, if a recent snapshot named it.
+    /// A blob by its id, if a recent snapshot named it, in `raw/1`.
     pub fn blob(&self, mesh_id: &str) -> Option<Arc<Vec<u8>>> {
         self.meshes().get(mesh_id)
+    }
+
+    /// A blob by its id in the encoding a viewer asked for (§4.5); `None`
+    /// for an id no recent snapshot named or an encoding the host lacks.
+    pub fn blob_encoded(&mut self, mesh_id: &str, encoding: &str) -> Option<Arc<Vec<u8>>> {
+        self.meshes_mut().get_encoded(mesh_id, encoding)
     }
 }

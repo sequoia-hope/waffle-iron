@@ -221,7 +221,12 @@ async def test_host_mode_over_mcp_lists_only_served_tools(
         "document_new",
         "document_import",
         "storage_list",
-    }, "only what the host's ready frame names"
+        # The viewer tools are the relay's own in host mode (spec §4): served
+        # from an attached viewer, refused ViewerUnavailable without one.
+        "selection_get",
+        "viewport_view",
+        "viewport_capture",
+    }, "what the host's ready frame names, plus the viewer tools"
 
     status = (await proc.call_tool("waffle_status"))["structuredContent"]
     assert status["state"] == "ready" and status["kernel"] == "host"
@@ -240,9 +245,14 @@ async def test_host_mode_over_mcp_lists_only_served_tools(
     assert summary["isError"] is False
     assert summary["structuredContent"]["echo"]["agent_name"] == "pytest-agent"
 
-    # A manifest tool the host does not serve is unknown to this relay.
-    unknown = await proc.request("tools/call", {"name": "selection_get", "arguments": {}})
+    # A manifest tool neither the host nor the relay serves is unknown to this relay.
+    unknown = await proc.request("tools/call", {"name": "sketch_create", "arguments": {}})
     assert unknown["error"]["code"] == -32602
+    # A viewer tool is the relay's (spec §4): listed, and refused loudly
+    # while no visible viewer is attached.
+    no_viewer = await proc.call_tool("selection_get")
+    assert no_viewer["isError"] is True
+    assert no_viewer["structuredContent"]["error"]["code"] == "ViewerUnavailable"
     assert await proc.close() == 0
 
 
@@ -272,7 +282,7 @@ async def test_the_real_host_builds_a_part_over_mcp(tmp_path: Path) -> None:
         names = {t["name"] for t in listed["result"]["tools"]}
         assert {"sketch_create", "feature_add", "script_feature_add", "document_new"} <= names
         # The tab and assembly tools are the engine's since 2026-09-23.
-        assert "selection_get" not in names and "tab_add" in names
+        assert "selection_get" in names and "viewport_capture" in names and "tab_add" in names
 
         created = await proc.call_tool("document_new", {"name": "Host part"})
         assert created["isError"] is False, created

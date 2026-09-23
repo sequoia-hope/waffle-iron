@@ -201,17 +201,49 @@ fn document_open(host: &mut Host, args: &Value) -> Result<Value, Box<ToolResult>
     // `discard_unsaved` needs no confirmation: autosave is synchronous, so
     // there is never anything unsaved to discard.
     match host.engine(UiToEngine::LoadProject { data: text }) {
-        EngineToUi::ModelUpdated { .. } => Ok(info(host)),
+        EngineToUi::ModelUpdated { .. } => {}
+        EngineToUi::Error { message, .. } => {
+            return Err(refuse(
+                "StorageFailed",
+                &format!("The document did not load: {message}"),
+                json!({ "provider": PROVIDER_ID, "reason": message }),
+            ))
+        }
+        _ => {
+            return Err(refuse(
+                "Internal",
+                "the engine answered LoadProject with an unexpected message",
+                json!({}),
+            ))
+        }
+    }
+    open_active_assembly(host)?;
+    Ok(info(host))
+}
+
+/// A loaded document whose active tab is an Assembly is evaluated as the
+/// page evaluates it on open (`openDocumentRecord` → `OpenAssembly`):
+/// `LoadProject` leaves an assembly's live tree empty by design, so without
+/// this the host — and every viewer — would show the assembly with no
+/// instances placed and no bodies.
+fn open_active_assembly(host: &mut Host) -> Result<(), Box<ToolResult>> {
+    let active = host.state().session.active_tab_id().to_string();
+    let is_assembly = host
+        .state()
+        .session
+        .tabs()
+        .iter()
+        .any(|t| t.id == active && t.kind == "Assembly");
+    if !is_assembly {
+        return Ok(());
+    }
+    match host.engine(UiToEngine::OpenAssembly { tab_id: active }) {
         EngineToUi::Error { message, .. } => Err(refuse(
-            "StorageFailed",
-            &format!("The document did not load: {message}"),
-            json!({ "provider": PROVIDER_ID, "reason": message }),
-        )),
-        _ => Err(refuse(
             "Internal",
-            "the engine answered LoadProject with an unexpected message",
-            json!({}),
+            &format!("the document loaded but its assembly did not evaluate: {message}"),
+            json!({ "reason": message }),
         )),
+        _ => Ok(()),
     }
 }
 
@@ -306,6 +338,7 @@ fn document_import(host: &mut Host, args: &Value) -> Result<Value, Box<ToolResul
             ))
         }
     }
+    open_active_assembly(host)?;
     let name = match args.get("name").and_then(Value::as_str) {
         Some(n) if !n.is_empty() => n.to_string(),
         _ => strip_document_extension(&file_name).to_string(),

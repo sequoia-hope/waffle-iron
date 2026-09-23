@@ -15,8 +15,15 @@
 	import Viewport from '$lib/viewport/Viewport.svelte';
 	import FeatureTree from '$lib/ui/FeatureTree.svelte';
 	import ToastContainer from '$lib/ui/ToastContainer.svelte';
-	import { getActiveTabId, getDocumentTabs } from '$lib/engine/store.svelte.js';
-	import { startViewer, viewerLink } from '$lib/viewer/link.js';
+	import {
+		getActiveTabId,
+		getDocumentTabs,
+		getSelectedFeatureId,
+		getSelectedInstancePath,
+		getSelectedRefs
+	} from '$lib/engine/store.svelte.js';
+	import { QUERIES } from '$lib/agent/queries.js';
+	import { sendSelection, startViewer, viewerLink } from '$lib/viewer/link.js';
 
 	const params = $page.url.searchParams;
 	const host = (params.get('host') ?? '').replace(/\s+/g, '');
@@ -61,6 +68,24 @@
 			history.replaceState(history.state, '', url);
 		}
 	});
+
+	// What this viewer has picked goes back over the link, so `selection_get`
+	// answers for the focused viewer (§4.3 `select`). The payload is built by
+	// the editor's own `selection_get`, so the agent sees one shape whether
+	// the engine is in this tab or in the host.
+	$effect(() => {
+		// Read the selection state so this effect tracks it.
+		const refs = getSelectedRefs();
+		void refs.length;
+		void getSelectedFeatureId();
+		void getSelectedInstancePath();
+		if ($viewerLink.state !== 'attached') return;
+		try {
+			sendSelection(QUERIES.selection_get.run().structuredContent);
+		} catch {
+			// a selection that cannot be described is not sent
+		}
+	});
 </script>
 
 {#if linkError}
@@ -87,11 +112,18 @@
 				data-state={$viewerLink.state}
 				data-stale={$viewerLink.stale}
 				data-revision={$viewerLink.revision ?? ''}
+				data-encoding={$viewerLink.encoding ?? ''}
 			>
 				{STATE_LABEL[$viewerLink.state]}{$viewerLink.stale ? ' · showing last known model' : ''}
 				{#if $viewerLink.state === 'attached'}· {$viewerLink.bodies} {$viewerLink.bodies === 1 ? 'body' : 'bodies'}{/if}
 			</span>
 		</header>
+		{#if $viewerLink.rebuilding}
+			<p class="rebuilding" data-testid="viewer-rebuilding">
+				<span class="spinner"></span>
+				{$viewerLink.agent ?? 'The agent'} is building{$viewerLink.rebuilding.feature ? ` ${$viewerLink.rebuilding.feature}` : ''}{$viewerLink.rebuilding.message ? ` · ${$viewerLink.rebuilding.message}` : ''}
+			</p>
+		{/if}
 		{#if $viewerLink.state === 'failed' && $viewerLink.reason}
 			<p class="failure" data-testid="viewer-failure">{REASONS[$viewerLink.reason] ?? `Not connected (${$viewerLink.reason}).`}</p>
 		{/if}
@@ -118,8 +150,10 @@
 <style>
 	.viewer-shell {
 		height: 100vh;
-		display: grid;
-		grid-template-rows: auto auto 1fr;
+		/* Flex, not a fixed row template: the failure line and the rebuild
+		   banner come and go, and the viewport takes whatever is left. */
+		display: flex;
+		flex-direction: column;
 		background: var(--bg-primary, #1e1e2e);
 		color: var(--text-primary, #cdd6f4);
 	}
@@ -172,7 +206,33 @@
 		color: var(--error, #f38ba8);
 		font-size: 13px;
 	}
+	.rebuilding {
+		display: flex;
+		align-items: center;
+		gap: 8px;
+		margin: 0;
+		padding: 4px 12px;
+		font-size: 12px;
+		color: var(--text-secondary, #a6adc8);
+		background: var(--bg-secondary, #181825);
+		border-bottom: 1px solid var(--border-color, #45475a);
+	}
+	.spinner {
+		width: 10px;
+		height: 10px;
+		border: 2px solid var(--border-color, #45475a);
+		border-top-color: var(--accent, #89b4fa);
+		border-radius: 50%;
+		animation: spin 0.8s linear infinite;
+		flex-shrink: 0;
+	}
+	@keyframes spin {
+		to {
+			transform: rotate(360deg);
+		}
+	}
 	.main {
+		flex: 1;
 		display: grid;
 		grid-template-columns: minmax(180px, 260px) 1fr;
 		min-height: 0;
