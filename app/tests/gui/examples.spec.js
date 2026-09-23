@@ -19,6 +19,13 @@ test.describe('Examples panel', () => {
 	});
 
 	test('lists the shipped examples and opens the gravel bike as a new document', async ({ page }) => {
+		// The heaviest document in the suite by a wide margin: twelve tabs whose
+		// active one is an assembly of fourteen instances, which the WASM engine
+		// rebuilds and tessellates into 1.15 M triangles before anything renders.
+		// ~24 s locally; a shared 4-core runner takes several times that, and the
+		// 60 s default cut it off at zero bodies (CI, 2026-09-23). Still a real
+		// bound — a document that never builds fails.
+		test.setTimeout(300000);
 		const crashes = collectCrashErrors(page);
 		const before = await documentInfo(page);
 
@@ -39,7 +46,7 @@ test.describe('Examples panel', () => {
 		await bike.click();
 		// The whole document arrives: twelve tabs, the assembly active, and its
 		// placed parts rendered (the bike is fourteen instances).
-		await expect.poll(async () => (await documentInfo(page)).tabs?.length ?? 0, { timeout: 120000 }).toBe(12);
+		await expect.poll(async () => (await documentInfo(page)).tabs?.length ?? 0, { timeout: 240000 }).toBe(12);
 		const info = await documentInfo(page);
 		expect(info.name).toBe('Gravel bike v2');
 		expect(info.tabs.map((t) => t.name)).toEqual([
@@ -49,7 +56,7 @@ test.describe('Examples panel', () => {
 		const active = info.tabs.find((t) => t.id === info.activeTab);
 		expect(active?.name).toBe('Gravel bike');
 		await expect
-			.poll(async () => page.evaluate(() => (window.__waffle.getMeshes() ?? []).filter((m) => m.triangleCount > 0).length), { timeout: 120000 })
+			.poll(async () => page.evaluate(() => (window.__waffle.getMeshes() ?? []).filter((m) => m.triangleCount > 0).length), { timeout: 240000 })
 			.toBeGreaterThanOrEqual(14);
 		// A copy: the example opens under an identity of its own, never the file's.
 		expect(info.storageId).not.toBe(before.storageId);

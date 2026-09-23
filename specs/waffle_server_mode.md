@@ -798,8 +798,14 @@ untouched (C1).
   current revision, with no `LoadProject` in the viewer. **GREEN**
   (`viewer.spec.js`).
 - **V2** host restart during attach: kill the host child; viewer reattaches;
-  state equals the last autosave; zero blob requests when H3 holds. Open —
-  the token survives (§4.7), but no case kills the child.
+  state equals the last autosave; zero blob requests. **GREEN in two halves**:
+  `host_stdio.rs::a_restarted_host_names_the_same_mesh_ids` (a second process
+  over the same documents directory hashes the same geometry to the same ids,
+  under a new epoch, and its blobs answer by them — so a viewer's cache is
+  valid across the restart), and `test_viewer.py`'s crash-resync case (the
+  child aborts, the next call restarts it and reopens its document, and the
+  viewer takes the new epoch as a whole snapshot naming the ids it holds).
+  No GUI case kills the child.
 - **V3** gap: a viewer that cannot apply an update converges via `snapshot`.
   **GREEN** (`test_viewer.py`, both the stale-`have` attach and the
   mid-stream epoch change).

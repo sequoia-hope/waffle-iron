@@ -1,10 +1,17 @@
 //! Backward-compatibility pin (`specs/waffle_v4_document_model.md` §4
 //! invariant 3, §5): every `.waffle` file in the repository — the 312-case
-//! assay corpus, the GUI fixtures, the harness fixture and the root samples,
-//! all v3 or older — loads through both APIs, migrates to v4, re-saves, and
-//! reloads with its feature count intact. The three root samples that carry
-//! region and STEP payloads must also rebuild identically before and after
-//! migration.
+//! assay corpus, the GUI fixtures, the harness fixture, the shipped examples
+//! and the root samples — loads through `load_document`, migrates to v4,
+//! re-saves and reloads with its identity, sources and structure intact. The
+//! three root samples that carry region and STEP payloads must also rebuild
+//! identically before and after migration.
+//!
+//! `load_project`, the part-only convenience, is exercised too — but a
+//! document whose ACTIVE tab is an Assembly is refused by it BY CONTRACT
+//! ("cannot be opened as a part"), so for those the pin is that the refusal
+//! is the same before and after migration. `app/static/examples/`'s gravel
+//! bike is the repo's first such document; before it, every tracked file
+//! opened to a Part and the distinction never came up.
 
 use std::path::{Path, PathBuf};
 
@@ -84,6 +91,7 @@ fn every_repo_waffle_file_loads_migrates_and_round_trips() {
         files.len()
     );
     let mut versions = std::collections::BTreeMap::new();
+    let mut assemblies = 0usize;
     for path in &files {
         let json = std::fs::read_to_string(path).unwrap();
         let raw: serde_json::Value = serde_json::from_str(&json).unwrap();
@@ -91,8 +99,10 @@ fn every_repo_waffle_file_loads_migrates_and_round_trips() {
             .entry(raw["version"].as_u64().unwrap_or(0))
             .or_insert(0usize) += 1;
 
-        let (tree, _) =
-            load_project(&json).unwrap_or_else(|e| panic!("{}: load_project: {e}", path.display()));
+        // Part-only by contract: `Ok` for a Part-active document, a typed
+        // refusal for an Assembly-active one. Both must survive migration
+        // unchanged, which is what the comparison below asserts.
+        let as_part = load_project(&json).map(|(tree, _)| tree.features.len());
         let loaded = load_document(&json)
             .unwrap_or_else(|e| panic!("{}: load_document: {e}", path.display()));
         let doc = loaded.document;
@@ -105,13 +115,25 @@ fn every_repo_waffle_file_loads_migrates_and_round_trips() {
         let v4 = save_document(&doc);
         let again = load_document(&v4)
             .unwrap_or_else(|e| panic!("{}: reload of migrated v4: {e}", path.display()));
-        let (tree_again, _) = load_project(&v4).unwrap();
-        assert_eq!(
-            tree.features.len(),
-            tree_again.features.len(),
-            "{}",
-            path.display()
-        );
+        let as_part_again = load_project(&v4).map(|(tree, _)| tree.features.len());
+        if as_part.is_err() {
+            assemblies += 1;
+        }
+        match (&as_part, &as_part_again) {
+            (Ok(before), Ok(after)) => {
+                assert_eq!(before, after, "{}: feature count", path.display())
+            }
+            (Err(before), Err(after)) => assert_eq!(
+                before.to_string(),
+                after.to_string(),
+                "{}: load_project refuses the same way after migration",
+                path.display()
+            ),
+            _ => panic!(
+                "{}: load_project changed its mind across migration ({as_part:?} then {as_part_again:?})",
+                path.display()
+            ),
+        }
         assert_eq!(
             again.document.document.id,
             doc.document.id,
@@ -130,6 +152,11 @@ fn every_repo_waffle_file_loads_migrates_and_round_trips() {
     }
     eprintln!("corpus versions: {versions:?}");
     assert!(versions.contains_key(&3), "the corpus is v3: {versions:?}");
+    assert!(
+        assemblies > 0,
+        "an Assembly-active document is part of what this pin covers \
+         (app/static/examples/gravel-bike-v2.waffle)"
+    );
 }
 
 /// The root samples with region payloads and an embedded STEP body rebuild
