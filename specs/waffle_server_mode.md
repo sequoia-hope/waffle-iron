@@ -880,7 +880,11 @@ tokens that outlive the process.
   relay restart and the resume window runs from its last sign of life;
   single-use codes (300 s) and the `--persistent-link` code are unchanged. A
   blob is cached in the relay (256 MB, keyed by id AND encoding) so several
-  viewers cost the host one encode. **The three viewer tools are served
+  viewers cost the host one encode. A host that aborts fails its in-flight
+  calls `EngineCrashed`, is restarted on the next call and reopens its
+  document; the snapshot that follows carries a NEW epoch, so every viewer
+  takes the whole thing rather than an update across processes (V2).
+  **The three viewer tools are served
   here**: `selection_get` from the focused visible viewer's last `select`,
   `viewport_view` / `viewport_capture` by `view_request` / `capture_request`
   round trips to it (30 s), and `ViewerUnavailable` — the code the host
