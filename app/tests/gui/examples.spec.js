@@ -71,4 +71,42 @@ test.describe('Examples panel', () => {
 		expect((await page.request.get('/examples/gravel-bike-v2.py')).ok()).toBe(true);
 		expectNoAnyCrash(crashes);
 	});
+
+	test('opens the Eiffel Tower: eleven tabs and its whole lattice', async ({ page }) => {
+		// 1,052 authored features raised to 1,964 bodies by four-fold
+		// PatternCircular — the largest body count in the suite, though only
+		// ~26 k triangles, since every body is a box. ~7 s locally; a shared
+		// runner takes several times that (the bike's budget applies here too).
+		test.setTimeout(300000);
+		const crashes = collectCrashErrors(page);
+		const before = await documentInfo(page);
+
+		await page.getByTestId('toolbar-btn-examples').click();
+		const tower = page.getByTestId('example-eiffel-tower');
+		await expect(tower).toBeVisible();
+		await expect(tower).toContainText('Eiffel Tower');
+		await tower.click();
+
+		await expect.poll(async () => (await documentInfo(page)).tabs?.length ?? 0, { timeout: 240000 }).toBe(11);
+		const info = await documentInfo(page);
+		expect(info.name).toBe('Eiffel Tower');
+		expect(info.tabs.map((t) => t.name)).toEqual([
+			'Piers', 'Legs', 'Arches', 'First platform', 'Second platform', 'Upper pylon',
+			'Intermediate platform', 'Top platform', 'Campanile', 'Antenna mast', 'Eiffel Tower'
+		]);
+		expect(info.tabs.find((t) => t.id === info.activeTab)?.name).toBe('Eiffel Tower');
+
+		// The whole lattice arrives, not a prefix of it: a quiet half-build
+		// would still show a tower.
+		await expect
+			.poll(async () => page.evaluate(() => (window.__waffle.getMeshes() ?? []).filter((m) => m.triangleCount > 0).length), { timeout: 240000 })
+			.toBe(1964);
+
+		// A copy, as the bike is.
+		expect(info.storageId).not.toBe(before.storageId);
+		const shipped = await (await page.request.get('/examples/eiffel-tower.waffle')).json();
+		expect(info.documentId).not.toBe(shipped.document.id);
+		expect((await page.request.get('/examples/eiffel-tower.py')).ok()).toBe(true);
+		expectNoAnyCrash(crashes);
+	});
 });
