@@ -1,5 +1,5 @@
 {
-  "manifest_hash": "b0ee00f97971bed277d24895a1ef5c7865bbbfb8b4df3bd26a593171e167efe7",
+  "manifest_hash": "53395829697107dcb2e86c74f5e0ddd3164b5336fb61ad89a9e5893db6e41bd8",
   "protocol": "waffle-agent-link/1",
   "tools": [
     {
@@ -1968,14 +1968,43 @@
         "readOnlyHint": false,
         "title": "Set view"
       },
-      "description": "Point the user's 3D view: snap to a standard view and/or fit everything in view, as the View Cube and the F key do. Only the camera moves; the model and the undo history are unchanged. Returns the resulting camera (world meters). Refused with ViewportUnavailable while the viewport is hidden.",
+      "description": "Point the user's 3D view: snap to a standard view and fit either everything (as the View Cube and the F key do) or the region `frame` names — some bodies, or a radius about a point — which is how you inspect a detail of a large model. Standard views are in MODEL space, where up is +Z: \"front\" is an elevation along +Y, \"top\" looks down, \"iso\" is the front-right-top three-quarter. Only the camera moves; the model and the undo history are unchanged. Returns the resulting camera (world meters). Refused with ViewportUnavailable while the viewport is hidden.",
       "inputSchema": {
         "additionalProperties": false,
         "properties": {
           "fit": {
             "default": true,
-            "description": "Frame all visible bodies (or, with none, the sketches) after snapping.",
+            "description": "Frame all visible bodies (or, with none, the sketches) after snapping. Ignored when `frame` is given.",
             "type": "boolean"
+          },
+          "frame": {
+            "additionalProperties": false,
+            "description": "Frame a REGION instead of the whole model: either `body_ids` (the union of those bodies' boxes) or `point` + `radius` (a cube of half-size `radius` about that world point). Not both.",
+            "properties": {
+              "body_ids": {
+                "description": "Body ids from model_summary.bodies.",
+                "items": {
+                  "type": "string"
+                },
+                "minItems": 1,
+                "type": "array"
+              },
+              "point": {
+                "description": "World point in meters.",
+                "items": {
+                  "type": "number"
+                },
+                "maxItems": 3,
+                "minItems": 3,
+                "type": "array"
+              },
+              "radius": {
+                "description": "Half-size in meters of the region framed about `point`. Required with `point`.",
+                "exclusiveMinimum": 0,
+                "type": "number"
+              }
+            },
+            "type": "object"
           },
           "view": {
             "description": "Standard view to snap to; omit to keep the current direction.",
@@ -2041,6 +2070,35 @@
           "fitted": {
             "type": "boolean"
           },
+          "framed": {
+            "description": "The box actually framed when `frame` was given, else null.",
+            "properties": {
+              "max": {
+                "items": {
+                  "type": "number"
+                },
+                "maxItems": 3,
+                "minItems": 3,
+                "type": "array"
+              },
+              "min": {
+                "items": {
+                  "type": "number"
+                },
+                "maxItems": 3,
+                "minItems": 3,
+                "type": "array"
+              }
+            },
+            "required": [
+              "min",
+              "max"
+            ],
+            "type": [
+              "object",
+              "null"
+            ]
+          },
           "view": {
             "type": [
               "string",
@@ -2051,6 +2109,7 @@
         "required": [
           "view",
           "fitted",
+          "framed",
           "camera"
         ],
         "type": "object"

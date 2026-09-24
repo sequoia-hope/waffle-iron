@@ -27,10 +27,41 @@ function dispatch(name, detail) {
 /** @type {Record<string, { run: (args: any) => any }>} */
 export const VIEWPORT_QUERIES = {
 	viewport_view: {
-		run: ({ view, fit = true }) => {
-			const detail = dispatch('waffle-agent-view', { view: view ?? null, fit, camera: null });
+		run: ({ view, fit = true, frame = null }) => {
+			// The schema cannot say "one of body_ids / point, and radius with
+			// point" — check it here rather than framing something arbitrary.
+			if (frame) {
+				const hasBodies = Array.isArray(frame.body_ids) && frame.body_ids.length > 0;
+				const hasPoint = Array.isArray(frame.point);
+				if (hasBodies === hasPoint) {
+					throw fail('InvalidArguments', 'frame takes either body_ids or point (with radius), not both.', {
+						frame
+					});
+				}
+				if (hasPoint && !(frame.radius > 0)) {
+					throw fail('InvalidArguments', 'frame.point needs a positive frame.radius (meters).', { frame });
+				}
+			}
+			const detail = dispatch('waffle-agent-view', {
+				view: view ?? null,
+				fit,
+				frame,
+				camera: null,
+				framed: null,
+				missing_body_ids: null
+			});
+			if (detail.missing_body_ids?.length) {
+				throw fail('BodyNotFound', 'No visible body with that id in this view.', {
+					body_ids: detail.missing_body_ids
+				});
+			}
 			if (!detail.camera) throw fail('ViewportUnavailable', NOT_MOUNTED, { reason: 'not_mounted' });
-			return toolOk({ view: view ?? null, fitted: fit, camera: detail.camera });
+			return toolOk({
+				view: view ?? null,
+				fitted: frame ? true : fit,
+				framed: detail.framed ?? null,
+				camera: detail.camera
+			});
 		}
 	},
 

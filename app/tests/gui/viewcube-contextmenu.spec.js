@@ -48,13 +48,14 @@ test.describe('viewcube buttons', () => {
 		expect(state).not.toBeNull();
 		expect(Array.isArray(state.position)).toBe(true);
 
-		// Front view: camera looks along -Z, so the Z-component of the
-		// camera position should dominate (be the largest absolute value)
+		// Front view is an elevation in MODEL space (up = +Z): the camera sits
+		// on −Y looking along +Y, so the Y-component dominates.
 		const absX = Math.abs(state.position[0]);
 		const absY = Math.abs(state.position[1]);
 		const absZ = Math.abs(state.position[2]);
-		expect(absZ).toBeGreaterThan(absX);
-		expect(absZ).toBeGreaterThan(absY);
+		expect(absY).toBeGreaterThan(absX);
+		expect(absY).toBeGreaterThan(absZ);
+		expect(state.up.map(Math.round)).toEqual([0, 0, 1]);
 	});
 
 	test('clicking Top snaps camera', async ({ waffle }) => {
@@ -68,12 +69,12 @@ test.describe('viewcube buttons', () => {
 		const state = await page.evaluate(() => window.__waffle.getCameraState());
 		expect(state).not.toBeNull();
 
-		// Top view: camera looks along -Y, so Y-component dominates
+		// Top view looks straight down the model's up axis: Z dominates.
 		const absX = Math.abs(state.position[0]);
 		const absY = Math.abs(state.position[1]);
 		const absZ = Math.abs(state.position[2]);
-		expect(absY).toBeGreaterThan(absX);
-		expect(absY).toBeGreaterThan(absZ);
+		expect(absZ).toBeGreaterThan(absX);
+		expect(absZ).toBeGreaterThan(absY);
 	});
 
 	test('clicking Iso snaps camera', async ({ waffle }) => {
@@ -92,8 +93,8 @@ test.describe('viewcube buttons', () => {
 		const state = await page.evaluate(() => window.__waffle.getCameraState());
 		expect(state).not.toBeNull();
 
-		// Iso view: direction is [1,1,1] normalized, so all three components
-		// of the (position - target) vector should be roughly equal
+		// Iso view: direction is [1,-1,1] normalized, so all three components
+		// of the (position - target) vector are equal in MAGNITUDE
 		const dx = state.position[0] - state.target[0];
 		const dy = state.position[1] - state.target[1];
 		const dz = state.position[2] - state.target[2];
@@ -116,11 +117,11 @@ test.describe('viewcube buttons', () => {
 
 		// The viewcube tracks currentView internally; verify via data attribute
 		// Since clickViewCubeBtn dispatches the event directly (bypassing component state),
-		// we check via the camera position instead — Front view = Z dominates
+		// we check via the camera position instead — Front view = Y dominates
 		const state = await page.evaluate(() => window.__waffle.getCameraState());
-		const absZ = Math.abs(state.position[2]);
+		const absY = Math.abs(state.position[1]);
 		const absX = Math.abs(state.position[0]);
-		expect(absZ).toBeGreaterThan(absX);
+		expect(absY).toBeGreaterThan(absX);
 	});
 });
 
@@ -206,14 +207,15 @@ test.describe('viewport context menu', () => {
 		// Menu should close
 		await expect(menu).not.toBeVisible();
 
-		// Camera should now be in front view (Z-component dominates)
+		// Camera should now be in front view (Y-component dominates: an
+		// elevation along +Y, model space up = +Z)
 		const state = await page.evaluate(() => window.__waffle.getCameraState());
 		expect(state).not.toBeNull();
 		const absX = Math.abs(state.position[0]);
 		const absY = Math.abs(state.position[1]);
 		const absZ = Math.abs(state.position[2]);
-		expect(absZ).toBeGreaterThan(absX);
-		expect(absZ).toBeGreaterThan(absY);
+		expect(absY).toBeGreaterThan(absX);
+		expect(absY).toBeGreaterThan(absZ);
 	});
 
 	test('clicking away closes menu', async ({ waffle }) => {

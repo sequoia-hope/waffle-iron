@@ -203,12 +203,17 @@
 		border-color: var(--accent);
 	}
 
-	.front  { transform: rotateY(0deg) translateZ(30px); }
-	.back   { transform: rotateY(180deg) translateZ(30px); }
-	.top    { transform: rotateX(90deg) translateZ(30px); }
-	.bottom { transform: rotateX(-90deg) translateZ(30px); }
-	.left   { transform: rotateY(-90deg) translateZ(30px); }
-	.right  { transform: rotateY(90deg) translateZ(30px); }
+	/* The cube is drawn in WORLD axes (its transform is the inverted camera
+	   quaternion), so each label sits on the world face that view looks at —
+	   and the world is Z-up (`standardViews` in CameraControls). The trailing
+	   rotateZ rolls a face about its own normal so its text reads upright from
+	   that view's camera. */
+	.top    { transform: rotateY(0deg) translateZ(30px); }                    /* +Z */
+	.bottom { transform: rotateY(180deg) rotateZ(180deg) translateZ(30px); }  /* −Z */
+	.front  { transform: rotateX(90deg) translateZ(30px); }                   /* −Y */
+	.back   { transform: rotateX(-90deg) rotateZ(180deg) translateZ(30px); }  /* +Y */
+	.left   { transform: rotateY(-90deg) rotateZ(-90deg) translateZ(30px); } /* −X */
+	.right  { transform: rotateY(90deg) rotateZ(90deg) translateZ(30px); }   /* +X */
 
 	.cube-controls {
 		display: flex;

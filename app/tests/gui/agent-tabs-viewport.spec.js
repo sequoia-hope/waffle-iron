@@ -141,19 +141,56 @@ test.describe('Agent link tabs and viewport', () => {
 		expect(target[0]).toBeCloseTo(0, 6);
 		expect(target[1]).toBeCloseTo(0, 6);
 		expect(target[2]).toBeCloseTo(0.5, 6);
-		// ...looks along the iso direction...
+		// ...looks along the iso direction — front-right-top in MODEL space,
+		// where up is +Z, so the camera sits at (+x, −y, +z).
 		const dir = unit(position.map((c, i) => c - target[i]));
-		for (const c of dir) expect(c).toBeCloseTo(1 / Math.sqrt(3), 6);
+		expect(dir.map((c) => Math.round(c * 1e6) / 1e6)).toEqual(
+			[1, -1, 1].map((s) => Math.round((s / Math.sqrt(3)) * 1e6) / 1e6)
+		);
 		// ...from far enough that the cube's largest extent fills at most the 50° view.
 		const distance = Math.hypot(...position.map((c, i) => c - target[i]));
 		expect(distance).toBeGreaterThan(1 / (2 * Math.tan((25 * Math.PI) / 180)));
 
-		// Snapping without fit keeps the distance and the target.
+		// Snapping without fit keeps the distance and the target. `top` looks
+		// straight DOWN the model's up axis (+Z), not along +Y.
 		const top = ok(await relay.callTool('viewport_view', { view: 'top', fit: false }));
 		expect(top.fitted).toBe(false);
+		expect(top.framed).toBeNull();
 		const topDir = unit(top.camera.position.map((c, i) => c - top.camera.target[i]));
-		expect(topDir.map((c) => Math.round(c * 1e6) / 1e6)).toEqual([0, 1, 0]);
+		expect(topDir.map((c) => Math.round(c * 1e6) / 1e6)).toEqual([0, 0, 1]);
+		expect(top.camera.up.map((c) => Math.round(c * 1e6) / 1e6)).toEqual([0, 1, 0]);
 		expect(Math.hypot(...top.camera.position.map((c, i) => c - top.camera.target[i]))).toBeCloseTo(distance, 6);
+		// `front` is an elevation: it looks along +Y with +Z up, so the 1 m
+		// cube's height is the screen's vertical.
+		const front = ok(await relay.callTool('viewport_view', { view: 'front', fit: false }));
+		const frontDir = unit(front.camera.position.map((c, i) => c - front.camera.target[i]));
+		expect(frontDir.map((c) => Math.round(c * 1e6) / 1e6)).toEqual([0, -1, 0]);
+		expect(front.camera.up.map((c) => Math.round(c * 1e6) / 1e6)).toEqual([0, 0, 1]);
+
+		// A region frame: a 0.05 m radius about the cube's top-front-right
+		// corner puts the camera on that corner, not on the whole cube.
+		const corner = [0.5, 0.5, 1];
+		const framed = ok(await relay.callTool('viewport_view', { frame: { point: corner, radius: 0.05 } }));
+		expect(framed.fitted).toBe(true);
+		expect(framed.framed.min).toEqual(corner.map((c) => c - 0.05));
+		expect(framed.framed.max).toEqual(corner.map((c) => c + 0.05));
+		for (let i = 0; i < 3; i++) expect(framed.camera.target[i]).toBeCloseTo(corner[i], 6);
+		expect(Math.hypot(...framed.camera.position.map((c, i) => c - framed.camera.target[i])))
+			.toBeLessThan(distance);
+		// ...and by body: back to the whole cube.
+		const bodyId = ok(await relay.callTool('model_summary')).bodies[0].body_id;
+		const byBody = ok(await relay.callTool('viewport_view', { frame: { body_ids: [bodyId] } }));
+		expect(byBody.framed.max[2]).toBeCloseTo(1, 3);
+		expect(byBody.camera.target[2]).toBeCloseTo(0.5, 3);
+		// A body the view does not have is named, not silently ignored.
+		refused(
+			await relay.callTool('viewport_view', { frame: { body_ids: ['no-such-body'] } }),
+			'BodyNotFound'
+		);
+		refused(
+			await relay.callTool('viewport_view', { frame: { point: corner } }),
+			'InvalidArguments'
+		);
 
 		const capture = await relay.callTool('viewport_capture', { max_edge_px: 256 });
 		const meta = ok(capture);

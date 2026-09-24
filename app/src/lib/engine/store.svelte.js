@@ -307,8 +307,28 @@ let assayBrowserState = $state({ visible: false, cases: [], activeCase: null, ac
  * @type {{ visible: boolean, examples: Array<object>, active: string | null, loading: boolean, error: string | null, writable: boolean, saving: boolean, opening: string | null }}
  */
 let examplesBrowserState = $state({ visible: false, examples: [], active: null, loading: false, error: null, writable: false, saving: false, opening: null });
-/** Set by an example open: fit the view to the first model update that carries geometry. */
+/** Set by a document open: fit the view to the first model update that carries geometry. */
 let fitAllOnNextModel = false;
+/** @type {ReturnType<typeof setTimeout> | null} */
+let fitAllOnNextModelTimer = null;
+
+/**
+ * Frame the model once the document being opened arrives with geometry.
+ * A document open replaces everything the camera was pointed at, so the
+ * default camera (which frames the 200 mm datum planes) would otherwise
+ * leave a 330 m tower — or a 3 mm screw — off-frame until the user hits F.
+ * The flag survives however many rebuilds the open takes (an assembly
+ * evaluates after the file lands) and expires so it can never fire against
+ * a model the user built later.
+ */
+function fitAllOnDocumentOpen() {
+	fitAllOnNextModel = true;
+	if (fitAllOnNextModelTimer) clearTimeout(fitAllOnNextModelTimer);
+	fitAllOnNextModelTimer = setTimeout(() => {
+		fitAllOnNextModel = false;
+		fitAllOnNextModelTimer = null;
+	}, 120000);
+}
 
 /** @type {{ entityA: number, entityB: number | null, sketchX: number, sketchY: number, dimType: 'distance'|'radius'|'angle', defaultValue: number } | null} */
 let dimensionPopup = $state(null);
@@ -855,11 +875,15 @@ export async function initEngine() {
 		if (msg.meshes) {
 			meshes = msg.meshes;
 		}
-		// A load that asked to be framed (an example opening): the first model
+		// A load that asked to be framed (any document open): the first model
 		// with geometry is the one to fit, however many rebuilds the open
 		// took (an assembly evaluates after the file lands).
 		if (fitAllOnNextModel && meshes.some((m) => m.triangleCount > 0)) {
 			fitAllOnNextModel = false;
+			if (fitAllOnNextModelTimer) {
+				clearTimeout(fitAllOnNextModelTimer);
+				fitAllOnNextModelTimer = null;
+			}
 			setTimeout(() => window.dispatchEvent(new Event('waffle-fit-all')), 50);
 		}
 		// The tab bar, the active tab and the document's metadata are MIRRORS
@@ -6876,6 +6900,7 @@ export async function openDocumentRecord(docId, json, link = null) {
 	// Set before the first await: a call arriving during the load is refused,
 	// not answered from the half-swapped store.
 	documentLoadPending = true;
+	fitAllOnDocumentOpen();
 	try {
 		initDocumentState(docId, parsed, link);
 		// Load the document into the engine — ALWAYS, even when the active tab
@@ -8430,8 +8455,6 @@ export async function loadExample(id) {
 		const docId = generateUUID();
 		const now = new Date().toISOString();
 		parsed.document = { ...(parsed.document || {}), id: docId, name: entry.name, created: now, modified: now };
-		fitAllOnNextModel = true;
-		setTimeout(() => { fitAllOnNextModel = false; }, 120000);
 		await openDocumentRecord(docId, JSON.stringify(parsed));
 		examplesBrowserState.active = id;
 		showToast('info', `Example "${entry.name}" opened as a new document`);

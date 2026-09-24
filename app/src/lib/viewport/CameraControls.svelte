@@ -183,14 +183,23 @@
 	// Saved camera state for projection switches
 	let savedCameraState = null;
 
+	// Standard views in MODEL space, where up is +Z. This used to be the stock
+	// three.js Y-up table, which is a legal camera for every name and the
+	// promised view for none: on a Z-up part `front` gave a plan, `top` an
+	// upside-down elevation and `iso` laid the model on its side. Every model
+	// in this repo (and everything an agent authors) stands along +Z, so the
+	// names are defined against that: `front` looks along +Y at an elevation,
+	// `top` looks down −Z, and `iso` is the front-right-top three-quarter.
+	// (The built-in datum planes keep their SolidWorks Y-up names — "Front" is
+	// still the XY plane — which is a separate inconsistency, not this one.)
 	const standardViews = {
-		front:  { pos: [0, 0, 1],  up: [0, 1, 0] },
-		back:   { pos: [0, 0, -1], up: [0, 1, 0] },
-		top:    { pos: [0, 1, 0],  up: [0, 0, -1] },
-		bottom: { pos: [0, -1, 0], up: [0, 0, 1] },
-		left:   { pos: [-1, 0, 0], up: [0, 1, 0] },
-		right:  { pos: [1, 0, 0],  up: [0, 1, 0] },
-		iso:    { pos: [1, 1, 1],  up: [0, 1, 0] }
+		front:  { pos: [0, -1, 0], up: [0, 0, 1] },
+		back:   { pos: [0, 1, 0],  up: [0, 0, 1] },
+		top:    { pos: [0, 0, 1],  up: [0, 1, 0] },
+		bottom: { pos: [0, 0, -1], up: [0, -1, 0] },
+		left:   { pos: [-1, 0, 0], up: [0, 0, 1] },
+		right:  { pos: [1, 0, 0],  up: [0, 0, 1] },
+		iso:    { pos: [1, -1, 1], up: [0, 0, 1] }
 	};
 
 	// Reusable THREE objects for zoom-to-cursor (avoid per-frame allocations)
@@ -862,6 +871,32 @@
 	}
 
 	/**
+	 * The box of the named bodies (visible model meshes only), plus the ids
+	 * that matched nothing — so a caller framing a body it cannot see is told
+	 * which one, instead of getting some other body's frame.
+	 * @param {string[]} bodyIds
+	 * @returns {{ box: THREE.Box3 | null, missing: string[] }}
+	 */
+	function bodiesBox(bodyIds) {
+		const want = new Set(bodyIds);
+		const seen = new Set();
+		const box = new THREE.Box3();
+		if (scene) {
+			scene.traverse((obj) => {
+				if (!obj.visible) return;
+				const ud = /** @type {any} */ (obj).userData;
+				if (ud?.waffleType !== 'model' || !want.has(ud.bodyId)) return;
+				seen.add(ud.bodyId);
+				box.expandByObject(obj);
+			});
+		}
+		return {
+			box: box.isEmpty() ? null : box,
+			missing: bodyIds.filter((id) => !seen.has(id))
+		};
+	}
+
+	/**
 	 * Snap camera to a standard view direction.
 	 * @param {string} viewName
 	 */
@@ -1083,9 +1118,28 @@
 		 */
 		function onAgentView(e) {
 			if (!cameraRef) return;
-			const { view, fit } = e.detail;
+			const { view, fit, frame } = e.detail;
+			// Resolve the region to frame BEFORE moving anything: a frame that
+			// names a body the scene does not have leaves the camera where it
+			// was, rather than snapping and then refusing.
+			let box = null;
+			if (frame?.body_ids?.length) {
+				const found = bodiesBox(frame.body_ids);
+				if (found.missing.length) {
+					e.detail.missing_body_ids = found.missing;
+					return;
+				}
+				box = found.box;
+			} else if (frame?.point) {
+				const c = new THREE.Vector3(frame.point[0], frame.point[1], frame.point[2]);
+				const r = frame.radius;
+				box = new THREE.Box3(c.clone().subScalar(r), c.clone().addScalar(r));
+			}
 			if (view) snapToView(view);
-			if (fit) fitAll();
+			// An explicit frame is the framing; `fit` only applies without one.
+			if (box) fitToBox(box);
+			else if (fit) fitAll();
+			e.detail.framed = box ? { min: box.min.toArray(), max: box.max.toArray() } : null;
 			const target = controlsRef ? controlsRef.target : new THREE.Vector3();
 			e.detail.camera = {
 				projection: isOrtho() ? 'orthographic' : 'perspective',

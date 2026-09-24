@@ -674,7 +674,7 @@
 				position={mesh.position}
 				rotation={mesh.rotation}
 				frustumCulled={false}
-				userData={{ waffleType: 'model' }}
+				userData={{ waffleType: 'model', bodyId: mesh.bodyId }}
 				raycast={() => {}}
 			/>
 		{:else}
@@ -684,7 +684,7 @@
 				position={mesh.position}
 				rotation={mesh.rotation}
 				frustumCulled={false}
-				userData={{ waffleType: 'model' }}
+				userData={{ waffleType: 'model', bodyId: mesh.bodyId }}
 				onpointermove={(e) => handlePointerMove(e, i)}
 				onpointerout={handlePointerOut}
 				onclick={(e) => handleClick(e, i)}

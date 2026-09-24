@@ -287,9 +287,32 @@ the frame. Every one of them is a legal camera; none is the view the name
 promises. Any agent asking for a standard view of a tall Z-up model gets a
 picture it cannot use, with nothing to say it went wrong.
 
-**Suggestion.** Define the table in model space (up = +Z) so `front` is an
-elevation and `iso` is the three-quarter view everyone means. This is a
-one-table change and it is visible in every agent screenshot.
+**FIXED 2026-09-24.** The table is now model space, up = +Z:
+
+| | pos | up |
+|---|---|---|
+| front | (0, −1, 0) | +Z |
+| back | (0, 1, 0) | +Z |
+| top | (0, 0, 1) | +Y |
+| bottom | (0, 0, −1) | −Y |
+| left / right | (∓1, 0, 0) | +Z |
+| iso | (1, −1, 1) | +Z |
+
+The View Cube had to move with it, because the cube is drawn in WORLD axes
+(its transform is the inverted camera quaternion), so each label has to sit
+on the world face that view looks at: `top` is now the +Z face, `front` the
+−Y face, and four of the six carry a `rotateZ` roll so the text reads upright
+from its own view. Verified face by face from a screenshot of each view —
+the sign of a CSS `rotateX`/`rotateZ` in this cube is not what the obvious
+derivation says, so guess and look rather than reason.
+
+**Still crooked, and NOT fixed here:** the built-in datum planes keep
+SolidWorks' Y-up names — "Front" is the XY plane (normal +Z), "Top" is XZ.
+That was coherent with the old camera table and is now the odd one out: the
+plane named "Front" is the one the `top` view looks at. Renaming them (Front
+→ Top, Top → Front) is display-only (the ids are stable UUIDs) but it changes
+what every existing document's UI says about where its sketches live, so it
+is its own decision.
 
 ## 8a. Orbit turned about a point zoom had dragged off the model — FIXED
 
@@ -338,7 +361,24 @@ and, because the camera is orthographic, a `frustumTop`; Fit All had to be
 suppressed or it would zoom straight back out. An agent reviewing its own work
 inspects details far more often than it looks at the whole model.
 
-**Suggestion.** Give `viewport_view` a `target` (a point, a body, or a named
-connector) and a `radius`/`fit_to` — "frame this body", "frame 40 m about this
-point". The camera code already has `fitToBox`; it only needs a box that is not
-always the whole scene.
+**FIXED 2026-09-24.** `viewport_view` takes a `frame`: either `body_ids` (the
+union of those bodies' boxes) or `point` + `radius` (a cube of half-size
+`radius` about a world point). It goes through the same `fitToBox` Fit All
+uses, so the ortho frustum and the clipping planes come out right, and the
+answer echoes the box as `framed`. A `body_ids` entry the view does not have
+is `BodyNotFound` with the camera **unmoved** — the frame is resolved before
+anything is snapped, so a refusal never leaves the camera half-moved. Model
+meshes now carry their `bodyId` in `userData`, which is what makes framing by
+body possible at all.
+
+## 9a. Opening a document left the camera where it was — FIXED
+
+An open replaces everything the camera was pointed at, but only the *example*
+browser asked for a fit; `document_open`, the `/doc/[id]` handoff and the
+startup restore all left the camera on the default framing of the 200 mm datum
+planes. A 330 m tower was then a speck, and a 3 mm screw invisible, until the
+user pressed F. The fit now belongs to `openDocumentRecord` (so every open path
+gets it), still deferred to the first model update that actually carries
+geometry — an assembly evaluates after the file lands, so the geometry can be
+several rebuilds away. Pinned by `agent-documents.spec.js` ("opening a document
+frames its model").

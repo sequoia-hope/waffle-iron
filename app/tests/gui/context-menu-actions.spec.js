@@ -52,14 +52,14 @@ test.describe('context menu view actions', () => {
 		// Menu should close
 		await expect(page.locator('[data-testid="ctx-menu"]')).not.toBeVisible();
 
-		// Camera Y component should dominate (top-down view)
+		// Top-down in MODEL space (up = +Z): the Z component dominates.
 		const state = await page.evaluate(() => window.__waffle.getCameraState());
 		expect(state).not.toBeNull();
 		const absX = Math.abs(state.position[0]);
 		const absY = Math.abs(state.position[1]);
 		const absZ = Math.abs(state.position[2]);
-		expect(absY).toBeGreaterThan(absX);
-		expect(absY).toBeGreaterThan(absZ);
+		expect(absZ).toBeGreaterThan(absX);
+		expect(absZ).toBeGreaterThan(absY);
 	});
 
 	test('Right View action snaps camera', async ({ waffle }) => {

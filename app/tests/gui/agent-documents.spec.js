@@ -107,6 +107,38 @@ test.describe('Agent link documents (Phase 1)', () => {
 		expectNoAnyCrash(crashes);
 	});
 
+	test('opening a document frames its model', async ({ page }) => {
+		const crashes = collectCrashErrors(page);
+		await pairAgent(page, relay, AGENT);
+		// A 20 mm part is nowhere near the 200 mm datum framing the default
+		// camera starts on, so an open that does not frame leaves it a speck.
+		const doc = ok(await relay.callTool('document_new', { name: 'Framed' }));
+		await buildAndSave();
+		// Move the camera far off the part, then open a different document and
+		// come back: the open must frame the model, not keep this camera.
+		ok(await relay.callTool('viewport_view', { frame: { point: [5, 5, 5], radius: 0.5 } }));
+		ok(await relay.callTool('document_new', { name: 'Elsewhere' }));
+		ok(await relay.callTool('document_open', { id: doc.storage_id }));
+		// The engine answers before the fit's rebuild lands in the viewport.
+		await page.waitForFunction(
+			() => Math.abs(window.__waffle.getCameraState()?.target?.[2] ?? 9) < 0.01,
+			null,
+			{ timeout: 10000 }
+		);
+		const camera = ok(await relay.callTool('viewport_view', { fit: false })).camera;
+		// Target is the box's centre (the sketch's u/v are not world x/y, so
+		// take the centre from the body rather than from the sketch)...
+		const body = ok(await relay.callTool('model_summary')).bodies[0].body_id;
+		const { bbox_min, bbox_max } = ok(await relay.callTool('body_measure', { body_id: body }));
+		for (let i = 0; i < 3; i++) {
+			expect(camera.target[i]).toBeCloseTo((bbox_min[i] + bbox_max[i]) / 2, 4);
+		}
+		// ...and the camera is close enough that the part fills the view.
+		const distance = Math.hypot(...camera.position.map((c, i) => c - camera.target[i]));
+		expect(distance).toBeLessThan(0.2);
+		expectNoAnyCrash(crashes);
+	});
+
 	test('S3: pending changes refuse leaving; the user confirms or declines a discard', async ({ page }) => {
 		const crashes = collectCrashErrors(page);
 		await pairAgent(page, relay, AGENT);
