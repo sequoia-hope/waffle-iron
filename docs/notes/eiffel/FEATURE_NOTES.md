@@ -244,11 +244,17 @@ back to the visible model's bounding-box centre on a miss. With no pivot set
 the behaviour is bit-identical to before. Pinned by
 `app/tests/gui/orbit-pivot.spec.js`.
 
-**Still open, the root cause:** a zoom whose ray misses everything should dolly,
-not drag the target sideways. Orbit no longer inherits the drift, but the
-target still ends up off the model, which affects panning and the clipping
-planes. The fix is to stop fabricating a plane hit on a miss (perspective path)
-and to raycast before panning the target (ortho path).
+**The root cause is fixed too.** `zoomTowardScreenPoint` now pans the target
+only when the cursor is on something: the perspective path no longer invents a
+hit on a plane through the target when the ray misses (it falls through to the
+dolly that was already there), and the ortho path raycasts before panning
+instead of always using that plane. Sketch mode is unchanged — there the sketch
+plane IS the surface you are pointing at.
+
+Measured on the tower, one wheel zoom at a background corner: **45.8 m of
+target drift before, 0.000 m after**, with the frustum changing identically
+(249.4 → 217.1) in both. Pinned by `app/tests/gui/zoom-anchor.spec.js`, which
+fails by 9 m without the change.
 
 ## 9. No way to frame a region from the agent side
 

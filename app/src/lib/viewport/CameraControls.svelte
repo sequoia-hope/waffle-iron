@@ -311,6 +311,28 @@
 	}
 
 	/**
+	 * The point on ANY visible mesh under a screen position, or null on a miss.
+	 *
+	 * What zoom-to-cursor aims at: a datum plane is a surface you can point at
+	 * and zoom toward, even before there is a solid. `_raycaster` must already
+	 * be set from the cursor.
+	 * @returns {THREE.Vector3 | null}
+	 */
+	function pickVisiblePoint() {
+		if (!scene) return null;
+		/** @type {THREE.Mesh[]} */
+		const meshes = [];
+		scene.traverse((obj) => {
+			if (/** @type {any} */ (obj).isMesh && obj.visible) {
+				meshes.push(/** @type {THREE.Mesh} */ (obj));
+			}
+		});
+		if (meshes.length === 0) return null;
+		const hits = _raycaster.intersectObjects(meshes, false);
+		return hits.length > 0 ? hits[0].point : null;
+	}
+
+	/**
 	 * Anchor the orbit pivot for the gesture that is starting: the model point
 	 * under the cursor, else the centre of what is on screen.
 	 *
@@ -359,17 +381,32 @@
 			_raycaster.setFromCamera(_mouse, cameraRef);
 
 			const smOrtho = getSketchMode();
+			// Zoom toward the cursor only when the cursor is ON something: in
+			// sketch mode the sketch plane, otherwise a visible surface. Over
+			// empty background there is no world point to hold still, so the
+			// zoom is a pure frustum change about the view centre.
+			//
+			// This is the drift at its source. Panning the target toward the
+			// cursor on a MISS walks it off the model — measured on the Eiffel
+			// Tower, eight zooms over sky moved it from (0, 0, 163.8) to
+			// (36.5, 76.6, 50.7), 76 m outside the structure — and everything
+			// keyed to the target followed it there.
+			let hitPlane = false;
 			if (smOrtho?.active) {
 				const sketchNormal = new THREE.Vector3(smOrtho.normal[0], smOrtho.normal[1], smOrtho.normal[2]).normalize();
 				const sketchOrigin = new THREE.Vector3(smOrtho.origin[0], smOrtho.origin[1], smOrtho.origin[2]);
 				_plane.setFromNormalAndCoplanarPoint(sketchNormal, sketchOrigin);
-			} else {
+				hitPlane = !!_raycaster.ray.intersectPlane(_plane, _planeIntersect);
+			} else if (pickVisiblePoint()) {
+				// The cursor ray is parallel to the view direction in ortho, so
+				// its crossing of the plane through the target IS the in-plane
+				// point to pan toward — the same delta as before, now only
+				// taken when the ray actually lands on something.
 				const cameraDir = new THREE.Vector3();
 				cameraRef.getWorldDirection(cameraDir);
 				_plane.setFromNormalAndCoplanarPoint(cameraDir, controlsRef.target);
+				hitPlane = !!_raycaster.ray.intersectPlane(_plane, _planeIntersect);
 			}
-
-			let hitPlane = _raycaster.ray.intersectPlane(_plane, _planeIntersect);
 
 			// Now apply the frustum scale change
 			frustumHalf = Math.max(0.0001, Math.min(maxDistance * 2, frustumHalf / zoomFactor));
@@ -452,33 +489,13 @@
 			return;
 		}
 
-		if (!hitPoint) {
-			/** @type {THREE.Mesh[]} */
-			const meshes = [];
-			scene.traverse((obj) => {
-				if (/** @type {any} */ (obj).isMesh && obj.visible) {
-					meshes.push(/** @type {THREE.Mesh} */ (obj));
-				}
-			});
+		if (!hitPoint) hitPoint = pickVisiblePoint();
 
-			if (meshes.length > 0) {
-				const intersections = _raycaster.intersectObjects(meshes, false);
-				if (intersections.length > 0) {
-					hitPoint = intersections[0].point;
-				}
-			}
-		}
-
-		if (!hitPoint) {
-			const cameraDir = new THREE.Vector3();
-			cameraRef.getWorldDirection(cameraDir);
-			_plane.setFromNormalAndCoplanarPoint(cameraDir, controlsRef.target);
-			const ray = _raycaster.ray;
-			if (ray.intersectPlane(_plane, _planeIntersect)) {
-				hitPoint = _planeIntersect;
-			}
-		}
-
+		// No fallback onto a plane through the target: a ray that hits nothing
+		// has no world point to zoom toward, and fabricating one there dragged
+		// the target sideways into empty space on every zoom over background
+		// (the Eiffel Tower drift). A miss dollies along the view axis instead,
+		// which is the `else` below.
 		if (hitPoint) {
 			const fraction = 1 - (1 / zoomFactor);
 			cameraRef.position.lerp(hitPoint, fraction);
