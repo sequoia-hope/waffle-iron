@@ -438,6 +438,12 @@ let selectOtherState = $state({ intersections: [], cycleIndex: 0, lastScreenX: -
 
 // -- Two-finger touch gesture state --
 let twoFingerActive = $state(false);
+/**
+ * A rotate gesture is in progress (mouse drag, one-finger touch, or the View
+ * Cube's drag-orbit). Published by `CameraControls` so the viewport can show
+ * the point being turned about while — and only while — it is being used.
+ */
+let orbitActive = $state(false);
 
 // -- Section view state --
 
@@ -1318,6 +1324,17 @@ export async function initEngine() {
 			exportBodyStl: (bodyId, name) => exportBodyStl(bodyId, name),
 			exportStep: () => exportStep(),
 			getCameraState: () => getCameraState(),
+			/** The rotation-center marker's state, for tests. */
+			getRotationCenter: () => {
+				const { controls } = getCameraRefs();
+				const at = controls?.orbitPivot ?? controls?.target ?? null;
+				return {
+					enabled: !!getSettings().showRotationCenter,
+					orbiting: orbitActive,
+					visible: !!getSettings().showRotationCenter && orbitActive,
+					at: at ? [at.x, at.y, at.z] : null,
+				};
+			},
 			getRenderStats: () => getRenderStats(),
 			getCameraProjection: () => getCameraProjection(),
 			setCameraProjection: (proj) => setCameraProjection(proj),
@@ -6129,6 +6146,16 @@ export function setCameraRefs(camera, controls) {
 }
 
 /**
+ * The live camera and controls objects. For viewport components that must
+ * read them every frame (the rotation-center marker); everything else should
+ * go through `getCameraState()`.
+ * @returns {{ camera: any, controls: any }}
+ */
+export function getCameraRefs() {
+	return { camera: cameraObject, controls: controlsObject };
+}
+
+/**
  * Get camera state for tests and external access.
  * @returns {{ position: number[], target: number[], fov: number, up: number[], zoom: number, projection: string } | null}
  */
@@ -6799,6 +6826,14 @@ export function toggleMobilePanel(panel) {
 export function isTwoFingerGestureActive() { return twoFingerActive; }
 /** @param {boolean} v */
 export function setTwoFingerActive(v) { twoFingerActive = v; }
+
+// -- Orbit gesture (the "display rotation center" debug marker) --
+
+export function isOrbitActive() { return orbitActive; }
+/** @param {boolean} v */
+export function setOrbitActive(v) {
+	if (orbitActive !== v) orbitActive = v;
+}
 
 // -- Project name --
 

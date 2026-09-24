@@ -27,6 +27,12 @@ export const SETTINGS_DEFAULTS = Object.freeze({
 	 * 'ask' offers it, 'never' starts empty (RESTORE_ON_RELOAD).
 	 */
 	restoreOnReload: 'auto',
+	/**
+	 * Debug: show the point an orbit turns about — a small translucent green
+	 * sphere at `controls.orbitPivot` — WHILE a rotate is in progress. Off by
+	 * default; sticky, like every other setting here.
+	 */
+	showRotationCenter: false,
 	/** Inline CSS-token overrides: { '--accent': '#rrggbb', ... }. */
 	colors: {},
 });

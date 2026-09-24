@@ -6,7 +6,7 @@
 	import {
 		getSketchMode, setCameraRefs, getSketchPositions, getMeshes,
 		getCameraProjection, setViewCubeTransform, setTwoFingerActive,
-		getSketchDragActive
+		getSketchDragActive, setOrbitActive
 	} from '$lib/engine/store.svelte.js';
 	import { buildSketchPlane } from '$lib/sketch/sketchCoords.js';
 
@@ -167,6 +167,10 @@
 
 	let cameraRef = $state(null);
 	let controlsRef = $state(null);
+	/** The View Cube's drag-orbit, which bypasses OrbitControls' own state. */
+	let viewcubeOrbiting = false;
+	/** @type {ReturnType<typeof setTimeout> | null} */
+	let viewcubeOrbitEnd = null;
 	let hasAutoFitForMesh = false;
 	let sketchActive = $derived(getSketchMode()?.active ?? false);
 	let projection = $derived(getCameraProjection());
@@ -574,7 +578,12 @@
 		if (activePointers.length === 1) {
 			// One finger rotates (OrbitControls' own touch ORBIT): pivot on
 			// whatever is under it.
+			beginPress(e.clientX, e.clientY);
 			anchorOrbitPivot(e.clientX, e.clientY);
+		} else {
+			// A second finger makes it a pan/zoom/twist, not a rotate.
+			pressOrigin = null;
+			setOrbitActive(false);
 		}
 
 		if (activePointers.length === 2) {
@@ -589,6 +598,40 @@
 			// midpoint between the fingers.
 			anchorOrbitPivot(prevMidpoint.x, prevMidpoint.y);
 		}
+	}
+
+	/**
+	 * Is a rotate gesture in progress? Published to the store for the
+	 * "display rotation center" marker (Settings → Debug).
+	 *
+	 * Decided from the app's OWN pointer tracking rather than
+	 * `OrbitControls.state`: the press that begins a rotate is the one that
+	 * anchors the pivot (`onMousePointerDown` / `onTouchPointerDown`), so this
+	 * is the same signal, available at the same moment, and it does not
+	 * depend on a library internal. A press alone is a CLICK (selection); it
+	 * becomes a rotate once the pointer has travelled.
+	 * @type {{ x: number, y: number } | null}
+	 */
+	let pressOrigin = null;
+	/** Travel that turns a press into a rotate. */
+	const ROTATE_SLOP_PX = 4;
+
+	/** @param {number} x @param {number} y */
+	function beginPress(x, y) {
+		pressOrigin = sketchActive ? null : { x, y };
+	}
+
+	/** @param {number} x @param {number} y */
+	function movePress(x, y) {
+		if (!pressOrigin) return;
+		if (Math.hypot(x - pressOrigin.x, y - pressOrigin.y) > ROTATE_SLOP_PX) {
+			setOrbitActive(true);
+		}
+	}
+
+	function endPress() {
+		pressOrigin = null;
+		setOrbitActive(viewcubeOrbiting);
 	}
 
 	/**
@@ -608,7 +651,20 @@
 			e.clientY > rect.bottom
 		)
 			return;
+		beginPress(e.clientX, e.clientY);
 		anchorOrbitPivot(e.clientX, e.clientY);
+	}
+
+	/** @param {PointerEvent} e */
+	function onMousePointerMove(e) {
+		if (e.pointerType === 'touch') return;
+		movePress(e.clientX, e.clientY);
+	}
+
+	/** @param {PointerEvent} e */
+	function onMousePointerUp(e) {
+		if (e.pointerType === 'touch') return;
+		endPress();
 	}
 
 	/** @param {PointerEvent} e */
@@ -620,6 +676,7 @@
 			activePointers[idx] = { id: e.pointerId, x: e.clientX, y: e.clientY };
 		}
 
+		if (activePointers.length === 1) movePress(e.clientX, e.clientY);
 		if (activePointers.length !== 2 || !isTwoFingerActive) return;
 		if (!controlsRef || !cameraRef) return;
 
@@ -676,6 +733,7 @@
 	function onTouchPointerUp(e) {
 		if (e.pointerType !== 'touch') return;
 		activePointers = activePointers.filter(p => p.id !== e.pointerId);
+		if (activePointers.length === 0) endPress();
 
 		if (activePointers.length < 2) {
 			prevMidpoint = null;
@@ -1080,6 +1138,9 @@
 		// which redirects pointer events away from the canvas during drags.
 		window.addEventListener('pointerdown', onTouchPointerDown);
 		window.addEventListener('pointerdown', onMousePointerDown);
+		window.addEventListener('pointermove', onMousePointerMove);
+		window.addEventListener('pointerup', onMousePointerUp);
+		window.addEventListener('pointercancel', onMousePointerUp);
 		window.addEventListener('pointermove', onTouchPointerMove);
 		window.addEventListener('pointerup', onTouchPointerUp);
 		window.addEventListener('pointercancel', onTouchPointerUp);
@@ -1230,6 +1291,16 @@
 		/** @param {CustomEvent} e */
 		function onViewcubeOrbit(e) {
 			if (!controlsRef) return;
+			// The cube fires one event per pointer move; treat a short silence
+			// as the end of the gesture (there is no pointerup on the canvas).
+			viewcubeOrbiting = true;
+			setOrbitActive(true);
+			if (viewcubeOrbitEnd) clearTimeout(viewcubeOrbitEnd);
+			viewcubeOrbitEnd = setTimeout(() => {
+				viewcubeOrbiting = false;
+				viewcubeOrbitEnd = null;
+				if (!pressOrigin) setOrbitActive(false);
+			}, 200);
 			const { dx, dy } = e.detail;
 			// Convert pixel delta to radians (scale factor tuned for 60px cube)
 			const speed = 0.015;
@@ -1243,6 +1314,9 @@
 			canvas.removeEventListener('wheel', onWheel);
 			window.removeEventListener('pointerdown', onTouchPointerDown);
 			window.removeEventListener('pointerdown', onMousePointerDown);
+			window.removeEventListener('pointermove', onMousePointerMove);
+			window.removeEventListener('pointerup', onMousePointerUp);
+			window.removeEventListener('pointercancel', onMousePointerUp);
 			window.removeEventListener('pointermove', onTouchPointerMove);
 			window.removeEventListener('pointerup', onTouchPointerUp);
 			window.removeEventListener('pointercancel', onTouchPointerUp);

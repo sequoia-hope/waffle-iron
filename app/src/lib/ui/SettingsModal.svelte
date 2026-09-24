@@ -28,6 +28,7 @@
 		{ id: 'general', label: 'General' },
 		{ id: 'sketch', label: 'Sketch' },
 		{ id: 'appearance', label: 'Appearance' },
+		{ id: 'debug', label: 'Debug' },
 	];
 	let section = $state('general');
 
@@ -179,6 +180,21 @@
 					<span class="row-text">
 						<span class="row-label">First dimension scales the whole sketch</span>
 						<span class="row-desc">When the first driving dimension is added to an undimensioned sketch, all geometry is scaled proportionally about the origin so the sketch keeps the shape you drew.</span>
+					</span>
+				</label>
+
+			{:else if section === 'debug'}
+				<h2>Debug</h2>
+				<label class="row">
+					<input
+						type="checkbox"
+						data-testid="setting-show-rotation-center"
+						checked={settings.showRotationCenter}
+						onchange={(e) => updateSettings({ showRotationCenter: e.currentTarget.checked })}
+					/>
+					<span class="row-text">
+						<span class="row-label">Display rotation center</span>
+						<span class="row-desc">While you rotate the view, marks the point the model is turning about with a small translucent green sphere. The point is re-anchored to whatever is under the cursor at the start of each rotate, so this shows you what it picked.</span>
 					</span>
 				</label>
 

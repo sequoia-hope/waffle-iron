@@ -18,6 +18,7 @@
 	import GhostPreview from './GhostPreview.svelte';
 	import ConnectorFrames from './ConnectorFrames.svelte';
 	import AgentCapture from './AgentCapture.svelte';
+	import RotationCenter from './RotationCenter.svelte';
 
 	// Enable raycaster-based interactivity for all child meshes
 	interactivity();
@@ -50,4 +51,5 @@
 <InactiveSketchRenderer />
 <SketchInteraction />
 <DimensionLabels />
+<RotationCenter />
 <AgentCapture />
