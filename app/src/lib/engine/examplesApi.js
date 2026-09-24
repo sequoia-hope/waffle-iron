@@ -24,13 +24,28 @@ export async function fetchExamplesManifest() {
 
 /**
  * Fetch an example's `.waffle` text by its manifest entry.
+ *
+ * The shipped examples are stored GZIPPED (`<id>.waffle.gz`): a `.waffle` is
+ * pretty-printed JSON, about two thirds of which is indentation, so the tower
+ * is 3.5 MB on the wire and 177 KB compressed
+ * (`docs/notes/eiffel/FEATURE_NOTES.md` §6). Nothing decompresses it for us —
+ * `.waffle` has no registered media type, so no host gzips it in transit —
+ * hence the inflate here.
+ *
+ * Detected by the gzip magic rather than by the file extension, so a plain
+ * `.waffle` entry still works and a host that DID inflate it in transit (its
+ * own `Content-Encoding`) does not end up inflated twice.
  * @param {{ filename: string }} entry
  * @returns {Promise<string>}
  */
 export async function fetchExampleDocument(entry) {
 	const res = await fetch(`${STATIC_BASE}/${entry.filename}`, { cache: 'no-cache' });
 	if (!res.ok) throw new Error(`Failed to fetch example ${entry.filename}: ${res.status}`);
-	return res.text();
+	const buf = await res.arrayBuffer();
+	const head = new Uint8Array(buf.slice(0, 2));
+	if (head[0] !== 0x1f || head[1] !== 0x8b) return new TextDecoder().decode(buf);
+	const stream = new Blob([buf]).stream().pipeThrough(new DecompressionStream('gzip'));
+	return new Response(stream).text();
 }
 
 /** The URL an example's generator is served at (for the panel's download link). */

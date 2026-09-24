@@ -34,7 +34,7 @@ fn repo_root() -> PathBuf {
 fn all_corpus_files() -> Vec<PathBuf> {
     let root = repo_root();
     let out = std::process::Command::new("git")
-        .args(["ls-files", "-z", "--", "*.waffle"])
+        .args(["ls-files", "-z", "--", "*.waffle", "*.waffle.gz"])
         .current_dir(&root)
         .output()
         .expect("git ls-files runs at the repo root");
@@ -48,6 +48,24 @@ fn all_corpus_files() -> Vec<PathBuf> {
         .filter(|rel| !rel.is_empty())
         .map(|rel| root.join(String::from_utf8_lossy(rel).as_ref()))
         .collect()
+}
+
+/// A corpus document's text. The shipped examples are stored GZIPPED
+/// (`docs/notes/eiffel/FEATURE_NOTES.md` §6) — they are build artifacts, not
+/// reviewed source, and a `.waffle` is mostly indentation — so this pin
+/// inflates them rather than losing them from the walk, which is the whole
+/// point of the walk.
+fn read_document(path: &Path) -> String {
+    let bytes = std::fs::read(path).unwrap_or_else(|e| panic!("{}: {e}", path.display()));
+    if bytes.starts_with(&[0x1f, 0x8b]) {
+        use std::io::Read;
+        let mut out = String::new();
+        flate2::read::GzDecoder::new(&bytes[..])
+            .read_to_string(&mut out)
+            .unwrap_or_else(|e| panic!("{}: gunzip: {e}", path.display()));
+        return out;
+    }
+    String::from_utf8(bytes).unwrap_or_else(|e| panic!("{}: {e}", path.display()))
 }
 
 /// First path at which two JSON values differ, for readable failures.
@@ -93,7 +111,7 @@ fn every_repo_waffle_file_loads_migrates_and_round_trips() {
     let mut versions = std::collections::BTreeMap::new();
     let mut assemblies = 0usize;
     for path in &files {
-        let json = std::fs::read_to_string(path).unwrap();
+        let json = read_document(path);
         let raw: serde_json::Value = serde_json::from_str(&json).unwrap();
         *versions
             .entry(raw["version"].as_u64().unwrap_or(0))

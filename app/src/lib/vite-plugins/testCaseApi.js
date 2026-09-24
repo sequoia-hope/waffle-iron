@@ -1,5 +1,6 @@
 import fs from 'fs';
 import path from 'path';
+import zlib from 'zlib';
 
 export default function testCaseApiPlugin() {
 	return {
@@ -205,7 +206,12 @@ export default function testCaseApiPlugin() {
 						let id = slugify(name) || 'example';
 						const taken = new Set(manifest.examples.map(e => e.id));
 						for (let i = 2; taken.has(id); i++) id = `${slugify(name) || 'example'}-${i}`;
-						const filename = `${id}.waffle`;
+						// Stored gzipped, like the shipped examples: a `.waffle`
+						// is mostly indentation and nothing compresses it in
+						// transit (`docs/notes/eiffel/FEATURE_NOTES.md` §6).
+						// `mtime: 0` keeps two saves of the same document
+						// byte-identical.
+						const filename = `${id}.waffle.gz`;
 						const entry = {
 							id,
 							name,
@@ -216,7 +222,10 @@ export default function testCaseApiPlugin() {
 							built_with: 'saved from the page (Examples panel)'
 						};
 						fs.mkdirSync(EXAMPLES_DIR, { recursive: true });
-						fs.writeFileSync(path.join(EXAMPLES_DIR, filename), waffleData);
+						fs.writeFileSync(
+							path.join(EXAMPLES_DIR, filename),
+							zlib.gzipSync(Buffer.from(waffleData, 'utf-8'), { level: 9, mtime: 0 })
+						);
 						manifest.examples.push(entry);
 						fs.writeFileSync(EXAMPLES_MANIFEST, JSON.stringify(manifest, null, 2) + '\n');
 						res.statusCode = 201;

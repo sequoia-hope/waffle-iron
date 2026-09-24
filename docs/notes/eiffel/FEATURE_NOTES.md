@@ -8,8 +8,7 @@ a kernel bug — the kernel answered correctly and loudly every time. These are
 capability, performance and ergonomics gaps.
 
 As of 2026-09-24 the open ones are §2 (a beam/member operation), §5
-(`model_summary` has no body count), §6 (pretty-printed documents — costed
-below, deliberately not changed), and the perf tails noted in §0 and §10.
+(`model_summary` has no body count), and the perf tails noted in §0 and §10.
 
 ## 0. Building a tab was O(N²) — FIXED 2026-09-24
 
@@ -343,14 +342,18 @@ have passed.
 in `model_summary`. A generator that can assert a count can be a regression
 test; one that cannot is a script.
 
-## 6. Documents are stored pretty-printed — NOT fixed; here is the case
+## 6. Documents are stored pretty-printed — the case, and what was done
 
 Measured on the shipped examples (2026-09-24):
 
-| | on disk (pretty) | compact | gzip(compact) |
-|---|---:|---:|---:|
-| `eiffel-tower.waffle` | 3,490,341 | 1,226,695 (35%) | 150,117 (4.3%) |
-| `gravel-bike-v2.waffle` | 815,956 | 298,772 (37%) | 53,855 (6.6%) |
+| | on disk (pretty) | compact | gzip(compact) | **as shipped** (gzip of the pretty file) |
+|---|---:|---:|---:|---:|
+| `eiffel-tower.waffle` | 3,490,341 | 1,226,695 (35%) | 150,117 (4.3%) | **177,031 (5.1%)** |
+| `gravel-bike-v2.waffle` | 815,956 | 298,772 (37%) | 53,855 (6.6%) | **68,071 (8.3%)** |
+
+The shipped column is what landed: gzip of the writer's own bytes, so nothing
+about the format or the writer had to change. Compacting first would save
+another ~15%, which is not worth a second way to write a document.
 
 So **~65% of a `.waffle` is indentation and the newlines around it** — the
 tower is 2.3 MB of whitespace. There are 318 tracked `.waffle` files in the
@@ -389,27 +392,35 @@ Every one of those 318 files would become a single unreadable line. That is
 the argument against, and for a repo whose corpus IS its test suite it is a
 serious one.
 
-### The recommendation
+### What was done (2026-09-24)
 
-Do not flip the writer. Separate the two audiences instead, because they want
-opposite things:
+The two audiences want opposite things, so they were separated rather than
+traded off:
 
-1. **Ship the examples compressed.** They are build artifacts, not reviewed
-   source: gzip them at the point the manifest is written and teach
-   `fetchExampleDocument` to inflate (`DecompressionStream('gzip')` is in
-   every browser the app supports). 3.5 MB → 150 KB with no change to the
-   format, the writer, or a single committed fixture. Name them `.waffle.gz`
-   — `corpus_backcompat` walks `git ls-files` for `*.waffle` and parses every
-   hit, so a gzipped file under that name would fail the corpus pin, which is
-   the right failure for the wrong reason.
-2. **Leave the writer pretty** for everything that lands in git, and keep the
-   diffability.
-3. If a compact writer is wanted later, it belongs behind an explicit
-   argument on `save_document` — never a default — so that "the bytes a save
-   produces" stays one function with one answer per caller.
+1. **The examples ship compressed.** `gravel-bike-v2.waffle.gz` (68 KB from
+   816 KB) and `eiffel-tower.waffle.gz` (177 KB from 3.49 MB) — 4.2 MB out of
+   the working tree and out of the bundle, with no change to the format, the
+   writer, or a single committed fixture. `fetchExampleDocument` inflates with
+   `DecompressionStream('gzip')`, sniffing the GZIP MAGIC rather than the file
+   extension: Vite's dev server labels a `.gz` with `Content-Encoding: gzip`
+   and the browser has already inflated it by the time we look, while a static
+   host hands over the raw bytes, and one code path has to be right on both.
+   The generators write gzip when the output path ends in `.gz`, and the
+   dev-only "save as example" endpoint does the same — deterministically (no
+   embedded filename, `mtime 0`), so rebuilding the same document twice gives
+   the same bytes.
+2. **The writer stays pretty** for everything that lands in git as source.
+   The assay corpus and the fixtures keep their line-per-field diffs.
+3. The corpus pins were taught to inflate rather than allowed to lose the
+   examples: `corpus_backcompat` and the schema golden walk `*.waffle.gz` too.
+   That is the failure this change had to avoid — a compressed file silently
+   dropping out of the walk that exists to catch exactly this class of
+   regression.
 
-The one thing NOT to do is make it a global setting: two writers reachable by
-ambient state is how a corpus ends up half in each format.
+Not done, deliberately: a compact writer. If one is ever wanted it belongs
+behind an explicit argument on `save_document`, never a default and never a
+global setting — two writers reachable by ambient state is how a corpus ends
+up half in each format.
 
 ## 7. Patterning a whole tab — FIXED 2026-09-24
 

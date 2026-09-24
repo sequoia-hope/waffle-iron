@@ -18,6 +18,21 @@ fn repo_root() -> PathBuf {
         .expect("repo root")
 }
 
+/// A corpus document's text, inflating a gzipped example (see
+/// `waffle_files_in`).
+fn read_document(path: &Path) -> String {
+    let bytes = std::fs::read(path).unwrap_or_else(|e| panic!("{}: {e}", path.display()));
+    if bytes.starts_with(&[0x1f, 0x8b]) {
+        use std::io::Read;
+        let mut out = String::new();
+        flate2::read::GzDecoder::new(&bytes[..])
+            .read_to_string(&mut out)
+            .unwrap_or_else(|e| panic!("{}: gunzip: {e}", path.display()));
+        return out;
+    }
+    String::from_utf8(bytes).unwrap_or_else(|e| panic!("{}: {e}", path.display()))
+}
+
 fn golden_path() -> PathBuf {
     repo_root().join("docs/schema/waffle-v5.schema.json")
 }
@@ -94,7 +109,13 @@ fn waffle_files_in(dir: &Path) -> Vec<PathBuf> {
     };
     let mut files: Vec<PathBuf> = entries
         .filter_map(|e| e.ok().map(|e| e.path()))
-        .filter(|p| p.extension().and_then(|e| e.to_str()) == Some("waffle"))
+        .filter(|p| {
+            let name = p.file_name().and_then(|n| n.to_str()).unwrap_or("");
+            // `.waffle.gz` too: the shipped examples are stored gzipped
+            // (`docs/notes/eiffel/FEATURE_NOTES.md` §6) and must still be
+            // held to the schema.
+            name.ends_with(".waffle") || name.ends_with(".waffle.gz")
+        })
         .collect();
     files.sort();
     files
@@ -116,7 +137,7 @@ fn every_repo_waffle_file_validates_after_migration() {
     assert!(files.len() > 300, "found {} files", files.len());
 
     for path in &files {
-        let json = std::fs::read_to_string(path).unwrap();
+        let json = read_document(path);
         let doc = load_document(&json)
             .unwrap_or_else(|e| panic!("{}: {e}", path.display()))
             .document;

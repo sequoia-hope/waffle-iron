@@ -620,6 +620,7 @@ version = "0.1.0"
 dependencies = [
  "chrono",
  "feature-engine",
+ "flate2",
  "jsonschema",
  "modeling-ops",
  "schemars",

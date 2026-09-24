@@ -30,11 +30,12 @@ Two ways to use it:
         "$INST:<name>", "$MC:<part>/<connector>" and "$CONN:<instance>/<connector>"
         are the assembly's tab, instance, MateConnector-feature and connector ids.
 
-    python3 eiffel-tower.py --build out.waffle [--host target/release/waffle-host]
+    python3 eiffel-tower.py --build out.waffle[.gz] [--host target/release/waffle-host]
         Build the document headless: drive the native host over its stdio
         frames (specs/waffle_server_mode.md §3.4) with the same calls and copy
-        the .waffle it autosaves to `out.waffle`. This is how
-        app/static/examples/eiffel-tower.waffle was produced. `--tabs a,b`
+        the .waffle it autosaves to `out.waffle` — GZIPPED when that path ends
+        in `.gz`, which is how app/static/examples/eiffel-tower.waffle.gz was
+        produced (the examples ship compressed; see the README beside it). `--tabs a,b`
         builds only those tabs (a debugging convenience — the result is a
         partial document, not something to ship).
 
@@ -561,6 +562,22 @@ class HostClient:
         s.send({"type": "bye", "reason": "done"}); s.proc.wait(timeout=60)
 
 
+def write_document(src, out_path):
+    """Copy the host's saved document to `out_path`, GZIPPED when that path
+    ends in `.gz` — which is how the examples are shipped (a `.waffle` is
+    pretty-printed JSON, ~two thirds indentation, and nothing compresses it in
+    transit; `docs/notes/eiffel/FEATURE_NOTES.md` §6). Deterministic: no
+    embedded filename and mtime 0, so rebuilding the same document produces
+    the same bytes."""
+    import gzip, shutil
+    if not out_path.endswith(".gz"):
+        shutil.copyfile(src, out_path)
+        return
+    with open(src, "rb") as f_in, open(out_path, "wb") as f_raw:
+        with gzip.GzipFile(filename="", mode="wb", fileobj=f_raw, compresslevel=9, mtime=0) as f_out:
+            shutil.copyfileobj(f_in, f_out)
+
+
 def build(out_path, host_bin, only=None):
     import os, shutil, tempfile, time
     docs = tempfile.mkdtemp(prefix="eiffel-tower-")
@@ -613,7 +630,7 @@ def build(out_path, host_bin, only=None):
     saved = client.call("document_save", {})
     client.close()
     src = os.path.join(docs, saved["id"] + ".waffle")
-    shutil.copyfile(src, out_path)
+    write_document(src, out_path)
     shutil.rmtree(docs, ignore_errors=True)
     print(f"wrote {out_path} ({os.path.getsize(out_path)} bytes) in {time.time() - t0:.0f}s")
 

@@ -33,3 +33,6 @@ waffle-types = { path = "../waffle-types", features = ["mock-kernel"] }
 # Validates every repo .waffle file against the generated schema
 # (tests/schema_golden.rs, `json-schema` feature). No network resolvers.
 jsonschema = { version = "0.55", default-features = false }
+# The shipped examples are stored gzipped; the corpus pins inflate them
+# rather than dropping them from the walk (FEATURE_NOTES §6).
+flate2 = "1"

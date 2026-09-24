@@ -3,7 +3,7 @@
     {
       "id": "gravel-bike-v2",
       "name": "Gravel bike v2",
-      "filename": "gravel-bike-v2.waffle",
+      "filename": "gravel-bike-v2.waffle.gz",
       "generator": "gravel-bike-v2.py",
       "description": "A complete gravel bike: eleven parts (frame, fork, 700c wheel, 11-42 cassette, crankset, chain, drop-bar cockpit, seatpost and saddle, rear derailleur, brake caliper, water bottle) placed by thirteen mates in one assembly. No booleans anywhere.",
       "features": [
@@ -14,12 +14,12 @@
       ],
       "tabs": ["Frame", "Fork", "Wheel 700c", "Cassette 11-42", "Crankset", "Chain", "Cockpit", "Seatpost & saddle", "Rear derailleur", "Brake caliper", "Water bottle", "Gravel bike"],
       "built": "2026-09-23",
-      "built_with": "python3 gravel-bike-v2.py --build gravel-bike-v2.waffle (the native host, kernel-v2)"
+      "built_with": "python3 gravel-bike-v2.py --build gravel-bike-v2.waffle.gz (the native host, kernel-v2)"
     },
     {
       "id": "eiffel-tower",
       "name": "Eiffel Tower",
-      "filename": "eiffel-tower.waffle",
+      "filename": "eiffel-tower.waffle.gz",
       "generator": "eiffel-tower.py",
       "description": "The 1889 tower at full scale in metres, from the published dimensions: a 124.90 m base square, platforms at 57.63 m, 115.73 m, 196.10 m and 276.13 m, the finial at 300.65 m and the broadcast mast at 330 m. Ten parts and 1,964 riveted members, raised from 1,052 tool calls by four-fold symmetry. No booleans anywhere.",
       "features": [
@@ -30,7 +30,7 @@
       ],
       "tabs": ["Piers", "Legs", "Arches", "First platform", "Second platform", "Upper pylon", "Intermediate platform", "Top platform", "Campanile", "Antenna mast", "Eiffel Tower"],
       "built": "2026-09-24",
-      "built_with": "python3 eiffel-tower.py --build eiffel-tower.waffle (the native host, kernel-v2)"
+      "built_with": "python3 eiffel-tower.py --build eiffel-tower.waffle.gz (the native host, kernel-v2)"
     }
   ]
 }

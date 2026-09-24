@@ -18,11 +18,12 @@ Two ways to use it:
         "$MC:<part>/<connector>" and "$CONN:<instance>/<connector>" are the
         assembly's tab, instance, MateConnector-feature and connector ids.
 
-    python3 gravel-bike-v2.py --build out.waffle [--host target/release/waffle-host]
+    python3 gravel-bike-v2.py --build out.waffle[.gz] [--host target/release/waffle-host]
         Build the document headless: drive the native host over its stdio
         frames (specs/waffle_server_mode.md §3.4) with the same calls and copy
-        the .waffle it autosaves to `out.waffle`. This is how
-        app/static/examples/gravel-bike-v2.waffle was produced.
+        the .waffle it autosaves to `out.waffle` — GZIPPED when that path ends
+        in `.gz`, which is how app/static/examples/gravel-bike-v2.waffle.gz
+        was produced (the examples ship compressed; see the README beside it).
 
 World frame: meters, Z up, +X forward, BB centre at the origin, axles along Y;
 +Y is the LEFT (non-drive) side, -Y the drive side.
@@ -545,6 +546,22 @@ class HostClient:
     def close(s):
         s.send({"type": "bye", "reason": "done"}); s.proc.wait(timeout=30)
 
+def write_document(src, out_path):
+    """Copy the host's saved document to `out_path`, GZIPPED when that path
+    ends in `.gz` — which is how the examples are shipped (a `.waffle` is
+    pretty-printed JSON, ~two thirds indentation, and nothing compresses it in
+    transit; `docs/notes/eiffel/FEATURE_NOTES.md` §6). Deterministic: no
+    embedded filename and mtime 0, so rebuilding the same document produces
+    the same bytes."""
+    import gzip, shutil
+    if not out_path.endswith(".gz"):
+        shutil.copyfile(src, out_path)
+        return
+    with open(src, "rb") as f_in, open(out_path, "wb") as f_raw:
+        with gzip.GzipFile(filename="", mode="wb", fileobj=f_raw, compresslevel=9, mtime=0) as f_out:
+            shutil.copyfileobj(f_in, f_out)
+
+
 def build(out_path, host_bin):
     import os, shutil, tempfile, time
     docs = tempfile.mkdtemp(prefix="gravel-bike-v2-")
@@ -591,7 +608,7 @@ def build(out_path, host_bin):
     saved = client.call("document_save", {})
     client.close()
     src = os.path.join(docs, saved["id"] + ".waffle")
-    shutil.copyfile(src, out_path)
+    write_document(src, out_path)
     shutil.rmtree(docs, ignore_errors=True)
     print(f"wrote {out_path} ({os.path.getsize(out_path)} bytes) in {time.time() - t0:.0f}s")
 
