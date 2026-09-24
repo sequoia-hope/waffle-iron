@@ -511,6 +511,7 @@ fn sketch_on(plane: GeomRef) -> Operation {
             plane,
             plane_origin: [9.0, 9.0, 9.0],
             plane_normal: [1.0, 0.0, 0.0],
+            plane_x_axis: None,
             entities: vec![
                 waffle_types::SketchEntity::Point {
                     id: 1,
@@ -985,6 +986,7 @@ fn circle_extrude(
             }],
             plane_origin: [0.0, 0.0, z],
             plane_normal: normal,
+            plane_x_axis: None,
             entities,
             constraints: vec![],
             projected: vec![],

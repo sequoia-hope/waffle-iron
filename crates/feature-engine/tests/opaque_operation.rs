@@ -59,7 +59,7 @@ fn known_tags_round_trip_as_before_and_report_their_tag() {
     for tag in OPERATION_TAGS {
         assert!(!tag.is_empty());
     }
-    assert_eq!(OPERATION_TAGS.len(), 15);
+    assert_eq!(OPERATION_TAGS.len(), 16);
 }
 
 #[test]
@@ -101,6 +101,7 @@ fn square_sketch() -> Sketch {
         },
         plane_origin: [0.0; 3],
         plane_normal: [0.0, 0.0, 1.0],
+        plane_x_axis: None,
         entities: vec![
             SketchEntity::Point {
                 id: 1,

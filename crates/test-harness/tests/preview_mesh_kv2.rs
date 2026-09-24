@@ -73,6 +73,7 @@ fn preview_is_decimated_from_the_mesh_tessellated_after_dispatch() {
             solved_profiles,
             plane_origin: [0.0, 0.0, 0.0],
             plane_normal: [0.0, 0.0, 1.0],
+            plane_x_axis: None,
             entities: vec![],
             constraints: vec![],
             projected: vec![],

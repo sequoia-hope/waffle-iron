@@ -73,6 +73,7 @@ fn box_document() -> (EngineState, kernel_v2::KernelV2Adapter, String) {
             },
             plane_origin: [0.0, 0.0, 0.0],
             plane_normal: [0.0, 0.0, 1.0],
+            plane_x_axis: None,
             entities,
             constraints: Vec::new(),
             solve_status: SolveStatus::FullyConstrained,

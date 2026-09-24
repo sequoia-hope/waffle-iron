@@ -46,6 +46,7 @@ fn make_sketch_op_at(origin: [f64; 3]) -> Operation {
         },
         plane_origin: [0.0, 0.0, 0.0],
         plane_normal: [0.0, 0.0, 1.0],
+        plane_x_axis: None,
         entities: (1..=4)
             .map(|id| SketchEntity::Point {
                 id,
@@ -241,7 +242,11 @@ fn box_disjoint_bodies_never_reach_the_kernel_and_stay_separate() {
             "Two apart".into(),
             Operation::PatternLinear {
                 params: PatternLinearParams {
-                    seeds: vec![body_ref(seed, OutputKey::Main, ResolvePolicy::Strict)],
+                    seeds: PatternSeeds::Selected(vec![body_ref(
+                        seed,
+                        OutputKey::Main,
+                        ResolvePolicy::Strict,
+                    )]),
                     direction: AxisRef::Explicit {
                         origin: [0.0, 0.0, 0.0],
                         direction: [1.0, 0.0, 0.0],

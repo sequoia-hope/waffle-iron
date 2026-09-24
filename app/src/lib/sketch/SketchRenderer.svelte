@@ -132,7 +132,7 @@
 		return status?.dof === 0 && status?.status !== 'error';
 	});
 
-	let plane = $derived(sm?.active ? buildSketchPlane(sm.origin, sm.normal) : null);
+	let plane = $derived(sm?.active ? buildSketchPlane(sm.origin, sm.normal, sm.xAxis) : null);
 
 	// Build sets of entity IDs in hovered/selected profiles for fast lookup
 	let hoveredProfileEntityIds = $derived.by(() => {

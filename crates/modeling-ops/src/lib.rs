@@ -18,7 +18,7 @@ pub use extrude::{execute_extrude, execute_symmetric_extrude};
 pub use fillet::execute_fillet;
 pub use import::execute_import;
 pub use kernel_ext::KernelBundle;
-pub use pattern::{execute_pattern_instances, PatternSeed};
+pub use pattern::{execute_pattern_instances, Instance, PatternSeed};
 pub use pipe::execute_pipe;
 pub use revolve::execute_revolve;
 pub use shell::execute_shell;

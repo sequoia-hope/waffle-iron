@@ -157,7 +157,7 @@ pub(crate) struct Source {
 
 /// The features whose bodies a feature's `All` target set would fold: every
 /// active, unsuppressed, not-yet-consumed solid-bearing feature before it.
-fn live_features_before<'a>(
+pub(crate) fn live_features_before<'a>(
     feature: &Feature,
     feature_results: &HashMap<Uuid, OpResult>,
     tree: &'a FeatureTree,

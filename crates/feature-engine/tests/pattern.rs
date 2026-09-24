@@ -35,6 +35,7 @@ fn make_sketch_op() -> Operation {
         },
         plane_origin: [0.0, 0.0, 0.0],
         plane_normal: [0.0, 0.0, 1.0],
+        plane_x_axis: None,
         entities: (1..=4)
             .map(|id| SketchEntity::Point {
                 id,
@@ -108,7 +109,11 @@ fn z_axis() -> AxisRef {
 fn circular(seed: Uuid, count: u32, angle_deg: f64) -> Operation {
     Operation::PatternCircular {
         params: PatternCircularParams {
-            seeds: vec![body_ref(seed, OutputKey::Main, ResolvePolicy::Strict)],
+            seeds: PatternSeeds::Selected(vec![body_ref(
+                seed,
+                OutputKey::Main,
+                ResolvePolicy::Strict,
+            )]),
             axis: z_axis(),
             count,
             angle_deg,
@@ -123,7 +128,11 @@ fn circular(seed: Uuid, count: u32, angle_deg: f64) -> Operation {
 fn linear(seed: Uuid, count: u32, spacing: f64) -> Operation {
     Operation::PatternLinear {
         params: PatternLinearParams {
-            seeds: vec![body_ref(seed, OutputKey::Main, ResolvePolicy::Strict)],
+            seeds: PatternSeeds::Selected(vec![body_ref(
+                seed,
+                OutputKey::Main,
+                ResolvePolicy::Strict,
+            )]),
             direction: AxisRef::Explicit {
                 origin: [0.0; 3],
                 direction: [1.0, 0.0, 0.0],
@@ -344,7 +353,11 @@ fn invalid_parameters_are_loud_typed_errors_with_no_output() {
                 "zero axis",
                 Operation::PatternCircular {
                     params: PatternCircularParams {
-                        seeds: vec![body_ref(e, OutputKey::Main, ResolvePolicy::Strict)],
+                        seeds: PatternSeeds::Selected(vec![body_ref(
+                            e,
+                            OutputKey::Main,
+                            ResolvePolicy::Strict,
+                        )]),
                         axis: AxisRef::Explicit {
                             origin: [0.0; 3],
                             direction: [0.0; 3],
@@ -371,11 +384,19 @@ fn invalid_parameters_are_loud_typed_errors_with_no_output() {
         // Re-anchor the seed to THIS engine's box.
         let op = match op {
             Operation::PatternCircular { mut params } => {
-                params.seeds = vec![body_ref(e, OutputKey::Main, ResolvePolicy::Strict)];
+                params.seeds = PatternSeeds::Selected(vec![body_ref(
+                    e,
+                    OutputKey::Main,
+                    ResolvePolicy::Strict,
+                )]);
                 Operation::PatternCircular { params }
             }
             Operation::PatternLinear { mut params } => {
-                params.seeds = vec![body_ref(e, OutputKey::Main, ResolvePolicy::Strict)];
+                params.seeds = PatternSeeds::Selected(vec![body_ref(
+                    e,
+                    OutputKey::Main,
+                    ResolvePolicy::Strict,
+                )]);
                 Operation::PatternLinear { params }
             }
             other => other,
@@ -647,4 +668,201 @@ fn pattern_json_round_trips_and_is_a_known_tag() {
     };
     assert_eq!(params.angle_deg, 360.0);
     assert!(params.skip.is_empty() && params.combine.is_none());
+}
+
+// ── Mirror pattern (FEATURE_NOTES §4) ───────────────────────────────────────
+
+fn mirror(seed: Uuid, origin: [f64; 3], normal: [f64; 3]) -> Operation {
+    Operation::PatternMirror {
+        params: PatternMirrorParams {
+            seeds: PatternSeeds::Selected(vec![body_ref(
+                seed,
+                OutputKey::Main,
+                ResolvePolicy::Strict,
+            )]),
+            plane: AxisRef::Explicit {
+                origin,
+                direction: normal,
+            },
+            combine: None,
+            targets: None,
+        },
+    }
+}
+
+#[test]
+fn mirror_emits_the_seed_and_its_reflection_and_takes_custody() {
+    let (mut engine, mut kernel, e) = one_box();
+    // Unit box, centroid (0.5, 0.5, 0.5); mirror in x = 2 ⇒ centroid (3.5, …).
+    let p = engine
+        .add_feature(
+            "Mirror".into(),
+            mirror(e, [2.0, 0.0, 0.0], [1.0, 0.0, 0.0]),
+            &mut kernel,
+        )
+        .unwrap();
+    assert_eq!(error_of(&engine, p), None);
+    assert_eq!(body_count(&engine, p), 2, "the seed and its reflection");
+    assert!(
+        engine.consumed_features.contains(&e),
+        "the seed's feature is consumed, as with every pattern"
+    );
+    let r = engine.get_result(p).unwrap();
+    // Instance 0 IS the seed body, not a copy.
+    let seed_handle = engine.get_result(e).unwrap().outputs[0].1.handle.clone();
+    assert_eq!(r.outputs[0].1.handle.raw(), seed_handle.raw());
+    let c = centroid(&kernel, &r.outputs[1].1.handle);
+    assert!(
+        (c[0] - 3.5).abs() < 1e-12 && (c[1] - 0.5).abs() < 1e-12 && (c[2] - 0.5).abs() < 1e-12,
+        "reflected centroid {c:?}"
+    );
+    for (i, out) in r.outputs.iter().enumerate() {
+        for f in kernel.list_faces(&out.1.handle) {
+            assert!(r
+                .provenance
+                .role_assignments
+                .contains(&(f, Role::PatternInstance { index: i })));
+        }
+    }
+}
+
+#[test]
+fn a_mirror_plane_with_no_normal_is_a_loud_typed_error() {
+    let (mut engine, mut kernel, e) = one_box();
+    let p = engine
+        .add_feature(
+            "Mirror".into(),
+            mirror(e, [0.0; 3], [0.0, 0.0, 0.0]),
+            &mut kernel,
+        )
+        .unwrap();
+    let err = error_of(&engine, p).expect("a zero plane normal is refused");
+    assert!(err.contains("zero-length"), "{err}");
+    assert_eq!(body_count(&engine, p), 0, "no body from a refused mirror");
+    assert!(
+        !engine.consumed_features.contains(&e),
+        "a refused mirror takes custody of nothing"
+    );
+}
+
+#[test]
+fn mirror_json_round_trips_and_is_a_known_tag() {
+    let (_, _, e) = one_box();
+    let op = mirror(e, [1.0, 0.0, 0.0], [1.0, 0.0, 0.0]);
+    let json = serde_json::to_value(&op).unwrap();
+    assert_eq!(json["type"], "PatternMirror");
+    let back: Operation = serde_json::from_value(json).unwrap();
+    assert!(matches!(back, Operation::PatternMirror { .. }));
+    assert!(OPERATION_TAGS.contains(&"PatternMirror"));
+}
+
+// ── Seeds = every live body (FEATURE_NOTES §7) ──────────────────────────────
+
+#[test]
+fn all_seeds_pattern_every_live_body_without_naming_one() {
+    let mut engine = Engine::new();
+    let mut kernel = MockKernel::new();
+    let s = engine
+        .add_feature("Sketch".into(), make_sketch_op(), &mut kernel)
+        .unwrap();
+    let a = engine
+        .add_feature("Box A".into(), make_extrude(s), &mut kernel)
+        .unwrap();
+    let b = engine
+        .add_feature("Box B".into(), make_extrude(s), &mut kernel)
+        .unwrap();
+    let mut op = circular(a, 3, 360.0);
+    if let Operation::PatternCircular { params } = &mut op {
+        params.seeds = PatternSeeds::All;
+    }
+    let p = engine
+        .add_feature("Pattern".into(), op, &mut kernel)
+        .unwrap();
+    assert_eq!(error_of(&engine, p), None);
+    // Two seeds × three instances.
+    assert_eq!(body_count(&engine, p), 6);
+    assert!(
+        engine.consumed_features.contains(&a) && engine.consumed_features.contains(&b),
+        "custody of every body it patterned"
+    );
+    // The sketch is not a body and is not consumed.
+    assert!(!engine.consumed_features.contains(&s));
+}
+
+#[test]
+fn all_seeds_with_nothing_to_pattern_is_a_loud_typed_error() {
+    let mut engine = Engine::new();
+    let mut kernel = MockKernel::new();
+    let s = engine
+        .add_feature("Sketch".into(), make_sketch_op(), &mut kernel)
+        .unwrap();
+    let mut op = circular(s, 3, 360.0);
+    if let Operation::PatternCircular { params } = &mut op {
+        params.seeds = PatternSeeds::All;
+    }
+    let p = engine
+        .add_feature("Pattern".into(), op, &mut kernel)
+        .unwrap();
+    let err = error_of(&engine, p).expect("nothing to pattern is refused");
+    assert!(err.contains("no live bodies"), "{err}");
+    assert_eq!(body_count(&engine, p), 0);
+}
+
+#[test]
+fn seeds_read_both_written_forms_and_a_list_writes_back_as_a_list() {
+    // The array form is what every document written before the `All` set
+    // holds, and is still what a list of picked bodies writes.
+    let listed = serde_json::json!({
+        "type": "PatternCircular",
+        "params": {
+            "seeds": [serde_json::to_value(body_ref(Uuid::nil(), OutputKey::Main, ResolvePolicy::Strict)).unwrap()],
+            "axis": { "method": "explicit", "origin": [0,0,0], "direction": [0,0,1] },
+            "count": 3
+        }
+    });
+    let op: Operation = serde_json::from_value(listed.clone()).unwrap();
+    let Operation::PatternCircular { ref params } = op else {
+        panic!()
+    };
+    assert_eq!(params.seeds.listed().map(<[_]>::len), Some(1));
+    assert_eq!(
+        serde_json::to_value(&op).unwrap()["params"]["seeds"],
+        listed["params"]["seeds"],
+        "a list round-trips as the same list"
+    );
+
+    let all = serde_json::json!({
+        "type": "PatternCircular",
+        "params": {
+            "seeds": { "type": "All" },
+            "axis": { "method": "explicit", "origin": [0,0,0], "direction": [0,0,1] },
+            "count": 3
+        }
+    });
+    let op: Operation = serde_json::from_value(all.clone()).unwrap();
+    let Operation::PatternCircular { ref params } = op else {
+        panic!()
+    };
+    assert!(params.seeds.listed().is_none());
+    assert_eq!(
+        serde_json::to_value(&op).unwrap()["params"]["seeds"],
+        all["params"]["seeds"]
+    );
+
+    // Anything else is a parse error, not a silent empty pattern.
+    let bogus = serde_json::json!({
+        "type": "PatternCircular",
+        "params": {
+            "seeds": { "type": "Every" },
+            "axis": { "method": "explicit", "origin": [0,0,0], "direction": [0,0,1] },
+            "count": 3
+        }
+    });
+    let err = serde_json::from_value::<Operation>(bogus)
+        .unwrap_err()
+        .to_string();
+    assert!(
+        err.contains("Every") || err.contains("unknown set"),
+        "{err}"
+    );
 }

@@ -33,11 +33,12 @@ use std::collections::{HashMap, HashSet};
 use std::f64::consts::PI;
 
 use modeling_ops::{
-    execute_boolean, execute_pattern_instances, BooleanKind, KernelBundle, OpResult, PatternSeed,
+    execute_boolean, execute_pattern_instances, BooleanKind, Instance, KernelBundle, OpResult,
+    PatternSeed,
 };
 use uuid::Uuid;
 use waffle_types::kernel::units::TAU_WORK;
-use waffle_types::kernel::{KernelIntrospect, KernelSolidHandle, RigidPlacement};
+use waffle_types::kernel::{KernelIntrospect, KernelSolidHandle, MirrorPlane, RigidPlacement};
 use waffle_types::{Anchor, GeomRef, OutputKey};
 
 use crate::assembly::AxialAnchor;
@@ -48,6 +49,7 @@ use crate::rebuild::{
 use crate::types::{
     normalize_pattern_combine, AxisRef, CombineMode, EffectiveCombine, EngineError, Feature,
     FeatureTree, LinearSecondDirection, PatternCircularParams, PatternLinearParams,
+    PatternMirrorParams, PatternSeeds,
 };
 use crate::union_all::{absorb, fold_into, rekey, Lump};
 
@@ -55,18 +57,20 @@ use crate::union_all::{absorb, fold_into, rekey, Lump};
 /// design (the spec's "fails loud in milliseconds" rule).
 pub const MAX_PATTERN_INSTANCES: usize = 10_000;
 
-/// Either pattern's parameters, borrowed.
+/// Any pattern's parameters, borrowed.
 #[derive(Debug, Clone, Copy)]
 pub(crate) enum PatternSpec<'a> {
     Circular(&'a PatternCircularParams),
     Linear(&'a PatternLinearParams),
+    Mirror(&'a PatternMirrorParams),
 }
 
 impl<'a> PatternSpec<'a> {
-    fn seeds(&self) -> &'a [GeomRef] {
+    fn seeds(&self) -> &'a PatternSeeds {
         match self {
             PatternSpec::Circular(p) => &p.seeds,
             PatternSpec::Linear(p) => &p.seeds,
+            PatternSpec::Mirror(p) => &p.seeds,
         }
     }
 
@@ -74,6 +78,9 @@ impl<'a> PatternSpec<'a> {
         match self {
             PatternSpec::Circular(p) => &p.skip,
             PatternSpec::Linear(p) => &p.skip,
+            // One copy: nothing to skip but the copy itself, which is a
+            // pattern with nothing in it.
+            PatternSpec::Mirror(_) => &[],
         }
     }
 
@@ -81,6 +88,7 @@ impl<'a> PatternSpec<'a> {
         match self {
             PatternSpec::Circular(p) => normalize_pattern_combine(p.combine, &p.targets),
             PatternSpec::Linear(p) => normalize_pattern_combine(p.combine, &p.targets),
+            PatternSpec::Mirror(p) => normalize_pattern_combine(p.combine, &p.targets),
         }
     }
 
@@ -88,7 +96,22 @@ impl<'a> PatternSpec<'a> {
         match self {
             PatternSpec::Circular(_) => "circular pattern",
             PatternSpec::Linear(_) => "linear pattern",
+            PatternSpec::Mirror(_) => "mirror pattern",
         }
+    }
+}
+
+/// The body a pattern's `Main` output inherits its name from: instance 0 of
+/// the first EXPLICIT seed. `All` names nothing (the first body is whatever
+/// the tree walk finds).
+pub fn first_seed_body(seeds: &PatternSeeds) -> Option<(Uuid, String)> {
+    let gr = seeds.listed()?.first()?;
+    match &gr.anchor {
+        Anchor::FeatureOutput {
+            feature_id,
+            output_key,
+        } => Some((*feature_id, FeatureTree::body_id(*feature_id, output_key))),
+        _ => None,
     }
 }
 
@@ -151,13 +174,27 @@ fn check_count(count: u32, what: &str) -> Result<usize, EngineError> {
     Ok(count as usize)
 }
 
-/// The placements of every instance (index 0 = identity, the seed).
-pub(crate) fn placements(
+/// Every instance of the pattern (index 0 = the seed itself).
+pub(crate) fn instances(
     spec: PatternSpec<'_>,
     feature_results: &HashMap<Uuid, OpResult>,
     introspect: &dyn KernelIntrospect,
-) -> Result<Vec<RigidPlacement>, EngineError> {
-    let out = match spec {
+) -> Result<Vec<Instance>, EngineError> {
+    let out: Vec<Instance> = match spec {
+        PatternSpec::Mirror(p) => {
+            // The plane is an AxisRef whose direction IS the normal, so a
+            // datum plane or a planar face resolves through the same frame
+            // machinery an axis pick uses.
+            let (origin, normal) =
+                resolve_axis(&p.plane, feature_results, introspect, "mirror plane")?;
+            vec![
+                Instance::Seed,
+                Instance::Mirror(MirrorPlane {
+                    point: origin,
+                    normal,
+                }),
+            ]
+        }
         PatternSpec::Circular(p) => {
             let count = check_count(p.count, "circular pattern")?;
             if !p.angle_deg.is_finite() || p.angle_deg.abs() < TAU_WORK {
@@ -184,13 +221,13 @@ pub(crate) fn placements(
                 p.angle_deg.to_radians() / (count - 1) as f64
             };
             let mut out = Vec::with_capacity(count);
-            out.push(RigidPlacement::IDENTITY);
+            out.push(Instance::Seed);
             for i in 1..count {
-                out.push(RigidPlacement::rotation_about(
+                out.push(Instance::Rigid(RigidPlacement::rotation_about(
                     origin,
                     axis,
                     step * i as f64,
-                ));
+                )));
             }
             out
         }
@@ -243,7 +280,7 @@ pub(crate) fn placements(
             for j in 0..cols {
                 for i in 0..count {
                     if i == 0 && j == 0 {
-                        out.push(RigidPlacement::IDENTITY);
+                        out.push(Instance::Seed);
                         continue;
                     }
                     let mut t = [
@@ -256,7 +293,7 @@ pub(crate) fn placements(
                         t[1] += d2[1] * s2 * j as f64;
                         t[2] += d2[2] * s2 * j as f64;
                     }
-                    out.push(RigidPlacement::translation(t));
+                    out.push(Instance::Rigid(RigidPlacement::translation(t)));
                 }
             }
             out
@@ -288,17 +325,53 @@ fn check_spacing(spacing: f64, what: &str) -> Result<(), EngineError> {
 /// anchor to a feature output, and must not already be consumed.
 fn resolve_seeds(
     spec: PatternSpec<'_>,
+    feature: &Feature,
     feature_results: &HashMap<Uuid, OpResult>,
+    tree: &FeatureTree,
     already_consumed: &HashSet<Uuid>,
 ) -> Result<Vec<(Uuid, OutputKey, KernelSolidHandle)>, EngineError> {
-    if spec.seeds().is_empty() {
+    let listed = match spec.seeds() {
+        // `All`: the same body set `UnionTargets::All` folds — every live
+        // solid at this point in the tree, in tree order. Nothing here can
+        // be "already consumed" (the walk skips those), so the explicit
+        // branch's refusals have nothing to say about it.
+        PatternSeeds::All => {
+            let mut out = Vec::new();
+            for f in crate::union_all::live_features_before(
+                feature,
+                feature_results,
+                tree,
+                already_consumed,
+            ) {
+                let Some(r) = feature_results.get(&f.id) else {
+                    continue;
+                };
+                for (key, body) in &r.outputs {
+                    if matches!(key, OutputKey::Main | OutputKey::Body { .. }) {
+                        out.push((f.id, key.clone(), body.handle.clone()));
+                    }
+                }
+            }
+            if out.is_empty() {
+                return Err(EngineError::ResolutionFailed {
+                    reason: format!(
+                        "{}: there are no live bodies before this feature to pattern",
+                        spec.label()
+                    ),
+                });
+            }
+            return Ok(out);
+        }
+        PatternSeeds::Selected(v) => v,
+    };
+    if listed.is_empty() {
         return Err(EngineError::ResolutionFailed {
             reason: format!("{}: no seed bodies", spec.label()),
         });
     }
-    let mut out = Vec::with_capacity(spec.seeds().len());
+    let mut out = Vec::with_capacity(listed.len());
     let mut seen: HashSet<(Uuid, OutputKey)> = HashSet::new();
-    for gr in spec.seeds() {
+    for gr in listed {
         let (fid, key) = anchor_of(gr).ok_or_else(|| EngineError::ResolutionFailed {
             reason: format!("{}: a seed must anchor to a feature output", spec.label()),
         })?;
@@ -333,12 +406,17 @@ fn resolve_seeds(
 /// set stays consistent with what dispatch merged.)
 pub(crate) fn consumed_feature_ids(
     spec: PatternSpec<'_>,
+    feature: &Feature,
     feature_results: &HashMap<Uuid, OpResult>,
+    tree: &FeatureTree,
+    already_consumed: &HashSet<Uuid>,
 ) -> Vec<Uuid> {
     let mut out: Vec<Uuid> = Vec::new();
-    for gr in spec.seeds() {
-        if let Some((fid, _)) = anchor_of(gr) {
-            if find_solid_handle(gr, feature_results).is_ok() && !out.contains(&fid) {
+    // Exactly what `resolve_seeds` will take custody of — including the `All`
+    // walk, whose seeds have no reference to read the feature id off.
+    if let Ok(seeds) = resolve_seeds(spec, feature, feature_results, tree, already_consumed) {
+        for (fid, _, _) in seeds {
+            if !out.contains(&fid) {
                 out.push(fid);
             }
         }
@@ -365,7 +443,7 @@ pub(crate) fn execute(
     already_consumed: &HashSet<Uuid>,
     spec: PatternSpec<'_>,
 ) -> Result<OpResult, EngineError> {
-    let seeds = resolve_seeds(spec, feature_results, already_consumed)?;
+    let seeds = resolve_seeds(spec, feature, feature_results, tree, already_consumed)?;
     let eff = spec.combine();
     let mut warnings: Vec<String> = Vec::new();
 
@@ -433,18 +511,18 @@ pub(crate) fn execute(
         }
     }
 
-    let placements = placements(spec, feature_results, kb.as_introspect())?;
+    let instances = instances(spec, feature_results, kb.as_introspect())?;
     let pattern_seeds: Vec<PatternSeed> = seeds
         .iter()
         .map(|(_, _, h)| PatternSeed { handle: h.clone() })
         .collect();
-    let instances = execute_pattern_instances(kb, &pattern_seeds, &placements, spec.skip())?;
+    let placed = execute_pattern_instances(kb, &pattern_seeds, &instances, spec.skip())?;
 
     let mut result = match eff.mode {
-        CombineMode::NewBody => instances,
-        CombineMode::Add => combine_add(kb, &targets, instances)?,
-        CombineMode::Cut => combine_cut(kb, &targets, instances)?,
-        CombineMode::Intersect => combine_intersect(kb, &targets, instances)?,
+        CombineMode::NewBody => placed,
+        CombineMode::Add => combine_add(kb, &targets, placed)?,
+        CombineMode::Cut => combine_cut(kb, &targets, placed)?,
+        CombineMode::Intersect => combine_intersect(kb, &targets, placed)?,
     };
     carry_untargeted_named(&mut result, &named, feature_results);
     result.diagnostics.warnings.extend(warnings);

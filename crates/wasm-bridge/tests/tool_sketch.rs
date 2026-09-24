@@ -324,3 +324,105 @@ fn on_error_keep_commits_a_sketch_that_did_not_solve() {
     );
     assert_eq!(state.engine.tree.features.len(), 1, "the sketch stayed");
 }
+
+// ── A caller-chosen x axis (docs/notes/eiffel/FEATURE_NOTES.md §3) ───────
+
+/// The committed sketch's own +x direction, if it has one.
+fn committed_x_axis(state: &EngineState) -> Option<[f64; 3]> {
+    let feature = state.engine.tree.features.last().expect("a feature");
+    match &feature.operation {
+        Operation::Sketch { sketch } => sketch.plane_x_axis,
+        other => panic!("expected a Sketch, got {other:?}"),
+    }
+}
+
+#[test]
+fn a_plane_may_name_its_own_x_axis_and_the_answer_says_where_it_went() {
+    let mut state = EngineState::new();
+    // Without one, the engine picks: on the XY plane sketch +x is world −y,
+    // which is exactly the derivation a caller should not have to reproduce.
+    let out = ok(
+        &mut state,
+        json!({
+            "plane": { "origin": [0, 0, 0], "normal": [0, 0, 1] },
+            "entities": rectangle(),
+        }),
+    );
+    assert_eq!(out["plane"]["x_axis"], json!([0.0, -1.0, 0.0]));
+    assert_eq!(out["plane"]["y_axis"], json!([1.0, 0.0, 0.0]));
+    assert_eq!(
+        committed_x_axis(&state),
+        None,
+        "nothing stored when none given"
+    );
+
+    // With one, sketch +x IS that direction — and it is orthogonalized, so a
+    // caller may hand over any vector with an in-plane part.
+    let out = ok(
+        &mut state,
+        json!({
+            "plane": { "origin": [0, 0, 0], "normal": [0, 0, 1], "x_axis": [2, 0, 5] },
+            "entities": rectangle(),
+        }),
+    );
+    assert_eq!(out["plane"]["x_axis"], json!([1.0, 0.0, 0.0]));
+    assert_eq!(out["plane"]["y_axis"], json!([0.0, 1.0, 0.0]));
+    assert_eq!(
+        committed_x_axis(&state),
+        Some([2.0, 0.0, 5.0]),
+        "stored verbatim"
+    );
+
+    // A datum-named plane takes one too.
+    let out = ok(
+        &mut state,
+        json!({
+            "plane": { "anchor": { "type": "DatumPlane", "datum_id": FRONT_PLANE_ID }, "x_axis": [1, 0, 0] },
+            "entities": rectangle(),
+        }),
+    );
+    assert_eq!(out["plane"]["x_axis"], json!([1.0, 0.0, 0.0]));
+}
+
+#[test]
+fn an_x_axis_that_cannot_orient_the_plane_is_refused_with_the_reason() {
+    let mut state = EngineState::new();
+    let before = state.engine.tree.features.len();
+    for bad in [json!([0, 0, 1]), json!([0, 0, 0])] {
+        let error = refused(
+            &mut state,
+            json!({
+                "plane": { "origin": [0, 0, 0], "normal": [0, 0, 1], "x_axis": bad },
+                "entities": rectangle(),
+            }),
+        );
+        assert_eq!(error["code"], "InvalidSketch", "{error}");
+        assert!(
+            error["message"]
+                .as_str()
+                .unwrap_or("")
+                .contains("parallel to the normal"),
+            "{error}"
+        );
+    }
+    assert_eq!(
+        state.engine.tree.features.len(),
+        before,
+        "a refused x_axis commits nothing"
+    );
+    // Not three numbers is its own refusal.
+    let error = refused(
+        &mut state,
+        json!({
+            "plane": { "origin": [0, 0, 0], "normal": [0, 0, 1], "x_axis": "up" },
+            "entities": rectangle(),
+        }),
+    );
+    assert!(
+        error["message"]
+            .as_str()
+            .unwrap_or("")
+            .contains("three numbers"),
+        "{error}"
+    );
+}

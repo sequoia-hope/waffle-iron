@@ -307,6 +307,14 @@ test.describe('the recorded goldens', () => {
 
 	test('re-record the golden answers and documents', async ({ page }) => {
 		test.setTimeout(600000);
+		// Every sequence runs in the SAME browser context here (one test), so
+		// each `goto` would otherwise reopen the previous sequence's work —
+		// `restoreOnReload` defaults to 'auto' — and record its leftover
+		// errors and shifted ids as if they were this sequence's answer. The
+		// comparison runs get a context per test and never see it.
+		await page.goto('/');
+		await page.waitForFunction(() => window.__waffle?.updateSettings, null, { timeout: 60000 });
+		await page.evaluate(() => window.__waffle.updateSettings({ restoreOnReload: 'never' }));
 		/** @type {Record<string, {results: string, document: string}>} */
 		const goldens = {};
 		for (const [name, steps] of SEQUENCES) {

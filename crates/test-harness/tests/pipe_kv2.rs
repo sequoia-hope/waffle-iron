@@ -59,6 +59,7 @@ fn handlebar_sketch() -> Operation {
             plane: plane_ref(),
             plane_origin: [0.0, 0.0, 0.0],
             plane_normal: [0.0, 0.0, 1.0],
+            plane_x_axis: None,
             entities: vec![
                 pt(1, -1.0, 0.0),
                 pt(2, 0.0, 0.0),

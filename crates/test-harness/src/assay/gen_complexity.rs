@@ -231,6 +231,7 @@ impl CCase {
                     plane: datum_plane_ref(plane_uid),
                     plane_origin: origin,
                     plane_normal: normal,
+                    plane_x_axis: None,
                     entities,
                     constraints: vec![],
                     solve_status: SolveStatus::FullyConstrained,

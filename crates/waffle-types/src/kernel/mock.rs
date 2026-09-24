@@ -741,6 +741,78 @@ impl Kernel for MockKernel {
         Ok(handle)
     }
 
+    /// Mirrored copy: re-ID every entity, reflect positions and centroids,
+    /// and reflect face normals. A reflection is an isometry, so lengths and
+    /// areas are carried verbatim; the mock has no loop traversal to reverse,
+    /// so the normal's reflection IS its orientation bookkeeping.
+    fn mirror_body(
+        &mut self,
+        solid: &KernelSolidHandle,
+        plane: &MirrorPlane,
+    ) -> Result<KernelSolidHandle, KernelError> {
+        if plane.unit_normal().is_none() {
+            return Err(KernelError::Other {
+                message: format!(
+                    "mirror_body: the mirror plane's normal is zero-length or non-finite ({:?})",
+                    plane.normal
+                ),
+            });
+        }
+        let src = self
+            .solids
+            .get(&solid.raw())
+            .ok_or(KernelError::EntityNotFound {
+                id: KernelId(solid.raw()),
+            })?
+            .clone();
+        let at = |p: [f64; 3]| plane.apply(p).expect("normal checked above");
+        let dir = |v: [f64; 3]| plane.apply_dir(v).expect("normal checked above");
+        let mut id_map: HashMap<KernelId, KernelId> = HashMap::new();
+        let mut vertices = Vec::with_capacity(src.vertices.len());
+        for v in &src.vertices {
+            let id = self.alloc_id();
+            id_map.insert(v.id, id);
+            vertices.push(MockVertex {
+                id,
+                position: at(v.position),
+            });
+        }
+        let mut edges = Vec::with_capacity(src.edges.len());
+        for e in &src.edges {
+            let id = self.alloc_id();
+            id_map.insert(e.id, id);
+            edges.push(MockEdge {
+                id,
+                start: id_map[&e.start],
+                end: id_map[&e.end],
+                length: e.length,
+            });
+        }
+        let mut faces = Vec::with_capacity(src.faces.len());
+        for f in &src.faces {
+            let id = self.alloc_id();
+            id_map.insert(f.id, id);
+            faces.push(MockFace {
+                id,
+                edges: f.edges.iter().map(|e| id_map[e]).collect(),
+                normal: dir(f.normal),
+                centroid: at(f.centroid),
+                area: f.area,
+                surface_type: f.surface_type.clone(),
+            });
+        }
+        let handle = self.alloc_handle();
+        self.solids.insert(
+            handle.raw(),
+            MockSolid {
+                vertices,
+                edges,
+                faces,
+            },
+        );
+        Ok(handle)
+    }
+
     /// Mock ingest of an imported (STEP) body: mirrors the contract data as
     /// synthetic topology — one MockFace per imported face (surface_type and
     /// plane normal from the descriptor, centroid/area from the mesh), one

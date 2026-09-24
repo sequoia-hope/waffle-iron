@@ -184,3 +184,122 @@ fn extrude_on_top_and_right_builtin_planes_line_up() {
         mx[0]
     );
 }
+
+// ── The sketch's own x axis (docs/notes/eiffel/FEATURE_NOTES.md §3) ──────
+
+/// As `extrude_bbox`, with the sketch's own +x direction.
+#[allow(clippy::too_many_arguments)]
+fn oriented_extrude_bbox(
+    origin: [f64; 3],
+    normal: [f64; 3],
+    x_axis: Option<[f64; 3]>,
+    x: f64,
+    y: f64,
+    w: f64,
+    h: f64,
+    depth: f64,
+) -> ([f32; 3], [f32; 3]) {
+    let mut b = ModelBuilder::kernel_v2();
+    b.rect_sketch_oriented("s", origin, normal, x_axis, x, y, w, h)
+        .unwrap();
+    b.extrude("e", "s", depth).unwrap();
+    let mesh = b.tessellate("e").unwrap();
+    mesh_bounding_box(&mesh)
+}
+
+/// A sketch that names its own x axis is BUILT on it: the same 2 × 1
+/// rectangle lands the long way along world x, where the derived basis puts
+/// it the long way along world y. This is the whole point of §3 — the caller
+/// says which way is up instead of reproducing the engine's choice.
+#[test]
+fn a_sketch_x_axis_places_the_profile_in_the_world() {
+    // Derived basis on +Z: sketch +x is world −y, sketch +y is world +x.
+    let (mn, mx) = oriented_extrude_bbox([0.0; 3], [0.0, 0.0, 1.0], None, 0.0, 0.0, 2.0, 1.0, 0.5);
+    assert!(
+        (mx[0] - mn[0] - 1.0).abs() < EPS,
+        "derived: x extent {}",
+        mx[0] - mn[0]
+    );
+    assert!(
+        (mx[1] - mn[1] - 2.0).abs() < EPS,
+        "derived: y extent {}",
+        mx[1] - mn[1]
+    );
+
+    // Chosen basis: sketch +x IS world +x, so the 2 runs along x.
+    let (mn, mx) = oriented_extrude_bbox(
+        [0.0; 3],
+        [0.0, 0.0, 1.0],
+        Some([1.0, 0.0, 0.0]),
+        0.0,
+        0.0,
+        2.0,
+        1.0,
+        0.5,
+    );
+    assert!(
+        (mx[0] - mn[0] - 2.0).abs() < EPS,
+        "chosen: x extent {}",
+        mx[0] - mn[0]
+    );
+    assert!(
+        (mx[1] - mn[1] - 1.0).abs() < EPS,
+        "chosen: y extent {}",
+        mx[1] - mn[1]
+    );
+    // …at the sketch's own corner: (0,0) is the plane origin either way.
+    assert!(mn[0].abs() < EPS && mn[1].abs() < EPS, "corner {mn:?}");
+    assert!((mx[2] - 0.5).abs() < EPS, "still extruded along the normal");
+}
+
+/// An x axis 45° round the normal rotates the profile by 45°, so a 2 × 2
+/// square's bounding box grows to 2√2 on both axes — the sketch is built on
+/// the axis it was given, not merely tagged with it.
+#[test]
+fn a_rotated_sketch_x_axis_rotates_the_body() {
+    let s = std::f64::consts::FRAC_1_SQRT_2;
+    let (mn, mx) = oriented_extrude_bbox(
+        [0.0; 3],
+        [0.0, 0.0, 1.0],
+        Some([s, s, 0.0]),
+        -1.0,
+        -1.0,
+        2.0,
+        2.0,
+        0.5,
+    );
+    let diag = 2.0 * (2.0f32).sqrt();
+    assert!(
+        (mx[0] - mn[0] - diag).abs() < 1e-4,
+        "x extent {}",
+        mx[0] - mn[0]
+    );
+    assert!(
+        (mx[1] - mn[1] - diag).abs() < 1e-4,
+        "y extent {}",
+        mx[1] - mn[1]
+    );
+}
+
+/// An x axis that cannot orient the plane is a loud error on the SKETCH,
+/// not a silent fallback to the derived basis.
+#[test]
+fn an_unusable_sketch_x_axis_fails_the_sketch_loudly() {
+    let mut b = ModelBuilder::kernel_v2();
+    b.rect_sketch_oriented(
+        "s",
+        [0.0; 3],
+        [0.0, 0.0, 1.0],
+        Some([0.0, 0.0, 1.0]),
+        0.0,
+        0.0,
+        1.0,
+        1.0,
+    )
+    .unwrap();
+    let errors = b.engine_errors().to_vec();
+    assert!(
+        errors.iter().any(|(_, e)| e.contains("x_axis")),
+        "expected a loud x_axis error, got {errors:?}"
+    );
+}

@@ -347,6 +347,7 @@ fn square_sketch(
             }],
             plane_origin: [0.0, 0.0, 0.0],
             plane_normal: [0.0, 0.0, 1.0],
+            plane_x_axis: None,
             entities,
             constraints: vec![],
             projected: vec![],

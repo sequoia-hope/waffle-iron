@@ -375,29 +375,12 @@ impl Engine {
                 .map(|fid| (*fid, FeatureTree::body_id(*fid, &OutputKey::Main)))
             }
             // A pattern's Main is instance 0 of its first seed: it inherits
-            // that seed body's name.
-            Operation::PatternCircular { params } => params.seeds.first().and_then(|gr| {
-                if let Anchor::FeatureOutput {
-                    feature_id,
-                    output_key,
-                } = &gr.anchor
-                {
-                    Some((*feature_id, FeatureTree::body_id(*feature_id, output_key)))
-                } else {
-                    None
-                }
-            }),
-            Operation::PatternLinear { params } => params.seeds.first().and_then(|gr| {
-                if let Anchor::FeatureOutput {
-                    feature_id,
-                    output_key,
-                } = &gr.anchor
-                {
-                    Some((*feature_id, FeatureTree::body_id(*feature_id, output_key)))
-                } else {
-                    None
-                }
-            }),
+            // that seed body's name. With `All` seeds the first body is
+            // whatever the tree walk finds, which is not a name the params
+            // can answer — the pattern's own name stands.
+            Operation::PatternCircular { params } => pattern::first_seed_body(&params.seeds),
+            Operation::PatternLinear { params } => pattern::first_seed_body(&params.seeds),
+            Operation::PatternMirror { params } => pattern::first_seed_body(&params.seeds),
             // A union's Main is the first body's lump: it inherits that
             // body's name (`specs/b4_balanced_union.md` §2.2).
             Operation::UnionAll { params } => union_all::name_source(

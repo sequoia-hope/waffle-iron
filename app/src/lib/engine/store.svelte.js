@@ -145,7 +145,10 @@ let selectedBodyId = $state(null);
 let hoveredBodyId = $state(null);
 
 /** @type {{ active: boolean, origin: [number, number, number], normal: [number, number, number] }} */
-let sketchMode = $state({ active: false, origin: [0, 0, 0], normal: [0, 0, 1] });
+// `xAxis` is the sketch's own +u direction when it carries one
+// (`Sketch.plane_x_axis`); null ⇒ derived from the normal, which is every
+// sketch the UI authors and every one written before 2026-09-24.
+let sketchMode = $state({ active: false, origin: [0, 0, 0], normal: [0, 0, 1], xAxis: null });
 
 /**
  * Projected-geometry bindings for the active sketch: each maps a local Point id
@@ -1422,7 +1425,7 @@ export async function initEngine() {
 				const cam = cameraObject;
 				const canvas = document.querySelector('canvas');
 				if (!cam || !canvas) return null;
-				const plane = buildSketchPlane(sm.origin, sm.normal);
+				const plane = buildSketchPlane(sm.origin, sm.normal, sm.xAxis);
 				const screen = sketchToScreen(sx, sy, plane, cam, canvas);
 				const rect = canvas.getBoundingClientRect();
 				return { x: screen.x - (rect.left + rect.width / 2), y: screen.y - (rect.top + rect.height / 2) };
@@ -1537,7 +1540,7 @@ export async function initEngine() {
 				const camera = getCameraObject();
 				const canvas = document.querySelector('[data-testid="viewport"] canvas') || document.querySelector('canvas');
 				if (!camera || !canvas) return null;
-				const plane = buildSketchPlane(sketchMode.origin, sketchMode.normal);
+				const plane = buildSketchPlane(sketchMode.origin, sketchMode.normal, sketchMode.xAxis);
 				return sketchToScreen(x, y, plane, camera, canvas);
 			},
 			computeChainOffset: (ids, d) => {
@@ -2210,7 +2213,7 @@ function collectSamePlaneSketchPoints(origin, normal, excludeFeatureId) {
 	const nnx = nx / nLen, nny = ny / nLen, nnz = nz / nLen;
 
 	// Build current sketch plane basis for projection
-	const plane = buildSketchPlane(origin, normal);
+	const plane = buildSketchPlane(origin, normal, sketchMode.xAxis);
 
 	for (const feature of tree.features) {
 		if (feature.operation?.type !== 'Sketch') continue;
@@ -2231,7 +2234,7 @@ function collectSamePlaneSketchPoints(origin, normal, excludeFeatureId) {
 		if (Math.abs(Math.abs(dot) - 1) > 0.001) continue;
 
 		// Build the source sketch's plane to get 3D positions
-		const srcPlane = buildSketchPlane(sOrigin, sNormal);
+		const srcPlane = buildSketchPlane(sOrigin, sNormal, sketch.plane_x_axis ?? null);
 
 		for (const [id, coords] of Object.entries(sketch.solved_positions)) {
 			if (!Array.isArray(coords) || coords.length < 2) continue;
@@ -2296,7 +2299,7 @@ export async function enterSketchMode(origin = [0, 0, 0], normal = [0, 0, 1], fa
 		}
 	}
 
-	sketchMode = { active: true, origin, normal };
+	sketchMode = { active: true, origin, normal, xAxis: null };
 
 	// Collect reference snap points from inactive sketches on the same/parallel plane
 	referenceSnapPoints = collectSamePlaneSketchPoints(origin, normal, editingSketchFeatureId);
@@ -2313,7 +2316,7 @@ export async function enterSketchMode(origin = [0, 0, 0], normal = [0, 0, 1], fa
 				return;
 			}
 		}
-		window.dispatchEvent(new CustomEvent('waffle-align-to-plane', { detail: { origin, normal } }));
+		window.dispatchEvent(new CustomEvent('waffle-align-to-plane', { detail: { origin, normal, xAxis: sketchMode.xAxis } }));
 	}
 }
 
@@ -2324,7 +2327,7 @@ export function exitSketchMode() {
 	log('action', 'Exit sketch mode');
 	editingSketchFeatureId = null;
 	resetSketchState();
-	sketchMode = { active: false, origin: [0, 0, 0], normal: [0, 0, 1] };
+	sketchMode = { active: false, origin: [0, 0, 0], normal: [0, 0, 1], xAxis: null };
 	restoreEditRollback();
 	// The draft still holds the session; a cancelled sketch must not come back on reload.
 	scheduleAutoSave();
@@ -2498,7 +2501,7 @@ const quantize6 = (n) => Math.round(n * 1e6) / 1e6;
 
 /** Map a 3D world point to the active sketch plane's 2D (u, v) coordinates. */
 function worldToSketch2D(x, y, z) {
-	const plane = buildSketchPlane(sketchMode.origin, sketchMode.normal);
+	const plane = buildSketchPlane(sketchMode.origin, sketchMode.normal, sketchMode.xAxis);
 	const rx = x - plane.origin.x;
 	const ry = y - plane.origin.y;
 	const rz = z - plane.origin.z;
@@ -5680,7 +5683,7 @@ export function showBooleanDialog() {
 	// body is not an operand (the engine refuses a consumed one loudly,
 	// `specs/b4_balanced_union.md` §2.4).
 	const bodies = tree.features
-		.filter(f => ['Extrude', 'Revolve', 'Pipe', 'BooleanCombine', 'UnionAll', 'Chamfer', 'Fillet', 'Shell', 'ImportedBody', 'PatternCircular', 'PatternLinear', 'Script'].includes(f.operation?.type))
+		.filter(f => ['Extrude', 'Revolve', 'Pipe', 'BooleanCombine', 'UnionAll', 'Chamfer', 'Fillet', 'Shell', 'ImportedBody', 'PatternCircular', 'PatternLinear', 'PatternMirror', 'Script'].includes(f.operation?.type))
 		.filter(f => !f.suppressed && !consumedFeatures.has(f.id))
 		.map(f => ({ featureId: f.id, name: f.name }));
 
@@ -6023,6 +6026,9 @@ export async function finishSketch() {
 					plane: origSketch?.plane || null,
 					plane_origin: planeOrigin,
 					plane_normal: planeNormal,
+					// A sketch that came with its own x axis keeps it: dropping
+					// it here would silently re-base every point on edit.
+					...(origSketch?.plane_x_axis ? { plane_x_axis: origSketch.plane_x_axis } : {}),
 					entities: sketchEntities,
 					constraints: persistedConstraints,
 					solve_status: origSketch?.solve_status || { type: 'UnderConstrained', dof: 0 },
@@ -6052,6 +6058,7 @@ export async function finishSketch() {
 			solved_profiles: profiles,
 			plane_origin: planeOrigin,
 			plane_normal: planeNormal,
+			...(sketchMode.xAxis ? { plane_x_axis: JSON.parse(JSON.stringify(sketchMode.xAxis)) } : {}),
 			entities: JSON.parse(JSON.stringify(sketchEntities)),
 			constraints: JSON.parse(JSON.stringify(persistedConstraints)),
 			projected: JSON.parse(JSON.stringify(projectedBindings)),
@@ -6739,7 +6746,9 @@ export async function enterSketchEditMode(featureId) {
 
 	const origin = sketch.plane_origin || [0, 0, 0];
 	const normal = sketch.plane_normal || [0, 0, 1];
-	sketchMode = { active: true, origin, normal };
+	// Editing a sketch that carries its own x axis must draw it in ITS basis,
+	// not in the derived one, or every point moves.
+	sketchMode = { active: true, origin, normal, xAxis: sketch.plane_x_axis ?? null };
 
 	// Re-send all entities/constraints to engine
 	if (bridge && engineReady) {
@@ -6761,7 +6770,7 @@ export async function enterSketchEditMode(featureId) {
 	// Save camera and align to sketch plane
 	if (typeof window !== 'undefined') {
 		window.dispatchEvent(new Event('waffle-save-camera'));
-		window.dispatchEvent(new CustomEvent('waffle-align-to-plane', { detail: { origin, normal } }));
+		window.dispatchEvent(new CustomEvent('waffle-align-to-plane', { detail: { origin, normal, xAxis: sketchMode.xAxis } }));
 	}
 }
 

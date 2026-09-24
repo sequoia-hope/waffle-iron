@@ -166,6 +166,10 @@ pub fn build_engine(limits: &Limits) -> Engine {
         "pattern_linear",
         |ctx: &mut Ctx, seeds: Dynamic, opts: Map| ctx.pattern_linear(&seeds, &opts),
     );
+    engine.register_fn(
+        "pattern_mirror",
+        |ctx: &mut Ctx, seeds: Dynamic, opts: Map| ctx.pattern_mirror(&seeds, &opts),
+    );
     engine.register_fn("union_all", |ctx: &mut Ctx| ctx.union_all(None));
     engine.register_fn("union_all", |ctx: &mut Ctx, bodies: Dynamic| {
         ctx.union_all(Some(&bodies))

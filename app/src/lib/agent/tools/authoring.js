@@ -17,8 +17,11 @@ export const sketchCreateTool = {
 		'Create a sketch in one call: the entities and constraints are solved by the page and committed as a ' +
 		'Sketch feature (one undo step). Sketch coordinates (Point x, y; Circle radius) are meters in the ' +
 		'plane. plane is either a face or datum GeomRef (from selection_get or face_list) or an explicit ' +
-		'{origin, normal} in world meters; with origin+normal the in-plane axes are chosen by the engine, so ' +
-		'read the result back rather than assuming +x/+y. Entity ids are unsigned integers unique within the ' +
+		'{origin, normal} in world meters; EITHER form takes an optional x_axis — the world direction the ' +
+		'sketch\'s +x points along, which is how you orient a rectangular member or a keyway without ' +
+		'reproducing the engine\'s own basis. Without one the engine picks the in-plane axes, so read the ' +
+		'result back (it answers with the plane basis it used) rather than assuming +x/+y. Entity ids are ' +
+		'unsigned integers unique within the ' +
 		'sketch; Lines/Arcs/Circles name Point ids. An over-constrained or failed solve is rolled back by ' +
 		'default (SketchSolveFailed). regions lists the closed loops: pass a region\'s profile_entity_ids to ' +
 		'an Extrude/Revolve. ' +
@@ -27,11 +30,22 @@ export const sketchCreateTool = {
 		type: 'object',
 		properties: {
 			plane: {
+				description:
+					'A face/datum GeomRef, or {origin, normal}. Either may carry x_axis: the world direction ' +
+					'the sketch\'s +x axis points along (its in-plane part is used). Parallel to the normal, ' +
+					'or zero-length, is refused.',
 				anyOf: [
-					engineRef('GeomRef'),
+					{
+						allOf: [engineRef('GeomRef')],
+						properties: { x_axis: vec3('Optional: the sketch +x direction in world space.') }
+					},
 					{
 						type: 'object',
-						properties: { origin: vec3('World point on the plane (m).'), normal: vec3('Plane normal.') },
+						properties: {
+							origin: vec3('World point on the plane (m).'),
+							normal: vec3('Plane normal.'),
+							x_axis: vec3('Optional: the sketch +x direction in world space.')
+						},
 						required: ['origin', 'normal'],
 						additionalProperties: false
 					}
@@ -49,6 +63,19 @@ export const sketchCreateTool = {
 		feature_id: { type: 'string' },
 		solve_status: { type: 'string', description: 'FullyConstrained | UnderConstrained | OverConstrained | SolveFailed' },
 		dof: { type: ['integer', 'null'] },
+		plane: {
+			type: 'object',
+			description:
+				'The basis the sketch got: sketch (x, y) is origin + x·x_axis + y·y_axis in world meters. ' +
+				'Pass x_axis in to choose it; read it back to place anything oriented.',
+			properties: {
+				origin: vec3('Plane origin (m).'),
+				normal: vec3('Unit plane normal.'),
+				x_axis: vec3('Unit world direction of sketch +x.'),
+				y_axis: vec3('Unit world direction of sketch +y.')
+			},
+			required: ['origin', 'normal', 'x_axis', 'y_axis']
+		},
 		regions: {
 			type: 'array',
 			items: {
@@ -65,7 +92,7 @@ export const sketchCreateTool = {
 
 const operationNote =
 	'operation is an Operation: {"type":"Extrude","params":{…}}, Revolve, Pipe, BooleanCombine, UnionAll, DatumPlane, MateConnector, ' +
-	'PatternCircular, PatternLinear, Script, or a full Sketch. A UnionAll folds EVERY live body of the part (or ' +
+	'PatternCircular, PatternLinear, PatternMirror, Script, or a full Sketch. A UnionAll folds EVERY live body of the part (or ' +
 	'params.targets {type:"Selected", bodies:[Solid GeomRefs]}) into connected solids with ONE feature — a balanced ' +
 	'tree of pairwise unions with a bounding-box fast path — so prefer it over a chain of BooleanCombine steps on many ' +
 	'overlapping bodies: params {targets?: {type:"All"}}. A BooleanCombine whose operand was already consumed by an ' +
@@ -78,14 +105,18 @@ const operationNote =
 	'script declares its parameters in `// @param name: type` header lines and calls ctx.sketch / extrude / ' +
 	'revolve / boolean over the same operations as these tools; add the source with script_source_add and prefer ' +
 	'script_feature_add (same node, takes the args directly) — see docs/CUSTOM_FEATURE_SCRIPTS.md. ' +
-	'A PatternCircular/PatternLinear makes rigid copies of seed ' +
+	'A PatternCircular/PatternLinear/PatternMirror copies seed ' +
 	'BODIES (params.seeds: Solid GeomRefs {kind:"Solid", anchor:{type:"FeatureOutput", feature_id, output_key}}, ' +
-	'from model_summary bodies) — it does not re-run the seed feature. Circular: axis {method:"explicit", origin, ' +
+	'from model_summary bodies, or {"type":"All"} for EVERY live body at that point in the tree — which is how you ' +
+	'say "take everything I just built and turn it four times" without listing it) — it does not re-run the seed feature. Circular: axis {method:"explicit", origin, ' +
 	'direction} or {method:"entity", geom_ref: a cylindrical/conical face, a circular edge, or a straight edge}, ' +
 	'count (instances INCLUDING the seed, ≥ 2), angle_deg (TOTAL sweep; 360 spaces 360/count apart, otherwise the ' +
 	'last instance lands at angle_deg), skip?: [instance indices ≥ 1]. Linear: direction (AxisRef, direction only), ' +
 	'count, spacing (m; negative reverses), second?: {direction, count, spacing} for a grid (index i + j·count). ' +
-	'Both: combine?: NewBody (default: every instance its own body) | Add (folds targets + instances into connected ' +
+	'Mirror: plane {method:"explicit", origin: a point on the plane, direction: the plane NORMAL} or ' +
+	'{method:"entity", geom_ref: a planar face or datum plane}; one copy, the seed\'s mirror image (no count, no ' +
+	'skip). ' +
+	'All: combine?: NewBody (default: every instance its own body) | Add (folds targets + instances into connected ' +
 	'bodies) | Cut | Intersect, with targets?: explicit Solid GeomRefs (never auto by position; Cut/Intersect need ' +
 	'one). The pattern takes custody of its seeds (their features are consumed) and emits every instance: Main = ' +
 	'the seed itself, then Body:1… — so chain later booleans onto the PATTERN\'s outputs, not the seed feature\'s. ' +

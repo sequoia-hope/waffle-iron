@@ -133,6 +133,8 @@ pub(super) fn sketch_input_problem(entities: &[Value], constraints: &[Value]) ->
 struct SketchPlane {
     origin: [f64; 3],
     normal: [f64; 3],
+    /// The caller's chosen in-plane +u direction, when it gave one.
+    x_axis: Option<[f64; 3]>,
     /// The caller's face ref, when it named one — carried into `BeginSketch`
     /// only if it is scoped (in-context editing).
     face_ref: Option<Value>,
@@ -186,14 +188,26 @@ fn resolve_plane(
 ) -> Result<SketchPlane, ToolFailure> {
     let plane = plane.ok_or_else(|| invalid_sketch("plane is required."))?;
 
+    // `x_axis` orients the sketch on ANY plane form — a bare origin/normal,
+    // a datum, or a face — so it is read before the branch
+    // (`docs/notes/eiffel/FEATURE_NOTES.md` §3).
+    let x_axis = match plane.get("x_axis") {
+        None | Some(Value::Null) => None,
+        Some(v) => Some(
+            vec3(Some(v)).ok_or_else(|| invalid_sketch("plane.x_axis must be three numbers."))?,
+        ),
+    };
+
     if plane.get("origin").is_some() {
         let origin = vec3(plane.get("origin"))
             .ok_or_else(|| invalid_sketch("plane.origin must be three numbers."))?;
         let normal = vec3(plane.get("normal"))
             .ok_or_else(|| invalid_sketch("plane.normal must be three numbers."))?;
+        check_x_axis(normal, x_axis)?;
         return Ok(SketchPlane {
             origin,
             normal,
+            x_axis,
             face_ref: None,
         });
     }
@@ -233,11 +247,27 @@ fn resolve_plane(
         }
     };
 
+    check_x_axis(normal, x_axis)?;
     Ok(SketchPlane {
         origin,
         normal,
+        x_axis,
         face_ref: Some(plane.clone()),
     })
+}
+
+/// An `x_axis` that cannot orient the plane is refused HERE, where the caller
+/// can fix it, rather than committing a sketch whose rebuild would fail.
+fn check_x_axis(normal: [f64; 3], x_axis: Option<[f64; 3]>) -> Result<(), ToolFailure> {
+    match x_axis {
+        Some(x) if !waffle_types::SketchPlaneBasis::x_axis_is_usable(normal, x) => {
+            Err(invalid_sketch(format!(
+                "plane.x_axis {x:?} cannot orient a plane of normal {normal:?}: it is \
+                 zero-length, non-finite, or parallel to the normal."
+            )))
+        }
+        _ => Ok(()),
+    }
 }
 
 /// The `GeomRef` a `BeginSketch` carries (JS `beginSketchPlaneRef`).
@@ -409,6 +439,7 @@ pub(super) fn sketch_create(
                 solved_profiles: finished.profiles,
                 plane_origin: plane.origin,
                 plane_normal: plane.normal,
+                plane_x_axis: plane.x_axis,
                 entities: solved_entities,
                 constraints,
                 projected: Vec::new(),
@@ -423,6 +454,14 @@ pub(super) fn sketch_create(
         )
     })?;
 
+    // The basis the sketch actually got, so a caller never has to reproduce
+    // the engine's choice to know where its +x went
+    // (`docs/notes/eiffel/FEATURE_NOTES.md` §3).
+    let basis = waffle_types::SketchPlaneBasis::from_origin_normal_x(
+        plane.origin,
+        plane.normal,
+        plane.x_axis,
+    );
     let mut out = json!({
         "feature_id": step.feature_id,
         "solve_status": status_tag,
@@ -430,6 +469,12 @@ pub(super) fn sketch_create(
             SolveStatus::FullyConstrained => json!(0),
             SolveStatus::UnderConstrained { dof } => json!(dof),
             _ => Value::Null,
+        },
+        "plane": {
+            "origin": basis.origin,
+            "normal": basis.normal,
+            "x_axis": basis.x_axis,
+            "y_axis": basis.y_axis,
         },
         "regions": [],
     });

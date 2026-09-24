@@ -7,6 +7,10 @@ is what the model *wanted* to say and what it had to say instead. None of it is
 a kernel bug — the kernel answered correctly and loudly every time. These are
 capability, performance and ergonomics gaps.
 
+As of 2026-09-24 the open ones are §2 (a beam/member operation), §5
+(`model_summary` has no body count), §6 (pretty-printed documents — costed
+below, deliberately not changed), and the perf tails noted in §0 and §10.
+
 ## 0. Building a tab was O(N²) — FIXED 2026-09-24
 
 Every `sketch_create` and every `feature_add` cost time proportional to how
@@ -176,7 +180,7 @@ batched geometries (with a triangle-range → body table for picking, which
 every body on every pointer move — 3.3 fps — which wants a spatial index or a
 GPU picking pass.
 
-## 1. A lathe profile may only be a 3-gon or a 4-gon
+## 1. A lathe profile may only be a 3-gon or a 4-gon — FIXED 2026-09-24
 
 `kernel_v2::construct::revolve::on_axis` takes an on-axis profile only as an
 apex cone (3-gon) or a solid frustum (4-gon); anything else comes back as
@@ -186,16 +190,55 @@ there is — cannot be revolved as authored. It ships as **six stacked frusta**
 (`Dome band 0..5`), which is six bodies and six sketches where one would do,
 and which leaves visible steps in the silhouette.
 
-**Suggestion.** Widen the on-axis arm to the general case: an N-gon with
-exactly one on-axis edge is a fan of frusta/cones about a shared axis, and the
-topology is the same cap + lateral-strip census the 4-gon arm already builds,
-repeated. The gates the arm already applies (one on-axis edge, no holes, no
-crossing) are the same ones. This is the difference between "revolve is for
-cylinders and cones" and "revolve is a lathe".
+**FIXED.** `build_on_axis_lathe` takes a full-turn revolve of ANY simple
+polygon with exactly one on-axis edge. The profile is a chain from one
+on-axis vertex through the off-axis vertices to the other, and each chain
+edge sweeps exactly one face: an END edge (one endpoint on the axis) a disc
+or an apex cone, bounded by the single rim circle of its off-axis endpoint; a
+MIDDLE edge a cylinder or a cone frustum, bounded by the
+`[rim, seam, rim, seam]` single-fake-edge loop the frustum builder already
+used. Census V = p, E = 2p − 1, F = p + 1 for p off-axis vertices, so χ = 2 at
+every band count — and at p = 2 and p = 1 it is exactly the frustum's and the
+apex cone's own census.
 
-Related: a lathe profile cannot contain `Arc` entities, so even a true circular
-dome has to be pre-faceted by the caller. Honouring arcs in a revolve profile
-would give analytic spheres and tori from the profile the user actually drew.
+The 3- and 4-gon builders keep the shapes they already build, bit for bit
+(the corpus depends on the cylinder's extrude-of-circle delegation being
+bit-canonical). The general builder only takes what they turned down, so this
+is a widening: the dome, the stepped shaft, the cup with a blind bore, the
+bicone, the "pencil".
+
+One shape needed its own loop form: a MIDDLE band that is
+axis-perpendicular sweeps a planar ANNULUS, and a planar loop may not mix a
+full circle with other edges (`validate`). So a washer band takes the form
+the full-revolve caps already use — the outer rim in the outer loop, the
+inner rim in a `LoopKind::Inner` ring, and no seam ruling between them. It
+trades its seam for a ring, so the census moves on both sides at once:
+V − E + F − R = 2 still.
+
+**The whole thing turns on one sign.** Everything orientational — each face's
+surface normal, a cylinder's or cone's `reversed` cavity flag, and every rim's
+traversal axis — is derived from the sign of the profile's area in the
+`(radius, axial)` half-plane. That is what lets a blind bore's wall face the
+axis while the outer wall faces away, with no special case for either. Two
+faces sharing a rim derive OPPOSITE traversals from it, which is what makes
+them twins; `finalize_solid` checks that rather than the builder assuming it.
+`revolve_general_lathe.rs` pins each shape against its Pappus volume.
+
+Still refused, loudly: a PARTIAL sweep of a many-band profile (the wedge
+vocabulary — two pie-sector caps plus a swept face per edge — is a different
+construction, and no case asks for it yet).
+
+The shipped tower still carries its six stacked frusta: re-authoring the
+campanile's dome as one revolve changes the example's body count (which
+`examples.spec.js` pins) and re-records a 3.5 MB file, so it is its own
+change, not a side effect of the capability.
+
+Still open, and the other half of this item: a lathe profile cannot contain
+`Arc` entities, so even a true circular dome has to be pre-faceted by the
+caller — the dome above is a polyline, not an arc. Honouring arcs in a
+revolve profile would give analytic spheres and tori from the profile the
+user actually drew, and is a separate piece of work (the profile ingestion,
+not the assembler).
 
 ## 2. Every structural member costs two calls and its own sketch
 
@@ -213,7 +256,7 @@ removes the caller's plane-basis arithmetic (see §3), and it shrinks the
 document by roughly the same factor. Structural and furniture models are the
 obvious customers, but so is every enclosure, bracket and chassis.
 
-## 3. Sketch planes make the caller do the basis arithmetic
+## 3. Sketch planes make the caller do the basis arithmetic — FIXED 2026-09-24
 
 `sketch_create` takes `{origin, normal}` and picks its own in-plane u/v basis
 (`basis()` in the generator mirrors the engine's choice: a fixed reference
@@ -223,11 +266,35 @@ the engine's basis exactly, or project 3D points through it, to know which way
 "up" is in the sketch. Every generator in this repo carries the same `basis()`
 and `uv()` pair.
 
-**Suggestion.** Let `sketch_create` take an optional `x_axis` (as
-`MateConnector` frames already do). The caller says which way is up once; the
-engine stops being asked to guess and the callers stop reimplementing it.
+**FIXED.** Two halves, because either alone leaves the caller guessing:
 
-## 4. No mirror
+1. **A sketch can carry its own x axis.** `Sketch.plane_x_axis` (optional,
+   absent in every document written before this) is the world direction the
+   sketch's +u points along; it is orthogonalized against the normal, so a
+   caller may hand over any vector with an in-plane part — an edge direction,
+   a world axis — without projecting it first. `sketch_create` takes it on
+   EITHER plane form (a bare `{origin, normal}` or a face/datum `GeomRef`),
+   and the engine builds the sketch on it: the profile faces, the pipe path
+   and the share-a-face scan all go through one `sketch_x_axis`, so there is
+   one answer to "which way is up in this sketch".
+2. **`sketch_create` answers with the basis it used** — `plane: {origin,
+   normal, x_axis, y_axis}`. Even a caller that does not care which basis it
+   gets no longer has to reproduce the derivation to find out; it reads it
+   back. That is what the generators in this repo were carrying `basis()` and
+   `uv()` for.
+
+An axis that cannot orient the plane — zero-length, non-finite, or parallel
+to the normal — is refused by the tool and, if one reaches the tree anyway,
+fails the SKETCH feature loudly. It is never a silent fallback to the derived
+basis, which would move every point in the sketch.
+
+The UI honours it everywhere it draws: `buildSketchPlane` takes the axis, the
+sketch-mode state carries it while editing, and the inactive-sketch renderer
+reads each sketch's own. The UI does not yet author one (nothing in the
+toolbar asks "which way is up"), so every sketch a person draws still takes
+the derived basis, bit for bit.
+
+## 4. No mirror — FIXED 2026-09-24
 
 The tower has four-fold symmetry about the vertical axis, which
 `PatternCircular` handles beautifully — that single feature is what turns ~170
@@ -236,11 +303,33 @@ also has mirror symmetry about its own diagonal plane, and there is no
 `PatternMirror`, so the leg's 164 members are all authored explicitly when 90
 would do.
 
-**Suggestion.** `PatternMirror { seeds, plane }`. It is the same
-seed-consuming, transform-and-re-emit machinery `PatternLinear` and
-`PatternCircular` already share (`feature-engine/src/pattern.rs`), with a
-reflection instead of a rigid motion — with the caveat that a reflection flips
-orientation, so the emitted shells need their sense reversed.
+**FIXED.** `Operation::PatternMirror { seeds, plane, combine, targets }`, on
+exactly the machinery the other two share: same custody of its seeds, same
+instance-major outputs (instance 0 the seed, instance 1 its reflection), same
+combine against explicit targets.
+
+The caveat was the whole job. A reflection is improper, so it is not a
+`RigidPlacement` and the kernel refuses one there — rightly; it would turn
+every face of the copy inside out. It gets its own entry point instead:
+`MirrorPlane` + `Kernel::mirror_body`, implemented by `kernel_v2::mirror_solid`
+as the SAME deep copy `transform_solid` does, over a shared affine map, plus
+one thing — every loop of the copy is traversed the other way round
+(`next` ↔ `prev`, and each half-edge starts where it used to end). The twin
+pairing is untouched: both half-edges of an edge reverse together, so they
+still traverse it oppositely. Nothing else changes: the geometry maps by the
+reflection matrix exactly as it does by a rotation (a mirrored cylinder is a
+cylinder of the same radius), and the cavity flags survive (a hole stays a
+hole).
+
+The oracle for "did the orientation bookkeeping work" is the SIGN of the
+volume: a copy turned inside out satisfies every per-face invariant and
+integrates to −V. `transform_mirror_copy.rs` (kernel) and `pattern_kv2.rs`
+(feature) both take it that way, and the mirrored body is exercised as a
+boolean operand, which is where an inside-out solid would really bite.
+
+`OpTag::Mirror` is distinct from `OpTag::Transform` in the lineage journal —
+a face that has passed through a reflection has changed handedness, and a
+reader asking "which face is this" deserves to be told.
 
 ## 5. `model_summary` has no body count
 
@@ -254,27 +343,92 @@ have passed.
 in `model_summary`. A generator that can assert a count can be a regression
 test; one that cannot is a script.
 
-## 6. Documents are stored pretty-printed
+## 6. Documents are stored pretty-printed — NOT fixed; here is the case
 
-The tower's features are 794 KB of JSON but the `.waffle` on disk is 2.2 MB —
-indentation is ~60% of the shipped file. For a format that is mostly
-machine-written and machine-read, and that we ship inside the app bundle, a
-compact save (or gzip) would be free.
+Measured on the shipped examples (2026-09-24):
 
-**Suggestion.** Save compact by default with a `--pretty` affordance for
-debugging, or gzip the payload. Either roughly halves every example, fixture
-and assay case in the repo.
+| | on disk (pretty) | compact | gzip(compact) |
+|---|---:|---:|---:|
+| `eiffel-tower.waffle` | 3,490,341 | 1,226,695 (35%) | 150,117 (4.3%) |
+| `gravel-bike-v2.waffle` | 815,956 | 298,772 (37%) | 53,855 (6.6%) |
 
-## 7. Patterning a whole tab
+So **~65% of a `.waffle` is indentation and the newlines around it** — the
+tower is 2.3 MB of whitespace. There are 318 tracked `.waffle` files in the
+repo, 11.2 MB of working tree between them.
+
+### Where it comes from
+
+One line: `save_document` (`crates/file-format/src/save.rs`) ends in
+`serde_json::to_string_pretty`. It is "the writer" — every production save
+path composes its bytes there (v4 §4 invariant 7) — so this is a one-line
+change with a very wide blast radius, which is exactly why it deserves a
+decision rather than a patch.
+
+### What it actually costs, and where it does not
+
+- **The repository: almost nothing.** Git zlib-compresses every blob, and
+  whitespace is the most compressible thing in the file: those 318 files take
+  **0.8 MB** in the pack. Roughly what compact-and-then-zlib would take. The
+  11.2 MB is checkout size, not repository size.
+- **The app bundle and the wire: full price.** `app/static/examples/` is
+  copied verbatim into the build, and the dev server hands the tower over as
+  `Content-Length: 3490341` with no `content-encoding` — `.waffle` has no
+  registered media type, so it does not even get a `Content-Type`, let alone
+  gzip. Opening the tower example downloads 3.5 MB where 150 KB would do.
+  That is the real bill, and it is paid by every viewer of the examples.
+- **Load time: a little.** The parse walks every byte, so ~65% of the bytes
+  it walks are whitespace. `load_document` is 22 ms for the tower (§0a), so
+  this is worth single-digit milliseconds, not the headline.
+
+### What it buys, which is not nothing
+
+A pretty-printed document is **diffable**. The assay corpus, the file-format
+fixtures and the examples all live in git, and a reviewer reading "what did
+this fixture change do" gets one line per field instead of one line per file.
+Every one of those 318 files would become a single unreadable line. That is
+the argument against, and for a repo whose corpus IS its test suite it is a
+serious one.
+
+### The recommendation
+
+Do not flip the writer. Separate the two audiences instead, because they want
+opposite things:
+
+1. **Ship the examples compressed.** They are build artifacts, not reviewed
+   source: gzip them at the point the manifest is written and teach
+   `fetchExampleDocument` to inflate (`DecompressionStream('gzip')` is in
+   every browser the app supports). 3.5 MB → 150 KB with no change to the
+   format, the writer, or a single committed fixture. Name them `.waffle.gz`
+   — `corpus_backcompat` walks `git ls-files` for `*.waffle` and parses every
+   hit, so a gzipped file under that name would fail the corpus pin, which is
+   the right failure for the wrong reason.
+2. **Leave the writer pretty** for everything that lands in git, and keep the
+   diffability.
+3. If a compact writer is wanted later, it belongs behind an explicit
+   argument on `save_document` — never a default — so that "the bytes a save
+   produces" stays one function with one answer per caller.
+
+The one thing NOT to do is make it a global setting: two writers reachable by
+ambient state is how a corpus ends up half in each format.
+
+## 7. Patterning a whole tab — FIXED 2026-09-24
 
 Each part tab here ends with the same gesture: "take everything I just built
 and turn it four times." Expressing that needs an explicit list of every seed
 (`quarter_turns()` in the generator collects them), and a seed list of 164
 `GeomRef`s is most of that feature's JSON.
 
-**Suggestion.** Let a pattern's `seeds` accept "every solid alive at this point
-in the tree" as a selector, the way `UnionAll` already takes the live body set
-(landed 2026-09-23, B4). Same idea, same live-body query, applied to patterns.
+**FIXED.** A pattern's `seeds` now takes `{"type": "All"}` — every live solid
+at that point in the tree — and it is literally the same walk `UnionAll` uses
+(`union_all::live_features_before`, now shared). `consumed_feature_ids` asks
+the resolver rather than reading feature ids off the references, because with
+`All` there are no references to read.
+
+The array form is untouched and is still what a list of picked bodies writes,
+so every existing document round-trips byte for byte: `PatternSeeds`
+deserializes from either a JSON array or the tagged object, and serializes
+back as whichever it is. Anything else is a parse error naming what it saw,
+not a silently empty pattern.
 
 ## 8. `viewport_view` names assume Y-up, but the scene is Z-up
 

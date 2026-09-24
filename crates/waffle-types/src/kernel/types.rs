@@ -435,6 +435,64 @@ impl Default for RigidPlacement {
     }
 }
 
+/// The plane of a mirror: reflection through the plane that passes through
+/// `point` with unit `normal`, `p' = p − 2((p − q)·n̂) n̂`.
+///
+/// A reflection is IMPROPER (`det = −1`): it reverses orientation, so it is
+/// not a [`RigidPlacement`] and the kernel refuses one there. It has its own
+/// entry point, [`crate::kernel::Kernel::mirror_body`], because a mirrored
+/// solid needs its loops traversed the other way round — the bookkeeping a
+/// rigid copy does not have to do.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct MirrorPlane {
+    /// A point on the plane.
+    pub point: [f64; 3],
+    /// The plane normal (need not be unit; the kernel normalizes and refuses
+    /// a zero-length or non-finite one).
+    pub normal: [f64; 3],
+}
+
+impl MirrorPlane {
+    /// The unit normal, or `None` when it is zero-length or non-finite.
+    pub fn unit_normal(&self) -> Option<[f64; 3]> {
+        let n = self.normal;
+        if !n.iter().all(|c| c.is_finite()) || !self.point.iter().all(|c| c.is_finite()) {
+            return None;
+        }
+        let len = (n[0] * n[0] + n[1] * n[1] + n[2] * n[2]).sqrt();
+        // NaN is caught by the finite check above, so a plain comparison is
+        // total here.
+        if len <= 0.0 {
+            return None;
+        }
+        Some([n[0] / len, n[1] / len, n[2] / len])
+    }
+
+    /// Reflect a point.
+    pub fn apply(&self, p: [f64; 3]) -> Option<[f64; 3]> {
+        let n = self.unit_normal()?;
+        let d = (p[0] - self.point[0]) * n[0]
+            + (p[1] - self.point[1]) * n[1]
+            + (p[2] - self.point[2]) * n[2];
+        Some([
+            p[0] - 2.0 * d * n[0],
+            p[1] - 2.0 * d * n[1],
+            p[2] - 2.0 * d * n[2],
+        ])
+    }
+
+    /// Reflect a direction (`I − 2n̂n̂ᵀ`, no translation).
+    pub fn apply_dir(&self, v: [f64; 3]) -> Option<[f64; 3]> {
+        let n = self.unit_normal()?;
+        let d = v[0] * n[0] + v[1] * n[1] + v[2] * n[2];
+        Some([
+            v[0] - 2.0 * d * n[0],
+            v[1] - 2.0 * d * n[1],
+            v[2] - 2.0 * d * n[2],
+        ])
+    }
+}
+
 /// One body to write into a STEP file (`Kernel::export_step_bodies`): the
 /// solid, the name the file gives it, and its world placement (an assembly
 /// instance's pose; `None` = identity).

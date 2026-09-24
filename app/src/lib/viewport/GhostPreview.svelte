@@ -100,7 +100,7 @@
 
 		const planeOrigin = sketchData.plane_origin || [0, 0, 0];
 		const planeNormal = sketchData.plane_normal || [0, 0, 1];
-		const sp = buildSketchPlane(planeOrigin, planeNormal);
+		const sp = buildSketchPlane(planeOrigin, planeNormal, sketchData.plane_x_axis ?? null);
 
 		const flipVisual = params.flipDirection !== params.cut;
 
@@ -144,7 +144,7 @@
 		// Get sketch plane info for transforming 2D sketch coords to 3D
 		const planeOrigin = sketchData.plane_origin || [0, 0, 0];
 		const planeNormal = sketchData.plane_normal || [0, 0, 1];
-		const sp = buildSketchPlane(planeOrigin, planeNormal);
+		const sp = buildSketchPlane(planeOrigin, planeNormal, sketchData.plane_x_axis ?? null);
 
 		// Collect 3D profile points
 		const points3d = [];

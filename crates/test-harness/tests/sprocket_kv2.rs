@@ -56,6 +56,7 @@ fn sprocket_sketch(params: SprocketParams) -> Operation {
             plane: plane_ref(),
             plane_origin: [0.0, 0.0, 0.0],
             plane_normal: [0.0, 0.0, 1.0],
+            plane_x_axis: None,
             entities: vec![SketchEntity::Sprocket {
                 id: 1,
                 params,

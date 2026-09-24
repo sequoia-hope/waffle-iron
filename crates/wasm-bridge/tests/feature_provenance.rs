@@ -181,6 +181,7 @@ fn finish_sketch_records_provenance_and_answers_the_sketch_id() {
             solved_profiles: Vec::new(),
             plane_origin: [0.0, 0.0, 0.0],
             plane_normal: [0.0, 0.0, 1.0],
+            plane_x_axis: None,
             entities: vec![
                 SketchEntity::Point {
                     id: 1,

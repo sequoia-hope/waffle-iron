@@ -346,6 +346,23 @@ export) plus the existing boolean. Copies carry provenance
 is one shell with the expected Euler characteristic; provenance resolves on
 every copy.
 
+**Landed since (2026-09-24), from building the Eiffel Tower** — see
+`docs/notes/eiffel/FEATURE_NOTES.md` §4 and §7:
+
+- **`PatternMirror { seeds, plane: AxisRef (origin + NORMAL), combine,
+  targets }`.** Same custody, outputs and combine as the other two;
+  instance 0 is the seed and instance 1 its reflection. A reflection is
+  improper, so it does not go through `transform_body` — the kernel gets its
+  own `mirror_body` / `MirrorPlane`, which reverses every loop of the copy so
+  its faces stay outward. Each leg of the tower has mirror symmetry about its
+  own diagonal plane; without this, 164 members were authored where 90 would
+  have done.
+- **`seeds: {"type": "All"}`** — every live solid body at that point in the
+  tree, the same set `UnionTargets::All` folds. "Take everything I just built
+  and turn it four times" was an explicit list of 164 `GeomRef`s per tab,
+  most of the feature's JSON. The array form is unchanged and is still what a
+  list of picked bodies writes.
+
 ### B2. Pipe sweep (analytic subset of sweep)
 
 **What.** `Operation::Pipe { path: PathRef (a sketch's connected chain of

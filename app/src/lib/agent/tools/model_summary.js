@@ -11,7 +11,7 @@ const featureSchema = {
 		name: { type: 'string' },
 		kind: {
 			type: 'string',
-			description: 'Operation variant, e.g. "Sketch", "Extrude", "Revolve", "BooleanCombine", "UnionAll", "PatternCircular", "PatternLinear", "Script".'
+			description: 'Operation variant, e.g. "Sketch", "Extrude", "Revolve", "BooleanCombine", "UnionAll", "PatternCircular", "PatternLinear", "PatternMirror", "Script".'
 		},
 		suppressed: { type: 'boolean' },
 		provenance: {

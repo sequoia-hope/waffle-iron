@@ -96,7 +96,8 @@
 			const sketch = feature.operation.sketch;
 			const origin = sketch.plane_origin || [0, 0, 0];
 			const normal = sketch.plane_normal || [0, 0, 1];
-			const plane = buildSketchPlane(origin, normal);
+			// A sketch that carries its own x axis draws in ITS basis.
+			const plane = buildSketchPlane(origin, normal, sketch.plane_x_axis ?? null);
 
 			// Position source = the solver output (`solved_positions`), the
 			// engine's authoritative geometry truth (A2.1/A5.2). Raw `entity.x/y`
@@ -437,7 +438,7 @@
 		// Current sketch plane for projection
 		const curOrigin = sm.origin;
 		const curNormal = sm.normal;
-		const curPlane = buildSketchPlane(curOrigin, curNormal);
+		const curPlane = buildSketchPlane(curOrigin, curNormal, sm.xAxis);
 
 		let closestDist = PICK_THRESHOLD_PX;
 		let closestPt = null;

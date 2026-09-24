@@ -35,6 +35,7 @@ fn make_sketch_feature(name: &str) -> Feature {
         plane: plane_ref,
         plane_origin: [0.0, 0.0, 0.0],
         plane_normal: [0.0, 0.0, 1.0],
+        plane_x_axis: None,
         entities: vec![
             SketchEntity::Point {
                 id: 1,
@@ -654,6 +655,7 @@ fn make_rebuild_compatible_tree() -> FeatureTree {
         plane: plane_ref,
         plane_origin: [0.0, 0.0, 0.0],
         plane_normal: [0.0, 0.0, 1.0],
+        plane_x_axis: None,
         entities: vec![
             SketchEntity::Point {
                 id: 1,
@@ -852,6 +854,7 @@ fn round_trip_preserves_all_constraint_types() {
         plane: plane_ref,
         plane_origin: [0.0, 0.0, 0.0],
         plane_normal: [0.0, 0.0, 1.0],
+        plane_x_axis: None,
         entities: vec![
             SketchEntity::Point {
                 id: 1,
@@ -1274,6 +1277,7 @@ fn point_pair_hv_constraints_roundtrip() {
         plane: plane_ref,
         plane_origin: [0.0, 0.0, 0.0],
         plane_normal: [0.0, 0.0, 1.0],
+        plane_x_axis: None,
         entities: vec![
             SketchEntity::Point {
                 id: 1,

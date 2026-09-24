@@ -239,7 +239,17 @@ fn json_arg(ty: ParamType, name: &str, v: &serde_json::Value) -> Result<Dynamic,
                 let Some(normal) = v3("normal")? else {
                     return Err(bad("{origin, normal} with a normal"));
                 };
-                Dynamic::from(PlaneRef(PlaneSpec::OriginNormal { origin, normal }))
+                let x_axis = v3("x_axis")?;
+                if let Some(x) = x_axis {
+                    if !waffle_types::SketchPlaneBasis::x_axis_is_usable(normal, x) {
+                        return Err(bad("an x_axis with an in-plane part"));
+                    }
+                }
+                Dynamic::from(PlaneRef(PlaneSpec::OriginNormal {
+                    origin,
+                    normal,
+                    x_axis,
+                }))
             }
             _ => return Err(bad("a datum plane id or {origin, normal}")),
         },
@@ -461,7 +471,7 @@ pub(crate) fn execute(
             (&child.plane, &mut child_feature.operation)
         {
             let (origin, normal) = match plane {
-                PlaneSpec::OriginNormal { origin, normal } => (*origin, *normal),
+                PlaneSpec::OriginNormal { origin, normal, .. } => (*origin, *normal),
                 PlaneSpec::Datum(id) => crate::rebuild::find_datum_plane_data(
                     *id,
                     &sub_tree,
@@ -484,6 +494,10 @@ pub(crate) fn execute(
             }
             sketch.plane_origin = origin;
             sketch.plane_normal = crate::rebuild::unit_normal(normal);
+            // A script that named an x axis keeps it through plane resolution.
+            if let PlaneSpec::OriginNormal { x_axis, .. } = plane {
+                sketch.plane_x_axis = *x_axis;
+            }
         }
         sub_tree.features.push(child_feature.clone());
 

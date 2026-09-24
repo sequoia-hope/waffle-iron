@@ -475,6 +475,7 @@
 			case 'MateConnector': return '\u2295';
 			case 'PatternCircular': return '\u25CC';
 			case 'PatternLinear': return '\u2237';
+			case 'PatternMirror': return '\u2AEB';
 			case 'Script': return '\u2328';
 			default: return '\u2022';
 		}

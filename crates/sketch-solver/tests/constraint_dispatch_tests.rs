@@ -98,6 +98,7 @@ fn make_sketch(entities: Vec<SketchEntity>, constraints: Vec<SketchConstraint>) 
         },
         plane_origin: [0.0, 0.0, 0.0],
         plane_normal: [0.0, 0.0, 1.0],
+        plane_x_axis: None,
         entities,
         constraints,
         solve_status: SolveStatus::UnderConstrained { dof: 99 },

@@ -127,8 +127,8 @@ by the app's file picker.
 | Field | Type | Req | Meaning |
 |---|---|---|---|
 | `format` | string | ✔ | Must be exactly `"waffle-iron"`; anything else ⇒ `LoadError::UnknownFormat`. |
-| `version` | u32 | ✔* | Format version (5 since 2026-09-08). `> 5` ⇒ `LoadError::FutureVersion` (refuse, don't guess). *The Rust loader defaults a missing/non-numeric version to `0`, which then fails migration (`no migration path from v0`). |
-| `min_reader_version` | u32 | opt (default 0) | Since 2026-08-28: the oldest reader (by its `FORMAT_VERSION`) that can parse this file. Readers refuse `max(version, min_reader_version) > FORMAT_VERSION` with `FutureVersion`. Writers set it to `MIN_READER_VERSION` (currently 5); bump it together with `version` whenever a change lands that old readers cannot parse — new constraint/selector/`PlaneDefinition` variants included, and any new field a reader must not silently ignore (v5: `GeomRef.scope`, §8 — a v4 reader would drop it and resolve the reference against the wrong part). Since v4, new **tab kinds, source kinds and locator kinds do not** require a bump (§5.3), and since Phase 1b (2026-09-08) **new operation kinds do not either** (§7: unknown `Operation` kinds are preserved opaquely). Absent in pre-2026-08-28 files ⇒ no requirement. |
+| `version` | u32 | ✔* | Format version (6 since 2026-09-24). `> 6` ⇒ `LoadError::FutureVersion` (refuse, don't guess). *The Rust loader defaults a missing/non-numeric version to `0`, which then fails migration (`no migration path from v0`). |
+| `min_reader_version` | u32 | opt (default 0) | Since 2026-08-28: the oldest reader (by its `FORMAT_VERSION`) that can parse this file. Readers refuse `max(version, min_reader_version) > FORMAT_VERSION` with `FutureVersion`. Writers set it to `MIN_READER_VERSION` (currently 6); bump it together with `version` whenever a change lands that old readers cannot parse — new constraint/selector/`PlaneDefinition` variants included, and any new field a reader must not silently ignore (v5: `GeomRef.scope`, §8 — a v4 reader would drop it and resolve the reference against the wrong part; v6: `Sketch.plane_x_axis`, §9.1 — a v5 reader would derive the basis from the normal and draw the sketch rotated). Since v4, new **tab kinds, source kinds and locator kinds do not** require a bump (§5.3), and since Phase 1b (2026-09-08) **new operation kinds do not either** (§7: unknown `Operation` kinds are preserved opaquely). Absent in pre-2026-08-28 files ⇒ no requirement. |
 | `document` | DocumentMetadata | ✔ | §5.1. `document.id` since v4 (writers always emit; a reader minting one for a hand-written file warns). |
 | `sources` | SourceEntry[] | opt (default `[]`) | v4 §5.5: external content the document depends on. |
 | `tabs` | Tab[] | ✔ | At least one tab expected; `load_document` rejects an `active_tab` that names no tab; `load_project` falls back to the first tab. |
@@ -174,6 +174,7 @@ they are converted on load (§4).
 | 3 | multi-tab | Envelope restructured: `document` + `tabs[]` + `active_tab`; feature-tree content unchanged (v2→v3 is a no-op content migration) | Structural: legacy files wrapped into one tab. |
 | 4 | 2026-09-07 | `document.id`; `sources` table (git-aware locators, content hash, optional embed); opaque unknown tab/source/locator kinds; unknown-key preservation; `FeatureTree.provenance`; `ImportedBody.source_id` replaces the in-feature blob; JS-form timestamps; exact float parsing | `migrate_v3_to_v4`: mint `document.id` (serde default), rewrite non-UUID tab ids to fresh UUIDs (`active_tab` follows, warning emitted), lift every `ImportedBody.blob` into a `sources` entry (`Embedded`, `pack: true`, `content_hash: git-blob-sha1(text)`, byte-identical payloads share one entry) and set `source_id`. |
 | 5 | 2026-09-08 | `GeomRef.scope` (§8): a reference into another tab's instance — the assembly tab and the instance path that owns the anchor feature — for in-context editing (v4 spec §2.8, Phase 3d-4). The only change; additive, but a v4 reader would drop the field and resolve the anchor locally, so the reader floor moved with it. | none (a v4 file parses as-is; absent `scope` ⇒ local). |
+| 6 | 2026-09-24 | `Sketch.plane_x_axis` (§9.1): the sketch's own in-plane +x direction, so a caller can orient a sketch instead of reproducing the engine's derivation (`docs/notes/eiffel/FEATURE_NOTES.md` §3). The only change; additive, but a v5 reader would drop it and derive the basis from the normal, drawing the sketch and everything built on it ROTATED, so the reader floor moved with it. | none (a v5 file parses as-is; absent `plane_x_axis` ⇒ derived). |
 
 Migrations run **sequentially** (v1→v2→v3→v4). They live only in the Rust loader;
 the JS `initDocumentState` applies the same tab-id rewrite so its tab list agrees
@@ -465,7 +466,7 @@ no reader-floor bump (older readers keep it as `Unknown`).
 | `frame` | `{origin, z_axis, x_axis}` | default origin, +z | The frame when there is no `geom_ref` (meters, part coordinates); with one, a non-zero `x_axis` is the secondary direction. |
 | `anchor`, `flip_z`, `rotation_deg`, `offset_m` | as §5.6 | defaults omitted | The same adjustments, same order. |
 
-### 7.9 `PatternCircular` / `PatternLinear` (types.rs, 2026-09-18)
+### 7.9 `PatternCircular` / `PatternLinear` / `PatternMirror` (types.rs, 2026-09-18; mirror 2026-09-24)
 
 Rigid copies of seed BODIES (`specs/custom_features_and_modeling_roadmap.md`
 §B1). A pattern instances bodies, not features: the seed's body is copied
@@ -485,7 +486,7 @@ connector's frame (§5.6). A pick with no derivable axis fails the feature.
 
 | Field | Type | Req/default | Notes |
 |---|---|---|---|
-| `seeds` | GeomRef[] | ✔ | Solid references to feature outputs; each must resolve and not be already consumed. |
+| `seeds` | GeomRef[] \| `{"type": "All"}` | default `[]` | Solid references to feature outputs; each must resolve and not be already consumed. Written as a bare ARRAY (the only form before 2026-09-24, and still what naming bodies produces), or as `{"type": "All"}` — every live solid body at this point in the tree, the same set `UnionAll`'s `All` folds, all of them consumed. Any other shape is a parse error. |
 | `axis` | AxisRef | ✔ | Rotation axis. |
 | `count` | u32 | ✔ (≥ 2) | Instances INCLUDING the seed. |
 | `angle_deg` | f64 | default `360` | TOTAL sweep. A full turn spaces `count` instances `360/count` apart; any other sweep puts the last instance exactly at `angle_deg`. |
@@ -499,6 +500,14 @@ connector's frame (§5.6). A pick with no derivable axis fails the feature.
 optional `second: {direction, count, spacing, spacing_expr}` (a grid;
 instance index `i + j·count`; a second direction parallel to the first is
 refused), `skip`, `combine`, `targets` as above.
+
+`PatternMirrorParams` (2026-09-24): `seeds`, `plane: AxisRef` whose
+`direction` is the plane NORMAL (an `entity` pick uses its frame's z axis, so
+a planar face or a datum plane names its own plane), `combine`, `targets`.
+One copy — the seed's mirror image — so there is no `count` and no `skip`;
+`Main` is still the seed body and `Body:{i}` the reflections. A reflection is
+improper, so the copy goes through `Kernel::mirror_body` rather than
+`transform_body`, which reverses the copy's loops to keep its faces outward.
 
 ### 7.10 `Script` — `ScriptParams` (types.rs, 2026-09-19)
 
@@ -670,6 +679,7 @@ as authoritative when present.
 | `plane` | GeomRef | ✔ | See reality note in §8. **Scoped** (v5, `scope` present): a face of another instance of the assembly the part is edited in — the engine re-derives `plane_origin`/`plane_normal` from it on every rebuild in context (§8). |
 | `plane_origin` | [f64;3] (m) | default `[0,0,0]` | 3D snapshot of the sketch plane. |
 | `plane_normal` | [f64;3] | default `[0,0,1]` | |
+| `plane_x_axis` | [f64;3] \| absent | default absent; omitted when absent | 2026-09-24: the world direction the sketch's **+x** points along, so `(x, y)` in this sketch is `plane_origin + x·x̂ + y·ŷ`. Absent (every file written before) ⇒ the engine derives the in-plane axes from the normal alone (`SketchPlaneBasis`), which is why a caller that cared had to reproduce that derivation. Orthogonalized against the normal at use; zero-length, non-finite or parallel to the normal fails the sketch feature loudly. New optional field an older reader may ignore only at the cost of drawing the sketch rotated, so it is **not** written unless the sketch has one. |
 | `entities` | SketchEntity[] | ✔ | §9.2. |
 | `constraints` | SketchConstraint[] | ✔ | §9.3. |
 | `solve_status` | SolveStatus | default `{"type":"Unsolved"}` (**v4 §2.10**) | `Unsolved` \| `FullyConstrained` \| `UnderConstrained {dof}` \| `OverConstrained {conflicts: u32[] — indices into the constraint list}` \| `SolveFailed {reason}`. A sketch written without the field (or as `Unsolved`) is solved by the engine's next rebuild, which writes the solution into the entities and replaces the status — a tool never has to run the solver; a first solve that fails records the failed status and a per-feature error. Writers emit the solved status. |

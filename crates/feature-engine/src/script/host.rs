@@ -28,7 +28,8 @@ use crate::assembly::{AxialAnchor, Frame};
 use crate::types::{
     AxisRef, BooleanOp, BooleanParams, CombineMode, DepthMode, ExtrudeParams, Feature,
     LinearSecondDirection, MateConnectorParams, Operation, PatternCircularParams,
-    PatternLinearParams, PipeParams, RevolveParams, UnionAllParams, UnionTargets,
+    PatternLinearParams, PatternMirrorParams, PatternSeeds, PipeParams, RevolveParams,
+    UnionAllParams, UnionTargets,
 };
 
 /// Geometry budget (spec §A5): more child operations than this is a runaway
@@ -43,6 +44,9 @@ pub enum PlaneSpec {
     OriginNormal {
         origin: [f64; 3],
         normal: [f64; 3],
+        /// The sketch's own +x direction, when the script named one
+        /// (`#{ origin, normal, x_axis }`). See `Sketch::plane_x_axis`.
+        x_axis: Option<[f64; 3]>,
     },
     /// A datum plane feature id (or one of the three built-in planes).
     Datum(Uuid),
@@ -178,7 +182,24 @@ pub fn plane_from_dynamic(d: &Dynamic) -> Result<PlaneSpec, Box<EvalAltResult>> 
             Some(v) => vec3(v, "plane.normal")?,
             None => return rt("plane: a plane map needs `normal: [x, y, z]`"),
         };
-        return Ok(PlaneSpec::OriginNormal { origin, normal });
+        let x_axis = match map_get(&m, "x_axis") {
+            Some(v) => {
+                let x = vec3(v, "plane.x_axis")?;
+                if !waffle_types::SketchPlaneBasis::x_axis_is_usable(normal, x) {
+                    return rt(format!(
+                        "plane.x_axis {x:?} cannot orient a plane of normal {normal:?}: it is \
+                         zero-length, non-finite, or parallel to the normal"
+                    ));
+                }
+                Some(x)
+            }
+            None => None,
+        };
+        return Ok(PlaneSpec::OriginNormal {
+            origin,
+            normal,
+            x_axis,
+        });
     }
     if let Some(s) = d.clone().try_cast::<rhai::ImmutableString>() {
         return match Uuid::parse_str(s.as_str()) {
@@ -773,6 +794,7 @@ impl SketchBuilder {
             },
             plane_origin: [0.0; 3],
             plane_normal: [0.0, 0.0, 1.0],
+            plane_x_axis: None,
             entities,
             constraints: Vec::new(),
             solve_status: SolveStatus::FullyConstrained,
@@ -780,9 +802,15 @@ impl SketchBuilder {
             projected: Vec::new(),
             solved_profiles: Vec::new(),
         };
-        if let PlaneSpec::OriginNormal { origin, normal } = &plane {
+        if let PlaneSpec::OriginNormal {
+            origin,
+            normal,
+            x_axis,
+        } = &plane
+        {
             sketch.plane_origin = *origin;
             sketch.plane_normal = *normal;
+            sketch.plane_x_axis = *x_axis;
         }
         derive_sketch(&mut sketch);
 
@@ -1182,7 +1210,7 @@ impl Ctx {
             name: "script circular pattern".into(),
             operation: Operation::PatternCircular {
                 params: PatternCircularParams {
-                    seeds,
+                    seeds: PatternSeeds::Selected(seeds),
                     axis,
                     count,
                     angle_deg,
@@ -1236,7 +1264,7 @@ impl Ctx {
             name: "script linear pattern".into(),
             operation: Operation::PatternLinear {
                 params: PatternLinearParams {
-                    seeds,
+                    seeds: PatternSeeds::Selected(seeds),
                     direction,
                     count,
                     spacing,
@@ -1251,6 +1279,43 @@ impl Ctx {
             references: Vec::new(),
         };
         self.record(feature, "pattern_linear")
+    }
+
+    /// `ctx.pattern_mirror(seed | [seeds], #{ plane, combine?, targets? })`
+    /// (`Operation::PatternMirror`): the seed bodies plus their reflection in
+    /// `plane` — `#{ origin, direction }` where `direction` is the plane
+    /// NORMAL, or a face/plane query whose frame the engine derives. One
+    /// copy, so there is no `count` and no `skip`.
+    pub fn pattern_mirror(
+        &mut self,
+        seeds: &Dynamic,
+        opts: &Map,
+    ) -> Result<FeatureRef, Box<EvalAltResult>> {
+        let seeds = body_refs(Some(seeds), "pattern_mirror seed")?;
+        if seeds.is_empty() {
+            return rt("pattern_mirror: at least one seed body is required");
+        }
+        let plane = match map_get(opts, "plane") {
+            Some(p) => axis_ref(p, "pattern_mirror.plane")?,
+            None => return rt("pattern_mirror: `plane` is required"),
+        };
+        let (combine, targets) = pattern_combine(opts, "pattern_mirror")?;
+        let id = Uuid::new_v4();
+        let feature = Feature {
+            id,
+            name: "script mirror".into(),
+            operation: Operation::PatternMirror {
+                params: PatternMirrorParams {
+                    seeds: PatternSeeds::Selected(seeds),
+                    plane,
+                    combine,
+                    targets,
+                },
+            },
+            suppressed: false,
+            references: Vec::new(),
+        };
+        self.record(feature, "pattern_mirror")
     }
 
     /// `union_all()` / `union_all([bodies…])` (`specs/b4_balanced_union.md`):

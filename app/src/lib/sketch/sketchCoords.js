@@ -7,30 +7,53 @@
 import * as THREE from 'three';
 
 /**
- * Build a sketch plane coordinate system from origin and normal.
+ * Build a sketch plane coordinate system from origin and normal, and
+ * optionally the in-plane direction +u points along.
+ *
+ * MIRRORS `SketchPlaneBasis` in `crates/waffle-types/src/sketch_plane.rs` —
+ * same reference-vector choice, same cross-product order, same
+ * orthogonalization of a given x axis — so a point drawn here lands where
+ * the engine builds it. Change one and change the other.
  *
  * @param {[number, number, number]} origin - Plane origin point
  * @param {[number, number, number]} normal - Plane normal vector
+ * @param {[number, number, number] | null | undefined} [xAxis] - The sketch's
+ *   own +u direction (`Sketch.plane_x_axis`); its in-plane part is used.
+ *   Omitted, zero-length or parallel to the normal ⇒ derived from the normal,
+ *   which is what every sketch authored before 2026-09-24 has.
  * @returns {{ origin: THREE.Vector3, normal: THREE.Vector3, xAxis: THREE.Vector3, yAxis: THREE.Vector3, plane: THREE.Plane, quaternion: THREE.Quaternion }}
  */
-export function buildSketchPlane(origin, normal) {
+export function buildSketchPlane(origin, normal, xAxis = null) {
 	const o = new THREE.Vector3(origin[0], origin[1], origin[2]);
 	const n = new THREE.Vector3(normal[0], normal[1], normal[2]).normalize();
 
-	// Choose a reference vector not parallel to the normal
-	const ref = Math.abs(n.dot(new THREE.Vector3(0, 0, 1))) < 0.99
-		? new THREE.Vector3(0, 0, 1)
-		: new THREE.Vector3(1, 0, 0);
-
-	const xAxis = new THREE.Vector3().crossVectors(ref, n).normalize();
-	const yAxis = new THREE.Vector3().crossVectors(n, xAxis).normalize();
+	let x = null;
+	if (xAxis) {
+		const given = new THREE.Vector3(xAxis[0], xAxis[1], xAxis[2]);
+		const len = given.length();
+		// Usable iff it has an in-plane part to speak of — the same 0.99999
+		// band `SketchPlaneBasis::x_axis_is_usable` applies, so the two agree
+		// on which axes are legal as well as on where they point.
+		if (len > 0 && Number.isFinite(len) && Math.abs(given.dot(n) / len) < 0.99999) {
+			x = given.addScaledVector(n, -given.dot(n)).normalize();
+		}
+	}
+	if (!x) {
+		// Choose a reference vector not parallel to the normal
+		const ref = Math.abs(n.dot(new THREE.Vector3(0, 0, 1))) < 0.99
+			? new THREE.Vector3(0, 0, 1)
+			: new THREE.Vector3(1, 0, 0);
+		x = new THREE.Vector3().crossVectors(ref, n).normalize();
+	}
+	const xAxisOut = x;
+	const yAxis = new THREE.Vector3().crossVectors(n, xAxisOut).normalize();
 
 	const plane = new THREE.Plane().setFromNormalAndCoplanarPoint(n, o);
 
 	const quaternion = new THREE.Quaternion();
 	quaternion.setFromUnitVectors(new THREE.Vector3(0, 0, 1), n);
 
-	return { origin: o, normal: n, xAxis, yAxis, plane, quaternion };
+	return { origin: o, normal: n, xAxis: xAxisOut, yAxis, plane, quaternion };
 }
 
 /**

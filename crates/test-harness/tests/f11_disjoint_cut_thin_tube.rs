@@ -55,6 +55,7 @@ fn finish_sketch(
             solved_profiles: profiles,
             plane_origin: origin,
             plane_normal: [0.0, 0.0, 1.0],
+            plane_x_axis: None,
             entities: vec![],
             constraints: vec![],
             projected: vec![],

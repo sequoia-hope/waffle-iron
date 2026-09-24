@@ -27,7 +27,7 @@
 	let constraints = $derived(getSketchConstraints());
 	let entities = $derived(getSketchEntities());
 	let positions = $derived(getSketchPositions());
-	let plane = $derived(sm?.active ? buildSketchPlane(sm.origin, sm.normal) : null);
+	let plane = $derived(sm?.active ? buildSketchPlane(sm.origin, sm.normal, sm.xAxis) : null);
 	let displayUnit = $derived(getDocumentDisplayUnit());
 
 	/** @type {number | null} */

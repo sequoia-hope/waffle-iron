@@ -1240,6 +1240,22 @@ export const ENGINE_DEFS = {
       {
         "properties": {
           "params": {
+            "$ref": "#/$defs/PatternMirrorParams"
+          },
+          "type": {
+            "const": "PatternMirror",
+            "type": "string"
+          }
+        },
+        "required": [
+          "type",
+          "params"
+        ],
+        "type": "object"
+      },
+      {
+        "properties": {
+          "params": {
             "$ref": "#/$defs/PipeParams"
           },
           "type": {
@@ -1303,6 +1319,7 @@ export const ENGINE_DEFS = {
                 "MateConnector",
                 "PatternCircular",
                 "PatternLinear",
+                "PatternMirror",
                 "Pipe",
                 "Script",
                 "UnionAll"
@@ -1447,11 +1464,9 @@ export const ENGINE_DEFS = {
         "type": "integer"
       },
       "seeds": {
-        "description": "Seed bodies (`TopoKind::Solid` references to feature outputs).",
-        "items": {
-          "$ref": "#/$defs/GeomRef"
-        },
-        "type": "array"
+        "$ref": "#/$defs/PatternSeeds",
+        "default": [],
+        "description": "Seed bodies: a list of `TopoKind::Solid` feature-output references,\nor `{\"type\": \"All\"}` (see [`PatternSeeds`])."
       },
       "skip": {
         "description": "Instance indices (≥ 1) to omit.",
@@ -1474,7 +1489,6 @@ export const ENGINE_DEFS = {
       }
     },
     "required": [
-      "seeds",
       "axis",
       "count"
     ],
@@ -1517,11 +1531,9 @@ export const ENGINE_DEFS = {
         "description": "Optional second direction (grid)."
       },
       "seeds": {
-        "description": "Seed bodies (`TopoKind::Solid` references to feature outputs).",
-        "items": {
-          "$ref": "#/$defs/GeomRef"
-        },
-        "type": "array"
+        "$ref": "#/$defs/PatternSeeds",
+        "default": [],
+        "description": "Seed bodies: a list of `TopoKind::Solid` feature-output references,\nor `{\"type\": \"All\"}` (see [`PatternSeeds`])."
       },
       "skip": {
         "description": "Instance indices (≥ 1) to omit.",
@@ -1556,12 +1568,74 @@ export const ENGINE_DEFS = {
       }
     },
     "required": [
-      "seeds",
       "direction",
       "count",
       "spacing"
     ],
     "type": "object"
+  },
+  "PatternMirrorParams": {
+    "description": "Parameters for a mirror pattern: the seed bodies plus their reflection\nin a plane, optionally combined into target bodies. Same custody, output\nand combine rules as [`PatternCircularParams`] — instance 0 is the seed\nitself and instance 1 is its mirror image, so `Main` is the seed body and\nthe reflections follow as `Body { index }`.\n\nA reflection is not a rigid motion: the copy is the seed's mirror image,\nnot a rotation of it (a left-hand bracket from a right-hand one). The\nkernel does the orientation bookkeeping (`Kernel::mirror_body`); nothing\nhere has to know about it.\n\nThere is no `count` (a reflection repeated is the identity) and no `skip`\n(there is one copy).",
+    "properties": {
+      "combine": {
+        "anyOf": [
+          {
+            "$ref": "#/$defs/CombineMode"
+          },
+          {
+            "type": "null"
+          }
+        ],
+        "default": null,
+        "description": "See [`PatternCircularParams::combine`]."
+      },
+      "plane": {
+        "$ref": "#/$defs/AxisRef",
+        "description": "The mirror plane, as an [`AxisRef`]: `Explicit`'s `origin` is a point\non the plane and its `direction` is the plane NORMAL; `Entity` takes\nthe frame of what it names (a planar face, a datum plane, a mate\nconnector) and uses that frame's z axis as the normal."
+      },
+      "seeds": {
+        "$ref": "#/$defs/PatternSeeds",
+        "default": [],
+        "description": "Seed bodies: a list of `TopoKind::Solid` feature-output references,\nor `{\"type\": \"All\"}` (see [`PatternSeeds`])."
+      },
+      "targets": {
+        "description": "See [`PatternCircularParams::targets`].",
+        "items": {
+          "$ref": "#/$defs/GeomRef"
+        },
+        "type": [
+          "array",
+          "null"
+        ]
+      }
+    },
+    "required": [
+      "plane"
+    ],
+    "type": "object"
+  },
+  "PatternSeeds": {
+    "description": "The seed bodies: a list of Solid feature-output references, or {\"type\": \"All\"} for every live body at this point in the tree.",
+    "oneOf": [
+      {
+        "items": {
+          "$ref": "#/$defs/GeomRef"
+        },
+        "type": "array"
+      },
+      {
+        "additionalProperties": false,
+        "properties": {
+          "type": {
+            "const": "All"
+          }
+        },
+        "required": [
+          "type"
+        ],
+        "type": "object"
+      }
+    ]
   },
   "PipeParams": {
     "description": "Parameters for a pipe sweep (`specs/b2_pipe_sweep.md` checkpoint 2): a\ncircle of `radius` (hollow when `inner_radius` is set) swept along the\nopen chain the sketch entities `entity_ids` (lines and arcs, construction\nallowed) form. The chain is re-extracted from the CURRENT sketch at every\nrebuild (`waffle_types::path::extract_open_chain`), so editing the path\nre-sweeps the pipe. Lengths in meters.",
@@ -2666,6 +2740,19 @@ export const ENGINE_DEFS = {
         "maxItems": 3,
         "minItems": 3,
         "type": "array"
+      },
+      "plane_x_axis": {
+        "description": "The in-plane direction the sketch's +u axis points along, in world\nspace. Absent (the only form before 2026-09-24) ⇒ the engine derives\none from the normal alone ([`crate::SketchPlaneBasis`]), which is\nfine for a circle and a guessing game for anything oriented: a\ncaller wanting a rectangular member or a keyway to line up had to\nreproduce that derivation exactly (`docs/notes/eiffel/FEATURE_NOTES.md`\n§3). Given, it is orthogonalized against the normal and used as the\nbasis; parallel to the normal, or zero-length, is a loud error at\nrebuild — never a silent fallback to the derived basis.",
+        "items": {
+          "format": "double",
+          "type": "number"
+        },
+        "maxItems": 3,
+        "minItems": 3,
+        "type": [
+          "array",
+          "null"
+        ]
       },
       "projected": {
         "description": "Projected-geometry bindings: sketch points that are driven by external\nmodel geometry (a vertex/edge/face of an upstream feature). Each binding\nmaps a local Point id to the source it reprojects from on rebuild. Empty\nfor ordinary sketches. See `specs/projected_sketch_geometry.md`.",

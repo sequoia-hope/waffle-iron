@@ -39,6 +39,12 @@ pub enum OpTag {
     /// A rigid transform copy (`transform_solid`): every output face is the
     /// `Same` as its source face, moved.
     Transform,
+    /// A mirrored copy (`mirror_solid`): every output face is the `Same` as
+    /// its source face, reflected. Distinct from [`OpTag::Transform`] because
+    /// a mirrored face is NOT superposable on its source — lineage that has
+    /// passed through a reflection has changed handedness, and a reader
+    /// asking "which face is this" deserves to be told.
+    Mirror,
 }
 
 /// One operation's effect on persistent FACE identities (KV13 F2;

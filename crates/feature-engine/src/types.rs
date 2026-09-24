@@ -278,6 +278,10 @@ pub enum Operation {
     PatternLinear {
         params: PatternLinearParams,
     },
+    /// Mirror pattern: the seed bodies plus their reflection in a plane.
+    PatternMirror {
+        params: PatternMirrorParams,
+    },
     /// Pipe sweep: a circle (optionally hollow) along an open tangent chain
     /// of sketch lines and arcs, one solid (`specs/b2_pipe_sweep.md`).
     Pipe {
@@ -325,6 +329,7 @@ enum KnownOperation {
     MateConnector { params: MateConnectorParams },
     PatternCircular { params: PatternCircularParams },
     PatternLinear { params: PatternLinearParams },
+    PatternMirror { params: PatternMirrorParams },
     Pipe { params: PipeParams },
     Script { params: ScriptParams },
     UnionAll { params: UnionAllParams },
@@ -344,6 +349,7 @@ pub const OPERATION_TAGS: &[&str] = &[
     "MateConnector",
     "PatternCircular",
     "PatternLinear",
+    "PatternMirror",
     "Pipe",
     "Script",
     "UnionAll",
@@ -364,6 +370,7 @@ impl From<KnownOperation> for Operation {
             KnownOperation::MateConnector { params } => Operation::MateConnector { params },
             KnownOperation::PatternCircular { params } => Operation::PatternCircular { params },
             KnownOperation::PatternLinear { params } => Operation::PatternLinear { params },
+            KnownOperation::PatternMirror { params } => Operation::PatternMirror { params },
             KnownOperation::Pipe { params } => Operation::Pipe { params },
             KnownOperation::Script { params } => Operation::Script { params },
             KnownOperation::UnionAll { params } => Operation::UnionAll { params },
@@ -402,6 +409,7 @@ impl Operation {
             Operation::MateConnector { .. } => "MateConnector",
             Operation::PatternCircular { .. } => "PatternCircular",
             Operation::PatternLinear { .. } => "PatternLinear",
+            Operation::PatternMirror { .. } => "PatternMirror",
             Operation::Pipe { .. } => "Pipe",
             Operation::Script { .. } => "Script",
             Operation::UnionAll { .. } => "UnionAll",
@@ -859,6 +867,123 @@ pub enum AxisRef {
     Entity { geom_ref: GeomRef },
 }
 
+/// The seed bodies of a pattern.
+///
+/// Written as a bare ARRAY of `TopoKind::Solid` feature-output references —
+/// the only form there was, and still what naming bodies produces — or as
+/// `{"type": "All"}`: every live solid body at this point in the tree, the
+/// same set [`UnionTargets::All`] folds. `All` is what "take everything I
+/// just built and turn it four times" needs; spelling that out cost the
+/// Eiffel Tower's tabs a list of 164 references each, most of the feature's
+/// JSON (`docs/notes/eiffel/FEATURE_NOTES.md` §7).
+#[derive(Debug, Clone)]
+pub enum PatternSeeds {
+    /// Every active, unsuppressed, not-yet-consumed solid-bearing feature
+    /// before this one, in tree order. Consumes all of them.
+    All,
+    /// An explicit list. A body whose feature was already consumed is
+    /// refused; the same body twice is refused.
+    Selected(Vec<GeomRef>),
+}
+
+impl Default for PatternSeeds {
+    fn default() -> Self {
+        PatternSeeds::Selected(Vec::new())
+    }
+}
+
+impl PatternSeeds {
+    /// The explicit list, or `None` for `All`.
+    pub fn listed(&self) -> Option<&[GeomRef]> {
+        match self {
+            PatternSeeds::All => None,
+            PatternSeeds::Selected(v) => Some(v),
+        }
+    }
+}
+
+impl Serialize for PatternSeeds {
+    /// `Selected` writes the bare array it has always written, so a document
+    /// saved by this build is byte-for-byte what the last one wrote.
+    fn serialize<S: serde::Serializer>(&self, s: S) -> Result<S::Ok, S::Error> {
+        match self {
+            PatternSeeds::Selected(v) => v.serialize(s),
+            PatternSeeds::All => {
+                use serde::ser::SerializeMap;
+                let mut m = s.serialize_map(Some(1))?;
+                m.serialize_entry("type", "All")?;
+                m.end()
+            }
+        }
+    }
+}
+
+impl<'de> Deserialize<'de> for PatternSeeds {
+    fn deserialize<D: serde::Deserializer<'de>>(d: D) -> Result<Self, D::Error> {
+        struct V;
+        impl<'de> serde::de::Visitor<'de> for V {
+            type Value = PatternSeeds;
+            fn expecting(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+                f.write_str("a list of body references, or {\"type\": \"All\"}")
+            }
+            fn visit_seq<A: serde::de::SeqAccess<'de>>(
+                self,
+                mut seq: A,
+            ) -> Result<PatternSeeds, A::Error> {
+                let mut out = Vec::new();
+                while let Some(gr) = seq.next_element::<GeomRef>()? {
+                    out.push(gr);
+                }
+                Ok(PatternSeeds::Selected(out))
+            }
+            fn visit_map<A: serde::de::MapAccess<'de>>(
+                self,
+                mut map: A,
+            ) -> Result<PatternSeeds, A::Error> {
+                let mut tag: Option<String> = None;
+                while let Some(k) = map.next_key::<String>()? {
+                    if k == "type" {
+                        tag = Some(map.next_value()?);
+                    } else {
+                        let _: serde::de::IgnoredAny = map.next_value()?;
+                    }
+                }
+                match tag.as_deref() {
+                    Some("All") => Ok(PatternSeeds::All),
+                    other => Err(serde::de::Error::custom(format!(
+                        "pattern seeds: unknown set {other:?}; expected a list of body \
+                         references or {{\"type\": \"All\"}}"
+                    ))),
+                }
+            }
+        }
+        d.deserialize_any(V)
+    }
+}
+
+#[cfg(feature = "json-schema")]
+impl schemars::JsonSchema for PatternSeeds {
+    fn schema_name() -> std::borrow::Cow<'static, str> {
+        "PatternSeeds".into()
+    }
+    fn json_schema(g: &mut schemars::SchemaGenerator) -> schemars::Schema {
+        let list = <Vec<GeomRef> as schemars::JsonSchema>::json_schema(g);
+        schemars::json_schema!({
+            "description": "The seed bodies: a list of Solid feature-output references, or \
+                            {\"type\": \"All\"} for every live body at this point in the tree.",
+            "oneOf": [
+                list,
+                {
+                    "type": "object",
+                    "required": ["type"],
+                    "properties": { "type": { "const": "All" } },
+                    "additionalProperties": false
+                }
+            ]
+        })
+    }
+}
+
 /// Parameters for a circular pattern: rigid copies of the seed bodies about
 /// an axis, optionally combined into target bodies.
 ///
@@ -873,8 +998,10 @@ pub enum AxisRef {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[cfg_attr(feature = "json-schema", derive(schemars::JsonSchema))]
 pub struct PatternCircularParams {
-    /// Seed bodies (`TopoKind::Solid` references to feature outputs).
-    pub seeds: Vec<GeomRef>,
+    /// Seed bodies: a list of `TopoKind::Solid` feature-output references,
+    /// or `{"type": "All"}` (see [`PatternSeeds`]).
+    #[serde(default)]
+    pub seeds: PatternSeeds,
     /// Rotation axis.
     pub axis: AxisRef,
     /// Total instances INCLUDING the seed (≥ 2).
@@ -931,8 +1058,10 @@ pub struct LinearSecondDirection {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[cfg_attr(feature = "json-schema", derive(schemars::JsonSchema))]
 pub struct PatternLinearParams {
-    /// Seed bodies (`TopoKind::Solid` references to feature outputs).
-    pub seeds: Vec<GeomRef>,
+    /// Seed bodies: a list of `TopoKind::Solid` feature-output references,
+    /// or `{"type": "All"}` (see [`PatternSeeds`]).
+    #[serde(default)]
+    pub seeds: PatternSeeds,
     /// Pattern direction (only the direction of the axis is used).
     pub direction: AxisRef,
     /// Total instances along `direction` INCLUDING the seed (≥ 2).
@@ -948,6 +1077,39 @@ pub struct PatternLinearParams {
     /// Instance indices (≥ 1) to omit.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub skip: Vec<u32>,
+    /// See [`PatternCircularParams::combine`].
+    #[serde(default)]
+    pub combine: Option<CombineMode>,
+    /// See [`PatternCircularParams::targets`].
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub targets: Option<Vec<GeomRef>>,
+}
+
+/// Parameters for a mirror pattern: the seed bodies plus their reflection
+/// in a plane, optionally combined into target bodies. Same custody, output
+/// and combine rules as [`PatternCircularParams`] — instance 0 is the seed
+/// itself and instance 1 is its mirror image, so `Main` is the seed body and
+/// the reflections follow as `Body { index }`.
+///
+/// A reflection is not a rigid motion: the copy is the seed's mirror image,
+/// not a rotation of it (a left-hand bracket from a right-hand one). The
+/// kernel does the orientation bookkeeping (`Kernel::mirror_body`); nothing
+/// here has to know about it.
+///
+/// There is no `count` (a reflection repeated is the identity) and no `skip`
+/// (there is one copy).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "json-schema", derive(schemars::JsonSchema))]
+pub struct PatternMirrorParams {
+    /// Seed bodies: a list of `TopoKind::Solid` feature-output references,
+    /// or `{"type": "All"}` (see [`PatternSeeds`]).
+    #[serde(default)]
+    pub seeds: PatternSeeds,
+    /// The mirror plane, as an [`AxisRef`]: `Explicit`'s `origin` is a point
+    /// on the plane and its `direction` is the plane NORMAL; `Entity` takes
+    /// the frame of what it names (a planar face, a datum plane, a mate
+    /// connector) and uses that frame's z axis as the normal.
+    pub plane: AxisRef,
     /// See [`PatternCircularParams::combine`].
     #[serde(default)]
     pub combine: Option<CombineMode>,

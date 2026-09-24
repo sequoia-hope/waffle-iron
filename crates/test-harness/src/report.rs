@@ -158,6 +158,7 @@ impl ModelBuilder {
                 Operation::MateConnector { .. } => "MateConnector",
                 Operation::PatternCircular { .. } => "PatternCircular",
                 Operation::PatternLinear { .. } => "PatternLinear",
+                Operation::PatternMirror { .. } => "PatternMirror",
                 Operation::Pipe { .. } => "Pipe",
                 Operation::Script { .. } => "Script",
                 Operation::UnionAll { .. } => "UnionAll",
@@ -271,6 +272,15 @@ impl ModelBuilder {
 }
 
 /// Describe an operation's parameters in a human-readable way.
+/// How many seed bodies a pattern names, for the report line. `All` has no
+/// count until the rebuild walks the tree.
+fn seed_count(seeds: &feature_engine::types::PatternSeeds) -> String {
+    match seeds.listed() {
+        Some(v) => v.len().to_string(),
+        None => "all live".to_string(),
+    }
+}
+
 fn describe_operation(op: &Operation) -> String {
     match op {
         Operation::Sketch { sketch } => {
@@ -347,15 +357,21 @@ fn describe_operation(op: &Operation) -> String {
         }
         Operation::PatternCircular { params } => format!(
             "Params: {} seed(s), count={}, angle={:.1}deg, skip={:?}, combine={:?}",
-            params.seeds.len(),
+            seed_count(&params.seeds),
             params.count,
             params.angle_deg,
             params.skip,
             params.combine
         ),
+        Operation::PatternMirror { params } => format!(
+            "Params: {} seed(s), plane={:?}, combine={:?}",
+            seed_count(&params.seeds),
+            params.plane,
+            params.combine
+        ),
         Operation::PatternLinear { params } => format!(
             "Params: {} seed(s), count={}, spacing={:.4}m, second={}, skip={:?}, combine={:?}",
-            params.seeds.len(),
+            seed_count(&params.seeds),
             params.count,
             params.spacing,
             params

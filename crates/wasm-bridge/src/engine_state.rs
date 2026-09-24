@@ -225,6 +225,7 @@ impl EngineState {
             plane: active.plane.clone(),
             plane_origin: [0.0, 0.0, 0.0],
             plane_normal: [0.0, 0.0, 1.0],
+            plane_x_axis: None,
             entities: active.entities.clone(),
             constraints: active.constraints.clone(),
             solve_status: active.solve_status.clone(),
@@ -249,6 +250,7 @@ impl EngineState {
         solved_profiles: Vec<ClosedProfile>,
         plane_origin: [f64; 3],
         plane_normal: [f64; 3],
+        plane_x_axis: Option<[f64; 3]>,
         entities: Vec<SketchEntity>,
         constraints: Vec<SketchConstraint>,
         projected: Vec<ProjectedEntity>,
@@ -264,6 +266,7 @@ impl EngineState {
         sketch.solved_profiles = solved_profiles;
         sketch.plane_origin = plane_origin;
         sketch.plane_normal = plane_normal;
+        sketch.plane_x_axis = plane_x_axis;
         sketch.projected = projected;
         self.active_sketch = None;
         Ok(sketch)

@@ -71,6 +71,7 @@ fn two_square_sketch() -> Sketch {
         },
         plane_origin: [0.0, 0.0, 0.0],
         plane_normal: [0.0, 0.0, 1.0],
+        plane_x_axis: None,
         entities: vec![
             point(1, 0.0, 0.0),
             point(2, 1.0, 0.0),

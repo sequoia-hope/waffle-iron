@@ -73,7 +73,7 @@
 			const cam = camera.current;
 			if (!cam) return;
 
-			const plane = buildSketchPlane(sm.origin, sm.normal);
+			const plane = buildSketchPlane(sm.origin, sm.normal, sm.xAxis);
 			if (!plane) return;
 
 			const coords = screenToSketchCoords(e, canvas, cam, plane);

@@ -58,6 +58,17 @@ pub struct Sketch {
     /// Normal of the sketch plane in 3D world space.
     #[serde(default = "default_normal")]
     pub plane_normal: [f64; 3],
+    /// The in-plane direction the sketch's +u axis points along, in world
+    /// space. Absent (the only form before 2026-09-24) ⇒ the engine derives
+    /// one from the normal alone ([`crate::SketchPlaneBasis`]), which is
+    /// fine for a circle and a guessing game for anything oriented: a
+    /// caller wanting a rectangular member or a keyway to line up had to
+    /// reproduce that derivation exactly (`docs/notes/eiffel/FEATURE_NOTES.md`
+    /// §3). Given, it is orthogonalized against the normal and used as the
+    /// basis; parallel to the normal, or zero-length, is a loud error at
+    /// rebuild — never a silent fallback to the derived basis.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub plane_x_axis: Option<[f64; 3]>,
     /// Geometric entities in this sketch.
     pub entities: Vec<SketchEntity>,
     /// Constraints between entities.
@@ -1471,6 +1482,7 @@ mod tests {
             },
             plane_origin: [0.0, 0.0, 0.0],
             plane_normal: [0.0, 0.0, 1.0],
+            plane_x_axis: None,
             entities: vec![],
             constraints: vec![],
             solve_status: SolveStatus::FullyConstrained,
@@ -1534,6 +1546,7 @@ mod tests {
             },
             plane_origin: [0.0, 0.0, 0.0],
             plane_normal: [0.0, 0.0, 1.0],
+            plane_x_axis: None,
             entities: vec![SketchEntity::Gear {
                 id: 1,
                 params: GearParams {
@@ -1587,6 +1600,7 @@ mod tests {
             },
             plane_origin: [99.0, 99.0, 99.0],
             plane_normal: [99.0, 99.0, 99.0],
+            plane_x_axis: None,
             entities: vec![],
             constraints: vec![],
             solve_status: SolveStatus::FullyConstrained,
@@ -1671,6 +1685,7 @@ mod tests {
             },
             plane_origin: [0.0, 0.0, 0.0],
             plane_normal: [0.0, 0.0, 1.0],
+            plane_x_axis: None,
             entities,
             constraints: vec![],
             solve_status: SolveStatus::FullyConstrained,

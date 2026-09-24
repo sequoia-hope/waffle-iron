@@ -1089,11 +1089,13 @@ fn on_axis_apex_cone_deterministic() {
     assert_eq!(build(), build(), "apex-cone revolve must be deterministic");
 }
 
-/// Branch row: the BICONE triangle (both connector edges oblique — apex
-/// at BOTH on-axis vertices, no perpendicular cap) is outside slice 2;
-/// typed, pre-mutation.
+/// Branch row, CONVERTED 2026-09-24: the BICONE triangle (both connector
+/// edges oblique — an apex at BOTH on-axis vertices, no perpendicular cap)
+/// was outside slice 2 and is inside the GENERAL lathe
+/// (`docs/notes/eiffel/FEATURE_NOTES.md` §1). Two apex cones sharing one
+/// rim: V − E + F = 1 − 1 + 2 = 2, and the volume is the two cones'.
 #[test]
-fn on_axis_bicone_triangle_stays_rejected() {
+fn on_axis_bicone_triangle_builds_as_two_apex_cones() {
     let bicone = Profile::new(
         Point3::new(0.0, 0.0, 0.0),
         Vector3::new(1.0, 0.0, 0.0),
@@ -1107,10 +1109,20 @@ fn on_axis_bicone_triangle_stays_rejected() {
     )
     .expect("bicone profile");
     let mut arena = BrepArena::new();
-    let err = revolve(&mut arena, &bicone, AXIS_O, AXIS_D, 2.0 * PI)
-        .expect_err("bicone is outside slice 2");
-    assert_eq!(err, KernelV2Error::RevolveAxisIntersectsProfile);
-    assert_eq!(arena, BrepArena::new(), "arena untouched");
+    let r = revolve(&mut arena, &bicone, AXIS_O, AXIS_D, 2.0 * PI).expect("bicone");
+    validate_solid(&arena, r.solid).expect("valid");
+    let faces = arena.shell(r.shell).expect("shell").faces.clone();
+    assert_eq!(faces.len(), 2, "two lateral cones, no planar cap");
+    // No planar face to name as a cap at either end (the capless convention).
+    assert_eq!((r.start_cap, r.end_cap), (None, None));
+    let mesh = tessellate(&arena, r.solid).expect("tessellate");
+    // Two cones of radius R2, heights H/2 each: 2 · πR²(H/2)/3.
+    let want = 2.0 * PI * R2 * R2 * (H / 2.0) / 3.0;
+    let got = mesh_signed_volume(&mesh);
+    assert!(
+        got > 0.0 && (got - want).abs() < 2e-3 * want,
+        "{got} vs {want}"
+    );
 }
 
 /// Slice 2 I7 → KV14 apex-cone OPERAND (2026-09-04): the solid cone ENTERS
@@ -1364,12 +1376,12 @@ fn on_axis_frustum_deterministic() {
     assert_eq!(build(), build(), "frustum revolve must be deterministic");
 }
 
-/// Branch row: the PENCIL quad (on-axis edge, one oblique CAP edge whose
-/// on-axis endpoint would be an apex, one parallel lateral) is NOT a
-/// slice-2 shape — it needs the mixed lateral+apex vocabulary. Typed,
-/// pre-mutation.
+/// Branch row, CONVERTED 2026-09-24: the PENCIL quad (on-axis edge, one
+/// oblique CAP edge whose on-axis endpoint is an apex, one parallel
+/// lateral) needed the mixed lateral+apex vocabulary, which is what the
+/// GENERAL lathe is. Disc + cylinder + apex cone, three faces.
 #[test]
-fn on_axis_pencil_quad_stays_rejected() {
+fn on_axis_pencil_quad_builds_as_a_cylinder_with_a_tip() {
     let pencil = Profile::new(
         Point3::new(0.0, 0.0, 0.0),
         Vector3::new(1.0, 0.0, 0.0),
@@ -1384,10 +1396,17 @@ fn on_axis_pencil_quad_stays_rejected() {
     )
     .expect("pencil profile");
     let mut arena = BrepArena::new();
-    let err = revolve(&mut arena, &pencil, AXIS_O, AXIS_D, 2.0 * PI)
-        .expect_err("pencil quad is outside slice 2");
-    assert_eq!(err, KernelV2Error::RevolveAxisIntersectsProfile);
-    assert_eq!(arena, BrepArena::new(), "arena untouched");
+    let r = revolve(&mut arena, &pencil, AXIS_O, AXIS_D, 2.0 * PI).expect("pencil");
+    validate_solid(&arena, r.solid).expect("valid");
+    assert_eq!(arena.shell(r.shell).expect("shell").faces.len(), 3);
+    let mesh = tessellate(&arena, r.solid).expect("tessellate");
+    // Cylinder radius R1 over t ∈ [0, 2] plus the cone tip t ∈ [2, H].
+    let want = PI * R1 * R1 * 2.0 + PI * R1 * R1 * (H - 2.0) / 3.0;
+    let got = mesh_signed_volume(&mesh);
+    assert!(
+        got > 0.0 && (got - want).abs() < 2e-3 * want,
+        "{got} vs {want}"
+    );
 }
 
 /// Adversarial: a mixed-sign oblique quad (one off-axis vertex on EACH

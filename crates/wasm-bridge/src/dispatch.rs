@@ -81,6 +81,7 @@ fn handle_message(
             solved_profiles,
             plane_origin,
             plane_normal,
+            plane_x_axis,
             entities,
             constraints,
             projected,
@@ -91,6 +92,7 @@ fn handle_message(
                 solved_profiles,
                 plane_origin,
                 plane_normal,
+                plane_x_axis,
                 entities,
                 constraints,
                 projected,
@@ -1670,6 +1672,7 @@ fn operation_name(op: &Operation) -> String {
         Operation::MateConnector { .. } => "Mate connector".to_string(),
         Operation::PatternCircular { .. } => "Circular pattern".to_string(),
         Operation::PatternLinear { .. } => "Linear pattern".to_string(),
+        Operation::PatternMirror { .. } => "Mirror".to_string(),
         Operation::Script { .. } => "Script".to_string(),
         Operation::Unknown(_) => op.type_tag().to_string(),
     }

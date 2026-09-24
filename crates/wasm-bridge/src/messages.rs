@@ -93,6 +93,11 @@ pub enum UiToEngine {
         plane_origin: [f64; 3],
         #[serde(default = "default_normal")]
         plane_normal: [f64; 3],
+        /// The sketch's own +u direction (`Sketch.plane_x_axis`). Absent ⇒
+        /// the engine derives one from the normal, which is every sketch the
+        /// UI authors.
+        #[serde(default)]
+        plane_x_axis: Option<[f64; 3]>,
         /// Final entity state from the JS solver (includes solved radii).
         /// Overrides stale entities from AddSketchEntity calls.
         #[serde(default)]

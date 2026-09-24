@@ -111,9 +111,9 @@ pub(crate) fn on_axis_revolve(
     // gates with the same typed error (branch-minimal per Constitution §7;
     // `full_turn_crossing_profile_stays_rejected` pins it).
 
-    // ---- shared shape gates: 3/4-gon with exactly one on-axis edge --------
+    // ---- shared shape gates: a polygon with exactly one on-axis edge ------
     let k = embedded.len();
-    if k != 3 && k != 4 {
+    if k < 3 {
         return Err(REJECT);
     }
     let on = |i: usize| s[i].abs() <= clearance;
@@ -127,6 +127,26 @@ pub(crate) fn on_axis_revolve(
     }
     let off_idx: Vec<usize> = (0..k).filter(|&i| !on(i)).collect();
     let band = REVOLVE_EDGE_ALIGNMENT_TOLERANCE * (1.0 + scale);
+    // Anything but a 3- or 4-gon is the GENERAL lathe (below); so is every
+    // 3/4-gon shape the slice-1/2/3 builders below turn down. They keep the
+    // shapes they already build, bit for bit.
+    let general = |arena: &mut BrepArena| {
+        build_on_axis_lathe(
+            arena,
+            a,
+            w,
+            axis_origin,
+            &t,
+            &s,
+            &on_idx,
+            clearance,
+            band,
+            full_turn,
+        )
+    };
+    if k != 3 && k != 4 {
+        return general(arena);
+    }
 
     // ---- slice 2 increment B: apex triangle → solid cone ------------------
     // The single off-axis vertex has one connector edge to each on-axis
@@ -149,8 +169,11 @@ pub(crate) fn on_axis_revolve(
             .copied()
             .filter(|&i| (t[i] - t[c]).abs() <= band)
             .collect();
+        // Exactly one perpendicular connector is the apex cone. Both oblique
+        // is the BICONE — two apex cones sharing a rim, which the general
+        // lathe builds from the same chain.
         if perp.len() != 1 || radius <= clearance {
-            return Err(REJECT); // bicone or degenerate — never a silent sliver
+            return general(arena);
         }
         let cap_i = perp[0];
         let apex_i = if on_idx[0] == cap_i {
@@ -169,10 +192,12 @@ pub(crate) fn on_axis_revolve(
     // off-axis ring neighbor at the same axial coordinate) — an oblique
     // CAP edge would sweep an apex cone glued to a lateral (the "pencil"),
     // outside the slice-2 vocabulary.
+    // (The "pencil" — an oblique cap edge, an apex cone glued to a lateral —
+    // is outside the slice-2 vocabulary but inside the general lathe's.)
     for &i in &on_idx {
         for j in [(i + 3) % 4, (i + 1) % 4] {
             if !on(j) && (t[i] - t[j]).abs() > band {
-                return Err(REJECT);
+                return general(arena);
             }
         }
     }
@@ -190,6 +215,8 @@ pub(crate) fn on_axis_revolve(
     if r_bot <= clearance || r_top <= clearance || height <= band {
         return Err(REJECT); // crossing or degenerate — never a silent sliver
     }
+    // A 4-gon whose two off-axis vertices sit at the SAME radius and the same
+    // axial coordinate is degenerate; anything else here is slice 1/2/3.
 
     // ---- slice 3: PARTIAL angle → the wedge (cylinder or frustum wall) ----
     if !full_turn {
@@ -789,5 +816,489 @@ fn build_on_axis_apex_cone(
         start_cap: Some(f_cap),
         end_cap: Some(f_cap),
         walls: vec![f_lat],
+    })
+}
+
+/// The GENERAL on-axis lathe: a full-turn revolve of ANY simple polygon with
+/// exactly one on-axis edge (`docs/notes/eiffel/FEATURE_NOTES.md` §1).
+///
+/// The 3- and 4-gon builders above are the special cases the corpus already
+/// depends on, kept bit for bit. This one takes everything else: an ogee, a
+/// dome polyline, a stepped shaft, a cup with a blind bore, the bicone, the
+/// "pencil" (an apex cone glued to a lateral). Before it, a dome had to ship
+/// as six stacked frusta — six bodies and six sketches where one profile
+/// would do, with the steps visible in the silhouette.
+///
+/// ## The construction
+///
+/// The profile is a chain from one on-axis vertex A through the off-axis
+/// vertices `P₁…Pₚ` to the other on-axis vertex B; the on-axis edge B→A is
+/// the rotation's fixed line and sweeps nothing. Each chain edge sweeps ONE
+/// face:
+///
+/// - an END edge (one endpoint on the axis) sweeps a full DISC when it is
+///   axis-perpendicular, else an apex CONE whose apex is the on-axis vertex
+///   — either way a face bounded by the single rim circle of its off-axis
+///   endpoint (the PR-KV5a disc-cap form);
+/// - a MIDDLE edge sweeps a cylinder (axis-parallel), a cone frustum
+///   (oblique) or a planar ANNULUS (axis-perpendicular) — a face bounded by
+///   `[rim, seam, rim, seam]`, the Stroud §3.1.4 single-fake-edge form the
+///   frustum builder uses.
+///
+/// Census: V = p, E = 2p − 1 (p rims + p − 1 seam rulings), F = p + 1, so
+/// χ = 2 for every p. At p = 2 that is exactly
+/// [`build_on_axis_frustum`]'s census, and at p = 1
+/// [`build_on_axis_apex_cone`]'s.
+///
+/// ## Orientation
+///
+/// Everything orientational comes from ONE quantity: the sign of the
+/// profile's area in the `(s, t)` half-plane (radius, axial). For a
+/// counterclockwise walk the outward normal of an edge along `(ds, dt)` is
+/// `(dt, −ds)`; clockwise, the negation. That single rule gives each face its
+/// surface normal, gives a cylinder or cone its `reversed` cavity flag (a
+/// blind bore faces the axis, and says so), and gives every rim its traversal
+/// axis — `ν = sign(n_s·g_t − n_t·g_s)·â`, where `ĝ` points along the edge
+/// into the face. Two faces sharing a rim derive opposite traversals from it,
+/// which is what makes them twins; the assembler checks that rather than
+/// assuming it.
+///
+/// Caller guarantees: `on_idx` are the two ADJACENT on-axis vertices, the
+/// region is a hole-free simple polygon, and `s[i] ≥ 0`.
+#[allow(clippy::too_many_arguments)]
+fn build_on_axis_lathe(
+    arena: &mut BrepArena,
+    a: UnitVector3,
+    w: UnitVector3,
+    a0: Point3,
+    t: &[f64],
+    s: &[f64],
+    on_idx: &[usize],
+    clearance: f64,
+    band: f64,
+    full_turn: bool,
+) -> Result<RevolveResult, KernelV2Error> {
+    const REJECT: KernelV2Error = KernelV2Error::RevolveAxisIntersectsProfile;
+    // A partial sweep needs the two pie-sector caps and a swept face per
+    // edge — a different vocabulary (the slice-3 wedge generalizes to it,
+    // with no case asking for it yet). Typed, not guessed.
+    if !full_turn {
+        return Err(REJECT);
+    }
+    let k = t.len();
+
+    // ---- the chain: on-axis A, the off-axis vertices in order, on-axis B --
+    // Walk the ring from A away from the on-axis edge, so `chain[0]` = A and
+    // `chain[p + 1]` = B whichever way round the polygon was wound.
+    let (a_i, b_i) = if on_idx[1] == on_idx[0] + 1 {
+        (on_idx[1], on_idx[0])
+    } else {
+        (on_idx[0], on_idx[1])
+    };
+    let mut chain = Vec::with_capacity(k);
+    let mut i = a_i;
+    loop {
+        chain.push(i);
+        if i == b_i {
+            break;
+        }
+        i = (i + 1) % k;
+    }
+    debug_assert_eq!(chain.len(), k, "the ring minus nothing is the whole ring");
+    let p = k - 2; // off-axis vertices
+    if p < 1 {
+        return Err(REJECT);
+    }
+    for &c in &chain[1..=p] {
+        // A negative radius is a crossing profile (the ŵ sign rule normalizes
+        // an all-negative one, so a mixed sign is genuinely crossing), and a
+        // sub-clearance one is a third axis touch: neither is a lathe.
+        if s[c] <= clearance {
+            return Err(REJECT);
+        }
+    }
+
+    // ---- orientation: the sign of the profile's area in (s, t) ------------
+    let two_area: f64 = (0..k)
+        .map(|i| {
+            let (u, v) = (chain[i], chain[(i + 1) % k]);
+            s[u] * t[v] - s[v] * t[u]
+        })
+        .sum();
+    if two_area.abs() <= band * band {
+        return Err(REJECT); // zero-area profile — never a silent sliver
+    }
+    let ccw = two_area > 0.0;
+    // The outward normal `(n_s, n_t)` of an edge running `(ds, dt)`.
+    let outward = |ds: f64, dt: f64| -> (f64, f64) {
+        let len = (ds * ds + dt * dt).sqrt();
+        if ccw {
+            (dt / len, -ds / len)
+        } else {
+            (-dt / len, ds / len)
+        }
+    };
+
+    let at = |t: f64| Point3::new(a0.x() + t * a.x, a0.y() + t * a.y, a0.z() + t * a.z);
+    let axial = |sign: f64| if sign > 0.0 { a } else { neg(a) };
+
+    // ---- per-band geometry ------------------------------------------------
+    /// What one swept edge becomes. The KIND is the loop form, which is not
+    /// decided by the surface alone: a planar band between two rims is an
+    /// ANNULUS, and a planar loop may not mix a full circle with other edges
+    /// (`validate`), so it takes the washer form the full-revolve caps use —
+    /// outer rim in the outer loop, inner rim in a `LoopKind::Inner` ring,
+    /// no seam ruling between them.
+    #[derive(PartialEq, Clone, Copy)]
+    enum Kind {
+        /// One rim: an end band (a disc or an apex cone).
+        End,
+        /// Two rims, planar: outer loop + inner ring, no seam.
+        Washer,
+        /// Two rims, curved: `[rim, seam, rim, seam]`.
+        Lateral,
+    }
+    struct Band {
+        surface: Surface,
+        kind: Kind,
+        /// Traversal axis sign of the rim at the band's FIRST chain vertex
+        /// and at its SECOND (`+1` = `+â`), for the off-axis ones.
+        nu: (f64, f64),
+    }
+    let mut bands: Vec<Band> = Vec::with_capacity(p + 1);
+    for i in 0..=p {
+        let (u, v) = (chain[i], chain[i + 1]);
+        let (ds, dt) = (s[v] - s[u], t[v] - t[u]);
+        let len = (ds * ds + dt * dt).sqrt();
+        if len <= band {
+            return Err(REJECT); // coincident profile vertices
+        }
+        let (n_s, n_t) = outward(ds, dt);
+        // ν from the outward normal and the in-face direction ĝ: at the first
+        // vertex ĝ runs along the edge, at the second against it.
+        let nu_of = |g_s: f64, g_t: f64| -> f64 {
+            if n_s * g_t - n_t * g_s > 0.0 {
+                1.0
+            } else {
+                -1.0
+            }
+        };
+        let nu = (nu_of(ds / len, dt / len), nu_of(-ds / len, -dt / len));
+        let on_u = s[u] <= clearance;
+        let on_v = s[v] <= clearance;
+        let kind = if on_u || on_v {
+            Kind::End
+        } else if dt.abs() <= band {
+            Kind::Washer
+        } else {
+            Kind::Lateral
+        };
+        let surface = if on_u || on_v {
+            // END band: apex on the axis, rim at the off-axis endpoint.
+            let (t_axis, t_rim, r) = if on_u {
+                (t[u], t[v], s[v])
+            } else {
+                (t[v], t[u], s[u])
+            };
+            let height = t_rim - t_axis;
+            if height.abs() <= band {
+                // Axis-perpendicular: the full DISC. Its normal is ±â.
+                Surface::Plane(Plane {
+                    point: at(t_axis),
+                    normal: axial(n_t),
+                })
+            } else {
+                Surface::Cone {
+                    apex: at(t_axis),
+                    // Apex → rim, so both the rim and the face sit at τ > 0.
+                    axis_dir: axial(height),
+                    half_angle: (r / height.abs()).atan(),
+                    reversed: n_s < 0.0,
+                }
+            }
+        } else if dt.abs() <= band {
+            // MIDDLE band, axis-perpendicular: a planar ANNULUS.
+            Surface::Plane(Plane {
+                point: at(t[u]),
+                normal: axial(n_t),
+            })
+        } else if ds.abs() <= band {
+            Surface::Cylinder {
+                axis_point: a0,
+                axis_dir: a,
+                radius: s[u],
+                reversed: n_s < 0.0,
+            }
+        } else {
+            // Oblique: the frustum cone, same slant formulas as slice 2A.
+            Surface::Cone {
+                apex: at(t[u] - s[u] * dt / ds),
+                axis_dir: axial(dt / ds),
+                half_angle: (ds / dt).abs().atan(),
+                reversed: n_s < 0.0,
+            }
+        };
+        bands.push(Band { surface, kind, nu });
+    }
+
+    // ---- ids ---------------------------------------------------------------
+    // Vertices: the seam anchor of each off-axis vertex's rim, radially along
+    // ŵ (θ = 0) — the same seam azimuth every other on-axis construction uses.
+    let v0 = arena.vertices.len() as u32;
+    for &c in &chain[1..=p] {
+        let centre = at(t[c]);
+        arena.vertices.push(Some(Vertex {
+            point: Point3::new(
+                centre.x() + s[c] * w.x,
+                centre.y() + s[c] * w.y,
+                centre.z() + s[c] * w.z,
+            ),
+        }));
+    }
+    let vid = |j: usize| VertexId(v0 + (j - 1) as u32);
+
+    // Half-edges, band by band: an end band contributes its single rim, a
+    // middle band [rim, seam_up, rim, seam_dn].
+    let h0 = arena.half_edges.len() as u32;
+    let mut first_he: Vec<u32> = Vec::with_capacity(p + 1);
+    let mut next_h = h0;
+    for b in &bands {
+        first_he.push(next_h);
+        next_h += match b.kind {
+            Kind::End => 1,
+            Kind::Washer => 2,
+            Kind::Lateral => 4,
+        };
+    }
+    // Every band's FIRST half-edge is the rim at its first chain vertex; the
+    // rim at its second follows the seam in a lateral and sits next door in a
+    // washer.
+    let second_slot = |i: usize| -> u32 {
+        match bands[i].kind {
+            Kind::End => 0,
+            Kind::Washer => 1,
+            Kind::Lateral => 2,
+        }
+    };
+    // The two half-edges of the rim at off-axis vertex j: the one in band
+    // j − 1 and the one in band j.
+    let rim_he = |j: usize| -> (HalfEdgeId, HalfEdgeId) {
+        (
+            HalfEdgeId(first_he[j - 1] + second_slot(j - 1)),
+            HalfEdgeId(first_he[j]),
+        )
+    };
+
+    let l0 = arena.loops.len() as u32;
+    let f0 = arena.faces.len() as u32;
+    let shell = ShellId(arena.shells.len() as u32);
+    let solid = SolidId(arena.solids.len() as u32);
+
+    // ---- emit --------------------------------------------------------------
+    let rim_curve = |j: usize, nu: f64| {
+        let c = chain[j];
+        Curve::Circle {
+            center: at(t[c]),
+            normal: axial(nu),
+            radius: s[c],
+        }
+    };
+    // Outer loop per band, then one inner ring per washer, in band order.
+    let mut ring_of: Vec<Option<LoopId>> = vec![None; p + 1];
+    let mut next_ring = l0 + (p + 1) as u32;
+    for (i, b) in bands.iter().enumerate() {
+        if b.kind == Kind::Washer {
+            ring_of[i] = Some(LoopId(next_ring));
+            next_ring += 1;
+        }
+    }
+    for i in 0..=p {
+        let lp = LoopId(l0 + i as u32);
+        let base = first_he[i];
+        match bands[i].kind {
+            Kind::End => {
+                // One closed rim half-edge: next = prev = itself.
+                let j = if i == 0 { 1 } else { p };
+                let nu = if i == 0 { bands[i].nu.1 } else { bands[i].nu.0 };
+                let (below, above) = rim_he(j);
+                let (me, twin) = if i == 0 {
+                    (below, above)
+                } else {
+                    (above, below)
+                };
+                debug_assert_eq!(me.0, base);
+                arena.half_edges.push(Some(HalfEdge {
+                    twin,
+                    next: me,
+                    prev: me,
+                    origin: vid(j),
+                    loop_id: lp,
+                    curve: rim_curve(j, nu),
+                }));
+            }
+            Kind::Washer => {
+                // Outer rim (the larger radius) in the outer loop, inner rim
+                // in the ring — the full-revolve washer convention. Each rim
+                // is its own closed half-edge; there is no seam between them.
+                let ring = ring_of[i].expect("a washer has a ring");
+                let (lo, hi) = (i, i + 1);
+                let outer_is_first = s[chain[lo]] >= s[chain[hi]];
+                for (slot, j) in [(0usize, lo), (1usize, hi)] {
+                    let nu = if slot == 0 {
+                        bands[i].nu.0
+                    } else {
+                        bands[i].nu.1
+                    };
+                    let (below, above) = rim_he(j);
+                    let (me, twin) = if j == lo {
+                        (above, below)
+                    } else {
+                        (below, above)
+                    };
+                    debug_assert_eq!(me.0, base + slot as u32);
+                    arena.half_edges.push(Some(HalfEdge {
+                        twin,
+                        next: me,
+                        prev: me,
+                        origin: vid(j),
+                        loop_id: if (j == lo) == outer_is_first {
+                            lp
+                        } else {
+                            ring
+                        },
+                        curve: rim_curve(j, nu),
+                    }));
+                }
+            }
+            Kind::Lateral => {
+                let (lo, hi) = (i, i + 1); // chain indices of the band's rims
+                let (rim_lo, seam_up, rim_hi, seam_dn) = (
+                    HalfEdgeId(base),
+                    HalfEdgeId(base + 1),
+                    HalfEdgeId(base + 2),
+                    HalfEdgeId(base + 3),
+                );
+                let (lo_below, lo_above) = rim_he(lo);
+                let (hi_below, hi_above) = rim_he(hi);
+                debug_assert_eq!(lo_above, rim_lo);
+                debug_assert_eq!(hi_below, rim_hi);
+                arena.half_edges.push(Some(HalfEdge {
+                    twin: lo_below,
+                    next: seam_up,
+                    prev: seam_dn,
+                    origin: vid(lo),
+                    loop_id: lp,
+                    curve: rim_curve(lo, bands[i].nu.0),
+                }));
+                arena.half_edges.push(Some(HalfEdge {
+                    twin: seam_dn,
+                    next: rim_hi,
+                    prev: rim_lo,
+                    origin: vid(lo),
+                    loop_id: lp,
+                    curve: Curve::LineSegment,
+                }));
+                arena.half_edges.push(Some(HalfEdge {
+                    twin: hi_above,
+                    next: seam_dn,
+                    prev: seam_up,
+                    origin: vid(hi),
+                    loop_id: lp,
+                    curve: rim_curve(hi, bands[i].nu.1),
+                }));
+                arena.half_edges.push(Some(HalfEdge {
+                    twin: seam_up,
+                    next: rim_lo,
+                    prev: rim_hi,
+                    origin: vid(hi),
+                    loop_id: lp,
+                    curve: Curve::LineSegment,
+                }));
+            }
+        }
+    }
+
+    // Loops in id order: the p + 1 outer loops, then the washers' rings.
+    for i in 0..=p {
+        // A washer's outer loop is whichever rim is the LARGER — which is
+        // not always the band's first.
+        let boundary = if bands[i].kind == Kind::Washer && s[chain[i]] < s[chain[i + 1]] {
+            first_he[i] + 1
+        } else {
+            first_he[i]
+        };
+        arena.loops.push(Some(Loop {
+            face: FaceId(f0 + i as u32),
+            boundary: LoopBoundary::Edges(HalfEdgeId(boundary)),
+            kind: LoopKind::Outer,
+        }));
+    }
+    for i in 0..=p {
+        if bands[i].kind != Kind::Washer {
+            continue;
+        }
+        let boundary = if s[chain[i]] < s[chain[i + 1]] {
+            first_he[i]
+        } else {
+            first_he[i] + 1
+        };
+        arena.loops.push(Some(Loop {
+            face: FaceId(f0 + i as u32),
+            boundary: LoopBoundary::Edges(HalfEdgeId(boundary)),
+            kind: LoopKind::Inner,
+        }));
+    }
+    for (i, band) in bands.iter().enumerate() {
+        arena.faces.push(Some(Face {
+            surface: Some(band.surface),
+            outer_loop: LoopId(l0 + i as u32),
+            inner_loops: ring_of[i].into_iter().collect(),
+            shell,
+        }));
+    }
+    arena.shells.push(Some(Shell {
+        solid,
+        faces: (0..=p).map(|i| FaceId(f0 + i as u32)).collect(),
+        genus: 0,
+    }));
+    arena.solids.push(Some(Solid {
+        shells: vec![shell],
+    }));
+
+    // Full production validation: the twin pairing, the manifold census and
+    // the `surface.normal ≡ Newell(outer_loop)` invariant are all checked
+    // here, so a mis-derived orientation is an ERROR, never a silent
+    // inside-out lathe.
+    finalize_solid(arena, solid)?;
+
+    // I3/I6 result convention: the caps are the axis-touching ends, named
+    // only when they are PLANAR (an apex cone has no cap face to name, the
+    // capless-ring precedent); walls are the rest, in profile order.
+    let face = |i: usize| FaceId(f0 + i as u32);
+    let planar = |i: usize| matches!(bands[i].surface, Surface::Plane(_));
+    let (lo_end, hi_end) = if t[chain[0]] <= t[chain[p + 1]] {
+        (0, p)
+    } else {
+        (p, 0)
+    };
+    // An apex end has no planar face to name, so the other end's disc fills
+    // both fields — the I6 convention `build_on_axis_apex_cone` already uses,
+    // which keeps `end_cap.is_none() == start_cap.is_none()`.
+    let (start_cap, end_cap) = match (planar(lo_end), planar(hi_end)) {
+        (true, true) => (Some(face(lo_end)), Some(face(hi_end))),
+        (true, false) => (Some(face(lo_end)), Some(face(lo_end))),
+        (false, true) => (Some(face(hi_end)), Some(face(hi_end))),
+        (false, false) => (None, None),
+    };
+    let walls = (0..=p)
+        .filter(|i| Some(face(*i)) != start_cap && Some(face(*i)) != end_cap)
+        .map(face)
+        .collect();
+    Ok(RevolveResult {
+        solid,
+        shell,
+        start_cap,
+        end_cap,
+        walls,
     })
 }

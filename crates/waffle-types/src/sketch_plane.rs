@@ -57,6 +57,58 @@ impl SketchPlaneBasis {
         }
     }
 
+    /// Build the basis with a CALLER-CHOSEN in-plane x axis, mirroring
+    /// `buildSketchPlane(origin, normal, xAxis)` in the UI.
+    ///
+    /// `x_axis` is orthogonalized against the normal (its in-plane part is
+    /// taken), so a caller may pass any direction that is not parallel to the
+    /// normal. `None`, zero-length, non-finite, or parallel to the normal
+    /// falls back to [`Self::from_origin_normal`] — callers that must not
+    /// fall back validate first ([`Self::x_axis_is_usable`]), which is what
+    /// the engine does at rebuild so a bad axis is a loud feature error
+    /// rather than a silently rotated sketch.
+    pub fn from_origin_normal_x(
+        origin: [f64; 3],
+        normal: [f64; 3],
+        x_axis: Option<[f64; 3]>,
+    ) -> Self {
+        let n = norm(normal);
+        let Some(x) = x_axis else {
+            return Self::from_origin_normal(origin, normal);
+        };
+        if !Self::x_axis_is_usable(normal, x) {
+            return Self::from_origin_normal(origin, normal);
+        }
+        let d = dot(x, n);
+        let in_plane = [x[0] - d * n[0], x[1] - d * n[1], x[2] - d * n[2]];
+        let x_axis = norm(in_plane);
+        let y_axis = norm(cross(n, x_axis));
+        SketchPlaneBasis {
+            origin,
+            normal: n,
+            x_axis,
+            y_axis,
+        }
+    }
+
+    /// Whether `x_axis` can orient a plane of this `normal`: finite, not
+    /// zero-length, and not (nearly) parallel to the normal. The band is the
+    /// same 0.01 of the UI's reference-vector choice — an x axis within
+    /// ~0.6° of the normal has no usable in-plane part.
+    pub fn x_axis_is_usable(normal: [f64; 3], x_axis: [f64; 3]) -> bool {
+        if !x_axis.iter().chain(normal.iter()).all(|c| c.is_finite()) {
+            return false;
+        }
+        let (n, x) = (norm(normal), x_axis);
+        // Finiteness is checked above, so a plain comparison is total here.
+        let len = (x[0] * x[0] + x[1] * x[1] + x[2] * x[2]).sqrt();
+        if len <= 0.0 {
+            return false;
+        }
+        let unit = [x[0] / len, x[1] / len, x[2] / len];
+        dot(unit, n).abs() < 0.99999
+    }
+
     /// Project a 3D world point onto the plane and return its 2D sketch-local
     /// (u, v) coordinates. (Out-of-plane component along the normal is dropped.)
     pub fn world_to_local(&self, p: [f64; 3]) -> (f64, f64) {
@@ -127,6 +179,78 @@ mod tests {
         let (u0, v0) = b.world_to_local([2.0, -3.0, 0.0]);
         let (u1, v1) = b.world_to_local([2.0, -3.0, 5.0]);
         assert!((u0 - u1).abs() < 1e-12 && (v0 - v1).abs() < 1e-12);
+    }
+
+    // ── A caller-chosen x axis (FEATURE_NOTES §3) ──────────────────────
+
+    #[test]
+    fn a_given_x_axis_is_the_basis() {
+        // The XY plane's DERIVED basis sends u to −y; a caller that wants u
+        // along +x says so, and gets it.
+        let derived = SketchPlaneBasis::from_origin_normal([0.0; 3], [0.0, 0.0, 1.0]);
+        assert!(
+            dist(derived.x_axis, [0.0, -1.0, 0.0]) < 1e-12,
+            "{:?}",
+            derived.x_axis
+        );
+        let chosen = SketchPlaneBasis::from_origin_normal_x(
+            [0.0; 3],
+            [0.0, 0.0, 1.0],
+            Some([1.0, 0.0, 0.0]),
+        );
+        assert!(
+            dist(chosen.x_axis, [1.0, 0.0, 0.0]) < 1e-12,
+            "{:?}",
+            chosen.x_axis
+        );
+        // Right-handed about the normal, as the derived basis is.
+        assert!(
+            dist(chosen.y_axis, [0.0, 1.0, 0.0]) < 1e-12,
+            "{:?}",
+            chosen.y_axis
+        );
+        assert!(dist(chosen.local_to_world(2.0, 3.0), [2.0, 3.0, 0.0]) < 1e-12);
+    }
+
+    #[test]
+    fn a_given_x_axis_is_orthogonalized_not_rejected() {
+        // Any direction with an in-plane part orients the plane: the caller
+        // may hand over a vector it has lying around (an edge direction, a
+        // world axis) without projecting it first.
+        let b = SketchPlaneBasis::from_origin_normal_x(
+            [0.0; 3],
+            [0.0, 0.0, 1.0],
+            Some([3.0, 0.0, 7.0]),
+        );
+        assert!(dist(b.x_axis, [1.0, 0.0, 0.0]) < 1e-12, "{:?}", b.x_axis);
+        assert!(dot(b.x_axis, b.normal).abs() < 1e-15);
+        assert!((dot(b.x_axis, b.x_axis) - 1.0).abs() < 1e-15);
+    }
+
+    #[test]
+    fn an_x_axis_that_cannot_orient_the_plane_is_not_usable() {
+        let n = [0.0, 0.0, 1.0];
+        assert!(!SketchPlaneBasis::x_axis_is_usable(n, [0.0, 0.0, 0.0]));
+        assert!(!SketchPlaneBasis::x_axis_is_usable(n, [0.0, 0.0, 5.0]));
+        assert!(!SketchPlaneBasis::x_axis_is_usable(n, [f64::NAN, 0.0, 0.0]));
+        assert!(SketchPlaneBasis::x_axis_is_usable(n, [1.0, 0.0, 0.0]));
+        assert!(SketchPlaneBasis::x_axis_is_usable(n, [0.001, 0.0, 1.0]));
+        // …and an unusable one falls back to the derived basis rather than
+        // producing a degenerate frame (the caller validates first when a
+        // fallback would be wrong).
+        let b = SketchPlaneBasis::from_origin_normal_x([0.0; 3], n, Some([0.0, 0.0, 9.0]));
+        let derived = SketchPlaneBasis::from_origin_normal([0.0; 3], n);
+        assert!(dist(b.x_axis, derived.x_axis) < 1e-15);
+    }
+
+    #[test]
+    fn no_x_axis_is_bit_identical_to_the_derived_basis() {
+        for normal in [[0.0, 0.0, 1.0], [1.0, 2.0, 3.0], [0.0, 1.0, 0.0]] {
+            let a = SketchPlaneBasis::from_origin_normal([1.0, 2.0, 3.0], normal);
+            let b = SketchPlaneBasis::from_origin_normal_x([1.0, 2.0, 3.0], normal, None);
+            assert_eq!(a.x_axis, b.x_axis, "{normal:?}");
+            assert_eq!(a.y_axis, b.y_axis, "{normal:?}");
+        }
     }
 
     #[test]

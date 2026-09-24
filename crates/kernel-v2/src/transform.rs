@@ -24,10 +24,14 @@
 //! ## What is refused
 //!
 //! An improper rotation (a reflection, `det R = −1`) would flip every face's
-//! outward sense and every half-edge's traversal direction. Mirroring is a
-//! different operation with its own orientation bookkeeping; this function
-//! rejects it loudly ([`KernelV2Error::TransformNotRigid`]) rather than
-//! producing an inside-out solid.
+//! outward sense and every half-edge's traversal direction.
+//! [`transform_solid`] rejects it loudly
+//! ([`KernelV2Error::TransformNotRigid`]) rather than producing an
+//! inside-out solid. Mirroring has its own entry point,
+//! [`mirror_solid`], which does that orientation bookkeeping: the same
+//! geometry map (a reflection maps every analytic surface and curve onto the
+//! same kind, exactly) plus a reversal of every loop, so each copied face's
+//! Newell normal still agrees with its mapped surface normal.
 //!
 //! ## Provenance
 //!
@@ -39,7 +43,7 @@
 use std::collections::BTreeMap;
 
 use cad_primitives::Point3;
-use waffle_types::kernel::RigidPlacement;
+use waffle_types::kernel::{MirrorPlane, RigidPlacement};
 
 use crate::arena::{
     BrepArena, Curve, Face, FaceId, HalfEdge, HalfEdgeId, Loop, LoopBoundary, LoopId, PairSurface,
@@ -105,11 +109,71 @@ pub fn check_rigid(placement: &RigidPlacement) -> Result<(), KernelV2Error> {
     Ok(())
 }
 
-fn map_point(p: &RigidPlacement, pt: Point3) -> Point3 {
+/// The affine map a copy applies: `p' = L·p + t`. `L` is a proper rotation
+/// for [`transform_solid`] and a reflection for [`mirror_solid`]; everything
+/// between the two builders is the same code over this.
+#[derive(Debug, Clone, Copy)]
+pub struct Xform {
+    linear: [[f64; 3]; 3],
+    translation: [f64; 3],
+}
+
+impl Xform {
+    /// Apply to a point.
+    pub fn apply(&self, p: [f64; 3]) -> [f64; 3] {
+        let r = self.apply_dir(p);
+        [
+            r[0] + self.translation[0],
+            r[1] + self.translation[1],
+            r[2] + self.translation[2],
+        ]
+    }
+
+    /// Apply the linear part only (directions).
+    pub fn apply_dir(&self, v: [f64; 3]) -> [f64; 3] {
+        let m = &self.linear;
+        [
+            m[0][0] * v[0] + m[0][1] * v[1] + m[0][2] * v[2],
+            m[1][0] * v[0] + m[1][1] * v[1] + m[1][2] * v[2],
+            m[2][0] * v[0] + m[2][1] * v[1] + m[2][2] * v[2],
+        ]
+    }
+}
+
+impl From<&RigidPlacement> for Xform {
+    fn from(p: &RigidPlacement) -> Self {
+        Xform {
+            linear: p.rotation,
+            translation: p.translation,
+        }
+    }
+}
+
+impl From<&MirrorPlane> for Xform {
+    /// `I − 2n̂n̂ᵀ` about the plane's own point: `p' = p − 2((p − q)·n̂) n̂`.
+    /// Caller has checked the normal (see [`mirror_solid`]).
+    fn from(plane: &MirrorPlane) -> Self {
+        let n = plane.unit_normal().unwrap_or([0.0, 0.0, 1.0]);
+        let mut linear = [[0.0; 3]; 3];
+        for (i, row) in linear.iter_mut().enumerate() {
+            for (j, cell) in row.iter_mut().enumerate() {
+                *cell = if i == j { 1.0 } else { 0.0 } - 2.0 * n[i] * n[j];
+            }
+        }
+        // t = 2(q·n̂) n̂.
+        let d = plane.point[0] * n[0] + plane.point[1] * n[1] + plane.point[2] * n[2];
+        Xform {
+            linear,
+            translation: [2.0 * d * n[0], 2.0 * d * n[1], 2.0 * d * n[2]],
+        }
+    }
+}
+
+fn map_point(p: &Xform, pt: Point3) -> Point3 {
     Point3::from(p.apply(pt.as_array()))
 }
 
-fn map_dir(p: &RigidPlacement, n: UnitVector3) -> UnitVector3 {
+fn map_dir(p: &Xform, n: UnitVector3) -> UnitVector3 {
     let r = p.apply_dir([n.x, n.y, n.z]);
     UnitVector3 {
         x: r[0],
@@ -121,7 +185,7 @@ fn map_dir(p: &RigidPlacement, n: UnitVector3) -> UnitVector3 {
 /// Transform a surface descriptor. Every variant maps onto the same variant
 /// with moved frame data; the `reversed` cavity sense is preserved because a
 /// proper rotation preserves orientation.
-pub fn map_surface(p: &RigidPlacement, s: &Surface) -> Surface {
+pub fn map_surface(p: &Xform, s: &Surface) -> Surface {
     match *s {
         Surface::Plane(Plane { point, normal }) => Surface::Plane(Plane {
             point: map_point(p, point),
@@ -174,7 +238,7 @@ pub fn map_surface(p: &RigidPlacement, s: &Surface) -> Surface {
     }
 }
 
-fn map_pair_surface(p: &RigidPlacement, s: &PairSurface) -> PairSurface {
+fn map_pair_surface(p: &Xform, s: &PairSurface) -> PairSurface {
     match *s {
         PairSurface::Cylinder {
             axis_point,
@@ -214,7 +278,7 @@ fn map_pair_surface(p: &RigidPlacement, s: &PairSurface) -> PairSurface {
 
 /// Transform a curve descriptor. Directional normals rotate with the frame,
 /// so a half-edge's counterclockwise sense is preserved.
-pub fn map_curve(p: &RigidPlacement, c: &Curve) -> Curve {
+pub fn map_curve(p: &Xform, c: &Curve) -> Curve {
     match *c {
         Curve::LineSegment => Curve::LineSegment,
         Curve::SurfacePair { ref a, ref b } => Curve::SurfacePair {
@@ -280,6 +344,54 @@ pub fn transform_solid(
     placement: &RigidPlacement,
 ) -> Result<SolidId, KernelV2Error> {
     check_rigid(placement)?;
+    copy_solid(arena, solid, &Xform::from(placement), Handedness::Kept)
+}
+
+/// Deep-copy `solid` into the same arena REFLECTED through `plane`. Returns
+/// the new solid's id; the source is untouched.
+///
+/// The geometry maps exactly the same way a rigid copy's does — every
+/// analytic surface and curve onto the same kind with reflected frame data —
+/// but a reflection is improper, so every loop of the copy is traversed the
+/// other way round ([`Handedness::Flipped`]). That is the whole difference:
+/// without it every face of the copy would be inside out, which is why
+/// [`transform_solid`] refuses a reflection rather than quietly doing half
+/// the job.
+///
+/// Errors: a zero-length or non-finite plane normal, `InvalidId` for a dead
+/// source id, and any `validate_solid` failure on the copy.
+pub fn mirror_solid(
+    arena: &mut BrepArena,
+    solid: SolidId,
+    plane: &MirrorPlane,
+) -> Result<SolidId, KernelV2Error> {
+    if plane.unit_normal().is_none() {
+        return Err(KernelV2Error::TransformNotRigid {
+            reason: "mirror plane normal is zero-length or non-finite",
+        });
+    }
+    copy_solid(arena, solid, &Xform::from(plane), Handedness::Flipped)
+}
+
+/// Whether the copy preserves orientation (a rigid motion) or reverses it
+/// (a reflection), which decides the loop traversal of every copied face.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Handedness {
+    /// Proper: loops are copied as they are.
+    Kept,
+    /// Improper: every loop is traversed the other way (`next` ↔ `prev`, and
+    /// each half-edge starts where it used to end), so the face's Newell
+    /// normal still agrees with its mapped surface normal.
+    Flipped,
+}
+
+fn copy_solid(
+    arena: &mut BrepArena,
+    solid: SolidId,
+    placement: &Xform,
+    handedness: Handedness,
+) -> Result<SolidId, KernelV2Error> {
+    let flip = handedness == Handedness::Flipped;
 
     // ── Pass 1: collect every reachable entity, keyed by source id ──────
     let src_solid = arena.solid(solid)?.clone();
@@ -366,11 +478,24 @@ pub fn transform_solid(
         }));
     }
     for he in half_edges.values() {
+        // A flipped copy walks each loop backwards, so this half-edge runs
+        // from what used to be its destination (`next.origin`). The TWIN
+        // pairing is untouched: both half-edges of an edge reverse together,
+        // so they still traverse it oppositely.
+        let (next, prev, origin) = if flip {
+            (
+                hmap[&he.prev],
+                hmap[&he.next],
+                vmap[&half_edges[&he.next].origin],
+            )
+        } else {
+            (hmap[&he.next], hmap[&he.prev], vmap[&he.origin])
+        };
         arena.half_edges.push(Some(HalfEdge {
             twin: hmap[&he.twin],
-            next: hmap[&he.next],
-            prev: hmap[&he.prev],
-            origin: vmap[&he.origin],
+            next,
+            prev,
+            origin,
             loop_id: lmap[&he.loop_id],
             curve: map_curve(placement, &he.curve),
         }));
@@ -419,7 +544,11 @@ pub fn transform_solid(
         }
     }
     arena.journal.push(Evolution {
-        op: OpTag::Transform,
+        op: if flip {
+            OpTag::Mirror
+        } else {
+            OpTag::Transform
+        },
         generated,
         modified,
         deleted: Vec::new(),

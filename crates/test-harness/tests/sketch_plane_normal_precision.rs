@@ -79,6 +79,7 @@ fn finish_sketch(
             solved_profiles: profiles,
             plane_origin: origin,
             plane_normal: normal,
+            plane_x_axis: None,
             entities: vec![],
             constraints: vec![],
             projected: vec![],

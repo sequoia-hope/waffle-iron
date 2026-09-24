@@ -199,7 +199,7 @@ agent renames with `feature_rename`. ICR-5 (§9) would add the field.
 
 | Tool | Kind | Inputs (defaults) | Result |
 |---|---|---|---|
-| `sketch_create` | command | `plane: GeomRef \| {origin, normal}`, `entities`, `constraints ([])`, `on_error` | `{feature_id, solve_status, dof, regions[]}` + `ModelDelta` |
+| `sketch_create` | command | `plane: GeomRef \| {origin, normal}`, each optionally with `x_axis`, `entities`, `constraints ([])`, `on_error` | `{feature_id, solve_status, dof, plane: {origin, normal, x_axis, y_axis}, regions[]}` + `ModelDelta`. `plane.x_axis` (2026-09-24) is the world direction the sketch's +x points along — its in-plane part, so any non-parallel vector does; zero-length or parallel to the normal is `InvalidSketch`, pre-commit. Without one the engine derives the in-plane axes, and the answer's `plane` says which it used either way, so a caller never reproduces that derivation (`docs/notes/eiffel/FEATURE_NOTES.md` §3) |
 | `feature_add` | command | `operation`, `on_error` | `{feature_id}` + `ModelDelta` |
 | `feature_edit` | command | `feature_id`, `operation`, `on_error` | `ModelDelta` |
 | `feature_delete` / `feature_suppress` / `feature_reorder` / `feature_rename` / `body_rename` / `rollback_set` | command | as the bridge messages | `ModelDelta` |

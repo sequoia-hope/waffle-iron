@@ -63,7 +63,9 @@ fn v4_envelope_round_trip_keeps_identity_sources_and_tabs() {
     let parsed: serde_json::Value = serde_json::from_str(&json).unwrap();
     assert_eq!(parsed["version"], FORMAT_VERSION);
     assert_eq!(parsed["min_reader_version"], MIN_READER_VERSION);
-    assert_eq!(FORMAT_VERSION, 5);
+    // v6 since 2026-09-24 (`Sketch.plane_x_axis`, a field a v5 reader must
+    // not silently ignore — docs/FILE_FORMAT.md §13).
+    assert_eq!(FORMAT_VERSION, 6);
     assert_eq!(parsed["document"]["id"], doc.document.id.to_string());
     assert_eq!(parsed["sources"].as_array().unwrap().len(), 1);
     // `.git` is normalized away on the way in; host is inferred, not written.

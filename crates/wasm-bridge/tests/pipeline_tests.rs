@@ -96,6 +96,7 @@ fn create_rect_sketch(
             solved_profiles,
             plane_origin,
             plane_normal,
+            plane_x_axis: None,
             entities: vec![],
             constraints: vec![],
             projected: vec![],
@@ -817,6 +818,7 @@ fn finish_sketch_without_begin_returns_error() {
             solved_profiles: Vec::new(),
             plane_origin: [0.0, 0.0, 0.0],
             plane_normal: [0.0, 0.0, 1.0],
+            plane_x_axis: None,
             entities: vec![],
             constraints: vec![],
             projected: vec![],
@@ -1024,6 +1026,7 @@ fn extrude_sketch_with_no_profiles_returns_error() {
             solved_profiles: Vec::new(), // No profiles!
             plane_origin: [0.0, 0.0, 0.0],
             plane_normal: [0.0, 0.0, 1.0],
+            plane_x_axis: None,
             entities: vec![],
             constraints: vec![],
             projected: vec![],

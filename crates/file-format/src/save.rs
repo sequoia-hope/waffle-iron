@@ -15,7 +15,12 @@ use crate::sources::SourceEntry;
 /// v5: `GeomRef.scope` — references into another tab's instance (in-context
 ///     editing, spec §2.8). A v4 reader would drop the field and resolve the
 ///     anchor locally, so the reader floor moved with it.
-pub const FORMAT_VERSION: u32 = 5;
+/// v6: `Sketch.plane_x_axis` — the sketch's own in-plane +x direction
+///     (`docs/notes/eiffel/FEATURE_NOTES.md` §3). A v5 reader would drop it
+///     and derive the basis from the normal, which draws the sketch — and
+///     everything built on it — ROTATED. Same shape of defect as v5's, so
+///     the floor moves with it.
+pub const FORMAT_VERSION: u32 = 6;
 
 /// Oldest reader (by its `FORMAT_VERSION`) that can parse files we write.
 ///
@@ -30,7 +35,7 @@ pub const FORMAT_VERSION: u32 = 5;
 /// opaquely. Purely additive defaulted fields never require a bump. Files
 /// without the field (all pre-2026-08-28 files, including the assay corpus)
 /// default to 0 and always pass. See `docs/FILE_FORMAT.md` §13.
-pub const MIN_READER_VERSION: u32 = 5;
+pub const MIN_READER_VERSION: u32 = 6;
 
 // Keep the constants coherent: we can never require a reader newer than the
 // version we claim to write.

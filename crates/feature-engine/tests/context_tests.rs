@@ -35,6 +35,7 @@ fn square_sketch(origin: [f64; 3], normal: [f64; 3]) -> Sketch {
         },
         plane_origin: origin,
         plane_normal: normal,
+        plane_x_axis: None,
         entities: vec![
             SketchEntity::Point {
                 id: 1,

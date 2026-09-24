@@ -786,6 +786,30 @@ impl Kernel for KernelV2Adapter {
         Ok(self.alloc_handle(copy))
     }
 
+    fn mirror_body(
+        &mut self,
+        solid: &KernelSolidHandle,
+        plane: &waffle_types::kernel::MirrorPlane,
+    ) -> Result<KernelSolidHandle, KernelError> {
+        if self.imported_slot_of(solid).is_some() {
+            return Err(Self::not_supported(
+                "mirror_body: imported (STEP) mesh-backed body — placing an imported \
+                 body is STEP-import roadmap SI2 (docs/step_import_roadmap.md)",
+            ));
+        }
+        let sid = self.solid_of(solid)?;
+        let copy =
+            crate::transform::mirror_solid(&mut self.arena, sid, plane).map_err(|e| match e {
+                KernelV2Error::TransformNotRigid { reason } => KernelError::Other {
+                    message: format!("mirror_body: {reason}"),
+                },
+                other => KernelError::Other {
+                    message: format!("kernel-v2 mirror_body failed: {other}"),
+                },
+            })?;
+        Ok(self.alloc_handle(copy))
+    }
+
     fn import_body(
         &mut self,
         data: &waffle_types::kernel::ImportedBodyData,

@@ -37,8 +37,7 @@ pub(crate) fn reproject_sketch(
     if sketch.projected.is_empty() {
         return;
     }
-    let basis =
-        SketchPlaneBasis::from_origin_normal(sketch.plane_origin, unit_normal(sketch.plane_normal));
+    let basis = sketch_basis(sketch);
 
     // Resolve all bindings first, then apply (avoids overlapping borrows). A
     // source scoped to another instance (in-context) resolves through the
@@ -523,7 +522,22 @@ pub(crate) fn execute_feature(
             type_tag: feature.operation.type_tag().to_string(),
         }),
 
-        Operation::Sketch { .. } => {
+        Operation::Sketch { sketch } => {
+            // A plane the sketch cannot be drawn on is the sketch's own error,
+            // reported here rather than at the extrude that would silently
+            // fall back to the derived basis and move every point.
+            if let Some(x) = sketch.plane_x_axis {
+                let normal = unit_normal(sketch.plane_normal);
+                if !SketchPlaneBasis::x_axis_is_usable(normal, x) {
+                    return Err(EngineError::ResolutionFailed {
+                        reason: format!(
+                            "sketch plane x_axis {x:?} cannot orient a plane of normal \
+                             {normal:?}: it is zero-length, non-finite, or parallel to \
+                             the normal"
+                        ),
+                    });
+                }
+            }
             // Sketches don't produce OpResults directly — they store solved geometry.
             // Return a minimal OpResult with no outputs.
             Ok(OpResult {
@@ -856,7 +870,7 @@ pub(crate) fn execute_feature(
                 (false, None) => (direction, primary_depth, sketch.plane_origin),
             };
 
-            let x_axis = tangent_x_from_normal(unit_normal(sketch.plane_normal));
+            let x_axis = sketch_x_axis(sketch);
 
             // Multi-region selection: the user picked ≥2 sketch regions to extrude
             // as ONE body. Union their 2D footprints FIRST (sketch plane), so
@@ -978,7 +992,7 @@ pub(crate) fn execute_feature(
                 params.profile_entity_ids.as_deref(),
             )?;
 
-            let x_axis = tangent_x_from_normal(unit_normal(sketch.plane_normal));
+            let x_axis = sketch_x_axis(sketch);
             let face_ids = kb.make_faces_from_profiles(
                 &sketch.solved_profiles,
                 sketch.plane_origin,
@@ -1070,7 +1084,7 @@ pub(crate) fn execute_feature(
                 reason: e.to_string(),
             })?;
             let normal = unit_normal(sketch.plane_normal);
-            let x_axis = tangent_x_from_normal(normal);
+            let x_axis = sketch_x_axis(sketch);
             let pipe_result = execute_pipe(
                 kb,
                 sketch.plane_origin,
@@ -1115,6 +1129,14 @@ pub(crate) fn execute_feature(
             tree,
             already_consumed,
             crate::pattern::PatternSpec::Linear(params),
+        ),
+        Operation::PatternMirror { params } => crate::pattern::execute(
+            feature,
+            kb,
+            feature_results,
+            tree,
+            already_consumed,
+            crate::pattern::PatternSpec::Mirror(params),
         ),
         // The rebuild loop calls `script::execute` directly for the outer
         // consumption and connectors it reports; this arm serves the other
@@ -1581,11 +1603,24 @@ pub(crate) fn find_consumed_feature_ids(
         ),
         Operation::PatternCircular { params } => crate::pattern::consumed_feature_ids(
             crate::pattern::PatternSpec::Circular(params),
+            feature,
             feature_results,
+            tree,
+            already_consumed,
         ),
         Operation::PatternLinear { params } => crate::pattern::consumed_feature_ids(
             crate::pattern::PatternSpec::Linear(params),
+            feature,
             feature_results,
+            tree,
+            already_consumed,
+        ),
+        Operation::PatternMirror { params } => crate::pattern::consumed_feature_ids(
+            crate::pattern::PatternSpec::Mirror(params),
+            feature,
+            feature_results,
+            tree,
+            already_consumed,
         ),
         _ => vec![],
     }
@@ -2270,7 +2305,7 @@ fn resolve_share_a_face(
             let profile_hull = crate::share_a_face::convex_hull_2d(&profile_pts);
             let s_o = sketch.plane_origin;
             let s_n = unit_normal(sketch.plane_normal);
-            let x_axis = tangent_x_from_normal(s_n);
+            let x_axis = sketch_x_axis(&sketch);
             let y_axis = [
                 s_n[1] * x_axis[2] - s_n[2] * x_axis[1],
                 s_n[2] * x_axis[0] - s_n[0] * x_axis[2],
@@ -2667,6 +2702,35 @@ pub(crate) fn unit_normal(n: [f64; 3]) -> [f64; 3] {
 /// `unit_normal` leaves a normal whose length is this close to 1 untouched: a
 /// few ulps, the rounding of a vector that was normalized once in f64.
 const UNIT_TO_ROUNDING: f64 = 4.0 * f64::EPSILON;
+
+/// The sketch plane's basis: the sketch's OWN x axis when it carries one
+/// (`Sketch.plane_x_axis`), else the one derived from the normal. Every
+/// consumer of a sketch's in-plane frame goes through here or through
+/// [`sketch_x_axis`], so "which way is up in this sketch" has one answer.
+pub(crate) fn sketch_basis(sketch: &Sketch) -> SketchPlaneBasis {
+    let normal = unit_normal(sketch.plane_normal);
+    match sketch.plane_x_axis {
+        Some(x) if SketchPlaneBasis::x_axis_is_usable(normal, x) => {
+            SketchPlaneBasis::from_origin_normal_x(sketch.plane_origin, normal, Some(x))
+        }
+        // Bit-for-bit the pre-2026-09-24 path for every sketch without one.
+        _ => SketchPlaneBasis::from_origin_normal(sketch.plane_origin, normal),
+    }
+}
+
+/// The in-plane +u direction of a sketch — [`sketch_basis`]'s x axis, except
+/// that a sketch without its own axis keeps `tangent_x_from_normal`'s exact
+/// bits (the two agree, and this is the value every existing document was
+/// built with).
+pub(crate) fn sketch_x_axis(sketch: &Sketch) -> [f64; 3] {
+    let normal = unit_normal(sketch.plane_normal);
+    match sketch.plane_x_axis {
+        Some(x) if SketchPlaneBasis::x_axis_is_usable(normal, x) => {
+            SketchPlaneBasis::from_origin_normal_x(sketch.plane_origin, normal, Some(x)).x_axis
+        }
+        _ => tangent_x_from_normal(normal),
+    }
+}
 
 /// Compute a tangent X axis from a plane normal.
 /// Must match the JS formula in `sketchCoords.js:buildSketchPlane()`:
@@ -3545,6 +3609,7 @@ mod tests {
             },
             plane_origin: [0.0, 0.0, 0.0],
             plane_normal: [0.0, 0.0, 1.0],
+            plane_x_axis: None,
             entities,
             constraints: vec![],
             solve_status: waffle_types::SolveStatus::FullyConstrained,
@@ -3950,6 +4015,7 @@ mod tests {
             plane: gref.clone(),
             plane_origin: [0.0, 0.0, 0.0],
             plane_normal: [0.0, 0.0, 1.0],
+            plane_x_axis: None,
             entities: vec![SketchEntity::Point {
                 id: 100,
                 x: 0.0,
@@ -4062,6 +4128,7 @@ mod tests {
             plane: gref.clone(),
             plane_origin: [0.0, 0.0, 0.0],
             plane_normal: [0.0, 0.0, 1.0],
+            plane_x_axis: None,
             entities: vec![SketchEntity::Point {
                 id: 100,
                 x: 7.0,
@@ -4135,6 +4202,7 @@ mod profile_addressing_tests {
             },
             plane_origin: [0.0; 3],
             plane_normal: [0.0, 0.0, 1.0],
+            plane_x_axis: None,
             entities: vec![],
             constraints: vec![],
             solve_status: SolveStatus::FullyConstrained,

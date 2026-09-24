@@ -122,6 +122,7 @@ pub fn assert_tree_structure(
                 feature_engine::types::Operation::MateConnector { .. } => "MateConnector",
                 feature_engine::types::Operation::PatternCircular { .. } => "PatternCircular",
                 feature_engine::types::Operation::PatternLinear { .. } => "PatternLinear",
+                feature_engine::types::Operation::PatternMirror { .. } => "PatternMirror",
                 feature_engine::types::Operation::Script { .. } => "Script",
                 feature_engine::types::Operation::UnionAll { .. } => "UnionAll",
                 feature_engine::types::Operation::Unknown(_) => "Unknown",

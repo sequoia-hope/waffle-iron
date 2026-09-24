@@ -1767,7 +1767,7 @@ function bodyChainTarget(alt) {
 	const key = `${kind}|${alt ? 1 : 0}|${JSON.stringify(ref)}`;
 	if (bodyHoverCache?.key === key) return bodyHoverCache;
 
-	const plane = buildSketchPlane(sm.origin, sm.normal);
+	const plane = buildSketchPlane(sm.origin, sm.normal, sm.xAxis);
 	if (kind === 'Edge') {
 		const found = findEdgeRange(ref);
 		if (!found) return null;

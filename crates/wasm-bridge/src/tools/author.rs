@@ -48,6 +48,7 @@ const AUTHORABLE: &[&str] = &[
     "MateConnector",
     "PatternCircular",
     "PatternLinear",
+    "PatternMirror",
     "Pipe",
     "Script",
     "UnionAll",

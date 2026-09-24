@@ -103,6 +103,24 @@ impl ModelBuilder {
         w: f64,
         h: f64,
     ) -> Result<Uuid, HarnessError> {
+        self.rect_sketch_oriented(name, origin, normal, None, x, y, w, h)
+    }
+
+    /// [`Self::rect_sketch`] with the sketch's own +x direction
+    /// (`Sketch.plane_x_axis`), so a fixture can pin where sketch (x, y)
+    /// lands in the world instead of taking the derived basis.
+    #[allow(clippy::too_many_arguments)]
+    pub fn rect_sketch_oriented(
+        &mut self,
+        name: &str,
+        origin: [f64; 3],
+        normal: [f64; 3],
+        x_axis: Option<[f64; 3]>,
+        x: f64,
+        y: f64,
+        w: f64,
+        h: f64,
+    ) -> Result<Uuid, HarnessError> {
         self.check_name_available(name)?;
 
         let plane = datum_plane_ref(Uuid::new_v4());
@@ -129,6 +147,7 @@ impl ModelBuilder {
                 solved_profiles: profiles,
                 plane_origin: origin,
                 plane_normal: normal,
+                plane_x_axis: x_axis,
                 entities: vec![],
                 constraints: vec![],
                 projected: vec![],
@@ -173,6 +192,7 @@ impl ModelBuilder {
                 solved_profiles: profiles,
                 plane_origin: origin,
                 plane_normal: normal,
+                plane_x_axis: None,
                 entities: vec![],
                 constraints: vec![],
                 projected: vec![],
@@ -219,6 +239,7 @@ impl ModelBuilder {
                 solved_profiles: profiles,
                 plane_origin: origin,
                 plane_normal: normal,
+                plane_x_axis: None,
                 entities: vec![],
                 constraints: vec![],
                 projected: vec![],
@@ -299,6 +320,7 @@ impl ModelBuilder {
                 solved_profiles: profiles,
                 plane_origin: origin,
                 plane_normal: normal,
+                plane_x_axis: None,
                 entities: vec![],
                 constraints: vec![],
                 projected: vec![],
@@ -426,6 +448,7 @@ impl ModelBuilder {
                 solved_profiles: profiles,
                 plane_origin: origin,
                 plane_normal: normal,
+                plane_x_axis: None,
                 entities: vec![],
                 constraints: vec![],
                 projected: vec![],

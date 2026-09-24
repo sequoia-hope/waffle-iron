@@ -45,7 +45,7 @@ fn circular_about_z(
 ) -> Operation {
     Operation::PatternCircular {
         params: PatternCircularParams {
-            seeds: vec![body_ref(seed, OutputKey::Main)],
+            seeds: PatternSeeds::Selected(vec![body_ref(seed, OutputKey::Main)]),
             axis: AxisRef::Explicit {
                 origin: [0.0, 0.0, 0.0],
                 direction: [0.0, 0.0, 1.0],
@@ -349,7 +349,7 @@ fn linear_pattern_and_grid_volumes() {
     let seed_v = 0.1 * 0.1 * 0.05;
     let op = Operation::PatternLinear {
         params: PatternLinearParams {
-            seeds: vec![body_ref(tile, OutputKey::Main)],
+            seeds: PatternSeeds::Selected(vec![body_ref(tile, OutputKey::Main)]),
             direction: AxisRef::Explicit {
                 origin: [0.0; 3],
                 direction: [2.0, 0.0, 0.0], // non-unit: normalized
@@ -427,7 +427,7 @@ fn entity_axis_from_a_cylindrical_face_drives_the_pattern() {
     };
     let op = Operation::PatternCircular {
         params: PatternCircularParams {
-            seeds: vec![body_ref(bump, OutputKey::Main)],
+            seeds: PatternSeeds::Selected(vec![body_ref(bump, OutputKey::Main)]),
             axis: AxisRef::Entity { geom_ref: lateral },
             count: 4,
             angle_deg: 360.0,
@@ -487,4 +487,129 @@ fn identical_builds_tessellate_identically() {
     let c = build();
     assert_eq!(a.vertices, c.vertices);
     assert_eq!(a.indices, c.indices);
+}
+
+// ── Mirror pattern on real geometry ─────────────────────────────────────────
+
+fn mirror_in(seed: Uuid, origin: [f64; 3], normal: [f64; 3]) -> Operation {
+    Operation::PatternMirror {
+        params: PatternMirrorParams {
+            seeds: PatternSeeds::Selected(vec![body_ref(seed, OutputKey::Main)]),
+            plane: AxisRef::Explicit {
+                origin,
+                direction: normal,
+            },
+            combine: None,
+            targets: None,
+        },
+    }
+}
+
+/// 7. A mirrored body is a REAL solid: watertight, χ = 2, the seed's volume
+///    (positive — an inside-out reflection would integrate to −V), and at the
+///    reflected position.
+#[test]
+fn mirrored_spoke_is_a_watertight_body_at_the_reflected_position() {
+    let mut b = ModelBuilder::kernel_v2();
+    let spoke = add_spoke(&mut b);
+    // The sketch's u/v are not world x/y: the spoke lands at y ∈ [−0.6, −0.1],
+    // x ∈ [−0.025, 0.025]. Mirror in y = 0 ⇒ y ∈ [0.1, 0.6]. (Mirroring in
+    // x = 0 would land the copy exactly on the seed, which tests nothing.)
+    b.add_operation("Mirror", mirror_in(spoke, [0.0; 3], [0.0, 1.0, 0.0]))
+        .unwrap();
+    assert_clean(&b, "mirror");
+    let r = b.op_result("Mirror").unwrap();
+    assert_eq!(r.outputs.len(), 2, "the seed and its reflection");
+    let v = b
+        .kernel_ref()
+        .as_introspect()
+        .solid_volume(&r.outputs[1].1.handle)
+        .expect("exact volume");
+    assert!((v - 0.0025).abs() < 1e-12, "mirrored volume {v}");
+    let meshes = b.tessellate_live_with_tol(0.001).expect("tessellate");
+    assert_eq!(meshes.len(), 2);
+    for m in &meshes {
+        let wt = oracle::check_watertight_mesh(m);
+        assert!(wt.passed, "{}", wt.detail);
+        let chi = oracle::check_mesh_euler_characteristic(m, 2);
+        assert!(chi.passed, "{}", chi.detail);
+        assert!(
+            mesh_signed_volume(m) > 0.0,
+            "a mirrored body is not inside out"
+        );
+    }
+    let (lo, hi) = bbox(&meshes[1]);
+    assert_near3(lo, [-0.025, 0.1, 0.05], 1e-6, "mirrored min");
+    assert_near3(hi, [0.025, 0.6, 0.15], 1e-6, "mirrored max");
+}
+
+/// 8. The mirrored copy is a boolean operand like any other: mirroring a
+///    spoke ACROSS the hub's centre and adding both gives one shell with the
+///    inclusion–exclusion volume.
+#[test]
+fn a_mirrored_spoke_adds_into_a_hub_as_one_shell() {
+    let mut b = ModelBuilder::kernel_v2();
+    let hub = add_hub(&mut b);
+    let spoke = add_spoke(&mut b);
+    b.add_operation(
+        "Both spokes",
+        Operation::PatternMirror {
+            params: PatternMirrorParams {
+                seeds: PatternSeeds::Selected(vec![body_ref(spoke, OutputKey::Main)]),
+                plane: AxisRef::Explicit {
+                    origin: [0.0; 3],
+                    direction: [0.0, 1.0, 0.0],
+                },
+                combine: Some(CombineMode::Add),
+                targets: Some(vec![body_ref(hub, OutputKey::Main)]),
+            },
+        },
+    )
+    .unwrap();
+    assert_clean(&b, "mirror Add");
+    let r = b.op_result("Both spokes").unwrap();
+    assert_eq!(r.outputs.len(), 1, "one connected body");
+    // hub 0.032 + 2·0.0025 − 2·(0.1·0.05·0.1 overlap inside the hub)
+    let expect = 0.032 + 0.005 - 0.001;
+    let v = b
+        .kernel_ref()
+        .as_introspect()
+        .solid_volume(&r.outputs[0].1.handle)
+        .expect("exact volume");
+    assert!((v - expect).abs() < 1e-9, "{v} vs {expect}");
+    let mesh = b.tessellate_last_with_tol(0.001).unwrap();
+    let chi = oracle::check_mesh_euler_characteristic(&mesh, 2);
+    assert!(chi.passed, "{}", chi.detail);
+    let wt = oracle::check_watertight_mesh(&mesh);
+    assert!(wt.passed, "{}", wt.detail);
+}
+
+/// 9. `seeds: All` patterns every live body without naming one — the whole
+///    point of the set (FEATURE_NOTES §7). Four bodies out of two.
+#[test]
+fn all_seeds_patterns_every_live_body() {
+    let mut b = ModelBuilder::kernel_v2();
+    add_hub(&mut b);
+    add_spoke(&mut b);
+    b.add_operation(
+        "Mirror everything",
+        Operation::PatternMirror {
+            params: PatternMirrorParams {
+                seeds: PatternSeeds::All,
+                plane: AxisRef::Explicit {
+                    origin: [0.0, 0.0, -0.5],
+                    direction: [0.0, 0.0, 1.0],
+                },
+                combine: None,
+                targets: None,
+            },
+        },
+    )
+    .unwrap();
+    assert_clean(&b, "mirror all");
+    let r = b.op_result("Mirror everything").unwrap();
+    assert_eq!(r.outputs.len(), 4, "hub + spoke, each with its reflection");
+    // Reflected in z = −0.5, so every copy sits below it; total volume is
+    // twice the originals'.
+    assert!((live_volume(&mut b) - 2.0 * (0.032 + 0.0025)).abs() < 1e-4);
 }

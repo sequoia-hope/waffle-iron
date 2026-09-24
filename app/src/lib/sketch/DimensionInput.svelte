@@ -28,7 +28,7 @@
 		if (!camera) return null;
 		const canvas = /** @type {HTMLCanvasElement} */ (document.querySelector('canvas'));
 		if (!canvas) return null;
-		const plane = buildSketchPlane(sm.origin, sm.normal);
+		const plane = buildSketchPlane(sm.origin, sm.normal, sm.xAxis);
 		return sketchToScreen(popup.sketchX, popup.sketchY, plane, camera, canvas);
 	});
 

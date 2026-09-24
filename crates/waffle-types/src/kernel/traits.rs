@@ -141,6 +141,21 @@ pub trait Kernel {
         })
     }
 
+    /// Mirrored copy of a solid: a NEW solid reflected through `plane`. The
+    /// source is untouched. Exact on analytic geometry, like
+    /// [`Kernel::transform_body`] — but a reflection reverses orientation, so
+    /// every loop of the copy is traversed the other way round to keep its
+    /// faces outward. The substrate of the mirror pattern.
+    fn mirror_body(
+        &mut self,
+        _solid: &KernelSolidHandle,
+        _plane: &MirrorPlane,
+    ) -> Result<KernelSolidHandle, KernelError> {
+        Err(KernelError::NotSupported {
+            operation: "mirror_body".to_string(),
+        })
+    }
+
     /// Export a solid as an ISO 10303-21 (STEP, AP214) text file. The
     /// single-body form of [`Kernel::export_step_bodies`].
     fn export_step(

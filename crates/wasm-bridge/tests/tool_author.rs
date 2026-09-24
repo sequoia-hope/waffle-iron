@@ -74,6 +74,7 @@ fn rectangle_sketch() -> Operation {
             },
             plane_origin: [0.0, 0.0, 0.0],
             plane_normal: [0.0, 0.0, 1.0],
+            plane_x_axis: None,
             entities: corners
                 .iter()
                 .enumerate()
@@ -292,6 +293,28 @@ fn feature_add_authors_a_circular_pattern_and_rolls_back_a_bad_one() {
     let result = state.engine.get_result(id).expect("pattern result");
     assert_eq!(result.outputs.len(), 5);
     assert_eq!(result.outputs[0].0, OutputKey::Main);
+
+    // A mirror is authorable the same way, and `seeds: {"type": "All"}` needs
+    // no reference at all — the two additions of
+    // `docs/notes/eiffel/FEATURE_NOTES.md` §4 and §7.
+    let mirrored = ok(run(
+        &mut state,
+        json!({
+            "operation": {
+                "type": "PatternMirror",
+                "params": {
+                    "seeds": { "type": "All" },
+                    "plane": { "method": "explicit", "origin": [0, 0, 0], "direction": [1, 0, 0] }
+                }
+            }
+        }),
+    ));
+    assert_eq!(mirrored["errors"], json!([]));
+    let mirror_id = Uuid::parse_str(mirrored["feature_id"].as_str().expect("id")).expect("uuid");
+    let result = state.engine.get_result(mirror_id).expect("mirror result");
+    // The five pattern instances and their five reflections.
+    assert_eq!(result.outputs.len(), 10);
+    assert!(state.engine.consumed_features.contains(&id));
 }
 
 // ── feature_edit ─────────────────────────────────────────────────────────
@@ -585,6 +608,7 @@ fn a_mutating_tools_answer_carries_the_model_update_and_its_preview() {
             },
             plane_origin: [0.0, 0.0, 0.0],
             plane_normal: [0.0, 0.0, 1.0],
+            plane_x_axis: None,
             entities,
             constraints: Vec::new(),
             solve_status: SolveStatus::FullyConstrained,

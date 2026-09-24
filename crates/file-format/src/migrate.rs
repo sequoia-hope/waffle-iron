@@ -124,8 +124,10 @@ fn migrate_feature_v1_to_v2(feature: &mut Feature) {
         Operation::MateConnector { .. } => {
             // Postdates v5; offset_m and frame are meters by definition.
         }
-        Operation::PatternCircular { .. } | Operation::PatternLinear { .. } => {
-            // Postdate v5; axis origins and spacings are meters by definition.
+        Operation::PatternCircular { .. }
+        | Operation::PatternLinear { .. }
+        | Operation::PatternMirror { .. } => {
+            // Postdate v5; axis/plane origins and spacings are meters by definition.
         }
         Operation::Script { .. } => {
             // Postdates v5; script arguments are model units by definition.
@@ -254,6 +256,7 @@ mod tests {
             plane: make_datum_geomref(),
             plane_origin: [0.0, 0.0, 0.0],
             plane_normal: [0.0, 0.0, 1.0],
+            plane_x_axis: None,
             entities: vec![
                 SketchEntity::Point {
                     id: 1,
