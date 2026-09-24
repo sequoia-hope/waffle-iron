@@ -234,7 +234,12 @@ mod tests {
         assert!(!SketchPlaneBasis::x_axis_is_usable(n, [0.0, 0.0, 5.0]));
         assert!(!SketchPlaneBasis::x_axis_is_usable(n, [f64::NAN, 0.0, 0.0]));
         assert!(SketchPlaneBasis::x_axis_is_usable(n, [1.0, 0.0, 0.0]));
-        assert!(SketchPlaneBasis::x_axis_is_usable(n, [0.001, 0.0, 1.0]));
+        // The band is |x̂·n̂| < 0.99999, i.e. the axis must be more than
+        // ~0.256° off the normal: `[a, 0, 1]` is usable from a ≈ 0.0045 up.
+        // Below that the in-plane part is a rounding artefact of the input,
+        // and normalizing it multiplies whatever noise is in it by 1/a.
+        assert!(SketchPlaneBasis::x_axis_is_usable(n, [0.01, 0.0, 1.0]));
+        assert!(!SketchPlaneBasis::x_axis_is_usable(n, [0.001, 0.0, 1.0]));
         // …and an unusable one falls back to the derived basis rather than
         // producing a degenerate frame (the caller validates first when a
         // fallback would be wrong).
