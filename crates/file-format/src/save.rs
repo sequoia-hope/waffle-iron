@@ -92,6 +92,73 @@ pub fn save_document_verified(doc: &WaffleDocument) -> Result<String, crate::err
     Ok(json)
 }
 
+/// [`save_document_verified`] that does not re-check what it has already
+/// checked.
+///
+/// The self-check above re-parses the WHOLE document on every save, and a
+/// host autosaves after every committed tool: on the Eiffel Tower that was
+/// 69.6 ms of re-parsing against 5.7 ms to produce the bytes — a 12x tax,
+/// paid mostly on tabs that had not changed since the last save verified them
+/// (docs/notes/eiffel/FEATURE_NOTES.md §0a).
+///
+/// A document is its tabs plus a small envelope. This verifier checks each in
+/// the same way the loader would, and remembers the tab payloads it has
+/// already accepted — a tab whose bytes are byte-for-byte what was verified
+/// before cannot have become unparseable. So a save costs a parse of the tabs
+/// that changed, not of the document.
+#[derive(Debug, Default)]
+pub struct SaveVerifier {
+    /// Hashes of tab payloads that parsed back cleanly.
+    verified: std::collections::HashSet<u64>,
+}
+
+/// Bound on remembered payloads: enough for every tab of a document across
+/// many edits, small enough that a long session cannot grow it without limit.
+const VERIFIED_CAP: usize = 512;
+
+impl SaveVerifier {
+    /// Serialize `doc` and verify it, skipping the tabs already known good.
+    pub fn save(&mut self, doc: &WaffleDocument) -> Result<String, crate::errors::LoadError> {
+        use std::hash::{Hash, Hasher};
+
+        for tab in &doc.tabs {
+            // Canonical bytes, via `serde_json::Value` — whose maps are
+            // BTreeMaps, so keys come out sorted. Serializing the tab directly
+            // would NOT do: the tree holds HashMaps (`body_names`,
+            // `provenance`, a sketch's `solved_positions`), so the same tab
+            // serializes differently run to run and nothing would ever match
+            // the cache.
+            let value = serde_json::to_value(tab)
+                .map_err(|e| crate::errors::LoadError::ParseError(e.to_string()))?;
+            let payload = serde_json::to_string(&value)
+                .map_err(|e| crate::errors::LoadError::ParseError(e.to_string()))?;
+            let mut hasher = std::collections::hash_map::DefaultHasher::new();
+            payload.hash(&mut hasher);
+            let key = hasher.finish();
+            if self.verified.contains(&key) {
+                continue;
+            }
+            // The loader's own typed parse, on this tab alone.
+            serde_json::from_str::<Tab>(&payload)
+                .map_err(|e| crate::errors::LoadError::ParseError(e.to_string()))?;
+            if self.verified.len() >= VERIFIED_CAP {
+                self.verified.clear();
+            }
+            self.verified.insert(key);
+        }
+
+        let json = save_document(doc);
+        // Everything that is not a tab, parsed as the loader parses it: the
+        // envelope, the document metadata and the sources. `IgnoredAny` skips
+        // the tabs, which the loop above accounted for.
+        crate::load::check_document_shell(&json)?;
+        // Cross-tab rules (active_tab resolves, source ids unique) — the same
+        // call `load_document` ends with, and it costs nothing.
+        doc.validate()?;
+        Ok(json)
+    }
+}
+
 /// Serialize a single feature tree as a v4 document with one Part tab.
 /// Legacy in-feature STEP payloads are lifted into the `sources` table.
 pub fn save_project(tree: &FeatureTree, metadata: &ProjectMetadata) -> String {

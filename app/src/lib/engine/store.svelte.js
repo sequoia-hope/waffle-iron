@@ -391,6 +391,9 @@ let cameraObject = null;
 
 /** @type {any | null} OrbitControls ref */
 let controlsObject = null;
+/** The three.js scene and renderer, for `getRenderStats()`. */
+let sceneObject = null;
+let rendererObject = null;
 
 // -- Camera projection state --
 
@@ -1288,6 +1291,7 @@ export async function initEngine() {
 			exportBodyStl: (bodyId, name) => exportBodyStl(bodyId, name),
 			exportStep: () => exportStep(),
 			getCameraState: () => getCameraState(),
+			getRenderStats: () => getRenderStats(),
 			getCameraProjection: () => getCameraProjection(),
 			setCameraProjection: (proj) => setCameraProjection(proj),
 			getConstraints: () => [...sketchConstraints],
@@ -6048,6 +6052,46 @@ export async function finishSketch() {
  * @param {import('three').PerspectiveCamera | import('three').OrthographicCamera} camera
  * @param {any} controls - OrbitControls instance
  */
+/**
+ * Register the scene and renderer so `getRenderStats()` can report what a
+ * frame actually costs. Measurement only — nothing reads these to draw.
+ */
+export function setSceneRefs(scene, renderer) {
+	sceneObject = scene;
+	rendererObject = renderer;
+}
+
+/**
+ * What the last frame cost: the renderer's own counters plus a census of the
+ * scene graph. Draw calls are the number that matters for a big model — three
+ * thousand objects is three thousand state changes per frame however small
+ * each one is.
+ */
+export function getRenderStats() {
+	if (!rendererObject) return null;
+	const info = rendererObject.info;
+	const census = { meshes: 0, lineSegments: 0, lines: 0, points: 0, other: 0, culled: 0 };
+	sceneObject?.traverse((o) => {
+		if (!o.visible) return;
+		if (o.isMesh) census.meshes++;
+		else if (o.isLineSegments) census.lineSegments++;
+		else if (o.isLine) census.lines++;
+		else if (o.isPoints) census.points++;
+		else census.other++;
+		if (o.isObject3D && o.frustumCulled === false) census.culled++;
+	});
+	return {
+		calls: info.render.calls,
+		triangles: info.render.triangles,
+		lines: info.render.lines,
+		points: info.render.points,
+		programs: info.programs?.length ?? 0,
+		geometries: info.memory.geometries,
+		textures: info.memory.textures,
+		census
+	};
+}
+
 export function setCameraRefs(camera, controls) {
 	cameraObject = camera;
 	controlsObject = controls;

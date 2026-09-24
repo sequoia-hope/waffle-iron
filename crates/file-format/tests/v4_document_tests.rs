@@ -1020,3 +1020,48 @@ fn rebase_pins_relative_sources_to_the_opened_commit_and_keeps_ids() {
     .is_empty());
     assert!(matches!(again[0].locator, Locator::Relative { .. }));
 }
+
+/// The cached verifier refuses everything the uncached one refuses, and
+/// answers the same bytes. The cache may never be a way for a corrupt
+/// document to get past the check.
+#[test]
+fn the_cached_verifier_matches_the_uncached_one() {
+    use file_format::SaveVerifier;
+
+    let doc = WaffleDocument::new("Cached");
+    let mut v = SaveVerifier::default();
+
+    // Same answer as `save_document`, and stable when repeated: the second
+    // save takes the cached path for every tab and must still produce the file.
+    let first = v.save(&doc).expect("a healthy document saves");
+    let second = v.save(&doc).expect("and saves again, from the cache");
+    assert_eq!(first, save_document(&doc));
+    assert_eq!(
+        load_document(&second).unwrap().document.tabs.len(),
+        doc.tabs.len()
+    );
+
+    // A document the loader would reject is still rejected, by a verifier
+    // whose cache is warm with a HEALTHY version of the same document.
+    let mut bad = doc.clone();
+    bad.active_tab = "nope".to_string();
+    assert!(
+        matches!(v.save(&bad), Err(LoadError::ParseError(_))),
+        "a warm cache does not excuse a broken document"
+    );
+
+    // And a tab whose own payload is unparseable is caught even though the
+    // rest of the document is cached: a non-finite float serializes as `null`,
+    // which is the corruption class this check exists for.
+    let mut nan = doc.clone();
+    let tab = nan.tabs.first_mut().expect("a new document has a tab");
+    if let Some(tree) = tab.features_mut() {
+        let mut p = feature_engine::types::DesignParameter::new("broken", "0");
+        p.value = f64::NAN;
+        tree.parameters.push(p);
+        assert!(
+            matches!(v.save(&nan), Err(LoadError::ParseError(_))),
+            "a NaN in a changed tab is refused"
+        );
+    }
+}

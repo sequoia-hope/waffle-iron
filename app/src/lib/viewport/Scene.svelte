@@ -1,6 +1,7 @@
 <script>
 	import { interactivity } from '@threlte/extras';
 	import { useThrelte } from '@threlte/core';
+	import { setSceneRefs } from '$lib/engine/store.svelte.js';
 	import CadModel from './CadModel.svelte';
 	import CameraControls from './CameraControls.svelte';
 	import Lighting from './Lighting.svelte';
@@ -24,10 +25,12 @@
 	// Enable local clipping once so per-material clippingPlanes (used by the
 	// capped section view) take effect. Threlte v8 `renderer` is a plain
 	// THREE.WebGLRenderer (not a store). Guard so it's set once.
-	const { renderer } = useThrelte();
+	const { renderer, scene } = useThrelte();
 	if (renderer && !renderer.localClippingEnabled) {
 		renderer.localClippingEnabled = true;
 	}
+	// Measurement only (`window.__waffle.getRenderStats()`): what a frame costs.
+	setSceneRefs(scene, renderer);
 </script>
 
 <Lighting />

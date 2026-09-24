@@ -39,6 +39,11 @@ pub struct EngineState {
     pub document_extra: serde_json::Map<String, serde_json::Value>,
     /// Unknown envelope keys captured at load, re-emitted on save (§2.6).
     pub envelope_extra: serde_json::Map<String, serde_json::Value>,
+    /// Remembers the tab payloads a save has already verified, so the
+    /// self-check on the next one costs a parse of what changed rather than
+    /// of the whole document (`file_format::SaveVerifier`). Purely a cache:
+    /// an empty one only makes the next save do the full check.
+    pub save_verifier: file_format::SaveVerifier,
     /// The open `Assembly` tab, evaluated (Phase 3b). `None` while a Part tab
     /// is active; its instance bodies are what the renderer shows.
     pub assembly: Option<crate::assembly_view::AssemblyView>,
@@ -79,6 +84,7 @@ impl EngineState {
             sources: Vec::new(),
             document_extra: serde_json::Map::new(),
             envelope_extra: serde_json::Map::new(),
+            save_verifier: file_format::SaveVerifier::default(),
             assembly: None,
             context_view: None,
             part_cache: Vec::new(),

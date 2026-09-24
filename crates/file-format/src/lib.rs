@@ -16,8 +16,8 @@ pub use hash::{check_content_hash, git_blob_sha1, HashCheck};
 pub use load::{load_document, load_project};
 pub use metadata::{DocumentMetadata, PreviewMesh, ProjectMetadata, Tab, TabKind};
 pub use save::{
-    save_document, save_document_verified, save_project, save_project_verified, FORMAT_VERSION,
-    MIN_READER_VERSION,
+    save_document, save_document_verified, save_project, save_project_verified, SaveVerifier,
+    FORMAT_VERSION, MIN_READER_VERSION,
 };
 pub use sources::{
     join_repo_path, rebase_relative_sources, Embed, GitHost, GitRef, Locator, Resolved,

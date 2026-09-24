@@ -159,28 +159,42 @@
 	/**
 	 * Build materials array for edge ranges based on hover/selection state.
 	 */
+	/** The plain-edge material array, reused across rebuilds (see below). */
+	let plainEdgeCache = { key: null, arr: null };
+
 	function buildEdgeMaterials(ranges, hoveredRef, selectedRefs) {
 		if (!ranges || ranges.length === 0) {
 			return [fallbackMaterial];
 		}
 
-		return ranges.map((range) => {
-			const ref = range.geom_ref;
-			let color = DEFAULT_EDGE_COLOR;
-
-			if (selectedRefs.some((r) => geomRefEquals(r, ref))) {
-				color = SELECTED_EDGE_COLOR;
-			} else if (hoveredRef && geomRefEquals(hoveredRef, ref)) {
-				color = HOVER_EDGE_COLOR;
+		const make = (color) =>
+			withEdgeDepthBias(new THREE.LineBasicMaterial({ color, ...baseMaterialProps }));
+		// Every unhighlighted edge in the document is the same colour, so they
+		// can be the same material — one per edge meant a material, a program
+		// bind and a draw call for every edge of every body.
+		// Cached ACROSS rebuilds so a hover hands every other body back the
+		// identical array and Svelte updates one object, not two thousand.
+		const key = DEFAULT_EDGE_COLOR.getHexString();
+		const plainArray = () => {
+			if (plainEdgeCache.key !== key) {
+				plainEdgeCache = { key, arr: [make(DEFAULT_EDGE_COLOR)] };
 			}
+			return plainEdgeCache.arr;
+		};
+		const plain = () => plainArray()[0];
 
-			return withEdgeDepthBias(
-				new THREE.LineBasicMaterial({
-					color,
-					...baseMaterialProps
-				})
-			);
+		const perEdge = ranges.map((range) => {
+			const ref = range.geom_ref;
+			if (selectedRefs.some((r) => geomRefEquals(r, ref))) return make(SELECTED_EDGE_COLOR);
+			if (hoveredRef && geomRefEquals(hoveredRef, ref)) return make(HOVER_EDGE_COLOR);
+			return plain();
 		});
+
+		// Uniform body ⇒ one material ⇒ one draw call for all its edges,
+		// instead of one per geometry group
+		// (docs/notes/eiffel/FEATURE_NOTES.md §10).
+		if (perEdge.every((m) => m === plainEdgeCache.arr?.[0])) return plainArray();
+		return perEdge.every((m) => m === perEdge[0]) ? [perEdge[0]] : perEdge;
 	}
 
 	/**
@@ -341,7 +355,18 @@
 	let edgeMaterials = $derived.by(() => {
 		const hRef = getHoveredRef();
 		const sRefs = getSelectedRefs();
-		return edgeGeometries.map((e) => buildEdgeMaterials(e.ranges, hRef, sRefs));
+		// Only bodies that could hold a lit edge get their ranges walked; every
+		// other one takes the shared plain array. Without this a pointer move
+		// compared every edge of every body by canonical JSON.
+		const refFeature = (r) => r?.anchor?.feature_id ?? null;
+		const lit = new Set();
+		if (refFeature(hRef)) lit.add(refFeature(hRef));
+		for (const r of sRefs) if (refFeature(r)) lit.add(refFeature(r));
+		return edgeGeometries.map((e) =>
+			lit.has(e.featureId)
+				? buildEdgeMaterials(e.ranges, hRef, sRefs)
+				: buildEdgeMaterials(e.ranges, null, [])
+		);
 	});
 
 	// Capped section view: clip edges on the removed side with the SAME plane

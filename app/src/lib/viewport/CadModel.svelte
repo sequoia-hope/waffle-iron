@@ -186,6 +186,27 @@
 	 * Uses shared material instances to avoid creating thousands of materials for
 	 * complex geometry (e.g., gear profiles with 1600+ face ranges).
 	 */
+	/**
+	 * The feature a GeomRef points into, or null. Used to decide, in O(1),
+	 * whether a body can possibly hold the highlighted face.
+	 * @param {any} ref
+	 */
+	function refFeatureId(ref) {
+		return ref?.anchor?.feature_id ?? null;
+	}
+
+	/** The plain-body material array, reused across rebuilds (see below). */
+	let plainCache = { key: null, arr: null };
+
+	/**
+	 * The material array for a body with nothing highlighted on it — the same
+	 * array instance every time, so Svelte sees an unchanged prop.
+	 * @param {boolean} inSketchMode
+	 */
+	function plainMaterials(inSketchMode) {
+		return buildMaterials(null, null, [], inSketchMode, null, false);
+	}
+
 	function buildMaterials(faceRanges, hoveredRef, selectedRefs, inSketchMode, selectedFeatureId, ghost = false) {
 		const projectActive = isProjectToolActive();
 		const transparent = ghost || (inSketchMode && !projectActive);
@@ -213,8 +234,24 @@
 			return mat;
 		};
 
+		// The plain body colour is the same for every body in a pass, so one
+		// instance serves all of them: a distinct material per body is a
+		// distinct shader program bind and uniform refresh per body, which is
+		// most of what a frame costs once there are thousands.
+		//
+		// The cache is keyed on everything that changes how a plain body looks
+		// and OUTLIVES a rebuild, so hovering one face hands every other body
+		// back the identical array and Svelte updates one mesh rather than two
+		// thousand.
+		const plainKey = `${baseColor.getHexString()}|${transparent}|${opacity}`;
+		const plainArray = () => {
+			if (plainCache.key !== plainKey) plainCache = { key: plainKey, arr: [makeMat(baseColor)] };
+			return plainCache.arr;
+		};
+		const plainMat = () => plainArray()[0];
+
 		if (!faceRanges || faceRanges.length === 0) {
-			return [makeMat(baseColor)];
+			return plainArray();
 		}
 
 		const groupSideFaces = shouldGroupSideFaces(faceRanges);
@@ -226,13 +263,13 @@
 		};
 
 		// Create shared materials — reuse instances for groups with the same visual state
-		const defaultMat = makeMat(baseColor);
+		const defaultMat = plainMat();
 		const pickMode = getProfilePickMode()?.target === 'extrude';
 		let hoverMat = null;
 		let selectedMat = null;
 		let featureMat = null;
 
-		return faceRanges.map((range) => {
+		const perFace = faceRanges.map((range) => {
 			const ref = range.geom_ref;
 
 			if (pickMode) {
@@ -260,6 +297,15 @@
 
 			return defaultMat;
 		});
+
+		// Nothing on this body is highlighted, so the per-face split buys
+		// nothing — and it is not free: a material ARRAY makes three.js draw
+		// one call per geometry group, so a 12-triangle box cost six draw
+		// calls. Collapsing to a single material draws the body in one.
+		// (The Eiffel Tower: 25,447 draw calls for 26,436 triangles — about a
+		// triangle per call. docs/notes/eiffel/FEATURE_NOTES.md §10.)
+		if (perFace.every((m) => m === defaultMat)) return plainArray();
+		return perFace.every((m) => m === perFace[0]) ? [perFace[0]] : perFace;
 	}
 
 	// Create fallback test box geometry + material
@@ -339,12 +385,28 @@
 		const hoveredBody = getHoveredBodyId();
 		const selFeature = getSelectedFeatureId();
 		const ghostFeature = getGhostFeatureId();
+		// Which features could hold a highlighted face at all. A hover moves
+		// the pointer over ONE body, but this derivation runs for every body:
+		// without this, each hover walked every face range of every body and
+		// compared GeomRefs by canonical JSON. Thousands of bodies, tens of
+		// thousands of stringifies, per pointer move.
+		const litFeatures = new Set();
+		if (refFeatureId(hRef)) litFeatures.add(refFeatureId(hRef));
+		for (const r of sRefs) if (refFeatureId(r)) litFeatures.add(refFeatureId(r));
+		// A tree selection lights faces by who CREATED them, which can be any
+		// body, so the shortcut is off while one is selected.
+		const canSkip = !selFeature && !isProjectToolActive() && !getProfilePickMode();
 		return engineMeshes.map((m) => {
 			// Import-placement ghost preview wins over hover/selection.
 			if (ghostFeature && m.featureId === ghostFeature) return makeGhostMaterial();
 			if (!inSketch && m.bodyId && !m.context) {
 				if (m.bodyId === selectedBody) return makeBodyMaterial(BODY_SELECTED_COLOR);
 				if (m.bodyId === hoveredBody) return makeBodyMaterial(BODY_HOVER_COLOR);
+			}
+			// Nothing on this body is lit: hand back the shared plain array
+			// without touching its faces.
+			if (canSkip && !m.context && !litFeatures.has(m.featureId)) {
+				return plainMaterials(inSketch);
 			}
 			return buildMaterials(m.faceRanges, hRef, sRefs, inSketch, selFeature, m.context);
 		});

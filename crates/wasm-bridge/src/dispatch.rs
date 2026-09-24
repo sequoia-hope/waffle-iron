@@ -412,9 +412,8 @@ fn handle_message(
             let mut sources = sources_for_save(state);
             sources.append(&mut doc.sources);
             doc.sources = sources;
-            Ok(EngineToUi::SaveReady {
-                json_data: verified(&doc)?,
-            })
+            let json_data = verified(state, &doc)?;
+            Ok(EngineToUi::SaveReady { json_data })
         }
 
         UiToEngine::SaveDocument => {
@@ -444,7 +443,7 @@ fn handle_message(
             // Tabs loaded from a v3 file may still carry inline STEP payloads;
             // lift them so the file is uniformly v4.
             let _ = doc.lift_inline_payloads();
-            let json_data = verified(&doc)?;
+            let json_data = verified(state, &doc)?;
             Ok(EngineToUi::SaveReady { json_data })
         }
 
@@ -1231,10 +1230,16 @@ fn sources_for_save(state: &EngineState) -> Vec<SourceEntry> {
 /// Verified save: refuse to emit a file the loader would reject (e.g. a
 /// non-finite float serialized as `null`) — a loud save error beats a file
 /// that saves silently and never opens again.
-fn verified(doc: &WaffleDocument) -> Result<String, BridgeError> {
-    file_format::save_document_verified(doc).map_err(|e| BridgeError::Serialization {
-        reason: format!("refusing to save a corrupt document: {e}"),
-    })
+fn verified(state: &mut EngineState, doc: &WaffleDocument) -> Result<String, BridgeError> {
+    // The same invariant-8 self-check, through the session's verifier so the
+    // tabs that did not change are not re-parsed (they were verified when they
+    // last changed, and their bytes are identical).
+    state
+        .save_verifier
+        .save(doc)
+        .map_err(|e| BridgeError::Serialization {
+            reason: format!("refusing to save a corrupt document: {e}"),
+        })
 }
 
 /// `ModelUpdated` naming the feature the command created or edited (ICR-4).

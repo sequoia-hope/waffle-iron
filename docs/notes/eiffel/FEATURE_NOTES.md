@@ -1,10 +1,11 @@
 # Waffle Iron feature notes — from building the Eiffel Tower example
 
 Observations gathered while modelling the Eiffel Tower (2026-09-24,
-`app/static/examples/eiffel-tower.py`, 674 agent-tool calls, ~1,200 bodies).
-Each entry is what the model *wanted* to say and what it had to say instead.
-Nothing here is a bug report — the kernel answered correctly and loudly every
-time. These are capability and ergonomics gaps.
+`app/static/examples/eiffel-tower.py`, 1,052 agent-tool calls, 1,964 bodies).
+Entries marked FIXED were found here and fixed in the same few days; the rest
+is what the model *wanted* to say and what it had to say instead. None of it is
+a kernel bug — the kernel answered correctly and loudly every time. These are
+capability, performance and ergonomics gaps.
 
 ## 0. Building a tab was O(N²) — FIXED 2026-09-24
 
@@ -36,7 +37,7 @@ sketch+extrude pair at 600 features:
 |---|---:|---:|
 | viewer snapshot | 228.8 ms | 0 ms (unwatched) / ~90 ms (watched) |
 | engine tool | 148.8 ms | 50.7 ms |
-| autosave | 80.3 ms | 86.0 ms (untouched) |
+| autosave | 80.3 ms | ~25 ms (§0a) |
 | *(engine rebuild, inside the tool)* | *4.1 ms* | *4.1 ms* |
 | **total** | **474.5 ms** | **140.9 ms** |
 
@@ -69,15 +70,15 @@ linear in the tab rather than super-linear.
 
 Linear per call is still quadratic over a session, and two passes remain:
 
-- **Autosave (now ~61% of a call).** §4.8 makes it deliberate: "the document on
-  disk is never more than one committed tool behind." Untouched — it is a
-  durability contract, not a defect. But see §0a, which is a defect.
+- **Autosave.** §4.8 makes writing every call deliberate: "the document on disk
+  is never more than one committed tool behind." That stands; what was a defect
+  was the cost of its self-check, and §0a fixes it.
 - **The authoring snapshot serializes the whole tree, twice per call**, because
   the delta is derived by diffing two JSON trees. The engine already knows
   exactly which features re-executed (`rebuild.rs` `reran`) and drops it on the
   floor; a delta built from that would be O(changed).
 
-## 0a. The save-side self-check costs 12× the save it checks
+## 0a. The save-side self-check costs 12× the save it checks — FIXED
 
 Of the 79.9 ms an autosave takes at 600 features, **69.6 ms is
 `save_document_verified` re-parsing the document it just serialized**; the
@@ -99,9 +100,81 @@ equivalent is not the only way to have it. Options, cheapest first:
   them.
 - Keep it per call, but make the autosave itself incremental.
 
-This is the single biggest remaining cost of authoring, and it is a decision
-about a correctness check, so it is left as a recommendation rather than taken
-unilaterally.
+**Both were done.**
+
+`load_document` was parsing the file into a `serde_json::Value` and then
+re-deserializing the typed model out of that tree with `from_value`. The raw
+parse costs 4.5 ms; `from_value` on top cost another 22. It now parses straight
+from the text for the current shape, deciding which shape it is with a probe
+pass that tokenizes but allocates nothing (1.5 ms). 32 ms → 22 ms, and that is
+every document open as well as every verify.
+
+`SaveVerifier` then makes the check proportional to the change. A document is
+its tabs plus a small envelope, so it verifies each the way the loader would
+and remembers the tab payloads it has already accepted: a tab whose bytes are
+what was verified before cannot have become unparseable. Steady state 25.6 ms →
+**10.1 ms**; a save that changed the tower's largest tab, 22 ms.
+
+One trap worth recording: the obvious implementation does not work. Hashing
+`serde_json::to_string(tab)` never matches, because the tree holds HashMaps
+(`body_names`, `provenance`, a sketch's `solved_positions`) and the same tab
+serializes differently every time. The hash is taken over
+`serde_json::to_value(tab)` instead, whose maps are BTreeMaps and so come out
+sorted. (That non-determinism is also why `corpus_backcompat` has to compare
+saves structurally rather than byte-for-byte.)
+
+End to end, with the earlier work: the tower's 1,052-call build went 84 s → 30 s
+→ **24 s**.
+
+## 10. The viewport drew one call per FACE — 2 fps on the tower — FIXED
+
+Rotating the Eiffel Tower ran at 2–3 fps. The renderer's own counters said why:
+
+| | before | after |
+|---|---:|---:|
+| draw calls per frame | 25,447 | 3,947 |
+| triangles per frame | 26,436 | 26,436 |
+| distinct materials in the scene | 25,447 | 18 |
+| idle | 2.3 fps | 20.0 fps |
+| orbit | 2.2 fps | 15.0 fps |
+| hover | 0.9 fps | 3.3 fps |
+
+**26,436 triangles in 25,447 draw calls** — about one triangle per call.
+
+Face highlighting needs a material per face range, and a material ARRAY makes
+three.js draw one call per geometry group. Every body got an array whether or
+not anything on it was lit, so a 12-triangle box cost six draw calls for its
+faces and twelve more for its edges. `buildEdgeMaterials` went further and
+allocated a brand-new `LineBasicMaterial` per edge of every body — hence 25,447
+materials, each its own program bind and uniform refresh, every frame.
+
+Three changes, no behavioural difference:
+
+1. **Collapse a uniform array to one material.** If no face of a body is
+   hovered, selected or feature-lit, it draws in a single call. The per-face
+   split still happens, but only for the body that has a lit face.
+2. **Share the plain material** across every body in the scene, cached across
+   rebuilds so the array identity is stable — a hover then leaves every other
+   body's material prop untouched and Svelte updates one mesh, not two thousand.
+3. **Skip bodies that cannot be lit.** A `GeomRef` names the feature it points
+   into, so a body whose feature is not the hovered or selected one takes the
+   shared array without walking its face ranges. That walk was comparing
+   GeomRefs by canonical JSON — tens of thousands of `JSON.stringify` calls per
+   pointer move.
+
+Measured in headless Chromium on software GL, so the absolute numbers are
+pessimistic against real hardware; the ratios are the point.
+
+`app/tests/gui/render-cost.spec.js` pins it (38 draw calls for one box before,
+inside the bound after), and `window.__waffle.getRenderStats()` reports the
+counters.
+
+**Still open.** ~3,900 objects is still one mesh and one `LineSegments` per
+body, which is the floor for this architecture; merging bodies into a few
+batched geometries (with a triangle-range → body table for picking, which
+`face_ranges` already is) would take it to a handful. And hover still raycasts
+every body on every pointer move — 3.3 fps — which wants a spatial index or a
+GPU picking pass.
 
 ## 1. A lathe profile may only be a 3-gon or a 4-gon
 
