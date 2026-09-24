@@ -101,7 +101,7 @@ test.describe('F key fit-all', () => {
 });
 
 test.describe('view presets via snap-view', () => {
-	test('snap to front view aligns camera along Z axis', async ({ waffle }) => {
+	test('snap to front view aligns camera along the model Y axis', async ({ waffle }) => {
 		const page = waffle.page;
 
 		await page.waitForFunction(() => window.__waffle?.getCameraState() !== null);
@@ -115,16 +115,18 @@ test.describe('view presets via snap-view', () => {
 		const state = await page.evaluate(() => window.__waffle.getCameraState());
 		expect(state).not.toBeNull();
 
-		// Front view: camera looks along -Z, so Z-component of (pos-target) should dominate
-		const dz = state.position[2] - state.target[2];
+		// Front view is an ELEVATION in model space (up = +Z, 2026-09-24): the
+		// camera sits on −Y looking along +Y, so the Y component dominates.
+		const dy = state.position[1] - state.target[1];
 		const dx = Math.abs(state.position[0] - state.target[0]);
-		const dy = Math.abs(state.position[1] - state.target[1]);
-		expect(Math.abs(dz)).toBeGreaterThan(dx + 0.1);
-		expect(Math.abs(dz)).toBeGreaterThan(dy + 0.1);
-		expect(dz).toBeGreaterThan(0); // Camera in front (+Z)
+		const dz = Math.abs(state.position[2] - state.target[2]);
+		expect(Math.abs(dy)).toBeGreaterThan(dx + 0.1);
+		expect(Math.abs(dy)).toBeGreaterThan(dz + 0.1);
+		expect(dy).toBeLessThan(0); // Camera in front of the model (−Y)
+		expect(state.up.map(Math.round)).toEqual([0, 0, 1]);
 	});
 
-	test('snap to top view aligns camera along Y axis', async ({ waffle }) => {
+	test('snap to top view aligns camera along the model Z axis', async ({ waffle }) => {
 		const page = waffle.page;
 
 		await page.waitForFunction(() => window.__waffle?.getCameraState() !== null);
@@ -137,13 +139,13 @@ test.describe('view presets via snap-view', () => {
 		const state = await page.evaluate(() => window.__waffle.getCameraState());
 		expect(state).not.toBeNull();
 
-		// Top view: camera looks along -Y, so Y-component of (pos-target) should dominate
-		const dy = state.position[1] - state.target[1];
+		// Top view looks straight DOWN the model's up axis (+Z).
+		const dz = state.position[2] - state.target[2];
 		const dx = Math.abs(state.position[0] - state.target[0]);
-		const dz = Math.abs(state.position[2] - state.target[2]);
-		expect(Math.abs(dy)).toBeGreaterThan(dx + 0.1);
-		expect(Math.abs(dy)).toBeGreaterThan(dz + 0.1);
-		expect(dy).toBeGreaterThan(0); // Camera above (+Y)
+		const dy = Math.abs(state.position[1] - state.target[1]);
+		expect(Math.abs(dz)).toBeGreaterThan(dx + 0.1);
+		expect(Math.abs(dz)).toBeGreaterThan(dy + 0.1);
+		expect(dz).toBeGreaterThan(0); // Camera above (+Z)
 	});
 
 	test('snap to right view aligns camera along X axis', async ({ waffle }) => {

@@ -390,31 +390,34 @@
 			_raycaster.setFromCamera(_mouse, cameraRef);
 
 			const smOrtho = getSketchMode();
-			// Zoom toward the cursor only when the cursor is ON something: in
-			// sketch mode the sketch plane, otherwise a visible surface. Over
-			// empty background there is no world point to hold still, so the
-			// zoom is a pure frustum change about the view centre.
+			// Zoom toward the CURSOR, always: the point under the pointer (or
+			// under a pinch's midpoint) is what holds still, whether the ray
+			// lands on the model, on a datum plane, or on nothing at all.
 			//
-			// This is the drift at its source. Panning the target toward the
-			// cursor on a MISS walks it off the model — measured on the Eiffel
-			// Tower, eight zooms over sky moved it from (0, 0, 163.8) to
-			// (36.5, 76.6, 50.7), 76 m outside the structure — and everything
-			// keyed to the target followed it there.
+			// On a miss the anchor is the cursor ray's crossing of the FOCAL
+			// plane — through the look-at target, normal along the view — which
+			// in ortho is where the pointer is aiming at the depth you are
+			// looking. That does pull `target` toward the cursor, which is the
+			// gesture doing what it says; what it must not do is take the ORBIT
+			// with it, and that is `controls.orbitPivot`'s job (re-anchored on
+			// the model under the cursor at every rotate), not this function's.
 			let hitPlane = false;
 			if (smOrtho?.active) {
 				const sketchNormal = new THREE.Vector3(smOrtho.normal[0], smOrtho.normal[1], smOrtho.normal[2]).normalize();
 				const sketchOrigin = new THREE.Vector3(smOrtho.origin[0], smOrtho.origin[1], smOrtho.origin[2]);
 				_plane.setFromNormalAndCoplanarPoint(sketchNormal, sketchOrigin);
 				hitPlane = !!_raycaster.ray.intersectPlane(_plane, _planeIntersect);
-			} else if (pickVisiblePoint()) {
-				// The cursor ray is parallel to the view direction in ortho, so
-				// its crossing of the plane through the target IS the in-plane
-				// point to pan toward — the same delta as before, now only
-				// taken when the ray actually lands on something.
-				const cameraDir = new THREE.Vector3();
-				cameraRef.getWorldDirection(cameraDir);
-				_plane.setFromNormalAndCoplanarPoint(cameraDir, controlsRef.target);
-				hitPlane = !!_raycaster.ray.intersectPlane(_plane, _planeIntersect);
+			} else {
+				const onModel = pickVisiblePoint();
+				if (onModel) {
+					_planeIntersect.copy(onModel);
+					hitPlane = true;
+				} else {
+					const cameraDir = new THREE.Vector3();
+					cameraRef.getWorldDirection(cameraDir);
+					_plane.setFromNormalAndCoplanarPoint(cameraDir, controlsRef.target);
+					hitPlane = !!_raycaster.ray.intersectPlane(_plane, _planeIntersect);
+				}
 			}
 
 			// Now apply the frustum scale change
@@ -423,14 +426,20 @@
 			updateOrthoFrustum();
 
 			if (hitPlane && Number.isFinite(_planeIntersect.x) && Number.isFinite(_planeIntersect.y) && Number.isFinite(_planeIntersect.z)) {
-				// Pan camera and target toward cursor in-plane only.
+				// Pan camera and target toward cursor IN-PLANE only.
 				// In ortho the camera-to-target distance is irrelevant for
 				// rendering, so we move both by the same world-space delta
-				// to keep the offset (view direction) unchanged.
+				// to keep the offset (view direction) unchanged — and we drop
+				// the along-view component of the anchor, so pointing at a
+				// surface near the camera does not slide the view axially.
 				const fraction = 1 - (1 / zoomFactor);
-				const dx = (_planeIntersect.x - controlsRef.target.x) * fraction;
-				const dy = (_planeIntersect.y - controlsRef.target.y) * fraction;
-				const dz = (_planeIntersect.z - controlsRef.target.z) * fraction;
+				const viewDir = new THREE.Vector3();
+				cameraRef.getWorldDirection(viewDir);
+				const toAnchor = new THREE.Vector3().subVectors(_planeIntersect, controlsRef.target);
+				toAnchor.addScaledVector(viewDir, -toAnchor.dot(viewDir));
+				const dx = toAnchor.x * fraction;
+				const dy = toAnchor.y * fraction;
+				const dz = toAnchor.z * fraction;
 				controlsRef.target.x += dx;
 				controlsRef.target.y += dy;
 				controlsRef.target.z += dz;
@@ -500,11 +509,24 @@
 
 		if (!hitPoint) hitPoint = pickVisiblePoint();
 
-		// No fallback onto a plane through the target: a ray that hits nothing
-		// has no world point to zoom toward, and fabricating one there dragged
-		// the target sideways into empty space on every zoom over background
-		// (the Eiffel Tower drift). A miss dollies along the view axis instead,
-		// which is the `else` below.
+		// A ray that hits nothing still has a direction, and that direction is
+		// what the user is pointing at: fall back to where the cursor ray
+		// crosses the FOCAL plane (through the target, normal along the view).
+		// Zoom then goes toward the pointer over empty space exactly as it does
+		// over the model — which is the whole gesture. It moves `target`, and
+		// that is fine: the ORBIT no longer follows the target around
+		// (`controls.orbitPivot` re-anchors on the model under the cursor), so
+		// a view pushed off into space still turns about the part.
+		if (!hitPoint) {
+			const viewDir = new THREE.Vector3();
+			cameraRef.getWorldDirection(viewDir);
+			_plane.setFromNormalAndCoplanarPoint(viewDir, controlsRef.target);
+			if (_raycaster.ray.intersectPlane(_plane, _planeIntersect) &&
+				Number.isFinite(_planeIntersect.x) && Number.isFinite(_planeIntersect.y) && Number.isFinite(_planeIntersect.z)) {
+				hitPoint = _planeIntersect.clone();
+			}
+		}
+
 		if (hitPoint) {
 			const fraction = 1 - (1 / zoomFactor);
 			cameraRef.position.lerp(hitPoint, fraction);
@@ -933,8 +955,10 @@
 	 * Align camera to look face-on at a sketch plane.
 	 * @param {[number, number, number]} origin
 	 * @param {[number, number, number]} normal
+	 * @param {[number, number, number] | null} [xAxis] - the sketch's own +u
+	 *   direction, when it has one: screen-right then follows IT.
 	 */
-	function alignToPlane(origin, normal) {
+	function alignToPlane(origin, normal, xAxis = null) {
 		if (!cameraRef) return;
 
 		const n = new THREE.Vector3(normal[0], normal[1], normal[2]).normalize();
@@ -951,7 +975,7 @@
 		// horizontal == sketch X (Horizontal) and screen vertical == sketch Y.
 		// buildSketchPlane derives the same xAxis/yAxis basis the sketch drawing
 		// and rebuild.rs use, so the in-sketch view matches the stored geometry.
-		const { yAxis } = buildSketchPlane(origin, normal);
+		const { yAxis } = buildSketchPlane(origin, normal, xAxis);
 		cameraRef.up.copy(yAxis);
 
 		cameraRef.lookAt(o);
@@ -1098,7 +1122,7 @@
 
 		/** @param {CustomEvent} e */
 		function onAlignToPlane(e) {
-			alignToPlane(e.detail.origin, e.detail.normal);
+			alignToPlane(e.detail.origin, e.detail.normal, e.detail.xAxis ?? null);
 		}
 
 		/** @param {CustomEvent} e */
