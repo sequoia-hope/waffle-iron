@@ -86,6 +86,21 @@ impl Client {
         result["structuredContent"].clone()
     }
 
+    /// Ask for a snapshot once, as the relay does the moment its first viewer
+    /// attaches (`host.py latest_snapshot`). The host pushes a snapshot after
+    /// every change from here on; before this it draws for nobody
+    /// (`Host::viewers_watching`).
+    fn attach_viewer(&mut self) -> Value {
+        self.send(&json!({ "type": "snapshot", "id": "attach" }));
+        loop {
+            let frame = self.recv();
+            if frame.kind() == "snapshot" && frame.header["id"] == "attach" {
+                return frame.header;
+            }
+            self.aside.push(frame);
+        }
+    }
+
     fn refused(&mut self, name: &str, arguments: Value) -> Value {
         let result = self.call(name, arguments);
         assert_eq!(
@@ -524,6 +539,7 @@ fn a_rebuild_is_announced_and_a_blob_answers_in_the_compact_encoding() {
     let dir = tempfile::tempdir().unwrap();
     let mut client = Client::spawn(dir.path());
     assert_eq!(client.recv().kind(), "ready");
+    client.attach_viewer();
     client.ok("document_new", json!({ "name": "Compact" }));
     // The push after document_new is read during the next call; a read-only
     // tool drains it so the frames counted below are sketch_create's own.
@@ -754,6 +770,7 @@ fn a_snapshot_names_every_body_and_blobs_answer_by_id() {
     let dir = tempfile::tempdir().unwrap();
     let mut client = Client::spawn(dir.path());
     assert_eq!(client.recv().kind(), "ready");
+    client.attach_viewer();
 
     let sketch = client.ok(
         "sketch_create",
@@ -957,4 +974,59 @@ fn a_restarted_host_names_the_same_mesh_ids() {
     assert!(blob.header["missing"].is_null());
     assert_eq!(blob.header["byte_length"], blob.payload.len());
     assert_eq!(second.bye(), 0);
+}
+
+/// A snapshot costs a pass over every body in the document, so the host does
+/// not build one for nobody: until something downstream asks for a snapshot or
+/// a blob, a committed change pushes nothing. The moment it does ask, the live
+/// push of §4.6 step 2 resumes — and the snapshot it then gets is the CURRENT
+/// document, not a stale one, because nothing was held in between.
+#[test]
+fn nothing_is_pushed_until_a_viewer_asks_and_everything_after() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut client = Client::spawn(dir.path());
+    assert_eq!(client.recv().kind(), "ready");
+
+    let sketch = client.ok(
+        "sketch_create",
+        json!({ "plane": { "origin": [0, 0, 0], "normal": [0, 0, 1] }, "entities": rectangle() }),
+    );
+    let extrude = json!({
+        "operation": { "type": "Extrude", "params": {
+            "sketch_id": sketch["feature_id"],
+            "profile_index": 0,
+            "profile_entity_ids": [5, 6, 7, 8],
+            "depth": 0.005,
+            "symmetric": false,
+            "cut": false,
+        }}
+    });
+    client.ok("feature_add", extrude.clone());
+    // Drain: whatever rode alongside those two calls, none of it is a snapshot.
+    client.ok("model_summary", json!({}));
+    assert!(
+        client.aside.iter().all(|f| f.kind() != "snapshot"),
+        "no viewer has asked, so no snapshot was built: {:?}",
+        client.aside.iter().map(Frame::kind).collect::<Vec<_>>()
+    );
+
+    // A viewer attaches. Its snapshot is current: it names the body that was
+    // built while nobody was watching.
+    let snapshot = client.attach_viewer();
+    let bodies = snapshot["bodies"].as_array().expect("bodies");
+    assert_eq!(bodies.len(), 1, "the body built unwatched: {snapshot}");
+
+    // From here the push is unconditional again.
+    client.aside.clear();
+    client.ok("feature_add", extrude);
+    client.ok("model_summary", json!({}));
+    assert!(
+        client
+            .aside
+            .iter()
+            .any(|f| f.kind() == "snapshot" && f.header.get("id").is_none()),
+        "the change after the attach is pushed: {:?}",
+        client.aside.iter().map(Frame::kind).collect::<Vec<_>>()
+    );
+    assert_eq!(client.bye(), 0);
 }

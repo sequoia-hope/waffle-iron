@@ -6,12 +6,11 @@ Each entry is what the model *wanted* to say and what it had to say instead.
 Nothing here is a bug report — the kernel answered correctly and loudly every
 time. These are capability and ergonomics gaps.
 
-## 0. Building a tab is O(N²) — the biggest single finding
+## 0. Building a tab was O(N²) — FIXED 2026-09-24
 
-Every `sketch_create` and every `feature_add` costs time proportional to how
-many features the tab ALREADY holds, so building a tab of N features costs
-O(N²). Measured against `waffle-host` (release, one tab, identical 4-point
-sketch + extrude repeated 400 times):
+Every `sketch_create` and every `feature_add` cost time proportional to how
+many features the tab ALREADY held. Measured against `waffle-host` (release,
+one tab, identical 4-point sketch + extrude repeated 400 times):
 
 | features already in the tab | `sketch_create` | `feature_add` |
 |---:|---:|---:|
@@ -21,26 +20,88 @@ sketch + extrude repeated 400 times):
 | 600 | 88.0 ms | 88.0 ms |
 | 700 | 108.3 ms | 108.3 ms |
 
-800 calls took 40 s in total, and the **last fifty pairs alone took 10.8 s** —
-a quarter of the run for the last 12% of the work. The tower's 1,052 calls take
-83 s; a linear-cost engine would finish the same work in about 10 s.
+The tell was that `sketch_create` and `feature_add` cost *exactly the same* at
+every size — so the cost was never the geometry.
 
-The tell is that `sketch_create` and `feature_add` cost *exactly the same* at
-every size. The cost is therefore not the geometry — a 4-point sketch and a box
-extrude are not remotely comparable amounts of kernel work — it is a per-call
-pass over the whole tab: a full rebuild, a full snapshot, or a full
-serialization, on every call.
+### Where it actually was
 
-**Suggestion.** Find that per-call whole-tab pass and make it incremental. A
-feature appended at the tip of the tree invalidates nothing before it, so
-neither a rebuild nor a snapshot needs to walk the prefix. This is the
-difference between "an agent can build a thousand-feature model" and "an agent
-should keep its models small", and it will bite every generated document, every
-imported STEP assembly and every script that emits geometry in a loop.
+The first guess (and the obvious one) was the rebuild. It was wrong, and worth
+recording as a method note: **the geometry rebuild is 1% of an authoring call.**
+`feature-engine` is already incremental (`rebuild::Changed::Features` +
+`from_index`), and at 300 features `Engine::rebuild` costs 0.9 ms of an 83 ms
+call. Profiling the host's three top-level phases instead gave, per
+sketch+extrude pair at 600 features:
 
-Worth checking whether the same quadratic is in the browser path: the app takes
-7 s to open this document, which is a single load rather than 1,052 calls, but
-the GUI's own per-edit cost would show the same curve.
+| phase | before | after |
+|---|---:|---:|
+| viewer snapshot | 228.8 ms | 0 ms (unwatched) / ~90 ms (watched) |
+| engine tool | 148.8 ms | 50.7 ms |
+| autosave | 80.3 ms | 86.0 ms (untouched) |
+| *(engine rebuild, inside the tool)* | *4.1 ms* | *4.1 ms* |
+| **total** | **474.5 ms** | **140.9 ms** |
+
+Three separate defects, none of them in the kernel:
+
+1. **The render-view body accessors each re-derived the flat body list.**
+   `body_mesh`, `body_edges`, `body_face_entries`, … all began with
+   `collect_renderable_bodies(state).into_iter().nth(i)`. The viewer snapshot
+   called six of them per body, so encoding B bodies walked a B-long list 6B
+   times. Fixed by adding `_at(&BodyAddr)` forms and collecting once
+   (`render_view.rs`, `viewer.rs`, `tools::rendered_bodies`). `body_metadata`
+   also scanned the feature array per body for a display name, when `BodyAddr`
+   already carries the feature's index.
+2. **`model_delta` was genuinely O(N²).** Membership tested with
+   `Vec::contains` inside loops over the ids, and `features_changed` compared
+   `feature_record(id)` — a scan of the serialized feature array plus two
+   `Value` clones — once per common id, twice. Now a `HashSet` and a borrowed
+   index.
+3. **The host pushed a viewer snapshot after every committed tool even with no
+   viewer anywhere.** A snapshot is a pass over every body. The host now pushes
+   only once something downstream has asked for a snapshot or a blob
+   (`Host::viewers_watching`), which is safe because the relay holds no
+   snapshot until it asks for one and asks the moment a viewer attaches.
+
+Net: the Eiffel Tower's 1,052-call build went from **84 s to 30 s**, producing
+a structurally and numerically identical document, and the per-call cost is now
+linear in the tab rather than super-linear.
+
+### What is still O(document) per call
+
+Linear per call is still quadratic over a session, and two passes remain:
+
+- **Autosave (now ~61% of a call).** §4.8 makes it deliberate: "the document on
+  disk is never more than one committed tool behind." Untouched — it is a
+  durability contract, not a defect. But see §0a, which is a defect.
+- **The authoring snapshot serializes the whole tree, twice per call**, because
+  the delta is derived by diffing two JSON trees. The engine already knows
+  exactly which features re-executed (`rebuild.rs` `reran`) and drops it on the
+  floor; a delta built from that would be O(changed).
+
+## 0a. The save-side self-check costs 12× the save it checks
+
+Of the 79.9 ms an autosave takes at 600 features, **69.6 ms is
+`save_document_verified` re-parsing the document it just serialized**; the
+serialization itself is 5.7 ms and the write 1.8 ms. That check runs on every
+mutating tool call, in the host and in the browser alike, and it re-verifies the
+entire document — including the features that did not change and that the
+previous call already verified.
+
+The check earns its place: it catches non-finite floats, which serde writes as
+`null` and every reader then rejects, and it does so without enumerating float
+fields (`save.rs`). But paying a full parse of the whole document per keystroke-
+equivalent is not the only way to have it. Options, cheapest first:
+
+- Verify the ACTIVE TAB's serialization only. Every other tab's bytes are
+  identical to the last save, which was verified when that tab last changed, so
+  the invariant still holds for every byte.
+- Verify on the saves that hand a file to someone (`document_save`, export) and
+  on the first autosave after a crash-relevant change, rather than on all of
+  them.
+- Keep it per call, but make the autosave itself incremental.
+
+This is the single biggest remaining cost of authoring, and it is a decision
+about a correctness check, so it is left as a recommendation rather than taken
+unilaterally.
 
 ## 1. A lathe profile may only be a 3-gon or a 4-gon
 
@@ -156,6 +217,38 @@ picture it cannot use, with nothing to say it went wrong.
 **Suggestion.** Define the table in model space (up = +Z) so `front` is an
 elevation and `iso` is the three-quarter view everyone means. This is a
 one-table change and it is visible in every agent screenshot.
+
+## 8a. Orbit turned about a point zoom had dragged off the model — FIXED
+
+Reported from the tower on mobile: "it rotates about some point outside that
+body." It did. `controls.target` is both what the camera looks at AND what an
+orbit turned about, and `zoomTowardScreenPoint` moves the target toward the
+cursor on every wheel and every pinch — including when the ray hits nothing,
+where it fabricated a hit on a plane through the current target and lerped to
+it anyway. On a model that is mostly air, most pinches land on background.
+
+Measured on the tower: eight wheel-zooms over empty sky moved the target from
+(0, 0, 163.8) to **(36.5, 76.6, 50.7)** — 76 m outside the structure. Every
+orbit after that swung the tower about that point. Worse on touch, where a
+two-finger gesture pans, zooms and twists at once, so the pivot drifts
+constantly.
+
+Fixed by separating the two roles. `controls.orbitPivot` is a new point the
+rotation turns about; the camera AND the look-at target both rotate rigidly
+about it, so the camera keeps looking at the target and nothing jumps when the
+pivot is set. It is re-anchored at the start of every rotate to the model point
+under the cursor — probed as a small rosette, because a single ray down the
+middle of a lattice usually passes between two members, and restricted to
+`waffleType === 'model'` so a datum plane cannot become the pivot — falling
+back to the visible model's bounding-box centre on a miss. With no pivot set
+the behaviour is bit-identical to before. Pinned by
+`app/tests/gui/orbit-pivot.spec.js`.
+
+**Still open, the root cause:** a zoom whose ray misses everything should dolly,
+not drag the target sideways. Orbit no longer inherits the drift, but the
+target still ends up off the model, which affects panning and the clipping
+planes. The fix is to stop fabricating a plane hit on a miss (perspective path)
+and to raycast before panning the target (ortho path).
 
 ## 9. No way to frame a region from the agent side
 

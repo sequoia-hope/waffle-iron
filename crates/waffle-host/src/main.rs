@@ -186,8 +186,9 @@ fn handle_tool(host: &mut Host, header: &Value) {
     emit(&frame);
     // Viewer sync (§4.6 step 2): every committed change is followed by the
     // document as a viewer draws it, so the relay can push an `update`
-    // without asking. A refusal moved nothing a viewer shows.
-    if Host::model_changed(name) && !result.is_error {
+    // without asking. A refusal moved nothing a viewer shows — and neither
+    // does a change nobody is watching (`Host::viewers_watching`).
+    if Host::model_changed(name) && !result.is_error && host.viewers_watching() {
         emit(&host.snapshot());
     }
 }
@@ -195,6 +196,7 @@ fn handle_tool(host: &mut Host, header: &Value) {
 /// `snapshot{id?}`: the document as a viewer draws it, answered with the
 /// request's `id` when it had one.
 fn handle_snapshot(host: &mut Host, header: &Value) {
+    host.note_viewer_request();
     let mut snapshot = host.snapshot();
     if let Some(id) = header.get("id") {
         snapshot["id"] = id.clone();
@@ -207,6 +209,7 @@ fn handle_snapshot(host: &mut Host, header: &Value) {
 /// when no recent snapshot named it or the encoding is unknown (the viewer
 /// then asks for a fresh snapshot, or falls back to `raw/1`).
 fn handle_blob(host: &mut Host, header: &Value) {
+    host.note_viewer_request();
     let id = header.get("id").cloned().unwrap_or(Value::Null);
     let mesh_id = header.get("mesh_id").and_then(Value::as_str).unwrap_or("");
     let encoding = header

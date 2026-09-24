@@ -287,14 +287,39 @@ fn run(
 ///   `collectBodies` skips an empty vertex buffer, so such a body never
 ///   reaches the store — and must not reach an agent either.
 pub(crate) fn rendered_bodies(state: &EngineState) -> Vec<Value> {
-    crate::render_view::body_metadata(state)
+    // One collection shared by the metadata and the vertex check: resolving
+    // each body by index would re-walk the list per body
+    // (docs/notes/eiffel/FEATURE_NOTES.md §0).
+    let addrs = crate::render_view::collect_renderable_bodies(state);
+    crate::render_view::body_metadata_for(state, &addrs)
         .into_iter()
         .enumerate()
         .filter(|(index, meta)| {
             meta.get("context") != Some(&json!(true))
-                && crate::render_view::body_vertices(state, *index).is_some_and(|v| !v.is_empty())
+                && addrs.get(*index).is_some_and(|addr| {
+                    crate::render_view::body_vertices_at(state, addr).is_some_and(|v| !v.is_empty())
+                })
         })
         .map(|(_, meta)| meta)
+        .collect()
+}
+
+/// Just the `bodyId`s [`rendered_bodies`] would report, in the same order.
+///
+/// The authoring snapshot needs nothing but the ids, twice per call, and
+/// building the full metadata for that meant resolving a display name, an
+/// ordinal and an instance path for every body in the document — work thrown
+/// away a line later (docs/notes/eiffel/FEATURE_NOTES.md §0). The filters are
+/// the ones `rendered_bodies` documents: not another part's context body, and
+/// not a body without a tessellated mesh.
+pub(crate) fn rendered_body_ids(state: &EngineState) -> Vec<String> {
+    crate::render_view::collect_renderable_bodies(state)
+        .into_iter()
+        .filter(|addr| !crate::render_view::is_context_body(state, addr))
+        .filter(|addr| {
+            crate::render_view::body_vertices_at(state, addr).is_some_and(|v| !v.is_empty())
+        })
+        .filter_map(|addr| crate::render_view::body_id_of(state, &addr))
         .collect()
 }
 

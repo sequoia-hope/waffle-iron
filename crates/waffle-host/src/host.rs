@@ -46,6 +46,9 @@ pub struct Host {
     /// every tool that changed the document. The session's own revision
     /// counts tab-level commits only, so it is not this.
     revision: u64,
+    /// Whether anything downstream has ever asked for what a viewer draws —
+    /// a `snapshot` or `blob` request. See [`Host::viewers_watching`].
+    viewer_asked: bool,
 }
 
 impl Host {
@@ -63,12 +66,37 @@ impl Host {
             started: Instant::now(),
             meshes: Default::default(),
             revision: 0,
+            viewer_asked: false,
         })
     }
 
     /// The document state's name for viewers (see `revision`).
     pub fn revision(&self) -> u64 {
         self.revision
+    }
+
+    /// Whether to push the document a viewer draws after every committed
+    /// tool (§4.6 step 2).
+    ///
+    /// A snapshot costs a pass over every body in the document, and an agent
+    /// building a model makes hundreds of calls — for the Eiffel Tower example
+    /// that pass was the single largest cost of authoring, ~40% of every call,
+    /// with no viewer anywhere (docs/notes/eiffel/FEATURE_NOTES.md §0). So the
+    /// host does not draw for nobody: it pushes only once something downstream
+    /// has asked for a snapshot or a blob, and keeps pushing from then on.
+    ///
+    /// This is safe against §4.6 because the relay holds no snapshot until it
+    /// asks for one (`host.py latest_snapshot`, "asking for one if none
+    /// arrived yet"), and it asks the moment a viewer attaches. Nothing can go
+    /// stale that nobody holds; from the first request the live push is
+    /// exactly as before.
+    pub fn viewers_watching(&self) -> bool {
+        self.viewer_asked
+    }
+
+    /// Record that something downstream asked for what a viewer draws.
+    pub fn note_viewer_request(&mut self) {
+        self.viewer_asked = true;
     }
 
     /// The state, the kernel and the mesh store at once, for the snapshot

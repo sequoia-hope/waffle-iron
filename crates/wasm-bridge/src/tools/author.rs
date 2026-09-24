@@ -28,7 +28,7 @@
 use feature_engine::types::{DesignParameter, Operation, Provenance, ProvenanceOrigin};
 use modeling_ops::KernelBundle;
 use serde_json::{json, Value};
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use uuid::Uuid;
 
 use crate::engine_state::EngineState;
@@ -103,28 +103,35 @@ impl Snapshot {
             .unwrap_or_default()
     }
 
-    /// One feature's definition together with its provenance origin — what
-    /// `features_changed` compares (JS `featureRecord`).
-    fn feature_record(&self, id: &str) -> Value {
-        let feature = self
-            .tree
+    /// Feature definitions by id, BORROWED — with [`Snapshot::origin`], the
+    /// pair `features_changed` compares (JS `featureRecord`).
+    ///
+    /// Comparing that record per id used to mean scanning the feature array
+    /// and cloning twice, inside a loop over every common id — quadratic in
+    /// the size of the tab (docs/notes/eiffel/FEATURE_NOTES.md §0). Built
+    /// once, it is a lookup, and nothing is cloned.
+    fn feature_index(&self) -> HashMap<&str, &Value> {
+        self.tree
             .get("features")
             .and_then(Value::as_array)
-            .and_then(|features| {
+            .map(|features| {
                 features
                     .iter()
-                    .find(|f| f.get("id").and_then(Value::as_str) == Some(id))
+                    .filter_map(|f| f.get("id").and_then(Value::as_str).map(|id| (id, f)))
+                    .collect()
             })
-            .cloned()
-            .unwrap_or(Value::Null);
-        let origin = self
-            .tree
+            .unwrap_or_default()
+    }
+
+    /// A feature's provenance origin, defaulting to `User` where the table has
+    /// no record — the default the JS `featureRecord` reported.
+    fn origin(&self, id: &str) -> Value {
+        self.tree
             .get("provenance")
             .and_then(|table| table.get(id))
             .and_then(|record| record.get("origin"))
             .cloned()
-            .unwrap_or_else(|| json!({ "type": "User" }));
-        json!({ "feature": feature, "origin": origin })
+            .unwrap_or_else(|| json!({ "type": "User" }))
     }
 }
 
@@ -138,10 +145,7 @@ pub(super) fn snapshot(state: &EngineState) -> Snapshot {
             .iter()
             .map(|(id, message)| (id.to_string(), message.clone()))
             .collect(),
-        body_ids: crate::tools::rendered_bodies(state)
-            .iter()
-            .filter_map(|b| b.get("bodyId").and_then(Value::as_str).map(str::to_string))
-            .collect(),
+        body_ids: crate::tools::rendered_body_ids(state),
     }
 }
 
@@ -200,14 +204,26 @@ pub(super) fn model_delta(
     let before_ids = before.feature_ids();
     let after_ids = after.feature_ids();
 
+    // Membership through sets, and the feature definitions through an index:
+    // every `contains` below was a scan of the id list, and every
+    // the feature record a scan of the feature array plus two clones, each
+    // inside a loop over the ids — O(N^2) on every authoring call
+    // (docs/notes/eiffel/FEATURE_NOTES.md §0).
+    let before_set: HashSet<&str> = before_ids.iter().map(String::as_str).collect();
+    let after_set: HashSet<&str> = after_ids.iter().map(String::as_str).collect();
+    let before_features = before.feature_index();
+    let after_features = after.feature_index();
+    let before_bodies: HashSet<&str> = before.body_ids.iter().map(String::as_str).collect();
+    let after_bodies: HashSet<&str> = after.body_ids.iter().map(String::as_str).collect();
+
     let common: Vec<String> = after_ids
         .iter()
-        .filter(|id| before_ids.contains(*id))
+        .filter(|id| before_set.contains(id.as_str()))
         .cloned()
         .collect();
     let common_before: Vec<String> = before_ids
         .iter()
-        .filter(|id| after_ids.contains(*id))
+        .filter(|id| after_set.contains(id.as_str()))
         .cloned()
         .collect();
 
@@ -233,15 +249,18 @@ pub(super) fn model_delta(
     json!({
         "features_added": after_ids
             .iter()
-            .filter(|id| !before_ids.contains(*id))
+            .filter(|id| !before_set.contains(id.as_str()))
             .collect::<Vec<_>>(),
         "features_changed": common
             .iter()
-            .filter(|id| before.feature_record(id) != after.feature_record(id))
+            .filter(|id| {
+                before_features.get(id.as_str()) != after_features.get(id.as_str())
+                    || before.origin(id) != after.origin(id)
+            })
             .collect::<Vec<_>>(),
         "features_removed": before_ids
             .iter()
-            .filter(|id| !after_ids.contains(*id))
+            .filter(|id| !after_set.contains(id.as_str()))
             .collect::<Vec<_>>(),
         "order_changed": common
             .iter()
@@ -250,12 +269,12 @@ pub(super) fn model_delta(
         "bodies_added": after
             .body_ids
             .iter()
-            .filter(|id| !before.body_ids.contains(*id))
+            .filter(|id| !before_bodies.contains(id.as_str()))
             .collect::<Vec<_>>(),
         "bodies_removed": before
             .body_ids
             .iter()
-            .filter(|id| !after.body_ids.contains(*id))
+            .filter(|id| !after_bodies.contains(id.as_str()))
             .collect::<Vec<_>>(),
         "errors": errors,
         "warnings": warnings,

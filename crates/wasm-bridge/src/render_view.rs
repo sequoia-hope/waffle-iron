@@ -400,16 +400,115 @@ pub fn collect_renderable_bodies(state: &EngineState) -> Vec<BodyAddr> {
     bodies
 }
 
+// ---------------------------------------------------------------------------
+// Body accessors.
+//
+// Each comes in two forms. The `_at` form takes a `BodyAddr` the caller
+// already holds; the `body_index` form resolves one first, which costs a full
+// `collect_renderable_bodies` walk. A caller that touches EVERY body — the
+// viewer snapshot, `rendered_bodies` — must collect once and use the `_at`
+// forms: six index-based accessors per body over B bodies is 6B walks of a
+// B-long list, which is what made authoring a large tab quadratic
+// (docs/notes/eiffel/FEATURE_NOTES.md §0). The index-based forms stay for the
+// one-body callers (a tool asking about a single body), where the walk is the
+// lookup.
+// ---------------------------------------------------------------------------
+
+/// The keyed output a body address names.
+fn body_output_at<'a>(
+    state: &'a EngineState,
+    addr: &BodyAddr,
+) -> Option<&'a (OutputKey, modeling_ops::BodyOutput)> {
+    engine_of(state, addr)?
+        .feature_results
+        .get(&addr.feature_id)?
+        .outputs
+        .get(addr.output_index)
+}
+
+/// A body's mesh, by address.
+pub fn body_mesh_at<'a>(state: &'a EngineState, addr: &BodyAddr) -> Option<&'a RenderMesh> {
+    body_output_at(state, addr)?.1.mesh.as_ref()
+}
+
+/// A body's persistent id — `body_metadata`'s `bodyId`, which is what
+/// selection and the name-override registry key on. Shared with
+/// [`body_metadata_for`] so the two can never disagree.
+pub fn body_id_of(state: &EngineState, addr: &BodyAddr) -> Option<String> {
+    let (key, _) = body_output_at(state, addr)?;
+    let id = feature_engine::types::FeatureTree::body_id(addr.feature_id, key);
+    Some(
+        match addr
+            .instance
+            .and_then(|(li, _)| view_of(state)?.leaves.get(li))
+        {
+            Some(leaf) => format!(
+                "{}/{id}",
+                leaf.path
+                    .iter()
+                    .map(|u| u.to_string())
+                    .collect::<Vec<_>>()
+                    .join("/")
+            ),
+            None => id,
+        },
+    )
+}
+
+/// Whether this body belongs to ANOTHER part and is drawn only as context for
+/// in-context editing — `body_metadata`'s `context` flag, which is set on
+/// exactly these bodies.
+pub fn is_context_body(state: &EngineState, addr: &BodyAddr) -> bool {
+    addr.ghost.is_some()
+        && addr
+            .instance
+            .is_some_and(|(li, _)| view_of(state).is_some_and(|v| v.leaves.get(li).is_some()))
+}
+
+/// A body's edge data, by address.
+pub fn body_edges_at<'a>(state: &'a EngineState, addr: &BodyAddr) -> Option<&'a EdgeRenderData> {
+    body_output_at(state, addr)?.1.edges.as_ref()
+}
+
+/// Body vertex positions, by address. A ghost's vertices are baked into the
+/// edited part's frame (a copy); everything else is borrowed.
+pub fn body_vertices_at<'a>(state: &'a EngineState, addr: &BodyAddr) -> Option<Cow<'a, [f32]>> {
+    body_mesh_at(state, addr).map(|mesh| match &addr.ghost {
+        Some(g) => Cow::Owned(g.bake_points(&mesh.vertices)),
+        None => Cow::Borrowed(&mesh.vertices[..]),
+    })
+}
+
+/// Body vertex normals, by address (baked like `body_vertices_at`).
+pub fn body_normals_at<'a>(state: &'a EngineState, addr: &BodyAddr) -> Option<Cow<'a, [f32]>> {
+    body_mesh_at(state, addr).map(|mesh| match &addr.ghost {
+        Some(g) => Cow::Owned(g.bake_dirs(&mesh.normals)),
+        None => Cow::Borrowed(&mesh.normals[..]),
+    })
+}
+
+/// Body triangle indices, by address.
+pub fn body_indices_at<'a>(state: &'a EngineState, addr: &BodyAddr) -> Option<&'a [u32]> {
+    body_mesh_at(state, addr).map(|mesh| &mesh.indices[..])
+}
+
+/// Body edge polyline vertices, by address (baked like `body_vertices_at`).
+pub fn body_edge_vertices_at<'a>(
+    state: &'a EngineState,
+    addr: &BodyAddr,
+) -> Option<Cow<'a, [f32]>> {
+    body_edges_at(state, addr).map(|edges| match &addr.ghost {
+        Some(g) => Cow::Owned(g.bake_points(&edges.vertices)),
+        None => Cow::Borrowed(&edges.vertices[..]),
+    })
+}
+
 /// A body's mesh and its address, by flat body index.
 pub fn body_mesh(state: &EngineState, body_index: usize) -> Option<(&RenderMesh, BodyAddr)> {
     let addr = collect_renderable_bodies(state)
         .into_iter()
         .nth(body_index)?;
-    let result = engine_of(state, &addr)?
-        .feature_results
-        .get(&addr.feature_id)?;
-    let (_key, body) = result.outputs.get(addr.output_index)?;
-    body.mesh.as_ref().map(|m| (m, addr))
+    body_mesh_at(state, &addr).map(|m| (m, addr))
 }
 
 /// A body's edge data and its address, by flat body index.
@@ -417,11 +516,7 @@ pub fn body_edges(state: &EngineState, body_index: usize) -> Option<(&EdgeRender
     let addr = collect_renderable_bodies(state)
         .into_iter()
         .nth(body_index)?;
-    let result = engine_of(state, &addr)?
-        .feature_results
-        .get(&addr.feature_id)?;
-    let (_key, body) = result.outputs.get(addr.output_index)?;
-    body.edges.as_ref().map(|e| (e, addr))
+    body_edges_at(state, &addr).map(|e| (e, addr))
 }
 
 /// Body vertex positions. A ghost's vertices are baked into the edited part's
@@ -463,17 +558,20 @@ pub fn body_edge_vertices(state: &EngineState, body_index: usize) -> Option<Cow<
 /// feature's name (suffixed with an ordinal when one feature owns several
 /// bodies). Naming is resolved here so the engine stays authoritative.
 pub fn body_metadata(state: &EngineState) -> Vec<serde_json::Value> {
-    let bodies = collect_renderable_bodies(state);
+    body_metadata_for(state, &collect_renderable_bodies(state))
+}
 
+/// [`body_metadata`] over a body list the caller already collected.
+pub fn body_metadata_for(state: &EngineState, bodies: &[BodyAddr]) -> Vec<serde_json::Value> {
     // How many rendered bodies each feature owns, for ordinal disambiguation.
     let mut totals: std::collections::HashMap<uuid::Uuid, usize> = std::collections::HashMap::new();
-    for addr in &bodies {
+    for addr in bodies {
         *totals.entry(addr.feature_id).or_insert(0) += 1;
     }
 
     let mut seen: std::collections::HashMap<uuid::Uuid, usize> = std::collections::HashMap::new();
     let mut entries = Vec::new();
-    for addr in &bodies {
+    for addr in bodies {
         let Some(fe) = engine_of(state, addr) else {
             continue;
         };
@@ -484,25 +582,7 @@ pub fn body_metadata(state: &EngineState) -> Vec<serde_json::Value> {
             .and_then(|r| r.outputs.get(addr.output_index))
             .map(|(k, _)| k.clone());
 
-        let body_id = output_key
-            .as_ref()
-            .map(|k| feature_engine::types::FeatureTree::body_id(addr.feature_id, k))
-            .map(|id| {
-                match addr
-                    .instance
-                    .and_then(|(li, _)| view_of(state)?.leaves.get(li))
-                {
-                    Some(leaf) => format!(
-                        "{}/{id}",
-                        leaf.path
-                            .iter()
-                            .map(|u| u.to_string())
-                            .collect::<Vec<_>>()
-                            .join("/")
-                    ),
-                    None => id,
-                }
-            });
+        let body_id = body_id_of(state, addr);
 
         // Ordinal among this feature's rendered bodies (1-based).
         let ordinal = {
@@ -517,10 +597,16 @@ pub fn body_metadata(state: &EngineState) -> Vec<serde_json::Value> {
             .and_then(|id| fe.display_body_name_override(id))
             .map(|s| s.to_string())
             .unwrap_or_else(|| {
+                // `feature_index` indexes `tree.features` directly
+                // (`bodies_of_engine`), so the producing feature is a lookup,
+                // not a scan — over every body that scan was O(features x
+                // bodies). The id check keeps the scan as the fallback for an
+                // address built any other way.
                 let base = tree
                     .features
-                    .iter()
-                    .find(|f| f.id == addr.feature_id)
+                    .get(addr.feature_index)
+                    .filter(|f| f.id == addr.feature_id)
+                    .or_else(|| tree.features.iter().find(|f| f.id == addr.feature_id))
                     .map(|f| f.name.clone())
                     .unwrap_or_else(|| "Body".to_string());
                 if total > 1 {
@@ -583,7 +669,16 @@ pub fn body_face_entries(
     let Some(addr) = collect_renderable_bodies(state).into_iter().nth(body_index) else {
         return Vec::new();
     };
-    let Some(fe) = engine_of(state, &addr) else {
+    body_face_entries_at(state, introspect, &addr)
+}
+
+/// Face ranges (GeomRef-enriched) of one body, by address.
+pub fn body_face_entries_at(
+    state: &EngineState,
+    introspect: &dyn KernelIntrospect,
+    addr: &BodyAddr,
+) -> Vec<serde_json::Value> {
+    let Some(fe) = engine_of(state, addr) else {
         return Vec::new();
     };
     let Some(result) = fe.feature_results.get(&addr.feature_id) else {
@@ -611,7 +706,12 @@ pub fn body_edge_entries(state: &EngineState, body_index: usize) -> Vec<serde_js
     let Some(addr) = collect_renderable_bodies(state).into_iter().nth(body_index) else {
         return Vec::new();
     };
-    let Some(fe) = engine_of(state, &addr) else {
+    body_edge_entries_at(state, &addr)
+}
+
+/// Edge ranges (GeomRef-enriched) of one body, by address.
+pub fn body_edge_entries_at(state: &EngineState, addr: &BodyAddr) -> Vec<serde_json::Value> {
+    let Some(fe) = engine_of(state, addr) else {
         return Vec::new();
     };
     let Some(result) = fe.feature_results.get(&addr.feature_id) else {

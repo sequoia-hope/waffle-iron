@@ -43,9 +43,25 @@
 		const _quatTheta = new THREE.Quaternion();
 		const _quatPhi = new THREE.Quaternion();
 		const _right = new THREE.Vector3();
+		const _pivot = new THREE.Vector3();
+		const _targetOffset = new THREE.Vector3();
+		const _toTarget = new THREE.Vector3();
 		const _lastPosition = new THREE.Vector3().copy(camera.position);
 		const _lastQuaternion = new THREE.Quaternion().copy(camera.quaternion);
 		const EPS = 1e-10;
+
+		// The point an orbit turns about, set at the start of every rotate
+		// gesture to the geometry under the cursor (`anchorOrbitPivot`). Null
+		// means "turn about the look-at target", which is what this always did.
+		//
+		// The pivot has to be separate from `target` because the two answer
+		// different questions: `target` is what the camera looks AT (moved by
+		// pan and by zoom-to-cursor), the pivot is what the model turns
+		// ABOUT. Tying them together is what made a tall sparse model — the
+		// Eiffel Tower — swing about a point in mid-air: every pinch on
+		// background dragged `target` off the model, and the next orbit
+		// inherited it.
+		controls.orbitPivot = null;
 
 		controls.update = function (_deltaTime) {
 			// --- Auto-rotate ---
@@ -63,8 +79,15 @@
 				dPhi = this._sphericalDelta.phi;
 			}
 
-			// --- Camera offset from orbit target ---
-			_offset.copy(camera.position).sub(this.target);
+			// --- Offsets from the orbit pivot ---
+			// Both the camera AND the look-at target turn rigidly about the
+			// pivot, so the camera keeps looking at the target throughout and
+			// `lookAt` below stays valid. With no pivot set the target offset
+			// is zero and this is exactly the old orbit-about-target.
+			if (this.orbitPivot) _pivot.copy(this.orbitPivot);
+			else _pivot.copy(this.target);
+			_offset.copy(camera.position).sub(_pivot);
+			_targetOffset.copy(this.target).sub(_pivot);
 
 			// --- Apply rotation as quaternion ---
 			if (Math.abs(dTheta) > EPS || Math.abs(dPhi) > EPS) {
@@ -86,21 +109,21 @@
 				// This keeps camera.up perpendicular to the look direction,
 				// preventing the lookAt() flip at the poles.
 				_offset.applyQuaternion(_quat);
+				_targetOffset.applyQuaternion(_quat);
 				camera.up.applyQuaternion(_quat).normalize();
 			}
 
-			// --- Clamp distance ---
-			const dist = _offset.length();
-			const clampedDist = Math.max(this.minDistance, Math.min(this.maxDistance, dist));
-			if (Math.abs(dist - clampedDist) > EPS) {
-				_offset.normalize().multiplyScalar(clampedDist);
-			}
+			// --- Place the camera and the target about the pivot ---
+			camera.position.copy(_pivot).add(_offset);
+			this.target.copy(_pivot).add(_targetOffset);
 
-			// --- Apply pan ---
-			if (this.enableDamping) {
-				this.target.addScaledVector(this._panOffset, this.dampingFactor);
-			} else {
-				this.target.add(this._panOffset);
+			// --- Apply pan (moves what the camera looks at, and the pivot
+			// with it, so a pan does not leave the pivot behind) ---
+			if (Math.abs(this._panOffset.lengthSq()) > EPS) {
+				const damp = this.enableDamping ? this.dampingFactor : 1;
+				this.target.addScaledVector(this._panOffset, damp);
+				camera.position.addScaledVector(this._panOffset, damp);
+				if (this.orbitPivot) this.orbitPivot.addScaledVector(this._panOffset, damp);
 			}
 
 			// --- Clamp target radius ---
@@ -108,8 +131,16 @@
 			this.target.clampLength(this.minTargetRadius, this.maxTargetRadius);
 			this.target.add(this.cursor);
 
-			// --- Update camera ---
-			camera.position.copy(this.target).add(_offset);
+			// --- Clamp camera-to-target distance ---
+			_toTarget.subVectors(camera.position, this.target);
+			const dist = _toTarget.length();
+			const clampedDist = Math.max(this.minDistance, Math.min(this.maxDistance, dist));
+			if (dist > EPS && Math.abs(dist - clampedDist) > EPS) {
+				camera.position
+					.copy(this.target)
+					.add(_toTarget.normalize().multiplyScalar(clampedDist));
+			}
+
 			camera.lookAt(this.target);
 
 			// --- Damping decay ---
@@ -249,6 +280,73 @@
 	 * @param {number} ndcX - normalized device coordinate X (-1..1)
 	 * @param {number} ndcY - normalized device coordinate Y (-1..1)
 	 */
+	/**
+	 * The point on the model under a screen position, or null when the ray
+	 * misses everything.
+	 * @param {number} ndcX
+	 * @param {number} ndcY
+	 * @returns {THREE.Vector3 | null}
+	 */
+	function pickModelPoint(ndcX, ndcY) {
+		if (!cameraRef || !scene) return null;
+		_mouse.set(ndcX, ndcY);
+		_raycaster.setFromCamera(_mouse, cameraRef);
+		// MODEL meshes only — the same `waffleType` the fit uses. Raycasting
+		// everything visible would pivot on a datum plane or a helper, which
+		// are unbounded next to the part and put the pivot tens of metres away.
+		/** @type {THREE.Mesh[]} */
+		const meshes = [];
+		scene.traverse((obj) => {
+			if (!obj.visible) return;
+			if (/** @type {any} */ (obj).userData?.waffleType !== 'model') return;
+			obj.traverse((child) => {
+				if (/** @type {any} */ (child).isMesh && child.visible) {
+					meshes.push(/** @type {THREE.Mesh} */ (child));
+				}
+			});
+		});
+		if (meshes.length === 0) return null;
+		const hits = _raycaster.intersectObjects(meshes, false);
+		return hits.length > 0 ? hits[0].point.clone() : null;
+	}
+
+	/**
+	 * Anchor the orbit pivot for the gesture that is starting: the model point
+	 * under the cursor, else the centre of what is on screen.
+	 *
+	 * Re-anchored on every rotate, which is what keeps the pivot honest — zoom
+	 * to cursor moves `controls.target` wherever you point, including into
+	 * empty space on a model that is mostly air, and an orbit must not inherit
+	 * that. A miss falls back to the model's bounding-box centre rather than to
+	 * the stale target, so the pivot is always ON something.
+	 * @param {number} clientX
+	 * @param {number} clientY
+	 */
+	function anchorOrbitPivot(clientX, clientY) {
+		if (!controlsRef || !cameraRef || !renderer) return;
+		const rect = renderer.domElement.getBoundingClientRect();
+		if (rect.width === 0 || rect.height === 0) return;
+		// A finger covers tens of pixels and an openwork model is mostly holes:
+		// one ray down the middle of the Eiffel Tower's lattice usually passes
+		// between two members. Probe a small rosette and take the nearest hit,
+		// so pressing ON something picks it even when the exact pixel is a gap.
+		const PROBE_PX = 14;
+		let best = null;
+		let bestDist = Infinity;
+		for (const [ox, oy] of [[0, 0], [-1, 0], [1, 0], [0, -1], [0, 1]]) {
+			const ndcX = ((clientX + ox * PROBE_PX - rect.left) / rect.width) * 2 - 1;
+			const ndcY = -((clientY + oy * PROBE_PX - rect.top) / rect.height) * 2 + 1;
+			const hit = pickModelPoint(ndcX, ndcY);
+			if (!hit) continue;
+			const d = hit.distanceToSquared(cameraRef.position);
+			if (d < bestDist) {
+				bestDist = d;
+				best = hit;
+			}
+		}
+		controlsRef.orbitPivot = best ?? fitBox()?.getCenter(new THREE.Vector3()) ?? null;
+	}
+
 	function zoomTowardScreenPoint(zoomFactor, ndcX, ndcY) {
 		if (!cameraRef || !controlsRef) return;
 
@@ -425,6 +523,12 @@
 			activePointers.push({ id: e.pointerId, x: e.clientX, y: e.clientY });
 		}
 
+		if (activePointers.length === 1) {
+			// One finger rotates (OrbitControls' own touch ORBIT): pivot on
+			// whatever is under it.
+			anchorOrbitPivot(e.clientX, e.clientY);
+		}
+
 		if (activePointers.length === 2) {
 			// Initialize two-finger gesture state
 			const [a, b] = activePointers;
@@ -433,7 +537,30 @@
 			prevAngle = Math.atan2(b.y - a.y, b.x - a.x);
 			isTwoFingerActive = true;
 			setTwoFingerActive(true);
+			// The twist of a two-finger gesture also rotates; pivot on the
+			// midpoint between the fingers.
+			anchorOrbitPivot(prevMidpoint.x, prevMidpoint.y);
 		}
+	}
+
+	/**
+	 * A mouse drag that will rotate (OrbitControls maps the left button to
+	 * ORBIT): pivot on what is under the cursor.
+	 * @param {PointerEvent} e
+	 */
+	function onMousePointerDown(e) {
+		if (e.pointerType === 'touch' || e.button !== 0) return;
+		const canvas = renderer?.domElement;
+		if (!canvas) return;
+		const rect = canvas.getBoundingClientRect();
+		if (
+			e.clientX < rect.left ||
+			e.clientX > rect.right ||
+			e.clientY < rect.top ||
+			e.clientY > rect.bottom
+		)
+			return;
+		anchorOrbitPivot(e.clientX, e.clientY);
 	}
 
 	/** @param {PointerEvent} e */
@@ -671,6 +798,9 @@
 
 		if (controlsRef) {
 			controlsRef.target.copy(center);
+			// A fit recentres on the model, so the pivot follows it; the next
+			// orbit re-anchors on whatever it is pointed at anyway.
+			controlsRef.orbitPivot = center.clone();
 			controlsRef.update();
 		}
 
@@ -873,6 +1003,7 @@
 		// because OrbitControls calls setPointerCapture() on the wrapper div,
 		// which redirects pointer events away from the canvas during drags.
 		window.addEventListener('pointerdown', onTouchPointerDown);
+		window.addEventListener('pointerdown', onMousePointerDown);
 		window.addEventListener('pointermove', onTouchPointerMove);
 		window.addEventListener('pointerup', onTouchPointerUp);
 		window.addEventListener('pointercancel', onTouchPointerUp);
@@ -974,6 +1105,9 @@
 			cameraRef.position.set(snap.position[0], snap.position[1], snap.position[2]);
 			cameraRef.up.set(snap.up[0], snap.up[1], snap.up[2]);
 			controlsRef.target.set(snap.target[0], snap.target[1], snap.target[2]);
+			// A restored camera brings its own target; the pivot is re-anchored
+			// by the next orbit, and must not survive from the old view.
+			controlsRef.orbitPivot = null;
 			if (isOrtho() && Number.isFinite(snap.frustumTop) && snap.frustumTop > 0) {
 				frustumHalf = snap.frustumTop;
 				updateOrthoFrustum();
@@ -1013,6 +1147,7 @@
 		return () => {
 			canvas.removeEventListener('wheel', onWheel);
 			window.removeEventListener('pointerdown', onTouchPointerDown);
+			window.removeEventListener('pointerdown', onMousePointerDown);
 			window.removeEventListener('pointermove', onTouchPointerMove);
 			window.removeEventListener('pointerup', onTouchPointerUp);
 			window.removeEventListener('pointercancel', onTouchPointerUp);

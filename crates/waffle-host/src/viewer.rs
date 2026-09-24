@@ -127,22 +127,22 @@ struct Encoded {
 fn encode_body(
     state: &EngineState,
     introspect: &dyn KernelIntrospect,
-    index: usize,
+    addr: &render_view::BodyAddr,
 ) -> Option<Encoded> {
-    let vertices = render_view::body_vertices(state, index)?;
+    let vertices = render_view::body_vertices_at(state, addr)?;
     if vertices.is_empty() {
         return None;
     }
-    let normals = render_view::body_normals(state, index)?;
-    let indices = render_view::body_indices(state, index)?;
-    let edge_vertices = render_view::body_edge_vertices(state, index).unwrap_or_default();
+    let normals = render_view::body_normals_at(state, addr)?;
+    let indices = render_view::body_indices_at(state, addr)?;
+    let edge_vertices = render_view::body_edge_vertices_at(state, addr).unwrap_or_default();
     let header = json!({
         "encoding": ENCODING,
         "vertex_count": vertices.len() / 3,
         "index_count": indices.len(),
         "edge_vertex_count": edge_vertices.len() / 3,
-        "face_ranges": render_view::body_face_entries(state, introspect, index),
-        "edge_ranges": render_view::body_edge_entries(state, index),
+        "face_ranges": render_view::body_face_entries_at(state, introspect, addr),
+        "edge_ranges": render_view::body_edge_entries_at(state, addr),
     });
     let header = serde_json::to_vec(&header).ok()?;
     let padded = header.len().div_ceil(4) * 4;
@@ -202,16 +202,23 @@ impl Host {
         let revision = self.revision();
         let (state, kernel, meshes) = self.viewer_parts();
         let introspect: &dyn KernelIntrospect = kernel;
-        let metadata = render_view::body_metadata(state);
+        // Collected ONCE and shared with every accessor below: resolving each
+        // body by its flat index instead would re-walk this list six times per
+        // body (docs/notes/eiffel/FEATURE_NOTES.md §0).
+        let addrs = render_view::collect_renderable_bodies(state);
+        let metadata = render_view::body_metadata_for(state, &addrs);
         let mut bodies = Vec::with_capacity(metadata.len());
         let mut current = HashSet::new();
         for (index, meta) in metadata.into_iter().enumerate() {
+            let Some(addr) = addrs.get(index) else {
+                continue;
+            };
             let Some(Encoded {
                 bytes,
                 triangles,
                 min,
                 max,
-            }) = encode_body(state, introspect, index)
+            }) = encode_body(state, introspect, addr)
             else {
                 // The worker skips a body with no vertices; so does a snapshot.
                 continue;

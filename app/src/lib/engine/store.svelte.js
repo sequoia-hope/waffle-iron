@@ -6070,6 +6070,11 @@ export function getCameraState() {
 		zoom: cameraObject.zoom ?? 1,
 		projection: cameraProjection,
 		frustumTop: /** @type {any} */ (cameraObject).top ?? null,
+		// The point an orbit turns about, which is NOT the look-at target: it
+		// is re-anchored to the model under the cursor at the start of every
+		// rotate (`CameraControls.svelte` `anchorOrbitPivot`). Null until the
+		// first fit or orbit.
+		orbitPivot: /** @type {any} */ (controlsObject)?.orbitPivot?.toArray() ?? null,
 	};
 }
 
