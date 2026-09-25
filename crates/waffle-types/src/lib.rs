@@ -8,6 +8,7 @@ pub mod profiles;
 pub mod regions;
 pub mod roles;
 pub mod sketch;
+pub mod sketch3d;
 pub mod sketch_plane;
 pub mod sprocket;
 pub mod topo;
