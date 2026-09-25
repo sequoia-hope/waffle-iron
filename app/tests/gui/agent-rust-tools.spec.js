@@ -212,7 +212,7 @@ test.describe('Read-only agent tools run in the engine (S3 C5b)', () => {
 		expectNoAnyCrash(crashes);
 	});
 
-	test('the read-only routing table is exactly the ten the engine implements', async ({ waffle }) => {
+	test('the read-only routing table is exactly what the engine implements', async ({ waffle }) => {
 		const page = waffle.page;
 		await page.waitForFunction(() => typeof window.__waffleAgentExecutor?.engineQueries === 'function', {
 			timeout: 15000
@@ -220,10 +220,13 @@ test.describe('Read-only agent tools run in the engine (S3 C5b)', () => {
 
 		const routed = await page.evaluate(() => window.__waffleAgentExecutor.engineQueries());
 		// Keep in sync with `tools::MIGRATED` minus `tools::mutates`
-		// (`agent-rust-authoring.spec.js` pins the mutating half).
-		// `assembly_get` joined the engine on 2026-09-23 with the assembly
-		// edits; it needs an Assembly tab, so the sequence above does not
-		// call it.
-		expect(routed).toEqual([...READ_ONLY, 'assembly_get']);
+		// (`agent-rust-authoring.spec.js` pins the mutating half). Two of
+		// them the sequence above cannot call, so they are named here
+		// instead of in READ_ONLY: `sketch3d_get` (2026-09-25) needs a
+		// `Sketch3d` feature, and `assembly_get` (2026-09-23) needs an
+		// Assembly tab.
+		const expected = [...READ_ONLY];
+		expected.splice(expected.indexOf('sketch_regions') + 1, 0, 'sketch3d_get');
+		expect(routed).toEqual([...expected, 'assembly_get']);
 	});
 });
