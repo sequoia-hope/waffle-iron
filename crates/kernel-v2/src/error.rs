@@ -215,6 +215,66 @@ pub enum KernelV2Error {
     /// axis-clearance rule.
     PipeBendRadiusTooSmall { segment: usize },
 
+    // ----- sweep path validation (B6 S1, spec b6_general_sweep) -----------
+    /// `SweepPath::new` was given a chain with no segments.
+    SweepPathEmpty,
+
+    /// Path segment `segment` does not end exactly where segment
+    /// `segment + 1` starts. A `Chain3d` walked out of a sketch shares its
+    /// joint coordinates bit-for-bit (a fillet trims both sides to the same
+    /// tangent points), so this is a malformed hand-built chain, not
+    /// rounding.
+    SweepPathNotChained { segment: usize },
+
+    /// The path returns to its start: a closed sweep (no caps, every joint
+    /// mitred) is spec §5.2 / increment S5.
+    SweepClosedPathUnsupported,
+
+    /// Path segment `segment` is malformed: a non-finite endpoint, a
+    /// zero-length line, an arc with a non-positive radius, an endpoint off
+    /// its own circle or out of its arc plane, or a full-circle arc.
+    SweepPathEdgeInvalid { segment: usize },
+
+    /// The tangents at joint `joint` double back (`t̂ₒᵤₜ = −t̂ᵢₙ`): the mitre
+    /// bisector is undefined. Spec §4.
+    SweepCornerReversal { joint: usize },
+
+    /// Joint `joint` is a mitre (not tangent-continuous) with an ARC on at
+    /// least one side. A mitre plane cuts a bent member in a different curve
+    /// than it cuts a straight one, so the two sides have no shared rim and
+    /// their true meeting curve is outside the analytic surface vocabulary
+    /// (`construct::sweep` module docs, correction 2 to spec §4). Bends
+    /// enter a path tangentially — as sketch fillets — so this is loud
+    /// rather than approximated.
+    SweepMitreAtCurvedJoint { joint: usize },
+
+    /// Mitring segment `segment` at both ends leaves some point of the
+    /// section with no material at all: the corner is tighter than the
+    /// section is wide. Spec §4's `SweepCornerTooTight` — the real limit on
+    /// a fat section round a tight corner, said rather than approximated.
+    SweepCornerTooTight { segment: usize },
+
+    /// The section touches or crosses arc segment `segment`'s revolve axis,
+    /// so the bend would pinch to a non-manifold seam (touching) or
+    /// self-intersect (crossing) — the revolve axis-clearance rule, and what
+    /// `PipeBendRadiusTooSmall` says for a round section.
+    SweepSectionCrossesBendAxis { segment: usize },
+
+    /// The section's plane is not perpendicular to the path's start tangent
+    /// (spec §8's pierce rule). Nothing auto-rotates the section: a member's
+    /// orientation is the author's.
+    SweepProfileNotPerpendicular,
+
+    /// The path's start point does not lie in the section's plane (spec §8's
+    /// pierce rule). Nothing auto-centres the section: a member offset from
+    /// its centreline is the normal case in a frame, and moving it silently
+    /// would destroy that.
+    SweepPathDoesNotPierceProfile,
+
+    /// The section's `(u, v)` basis is not orthonormal, so reading section
+    /// coordinates in the transported frame would skew the swept solid.
+    SweepSectionBasisNotOrthonormal,
+
     /// Slice under construction: the named entry point is specified (RED
     /// oracles pin its contract) but not implemented yet.
     NotImplemented(&'static str),

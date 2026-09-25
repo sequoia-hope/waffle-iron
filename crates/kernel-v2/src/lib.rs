@@ -94,7 +94,7 @@ pub use arena::{
 pub use boolean::{boolean_op, from_yang_brep, split_solid_into_bodies, to_yang_brep};
 pub use construct::{
     extrude, make_face_from_profile, pipe, revolve, ExtrudeResult, LaminaResult, PipePath,
-    PipeResult, RevolveResult,
+    PipeResult, RevolveResult, SweepFrame, SweepPath, SweepSegment, SweepSegmentKind, SweepStation,
 };
 pub use error::KernelV2Error;
 pub use euler::{

@@ -505,7 +505,13 @@ orderings (a balanced tree must give the same solid as a chain: the assay's
   paths and helical paths** (B6 §7), and **loft**, which is untouched by this
   correction. B6 is approved and sequenced after `specs/sketch3d.md`; B2 Pipe
   is one cell of its table and is to be subsumed by it, not maintained beside
-  it.
+  it. **B6 S1 landed 2026-09-25** (`kernel_v2::construct::sweep`): the
+  validated `SweepPath` — mitres, parallel-transport frames, the pierce rule
+  and its refusals — built on `Chain3d`, so 3D paths are in from the start.
+  Building it corrected B6 §4 twice: the mitre normal is `normalize(t̂₀ + t̂₁)`
+  (the SUM), and a mitre is only possible between two STRAIGHT segments,
+  because a plane cuts a bent member in a different curve than it cuts a
+  straight one. Bends therefore enter a path tangentially, as fillets.
 - A visual scripting editor.
 
 ## Part C — Sequencing

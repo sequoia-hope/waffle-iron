@@ -9,8 +9,9 @@ members cost ~660 calls and 794 KB of restated rectangles).
 Owner crates: `kernel-v2` (increments S1–S5), `waffle-types` +
 `feature-engine` + `wasm-bridge` (S6), `app` (S7).
 
-Status: **DESIGN**, feature set approved 2026-09-25. Nothing below is
-implemented.
+Status: feature set approved 2026-09-25. **S1 LANDED 2026-09-25**
+(`kernel_v2::construct::sweep`, `crates/kernel-v2/tests/b6_sweep.rs`, 22
+tests); S2 onward is design. §4 was corrected by what S1 measured.
 
 **Sequencing decided 2026-09-25: 3D sketch first** (`specs/sketch3d.md`), then
 this. The user's target is a genuinely 3D member run, so the planar-path-only
@@ -98,7 +99,12 @@ is ONE solid, assembled directly:
 - Each path segment contributes one lateral face per section edge, plus its
   share of the two rims.
 - Consecutive segments **share their junction rim loop** — the same vertices
-  and the same edges, bit-identical, not two coincident copies.
+  and the same edges, bit-identical, not two coincident copies. S1 makes that
+  structural rather than aspirational: `SweepStation::rim` is the one
+  rim-point computation, taken from the joint's canonical (outgoing) side and
+  used by both neighbours, so there is never a second copy to agree with.
+  That the *other* side computes the same point is then an oracle, not a
+  tolerance (`the_mitre_rim_is_the_same_from_both_sides`).
 - The section's own corners split the rim into edges, so a polygon or
   `ArcPolygon` section needs **no seam vertex at all**. Pipe's whole seam-phase
   problem (`b2_pipe_sweep.md` §2: the binormal seam, the phase-general torus
@@ -115,26 +121,71 @@ checks.
 
 ## 4. Corners: the bisector mitre
 
+*(Corrected 2026-09-25 at S1, where the mitre was built and measured. Two
+statements of the original draft were wrong; both corrections are in
+`kernel_v2::construct::sweep`'s module docs with their derivations, and both
+are pinned by `crates/kernel-v2/tests/b6_sweep.rs`.)*
+
 Pipe requires a tangent-continuous chain. A frame, a truss and a bent bracket
 are all made of sharp corners, so B6 must treat them, and the treatment is the
 standard one:
 
 At a joint where the incoming tangent `t̂₀` and outgoing `t̂₁` differ, the
-**mitre plane** is the plane through the joint whose normal bisects them
-(`n̂ = normalize(t̂₀ − t̂₁)`, the interior bisector). Both segments are
-truncated at that plane, and the truncated section becomes the shared rim
-loop — one loop, used by both, so the join is exact by construction and no
-boolean, no coplanar Stage 0 and no tolerance is involved.
+**mitre plane** is the plane through the joint whose normal bisects them:
+
+> `n̂ = normalize(t̂₀ + t̂₁)`
+
+— the **sum**, not the difference this section first wrote. The section's own
+two stated behaviours settle it: a G1 joint must degenerate to the plane
+perpendicular to the common tangent (the sum gives `t̂₀`; the difference gives
+`0/0`), and a reversal must leave the bisector undefined (the sum gives `0`;
+the difference gives a perfectly good `t̂₀`). So does the picture frame: two
+rails meeting at a right angle are mitred on the diagonal that makes each
+rail's OUTER edge the long one, which is the plane perpendicular to the
+average tangent.
+
+Both segments are truncated at that plane, and the truncated section becomes
+the shared rim loop — one loop, used by both, so the join is exact by
+construction and no boolean, no coplanar Stage 0 and no tolerance is involved.
+
+**That last sentence holds for two STRAIGHT segments, and only for them.** The
+reason it holds there is a symmetry: reflection across the mitre plane carries
+`t̂₀` to `−t̂₁` and agrees with the parallel-transport rotation of §6 on every
+vector perpendicular to `t̂₀`, so the two truncated members are mirror images
+across the plane and meet it in the *same* curve. A bent member has no such
+symmetry — its points travel on circles about the segment's axis, not along
+the tangent — and the plane cuts it somewhere else. Measured at S1: a 90°
+corner from a straight member into a bend of radius 10, section point 1 out
+along the turn, gives `(−1, 1)` from the straight side and `(−1.0625,
+1.0596)` from the bend. There is no shared rim to build, and the two
+laterals' true meeting curve is a cylinder×torus intersection — outside the
+analytic vocabulary entirely. Hence a third refusal:
+
+- **`SweepMitreAtCurvedJoint`** — a non-tangent joint with an arc on either
+  side. This costs the motivating cases nothing: a bend is authored as a
+  sketch fillet, and a fillet is tangent by construction (`sketch3d.md` §5).
+  The pleasant consequence is that **every arc segment is cut by planes
+  perpendicular to its own tangent at both ends**, so an arc segment is
+  exactly the partial revolve of §1 — no shear, no correction.
 
 Loud refusals, all checked before the first arena mutation:
 
-- **`SweepCornerTooTight`** — the mitred rim self-intersects, or the truncation
-  of one segment eats past the far end of that segment. Geometrically: the
-  section's in-plane extent perpendicular to the bisector exceeds what the
-  corner leaves. This is the real limit on a tight corner with a fat section
-  and it must be said, not approximated.
+- **`SweepCornerTooTight`** — the truncation of one segment eats past the far
+  end of that segment: some point of the section is left with no material at
+  all. (The draft also listed "the mitred rim self-intersects"; it cannot.
+  The truncation is a shear along the tangent onto the plane, injective for
+  every turn short of the refused reversal, so a simple section stays simple.)
+  The test is `L + min over the section of (v · g) > 0`, with `g` the
+  difference of the two stations' shear covectors — LINEAR in the section
+  coordinate, so it is decided exactly by the section's support function, for
+  polygon, circle and arc-polygon sections alike.
 - **`SweepCornerReversal`** — `t̂₁ = −t̂₀` (a 180° doubling back); the bisector
   is undefined.
+- **`SweepSectionCrossesBendAxis`** — the section touches or crosses an arc
+  segment's revolve axis (the axis lies IN the section plane by §1, so this
+  too is a linear test). Touching pinches a non-manifold seam and crossing
+  self-intersects: the revolve axis-clearance rule, and what
+  `PipeBendRadiusTooSmall` says for a round section.
 - A G1 joint (`t̂₀ = t̂₁` within tolerance) takes the degenerate mitre, which is
   the plane perpendicular to the common tangent — i.e. exactly what pipe does
   today. **Byte-identical continuity with pipe is an oracle** (§9).
@@ -155,7 +206,8 @@ generalizations, in increment order:
    rim. A rectangular picture-frame profile is the archetype and is one
    feature instead of four mitred members.
 3. **3D paths** — a chain of lines and arcs not confined to one plane (§6).
-   This one is gated on there being a 3D sketch to draw it in (§8).
+   Landed WITH S1 rather than after it: the 3D sketch went first, so there was
+   never a planar-only `SweepPath` to widen later (§8).
 
 ## 6. The section's frame along the path
 
@@ -201,18 +253,16 @@ Two options that do **not** survive, and are therefore out of v1:
 
 ## 8. Where the path comes from
 
-`Sketch` is planar by construction (`plane_origin` / `plane_normal` /
-`plane_x_axis`, `waffle-types/src/sketch.rs:50-71`); **there is no 3D sketch in
-the tree.** So:
+*(Updated 2026-09-25: the 3D sketch landed first, per the sequencing note at
+the top, so the "wait for it" branch below is history.)*
 
-- **v1 paths are one planar sketch**, exactly like `PipeParams` — which already
-  buys closed frames, bent brackets, mitred elbows, gaskets and every
-  single-plane member run.
-- **3D paths wait for a 3D sketch**, which is its own piece of work with its
-  own customers (sweep paths, routing, reference geometry, the frame feature
-  of §10). §5.3 and §6 are written so that the kernel side does not have to
-  change when it lands: a `SweepPath` carrying per-joint frames is already the
-  3D-ready shape.
+`Sketch` is planar by construction (`plane_origin` / `plane_normal` /
+`plane_x_axis`, `waffle-types/src/sketch.rs:50-71`), and `Sketch3d`
+(`specs/sketch3d.md`, S1–S3 done 2026-09-25) is not. Both produce the same
+`Chain3d`, and `SweepPath::new` takes that — so **the sweep never learns which
+kind of sketch its path came from**, and a planar path is a coplanar input
+rather than a separate code path. 3D paths were authorable by an agent before
+S1 was written, which is what let S1 be built and tested on them directly.
 
 The section comes from an ordinary sketch profile. **The pierce rule** (loud,
 v1): the section's sketch plane must be perpendicular to the path's start
@@ -271,7 +321,7 @@ until S6.
 
 | # | What | Gate |
 |---|---|---|
-| **S1** | `SweepPath` (planar, open, **sharp corners allowed**) + the mitre solver and its refusals, as a pure validated value. No arena mutation. Unit tests on mitre geometry, tight-corner refusal, the G1 degenerate case. | — |
+| **S1 ✅ DONE (2026-09-25)** | `SweepPath::new(&Chain3d, &Profile)` — open path, **sharp corners allowed**, 3D from the start (the sequencing note above): the mitre solver, the §6 parallel-transport frames, the pierce rule, `SweepStation::rim`, and nine typed refusals, as a pure validated value with no arena mutation. The corner gates are exact (linear functionals decided by the section's support function, `section_support`, for polygon/circle/arc-polygon alike). 22 tests: the both-sides rim identity over in-plane and out-of-plane corners, the RMF property at a joint, an arc's rigid rotation about its own axis, no-twist on a planar path, the offset section, every refusal, and a filleted `Sketch3d` corner sweeping end to end. §4 corrected twice by what this increment measured. | — |
 | **S2** | Sweep assembler for a **polygon section, no holes**, `Parallel`/`Perpendicular` edges only — line and arc segments, shared rims, mitred corners, caps. The mitred rectangular elbow. Oracles: Pappus volume, χ, extrude continuity. | S1 |
 | **S3** | **`Oblique` section edges on a partial revolve** — the arc-bounded cone patch, KV6c increment 5. Converts a typed wall the general lathe wants anyway. | S2 |
 | **S4** | **Holed and `ArcPolygon` sections on a partial revolve** — converts `RevolveProfileHolesUnsupported` and `ArcPolygonProfileUnsupported`. Hollow and rounded sections round a bend; tube sections. | S3 |
