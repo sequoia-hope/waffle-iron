@@ -60,6 +60,10 @@ pub(super) fn sketch3d_get(state: &mut EngineState, args: &Value) -> Answer {
             .map(|(id, p)| json!({ "id": id, "xyz": p }))
             .collect::<Vec<_>>(),
         "chains": ev.chains.iter().map(chain_json).collect::<Vec<_>>(),
+        // A best-effort attachment that re-bound onto the NEAREST entity
+        // after the geometry moved says so here; an agent reading the points
+        // needs to know one of them landed somewhere other than the pick.
+        "warnings": ev.warnings,
     }))
 }
 

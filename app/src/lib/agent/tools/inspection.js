@@ -198,7 +198,9 @@ export const sketch3dGetTool = {
 		'one chain per run at every point where the number of segments is not two, so a truss centre-line ' +
 		'graph comes back as one chain per member. tangent_joints[i] says whether the joint between edge i ' +
 		'and edge i+1 is smooth (a fillet) rather than a corner — that is what decides a mitre from a bend ' +
-		'when a sweep runs along it. A suppressed, rolled-back or failed sketch answers NotEvaluated.',
+		'when a sweep runs along it. warnings lists any attached point that resolved with a caveat — a ' +
+		'BestEffort pick that re-bound onto the NEAREST entity after the geometry moved names its point ' +
+		'and the distance. A suppressed, rolled-back or failed sketch answers NotEvaluated.',
 	inputSchema: {
 		type: 'object',
 		properties: { feature_id: uuid('Id of a Sketch3d feature.') },
@@ -233,9 +235,15 @@ export const sketch3dGetTool = {
 					},
 					required: ['closed', 'length_m', 'tangent_joints', 'edges']
 				}
+			},
+			warnings: {
+				type: 'array',
+				items: { type: 'string' },
+				description:
+					'One entry per attached point that resolved with a caveat, prefixed "point <id>:".'
 			}
 		},
-		required: ['feature_id', 'entity_count', 'points', 'chains']
+		required: ['feature_id', 'entity_count', 'points', 'chains', 'warnings']
 	},
 	annotations: readOnly('3D sketch geometry')
 };

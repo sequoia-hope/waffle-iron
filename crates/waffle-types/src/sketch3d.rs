@@ -32,7 +32,7 @@ use uuid::Uuid;
 
 use crate::geom_ref::GeomRef;
 use crate::path::PATH_TANGENT_TOLERANCE;
-use crate::sketch::generated_entity_id_base;
+use crate::sketch::{checked_generated_entity_id_base, MAX_GENERATOR_ENTITY_ID};
 
 /// Below this, a length or a cross-product magnitude is treated as zero.
 /// One nanometre in a metre-unit model — two orders below `MIN_FEATURE_SIZE`,
@@ -197,29 +197,62 @@ pub struct Sketch3dEvaluation {
     pub resolved: BTreeMap<u32, [f64; 3]>,
     /// Every maximal chain, fillets expanded.
     pub chains: Vec<Chain3d>,
+    /// What the anchors had to say about a resolution that succeeded with a
+    /// caveat — a best-effort re-bind onto the NEAREST entity after the
+    /// geometry moved, say. Each entry names its point. Never silently
+    /// dropped: a point that lands somewhere the author did not pick is a
+    /// path that sweeps somewhere else.
+    pub warnings: Vec<String>,
+}
+
+/// Resolved coordinates by point id, plus the anchors' warnings.
+type ResolvedPoints = (BTreeMap<u32, [f64; 3]>, Vec<String>);
+
+/// A resolved attachment: where the point landed, and anything the resolver
+/// wants the author to know about how it got there.
+#[derive(Debug, Clone, PartialEq)]
+pub struct AnchorHit {
+    pub point: [f64; 3],
+    pub warnings: Vec<String>,
+}
+
+impl AnchorHit {
+    pub fn exact(point: [f64; 3]) -> Self {
+        Self {
+            point,
+            warnings: Vec::new(),
+        }
+    }
 }
 
 /// Model geometry a point can attach to. Implemented by `feature-engine`
 /// over `KernelIntrospect`; `waffle-types` stays free of kernel access.
+///
+/// A refusal carries the resolver's own reason ("no Vertex within 1e-6 of
+/// the picked position (nearest 3.00e0)"), which
+/// [`Sketch3dError::UnresolvedAttachment`] repeats verbatim; a success may
+/// carry warnings, which [`Sketch3dEvaluation::warnings`] collects.
 pub trait ExternalAnchors {
-    fn vertex(&self, reference: &GeomRef) -> Option<[f64; 3]>;
-    fn edge_point(&self, reference: &GeomRef, t: f64) -> Option<[f64; 3]>;
-    fn plane_point(&self, reference: &GeomRef, uv: [f64; 2]) -> Option<[f64; 3]>;
+    fn vertex(&self, reference: &GeomRef) -> Result<AnchorHit, String>;
+    fn edge_point(&self, reference: &GeomRef, t: f64) -> Result<AnchorHit, String>;
+    fn plane_point(&self, reference: &GeomRef, uv: [f64; 2]) -> Result<AnchorHit, String>;
 }
 
 /// An [`ExternalAnchors`] that resolves nothing — for a sketch whose points
 /// are all literal or sketch-relative, and for unit tests.
 pub struct NoAnchors;
 
+const NO_ANCHORS_REASON: &str = "no model geometry is available to this evaluation";
+
 impl ExternalAnchors for NoAnchors {
-    fn vertex(&self, _: &GeomRef) -> Option<[f64; 3]> {
-        None
+    fn vertex(&self, _: &GeomRef) -> Result<AnchorHit, String> {
+        Err(NO_ANCHORS_REASON.to_string())
     }
-    fn edge_point(&self, _: &GeomRef, _: f64) -> Option<[f64; 3]> {
-        None
+    fn edge_point(&self, _: &GeomRef, _: f64) -> Result<AnchorHit, String> {
+        Err(NO_ANCHORS_REASON.to_string())
     }
-    fn plane_point(&self, _: &GeomRef, _: [f64; 2]) -> Option<[f64; 3]> {
-        None
+    fn plane_point(&self, _: &GeomRef, _: [f64; 2]) -> Result<AnchorHit, String> {
+        Err(NO_ANCHORS_REASON.to_string())
     }
 }
 
@@ -332,9 +365,29 @@ pub enum Sketch3dError {
     },
     /// A `Vertex`/`EdgePoint`/`OnPlane` attachment did not resolve — the
     /// referenced geometry is gone, or the reference does not name that kind
-    /// of entity.
+    /// of entity. `reason` is the resolver's own account, verbatim.
     UnresolvedAttachment {
         point_id: u32,
+        reason: String,
+    },
+    /// A point carries both an attachment and a driving expression. The
+    /// attachment is what derives the point, so the expression could only
+    /// ever be evaluated and discarded — refused rather than silently
+    /// ignored.
+    ExpressionOnAttachedPoint {
+        point_id: u32,
+    },
+    /// A fillet's id is too large for the generated-id range its expansion
+    /// mints into (`MAX_GENERATOR_ENTITY_ID`).
+    FilletIdOutOfRange {
+        fillet_id: u32,
+        max: u32,
+    },
+    /// An entity of the sketch uses an id the fillet's expansion mints, so
+    /// the expanded joint would alias a real entity.
+    GeneratedIdCollision {
+        fillet_id: u32,
+        id: u32,
     },
     NonFiniteCoordinate {
         point_id: u32,
@@ -413,10 +466,25 @@ impl std::fmt::Display for Sketch3dError {
                 f,
                 "3D sketch: point {point_id} is part of a cycle of attachments"
             ),
-            Self::UnresolvedAttachment { point_id } => write!(
+            Self::UnresolvedAttachment { point_id, reason } => write!(
                 f,
-                "3D sketch: point {point_id}'s attachment does not resolve — the geometry it \
-                 names is missing or is not of that kind"
+                "3D sketch: point {point_id}'s attachment does not resolve: {reason}"
+            ),
+            Self::ExpressionOnAttachedPoint { point_id } => write!(
+                f,
+                "3D sketch: point {point_id} has both an attachment and a driving expression; \
+                 the attachment derives the point, so the expression would be ignored — \
+                 remove one"
+            ),
+            Self::FilletIdOutOfRange { fillet_id, max } => write!(
+                f,
+                "3D sketch: fillet {fillet_id}'s id is above {max}, the largest a fillet can \
+                 have (its expansion mints ids in a range derived from it)"
+            ),
+            Self::GeneratedIdCollision { fillet_id, id } => write!(
+                f,
+                "3D sketch: entity id {id} is one that fillet {fillet_id}'s expansion mints; \
+                 renumber it"
             ),
             Self::NonFiniteCoordinate { point_id } => {
                 write!(f, "3D sketch: point {point_id} has a non-finite coordinate")
@@ -506,9 +574,13 @@ impl Sketch3d {
         &self,
         anchors: &dyn ExternalAnchors,
     ) -> Result<Sketch3dEvaluation, Sketch3dError> {
-        let resolved = self.resolve_points(anchors)?;
+        let (resolved, warnings) = self.resolve_points(anchors)?;
         let chains = self.chains(&resolved)?;
-        Ok(Sketch3dEvaluation { resolved, chains })
+        Ok(Sketch3dEvaluation {
+            resolved,
+            chains,
+            warnings,
+        })
     }
 
     fn check_unique_ids(&self) -> Result<(), Sketch3dError> {
@@ -524,7 +596,7 @@ impl Sketch3d {
     fn resolve_points(
         &self,
         anchors: &dyn ExternalAnchors,
-    ) -> Result<BTreeMap<u32, [f64; 3]>, Sketch3dError> {
+    ) -> Result<ResolvedPoints, Sketch3dError> {
         self.check_unique_ids()?;
 
         // Point id -> (literal, attachment). BTreeMap so the walk order below
@@ -532,14 +604,40 @@ impl Sketch3d {
         let mut points: BTreeMap<u32, (&[f64; 3], Option<&Attachment>)> = BTreeMap::new();
         for e in &self.entities {
             if let Sketch3dEntity::Point {
-                id, xyz, attach, ..
+                id,
+                xyz,
+                attach,
+                xyz_expr,
+                ..
             } = e
             {
+                // An attached point is derived from its attachment and never
+                // reads `xyz`, so an expression on it could only be evaluated
+                // into a value nothing looks at.
+                let has_expr = xyz_expr
+                    .as_ref()
+                    .is_some_and(|exprs| exprs.iter().any(Option::is_some));
+                if attach.is_some() && has_expr {
+                    return Err(Sketch3dError::ExpressionOnAttachedPoint { point_id: *id });
+                }
                 points.insert(*id, (xyz, attach.as_deref()));
             }
         }
 
         let mut out: BTreeMap<u32, [f64; 3]> = BTreeMap::new();
+        let mut warnings: Vec<String> = Vec::new();
+        let mut hit = |cur: u32, r: Result<AnchorHit, String>| -> Result<[f64; 3], Sketch3dError> {
+            let hit = r.map_err(|reason| Sketch3dError::UnresolvedAttachment {
+                point_id: cur,
+                reason,
+            })?;
+            warnings.extend(
+                hit.warnings
+                    .into_iter()
+                    .map(|w| format!("point {cur}: {w}")),
+            );
+            Ok(hit.point)
+        };
         // Iterative DFS with a three-state mark, so a cycle is reported
         // against the point that closes it rather than blowing the stack.
         #[derive(Clone, Copy, PartialEq)]
@@ -594,15 +692,13 @@ impl Sketch3d {
 
                 let value = match attach {
                     None => *literal,
-                    Some(Attachment::Vertex { reference }) => anchors
-                        .vertex(reference)
-                        .ok_or(Sketch3dError::UnresolvedAttachment { point_id: cur })?,
-                    Some(Attachment::EdgePoint { reference, t }) => anchors
-                        .edge_point(reference, *t)
-                        .ok_or(Sketch3dError::UnresolvedAttachment { point_id: cur })?,
-                    Some(Attachment::OnPlane { reference, uv }) => anchors
-                        .plane_point(reference, *uv)
-                        .ok_or(Sketch3dError::UnresolvedAttachment { point_id: cur })?,
+                    Some(Attachment::Vertex { reference }) => hit(cur, anchors.vertex(reference))?,
+                    Some(Attachment::EdgePoint { reference, t }) => {
+                        hit(cur, anchors.edge_point(reference, *t))?
+                    }
+                    Some(Attachment::OnPlane { reference, uv }) => {
+                        hit(cur, anchors.plane_point(reference, *uv))?
+                    }
                     Some(Attachment::Offset { from, delta }) => add(out[from], *delta),
                     Some(Attachment::AlongAxis {
                         from,
@@ -618,7 +714,7 @@ impl Sketch3d {
                 stack.pop();
             }
         }
-        Ok(out)
+        Ok((out, warnings))
     }
 
     /// Extract every maximal chain, with fillets expanded.
@@ -755,6 +851,29 @@ impl Sketch3d {
                 return Err(Sketch3dError::DuplicateFillet { at_point_id: *at });
             }
         }
+        // The synthetic joint ids each fillet mints must exist (the range is
+        // finite) and must not be ids the sketch already uses — otherwise the
+        // expanded joint aliases a real point and the chain walk sees a
+        // three-way junction where the author drew a corner.
+        let all_ids: BTreeSet<u32> = self.entities.iter().map(Sketch3dEntity::id).collect();
+        let mut minted: BTreeMap<u32, u32> = BTreeMap::new();
+        for (fid, _, _) in &fillets {
+            let base = checked_generated_entity_id_base(*fid).ok_or(
+                Sketch3dError::FilletIdOutOfRange {
+                    fillet_id: *fid,
+                    max: MAX_GENERATOR_ENTITY_ID,
+                },
+            )?;
+            for id in [base, base + 1] {
+                if all_ids.contains(&id) {
+                    return Err(Sketch3dError::GeneratedIdCollision {
+                        fillet_id: *fid,
+                        id,
+                    });
+                }
+            }
+            minted.insert(*fid, base);
+        }
 
         // Point -> the pieces touching it, in entity-id order.
         let mut incident: BTreeMap<u32, Vec<usize>> = BTreeMap::new();
@@ -882,7 +1001,7 @@ impl Sketch3d {
             for (i, end, tangent, _) in pl.sides {
                 pieces[i].trim_to(end, tangent);
             }
-            let base = generated_entity_id_base(pl.fillet_id);
+            let base = minted[&pl.fillet_id];
             let (s0, s1) = (base, base + 1);
             pieces[pl.sides[0].0].set_pid(pl.sides[0].1, s0);
             pieces[pl.sides[1].0].set_pid(pl.sides[1].1, s1);
@@ -1275,10 +1394,123 @@ mod tests {
             xyz_expr: None,
             construction: false,
         }];
+        let err = try_eval(entities).unwrap_err();
+        assert!(matches!(
+            err,
+            Sketch3dError::UnresolvedAttachment { point_id: 1, .. }
+        ));
+        // The resolver's own reason survives into the message.
+        assert!(
+            err.to_string().contains(NO_ANCHORS_REASON),
+            "the reason is named, not paraphrased away: {err}"
+        );
+    }
+
+    #[test]
+    fn an_expression_on_an_attached_point_is_refused_not_ignored() {
+        // The attachment derives the point; `xyz` (which the expression would
+        // write) is never read. Evaluating the expression into nothing would
+        // be a silent wrong answer, so it is a typed refusal instead.
+        let entities = vec![
+            pt(1, [0.0; 3]),
+            Sketch3dEntity::Point {
+                id: 2,
+                xyz: [0.0; 3],
+                attach: Some(Box::new(Attachment::AlongAxis {
+                    from: 1,
+                    axis: Axis::X,
+                    distance: 0.5,
+                })),
+                xyz_expr: Some([None, None, Some("height".to_string())]),
+                construction: false,
+            },
+        ];
         assert!(matches!(
             try_eval(entities).unwrap_err(),
-            Sketch3dError::UnresolvedAttachment { point_id: 1 }
+            Sketch3dError::ExpressionOnAttachedPoint { point_id: 2 }
         ));
+        // An all-`None` expression array is no expression at all.
+        let entities = vec![
+            pt(1, [0.0; 3]),
+            Sketch3dEntity::Point {
+                id: 2,
+                xyz: [0.0; 3],
+                attach: Some(Box::new(Attachment::AlongAxis {
+                    from: 1,
+                    axis: Axis::X,
+                    distance: 0.5,
+                })),
+                xyz_expr: Some([None, None, None]),
+                construction: false,
+            },
+        ];
+        assert_eq!(eval(entities).resolved[&2], [0.5, 0.0, 0.0]);
+    }
+
+    #[test]
+    fn a_fillet_id_beyond_the_generated_range_is_refused_not_overflowed() {
+        // `id * 100_000` for this id does not fit a u32; before the check
+        // this panicked in debug builds and wrapped in release ones.
+        let big = MAX_GENERATOR_ENTITY_ID + 1;
+        let entities = vec![
+            pt(1, [0.0, 0.0, 0.0]),
+            pt(2, [1.0, 0.0, 0.0]),
+            pt(3, [1.0, 1.0, 0.0]),
+            line(4, 1, 2),
+            line(5, 2, 3),
+            Sketch3dEntity::Fillet {
+                id: big,
+                at_point_id: 2,
+                radius: 0.1,
+                radius_expr: None,
+            },
+        ];
+        assert!(matches!(
+            try_eval(entities).unwrap_err(),
+            Sketch3dError::FilletIdOutOfRange { fillet_id, max }
+                if fillet_id == big && max == MAX_GENERATOR_ENTITY_ID
+        ));
+        // The largest permitted id still expands.
+        let entities = vec![
+            pt(1, [0.0, 0.0, 0.0]),
+            pt(2, [1.0, 0.0, 0.0]),
+            pt(3, [1.0, 1.0, 0.0]),
+            line(4, 1, 2),
+            line(5, 2, 3),
+            Sketch3dEntity::Fillet {
+                id: MAX_GENERATOR_ENTITY_ID,
+                at_point_id: 2,
+                radius: 0.1,
+                radius_expr: None,
+            },
+        ];
+        assert_eq!(eval(entities).chains[0].edges.len(), 3);
+    }
+
+    #[test]
+    fn a_real_entity_on_a_minted_id_is_refused_not_aliased() {
+        // Fillet 6 mints joints 50_600_000 and 50_600_001. A point declared
+        // on the first would make the expanded joint a three-way junction.
+        let minted = checked_generated_entity_id_base(6).unwrap();
+        let entities = vec![
+            pt(1, [0.0, 0.0, 0.0]),
+            pt(2, [1.0, 0.0, 0.0]),
+            pt(3, [1.0, 1.0, 0.0]),
+            pt(minted, [5.0, 5.0, 5.0]),
+            line(4, 1, 2),
+            line(5, 2, 3),
+            Sketch3dEntity::Fillet {
+                id: 6,
+                at_point_id: 2,
+                radius: 0.1,
+                radius_expr: None,
+            },
+        ];
+        let err = try_eval(entities).unwrap_err();
+        assert!(
+            matches!(err, Sketch3dError::GeneratedIdCollision { fillet_id: 6, id } if id == minted),
+            "expected the collision refusal, got: {err}"
+        );
     }
 
     #[test]

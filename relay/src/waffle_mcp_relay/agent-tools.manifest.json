@@ -1,5 +1,5 @@
 {
-  "manifest_hash": "b66108129516e0cc73915770acb8ada29557e26f7351b7b50be4af63f57defd1",
+  "manifest_hash": "03353b565b846b4d3b9dc3f71dc19e4c97598c08a556f731d7d7471a3221a709",
   "protocol": "waffle-agent-link/1",
   "tools": [
     {
@@ -1923,7 +1923,7 @@
         "readOnlyHint": true,
         "title": "3D sketch geometry"
       },
-      "description": "What a 3D sketch EVALUATED to: where every point landed (a point attached to model geometry resolves only at rebuild, so feature_get shows the declaration, not the answer), and the chains its segments form. A chain is a run of lines and arcs joined end to end; the graph splits into one chain per run at every point where the number of segments is not two, so a truss centre-line graph comes back as one chain per member. tangent_joints[i] says whether the joint between edge i and edge i+1 is smooth (a fillet) rather than a corner — that is what decides a mitre from a bend when a sweep runs along it. A suppressed, rolled-back or failed sketch answers NotEvaluated.",
+      "description": "What a 3D sketch EVALUATED to: where every point landed (a point attached to model geometry resolves only at rebuild, so feature_get shows the declaration, not the answer), and the chains its segments form. A chain is a run of lines and arcs joined end to end; the graph splits into one chain per run at every point where the number of segments is not two, so a truss centre-line graph comes back as one chain per member. tangent_joints[i] says whether the joint between edge i and edge i+1 is smooth (a fillet) rather than a corner — that is what decides a mitre from a bend when a sweep runs along it. warnings lists any attached point that resolved with a caveat — a BestEffort pick that re-bound onto the NEAREST entity after the geometry moved names its point and the distance. A suppressed, rolled-back or failed sketch answers NotEvaluated.",
       "inputSchema": {
         "additionalProperties": false,
         "properties": {
@@ -1999,13 +1999,21 @@
               "type": "object"
             },
             "type": "array"
+          },
+          "warnings": {
+            "description": "One entry per attached point that resolved with a caveat, prefixed \"point <id>:\".",
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
           }
         },
         "required": [
           "feature_id",
           "entity_count",
           "points",
-          "chains"
+          "chains",
+          "warnings"
         ],
         "type": "object"
       }

@@ -312,8 +312,9 @@ pub fn rebuild(
             // same evaluation for validation when called directly.
             crate::sketch3d::evaluate(sketch, &state.feature_results, kb.as_introspect(), tree).map(
                 |ev| {
+                    let result = crate::sketch3d::no_geometry_result(&ev);
                     state.sketch3d.insert(feature.id, ev);
-                    crate::sketch3d::no_geometry_result()
+                    result
                 },
             )
         } else if matches!(feature.operation, Operation::Script { .. }) {
@@ -605,8 +606,8 @@ pub(crate) fn execute_feature(
             // evaluated chains are read after the rebuild
             // (`RebuildState::sketch3d`), the way a connector's frame is;
             // the rebuild loop captures them there.
-            crate::sketch3d::evaluate(sketch, feature_results, kb.as_introspect(), tree)?;
-            Ok(crate::sketch3d::no_geometry_result())
+            let ev = crate::sketch3d::evaluate(sketch, feature_results, kb.as_introspect(), tree)?;
+            Ok(crate::sketch3d::no_geometry_result(&ev))
         }
 
         Operation::MateConnector { params } => {

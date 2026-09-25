@@ -114,7 +114,8 @@ pub enum Sketch3dEntity {
 Ids are `u32` and unique within the sketch, matching `SketchEntity`. Generator
 expansion offsets into the entity's own id range the way the sprocket does
 (`generated_entity_id_base`), so a fillet's arc has a stable id nothing else
-can collide with.
+can collide with — enforced, not assumed: a fillet id too large for the range
+and a sketch entity sitting on a minted id are both typed refusals (§5 step 3).
 
 Why `Fillet` is a generator rather than a stored arc: a sweep wants a G1 bend
 at some corners and a sharp mitre at others (B6 §4), and the difference must
@@ -187,14 +188,30 @@ design parameters. Steps 2–4 run in the rebuild walk.
 
 1. **Expressions** — evaluate `xyz_expr` components against the design
    parameters; write results into `xyz`. Same mm→m convention as every other
-   `*_expr`.
+   `*_expr`. A point cannot carry both an expression and an attachment: the
+   attachment derives the point and never reads `xyz`, so the expression could
+   only be evaluated into a value nothing looks at — that is
+   `ExpressionOnAttachedPoint`, loud, not a silent no-op.
 2. **Attachments** — resolve in dependency order (`Offset` and `AlongAxis`
    reference other sketch points, so the graph is topologically sorted; a cycle
-   is `Sketch3dCyclicAttachment`, loud).
+   is `Sketch3dCyclicAttachment`, loud). A model-geometry attachment resolves
+   through `ExternalAnchors`, which answers `Result<AnchorHit, String>`: a
+   refusal carries the resolver's own reason, repeated verbatim in
+   `UnresolvedAttachment`, and a success may carry warnings — a `BestEffort`
+   pick that re-bound onto the NEAREST entity after the geometry moved says so.
+   Those warnings are collected in `Sketch3dEvaluation::warnings`, prefixed
+   with the point, and the engine reports them as the feature's own warnings.
+   A picked entity (a `Position` selector) resolves the same way for a face as
+   for a vertex or an edge — through the nearest-entity resolver, which is what
+   lets it re-bind.
 3. **Generators** — expand each `Fillet` into its arc and trim the two
    segments. A radius that does not fit between the joint's neighbours is
    `Sketch3dFilletTooLarge { at_point }`, loud, and the sketch fails as a whole
-   rather than silently dropping the bend.
+   rather than silently dropping the bend. The joint ids a fillet mints come
+   from `checked_generated_entity_id_base`: a fillet id above
+   `MAX_GENERATOR_ENTITY_ID` is `FilletIdOutOfRange` (not a `u32` overflow), and
+   a sketch entity already using a minted id is `GeneratedIdCollision` (not a
+   three-way junction where the author drew a corner).
 4. **Chains** — walk the line/arc entities into maximal chains by shared point
    id, each open or closed. This is the consumable output.
 

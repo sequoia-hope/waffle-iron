@@ -239,9 +239,16 @@ impl Sketch {
                     self.solved_profiles.extend(result.profiles);
                 }
                 SketchEntity::Sprocket { id, params, .. } => {
-                    match generate_sprocket_profile(params) {
-                        Ok(result) => {
-                            let base = generated_entity_id_base(*id);
+                    // The id range is the sprocket's own; an id too large for
+                    // it is refused the way a bad parameter is, not wrapped.
+                    let generated = checked_generated_entity_id_base(*id)
+                        .ok_or(SprocketError::BadValue {
+                            field: format!("entity id (max {MAX_GENERATOR_ENTITY_ID})"),
+                            value: f64::from(*id),
+                        })
+                        .and_then(|base| generate_sprocket_profile(params).map(|r| (base, r)));
+                    match generated {
+                        Ok((base, result)) => {
                             expanded_entities
                                 .extend(result.entities.iter().map(|e| e.with_ids_offset(base)));
                             self.solved_positions
@@ -484,8 +491,27 @@ impl SketchEntity {
 /// with another generator's. Shared with the app's inactive-sketch display
 /// expansion (JS `inactiveGearIdBase`) so region and profile ids agree
 /// between hosts.
+///
+/// Only defined for `entity_id ≤ MAX_GENERATOR_ENTITY_ID`; above that the
+/// base does not fit a `u32`. Callers that take an author-supplied id must go
+/// through [`checked_generated_entity_id_base`], which refuses instead of
+/// overflowing (a panic in debug, a silent wraparound in release).
 pub fn generated_entity_id_base(entity_id: u32) -> u32 {
-    50_000_000 + entity_id * 100_000
+    GENERATED_ID_BASE + entity_id * GENERATED_ID_STRIDE
+}
+
+const GENERATED_ID_BASE: u32 = 50_000_000;
+const GENERATED_ID_STRIDE: u32 = 100_000;
+
+/// The largest generator entity id whose generated range fits a `u32`.
+pub const MAX_GENERATOR_ENTITY_ID: u32 = (u32::MAX - GENERATED_ID_BASE) / GENERATED_ID_STRIDE;
+
+/// [`generated_entity_id_base`] that answers `None` above
+/// [`MAX_GENERATOR_ENTITY_ID`] rather than overflowing.
+pub fn checked_generated_entity_id_base(entity_id: u32) -> Option<u32> {
+    entity_id
+        .checked_mul(GENERATED_ID_STRIDE)
+        .and_then(|o| o.checked_add(GENERATED_ID_BASE))
 }
 
 /// A constraint between sketch entities.
