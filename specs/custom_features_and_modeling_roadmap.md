@@ -494,7 +494,18 @@ orderings (a balanced tree must give the same solid as a chain: the assay's
 ### B5. Explicitly not in this plan
 
 - Fillet, chamfer, shell: deferred indefinitely (CLAUDE.md).
-- General sweep and loft: need surfaces the kernel does not carry.
+- ~~General sweep and loft: need surfaces the kernel does not carry.~~
+  **Half of this was wrong, corrected 2026-09-25 — see `specs/b6_general_sweep.md`.**
+  A sweep of a section along a chain of lines and arcs needs NO surface the
+  kernel lacks: the section plane on an arc segment contains that arc's axis,
+  so the sweep IS a partial revolve, and the surfaces are the surfaces of
+  revolution of the section's edges (plane / cylinder / cone / torus — all
+  four already built by `construct::revolve`). What genuinely needs new
+  surfaces is **guide rails, variable section, twist along a segment, spline
+  paths and helical paths** (B6 §7), and **loft**, which is untouched by this
+  correction. B6 is approved and sequenced after `specs/sketch3d.md`; B2 Pipe
+  is one cell of its table and is to be subsumed by it, not maintained beside
+  it.
 - A visual scripting editor.
 
 ## Part C — Sequencing
