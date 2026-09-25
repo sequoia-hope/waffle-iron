@@ -92,7 +92,21 @@ export const sketchCreateTool = {
 
 const operationNote =
 	'operation is an Operation: {"type":"Extrude","params":{…}}, Revolve, Pipe, BooleanCombine, UnionAll, DatumPlane, MateConnector, ' +
-	'PatternCircular, PatternLinear, PatternMirror, Script, or a full Sketch. A UnionAll folds EVERY live body of the part (or ' +
+	'PatternCircular, PatternLinear, PatternMirror, Script, a full Sketch, or a Sketch3d. A Sketch3d is SPATIAL ' +
+	'reference geometry — lines and arcs in 3D and the points that define them — and produces NO body: it is the ' +
+	'path a sweep or a frame runs along, and it is not extrudable (no plane, no region, no profile). ' +
+	'{"type":"Sketch3d","sketch":{"id": a uuid, "entities":[…]}} with entities: ' +
+	'{"type":"Point", id, xyz:[x,y,z], attach?, xyz_expr?: [expr|null, …] (mm-space), construction?}, ' +
+	'{"type":"Line", id, start_id, end_id}, {"type":"Arc", id, start_id, end_id, via_id} (three distinct ' +
+	'non-collinear points — via_id is any point ON the arc), and {"type":"Fillet", id, at_point_id, radius (m), ' +
+	'radius_expr?} which rounds the corner where exactly two STRAIGHT segments meet, exactly tangent to both. ' +
+	'Two points coincide by SHARING a point id, not by a constraint — there is no 3D solver. A point derives its ' +
+	'position instead of stating it with attach: {"type":"AlongAxis", from: another point id, axis:"X"|"Y"|"Z", ' +
+	'distance} (the axis-locked run most frame geometry is made of), {"type":"Offset", from, delta:[x,y,z]}, ' +
+	'{"type":"Vertex", reference: a Vertex GeomRef}, {"type":"EdgePoint", reference: an Edge GeomRef, t: 0..1 ' +
+	'along it by arc length}, or {"type":"OnPlane", reference: a planar face or datum plane, uv}. Read back what ' +
+	'it evaluated to with sketch3d_get — an attached point resolves only at rebuild, so the xyz you wrote is just ' +
+	'a hint. A UnionAll folds EVERY live body of the part (or ' +
 	'params.targets {type:"Selected", bodies:[Solid GeomRefs]}) into connected solids with ONE feature — a balanced ' +
 	'tree of pairwise unions with a bounding-box fast path — so prefer it over a chain of BooleanCombine steps on many ' +
 	'overlapping bodies: params {targets?: {type:"All"}}. A BooleanCombine whose operand was already consumed by an ' +

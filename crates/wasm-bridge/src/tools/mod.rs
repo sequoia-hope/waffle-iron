@@ -31,6 +31,7 @@ mod export;
 mod inspect;
 mod script;
 mod sketch;
+mod sketch3d;
 mod summary;
 mod tabs;
 
@@ -65,6 +66,7 @@ pub const MIGRATED: &[&str] = &[
     "undo",
     "redo",
     "sketch_create",
+    "sketch3d_get",
     "script_run_check",
     "script_source_add",
     "script_source_get",
@@ -249,6 +251,7 @@ fn run(
         "undo" => author::undo(state, kb),
         "redo" => author::redo(state, kb),
         "sketch_create" => sketch::sketch_create(state, kb, args, context),
+        "sketch3d_get" => sketch3d::sketch3d_get(state, args),
         "script_run_check" => script::script_run_check(state, args),
         "script_source_add" => script::script_source_add(state, kb, args),
         "script_source_get" => script::script_source_get(state, args),

@@ -1,5 +1,5 @@
 {
-  "manifest_hash": "3065be20028fa5ad1d987421e91c4e4cb18256f21ca522763eaa0e10a80ec0a7",
+  "manifest_hash": "b66108129516e0cc73915770acb8ada29557e26f7351b7b50be4af63f57defd1",
   "protocol": "waffle-agent-link/1",
   "tools": [
     {
@@ -1914,6 +1914,98 @@
         "required": [
           "feature_id",
           "regions"
+        ],
+        "type": "object"
+      }
+    },
+    {
+      "annotations": {
+        "readOnlyHint": true,
+        "title": "3D sketch geometry"
+      },
+      "description": "What a 3D sketch EVALUATED to: where every point landed (a point attached to model geometry resolves only at rebuild, so feature_get shows the declaration, not the answer), and the chains its segments form. A chain is a run of lines and arcs joined end to end; the graph splits into one chain per run at every point where the number of segments is not two, so a truss centre-line graph comes back as one chain per member. tangent_joints[i] says whether the joint between edge i and edge i+1 is smooth (a fillet) rather than a corner — that is what decides a mitre from a bend when a sweep runs along it. A suppressed, rolled-back or failed sketch answers NotEvaluated.",
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "feature_id": {
+            "description": "Id of a Sketch3d feature.",
+            "format": "uuid",
+            "type": "string"
+          }
+        },
+        "required": [
+          "feature_id"
+        ],
+        "type": "object"
+      },
+      "name": "sketch3d_get",
+      "outputSchema": {
+        "properties": {
+          "chains": {
+            "items": {
+              "properties": {
+                "closed": {
+                  "type": "boolean"
+                },
+                "edges": {
+                  "items": {
+                    "type": "object"
+                  },
+                  "type": "array"
+                },
+                "length_m": {
+                  "type": "number"
+                },
+                "tangent_joints": {
+                  "items": {
+                    "type": "boolean"
+                  },
+                  "type": "array"
+                }
+              },
+              "required": [
+                "closed",
+                "length_m",
+                "tangent_joints",
+                "edges"
+              ],
+              "type": "object"
+            },
+            "type": "array"
+          },
+          "entity_count": {
+            "type": "integer"
+          },
+          "feature_id": {
+            "type": "string"
+          },
+          "points": {
+            "items": {
+              "properties": {
+                "id": {
+                  "type": "integer"
+                },
+                "xyz": {
+                  "items": {
+                    "type": "number"
+                  },
+                  "type": "array"
+                }
+              },
+              "required": [
+                "id",
+                "xyz"
+              ],
+              "type": "object"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "feature_id",
+          "entity_count",
+          "points",
+          "chains"
         ],
         "type": "object"
       }
@@ -4469,7 +4561,7 @@
         "readOnlyHint": false,
         "title": "Add feature"
       },
-      "description": "Add a feature at the end of the feature tree (one undo step). operation is an Operation: {\"type\":\"Extrude\",\"params\":{…}}, Revolve, Pipe, BooleanCombine, UnionAll, DatumPlane, MateConnector, PatternCircular, PatternLinear, PatternMirror, Script, or a full Sketch. A UnionAll folds EVERY live body of the part (or params.targets {type:\"Selected\", bodies:[Solid GeomRefs]}) into connected solids with ONE feature — a balanced tree of pairwise unions with a bounding-box fast path — so prefer it over a chain of BooleanCombine steps on many overlapping bodies: params {targets?: {type:\"All\"}}. A BooleanCombine whose operand was already consumed by an earlier feature is refused (chain onto that feature's own output instead). A Pipe sweeps a circle along an OPEN, tangent-continuous chain of sketch lines and arcs (construction geometry is fine) as ONE solid: params {sketch_id, entity_ids: [the path entities, any order], radius (m), inner_radius? (m, hollow), combine?, targets?} — no boolean between segments, so a handlebar or hose is one body; a corner or a bend tighter than the tube radius is refused. A Script runs a custom feature script (Rhai) that the document carries as a `Script` source: params {source_id, entry?: \"feature\", args: {name: value in model units, or {origin, normal} / a datum plane id for a plane param}, arg_exprs?: {name: \"expression\"}}; the script declares its parameters in `// @param name: type` header lines and calls ctx.sketch / extrude / revolve / boolean over the same operations as these tools; add the source with script_source_add and prefer script_feature_add (same node, takes the args directly) — see docs/CUSTOM_FEATURE_SCRIPTS.md. A PatternCircular/PatternLinear/PatternMirror copies seed BODIES (params.seeds: Solid GeomRefs {kind:\"Solid\", anchor:{type:\"FeatureOutput\", feature_id, output_key}}, from model_summary bodies, or {\"type\":\"All\"} for EVERY live body at that point in the tree — which is how you say \"take everything I just built and turn it four times\" without listing it) — it does not re-run the seed feature. Circular: axis {method:\"explicit\", origin, direction} or {method:\"entity\", geom_ref: a cylindrical/conical face, a circular edge, or a straight edge}, count (instances INCLUDING the seed, ≥ 2), angle_deg (TOTAL sweep; 360 spaces 360/count apart, otherwise the last instance lands at angle_deg), skip?: [instance indices ≥ 1]. Linear: direction (AxisRef, direction only), count, spacing (m; negative reverses), second?: {direction, count, spacing} for a grid (index i + j·count). Mirror: plane {method:\"explicit\", origin: a point on the plane, direction: the plane NORMAL} or {method:\"entity\", geom_ref: a planar face or datum plane}; one copy, the seed's mirror image (no count, no skip). All: combine?: NewBody (default: every instance its own body) | Add (folds targets + instances into connected bodies) | Cut | Intersect, with targets?: explicit Solid GeomRefs (never auto by position; Cut/Intersect need one). The pattern takes custody of its seeds (their features are consumed) and emits every instance: Main = the seed itself, then Body:1… — so chain later booleans onto the PATTERN's outputs, not the seed feature's. A MateConnector is a named frame on the part that assemblies mate its instances by (model_summary lists the evaluated ones): params {name, geom_ref?: a Face or Edge GeomRef (face_list, selection_get), frame?: {origin, z_axis, x_axis} in part coordinates when there is no geom_ref, anchor?: \"middle\"|\"positive_end\"|\"negative_end\" along a cylindrical/conical/toroidal face's axis, flip_z?, rotation_deg?, offset_m?: [x, y, z] along its own axes}; a pick with no frame (a vertex, a freeform face) fails the feature. Address a sketch loop with params.sketch_id = the Sketch feature id and params.profile_entity_ids = the loop's entity ids (from sketch_create or sketch_regions); profile_index is then ignored but still required (use 0). Fillet, Chamfer and Shell are refused (Deferred); STEP imports are not authored here. A step whose feature or any downstream feature newly fails to rebuild is rolled back by default; kernel capability limits (NotSupported) are reported verbatim — do not retry them with altered parameters. Units: lengths in meters, angles in degrees; *_expr expressions are mm-space (a bare 20 means 20 mm).",
+      "description": "Add a feature at the end of the feature tree (one undo step). operation is an Operation: {\"type\":\"Extrude\",\"params\":{…}}, Revolve, Pipe, BooleanCombine, UnionAll, DatumPlane, MateConnector, PatternCircular, PatternLinear, PatternMirror, Script, a full Sketch, or a Sketch3d. A Sketch3d is SPATIAL reference geometry — lines and arcs in 3D and the points that define them — and produces NO body: it is the path a sweep or a frame runs along, and it is not extrudable (no plane, no region, no profile). {\"type\":\"Sketch3d\",\"sketch\":{\"id\": a uuid, \"entities\":[…]}} with entities: {\"type\":\"Point\", id, xyz:[x,y,z], attach?, xyz_expr?: [expr|null, …] (mm-space), construction?}, {\"type\":\"Line\", id, start_id, end_id}, {\"type\":\"Arc\", id, start_id, end_id, via_id} (three distinct non-collinear points — via_id is any point ON the arc), and {\"type\":\"Fillet\", id, at_point_id, radius (m), radius_expr?} which rounds the corner where exactly two STRAIGHT segments meet, exactly tangent to both. Two points coincide by SHARING a point id, not by a constraint — there is no 3D solver. A point derives its position instead of stating it with attach: {\"type\":\"AlongAxis\", from: another point id, axis:\"X\"|\"Y\"|\"Z\", distance} (the axis-locked run most frame geometry is made of), {\"type\":\"Offset\", from, delta:[x,y,z]}, {\"type\":\"Vertex\", reference: a Vertex GeomRef}, {\"type\":\"EdgePoint\", reference: an Edge GeomRef, t: 0..1 along it by arc length}, or {\"type\":\"OnPlane\", reference: a planar face or datum plane, uv}. Read back what it evaluated to with sketch3d_get — an attached point resolves only at rebuild, so the xyz you wrote is just a hint. A UnionAll folds EVERY live body of the part (or params.targets {type:\"Selected\", bodies:[Solid GeomRefs]}) into connected solids with ONE feature — a balanced tree of pairwise unions with a bounding-box fast path — so prefer it over a chain of BooleanCombine steps on many overlapping bodies: params {targets?: {type:\"All\"}}. A BooleanCombine whose operand was already consumed by an earlier feature is refused (chain onto that feature's own output instead). A Pipe sweeps a circle along an OPEN, tangent-continuous chain of sketch lines and arcs (construction geometry is fine) as ONE solid: params {sketch_id, entity_ids: [the path entities, any order], radius (m), inner_radius? (m, hollow), combine?, targets?} — no boolean between segments, so a handlebar or hose is one body; a corner or a bend tighter than the tube radius is refused. A Script runs a custom feature script (Rhai) that the document carries as a `Script` source: params {source_id, entry?: \"feature\", args: {name: value in model units, or {origin, normal} / a datum plane id for a plane param}, arg_exprs?: {name: \"expression\"}}; the script declares its parameters in `// @param name: type` header lines and calls ctx.sketch / extrude / revolve / boolean over the same operations as these tools; add the source with script_source_add and prefer script_feature_add (same node, takes the args directly) — see docs/CUSTOM_FEATURE_SCRIPTS.md. A PatternCircular/PatternLinear/PatternMirror copies seed BODIES (params.seeds: Solid GeomRefs {kind:\"Solid\", anchor:{type:\"FeatureOutput\", feature_id, output_key}}, from model_summary bodies, or {\"type\":\"All\"} for EVERY live body at that point in the tree — which is how you say \"take everything I just built and turn it four times\" without listing it) — it does not re-run the seed feature. Circular: axis {method:\"explicit\", origin, direction} or {method:\"entity\", geom_ref: a cylindrical/conical face, a circular edge, or a straight edge}, count (instances INCLUDING the seed, ≥ 2), angle_deg (TOTAL sweep; 360 spaces 360/count apart, otherwise the last instance lands at angle_deg), skip?: [instance indices ≥ 1]. Linear: direction (AxisRef, direction only), count, spacing (m; negative reverses), second?: {direction, count, spacing} for a grid (index i + j·count). Mirror: plane {method:\"explicit\", origin: a point on the plane, direction: the plane NORMAL} or {method:\"entity\", geom_ref: a planar face or datum plane}; one copy, the seed's mirror image (no count, no skip). All: combine?: NewBody (default: every instance its own body) | Add (folds targets + instances into connected bodies) | Cut | Intersect, with targets?: explicit Solid GeomRefs (never auto by position; Cut/Intersect need one). The pattern takes custody of its seeds (their features are consumed) and emits every instance: Main = the seed itself, then Body:1… — so chain later booleans onto the PATTERN's outputs, not the seed feature's. A MateConnector is a named frame on the part that assemblies mate its instances by (model_summary lists the evaluated ones): params {name, geom_ref?: a Face or Edge GeomRef (face_list, selection_get), frame?: {origin, z_axis, x_axis} in part coordinates when there is no geom_ref, anchor?: \"middle\"|\"positive_end\"|\"negative_end\" along a cylindrical/conical/toroidal face's axis, flip_z?, rotation_deg?, offset_m?: [x, y, z] along its own axes}; a pick with no frame (a vertex, a freeform face) fails the feature. Address a sketch loop with params.sketch_id = the Sketch feature id and params.profile_entity_ids = the loop's entity ids (from sketch_create or sketch_regions); profile_index is then ignored but still required (use 0). Fillet, Chamfer and Shell are refused (Deferred); STEP imports are not authored here. A step whose feature or any downstream feature newly fails to rebuild is rolled back by default; kernel capability limits (NotSupported) are reported verbatim — do not retry them with altered parameters. Units: lengths in meters, angles in degrees; *_expr expressions are mm-space (a bare 20 means 20 mm).",
       "inputSchema": {
         "$defs": {
           "Anchor": {
@@ -4556,6 +4648,134 @@
             ],
             "type": "object"
           },
+          "Attachment": {
+            "description": "How a point's coordinates are derived, when they are not literal.\n\nEvery variant resolves by construction in one pass — there is no iteration\nand no convergence. `Offset` and `AlongAxis` reference another point of the\nsame sketch and so impose a dependency order; the rest resolve against\nmodel geometry through [`ExternalAnchors`].",
+            "oneOf": [
+              {
+                "description": "Coincident with a model vertex.",
+                "properties": {
+                  "reference": {
+                    "$ref": "#/$defs/GeomRef"
+                  },
+                  "type": {
+                    "const": "Vertex",
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "type",
+                  "reference"
+                ],
+                "type": "object"
+              },
+              {
+                "description": "At parameter `t ∈ [0, 1]` along a model edge.",
+                "properties": {
+                  "reference": {
+                    "$ref": "#/$defs/GeomRef"
+                  },
+                  "t": {
+                    "format": "double",
+                    "type": "number"
+                  },
+                  "type": {
+                    "const": "EdgePoint",
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "type",
+                  "reference",
+                  "t"
+                ],
+                "type": "object"
+              },
+              {
+                "description": "At `uv` on a model face or datum plane.",
+                "properties": {
+                  "reference": {
+                    "$ref": "#/$defs/GeomRef"
+                  },
+                  "type": {
+                    "const": "OnPlane",
+                    "type": "string"
+                  },
+                  "uv": {
+                    "items": {
+                      "format": "double",
+                      "type": "number"
+                    },
+                    "maxItems": 2,
+                    "minItems": 2,
+                    "type": "array"
+                  }
+                },
+                "required": [
+                  "type",
+                  "reference",
+                  "uv"
+                ],
+                "type": "object"
+              },
+              {
+                "description": "A fixed world-space offset from another sketch point.",
+                "properties": {
+                  "delta": {
+                    "items": {
+                      "format": "double",
+                      "type": "number"
+                    },
+                    "maxItems": 3,
+                    "minItems": 3,
+                    "type": "array"
+                  },
+                  "from": {
+                    "format": "uint32",
+                    "minimum": 0,
+                    "type": "integer"
+                  },
+                  "type": {
+                    "const": "Offset",
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "type",
+                  "from",
+                  "delta"
+                ],
+                "type": "object"
+              },
+              {
+                "description": "A run of `distance` along a world axis from another sketch point —\nthe axis-locked segment that most frame geometry is made of.",
+                "properties": {
+                  "axis": {
+                    "$ref": "#/$defs/Axis"
+                  },
+                  "distance": {
+                    "format": "double",
+                    "type": "number"
+                  },
+                  "from": {
+                    "format": "uint32",
+                    "minimum": 0,
+                    "type": "integer"
+                  },
+                  "type": {
+                    "const": "AlongAxis",
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "type",
+                  "from",
+                  "axis",
+                  "distance"
+                ],
+                "type": "object"
+              }
+            ]
+          },
           "AxialAnchor": {
             "description": "Where along a rotational face's axis a derived connector sits\n(`crate::connector`, `specs/assembly_connector_adjustments.md`): the\nmiddle of the face's axial extent (the default — what a Revolute or\nCylindrical mate wants) or one of its ends. The ends are named by the\nconnector's FINAL z (after `flip_z`), so they always read against the\ntriad the viewport draws: \"+z end\" is wherever the blue arrow points.\nIgnored by every other pick (a planar face, a sphere, an edge, an\nexplicit frame).",
             "oneOf": [
@@ -4576,6 +4796,15 @@
                 "type": "string"
               }
             ]
+          },
+          "Axis": {
+            "description": "A world axis, for [`Attachment::AlongAxis`].",
+            "enum": [
+              "X",
+              "Y",
+              "Z"
+            ],
+            "type": "string"
           },
           "AxisRef": {
             "description": "A line in space named for a pattern: a circular pattern's rotation axis or\na linear pattern's direction (`specs/custom_features_and_modeling_roadmap.md`\n§B1). `#[serde(tag = \"method\")]`, like [`PlaneDefinition`].",
@@ -5497,6 +5726,22 @@
               },
               {
                 "properties": {
+                  "sketch": {
+                    "$ref": "#/$defs/Sketch3d"
+                  },
+                  "type": {
+                    "const": "Sketch3d",
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "type",
+                  "sketch"
+                ],
+                "type": "object"
+              },
+              {
+                "properties": {
                   "params": {
                     "$ref": "#/$defs/ExtrudeParams"
                   },
@@ -5742,6 +5987,7 @@
                     "not": {
                       "enum": [
                         "Sketch",
+                        "Sketch3d",
                         "Extrude",
                         "Revolve",
                         "Fillet",
@@ -7236,6 +7482,202 @@
               "constraints"
             ],
             "type": "object"
+          },
+          "Sketch3d": {
+            "description": "A 3D sketch: purely declarative, with no engine-written cache.\n\n`Sketch::solved_positions` can be stored on the sketch because the 2D\nsolver runs in the engine's mutable pre-pass, before the rebuild. A 3D\nsketch cannot: an [`Attachment`] to a model vertex only resolves once the\nfeature that made that vertex has rebuilt, which is the rebuild walk\nitself, where the tree is immutable. So evaluation is pure and its output\nis carried in the feature's rebuild result — the way a mate connector's\nframe \"is read after the rebuild\" (`feature_engine::rebuild`).\n\nA reader that never evaluates still sees the sketch's shape: every\npoint's `xyz` holds coordinates. For an attached point those are the last\nones the author saw rather than the derived truth, which is why `attach`\nis what the engine believes and `xyz` is only a hint.",
+            "properties": {
+              "entities": {
+                "items": {
+                  "$ref": "#/$defs/Sketch3dEntity"
+                },
+                "type": "array"
+              },
+              "id": {
+                "format": "uuid",
+                "type": "string"
+              }
+            },
+            "required": [
+              "id",
+              "entities"
+            ],
+            "type": "object"
+          },
+          "Sketch3dEntity": {
+            "description": "An entity of a 3D sketch. Ids are unique within the sketch.",
+            "oneOf": [
+              {
+                "description": "A point. `xyz` always holds the last evaluated coordinates, so a reader\nthat does not evaluate still sees the sketch's shape; `attach` and\n`xyz_expr`, when present, are what *derive* `xyz` at the next rebuild.",
+                "properties": {
+                  "attach": {
+                    "anyOf": [
+                      {
+                        "$ref": "#/$defs/Attachment"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ],
+                    "description": "Boxed: an `Attachment` carries a `GeomRef`, which is large, and\nthere is one entity per POINT here — a frame path is thousands of\nthem, almost all with no attachment at all. Boxing keeps the\nvariant small; serde sees through the `Box`, so the wire form is\nunchanged."
+                  },
+                  "construction": {
+                    "default": false,
+                    "type": "boolean"
+                  },
+                  "id": {
+                    "format": "uint32",
+                    "minimum": 0,
+                    "type": "integer"
+                  },
+                  "type": {
+                    "const": "Point",
+                    "type": "string"
+                  },
+                  "xyz": {
+                    "items": {
+                      "format": "double",
+                      "type": "number"
+                    },
+                    "maxItems": 3,
+                    "minItems": 3,
+                    "type": "array"
+                  },
+                  "xyz_expr": {
+                    "description": "Per-component driving expressions (mm-space, like every other\n`*_expr` in the tree). Evaluated by `feature-engine`, not here.",
+                    "items": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "maxItems": 3,
+                    "minItems": 3,
+                    "type": [
+                      "array",
+                      "null"
+                    ]
+                  }
+                },
+                "required": [
+                  "type",
+                  "id",
+                  "xyz"
+                ],
+                "type": "object"
+              },
+              {
+                "description": "Straight segment between two points.",
+                "properties": {
+                  "construction": {
+                    "default": false,
+                    "type": "boolean"
+                  },
+                  "end_id": {
+                    "format": "uint32",
+                    "minimum": 0,
+                    "type": "integer"
+                  },
+                  "id": {
+                    "format": "uint32",
+                    "minimum": 0,
+                    "type": "integer"
+                  },
+                  "start_id": {
+                    "format": "uint32",
+                    "minimum": 0,
+                    "type": "integer"
+                  },
+                  "type": {
+                    "const": "Line",
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "type",
+                  "id",
+                  "start_id",
+                  "end_id"
+                ],
+                "type": "object"
+              },
+              {
+                "description": "Arc through three distinct, non-collinear points: from `start_id` to\n`end_id`, passing through `via_id`. Three points determine centre,\nradius and plane, so the arc carries no stored frame that could\ndisagree with its own endpoints.",
+                "properties": {
+                  "construction": {
+                    "default": false,
+                    "type": "boolean"
+                  },
+                  "end_id": {
+                    "format": "uint32",
+                    "minimum": 0,
+                    "type": "integer"
+                  },
+                  "id": {
+                    "format": "uint32",
+                    "minimum": 0,
+                    "type": "integer"
+                  },
+                  "start_id": {
+                    "format": "uint32",
+                    "minimum": 0,
+                    "type": "integer"
+                  },
+                  "type": {
+                    "const": "Arc",
+                    "type": "string"
+                  },
+                  "via_id": {
+                    "format": "uint32",
+                    "minimum": 0,
+                    "type": "integer"
+                  }
+                },
+                "required": [
+                  "type",
+                  "id",
+                  "start_id",
+                  "end_id",
+                  "via_id"
+                ],
+                "type": "object"
+              },
+              {
+                "description": "A tangent fillet of `radius` at the joint between the two straight\nsegments meeting at `at_point_id`. A GENERATOR: expanded at evaluation\ninto an arc plus the two trimmed segment ends, the way\n[`crate::sketch::SketchEntity::Gear`] and `Sprocket` are expanded.\nTangency is exact by construction and survives moving the segments.",
+                "properties": {
+                  "at_point_id": {
+                    "format": "uint32",
+                    "minimum": 0,
+                    "type": "integer"
+                  },
+                  "id": {
+                    "format": "uint32",
+                    "minimum": 0,
+                    "type": "integer"
+                  },
+                  "radius": {
+                    "format": "double",
+                    "type": "number"
+                  },
+                  "radius_expr": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  },
+                  "type": {
+                    "const": "Fillet",
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "type",
+                  "id",
+                  "at_point_id",
+                  "radius"
+                ],
+                "type": "object"
+              }
+            ]
           },
           "SketchConstraint": {
             "description": "A constraint between sketch entities.",
@@ -8874,7 +9316,7 @@
         "readOnlyHint": false,
         "title": "Edit feature"
       },
-      "description": "Replace a feature's operation (same type; read it with feature_get first) and rebuild (one undo step). The feature becomes agent-authored. Imported and derived features cannot be edited. operation is an Operation: {\"type\":\"Extrude\",\"params\":{…}}, Revolve, Pipe, BooleanCombine, UnionAll, DatumPlane, MateConnector, PatternCircular, PatternLinear, PatternMirror, Script, or a full Sketch. A UnionAll folds EVERY live body of the part (or params.targets {type:\"Selected\", bodies:[Solid GeomRefs]}) into connected solids with ONE feature — a balanced tree of pairwise unions with a bounding-box fast path — so prefer it over a chain of BooleanCombine steps on many overlapping bodies: params {targets?: {type:\"All\"}}. A BooleanCombine whose operand was already consumed by an earlier feature is refused (chain onto that feature's own output instead). A Pipe sweeps a circle along an OPEN, tangent-continuous chain of sketch lines and arcs (construction geometry is fine) as ONE solid: params {sketch_id, entity_ids: [the path entities, any order], radius (m), inner_radius? (m, hollow), combine?, targets?} — no boolean between segments, so a handlebar or hose is one body; a corner or a bend tighter than the tube radius is refused. A Script runs a custom feature script (Rhai) that the document carries as a `Script` source: params {source_id, entry?: \"feature\", args: {name: value in model units, or {origin, normal} / a datum plane id for a plane param}, arg_exprs?: {name: \"expression\"}}; the script declares its parameters in `// @param name: type` header lines and calls ctx.sketch / extrude / revolve / boolean over the same operations as these tools; add the source with script_source_add and prefer script_feature_add (same node, takes the args directly) — see docs/CUSTOM_FEATURE_SCRIPTS.md. A PatternCircular/PatternLinear/PatternMirror copies seed BODIES (params.seeds: Solid GeomRefs {kind:\"Solid\", anchor:{type:\"FeatureOutput\", feature_id, output_key}}, from model_summary bodies, or {\"type\":\"All\"} for EVERY live body at that point in the tree — which is how you say \"take everything I just built and turn it four times\" without listing it) — it does not re-run the seed feature. Circular: axis {method:\"explicit\", origin, direction} or {method:\"entity\", geom_ref: a cylindrical/conical face, a circular edge, or a straight edge}, count (instances INCLUDING the seed, ≥ 2), angle_deg (TOTAL sweep; 360 spaces 360/count apart, otherwise the last instance lands at angle_deg), skip?: [instance indices ≥ 1]. Linear: direction (AxisRef, direction only), count, spacing (m; negative reverses), second?: {direction, count, spacing} for a grid (index i + j·count). Mirror: plane {method:\"explicit\", origin: a point on the plane, direction: the plane NORMAL} or {method:\"entity\", geom_ref: a planar face or datum plane}; one copy, the seed's mirror image (no count, no skip). All: combine?: NewBody (default: every instance its own body) | Add (folds targets + instances into connected bodies) | Cut | Intersect, with targets?: explicit Solid GeomRefs (never auto by position; Cut/Intersect need one). The pattern takes custody of its seeds (their features are consumed) and emits every instance: Main = the seed itself, then Body:1… — so chain later booleans onto the PATTERN's outputs, not the seed feature's. A MateConnector is a named frame on the part that assemblies mate its instances by (model_summary lists the evaluated ones): params {name, geom_ref?: a Face or Edge GeomRef (face_list, selection_get), frame?: {origin, z_axis, x_axis} in part coordinates when there is no geom_ref, anchor?: \"middle\"|\"positive_end\"|\"negative_end\" along a cylindrical/conical/toroidal face's axis, flip_z?, rotation_deg?, offset_m?: [x, y, z] along its own axes}; a pick with no frame (a vertex, a freeform face) fails the feature. Address a sketch loop with params.sketch_id = the Sketch feature id and params.profile_entity_ids = the loop's entity ids (from sketch_create or sketch_regions); profile_index is then ignored but still required (use 0). Fillet, Chamfer and Shell are refused (Deferred); STEP imports are not authored here. A step whose feature or any downstream feature newly fails to rebuild is rolled back by default; kernel capability limits (NotSupported) are reported verbatim — do not retry them with altered parameters. Units: lengths in meters, angles in degrees; *_expr expressions are mm-space (a bare 20 means 20 mm).",
+      "description": "Replace a feature's operation (same type; read it with feature_get first) and rebuild (one undo step). The feature becomes agent-authored. Imported and derived features cannot be edited. operation is an Operation: {\"type\":\"Extrude\",\"params\":{…}}, Revolve, Pipe, BooleanCombine, UnionAll, DatumPlane, MateConnector, PatternCircular, PatternLinear, PatternMirror, Script, a full Sketch, or a Sketch3d. A Sketch3d is SPATIAL reference geometry — lines and arcs in 3D and the points that define them — and produces NO body: it is the path a sweep or a frame runs along, and it is not extrudable (no plane, no region, no profile). {\"type\":\"Sketch3d\",\"sketch\":{\"id\": a uuid, \"entities\":[…]}} with entities: {\"type\":\"Point\", id, xyz:[x,y,z], attach?, xyz_expr?: [expr|null, …] (mm-space), construction?}, {\"type\":\"Line\", id, start_id, end_id}, {\"type\":\"Arc\", id, start_id, end_id, via_id} (three distinct non-collinear points — via_id is any point ON the arc), and {\"type\":\"Fillet\", id, at_point_id, radius (m), radius_expr?} which rounds the corner where exactly two STRAIGHT segments meet, exactly tangent to both. Two points coincide by SHARING a point id, not by a constraint — there is no 3D solver. A point derives its position instead of stating it with attach: {\"type\":\"AlongAxis\", from: another point id, axis:\"X\"|\"Y\"|\"Z\", distance} (the axis-locked run most frame geometry is made of), {\"type\":\"Offset\", from, delta:[x,y,z]}, {\"type\":\"Vertex\", reference: a Vertex GeomRef}, {\"type\":\"EdgePoint\", reference: an Edge GeomRef, t: 0..1 along it by arc length}, or {\"type\":\"OnPlane\", reference: a planar face or datum plane, uv}. Read back what it evaluated to with sketch3d_get — an attached point resolves only at rebuild, so the xyz you wrote is just a hint. A UnionAll folds EVERY live body of the part (or params.targets {type:\"Selected\", bodies:[Solid GeomRefs]}) into connected solids with ONE feature — a balanced tree of pairwise unions with a bounding-box fast path — so prefer it over a chain of BooleanCombine steps on many overlapping bodies: params {targets?: {type:\"All\"}}. A BooleanCombine whose operand was already consumed by an earlier feature is refused (chain onto that feature's own output instead). A Pipe sweeps a circle along an OPEN, tangent-continuous chain of sketch lines and arcs (construction geometry is fine) as ONE solid: params {sketch_id, entity_ids: [the path entities, any order], radius (m), inner_radius? (m, hollow), combine?, targets?} — no boolean between segments, so a handlebar or hose is one body; a corner or a bend tighter than the tube radius is refused. A Script runs a custom feature script (Rhai) that the document carries as a `Script` source: params {source_id, entry?: \"feature\", args: {name: value in model units, or {origin, normal} / a datum plane id for a plane param}, arg_exprs?: {name: \"expression\"}}; the script declares its parameters in `// @param name: type` header lines and calls ctx.sketch / extrude / revolve / boolean over the same operations as these tools; add the source with script_source_add and prefer script_feature_add (same node, takes the args directly) — see docs/CUSTOM_FEATURE_SCRIPTS.md. A PatternCircular/PatternLinear/PatternMirror copies seed BODIES (params.seeds: Solid GeomRefs {kind:\"Solid\", anchor:{type:\"FeatureOutput\", feature_id, output_key}}, from model_summary bodies, or {\"type\":\"All\"} for EVERY live body at that point in the tree — which is how you say \"take everything I just built and turn it four times\" without listing it) — it does not re-run the seed feature. Circular: axis {method:\"explicit\", origin, direction} or {method:\"entity\", geom_ref: a cylindrical/conical face, a circular edge, or a straight edge}, count (instances INCLUDING the seed, ≥ 2), angle_deg (TOTAL sweep; 360 spaces 360/count apart, otherwise the last instance lands at angle_deg), skip?: [instance indices ≥ 1]. Linear: direction (AxisRef, direction only), count, spacing (m; negative reverses), second?: {direction, count, spacing} for a grid (index i + j·count). Mirror: plane {method:\"explicit\", origin: a point on the plane, direction: the plane NORMAL} or {method:\"entity\", geom_ref: a planar face or datum plane}; one copy, the seed's mirror image (no count, no skip). All: combine?: NewBody (default: every instance its own body) | Add (folds targets + instances into connected bodies) | Cut | Intersect, with targets?: explicit Solid GeomRefs (never auto by position; Cut/Intersect need one). The pattern takes custody of its seeds (their features are consumed) and emits every instance: Main = the seed itself, then Body:1… — so chain later booleans onto the PATTERN's outputs, not the seed feature's. A MateConnector is a named frame on the part that assemblies mate its instances by (model_summary lists the evaluated ones): params {name, geom_ref?: a Face or Edge GeomRef (face_list, selection_get), frame?: {origin, z_axis, x_axis} in part coordinates when there is no geom_ref, anchor?: \"middle\"|\"positive_end\"|\"negative_end\" along a cylindrical/conical/toroidal face's axis, flip_z?, rotation_deg?, offset_m?: [x, y, z] along its own axes}; a pick with no frame (a vertex, a freeform face) fails the feature. Address a sketch loop with params.sketch_id = the Sketch feature id and params.profile_entity_ids = the loop's entity ids (from sketch_create or sketch_regions); profile_index is then ignored but still required (use 0). Fillet, Chamfer and Shell are refused (Deferred); STEP imports are not authored here. A step whose feature or any downstream feature newly fails to rebuild is rolled back by default; kernel capability limits (NotSupported) are reported verbatim — do not retry them with altered parameters. Units: lengths in meters, angles in degrees; *_expr expressions are mm-space (a bare 20 means 20 mm).",
       "inputSchema": {
         "$defs": {
           "Anchor": {
@@ -8961,6 +9403,134 @@
             ],
             "type": "object"
           },
+          "Attachment": {
+            "description": "How a point's coordinates are derived, when they are not literal.\n\nEvery variant resolves by construction in one pass — there is no iteration\nand no convergence. `Offset` and `AlongAxis` reference another point of the\nsame sketch and so impose a dependency order; the rest resolve against\nmodel geometry through [`ExternalAnchors`].",
+            "oneOf": [
+              {
+                "description": "Coincident with a model vertex.",
+                "properties": {
+                  "reference": {
+                    "$ref": "#/$defs/GeomRef"
+                  },
+                  "type": {
+                    "const": "Vertex",
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "type",
+                  "reference"
+                ],
+                "type": "object"
+              },
+              {
+                "description": "At parameter `t ∈ [0, 1]` along a model edge.",
+                "properties": {
+                  "reference": {
+                    "$ref": "#/$defs/GeomRef"
+                  },
+                  "t": {
+                    "format": "double",
+                    "type": "number"
+                  },
+                  "type": {
+                    "const": "EdgePoint",
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "type",
+                  "reference",
+                  "t"
+                ],
+                "type": "object"
+              },
+              {
+                "description": "At `uv` on a model face or datum plane.",
+                "properties": {
+                  "reference": {
+                    "$ref": "#/$defs/GeomRef"
+                  },
+                  "type": {
+                    "const": "OnPlane",
+                    "type": "string"
+                  },
+                  "uv": {
+                    "items": {
+                      "format": "double",
+                      "type": "number"
+                    },
+                    "maxItems": 2,
+                    "minItems": 2,
+                    "type": "array"
+                  }
+                },
+                "required": [
+                  "type",
+                  "reference",
+                  "uv"
+                ],
+                "type": "object"
+              },
+              {
+                "description": "A fixed world-space offset from another sketch point.",
+                "properties": {
+                  "delta": {
+                    "items": {
+                      "format": "double",
+                      "type": "number"
+                    },
+                    "maxItems": 3,
+                    "minItems": 3,
+                    "type": "array"
+                  },
+                  "from": {
+                    "format": "uint32",
+                    "minimum": 0,
+                    "type": "integer"
+                  },
+                  "type": {
+                    "const": "Offset",
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "type",
+                  "from",
+                  "delta"
+                ],
+                "type": "object"
+              },
+              {
+                "description": "A run of `distance` along a world axis from another sketch point —\nthe axis-locked segment that most frame geometry is made of.",
+                "properties": {
+                  "axis": {
+                    "$ref": "#/$defs/Axis"
+                  },
+                  "distance": {
+                    "format": "double",
+                    "type": "number"
+                  },
+                  "from": {
+                    "format": "uint32",
+                    "minimum": 0,
+                    "type": "integer"
+                  },
+                  "type": {
+                    "const": "AlongAxis",
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "type",
+                  "from",
+                  "axis",
+                  "distance"
+                ],
+                "type": "object"
+              }
+            ]
+          },
           "AxialAnchor": {
             "description": "Where along a rotational face's axis a derived connector sits\n(`crate::connector`, `specs/assembly_connector_adjustments.md`): the\nmiddle of the face's axial extent (the default — what a Revolute or\nCylindrical mate wants) or one of its ends. The ends are named by the\nconnector's FINAL z (after `flip_z`), so they always read against the\ntriad the viewport draws: \"+z end\" is wherever the blue arrow points.\nIgnored by every other pick (a planar face, a sphere, an edge, an\nexplicit frame).",
             "oneOf": [
@@ -8981,6 +9551,15 @@
                 "type": "string"
               }
             ]
+          },
+          "Axis": {
+            "description": "A world axis, for [`Attachment::AlongAxis`].",
+            "enum": [
+              "X",
+              "Y",
+              "Z"
+            ],
+            "type": "string"
           },
           "AxisRef": {
             "description": "A line in space named for a pattern: a circular pattern's rotation axis or\na linear pattern's direction (`specs/custom_features_and_modeling_roadmap.md`\n§B1). `#[serde(tag = \"method\")]`, like [`PlaneDefinition`].",
@@ -9902,6 +10481,22 @@
               },
               {
                 "properties": {
+                  "sketch": {
+                    "$ref": "#/$defs/Sketch3d"
+                  },
+                  "type": {
+                    "const": "Sketch3d",
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "type",
+                  "sketch"
+                ],
+                "type": "object"
+              },
+              {
+                "properties": {
                   "params": {
                     "$ref": "#/$defs/ExtrudeParams"
                   },
@@ -10147,6 +10742,7 @@
                     "not": {
                       "enum": [
                         "Sketch",
+                        "Sketch3d",
                         "Extrude",
                         "Revolve",
                         "Fillet",
@@ -11641,6 +12237,202 @@
               "constraints"
             ],
             "type": "object"
+          },
+          "Sketch3d": {
+            "description": "A 3D sketch: purely declarative, with no engine-written cache.\n\n`Sketch::solved_positions` can be stored on the sketch because the 2D\nsolver runs in the engine's mutable pre-pass, before the rebuild. A 3D\nsketch cannot: an [`Attachment`] to a model vertex only resolves once the\nfeature that made that vertex has rebuilt, which is the rebuild walk\nitself, where the tree is immutable. So evaluation is pure and its output\nis carried in the feature's rebuild result — the way a mate connector's\nframe \"is read after the rebuild\" (`feature_engine::rebuild`).\n\nA reader that never evaluates still sees the sketch's shape: every\npoint's `xyz` holds coordinates. For an attached point those are the last\nones the author saw rather than the derived truth, which is why `attach`\nis what the engine believes and `xyz` is only a hint.",
+            "properties": {
+              "entities": {
+                "items": {
+                  "$ref": "#/$defs/Sketch3dEntity"
+                },
+                "type": "array"
+              },
+              "id": {
+                "format": "uuid",
+                "type": "string"
+              }
+            },
+            "required": [
+              "id",
+              "entities"
+            ],
+            "type": "object"
+          },
+          "Sketch3dEntity": {
+            "description": "An entity of a 3D sketch. Ids are unique within the sketch.",
+            "oneOf": [
+              {
+                "description": "A point. `xyz` always holds the last evaluated coordinates, so a reader\nthat does not evaluate still sees the sketch's shape; `attach` and\n`xyz_expr`, when present, are what *derive* `xyz` at the next rebuild.",
+                "properties": {
+                  "attach": {
+                    "anyOf": [
+                      {
+                        "$ref": "#/$defs/Attachment"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ],
+                    "description": "Boxed: an `Attachment` carries a `GeomRef`, which is large, and\nthere is one entity per POINT here — a frame path is thousands of\nthem, almost all with no attachment at all. Boxing keeps the\nvariant small; serde sees through the `Box`, so the wire form is\nunchanged."
+                  },
+                  "construction": {
+                    "default": false,
+                    "type": "boolean"
+                  },
+                  "id": {
+                    "format": "uint32",
+                    "minimum": 0,
+                    "type": "integer"
+                  },
+                  "type": {
+                    "const": "Point",
+                    "type": "string"
+                  },
+                  "xyz": {
+                    "items": {
+                      "format": "double",
+                      "type": "number"
+                    },
+                    "maxItems": 3,
+                    "minItems": 3,
+                    "type": "array"
+                  },
+                  "xyz_expr": {
+                    "description": "Per-component driving expressions (mm-space, like every other\n`*_expr` in the tree). Evaluated by `feature-engine`, not here.",
+                    "items": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "maxItems": 3,
+                    "minItems": 3,
+                    "type": [
+                      "array",
+                      "null"
+                    ]
+                  }
+                },
+                "required": [
+                  "type",
+                  "id",
+                  "xyz"
+                ],
+                "type": "object"
+              },
+              {
+                "description": "Straight segment between two points.",
+                "properties": {
+                  "construction": {
+                    "default": false,
+                    "type": "boolean"
+                  },
+                  "end_id": {
+                    "format": "uint32",
+                    "minimum": 0,
+                    "type": "integer"
+                  },
+                  "id": {
+                    "format": "uint32",
+                    "minimum": 0,
+                    "type": "integer"
+                  },
+                  "start_id": {
+                    "format": "uint32",
+                    "minimum": 0,
+                    "type": "integer"
+                  },
+                  "type": {
+                    "const": "Line",
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "type",
+                  "id",
+                  "start_id",
+                  "end_id"
+                ],
+                "type": "object"
+              },
+              {
+                "description": "Arc through three distinct, non-collinear points: from `start_id` to\n`end_id`, passing through `via_id`. Three points determine centre,\nradius and plane, so the arc carries no stored frame that could\ndisagree with its own endpoints.",
+                "properties": {
+                  "construction": {
+                    "default": false,
+                    "type": "boolean"
+                  },
+                  "end_id": {
+                    "format": "uint32",
+                    "minimum": 0,
+                    "type": "integer"
+                  },
+                  "id": {
+                    "format": "uint32",
+                    "minimum": 0,
+                    "type": "integer"
+                  },
+                  "start_id": {
+                    "format": "uint32",
+                    "minimum": 0,
+                    "type": "integer"
+                  },
+                  "type": {
+                    "const": "Arc",
+                    "type": "string"
+                  },
+                  "via_id": {
+                    "format": "uint32",
+                    "minimum": 0,
+                    "type": "integer"
+                  }
+                },
+                "required": [
+                  "type",
+                  "id",
+                  "start_id",
+                  "end_id",
+                  "via_id"
+                ],
+                "type": "object"
+              },
+              {
+                "description": "A tangent fillet of `radius` at the joint between the two straight\nsegments meeting at `at_point_id`. A GENERATOR: expanded at evaluation\ninto an arc plus the two trimmed segment ends, the way\n[`crate::sketch::SketchEntity::Gear`] and `Sprocket` are expanded.\nTangency is exact by construction and survives moving the segments.",
+                "properties": {
+                  "at_point_id": {
+                    "format": "uint32",
+                    "minimum": 0,
+                    "type": "integer"
+                  },
+                  "id": {
+                    "format": "uint32",
+                    "minimum": 0,
+                    "type": "integer"
+                  },
+                  "radius": {
+                    "format": "double",
+                    "type": "number"
+                  },
+                  "radius_expr": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  },
+                  "type": {
+                    "const": "Fillet",
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "type",
+                  "id",
+                  "at_point_id",
+                  "radius"
+                ],
+                "type": "object"
+              }
+            ]
           },
           "SketchConstraint": {
             "description": "A constraint between sketch entities.",

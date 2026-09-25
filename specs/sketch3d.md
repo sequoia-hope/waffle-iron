@@ -7,8 +7,9 @@ anything that wants a spatial polyline.
 Owner crates: `waffle-types` (S1), `feature-engine` (S2), `wasm-bridge` (S3),
 `app` (S5–S6).
 
-Status: **DESIGN**. Nothing below is implemented. One decision is left open
-and flagged in §4.
+Status: **S1, S2 and S3 LANDED 2026-09-25**; S4 onward is design. The §4 fork was
+decided in favour of (A), no 3D constraint solver — additively, so (B) remains
+open as its own epic. §3 carries a correction S2 forced.
 
 ---
 
@@ -56,14 +57,31 @@ rebuild that one feature.
 
 ## 3. The type
 
+> **Corrected at S2 (2026-09-25).** This section first gave `Sketch3d` a
+> `resolved` map and a `status`, "written by the engine at rebuild, exactly as
+> `Sketch::solved_positions` is". That is not possible, and the reason is
+> worth keeping: `solved_positions` is written by the engine's **mutable
+> pre-pass** (`params::apply_parameters`), which runs before the rebuild and
+> has no kernel and no feature results. A 3D sketch needs both — a point
+> attached to a vertex of feature N can only resolve after feature N has
+> rebuilt — so it must be evaluated during the rebuild **walk**, where the
+> tree is `&FeatureTree`. A cache that could only ever be filled in for the
+> unattached points would be worse than none. So the type is declarative and
+> the evaluation is carried out of the rebuild in `RebuildState::sketch3d`,
+> read afterwards from `Engine::sketch3d` — the `MateConnector` precedent,
+> whose frame is likewise "read after the rebuild".
+
 ```rust
+/// Declarative; no engine-written cache (see the correction above).
 pub struct Sketch3d {
     pub id: Uuid,
     pub entities: Vec<Sketch3dEntity>,
-    /// Resolved coordinates after evaluation, by point id. Written by the
-    /// engine at rebuild, exactly as `Sketch::solved_positions` is.
+}
+
+/// What evaluating one produces — carried in the rebuild result.
+pub struct Sketch3dEvaluation {
     pub resolved: BTreeMap<u32, [f64; 3]>,
-    pub status: Sketch3dStatus,
+    pub chains: Vec<Chain3d>,
 }
 
 pub enum Sketch3dEntity {
@@ -161,7 +179,11 @@ actually reach for.
 
 ## 5. Evaluation
 
-One deterministic pass at rebuild, all of it pure:
+One deterministic pass, all of it pure — `Sketch3d::evaluate(&self, &dyn
+ExternalAnchors) -> Result<Sketch3dEvaluation, Sketch3dError>`. Step 1 is the
+exception to "at rebuild": expressions are evaluated in the engine's mutable
+pre-pass with every other `*_expr` in the tree, because they need only the
+design parameters. Steps 2–4 run in the rebuild walk.
 
 1. **Expressions** — evaluate `xyz_expr` components against the design
    parameters; write results into `xyz`. Same mm→m convention as every other
@@ -229,11 +251,37 @@ somewhere arbitrary.
 ## 8. Agent surface
 
 The agent link does not have the 2D-pointer problem at all — it names
-coordinates. So the MCP surface is small and lands long before the GUI:
+coordinates. So the MCP surface is small and lands long before the GUI.
 
-- `sketch3d_create { tab, points: [{id, xyz | expr | attach}], segments: [...] }`
-- `sketch3d_edit`, `sketch3d_get`
-- `ctx.sketch3d(...)` in scripts, mirroring `ctx.sketch`.
+**As landed (S3, 2026-09-25) it is smaller than this section first proposed,
+and deliberately so.** There is no `sketch3d_create` and no `sketch3d_edit`:
+a 3D sketch is a *declarative* operation, so `feature_add` and `feature_edit`
+carry it like any other kind once `Sketch3d` is on the authorable list, and
+they bring the rollback-on-error, provenance and undo semantics with them.
+`sketch_create` is its own tool only because a 2D sketch orchestrates four
+engine messages and builds a profile payload between the solve and the commit;
+a 3D sketch does none of that, and a bespoke twin would have been a second
+authoring path to keep in step with the first.
+
+What genuinely needs a tool is reading it back — hence **`sketch3d_get`**
+alone. The resolved coordinates and the chains are not in the document (an
+attached point resolves only during the rebuild walk), so `feature_get`
+returns the declaration and nothing else. `sketch3d_get` answers where every
+point landed, what chains the segments formed, each chain's length and
+closure, and `tangent_joints` — which is what tells a sweep a mitre from a
+smooth bend. A suppressed, rolled-back or failed sketch answers
+`NotEvaluated` rather than an empty chain list, because "no evaluation" and
+"a path with no segments" are different facts.
+
+Input validation gets no separate pass either. `sketch_create` has A13 shape
+checks because a 2D sketch's dangling reference would otherwise reach the
+solver unnoticed; a 3D sketch's evaluation already refuses `PointNotFound`,
+`DuplicateEntityId` and the rest by entity id, and the authoring step rolls
+back on them. A second validator could only drift from the first.
+
+**`ctx.sketch3d` is deferred**, not dropped: a Rhai binding with no caller is
+speculative surface. Its customer is the frame feature (B6 §10), and it
+should land with it.
 
 **This is the sequencing lever.** A 3D path is authorable by an agent as soon
 as S1–S3 land, which means B6's sweep can be built and proven on real 3D paths
@@ -244,9 +292,9 @@ path to swept geometry.
 
 | # | What | Gate |
 |---|---|---|
-| **S1** | `Sketch3d` + entities + `Attachment` in `waffle-types`; evaluation (expressions, attachments, fillet expansion, chain extraction) as pure functions; `Chain3d`. Unit tests: fillet tangency exact, chain walking (open/closed/branching), every typed refusal. | — |
-| **S2** | `Operation::Sketch3d` in `feature-engine`: rebuild validates and resolves, no outputs, joins the reference-geometry exclusion lists; provenance entry; `OPERATION_TAGS`. Round-trip through `file-format` (no version bump) + corpus back-compat. | S1 |
-| **S3** | `sketch3d_*` MCP tools + `ctx.sketch3d` + bridge messages. WASM rebuilt in the same commit. **3D paths are now authorable.** | S2 |
+| **S1 ✅ DONE (2026-09-25)** | `Sketch3d` + entities + `Attachment` in `waffle-types`; evaluation (attachments, fillet expansion, chain extraction) as pure functions; `Chain3d`. 21 unit tests: fillet tangency exact (in plane and out), two fillets sharing a segment, chain walking (open/closed/branching), every typed refusal. | — |
+| **S2 ✅ DONE (2026-09-25)** | `Operation::Sketch3d` in `feature-engine`: evaluated in the rebuild walk, no outputs, joined to all four reference-geometry exclusion lists, carried in `RebuildState::sketch3d` / `Engine::sketch3d` and carried forward for a feature that did not re-execute; `EngineAnchors` resolves `Vertex` / `EdgePoint` (by arc length) / `OnPlane` (datum or planar face, `SketchPlaneBasis`); expressions in `params::apply_sketch3d`; `OPERATION_TAGS` (16 → 17) and the schema golden, both purely additive; `file-format` round-trip with no version bump. 9 engine tests + 2 format tests. | S1 |
+| **S3 ✅ DONE (2026-09-25)** | `Sketch3d` authorable through `feature_add` / `feature_edit`; `sketch3d_get` reads the evaluation; the agent manifest and `feature_add`'s operation note document the entity and attachment vocabulary; a feature-tree icon. `ctx.sketch3d` deferred to its first caller (§8). WASM rebuilt in the same commit. **3D paths are now authorable.** | S2 |
 | **S4** | B6 consumes it: `SweepPath::new(Chain3d)`, the parallel-transport frame law (B6 §6). | S3 + B6 S2 |
 | **S5** | Viewport rendering of a 3D sketch (lines, arcs, points, construction styling) + selection/hover. | S2 |
 | **S6** | The drawing GUI of §7: snapping, axis lock, typed entry, fallback plane. GUI specs per §7 source, both click-click and click-drag per the session guide. | S5 |
@@ -256,8 +304,8 @@ path to swept geometry.
 - **Fillet tangency is exact**, not approximate: the arc's end tangents equal
   the segment directions to within floating-point representation, asserted
   directly rather than against a tolerance band.
-- **Evaluation is deterministic and idempotent**: re-evaluating a resolved
-  sketch is bit-identical; no `HashMap` iteration in the path (the solver's own
+- **Evaluation is deterministic and idempotent**: evaluating the same sketch
+  twice is bit-identical; no `HashMap` iteration in the path (the solver's own
   rule, `solver.rs:14`).
 - **Chain extraction** round-trips: a chain walked out and rebuilt gives the
   same edge sequence; a closed chain is detected as closed regardless of which

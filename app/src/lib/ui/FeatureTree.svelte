@@ -463,6 +463,7 @@
 	function featureIcon(opType) {
 		switch (opType) {
 			case 'Sketch': return '\u270E';
+			case 'Sketch3d': return '\u2727';
 			case 'Extrude': return '\u25A7';
 			case 'Revolve': return '\u21BB';
 			case 'Pipe': return '\u2312';

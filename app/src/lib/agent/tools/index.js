@@ -47,6 +47,7 @@ import {
 	faceListTool,
 	featureGetTool,
 	selectionGetTool,
+	sketch3dGetTool,
 	sketchRegionsTool
 } from './inspection.js';
 import { exportStepTool, exportStlTool, importStepTool } from './export.js';
@@ -78,6 +79,7 @@ export const TOOLS = [
 	bodyMeasureTool,
 	faceListTool,
 	sketchRegionsTool,
+	sketch3dGetTool,
 	expressionEvaluateTool,
 	viewportViewTool,
 	viewportCaptureTool,

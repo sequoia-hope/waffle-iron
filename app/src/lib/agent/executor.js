@@ -318,6 +318,7 @@ const ENGINE_QUERIES = new Set([
 	'body_measure',
 	'face_list',
 	'sketch_regions',
+	'sketch3d_get',
 	'expression_evaluate',
 	'export_step',
 	'export_stl',

@@ -189,6 +189,57 @@ export const sketchRegionsTool = {
 	annotations: readOnly('Sketch regions')
 };
 
+export const sketch3dGetTool = {
+	name: 'sketch3d_get',
+	description:
+		'What a 3D sketch EVALUATED to: where every point landed (a point attached to model geometry ' +
+		'resolves only at rebuild, so feature_get shows the declaration, not the answer), and the chains ' +
+		'its segments form. A chain is a run of lines and arcs joined end to end; the graph splits into ' +
+		'one chain per run at every point where the number of segments is not two, so a truss centre-line ' +
+		'graph comes back as one chain per member. tangent_joints[i] says whether the joint between edge i ' +
+		'and edge i+1 is smooth (a fillet) rather than a corner — that is what decides a mitre from a bend ' +
+		'when a sweep runs along it. A suppressed, rolled-back or failed sketch answers NotEvaluated.',
+	inputSchema: {
+		type: 'object',
+		properties: { feature_id: uuid('Id of a Sketch3d feature.') },
+		required: ['feature_id'],
+		additionalProperties: false
+	},
+	outputSchema: {
+		type: 'object',
+		properties: {
+			feature_id: { type: 'string' },
+			entity_count: { type: 'integer' },
+			points: {
+				type: 'array',
+				items: {
+					type: 'object',
+					properties: {
+						id: { type: 'integer' },
+						xyz: { type: 'array', items: { type: 'number' } }
+					},
+					required: ['id', 'xyz']
+				}
+			},
+			chains: {
+				type: 'array',
+				items: {
+					type: 'object',
+					properties: {
+						closed: { type: 'boolean' },
+						length_m: { type: 'number' },
+						tangent_joints: { type: 'array', items: { type: 'boolean' } },
+						edges: { type: 'array', items: { type: 'object' } }
+					},
+					required: ['closed', 'length_m', 'tangent_joints', 'edges']
+				}
+			}
+		},
+		required: ['feature_id', 'entity_count', 'points', 'chains']
+	},
+	annotations: readOnly('3D sketch geometry')
+};
+
 export const expressionEvaluateTool = {
 	name: 'expression_evaluate',
 	description:

@@ -41,6 +41,7 @@ const DEFERRED: &[&str] = &["Fillet", "Chamfer", "Shell"];
 /// Operation kinds an agent may author through `feature_add` / `feature_edit`.
 const AUTHORABLE: &[&str] = &[
     "Sketch",
+    "Sketch3d",
     "Extrude",
     "Revolve",
     "BooleanCombine",
