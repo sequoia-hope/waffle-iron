@@ -124,6 +124,9 @@ fn migrate_feature_v1_to_v2(feature: &mut Feature) {
         Operation::MateConnector { .. } => {
             // Postdates v5; offset_m and frame are meters by definition.
         }
+        Operation::Sketch3d { .. } => {
+            // Postdates v6; every coordinate is meters by definition.
+        }
         Operation::PatternCircular { .. }
         | Operation::PatternLinear { .. }
         | Operation::PatternMirror { .. } => {

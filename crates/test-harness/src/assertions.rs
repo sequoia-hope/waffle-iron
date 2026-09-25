@@ -110,6 +110,7 @@ pub fn assert_tree_structure(
         .map(|f| {
             let op_type = match &f.operation {
                 feature_engine::types::Operation::Sketch { .. } => "Sketch",
+                feature_engine::types::Operation::Sketch3d { .. } => "Sketch3d",
                 feature_engine::types::Operation::Extrude { .. } => "Extrude",
                 feature_engine::types::Operation::Revolve { .. } => "Revolve",
                 feature_engine::types::Operation::Pipe { .. } => "Pipe",

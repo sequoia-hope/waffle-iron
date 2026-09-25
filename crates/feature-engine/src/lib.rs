@@ -12,6 +12,7 @@ pub mod rebuild;
 pub mod resolve;
 pub mod script;
 pub mod share_a_face;
+pub mod sketch3d;
 pub mod sources;
 pub mod tree;
 pub mod types;
@@ -82,6 +83,11 @@ pub struct Engine {
     /// that does not re-execute a script carries them (its private sub-tree
     /// is not otherwise recoverable).
     pub script_connectors: HashMap<Uuid, Vec<connector::PartConnector>>,
+    /// Every 3D sketch's evaluated points and chains, by feature
+    /// (`specs/sketch3d.md`). A 3D sketch produces no body, so — like a mate
+    /// connector's frame — its output is read here after the rebuild rather
+    /// than out of an `OpResult`.
+    pub sketch3d: HashMap<Uuid, waffle_types::sketch3d::Sketch3dEvaluation>,
     /// Undo/redo history.
     undo_stack: UndoStack,
 }
@@ -104,6 +110,7 @@ impl Engine {
             context: None,
             connectors: Vec::new(),
             script_connectors: HashMap::new(),
+            sketch3d: HashMap::new(),
             undo_stack: UndoStack::new(),
         }
     }
@@ -749,12 +756,14 @@ impl Engine {
             rebuild::Carried {
                 consumed_by: Some(&self.consumed_by),
                 script_connectors: Some(&self.script_connectors),
+                sketch3d: Some(&self.sketch3d),
             },
             &self.sources,
             self.context.as_ref(),
         );
         self.feature_results = state.feature_results;
         self.script_connectors = state.script_connectors;
+        self.sketch3d = state.sketch3d;
         self.rebuild_errors = state.feature_errors.clone();
         self.warnings = state.warnings;
         self.warnings.extend(context_outcome.warnings);

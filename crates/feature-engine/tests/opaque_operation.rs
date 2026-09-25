@@ -59,7 +59,12 @@ fn known_tags_round_trip_as_before_and_report_their_tag() {
     for tag in OPERATION_TAGS {
         assert!(!tag.is_empty());
     }
-    assert_eq!(OPERATION_TAGS.len(), 16);
+    // 17 since `Sketch3d` (`specs/sketch3d.md` S2). This pin is here so that
+    // adding an operation kind is a deliberate act: the tag list is what tells
+    // `Operation::Unknown` which tags are THIS build's rather than a newer
+    // build's, so a kind that reaches the enum without reaching the list would
+    // parse as opaque and fail its own rebuild.
+    assert_eq!(OPERATION_TAGS.len(), 17);
 }
 
 #[test]

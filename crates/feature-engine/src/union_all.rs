@@ -175,6 +175,7 @@ pub(crate) fn live_features_before<'a>(
             !matches!(
                 &f.operation,
                 Operation::Sketch { .. }
+                    | Operation::Sketch3d { .. }
                     | Operation::DatumPlane { .. }
                     | Operation::MateConnector { .. }
             )

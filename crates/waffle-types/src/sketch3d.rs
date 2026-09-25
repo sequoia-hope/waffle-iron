@@ -167,34 +167,36 @@ impl Sketch3dEntity {
     }
 }
 
-/// Evaluation state, mirroring [`crate::sketch::SolveStatus`]'s role.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
-#[serde(tag = "type")]
-#[cfg_attr(feature = "json-schema", derive(schemars::JsonSchema))]
-pub enum Sketch3dStatus {
-    /// Never evaluated (the state a writer that has not run the engine
-    /// leaves behind; the next rebuild replaces it).
-    #[default]
-    Unevaluated,
-    /// Every point resolved and every generator expanded.
-    Ok,
-    /// Evaluation failed; `reason` is the `Display` of the [`Sketch3dError`].
-    Failed { reason: String },
-}
-
-/// A 3D sketch.
+/// A 3D sketch: purely declarative, with no engine-written cache.
+///
+/// `Sketch::solved_positions` can be stored on the sketch because the 2D
+/// solver runs in the engine's mutable pre-pass, before the rebuild. A 3D
+/// sketch cannot: an [`Attachment`] to a model vertex only resolves once the
+/// feature that made that vertex has rebuilt, which is the rebuild walk
+/// itself, where the tree is immutable. So evaluation is pure and its output
+/// is carried in the feature's rebuild result — the way a mate connector's
+/// frame "is read after the rebuild" (`feature_engine::rebuild`).
+///
+/// A reader that never evaluates still sees the sketch's shape: every
+/// point's `xyz` holds coordinates. For an attached point those are the last
+/// ones the author saw rather than the derived truth, which is why `attach`
+/// is what the engine believes and `xyz` is only a hint.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[cfg_attr(feature = "json-schema", derive(schemars::JsonSchema))]
 pub struct Sketch3d {
     pub id: Uuid,
     pub entities: Vec<Sketch3dEntity>,
-    /// Resolved world coordinates by point id, written by [`Self::evaluate`].
-    /// `BTreeMap` (not `HashMap`) so the serialized bytes are stable — the
-    /// trap that made `SaveVerifier` hash `to_value` rather than `to_string`.
-    #[serde(default)]
+}
+
+/// What evaluating a [`Sketch3d`] produces.
+#[derive(Debug, Clone, PartialEq)]
+pub struct Sketch3dEvaluation {
+    /// Resolved world coordinates by point id. `BTreeMap`, not `HashMap`, so
+    /// any downstream serialization is byte-stable — the trap that made
+    /// `SaveVerifier` hash `to_value` rather than `to_string`.
     pub resolved: BTreeMap<u32, [f64; 3]>,
-    #[serde(default)]
-    pub status: Sketch3dStatus,
+    /// Every maximal chain, fillets expanded.
+    pub chains: Vec<Chain3d>,
 }
 
 /// Model geometry a point can attach to. Implemented by `feature-engine`
@@ -491,34 +493,22 @@ impl std::error::Error for Sketch3dError {}
 
 impl Sketch3d {
     pub fn new(id: Uuid, entities: Vec<Sketch3dEntity>) -> Self {
-        Self {
-            id,
-            entities,
-            resolved: BTreeMap::new(),
-            status: Sketch3dStatus::Unevaluated,
-        }
+        Self { id, entities }
     }
 
-    /// Resolve every point into [`Self::resolved`] and set [`Self::status`].
+    /// Resolve every point, then extract every chain with fillets expanded.
     ///
-    /// Literal points take their `xyz`; attached points derive theirs, in
-    /// dependency order for the sketch-relative kinds. Idempotent: evaluating
-    /// an already-evaluated sketch gives bit-identical results.
-    pub fn evaluate(&mut self, anchors: &dyn ExternalAnchors) -> Result<(), Sketch3dError> {
-        match self.resolve_points(anchors) {
-            Ok(resolved) => {
-                self.resolved = resolved;
-                self.status = Sketch3dStatus::Ok;
-                Ok(())
-            }
-            Err(e) => {
-                self.resolved = BTreeMap::new();
-                self.status = Sketch3dStatus::Failed {
-                    reason: e.to_string(),
-                };
-                Err(e)
-            }
-        }
+    /// Pure: the sketch is not mutated, because the engine evaluates it
+    /// during the rebuild walk, where the tree is immutable (see
+    /// [`Sketch3d`]). Deterministic — evaluating twice gives bit-identical
+    /// results, and the answer does not depend on entity declaration order.
+    pub fn evaluate(
+        &self,
+        anchors: &dyn ExternalAnchors,
+    ) -> Result<Sketch3dEvaluation, Sketch3dError> {
+        let resolved = self.resolve_points(anchors)?;
+        let chains = self.chains(&resolved)?;
+        Ok(Sketch3dEvaluation { resolved, chains })
     }
 
     fn check_unique_ids(&self) -> Result<(), Sketch3dError> {
@@ -633,19 +623,25 @@ impl Sketch3d {
 
     /// Extract every maximal chain, with fillets expanded.
     ///
-    /// Requires [`Self::evaluate`] to have run (it reads [`Self::resolved`]).
+    /// Takes the point map [`Self::evaluate`] produces.
     /// Chains come back ordered by their lowest entity id, and each chain's
     /// direction is the one that starts at its lowest-id terminal edge, so
     /// the output is a deterministic function of the sketch.
-    pub fn chains(&self) -> Result<Vec<Chain3d>, Sketch3dError> {
+    pub fn chains(
+        &self,
+        resolved: &BTreeMap<u32, [f64; 3]>,
+    ) -> Result<Vec<Chain3d>, Sketch3dError> {
         self.check_unique_ids()?;
-        let mut pieces = self.build_pieces()?;
+        let mut pieces = self.build_pieces(resolved)?;
         self.apply_fillets(&mut pieces)?;
         Ok(walk_chains(pieces))
     }
 
     /// Segments in entity-id order, endpoints resolved.
-    fn build_pieces(&self) -> Result<Vec<Piece>, Sketch3dError> {
+    fn build_pieces(
+        &self,
+        resolved: &BTreeMap<u32, [f64; 3]>,
+    ) -> Result<Vec<Piece>, Sketch3dError> {
         let point_ids: BTreeSet<u32> = self
             .entities
             .iter()
@@ -662,7 +658,7 @@ impl Sketch3d {
                     point_id: pid,
                 });
             }
-            self.resolved
+            resolved
                 .get(&pid)
                 .copied()
                 .ok_or(Sketch3dError::PointNotFound {
@@ -1171,10 +1167,12 @@ mod tests {
             construction: false,
         }
     }
-    fn evaluated(entities: Vec<Sketch3dEntity>) -> Sketch3d {
-        let mut s = Sketch3d::new(Uuid::nil(), entities);
-        s.evaluate(&NoAnchors).expect("evaluates");
-        s
+    /// Evaluate with no model geometry available; panics on refusal.
+    fn eval(entities: Vec<Sketch3dEntity>) -> Sketch3dEvaluation {
+        try_eval(entities).expect("evaluates")
+    }
+    fn try_eval(entities: Vec<Sketch3dEntity>) -> Result<Sketch3dEvaluation, Sketch3dError> {
+        Sketch3d::new(Uuid::nil(), entities).evaluate(&NoAnchors)
     }
     /// A reference to a vertex of a feature that does not exist — `NoAnchors`
     /// resolves nothing, so any well-formed reference exercises the refusal.
@@ -1199,10 +1197,9 @@ mod tests {
 
     #[test]
     fn literal_points_resolve_to_themselves() {
-        let s = evaluated(vec![pt(1, [1.0, 2.0, 3.0]), pt(2, [4.0, 5.0, 6.0])]);
+        let s = eval(vec![pt(1, [1.0, 2.0, 3.0]), pt(2, [4.0, 5.0, 6.0])]);
         assert_eq!(s.resolved[&1], [1.0, 2.0, 3.0]);
         assert_eq!(s.resolved[&2], [4.0, 5.0, 6.0]);
-        assert_eq!(s.status, Sketch3dStatus::Ok);
     }
 
     #[test]
@@ -1232,7 +1229,7 @@ mod tests {
             },
             pt(1, [1.0, 0.0, 0.0]),
         ];
-        let s = evaluated(entities);
+        let s = eval(entities);
         assert_eq!(s.resolved[&2], [1.0, 2.0, 0.0]);
         assert_eq!(s.resolved[&3], [1.0, 2.0, 5.0]);
     }
@@ -1261,10 +1258,10 @@ mod tests {
                 construction: false,
             },
         ];
-        let mut s = Sketch3d::new(Uuid::nil(), entities);
-        let err = s.evaluate(&NoAnchors).unwrap_err();
-        assert!(matches!(err, Sketch3dError::CyclicAttachment { .. }));
-        assert!(matches!(s.status, Sketch3dStatus::Failed { .. }));
+        assert!(matches!(
+            try_eval(entities).unwrap_err(),
+            Sketch3dError::CyclicAttachment { .. }
+        ));
     }
 
     #[test]
@@ -1278,31 +1275,32 @@ mod tests {
             xyz_expr: None,
             construction: false,
         }];
-        let mut s = Sketch3d::new(Uuid::nil(), entities);
         assert!(matches!(
-            s.evaluate(&NoAnchors).unwrap_err(),
+            try_eval(entities).unwrap_err(),
             Sketch3dError::UnresolvedAttachment { point_id: 1 }
         ));
     }
 
     #[test]
     fn evaluation_is_idempotent() {
-        let mut s = evaluated(vec![pt(1, [1.0, 2.0, 3.0])]);
-        let first = s.resolved.clone();
-        s.evaluate(&NoAnchors).unwrap();
-        assert_eq!(first, s.resolved);
+        let entities = vec![
+            pt(1, [1.0, 2.0, 3.0]),
+            pt(2, [2.0, 0.0, 0.0]),
+            line(3, 1, 2),
+        ];
+        assert_eq!(eval(entities.clone()), eval(entities));
     }
 
     #[test]
     fn open_chain_of_two_lines_has_one_joint() {
-        let s = evaluated(vec![
+        let s = eval(vec![
             pt(1, [0.0, 0.0, 0.0]),
             pt(2, [1.0, 0.0, 0.0]),
             pt(3, [1.0, 1.0, 0.0]),
             line(4, 1, 2),
             line(5, 2, 3),
         ]);
-        let chains = s.chains().unwrap();
+        let chains = &s.chains;
         assert_eq!(chains.len(), 1);
         assert!(!chains[0].closed);
         assert_eq!(chains[0].edges.len(), 2);
@@ -1312,39 +1310,39 @@ mod tests {
 
     #[test]
     fn collinear_joint_is_g1() {
-        let s = evaluated(vec![
+        let s = eval(vec![
             pt(1, [0.0, 0.0, 0.0]),
             pt(2, [1.0, 0.0, 0.0]),
             pt(3, [2.0, 0.0, 0.0]),
             line(4, 1, 2),
             line(5, 2, 3),
         ]);
-        let chains = s.chains().unwrap();
+        let chains = &s.chains;
         assert_eq!(chains[0].g1, vec![true]);
     }
 
     #[test]
     fn chain_order_is_independent_of_declaration_order() {
-        let forward = evaluated(vec![
+        let forward = eval(vec![
             pt(1, [0.0, 0.0, 0.0]),
             pt(2, [1.0, 0.0, 0.0]),
             pt(3, [1.0, 1.0, 0.0]),
             line(4, 1, 2),
             line(5, 2, 3),
         ]);
-        let backward = evaluated(vec![
+        let backward = eval(vec![
             line(5, 2, 3),
             line(4, 1, 2),
             pt(3, [1.0, 1.0, 0.0]),
             pt(2, [1.0, 0.0, 0.0]),
             pt(1, [0.0, 0.0, 0.0]),
         ]);
-        assert_eq!(forward.chains().unwrap(), backward.chains().unwrap());
+        assert_eq!(forward.chains, backward.chains);
     }
 
     #[test]
     fn closed_square_is_a_closed_chain_with_four_joints() {
-        let s = evaluated(vec![
+        let s = eval(vec![
             pt(1, [0.0, 0.0, 0.0]),
             pt(2, [1.0, 0.0, 0.0]),
             pt(3, [1.0, 1.0, 0.0]),
@@ -1354,7 +1352,7 @@ mod tests {
             line(7, 3, 4),
             line(8, 4, 1),
         ]);
-        let chains = s.chains().unwrap();
+        let chains = &s.chains;
         assert_eq!(chains.len(), 1);
         assert!(chains[0].closed);
         assert_eq!(chains[0].edges.len(), 4);
@@ -1366,7 +1364,7 @@ mod tests {
     #[test]
     fn a_branch_point_splits_the_graph_into_runs() {
         // A "T": three segments meeting at point 1.
-        let s = evaluated(vec![
+        let s = eval(vec![
             pt(1, [0.0, 0.0, 0.0]),
             pt(2, [1.0, 0.0, 0.0]),
             pt(3, [-1.0, 0.0, 0.0]),
@@ -1375,7 +1373,7 @@ mod tests {
             line(6, 1, 3),
             line(7, 1, 4),
         ]);
-        let chains = s.chains().unwrap();
+        let chains = &s.chains;
         assert_eq!(chains.len(), 3);
         assert!(chains.iter().all(|c| c.edges.len() == 1 && !c.closed));
     }
@@ -1383,7 +1381,7 @@ mod tests {
     #[test]
     fn a_three_point_arc_recovers_its_circle() {
         // Quarter circle of radius 1 in the XY plane, centre at the origin.
-        let s = evaluated(vec![
+        let s = eval(vec![
             pt(1, [1.0, 0.0, 0.0]),
             pt(2, [0.0, 1.0, 0.0]),
             pt(
@@ -1402,7 +1400,7 @@ mod tests {
                 construction: false,
             },
         ]);
-        let chains = s.chains().unwrap();
+        let chains = &s.chains;
         let Edge3dKind::Arc {
             center,
             normal,
@@ -1419,7 +1417,7 @@ mod tests {
 
     #[test]
     fn collinear_arc_points_are_loud() {
-        let s = evaluated(vec![
+        let s = try_eval(vec![
             pt(1, [0.0, 0.0, 0.0]),
             pt(2, [2.0, 0.0, 0.0]),
             pt(3, [1.0, 0.0, 0.0]),
@@ -1432,7 +1430,7 @@ mod tests {
             },
         ]);
         assert!(matches!(
-            s.chains().unwrap_err(),
+            s.unwrap_err(),
             Sketch3dError::ArcPointsDegenerate { entity_id: 4 }
         ));
     }
@@ -1441,7 +1439,7 @@ mod tests {
     fn a_fillet_is_exactly_tangent_to_both_segments() {
         // Right-angle corner at the origin, legs along +X and +Y, r = 0.25.
         let r = 0.25;
-        let s = evaluated(vec![
+        let s = eval(vec![
             pt(1, [-1.0, 0.0, 0.0]),
             pt(2, [0.0, 0.0, 0.0]),
             pt(3, [0.0, 1.0, 0.0]),
@@ -1454,7 +1452,7 @@ mod tests {
                 radius_expr: None,
             },
         ]);
-        let chains = s.chains().unwrap();
+        let chains = &s.chains;
         assert_eq!(chains.len(), 1);
         let c = &chains[0];
         assert_eq!(c.edges.len(), 3, "two trimmed legs plus the arc");
@@ -1489,7 +1487,7 @@ mod tests {
     fn a_fillet_out_of_plane_is_still_exactly_tangent() {
         // Corner between +X and a leg heading into +Y+Z: the arc's plane is
         // not a coordinate plane, and tangency must still be exact.
-        let s = evaluated(vec![
+        let s = eval(vec![
             pt(1, [-1.0, 0.0, 0.0]),
             pt(2, [0.0, 0.0, 0.0]),
             pt(3, [0.0, 1.0, 1.0]),
@@ -1502,13 +1500,13 @@ mod tests {
                 radius_expr: None,
             },
         ]);
-        let c = &s.chains().unwrap()[0];
+        let c = &s.chains[0];
         assert_eq!(c.g1, vec![true, true]);
     }
 
     #[test]
     fn a_fillet_too_large_for_its_legs_is_loud() {
-        let s = evaluated(vec![
+        let s = try_eval(vec![
             pt(1, [-1.0, 0.0, 0.0]),
             pt(2, [0.0, 0.0, 0.0]),
             pt(3, [0.0, 1.0, 0.0]),
@@ -1521,7 +1519,7 @@ mod tests {
                 radius_expr: None,
             },
         ]);
-        let err = s.chains().unwrap_err();
+        let err = s.unwrap_err();
         let Sketch3dError::FilletTooLarge { max_radius, .. } = err else {
             panic!("expected FilletTooLarge, got {err}");
         };
@@ -1560,18 +1558,18 @@ mod tests {
             ]
         };
         assert!(matches!(
-            evaluated(entities(0.6)).chains().unwrap_err(),
+            try_eval(entities(0.6)).unwrap_err(),
             Sketch3dError::FilletTooLarge { .. }
         ));
-        let ok = evaluated(entities(0.4));
-        let c = &ok.chains().unwrap()[0];
+        let ok = eval(entities(0.4));
+        let c = &ok.chains[0];
         assert_eq!(c.edges.len(), 5);
         assert_eq!(c.g1, vec![true, true, true, true]);
     }
 
     #[test]
     fn a_fillet_on_a_straight_joint_is_loud() {
-        let s = evaluated(vec![
+        let s = try_eval(vec![
             pt(1, [0.0, 0.0, 0.0]),
             pt(2, [1.0, 0.0, 0.0]),
             pt(3, [2.0, 0.0, 0.0]),
@@ -1585,14 +1583,14 @@ mod tests {
             },
         ]);
         assert!(matches!(
-            s.chains().unwrap_err(),
+            s.unwrap_err(),
             Sketch3dError::FilletCollinear { .. }
         ));
     }
 
     #[test]
     fn a_fillet_at_a_free_end_is_loud() {
-        let s = evaluated(vec![
+        let s = try_eval(vec![
             pt(1, [0.0, 0.0, 0.0]),
             pt(2, [1.0, 0.0, 0.0]),
             line(3, 1, 2),
@@ -1604,14 +1602,14 @@ mod tests {
             },
         ]);
         assert!(matches!(
-            s.chains().unwrap_err(),
+            s.unwrap_err(),
             Sketch3dError::FilletNotTwoSegments { found: 1, .. }
         ));
     }
 
     #[test]
     fn a_fillet_against_an_arc_is_refused_not_approximated() {
-        let s = evaluated(vec![
+        let s = try_eval(vec![
             pt(1, [1.0, 0.0, 0.0]),
             pt(2, [0.0, 1.0, 0.0]),
             pt(
@@ -1639,28 +1637,28 @@ mod tests {
             },
         ]);
         assert!(matches!(
-            s.chains().unwrap_err(),
+            s.unwrap_err(),
             Sketch3dError::FilletNeedsStraightSegments { .. }
         ));
     }
 
     #[test]
     fn degenerate_and_duplicate_inputs_are_loud() {
-        let dup = Sketch3d::new(Uuid::nil(), vec![pt(1, [0.0; 3]), pt(1, [1.0; 3])]);
+        let dup = try_eval(vec![pt(1, [0.0; 3]), pt(1, [1.0; 3])]);
         assert!(matches!(
-            dup.chains().unwrap_err(),
+            dup.unwrap_err(),
             Sketch3dError::DuplicateEntityId { id: 1 }
         ));
 
-        let zero = evaluated(vec![pt(1, [0.0; 3]), pt(2, [0.0; 3]), line(3, 1, 2)]);
+        let zero = try_eval(vec![pt(1, [0.0; 3]), pt(2, [0.0; 3]), line(3, 1, 2)]);
         assert!(matches!(
-            zero.chains().unwrap_err(),
+            zero.unwrap_err(),
             Sketch3dError::DegenerateSegment { entity_id: 3 }
         ));
 
-        let missing = evaluated(vec![pt(1, [0.0; 3]), line(2, 1, 99)]);
+        let missing = try_eval(vec![pt(1, [0.0; 3]), line(2, 1, 99)]);
         assert!(matches!(
-            missing.chains().unwrap_err(),
+            missing.unwrap_err(),
             Sketch3dError::PointNotFound {
                 entity_id: 2,
                 point_id: 99
@@ -1672,7 +1670,7 @@ mod tests {
     fn a_planar_3d_chain_matches_the_geometry_a_planar_sketch_would_give() {
         // The sketch3d §10 oracle, in its purely geometric half: a chain whose
         // points are coplanar has edges lying exactly in that plane.
-        let s = evaluated(vec![
+        let s = eval(vec![
             pt(1, [0.0, 0.0, 2.0]),
             pt(2, [1.0, 0.0, 2.0]),
             pt(3, [1.0, 1.0, 2.0]),
@@ -1685,7 +1683,7 @@ mod tests {
                 radius_expr: None,
             },
         ]);
-        let c = &s.chains().unwrap()[0];
+        let c = &s.chains[0];
         for e in &c.edges {
             assert!((e.a[2] - 2.0).abs() < 1e-15);
             assert!((e.b[2] - 2.0).abs() < 1e-15);

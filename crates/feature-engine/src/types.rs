@@ -240,6 +240,15 @@ pub enum Operation {
     Sketch {
         sketch: Sketch,
     },
+    /// A 3D sketch (`specs/sketch3d.md`): spatial reference geometry — an
+    /// open or closed chain (or a branching graph) of lines and arcs, and the
+    /// points that define them. Produces no body; a sweep and the frame
+    /// feature read `Chain3d`s out of it. Like `MateConnector`, its evaluation
+    /// is read AFTER the rebuild (`RebuildState::sketch3d`), because an
+    /// attachment to model geometry can only resolve during the rebuild walk.
+    Sketch3d {
+        sketch: waffle_types::sketch3d::Sketch3d,
+    },
     Extrude {
         params: ExtrudeParams,
     },
@@ -317,27 +326,63 @@ pub enum Operation {
 #[serde(tag = "type")]
 #[cfg_attr(feature = "json-schema", derive(schemars::JsonSchema))]
 enum KnownOperation {
-    Sketch { sketch: Sketch },
-    Extrude { params: ExtrudeParams },
-    Revolve { params: RevolveParams },
-    Fillet { params: FilletParams },
-    Chamfer { params: ChamferParams },
-    Shell { params: ShellParams },
-    BooleanCombine { params: BooleanParams },
-    DatumPlane { params: DatumPlaneParams },
-    ImportedBody { params: ImportedBodyParams },
-    MateConnector { params: MateConnectorParams },
-    PatternCircular { params: PatternCircularParams },
-    PatternLinear { params: PatternLinearParams },
-    PatternMirror { params: PatternMirrorParams },
-    Pipe { params: PipeParams },
-    Script { params: ScriptParams },
-    UnionAll { params: UnionAllParams },
+    Sketch {
+        sketch: Sketch,
+    },
+    Sketch3d {
+        sketch: waffle_types::sketch3d::Sketch3d,
+    },
+    Extrude {
+        params: ExtrudeParams,
+    },
+    Revolve {
+        params: RevolveParams,
+    },
+    Fillet {
+        params: FilletParams,
+    },
+    Chamfer {
+        params: ChamferParams,
+    },
+    Shell {
+        params: ShellParams,
+    },
+    BooleanCombine {
+        params: BooleanParams,
+    },
+    DatumPlane {
+        params: DatumPlaneParams,
+    },
+    ImportedBody {
+        params: ImportedBodyParams,
+    },
+    MateConnector {
+        params: MateConnectorParams,
+    },
+    PatternCircular {
+        params: PatternCircularParams,
+    },
+    PatternLinear {
+        params: PatternLinearParams,
+    },
+    PatternMirror {
+        params: PatternMirrorParams,
+    },
+    Pipe {
+        params: PipeParams,
+    },
+    Script {
+        params: ScriptParams,
+    },
+    UnionAll {
+        params: UnionAllParams,
+    },
 }
 
 /// The operation `type` tags this build can rebuild.
 pub const OPERATION_TAGS: &[&str] = &[
     "Sketch",
+    "Sketch3d",
     "Extrude",
     "Revolve",
     "Fillet",
@@ -359,6 +404,7 @@ impl From<KnownOperation> for Operation {
     fn from(k: KnownOperation) -> Self {
         match k {
             KnownOperation::Sketch { sketch } => Operation::Sketch { sketch },
+            KnownOperation::Sketch3d { sketch } => Operation::Sketch3d { sketch },
             KnownOperation::Extrude { params } => Operation::Extrude { params },
             KnownOperation::Revolve { params } => Operation::Revolve { params },
             KnownOperation::Fillet { params } => Operation::Fillet { params },
@@ -398,6 +444,7 @@ impl Operation {
     pub fn type_tag(&self) -> &str {
         match self {
             Operation::Sketch { .. } => "Sketch",
+            Operation::Sketch3d { .. } => "Sketch3d",
             Operation::Extrude { .. } => "Extrude",
             Operation::Revolve { .. } => "Revolve",
             Operation::Fillet { .. } => "Fillet",

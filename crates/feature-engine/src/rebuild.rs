@@ -123,6 +123,11 @@ pub struct RebuildState {
     /// sub-tree, so `connector::part_connectors` (which walks the tree)
     /// cannot see them. Carried for a node this pass did not re-execute.
     pub script_connectors: HashMap<Uuid, Vec<crate::connector::PartConnector>>,
+    /// Evaluated 3D sketches, by feature. Not in `OpResult` because a 3D
+    /// sketch produces no body: this is where its resolved points and chains
+    /// live, and it is what a sweep and the renderer read. Carried for a
+    /// feature this pass did not re-execute.
+    pub sketch3d: HashMap<Uuid, waffle_types::sketch3d::Sketch3dEvaluation>,
 }
 
 /// What the previous rebuild established that a feature this pass does NOT
@@ -132,6 +137,7 @@ pub struct RebuildState {
 pub struct Carried<'a> {
     pub consumed_by: Option<&'a HashMap<Uuid, Vec<Uuid>>>,
     pub script_connectors: Option<&'a HashMap<Uuid, Vec<crate::connector::PartConnector>>>,
+    pub sketch3d: Option<&'a HashMap<Uuid, waffle_types::sketch3d::Sketch3dEvaluation>>,
 }
 
 /// What changed since the last rebuild, which decides what a rebuild
@@ -178,6 +184,7 @@ pub fn rebuild(
         consumed_by: HashMap::new(),
         pid_to_feature: HashMap::new(),
         script_connectors: HashMap::new(),
+        sketch3d: HashMap::new(),
     };
 
     let active = tree.active_features();
@@ -235,6 +242,13 @@ pub fn rebuild(
                 state.warnings.push(format!("{}: {}", feature.name, w));
             }
             state.feature_results.insert(feature.id, result.clone());
+            if matches!(feature.operation, Operation::Sketch3d { .. }) {
+                // Its evaluation is not derivable from the empty `OpResult`,
+                // so what the last rebuild established stands.
+                if let Some(ev) = carried.sketch3d.and_then(|m| m.get(&feature.id)) {
+                    state.sketch3d.insert(feature.id, ev.clone());
+                }
+            }
             let consumed_ids = if matches!(feature.operation, Operation::Script { .. }) {
                 // A script's consumption of OUTER bodies is not derivable from
                 // its result; what the last rebuild established stands (its
@@ -291,7 +305,18 @@ pub fn rebuild(
 
         // A `Script` node reports what it consumed and placed AFTER running
         // (its children are private); every other operation is known before.
-        let outcome = if matches!(feature.operation, Operation::Script { .. }) {
+        let outcome = if let Operation::Sketch3d { sketch } = &feature.operation {
+            // Evaluated HERE rather than in `execute_feature` so the chains
+            // reach `state`: a 3D sketch's output is not a body, so it has no
+            // `OpResult` to ride in. `execute_feature`'s own arm performs the
+            // same evaluation for validation when called directly.
+            crate::sketch3d::evaluate(sketch, &state.feature_results, kb.as_introspect(), tree).map(
+                |ev| {
+                    state.sketch3d.insert(feature.id, ev);
+                    crate::sketch3d::no_geometry_result()
+                },
+            )
+        } else if matches!(feature.operation, Operation::Script { .. }) {
             crate::script::execute(
                 feature,
                 kb,
@@ -570,6 +595,18 @@ pub(crate) fn execute_feature(
                 },
                 diagnostics: modeling_ops::Diagnostics::default(),
             })
+        }
+
+        Operation::Sketch3d { sketch } => {
+            // No geometry of its own: the rebuild only proves the sketch
+            // resolves — a dangling attachment, an attachment cycle or a
+            // fillet that does not fit is THIS feature's error, named here,
+            // rather than a sweep downstream that cannot find its path. The
+            // evaluated chains are read after the rebuild
+            // (`RebuildState::sketch3d`), the way a connector's frame is;
+            // the rebuild loop captures them there.
+            crate::sketch3d::evaluate(sketch, feature_results, kb.as_introspect(), tree)?;
+            Ok(crate::sketch3d::no_geometry_result())
         }
 
         Operation::MateConnector { params } => {
@@ -1666,6 +1703,7 @@ fn find_most_recent_solid_outputs(
         if matches!(
             &feature.operation,
             Operation::Sketch { .. }
+                | Operation::Sketch3d { .. }
                 | Operation::DatumPlane { .. }
                 | Operation::MateConnector { .. }
         ) {
@@ -1723,6 +1761,7 @@ fn find_most_recent_consumed(
         if matches!(
             &f.operation,
             Operation::Sketch { .. }
+                | Operation::Sketch3d { .. }
                 | Operation::DatumPlane { .. }
                 | Operation::MateConnector { .. }
         ) {
@@ -2320,6 +2359,7 @@ fn resolve_share_a_face(
                 if matches!(
                     f.operation,
                     Operation::Sketch { .. }
+                        | Operation::Sketch3d { .. }
                         | Operation::DatumPlane { .. }
                         | Operation::MateConnector { .. }
                 ) {

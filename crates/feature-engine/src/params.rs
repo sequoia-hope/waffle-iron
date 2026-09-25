@@ -194,6 +194,7 @@ pub fn apply_parameters(tree: &mut FeatureTree) -> ParamOutcome {
                 PlaneDefinition::PointNormal { .. } => false,
             },
             Operation::Sketch { sketch } => apply_sketch(sketch, &env, &mut errs),
+            Operation::Sketch3d { sketch } => apply_sketch3d(sketch, &env, &mut errs),
             Operation::PatternCircular { params } => apply_angle_field(
                 "angle",
                 &mut params.angle_deg,
@@ -255,6 +256,62 @@ pub fn apply_parameters(tree: &mut FeatureTree) -> ParamOutcome {
     }
 
     outcome
+}
+
+/// Evaluate a 3D sketch's driving expressions into its stored values.
+///
+/// A 3D sketch has no solver to re-run afterwards (`specs/sketch3d.md` §4),
+/// so unlike [`apply_sketch`] this is only the expression pass: point
+/// coordinates in mm-space and fillet radii the same. Attachments are NOT
+/// resolved here — they can need model geometry, so they wait for the rebuild
+/// walk (`crate::sketch3d`).
+fn apply_sketch3d(
+    sketch: &mut waffle_types::sketch3d::Sketch3d,
+    env: &HashMap<String, f64>,
+    errs: &mut Vec<String>,
+) -> bool {
+    use waffle_types::sketch3d::Sketch3dEntity;
+    let mut changed = false;
+    for entity in &mut sketch.entities {
+        match entity {
+            Sketch3dEntity::Point {
+                id, xyz, xyz_expr, ..
+            } => {
+                let Some(exprs) = xyz_expr.clone() else {
+                    continue;
+                };
+                for (axis, expression) in exprs.iter().enumerate() {
+                    let Some(expression) = expression.as_deref() else {
+                        continue;
+                    };
+                    changed |= apply_length_field(
+                        &format!("point {id} {}", ["x", "y", "z"][axis]),
+                        &mut xyz[axis],
+                        Some(expression),
+                        env,
+                        errs,
+                    );
+                }
+            }
+            Sketch3dEntity::Fillet {
+                id,
+                radius,
+                radius_expr,
+                ..
+            } => {
+                let expression = radius_expr.clone();
+                changed |= apply_length_field(
+                    &format!("fillet {id} radius"),
+                    radius,
+                    expression.as_deref(),
+                    env,
+                    errs,
+                );
+            }
+            Sketch3dEntity::Line { .. } | Sketch3dEntity::Arc { .. } => {}
+        }
+    }
+    changed
 }
 
 /// Evaluate a length expression (mm-space → meters) into `field`.

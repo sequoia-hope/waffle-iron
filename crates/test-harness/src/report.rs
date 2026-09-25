@@ -147,6 +147,7 @@ impl ModelBuilder {
         for (idx, feature) in self.state.engine.tree.features.iter().enumerate() {
             let op_type = match &feature.operation {
                 Operation::Sketch { .. } => "Sketch",
+                Operation::Sketch3d { .. } => "Sketch3d",
                 Operation::Extrude { .. } => "Extrude",
                 Operation::Revolve { .. } => "Revolve",
                 Operation::Fillet { .. } => "Fillet",
@@ -283,6 +284,18 @@ fn seed_count(seeds: &feature_engine::types::PatternSeeds) -> String {
 
 fn describe_operation(op: &Operation) -> String {
     match op {
+        Operation::Sketch3d { sketch } => {
+            use waffle_types::sketch3d::Sketch3dEntity;
+            let count =
+                |f: fn(&Sketch3dEntity) -> bool| sketch.entities.iter().filter(|e| f(e)).count();
+            format!(
+                "Entities: {} points, {} lines, {} arcs, {} fillets",
+                count(|e| matches!(e, Sketch3dEntity::Point { .. })),
+                count(|e| matches!(e, Sketch3dEntity::Line { .. })),
+                count(|e| matches!(e, Sketch3dEntity::Arc { .. })),
+                count(|e| matches!(e, Sketch3dEntity::Fillet { .. })),
+            )
+        }
         Operation::Sketch { sketch } => {
             let point_count = sketch
                 .entities

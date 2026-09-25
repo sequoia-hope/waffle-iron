@@ -1562,3 +1562,101 @@ fn old_file_without_parameters_loads_with_empty_table() {
     let (loaded, _) = load_project(&serde_json::to_string(&json).unwrap()).unwrap();
     assert!(loaded.parameters.is_empty());
 }
+
+// --- 3D sketch (`specs/sketch3d.md` S2) ------------------------------------
+
+/// A 3D sketch survives a save/load with every field intact — including the
+/// optional ones, which is what a path built against model geometry is made
+/// of.
+#[test]
+fn a_3d_sketch_round_trips() {
+    use waffle_types::sketch3d::{Attachment, Axis, Sketch3d, Sketch3dEntity};
+
+    let sketch = Sketch3d::new(
+        Uuid::new_v4(),
+        vec![
+            Sketch3dEntity::Point {
+                id: 1,
+                xyz: [0.1, 0.2, 0.3],
+                attach: None,
+                xyz_expr: Some([Some("width / 2".into()), None, None]),
+                construction: true,
+            },
+            Sketch3dEntity::Point {
+                id: 2,
+                xyz: [1.0, 0.0, 0.0],
+                attach: Some(Box::new(Attachment::AlongAxis {
+                    from: 1,
+                    axis: Axis::Z,
+                    distance: 2.5,
+                })),
+                xyz_expr: None,
+                construction: false,
+            },
+            Sketch3dEntity::Point {
+                id: 3,
+                xyz: [1.0, 1.0, 0.0],
+                attach: None,
+                xyz_expr: None,
+                construction: false,
+            },
+            Sketch3dEntity::Line {
+                id: 4,
+                start_id: 1,
+                end_id: 2,
+                construction: false,
+            },
+            Sketch3dEntity::Arc {
+                id: 5,
+                start_id: 2,
+                end_id: 3,
+                via_id: 1,
+                construction: false,
+            },
+            Sketch3dEntity::Fillet {
+                id: 6,
+                at_point_id: 2,
+                radius: 0.05,
+                radius_expr: Some("bend".into()),
+            },
+        ],
+    );
+
+    let mut tree = FeatureTree::new();
+    tree.features.push(Feature {
+        id: Uuid::new_v4(),
+        name: "Path".to_string(),
+        operation: Operation::Sketch3d {
+            sketch: sketch.clone(),
+        },
+        suppressed: false,
+        references: Default::default(),
+    });
+    tree.active_index = Some(1);
+
+    let json = save_project(&tree, &ProjectMetadata::new("Test"));
+    let (loaded, _) = load_project(&json).unwrap();
+
+    let Operation::Sketch3d { sketch: back } = &loaded.features[0].operation else {
+        panic!(
+            "expected a Sketch3d, got {:?}",
+            loaded.features[0].operation
+        );
+    };
+    assert_eq!(back.id, sketch.id);
+    assert_eq!(
+        serde_json::to_value(&back.entities).unwrap(),
+        serde_json::to_value(&sketch.entities).unwrap(),
+        "every entity survives, optional fields included"
+    );
+}
+
+/// Adding an operation kind is NOT a reader-floor bump: since v4 Phase 1b an
+/// unknown `type` tag round-trips through `Operation::Unknown`, so an older
+/// build keeps a document containing a 3D sketch intact and refuses only that
+/// one feature's rebuild.
+#[test]
+fn the_3d_sketch_operation_did_not_move_the_format_floor() {
+    assert_eq!(file_format::FORMAT_VERSION, 6);
+    assert_eq!(file_format::MIN_READER_VERSION, 6);
+}

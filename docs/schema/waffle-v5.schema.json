@@ -117,6 +117,134 @@
       },
       "type": "object"
     },
+    "Attachment": {
+      "description": "How a point's coordinates are derived, when they are not literal.\n\nEvery variant resolves by construction in one pass — there is no iteration\nand no convergence. `Offset` and `AlongAxis` reference another point of the\nsame sketch and so impose a dependency order; the rest resolve against\nmodel geometry through [`ExternalAnchors`].",
+      "oneOf": [
+        {
+          "description": "Coincident with a model vertex.",
+          "properties": {
+            "reference": {
+              "$ref": "#/$defs/GeomRef"
+            },
+            "type": {
+              "const": "Vertex",
+              "type": "string"
+            }
+          },
+          "required": [
+            "type",
+            "reference"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "At parameter `t ∈ [0, 1]` along a model edge.",
+          "properties": {
+            "reference": {
+              "$ref": "#/$defs/GeomRef"
+            },
+            "t": {
+              "format": "double",
+              "type": "number"
+            },
+            "type": {
+              "const": "EdgePoint",
+              "type": "string"
+            }
+          },
+          "required": [
+            "type",
+            "reference",
+            "t"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "At `uv` on a model face or datum plane.",
+          "properties": {
+            "reference": {
+              "$ref": "#/$defs/GeomRef"
+            },
+            "type": {
+              "const": "OnPlane",
+              "type": "string"
+            },
+            "uv": {
+              "items": {
+                "format": "double",
+                "type": "number"
+              },
+              "maxItems": 2,
+              "minItems": 2,
+              "type": "array"
+            }
+          },
+          "required": [
+            "type",
+            "reference",
+            "uv"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "A fixed world-space offset from another sketch point.",
+          "properties": {
+            "delta": {
+              "items": {
+                "format": "double",
+                "type": "number"
+              },
+              "maxItems": 3,
+              "minItems": 3,
+              "type": "array"
+            },
+            "from": {
+              "format": "uint32",
+              "minimum": 0,
+              "type": "integer"
+            },
+            "type": {
+              "const": "Offset",
+              "type": "string"
+            }
+          },
+          "required": [
+            "type",
+            "from",
+            "delta"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "A run of `distance` along a world axis from another sketch point —\nthe axis-locked segment that most frame geometry is made of.",
+          "properties": {
+            "axis": {
+              "$ref": "#/$defs/Axis"
+            },
+            "distance": {
+              "format": "double",
+              "type": "number"
+            },
+            "from": {
+              "format": "uint32",
+              "minimum": 0,
+              "type": "integer"
+            },
+            "type": {
+              "const": "AlongAxis",
+              "type": "string"
+            }
+          },
+          "required": [
+            "type",
+            "from",
+            "axis",
+            "distance"
+          ],
+          "type": "object"
+        }
+      ]
+    },
     "AxialAnchor": {
       "description": "Where along a rotational face's axis a derived connector sits\n(`crate::connector`, `specs/assembly_connector_adjustments.md`): the\nmiddle of the face's axial extent (the default — what a Revolute or\nCylindrical mate wants) or one of its ends. The ends are named by the\nconnector's FINAL z (after `flip_z`), so they always read against the\ntriad the viewport draws: \"+z end\" is wherever the blue arrow points.\nIgnored by every other pick (a planar face, a sphere, an edge, an\nexplicit frame).",
       "oneOf": [
@@ -137,6 +265,15 @@
           "type": "string"
         }
       ]
+    },
+    "Axis": {
+      "description": "A world axis, for [`Attachment::AlongAxis`].",
+      "enum": [
+        "X",
+        "Y",
+        "Z"
+      ],
+      "type": "string"
     },
     "AxisRef": {
       "description": "A line in space named for a pattern: a circular pattern's rotation axis or\na linear pattern's direction (`specs/custom_features_and_modeling_roadmap.md`\n§B1). `#[serde(tag = \"method\")]`, like [`PlaneDefinition`].",
@@ -1728,6 +1865,22 @@
         },
         {
           "properties": {
+            "sketch": {
+              "$ref": "#/$defs/Sketch3d"
+            },
+            "type": {
+              "const": "Sketch3d",
+              "type": "string"
+            }
+          },
+          "required": [
+            "type",
+            "sketch"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
             "params": {
               "$ref": "#/$defs/ExtrudeParams"
             },
@@ -1973,6 +2126,7 @@
               "not": {
                 "enum": [
                   "Sketch",
+                  "Sketch3d",
                   "Extrude",
                   "Revolve",
                   "Fillet",
@@ -3630,6 +3784,202 @@
         "constraints"
       ],
       "type": "object"
+    },
+    "Sketch3d": {
+      "description": "A 3D sketch: purely declarative, with no engine-written cache.\n\n`Sketch::solved_positions` can be stored on the sketch because the 2D\nsolver runs in the engine's mutable pre-pass, before the rebuild. A 3D\nsketch cannot: an [`Attachment`] to a model vertex only resolves once the\nfeature that made that vertex has rebuilt, which is the rebuild walk\nitself, where the tree is immutable. So evaluation is pure and its output\nis carried in the feature's rebuild result — the way a mate connector's\nframe \"is read after the rebuild\" (`feature_engine::rebuild`).\n\nA reader that never evaluates still sees the sketch's shape: every\npoint's `xyz` holds coordinates. For an attached point those are the last\nones the author saw rather than the derived truth, which is why `attach`\nis what the engine believes and `xyz` is only a hint.",
+      "properties": {
+        "entities": {
+          "items": {
+            "$ref": "#/$defs/Sketch3dEntity"
+          },
+          "type": "array"
+        },
+        "id": {
+          "format": "uuid",
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "entities"
+      ],
+      "type": "object"
+    },
+    "Sketch3dEntity": {
+      "description": "An entity of a 3D sketch. Ids are unique within the sketch.",
+      "oneOf": [
+        {
+          "description": "A point. `xyz` always holds the last evaluated coordinates, so a reader\nthat does not evaluate still sees the sketch's shape; `attach` and\n`xyz_expr`, when present, are what *derive* `xyz` at the next rebuild.",
+          "properties": {
+            "attach": {
+              "anyOf": [
+                {
+                  "$ref": "#/$defs/Attachment"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Boxed: an `Attachment` carries a `GeomRef`, which is large, and\nthere is one entity per POINT here — a frame path is thousands of\nthem, almost all with no attachment at all. Boxing keeps the\nvariant small; serde sees through the `Box`, so the wire form is\nunchanged."
+            },
+            "construction": {
+              "default": false,
+              "type": "boolean"
+            },
+            "id": {
+              "format": "uint32",
+              "minimum": 0,
+              "type": "integer"
+            },
+            "type": {
+              "const": "Point",
+              "type": "string"
+            },
+            "xyz": {
+              "items": {
+                "format": "double",
+                "type": "number"
+              },
+              "maxItems": 3,
+              "minItems": 3,
+              "type": "array"
+            },
+            "xyz_expr": {
+              "description": "Per-component driving expressions (mm-space, like every other\n`*_expr` in the tree). Evaluated by `feature-engine`, not here.",
+              "items": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "maxItems": 3,
+              "minItems": 3,
+              "type": [
+                "array",
+                "null"
+              ]
+            }
+          },
+          "required": [
+            "type",
+            "id",
+            "xyz"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "Straight segment between two points.",
+          "properties": {
+            "construction": {
+              "default": false,
+              "type": "boolean"
+            },
+            "end_id": {
+              "format": "uint32",
+              "minimum": 0,
+              "type": "integer"
+            },
+            "id": {
+              "format": "uint32",
+              "minimum": 0,
+              "type": "integer"
+            },
+            "start_id": {
+              "format": "uint32",
+              "minimum": 0,
+              "type": "integer"
+            },
+            "type": {
+              "const": "Line",
+              "type": "string"
+            }
+          },
+          "required": [
+            "type",
+            "id",
+            "start_id",
+            "end_id"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "Arc through three distinct, non-collinear points: from `start_id` to\n`end_id`, passing through `via_id`. Three points determine centre,\nradius and plane, so the arc carries no stored frame that could\ndisagree with its own endpoints.",
+          "properties": {
+            "construction": {
+              "default": false,
+              "type": "boolean"
+            },
+            "end_id": {
+              "format": "uint32",
+              "minimum": 0,
+              "type": "integer"
+            },
+            "id": {
+              "format": "uint32",
+              "minimum": 0,
+              "type": "integer"
+            },
+            "start_id": {
+              "format": "uint32",
+              "minimum": 0,
+              "type": "integer"
+            },
+            "type": {
+              "const": "Arc",
+              "type": "string"
+            },
+            "via_id": {
+              "format": "uint32",
+              "minimum": 0,
+              "type": "integer"
+            }
+          },
+          "required": [
+            "type",
+            "id",
+            "start_id",
+            "end_id",
+            "via_id"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "A tangent fillet of `radius` at the joint between the two straight\nsegments meeting at `at_point_id`. A GENERATOR: expanded at evaluation\ninto an arc plus the two trimmed segment ends, the way\n[`crate::sketch::SketchEntity::Gear`] and `Sprocket` are expanded.\nTangency is exact by construction and survives moving the segments.",
+          "properties": {
+            "at_point_id": {
+              "format": "uint32",
+              "minimum": 0,
+              "type": "integer"
+            },
+            "id": {
+              "format": "uint32",
+              "minimum": 0,
+              "type": "integer"
+            },
+            "radius": {
+              "format": "double",
+              "type": "number"
+            },
+            "radius_expr": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "type": {
+              "const": "Fillet",
+              "type": "string"
+            }
+          },
+          "required": [
+            "type",
+            "id",
+            "at_point_id",
+            "radius"
+          ],
+          "type": "object"
+        }
+      ]
     },
     "SketchConstraint": {
       "description": "A constraint between sketch entities.",

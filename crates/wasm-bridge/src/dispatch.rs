@@ -1656,6 +1656,7 @@ pub(crate) fn feature_name_for(state: &EngineState, op: &Operation) -> String {
 fn operation_name(op: &Operation) -> String {
     match op {
         Operation::Sketch { .. } => "Sketch".to_string(),
+        Operation::Sketch3d { .. } => "3D sketch".to_string(),
         Operation::Extrude { .. } => "Extrude".to_string(),
         Operation::Revolve { .. } => "Revolve".to_string(),
         Operation::Pipe { .. } => "Pipe".to_string(),
