@@ -32,6 +32,11 @@ members = [
     # dependencies (Apache-2.0, git-pinned) must never leak past its API.
     "crates/step-import",
 
+    # KiCad board reader (specs/kicad_board_link.md C1). Same layering
+    # position as step-import: a file-format reader with no workspace deps,
+    # WASM-clean; its `Pcb` record is the input of the derive step.
+    "crates/kicad-pcb",
+
     # Dev tooling, OUTSIDE the kernel layering (no workspace deps, never
     # shipped): generates cherchi-rs's clean-room indirect-predicate
     # instances (M7) into src/predicates/indirect/generated.rs.

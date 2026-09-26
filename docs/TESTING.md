@@ -39,6 +39,9 @@ Rewrite tier + consumer crates:
 - **modeling-ops** — Modeling operation dispatching
 - **wasm-bridge** (`--no-default-features`) — WASM API surface
 - **file-format** — Serialization/deserialization
+- **kicad-pcb** — `.kicad_pcb` reader + outline chaining (`specs/kicad_board_link.md`
+  C1): unit tests plus the authored-fixture goldens in `tests/golden.rs`
+  (`UPDATE_GOLDEN=1` regenerates; read the diff)
 - **test-harness** — Fast binaries: `scenarios_mock`, `workflow_tests`, `oracle_tests`, `report_tests`, `scenarios_advanced`, `stl_tests`
 
 ### Rust Full (`full`, ~27min)
@@ -252,6 +255,7 @@ Baseline timing data from `profile-rust.sh` run:
 | sketch-solver | <1s | Constraint math |
 | feature-engine | 1s | MockKernel-based |
 | file-format | 6s | Serialization |
+| kicad-pcb | <1s | `.kicad_pcb` reader, fixture goldens |
 | modeling-ops | 22s | MockKernel ops |
 | wasm-bridge | <1s | Needs `--no-default-features` |
 | kernel (full) | 407s | Dominated by boolean tests |

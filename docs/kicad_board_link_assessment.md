@@ -6,7 +6,8 @@
 > and click. What would it take to drive that forward?
 >
 > This is an assessment, not a spec. The Phase 3b spec is the first
-> checkpoint below. Priority note: this is app / file-format work and sits
+> checkpoint below — written the same day as `specs/kicad_board_link.md`,
+> whose §8 tracks what has landed (C1, the parser crate, 2026-09-26). Priority note: this is app / file-format work and sits
 > below the Yang pipeline in `CLAUDE.md`'s priority order.
 
 ## 1. What the substrate already delivers

@@ -28,6 +28,8 @@ RUST_FAST_FULL_CRATES=(
   feature-engine
   modeling-ops
   file-format
+  # .kicad_pcb reader (specs/kicad_board_link.md C1): pure Rust, sub-second.
+  kicad-pcb
   # The native engine host (specs/waffle_server_mode.md S4): its stdio suite
   # spawns the real binary on the real kernel; seconds.
   waffle-host
@@ -83,6 +85,7 @@ RUST_FULL_CRATES=(
   feature-engine
   modeling-ops
   file-format
+  kicad-pcb
   waffle-host
   test-harness
 )

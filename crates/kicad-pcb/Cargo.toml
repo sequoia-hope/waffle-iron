@@ -1,0 +1,19 @@
+[package]
+name = "kicad-pcb"
+version = "0.1.0"
+edition = "2021"
+license = "MIT"
+
+# `.kicad_pcb` reader (specs/kicad_board_link.md C1). A file-format-level
+# crate OUTSIDE the kernel layering, like step-import: it turns the KiCad
+# S-expression text into a neutral `Pcb` record (metres, board frame) and
+# chains the Edge.Cuts primitives into closed loops. No workspace deps, no C,
+# WASM-clean. It never reads a millimetre past its own API.
+
+[dependencies]
+serde = { version = "1", features = ["derive"] }
+thiserror = "1"
+
+[dev-dependencies]
+# float_roundtrip: the golden JSON must re-read to the same f64 bit pattern.
+serde_json = { version = "1", features = ["float_roundtrip"] }

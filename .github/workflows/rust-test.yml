@@ -18,7 +18,7 @@ name: Rust tests
 #   - sketch-solver                                — the 2D constraint solver
 #     (LM + analytic Jacobians), pure Rust, ~7s
 #   - waffle-types, wasm-bridge, feature-engine, modeling-ops, file-format,
-#     step-import                                  — the rest of the crates that
+#     step-import, kicad-pcb                       — the rest of the crates that
 #     ship in the deployed WASM bundle (578 tests, ~5s). test-harness already
 #     pulled five of them into this job's compile graph, so the added cost is
 #     test-binary build plus a few seconds of runtime.
@@ -111,6 +111,7 @@ jobs:
           -p modeling-ops
           -p file-format
           -p step-import
+          -p kicad-pcb
 
       # Native render view vs the wasm bundle census (specs/waffle_server_mode.md
       # §2.3 S0). It replays corpus documents through the kernel, so its tests

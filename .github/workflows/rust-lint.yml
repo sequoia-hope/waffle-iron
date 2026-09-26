@@ -55,6 +55,7 @@ env:
     -p modeling-ops
     -p file-format
     -p step-import
+    -p kicad-pcb
 
 jobs:
   lint:
@@ -87,7 +88,7 @@ jobs:
             crates/yang-rs/src crates/kernel-v2/src crates/wasm-bridge/src \
             crates/waffle-types/src crates/feature-engine/src \
             crates/modeling-ops/src crates/file-format/src \
-            crates/sketch-solver/src crates/step-import/src 2>/dev/null \
+            crates/sketch-solver/src crates/step-import/src crates/kicad-pcb/src 2>/dev/null \
             | grep -v "wasm-ok:" || true)
           if [ -n "$hits" ]; then
             echo "Unmarked clock calls in wasm-reachable crates (panics at runtime in wasm):"
