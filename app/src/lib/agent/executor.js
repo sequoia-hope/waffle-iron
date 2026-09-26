@@ -324,7 +324,8 @@ const ENGINE_QUERIES = new Set([
 	'export_stl',
 	'script_run_check',
 	'script_source_get',
-	'assembly_get'
+	'assembly_get',
+	'entity_meta'
 ]);
 
 const ENGINE_COMMANDS = new Set([
@@ -338,6 +339,7 @@ const ENGINE_COMMANDS = new Set([
 	'rollback_set',
 	'parameters_set',
 	'import_step',
+	'kicad_link',
 	'undo',
 	'redo',
 	'sketch_create',

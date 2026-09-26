@@ -206,6 +206,8 @@ agent renames with `feature_rename`. ICR-5 (§9) would add the field.
 | `parameters_set` | command | complete parameter table | `ModelDelta` + per-parameter errors |
 | `undo` / `redo` | command | — | `ModelDelta` |
 | `import_step` | command | `file_name`, `step_text`, `on_error` | `{feature_id}` + `ModelDelta`. Sends `ImportStep` (the engine records `Import` provenance) through the command path, so it is one undo step with A2 rollback; unlike `importStepFromText` it opens no placement dialog |
+| `kicad_link` | command | `file_name`, `pcb_text`, `locator?`, `resolved_commit?`, `on_error` | `{source_id, board_tab, assembly_tab, placeholder_tabs, board, component_count}` + `ModelDelta` (2026-09-26, `specs/kicad_board_link.md` C4). Sends `ImportKicad` / `LinkKicadFromLocator`: a `KicadPcb` source, a Board Part tab (exact outline solid, Derived provenance), placeholder Parts, a Board assembly tab; opens the Board tab |
+| `entity_meta` | query | `body_id?` \| `instance_path?` | `{board, component, source}` — each `null` for anything no KiCad board derived (`QueryEntityMeta`) |
 
 **Custom feature scripts** (2026-09-23, A-M4 of
 `specs/custom_features_and_modeling_roadmap.md`; reference

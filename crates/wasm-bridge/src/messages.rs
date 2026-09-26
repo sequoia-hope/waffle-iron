@@ -306,6 +306,19 @@ pub enum UiToEngine {
         #[serde(default)]
         resolved_commit: Option<String>,
     },
+    /// What a linked KiCad board knows about a body or an assembly instance
+    /// (`specs/kicad_board_link.md` §2.4, C4) — the hover card's question.
+    /// `body_id` is a render body id (`"{instance…}/{feature}/{key}"` in an
+    /// assembly, `"{feature}/{key}"` in a part); `instance_path` names an
+    /// instance directly. An id that derives from no KiCad source answers
+    /// with every field `None` — not an error, the card simply does not
+    /// show.
+    QueryEntityMeta {
+        #[serde(default)]
+        body_id: Option<String>,
+        #[serde(default)]
+        instance_path: Option<Vec<Uuid>>,
+    },
     /// Open (or re-evaluate) an `Assembly` tab (Phase 3b): the UI hands over
     /// the tab's assembly and the feature trees of this document's Part tabs
     /// (the engine only ever holds one live tree); parts of linked `.waffle`
@@ -685,6 +698,19 @@ pub enum EngineToUi {
         /// bridge-level failures such as a message sent in the wrong state.
         #[serde(default, skip_serializing_if = "Option::is_none")]
         kind: Option<feature_engine::types::ErrorKind>,
+    },
+
+    /// Answer to `QueryEntityMeta` (`specs/kicad_board_link.md` C4). Every
+    /// field `None` when the body or instance derives from no KiCad source.
+    EntityMeta {
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        board: Option<feature_engine::kicad::BoardMeta>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        component: Option<feature_engine::kicad::ComponentMeta>,
+        /// The source the board came from — for an "open at this commit"
+        /// link.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        source: Option<SourceStatus>,
     },
 
     /// Answer to `ListFaces` (ICR-3): ordered by canonical `GeomRef` JSON.

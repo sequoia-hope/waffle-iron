@@ -50,7 +50,7 @@ import {
 	sketch3dGetTool,
 	sketchRegionsTool
 } from './inspection.js';
-import { exportStepTool, exportStlTool, importStepTool } from './export.js';
+import { entityMetaTool, exportStepTool, exportStlTool, importStepTool, kicadLinkTool } from './export.js';
 import { modelSummaryTool } from './model_summary.js';
 import {
 	scriptFeatureAddTool,
@@ -101,6 +101,8 @@ export const TOOLS = [
 	scriptSourceUpdateTool,
 	scriptFeatureAddTool,
 	importStepTool,
+	kicadLinkTool,
+	entityMetaTool,
 	exportStepTool,
 	exportStlTool,
 	assemblyGetTool,

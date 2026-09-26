@@ -15,6 +15,7 @@
 		setRenderedEdgeBodyCount,
 		isBodyPickingEnabled,
 		proposeHoverRef,
+		proposeEntityCard,
 		getSketchHover
 	} from '$lib/engine/store.svelte.js';
 	import { buildSectionClipPlane } from './sectionPlane.js';
@@ -258,7 +259,12 @@
 				// The hit index is a vertex index in the LineSegments geometry
 				// Each segment is 2 vertices, ranges use vertex indices
 				if (hitIndex >= range.start_index && hitIndex < range.end_index) {
-					return { ref: range.geom_ref, distance: hit.distance };
+					return {
+						ref: range.geom_ref,
+						distance: hit.distance,
+						bodyId: mesh.bodyId,
+						instancePath: mesh.instancePath ?? (mesh.instanceId ? [mesh.instanceId] : null)
+					};
 				}
 			}
 		}
@@ -298,6 +304,7 @@
 		// Invariant I3: propose the edge for this pixel; a Vertex proposal for the
 		// same pixel supersedes it, a Face proposal does not.
 		proposeHoverRef(edgeHit.ref, e.clientX, e.clientY);
+		proposeEntityCard(edgeHit.bodyId, edgeHit.instancePath, e.clientX, e.clientY);
 	}
 
 	/**

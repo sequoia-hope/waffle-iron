@@ -27,6 +27,65 @@ export const importStepTool = {
 	annotations: { title: 'Import STEP', readOnlyHint: false, destructiveHint: false, openWorldHint: false }
 };
 
+export const kicadLinkTool = {
+	name: 'kicad_link',
+	description:
+		'Link a KiCad board (`.kicad_pcb` text): the board outline becomes an exact solid in a new Board Part tab ' +
+		'(Derived provenance), each footprint shape a placeholder Part, and the footprints a Board assembly tab ' +
+		'(one instance per footprint keyed by its uuid in external_key, a mate connector per mounting hole). ' +
+		'With `locator` the source is LINKED (git file at the resolved commit); without it, embedded. Opens the ' +
+		'Board tab. specs/kicad_board_link.md.',
+	inputSchema: {
+		type: 'object',
+		properties: {
+			file_name: { type: 'string', minLength: 1, description: 'Name recorded on the source, e.g. "main.kicad_pcb".' },
+			pcb_text: { type: 'string', minLength: 1, description: 'The .kicad_pcb file contents (KiCad 6 or newer).' },
+			locator: {
+				type: 'object',
+				description: 'Where the file lives (v4 Locator: {type:"Git", remote, path, ref, host?} or {type:"Url", url}). Omit for an embedded copy.'
+			},
+			resolved_commit: { type: 'string', description: 'The commit the text was fetched at (git locators).' },
+			on_error: onErrorSchema
+		},
+		required: ['file_name', 'pcb_text'],
+		additionalProperties: false
+	},
+	outputSchema: commandOutputSchema({
+		source_id: { type: 'string' },
+		board_tab: { type: 'string' },
+		assembly_tab: { type: 'string' },
+		placeholder_tabs: { type: 'object', additionalProperties: { type: 'string' }, description: 'footprint name → placeholder Part tab id' },
+		board: { type: 'object', description: 'BoardMeta: title, rev, date, company, comments, copper_layers, thickness_m, net_count, footprint_count.' },
+		component_count: { type: 'integer' }
+	}),
+	annotations: { title: 'Link KiCad board', readOnlyHint: false, destructiveHint: false, openWorldHint: false }
+};
+
+const nullableObject = { type: ['object', 'null'] };
+
+export const entityMetaTool = {
+	name: 'entity_meta',
+	description:
+		'What a linked KiCad board knows about a body or an assembly instance: the board record (title, rev, layers, ' +
+		'thickness, nets) and, for a footprint instance, the component record (reference, value, footprint, datasheet, ' +
+		'side, pads with their nets) plus the source it came from. Every field null for anything that derives from ' +
+		'no board — not an error.',
+	inputSchema: {
+		type: 'object',
+		properties: {
+			body_id: { type: 'string', description: 'A render body id ("{instance…}/{feature}/{key}" in an assembly, "{feature}/{key}" in a part).' },
+			instance_path: { type: 'array', items: { type: 'string' }, description: 'An assembly instance path; the first id is the top-level instance.' }
+		},
+		additionalProperties: false
+	},
+	outputSchema: {
+		type: 'object',
+		properties: { board: nullableObject, component: nullableObject, source: nullableObject },
+		required: ['board', 'component', 'source']
+	},
+	annotations: { title: 'Board data', readOnlyHint: true, destructiveHint: false, openWorldHint: false }
+};
+
 const deliver = {
 	type: 'string',
 	enum: ['agent', 'download'],

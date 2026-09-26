@@ -402,6 +402,10 @@ fn the_migrated_list_is_exactly_what_this_checkpoint_implements() {
             "mate_add",
             "mate_edit",
             "mate_delete",
+            // KiCad board link (2026-09-26, `specs/kicad_board_link.md` C4):
+            // the link command and the hover card's query.
+            "kicad_link",
+            "entity_meta",
         ]
     );
 }

@@ -62,6 +62,7 @@
 		setToolHint,
 		AGENT_WORKING_HINT
 	} from '$lib/engine/store.svelte.js';
+	import { importKicad } from '$lib/engine/store.svelte.js';
 	import { isModalConstraint } from '$lib/sketch/constraintModalEngine.js';
 	import SettingsModal from './SettingsModal.svelte';
 	import { goto } from '$app/navigation';
@@ -181,6 +182,8 @@
 		{ id: 'mate-connector', label: 'Connector', shortcut: '' },
 		{ id: 'import-step', label: 'Import', shortcut: '' },
 		{ id: 'import-link', label: 'Link STEP', shortcut: '' },
+		{ id: 'import-kicad', label: 'KiCad', shortcut: '' },
+		{ id: 'link-kicad', label: 'Link KiCad', shortcut: '' },
 	];
 
 	const sketchTools = [
@@ -273,6 +276,14 @@
 		}
 		if (toolId === 'import-link' && !inSketch) {
 			showImportLinkDialog();
+			return;
+		}
+		if (toolId === 'import-kicad' && !inSketch) {
+			importKicad();
+			return;
+		}
+		if (toolId === 'link-kicad' && !inSketch) {
+			showImportLinkDialog('kicad');
 			return;
 		}
 		if (toolId === 'construction') {

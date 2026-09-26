@@ -916,6 +916,72 @@ pub(super) fn import_step(
     Ok(with_feature_id(step))
 }
 
+/// Link a KiCad board (`specs/kicad_board_link.md` §2.4): the `.kicad_pcb`
+/// text becomes a `KicadPcb` source (linked when `locator` is given, else
+/// embedded), a Board Part tab, placeholder Parts and a Board assembly tab;
+/// the Board tab is opened. Answers the tab ids and the delta.
+pub(super) fn kicad_link(
+    state: &mut EngineState,
+    kb: &mut dyn KernelBundle,
+    args: &Value,
+) -> Answer {
+    let file_name = args
+        .get("file_name")
+        .and_then(Value::as_str)
+        .unwrap_or("board.kicad_pcb")
+        .to_string();
+    let data = args
+        .get("pcb_text")
+        .and_then(Value::as_str)
+        .unwrap_or("")
+        .to_string();
+    if data.is_empty() {
+        return Err(ToolFailure::new(
+            "InvalidArguments",
+            "pcb_text is required.",
+            json!({ "reason": "pcb_text is required." }),
+        ));
+    }
+    let msg = match args.get("locator") {
+        Some(l) if !l.is_null() => {
+            let locator: file_format::Locator = serde_json::from_value(l.clone()).map_err(|e| {
+                ToolFailure::new(
+                    "InvalidArguments",
+                    format!("locator: {e}"),
+                    json!({ "reason": e.to_string() }),
+                )
+            })?;
+            UiToEngine::LinkKicadFromLocator {
+                file_name,
+                locator,
+                data,
+                resolved_commit: args
+                    .get("resolved_commit")
+                    .and_then(Value::as_str)
+                    .map(str::to_string),
+            }
+        }
+        _ => UiToEngine::ImportKicad { file_name, data },
+    };
+    let step = apply_step(
+        state,
+        kb,
+        msg,
+        OnError::from_args(args),
+        "FeatureRebuildFailed",
+    )?;
+    let mut out = step.delta;
+    if let Some(rec) = state.kicad_boards.last() {
+        out["source_id"] = json!(rec.source_id);
+        out["board_tab"] = json!(rec.board_tab);
+        out["assembly_tab"] = json!(rec.assembly_tab);
+        out["placeholder_tabs"] = json!(rec.placeholder_tabs);
+        out["board"] = json!(rec.board);
+        out["component_count"] = json!(rec.components.len());
+    }
+    Ok(out)
+}
+
 /// Undo the last feature-level step in the document (the agent's or the
 /// user's).
 pub(super) fn undo(state: &mut EngineState, kb: &mut dyn KernelBundle) -> Answer {

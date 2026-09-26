@@ -5,9 +5,25 @@
 	 * GitHub/GitLab/Gitea file URL, a raw URL, an `/open` share link, or any
 	 * https URL; the document records the locator + commit instead of a copy.
 	 */
-	import { getImportLinkDialogState, hideImportLinkDialog, importStepFromLink } from '$lib/engine/store.svelte.js';
+	import { getImportLinkDialogState, hideImportLinkDialog, importStepFromLink, linkKicadFromLink } from '$lib/engine/store.svelte.js';
 
 	let dialog = $derived(getImportLinkDialogState());
+	// 'step' (the original) or 'kicad' (specs/kicad_board_link.md C4): the
+	// same dialog, a different expectation of what the link points at.
+	let kind = $derived(dialog?.kind ?? 'step');
+	let copy = $derived(
+		kind === 'kicad'
+			? {
+					title: 'Link a KiCad board',
+					hint: 'Paste a link to a .kicad_pcb on GitHub, GitLab or Gitea. The board outline becomes an exact solid, its footprints an assembly, and the document keeps the link and the commit — not a copy.',
+					placeholder: 'https://github.com/owner/repo/blob/main/hardware/board.kicad_pcb'
+				}
+			: {
+					title: 'Link a STEP file',
+					hint: 'Paste a file link from GitHub, GitLab or Gitea (or a share link). The document keeps the link and the commit it was fetched at — not a copy.',
+					placeholder: 'https://github.com/owner/repo/blob/main/parts/bracket.step'
+				}
+	);
 	let url = $state('');
 	let busy = $state(false);
 
@@ -20,7 +36,7 @@
 		if (!url.trim() || busy) return;
 		busy = true;
 		try {
-			const ok = await importStepFromLink(url.trim());
+			const ok = kind === 'kicad' ? await linkKicadFromLink(url.trim()) : await importStepFromLink(url.trim());
 			if (ok) hideImportLinkDialog();
 		} finally {
 			busy = false;
@@ -29,17 +45,14 @@
 </script>
 
 {#if dialog}
-	<div class="overlay" data-testid="import-link-dialog">
+	<div class="overlay" data-testid="import-link-dialog" data-kind={kind}>
 		<form class="panel" onsubmit={submit}>
-			<h3>Link a STEP file</h3>
-			<p class="hint">
-				Paste a file link from GitHub, GitLab or Gitea (or a share link). The document
-				keeps the link and the commit it was fetched at — not a copy.
-			</p>
+			<h3>{copy.title}</h3>
+			<p class="hint">{copy.hint}</p>
 			<input
 				data-testid="import-link-url"
 				type="url"
-				placeholder="https://github.com/owner/repo/blob/main/parts/bracket.step"
+				placeholder={copy.placeholder}
 				bind:value={url}
 				autocomplete="off"
 			/>

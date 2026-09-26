@@ -86,6 +86,8 @@ pub const MIGRATED: &[&str] = &[
     "mate_add",
     "mate_edit",
     "mate_delete",
+    "kicad_link",
+    "entity_meta",
 ];
 
 /// Whether this tool can change the document.
@@ -130,6 +132,7 @@ pub fn mutates(name: &str) -> bool {
             | "mate_add"
             | "mate_edit"
             | "mate_delete"
+            | "kicad_link"
     )
 }
 
@@ -248,6 +251,8 @@ fn run(
         "rollback_set" => author::rollback_set(state, kb, args),
         "parameters_set" => author::parameters_set(state, kb, args),
         "import_step" => author::import_step(state, kb, args),
+        "kicad_link" => author::kicad_link(state, kb, args),
+        "entity_meta" => inspect::entity_meta(state, kb, args),
         "undo" => author::undo(state, kb),
         "redo" => author::redo(state, kb),
         "sketch_create" => sketch::sketch_create(state, kb, args, context),

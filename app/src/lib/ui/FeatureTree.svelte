@@ -51,6 +51,7 @@
 		setToolHint,
 		AGENT_WORKING_HINT
 	} from '$lib/engine/store.svelte.js';
+	import { showImportLinkDialog } from '$lib/engine/store.svelte.js';
 	import { BUILTIN_PLANES, makePlaneRef } from '$lib/engine/planes.js';
 	import { describeLocator } from '$lib/storage/git/locator.js';
 	import { longPressContextMenu } from './longPressContextMenu.js';
@@ -789,6 +790,15 @@
 							>pack all</button>
 						</div>
 					{/if}
+					<div class="source-tools">
+						<button
+							class="src-action"
+							data-testid="sources-link-kicad"
+							title="Link a .kicad_pcb from GitHub, GitLab or Gitea: the board becomes an exact solid, its footprints an assembly"
+							onclick={() => showImportLinkDialog('kicad')}
+							disabled={sourceBusy !== null}
+						>link KiCad…</button>
+					</div>
 					{#each sources as s, i (s.id)}
 						<div class="source-item" data-testid="source-item-{i}" title={describeLocator(s.locator)}>
 							<span class="tree-icon" class:src-missing={!s.available}>{s.available ? '⛁' : '⚠'}</span>

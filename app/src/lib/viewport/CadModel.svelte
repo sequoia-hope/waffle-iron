@@ -30,6 +30,7 @@
 		getFreshHoveredRef,
 		setSelectedInstancePath
 	} from '$lib/engine/store.svelte.js';
+	import { proposeEntityCard, openEntityDetail } from '$lib/engine/store.svelte.js';
 	import { SIDE_FACE_GROUP_THRESHOLD } from '$lib/config.js';
 	import { handleBodyFaceClick } from '$lib/sketch/tools.js';
 	import { buildSectionClipPlane } from './sectionPlane.js';
@@ -470,6 +471,14 @@
 		// pixel; a Vertex/Edge proposal for the same pixel supersedes it.
 		const ne = event.nativeEvent;
 		proposeHoverRef(ref, ne?.clientX ?? 0, ne?.clientY ?? 0);
+		// Board data on hover (specs/kicad_board_link.md C4): what a linked
+		// KiCad board knows about this body, if anything.
+		proposeEntityCard(
+			mesh.bodyId,
+			mesh.instancePath ?? (mesh.instanceId ? [mesh.instanceId] : null),
+			ne?.clientX ?? 0,
+			ne?.clientY ?? 0
+		);
 	}
 
 	/**
@@ -596,6 +605,8 @@
 		// Assembly mode: remember which instance the clicked body belongs to
 		// (mate connectors are created "on the selected face of an instance").
 		setSelectedInstancePath(mesh.instancePath ?? (mesh.instanceId ? [mesh.instanceId] : null));
+		// Board data on click: the detail panel for a body a KiCad board derived.
+		openEntityDetail(mesh.bodyId, mesh.instancePath ?? (mesh.instanceId ? [mesh.instanceId] : null));
 
 		// Canonicalize SideFace refs when grouping
 		if (shouldGroupSideFaces(mesh.faceRanges)) {

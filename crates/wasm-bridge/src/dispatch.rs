@@ -163,6 +163,15 @@ fn handle_message(
             link_kicad(state, kb, entry, &file_name, &data)
         }
 
+        UiToEngine::QueryEntityMeta {
+            body_id,
+            instance_path,
+        } => Ok(entity_meta(
+            state,
+            body_id.as_deref(),
+            instance_path.as_deref(),
+        )),
+
         UiToEngine::ListSources => Ok(EngineToUi::SourcesListed {
             sources: source_statuses(state),
         }),
@@ -1222,6 +1231,7 @@ fn link_kicad(
         .session
         .add_tab("Assembly", Some(format!("{stem} assembly")))?;
     let (assembly, components, assembly_warnings) = derived.assembly(&board_tab, &placeholder_tabs);
+    let board_instance = assembly.instances[0].id;
     state.session.set_assembly(&assembly_tab, assembly)?;
 
     state
@@ -1230,6 +1240,7 @@ fn link_kicad(
             source_id,
             board_tab: board_tab.clone(),
             assembly_tab,
+            board_instance,
             placeholder_tabs,
             board: derived.board_meta.clone(),
             components,
@@ -1244,6 +1255,75 @@ fn link_kicad(
         .extend(derived.warnings.iter().cloned());
     state.engine.warnings.extend(assembly_warnings);
     Ok(model_updated_response(state))
+}
+
+/// `QueryEntityMeta` (`specs/kicad_board_link.md` C4): the KiCad record
+/// behind a body or an instance. A body id in an assembly starts with the
+/// instance path, so its first segment is the top-level instance; a live
+/// part body belongs to the open tab, which is a board when a record says
+/// so. Anything else answers all-`None`.
+fn entity_meta(
+    state: &EngineState,
+    body_id: Option<&str>,
+    instance_path: Option<&[uuid::Uuid]>,
+) -> EngineToUi {
+    let top_instance: Option<uuid::Uuid> =
+        instance_path.and_then(|p| p.first().copied()).or_else(|| {
+            let id = body_id?;
+            let segments: Vec<&str> = id.split('/').collect();
+            // `{instance…}/{feature}/{key}`: three or more segments.
+            if segments.len() >= 3 {
+                segments[0].parse().ok()
+            } else {
+                None
+            }
+        });
+    let source_of = |source_id: uuid::Uuid| {
+        source_statuses(state)
+            .into_iter()
+            .find(|s| s.id == source_id)
+    };
+    let none = EngineToUi::EntityMeta {
+        board: None,
+        component: None,
+        source: None,
+    };
+    match top_instance {
+        Some(inst) => {
+            for rec in &state.kicad_boards {
+                if let Some(component) = rec.components.get(&inst) {
+                    return EngineToUi::EntityMeta {
+                        board: Some(rec.board.clone()),
+                        component: Some(component.clone()),
+                        source: source_of(rec.source_id),
+                    };
+                }
+                if rec.board_instance == inst {
+                    return EngineToUi::EntityMeta {
+                        board: Some(rec.board.clone()),
+                        component: None,
+                        source: source_of(rec.source_id),
+                    };
+                }
+            }
+            none
+        }
+        None => {
+            // A live-part body: the open tab decides.
+            if body_id.is_none() {
+                return none;
+            }
+            let active = state.session.active_tab_id();
+            match state.kicad_boards.iter().find(|r| r.board_tab == active) {
+                Some(rec) => EngineToUi::EntityMeta {
+                    board: Some(rec.board.clone()),
+                    component: None,
+                    source: source_of(rec.source_id),
+                },
+                None => none,
+            }
+        }
+    }
 }
 
 fn add_import_feature(

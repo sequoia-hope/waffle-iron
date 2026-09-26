@@ -237,6 +237,7 @@ test.describe('Authoring tools run in the engine and still answer as the page di
 				'feature_reorder',
 				'feature_suppress',
 				'import_step',
+				'kicad_link',
 				'parameters_set',
 				'redo',
 				'rollback_set',

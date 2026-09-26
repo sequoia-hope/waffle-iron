@@ -70,6 +70,8 @@ pub struct KicadBoardRecord {
     pub source_id: uuid::Uuid,
     pub board_tab: String,
     pub assembly_tab: String,
+    /// The grounded board instance in the assembly tab.
+    pub board_instance: uuid::Uuid,
     /// Footprint name → placeholder Part tab.
     pub placeholder_tabs: std::collections::BTreeMap<String, String>,
     pub board: feature_engine::kicad::BoardMeta,

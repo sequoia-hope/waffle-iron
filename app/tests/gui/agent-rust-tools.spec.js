@@ -227,6 +227,8 @@ test.describe('Read-only agent tools run in the engine (S3 C5b)', () => {
 		// Assembly tab.
 		const expected = [...READ_ONLY];
 		expected.splice(expected.indexOf('sketch_regions') + 1, 0, 'sketch3d_get');
-		expect(routed).toEqual([...expected, 'assembly_get']);
+		// `entity_meta` (2026-09-26, `specs/kicad_board_link.md` C4) needs a
+		// linked KiCad board, so it is named here too.
+		expect(routed).toEqual([...expected, 'assembly_get', 'entity_meta']);
 	});
 });

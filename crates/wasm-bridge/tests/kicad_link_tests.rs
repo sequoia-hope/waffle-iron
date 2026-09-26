@@ -410,3 +410,115 @@ fn new_document_forgets_the_board_record() {
     dispatch(&mut state, UiToEngine::NewDocument, &mut kernel);
     assert!(state.kicad_boards.is_empty());
 }
+
+// ── O8: the metadata query ────────────────────────────────────────────
+
+#[test]
+fn entity_meta_answers_for_instances_bodies_and_the_open_board_tab() {
+    let mut state = EngineState::new();
+    let mut kernel = KernelV2Adapter::new();
+    import(&mut state, &mut kernel, "rect_v8.kicad_pcb", RECT_V8);
+
+    // The live part IS the board tab: a part body id answers with the board.
+    let board_feature = state.engine.tree.features[1].id;
+    let reply = dispatch(
+        &mut state,
+        UiToEngine::QueryEntityMeta {
+            body_id: Some(format!("{board_feature}/Main")),
+            instance_path: None,
+        },
+        &mut kernel,
+    );
+    let EngineToUi::EntityMeta {
+        board: Some(board),
+        component: None,
+        source: Some(source),
+    } = reply
+    else {
+        panic!("{reply:?}");
+    };
+    assert_eq!(board.title, "Waffle test board");
+    assert_eq!(source.kind, "KicadPcb");
+
+    // Every instance of the assembly answers consistently (O8).
+    let rec = state.kicad_boards[0].clone();
+    let assembly = state.session.assembly(&rec.assembly_tab).unwrap().clone();
+    for inst in &assembly.instances {
+        let reply = dispatch(
+            &mut state,
+            UiToEngine::QueryEntityMeta {
+                body_id: None,
+                instance_path: Some(vec![inst.id]),
+            },
+            &mut kernel,
+        );
+        let EngineToUi::EntityMeta {
+            board: Some(b),
+            component,
+            source: Some(_),
+        } = reply
+        else {
+            panic!("{reply:?}");
+        };
+        assert_eq!(b.footprint_count, 3);
+        if inst.id == rec.board_instance {
+            assert!(component.is_none());
+        } else {
+            let c = component.expect("component record");
+            assert_eq!(c.reference, inst.name);
+            assert_eq!(
+                Some(c.footprint_uuid.as_str()),
+                inst.external_key.as_deref()
+            );
+        }
+    }
+
+    // A render body id in the assembly form resolves through its first
+    // segment; a foreign id answers all-None, not an error.
+    let r1 = assembly.instances.iter().find(|i| i.name == "R1").unwrap();
+    let reply = dispatch(
+        &mut state,
+        UiToEngine::QueryEntityMeta {
+            body_id: Some(format!("{}/{}/Main", r1.id, uuid::Uuid::nil())),
+            instance_path: None,
+        },
+        &mut kernel,
+    );
+    assert!(matches!(
+        reply,
+        EngineToUi::EntityMeta { component: Some(ref c), .. } if c.reference == "R1"
+    ));
+    let reply = dispatch(
+        &mut state,
+        UiToEngine::QueryEntityMeta {
+            body_id: Some(format!("{}/{}/Main", uuid::Uuid::nil(), uuid::Uuid::nil())),
+            instance_path: None,
+        },
+        &mut kernel,
+    );
+    assert!(matches!(
+        reply,
+        EngineToUi::EntityMeta {
+            board: None,
+            component: None,
+            source: None
+        }
+    ));
+
+    // Switch to the assembly tab: the live-part form no longer names the board.
+    let asm_tab = rec.assembly_tab.clone();
+    dispatch(
+        &mut state,
+        UiToEngine::OpenAssembly { tab_id: asm_tab },
+        &mut kernel,
+    );
+    let reply = dispatch(
+        &mut state,
+        UiToEngine::QueryEntityMeta {
+            body_id: Some(format!("{board_feature}/Main")),
+            instance_path: None,
+        },
+        &mut kernel,
+    );
+    assert!(matches!(reply, EngineToUi::EntityMeta { board: None, .. }));
+}

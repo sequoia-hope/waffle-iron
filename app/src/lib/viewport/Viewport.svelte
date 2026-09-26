@@ -7,6 +7,8 @@
 	import ConstraintModal from '$lib/sketch/ConstraintModal.svelte';
 	import DimensionInput from '$lib/sketch/DimensionInput.svelte';
 	import ViewportContextMenu from './ViewportContextMenu.svelte';
+	import KicadHoverCard from './KicadHoverCard.svelte';
+	import KicadDetailPanel from './KicadDetailPanel.svelte';
 	import ExtrudeDialog from '$lib/ui/ExtrudeDialog.svelte';
 	import ChamferDialog from '$lib/ui/ChamferDialog.svelte';
 	import FilletDialog from '$lib/ui/FilletDialog.svelte';
@@ -107,6 +109,8 @@
 	<ConstraintModal />
 	<DimensionInput />
 	<ViewportContextMenu bind:pos={ctxMenuPos} bind:visible={ctxMenuVisible} />
+	<KicadHoverCard />
+	<KicadDetailPanel />
 	<ExtrudeDialog />
 	<ChamferDialog />
 	<FilletDialog />

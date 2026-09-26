@@ -45,6 +45,60 @@ pub(super) fn feature_get(state: &EngineState, args: &Value) -> Answer {
     Ok(out)
 }
 
+/// What a linked KiCad board knows about a body or an instance
+/// (`specs/kicad_board_link.md` C4): the board record, the component record
+/// (reference, value, footprint, datasheet, side, pads with nets) and the
+/// source. All `null` for anything that derives from no board.
+pub(super) fn entity_meta(
+    state: &mut EngineState,
+    kb: &mut dyn KernelBundle,
+    args: &Value,
+) -> Answer {
+    let body_id = args
+        .get("body_id")
+        .and_then(Value::as_str)
+        .map(str::to_string);
+    let instance_path = match args.get("instance_path") {
+        Some(v) if !v.is_null() => Some(serde_json::from_value(v.clone()).map_err(|e| {
+            ToolFailure::new(
+                "InvalidArguments",
+                format!("instance_path: {e}"),
+                json!({ "reason": e.to_string() }),
+            )
+        })?),
+        _ => None,
+    };
+    if body_id.is_none() && instance_path.is_none() {
+        return Err(ToolFailure::new(
+            "InvalidArguments",
+            "body_id or instance_path is required.",
+            json!({ "reason": "body_id or instance_path is required." }),
+        ));
+    }
+    let response = engine_call(
+        state,
+        kb,
+        "QueryEntityMeta",
+        UiToEngine::QueryEntityMeta {
+            body_id,
+            instance_path,
+        },
+    )?;
+    let EngineToUi::EntityMeta {
+        board,
+        component,
+        source,
+    } = response
+    else {
+        return Err(unexpected("QueryEntityMeta", "EntityMeta", &response));
+    };
+    Ok(json!({
+        "board": board,
+        "component": component,
+        "source": source,
+    }))
+}
+
 /// Volume, area, bounding box and topology counts of one body (ICR-1).
 ///
 /// `method` is `exact` only when BOTH quantities were integrated from the

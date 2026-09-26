@@ -853,6 +853,7 @@ export function applyViewerSnapshot(snapshot, viewerMeshes) {
 	meshes = viewerMeshes;
 	mirrorSessionDocument(snapshot.document);
 	documentSources = snapshot.sources ?? [];
+	entityMetaCache.clear();
 	assemblyStatus = snapshot.assembly
 		? { errors: [], warnings: [], parts: [], connectors: [], part_connectors: [], ...snapshot.assembly }
 		: null;
@@ -904,6 +905,7 @@ export async function initEngine() {
 		// The document's `sources` table with availability (v4 §2.3) — the
 		// Sources panel's data; absent on the wire when the table is empty.
 		documentSources = msg.sources ?? [];
+	entityMetaCache.clear();
 		// Assembly evaluation (v4 Phase 3b): solved placements are derived
 		// hints written back into the tab so they are saved with it.
 		// Empty arrays are omitted on the wire; give the UI a stable shape.
@@ -1263,6 +1265,12 @@ export async function initEngine() {
 			// Test SETUP: real file pickers can't be driven from Playwright.
 			importStepFromText: (fileName, text) => importStepFromText(fileName, text),
 			importStepFromLink: (url) => importStepFromLink(url),
+			importKicadFromText: (fileName, text) => importKicadFromText(fileName, text),
+			linkKicadFromLink: (url) => linkKicadFromLink(url),
+			showImportLinkDialog: (kind) => showImportLinkDialog(kind),
+			queryEntityMeta: (bodyId, instancePath) => queryEntityMeta(bodyId, instancePath),
+			getEntityCard: () => (getEntityCard() ? JSON.parse(JSON.stringify(getEntityCard())) : null),
+			getEntityDetail: () => (entityDetail ? JSON.parse(JSON.stringify(entityDetail)) : null),
 			resolveDocumentSources: () => resolveDocumentSources(),
 			listSources: async () => (await bridge.send({ type: 'ListSources' }))?.sources ?? [],
 			getSources: () => JSON.parse(JSON.stringify(documentSources)),
@@ -5268,6 +5276,7 @@ export async function addScriptSource({ name = null, text = null, library = null
 	if (resp?.type !== 'ScriptSourceAdded') return null;
 	// The `sources` table changed without a model update: mirror it now.
 	documentSources = resp.sources ?? [];
+	entityMetaCache.clear();
 	scheduleAutoSave();
 	return resp;
 }
@@ -6991,6 +7000,8 @@ export async function openDocumentRecord(docId, json, link = null) {
 export async function switchTab(tabId) {
 	if (tabId === activeTabId) return;
 	if (!documentTabs.find(t => t.id === tabId)) return;
+	hideEntityCard();
+	hideEntityDetail();
 
 	// Cancel pending autosave to prevent stale state capture
 	if (autoSaveTimer) {
@@ -9085,6 +9096,188 @@ export async function importStepFromLink(url) {
 }
 
 /**
+ * Import a `.kicad_pcb` (specs/kicad_board_link.md C2/C4): the engine reads
+ * the board, derives the Board Part (exact outline solid), one placeholder
+ * Part per footprint shape and the board assembly (one instance per
+ * footprint, a connector per mounting hole), and opens the Board tab. Used
+ * by the file picker AND directly by tests.
+ * @param {string} fileName
+ * @param {string} text
+ * @returns {Promise<boolean>}
+ */
+export async function importKicadFromText(fileName, text) {
+	if (!bridge || !engineReady) return false;
+	log('action', 'Import KiCad board', { fileName, bytes: text.length });
+	entityMetaCache.clear();
+	try {
+		await sendRebuild({ type: 'ImportKicad', file_name: fileName, data: text });
+		showToast('info', `Linked board ${fileName}`);
+		return true;
+	} catch (err) {
+		log('error', `KiCad import failed: ${err?.message || err}`);
+		showToast('error', `KiCad import failed: ${err?.message || err}`);
+		return false;
+	}
+}
+
+/**
+ * Open a file picker for a `.kicad_pcb` and import it.
+ * @returns {Promise<boolean>}
+ */
+export async function importKicad() {
+	if (!bridge || !engineReady) return false;
+	return new Promise((resolve) => {
+		const input = document.createElement('input');
+		input.type = 'file';
+		input.accept = '.kicad_pcb';
+		input.onchange = async () => {
+			const file = input.files?.[0];
+			if (!file) { resolve(false); return; }
+			const text = await file.text();
+			resolve(await importKicadFromText(file.name, text));
+		};
+		input.click();
+	});
+}
+
+/**
+ * Link a `.kicad_pcb` by URL (specs/kicad_board_link.md §1): fetched at the
+ * resolved commit, cached by hash, recorded as a LINKED `KicadPcb` source,
+ * then derived exactly as `importKicadFromText` does.
+ * @param {string} url
+ * @returns {Promise<boolean>}
+ */
+export async function linkKicadFromLink(url) {
+	if (!bridge || !engineReady) return false;
+	const { locatorForImportLink, fetchGitAt } = await import('$lib/storage/sources.js');
+	const { fetchUrlLocator } = await import('$lib/storage/git/hosts.js');
+	const { cachePut } = await import('$lib/storage/git/cache.js');
+	const { gitBlobSha1 } = await import('$lib/storage/git/hash.js');
+	const locator = locatorForImportLink(url);
+	if (!locator) {
+		showToast('error', 'Not a usable link (https file URL or share link expected)');
+		return false;
+	}
+	const fileName = (locator.type === 'Git' ? locator.path : locator.url).split('/').pop() || '';
+	if (!fileName.endsWith('.kicad_pcb')) {
+		showToast('error', 'Expected a link to a .kicad_pcb file');
+		return false;
+	}
+	log('action', 'Link KiCad board', { fileName, locator });
+	entityMetaCache.clear();
+	try {
+		let text;
+		let resolvedCommit = null;
+		if (locator.type === 'Git') {
+			({ text, commit: resolvedCommit } = await fetchGitAt(locator, null));
+		} else {
+			({ text } = await fetchUrlLocator(locator.url));
+		}
+		await cachePut(await gitBlobSha1(text), text);
+		await sendRebuild({
+			type: 'LinkKicadFromLocator',
+			file_name: fileName,
+			locator,
+			data: text,
+			resolved_commit: resolvedCommit
+		});
+		showToast('info', `Linked board ${fileName}`);
+		return true;
+	} catch (err) {
+		log('error', `KiCad link failed: ${err?.message || err}`);
+		showToast('error', `KiCad link failed: ${err?.message || err}`);
+		return false;
+	}
+}
+
+// ── Board data on hover and click (specs/kicad_board_link.md C4) ──────
+//
+// The viewport asks, per hovered body, what a linked KiCad board knows about
+// it (`QueryEntityMeta`); the answer is cached per (tab, body) until the
+// sources change, so hovering is one query per body, not one per pixel. A
+// body that derives from no board answers null and shows nothing.
+
+const entityMetaCache = new Map();
+/** @type {{ x: number, y: number, meta: object } | null} */
+let entityCard = $state(null);
+/** @type {object | null} */
+let entityDetail = $state(null);
+let _entityCardKey = null;
+
+/**
+ * The card to show, or null. Visibility follows the arbitrated hover
+ * (`hoveredRef`), not any one listener's leave event: the mesh, edge and
+ * vertex listeners each propose for the same body at different times (DOM
+ * listeners now, Threlte's raycast on the next frame), and whichever wins
+ * the hover is the body the card is for.
+ */
+export function getEntityCard() {
+	if (!entityCard || !hoveredRef) return null;
+	const fid = hoveredRef.anchor?.feature_id;
+	if (fid && entityCard.bodyId && !entityCard.bodyId.includes(fid)) return null;
+	return entityCard;
+}
+export function getEntityDetail() { return entityDetail; }
+export function hideEntityCard() { entityCard = null; _entityCardKey = null; }
+export function hideEntityDetail() { entityDetail = null; }
+
+/**
+ * `{board, component, source}` for a body / instance, or null.
+ * @param {string | null} bodyId
+ * @param {string[] | null} instancePath
+ */
+export async function queryEntityMeta(bodyId, instancePath) {
+	if (!bridge || !engineReady) return null;
+	const key = `${activeTabId}|${bodyId ?? ''}|${(instancePath ?? []).join('/')}`;
+	if (entityMetaCache.has(key)) return entityMetaCache.get(key);
+	// Plain copies: the mesh records are reactive state, and a `$state`
+	// proxy cannot be structured-cloned to the worker.
+	const r = await bridge.send({
+		type: 'QueryEntityMeta',
+		body_id: bodyId == null ? null : String(bodyId),
+		instance_path: instancePath?.length ? Array.from(instancePath, String) : null
+	});
+	const meta = r?.board || r?.component
+		? { board: r.board ?? null, component: r.component ?? null, source: r.source ?? null }
+		: null;
+	entityMetaCache.set(key, meta);
+	return meta;
+}
+
+/**
+ * The viewport's hover hook: show (or move) the card for the body under the
+ * pointer. Same body as last time ⇒ only the position moves.
+ */
+export async function proposeEntityCard(bodyId, instancePath, clientX, clientY) {
+	const key = `${bodyId ?? ''}|${(instancePath ?? []).join('/')}`;
+	if (key === _entityCardKey) {
+		if (entityCard) entityCard = { ...entityCard, x: clientX, y: clientY };
+		return;
+	}
+	_entityCardKey = key;
+	let meta = null;
+	try {
+		meta = await queryEntityMeta(bodyId, instancePath);
+	} catch (err) {
+		// A hover must never surface as an exception; the card just stays off.
+		log('warn', `entity meta query failed: ${err?.message || err}`);
+	}
+	if (_entityCardKey !== key) return; // the pointer moved on meanwhile
+	entityCard = meta ? { x: clientX, y: clientY, meta, bodyId: bodyId ?? '' } : null;
+}
+
+/**
+ * The viewport's click hook: open the detail panel for a body that derives
+ * from a board; a click on anything else closes it.
+ * @returns {Promise<boolean>} whether a panel opened
+ */
+export async function openEntityDetail(bodyId, instancePath) {
+	const meta = await queryEntityMeta(bodyId, instancePath);
+	entityDetail = meta;
+	return meta != null;
+}
+
+/**
  * The document's `sources` table as the engine reports it on every model
  * update (`SourceStatus[]`: id, name, kind, locator, content_hash, resolved,
  * pack, available). Drives the Sources panel; actions below edit it through
@@ -9221,10 +9414,11 @@ export async function fetchSource(sourceId) {
 	}
 }
 
-/** @type {{ url: string } | null} */
+/** @type {{ url: string, kind: 'step' | 'kicad' } | null} */
 let importLinkDialogState = $state(null);
 export function getImportLinkDialogState() { return importLinkDialogState; }
-export function showImportLinkDialog() { importLinkDialogState = { url: '' }; }
+/** @param {'step' | 'kicad'} kind what the pasted link is expected to be */
+export function showImportLinkDialog(kind = 'step') { importLinkDialogState = { url: '', kind }; }
 export function hideImportLinkDialog() { importLinkDialogState = null; }
 
 /**

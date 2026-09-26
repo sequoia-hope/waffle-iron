@@ -1,5 +1,5 @@
 {
-  "manifest_hash": "03353b565b846b4d3b9dc3f71dc19e4c97598c08a556f731d7d7471a3221a709",
+  "manifest_hash": "c65222d1f7773154c5409eaad3d281d217b999e8172b41bb76adf23e2ef4f0e2",
   "protocol": "waffle-agent-link/1",
   "tools": [
     {
@@ -16213,6 +16213,215 @@
           "bodies_removed",
           "errors",
           "warnings"
+        ],
+        "type": "object"
+      }
+    },
+    {
+      "annotations": {
+        "destructiveHint": false,
+        "openWorldHint": false,
+        "readOnlyHint": false,
+        "title": "Link KiCad board"
+      },
+      "description": "Link a KiCad board (`.kicad_pcb` text): the board outline becomes an exact solid in a new Board Part tab (Derived provenance), each footprint shape a placeholder Part, and the footprints a Board assembly tab (one instance per footprint keyed by its uuid in external_key, a mate connector per mounting hole). With `locator` the source is LINKED (git file at the resolved commit); without it, embedded. Opens the Board tab. specs/kicad_board_link.md.",
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "file_name": {
+            "description": "Name recorded on the source, e.g. \"main.kicad_pcb\".",
+            "minLength": 1,
+            "type": "string"
+          },
+          "locator": {
+            "description": "Where the file lives (v4 Locator: {type:\"Git\", remote, path, ref, host?} or {type:\"Url\", url}). Omit for an embedded copy.",
+            "type": "object"
+          },
+          "on_error": {
+            "default": "rollback",
+            "description": "What to do when the step makes a feature fail to rebuild. \"rollback\" (default) undoes the step and returns an error; \"keep\" leaves it in place and reports kept_with_error with the failing features.",
+            "enum": [
+              "rollback",
+              "keep"
+            ],
+            "type": "string"
+          },
+          "pcb_text": {
+            "description": "The .kicad_pcb file contents (KiCad 6 or newer).",
+            "minLength": 1,
+            "type": "string"
+          },
+          "resolved_commit": {
+            "description": "The commit the text was fetched at (git locators).",
+            "type": "string"
+          }
+        },
+        "required": [
+          "file_name",
+          "pcb_text"
+        ],
+        "type": "object"
+      },
+      "name": "kicad_link",
+      "outputSchema": {
+        "properties": {
+          "assembly_tab": {
+            "type": "string"
+          },
+          "board": {
+            "description": "BoardMeta: title, rev, date, company, comments, copper_layers, thickness_m, net_count, footprint_count.",
+            "type": "object"
+          },
+          "board_tab": {
+            "type": "string"
+          },
+          "bodies_added": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "bodies_removed": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "component_count": {
+            "type": "integer"
+          },
+          "errors": {
+            "description": "Every current rebuild error in tree order, verbatim from the engine; kind is the typed class when known.",
+            "items": {
+              "properties": {
+                "feature_id": {
+                  "type": "string"
+                },
+                "kind": {
+                  "description": "Engine ErrorKind, e.g. {\"type\":\"NotSupported\",\"operation\":\"…\"}.",
+                  "type": "object"
+                },
+                "message": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "feature_id",
+                "message"
+              ],
+              "type": "object"
+            },
+            "type": "array"
+          },
+          "features_added": {
+            "description": "Feature ids added, in tree order.",
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "features_changed": {
+            "description": "Feature ids whose definition or provenance changed.",
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "features_removed": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "kept_with_error": {
+            "description": "Present and true when on_error was \"keep\" and the step left features failing.",
+            "type": "boolean"
+          },
+          "order_changed": {
+            "description": "The relative order of surviving features changed.",
+            "type": "boolean"
+          },
+          "placeholder_tabs": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "description": "footprint name → placeholder Part tab id",
+            "type": "object"
+          },
+          "source_id": {
+            "type": "string"
+          },
+          "warnings": {
+            "description": "Rebuild warnings, verbatim.",
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "features_added",
+          "features_changed",
+          "features_removed",
+          "bodies_added",
+          "bodies_removed",
+          "errors",
+          "warnings"
+        ],
+        "type": "object"
+      }
+    },
+    {
+      "annotations": {
+        "destructiveHint": false,
+        "openWorldHint": false,
+        "readOnlyHint": true,
+        "title": "Board data"
+      },
+      "description": "What a linked KiCad board knows about a body or an assembly instance: the board record (title, rev, layers, thickness, nets) and, for a footprint instance, the component record (reference, value, footprint, datasheet, side, pads with their nets) plus the source it came from. Every field null for anything that derives from no board — not an error.",
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "body_id": {
+            "description": "A render body id (\"{instance…}/{feature}/{key}\" in an assembly, \"{feature}/{key}\" in a part).",
+            "type": "string"
+          },
+          "instance_path": {
+            "description": "An assembly instance path; the first id is the top-level instance.",
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          }
+        },
+        "type": "object"
+      },
+      "name": "entity_meta",
+      "outputSchema": {
+        "properties": {
+          "board": {
+            "type": [
+              "object",
+              "null"
+            ]
+          },
+          "component": {
+            "type": [
+              "object",
+              "null"
+            ]
+          },
+          "source": {
+            "type": [
+              "object",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "board",
+          "component",
+          "source"
         ],
         "type": "object"
       }

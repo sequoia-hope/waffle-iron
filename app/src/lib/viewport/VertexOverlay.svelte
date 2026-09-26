@@ -15,6 +15,7 @@
 		setRenderedVertexCount,
 		isBodyPickingEnabled,
 		proposeHoverRef,
+		proposeEntityCard,
 		getSketchHover
 	} from '$lib/engine/store.svelte.js';
 	import { buildSectionClipPlane } from './sectionPlane.js';
@@ -85,7 +86,12 @@
 					const isDup = seen.some(s => s.distanceToSquared(pos) < DEDUP_EPS * DEDUP_EPS);
 					if (!isDup) {
 						seen.push(pos.clone());
-						vertices.push({ position: pos, featureId: mesh.featureId });
+						vertices.push({
+							position: pos,
+							featureId: mesh.featureId,
+							bodyId: mesh.bodyId,
+							instancePath: mesh.instancePath ?? (mesh.instanceId ? [mesh.instanceId] : null)
+						});
 					}
 				}
 			}
@@ -205,6 +211,9 @@
 		if (hit) {
 			// Invariant I3: Vertex is the highest hover priority.
 			proposeHoverRef(hit.ref, e.clientX, e.clientY);
+			// A vertex of a body a KiCad board derived shows that body's card too
+			// (a small placeholder is mostly its corners on screen).
+			proposeEntityCard(hit.vertex.bodyId, hit.vertex.instancePath, e.clientX, e.clientY);
 		}
 	}
 
