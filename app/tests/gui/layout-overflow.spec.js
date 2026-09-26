@@ -1,0 +1,123 @@
+/**
+ * Layout overflow — nothing interactive may ever leave the window.
+ *
+ * The page cannot scroll (`html, body { overflow: hidden }`), so chrome that
+ * outgrows its box is clipped and unreachable. This spec drives the shell
+ * into its widest states (sketch mode, dialogs, overlay browsers, both side
+ * panels dragged to their limits, banners) across a sweep of window widths
+ * and asserts, with the element-level oracle in helpers/layout.js, that every
+ * button and input is inside the window and the 3D view keeps a usable size.
+ *
+ * Runs in the fast tier: a new toolbar button that does not fit fails here.
+ */
+import { test, expect } from './helpers/waffle-test.js';
+import { clickSketch, clickRectangle, clickFinishSketch, clickExtrude, clickToolbarAction } from './helpers/toolbar.js';
+import { drawRectangle } from './helpers/canvas.js';
+import { waitForEntityCount, waitForFeatureCount } from './helpers/state.js';
+import { expectNothingOffscreen, expectViewportUsable, dragDivider } from './helpers/layout.js';
+
+/** Desktop widths the shell must survive (the mobile projects cover ≤768). */
+const WIDTHS = [1920, 1600, 1366, 1280, 1100, 1024, 900, 800];
+
+async function settle(page) {
+	// A resize re-measures the toolbar in a microtask + ResizeObserver tick.
+	await page.waitForTimeout(150);
+}
+
+test.describe('Layout overflow', () => {
+	test('modeling toolbar fits at every desktop width', async ({ waffle }) => {
+		const page = waffle.page;
+		for (const width of WIDTHS) {
+			await page.setViewportSize({ width, height: 720 });
+			await settle(page);
+			await expectNothingOffscreen(page, expect, `modeling @${width}`);
+			await expectViewportUsable(page, expect, `modeling @${width}`);
+			// The settings gear is the LAST in-flow item: it is the one that
+			// falls off first, so it must always be visible.
+			await expect(page.getByTestId('toolbar-btn-settings'), `settings @${width}`).toBeVisible();
+		}
+	});
+
+	test('toolbar re-expands when the window grows back', async ({ waffle }) => {
+		const page = waffle.page;
+		const toolbar = page.getByTestId('toolbar');
+		await page.setViewportSize({ width: 900, height: 720 });
+		await settle(page);
+		const narrow = Number(await toolbar.getAttribute('data-collapse-level'));
+		expect(narrow).toBeGreaterThan(0);
+		await page.setViewportSize({ width: 2400, height: 720 });
+		await settle(page);
+		expect(Number(await toolbar.getAttribute('data-collapse-level'))).toBe(0);
+		await expect(page.getByTestId('toolbar-btn-export-step')).toBeVisible();
+	});
+
+	test('sketch toolbar with constraints open fits at every desktop width', async ({ waffle }) => {
+		const page = waffle.page;
+		await clickSketch(page);
+		for (const width of WIDTHS) {
+			await page.setViewportSize({ width, height: 720 });
+			await settle(page);
+			await expectNothingOffscreen(page, expect, `sketch @${width}`);
+			await page.getByTestId('toolbar-btn-constraints-dropdown').click();
+			await expect(page.getByTestId('constraints-dropdown')).toBeVisible();
+			await expectNothingOffscreen(page, expect, `sketch + constraints @${width}`);
+			// Close via the backdrop — Escape with the Select tool active would
+			// FINISH the sketch, not close the menu.
+			await page.locator('.dropdown-backdrop').first().click({ position: { x: 5, y: 5 } });
+			await expect(page.getByTestId('constraints-dropdown')).toHaveCount(0);
+		}
+	});
+
+	test('extrude dialog stays inside a short window', async ({ waffle }) => {
+		const page = waffle.page;
+		await clickSketch(page);
+		await clickRectangle(page);
+		await drawRectangle(page, -80, -60, 80, 60);
+		await waitForEntityCount(page, 8, 5000);
+		await clickFinishSketch(page);
+		await waitForFeatureCount(page, 1, 10000);
+		await clickExtrude(page);
+		for (const size of [{ width: 1280, height: 720 }, { width: 1024, height: 500 }, { width: 900, height: 400 }]) {
+			await page.setViewportSize(size);
+			await settle(page);
+			await expectNothingOffscreen(page, expect, `extrude dialog @${size.width}x${size.height}`);
+			const dialog = await page.getByTestId('extrude-dialog').boundingBox();
+			expect(dialog.y + dialog.height, `extrude dialog bottom @${size.height}`).toBeLessThanOrEqual(size.height + 1);
+		}
+	});
+
+	test('overlay browsers leave the view usable', async ({ waffle }) => {
+		const page = waffle.page;
+		for (const width of [1280, 1024, 800]) {
+			await page.setViewportSize({ width, height: 720 });
+			await settle(page);
+			await clickToolbarAction(page, 'examples');
+			await expect(page.getByTestId('examples-browser')).toBeVisible();
+			await expectNothingOffscreen(page, expect, `examples browser @${width}`);
+			const panel = await page.getByTestId('examples-browser').boundingBox();
+			expect(panel.width, `examples browser width @${width}`).toBeLessThanOrEqual(width * 0.4 + 1);
+			await clickToolbarAction(page, 'examples');
+			await expect(page.getByTestId('examples-browser')).toHaveCount(0);
+		}
+	});
+
+	test('side panels cannot squeeze the view out', async ({ waffle }) => {
+		const page = waffle.page;
+		await page.setViewportSize({ width: 1024, height: 640 });
+		await settle(page);
+		// Drag both dividers far past their limits.
+		await dragDivider(page, 'left', 1000);
+		await dragDivider(page, 'right', 0);
+		await expectNothingOffscreen(page, expect, 'both panels at max @1024');
+		await expectViewportUsable(page, expect, 'both panels at max @1024');
+		// Shrinking the window afterwards re-clamps the panels.
+		await page.setViewportSize({ width: 800, height: 640 });
+		await settle(page);
+		await expectNothingOffscreen(page, expect, 'both panels at max, window shrunk to 800');
+		await expectViewportUsable(page, expect, 'both panels at max, window shrunk to 800');
+		// Growing it back keeps everything in place.
+		await page.setViewportSize({ width: 1600, height: 640 });
+		await settle(page);
+		await expectNothingOffscreen(page, expect, 'window grown to 1600');
+	});
+});

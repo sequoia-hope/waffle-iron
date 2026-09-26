@@ -112,10 +112,12 @@
 <style>
 	.test-case-browser {
 		position: absolute;
-		top: 0;
+		/* Below the toolbar and above the status bar: an overlay must never
+		   cover the chrome that toggles it. */
+		top: var(--toolbar-height);
+		bottom: var(--statusbar-height);
 		right: 0;
-		width: 280px;
-		height: 100%;
+		width: min(280px, 40vw);
 		background: var(--bg-secondary);
 		border-left: 1px solid var(--border-color);
 		z-index: 50;

@@ -156,6 +156,42 @@ Add the binary name to either:
 - Add to the `GUI_FAST_SPECS` array in `scripts/test.sh` if it tests pure UI
 - Otherwise it will be included automatically in `gui-full`
 
+## Layout overflow (nothing may leave the window)
+
+The app page never scrolls (`html, body { overflow: hidden }`), so any chrome
+that outgrows its box is clipped and unreachable — the failure mode where
+toolbar buttons "fall off the screen". Two layers keep that from happening:
+
+- **The layout rule.** Every chrome region scrolls, collapses, or is sized
+  relative to the window. The toolbar measures its own in-flow content after
+  every change (a `ResizeObserver` plus an effect over everything that alters
+  its content) and walks a collapse ladder until it fits: file/export group
+  → ⋮ menu, view toggles → ⋮ menu, hide brand, hide project name, Undo/Redo
+  → ⋮ menu, then trailing tools one at a time into "More ▾" (priority+),
+  ending at the single-dropdown mobile layout. Floating dialogs carry a
+  `max-height` and `overflow-y: auto`; the overlay browsers are
+  `min(300px, 40vw)` wide and sit below the toolbar; the side panels are
+  clamped so the 3D view keeps ≥ 320 px, on drag and on window resize.
+- **The oracle.** `tests/gui/layout-overflow.spec.js` (fast tier) drives the
+  widest UI states — sketch mode with the constraints menu open, the extrude
+  dialog in a short window, the overlay browsers, both side panels dragged
+  to their limits — across desktop widths from 1920 down to 800 and asserts,
+  with `findOutOfBounds()` in `helpers/layout.js`, that every visible
+  `button`/`input`/`[data-testid]` lies inside the window (an ancestor that
+  scrolls along that axis exempts it), that the document was never scrolled,
+  and that the canvas keeps a usable size. The mobile projects run the same
+  idea at 440×956 and 956×440 via `mobile/mobile-layout.spec.js`.
+
+The mobile-only bounds checks in `helpers/mobile.js` measure the clipped
+*container*, so they cannot see children that fell out of it; use
+`findOutOfBounds` for anything new.
+
+Because a button's home now depends on the window width, specs must reach
+toolbar buttons through `clickTool(page, id)` (modeling/sketch tools) and
+`clickToolbarAction(page, id)` (Save, Export…, Tests, Examples, Section,
+Undo/Redo…) in `helpers/toolbar.js`, never by raw testid. `isToolOffered()`
+is the width-independent form of "the button is visible".
+
 ## Profiling
 
 Run profiling scripts to identify slow tests:

@@ -78,6 +78,8 @@
 	}
 	.panel {
 		width: min(520px, 90vw);
+		max-height: calc(100dvh - 32px);
+		overflow-y: auto;
 		padding: 20px;
 		border-radius: 8px;
 		border: 1px solid var(--border-color, #45475a);

@@ -275,6 +275,8 @@
 		border-radius: 6px;
 		min-width: 300px;
 		max-width: calc(100vw - 32px - env(safe-area-inset-left, 0px) - env(safe-area-inset-right, 0px));
+		max-height: calc(100dvh - 32px);
+		overflow-y: auto;
 		box-shadow: 0 4px 16px rgba(0, 0, 0, 0.4);
 	}
 

@@ -36,9 +36,38 @@
 	let activeTab = $derived(getActiveTabId() || tabs[0]?.id);
 	let activeIsAssembly = $derived(getDocumentTabs().find((t) => t.id === getActiveTabId())?.kind?.type === 'Assembly');
 
+	// Side-panel widths. Each panel has its own range, and TOGETHER they must
+	// leave MIN_VIEWPORT_WIDTH for the 3D view — the `1fr` column is the only
+	// region that shrinks, so without this floor two wide panels on a narrow
+	// window squeeze it to nothing. The clamp runs on drag AND on window
+	// resize, so a resize can never leave the panels wider than the window.
+	const MIN_LEFT = 120, MAX_LEFT = 400;
+	const MIN_RIGHT = 150, MAX_RIGHT = 450;
+	const DIVIDERS_WIDTH = 8;
+	const MIN_VIEWPORT_WIDTH = 320;
 	let leftWidth = $state(200);
 	let rightWidth = $state(250);
 	let isMobile = $derived(getMobileLayout());
+
+	/** Window width left for the two panels once the view has its minimum. */
+	function panelBudget() {
+		return Math.max(0, window.innerWidth - DIVIDERS_WIDTH - MIN_VIEWPORT_WIDTH);
+	}
+
+	function clamp(v, lo, hi) {
+		return Math.max(lo, Math.min(hi, v));
+	}
+
+	/** Re-fit both panels to the current window (called on resize). */
+	function clampPanels() {
+		const budget = panelBudget();
+		leftWidth = clamp(leftWidth, MIN_LEFT, MAX_LEFT);
+		rightWidth = clamp(rightWidth, MIN_RIGHT, MAX_RIGHT);
+		if (leftWidth + rightWidth > budget) {
+			rightWidth = Math.max(MIN_RIGHT, budget - leftWidth);
+			leftWidth = Math.max(MIN_LEFT, budget - rightWidth);
+		}
+	}
 	let activePanel = $derived(getMobileActivePanel());
 
 	/** @type {'left' | 'right' | null} */
@@ -63,12 +92,18 @@
 
 		function onMouseMove(e) {
 			if (!resizing) return;
+			const budget = panelBudget();
 			if (resizing === 'left') {
-				leftWidth = Math.max(120, Math.min(400, e.clientX));
+				leftWidth = clamp(e.clientX, MIN_LEFT, Math.max(MIN_LEFT, Math.min(MAX_LEFT, budget - rightWidth)));
 			} else if (resizing === 'right') {
-				rightWidth = Math.max(150, Math.min(450, window.innerWidth - e.clientX));
+				rightWidth = clamp(window.innerWidth - e.clientX, MIN_RIGHT, Math.max(MIN_RIGHT, Math.min(MAX_RIGHT, budget - leftWidth)));
 			}
 		}
+
+		function onResize() {
+			clampPanels();
+		}
+		clampPanels();
 
 		function onMouseUp() {
 			resizing = null;
@@ -86,11 +121,13 @@
 		window.addEventListener('mousemove', onMouseMove);
 		window.addEventListener('mouseup', onMouseUp);
 		window.addEventListener('keydown', onKeyDown);
+		window.addEventListener('resize', onResize);
 		return () => {
 			mql.removeEventListener('change', onMediaChange);
 			window.removeEventListener('mousemove', onMouseMove);
 			window.removeEventListener('mouseup', onMouseUp);
 			window.removeEventListener('keydown', onKeyDown);
+			window.removeEventListener('resize', onResize);
 		};
 	});
 
@@ -227,6 +264,11 @@
 	.tabbar-area {
 		grid-column: 1 / -1;
 		grid-row: 2;
+		/* Banners stack here (agent, linked doc, edit context, tabs). The
+		   `1fr` view row absorbs whatever they take, so cap the stack: past
+		   this it scrolls instead of eating the viewport. */
+		max-height: 40dvh;
+		overflow-y: auto;
 	}
 
 	.left-panel {

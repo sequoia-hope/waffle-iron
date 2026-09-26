@@ -10,6 +10,7 @@
  * collectCrashErrors + expectNoAnyCrash.
  */
 import { test, expect } from './helpers/waffle-test.js';
+import { clickToolbarAction } from './helpers/toolbar.js';
 import {
 	waitForFeatureCount,
 	waitForMeshWithGeometry,
@@ -72,7 +73,7 @@ test.describe('capped section view', () => {
 
 		// Select the Front datum plane, then toggle Section via the toolbar button.
 		await selectFrontPlane(page);
-		await page.locator('[data-testid="toolbar-btn-section"]').click();
+		await clickToolbarAction(page, 'section');
 		await page.waitForTimeout(200);
 
 		// State must be active with a captured plane (verify tool state).
@@ -104,7 +105,7 @@ test.describe('capped section view', () => {
 		await page.evaluate(() => window.__waffle.clearSelection());
 		await page.waitForTimeout(50);
 
-		await page.locator('[data-testid="toolbar-btn-section"]').click();
+		await clickToolbarAction(page, 'section');
 		await page.waitForTimeout(150);
 
 		const section = await page.evaluate(() => window.__waffle.getSectionState());
@@ -124,7 +125,7 @@ test.describe('capped section view', () => {
 		await createBox(page);
 		await selectFrontPlane(page);
 
-		await page.locator('[data-testid="toolbar-btn-section"]').click();
+		await clickToolbarAction(page, 'section');
 		await page.waitForTimeout(150);
 
 		let section = await page.evaluate(() => window.__waffle.getSectionState());
@@ -132,14 +133,14 @@ test.describe('capped section view', () => {
 		expect(section.flipped).toBe(false);
 
 		// Flip — the Flip button only exists while active.
-		await page.locator('[data-testid="toolbar-btn-section-flip"]').click();
+		await clickToolbarAction(page, 'section-flip');
 		await page.waitForTimeout(100);
 		section = await page.evaluate(() => window.__waffle.getSectionState());
 		expect(section.active).toBe(true);
 		expect(section.flipped).toBe(true);
 
 		// Clear/exit — state restored exactly (no plane, not flipped, no offset).
-		await page.locator('[data-testid="toolbar-btn-section-clear"]').click();
+		await clickToolbarAction(page, 'section-clear');
 		await page.waitForTimeout(100);
 		section = await page.evaluate(() => window.__waffle.getSectionState());
 		expect(section.active).toBe(false);
@@ -153,9 +154,9 @@ test.describe('capped section view', () => {
 
 		// Toggling off via the button (re-toggle) also stays off afterward.
 		await selectFrontPlane(page);
-		await page.locator('[data-testid="toolbar-btn-section"]').click();
+		await clickToolbarAction(page, 'section');
 		await page.waitForTimeout(100);
-		await page.locator('[data-testid="toolbar-btn-section"]').click();
+		await clickToolbarAction(page, 'section');
 		await page.waitForTimeout(100);
 		section = await page.evaluate(() => window.__waffle.getSectionState());
 		expect(section.active).toBe(false);

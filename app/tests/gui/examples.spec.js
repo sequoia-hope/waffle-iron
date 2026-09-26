@@ -10,6 +10,7 @@ import { readFileSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { collectCrashErrors, expectNoAnyCrash } from './helpers/state.js';
+import { clickToolbarAction } from './helpers/toolbar.js';
 
 const EXAMPLES_DIR = resolve(dirname(fileURLToPath(import.meta.url)), '../../static/examples');
 
@@ -51,7 +52,7 @@ test.describe('Examples panel', () => {
 		const crashes = collectCrashErrors(page);
 		const before = await documentInfo(page);
 
-		await page.getByTestId('toolbar-btn-examples').click();
+		await clickToolbarAction(page, 'examples');
 		await expect(page.getByTestId('examples-browser')).toBeVisible();
 		const bike = page.getByTestId('example-gravel-bike-v2');
 		await expect(bike).toBeVisible();
@@ -62,7 +63,7 @@ test.describe('Examples panel', () => {
 		// covers the toolbar's right end, as the Assay browser does).
 		await page.getByTestId('examples-browser-close').click();
 		await expect(page.getByTestId('examples-browser')).toBeHidden();
-		await page.getByTestId('toolbar-btn-examples').click();
+		await clickToolbarAction(page, 'examples');
 		await expect(page.getByTestId('examples-browser')).toBeVisible();
 
 		await bike.click();
@@ -103,7 +104,7 @@ test.describe('Examples panel', () => {
 		const crashes = collectCrashErrors(page);
 		const before = await documentInfo(page);
 
-		await page.getByTestId('toolbar-btn-examples').click();
+		await clickToolbarAction(page, 'examples');
 		const tower = page.getByTestId('example-eiffel-tower');
 		await expect(tower).toBeVisible();
 		await expect(tower).toContainText('Eiffel Tower');

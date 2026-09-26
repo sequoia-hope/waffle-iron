@@ -6,7 +6,7 @@
  * (COLOR_CONSTRUCTION = 0x6677aa) vs regular entities (COLOR_DEFAULT = 0x3388ff).
  */
 import { test, expect } from './helpers/waffle-test.js';
-import { clickSketch, clickLine, pressKey } from './helpers/toolbar.js';
+import { clickSketch, clickLine, clickTool, isToolOffered, pressKey } from './helpers/toolbar.js';
 import { clickAt, drawLine } from './helpers/canvas.js';
 import {
 	getActiveTool,
@@ -21,8 +21,9 @@ test.describe('construction toggle button', () => {
 	test('construction button is visible in sketch mode', async ({ waffle }) => {
 		await clickSketch(waffle.page);
 
-		const btn = waffle.page.locator('[data-testid="toolbar-btn-construction"]');
-		await expect(btn).toBeVisible();
+		// Inline, or in the "More ▾" dropdown when the window is too narrow for
+		// every sketch tool — either way it is offered.
+		expect(await isToolOffered(waffle.page, 'construction')).toBe(true);
 	});
 
 	test('construction button not visible outside sketch mode', async ({ waffle }) => {
@@ -47,7 +48,7 @@ test.describe('construction toggle button', () => {
 		await waffle.page.waitForTimeout(200);
 
 		// Click construction button
-		await waffle.page.locator('[data-testid="toolbar-btn-construction"]').click();
+		await clickTool(waffle.page, 'construction');
 		await waffle.page.waitForTimeout(300);
 
 		// Check construction flag

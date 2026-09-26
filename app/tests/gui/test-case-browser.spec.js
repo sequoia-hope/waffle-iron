@@ -11,6 +11,7 @@ import {
 	clickFinishSketch,
 	clickExtrude,
 	pressKey,
+	clickToolbarAction,
 } from './helpers/toolbar.js';
 import { drawRectangle } from './helpers/canvas.js';
 import {
@@ -23,7 +24,7 @@ import {
 
 /** Click the Tests button in the toolbar. */
 async function clickTestsButton(page) {
-	await page.locator('[data-testid="toolbar-btn-tests"]').click();
+	await clickToolbarAction(page, 'tests');
 }
 
 /** Wait for the test case browser panel to be visible. */

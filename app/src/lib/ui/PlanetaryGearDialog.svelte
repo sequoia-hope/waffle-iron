@@ -244,6 +244,9 @@
 		right: max(16px, env(safe-area-inset-right, 0px));
 		top: 60px;
 		width: 280px;
+		/* Never taller than the view it floats in: long content scrolls. */
+		max-height: calc(100% - 72px);
+		overflow-y: auto;
 		background: var(--bg-tertiary, #2a2a3e);
 		border: 1px solid var(--border-color, #3a3a4e);
 		border-radius: 8px;

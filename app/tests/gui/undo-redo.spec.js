@@ -8,6 +8,7 @@ import {
 	clickFinishSketch,
 	clickExtrude,
 	pressKey,
+	clickToolbarAction,
 } from './helpers/toolbar.js';
 import { drawLine, drawRectangle } from './helpers/canvas.js';
 import {
@@ -23,7 +24,7 @@ import {
  * Helper: click the Undo toolbar button.
  */
 async function clickUndo(page) {
-	await page.locator('[data-testid="toolbar-btn-undo"]').click();
+	await clickToolbarAction(page, 'undo');
 	await page.waitForTimeout(500);
 }
 
@@ -31,7 +32,7 @@ async function clickUndo(page) {
  * Helper: click the Redo toolbar button.
  */
 async function clickRedo(page) {
-	await page.locator('[data-testid="toolbar-btn-redo"]').click();
+	await clickToolbarAction(page, 'redo');
 	await page.waitForTimeout(500);
 }
 

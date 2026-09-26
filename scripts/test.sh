@@ -94,6 +94,7 @@ RUST_FULL_CRATES=(
 # GUI Fast Tier — spec files (relative to app/tests/gui/)
 # ---------------------------------------------------------------------------
 GUI_FAST_SPECS=(
+  layout-overflow.spec.js
   sketch-draw.spec.js
   sketch-tools.spec.js
   sketch-entry.spec.js

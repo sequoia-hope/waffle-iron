@@ -93,6 +93,9 @@
 		top: 12px;
 		right: max(12px, env(safe-area-inset-right, 0px));
 		width: 240px;
+		/* Never taller than the view it floats in: long content scrolls. */
+		max-height: calc(100% - 24px);
+		overflow-y: auto;
 		z-index: 50;
 		background: var(--bg-tertiary, #2d2d2d);
 		border: 1px solid var(--border-color, #444);

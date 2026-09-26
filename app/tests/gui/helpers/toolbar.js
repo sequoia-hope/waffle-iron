@@ -10,11 +10,79 @@ const PLANE_IDS = {
 };
 
 /**
+ * Click a modeling or sketch TOOL by id at any window width. The toolbar
+ * collapses its tool groups into a dropdown when they do not fit (mobile, or
+ * a narrow desktop window), so a tool is either an inline button or a
+ * dropdown item; both carry `toolbar-btn-<id>` and never coexist.
+ * @param {import('@playwright/test').Page} page
+ * @param {string} id  e.g. 'sketch', 'extrude', 'line'
+ */
+export async function clickTool(page, id) {
+	const btn = page.locator(`[data-testid="toolbar-btn-${id}"]`);
+	if (await btn.isVisible()) {
+		await btn.click();
+		return;
+	}
+	// Priority+ overflow: trailing tools sit in "More ▾" while the rest stay
+	// inline; once every tool is collapsed the group is one mode dropdown.
+	const more = page.locator('[data-testid="toolbar-btn-more-tools"]');
+	if (await more.isVisible()) {
+		await more.click();
+	} else {
+		const inSketch = await page.evaluate(() => window.__waffle?.getState()?.sketchMode?.active === true);
+		const trigger = inSketch ? 'toolbar-btn-sketch-tools-dropdown' : 'toolbar-btn-modeling-dropdown';
+		await page.locator(`[data-testid="${trigger}"]`).click();
+	}
+	await btn.waitFor({ state: 'visible', timeout: 3000 });
+	await btn.click();
+}
+
+/**
+ * Whether a tool is offered at all (inline, in "More ▾", or in the mode
+ * dropdown) — the width-independent form of "the button is visible".
+ * Leaves any dropdown it opened closed again.
+ * @param {import('@playwright/test').Page} page
+ * @param {string} id
+ * @returns {Promise<boolean>}
+ */
+export async function isToolOffered(page, id) {
+	const btn = page.locator(`[data-testid="toolbar-btn-${id}"]`);
+	if (await btn.isVisible()) return true;
+	const more = page.locator('[data-testid="toolbar-btn-more-tools"]');
+	const inSketch = await page.evaluate(() => window.__waffle?.getState()?.sketchMode?.active === true);
+	const modeTrigger = page.locator(`[data-testid="${inSketch ? 'toolbar-btn-sketch-tools-dropdown' : 'toolbar-btn-modeling-dropdown'}"]`);
+	const trigger = (await more.isVisible()) ? more : (await modeTrigger.isVisible()) ? modeTrigger : null;
+	if (!trigger) return false;
+	await trigger.click();
+	const offered = await btn.isVisible();
+	await page.locator('.dropdown-backdrop').first().click({ position: { x: 5, y: 5 } });
+	return offered;
+}
+
+/**
+ * Click a file / view ACTION by id at any window width (Save, Open, Export…,
+ * Tests, Examples, Assay, Planes, Axes, Section…). When the toolbar has
+ * collapsed the action group it lives in the ⋮ overflow menu.
+ * @param {import('@playwright/test').Page} page
+ * @param {string} id  the part after `toolbar-btn-`
+ */
+export async function clickToolbarAction(page, id) {
+	const btn = page.locator(`[data-testid="toolbar-btn-${id}"]`);
+	if (await btn.isVisible()) {
+		await btn.click();
+		return;
+	}
+	await page.locator('[data-testid="toolbar-btn-overflow"]').click();
+	await btn.waitFor({ state: 'visible', timeout: 3000 });
+	await btn.click();
+}
+
+/**
  * Click the Sketch toolbar button and wait for sketch mode to activate.
  * @param {import('@playwright/test').Page} page
  */
 export async function clickSketch(page, plane = 'front') {
-	await page.locator('[data-testid="toolbar-btn-sketch"]').click();
+	await clickTool(page, 'sketch');
 	// If plane selection mode is active, select the requested plane
 	const inPlaneSelectionMode = await page.evaluate(
 		() => window.__waffle?.getState()?.sketchMode?.active === true
@@ -47,7 +115,7 @@ export async function clickSketch(page, plane = 'front') {
  * @param {import('@playwright/test').Page} page
  */
 export async function clickLine(page) {
-	await page.locator('[data-testid="toolbar-btn-line"]').click();
+	await clickTool(page, 'line');
 	await page.waitForFunction(
 		() => window.__waffle?.getState()?.activeTool === 'line',
 		{ timeout: 3000 }
@@ -59,7 +127,7 @@ export async function clickLine(page) {
  * @param {import('@playwright/test').Page} page
  */
 export async function clickRectangle(page) {
-	await page.locator('[data-testid="toolbar-btn-rectangle"]').click();
+	await clickTool(page, 'rectangle');
 	await page.waitForFunction(
 		() => window.__waffle?.getState()?.activeTool === 'rectangle',
 		{ timeout: 3000 }
@@ -84,7 +152,7 @@ export async function clickCenterRectangle(page) {
  * @param {import('@playwright/test').Page} page
  */
 export async function clickCircle(page) {
-	await page.locator('[data-testid="toolbar-btn-circle"]').click();
+	await clickTool(page, 'circle');
 	await page.waitForFunction(
 		() => window.__waffle?.getState()?.activeTool === 'circle',
 		{ timeout: 3000 }
@@ -96,7 +164,7 @@ export async function clickCircle(page) {
  * @param {import('@playwright/test').Page} page
  */
 export async function clickArc(page) {
-	await page.locator('[data-testid="toolbar-btn-arc"]').click();
+	await clickTool(page, 'arc');
 	await page.waitForFunction(
 		() => window.__waffle?.getState()?.activeTool === 'arc',
 		{ timeout: 3000 }
@@ -108,7 +176,7 @@ export async function clickArc(page) {
  * @param {import('@playwright/test').Page} page
  */
 export async function clickSelect(page) {
-	await page.locator('[data-testid="toolbar-btn-select"]').click();
+	await clickTool(page, 'select');
 	await page.waitForFunction(
 		() => window.__waffle?.getState()?.activeTool === 'select',
 		{ timeout: 3000 }
@@ -120,7 +188,7 @@ export async function clickSelect(page) {
  * @param {import('@playwright/test').Page} page
  */
 export async function clickDimension(page) {
-	await page.locator('[data-testid="toolbar-btn-dimension"]').click();
+	await clickTool(page, 'dimension');
 	await page.waitForFunction(
 		() => window.__waffle?.getState()?.activeTool === 'dimension',
 		{ timeout: 3000 }
@@ -146,7 +214,7 @@ export async function clickFinishSketch(page) {
  * @param {import('@playwright/test').Page} page
  */
 export async function clickExtrude(page) {
-	await page.locator('[data-testid="toolbar-btn-extrude"]').click();
+	await clickTool(page, 'extrude');
 	await page.locator('[data-testid="extrude-dialog"]').waitFor({ state: 'visible', timeout: 5000 });
 }
 
@@ -155,7 +223,7 @@ export async function clickExtrude(page) {
  * @param {import('@playwright/test').Page} page
  */
 export async function clickRevolve(page) {
-	await page.locator('[data-testid="toolbar-btn-revolve"]').click();
+	await clickTool(page, 'revolve');
 	await page.locator('[data-testid="revolve-dialog"]').waitFor({ state: 'visible', timeout: 5000 });
 }
 
@@ -164,7 +232,7 @@ export async function clickRevolve(page) {
  * @param {import('@playwright/test').Page} page
  */
 export async function clickPipe(page) {
-	await page.locator('[data-testid="toolbar-btn-pipe"]').click();
+	await clickTool(page, 'pipe');
 	await page.locator('[data-testid="pipe-dialog"]').waitFor({ state: 'visible', timeout: 5000 });
 }
 

@@ -87,6 +87,110 @@
 	let applicable = $derived(inSketch ? getApplicableConstraints(selection, entities, positions) : {});
 	let solveStatus = $derived(inSketch ? getSketchSolveStatus() : null);
 
+	// ── Overflow-driven collapse ─────────────────────────────────────────
+	// The toolbar never lets content fall off the screen: after every change
+	// to its content or width it MEASURES whether the in-flow items fit and
+	// collapses, one rung at a time, until they do. Rungs, in order:
+	//   1  file / export / debug group  → the ⋮ overflow menu
+	//   2  Planes / Axes / Section      → the ⋮ overflow menu
+	//   3  hide the brand
+	//   4  hide the project name
+	//   5  Undo / Redo                  → the ⋮ overflow menu
+	//   6… trailing tools, one per rung → a "More ▾" dropdown (priority+);
+	//      when every tool is in it, that IS the single-dropdown mobile layout
+	// The mobile breakpoint forces rungs 1, 2 and the full tool dropdown
+	// outright (touch targets, not width). Rung n+1 is never wider than rung
+	// n except the first "More ▾" step (the trigger costs more than one tool),
+	// which the ladder walks straight through — so it cannot oscillate.
+	const FIXED_RUNGS = 5;
+	let collapseLevel = $state(0);
+	let activeTools = $derived(inSketch ? sketchTools : modelingTools);
+	let collapseMax = $derived(FIXED_RUNGS + activeTools.length);
+	let compactFile = $derived(isMobile || collapseLevel >= 1);
+	let compactView = $derived(isMobile || collapseLevel >= 2);
+	let hideBrand = $derived(collapseLevel >= 3);
+	let hideName = $derived(collapseLevel >= 4);
+	let compactHistory = $derived(collapseLevel >= 5);
+	/** How many trailing tools have moved into "More ▾". */
+	let toolsHidden = $derived(Math.max(0, Math.min(activeTools.length, collapseLevel - FIXED_RUNGS)));
+	let compactTools = $derived(isMobile || toolsHidden >= activeTools.length);
+	let inlineTools = $derived(activeTools.slice(0, activeTools.length - toolsHidden));
+	let overflowTools = $derived(activeTools.slice(activeTools.length - toolsHidden));
+	let showMoreTools = $state(false);
+
+	/** @type {HTMLDivElement | null} */
+	let toolbarEl = $state(null);
+	let relayoutQueued = false;
+
+	/** Does the toolbar's in-flow content fit its content box? Positioned
+	 *  descendants (dropdown panels, backdrops) and the flexible spacer are
+	 *  not content. Items never shrink (nowrap), so summing their boxes is
+	 *  exact. */
+	function contentFits() {
+		if (!toolbarEl) return true;
+		const cs = getComputedStyle(toolbarEl);
+		const avail = toolbarEl.clientWidth - parseFloat(cs.paddingLeft) - parseFloat(cs.paddingRight);
+		const gap = parseFloat(cs.columnGap) || 0;
+		let needed = 0;
+		let count = 0;
+		for (const child of toolbarEl.children) {
+			const ccs = getComputedStyle(child);
+			if (ccs.display === 'none' || ccs.position === 'fixed' || ccs.position === 'absolute') continue;
+			count++;
+			if (child.classList.contains('toolbar-spacer')) continue;
+			needed += child.getBoundingClientRect().width
+				+ (parseFloat(ccs.marginLeft) || 0) + (parseFloat(ccs.marginRight) || 0);
+		}
+		needed += gap * Math.max(0, count - 1);
+		return needed <= avail + 0.5;
+	}
+
+	/** Walk the ladder: expand while there is room, collapse while there is
+	 *  not. Each step is flushed synchronously, so no intermediate layout is
+	 *  ever painted. Must not run inside an effect (flushSync is forbidden
+	 *  there) — schedule it with scheduleRelayout(). */
+	function relayout() {
+		if (!toolbarEl) return;
+		while (collapseLevel > 0) {
+			collapseLevel--;
+			flushSync();
+			if (!contentFits()) {
+				collapseLevel++;
+				flushSync();
+				break;
+			}
+		}
+		while (collapseLevel < collapseMax && !contentFits()) {
+			collapseLevel++;
+			flushSync();
+		}
+	}
+
+	function scheduleRelayout() {
+		if (relayoutQueued) return;
+		relayoutQueued = true;
+		queueMicrotask(() => {
+			relayoutQueued = false;
+			relayout();
+		});
+	}
+
+	$effect(() => {
+		// Everything that changes the toolbar's in-flow content re-measures it.
+		// collapseLevel itself is deliberately NOT read here.
+		void [ready, agentBusy, inSketch, isMobile, section.active, solveStatus?.status,
+			solveStatus?.dof, name, editingName, saving, exportingStl, exportingStep];
+		scheduleRelayout();
+	});
+
+	$effect(() => {
+		if (!toolbarEl) return;
+		const ro = new ResizeObserver(() => scheduleRelayout());
+		ro.observe(toolbarEl);
+		document.fonts?.ready?.then(() => scheduleRelayout());
+		return () => ro.disconnect();
+	});
+
 	// Portrait mode: collapse file/view actions into overflow menu
 	let showOverflow = $state(false);
 	let showConstraints = $state(false);
@@ -476,8 +580,10 @@
 	});
 </script>
 
-<div class="toolbar" data-testid="toolbar">
-	<div class="toolbar-brand">Waffle Iron</div>
+<div class="toolbar" data-testid="toolbar" data-collapse-level={collapseLevel} bind:this={toolbarEl}>
+	{#if !hideBrand}
+		<div class="toolbar-brand">Waffle Iron</div>
+	{/if}
 
 	<button
 		class="toolbar-btn home-btn"
@@ -486,6 +592,7 @@
 		onclick={() => goto(`${base}/home`)}
 	>Home</button>
 
+	{#if !hideName}
 	<div class="project-name" data-testid="project-name">
 		{#if editingName}
 			<input
@@ -500,11 +607,12 @@
 			</button>
 		{/if}
 	</div>
+	{/if}
 
 	{#if inSketch}
 		<!-- Sketch mode tools -->
-		{#if isMobile}
-			<!-- Mobile: sketch tools in dropdown -->
+		{#if compactTools}
+			<!-- Compact: sketch tools in dropdown -->
 			<div class="dropdown-container">
 				<button
 					class="toolbar-btn dropdown-trigger"
@@ -545,9 +653,10 @@
 				</div>
 			{/if}
 		{:else}
-			<!-- Desktop: sketch tools inline -->
+			<!-- Expanded: sketch tools inline; trailing ones that do not fit
+			     live in the "More ▾" dropdown at the end of the group. -->
 			<div class="toolbar-group">
-				{#each sketchTools as t}
+				{#each inlineTools as t}
 					{#if t.id === 'rectangle'}
 						<!-- Rectangle split button: main face selects the current rect
 						     mode; the corner arrow opens the variant menu. -->
@@ -596,6 +705,47 @@
 						>{t.label}</button>
 					{/if}
 				{/each}
+				{#if overflowTools.length > 0}
+					<div class="dropdown-container">
+						<button
+							class="toolbar-btn dropdown-trigger"
+							data-testid="toolbar-btn-more-tools"
+							title="More sketch tools"
+							onclick={(e) => { openDropdown(e.currentTarget, () => { showMoreTools = !showMoreTools; showConstraints = false; }); }}
+						>More ▾</button>
+					</div>
+					{#if showMoreTools}
+						<!-- svelte-ignore a11y_no_static_element_interactions -->
+						<div class="dropdown-backdrop" onclick={() => showMoreTools = false} onpointerdown={(e) => e.stopPropagation()}></div>
+						<!-- svelte-ignore a11y_no_static_element_interactions -->
+						<div class="dropdown-panel dropdown-fixed" style="top: {dropdownPos.top}px; left: {dropdownPos.left}px;" data-testid="more-tools-dropdown"
+							onpointerdown={(e) => e.stopPropagation()}
+						>
+							<div class="dropdown-grid">
+								{#each overflowTools as t}
+									<button
+										class="toolbar-btn"
+										class:active={t.id !== 'construction' && (tool === t.id || (t.id === 'rectangle' && tool === 'rectangle-center'))}
+										disabled={!ready}
+										title="{t.label}{t.shortcut ? ` (${t.shortcut})` : ''}"
+										data-testid="toolbar-btn-{t.id}"
+										onclick={() => { t.id === 'construction' ? handleToggleConstruction() : t.id === 'project' ? activateOrRunProject() : t.id === 'offset' ? activateOrRunOffset() : t.id === 'rectangle' ? setActiveTool(rectMode) : setActiveTool(t.id); showMoreTools = false; }}
+									>{t.label}</button>
+									{#if t.id === 'rectangle'}
+										<button
+											class="toolbar-btn"
+											class:active={tool === 'rectangle-center'}
+											disabled={!ready}
+											title="Center Rectangle"
+											data-testid="toolbar-btn-rectangle-center"
+											onclick={() => { setActiveTool('rectangle-center'); showMoreTools = false; }}
+										>Rect ⌖</button>
+									{/if}
+								{/each}
+							</div>
+						</div>
+					{/if}
+				{/if}
 			</div>
 		{/if}
 		<div class="toolbar-sep"></div>
@@ -666,6 +816,9 @@
 			onclick={() => setActiveTool('dimension')}
 		>Dim</button>
 		<div class="toolbar-sep"></div>
+		<!-- The badge slot has a fixed width so the solve status changing (or
+		     first appearing) never re-lays-out the toolbar mid-sketch. -->
+		<span class="dof-slot">
 	{#if solveStatus}
 		<span
 			class="dof-badge"
@@ -690,14 +843,15 @@
 			{/if}
 		</span>
 	{/if}
+		</span>
 		<div class="toolbar-sep"></div>
 		<button class="toolbar-btn finish-btn" data-testid="toolbar-btn-finish-sketch" onclick={handleFinishSketch}>
 			Finish Sketch
 		</button>
 	{:else}
 		<!-- Modeling tools -->
-		{#if isMobile}
-			<!-- Mobile: modeling tools in dropdown -->
+		{#if compactTools}
+			<!-- Compact: modeling tools in dropdown -->
 			<div class="dropdown-container">
 				<button
 					class="toolbar-btn dropdown-trigger"
@@ -727,9 +881,10 @@
 				</div>
 			{/if}
 		{:else}
-			<!-- Desktop: modeling tools inline -->
+			<!-- Expanded: modeling tools inline; trailing ones that do not fit
+			     live in the "More ▾" dropdown at the end of the group. -->
 			<div class="toolbar-group">
-				{#each modelingTools as t}
+				{#each inlineTools as t}
 					<button
 						class="toolbar-btn"
 						class:active={tool === t.id}
@@ -739,7 +894,40 @@
 						onclick={async () => { await handleToolClick(t.id); }}
 					>{t.label}</button>
 				{/each}
+				{#if overflowTools.length > 0}
+					<div class="dropdown-container">
+						<button
+							class="toolbar-btn dropdown-trigger"
+							data-testid="toolbar-btn-more-tools"
+							title="More modeling tools"
+							onclick={(e) => { openDropdown(e.currentTarget, () => { showMoreTools = !showMoreTools; }); }}
+						>More ▾</button>
+					</div>
+					{#if showMoreTools}
+						<!-- svelte-ignore a11y_no_static_element_interactions -->
+						<div class="dropdown-backdrop" onclick={() => showMoreTools = false} onpointerdown={(e) => e.stopPropagation()}></div>
+						<!-- svelte-ignore a11y_no_static_element_interactions -->
+						<div class="dropdown-panel dropdown-fixed" style="top: {dropdownPos.top}px; left: {dropdownPos.left}px;" data-testid="more-tools-dropdown"
+							onpointerdown={(e) => e.stopPropagation()}
+						>
+							<div class="dropdown-grid">
+								{#each overflowTools as t}
+									<button
+										class="toolbar-btn"
+										class:active={tool === t.id}
+										disabled={!ready || agentBusy}
+										title="{t.label}{t.shortcut ? ` (${t.shortcut})` : ''}"
+										data-testid="toolbar-btn-{t.id}"
+										onclick={async () => { showMoreTools = false; await handleToolClick(t.id); }}
+									>{t.label}</button>
+								{/each}
+							</div>
+						</div>
+					{/if}
+				{/if}
 			</div>
+		{/if}
+		{#if !compactView}
 			<div class="toolbar-sep"></div>
 			<div class="toolbar-group">
 				<button
@@ -796,13 +984,15 @@
 		{/if}
 	{/if}
 
-	<div class="toolbar-sep"></div>
-	<div class="toolbar-group">
-		<button class="toolbar-btn" data-testid="toolbar-btn-undo" disabled={!ready || agentBusy} title="Undo (Ctrl+Z)" onclick={undo}>Undo</button>
-		<button class="toolbar-btn" data-testid="toolbar-btn-redo" disabled={!ready || agentBusy} title="Redo (Ctrl+Shift+Z)" onclick={redo}>Redo</button>
-	</div>
-	{#if isMobile}
-		<!-- Mobile: collapse file/export/test actions into overflow menu -->
+	{#if !compactHistory}
+		<div class="toolbar-sep"></div>
+		<div class="toolbar-group">
+			<button class="toolbar-btn" data-testid="toolbar-btn-undo" disabled={!ready || agentBusy} title="Undo (Ctrl+Z)" onclick={undo}>Undo</button>
+			<button class="toolbar-btn" data-testid="toolbar-btn-redo" disabled={!ready || agentBusy} title="Redo (Ctrl+Shift+Z)" onclick={redo}>Redo</button>
+		</div>
+	{/if}
+	{#if compactFile}
+		<!-- Compact: file/export/test actions live in the ⋮ overflow menu -->
 		<div class="toolbar-sep"></div>
 		<div class="overflow-container">
 			<button class="toolbar-btn overflow-trigger" title="More actions" onclick={(e) => openOverflow(e.currentTarget)}
@@ -814,13 +1004,22 @@
 			<!-- svelte-ignore a11y_no_static_element_interactions -->
 			<div class="overflow-backdrop" onclick={closeOverflow}></div>
 			<div class="overflow-menu overflow-fixed" style="top: {overflowPos.top}px; right: {overflowPos.right}px;" data-testid="toolbar-overflow-menu">
+					{#if compactHistory}
+						<button class="overflow-item" disabled={!ready || agentBusy}
+							data-testid="toolbar-btn-undo" title="Undo (Ctrl+Z)"
+							onclick={() => { closeOverflow(); undo(); }}>Undo</button>
+						<button class="overflow-item" disabled={!ready || agentBusy}
+							data-testid="toolbar-btn-redo" title="Redo (Ctrl+Shift+Z)"
+							onclick={() => { closeOverflow(); redo(); }}>Redo</button>
+						<div class="overflow-separator"></div>
+					{/if}
 					<button class="overflow-item" disabled={!ready || saving}
 						data-testid="toolbar-btn-save"
 						onclick={async () => { closeOverflow(); saving = true; try { await saveToStorage(); } finally { saving = false; } }}>
 						{saving ? 'Saving...' : 'Save'}
 					</button>
 					<button class="overflow-item" disabled={!ready}
-						data-testid="toolbar-btn-export-waffle"
+						data-testid="toolbar-btn-export-waffle-main"
 						onclick={async () => { closeOverflow(); await saveProject(); }}>
 						Export .waffle
 					</button>
@@ -856,17 +1055,45 @@
 					<button class="overflow-item"
 						data-testid="toolbar-btn-debug-shader"
 						onclick={() => { closeOverflow(); handleToggleShaderDebug(); }}>Toggle Shader Debug</button>
-					<div class="overflow-separator"></div>
-					<button class="overflow-item" disabled={!ready}
-						data-testid="toolbar-btn-toggle-planes"
-						onclick={() => { closeOverflow(); toggleDatumPlanes(); }}>
-						{getShowDatumPlanes() ? '✓ ' : ''}Planes
-					</button>
-					<button class="overflow-item" disabled={!ready}
-						data-testid="toolbar-btn-toggle-axes"
-						onclick={() => { closeOverflow(); toggleOriginTriad(); }}>
-						{getShowOriginTriad() ? '✓ ' : ''}Axes
-					</button>
+					{#if compactView && !inSketch}
+						<div class="overflow-separator"></div>
+						<button class="overflow-item" disabled={!ready}
+							data-testid="toolbar-btn-toggle-planes"
+							onclick={() => { closeOverflow(); toggleDatumPlanes(); }}>
+							{getShowDatumPlanes() ? '✓ ' : ''}Planes
+						</button>
+						<button class="overflow-item" disabled={!ready}
+							data-testid="toolbar-btn-toggle-axes"
+							onclick={() => { closeOverflow(); toggleOriginTriad(); }}>
+							{getShowOriginTriad() ? '✓ ' : ''}Axes
+						</button>
+						<button class="overflow-item" disabled={!ready}
+							data-testid="toolbar-btn-section"
+							title="Section view — clip the model at the selected plane/face (capped)"
+							onclick={() => { closeOverflow(); handleToggleSection(); }}>
+							{section.active ? '✓ ' : ''}Section
+						</button>
+						{#if section.active}
+							<button class="overflow-item"
+								data-testid="toolbar-btn-section-flip"
+								onclick={() => { closeOverflow(); flipSection(); }}>Flip section</button>
+							<label class="overflow-item overflow-range" title="Move the cut along the plane normal">
+								<span>Offset</span>
+								<input
+									type="range"
+									min="-0.1"
+									max="0.1"
+									step="0.001"
+									value={section.offset}
+									data-testid="section-offset"
+									oninput={(e) => setSectionOffset(parseFloat(e.currentTarget.value))}
+								/>
+							</label>
+							<button class="overflow-item"
+								data-testid="toolbar-btn-section-clear"
+								onclick={() => { closeOverflow(); clearSection(); }}>Clear section</button>
+						{/if}
+					{/if}
 					<div class="overflow-separator"></div>
 					<button class="overflow-item"
 						data-testid="toolbar-btn-reload"
@@ -1156,6 +1383,14 @@
 		opacity: 0.4;
 	}
 
+	/* Reserved width for the widest status ("Fully constrained") so the
+	   toolbar's layout is independent of the solve result. */
+	.dof-slot {
+		display: inline-flex;
+		justify-content: center;
+		min-width: 112px;
+	}
+
 	.dof-badge {
 		font-size: 11px;
 		padding: 2px 8px;
@@ -1285,6 +1520,17 @@
 	.overflow-item:disabled {
 		color: var(--text-muted);
 		cursor: default;
+	}
+
+	.overflow-range {
+		display: flex;
+		align-items: center;
+		gap: 8px;
+	}
+
+	.overflow-range input[type='range'] {
+		flex: 1;
+		min-width: 80px;
 	}
 
 	/* Dropdown containers for collapsible toolbar sections */

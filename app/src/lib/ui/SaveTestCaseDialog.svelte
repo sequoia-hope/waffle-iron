@@ -109,6 +109,8 @@
 	}
 
 	.stcd-dialog {
+		max-height: calc(100dvh - 32px);
+		overflow-y: auto;
 		background: var(--bg-secondary);
 		border: 1px solid var(--border-color);
 		border-radius: 6px;

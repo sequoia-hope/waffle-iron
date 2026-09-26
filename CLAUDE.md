@@ -343,6 +343,18 @@ and #168 (`specs/yang_n2_stage4_cdt_mesh_updating.md`) are structured.
   NEVER use `getState().engineReady` as a crash oracle — it is not reliably reset on crash.
   With panic=unwind enabled (nightly + -Zbuild-std), catch_unwind catches kernel panics gracefully.
   Use `expectNoAnyCrash` (strict, zero crashes) for new tests.
+- **Chrome must scroll or collapse, never overflow.** The page cannot scroll
+  (`html, body { overflow: hidden }`), so anything that outgrows its box is
+  clipped and unreachable. Every region either scrolls (`overflow-y: auto`
+  panels, dialogs with `max-height`), collapses (the toolbar measures itself
+  and walks a collapse ladder — see the comment above `collapseLevel` in
+  `Toolbar.svelte`), or is sized relative to the window (`min(300px, 40vw)`).
+  `tests/gui/layout-overflow.spec.js` (fast tier) is the oracle: it sweeps
+  desktop widths in the widest UI states and fails on any interactive element
+  outside the window. **Never click a toolbar button by raw testid in a spec**
+  — use `clickTool()` / `clickToolbarAction()` from helpers/toolbar.js, which
+  find the button whether it is inline, in "More ▾", or in the ⋮ menu at the
+  current width.
 
 ## WASM Rebuild Workflow
 

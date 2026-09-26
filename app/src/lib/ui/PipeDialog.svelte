@@ -349,6 +349,9 @@
 		top: 12px;
 		right: max(12px, env(safe-area-inset-right, 0px));
 		width: 240px;
+		/* Mounted at page level: bounded by the window minus the status bar. */
+		max-height: calc(100dvh - var(--statusbar-height) - 24px);
+		overflow-y: auto;
 		z-index: 50;
 		background: var(--bg-tertiary, #2d2d2d);
 		border: 1px solid var(--border-color, #444);

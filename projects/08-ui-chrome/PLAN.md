@@ -78,6 +78,21 @@
 - [x] `app/src/lib/ui/SketchPlaneDialog.svelte` — Sketch plane selection dialog
 - [x] `app/src/lib/ui/ToastContainer.svelte` — Toast notification container
 
+### M12: Chrome never overflows the window ✅ (2026-09-26)
+- [x] Toolbar collapse ladder — measured after every content/width change;
+      file group → ⋮, view toggles → ⋮, brand, project name, Undo/Redo → ⋮,
+      then trailing tools one at a time into "More ▾" (priority+), ending at
+      the mobile single-dropdown layout. Before this the toolbar content was
+      2011 px wide: the settings gear was off-screen even at 1920, and at the
+      1280 test viewport everything from Undo onward was unreachable.
+- [x] Floating dialogs bounded (`max-height` + `overflow-y: auto`); overlay
+      browsers `min(300px, 40vw)` wide and below the toolbar; banner row
+      capped at 40dvh; side panels clamped so the view keeps ≥ 320 px, on
+      drag and on window resize.
+- [x] Oracle: `tests/gui/layout-overflow.spec.js` (fast tier) + `helpers/layout.js`
+      `findOutOfBounds()`; specs reach toolbar buttons via `clickTool` /
+      `clickToolbarAction` (helpers/toolbar.js).
+
 ## Blockers
 
 (None — all dependencies resolved)
