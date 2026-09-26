@@ -137,6 +137,32 @@ fn handle_message(
             Ok(model_updated_response(state))
         }
 
+        UiToEngine::ImportKicad { file_name, data } => {
+            let entry = SourceEntry::embedded(file_name.clone(), SourceKind::KicadPcb, &data);
+            link_kicad(state, kb, entry, &file_name, &data)
+        }
+
+        UiToEngine::LinkKicadFromLocator {
+            file_name,
+            locator,
+            data,
+            resolved_commit,
+        } => {
+            if !locator.is_shareable() {
+                return Err(BridgeError::InvalidRequest {
+                    reason: "LinkKicadFromLocator: a Local locator cannot be linked".to_string(),
+                });
+            }
+            let mut entry = SourceEntry::linked(file_name.clone(), SourceKind::KicadPcb, locator);
+            entry.set_content(&data);
+            entry.fetched_at = Some(chrono::Utc::now());
+            entry.resolved = resolved_commit.map(|c| file_format::Resolved {
+                commit: c.to_ascii_lowercase(),
+                at: chrono::Utc::now(),
+            });
+            link_kicad(state, kb, entry, &file_name, &data)
+        }
+
         UiToEngine::ListSources => Ok(EngineToUi::SourcesListed {
             sources: source_statuses(state),
         }),
@@ -1148,6 +1174,78 @@ fn merge_render_mesh(dst: &mut RenderMesh, src: &RenderMesh) {
 
 /// Register a STEP source (already built by the caller: embedded or linked)
 /// and add the ImportedBody feature that names it, with Import provenance.
+/// `ImportKicad` / `LinkKicadFromLocator` (`specs/kicad_board_link.md`
+/// §2.4, C2): read the board, register the source, derive the Board Part,
+/// the placeholder Parts and the assembly into NEW tabs, remember the
+/// metadata, and open the Board tab (which rebuilds it on the real kernel,
+/// so the reply carries the board's own errors and warnings).
+fn link_kicad(
+    state: &mut EngineState,
+    kb: &mut dyn KernelBundle,
+    entry: SourceEntry,
+    file_name: &str,
+    data: &str,
+) -> Result<EngineToUi, BridgeError> {
+    use feature_engine::kicad::{derive_board, DeriveOptions};
+
+    // A refused file lands nothing — the source entry is not added either
+    // (spec §6): there is nothing to hang it on.
+    let pcb = kicad_pcb::parse_kicad_pcb(data).map_err(|e| BridgeError::InvalidRequest {
+        reason: format!("{file_name}: {e}"),
+    })?;
+    let source_id = entry.id;
+    let derived = derive_board(source_id, &pcb, DeriveOptions::default());
+
+    state.engine.sources.insert_text(source_id, data);
+    state.sources.push(entry);
+
+    let stem = file_name
+        .strip_suffix(".kicad_pcb")
+        .unwrap_or(file_name)
+        .to_string();
+    let board_tab = state.session.add_tab("Part", Some(stem.clone()))?;
+    state
+        .session
+        .set_features(&board_tab, derived.board_tree.clone())?;
+
+    let mut placeholder_tabs = std::collections::BTreeMap::new();
+    for p in &derived.placeholders {
+        let short = p.footprint.rsplit(':').next().unwrap_or(&p.footprint);
+        let tab = state
+            .session
+            .add_tab("Part", Some(format!("{short} placeholder")))?;
+        state.session.set_features(&tab, p.tree.clone())?;
+        placeholder_tabs.insert(p.footprint.clone(), tab);
+    }
+
+    let assembly_tab = state
+        .session
+        .add_tab("Assembly", Some(format!("{stem} assembly")))?;
+    let (assembly, components, assembly_warnings) = derived.assembly(&board_tab, &placeholder_tabs);
+    state.session.set_assembly(&assembly_tab, assembly)?;
+
+    state
+        .kicad_boards
+        .push(crate::engine_state::KicadBoardRecord {
+            source_id,
+            board_tab: board_tab.clone(),
+            assembly_tab,
+            placeholder_tabs,
+            board: derived.board_meta.clone(),
+            components,
+        });
+
+    switch_to_tab(state, &board_tab, kb)?;
+    // The rebuild replaced the engine's warnings with the board's own; the
+    // reader's and the derivation's come after them.
+    state
+        .engine
+        .warnings
+        .extend(derived.warnings.iter().cloned());
+    state.engine.warnings.extend(assembly_warnings);
+    Ok(model_updated_response(state))
+}
+
 fn add_import_feature(
     state: &mut EngineState,
     kb: &mut dyn KernelBundle,

@@ -2,7 +2,7 @@
   "pcb": {
     "version": 20240108,
     "generator": "pcbnew",
-    "thickness_m": 0.0016000000000000003,
+    "thickness_m": 0.0016,
     "thickness_general_m": 0.0016,
     "thickness_stackup_m": 0.0016000000000000003,
     "title_block": {

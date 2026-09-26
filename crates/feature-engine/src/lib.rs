@@ -3,6 +3,7 @@ pub mod assembly_solver;
 pub mod connector;
 pub mod context;
 pub mod expr;
+pub mod kicad;
 pub mod opaque;
 pub mod params;
 pub mod pattern;

@@ -20,7 +20,9 @@ pub mod read;
 pub mod sexpr;
 
 pub use model::*;
-pub use outline::{chain, circumcenter, Loop, OutlineError, OutlineLoops, Segment, OUTLINE_WELD_M};
+pub use outline::{
+    arc_is_ccw, chain, circumcenter, Loop, OutlineError, OutlineLoops, Segment, OUTLINE_WELD_M,
+};
 pub use read::MIN_VERSION;
 
 /// Why a file could not be read into a [`Pcb`] (spec §6).

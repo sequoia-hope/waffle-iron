@@ -286,6 +286,26 @@ pub enum UiToEngine {
         #[serde(default)]
         resolved_commit: Option<String>,
     },
+    /// Import a `.kicad_pcb` from a file picker / paste
+    /// (`specs/kicad_board_link.md` §2.4): a packed `Embedded` `KicadPcb`
+    /// source, a Board Part tab (Derived outline sketch + extrude + cutouts),
+    /// one placeholder Part per footprint shape, and a Board assembly tab
+    /// (one instance per footprint keyed by its uuid, a connector per
+    /// mounting hole). The Board tab becomes active. A file the reader
+    /// refuses lands nothing — not even the source.
+    ImportKicad {
+        file_name: String,
+        data: String,
+    },
+    /// The same for a board the host fetched through a locator: a LINKED
+    /// `KicadPcb` source (hashed, resolved commit recorded, not packed).
+    LinkKicadFromLocator {
+        file_name: String,
+        locator: file_format::Locator,
+        data: String,
+        #[serde(default)]
+        resolved_commit: Option<String>,
+    },
     /// Open (or re-evaluate) an `Assembly` tab (Phase 3b): the UI hands over
     /// the tab's assembly and the feature trees of this document's Part tabs
     /// (the engine only ever holds one live tree); parts of linked `.waffle`

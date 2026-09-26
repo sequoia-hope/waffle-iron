@@ -58,6 +58,23 @@ pub struct EngineState {
     /// tree is unchanged is not rebuilt. At most one engine per part; the
     /// newest wins.
     pub part_cache: Vec<(feature_engine::assembly::PartRef, Engine)>,
+    /// Linked KiCad boards (`specs/kicad_board_link.md` C2): which tabs a
+    /// `KicadPcb` source derived and the hover metadata for them. A pure
+    /// function of the source bytes — regenerated, never persisted.
+    pub kicad_boards: Vec<KicadBoardRecord>,
+}
+
+/// One linked `.kicad_pcb`: its derived tabs and metadata.
+#[derive(Debug, Clone)]
+pub struct KicadBoardRecord {
+    pub source_id: uuid::Uuid,
+    pub board_tab: String,
+    pub assembly_tab: String,
+    /// Footprint name → placeholder Part tab.
+    pub placeholder_tabs: std::collections::BTreeMap<String, String>,
+    pub board: feature_engine::kicad::BoardMeta,
+    /// Instance id → component record.
+    pub components: std::collections::BTreeMap<uuid::Uuid, feature_engine::kicad::ComponentMeta>,
 }
 
 /// An active sketch editing session.
@@ -88,6 +105,7 @@ impl EngineState {
             assembly: None,
             context_view: None,
             part_cache: Vec::new(),
+            kicad_boards: Vec::new(),
         }
     }
 
@@ -287,6 +305,7 @@ impl EngineState {
         self.sources.clear();
         self.document_extra.clear();
         self.envelope_extra.clear();
+        self.kicad_boards.clear();
     }
 }
 

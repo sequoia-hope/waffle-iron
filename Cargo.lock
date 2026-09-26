@@ -601,6 +601,7 @@ checksum = "37909eebbb50d72f9059c3b6d82c0463f2ff062c9e95845c43a6c9c0355411be"
 name = "feature-engine"
 version = "0.1.0"
 dependencies = [
+ "kicad-pcb",
  "modeling-ops",
  "nalgebra",
  "rhai",
@@ -2587,6 +2588,7 @@ dependencies = [
  "getrandom 0.3.4",
  "js-sys",
  "kernel-v2",
+ "kicad-pcb",
  "modeling-ops",
  "serde",
  "serde_json",

@@ -8,6 +8,8 @@ license = "MIT"
 modeling-ops = { path = "../modeling-ops" }
 sketch-solver = { path = "../sketch-solver" }
 step-import = { path = "../step-import" }
+# `.kicad_pcb` reader (specs/kicad_board_link.md): the input of `kicad::derive_board`.
+kicad-pcb = { path = "../kicad-pcb" }
 waffle-types = { path = "../waffle-types" }
 uuid = { version = "1", features = ["v4", "serde"] }
 serde = { version = "1", features = ["derive"] }

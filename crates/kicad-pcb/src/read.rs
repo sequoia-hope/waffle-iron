@@ -105,8 +105,12 @@ pub fn read(root: &Node) -> Result<Pcb, KicadParse> {
                     s / MM,
                     g / MM
                 ));
+                s
+            } else {
+                // They agree: the declared number, not a float sum of layers
+                // (1.6 mm, not 1.6000000000000003 mm).
+                g
             }
-            s
         }
         (Some(s), None) => s,
         (None, Some(g)) => g,

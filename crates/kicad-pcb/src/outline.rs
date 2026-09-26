@@ -273,7 +273,7 @@ fn angle(center: [f64; 2], p: [f64; 2]) -> f64 {
 /// The arc visits `mid` between `start` and `end`; it is counter-clockwise
 /// (angle-increasing) iff the ccw angular distance to `mid` is shorter
 /// than the ccw distance to `end`.
-fn arc_is_ccw(center: [f64; 2], start: [f64; 2], mid: [f64; 2], end: [f64; 2]) -> bool {
+pub fn arc_is_ccw(center: [f64; 2], start: [f64; 2], mid: [f64; 2], end: [f64; 2]) -> bool {
     let tau = std::f64::consts::TAU;
     let a0 = angle(center, start);
     let dm = (angle(center, mid) - a0).rem_euclid(tau);
