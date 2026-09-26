@@ -358,3 +358,25 @@ fn stackup_disagreeing_with_general_warns_and_uses_the_stackup() {
     assert!(pcb.warnings[0].contains("differs"));
     assert_eq!(pcb.outline_loops().unwrap_err(), OutlineError::Empty);
 }
+
+/// The re-sync fixture (spec O7, C5): `rect_v8` one revision on — the
+/// outline grown to 60 × 30, R1 moved and rotated, C1's value changed, R2
+/// (same shape) and U1 (a new shape) added, H1 deleted.
+#[test]
+fn rect_v8_resync_golden_and_values() {
+    let (pcb, loops) = check_golden("rect_v8_resync");
+    assert_eq!(pcb.title_block.rev, "B");
+    let refs: Vec<&str> = pcb
+        .footprints
+        .iter()
+        .map(|f| f.reference.as_str())
+        .collect();
+    assert_eq!(refs, ["R1", "C1", "R2", "U1"]);
+    let r1 = &pcb.footprints[0];
+    assert_eq!(r1.at, [0.025, 0.012]);
+    assert_eq!(r1.rotation_deg, 45.0);
+    assert_eq!(pcb.footprints[1].value, "220n");
+    let loops = loops.unwrap();
+    assert!((loops.outer.signed_area_m2.abs() - 1800.0e-6).abs() < 1e-15);
+    assert!(loops.holes.is_empty());
+}

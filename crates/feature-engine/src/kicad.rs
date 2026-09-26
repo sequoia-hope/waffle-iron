@@ -41,6 +41,11 @@ pub const RULE_PLACEHOLDER: &str = "kicad.placeholder";
 pub const RULE_BOARD_INSTANCE: &str = "kicad.board";
 pub const RULE_FOOTPRINT: &str = "kicad.footprint";
 pub const RULE_MOUNTING_HOLE: &str = "kicad.mounting_hole";
+/// The board Part tab's own tree carries this as its `x-derived` record
+/// (key `"board"`), and a placeholder Part's carries [`RULE_PLACEHOLDER`]
+/// with the footprint name as key — how a re-sync and a reload find the
+/// tabs a source derived without a persisted record.
+pub const RULE_BOARD_PART: &str = "kicad.board_part";
 
 /// The `extra` key carrying derivation on instances and connectors (v4 §2.6
 /// `x-` convention): `{"source_id": …, "rule": …, "key": …}`.
@@ -147,6 +152,7 @@ pub fn derive_board(source_id: Uuid, pcb: &Pcb, options: DeriveOptions) -> Deriv
     let thickness_m = pcb.thickness_m;
 
     let mut board_tree = FeatureTree::new();
+    board_tree.extra = derived_extra(source_id, RULE_BOARD_PART, "board");
     let mut sketch_w = SketchWriter::default();
     let (outer_ids, holes_ids, outline_error) = match pcb.outline_loops() {
         Ok(loops) => {
@@ -262,18 +268,7 @@ pub fn derive_board(source_id: Uuid, pcb: &Pcb, options: DeriveOptions) -> Deriv
         });
     }
 
-    let board_meta = BoardMeta {
-        source_id,
-        title: pcb.title_block.title.clone(),
-        rev: pcb.title_block.rev.clone(),
-        date: pcb.title_block.date.clone(),
-        company: pcb.title_block.company.clone(),
-        comments: pcb.title_block.comments.clone(),
-        copper_layers: pcb.copper_layers,
-        thickness_m,
-        net_count: pcb.nets.len(),
-        footprint_count: pcb.footprints.len(),
-    };
+    let board_meta = board_meta(source_id, pcb);
 
     DerivedBoard {
         source_id,
@@ -318,7 +313,7 @@ impl DerivedBoard {
             suppressed: false,
             external_key: Some("board".to_string()),
             parameter_overrides: None,
-            extra: derived_extra(self.source_id, RULE_BOARD_INSTANCE, "board"),
+            extra: derived_extra_named(self.source_id, RULE_BOARD_INSTANCE, "board", "board"),
         });
 
         for fp in &self.footprints {
@@ -339,7 +334,12 @@ impl DerivedBoard {
                         flip_z: false,
                         rotation_deg: 0.0,
                         offset_m: [0.0; 3],
-                        extra: derived_extra(self.source_id, RULE_MOUNTING_HOLE, &fp.uuid),
+                        extra: derived_extra_named(
+                            self.source_id,
+                            RULE_MOUNTING_HOLE,
+                            &fp.uuid,
+                            &format!("{} hole", fp.reference),
+                        ),
                     });
                 }
             }
@@ -366,7 +366,7 @@ impl DerivedBoard {
                 suppressed: false,
                 external_key: Some(fp.uuid.clone()),
                 parameter_overrides: None,
-                extra: derived_extra(self.source_id, RULE_FOOTPRINT, &fp.uuid),
+                extra: derived_extra_named(self.source_id, RULE_FOOTPRINT, &fp.uuid, &fp.reference),
             });
             components.insert(id, component_meta(fp));
         }
@@ -412,7 +412,24 @@ pub fn footprint_transform(fp: &Footprint, thickness_m: f64) -> Transform {
     }
 }
 
-fn component_meta(fp: &Footprint) -> ComponentMeta {
+/// The board record (spec §2.3 "Metadata"), a pure function of the file.
+pub fn board_meta(source_id: Uuid, pcb: &Pcb) -> BoardMeta {
+    BoardMeta {
+        source_id,
+        title: pcb.title_block.title.clone(),
+        rev: pcb.title_block.rev.clone(),
+        date: pcb.title_block.date.clone(),
+        company: pcb.title_block.company.clone(),
+        comments: pcb.title_block.comments.clone(),
+        copper_layers: pcb.copper_layers,
+        thickness_m: pcb.thickness_m,
+        net_count: pcb.nets.len(),
+        footprint_count: pcb.footprints.len(),
+    }
+}
+
+/// The component record of one footprint.
+pub fn component_meta(fp: &Footprint) -> ComponentMeta {
     ComponentMeta {
         footprint_uuid: fp.uuid.clone(),
         reference: fp.reference.clone(),
@@ -436,6 +453,9 @@ fn component_meta(fp: &Footprint) -> ComponentMeta {
     }
 }
 
+/// `{"source_id", "rule", "key", "name"}`: `name` is the name the rule
+/// minted, kept beside the rule so a re-sync can tell a user's rename (the
+/// live name differs from it) from the rule's own (spec §3 R3).
 fn derived_extra(source_id: Uuid, rule: &str, key: &str) -> Map<String, serde_json::Value> {
     let mut m = Map::new();
     m.insert(
@@ -443,6 +463,308 @@ fn derived_extra(source_id: Uuid, rule: &str, key: &str) -> Map<String, serde_js
         json!({ "source_id": source_id, "rule": rule, "key": key }),
     );
     m
+}
+
+fn derived_extra_named(
+    source_id: Uuid,
+    rule: &str,
+    key: &str,
+    name: &str,
+) -> Map<String, serde_json::Value> {
+    let mut m = Map::new();
+    m.insert(
+        X_DERIVED.to_string(),
+        json!({ "source_id": source_id, "rule": rule, "key": key, X_DERIVED_NAME: name }),
+    );
+    m
+}
+
+/// The `x-derived` record on an instance or connector, if it carries one.
+/// `(source_id, rule, key)`.
+pub fn derived_of(extra: &Map<String, serde_json::Value>) -> Option<(Uuid, &str, &str)> {
+    let d = extra.get(X_DERIVED)?;
+    let source_id = d.get("source_id")?.as_str()?.parse().ok()?;
+    Some((source_id, d.get("rule")?.as_str()?, d.get("key")?.as_str()?))
+}
+
+/// The `x-derived` field holding the rule's own name.
+const X_DERIVED_NAME: &str = "name";
+
+/// Whether the user renamed a derived instance or connector: its live name
+/// differs from the one its rule minted. A record without the stamp (none
+/// is written without it; a hand-edited file might lack it) is taken as
+/// renamed when the name differs from the fresh one — a rename is never
+/// lost for want of a stamp.
+fn user_renamed(extra: &Map<String, serde_json::Value>, live: &str, fresh: &str) -> bool {
+    match extra
+        .get(X_DERIVED)
+        .and_then(|d| d.get(X_DERIVED_NAME))
+        .and_then(|n| n.as_str())
+    {
+        Some(minted) => minted != live,
+        None => live != fresh,
+    }
+}
+
+/// Provenance of a feature in `tree`, when it is `Derived` from `source_id`:
+/// the rule.
+fn derived_rule(tree: &FeatureTree, feature_id: Uuid, source_id: Uuid) -> Option<&str> {
+    match tree.provenance.get(&feature_id).map(|p| &p.origin) {
+        Some(ProvenanceOrigin::Derived { source_id: s, rule }) if *s == source_id => Some(rule),
+        _ => None,
+    }
+}
+
+/// What a re-sync could not carry over (spec §3 R4): a user mate whose
+/// connector belonged to an instance the source no longer has. The mate is
+/// left in place, loud.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct MateTargetGone {
+    pub mate_id: Uuid,
+    pub mate_name: String,
+    pub instance_name: String,
+    pub footprint_uuid: String,
+}
+
+/// Spec §3 R1 (and §4 inv. 5): replace the features `Derived` from
+/// `source_id` in `old` with the freshly derived `fresh` tree, keeping every
+/// other feature exactly where and as it was. A fresh feature takes the id
+/// of the old feature with the same rule and ordinal — the board sketch
+/// stays the board sketch, cutout 2 stays cutout 2 — so a user's sketch on
+/// the board's face, or an extrude that names the board's body, re-resolves
+/// through the same feature id; a derived feature with no counterpart is
+/// dropped (a reference to it then fails loudly, as any reference does) and
+/// a new one lands after the last derived feature.
+pub fn resync_features(old: &FeatureTree, fresh: &FeatureTree, source_id: Uuid) -> FeatureTree {
+    // (rule, ordinal) → old feature id.
+    let mut old_by_slot: HashMap<(String, usize), Uuid> = HashMap::new();
+    let mut counts: HashMap<String, usize> = HashMap::new();
+    for f in &old.features {
+        if let Some(rule) = derived_rule(old, f.id, source_id) {
+            let n = counts.entry(rule.to_string()).or_default();
+            old_by_slot.insert((rule.to_string(), *n), f.id);
+            *n += 1;
+        }
+    }
+    // fresh id → kept id.
+    let mut id_map: HashMap<Uuid, Uuid> = HashMap::new();
+    counts.clear();
+    for f in &fresh.features {
+        let Some(rule) = derived_rule(fresh, f.id, source_id) else {
+            continue;
+        };
+        let n = counts.entry(rule.to_string()).or_default();
+        if let Some(&kept) = old_by_slot.get(&(rule.to_string(), *n)) {
+            id_map.insert(f.id, kept);
+        }
+        *n += 1;
+    }
+
+    let remap = |id: Uuid| id_map.get(&id).copied().unwrap_or(id);
+    let remapped: Vec<Feature> = fresh
+        .features
+        .iter()
+        .map(|f| {
+            let mut f = f.clone();
+            let kept = remap(f.id);
+            f.id = kept;
+            match &mut f.operation {
+                Operation::Extrude { params } => {
+                    params.sketch_id = remap(params.sketch_id);
+                    for t in params.targets.iter_mut().flatten() {
+                        if let Anchor::FeatureOutput { feature_id, .. } = &mut t.anchor {
+                            *feature_id = remap(*feature_id);
+                        }
+                    }
+                }
+                Operation::Sketch { sketch } => {
+                    // The sketch's own id survives too: nothing about the
+                    // regeneration is a new sketch to a reader of the file.
+                    if let Some(Operation::Sketch { sketch: prior }) = old
+                        .features
+                        .iter()
+                        .find(|o| o.id == kept)
+                        .map(|o| &o.operation)
+                    {
+                        sketch.id = prior.id;
+                    }
+                }
+                _ => {}
+            }
+            f
+        })
+        .collect();
+
+    // Splice: an old derived feature is replaced in place by its fresh
+    // counterpart or dropped; a fresh feature with no counterpart goes right
+    // after the previously placed fresh feature (or first, if none yet).
+    let kept_ids: std::collections::HashSet<Uuid> = id_map.values().copied().collect();
+    let mut out: Vec<Feature> = old
+        .features
+        .iter()
+        .filter(|f| derived_rule(old, f.id, source_id).is_none() || kept_ids.contains(&f.id))
+        .cloned()
+        .collect();
+    let mut cursor: Option<usize> = None;
+    for f in remapped {
+        if let Some(pos) = out.iter().position(|o| o.id == f.id) {
+            out[pos] = f;
+            cursor = Some(pos);
+        } else {
+            let at = cursor.map(|c| c + 1).unwrap_or(0);
+            out.insert(at, f);
+            cursor = Some(at);
+        }
+    }
+
+    let mut tree = old.clone();
+    tree.features = out;
+    tree.provenance
+        .retain(|id, _| derived_rule(old, *id, source_id).is_none() || kept_ids.contains(id));
+    for (id, p) in &fresh.provenance {
+        tree.provenance.insert(remap(*id), p.clone());
+    }
+    tree
+}
+
+/// Spec §3 R2–R4: reconcile a freshly derived assembly (`fresh`, new ids
+/// throughout) with the tab's current tree (`old`) by `external_key`.
+///
+/// An instance or connector derived from `source_id` whose key the fresh
+/// tree still has keeps its id (inv. 4), its `suppressed`, and its `name`
+/// when the user changed it from the rule's own; its transform, source and
+/// derivation are regenerated. One with no fresh counterpart is removed
+/// with every connector on it; a mate that used such a connector is left in
+/// place and reported. Everything not derived from `source_id` — the user's
+/// instances, connectors, mates, and content derived from another board —
+/// is untouched. Returns the reconciled tree, the map from fresh instance
+/// ids to the ids that stand for them, and the mates left dangling.
+pub fn resync_assembly(
+    old: &AssemblyTree,
+    mut fresh: AssemblyTree,
+    source_id: Uuid,
+) -> (AssemblyTree, BTreeMap<Uuid, Uuid>, Vec<MateTargetGone>) {
+    let mine = |extra: &Map<String, serde_json::Value>| -> Option<String> {
+        derived_of(extra)
+            .filter(|(s, _, _)| *s == source_id)
+            .map(|(_, rule, key)| format!("{rule}\u{0}{key}"))
+    };
+
+    // Instances: fresh id → kept id, by (rule, key).
+    let old_instances: HashMap<String, &Instance> = old
+        .instances
+        .iter()
+        .filter_map(|i| mine(&i.extra).map(|k| (k, i)))
+        .collect();
+    let mut id_map: BTreeMap<Uuid, Uuid> = BTreeMap::new();
+    for inst in &mut fresh.instances {
+        let Some(k) = mine(&inst.extra) else { continue };
+        if let Some(prior) = old_instances.get(&k) {
+            id_map.insert(inst.id, prior.id);
+            inst.id = prior.id;
+            inst.suppressed = prior.suppressed;
+            if user_renamed(&prior.extra, &prior.name, &inst.name) {
+                inst.name = prior.name.clone();
+            }
+        }
+    }
+    let remap_path = |path: &mut Vec<Uuid>| {
+        for id in path.iter_mut() {
+            if let Some(kept) = id_map.get(id) {
+                *id = *kept;
+            }
+        }
+    };
+
+    // Connectors: by (rule, key, ordinal within the key) — a footprint with
+    // two mounting holes keeps both.
+    let mut old_conns: HashMap<String, Vec<&MateConnector>> = HashMap::new();
+    for c in &old.connectors {
+        if let Some(k) = mine(&c.extra) {
+            old_conns.entry(k).or_default().push(c);
+        }
+    }
+    let mut seen: HashMap<String, usize> = HashMap::new();
+    for c in &mut fresh.connectors {
+        remap_path(&mut c.instance_path);
+        let Some(k) = mine(&c.extra) else { continue };
+        let n = seen.entry(k.clone()).or_default();
+        if let Some(prior) = old_conns.get(&k).and_then(|v| v.get(*n)) {
+            c.id = prior.id;
+            if user_renamed(&prior.extra, &prior.name, &c.name) {
+                c.name = prior.name.clone();
+            }
+        }
+        *n += 1;
+    }
+
+    // Assemble: the user's content, then what survived or is new.
+    let kept_instances: std::collections::HashSet<Uuid> =
+        fresh.instances.iter().map(|i| i.id).collect();
+    let removed_instances: Vec<&Instance> = old
+        .instances
+        .iter()
+        .filter(|i| mine(&i.extra).is_some() && !kept_instances.contains(&i.id))
+        .collect();
+    let removed_ids: std::collections::HashSet<Uuid> =
+        removed_instances.iter().map(|i| i.id).collect();
+
+    let mut out = old.clone();
+    out.instances = Vec::new();
+    for i in &old.instances {
+        if removed_ids.contains(&i.id) {
+            continue;
+        }
+        match fresh.instances.iter().position(|f| f.id == i.id) {
+            Some(pos) => out.instances.push(fresh.instances.remove(pos)),
+            None if mine(&i.extra).is_some() => {}
+            None => out.instances.push(i.clone()),
+        }
+    }
+    out.instances.append(&mut fresh.instances);
+
+    let fresh_conn_ids: std::collections::HashSet<Uuid> =
+        fresh.connectors.iter().map(|c| c.id).collect();
+    let mut gone_connectors: std::collections::HashSet<Uuid> = std::collections::HashSet::new();
+    out.connectors = Vec::new();
+    for c in &old.connectors {
+        let on_removed = c
+            .instance_path
+            .first()
+            .is_some_and(|i| removed_ids.contains(i));
+        if on_removed || (mine(&c.extra).is_some() && !fresh_conn_ids.contains(&c.id)) {
+            gone_connectors.insert(c.id);
+            continue;
+        }
+        match fresh.connectors.iter().position(|f| f.id == c.id) {
+            Some(pos) => out.connectors.push(fresh.connectors.remove(pos)),
+            None => out.connectors.push(c.clone()),
+        }
+    }
+    out.connectors.append(&mut fresh.connectors);
+
+    let owner_of = |conn: Uuid| -> Option<&Instance> {
+        let c = old.connectors.iter().find(|c| c.id == conn)?;
+        let top = *c.instance_path.first()?;
+        old.instances.iter().find(|i| i.id == top)
+    };
+    let mut dangling = Vec::new();
+    for m in &old.mates {
+        for conn in m.connectors {
+            if gone_connectors.contains(&conn) {
+                if let Some(inst) = owner_of(conn) {
+                    dangling.push(MateTargetGone {
+                        mate_id: m.id,
+                        mate_name: m.name.clone(),
+                        instance_name: inst.name.clone(),
+                        footprint_uuid: inst.external_key.clone().unwrap_or_default(),
+                    });
+                }
+            }
+        }
+    }
+    out.placements.retain(|id, _| !removed_ids.contains(id));
+    (out, id_map, dangling)
 }
 
 fn push_derived(tree: &mut FeatureTree, feature: Feature, source_id: Uuid, rule: &str) {
@@ -553,6 +875,7 @@ fn placeholder_tree(source_id: Uuid, fp: &Footprint) -> FeatureTree {
         signed_area_m2: 0.0,
     });
     let mut tree = FeatureTree::new();
+    tree.extra = derived_extra(source_id, RULE_PLACEHOLDER, &fp.footprint);
     let sketch_id = Uuid::new_v4();
     push_derived(
         &mut tree,
@@ -766,6 +1089,183 @@ impl SketchWriter {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    const RECT: &str = include_str!("../../kicad-pcb/tests/fixtures/rect_v8.kicad_pcb");
+    const HOLES: &str = include_str!("../../kicad-pcb/tests/fixtures/holes_v6.kicad_pcb");
+
+    fn user_feature(name: &str) -> Feature {
+        Feature {
+            id: Uuid::new_v4(),
+            name: name.to_string(),
+            operation: Operation::Sketch {
+                sketch: SketchWriter::default().into_sketch(),
+            },
+            suppressed: false,
+            references: Vec::new(),
+        }
+    }
+
+    fn rules(tree: &FeatureTree, source_id: Uuid) -> Vec<String> {
+        tree.features
+            .iter()
+            .map(|f| {
+                derived_rule(tree, f.id, source_id)
+                    .unwrap_or("user")
+                    .to_string()
+            })
+            .collect()
+    }
+
+    #[test]
+    fn resync_drops_cutouts_the_source_lost_and_keeps_the_rest_in_place() {
+        let source = Uuid::new_v4();
+        let holes = kicad_pcb::parse_kicad_pcb(HOLES).unwrap();
+        let rect = kicad_pcb::parse_kicad_pcb(RECT).unwrap();
+        let mut old = derive_board(source, &holes, DeriveOptions::default()).board_tree;
+        assert_eq!(
+            old.features.len(),
+            5,
+            "outline, board, cutouts sketch, 2 cuts"
+        );
+        let user = user_feature("enclosure");
+        let user_id = user.id;
+        old.features.push(user);
+        let old_ids: Vec<Uuid> = old.features.iter().map(|f| f.id).collect();
+
+        let fresh = derive_board(source, &rect, DeriveOptions::default()).board_tree;
+        let out = resync_features(&old, &fresh, source);
+        assert_eq!(
+            rules(&out, source),
+            [RULE_BOARD_OUTLINE, RULE_BOARD_EXTRUDE, "user"]
+        );
+        assert_eq!(out.features[0].id, old_ids[0]);
+        assert_eq!(out.features[1].id, old_ids[1]);
+        assert_eq!(out.features[2].id, user_id);
+        // The extrude names the (kept) sketch id.
+        let Operation::Extrude { params } = &out.features[1].operation else {
+            panic!()
+        };
+        assert_eq!(params.sketch_id, old_ids[0]);
+        // Dropped features lose their provenance rows; the kept keep theirs.
+        assert_eq!(out.provenance.len(), 2);
+        assert!(out.provenance.contains_key(&old_ids[1]));
+        assert!(!out.provenance.contains_key(&old_ids[3]));
+        // The tree's own stamp survives.
+        assert_eq!(
+            derived_of(&out.extra),
+            Some((source, RULE_BOARD_PART, "board"))
+        );
+    }
+
+    #[test]
+    fn resync_inserts_new_cutouts_after_the_board_and_before_the_users() {
+        let source = Uuid::new_v4();
+        let holes = kicad_pcb::parse_kicad_pcb(HOLES).unwrap();
+        let rect = kicad_pcb::parse_kicad_pcb(RECT).unwrap();
+        let mut old = derive_board(source, &rect, DeriveOptions::default()).board_tree;
+        let user = user_feature("enclosure");
+        let user_id = user.id;
+        old.features.push(user);
+        let board_id = old.features[1].id;
+
+        let fresh = derive_board(source, &holes, DeriveOptions::default()).board_tree;
+        let out = resync_features(&old, &fresh, source);
+        assert_eq!(
+            rules(&out, source),
+            [
+                RULE_BOARD_OUTLINE,
+                RULE_BOARD_EXTRUDE,
+                RULE_BOARD_CUTOUTS,
+                RULE_BOARD_CUTOUT,
+                RULE_BOARD_CUTOUT,
+                "user"
+            ]
+        );
+        assert_eq!(out.features[1].id, board_id);
+        assert_eq!(out.features[5].id, user_id);
+        // The first cut targets the kept board id; the second chains on the
+        // first (fresh ids, consistently remapped).
+        let Operation::Extrude { params } = &out.features[3].operation else {
+            panic!()
+        };
+        let Anchor::FeatureOutput { feature_id, .. } = params.targets.as_ref().unwrap()[0].anchor
+        else {
+            panic!()
+        };
+        assert_eq!(feature_id, board_id);
+        let Operation::Extrude { params } = &out.features[4].operation else {
+            panic!()
+        };
+        let Anchor::FeatureOutput { feature_id, .. } = params.targets.as_ref().unwrap()[0].anchor
+        else {
+            panic!()
+        };
+        assert_eq!(feature_id, out.features[3].id);
+    }
+
+    #[test]
+    fn resync_assembly_keeps_ids_renames_and_reports_dangling_mates() {
+        let source = Uuid::new_v4();
+        let rect = kicad_pcb::parse_kicad_pcb(RECT).unwrap();
+        let derived = derive_board(source, &rect, DeriveOptions::default());
+        let mut tabs = BTreeMap::new();
+        for p in &derived.placeholders {
+            tabs.insert(p.footprint.clone(), format!("tab-{}", p.footprint));
+        }
+        let (mut old, _, _) = derived.assembly("board-tab", &tabs);
+        let r1 = old.instances.iter_mut().find(|i| i.name == "R1").unwrap();
+        r1.name = "pull-up".to_string();
+        let r1_id = r1.id;
+        let hole = old.connectors[0].id;
+        let user_conn = MateConnector {
+            id: Uuid::new_v4(),
+            name: "mine".into(),
+            instance_path: vec![r1_id],
+            geom_ref: None,
+            part_connector: None,
+            frame: Frame::default(),
+            anchor: AxialAnchor::Middle,
+            flip_z: false,
+            rotation_deg: 0.0,
+            offset_m: [0.0; 3],
+            extra: Map::new(),
+        };
+        let user_conn_id = user_conn.id;
+        old.connectors.push(user_conn);
+        old.mates.push(crate::assembly::Mate {
+            id: Uuid::new_v4(),
+            name: "to the hole".into(),
+            kind: crate::assembly::MateKind::Fastened {
+                flip: false,
+                rotation_deg: 0.0,
+            },
+            connectors: [hole, user_conn_id],
+            suppressed: false,
+            extra: Map::new(),
+        });
+
+        // Fresh: R1 still there (new ids), the mounting hole gone.
+        let mut pruned = rect.clone();
+        pruned.footprints.retain(|f| f.reference != "H1");
+        let fresh = derive_board(source, &pruned, DeriveOptions::default())
+            .assembly("board-tab", &tabs)
+            .0;
+        let (out, id_map, gone) = resync_assembly(&old, fresh, source);
+        let r1 = out
+            .instances
+            .iter()
+            .find(|i| i.external_key.as_deref() == Some("0a1b2c3d-0000-4000-8000-000000000001"))
+            .unwrap();
+        assert_eq!(r1.id, r1_id);
+        assert_eq!(r1.name, "pull-up");
+        assert_eq!(id_map.len(), 3, "board, R1, C1 mapped");
+        assert!(out.connectors.iter().all(|c| c.id != hole));
+        assert!(out.connectors.iter().any(|c| c.id == user_conn_id));
+        assert_eq!(out.mates.len(), 1, "the mate is kept");
+        assert_eq!(gone.len(), 1);
+        assert_eq!(gone[0].mate_name, "to the hole");
+        assert_eq!(gone[0].instance_name, "board");
+    }
 
     #[test]
     fn front_transform_is_a_z_rotation_on_the_copper_top() {

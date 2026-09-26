@@ -564,7 +564,24 @@ pub(crate) fn instance_edit(
     let tab = require_assembly_tab(state)?;
     let mut asm = tree(state, &tab.id)?;
     let id = str_arg(args, "instance_id");
-    let current = require_instance(&asm, &id)?.transform;
+    let current = require_instance(&asm, &id)?;
+    // Derived from a source (`specs/kicad_board_link.md` §2.4): a re-sync
+    // regenerates everything but `name` and `suppressed`, so those are the
+    // only fields an edit may set.
+    if current.extra.contains_key(feature_engine::kicad::X_DERIVED) {
+        let refused: Vec<&str> = ["transform", "fixed"]
+            .into_iter()
+            .filter(|k| args.get(*k).is_some())
+            .collect();
+        if !refused.is_empty() {
+            return Err(ToolFailure::new(
+                "DerivedFeatureReadOnly",
+                "This instance is regenerated from a source; only name and suppressed can be edited.",
+                json!({ "instance_id": current.id, "refused": refused }),
+            ));
+        }
+    }
+    let current = current.transform;
     let transform = match args.get("transform") {
         Some(t) => Some(transform_from(Some(t), current)?),
         None => None,
@@ -803,7 +820,20 @@ pub(crate) fn connector_edit(
     let tab = require_assembly_tab(state)?;
     let mut asm = tree(state, &tab.id)?;
     let id = str_arg(args, "connector_id");
-    require_connector(&asm, &id)?;
+    let current = require_connector(&asm, &id)?;
+    if current.extra.contains_key(feature_engine::kicad::X_DERIVED) {
+        let refused: Vec<&str> = ["anchor", "flip_z", "rotation_deg", "offset_m"]
+            .into_iter()
+            .filter(|k| args.get(*k).is_some())
+            .collect();
+        if !refused.is_empty() {
+            return Err(ToolFailure::new(
+                "DerivedFeatureReadOnly",
+                "This connector is regenerated from a source; only its name can be edited.",
+                json!({ "connector_id": current.id, "refused": refused }),
+            ));
+        }
+    }
     let c = asm
         .connectors
         .iter_mut()

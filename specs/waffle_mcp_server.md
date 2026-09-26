@@ -366,6 +366,7 @@ the call queues behind it.
 | A7 | `feature_add`/`feature_edit` | JSON not a known `Operation` variant | — | `InvalidOperation{schema_path, reason}`; the agent never authors opaque ops |
 | A8 | `feature_edit` | kind differs from the feature's | — | `OperationKindMismatch` |
 | A9 | `feature_edit` | `Derived` or `Import` provenance | — | `DerivedFeatureReadOnly` / `UseImportTool` |
+| A9b | `instance_edit` / `connector_edit` | the instance or connector carries `x-derived` (a linked KiCad board, `specs/kicad_board_link.md` §2.4) and a field other than `name` / `suppressed` (instance) or `name` (connector) is given | — | `DerivedFeatureReadOnly{refused: [fields]}`; nothing changes |
 | A10 | `sketch_create` | solves Fully/Under-constrained | any | `BeginSketch` → `SolveSketch{entities, constraints}` → `FinishSketch` under one lock; the user's sketch-mode UI is **not** entered; `dof` and regions returned |
 | A11 | `sketch_create` | Over-constrained / SolveFailed | `rollback` | engine sketch discarded, tree unchanged; `SketchSolveFailed{status, conflicts}` |
 | A12 | `sketch_create` | same | `keep` | committed with its failed status (as the app's Finish would) |
@@ -518,7 +519,7 @@ Tool results with `isError: true`:
 | `UseImportTool` | A6, A9 |
 | `InvalidOperation` | A7 |
 | `OperationKindMismatch` | A8 |
-| `DerivedFeatureReadOnly` | A9 |
+| `DerivedFeatureReadOnly` | A9, A9b |
 | `InvalidSketch` | A13 |
 | `InvalidScript` / `SourceNotFound` | script tools: a script that does not check (`details.stage`, `reason`), a malformed script argument; an id that is not a Script source of the document |
 | `SketchSolveFailed` | A11 |

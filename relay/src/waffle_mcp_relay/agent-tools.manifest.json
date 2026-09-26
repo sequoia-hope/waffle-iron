@@ -1,5 +1,5 @@
 {
-  "manifest_hash": "c65222d1f7773154c5409eaad3d281d217b999e8172b41bb76adf23e2ef4f0e2",
+  "manifest_hash": "a3d8c29a3ff80eb8ce690117e598975c8db90bf729184710ea1efeda67bd51a3",
   "protocol": "waffle-agent-link/1",
   "tools": [
     {
@@ -17555,7 +17555,7 @@
         "readOnlyHint": false,
         "title": "Edit instance"
       },
-      "description": "Change an instance of the open assembly: its name, placement transform (only the fields given change), grounding (fixed) or suppression. The assembly is re-solved. Requires an Assembly tab to be active (tab_add kind:\"Assembly\", or tab_switch to one); on a Part tab it is refused with TabKindNotSupported. An assembly edit is not an undo step (undo/redo act on the feature tree of a Part tab); reverse it with the matching delete or edit tool.",
+      "description": "Change an instance of the open assembly: its name, placement transform (only the fields given change), grounding (fixed) or suppression. The assembly is re-solved. An instance derived from a source (a linked KiCad footprint) accepts only name and suppressed; transform or fixed on one is DerivedFeatureReadOnly. Requires an Assembly tab to be active (tab_add kind:\"Assembly\", or tab_switch to one); on a Part tab it is refused with TabKindNotSupported. An assembly edit is not an undo step (undo/redo act on the feature tree of a Part tab); reverse it with the matching delete or edit tool.",
       "inputSchema": {
         "additionalProperties": false,
         "properties": {
@@ -20003,7 +20003,7 @@
         "readOnlyHint": false,
         "title": "Edit connector"
       },
-      "description": "Adjust a mate connector of the open assembly (each field only when given): name; anchor — where on a rotational face's axis the frame sits (middle, positive_end, negative_end; ignored for other picks); flip_z reverses z (a 180° turn about x); rotation_deg turns about z after the flip (what a Fastened mate's in-plane alignment uses); offset_m moves along the connector's OWN axes after the turn, meters. Defaults (middle, false, 0, [0,0,0]) mean \"as derived\". Requires an Assembly tab to be active (tab_add kind:\"Assembly\", or tab_switch to one); on a Part tab it is refused with TabKindNotSupported. An assembly edit is not an undo step (undo/redo act on the feature tree of a Part tab); reverse it with the matching delete or edit tool.",
+      "description": "Adjust a mate connector of the open assembly (each field only when given): name; anchor — where on a rotational face's axis the frame sits (middle, positive_end, negative_end; ignored for other picks); flip_z reverses z (a 180° turn about x); rotation_deg turns about z after the flip (what a Fastened mate's in-plane alignment uses); offset_m moves along the connector's OWN axes after the turn, meters. Defaults (middle, false, 0, [0,0,0]) mean \"as derived\". A connector derived from a source (a linked KiCad mounting hole) accepts only name; any other field on one is DerivedFeatureReadOnly. Requires an Assembly tab to be active (tab_add kind:\"Assembly\", or tab_switch to one); on a Part tab it is refused with TabKindNotSupported. An assembly edit is not an undo step (undo/redo act on the feature tree of a Part tab); reverse it with the matching delete or edit tool.",
       "inputSchema": {
         "$defs": {
           "AxialAnchor": {

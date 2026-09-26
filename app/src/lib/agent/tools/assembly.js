@@ -251,7 +251,8 @@ export const instanceEditTool = {
 	name: 'instance_edit',
 	description:
 		'Change an instance of the open assembly: its name, placement transform (only the fields given change), ' +
-		'grounding (fixed) or suppression. The assembly is re-solved. ' +
+		'grounding (fixed) or suppression. The assembly is re-solved. An instance derived from a source (a linked ' +
+		'KiCad footprint) accepts only name and suppressed; transform or fixed on one is DerivedFeatureReadOnly. ' +
 		REQUIRES_ASSEMBLY_TAB +
 		' ' +
 		NOT_AN_UNDO_STEP,
@@ -328,7 +329,8 @@ export const connectorEditTool = {
 		'rotational face\'s axis the frame sits (middle, positive_end, negative_end; ignored for other picks); ' +
 		'flip_z reverses z (a 180° turn about x); rotation_deg turns about z after the flip (what a Fastened ' +
 		'mate\'s in-plane alignment uses); offset_m moves along the connector\'s OWN axes after the turn, meters. ' +
-		'Defaults (middle, false, 0, [0,0,0]) mean "as derived". ' +
+		'Defaults (middle, false, 0, [0,0,0]) mean "as derived". A connector derived from a source (a linked KiCad ' +
+		'mounting hole) accepts only name; any other field on one is DerivedFeatureReadOnly. ' +
 		REQUIRES_ASSEMBLY_TAB +
 		' ' +
 		NOT_AN_UNDO_STEP,

@@ -537,6 +537,11 @@ fn handle_message(
                     .into_iter()
                     .map(|w| format!("document: {w}")),
             );
+            // Linked boards' hover records are a pure function of the
+            // source bytes and the tabs (spec §4 inv. 6): rebuilt here, from
+            // whatever content the document embeds; a board whose content
+            // is still to be fetched gets its record with `ProvideSource`.
+            refresh_kicad_records(state);
             Ok(model_updated_response(state))
         }
 
@@ -552,7 +557,21 @@ fn handle_message(
                 .ok_or_else(|| BridgeError::InvalidRequest {
                     reason: format!("ProvideSource: {source_id} is not in the sources table"),
                 })?;
-            entry.content_hash = Some(git_blob_sha1(data.as_bytes()));
+            let kind = entry.kind.clone();
+            let new_hash = git_blob_sha1(data.as_bytes());
+            let changed = entry.content_hash.as_deref() != Some(new_hash.as_str());
+            // A board that no longer reads is refused BEFORE the entry
+            // changes: the document keeps the content it had (spec §6).
+            let pcb = if kind == SourceKind::KicadPcb {
+                Some(kicad_pcb::parse_kicad_pcb(&data).map_err(|e| {
+                    BridgeError::InvalidRequest {
+                        reason: format!("{}: {e}", entry.name),
+                    }
+                })?)
+            } else {
+                None
+            };
+            entry.content_hash = Some(new_hash);
             entry.fetched_at = Some(chrono::Utc::now());
             if let Some(commit) = resolved_commit {
                 entry.resolved = Some(file_format::Resolved {
@@ -561,7 +580,17 @@ fn handle_message(
                 });
             }
             state.engine.sources.insert_text(source_id, &data);
-            state.engine.rebuild_from_scratch(kb);
+            match pcb {
+                // Re-sync (spec §3 R1–R6): the same bytes are a no-op for
+                // the derived content (R6) — only the record is refreshed,
+                // which is what a first fetch after an offline load needs.
+                Some(pcb) if changed => resync_kicad(state, kb, source_id, &pcb)?,
+                Some(_) => {
+                    refresh_kicad_records(state);
+                    state.engine.rebuild_from_scratch(kb);
+                }
+                None => state.engine.rebuild_from_scratch(kb),
+            }
             Ok(model_updated_response(state))
         }
 
@@ -1230,23 +1259,13 @@ fn link_kicad(
     let assembly_tab = state
         .session
         .add_tab("Assembly", Some(format!("{stem} assembly")))?;
-    let (assembly, components, assembly_warnings) = derived.assembly(&board_tab, &placeholder_tabs);
-    let board_instance = assembly.instances[0].id;
+    let (assembly, _, assembly_warnings) = derived.assembly(&board_tab, &placeholder_tabs);
     state.session.set_assembly(&assembly_tab, assembly)?;
 
-    state
-        .kicad_boards
-        .push(crate::engine_state::KicadBoardRecord {
-            source_id,
-            board_tab: board_tab.clone(),
-            assembly_tab,
-            board_instance,
-            placeholder_tabs,
-            board: derived.board_meta.clone(),
-            components,
-        });
-
     switch_to_tab(state, &board_tab, kb)?;
+    // The hover record is read back from the tabs, the same way a reload
+    // rebuilds it (spec §4 inv. 6) — one path, exercised from the start.
+    refresh_kicad_records(state);
     // The rebuild replaced the engine's warnings with the board's own; the
     // reader's and the derivation's come after them.
     state
@@ -1255,6 +1274,230 @@ fn link_kicad(
         .extend(derived.warnings.iter().cloned());
     state.engine.warnings.extend(assembly_warnings);
     Ok(model_updated_response(state))
+}
+
+/// The tabs a `KicadPcb` source derived, found from the tabs themselves
+/// (the trees' and instances' `x-derived` records), not from a persisted
+/// record (spec §4 inv. 6).
+#[derive(Debug, Default)]
+struct KicadTabs {
+    board: Option<String>,
+    /// Footprint name → placeholder Part tab.
+    placeholders: std::collections::BTreeMap<String, String>,
+    /// The assembly tab and its grounded board instance.
+    assembly: Option<(String, uuid::Uuid)>,
+}
+
+fn kicad_tabs(
+    source_id: uuid::Uuid,
+    part_trees: &std::collections::HashMap<String, feature_engine::types::FeatureTree>,
+    assembly_trees: &std::collections::HashMap<String, feature_engine::assembly::AssemblyTree>,
+) -> KicadTabs {
+    use feature_engine::kicad::{
+        derived_of, RULE_BOARD_INSTANCE, RULE_BOARD_PART, RULE_PLACEHOLDER,
+    };
+    let mut tabs = KicadTabs::default();
+    // Sorted so two tabs claiming one role resolve deterministically.
+    let mut parts: Vec<(&String, &feature_engine::types::FeatureTree)> =
+        part_trees.iter().collect();
+    parts.sort_by(|a, b| a.0.cmp(b.0));
+    for (tab, tree) in parts {
+        match derived_of(&tree.extra) {
+            Some((s, RULE_BOARD_PART, _)) if s == source_id => {
+                tabs.board.get_or_insert_with(|| tab.clone());
+            }
+            Some((s, RULE_PLACEHOLDER, footprint)) if s == source_id => {
+                tabs.placeholders
+                    .entry(footprint.to_string())
+                    .or_insert_with(|| tab.clone());
+            }
+            _ => {}
+        }
+    }
+    let mut assemblies: Vec<(&String, &feature_engine::assembly::AssemblyTree)> =
+        assembly_trees.iter().collect();
+    assemblies.sort_by(|a, b| a.0.cmp(b.0));
+    for (tab, tree) in assemblies {
+        let board = tree.instances.iter().find(
+            |i| matches!(derived_of(&i.extra), Some((s, RULE_BOARD_INSTANCE, _)) if s == source_id),
+        );
+        if let Some(board) = board {
+            tabs.assembly.get_or_insert((tab.clone(), board.id));
+        }
+    }
+    tabs
+}
+
+/// Rebuild every linked board's hover record from the sources and the
+/// tabs (spec §4 inv. 6): a pure function of the `.kicad_pcb` bytes and
+/// the derived tabs, so a reload — offline, from the embed — answers
+/// `QueryEntityMeta` exactly as the linking session did. A `KicadPcb`
+/// source whose content is not in the store yet has no record until
+/// `ProvideSource` brings it.
+pub(crate) fn refresh_kicad_records(state: &mut EngineState) {
+    use feature_engine::kicad::{board_meta, component_meta, derived_of, RULE_FOOTPRINT};
+    let part_trees = state.session.part_trees(&state.engine);
+    let assembly_trees = state.session.assembly_trees();
+    let mut records = Vec::new();
+    for entry in state
+        .sources
+        .iter()
+        .filter(|s| s.kind == SourceKind::KicadPcb)
+    {
+        let Some(text) = state.engine.sources.text(entry.id) else {
+            continue;
+        };
+        let Ok(pcb) = kicad_pcb::parse_kicad_pcb(&text) else {
+            continue;
+        };
+        let tabs = kicad_tabs(entry.id, &part_trees, &assembly_trees);
+        let (Some(board_tab), Some((assembly_tab, board_instance))) = (tabs.board, tabs.assembly)
+        else {
+            continue;
+        };
+        let mut components = std::collections::BTreeMap::new();
+        for inst in &assembly_trees[&assembly_tab].instances {
+            let Some((s, RULE_FOOTPRINT, uuid)) = derived_of(&inst.extra) else {
+                continue;
+            };
+            if s != entry.id {
+                continue;
+            }
+            if let Some(fp) = pcb.footprints.iter().find(|f| f.uuid == uuid) {
+                components.insert(inst.id, component_meta(fp));
+            }
+        }
+        records.push(crate::engine_state::KicadBoardRecord {
+            source_id: entry.id,
+            board_tab,
+            assembly_tab,
+            board_instance,
+            placeholder_tabs: tabs.placeholders,
+            board: board_meta(entry.id, &pcb),
+            components,
+        });
+    }
+    state.kicad_boards = records;
+}
+
+/// Re-sync a linked board (`specs/kicad_board_link.md` §3 R1–R5, C5): the
+/// source's bytes changed, so every feature, instance and connector derived
+/// from it is regenerated by rule and reconciled by id (features: rule +
+/// ordinal; instances and connectors: footprint uuid), while everything the
+/// user authored on top stays untouched. Whole-rule replacement, never a
+/// patch (§4 inv. 5).
+fn resync_kicad(
+    state: &mut EngineState,
+    kb: &mut dyn KernelBundle,
+    source_id: uuid::Uuid,
+    pcb: &kicad_pcb::Pcb,
+) -> Result<(), BridgeError> {
+    use feature_engine::kicad::{derive_board, resync_assembly, resync_features, DeriveOptions};
+
+    // The session's copies are what gets edited; the active tab's tree
+    // lives in the engine until stashed.
+    state.session.stash_active(&mut state.engine);
+    let part_trees = state.session.part_trees(&state.engine);
+    let assembly_trees = state.session.assembly_trees();
+    let tabs = kicad_tabs(source_id, &part_trees, &assembly_trees);
+    let Some(board_tab) = tabs.board else {
+        return Err(BridgeError::InvalidRequest {
+            reason: format!(
+                "the board Part derived from source {source_id} is no longer in the document; \
+                 link the board again"
+            ),
+        });
+    };
+
+    let derived = derive_board(source_id, pcb, DeriveOptions::default());
+    let mut warnings = derived.warnings.clone();
+
+    // R1: the board, in place.
+    let board = resync_features(&part_trees[&board_tab], &derived.board_tree, source_id);
+    state.session.set_features(&board_tab, board)?;
+
+    // Placeholders: a shape still in use is regenerated in its tab, a new
+    // shape gets a tab, a shape no longer used loses its tab unless the
+    // user built on it.
+    let mut placeholder_tabs = std::collections::BTreeMap::new();
+    for p in &derived.placeholders {
+        let tab = match tabs.placeholders.get(&p.footprint) {
+            Some(tab) => {
+                let tree = resync_features(&part_trees[tab], &p.tree, source_id);
+                state.session.set_features(tab, tree)?;
+                tab.clone()
+            }
+            None => {
+                let short = p.footprint.rsplit(':').next().unwrap_or(&p.footprint);
+                let tab = state
+                    .session
+                    .add_tab("Part", Some(format!("{short} placeholder")))?;
+                state.session.set_features(&tab, p.tree.clone())?;
+                tab
+            }
+        };
+        placeholder_tabs.insert(p.footprint.clone(), tab);
+    }
+    for (footprint, tab) in &tabs.placeholders {
+        if placeholder_tabs.contains_key(footprint) {
+            continue;
+        }
+        let only_derived = part_trees[tab].features.iter().all(|f| {
+            matches!(
+                part_trees[tab].provenance.get(&f.id).map(|p| &p.origin),
+                Some(feature_engine::types::ProvenanceOrigin::Derived { source_id: s, .. }) if *s == source_id
+            )
+        });
+        if only_derived {
+            // A closed active tab names its successor; the re-open below
+            // reads the session's active tab, so nothing else to do.
+            state.session.close_tab(tab)?;
+        } else {
+            warnings.push(format!(
+                "placeholder tab for {footprint} is no longer used by the board but holds your \
+                 own features, so it was kept"
+            ));
+        }
+    }
+
+    // R2–R4: the assembly, reconciled by footprint uuid.
+    match tabs.assembly {
+        Some((assembly_tab, _)) => {
+            let (fresh, _, assembly_warnings) = derived.assembly(&board_tab, &placeholder_tabs);
+            warnings.extend(assembly_warnings);
+            let (reconciled, _, dangling) =
+                resync_assembly(&assembly_trees[&assembly_tab], fresh, source_id);
+            for d in dangling {
+                warnings.push(format!(
+                    "MateTargetGone: mate `{}` ({}) references instance `{}` (footprint {}) which \
+                     the board no longer has; the mate was left in place",
+                    d.mate_name, d.mate_id, d.instance_name, d.footprint_uuid
+                ));
+            }
+            state.session.set_assembly(&assembly_tab, reconciled)?;
+        }
+        None => warnings.push(format!(
+            "the assembly tab derived from source {source_id} is no longer in the document; \
+             only the board was updated"
+        )),
+    }
+    // Re-open whatever tab is active so the screen shows the new content:
+    // an assembly is re-evaluated, a part's tree is loaded and rebuilt.
+    let active = state.session.active_tab_id().to_string();
+    if state.session.assembly(&active).is_ok() {
+        open_assembly(state, &active, kb)?;
+    } else {
+        state.stash_assembly_views();
+        state.engine.tree = state
+            .session
+            .tab(&active)
+            .and_then(|t| t.features().cloned())
+            .unwrap_or_default();
+        state.engine.rebuild_from_scratch(kb);
+    }
+    state.engine.warnings.extend(warnings);
+    refresh_kicad_records(state);
+    Ok(())
 }
 
 /// `QueryEntityMeta` (`specs/kicad_board_link.md` C4): the KiCad record
