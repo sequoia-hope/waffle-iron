@@ -1342,6 +1342,42 @@ Licence MIT.
 `tools/call` arguments with `Draft202012Validator` and answers a failure with
 JSON-RPC `-32602` carrying the JSON pointer of the bad value (spec §6.1).
 
+## ECAD Link References
+
+### 59. KiCad — "Board File Format" (S-expression reference, KiCad 6–9)
+
+**Access**: https://dev-docs.kicad.org/en/file-formats/sexpr-pcb/ (and the
+shared S-expression intro at `/file-formats/sexpr-intro/`). Documentation
+licence CC-BY-SA-4.0; we read the grammar, we copy no source.
+
+**Relevance**: `specs/kicad_board_link.md` §2.2 — the `kicad_pcb` node,
+`(version N)` stamps, `general`/`setup (stackup …)` thickness, `title_block`,
+`Edge.Cuts` graphics (`gr_line`/`gr_arc start mid end`/`gr_circle`/
+`gr_rect`/`gr_poly`), footprints (`uuid`/`tstamp`, `at`, `layer`,
+`property`/`fp_text`, `attr`, `pad … (net …)`, `model (offset)(scale)(rotate)`).
+Units mm, Y down, angles degrees counter-clockwise.
+
+### 60. KiCad — `kicad-cli pcb export step`
+
+**Access**: https://docs.kicad.org/9.0/en/cli/cli.html#pcb_export_step and
+the exporter source tree `pcbnew/exporters/step/` (GPL-3.0 — reference
+reading only; nothing is copied).
+
+**Relevance**: the placement oracle (`specs/kicad_board_link.md` §5 O5)
+and the component-model supply (branch C2): one STEP product per
+footprint named by reference designator, board product, world placement.
+Pins the back-side composition and the `rotate` sign convention we assert.
+
+### 61. ProSTEP iViP — IDX / ECAD-MCAD collaboration (EDMD schema)
+
+**Access**: https://www.prostep.org/en/projects/ecad-mcad-collaboration
+(IDX = "Incremental Data eXchange", successor of Mentor IDF 3.0/4.0).
+
+**Relevance**: precedent for reconciling ECAD components in an MCAD model by
+a stable identifier plus reference designator rather than by name — the
+`external_key` (footprint uuid) reconciliation in `specs/kicad_board_link.md`
+§3 R1–R6.
+
 ## How to Reference During Development
 
 When working on boolean reliability or kernel improvements:
