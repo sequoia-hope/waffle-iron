@@ -599,6 +599,7 @@ fn write_c_case(
             expected_volume_tol_rel: knobs.vol_tol,
             expected_solid_count: knobs.expected_solid_count,
             expected_shell_count: None,
+            derived_meta: false,
         },
         generator_version: GENERATOR_VERSION,
         featured: true,

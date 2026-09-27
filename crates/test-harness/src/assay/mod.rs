@@ -14,6 +14,8 @@
 //! - Level 5: Chains (2-5 sequential operations)
 
 pub mod catalog;
+/// The corpus categorizer — the verdict of the corpus score, callable on any document.
+pub mod categorize;
 pub mod corpus;
 pub mod coverage;
 pub mod determinism;
@@ -24,6 +26,8 @@ pub mod gen;
 pub mod gen_complexity;
 pub mod properties;
 pub mod properties_v2;
+/// Assay prospector library parts (`specs/assay_prospector.md`).
+pub mod prospect;
 pub mod randomized_runner;
 pub mod regions;
 pub mod runner;

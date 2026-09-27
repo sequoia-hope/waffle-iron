@@ -486,6 +486,36 @@ true verdict with `single_case` before comparing.
 > `git checkout app/tests/cases/assay/results.json` before committing — don't
 > commit artifact timeouts as if they were true verdicts.
 
+## Running the assay prospector (searching for the next failing case)
+
+Spec: `specs/assay_prospector.md`. The prospector draws candidate documents
+the corpus has never seen, judges each with the SAME categorizer that scores
+the corpus (`test_harness::assay::categorize` — lifted from `assay_kv2.rs`
+on 2026-09-27), and reports every non-CORRECT verdict by signature. Nothing
+it produces is committed; promotion into the corpus (a `P` series case) is
+a curated step (spec §8).
+
+```
+# 200 candidates from seed 1, 8 verdict subprocesses, 600 s CPU each
+PROSPECT_SEED=1 PROSPECT_COUNT=200 PROSPECT_JOBS=8 PROSPECT_BUDGET_SECS=600 \
+  cargo test -p test-harness --test prospect --release prospect_run -- --ignored --nocapture
+```
+
+Output: `target/prospect/seed-<seed>/candidates/<id>.{waffle,meta.json,lineage.json}`
+and `report.jsonl` (one line per verdict; the run is resumable — judged
+ids are skipped). The summary at the end is a category histogram plus one
+line per finding signature with its smallest example. Every verdict runs
+in a killable subprocess (`prospect_judge`) under a `/proc` CPU budget,
+like the corpus runner, so panics and hangs are isolated and load does not
+manufacture TIMEOUTs. Do not run it during a full assay.
+
+A candidate's meta is DERIVED from its document (`prospect::derive_meta`):
+its Euler target is unknown (`derived_meta: true` ⇒ χ must merely
+be even) and the volume verdict comes from the in-line exact-membership
+oracle, which reads the same document. A generated candidate whose build
+stopped at a harness error still has the failing feature (and its engine
+error) in the document — that is what the categorizer reads.
+
 ## Topology adjudication — the independent topology oracle
 
 The corpus's `oracles.euler_target` is AUTHORED (genus 0 assumed), not
