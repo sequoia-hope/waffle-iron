@@ -222,58 +222,67 @@ pub fn run_generative_chain_oracles(
     // O25: Partial chain validity (all volumes > 0)
     results.push(check_partial_chain_validity(&result.step_volumes));
 
-    // Run standard mesh oracles on the final body
+    // Run standard mesh oracles on the final body — ALL of them hard.
+    //
+    // History: until 2026-09-27 the boolean results downgraded `euler_invariant`,
+    // `watertight`, `outward_normals`, `consistent_normals` and `O19_body_count`
+    // to "[advisory-bug]" passes, and the per-step volume invariants to
+    // "[advisory]" passes, because the truck-era boolean was known-wrong in
+    // those classes. On kernel-v2 those are the correct-or-loud contract
+    // (0 WRONG on the corpus is enforced by the composition oracle); a fuzz
+    // that reports them as passes is blind to exactly what it exists to find.
+    //
+    // One oracle is REPLACED rather than hardened: the B-Rep `euler_invariant`
+    // (V − E + F == 2 over the kernel's vertex/edge/face lists) is only true
+    // for a genus-0, single-shell body whose faces have no inner loops. A
+    // through-cut makes genus, a disjoint boss makes a second shell, and a
+    // blind pocket puts an inner loop on a face — all correct results the
+    // "== 2" reading would flag. The chain result is judged on the MESH
+    // instead: the exact-bit Euler characteristic of the tessellation must be
+    // EVEN (a closed 2-manifold's χ = 2·S − 2·G is always even); which even
+    // value is right is the exact-membership oracle's question, not this one's.
     let oracles =
         run_generative_extrude_oracles(&mut result.builder, &result.final_feature, scale_envelope);
-
-    // For boolean results, topology-sensitive oracles are advisory (logged but
-    // not hard failures). These oracles find genuine boolean bugs — the advisory
-    // status prevents them from blocking the test suite while we investigate.
-    // Tracked boolean pipeline issues:
-    //   - euler_invariant: V-E+F != 2 on overlapping tilted-plane booleans
-    //   - watertight: open edges after complex boolean operations
-    //   - outward_normals/consistent_normals: inverted normals (~93% correct)
-    //   - O19_body_count: topology below minimum after boolean
-    const BOOLEAN_ADVISORY_ORACLES: &[&str] = &[
-        "euler_invariant",
-        "watertight",
-        "outward_normals",
-        "consistent_normals",
-        "O19_body_count",
-    ];
     let is_boolean_result = result.completed_steps > 1;
     for oracle in oracles {
-        if is_boolean_result
-            && !oracle.passed
-            && BOOLEAN_ADVISORY_ORACLES
-                .iter()
-                .any(|&pat| oracle.name.contains(pat))
-        {
-            results.push(PropertyResult::pass(
-                &oracle.name,
-                format!("[advisory-bug] {}", oracle.detail),
-            ));
-        } else {
-            results.push(oracle);
+        if is_boolean_result && oracle.name == "euler_invariant" {
+            continue;
+        }
+        results.push(oracle);
+    }
+    if is_boolean_result {
+        if let Ok(mesh) = result.builder.tessellate(&result.final_feature) {
+            results.push(check_mesh_euler_even(&mesh));
         }
     }
 
-    // Per-step volume invariant results (I9-I12) are advisory: logged with
-    // detail but not treated as hard failures. Volume monotonicity violations
-    // indicate boolean bugs worth investigating, but the boolean volume pipeline
-    // has known-class issues that shouldn't block the test suite.
-    for inv in result.volume_invariant_results.drain(..) {
-        if inv.passed {
-            results.push(inv);
-        } else {
-            results.push(PropertyResult::pass(
-                &inv.name,
-                format!("[advisory] {}", inv.detail),
-            ));
-        }
-    }
+    // Per-step volume invariants (I9-I12) — hard.
+    results.append(&mut result.volume_invariant_results);
 
     results
+}
+
+/// The mesh's exact-bit Euler characteristic must be even.
+///
+/// A closed 2-manifold has χ = 2·shells − 2·genus, always even; an odd χ is
+/// a non-manifold or open residue no genus can explain (the corpus runner's
+/// "odd χ = impossible" reading, `oracle::check_mesh_euler_characteristic_with_shells`).
+/// The value itself is read off that oracle's verdict (`value` = χ); its own
+/// pass/fail is against a target this caller does not know.
+pub fn check_mesh_euler_even(mesh: &RenderMesh) -> PropertyResult {
+    let v = oracle::check_mesh_euler_characteristic_with_shells(mesh, 2, None);
+    match v.value {
+        Some(chi) if (chi as i64) % 2 == 0 => PropertyResult::pass(
+            "mesh_euler_even",
+            format!("χ = {} ({})", chi as i64, v.detail),
+        ),
+        Some(chi) => PropertyResult::fail(
+            "mesh_euler_even",
+            format!("χ = {} is ODD ({})", chi as i64, v.detail),
+        ),
+        // An empty mesh reports no χ; O20_non_empty already fails it.
+        None => PropertyResult::pass("mesh_euler_even", format!("skipped: {}", v.detail)),
+    }
 }
 
 // ── Region Oracles (O26-O28) ─────────────────────────────────────────

@@ -2,11 +2,17 @@
 //!
 //! Separated from assay_generative_chain.rs so that proptest regression seeds
 //! from chain correctness tests don't get replayed for determinism checks.
+//!
+//! The property is OUTCOME equality, not "a correct result twice": a chain
+//! that ends in a loud kernel error must end in the SAME loud error every
+//! run, and a chain that completes must complete with the same step count,
+//! the same topology counts and the same volumes. Until 2026-09-27 an error
+//! outcome was discarded as a "known kernel limitation" (with panics and
+//! non-manifold results in the same bucket), so the test could neither see a
+//! run-to-run flip between error and success nor a panic.
 
 use proptest::prelude::*;
-use test_harness::assay::strategies_v2::{
-    execute_chain, is_known_kernel_limitation, strats_v2, GenerativeChainScenario,
-};
+use test_harness::assay::strategies_v2::{execute_chain, strats_v2, GenerativeChainScenario};
 use test_harness::helpers::mesh_volume;
 
 /// Execute a chain with panic catching.
@@ -28,6 +34,83 @@ fn safe_execute_chain(
     }
 }
 
+/// Everything one run of a chain produces that a second run must reproduce.
+#[derive(Debug, Clone, PartialEq)]
+enum Outcome {
+    Completed {
+        completed_steps: usize,
+        final_feature: String,
+        topology: Option<(usize, usize, usize)>,
+        /// Volumes are compared with a tolerance in `same_outcome`, not here.
+        volumes: Vec<f64>,
+    },
+    Failed(String),
+}
+
+fn run_once(scenario: &GenerativeChainScenario) -> Outcome {
+    match safe_execute_chain(scenario) {
+        Ok(mut result) => {
+            let topology = result.builder.topology_counts(&result.final_feature).ok();
+            let mut volumes = result.step_volumes.clone();
+            if let Ok(mesh) = result.builder.tessellate(&result.final_feature) {
+                volumes.push(mesh_volume(&mesh));
+            }
+            Outcome::Completed {
+                completed_steps: result.completed_steps,
+                final_feature: result.final_feature,
+                topology,
+                volumes,
+            }
+        }
+        Err(e) => Outcome::Failed(e),
+    }
+}
+
+/// Outcome equality with a tessellation-tolerance on volumes.
+fn same_outcome(a: &Outcome, b: &Outcome) -> Result<(), String> {
+    match (a, b) {
+        (
+            Outcome::Completed {
+                completed_steps: sa,
+                final_feature: fa,
+                topology: ta,
+                volumes: va,
+            },
+            Outcome::Completed {
+                completed_steps: sb,
+                final_feature: fb,
+                topology: tb,
+                volumes: vb,
+            },
+        ) => {
+            if sa != sb || fa != fb {
+                return Err(format!(
+                    "chain length differs: {sa} steps ending at {fa} vs {sb} steps ending at {fb}"
+                ));
+            }
+            if ta != tb {
+                return Err(format!("topology counts differ: {ta:?} vs {tb:?}"));
+            }
+            if va.len() != vb.len() {
+                return Err(format!(
+                    "volume count differs: {} vs {}",
+                    va.len(),
+                    vb.len()
+                ));
+            }
+            for (i, (x, y)) in va.iter().zip(vb).enumerate() {
+                let tol = x.abs() * 1e-9 + 1e-12;
+                if (x - y).abs() > tol {
+                    return Err(format!("volume {i} differs: {x:.12} vs {y:.12}"));
+                }
+            }
+            Ok(())
+        }
+        (Outcome::Failed(x), Outcome::Failed(y)) if x == y => Ok(()),
+        (x, y) => Err(format!("outcome differs:\n  run0 = {x:?}\n  runN = {y:?}")),
+    }
+}
+
 proptest! {
     #![proptest_config(ProptestConfig {
         cases: 10,
@@ -37,62 +120,23 @@ proptest! {
         ..ProptestConfig::default()
     })]
 
-    /// Chain determinism: run each scenario 3 times and compare topology
-    /// counts (V, E, F) and volumes across runs.
-    ///
-    /// B20: Reset the global SequentialID counter between runs so each run
-    /// starts from the same ID base. Without this, FxHashMap/FxHashSet with
-    /// SequentialID keys produce different bucket assignments across runs,
-    /// which can cause non-deterministic iteration order in any iterated
-    /// hash-based collection within the truck pipeline.
+    /// Chain determinism: run each scenario 3 times and require the SAME
+    /// outcome — completed steps, topology counts, volumes, or the same
+    /// error text — every time.
     #[test]
-    #[ignore = "kernel-v2: generative chains assume a fully-capable kernel; random scenarios hit the coplanar/NotSupported walls (M8). Re-enable with reject-guards or after Yang Stage 0"]
     fn chain_deterministic(
         scenario in strats_v2::generative_chain_scenario()
     ) {
-        let mut topologies: Vec<(usize, usize, usize)> = Vec::new();
-        let mut volumes: Vec<f64> = Vec::new();
-
-        for _ in 0..3 {
-            // (truck_base::reset_id_sequence was here for truck's FxHashMap
-            // determinism — no longer needed with clean-sheet kernel)
-
-            match safe_execute_chain(&scenario) {
-                Ok(mut result) => {
-                    if let Ok(topo) = result.builder.topology_counts(&result.final_feature) {
-                        topologies.push(topo);
-                    }
-                    if let Ok(mesh) = result.builder.tessellate(&result.final_feature) {
-                        volumes.push(mesh_volume(&mesh));
-                    }
-                }
-                Err(e) if is_known_kernel_limitation(&e) => return Ok(()),
-                Err(e) => {
-                    prop_assert!(false, "Unexpected chain error: {}", e);
-                }
-            }
+        let first = run_once(&scenario);
+        // A panic is a P9 violation regardless of determinism.
+        if let Outcome::Failed(e) = &first {
+            prop_assert!(!e.starts_with("panicked"), "chain panicked: {e}");
         }
-
-        // B20: Topology determinism check.
-        // For the clean-sheet kernel with polygon clipping, arbitrary polygon
-        // booleans may produce slightly different face splits across runs due
-        // to floating-point ordering. Skip cases where topology varies.
-        for i in 1..topologies.len() {
-            if topologies[0] != topologies[i] {
-                // Known limitation: polygon clipping non-determinism
-                return Ok(());
+        for run in 1..3 {
+            let again = run_once(&scenario);
+            if let Err(why) = same_outcome(&first, &again) {
+                prop_assert!(false, "non-deterministic chain (run {run}): {why}");
             }
-        }
-
-        // Volume determinism: should match within tessellation tolerance.
-        for i in 1..volumes.len() {
-            let diff = (volumes[0] - volumes[i]).abs();
-            let tol = volumes[0].abs() * 0.001 + 0.1;
-            prop_assert!(
-                diff <= tol,
-                "Non-deterministic volume: run0={:.4} vs run{}={:.4} (diff={:.4}, tol={:.4})",
-                volumes[0], i, volumes[i], diff, tol
-            );
         }
     }
 }

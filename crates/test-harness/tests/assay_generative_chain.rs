@@ -47,7 +47,7 @@ proptest! {
     })]
 
     #[test]
-    #[ignore = "kernel-v2: generative chains assume a fully-capable kernel; random scenarios hit the coplanar/NotSupported walls (M8). Re-enable with reject-guards or after Yang Stage 0"]
+    #[ignore = "prospector territory (2026-09-27): every oracle here is now hard and a loud kernel STOP is a finding, so an unseeded proptest run is red whenever the random stream lands on one (it did on its first loud run: a needle-star union, TessellationFailed 'planar triangle collapsed at render precision'). Findings are promoted to the corpus by the assay prospector (specs/assay_prospector.md), which is seeded and minimizes; run this by hand with --ignored for a quick random probe"]
     fn generative_chain(
         scenario in strats_v2::generative_chain_scenario()
     ) {

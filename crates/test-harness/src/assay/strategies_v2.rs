@@ -1046,10 +1046,29 @@ fn execute_boolean_step(
     .map_err(|e| e.to_string())
 }
 
-/// Tessellate a feature and compute its mesh volume.
+/// Tessellate EVERY output body of a feature and sum their volumes.
+///
+/// A union of two disjoint operands legitimately emits two lumps (the Main
+/// output and a `Body{index}` extra); reading only the Main body (the
+/// pre-2026-09-27 `tessellate(name)`) made such a union measure as operand A
+/// alone and trip `volume_monotonicity_union` — a measurement artifact, not
+/// a kernel finding (memory: `distinct_solid_count` counts features, the
+/// same trap).
 fn measure_volume(builder: &mut ModelBuilder, name: &str) -> Result<f64, String> {
-    let mesh = builder.tessellate(name).map_err(|e| e.to_string())?;
-    Ok(mesh_volume(&mesh))
+    let meshes = builder.tessellate_all(name).map_err(|e| e.to_string())?;
+    if meshes.is_empty() {
+        return Err(format!("no solid for feature: {name}"));
+    }
+    Ok(meshes.iter().map(mesh_volume).sum())
+}
+
+/// All output bodies of a feature merged into one mesh (for the per-step
+/// volume invariants, which read whole operands).
+fn combined_mesh(
+    builder: &mut ModelBuilder,
+    name: &str,
+) -> Option<waffle_types::kernel::RenderMesh> {
+    builder.tessellate_combined(name).ok()
 }
 
 /// Check per-step volume invariants (I9-I12) for a boolean operation.
@@ -1064,9 +1083,9 @@ fn check_step_volume_invariants(
     result_name: &str,
     op: BoolOp,
 ) -> Option<super::properties::PropertyResult> {
-    let mesh_a = builder.tessellate(a_name).ok()?;
-    let mesh_b = builder.tessellate(b_name).ok()?;
-    let mesh_r = builder.tessellate(result_name).ok()?;
+    let mesh_a = combined_mesh(builder, a_name)?;
+    let mesh_b = combined_mesh(builder, b_name)?;
+    let mesh_r = combined_mesh(builder, result_name)?;
     Some(super::properties::check_volume_monotonicity(
         &mesh_a, &mesh_b, &mesh_r, op,
     ))
@@ -1199,6 +1218,23 @@ pub fn execute_chain(scenario: &GenerativeChainScenario) -> Result<ChainResult, 
                             volume_invariant_results: vol_invariants,
                         });
                     }
+                    // An Intersect or Subtract that leaves NO solid (and no
+                    // engine error) is the engine's empty-result shape for a
+                    // tool that misses or engulfs its target — the overlap
+                    // bias does not guarantee overlap. Same truncation as the
+                    // zero-volume branch above. Only the exact-membership
+                    // oracle can say whether the emptiness was RIGHT; that
+                    // adjudication belongs to the prospector, not here. A
+                    // Union can never legitimately vanish, so it stays loud.
+                    Err(e) if op != BoolOp::Union && e.contains("no solid") => {
+                        return Ok(ChainResult {
+                            builder,
+                            completed_steps: i + 1,
+                            step_volumes,
+                            final_feature: last_feature,
+                            volume_invariant_results: vol_invariants,
+                        });
+                    }
                     Err(e) => return Err(e),
                 }
             }
@@ -1224,27 +1260,48 @@ pub fn execute_chain(scenario: &GenerativeChainScenario) -> Result<ChainResult, 
     })
 }
 
-// ── Known-Failure Filter ──────────────────────────────────────────────
+// ── Capability-boundary filter ───────────────────────────────────────
 
-/// Check if an error message indicates a known kernel limitation.
+/// How a generative runner should treat a kernel error string.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum KernelErrorClass {
+    /// A typed `KernelError::NotSupported` (or a typed yang refusal that
+    /// names itself unsupported): a roadmap capability boundary. Proptest
+    /// may discard the case, but a runner should still COUNT it.
+    CapabilityBoundary,
+    /// Anything else — a panic, an index/borrow failure, a non-manifold or
+    /// open-edged result, an empty solid where one was expected, or a
+    /// typed boolean STOP. Each of these is a FINDING the fuzz exists to
+    /// surface; a runner must never discard it.
+    Finding,
+}
+
+/// Classify a kernel error string for the generative runners.
 ///
-/// These are discarded by proptest rather than treated as property violations.
-pub fn is_known_kernel_limitation(err: &str) -> bool {
-    let known_patterns = [
-        "panicked",
-        "open edges",
-        "empty mesh",
-        "failed to tessellate",
-        "solid is empty",
-        "no solid",
-        "index out of bounds",
-        "already borrowed",
-        "unwrap",
-        "non-manifold",
-        "not supported",
-    ];
+/// History: until 2026-09-27 this filter (as `is_known_kernel_limitation`)
+/// also discarded "panicked", "index out of bounds", "unwrap", "already
+/// borrowed", "non-manifold", "open edges", "empty mesh", "solid is empty",
+/// "no solid" and "failed to tessellate" as "known kernel limitations". That
+/// was the truck-era kernel's list; on kernel-v2 every one of them is a P9
+/// violation (a panic) or a silent-wrong result, i.e. exactly what a fuzz
+/// is for. Only the typed capability boundary remains a discard.
+pub fn classify_kernel_error(err: &str) -> KernelErrorClass {
     let lower = err.to_lowercase();
-    known_patterns.iter().any(|p| lower.contains(p))
+    if lower.contains("not supported") || lower.contains("notsupported") {
+        KernelErrorClass::CapabilityBoundary
+    } else {
+        KernelErrorClass::Finding
+    }
+}
+
+/// `true` only for a typed capability boundary (see [`classify_kernel_error`]).
+///
+/// Kept under its historical name because the chain executor's "truncate the
+/// chain here and hand back the completed steps" semantics is still right
+/// for a loud `NotSupported` — the operations before the wall are valid
+/// oracle material. It is NOT right for anything else, which now propagates.
+pub fn is_known_kernel_limitation(err: &str) -> bool {
+    classify_kernel_error(err) == KernelErrorClass::CapabilityBoundary
 }
 
 #[cfg(test)]
@@ -1252,12 +1309,34 @@ mod tests {
     use super::*;
 
     #[test]
-    fn known_failure_patterns() {
+    fn only_the_typed_capability_boundary_is_a_limitation() {
         assert!(is_known_kernel_limitation(
-            "thread panicked at 'index out of bounds'"
+            "kernel error: operation not supported: revolve of holed profile"
         ));
-        assert!(is_known_kernel_limitation("result has 4 open edges"));
-        assert!(!is_known_kernel_limitation("volume too small"));
+        assert_eq!(
+            classify_kernel_error("boolean failed: NotSupported(coplanar input face pair)"),
+            KernelErrorClass::CapabilityBoundary
+        );
+        // Every pattern the old filter swallowed is now a finding.
+        for finding in [
+            "thread panicked at 'index out of bounds'",
+            "result has 4 open edges",
+            "empty mesh",
+            "failed to tessellate",
+            "solid is empty",
+            "no solid",
+            "already borrowed",
+            "called `Option::unwrap()` on a `None` value",
+            "non-manifold edge",
+            "volume too small",
+            "boolean failed: Stage4 LocalRefinementRequired",
+        ] {
+            assert_eq!(
+                classify_kernel_error(finding),
+                KernelErrorClass::Finding,
+                "{finding:?} must be a finding"
+            );
+        }
     }
 
     #[test]
