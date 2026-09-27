@@ -14669,7 +14669,7 @@ fn stage4_relocate_and_correct_inner(
         // kernel-v2 CDT ring reject (R0100 face 15).
         if crate::stage4_phantom::ruleout_enabled() {
             if let Some(cert) =
-                crate::stage4_phantom::certify_phantom_loops(brep_a, brep_b, &inc_bc)
+                crate::stage4_phantom::certify_phantom_loops(brep_a, brep_b, &inc_bc, &mesh.verts)
             {
                 let v = cert.loop_vertices[0];
                 return Err(YangError::stage4_region_invalid_under_resolved(

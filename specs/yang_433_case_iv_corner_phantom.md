@@ -345,3 +345,70 @@ fires on no other corpus case (every other case's `results.json` row is
 byte-identical), which is the census's 2026-08-27 denominator statement
 ("zero CORRECT cases carry a phantom claim") re-measured at the loop level.
 Smoke pin moved in the same commit.
+
+## 9. The verdict is about the vertex's OWN root, not the edge (2026-09-27, P0002)
+
+**Anchor.** P0002 (prospector seed 1, minimal: a circle boss, r 8.7 mm ×
+h 9.6 mm on the Y axis, and an 8-point star cut sketched on the X plane
+30 µm outside the boss, cut 15.7 mm toward −X, its centre 0.29 mm above the
+top cap) STOPped at `boolean_subtract TessellationFailed { face 23, "ring
+rejected by CDT" }`. `KV2_RING_REJECT_PROBE=1` printed face 23's ring: the
+cut's end cap at x = −6.97 mm, 16 points; the true region (the star clipped
+by the top cap, computed offline) is a 9-gon that never touches the
+cylinder wall, but the ring carried two vertices ON the wall line
+(z = −5.207 mm) and walked 12 → 13 → 14 → 15 through a bow-tie at the star
+tip. `YANG_MESH_DUMP=1` located them: at Stage-4 entry v62 is the tip edge
+crossing a cylinder FACET at x = −6.88 mm (inside the cut) and v61 / v63 the
+end cap × facet crossings; after relocation v62 sits at x = −7.139 mm — the
+exact tip-line × cylinder root BEYOND the end cap — and v61 / v63 on the
+exact wall beyond the tip. The tip edge clears the exact cylinder by
+0.235 mm at the end cap (it would exit at x = −7.139 mm; the cut ends at
+−6.970 mm) while the Stage-1 facet sags more: a mesh-minted Case-IV loop
+{61, 62, 63}, this spec's family, three faces (two tip flanks + the end cap)
+against one cylinder.
+
+**Why inc-2 did not certify it.** `YANG_433_PHANTOM=1` census: v61 and v63
+PHANTOM-CLAIM, v62 **VALID** — `e63: t=0.101321(IN) t=1.010781(out)`. The
+tip line meets the cylinder twice: at x = +7.139 mm INSIDE the segment (the
+real far-side pierce, junction v60) and at x = −7.139 mm beyond its end (the
+phantom corner). §8's per-claim verdict was "PHANTOM iff every shared
+LineSegment edge's exact roots lie strictly outside the segment" — a
+statement about the EDGE, and the edge does have an in-segment root. So v62
+was passed on the strength of the OTHER root, the loop was MIXED, and the
+ring rode into Stage 6 (the R0100 pre-inc-2 symptom, one vertex short).
+
+**The paper's clause is about the solution.** §4.3.3 (`refs/text:518-537`):
+"if there is no solution in one of the two parametric domains, we regard it
+as a solving failure and rule out … Case IV". The solution is the point the
+optimization converged to for THIS vertex; a line × quadric solve has two
+roots and a relocated vertex sits on exactly one. `classify_claims` now takes
+the post-relocation mesh positions, pools every root of every shared line
+edge, takes the vertex's OWN root as the nearest one, and judges inside /
+endpoint on that root alone (`own_root_verdict`; roots of one point reached
+through two edge records — `shared_edges`' geometric fallback cites both
+orientations of a segment — coincide to f64 noise of the chord and are one
+root, `inside` the OR over the records that contain it; a tie between
+distinct roots is impossible, they are a chord apart). The census rows mark
+the own root with `*` and print each root's distance to the vertex.
+
+**Result.** v62 refuted (`d=6.07e-18` on the out root), loop `[61, 62, 63]`
+certified with demand 2.13 (the pierced cylinder's chord band over the
+flank edges' 0.124 mm certified clearance), the §4.5.2 ladder refines once
+and the re-run carries zero phantom claims: P0002 SUPPORTED_CORRECT in
+0.2 s. Adjudicated: one ball (χ 2), `expected_volume` analytic
+2.221378153559351e-6 m³ = π r² h − ∫ area(star ∩ cylinder ∩ {y ≤ h}) dx
+(Simpson, converged to 1e-8 relative; the exact-membership reader does not
+cover prospector documents), kernel render mesh 2.218960542e-6 (−1.09e-3,
+the inscribed-chord deficit of the cylinder facets; `expected_volume_tol_rel`
+3e-3 still catches the 2.7 % notch); `derived_meta` cleared; smoke pin
+moved. Unit pins in `stage4_phantom.rs`: `own_root_decides_not_the_edge`
+(P0002's two-root shape, both vertices), `coincident_roots_across_edge_records_are_one_root`.
+
+### 9.1 Full-corpus proof (2026-09-27)
+
+Release, 8 jobs, 900 s budget, wall 926.8 s: **303C / 0W / 8E / 4EE / 0T +
+0 UNSUPPORTED** against the committed 302C baseline — per-id diff of
+`results.json`: exactly ONE category move (P0002 ERROR → SUPPORTED_CORRECT)
+and ZERO detail moves. The stricter verdict refutes no other corpus vertex
+(R0100's own loop certifies as before), and every other row is
+byte-identical.

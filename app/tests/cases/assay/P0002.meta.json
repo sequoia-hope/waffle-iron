@@ -1,6 +1,6 @@
 {
   "id": "P0002",
-  "description": "2 ops, extrude(circle,boss)+extrude(polygon,cut) — prospector seed 1 index 20, minimal: circle boss, 8-point star cut (r_in/r_out 0.42) ⇒ boolean_subtract TessellationFailed \"ring rejected by CDT (degenerate/self-intersecting)\" (2026-09-27; ERROR-class pin, derived_meta: expectations unadjudicated until conversion)",
+  "description": "2 ops, extrude(circle,boss)+extrude(polygon,cut) \u2014 prospector seed 1 index 20, minimal: circle boss (r 8.7 mm, h 9.6 mm, Y axis), 8-point star cut (r_in/r_out 0.42) sketched on the X plane 30 um outside the boss and cut 15.7 mm toward -X, its centre 0.29 mm above the top cap: a blind star notch through the top-cap rim. Was boolean_subtract TessellationFailed \"ring rejected by CDT (degenerate/self-intersecting)\" (2026-09-27, ERROR-class pin): the star tip edge clears the exact cylinder by 0.24 mm at the cut's end cap while the Stage-1 mesh sagged more, minting a Yang \u00a74.3.3 Case-IV loop whose relocated corners were virtual; the per-claim verdict judged the EDGE (any root inside) instead of the vertex's OWN root, so the loop stayed MIXED. CONVERTED 2026-09-27 (spec yang_433_case_iv_corner_phantom.md \u00a79): one ball (chi 2), expected_volume analytic = pi r^2 h - section integral of (star \u2229 cylinder \u2229 y<=h) over x, kernel render mesh agrees to 1.1e-3 (the inscribed-chord deficit of the cylinder facets; tol 3e-3 still catches a missing 2.7 % notch)",
   "master_seed": 0,
   "test_seed": 0,
   "scale": 0.0157,
@@ -38,7 +38,10 @@
     "expect_positive_volume": true,
     "volume_monotonicity": [],
     "expect_rebuild_error": false,
-    "derived_meta": true
+    "derived_meta": false,
+    "expected_volume": 2.221378153559351e-06,
+    "expected_volume_tol_rel": 0.003,
+    "expected_solid_count": 1
   },
   "generator_version": 100,
   "featured": true

@@ -295,13 +295,72 @@ fn segment_clearance(p0: [f64; 3], p1: [f64; 3], s: Surface, pierced: &BRep) -> 
     Some((min_d - len / (2.0 * (S - 1) as f64)).max(0.0))
 }
 
+/// One exact root of a shared line edge against the pierced surface, as
+/// seen from the claiming vertex.
+struct Root {
+    /// The root's point.
+    p: [f64; 3],
+    /// Its distance to the claiming vertex's post-relocation position.
+    dist: f64,
+    /// Strictly inside the producing edge record's segment.
+    inside: bool,
+    /// Within f64 noise of one of that record's endpoints.
+    endpoint: bool,
+    /// The census row (edge record) that produced it.
+    row: usize,
+    /// The producing record's chord length (the noise scale).
+    chord: f64,
+}
+
+/// The vertex's OWN root and its domain verdict: `(inside, endpoint,
+/// rows_of_the_own_root)`. The own root is the nearest one. Roots of the same
+/// point reached through different edge records (`shared_edges`' geometric
+/// fallback cites both orientations of one segment) or through both quadric
+/// branches at an exact tangency coincide to f64 noise of the chord and are
+/// ONE root — `inside` / `endpoint` are the OR over the records that carry
+/// it. A tie between genuinely distinct roots cannot happen: they are
+/// separated by the chord between two surface crossings. No roots ⇒ neither.
+fn own_root_verdict(roots: &[Root]) -> (bool, bool, Vec<usize>) {
+    let Some(own) = roots.iter().min_by(|x, y| x.dist.total_cmp(&y.dist)) else {
+        return (false, false, Vec::new());
+    };
+    let (mut inside, mut endpoint, mut rows) = (false, false, Vec::new());
+    for r in roots {
+        let sep = dot(sub(r.p, own.p), sub(r.p, own.p)).sqrt();
+        if sep <= 1e-9 * r.chord.max(own.chord) {
+            inside |= r.inside;
+            endpoint |= r.endpoint;
+            rows.push(r.row);
+        }
+    }
+    (inside, endpoint, rows)
+}
+
 /// Every junction vertex's pierce claims, classified by the exact certificate.
 /// `inc` is the recomputed post-relocation incidence map: mesh edge ->
-/// carried `(InputId, Surface)` entries.
+/// carried `(InputId, Surface)` entries; `verts` the post-relocation mesh
+/// positions the claims are made AT.
+///
+/// The verdict is about the SOLUTION this vertex is, not about the edge: the
+/// paper's clause (`refs/text:518-537`) rules out a vertex whose solve "has
+/// no solution in one of the two parametric domains". A line × quadric solve
+/// has two roots; a relocated vertex sits on exactly one of them. P0002
+/// (2026-09-27) measured the gap of judging the edge instead: a star tip edge
+/// crosses the exact cylinder once INSIDE its segment (the real far-side
+/// pierce, a valid junction) and once beyond its end cap (the relocated
+/// corner of a mesh-minted Case-IV loop). The old "any root inside" verdict
+/// passed the phantom corner on the strength of the OTHER root, the loop
+/// stayed MIXED, and the ring rode into Stage 6 as `ring rejected by CDT`.
+/// So the roots of every shared line edge are pooled, the vertex's own root
+/// is the nearest one, and inside/endpoint are judged on that root alone
+/// (roots from two edge records of the same segment coincide to f64 noise —
+/// `shared_edges`' geometric fallback cites both orientations — and are one
+/// root, so "inside" is OR over the records that contain it).
 pub(crate) fn classify_claims(
     a: &BRep,
     b: &BRep,
     inc: &BTreeMap<(u32, u32), Vec<(InputId, Surface)>>,
+    verts: &[cad_primitives::Point3],
 ) -> Vec<Claim> {
     // Per-vertex carried (input, surface) sets, from edge incidence.
     let mut carried: BTreeMap<u32, Vec<(InputId, Surface)>> = BTreeMap::new();
@@ -350,13 +409,17 @@ pub(crate) fn classify_claims(
                     });
                     continue;
                 }
-                let mut any_in = false;
-                let mut any_endpoint = false;
                 let mut any_unsupported = false;
                 let mut any_curved = false;
                 let mut any_parallel = false;
                 let mut clearance: Option<f64> = None;
                 let mut rows: Vec<String> = Vec::new();
+                // Every exact root of every shared line edge, with its
+                // point, its distance to THIS vertex and its domain verdict
+                // on the edge record that produced it. The claim is judged
+                // on the root the vertex sits on (`own_root_verdict`).
+                let mut roots_all: Vec<Root> = Vec::new();
+                let vp = verts[v as usize].as_array();
                 for &ei in &edges {
                     let e = &brep_e.edges()[ei as usize];
                     if e.curve != Curve::LineSegment {
@@ -376,6 +439,7 @@ pub(crate) fn classify_claims(
                             // root indistinguishable from an edge endpoint is
                             // a real B-vertex tangency, not a verdict.
                             let eps = 1e-12;
+                            let chord = dot(sub(p1, p0), sub(p1, p0)).sqrt();
                             let mut row = format!("e{ei}:");
                             for t in &roots {
                                 let p = [
@@ -386,10 +450,17 @@ pub(crate) fn classify_claims(
                                 let inside = *t > eps && *t < 1.0 - eps;
                                 let endpoint = (*t >= -eps && *t <= eps)
                                     || (*t >= 1.0 - eps && *t <= 1.0 + eps);
-                                any_in |= inside;
-                                any_endpoint |= endpoint;
+                                let dist = dot(sub(p, vp), sub(p, vp)).sqrt();
+                                roots_all.push(Root {
+                                    p,
+                                    dist,
+                                    inside,
+                                    endpoint,
+                                    row: rows.len(),
+                                    chord,
+                                });
                                 row.push_str(&format!(
-                                    " t={t:.6}{} st={:.4}",
+                                    " t={t:.6}{} st={:.4} d={dist:.2e}",
                                     if inside {
                                         "(IN)"
                                     } else if endpoint {
@@ -420,6 +491,10 @@ pub(crate) fn classify_claims(
                             rows.push(row);
                         }
                     }
+                }
+                let (any_in, any_endpoint, own_rows) = own_root_verdict(&roots_all);
+                for ri in own_rows {
+                    rows[ri].push_str(" *");
                 }
                 let verdict = if any_in {
                     ClaimVerdict::Valid
@@ -459,7 +534,7 @@ pub(crate) fn census_case_iv_phantom(
     b: &BRep,
     inc: &BTreeMap<(u32, u32), Vec<(InputId, Surface)>>,
 ) {
-    let claims = classify_claims(a, b, inc);
+    let claims = classify_claims(a, b, inc, &mesh.verts);
     let mut counts: BTreeMap<ClaimVerdict, usize> = BTreeMap::new();
     for c in &claims {
         *counts.entry(c.verdict).or_default() += 1;
@@ -536,8 +611,9 @@ pub(crate) fn certify_phantom_loops(
     a: &BRep,
     b: &BRep,
     inc: &BTreeMap<(u32, u32), Vec<(InputId, Surface)>>,
+    verts: &[cad_primitives::Point3],
 ) -> Option<PhantomLoopCertificate> {
-    let claims = classify_claims(a, b, inc);
+    let claims = classify_claims(a, b, inc, verts);
     certify_phantom_loops_from(&claims, inc, a, b)
 }
 
@@ -670,6 +746,56 @@ mod ruleout_tests {
 
     fn set(v: &[u32]) -> BTreeSet<u32> {
         v.iter().copied().collect()
+    }
+
+    fn root(p: [f64; 3], vp: [f64; 3], inside: bool, endpoint: bool, row: usize) -> Root {
+        let d = sub(p, vp);
+        Root {
+            p,
+            dist: dot(d, d).sqrt(),
+            inside,
+            endpoint,
+            row,
+            chord: 1.0,
+        }
+    }
+
+    /// P0002's shape: a line × cylinder solve with one root inside the
+    /// segment (the real far-side pierce) and one beyond its end (the
+    /// relocated corner of a mesh-minted loop). The vertex sitting on the
+    /// OUT root is refuted even though the edge has an in-segment root —
+    /// the old "any root inside" verdict passed it.
+    #[test]
+    fn own_root_decides_not_the_edge() {
+        let vp = [-0.007139, 0.008061, -0.004972];
+        let roots = [
+            root([0.007139, 0.008061, -0.004972], vp, true, false, 0),
+            root([-0.007139, 0.008061, -0.004972], vp, false, false, 0),
+        ];
+        assert_eq!(own_root_verdict(&roots), (false, false, vec![0]));
+        // The vertex on the in-segment root is valid, as before.
+        let vp = [0.007139, 0.008061, -0.004972];
+        let roots = [
+            root([0.007139, 0.008061, -0.004972], vp, true, false, 0),
+            root([-0.007139, 0.008061, -0.004972], vp, false, false, 0),
+        ];
+        assert_eq!(own_root_verdict(&roots), (true, false, vec![0]));
+    }
+
+    /// Two edge records of one segment (both orientations) report the same
+    /// root point with opposite in/out parameters at f64 noise; it is ONE
+    /// root and `inside` is the OR over the records that contain it.
+    #[test]
+    fn coincident_roots_across_edge_records_are_one_root() {
+        let vp = [1.0, 0.0, 0.0];
+        let roots = [
+            root([1.0, 0.0, 0.0], vp, true, false, 0),
+            root([1.0 + 1e-13, 0.0, 0.0], vp, false, true, 1),
+            root([-1.0, 0.0, 0.0], vp, false, false, 0),
+        ];
+        assert_eq!(own_root_verdict(&roots), (true, true, vec![0, 1]));
+        // No roots at all: neither verdict, no rows.
+        assert_eq!(own_root_verdict(&[]), (false, false, vec![]));
     }
 
     /// R0100's shape: three refuted corners joined in a triangle of cross

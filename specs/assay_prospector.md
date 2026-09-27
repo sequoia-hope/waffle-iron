@@ -300,7 +300,7 @@ minimizer keeps a reduction only if the signature is byte-identical):
 
 | signature | minimal recipe | promoted |
 |---|---|---|
-| ring rejected by CDT | `circle:boss star8(0.42):cut` (2 ops, already minimal) | **P0002** |
+| ring rejected by CDT | `circle:boss star8(0.42):cut` (2 ops, already minimal) | **P0002** — CONVERTED 2026-09-27 (§4.3.3 Case-IV verdict on the vertex's own root, spec `yang_433_case_iv_corner_phantom.md` §9; meta adjudicated χ 2, analytic volume) |
 | torus patch UV-CDT failed | `nonconvex9:boss circle:rev-cut` (6 → 2) | **P0003** |
 | planar triangle collapsed at render precision (the P0 finding) | `octagon:boss star4(r_in 2, r_out 22):boss ∪` (3 ops) | **P0001** — CONVERTED 2026-09-27 (§4.5.5 edge-in-plane, spec `yang_455_edge_in_plane_conformity.md`; meta adjudicated χ 2, analytic volume) |
 | subtract: reassembled non-2-manifold | `convex4:boss convex4:rev convex4:boss convex4:cut` (4 → 4, profiles simplified) | — |

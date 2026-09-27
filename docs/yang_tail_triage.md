@@ -43,6 +43,36 @@ after the reconciliation run (release, 8 jobs, 360 s; wall 577 s, F0085
 regression since 2026-08-01 is outstanding (checked over every commit of
 `results.json`).
 
+## 2026-09-27 (late) — P0002 CONVERTED ⇒ 303C: a Yang §4.3.3 Case-IV loop (a star tip clearing the cylinder by 0.24 mm under a larger facet sag) that inc-2 left MIXED because the per-claim verdict judged the EDGE (any root inside its segment) rather than the vertex's OWN root — the tip line's real far-side pierce vouched for its phantom near-side corner; judged on the own root the loop certifies and the §4.5.2 ladder converts it in one rung; canonical **303C / 0W / 8E / 4EE / 0T + 0 UNSUPPORTED**
+
+Anchored before design: `KV2_RING_REJECT_PROBE=1` gave face 23's 16-point
+ring (the cut's end cap), an offline clip of the star by the top cap gave the
+true 9-gon — the ring's two extra wall-line vertices and its bow-tie at the
+star tip were the defect's own quantity; `YANG_MESH_DUMP=1` (s4-entry /
+after-reloc) showed v62 relocated from the facet crossing at x = −6.88 mm to
+the exact root at −7.139 mm, BEYOND the cut's end cap at −6.970 mm, and
+`YANG_433_PHANTOM=1` showed v62 VALID on the strength of the tip line's
+other root (`t=0.101321(IN) t=1.010781(out)`). Spec
+`specs/yang_433_case_iv_corner_phantom.md` §9; ledger N65 (RESOLVED).
+
+**Fix:** `classify_claims` takes the post-relocation mesh positions; the
+vertex's own root is the nearest exact root over every shared line edge, and
+inside / endpoint are judged on it alone (`own_root_verdict`; two edge
+records of one segment yield one root). No band: distinct roots are a chord
+apart. The census rows now print `d=` per root and mark the own root `*`.
+
+**Adjudication:** P0002 χ 2 (one ball), `expected_volume` analytic
+2.221378153559351e-6 (π r² h minus a section integral of the notch,
+Simpson-converged to 1e-8), kernel render mesh −1.09e-3 (the cylinder's
+inscribed-chord deficit; tol 3e-3 keeps the 2.7 % notch observable);
+`derived_meta` cleared; smoke pin moved to SupportedCorrect.
+
+**Corpus** (release, 8 jobs, 900 s, wall 926.8 s): exactly one category move
+(P0002 ERROR → CORRECT), zero detail moves. The ERROR rows are the seven
+loud-by-design walls plus P0003 (`torus patch UV-CDT failed`, the next
+P-series work). Unit pins: `stage4_phantom::ruleout_tests::own_root_decides_not_the_edge`,
+`coincident_roots_across_edge_records_are_one_root`.
+
 ## 2026-09-27 — P0001 CONVERTED ⇒ 302C: Yang §4.5.5 applied one dimension DOWN — the needle star's tip edge was authored 4e-15 below the octagon's cap plane and ran inside the cap, nothing identified an EDGE into a partner plane, and the exact arrangement kept the 4e-15 wedge; `stage0::edge_in_plane` identifies the vertices onto the plane and makes the inside sub-segment one identically-sampled mesh edge in both operands (a CDT interior constraint); canonical **302C / 0W / 9E / 4EE / 0T + 0 UNSUPPORTED**
 
 **Anchor** (`YANG_MESH_DUMP=1`, new; `YANG_S5_FOLD_PROBE=1`): kept triangle

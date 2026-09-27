@@ -1358,7 +1358,15 @@ fn smoke_corpus_boundary_categories() {
         // `yang_455_edge_in_plane_conformity.md`) makes the shared segment
         // one mesh edge in both operands; χ 2, analytic volume adjudicated.
         ("P0001", Category::SupportedCorrect),
-        ("P0002", Category::Error), // circle boss, 8-point star cut: TessellationFailed "ring rejected by CDT (degenerate/self-intersecting)"
+        // P0002 CONVERTED 2026-09-27: the star cut's tip edge clears the
+        // exact cylinder by 0.24 mm at the cut's end cap while the Stage-1
+        // mesh sagged more — a Yang §4.3.3 Case-IV loop whose relocated
+        // corners were virtual. The per-claim verdict judged the EDGE (any
+        // root inside its segment) instead of the vertex's OWN root, so the
+        // loop stayed MIXED and rode into Stage 6 as `ring rejected by CDT`
+        // (spec `yang_433_case_iv_corner_phantom.md` §9); certified now, the
+        // §4.5.2 ladder refines once. χ 2, analytic volume adjudicated.
+        ("P0002", Category::SupportedCorrect),
         ("P0003", Category::Error), // non-convex 9-gon boss, circle revolve-cut: TessellationFailed "torus patch UV-CDT failed"
     ];
     // Per-case CPU budget, expressed in RELEASE-equivalent seconds and scaled

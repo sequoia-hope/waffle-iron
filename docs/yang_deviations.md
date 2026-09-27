@@ -102,6 +102,7 @@ Presented 2026-07-16; the user's answer (2026-07-17) was **"i have no opinion on
 | N62 | PERMANENT (flipped always-on 2026-09-17, C0065) | §4.5.2 refines the WHOLE op at d_ε/2, d_ε/4 under the Q3 guard shell instead of the traversed patches + one-ring with a local splice — strictly more refinement, paid only by an already-failed op |
 | N63 | RESOLVED (2026-09-21, B2 pipe checkpoint 1) | Stage-4 torus implicit-pair relocation STOPped on an operand's OWN G1 cylinder↔torus rim (a tangent pair, rank-deficient by construction) although the vertex lies on the shared rim exactly; now skipped at a tangent pair off the intersection curve. NOTE: the projection of an operand's own transversal rim vertices is KEPT — it corrects Stage-1 samples of recovered rims that sit off the torus (R0026), a §4.4.2 restoration gap in its own right |
 | N64 | EXTENSION — PERMANENT-proposed (2026-09-27, P0001; paper silent) | §4.5.5 is applied one dimension DOWN: an edge (or vertex) of one operand within the #178 coincidence line of a partner planar face is identified onto the plane and its sub-segments inside the face become identically-sampled shared mesh edges (crossings minted into every copy of both crossed edges, inside endpoints as interior Steiner points, the sub-segment as an interior CDT constraint). The paper's §4.5.5 addresses coplanar FACE pairs only; its stated rationale (discretization does not maintain coplanarity) and remedy (identical sampling on the shared part) are what the arm implements |
+| N65 | RESOLVED (2026-09-27, P0002) | The §4.3.3 Case-IV per-claim verdict judged the EDGE ("any exact root inside the segment" ⇒ valid) instead of the vertex's OWN solution; a line × quadric solve with one in-segment root and one beyond the edge passed the vertex sitting on the far root, the phantom loop stayed MIXED and rode into Stage 6 as `ring rejected by CDT`. Now the vertex's own root (the nearest) is judged, per the paper's "no solution in one of the two parametric domains" — a statement about the solution, not the edge (spec `yang_433_case_iv_corner_phantom.md` §9) |
 | #137 diag | HISTORICAL | #137 (2026-07-15): C0065/R0074 — the torus∩plane solver EXISTS and RUNS; the blocker is mesh RESOLUTION nea… |
 | #137 diag 2 | HISTORICAL | #137 (2026-07-15, follow-up): resolution ALONE is not the fix — it flips the loud STOP into a silent-wrong … |
 
@@ -4562,3 +4563,23 @@ and set `**State:** PERMANENT`. Two routes exist:
 2. Update the Status index row and decrement the OPEN count.
 3. Un-quarantine any tests gated on it in the same PR.
 
+### N65 — §4.3.3 Case-IV verdict judged the edge, not the vertex's own solution (found and fixed 2026-09-27, P0002)
+
+**Paper:** §4.3.3 (`refs/text/yang2025_hybrid_boolean.txt:518-537`): "if
+there is no solution in one of the two parametric domains, we regard it as a
+solving failure and rule out the aforementioned Case IV". The clause is about
+the solution the optimization produced for a given intersection point.
+
+**Implementation gap:** inc-2 (`stage4_phantom::classify_claims`) called a
+pierce claim PHANTOM iff every shared LineSegment edge's exact roots lie
+strictly outside the segment — a property of the EDGE. P0002's star tip line
+meets the cylinder twice, once inside the cut (a real junction) and once
+beyond the cut's end cap; the relocated corner of the mesh-minted Case-IV
+loop sat on the far root and was judged VALID by the near one, so the loop
+was MIXED and never certified.
+
+**Fix:** the claim is judged on the vertex's OWN root — the nearest exact
+root to its post-relocation position — with roots of one point reached
+through two edge records identified at f64 noise (`own_root_verdict`).
+Certified now, the existing §4.5.2 ladder converts P0002 in one rung.
+Corpus: one category move, zero detail moves (spec §9.1).
