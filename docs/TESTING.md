@@ -509,6 +509,20 @@ in a killable subprocess (`prospect_judge`) under a `/proc` CPU budget,
 like the corpus runner, so panics and hangs are isolated and load does not
 manufacture TIMEOUTs. Do not run it during a full assay.
 
+Three more entry points share the machinery (`--ignored`, same env knobs):
+
+```
+prospect_minimize     # shrink every finding of a report to its signature's minimum → findings/<slug>/
+prospect_mutate       # one knob on a CORRECT corpus case per mutant (PROSPECT_MUTATE=<dir>, default the corpus)
+prospect_metamorphic  # explicit-axis / rigid-motion / uniform-scale pairs per CORRECT case; ORACLE vs METAMORPHIC
+prospect_promote      # PROSPECT_FROM=<absolute stem> PROSPECT_DESCRIPTION=… → next P case + manifest entry
+```
+
+A `METAMORPHIC` row is a kernel inconsistency between two congruent runs;
+an `ORACLE` row is the reverse — the kernel runs agree on volume, χ and
+body count but an in-line oracle flagged one of them (first seen on the
+rotated revolve trackers: the exact-membership lattice, not the kernel).
+
 A candidate's meta is DERIVED from its document (`prospect::derive_meta`):
 its Euler target is unknown (`derived_meta: true` ⇒ χ must merely
 be even) and the volume verdict comes from the in-line exact-membership

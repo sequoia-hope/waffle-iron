@@ -222,8 +222,13 @@ with each other or with arithmetic:
 | inclusion–exclusion | V(A)+V(B) = V(A∪B)+V(A∩B), built as four documents from the same two operands | volumes within band |
 | de Morgan | (A−B)−C = A−(B∪C) | volumes, χ |
 
-A disagreement is a finding of class METAMORPHIC even when each run is
-individually CORRECT by the lattice — which is the point: the lattice band
+A disagreement where the two KERNEL runs agree on volume, χ and body
+count but an in-line oracle flagged one of them is classed `ORACLE`, not
+`METAMORPHIC`: the oracle invalidates in both directions (memory
+`feedback_reference_oracle_invalidates_in_both_directions`), and the
+first run found exactly that on the rotated revolve trackers. A
+disagreement is otherwise a finding of class METAMORPHIC even when each
+run is individually CORRECT by the lattice — which is the point: the lattice band
 is ~0.5 %, a metamorphic pair is compared at tessellation precision.
 
 The Cherchi sidecar parity joins as a seventh oracle when the sidecar is
@@ -309,6 +314,44 @@ The un-promoted five are packaged under `target/prospect/seed-1/findings/`
 are promoted when a session adjudicates them (§8 step 1–2) — the three
 promoted ones are the two 2-op minima plus the P0 finding.
 
+**Mutation findings (P5, seed 1, 120 mutants; parent is SUPPORTED_CORRECT):**
+
+| parent + knob | verdict |
+|---|---|
+| R0085 + depth ×1.001 | ERROR `Stage-4 relocation region around vertex # is invalid: RelocationCrossedCarrierVertex` (97 s) — the R0085 family, one knob from CORRECT |
+| R0041 + scale ×1e3 | ERROR `boolean_subtract TessellationFailed "patch triangle collapsed at render precision"` — a scale-invariance break (km-scale); adjudicate against the absolute TAU_MODEL contract |
+| R0004 + revolve angle +30.5° | ERROR `boolean_union InvalidBooleanOutput("full-circle edge sense is underivable …")` (R0004 was once AUTHORED-INVALID; re-check the mutant's authoring first) |
+| C0043 + depth −0.1·L | ERROR `TessellationFailed "ring rejected by CDT"` — P0002's signature on a second geometry |
+| C0064 + revolve angle −0.5° | ERROR `cone periodic strip (2 encircling rims) not yet supported (KV14 Slice E)` — documented sub-slice |
+| C0043 + normal +1e-7°, F0009 + origin n+3e-9 | ERROR sub-resolution coplanar wall (`two DISTINCT parallel planes separated by …`, #178 contract) — loud by design; the mutator reaches it on purpose |
+
+Seed 2 (120 mutants, 110 CORRECT) added: C0045 + normal −2.8° ⇒
+`boolean_union NonManifoldVertex`; R0100 + revolve angle +115.5° ⇒
+`TessellationFailed "patch triangulation folded (inverted triangle) — KV9-F2"`;
+R0016 + scale ×1e-3 ⇒ `malformed B-Rep topology: interior junction`;
+R0043 + scale ×1e-3 ⇒ `input face degenerate (zero-area / collinear)`;
+C0057 + `symmetric` ⇒ `geometric face resolution failed for kept triangle #
+(centroid off all face surfaces)`; F0071 + scale ×1e-3 ⇒ the coplanar
+NotSupported wall; F0001 / R0051 ⇒ the sub-resolution wall. (Two more
+mutator couplings were found and fixed on that seed: a sketch origin moved
+along its normal must carry a revolve's `axis_origin`, and a revolve angle
+must stay inside (0, 360].)
+
+Seed 3 (120 mutants, 110 CORRECT, no mutator artifact left) added:
+**F0004 + one point moved 5e-10** (v) ⇒ `boolean_union InvalidBooleanOutput
+("an undirected output edge is not used by exactly two directed edges")`;
+**C0050 + scale ×1e3** ⇒ the same InvalidBooleanOutput its ×1e-3 mutant
+gives (P6) — a scale-sensitivity in BOTH directions; C0103 + normal +1e-7°
+⇒ `VertexOffSurface`; F0060 + origin n+3e-2 ⇒ `TessellationFailed
+"keyhole …"`; C0117 + normal −0.5° ⇒ `InvalidBooleanOutput("output face
+plane normal disagrees with its outer-loop Newell normal")`; R0050 + origin
+n−1.1e-6 ⇒ reassembly non-2-manifold; F0059 + `symmetric` ⇒ Stage-4
+relocation region invalid; C0056 + `symmetric` ⇒ AmbiguousCurve; F0009 /
+F0010 ⇒ the sub-resolution wall.
+
+Re-creatable with `PROSPECT_SEED=<1|2|3> PROSPECT_COUNT=120 prospect_mutate`
+(the mutant documents are under `target/prospect/mutate-<seed>/candidates/`).
+
 The FIRST promotion candidate exists already: the needle star (4 points,
 r_in = 2, r_out = 22) on the X plane unioned with an octagon prism on the Y
 plane, `TessellationFailed{FaceId, "planar triangle collapsed at render
@@ -341,8 +384,8 @@ CPU budgets are honest but the box is not infinite).
 | **P2 ✅ (2026-09-27)** | generator v3 (recipes, vocabulary of §4 minus snapping), the search loop, report, resume | **Met** on seed 1 × 40 candidates (three passes; two generator defects fixed on the way — booleans targeting a body a merging boss had consumed, and a ThroughAll placeholder depth read as the scale): 27 SUPPORTED_CORRECT, 12 ERROR in 8 kernel-side signatures, 1 UNSUPPORTED(coplanar-boolean); ≈4 min at 6 jobs. The smallest finding is TWO ops: `circle:boss star8(0.42):cut` ⇒ `boolean_subtract TessellationFailed "ring rejected by CDT (degenerate/self-intersecting)"` (X00000001-00020) |
 | **P3 ✅ (2026-09-27)** | minimizer (`prospect::minimize`: truncate, drop, un-snap, simplify profile / op, round) + signature dedupe + `findings/<slug>/` packaging (`prospect_minimize`); promotion (`prospect::promote`, `prospect_promote`) | **Met**: the eight seed-1 signatures minimized in 10–31 verdicts each (8→4, 6→2, 7→4, 6→5, 6→4 steps; two were already 2 ops); **P0001** (needle star ∪ octagon), **P0002** (circle boss, 8-point star cut ⇒ "ring rejected by CDT"), **P0003** (non-convex 9-gon boss, circle revolve-cut ⇒ "torus patch UV-CDT failed") in the corpus, pinned ERROR in `assay_kv2.rs`; corpus 315 cases |
 | **P4** | degeneracy snapping | a snapped run's finding rate per candidate exceeds the generic run's (measured, recorded) |
-| **P5** | mutator over the corpus and user documents | ≥1 finding whose parent is CORRECT |
-| **P6** | metamorphic oracles | rigid-motion and scale pairs run on every CORRECT candidate; disagreements reported |
+| **P5 ✅ (2026-09-27)** | mutator over the corpus and user documents (`prospect::mutate`, `prospect_mutate`; knobs: one point ε, whole-sketch ε shift, plane origin ε, plane normal 1e-7°…45° (a revolve axis of that sketch rotates with it), Blind depth ±ε / ×(1±ε), revolve angle ±ε / to the full turn, uniform scale ×1e±3, `symmetric` toggle; gear/sprocket `params` lengths scale too) | **Met** on seed 1 × 120 mutants of the 301 CORRECT corpus cases (≈6 min at 6 jobs): 106 CORRECT; seven kernel-side STOPs one knob from a CORRECT parent (table below); the remaining seven rows were mutator defects, all fixed (a gear entity's `params` unscaled ⇒ a ×1e-3 mutant's bbox explodes / a revolve axis lands in its profile; "nothing to mutate" on sketches without `solved_positions`; a rotated normal leaving a revolve axis out of plane) |
+| **P6 ✅ (2026-09-27)** | metamorphic identities (`prospect::metamorphic`, `prospect_metamorphic`): the explicit-x-axis reference (`axes`), a seeded rigid motion (`rigid`), a uniform scale ×1e±3 (`scale`), compared on category, volume (×s³), χ and body count through a measuring child mode | **Met** on the first 80 CORRECT corpus cases (≈3 min at 4–6 jobs): `axes` holds on all 80 (the engine honours an explicit `plane_x_axis` equal to its derived one); **kernel** disagreements: 4 × rotation ⇒ `Stage-3 SSI refinement failed … AmbiguousCurve` (C0043, C0056, C0057, C0058 — the M5/KV9 cylinder trackers fail once the cylinders are not axis-aligned), 1 × rotation ⇒ `sphere patch UV-CDT failed (pole-crossing — later slice)` (C0067), 4 × scale ×1e-3 ⇒ absolute-tolerance walls by contract (sub-resolution coplanar C0030/C0034, `ProfileTooFewVertices` C0032) plus one to adjudicate (C0050 ⇒ `InvalidBooleanOutput("an undirected output edge is not used by exactly two directed edges")` at mm scale); **oracle-only** disagreements: 6 × rotation on the KV6 revolve trackers (C0059, C0061, C0062, C0064, C0066, C0069) — the kernel volumes agree to 2e-5 but the exact-membership lattice's own reading moves by 16–70 % (its frame is the first sketch's; a rotated document converges worse) — a harness defect, reported as `ORACLE`, not a kernel finding. The first pass also caught the driver scaling circle volumes by 1e3 instead of 1e9 (solved-profile circles unscaled — fixed) |
 | **P7** | harvester for user documents | the bike frame, gearbox and tower replay per-feature as candidates |
 
 Each increment: tests, `cargo clippy --all-targets -p test-harness`, fmt,

@@ -114,8 +114,8 @@ use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 use test_harness::assay::prospect::{
-    self, gen3, judge_document, judge_generated, judge_recipe, minimize, process_cpu_secs, promote,
-    signature, signature_slug, ReportLine, OUTCOME_PREFIX,
+    self, gen3, judge_generated, judge_mutant, judge_recipe, metamorphic, minimize,
+    process_cpu_secs, promote, signature, signature_slug, ReportLine, OUTCOME_PREFIX,
 };
 
 fn env_u64(name: &str, default: u64) -> u64 {
@@ -140,7 +140,19 @@ fn out_dir(seed: u64) -> PathBuf {
 #[test]
 #[ignore = "verdict subprocess entry (spawned by prospect_run); not a test"]
 fn prospect_judge() {
-    let json = if let Ok(stem) = std::env::var("PROSPECT_RECIPE") {
+    let json = if let Ok(parent) = std::env::var("PROSPECT_MUTATE_PARENT") {
+        let seed = env_u64("PROSPECT_SEED", 1);
+        let index = env_u64("PROSPECT_INDEX", 0);
+        let out = PathBuf::from(std::env::var("PROSPECT_OUT").expect("PROSPECT_OUT"));
+        match judge_mutant(&out, Path::new(&parent), seed, index) {
+            Ok((o, knob)) => serde_json::json!({
+                "category": o.category.label(),
+                "detail": o.detail,
+                "knob": knob,
+            }),
+            Err(e) => serde_json::json!({ "category": "ERROR", "detail": format!("mutate: {e}") }),
+        }
+    } else if let Ok(stem) = std::env::var("PROSPECT_RECIPE") {
         match judge_recipe(Path::new(&stem)) {
             Ok((o, build)) => serde_json::json!({
                 "category": o.category.label(),
@@ -150,10 +162,13 @@ fn prospect_judge() {
             Err(e) => serde_json::json!({ "category": "ERROR", "detail": format!("recipe: {e}") }),
         }
     } else if let Ok(stem) = std::env::var("PROSPECT_CANDIDATE") {
-        match judge_document(Path::new(&stem)) {
-            Ok(o) => serde_json::json!({
-                "category": o.category.label(),
-                "detail": o.detail,
+        // Judge + measure (volume, χ, bodies) — the metamorphic driver reads
+        // the measurement; a plain judge reads category/detail.
+        match prospect::measure_stem(Path::new(&stem)) {
+            Ok(m) => serde_json::json!({
+                "category": m.category,
+                "detail": m.detail,
+                "measurement": m,
             }),
             Err(e) => serde_json::json!({ "category": "ERROR", "detail": format!("judge: {e}") }),
         }
@@ -192,6 +207,7 @@ fn run_child(
     cmd.args(["--exact", "prospect_judge", "--ignored", "--nocapture"])
         .env_remove("PROSPECT_CANDIDATE")
         .env_remove("PROSPECT_RECIPE")
+        .env_remove("PROSPECT_MUTATE_PARENT")
         .env_remove("PROSPECT_INDEX")
         .stdin(Stdio::null())
         .stdout(Stdio::piped())
@@ -318,6 +334,8 @@ fn spawn_verdict(seed: u64, index: u64, out: &Path, budget: Duration) -> ReportL
         scale: 0.0,
         build_stopped_by: None,
         cpu_secs: 0.0,
+        parent: None,
+        knob: None,
     };
     let (category, detail, v, cpu) = run_child(
         &[
@@ -620,4 +638,433 @@ fn prospect_promote_needle_star() {
     )
     .unwrap();
     eprintln!("[promote] {id} ← needle star: {}", outcome.detail);
+}
+
+// ── Mutation search (spec §5) ────────────────────────────────────────────
+
+/// Parents for a mutation run: the `.waffle` files of `dir`, restricted to
+/// the ids `results.json` (if present) marks SUPPORTED_CORRECT.
+fn mutation_parents(dir: &Path) -> Vec<PathBuf> {
+    let correct: Option<std::collections::HashSet<String>> =
+        std::fs::read_to_string(dir.join("results.json"))
+            .ok()
+            .and_then(|s| serde_json::from_str::<serde_json::Value>(&s).ok())
+            .and_then(|v| {
+                v.get("results")?.as_array().map(|rows| {
+                    rows.iter()
+                        .filter(|r| r["category"].as_str() == Some("SUPPORTED_CORRECT"))
+                        .filter_map(|r| r["id"].as_str().map(str::to_string))
+                        .collect()
+                })
+            });
+    let mut files: Vec<PathBuf> = std::fs::read_dir(dir)
+        .expect("parent dir")
+        .filter_map(|e| e.ok().map(|e| e.path()))
+        .filter(|p| p.extension().and_then(|e| e.to_str()) == Some("waffle"))
+        .filter(|p| match &correct {
+            Some(ok) => p
+                .file_stem()
+                .and_then(|s| s.to_str())
+                .map(|s| ok.contains(s))
+                .unwrap_or(false),
+            None => true,
+        })
+        .collect();
+    files.sort();
+    files
+}
+
+/// The mutation search: `PROSPECT_MUTATE=<dir>` (default: the corpus),
+/// `PROSPECT_SEED`, `PROSPECT_COUNT`, `PROSPECT_JOBS`, `PROSPECT_BUDGET_SECS`;
+/// output under `target/prospect/mutate-<seed>` (or `PROSPECT_OUT`). Each
+/// mutant is one knob on one CORRECT parent; a non-CORRECT verdict is a
+/// finding whose known-good sibling is one edit away.
+#[test]
+#[ignore = "the prospector mutation search (long, release); run by hand — spec §5"]
+fn prospect_mutate() {
+    let seed = env_u64("PROSPECT_SEED", 1);
+    let count = env_u64("PROSPECT_COUNT", 200);
+    let jobs = env_u64("PROSPECT_JOBS", 8).max(1) as usize;
+    let budget = Duration::from_secs(env_u64("PROSPECT_BUDGET_SECS", 600));
+    let parent_dir = std::env::var("PROSPECT_MUTATE")
+        .map(PathBuf::from)
+        .unwrap_or_else(|_| corpus_dir());
+    let out = match std::env::var("PROSPECT_OUT") {
+        Ok(p) => PathBuf::from(p),
+        Err(_) => Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../../target/prospect")
+            .join(format!("mutate-{seed}")),
+    };
+    std::fs::create_dir_all(&out).expect("out dir");
+    let parents = mutation_parents(&parent_dir);
+    assert!(
+        !parents.is_empty(),
+        "no parents in {}",
+        parent_dir.display()
+    );
+    let report_path = out.join("report.jsonl");
+    let done: std::collections::HashSet<String> = std::fs::read_to_string(&report_path)
+        .map(|s| {
+            s.lines()
+                .filter_map(|l| serde_json::from_str::<ReportLine>(l).ok())
+                .map(|r| r.id)
+                .collect()
+        })
+        .unwrap_or_default();
+    eprintln!(
+        "[mutate] seed={seed} count={count} jobs={jobs} parents={} from {} out={} (resuming {} done)",
+        parents.len(),
+        parent_dir.display(),
+        out.display(),
+        done.len()
+    );
+    let report = Arc::new(Mutex::new(
+        std::fs::OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open(&report_path)
+            .expect("report.jsonl"),
+    ));
+    let next = Arc::new(AtomicU64::new(0));
+    let done = Arc::new(done);
+    let parents = Arc::new(parents);
+    let started = Instant::now();
+    let workers: Vec<_> = (0..jobs)
+        .map(|_| {
+            let next = Arc::clone(&next);
+            let done = Arc::clone(&done);
+            let report = Arc::clone(&report);
+            let parents = Arc::clone(&parents);
+            let out = out.clone();
+            std::thread::spawn(move || loop {
+                let index = next.fetch_add(1, Ordering::SeqCst);
+                if index >= count {
+                    break;
+                }
+                let id = prospect::mutant_id(seed, index);
+                if done.contains(&id) {
+                    continue;
+                }
+                // Parent choice is part of the seeded stream.
+                let pick = gen3::Rng::new(seed ^ index.wrapping_mul(0x2545_F491_4F6C_DD1D))
+                    .below(parents.len() as u64) as usize;
+                let parent = &parents[pick];
+                let parent_id = parent
+                    .file_stem()
+                    .and_then(|s| s.to_str())
+                    .unwrap_or("?")
+                    .to_string();
+                let (category, detail, v, cpu) = run_child(
+                    &[
+                        ("PROSPECT_MUTATE_PARENT", parent.display().to_string()),
+                        ("PROSPECT_SEED", seed.to_string()),
+                        ("PROSPECT_INDEX", index.to_string()),
+                        ("PROSPECT_OUT", out.display().to_string()),
+                    ],
+                    budget,
+                );
+                let line = ReportLine {
+                    id: id.clone(),
+                    seed,
+                    index,
+                    signature: signature_of(&category, &detail, &v),
+                    category,
+                    detail,
+                    summary: format!("{parent_id} + {}", v["knob"].as_str().unwrap_or("?")),
+                    steps: 0,
+                    scale: 0.0,
+                    build_stopped_by: None,
+                    cpu_secs: cpu,
+                    parent: Some(parent_id),
+                    knob: v["knob"].as_str().map(str::to_string),
+                };
+                eprintln!(
+                    "[mutate] {} {:<18} {:>6.1}s  {}  {}",
+                    line.id, line.category, line.cpu_secs, line.summary, line.signature
+                );
+                let mut f = report.lock().unwrap();
+                let _ = writeln!(f, "{}", serde_json::to_string(&line).unwrap());
+            })
+        })
+        .collect();
+    for w in workers {
+        let _ = w.join();
+    }
+    let lines: Vec<ReportLine> = std::fs::read_to_string(&report_path)
+        .unwrap_or_default()
+        .lines()
+        .filter_map(|l| serde_json::from_str(l).ok())
+        .collect();
+    let mut hist: std::collections::BTreeMap<String, usize> = Default::default();
+    let mut findings: std::collections::BTreeMap<String, Vec<&ReportLine>> = Default::default();
+    for l in &lines {
+        *hist.entry(l.category.clone()).or_default() += 1;
+        if !(l.category == "SUPPORTED_CORRECT" || l.category.starts_with("UNSUPPORTED")) {
+            findings.entry(l.signature.clone()).or_default().push(l);
+        }
+    }
+    eprintln!(
+        "[mutate] done: {} mutants in {:.0}s",
+        lines.len(),
+        started.elapsed().as_secs_f64()
+    );
+    for (k, v) in &hist {
+        eprintln!("[mutate]   {k:<24} {v}");
+    }
+    eprintln!("[mutate] {} finding signature(s):", findings.len());
+    for (sig, ls) in &findings {
+        eprintln!(
+            "[mutate]   ×{:<3} {}  e.g. {}: {}",
+            ls.len(),
+            sig,
+            ls[0].id,
+            ls[0].summary
+        );
+    }
+}
+
+// ── Metamorphic identities (spec §6) ─────────────────────────────────────
+
+/// Measure a document written to `<stem>.waffle` through the child.
+fn measure_via_child(
+    doc: &serde_json::Value,
+    stem: &Path,
+    budget: Duration,
+) -> Option<metamorphic::Measurement> {
+    std::fs::write(
+        stem.with_extension("waffle"),
+        serde_json::to_string(doc).ok()?,
+    )
+    .ok()?;
+    let (category, detail, v, _) = run_child(
+        &[("PROSPECT_CANDIDATE", stem.display().to_string())],
+        budget,
+    );
+    match serde_json::from_value::<metamorphic::Measurement>(v["measurement"].clone()) {
+        Ok(m) => Some(m),
+        Err(_) => Some(metamorphic::Measurement {
+            category,
+            detail,
+            volume: None,
+            chi: None,
+            bodies: 0,
+        }),
+    }
+}
+
+/// The metamorphic search: for every parent (`PROSPECT_MUTATE=<dir>`,
+/// default the corpus; CORRECT ids only when `results.json` is present)
+/// build the explicit-axis reference, a seeded rigid motion of it, and a
+/// uniform scaling; measure all four through the child and compare.
+/// `PROSPECT_SEED`, `PROSPECT_COUNT` (parents to take, default all),
+/// `PROSPECT_JOBS`, `PROSPECT_BUDGET_SECS`; output under
+/// `target/prospect/metamorphic-<seed>`.
+#[test]
+#[ignore = "the prospector metamorphic search (long, release); run by hand — spec §6"]
+fn prospect_metamorphic() {
+    let seed = env_u64("PROSPECT_SEED", 1);
+    let count = env_u64("PROSPECT_COUNT", u64::MAX);
+    let jobs = env_u64("PROSPECT_JOBS", 8).max(1) as usize;
+    let budget = Duration::from_secs(env_u64("PROSPECT_BUDGET_SECS", 600));
+    let parent_dir = std::env::var("PROSPECT_MUTATE")
+        .map(PathBuf::from)
+        .unwrap_or_else(|_| corpus_dir());
+    let out = match std::env::var("PROSPECT_OUT") {
+        Ok(p) => PathBuf::from(p),
+        Err(_) => Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../../target/prospect")
+            .join(format!("metamorphic-{seed}")),
+    };
+    std::fs::create_dir_all(out.join("candidates")).expect("out dir");
+    let mut parents = mutation_parents(&parent_dir);
+    parents.truncate(count.min(parents.len() as u64) as usize);
+    assert!(
+        !parents.is_empty(),
+        "no parents in {}",
+        parent_dir.display()
+    );
+    let report_path = out.join("report.jsonl");
+    let done: std::collections::HashSet<String> = std::fs::read_to_string(&report_path)
+        .map(|s| {
+            s.lines()
+                .filter_map(|l| serde_json::from_str::<ReportLine>(l).ok())
+                .map(|r| r.id)
+                .collect()
+        })
+        .unwrap_or_default();
+    eprintln!(
+        "[metamorphic] seed={seed} parents={} jobs={jobs} out={} (resuming {} done)",
+        parents.len(),
+        out.display(),
+        done.len()
+    );
+    let report = Arc::new(Mutex::new(
+        std::fs::OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open(&report_path)
+            .expect("report.jsonl"),
+    ));
+    let next = Arc::new(AtomicU64::new(0));
+    let done = Arc::new(done);
+    let parents = Arc::new(parents);
+    let started = Instant::now();
+    // Relative band on volumes: the tessellation tolerance is the exact
+    // oracle's for the document's scale (`oracle_tol`), so two tessellations
+    // of the same geometry differ by chord error only; 1e-3 is generous.
+    const REL_BAND: f64 = 1e-3;
+    let workers: Vec<_> = (0..jobs)
+        .map(|_| {
+            let next = Arc::clone(&next);
+            let done = Arc::clone(&done);
+            let report = Arc::clone(&report);
+            let parents = Arc::clone(&parents);
+            let out = out.clone();
+            std::thread::spawn(move || loop {
+                let index = next.fetch_add(1, Ordering::SeqCst) as usize;
+                if index >= parents.len() {
+                    break;
+                }
+                let parent = &parents[index];
+                let parent_id = parent
+                    .file_stem()
+                    .and_then(|s| s.to_str())
+                    .unwrap_or("?")
+                    .to_string();
+                let id = format!("T{:08x}-{parent_id}", seed & 0xFFFF_FFFF);
+                if done.contains(&id) {
+                    continue;
+                }
+                let doc: serde_json::Value = match std::fs::read_to_string(parent)
+                    .ok()
+                    .and_then(|s| serde_json::from_str(&s).ok())
+                {
+                    Some(d) => d,
+                    None => continue,
+                };
+                let scale = test_harness::assay::prospect::mutate::characteristic_length(&doc);
+                let cdir = out.join("candidates");
+                let original = measure_via_child(&doc, &cdir.join(format!("{id}-orig")), budget);
+                let reference_doc = metamorphic::with_explicit_x_axes(&doc);
+                let mut problems: Vec<String> = Vec::new();
+                let mut cpu = 0.0;
+                if let (Some(orig), Some(ref_doc)) = (original.as_ref(), reference_doc.as_ref()) {
+                    let reference =
+                        measure_via_child(ref_doc, &cdir.join(format!("{id}-ref")), budget);
+                    if let Some(reference) = reference.as_ref() {
+                        if let Some(p) =
+                            metamorphic::compare("axes", orig, reference, 1.0, REL_BAND)
+                        {
+                            problems.push(p);
+                        }
+                        let mut rng = gen3::Rng::new(
+                            seed ^ (index as u64).wrapping_mul(0x9E37_79B9_7F4A_7C15),
+                        );
+                        let motion = metamorphic::RigidMotion::draw(&mut rng, scale);
+                        if let Some(rot) = metamorphic::rigid_motion(ref_doc, &motion) {
+                            if let Some(moved) =
+                                measure_via_child(&rot, &cdir.join(format!("{id}-rigid")), budget)
+                            {
+                                if let Some(p) =
+                                    metamorphic::compare("rigid", reference, &moved, 1.0, REL_BAND)
+                                {
+                                    problems.push(p);
+                                }
+                            }
+                        }
+                        let factor = if rng.chance(0.5) { 1e-3 } else { 1e3 };
+                        if let Some(sc) =
+                            test_harness::assay::prospect::mutate::scale_document(ref_doc, factor)
+                        {
+                            if let Some(scaled) =
+                                measure_via_child(&sc, &cdir.join(format!("{id}-scale")), budget)
+                            {
+                                if let Some(p) = metamorphic::compare(
+                                    &format!("scale×{factor:.0e}"),
+                                    reference,
+                                    &scaled,
+                                    factor * factor * factor,
+                                    REL_BAND,
+                                ) {
+                                    problems.push(p);
+                                }
+                            }
+                        }
+                    }
+                    cpu = 0.0;
+                }
+                let (category, signature) = if problems.is_empty() {
+                    ("SUPPORTED_CORRECT".to_string(), "correct".to_string())
+                } else if problems.iter().all(|p| p.starts_with("oracle[")) {
+                    (
+                        "ORACLE".to_string(),
+                        problems
+                            .iter()
+                            .map(|p| p.split(':').next().unwrap_or("oracle").to_string())
+                            .collect::<Vec<_>>()
+                            .join("+"),
+                    )
+                } else {
+                    (
+                        "METAMORPHIC".to_string(),
+                        problems
+                            .iter()
+                            .map(|p| p.split(':').next().unwrap_or("metamorphic").to_string())
+                            .collect::<Vec<_>>()
+                            .join("+"),
+                    )
+                };
+                let line = ReportLine {
+                    id: id.clone(),
+                    seed,
+                    index: index as u64,
+                    category,
+                    signature,
+                    detail: problems.join("; "),
+                    summary: format!(
+                        "{parent_id}: {}",
+                        original
+                            .as_ref()
+                            .map(|m| m.category.clone())
+                            .unwrap_or_else(|| "?".into())
+                    ),
+                    steps: 0,
+                    scale,
+                    build_stopped_by: None,
+                    cpu_secs: cpu,
+                    parent: Some(parent_id),
+                    knob: None,
+                };
+                eprintln!(
+                    "[metamorphic] {} {:<18} {}  {}",
+                    line.id, line.category, line.summary, line.detail
+                );
+                let mut f = report.lock().unwrap();
+                let _ = writeln!(f, "{}", serde_json::to_string(&line).unwrap());
+            })
+        })
+        .collect();
+    for w in workers {
+        let _ = w.join();
+    }
+    let lines: Vec<ReportLine> = std::fs::read_to_string(&report_path)
+        .unwrap_or_default()
+        .lines()
+        .filter_map(|l| serde_json::from_str(l).ok())
+        .collect();
+    let bad: Vec<&ReportLine> = lines
+        .iter()
+        .filter(|l| l.category == "METAMORPHIC" || l.category == "ORACLE")
+        .collect();
+    eprintln!(
+        "[metamorphic] done: {} parents in {:.0}s; {} disagreement(s) ({} kernel, {} oracle-only)",
+        lines.len(),
+        started.elapsed().as_secs_f64(),
+        bad.len(),
+        bad.iter().filter(|l| l.category == "METAMORPHIC").count(),
+        bad.iter().filter(|l| l.category == "ORACLE").count()
+    );
+    for l in &bad {
+        eprintln!("[metamorphic]   {} {}: {}", l.id, l.signature, l.detail);
+    }
 }

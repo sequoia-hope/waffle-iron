@@ -7,7 +7,9 @@
 //! scores the corpus.
 
 pub mod gen3;
+pub mod metamorphic;
 pub mod minimize;
+pub mod mutate;
 pub mod promote;
 
 use serde::{Deserialize, Serialize};
@@ -391,6 +393,11 @@ pub struct ReportLine {
     pub build_stopped_by: Option<String>,
     /// CPU seconds the verdict subprocess used.
     pub cpu_secs: f64,
+    /// Mutants only: the parent document's id and the knob turned.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub parent: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub knob: Option<String>,
 }
 
 /// The line a verdict child prints; the parent parses nothing else.
@@ -529,4 +536,115 @@ pub fn signature_slug(sig: &str) -> String {
         h = h.wrapping_mul(0x0000_0100_0000_01b3);
     }
     format!("{trimmed}-{:04x}", h & 0xffff)
+}
+
+/// Candidate id of a mutant: `M<seed hex>-<index>`.
+pub fn mutant_id(seed: u64, index: u64) -> String {
+    format!("M{:08x}-{:05}", seed & 0xFFFF_FFFF, index)
+}
+
+/// Mutate `parent` (a `.waffle` path) with the `(seed, index)` stream, save
+/// the mutant under `<out>/candidates/`, derive its meta and judge it — the
+/// verdict child's mutation mode. Returns the outcome and the knob label.
+pub fn judge_mutant(
+    out: &std::path::Path,
+    parent: &std::path::Path,
+    seed: u64,
+    index: u64,
+) -> Result<(crate::assay::categorize::CaseOutcome, String), String> {
+    let id = mutant_id(seed, index);
+    let text = std::fs::read_to_string(parent).map_err(|e| format!("parent: {e}"))?;
+    let doc: Value = serde_json::from_str(&text).map_err(|e| format!("parent json: {e}"))?;
+    let mut rng = gen3::Rng::new(seed ^ index.wrapping_mul(0xA24B_AED4_963E_E407));
+    let (mutant, knob) =
+        mutate::mutate(&doc, &mut rng).ok_or_else(|| "nothing to mutate".to_string())?;
+    let waffle = serde_json::to_string(&mutant).map_err(|e| e.to_string())?;
+    let meta = derive_meta(&id, &mutant)?;
+    let dir = out.join("candidates");
+    std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
+    std::fs::write(dir.join(format!("{id}.waffle")), &waffle).map_err(|e| e.to_string())?;
+    std::fs::write(
+        dir.join(format!("{id}.meta.json")),
+        serde_json::to_string_pretty(&meta).map_err(|e| e.to_string())?,
+    )
+    .map_err(|e| e.to_string())?;
+    std::fs::write(
+        dir.join(format!("{id}.lineage.json")),
+        serde_json::to_string_pretty(&serde_json::json!({
+            "kind": "mutated",
+            "parent": parent.display().to_string(),
+            "knob": knob.label(),
+        }))
+        .map_err(|e| e.to_string())?,
+    )
+    .map_err(|e| e.to_string())?;
+    Ok((
+        crate::assay::categorize::categorize(&id, &waffle, &meta),
+        knob.label(),
+    ))
+}
+
+/// Judge AND measure a document: the categorizer's verdict plus the live
+/// bodies' summed signed volume and exact-bit χ (the quantities the
+/// metamorphic identities compare). Tessellation at the exact oracle's
+/// tolerance for the meta's scale.
+pub fn measure_document(waffle: &str, meta: &AssayMeta) -> metamorphic::Measurement {
+    let outcome = crate::assay::categorize::categorize(&meta.id, waffle, meta);
+    let mut m = metamorphic::Measurement {
+        category: outcome.category.label(),
+        detail: outcome.detail,
+        volume: None,
+        chi: None,
+        bodies: 0,
+    };
+    let mut builder = crate::ModelBuilder::kernel_v2();
+    if builder.load(waffle).is_err() {
+        return m;
+    }
+    let tol = crate::assay::volume_oracle_doc::oracle_tol(meta.scale);
+    if let Ok(meshes) = builder.tessellate_live_with_tol(tol) {
+        let meshes: Vec<_> = meshes
+            .into_iter()
+            .filter(|mm| !mm.indices.is_empty())
+            .collect();
+        m.bodies = meshes.len();
+        if !meshes.is_empty() {
+            m.volume = Some(
+                meshes
+                    .iter()
+                    .map(crate::helpers::mesh_signed_volume)
+                    .sum::<f64>(),
+            );
+            let chis: Vec<Option<i64>> = meshes
+                .iter()
+                .map(|mm| {
+                    crate::oracle::check_mesh_euler_characteristic_with_shells(mm, 2, None)
+                        .value
+                        .map(|c| c as i64)
+                })
+                .collect();
+            m.chi = chis.iter().copied().sum::<Option<i64>>();
+        }
+    }
+    m
+}
+
+/// Measure a candidate on disk (`<stem>.waffle`, meta derived if absent).
+pub fn measure_stem(stem: &std::path::Path) -> Result<metamorphic::Measurement, String> {
+    let id = stem
+        .file_name()
+        .and_then(|s| s.to_str())
+        .unwrap_or("candidate")
+        .to_string();
+    let waffle =
+        std::fs::read_to_string(stem.with_extension("waffle")).map_err(|e| e.to_string())?;
+    let meta_path = stem.with_extension("meta.json");
+    let meta: AssayMeta = match std::fs::read_to_string(&meta_path) {
+        Ok(s) => serde_json::from_str(&s).map_err(|e| e.to_string())?,
+        Err(_) => {
+            let doc: Value = serde_json::from_str(&waffle).map_err(|e| e.to_string())?;
+            derive_meta(&id, &doc)?
+        }
+    };
+    Ok(measure_document(&waffle, &meta))
 }
