@@ -29,6 +29,7 @@ fn once(
         &empty,
         &empty,
         &empty,
+        &crate::stage1_tessellate::FaceConstraints::new(),
         &no_demands,
         None,
         &mut n_used,

@@ -112,6 +112,7 @@ fn a_corner_inside_the_rim_band_is_reported_with_a_demand_by_one_pass() {
         &empty,
         &empty,
         &empty,
+        &crate::stage1_tessellate::FaceConstraints::new(),
         &no_demands,
         None,
         &mut n_used,

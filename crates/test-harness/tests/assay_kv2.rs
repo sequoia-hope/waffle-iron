@@ -1352,7 +1352,12 @@ fn smoke_corpus_boundary_categories() {
         // §8), promoted 2026-09-27 as ERROR-class pins. Each is a loud
         // kernel STOP on generic geometry the random generator drew; a
         // conversion moves the pin (and adjudicates the meta's χ / volume).
-        ("P0001", Category::Error), // octagon ∪ needle star: TessellationFailed "planar triangle collapsed at render precision"
+        // P0001 CONVERTED 2026-09-27: the star's tip edge authored 4e-15 below
+        // the octagon's cap plane, inside the cap — the §4.5.5 edge-in-plane
+        // identification + conformity pass (spec
+        // `yang_455_edge_in_plane_conformity.md`) makes the shared segment
+        // one mesh edge in both operands; χ 2, analytic volume adjudicated.
+        ("P0001", Category::SupportedCorrect),
         ("P0002", Category::Error), // circle boss, 8-point star cut: TessellationFailed "ring rejected by CDT (degenerate/self-intersecting)"
         ("P0003", Category::Error), // non-convex 9-gon boss, circle revolve-cut: TessellationFailed "torus patch UV-CDT failed"
     ];

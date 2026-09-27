@@ -1,8 +1,8 @@
 {
-  "errored": 10,
+  "errored": 9,
   "failed": 0,
   "generated": "kernel-v2 (assay_kv2 categorized run)",
-  "passed": 301,
+  "passed": 302,
   "results": [
     {
       "category": "SUPPORTED_CORRECT",
@@ -1877,10 +1877,10 @@
       "status": "error"
     },
     {
-      "category": "ERROR",
-      "detail": "1 engine error(s): 7e0f903b-8cba-467a-9101-c712bfa4ab43: operation error: kernel error: boolean operation failed: kernel-v2 boolean_union failed: TessellationFailed { face: FaceId(39), reason: \"planar triangle collapsed at render precision\" }",
+      "category": "SUPPORTED_CORRECT",
+      "detail": "all checks passed",
       "id": "P0001",
-      "status": "error"
+      "status": "pass"
     },
     {
       "category": "ERROR",

@@ -1064,6 +1064,24 @@ fn boolean_once(
         None => (a, b),
     };
 
+    // (−2) §4.5.5 one dimension down, arm 1 (spec
+    // `yang_455_edge_in_plane_conformity.md`): a vertex of one operand
+    // within the #178 coincidence line of a planar face of the other that it
+    // interacts with is IDENTIFIED onto that plane (P0001: the needle star's
+    // tip edge authored 4e-15 below the octagon's cap plane). Vertices of a
+    // Stage-0 cross-pair face are Stage 0's and stay put; operands with no
+    // such vertex are byte-identical (no rebuild). Arm 2 (the shared-segment
+    // mesh conformity) rides the P3a override rebuild below.
+    let identified: Option<(BRep, BRep)> = if stage0::edge_in_plane::enabled() {
+        stage0::edge_in_plane::identify_vertices(a, b)?
+    } else {
+        None
+    };
+    let (a, b): (&BRep, &BRep) = match &identified {
+        Some((na, nb)) => (na, nb),
+        None => (a, b),
+    };
+
     // P3a #146 increment 0 (spec `yang_146_conformal_junction_sampling.md`):
     // dev-only junction-mint measurement probe. Enumerates cross edge×face
     // pierce candidates (X-edge's two incident surfaces + Y-face's surface,
@@ -1305,7 +1323,44 @@ fn boolean_once(
             }
             _ => {}
         }
-        if jo.is_empty() {
+        // §4.5.5 one dimension down, arm 2 (spec
+        // `yang_455_edge_in_plane_conformity.md`): the sub-segments of an
+        // edge lying in a partner planar face become identically-sampled
+        // shared elements of both meshes — crossings into every copy of
+        // both crossed edges, inside endpoints into the face's interior, the
+        // inside sub-segments as interior CONSTRAINTS of the face's CDT.
+        // Same scope gate and same rebuild as the P3a mints; empty when no
+        // edge lies in a partner face (the byte-identical identity).
+        let eip = if stage0::edge_in_plane::enabled() {
+            stage0::edge_in_plane::conformity_overrides(a, b)
+        } else {
+            stage0::edge_in_plane::EdgeInPlaneOverrides::default()
+        };
+        if !eip.is_empty() {
+            for (into, from) in [
+                (&mut jo.edge_a, &eip.edge_a),
+                (&mut jo.face_a, &eip.face_a),
+                (&mut jo.edge_b, &eip.edge_b),
+                (&mut jo.face_b, &eip.face_b),
+            ] {
+                for (k, pts) in from {
+                    let slot = into.entry(*k).or_default();
+                    for p in pts {
+                        if !slot.contains(p) {
+                            slot.push(*p);
+                        }
+                    }
+                }
+            }
+            for p in &eip.mints {
+                minted_junction_keys
+                    .entry([p.x().to_bits(), p.y().to_bits(), p.z().to_bits()])
+                    .or_insert(MintProvenance {
+                        owner_planes: [MintTrimPlane::default(); 2],
+                    });
+            }
+        }
+        if jo.is_empty() && eip.is_empty() {
             None
         } else {
             if std::env::var_os("YANG_JUNCTION_MINT_PROBE").is_some() {
@@ -1372,8 +1427,18 @@ fn boolean_once(
                 }
             }
             Some((
-                a.rebuilt_with_all_overrides(&jo.rim_a, &jo.edge_a, &jo.face_a)?,
-                b.rebuilt_with_all_overrides(&jo.rim_b, &jo.edge_b, &jo.face_b)?,
+                a.rebuilt_with_all_overrides_and_constraints(
+                    &jo.rim_a,
+                    &jo.edge_a,
+                    &jo.face_a,
+                    &eip.cons_a,
+                )?,
+                b.rebuilt_with_all_overrides_and_constraints(
+                    &jo.rim_b,
+                    &jo.edge_b,
+                    &jo.face_b,
+                    &eip.cons_b,
+                )?,
             ))
         }
     } else {
@@ -2961,6 +3026,7 @@ fn boolean_once(
         forced_rim_n: None,
         standing_rim: std::collections::BTreeMap::new(),
         standing_face: std::collections::BTreeMap::new(),
+        standing_face_constraints: crate::stage1_tessellate::FaceConstraints::new(),
     })
 }
 

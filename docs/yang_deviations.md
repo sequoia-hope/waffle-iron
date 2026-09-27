@@ -101,6 +101,7 @@ Presented 2026-07-16; the user's answer (2026-07-17) was **"i have no opinion on
 | N61 | RESOLVED for cylinders (2026-09-11, KV14 Slice G); OPEN for cones | Stage-1 curved chart CDT (holed / partial laterals) was boundary-only — no §4.1 domain triangulation to d_ε; interior diagonals exceeded the chord budget downstream bands read back (R0026) |
 | N62 | PERMANENT (flipped always-on 2026-09-17, C0065) | §4.5.2 refines the WHOLE op at d_ε/2, d_ε/4 under the Q3 guard shell instead of the traversed patches + one-ring with a local splice — strictly more refinement, paid only by an already-failed op |
 | N63 | RESOLVED (2026-09-21, B2 pipe checkpoint 1) | Stage-4 torus implicit-pair relocation STOPped on an operand's OWN G1 cylinder↔torus rim (a tangent pair, rank-deficient by construction) although the vertex lies on the shared rim exactly; now skipped at a tangent pair off the intersection curve. NOTE: the projection of an operand's own transversal rim vertices is KEPT — it corrects Stage-1 samples of recovered rims that sit off the torus (R0026), a §4.4.2 restoration gap in its own right |
+| N64 | EXTENSION — PERMANENT-proposed (2026-09-27, P0001; paper silent) | §4.5.5 is applied one dimension DOWN: an edge (or vertex) of one operand within the #178 coincidence line of a partner planar face is identified onto the plane and its sub-segments inside the face become identically-sampled shared mesh edges (crossings minted into every copy of both crossed edges, inside endpoints as interior Steiner points, the sub-segment as an interior CDT constraint). The paper's §4.5.5 addresses coplanar FACE pairs only; its stated rationale (discretization does not maintain coplanarity) and remedy (identical sampling on the shared part) are what the arm implements |
 | #137 diag | HISTORICAL | #137 (2026-07-15): C0065/R0074 — the torus∩plane solver EXISTS and RUNS; the blocker is mesh RESOLUTION nea… |
 | #137 diag 2 | HISTORICAL | #137 (2026-07-15, follow-up): resolution ALONE is not the fix — it flips the loud STOP into a silent-wrong … |
 
@@ -4478,6 +4479,50 @@ no tangency anywhere on the pair (the x = 1.45 wall crosses the torus at
 
 **State:** PERMANENT (deliberate; the local splice is an efficiency
 increment with no correctness customer). Live successor of the HISTORICAL D4.
+
+### N64 — §4.5.5 applied one dimension down: edge-in-plane identification + conformity (2026-09-27, P0001)
+
+**Paper:** §4.5.5 (`refs/text/yang2025_hybrid_boolean.txt:717-731`) — "our
+discretization method does not maintain coplanarity in triangle meshes because
+of floating-point error … it is necessary to check coplanar planes and perform
+2D Boolean operations before mesh discretizations … identical meshes are
+generated for both models in this part … The common part and the other two
+parts share identical sampling points on their boundaries." The section
+addresses coplanar planar FACE pairs; it says nothing about an EDGE of one
+model lying in a face of the other.
+
+**Implementation:** `stage0::edge_in_plane` (spec
+`specs/yang_455_edge_in_plane_conformity.md`). Arm 1, before the §4.3.3
+generator tangency and Stage 0: a vertex of X within `band/100`
+(`band = max(TAU_MODEL, scale·TAU_WORK)`, the #178 coincidence line) of a
+planar all-line face of Y that it interacts with is moved onto the plane
+(least-norm over every matched plane); vertices of a Stage-0 cross-pair face
+are Stage 0's and stay put. Arm 2, in the P3a scope gate: for each X edge with
+both endpoints on the line, the crossings with Y's loop edges are minted once
+and inserted into every per-loop copy of both crossed edges, an endpoint
+inside the face becomes an interior Steiner point, and each inside sub-segment
+becomes an interior constraint of the face's CDT (`FaceConstraints` →
+`cdt_with_interior_constraints`), so the arrangement sees one edge shared by
+identity.
+
+**Why it is the paper's rule and not a band:** the anchored defect (P0001: a
+needle star's tip edge authored 4e-15 below the octagon's cap plane, running
+inside the cap) is exactly the sentence quoted above — the exact arrangement
+faithfully built the 4e-15-wide wedge between the tilted edge and the plane
+and kept it. Measured on the exactly-coplanar control: CORRECT in 8 of 9 rigid
+motions and non-2-manifold in the ninth; the femto-off original flips CORRECT
+in 4 of 6 rigid motions. Rounding luck in both directions on oblique planes,
+so the shared-segment conformity (not exact coplanarity) is the remedy — the
+same remedy §4.5.5 prescribes for faces.
+
+**State:** EXTENSION, PERMANENT-proposed pending user sign-off. Fail-closed
+scope (probe-counted, status quo): corner contacts within `TAU_MODEL·(1+scale)`
+of a loop vertex or the edge's endpoints, endpoints on the face boundary,
+collinear contact with a loop edge, curved-bounded or non-planar partner
+faces, any Stage-0 interaction (the override rebuild does not thread through
+Stage 0's re-tessellations — the M8 incr-15 trap). No #178-style STOP for the
+`(band/100, band]` window is added: the population is unmeasured
+(`YANG_EDGE_IN_PLANE_PROBE=1` reports it).
 
 ## Remediation priority (OPEN set)
 

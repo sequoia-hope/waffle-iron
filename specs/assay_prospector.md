@@ -302,6 +302,7 @@ minimizer keeps a reduction only if the signature is byte-identical):
 |---|---|---|
 | ring rejected by CDT | `circle:boss star8(0.42):cut` (2 ops, already minimal) | **P0002** |
 | torus patch UV-CDT failed | `nonconvex9:boss circle:rev-cut` (6 → 2) | **P0003** |
+| planar triangle collapsed at render precision (the P0 finding) | `octagon:boss star4(r_in 2, r_out 22):boss ∪` (3 ops) | **P0001** — CONVERTED 2026-09-27 (§4.5.5 edge-in-plane, spec `yang_455_edge_in_plane_conformity.md`; meta adjudicated χ 2, analytic volume) |
 | subtract: reassembled non-2-manifold | `convex4:boss convex4:rev convex4:boss convex4:cut` (4 → 4, profiles simplified) | — |
 | union (auto): reassembled non-2-manifold | `convex4:boss convex4:rev gear10:sym circle:boss` (6 → 4) | — |
 | cone periodic strip (KV14 Slice E) | `convex4:boss convex4:rev convex4:cut convex4:cut` (8 → 4) | — (documented sub-slice) |

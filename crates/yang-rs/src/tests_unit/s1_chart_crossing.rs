@@ -165,6 +165,7 @@ fn a_spike_under_a_rim_chord_is_reported_with_a_demand_by_one_pass() {
         &empty,
         &empty,
         &empty,
+        &crate::stage1_tessellate::FaceConstraints::new(),
         &no_demands,
         None,
         &mut n_used,

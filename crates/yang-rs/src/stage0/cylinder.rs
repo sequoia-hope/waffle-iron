@@ -500,6 +500,7 @@ pub(crate) fn coincident_cylinder_stage0(a: &BRep, b: &BRep) -> Result<Option<St
         a.faces(),
         a.standing_rim(),
         a.standing_face(),
+        a.standing_face_constraints(),
         Some(shared_n),
     )?;
     let tess_b = crate::stage1_tessellate_with_standing_overrides(
@@ -508,6 +509,7 @@ pub(crate) fn coincident_cylinder_stage0(a: &BRep, b: &BRep) -> Result<Option<St
         b.faces(),
         b.standing_rim(),
         b.standing_face(),
+        b.standing_face_constraints(),
         Some(shared_n),
     )?;
 

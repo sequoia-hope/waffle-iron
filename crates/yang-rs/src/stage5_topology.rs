@@ -5938,6 +5938,7 @@ pub(crate) fn reconstruct_topology_stage4(
     edge_provenance: &crate::stage3_ssi::PosKeyedEdgeSet,
 ) -> Result<ReconstructedTopology, YangError> {
     chi_audit_report("s4-reconstruct entry", &mesh.tris);
+    crate::stage4_correct::mesh_dump_probe("s4-reconstruct entry", mesh, attribution);
     // §I13(f) f2c-3 — the read-only BRIDGE CENSUS (`YANG_441_SLIT`, unset =
     // byte-identical): lift kept triangles onto their analytic carriers and
     // test the lifts against the tool half-spaces. Its 2026-08-28

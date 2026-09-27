@@ -14867,7 +14867,36 @@ pub(crate) fn nonmanifold_edge_census(
 /// vertex RENUMBERING that the collapse/compact/merge passes do between
 /// checkpoints, which an id-keyed one cannot. Byte-identical when the env is
 /// unset (the function returns before touching anything).
+/// Read-only WHOLE-MESH dump (`YANG_MESH_DUMP=1`), printed at every checkpoint
+/// that calls `star_probe`: every vertex with its position, every triangle
+/// with its `(input, face)` attribution. The instrument for a face whose
+/// emitted boundary cycle carries an edge the arrangement should have split
+/// (P0001: B's tip edge lying IN A's cap plane) — the star probe answers
+/// "what is at this point?", this one answers "which triangles exist at all?".
+/// Byte-identical when the env is unset.
+pub(crate) fn mesh_dump_probe(tag: &str, mesh: &crate::Mesh, attribution: &TriangleAttributionMap) {
+    if std::env::var_os("YANG_MESH_DUMP").is_none() {
+        return;
+    }
+    eprintln!(
+        "[mesh-dump {tag}] {} verts {} tris",
+        mesh.verts.len(),
+        mesh.tris.len()
+    );
+    for (i, p) in mesh.verts.iter().enumerate() {
+        eprintln!("[mesh-dump {tag}] v{i} = {:?}", p.as_array());
+    }
+    for (t, tri) in mesh.tris.iter().enumerate() {
+        let attr = attribution
+            .lookup(t as u32)
+            .map(|a| format!("{:?}:{}", a.input, a.face))
+            .unwrap_or_else(|| "none".to_string());
+        eprintln!("[mesh-dump {tag}] t{t} = {tri:?} attr={attr}");
+    }
+}
+
 pub(crate) fn star_probe(tag: &str, mesh: &crate::Mesh, attribution: &TriangleAttributionMap) {
+    mesh_dump_probe(tag, mesh, attribution);
     let Ok(spec) = std::env::var("YANG_STAR_PROBE") else {
         return;
     };

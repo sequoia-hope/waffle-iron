@@ -335,6 +335,15 @@ pub struct BRep {
     /// edge in both meshes. Empty for `new` / `from_mesh`; an empty map is
     /// the Stage-1 byte-identical identity.
     pub(crate) standing_face: std::collections::BTreeMap<u32, Vec<Point3>>,
+    /// STANDING Stage-1 face-interior CONSTRAINT segments (spec
+    /// `yang_455_edge_in_plane_conformity.md` arm 2): per face index, the
+    /// segments every re-tessellation of this B-Rep from topology must carry
+    /// as EDGES of that face's CDT — the `standing_face` analog for the
+    /// partner sub-segment of an edge lying in the face. Populated by
+    /// [`Self::rebuilt_with_all_overrides_and_constraints`]; honored by every
+    /// `from_topology*` rebuild. Empty for `new` / `from_mesh`; an empty map is
+    /// the Stage-1 byte-identical identity.
+    pub(crate) standing_face_constraints: crate::stage1_tessellate::FaceConstraints,
 }
 
 impl BRep {
@@ -435,6 +444,7 @@ impl BRep {
             min_n_seg,
             &std::collections::BTreeMap::new(),
             &std::collections::BTreeMap::new(),
+            &crate::stage1_tessellate::FaceConstraints::new(),
         )
     }
 
@@ -449,6 +459,7 @@ impl BRep {
         min_n_seg: Option<usize>,
         rim_overrides: &std::collections::BTreeMap<u32, Vec<Point3>>,
         face_overrides: &std::collections::BTreeMap<u32, Vec<Point3>>,
+        face_constraints: &crate::stage1_tessellate::FaceConstraints,
     ) -> Result<Self, YangError> {
         let tess = crate::stage1_tessellate_with_standing_overrides(
             &verts,
@@ -456,12 +467,43 @@ impl BRep {
             &faces,
             rim_overrides,
             face_overrides,
+            face_constraints,
             min_n_seg,
         )?;
         let mut out = Self::from_topology_and_tess(verts, edges, faces, min_n_seg, tess)?;
         out.standing_rim = rim_overrides.clone();
         out.standing_face = face_overrides.clone();
+        out.standing_face_constraints = face_constraints.clone();
         Ok(out)
+    }
+
+    /// The standing Stage-1 face constraint segments (see the field docs).
+    pub(crate) fn standing_face_constraints(&self) -> &crate::stage1_tessellate::FaceConstraints {
+        &self.standing_face_constraints
+    }
+
+    /// Edge-in-plane IDENTIFICATION (spec `yang_455_edge_in_plane_conformity`
+    /// arm 1): the same topology with `verts` replacing this B-Rep's vertex
+    /// positions (same count, same indices), re-tessellated from topology with
+    /// every standing override carried on. A vertex moved by a femto amount
+    /// onto a partner plane changes only the mesh vertices that read it.
+    pub(crate) fn rebuilt_with_vertices(&self, verts: Vec<BRepVertex>) -> Result<Self, YangError> {
+        if verts.len() != self.vertices.len() {
+            return Err(YangError::MalformedTopology(format!(
+                "rebuilt_with_vertices: {} vertices replace {}",
+                verts.len(),
+                self.vertices.len()
+            )));
+        }
+        Self::from_topology_with_rim_overrides(
+            verts,
+            self.edges.clone(),
+            self.faces.clone(),
+            self.forced_rim_n,
+            &self.standing_rim,
+            &self.standing_face,
+            &self.standing_face_constraints,
+        )
     }
 
     /// `extra` composed over this B-Rep's standing rim samples: per rim edge
@@ -548,6 +590,7 @@ impl BRep {
             forced_rim_n: min_n_seg,
             standing_rim: std::collections::BTreeMap::new(),
             standing_face: std::collections::BTreeMap::new(),
+            standing_face_constraints: crate::stage1_tessellate::FaceConstraints::new(),
         })
     }
 
@@ -574,6 +617,7 @@ impl BRep {
             self.forced_rim_n,
             &self.standing_rim,
             &self.standing_face,
+            &self.standing_face_constraints,
         )
     }
 
@@ -585,6 +629,7 @@ impl BRep {
             Some(n),
             &self.standing_rim,
             &self.standing_face,
+            &self.standing_face_constraints,
         )
     }
 
@@ -639,6 +684,7 @@ impl BRep {
             forced,
             &self.compose_rim_overrides(rim_overrides),
             &merge_rim_points(&self.standing_face, face_overrides),
+            &self.standing_face_constraints,
         )
     }
 
@@ -677,12 +723,39 @@ impl BRep {
         edge_overrides: &std::collections::BTreeMap<u32, Vec<Point3>>,
         face_overrides: &std::collections::BTreeMap<u32, Vec<Point3>>,
     ) -> Result<Self, YangError> {
+        self.rebuilt_with_all_overrides_and_constraints(
+            rim_overrides,
+            edge_overrides,
+            face_overrides,
+            &crate::stage1_tessellate::FaceConstraints::new(),
+        )
+    }
+
+    /// [`Self::rebuilt_with_all_overrides`] plus STANDING face-interior
+    /// CONSTRAINT segments (spec `yang_455_edge_in_plane_conformity` arm 2):
+    /// each `face_constraints[f]` segment becomes an edge of planar face `f`'s
+    /// CDT. Composes bit-deduped with what already stands and is stored, so
+    /// every later from-topology rebuild keeps it. An empty map is
+    /// byte-identical to [`Self::rebuilt_with_all_overrides`].
+    pub(crate) fn rebuilt_with_all_overrides_and_constraints(
+        &self,
+        rim_overrides: &std::collections::BTreeMap<u32, Vec<Point3>>,
+        edge_overrides: &std::collections::BTreeMap<u32, Vec<Point3>>,
+        face_overrides: &std::collections::BTreeMap<u32, Vec<Point3>>,
+        face_constraints: &crate::stage1_tessellate::FaceConstraints,
+    ) -> Result<Self, YangError> {
         let rim_overrides = self.compose_rim_overrides(rim_overrides);
         // Face-interior points compose with the STANDING ones the same way
         // (§13.2); the standing set is carried on, the caller's extras
         // bit-deduped in.
         let face_overrides = merge_rim_points(&self.standing_face, face_overrides);
-        if rim_overrides.is_empty() && edge_overrides.is_empty() && face_overrides.is_empty() {
+        let face_constraints =
+            merge_face_constraints(&self.standing_face_constraints, face_constraints);
+        if rim_overrides.is_empty()
+            && edge_overrides.is_empty()
+            && face_overrides.is_empty()
+            && face_constraints.is_empty()
+        {
             return Self::from_topology(
                 self.vertices.clone(),
                 self.edges.clone(),
@@ -697,6 +770,7 @@ impl BRep {
             &rim_overrides,
             edge_overrides,
             &face_overrides,
+            &face_constraints,
             self.forced_rim_n,
         )
         .map(|(t, _)| t)?;
@@ -709,6 +783,7 @@ impl BRep {
         )?;
         out.standing_rim = rim_overrides;
         out.standing_face = face_overrides;
+        out.standing_face_constraints = face_constraints;
         Ok(out)
     }
 
@@ -788,6 +863,7 @@ impl BRep {
             self.forced_rim_n,
             &self.standing_rim,
             &self.standing_face,
+            &self.standing_face_constraints,
         )?))
     }
 
@@ -809,6 +885,7 @@ impl BRep {
             forced_rim_n: None,
             standing_rim: std::collections::BTreeMap::new(),
             standing_face: std::collections::BTreeMap::new(),
+            standing_face_constraints: crate::stage1_tessellate::FaceConstraints::new(),
         }
     }
 
@@ -841,6 +918,29 @@ pub(crate) fn merge_rim_points(
         for &p in pts {
             if !slot.contains(&p) {
                 slot.push(p);
+            }
+        }
+    }
+    out.retain(|_, v| !v.is_empty());
+    out
+}
+
+/// [`merge_rim_points`] for face constraint segments: the standing segments
+/// first, then every `extra` segment not already present bit-for-bit (in
+/// either orientation).
+pub(crate) fn merge_face_constraints(
+    base: &crate::stage1_tessellate::FaceConstraints,
+    extra: &crate::stage1_tessellate::FaceConstraints,
+) -> crate::stage1_tessellate::FaceConstraints {
+    let mut out = base.clone();
+    for (&f, segs) in extra {
+        let slot = out.entry(f).or_default();
+        for &[p, q] in segs {
+            let dup = slot
+                .iter()
+                .any(|&[a, b]| (a == p && b == q) || (a == q && b == p));
+            if !dup {
+                slot.push([p, q]);
             }
         }
     }

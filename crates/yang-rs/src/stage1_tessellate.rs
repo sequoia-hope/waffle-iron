@@ -34,6 +34,16 @@ pub(crate) struct Stage1Tess {
 /// emits no Steiner points). The curved path appends rim-ring + cap-
 /// center Steiner vertices and indexes the SHARED cached rings so the
 /// cylinder mesh is watertight.
+/// Per-face INTERIOR CONSTRAINT segments for a planar face's CDT (spec
+/// `yang_455_edge_in_plane_conformity.md` arm 2): face index → segments
+/// whose two endpoints are, bit-for-bit, vertices of that face's Stage-1
+/// triangulation (ring polyline samples or interior override points). Each
+/// segment becomes an EDGE of the triangulation
+/// (`cherchi_rs::triangulation::cdt_with_interior_constraints`), so a partner
+/// edge lying in the face is one identically-sampled mesh edge in BOTH
+/// operands. An empty map is the byte-identical identity.
+pub(crate) type FaceConstraints = std::collections::BTreeMap<u32, Vec<[Point3; 2]>>;
+
 pub(crate) fn stage1_tessellate(
     verts: &[BRepVertex],
     edges: &[BRepEdge],
@@ -99,9 +109,10 @@ pub(crate) fn stage1_tessellate_with_standing_overrides(
     faces: &[BRepFace],
     rim_overrides: &std::collections::BTreeMap<u32, Vec<Point3>>,
     face_overrides: &std::collections::BTreeMap<u32, Vec<Point3>>,
+    face_constraints: &FaceConstraints,
     min_n_seg: Option<usize>,
 ) -> Result<Stage1Tess, YangError> {
-    if face_overrides.is_empty() {
+    if face_overrides.is_empty() && face_constraints.is_empty() {
         return stage1_tessellate_with_rim_overrides(verts, edges, faces, rim_overrides, min_n_seg);
     }
     stage1_tessellate_inner_overrides(
@@ -111,6 +122,7 @@ pub(crate) fn stage1_tessellate_with_standing_overrides(
         rim_overrides,
         &std::collections::BTreeMap::new(),
         face_overrides,
+        face_constraints,
         min_n_seg,
     )
     .map(|(t, _)| t)
@@ -200,6 +212,7 @@ pub(crate) fn stage1_tessellate_with_edge_overrides(
         &std::collections::BTreeMap::new(),
         edge_overrides,
         face_overrides,
+        &FaceConstraints::new(),
         min_n_seg,
     )
     .map(|(t, _)| t)
@@ -223,6 +236,7 @@ pub(crate) fn stage1_tessellate_inner(
         rim_overrides,
         &std::collections::BTreeMap::new(),
         &std::collections::BTreeMap::new(),
+        &FaceConstraints::new(),
         min_n_seg,
     )
 }
@@ -254,6 +268,7 @@ pub(crate) fn stage1_tessellate_inner_overrides(
     rim_overrides: &std::collections::BTreeMap<u32, Vec<Point3>>,
     edge_overrides: &std::collections::BTreeMap<u32, Vec<Point3>>,
     face_overrides: &std::collections::BTreeMap<u32, Vec<Point3>>,
+    face_constraints: &FaceConstraints,
     min_n_seg: Option<usize>,
 ) -> Result<(Stage1Tess, std::collections::BTreeSet<u32>), YangError> {
     let refine_on = !matches!(
@@ -285,6 +300,7 @@ pub(crate) fn stage1_tessellate_inner_overrides(
             rim_overrides,
             edge_overrides,
             face_overrides,
+            face_constraints,
             &face_chord_demands,
             force,
             &mut n_used,
@@ -392,6 +408,7 @@ pub(crate) fn stage1_tessellate_once(
     rim_overrides: &std::collections::BTreeMap<u32, Vec<Point3>>,
     edge_overrides: &std::collections::BTreeMap<u32, Vec<Point3>>,
     face_overrides: &std::collections::BTreeMap<u32, Vec<Point3>>,
+    face_constraints: &FaceConstraints,
     face_chord_demands: &std::collections::BTreeMap<u32, f64>,
     min_n_seg: Option<usize>,
     n_seg_out: &mut Option<usize>,
@@ -1861,8 +1878,12 @@ pub(crate) fn stage1_tessellate_once(
                         .get(&(f_idx as u32))
                         .map(|v| v.as_slice())
                         .unwrap_or(&[]);
+                    let constraints: &[[Point3; 2]] = face_constraints
+                        .get(&(f_idx as u32))
+                        .map(|v| v.as_slice())
+                        .unwrap_or(&[]);
 
-                    if has_line_chain || !interior.is_empty() {
+                    if has_line_chain || !interior.is_empty() || !constraints.is_empty() {
                         tessellate_planar_curved_cdt_face(
                             f_idx,
                             f,
@@ -1871,6 +1892,7 @@ pub(crate) fn stage1_tessellate_once(
                             normal,
                             &out_verts,
                             interior,
+                            constraints,
                             &mut out_tris,
                         )?;
                     } else if needs_cdt {
@@ -1953,7 +1975,11 @@ pub(crate) fn stage1_tessellate_once(
                         .get(&(f_idx as u32))
                         .map(|v| v.as_slice())
                         .unwrap_or(&[]);
-                    if is_disk && interior.is_empty() {
+                    let constraints: &[[Point3; 2]] = face_constraints
+                        .get(&(f_idx as u32))
+                        .map(|v| v.as_slice())
+                        .unwrap_or(&[]);
+                    if is_disk && interior.is_empty() && constraints.is_empty() {
                         tessellate_cap_face(
                             f_idx,
                             f,
@@ -1973,6 +1999,7 @@ pub(crate) fn stage1_tessellate_once(
                             normal,
                             &out_verts,
                             interior,
+                            constraints,
                             &mut out_tris,
                         )?;
                     }
@@ -2127,6 +2154,7 @@ pub(crate) fn tessellate_planar_curved_cdt_face(
     normal: Vector3,
     out_verts: &[Point3],
     interior: &[u32],
+    constraints: &[[Point3; 2]],
     out_tris: &mut Vec<[u32; 3]>,
 ) -> Result<(), YangError> {
     if f.reversed {
@@ -2307,7 +2335,7 @@ pub(crate) fn tessellate_planar_curved_cdt_face(
     // Steiner splits, spade constraint-crossing refused loudly); the loud
     // consumed-postcondition below replaces flood-fill's topological
     // classification guarantee for these faces.
-    let local_tris = if interior.is_empty() {
+    let local_tris = if interior.is_empty() && constraints.is_empty() {
         cherchi_rs::triangulation::cdt_polygon_with_holes_floodfill(
             &local_verts,
             &outer_local,
@@ -2316,6 +2344,88 @@ pub(crate) fn tessellate_planar_curved_cdt_face(
         .map_err(|e| {
             YangError::MalformedTopology(format!("face {f_idx}: CDT triangulation failed: {e}"))
         })?
+    } else if !constraints.is_empty() {
+        // Edge-in-plane conformity (spec `yang_455_edge_in_plane_conformity`
+        // arm 2): interior Steiner points PLUS interior constraint segments.
+        // Every constraint endpoint must already be a vertex of this face's
+        // triangulation — a ring polyline sample (the crossing inserted by the
+        // edge override) or an interior override point — matched bit-for-bit;
+        // anything else is a one-sided mint and refused loudly.
+        let interior_local: Vec<u32> = interior
+            .iter()
+            .map(|&g| intern(g, &mut local_verts, &mut global_of_local))
+            .collect();
+        let key_of =
+            |p: Point3| -> [u64; 3] { [p.x().to_bits(), p.y().to_bits(), p.z().to_bits()] };
+        let mut local_of_key: std::collections::HashMap<[u64; 3], u32> =
+            std::collections::HashMap::new();
+        for (l, &g) in global_of_local.iter().enumerate() {
+            local_of_key
+                .entry(key_of(out_verts[g as usize]))
+                .or_insert(l as u32);
+        }
+        let mut constraints_local: Vec<[u32; 2]> = Vec::with_capacity(constraints.len());
+        for seg in constraints {
+            let mut ends = [0u32; 2];
+            for (k, p) in seg.iter().enumerate() {
+                let Some(&l) = local_of_key.get(&key_of(*p)) else {
+                    let q = p.as_array();
+                    return Err(YangError::MalformedTopology(format!(
+                        "face {f_idx}: interior constraint endpoint ({},{},{}) is not a \
+                         vertex of the face triangulation (one-sided conformity refused)",
+                        q[0], q[1], q[2]
+                    )));
+                };
+                ends[k] = l;
+            }
+            if ends[0] == ends[1] {
+                return Err(YangError::MalformedTopology(format!(
+                    "face {f_idx}: interior constraint collapses to one vertex"
+                )));
+            }
+            constraints_local.push(ends);
+        }
+        let tris = cherchi_rs::triangulation::cdt_with_interior_constraints(
+            &local_verts,
+            &outer_local,
+            &holes_local,
+            &interior_local,
+            &constraints_local,
+        )
+        .map_err(|e| {
+            YangError::MalformedTopology(format!(
+                "face {f_idx}: constrained CDT triangulation failed: {e}"
+            ))
+        })?;
+        for (k, &li) in interior_local.iter().enumerate() {
+            if !tris.iter().any(|t| t.contains(&li)) {
+                let g = interior[k];
+                let p = out_verts[g as usize].as_array();
+                return Err(YangError::MalformedTopology(format!(
+                    "face {f_idx}: interior junction point ({},{},{}) was not consumed by \
+                     the face CDT (outside the bounded region — one-sided mint refused)",
+                    p[0], p[1], p[2]
+                )));
+            }
+        }
+        // Consumed postcondition for the segments: each must be an edge of
+        // the emitted triangulation.
+        for c in &constraints_local {
+            let has = tris.iter().any(|t| {
+                (0..3).any(|i| {
+                    let (u, v) = (t[i], t[(i + 1) % 3]);
+                    (u == c[0] && v == c[1]) || (u == c[1] && v == c[0])
+                })
+            });
+            if !has {
+                return Err(YangError::MalformedTopology(format!(
+                    "face {f_idx}: interior constraint ({} → {}) is not an edge of the face \
+                     CDT",
+                    c[0], c[1]
+                )));
+            }
+        }
+        tris
     } else {
         let interior_local: Vec<u32> = interior
             .iter()

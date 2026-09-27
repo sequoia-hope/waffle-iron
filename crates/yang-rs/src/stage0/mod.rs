@@ -87,6 +87,7 @@ pub(crate) use cylinder::*;
 mod nary;
 #[allow(unused_imports)]
 pub(crate) use nary::*;
+pub(crate) mod edge_in_plane;
 
 use cad_primitives::Point3;
 use dashu::rational::RBig;

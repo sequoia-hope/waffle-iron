@@ -43,6 +43,55 @@ after the reconciliation run (release, 8 jobs, 360 s; wall 577 s, F0085
 regression since 2026-08-01 is outstanding (checked over every commit of
 `results.json`).
 
+## 2026-09-27 — P0001 CONVERTED ⇒ 302C: Yang §4.5.5 applied one dimension DOWN — the needle star's tip edge was authored 4e-15 below the octagon's cap plane and ran inside the cap, nothing identified an EDGE into a partner plane, and the exact arrangement kept the 4e-15 wedge; `stage0::edge_in_plane` identifies the vertices onto the plane and makes the inside sub-segment one identically-sampled mesh edge in both operands (a CDT interior constraint); canonical **302C / 0W / 9E / 4EE / 0T + 0 UNSUPPORTED**
+
+**Anchor** (`YANG_MESH_DUMP=1`, new; `YANG_S5_FOLD_PROBE=1`): kept triangle
+`t66 = [22, 12, 14]` of B's upper flank has all three corners on the tip line
+(v12 exact on the plane after a P3a mint collapse, v22 the authored femto-off
+tip, v14 a cap-diagonal crossing); its boundary cycle folds 180°, the emitted
+loop runs `7.85 → 0 → 3.04` on one line, kernel-v2's G1 render gate refuses the
+zero-area ear. The gate is right; the defect is the missing identification.
+
+**Class evidence:** the same document with the tip `u` set to exactly 0 is
+SUPPORTED_CORRECT (χ 2, V 2747.7287); under 9 random rigid motions that
+exactly-coplanar control converts 8 times and reassembles non-2-manifold once;
+the femto-off original flips CORRECT under 4 of 6 rigid motions. Rounding luck
+in both directions on oblique planes ⇒ the remedy must not depend on exact
+coplanarity — it is the paper's own §4.5.5 remedy (identical sampling of the
+shared part), one dimension down. Spec
+`specs/yang_455_edge_in_plane_conformity.md`; deviation ledger N64 (extension,
+paper silent).
+
+**Change:** arm 1 (before the §4.3.3 generator tangency and Stage 0) moves a
+vertex within the #178 coincidence line `band/100` of a partner planar face it
+interacts with onto that plane (least-norm over every matched plane; Stage-0
+cross-pair faces excluded); arm 2 (the P3a scope gate) mints each crossing of
+the in-plane edge with the face's loop edges into every per-loop copy of both
+crossed edges, inserts an inside endpoint as an interior Steiner point, and
+supplies the inside sub-segment as an interior CONSTRAINT of the face's CDT
+(new `FaceConstraints` channel through Stage 1, `standing_face_constraints`
+on the B-Rep, `cdt_with_interior_constraints`). Planar-incident edges only:
+the first corpus run regressed F0055 (a cylinder's seam line lying in a box
+face — the lateral's strip tessellation takes no edge override), fixed by
+declining curved-incident edges (counted by `YANG_EDGE_IN_PLANE_PROBE=1`).
+
+**Adjudication:** P0001 χ 2 (one ball), `expected_volume` analytic
+2747.72909531838 = V_oct + V_star − V_overlap (shoelace × depth and a section
+integral, kernel-independent; the exact-membership reader does not cover
+prospector documents, which reference the sketch FEATURE id), kernel agrees
+to 1.4e-7; `derived_meta` cleared; smoke pin moved to SupportedCorrect.
+After the identification the metamorphic driver reports every rigid-motion
+and scale identity of P0001 as agreeing (6 seeds).
+
+**Corpus** (release, 8 jobs, 900 s): exactly one category move (P0001
+ERROR → CORRECT) and zero detail moves after the F0055 fix. The ERROR rows are
+the seven loud-by-design walls plus P0002 / P0003 (the next P-series work).
+Unit pins: `tests_unit/s455_edge_in_plane.rs` (8 tests: femto-off tip at the
+control volume, identification moves only the tip pair, one crossing + one
+constraint, oblique rigid motion at the same volume, an edge fully inside a
+face, the identity on a plain crossing pair, the CDT constraint as an edge,
+the curved-incident seam declined).
+
 ## 2026-09-22 (night) — F0072 CONVERTED: the exact position oracle answered for a SLID crossing mint with a femto-off-line rounded position, so the joint region relocation ear-clipped a self-overlapping ring into four zero-area station fans (the `i6-input-overuse` non-manifold INPUT); amendment 22 keeps a moved mint on its host line, the ladder tries every split candidate, and the slide splice selects C on the host line (spec `m8_stage0_multiclass_cavity_arm.md` §20); canonical **301C / 0W / 7E / 4EE / 0T + 0 UNSUPPORTED** — the ACTIONABLE ERROR TAIL IS EMPTY
 
 Anchored, not designed against: `NONMANIFOLD_SITE_PROBE` put the "Stage-5/6
