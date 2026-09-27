@@ -1,0 +1,52 @@
+{
+  "id": "P0001",
+  "description": "3 ops, scale=3.28e1, extrude(polygon,boss)+extrude(polygon,boss)+boolean-union — prospector P0: octagon prism (Y plane) ∪ 4-point needle star r_in=2 r_out=22 (X plane) ⇒ boolean_union TessellationFailed \"planar triangle collapsed at render precision\" (found by the first loud generative_chain run, 2026-09-27; ERROR-class pin, derived_meta: expectations unadjudicated until conversion)",
+  "master_seed": 0,
+  "test_seed": 0,
+  "scale": 32.7585543256609,
+  "log_scale": 1.515324727574286,
+  "plane_origin": [
+    0.0,
+    22.41755130980609,
+    0.0
+  ],
+  "plane_normal": [
+    0.0,
+    1.0,
+    0.0
+  ],
+  "operations": [
+    {
+      "kind": "extrude",
+      "profile_type": "unknown",
+      "profile_size": 0.0,
+      "depth_or_angle": 9.13931723988505,
+      "is_cut": false
+    },
+    {
+      "kind": "extrude",
+      "profile_type": "unknown",
+      "profile_size": 0.0,
+      "depth_or_angle": 7.854423622158365,
+      "is_cut": false
+    },
+    {
+      "kind": "boolean-union",
+      "profile_type": "none",
+      "profile_size": 0.0,
+      "depth_or_angle": 0.0,
+      "is_cut": false
+    }
+  ],
+  "oracles": {
+    "euler_target": 2,
+    "expect_watertight": true,
+    "max_bbox_extent": 3275.8554325660903,
+    "expect_positive_volume": true,
+    "volume_monotonicity": [],
+    "expect_rebuild_error": false,
+    "derived_meta": true
+  },
+  "generator_version": 100,
+  "featured": true
+}

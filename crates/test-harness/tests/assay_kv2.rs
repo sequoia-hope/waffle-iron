@@ -1348,6 +1348,13 @@ fn smoke_corpus_boundary_categories() {
         // `SubSagittaGrazeIntersection`; the silent failure is unfused
         // two-lump emission below even the render gate's sagitta.
         ("C0118", Category::Error),
+        // P-series: assay prospector findings (`specs/assay_prospector.md`
+        // §8), promoted 2026-09-27 as ERROR-class pins. Each is a loud
+        // kernel STOP on generic geometry the random generator drew; a
+        // conversion moves the pin (and adjudicates the meta's χ / volume).
+        ("P0001", Category::Error), // octagon ∪ needle star: TessellationFailed "planar triangle collapsed at render precision"
+        ("P0002", Category::Error), // circle boss, 8-point star cut: TessellationFailed "ring rejected by CDT (degenerate/self-intersecting)"
+        ("P0003", Category::Error), // non-convex 9-gon boss, circle revolve-cut: TessellationFailed "torus patch UV-CDT failed"
     ];
     // Per-case CPU budget, expressed in RELEASE-equivalent seconds and scaled
     // for debug. `scripts/test.sh` runs test-harness WITHOUT `--release`, and
@@ -1442,8 +1449,8 @@ fn full_corpus_categorized() {
     let cases = discover_cases(&dir);
     assert_eq!(
         cases.len(),
-        312,
-        "expected the 312-case assay corpus (194 legacy + 118 C-series)"
+        315,
+        "expected the 315-case assay corpus (194 legacy + 118 C-series + 3 P-series)"
     );
 
     // Per-case timeout (default 30s, env-overridable) so no single case can

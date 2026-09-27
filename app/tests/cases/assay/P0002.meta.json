@@ -1,0 +1,45 @@
+{
+  "id": "P0002",
+  "description": "2 ops, extrude(circle,boss)+extrude(polygon,cut) — prospector seed 1 index 20, minimal: circle boss, 8-point star cut (r_in/r_out 0.42) ⇒ boolean_subtract TessellationFailed \"ring rejected by CDT (degenerate/self-intersecting)\" (2026-09-27; ERROR-class pin, derived_meta: expectations unadjudicated until conversion)",
+  "master_seed": 0,
+  "test_seed": 0,
+  "scale": 0.0157,
+  "log_scale": -1.8041003475907664,
+  "plane_origin": [
+    0.0,
+    0.0,
+    0.0
+  ],
+  "plane_normal": [
+    0.0,
+    1.0,
+    0.0
+  ],
+  "operations": [
+    {
+      "kind": "extrude",
+      "profile_type": "unknown",
+      "profile_size": 0.0,
+      "depth_or_angle": 0.0096,
+      "is_cut": false
+    },
+    {
+      "kind": "extrude",
+      "profile_type": "unknown",
+      "profile_size": 0.0,
+      "depth_or_angle": 0.0157,
+      "is_cut": true
+    }
+  ],
+  "oracles": {
+    "euler_target": 2,
+    "expect_watertight": true,
+    "max_bbox_extent": 1.5699999999999998,
+    "expect_positive_volume": true,
+    "volume_monotonicity": [],
+    "expect_rebuild_error": false,
+    "derived_meta": true
+  },
+  "generator_version": 100,
+  "featured": true
+}

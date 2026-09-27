@@ -1,0 +1,45 @@
+{
+  "id": "P0003",
+  "description": "2 ops, extrude(polygon,boss)+revolve(circle,cut) — prospector seed 1 index 14, minimized 6→2: non-convex 9-gon boss, circle revolve-cut ⇒ boolean_subtract TessellationFailed \"torus patch UV-CDT failed (self-intersecting projection / seam-crossing patch)\" (2026-09-27; ERROR-class pin, derived_meta: expectations unadjudicated until conversion)",
+  "master_seed": 0,
+  "test_seed": 0,
+  "scale": 0.058,
+  "log_scale": -1.2365720064370627,
+  "plane_origin": [
+    0.0,
+    0.0,
+    0.0
+  ],
+  "plane_normal": [
+    0.0,
+    1.0,
+    0.0
+  ],
+  "operations": [
+    {
+      "kind": "extrude",
+      "profile_type": "unknown",
+      "profile_size": 0.0,
+      "depth_or_angle": 0.05,
+      "is_cut": false
+    },
+    {
+      "kind": "revolve",
+      "profile_type": "unknown",
+      "profile_size": 0.0,
+      "depth_or_angle": 340.0,
+      "is_cut": true
+    }
+  ],
+  "oracles": {
+    "euler_target": 2,
+    "expect_watertight": true,
+    "max_bbox_extent": 5.800000000000001,
+    "expect_positive_volume": true,
+    "volume_monotonicity": [],
+    "expect_rebuild_error": false,
+    "derived_meta": true
+  },
+  "generator_version": 100,
+  "featured": true
+}

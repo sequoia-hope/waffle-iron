@@ -7,6 +7,8 @@
 //! scores the corpus.
 
 pub mod gen3;
+pub mod minimize;
+pub mod promote;
 
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -473,4 +475,58 @@ pub fn judge_document(
         }
     };
     Ok(crate::assay::categorize::categorize(&id, &waffle, &meta))
+}
+
+/// Build, save and judge a recipe file (`<stem>.recipe.json`) — the verdict
+/// child's third mode, used by the minimizer. Writes `<stem>.waffle` and
+/// `<stem>.meta.json` next to it.
+pub fn judge_recipe(
+    stem: &std::path::Path,
+) -> Result<(crate::assay::categorize::CaseOutcome, gen3::BuildReport), String> {
+    let recipe: gen3::Recipe = serde_json::from_str(
+        &std::fs::read_to_string(stem.with_extension("recipe.json")).map_err(|e| e.to_string())?,
+    )
+    .map_err(|e| format!("recipe: {e}"))?;
+    let id = stem
+        .file_name()
+        .and_then(|s| s.to_str())
+        .unwrap_or("candidate")
+        .to_string();
+    let (mut builder, report) = gen3::build(&recipe);
+    let waffle = builder.save().map_err(|e| format!("save: {e}"))?;
+    let doc: Value = serde_json::from_str(&waffle).map_err(|e| format!("parse: {e}"))?;
+    let meta = derive_meta(&id, &doc)?;
+    std::fs::write(stem.with_extension("waffle"), &waffle).map_err(|e| e.to_string())?;
+    std::fs::write(
+        stem.with_extension("meta.json"),
+        serde_json::to_string_pretty(&meta).map_err(|e| e.to_string())?,
+    )
+    .map_err(|e| e.to_string())?;
+    Ok((
+        crate::assay::categorize::categorize(&id, &waffle, &meta),
+        report,
+    ))
+}
+
+/// A filesystem-safe slug for a signature (directory name under `findings/`).
+pub fn signature_slug(sig: &str) -> String {
+    let mut out = String::new();
+    for c in sig.chars() {
+        if c.is_ascii_alphanumeric() {
+            out.push(c.to_ascii_lowercase());
+        } else if !out.ends_with('-') {
+            out.push('-');
+        }
+        if out.len() >= 72 {
+            break;
+        }
+    }
+    let trimmed = out.trim_matches('-').to_string();
+    // A short hash keeps two long signatures with the same prefix apart.
+    let mut h: u64 = 0xcbf2_9ce4_8422_2325;
+    for b in sig.bytes() {
+        h ^= b as u64;
+        h = h.wrapping_mul(0x0000_0100_0000_01b3);
+    }
+    format!("{trimmed}-{:04x}", h & 0xffff)
 }

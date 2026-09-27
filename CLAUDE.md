@@ -95,9 +95,17 @@ Do NOT skip to lower-priority items because they are easier.
    defines the `LabeledArrangement` interface and milestones M0–M8 (M0, M1,
    M2, M6, M7 and the Phase-6 migration are COMPLETE; the kernel is live in
    the app). As of 2026-09-22 (night) the **actionable ERROR tail of
-   `docs/yang_tail_triage.md` is EMPTY** — the seven remaining ERROR rows
+   `docs/yang_tail_triage.md` was EMPTY** — the seven C-series ERROR rows
    (C0046, C0107, C0108, C0109, C0111, C0113, C0118) are loud-by-design
-   walls, each its own design call; the historical families (Stage-4
+   walls, each its own design call. **Since 2026-09-27 the assay
+   prospector (`specs/assay_prospector.md`) grows the corpus**: its first
+   seed promoted P0001–P0003 (loud kernel STOPs on generic geometry — a
+   needle-star union, a star cut, a circle revolve-cut; ERROR-class pins
+   in `assay_kv2.rs`) and holds five more minimized signatures for
+   adjudication, so the ERROR tail is ACTIONABLE again — the P-series is
+   where the next kernel session starts (run `prospect_run` /
+   `prospect_minimize` for more; `docs/TESTING.md` §"Running the assay
+   prospector"); the historical families (Stage-4
    relocation walls `LocalRefinementRequired` / `OffCurveBeyondChordBand`,
    Stage-5/6 non-2-manifold reassembly, Stage-3 `AmbiguousCurve`, the
    thin-band chord-density CDT class, M8 coplanar Stage 0) have no corpus
@@ -112,8 +120,10 @@ Do NOT skip to lower-priority items because they are easier.
    artifact). Full recipe and env knobs (`ASSAY_JOBS`, `ASSAY_CASE_TIMEOUT_SECS`,
    `ASSAY_CASE=<id> single_case`): `docs/TESTING.md` §"Running the categorized
    assay". Quick form:
-   `ASSAY_JOBS=8 ASSAY_CASE_TIMEOUT_SECS=600 cargo test -p test-harness --test assay_kv2 --release full_corpus_categorized -- --ignored --nocapture`.
-   (Budget is ≥600s: the heaviest true-completing cases are the 20-op
+   `ASSAY_JOBS=8 ASSAY_CASE_TIMEOUT_SECS=900 cargo test -p test-harness --test assay_kv2 --release full_corpus_categorized -- --ignored --nocapture`.
+   (Budget is ≥900s on this box since 2026-09-27 — F0072 measured 740 s
+   CPU ALONE with two other jobs running, and 600 s clipped both it and
+   R0085 to spurious TIMEOUTs in an 8-job run; earlier: the heaviest true-completing cases are the 20-op
    chained-boolean stacks — F0072 ≈ 517 s at 8 jobs since its
    2026-09-22 conversion, F0085 ≈ 302s honest CORRECT since the I5-2
    flip (2026-08-19; §4.3.4 seam insert + §4.4.2 seam chain-merge

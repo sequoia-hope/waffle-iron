@@ -258,10 +258,16 @@ Manual, per signature, by the session that reviews the report:
 2. for SUPPORTED_WRONG, confirm with an independent reading (the lattice at
    two rungs, a hand calculation, or the sidecar) — the oracle invalidates
    in both directions;
-3. write `P00NN.waffle` + `P00NN.meta.json` with the meta's expectations
-   from the ORACLE (`expected_volume` from the lattice when converged,
+3. write `P00NN.waffle` + `P00NN.meta.json` (`prospect::promote::write_case`)
+   with the meta's expectations from the ORACLE: for a SUPPORTED_WRONG
+   finding, `expected_volume` from the lattice when converged,
    `euler_target` adjudicated by hand and `derived_meta` cleared,
-   `expected_solid_count` when the document says so);
+   `expected_solid_count` when the document says so. For an ERROR-class
+   finding the categorizer returns before any oracle runs, so the pin IS
+   the expectation: the meta keeps `derived_meta: true` and says so in
+   its description; the χ/volume adjudication happens when the kernel
+   converts the case (the conversion PR adjudicates and clears the flag,
+   the same way an UNSUPPORTED → CORRECT conversion moves a pin);
 4. add the manifest entry (`featured: true`, description = signature +
    lineage) and the category pin in `assay_kv2.rs`
    (`smoke_corpus_boundary_categories` for a wall; the pinned-adjudications
@@ -283,6 +289,25 @@ none minimized or adjudicated yet (P3):**
 | 1 | `boolean_subtract … "cone periodic strip (2 encircling rims) not yet supported (KV14 Slice E …)"` — a documented deferred sub-slice, loud | `convex3:boss star3(0.49):boss convex3:rev star5(0.13):cut …` |
 | 1 | `boolean_union … "yang-rs rejected the converted input B-Rep"` (second variant) | `star7(0.88):boss circle:solo star5(0.70):boss circle:boss gear10:boss gear15:∪` |
 | 1 | UNSUPPORTED(coplanar-boolean): `Auto-union failed: … coplanar input face pair` | `nonconvex5:sym gear25:sym gear17:sym convex3:∪` |
+
+Minimized forms (P3, `prospect_minimize`, ≤40 verdicts each; the
+minimizer keeps a reduction only if the signature is byte-identical):
+
+| signature | minimal recipe | promoted |
+|---|---|---|
+| ring rejected by CDT | `circle:boss star8(0.42):cut` (2 ops, already minimal) | **P0002** |
+| torus patch UV-CDT failed | `nonconvex9:boss circle:rev-cut` (6 → 2) | **P0003** |
+| subtract: reassembled non-2-manifold | `convex4:boss convex4:rev convex4:boss convex4:cut` (4 → 4, profiles simplified) | — |
+| union (auto): reassembled non-2-manifold | `convex4:boss convex4:rev gear10:sym circle:boss` (6 → 4) | — |
+| cone periodic strip (KV14 Slice E) | `convex4:boss convex4:rev convex4:cut convex4:cut` (8 → 4) | — (documented sub-slice) |
+| input face degenerate (zero-area / collinear) | `convex4:boss gear17:boss nonconvex9:boss convex4:boss` (7 → 4) | — |
+| Stage-# chart polygon of face # cr… (input rejected) | `convex4:boss convex4:boss circle:boss gear10:boss convex4:boss` (6 → 5) | — |
+| SelfIntersectingBooleanOutput (penetrations 4) | `circle:boss circle:boss nonconvex6:boss convex4:∪` (4 → 4) | — |
+
+The un-promoted five are packaged under `target/prospect/seed-1/findings/`
+(re-creatable from seed 1 with `prospect_run` + `prospect_minimize`); they
+are promoted when a session adjudicates them (§8 step 1–2) — the three
+promoted ones are the two 2-op minima plus the P0 finding.
 
 The FIRST promotion candidate exists already: the needle star (4 points,
 r_in = 2, r_out = 22) on the X plane unioned with an octagon prism on the Y
@@ -314,7 +339,7 @@ CPU budgets are honest but the box is not infinite).
 | **P0 ✅ (c23778b3)** | generative runners loud; chain executor sums every body; determinism = outcome equality | four runners green loud; the needle-star finding recorded |
 | **P1 ✅ (2026-09-27)** | `assay::categorize` lifted from `assay_kv2.rs`; `derived_meta`; `PROSPECT_CANDIDATE` subprocess entry; meta derivation from a document | **Met**: full corpus 312/312 verdict-identical (299 C + 4 EE + 7 E + 2 TIMEOUT at the 600 s budget under load; R0085 and F0072 re-run alone = SUPPORTED_CORRECT at 600 s / 740 s CPU); the needle-star document categorizes ERROR with the recorded signature (`tests/prospect.rs`) |
 | **P2 ✅ (2026-09-27)** | generator v3 (recipes, vocabulary of §4 minus snapping), the search loop, report, resume | **Met** on seed 1 × 40 candidates (three passes; two generator defects fixed on the way — booleans targeting a body a merging boss had consumed, and a ThroughAll placeholder depth read as the scale): 27 SUPPORTED_CORRECT, 12 ERROR in 8 kernel-side signatures, 1 UNSUPPORTED(coplanar-boolean); ≈4 min at 6 jobs. The smallest finding is TWO ops: `circle:boss star8(0.42):cut` ⇒ `boolean_subtract TessellationFailed "ring rejected by CDT (degenerate/self-intersecting)"` (X00000001-00020) |
-| **P3** | minimizer + signature dedupe + `findings/` packaging; promotion of the needle star as P0001 | P0001 in the corpus, pinned, score updated |
+| **P3 ✅ (2026-09-27)** | minimizer (`prospect::minimize`: truncate, drop, un-snap, simplify profile / op, round) + signature dedupe + `findings/<slug>/` packaging (`prospect_minimize`); promotion (`prospect::promote`, `prospect_promote`) | **Met**: the eight seed-1 signatures minimized in 10–31 verdicts each (8→4, 6→2, 7→4, 6→5, 6→4 steps; two were already 2 ops); **P0001** (needle star ∪ octagon), **P0002** (circle boss, 8-point star cut ⇒ "ring rejected by CDT"), **P0003** (non-convex 9-gon boss, circle revolve-cut ⇒ "torus patch UV-CDT failed") in the corpus, pinned ERROR in `assay_kv2.rs`; corpus 315 cases |
 | **P4** | degeneracy snapping | a snapped run's finding rate per candidate exceeds the generic run's (measured, recorded) |
 | **P5** | mutator over the corpus and user documents | ≥1 finding whose parent is CORRECT |
 | **P6** | metamorphic oracles | rigid-motion and scale pairs run on every CORRECT candidate; disagreements reported |

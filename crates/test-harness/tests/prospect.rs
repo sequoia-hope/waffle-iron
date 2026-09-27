@@ -114,8 +114,8 @@ use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 use test_harness::assay::prospect::{
-    self, gen3, judge_document, judge_generated, process_cpu_secs, signature, ReportLine,
-    OUTCOME_PREFIX,
+    self, gen3, judge_document, judge_generated, judge_recipe, minimize, process_cpu_secs, promote,
+    signature, signature_slug, ReportLine, OUTCOME_PREFIX,
 };
 
 fn env_u64(name: &str, default: u64) -> u64 {
@@ -140,7 +140,16 @@ fn out_dir(seed: u64) -> PathBuf {
 #[test]
 #[ignore = "verdict subprocess entry (spawned by prospect_run); not a test"]
 fn prospect_judge() {
-    let json = if let Ok(stem) = std::env::var("PROSPECT_CANDIDATE") {
+    let json = if let Ok(stem) = std::env::var("PROSPECT_RECIPE") {
+        match judge_recipe(Path::new(&stem)) {
+            Ok((o, build)) => serde_json::json!({
+                "category": o.category.label(),
+                "detail": o.detail,
+                "build_stopped_by": build.stopped_by,
+            }),
+            Err(e) => serde_json::json!({ "category": "ERROR", "detail": format!("recipe: {e}") }),
+        }
+    } else if let Ok(stem) = std::env::var("PROSPECT_CANDIDATE") {
         match judge_document(Path::new(&stem)) {
             Ok(o) => serde_json::json!({
                 "category": o.category.label(),
@@ -169,40 +178,36 @@ fn prospect_judge() {
     println!("{OUTCOME_PREFIX}{json}");
 }
 
-/// Spawn the verdict child for `(seed, index)` under a CPU budget.
-fn spawn_verdict(seed: u64, index: u64, out: &Path, budget: Duration) -> ReportLine {
+/// Run one verdict child with the given environment under a CPU budget.
+/// Returns (category, detail, extra json, cpu_secs) or the driver's own
+/// failure as an ERROR/TIMEOUT outcome.
+fn run_child(
+    envs: &[(&str, String)],
+    budget: Duration,
+) -> (String, String, serde_json::Value, f64) {
     use std::process::{Command, Stdio};
-    let id = gen3::candidate_id(seed, index);
-    let mut line = ReportLine {
-        id: id.clone(),
-        seed,
-        index,
-        category: "ERROR".into(),
-        signature: String::new(),
-        detail: String::new(),
-        summary: String::new(),
-        steps: 0,
-        scale: 0.0,
-        build_stopped_by: None,
-        cpu_secs: 0.0,
-    };
     let exe = std::env::current_exe().expect("current_exe");
     let wall_cap = Duration::from_secs_f64((budget.as_secs_f64() * 4.0).max(120.0));
-    let mut child = match Command::new(&exe)
-        .args(["--exact", "prospect_judge", "--ignored", "--nocapture"])
-        .env("PROSPECT_SEED", seed.to_string())
-        .env("PROSPECT_INDEX", index.to_string())
-        .env("PROSPECT_OUT", out)
+    let mut cmd = Command::new(&exe);
+    cmd.args(["--exact", "prospect_judge", "--ignored", "--nocapture"])
         .env_remove("PROSPECT_CANDIDATE")
+        .env_remove("PROSPECT_RECIPE")
+        .env_remove("PROSPECT_INDEX")
         .stdin(Stdio::null())
         .stdout(Stdio::piped())
-        .stderr(Stdio::null())
-        .spawn()
-    {
+        .stderr(Stdio::null());
+    for (k, v) in envs {
+        cmd.env(k, v);
+    }
+    let mut child = match cmd.spawn() {
         Ok(c) => c,
         Err(e) => {
-            line.detail = format!("driver: cannot spawn: {e}");
-            return line;
+            return (
+                "ERROR".into(),
+                format!("driver: cannot spawn: {e}"),
+                serde_json::Value::Null,
+                0.0,
+            )
         }
     };
     let mut stdout = child.stdout.take().expect("piped stdout");
@@ -221,8 +226,12 @@ fn spawn_verdict(seed: u64, index: u64, out: &Path, budget: Duration) -> ReportL
             Ok(Some(_)) => break,
             Ok(None) => {}
             Err(e) => {
-                line.detail = format!("driver: wait failed: {e}");
-                return line;
+                return (
+                    "ERROR".into(),
+                    format!("driver: wait failed: {e}"),
+                    serde_json::Value::Null,
+                    last_cpu,
+                )
             }
         }
         if let Some(cpu) = process_cpu_secs(pid) {
@@ -241,45 +250,91 @@ fn spawn_verdict(seed: u64, index: u64, out: &Path, budget: Duration) -> ReportL
         }
         std::thread::sleep(Duration::from_millis(50));
     }
-    line.cpu_secs = last_cpu;
     let output = reader.join().unwrap_or_default();
     if timed_out {
-        line.category = "TIMEOUT".into();
-        line.detail = format!("cpu {last_cpu:.1}s > budget {:.0}s", budget.as_secs_f64());
-        line.signature = "timeout".into();
-        return line;
+        return (
+            "TIMEOUT".into(),
+            format!("cpu {last_cpu:.1}s > budget {:.0}s", budget.as_secs_f64()),
+            serde_json::Value::Null,
+            last_cpu,
+        );
     }
     let Some(json_line) = output.lines().find_map(|l| l.strip_prefix(OUTCOME_PREFIX)) else {
-        line.detail = format!(
-            "driver: child printed no outcome (panic/abort?); tail: {}",
-            output
-                .chars()
-                .rev()
-                .take(300)
-                .collect::<String>()
-                .chars()
-                .rev()
-                .collect::<String>()
+        let tail: String = output
+            .chars()
+            .rev()
+            .take(300)
+            .collect::<String>()
+            .chars()
+            .rev()
+            .collect();
+        return (
+            "ERROR".into(),
+            format!("driver: child printed no outcome (panic/abort?); tail: {tail}"),
+            serde_json::json!({ "panic": true }),
+            last_cpu,
         );
-        line.signature = "panic".into();
-        return line;
     };
-    let v: serde_json::Value = match serde_json::from_str(json_line) {
-        Ok(v) => v,
-        Err(e) => {
-            line.detail = format!("driver: bad outcome json: {e}");
-            return line;
-        }
+    match serde_json::from_str::<serde_json::Value>(json_line) {
+        Ok(v) => (
+            v["category"].as_str().unwrap_or("ERROR").to_string(),
+            v["detail"].as_str().unwrap_or("").to_string(),
+            v,
+            last_cpu,
+        ),
+        Err(e) => (
+            "ERROR".into(),
+            format!("driver: bad outcome json: {e}"),
+            serde_json::Value::Null,
+            last_cpu,
+        ),
+    }
+}
+
+fn signature_of(category: &str, detail: &str, extra: &serde_json::Value) -> String {
+    if category == "TIMEOUT" {
+        return "timeout".into();
+    }
+    if extra.get("panic").is_some() {
+        return "panic".into();
+    }
+    let cat = test_harness::assay::categorize::Category::from_label(category)
+        .unwrap_or(test_harness::assay::categorize::Category::Error);
+    signature(&cat, detail)
+}
+
+/// Spawn the verdict child for `(seed, index)` under a CPU budget.
+fn spawn_verdict(seed: u64, index: u64, out: &Path, budget: Duration) -> ReportLine {
+    let id = gen3::candidate_id(seed, index);
+    let mut line = ReportLine {
+        id: id.clone(),
+        seed,
+        index,
+        category: "ERROR".into(),
+        signature: String::new(),
+        detail: String::new(),
+        summary: String::new(),
+        steps: 0,
+        scale: 0.0,
+        build_stopped_by: None,
+        cpu_secs: 0.0,
     };
-    line.category = v["category"].as_str().unwrap_or("ERROR").to_string();
-    line.detail = v["detail"].as_str().unwrap_or("").to_string();
+    let (category, detail, v, cpu) = run_child(
+        &[
+            ("PROSPECT_SEED", seed.to_string()),
+            ("PROSPECT_INDEX", index.to_string()),
+            ("PROSPECT_OUT", out.display().to_string()),
+        ],
+        budget,
+    );
+    line.cpu_secs = cpu;
+    line.signature = signature_of(&category, &detail, &v);
+    line.category = category;
+    line.detail = detail;
     line.summary = v["summary"].as_str().unwrap_or("").to_string();
     line.steps = v["steps"].as_u64().unwrap_or(0) as usize;
     line.scale = v["scale"].as_f64().unwrap_or(0.0);
     line.build_stopped_by = v["build_stopped_by"].as_str().map(str::to_string);
-    let cat = test_harness::assay::categorize::Category::from_label(&line.category)
-        .unwrap_or(test_harness::assay::categorize::Category::Error);
-    line.signature = signature(&cat, &line.detail);
     line
 }
 
@@ -390,4 +445,179 @@ fn prospect_run() {
         );
     }
     let _ = prospect::PROSPECT_META_VERSION;
+}
+
+/// Judge a recipe through the child: write it to `<stem>.recipe.json`,
+/// run, return the signature.
+fn judge_recipe_via_child(recipe: &gen3::Recipe, stem: &Path, budget: Duration) -> Option<String> {
+    std::fs::write(
+        stem.with_extension("recipe.json"),
+        serde_json::to_string_pretty(recipe).ok()?,
+    )
+    .ok()?;
+    let (category, detail, v, _) =
+        run_child(&[("PROSPECT_RECIPE", stem.display().to_string())], budget);
+    Some(signature_of(&category, &detail, &v))
+}
+
+/// P3: minimize every finding of a report (one per signature, the example
+/// with the fewest steps), write `findings/<slug>/` with the minimal
+/// recipe, its document and meta, and a README. Env: `PROSPECT_SEED` /
+/// `PROSPECT_OUT` (which report), `PROSPECT_BUDGET_SECS` (per verdict),
+/// `PROSPECT_MIN_STEPS` (verdicts per finding, default 60).
+#[test]
+#[ignore = "the prospector minimizer (long, release); run by hand after prospect_run — spec §7"]
+fn prospect_minimize() {
+    let seed = env_u64("PROSPECT_SEED", 1);
+    let budget = Duration::from_secs(env_u64("PROSPECT_BUDGET_SECS", 600));
+    let min_steps = env_u64("PROSPECT_MIN_STEPS", 60) as usize;
+    let out = out_dir(seed);
+    let report_path = out.join("report.jsonl");
+    let lines: Vec<ReportLine> = std::fs::read_to_string(&report_path)
+        .expect("report.jsonl — run prospect_run first")
+        .lines()
+        .filter_map(|l| serde_json::from_str(l).ok())
+        .collect();
+    let mut by_sig: std::collections::BTreeMap<String, Vec<&ReportLine>> = Default::default();
+    for l in &lines {
+        let interesting =
+            !(l.category == "SUPPORTED_CORRECT" || l.category.starts_with("UNSUPPORTED"));
+        if interesting {
+            by_sig.entry(l.signature.clone()).or_default().push(l);
+        }
+    }
+    eprintln!(
+        "[minimize] {} signature(s) in {}",
+        by_sig.len(),
+        report_path.display()
+    );
+    for (sig, ls) in &by_sig {
+        let example = ls.iter().min_by_key(|l| l.steps).unwrap();
+        let lineage_path = out
+            .join("candidates")
+            .join(format!("{}.lineage.json", example.id));
+        let Ok(lineage) = std::fs::read_to_string(&lineage_path) else {
+            eprintln!("[minimize] {sig}: no lineage for {} — skipped", example.id);
+            continue;
+        };
+        let lineage: serde_json::Value = serde_json::from_str(&lineage).unwrap();
+        let Ok(recipe) = serde_json::from_value::<gen3::Recipe>(lineage["recipe"].clone()) else {
+            eprintln!("[minimize] {sig}: {} has no recipe — skipped", example.id);
+            continue;
+        };
+        let dir = out.join("findings").join(signature_slug(sig));
+        std::fs::create_dir_all(&dir).unwrap();
+        let work = dir.join("work");
+        std::fs::create_dir_all(&work).unwrap();
+        let mut n = 0usize;
+        let mut judge = |r: &gen3::Recipe| -> Option<String> {
+            n += 1;
+            let stem = work.join(format!("try{n:03}"));
+            let s = judge_recipe_via_child(r, &stem, budget);
+            eprintln!(
+                "[minimize]   {} try{n:03} ({} steps) → {}",
+                example.id,
+                r.steps.len(),
+                s.as_deref().unwrap_or("?")
+            );
+            s
+        };
+        let (min, rep) = minimize::minimize(&recipe, sig, &mut judge, min_steps);
+        // Materialize the minimal recipe as the finding's document.
+        let stem = dir.join(format!("{}-min", example.id));
+        let final_sig = judge_recipe_via_child(&min, &stem, budget);
+        let readme = format!(
+            "# {sig}\n\nseed {} index {} ({}) — {} example(s) in the report\n\n\
+             steps {} → {} after {} verdict(s){}\n\nkept reductions:\n{}\n\n\
+             minimal recipe: `{}`\nfinal signature: {}\n\nsummary: {}\n",
+            example.seed,
+            example.index,
+            example.id,
+            ls.len(),
+            rep.steps_before,
+            rep.steps_after,
+            rep.verdicts_used,
+            if rep.budget_exhausted {
+                " (budget exhausted)"
+            } else {
+                ""
+            },
+            rep.kept
+                .iter()
+                .map(|k| format!("- {k}"))
+                .collect::<Vec<_>>()
+                .join("\n"),
+            min.summary(),
+            final_sig.as_deref().unwrap_or("?"),
+            example.detail,
+        );
+        std::fs::write(dir.join("README.md"), readme).unwrap();
+        eprintln!(
+            "[minimize] {sig}\n           {} steps → {} ({} verdicts): {}",
+            rep.steps_before,
+            rep.steps_after,
+            rep.verdicts_used,
+            min.summary()
+        );
+    }
+}
+
+// ── Promotion (spec §8) ──────────────────────────────────────────────────
+
+fn corpus_dir() -> PathBuf {
+    Path::new(env!("CARGO_MANIFEST_DIR")).join("../../app/tests/cases/assay")
+}
+
+/// Promote a document on disk (`PROSPECT_FROM=<stem>` with `.waffle` +
+/// `.meta.json`, e.g. a `findings/<slug>/<id>.min` stem) into the corpus as
+/// the next `P` case, with `PROSPECT_DESCRIPTION`. The category pin in
+/// `assay_kv2.rs` and the results.json refresh are the caller's next steps.
+#[test]
+#[ignore = "corpus promotion (writes app/tests/cases/assay); run by hand — spec §8"]
+fn prospect_promote() {
+    let stem = PathBuf::from(std::env::var("PROSPECT_FROM").expect("PROSPECT_FROM=<stem>"));
+    let description = std::env::var("PROSPECT_DESCRIPTION").expect("PROSPECT_DESCRIPTION");
+    let waffle = std::fs::read_to_string(stem.with_extension("waffle")).expect("waffle");
+    let meta: test_harness::assay::gen::AssayMeta = serde_json::from_str(
+        &std::fs::read_to_string(stem.with_extension("meta.json")).expect("meta"),
+    )
+    .expect("meta json");
+    let corpus = corpus_dir();
+    let id = promote::next_p_id(&corpus).unwrap();
+    // Re-judge first: a promotion records a verdict the promoter has seen.
+    let outcome = categorize(&id, &waffle, &meta);
+    promote::write_case(&corpus, &id, &waffle, &meta, &description).unwrap();
+    eprintln!(
+        "[promote] {id} ← {} : {} — {}",
+        stem.display(),
+        outcome.category.label(),
+        outcome.detail
+    );
+}
+
+/// Promote the needle star (the first loud generative finding, spec §8) as
+/// a `P` case from the acceptance document.
+#[test]
+#[ignore = "corpus promotion (writes app/tests/cases/assay); run by hand — spec §8"]
+fn prospect_promote_needle_star() {
+    let waffle = needle_star_document();
+    let doc: serde_json::Value = serde_json::from_str(&waffle).unwrap();
+    let corpus = corpus_dir();
+    let id = promote::next_p_id(&corpus).unwrap();
+    let meta = derive_meta(&id, &doc).unwrap();
+    let outcome = categorize(&id, &waffle, &meta);
+    assert_eq!(outcome.category, Category::Error, "{}", outcome.detail);
+    promote::write_case(
+        &corpus,
+        &id,
+        &waffle,
+        &meta,
+        "3 ops, scale=3.28e1, extrude(polygon,boss)+extrude(polygon,boss)+boolean-union — \
+         prospector P0: octagon prism (Y plane) ∪ 4-point needle star r_in=2 r_out=22 (X plane) \
+         ⇒ boolean_union TessellationFailed \"planar triangle collapsed at render precision\" \
+         (found by the first loud generative_chain run, 2026-09-27; ERROR-class pin, \
+         derived_meta: expectations unadjudicated until conversion)",
+    )
+    .unwrap();
+    eprintln!("[promote] {id} ← needle star: {}", outcome.detail);
 }
