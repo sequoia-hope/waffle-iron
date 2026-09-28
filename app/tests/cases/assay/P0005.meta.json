@@ -1,6 +1,6 @@
 {
   "id": "P0005",
-  "description": "4 ops, extrude(polygon,boss)+revolve(polygon,boss)+extrude(gear,symmetric)+extrude(circle,boss) — prospector seed 1 index 19, minimized 6→4: square boss, 300° square revolve (a cone face), 10-tooth gear symmetric boss on an oblique plane, circle boss ⇒ auto-union boolean_union BooleanFailed \"reassembled output would be non-2-manifold\"; site (NONMANIFOLD_SITE_PROBE) s4-halfedge-pairing: a doubled directed edge fwd=2 rev=0 between A's cone face 4 and B's plane 114 (a Stage-4 membrane). ×1e-3 identical; ×1e3 ⇒ LocalRefinementRequired. (2026-09-28; ERROR-class pin, derived_meta: expectations unadjudicated until conversion)",
+  "description": "4 ops, extrude(polygon,boss)+revolve(polygon,boss)+extrude(gear,symmetric)+extrude(circle,boss) — prospector seed 1 index 19, minimized 6→4: square boss, 300° square revolve (a cone face) as a NewBody, 10-tooth gear symmetric boss on an oblique plane, circle boss. Was auto-union boolean_union BooleanFailed \"reassembled output would be non-2-manifold\" (2026-09-28, ERROR-class pin; site s4-halfedge-pairing: edge fwd=2 rev=0 between A's cone face 4 and B's plane 114). CONVERTED 2026-09-28 (night), spec yang_n2_stage4_cdt_mesh_updating.md §5c.15: A's cone chart carries two rim mints 3.045e-3 apart (the flank plane's rim crossing and a neighbouring face's), each with its seeded generator — a 3e-3 × 424 sliver quad whose generator and diagonal the flank plane crosses 2.67e-7 apart; the §4.4.1(a) simple arm split the neighbour at that point and wound the needle half GEOMETRICALLY (orient_tri against the parent's normal), inverting it — the halves now inherit the parent's winding combinatorially (split_tri_at_edge). Topology adjudicated by the Cherchi sidecar reference (assay_topology_oracle adjudicate_case, TOPO_SIDECAR=1): the chained union is ONE closed manifold shell with χ = 0 (genus 1 — the ring, the gear and the circle boss overlap pairwise around a tunnel), and the kernel's main body reads χ = 0 on one shell; the lattice ladders (composed and exact-membership) are UNSTABLE here (grazing operands), so they are not the verdict. Two live bodies by the engine's merge rule (a merge targets the most recent feature's bodies): the first square boss (2·200²·80 = 6.4e6 exactly) never merges. expected_volume = 6.4e6 + the main body's exact-membership readout at 1024 cells (2.6016e9; ladder 128/256/512: 2.6016/2.6010/2.6020e9), tol covers the ladder spread and the kernel's cone/cylinder chord deficit at the assay's tessellation tolerance.",
   "master_seed": 0,
   "test_seed": 0,
   "scale": 900.0,
@@ -46,13 +46,17 @@
     }
   ],
   "oracles": {
-    "euler_target": 2,
+    "euler_target": 0,
     "expect_watertight": true,
     "max_bbox_extent": 90000.0,
     "expect_positive_volume": true,
     "volume_monotonicity": [],
     "expect_rebuild_error": false,
-    "derived_meta": true
+    "derived_meta": false,
+    "expected_shell_count": 1,
+    "expected_solid_count": 2,
+    "expected_volume": 2608000000.0,
+    "expected_volume_tol_rel": 0.002
   },
   "generator_version": 100,
   "featured": true

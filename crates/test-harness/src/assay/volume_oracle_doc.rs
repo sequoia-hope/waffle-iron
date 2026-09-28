@@ -54,6 +54,38 @@ fn features(waffle: &serde_json::Value) -> Option<&Vec<serde_json::Value>> {
         .as_array()
 }
 
+/// The Sketch FEATURE an operation's `sketch_id` names — resolved the way
+/// `feature_engine::rebuild` resolves it (`find_sketch_in_tree` matches the
+/// FEATURE id), with the inner `sketch.id` as the fallback. The engine-authored
+/// corpus mints the two ids equal, so keying by the inner id alone coincided
+/// there; the prospector's gen3 documents (P-series) mint them apart, and the
+/// inner-id lookup read every one as "operand build failed" — the composition
+/// oracle silently NotCovered and the topology instrument unable to isolate
+/// operand 0 (2026-09-28, P0005's meta adjudication; the same trap the
+/// exact-membership reader had, fixed 2026-09-28 for P0004).
+fn sketch_feature<'a>(
+    feats: &'a [serde_json::Value],
+    sketch_id: &str,
+) -> Option<&'a serde_json::Value> {
+    let is_sketch = |f: &serde_json::Value| {
+        f.get("operation").and_then(|o| o.get("type")) == Some(&"Sketch".into())
+    };
+    feats
+        .iter()
+        .find(|f| {
+            is_sketch(f) && f.get("id").and_then(serde_json::Value::as_str) == Some(sketch_id)
+        })
+        .or_else(|| {
+            feats.iter().find(|f| {
+                f.get("operation")
+                    .and_then(|o| o.get("sketch"))
+                    .and_then(|s| s.get("id"))
+                    .and_then(serde_json::Value::as_str)
+                    == Some(sketch_id)
+            })
+        })
+}
+
 /// Build a single-feature document: operation `k` plus **only** the sketch it
 /// references, taken verbatim from the case's own `.waffle`.
 ///
@@ -61,6 +93,25 @@ fn features(waffle: &serde_json::Value) -> Option<&Vec<serde_json::Value>> {
 /// datum-anchored (a face-anchored plane cannot be isolated), or when the
 /// document shape is not the one the corpus emits.
 pub fn isolate_operation(waffle: &serde_json::Value, k: usize) -> Option<String> {
+    isolate_operation_inner(waffle, k, false)
+}
+
+/// [`isolate_operation`] for the TOPOLOGY instrument: a `merge: false`
+/// (NewBody) op is still an operand solid of the set union of the live
+/// bodies — the kernel's later auto-unions merge it into whatever they touch
+/// (P0005: the revolve is a NewBody the gear then unions with), and the
+/// output side is read as the concatenation of ALL live bodies. The
+/// composition (volume) oracle keeps refusing NewBody ops, because its
+/// expectation is a single composed solid.
+pub fn isolate_operation_any_body(waffle: &serde_json::Value, k: usize) -> Option<String> {
+    isolate_operation_inner(waffle, k, true)
+}
+
+fn isolate_operation_inner(
+    waffle: &serde_json::Value,
+    k: usize,
+    allow_new_body: bool,
+) -> Option<String> {
     let feats = features(waffle)?;
 
     // Ops in feature order (everything that is not a Sketch).
@@ -79,7 +130,7 @@ pub fn isolate_operation(waffle: &serde_json::Value, k: usize) -> Option<String>
     // `merge: false` is a NewBody op: the ops do NOT compose into one solid, so
     // "union of the operands" is the wrong expectation (measured 2026-08-08:
     // C0082/C0083 flagged at rel 0.46/0.54 purely because of this).
-    if params.get("merge").and_then(serde_json::Value::as_bool) == Some(false) {
+    if !allow_new_body && params.get("merge").and_then(serde_json::Value::as_bool) == Some(false) {
         return None;
     }
     let sketch_id = params.get("sketch_id")?.as_str()?;
@@ -90,13 +141,7 @@ pub fn isolate_operation(waffle: &serde_json::Value, k: usize) -> Option<String>
     if !sketch_is_datum_anchored(feats, sketch_id) {
         return None;
     }
-    let sketch = feats.iter().find(|f| {
-        f.get("operation")
-            .and_then(|o| o.get("sketch"))
-            .and_then(|s| s.get("id"))
-            .and_then(serde_json::Value::as_str)
-            == Some(sketch_id)
-    })?;
+    let sketch = sketch_feature(feats, sketch_id)?;
 
     let mut doc = waffle.clone();
     // The sketch is taken VERBATIM — including its `plane` record and the
@@ -117,10 +162,8 @@ pub fn isolate_operation(waffle: &serde_json::Value, k: usize) -> Option<String>
 /// Does this sketch's plane resolve against a DATUM (context-free, so the
 /// sketch can be isolated) rather than a previous feature's face?
 pub fn sketch_is_datum_anchored(feats: &[serde_json::Value], sketch_id: &str) -> bool {
-    feats
-        .iter()
-        .filter_map(|f| f.get("operation")?.get("sketch"))
-        .find(|s| s.get("id").and_then(serde_json::Value::as_str) == Some(sketch_id))
+    sketch_feature(feats, sketch_id)
+        .and_then(|f| f.get("operation")?.get("sketch"))
         .and_then(|s| s.get("plane")?.get("anchor")?.get("type")?.as_str())
         .is_some_and(|t| t == "Datum")
 }
@@ -144,9 +187,18 @@ pub fn sketch_ids(waffle: &serde_json::Value) -> Option<Vec<String>> {
 
 /// Build one operand solid and scan it.
 pub fn operand_scan(waffle: &serde_json::Value, k: usize, tol: f64) -> Option<SolidScan> {
-    let json = isolate_operation(waffle, k)?;
+    scan_isolated(&isolate_operation(waffle, k)?, tol)
+}
+
+/// [`operand_scan`] through [`isolate_operation_any_body`] (the topology
+/// instrument's operand set includes NewBody ops).
+pub fn operand_scan_any_body(waffle: &serde_json::Value, k: usize, tol: f64) -> Option<SolidScan> {
+    scan_isolated(&isolate_operation_any_body(waffle, k)?, tol)
+}
+
+fn scan_isolated(json: &str, tol: f64) -> Option<SolidScan> {
     let mut b = ModelBuilder::kernel_v2();
-    if b.load(&json).is_err() || !b.engine_errors().is_empty() {
+    if b.load(json).is_err() || !b.engine_errors().is_empty() {
         return None;
     }
     let mesh = b.tessellate_last_with_tol(tol).ok()?;

@@ -54,6 +54,7 @@ mod s433_generator_stage0;
 mod s433_tangent_relocation;
 mod s434_chain_decimate;
 mod s434_output_restore;
+mod s441a_split_winding;
 mod s451_crease_domain;
 mod s452_chord_refine;
 mod s452_under_resolution_ladder;

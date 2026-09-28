@@ -966,6 +966,93 @@ genuine yang-side incidence residual, not a scale artifact of the check
 (at scale 1 the same relative residual would fail by three orders). Next
 wall, its own anchor. C0058 stays loud (ratio 5.9e-16, unchanged wall).
 
+### 5c.15 The §4.4.1(a) split wound its halves GEOMETRICALLY — a needle half inverted; the halves now inherit the parent's winding combinatorially (2026-09-28 (night), P0005 anchor)
+
+**Anchor (P0005, prospector seed-1 index 19 minimized: `convex4:boss
+convex4:rev(300°) gear10:sym circle:boss`, auto-union STOP `s4-halfedge-pairing`
+edge fwd=2 rev=0).** The whole chain was probed, no step eye-balled:
+
+1. `NONMANIFOLD_SITE_PROBE=1`: the unbalanced edges are (328,539) and
+   (539,563) — three vertices on A's cone face 4 at the flank plane 114's
+   crossing of the diamond's z=500 rim; 539 and 563 are **2.67e-7 apart**.
+2. `YANG_V_PROBE_NEAR`: 329 is a MINTED rim junction (M), 328 its 1e-13
+   arrangement twin (merged by §4.4.1(b), victim 329); 539/563 are hyperbola
+   endpoints that Stage 4 never moved, and by direct residual they sit on the
+   exact cone AND the exact plane to 1.7e-13 — born from on-cone mesh
+   elements, not relocation. The off-knobs of every Stage-0/1/3 insert
+   mechanism (`YANG_434_INSERT`, `YANG_433_TANGENT_INSERT`,
+   `YANG_EDGE_IN_PLANE`, `YANG_S0_SUBRES_FUSE`, `YANG_S1_CHART_*`, …) leave
+   the site byte-identical.
+3. `YANG_STAGE0_DUMP_DIR`: A's input tessellation has TWO rim vertices
+   3.045e-3 apart at the rim — the flank plane's mint (vertex 114, on plane
+   114 exactly) and a neighbouring face's rim crossing (vertex 113, 2.8e-3
+   below the plane) — and each carries its seeded generator down to the
+   z=200 ring (feet 4.9e-3 apart). The chart therefore holds a
+   **3e-3 × 424 sliver quad**; the flank plane crosses its generator edge at
+   539 and its diagonal at 563, 0.0087 below the rim, 2.67e-7 apart. All
+   legitimate geometry: a rim passing 3e-3 from a partner edge is a feature
+   three decades above `MIN_FEATURE_SIZE`.
+4. `YANG_MESH_DUMP=1` checkpoint diff: the site is unchanged from
+   `s4-entry` through `before-3d`; between `before-3d` and `before-validate`
+   the pair (328,563,562)+(539,562,563) becomes (562,328,539)+(539,563,328)
+   — both presenting 328→539. `YANG_LRR_PROBE`: `simple d=550 n=545 a=562
+   c=563 b=539 … h_over_l=9.1e-10` — the §4.4.1(a) simple arm dropped
+   D=(539,562,563) (collinear by the 1e-9 identity) and split N=(328,563,562)
+   at 539 on edge (562,563).
+
+**Defect.** Both §4.4.1(a) arms (the simple arm and
+`resolve_mutual_degenerate_pair`) built the halves `[a,b,d]`/`[b,c,d]` and
+then wound each by `orient_tri` against the PARENT's area normal. The half
+(539,563,328) is itself a needle — its inserted point 2.67e-7 from `c` on a
+0.0087 edge — whose area normal is numerical noise against N's, so the proxy
+inverted it: a fold the §4.4.3 gate stops on. Yang Fig. 11(a) "split it at
+q" is a topological operation; the winding of a split half is not a
+geometric question.
+
+**Fix (`stage4_correct::split_tri_at_edge`).** Insert `b` into the parent's
+own cyclic vertex order between `a` and `c`, whichever direction that edge
+runs in the parent. Every parent directed edge other than the split one
+survives verbatim, the split edge becomes the two-segment chain in the same
+direction, and the halves pair each other across `b–d` — watertight by
+construction, no geometry consulted. Both arms use it. Pin
+`tests_unit/s441a_split_winding.rs`: all six parent rotations/windings, and
+the P0005 needle at its measured coordinates with the MUTATION CHECK that
+the retired proxy inverts it on that input.
+
+**Adjudication (the meta).** The kernel's P0005 output is one shell with
+χ = 0; the Cherchi sidecar reference (`assay_topology_oracle
+adjudicate_case`, `TOPO_SIDECAR=1`, chained union of the four operand
+tessellations) is one closed manifold shell with χ = 0 — **genus 1**: the
+revolve ring, the gear and the circle boss overlap pairwise around a
+tunnel. Both lattice ladders (composed operands and exact membership) are
+UNSTABLE on this model at every rung and phase (χ −6…+18) — grazing
+operands, the R0053 lesson — so they are not the verdict. Two live bodies
+by the engine's merge rule (a merge targets the most recent feature's
+bodies; the first square boss never merges). `euler_target 0`,
+`expected_shell_count 1`, `expected_solid_count 2`, volume = 6.4e6 (exact)
++ 2.6016e9 (1024-cell readout), tol 2e-3 = the ladder spread plus the
+kernel's cone/cylinder chord deficit (0.08 % at the oracle tolerance).
+
+**Harness repair on the way.** `volume_oracle_doc::isolate_operation` and
+`sketch_is_datum_anchored` keyed sketches by the INNER `sketch.id`; the
+engine resolves `params.sketch_id` by the Sketch FEATURE id
+(`rebuild.rs` `find_sketch_in_tree`). Engine-authored documents mint them
+equal; prospector documents don't — so the composition oracle read every
+P-series case NotCovered ("operand build failed") and the topology
+instrument could not isolate operand 0. Now keyed by feature id with the
+inner id as fallback (`sketch_feature`), the same repair the
+exact-membership reader received for P0004. `isolate_operation_any_body` /
+`operand_scan_any_body` let the topology instrument include a NewBody op
+in the operand set (P0005's revolve is `merge: false`).
+
+**The un-minimized seed-1 index-19 lineage still STOPs — at a DIFFERENT
+site**: `s4-halfedge-pairing` fwd=2 **rev=1**, a three-valent edge on the
+slender pentagon-revolve cone (A face 5, two cone triangles and one A-plane
+385 triangle) between a Line×Ellipse exact junction and an Ellipse×Ellipse
+same-type junction. Not this fix's customer; a new signature for the
+prospector to re-minimize (the number-stripped signature string does not
+separate it from P0005's).
+
 ## 7. Open questions for the reviewer
 
 1. OK to add the new cherchi-rs CDT entry point (interior constraints + Steiner)

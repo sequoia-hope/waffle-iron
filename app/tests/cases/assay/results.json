@@ -1,8 +1,8 @@
 {
-  "errored": 10,
+  "errored": 9,
   "failed": 0,
   "generated": "kernel-v2 (assay_kv2 categorized run)",
-  "passed": 305,
+  "passed": 306,
   "results": [
     {
       "category": "SUPPORTED_CORRECT",
@@ -1901,10 +1901,10 @@
       "status": "pass"
     },
     {
-      "category": "ERROR",
-      "detail": "1 auto-union failure(s): Extrude: Auto-union failed: kernel error: boolean operation failed: kernel-v2 boolean_union failed: BooleanFailed(\"yang-rs: reassembled output would be non-2-manifold\"). Body created as standalone.",
+      "category": "SUPPORTED_CORRECT",
+      "detail": "all checks passed",
       "id": "P0005",
-      "status": "error"
+      "status": "pass"
     },
     {
       "category": "ERROR",

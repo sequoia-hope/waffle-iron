@@ -43,6 +43,55 @@ after the reconciliation run (release, 8 jobs, 360 s; wall 577 s, F0085
 regression since 2026-08-01 is outstanding (checked over every commit of
 `results.json`).
 
+## 2026-09-28 (late night) — P0005 CONVERTS: the §4.4.1(a) edge split wound its halves GEOMETRICALLY and inverted a needle half; the halves now inherit the parent's winding combinatorially; canonical **306C / 0W / 9E / 4EE / 0T + 0 UNSUPPORTED** (release, 8 jobs, 900 s; wall 923.3 s; R0085 575.1 s, F0072 530.9 s, F0085 364.8 s; exactly one category move — P0005 — and zero detail moves)
+
+**Anchored** (`NONMANIFOLD_SITE_PROBE`, `YANG_V_PROBE_NEAR` + direct
+residuals, `YANG_STAGE0_DUMP_DIR`, `YANG_MESH_DUMP=1` checkpoint diff,
+`YANG_LRR_PROBE`; full chain in spec
+`yang_n2_stage4_cdt_mesh_updating.md` §5c.15): the doubled directed edges
+(328,539),(539,563) sit on A's cone face 4 where B's flank plane 114
+crosses the diamond's z = 500 rim; 539 and 563 are 2.67e-7 apart, UNMOVED
+by Stage 4 and exact on the cone AND the plane to 1.7e-13 — minted
+upstream, not by relocation, and every Stage-0/1/3 insert off-knob leaves
+the site byte-identical. A's input tessellation carries TWO rim mints
+3.045e-3 apart (the flank plane's rim crossing and a neighbouring face's),
+each with its seeded generator down to the z = 200 ring: a **3e-3 × 424
+sliver quad** whose generator the plane crosses at 539 and whose diagonal
+it crosses at 563. Legitimate geometry, three decades above
+`MIN_FEATURE_SIZE`. Between `before-3d` and `before-validate` the
+§4.4.1(a) simple arm dropped D = (539,562,563) (collinear by the 1e-9
+identity, `h_over_l = 9.1e-10`) and split N = (328,563,562) at 539 on edge
+(562,563); the half (539,563,328) is itself a needle (its inserted point
+2.67e-7 from `c` on a 0.0087 edge) whose area normal is noise against
+N's, and `orient_tri` inverted it — the fold the §4.4.3 gate stopped on.
+**Fix** (`stage4_correct::split_tri_at_edge`): Yang Fig. 11(a) "split it
+at q" is a topological operation — insert `b` into the parent's own
+cyclic order between `a` and `c`; every other parent directed edge survives
+verbatim, the split edge becomes the two-segment chain in the same
+direction, the halves pair across `b–d`, watertight by construction with no
+geometry consulted. Both arms (simple + `resolve_mutual_degenerate_pair`)
+use it. **Pins:** `yang-rs tests_unit/s441a_split_winding.rs` (all six
+parent rotations/windings; the P0005 needle at its measured coordinates
+with the MUTATION CHECK that the retired proxy inverts it), smoke pin
+`P0005 → SupportedCorrect`, meta adjudicated by the **Cherchi sidecar
+reference** (`assay_topology_oracle adjudicate_case`, `TOPO_SIDECAR=1`):
+one closed manifold shell, χ 0 — genus 1 (ring, gear and circle boss
+overlap pairwise around a tunnel), matching the kernel's main body; both
+lattice ladders are UNSTABLE on this grazing model (χ −6…+18 across rungs)
+and are not the verdict. Two live bodies by the engine's merge rule (the
+first boss never merges); volume = 6.4e6 exact + 2.6016e9 readout, tol
+2e-3. **Harness repair on the way:** `volume_oracle_doc` keyed sketches by
+the INNER sketch id — every prospector document read NotCovered by the
+composition oracle and "operand 0 failed to build" in the topology
+instrument; now keyed by the Sketch FEATURE id (as `rebuild.rs`), and
+`isolate_operation_any_body` admits NewBody operands. **New signature, not
+a customer of this fix:** the un-minimized seed-1 index 19 lineage STOPs
+at a DIFFERENT site — `s4-halfedge-pairing` fwd=2 **rev=1**, a
+three-valent edge on the slender pentagon-revolve cone between a
+Line×Ellipse and an Ellipse×Ellipse junction; re-minimize it (the
+number-stripped signature string does not separate it from P0005's).
+Open P-series tail: P0006, P0007.
+
 ## 2026-09-28 (night) — P0004 CONVERTS: the Stage-4 conic × plane-pair corner joins the triple block's candidates; canonical **305C / 0W / 10E / 4EE / 0T + 0 UNSUPPORTED** (release, 8 jobs, 900 s; wall 926.6 s; F0072 534.2 s, F0085 370.7 s; exactly one category move — P0004 — and zero detail moves)
 
 **Anchored** (`NONMANIFOLD_SITE_PROBE`, `YANG_S6_NONPLANAR_PROBE`,
@@ -89,7 +138,7 @@ judged at ×1e-3 and ×1e3 (a rescaled `.recipe.json` through
 | id | minimal recipe | STOP | site / scale behaviour |
 |---|---|---|---|
 | ~~**P0004**~~ | `convex4:boss convex4:rev(293°, oblique axis) convex4:boss convex4:cut` | ~~`boolean_subtract` "reassembled output would be non-2-manifold"~~ | ~~`s6-planar-loop-nonplanar`: face 13 vertex 127 off its plane by 1.2e-1 at scale 3.5 — a Stage-4 relocation left its planar face; identical at ×1e-3 / ×1e3~~ **CONVERTED 2026-09-28 (night)** — the conic × plane-pair corner (row above) |
-| **P0005** | `convex4:boss convex4:rev(300°) gear10:sym circle:boss` | auto-union "reassembled output would be non-2-manifold" | `s4-halfedge-pairing`: edge fwd 2 / rev 0 between A's cone face 4 and B's plane 114 — a Stage-4 membrane; ×1e-3 identical, ×1e3 ⇒ `LocalRefinementRequired` |
+| ~~**P0005**~~ | `convex4:boss convex4:rev(300°) gear10:sym circle:boss` | ~~auto-union "reassembled output would be non-2-manifold"~~ | ~~`s4-halfedge-pairing`: edge fwd 2 / rev 0 between A's cone face 4 and B's plane 114 — a Stage-4 membrane; ×1e-3 identical, ×1e3 ⇒ `LocalRefinementRequired`~~ **CONVERTED 2026-09-28 (night)** — the §4.4.1(a) split's geometric winding of a needle half (row above) |
 | **P0006** | `convex4:boss convex4:boss circle:boss gear10:boss convex4:boss(oblique)` | auto-union rejects the INPUT: "Stage-1 chart polygon of face 11 crosses itself 8 time(s) (rim segment demand None)" | the accumulated body's face after the gear union cannot be charted; identical at ×1e-3 / ×1e3 |
 | **P0007** | `circle:boss circle:boss nonconvex6:boss(oblique) convex4:∪` | `SelfIntersectingBooleanOutput { 47 × 69, penetrations: 4 }` | kernel-v2's output gate; identical at ×1e3, ×1e-3 hits the feature-floor wall |
 | retired | `convex4:boss gear17:boss nonconvex9:boss convex4:boss` at scale 1.4e-4 | "face 602 is degenerate (zero-area / collinear)" | the 17-tooth gear at module 2.26e-5 m authors 2.6e-7 m segments — BELOW `MIN_FEATURE_SIZE`; the un-rounded 7-op candidate is SUPPORTED_CORRECT at ×100. Its ×10…×1000 form gives `NonManifoldVertex`, and that minimized to TWO SQUARE BOSSES whose 1-sig-digit coordinates put one box's lateral edge exactly in the other's cap: a 1-D contact, a legitimately non-manifold union (the 0-D-contact walls' class) — the minimizer's rounding MINTED it |

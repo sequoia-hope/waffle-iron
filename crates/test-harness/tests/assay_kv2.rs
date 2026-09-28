@@ -1395,12 +1395,22 @@ fn smoke_corpus_boundary_categories() {
         // corner"). Two bodies (the cut splits the stack), exact-membership
         // volume pinned.
         ("P0004", Category::SupportedCorrect),
-        // P0005: square boss, 300° square revolve (a cone face), 10-tooth
-        // gear symmetric boss, circle boss ⇒ auto-union "reassembled output
-        // would be non-2-manifold"; site s4-halfedge-pairing: a doubled
-        // directed edge (fwd 2 / rev 0) between A's cone face and B's plane
-        // — a Stage-4 membrane. ×1e3 ⇒ LocalRefinementRequired.
-        ("P0005", Category::Error),
+        // P0005: square boss, 300° square revolve (a cone face) as a NewBody,
+        // 10-tooth gear symmetric boss, circle boss. Was auto-union
+        // "reassembled output would be non-2-manifold"; site
+        // s4-halfedge-pairing: a doubled directed edge (fwd 2 / rev 0)
+        // between A's cone face and B's plane. CONVERTED 2026-09-28 (night):
+        // A's cone chart carried two rim mints 3e-3 apart, each with its
+        // seeded generator — a 3e-3 × 424 sliver quad whose generator and
+        // diagonal the flank plane crossed 2.67e-7 apart; the §4.4.1(a)
+        // split wound its needle half GEOMETRICALLY (`orient_tri` against
+        // the parent's normal) and inverted it. The halves now inherit the
+        // parent's winding combinatorially (`split_tri_at_edge`, spec
+        // `yang_n2_stage4_cdt_mesh_updating.md` §5c.15). Adjudicated by the
+        // Cherchi sidecar reference: one shell, genus 1 (χ 0) — the ring,
+        // the gear and the circle boss overlap pairwise around a tunnel;
+        // two live bodies (the first boss never merges); volume pinned.
+        ("P0005", Category::SupportedCorrect),
         // P0006: two square bosses, a circle boss, a 10-tooth gear boss, a
         // square boss on an oblique plane ⇒ auto-union rejects the INPUT:
         // "Stage-1 chart polygon of face 11 crosses itself 8 time(s) (rim

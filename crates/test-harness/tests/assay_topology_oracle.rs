@@ -30,7 +30,8 @@ use std::path::{Path, PathBuf};
 use test_harness::assay::topology_oracle::{readout_at, TopologyReadout};
 use test_harness::assay::volume_oracle::SolidScan;
 use test_harness::assay::volume_oracle_doc::{
-    isolate_operation, operand_scan, oracle_tol, output_scan, truncate_ops,
+    isolate_operation_any_body, operand_scan, operand_scan_any_body, oracle_tol, output_scan,
+    truncate_ops,
 };
 use test_harness::cherchi_sidecar::{read_obj, sidecar_boolean, surface_topology, write_obj};
 use test_harness::oracle;
@@ -119,7 +120,9 @@ fn adjudicate_case() {
     let tol = oracle_tol(scale);
     let mut scans = Vec::new();
     for k in 0..cuts.len() {
-        let s = operand_scan(&waffle, k, tol)
+        // Any-body: a NewBody op is still an operand of the live set union
+        // (P0005's revolve is `merge: false`, then unioned by the gear).
+        let s = operand_scan_any_body(&waffle, k, tol)
             .unwrap_or_else(|| panic!("{id}: operand {k} failed to build"));
         eprintln!("[topo] {id} operand {k}: tris={}", s.tri_count());
         scans.push(s);
@@ -159,7 +162,7 @@ fn reference_topology(id: &str, waffle: &serde_json::Value, ops: usize, tol: f64
     fs::create_dir_all(&dir).expect("scratch dir");
     let mut inputs = Vec::new();
     for k in 0..ops {
-        let json = isolate_operation(waffle, k).expect("isolated operand document");
+        let json = isolate_operation_any_body(waffle, k).expect("isolated operand document");
         let mut b = ModelBuilder::kernel_v2();
         b.load(&json).expect("operand loads");
         assert!(

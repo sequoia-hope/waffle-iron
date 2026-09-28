@@ -2230,27 +2230,51 @@ fn mutual_pair_candidate(
 /// construction: the long edge `(a,c)` and both insertion edges vanish together
 /// with their two incident triangles each, and every chain edge pairs one piece
 /// from each side.
+/// Yang Fig. 11(a) — "locate the constrained edge containing q, split it at
+/// q" — as the TOPOLOGICAL operation it is: insert `ins` on the edge `{u, v}`
+/// of `parent`, returning the two halves WOUND LIKE THE PARENT, i.e. the
+/// parent's own cyclic vertex order with `ins` spliced between `u` and `v`
+/// in whichever direction that edge runs in the parent. Every directed edge
+/// of the parent other than the split one survives verbatim, the split one
+/// becomes the two-segment chain in the same direction, and the halves pair
+/// each other across `ins–third`; watertightness is preserved by
+/// construction, with no geometry consulted.
+///
+/// P0005 (2026-09-28, spec `yang_n2_stage4_cdt_mesh_updating.md` §5c.15):
+/// both §4.4.1(a) arms used to wind the halves GEOMETRICALLY (`orient_tri`
+/// against the parent's area normal). A half that is itself a needle — the
+/// inserted point within 2.7e-7 of the parent's edge endpoint, which is what a
+/// 3e-3-wide × 424-long cone-chart sliver quad (two rim mints 3e-3 apart, each
+/// with its seeded generator) delivers to the chain — has an area normal that
+/// is numerical noise against the parent's, so the proxy inverted it and the
+/// §4.4.3 gate stopped on the fold (`s4-halfedge-pairing` fwd=2 rev=0). The
+/// winding of a split half is not a geometric question.
+///
+/// `None` iff `parent` does not contain the edge `{u, v}` — the callers choose
+/// the parent from the edge's own incidence list, so this is unreachable by
+/// construction and they treat it as an invariant violation.
+pub(crate) fn split_tri_at_edge(
+    parent: [u32; 3],
+    u: u32,
+    v: u32,
+    ins: u32,
+) -> Option<([u32; 3], [u32; 3])> {
+    (0..3).find_map(|i| {
+        let (p, q, r) = (parent[i], parent[(i + 1) % 3], parent[(i + 2) % 3]);
+        ((p == u && q == v) || (p == v && q == u)).then_some(([p, ins, r], [ins, q, r]))
+    })
+}
+
 fn resolve_mutual_degenerate_pair(
     mesh: &mut Mesh,
     attr_vec: &mut Vec<Option<TriangleAttribution>>,
     m: &MutualPair,
 ) {
     let split = |parent: [u32; 3], u: u32, v: u32, ins: u32| -> ([u32; 3], [u32; 3]) {
-        let dd = parent
-            .iter()
-            .copied()
-            .find(|&x| x != u && x != v)
-            .expect("split parent shares the insertion edge, has a third vertex");
-        let norm = tri_area_vector(
-            mesh.verts[parent[0] as usize].as_array(),
-            mesh.verts[parent[1] as usize].as_array(),
-            mesh.verts[parent[2] as usize].as_array(),
-        );
-        let mut p1 = [u, ins, dd];
-        let mut p2 = [ins, v, dd];
-        orient_tri(&mesh.verts, &mut p1, norm);
-        orient_tri(&mesh.verts, &mut p2, norm);
-        (p1, p2)
+        // Combinatorial Fig-11(a) split (P0005): the halves inherit the
+        // parent's winding; no `orient_tri` proxy (see `split_tri_at_edge`).
+        split_tri_at_edge(parent, u, v, ins)
+            .expect("split parent shares the insertion edge, has a third vertex")
     };
     let (l1, l2) = split(mesh.tris[m.nl], m.bl, m.c, m.bh);
     let (h1, h2) = split(mesh.tris[m.nh], m.a, m.bh, m.bl);
@@ -14403,20 +14427,13 @@ fn stage4_relocate_and_correct_inner(
                 );
             }
             let nt = mesh.tris[n_idx];
-            let dd = nt
-                .iter()
-                .copied()
-                .find(|&v| v != a && v != c)
+            // Combinatorial Fig-11(a) split (P0005): the halves inherit N's
+            // winding by splicing `b` into N's cyclic order between `a` and
+            // `c`. The former geometric proxy (`orient_tri` of each half
+            // against N's area normal) inverted a needle half whose inserted
+            // point sat 2.7e-7 from `c` — see `split_tri_at_edge`.
+            let (t1, t2) = split_tri_at_edge(nt, a, c, b)
                 .expect("neighbour shares edge a-c, has a third vertex");
-            let n_norm = tri_area_vector(
-                mesh.verts[nt[0] as usize].as_array(),
-                mesh.verts[nt[1] as usize].as_array(),
-                mesh.verts[nt[2] as usize].as_array(),
-            );
-            let mut t1 = [a, b, dd];
-            let mut t2 = [b, c, dd];
-            orient_tri(&mesh.verts, &mut t1, n_norm);
-            orient_tri(&mesh.verts, &mut t2, n_norm);
             let n_attr = attr_vec.get(n_idx).copied().flatten();
             // Rebuild tris + attribution, dropping D and N, appending the split.
             let mut new_tris: Vec<[u32; 3]> = Vec::with_capacity(mesh.tris.len() + 1);
