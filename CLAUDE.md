@@ -100,12 +100,18 @@ Do NOT skip to lower-priority items because they are easier.
    walls, each its own design call. **Since 2026-09-27 the assay
    prospector (`specs/assay_prospector.md`) grows the corpus**: its first
    seed promoted P0001–P0003 (loud kernel STOPs on generic geometry — a
-   needle-star union, a star cut, a circle revolve-cut; ERROR-class pins
-   in `assay_kv2.rs`) and holds five more minimized signatures for
-   adjudication, so the ERROR tail is ACTIONABLE again — the P-series is
-   where the next kernel session starts (run `prospect_run` /
-   `prospect_minimize` for more; `docs/TESTING.md` §"Running the assay
-   prospector"); the historical families (Stage-4
+   needle-star union, a star cut, a circle revolve-cut; ALL THREE
+   CONVERTED by 2026-09-28: §4.5.5 edge-in-plane conformity, the §4.3.3
+   own-root verdict, the §4.5 boundary-point domain certificate —
+   `specs/yang_45_boundary_point_domain_certificate.md`) and holds five
+   more minimized signatures for adjudication (`specs/assay_prospector.md`
+   §8) — the P-series is where the next kernel session starts: adjudicate
+   those five, then run `prospect_run` / `prospect_minimize` for more
+   (`docs/TESTING.md` §"Running the assay prospector"). The boundary-point
+   certificate's INVENTORY (`YANG_S45_BOUNDARY_DOMAIN_LOG`) names the
+   out-of-domain relocations the gear cases (R0003 ×42, R0004, R0032,
+   R0049, R0070) survive today — the §4.5.1 corridor family's open
+   customers; the historical families (Stage-4
    relocation walls `LocalRefinementRequired` / `OffCurveBeyondChordBand`,
    Stage-5/6 non-2-manifold reassembly, Stage-3 `AmbiguousCurve`, the
    thin-band chord-density CDT class, M8 coplanar Stage 0) have no corpus

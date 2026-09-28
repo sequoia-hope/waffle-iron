@@ -1367,7 +1367,16 @@ fn smoke_corpus_boundary_categories() {
         // (spec `yang_433_case_iv_corner_phantom.md` §9); certified now, the
         // §4.5.2 ladder refines once. χ 2, analytic volume adjudicated.
         ("P0002", Category::SupportedCorrect),
-        ("P0003", Category::Error), // non-convex 9-gon boss, circle revolve-cut: TessellationFailed "torus patch UV-CDT failed"
+        // P0003: non-convex 9-gon boss, circle revolve-cut. Was
+        // TessellationFailed "torus patch UV-CDT failed": two Stage-4
+        // boundary-point relocations (B's end-cap rim across A's lateral
+        // face, A's top edge across B's torus) converged on exact roots
+        // OUTSIDE their faces' domains, and nothing asked (spec
+        // `yang_45_boundary_point_domain_certificate.md`). The Yang §4.5
+        // domain certificate now records both as solving failures and the
+        // §4.5.2 ladder's d_ε/2 rung emits fire-free and is adopted. χ 2,
+        // Monte-Carlo volume pinned.
+        ("P0003", Category::SupportedCorrect),
     ];
     // Per-case CPU budget, expressed in RELEASE-equivalent seconds and scaled
     // for debug. `scripts/test.sh` runs test-harness WITHOUT `--release`, and

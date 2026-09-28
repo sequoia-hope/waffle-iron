@@ -43,6 +43,57 @@ after the reconciliation run (release, 8 jobs, 360 s; wall 577 s, F0085
 regression since 2026-08-01 is outstanding (checked over every commit of
 `results.json`).
 
+## 2026-09-28 — P0003 CONVERTED ⇒ 304C: two Stage-4 BOUNDARY-POINT relocations (B's end-cap rim across A's lateral face, A's top edge across B's torus) converged on exact roots OUTSIDE their faces' domains and nothing asked; the Yang §4.5 domain certificate (creases from the B-Rep edges, divider + extent, the §3t sign test) names both, the §4.5.2 ladder's d_ε/2 rung emits fire-free and is adopted (a hard STOP would convert five CORRECT gear cases the ladder cannot reach, so the certificate is trigger + inventory, not a wall); canonical **304C / 0W / 7E / 4EE / 0T + 0 UNSUPPORTED**
+
+**Anchor** (`KV2_TORUS_PATCH_EDGES=22`, `YANG_MESH_DUMP=1`, a scratch
+script over the exact geometry): output face 22's loop carried a vertex at
+y = 0.0509928 — above the boss (y ∈ [0, 0.05]) — joined by a 1.8 mm
+`LineSegment`. It is mesh v44, B's end-cap rim chord crossing A's lateral
+face 4→5, which relocation moved from the chord (y 0.0497, on the lateral
+plane) to the exact circle × lateral-plane root (on the torus to 7e-18, on
+the 20° cap plane, y 0.051) — past the lateral face's top edge. Its
+neighbour v15, A's top edge crossing B's torus facet at 20.29°, moved to the
+exact line × torus root at 18.73° — inside the revolve's open (0°, 20°)
+wedge, past the torus face's rim. The true junctions are J = rim circle ×
+top cap (1.23 mm inside the top face from edge 4→5) and q₂ = top edge ×
+end-cap plane; the B rim's chord sag is 1.15 mm, so at Stage-1 density the
+rim appeared to leave the boss through the lateral face and the top edge
+appeared to leave the cutter through the torus. `YANG_433_PHANTOM`:
+CURVED-EDGE / UNSUPPORTED (no line × torus all-roots solver);
+`YANG_451_*`: silent (the crossed corner is not a mesh vertex);
+`YANG_S45_POP`: all zeros. `YANG_CHORD_REFINE` 2×, 4×, 8×, 16×: all
+SUPPORTED_CORRECT.
+
+**Fix** (spec `specs/yang_45_boundary_point_domain_certificate.md`, ledger
+N66): the paper sends boundary points that fail "within their domains" to
+§4.5.2 (Fig. 13's exclusion from §4.5.1); the missing piece was the
+detection. `boundary_domain_postcondition` runs at the end of Stage 4 over
+every moved vertex against every face it carries: creases from the
+operand's B-Rep EDGES (`CreaseIndex::build` — plane×plane lines and
+torus×plane rims, which the §3t surface-pair reconstruction could not
+name), a divider plane + an extent per crease, the §3t sign test plus the
+extent test (the step's crossing must lie on the crease within the step's
+own reach). The fires are recorded; the op driver runs the §4.5.2 ladder
+and adopts a rung that emits watertight with NO fire, else the natural
+output stands (`stop` mode = the hard STOP, measured only: R0003 42 fires,
+R0004, R0032, R0049, R0070 — gear operands whose sub-chord facet creases
+are the §4.5.1 corridor family — would go CORRECT → ERROR for a defect they
+survive; the certificate is trigger + inventory). Census on P0003:
+v15 left B:2 across edge 1 (f −3.8e-4 → +1.6e-3), v44 left A:6 across edge
+34 (f −3.0e-4 → +9.9e-4).
+
+**Adjudication:** P0003 χ 2 (one ball), `expected_volume` = 2×10⁸-sample
+Monte-Carlo over the exact membership, 1.2085e-4 m³ ± 1.3e-8 (the other
+wedge convention cuts nothing, so the geometry certifies which wedge is
+open); tol 3e-3 (the torus render mesh's inscribed-chord deficit, the P0002
+precedent); `derived_meta` cleared; smoke pin moved to SupportedCorrect.
+
+**Corpus** (release, 8 jobs, 900 s): canonical **304C / 0W / 7E / 4EE / 0T + 0 UNSUPPORTED**, wall 1163.3 s; exactly one category move (P0003 ERROR → CORRECT), zero detail moves. Inventory (every Stage-4 invocation): R0070 242, R0003 84, R0019 66, R0032 33, R0049 6, F0082 6, F0064 4, R0044 3, R0004 3, R0095 2, R0059 2, R0028 2, R0026 2, P0003 2, R0025 1 — fifteen firing cases, fourteen keep their natural CORRECT output. The `stop`-mode twin run: 299C / 12E (R0003, R0004, R0032, R0049, R0070 regress). Unit pins:
+`tests_unit/s45_boundary_domain.rs` (7: the line divider, both P0003 fires,
+the crease-rider exemption, an edge's extension on a non-convex face, the
+opposite meridian of a rim plane, the crease index's neighbour pairing and
+same-surface skip).
+
 ## 2026-09-27 (late) — P0002 CONVERTED ⇒ 303C: a Yang §4.3.3 Case-IV loop (a star tip clearing the cylinder by 0.24 mm under a larger facet sag) that inc-2 left MIXED because the per-claim verdict judged the EDGE (any root inside its segment) rather than the vertex's OWN root — the tip line's real far-side pierce vouched for its phantom near-side corner; judged on the own root the loop certifies and the §4.5.2 ladder converts it in one rung; canonical **303C / 0W / 8E / 4EE / 0T + 0 UNSUPPORTED**
 
 Anchored before design: `KV2_RING_REJECT_PROBE=1` gave face 23's 16-point
@@ -69,8 +120,8 @@ inscribed-chord deficit; tol 3e-3 keeps the 2.7 % notch observable);
 
 **Corpus** (release, 8 jobs, 900 s, wall 926.8 s): exactly one category move
 (P0002 ERROR → CORRECT), zero detail moves. The ERROR rows are the seven
-loud-by-design walls plus P0003 (`torus patch UV-CDT failed`, the next
-P-series work). Unit pins: `stage4_phantom::ruleout_tests::own_root_decides_not_the_edge`,
+loud-by-design walls plus P0003 (`torus patch UV-CDT failed`, converted
+2026-09-28). Unit pins: `stage4_phantom::ruleout_tests::own_root_decides_not_the_edge`,
 `coincident_roots_across_edge_records_are_one_root`.
 
 ## 2026-09-27 — P0001 CONVERTED ⇒ 302C: Yang §4.5.5 applied one dimension DOWN — the needle star's tip edge was authored 4e-15 below the octagon's cap plane and ran inside the cap, nothing identified an EDGE into a partner plane, and the exact arrangement kept the 4e-15 wedge; `stage0::edge_in_plane` identifies the vertices onto the plane and makes the inside sub-segment one identically-sampled mesh edge in both operands (a CDT interior constraint); canonical **302C / 0W / 9E / 4EE / 0T + 0 UNSUPPORTED**
@@ -115,7 +166,7 @@ and scale identity of P0001 as agreeing (6 seeds).
 
 **Corpus** (release, 8 jobs, 900 s): exactly one category move (P0001
 ERROR → CORRECT) and zero detail moves after the F0055 fix. The ERROR rows are
-the seven loud-by-design walls plus P0002 / P0003 (the next P-series work).
+the seven loud-by-design walls plus P0002 / P0003 (both since converted).
 Unit pins: `tests_unit/s455_edge_in_plane.rs` (8 tests: femto-off tip at the
 control volume, identification moves only the tip pair, one crossing + one
 constraint, oblique rigid motion at the same volume, an edge fully inside a

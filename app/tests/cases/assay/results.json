@@ -1,8 +1,8 @@
 {
-  "errored": 8,
+  "errored": 7,
   "failed": 0,
   "generated": "kernel-v2 (assay_kv2 categorized run)",
-  "passed": 303,
+  "passed": 304,
   "results": [
     {
       "category": "SUPPORTED_CORRECT",
@@ -1889,10 +1889,10 @@
       "status": "pass"
     },
     {
-      "category": "ERROR",
-      "detail": "1 engine error(s): d081c83f-1895-4b61-98c0-758ca83cd7a4: operation error: kernel error: boolean operation failed: kernel-v2 boolean_subtract failed: TessellationFailed { face: FaceId(22), reason: \"torus patch UV-CDT failed (self-intersecting projection / seam-crossing patch)\" }",
+      "category": "SUPPORTED_CORRECT",
+      "detail": "all checks passed",
       "id": "P0003",
-      "status": "error"
+      "status": "pass"
     }
   ],
   "total": 315

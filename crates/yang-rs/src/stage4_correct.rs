@@ -7678,6 +7678,179 @@ pub(crate) fn face_chord_bound(f: &BRepFace, edges: &[crate::BRepEdge]) -> Optio
     }
 }
 
+thread_local! {
+    /// The fire count of the most recent [`boundary_domain_postcondition`]
+    /// (reset at its entry): the op-level ladder reads it after the natural
+    /// op to decide whether §4.5.2 refinement is owed. Thread-local for the
+    /// same reason as `CHORD_REFINE` (the pipeline is single-threaded per op;
+    /// parallel test threads must not see each other's count).
+    static BOUNDARY_DOMAIN_FIRES: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
+}
+
+/// The number of Yang §4.5 boundary-point domain fires the last Stage 4 of
+/// this thread recorded (0 when the certificate is off or nothing fired).
+pub(crate) fn boundary_domain_fires() -> usize {
+    BOUNDARY_DOMAIN_FIRES.with(|c| c.get())
+}
+
+/// Forget the last Stage 4's fire count (the op-level driver resets before
+/// each `boolean_once` so a STOP before Stage 4 cannot read a stale count).
+pub(crate) fn reset_boundary_domain_fires() {
+    BOUNDARY_DOMAIN_FIRES.with(|c| c.set(0));
+}
+
+/// Yang §4.5 boundary-point DOMAIN certificate, as a Stage-4 postcondition
+/// (spec `specs/yang_45_boundary_point_domain_certificate.md`).
+///
+/// The paper collects "the point pairs that cannot converge to a distance of
+/// 0 within their domains" (`refs/text/yang2025_hybrid_boolean.txt:648-651`)
+/// and sends the boundary points among them — one operand's model edge
+/// gliding across the other's face (Fig. 13's exclusion from §4.5.1) — to
+/// §4.5.2 local refinement. The relocation arms solve such a vertex exactly
+/// on the EXTENDED surfaces and never ask whether the root is on the bounded
+/// face; this pass asks, for every vertex Stage 4 moved, against every face
+/// its attributed triangles carry: did the step cross one of that face's
+/// creases ([`crate::stage4_boundary_curve::boundary_crease_crossed`])?
+///
+/// A fire is the paper's own §4.5.2 trigger. Measured on P0003: two fires
+/// (the B rim circle past the boss's top edge, 9.9e-4; the boss's top edge
+/// past the torus rim, 1.6e-3); the ladder's `d_ε/2` rung emits with no
+/// fire and is adopted: SUPPORTED_CORRECT.
+///
+/// Gate `YANG_S45_BOUNDARY_DOMAIN`: unset = **ON** — the fires are RECORDED
+/// (`boundary_domain_fires`) and the op-level driver runs the §4.5.2 ladder,
+/// adopting a rung that emits a watertight 2-manifold body with NO fire and
+/// otherwise keeping the natural output (spec §7: the hard wall converts
+/// CORRECT gear cases whose many sub-chord facet creases the ladder cannot
+/// reach — R0003 42 fires, R0004, R0032, R0049, R0070 — so the certificate is
+/// a trigger and an inventory, never a wall); `stop`/`1`/`on` = the hard STOP
+/// (the A/B measurement knob); `census` = report only, no ladder;
+/// `0`/`off` = the certificate itself off.
+fn boundary_domain_postcondition(
+    mesh: &Mesh,
+    attribution: &TriangleAttributionMap,
+    a: &BRep,
+    b: &BRep,
+    entry: &[[f64; 3]],
+) -> Result<(), YangError> {
+    use crate::stage4_boundary_curve::{boundary_crease_crossed, CreaseIndex};
+    let mode = std::env::var("YANG_S45_BOUNDARY_DOMAIN").unwrap_or_default();
+    BOUNDARY_DOMAIN_FIRES.with(|c| c.set(0));
+    if mode == "0" || mode == "off" {
+        return Ok(());
+    }
+    // `census` and the production default both REPORT (the default records
+    // the count for the op-level ladder, `boolean::refine_452_domain`);
+    // only `stop` turns a fire into the hard STOP here.
+    let census = mode == "census";
+    let stop = mode == "stop" || mode == "1" || mode == "on";
+    let n = entry.len().min(mesh.verts.len());
+    let patches = build_patch_map(mesh, &attribution.attributions);
+    let mut index: [Option<CreaseIndex>; 2] = [None, None];
+    let mut creases_of =
+        |input: InputId, face: u32| -> Vec<crate::stage4_boundary_curve::FaceCrease> {
+            let (slot, brep) = match input {
+                InputId::A => (0usize, a),
+                InputId::B => (1usize, b),
+            };
+            let idx = index[slot].get_or_insert_with(|| CreaseIndex::build(brep));
+            idx.faces.get(face as usize).cloned().unwrap_or_default()
+        };
+    // (vertex, input, face, edge, f_pre, f_post) per fire, deterministic order.
+    let mut fires: Vec<(u32, InputId, u32, u32, f64, f64)> = Vec::new();
+    for (&v, faces) in &patches {
+        let i = v as usize;
+        if i >= n {
+            continue; // minted during Stage 4: no pre position, no step
+        }
+        let (pre, post) = (entry[i], mesh.verts[i].as_array());
+        if pre == post {
+            continue;
+        }
+        let (p, q) = (
+            Point3::new(pre[0], pre[1], pre[2]),
+            Point3::new(post[0], post[1], post[2]),
+        );
+        for &(input, face) in faces {
+            let creases = creases_of(input, face);
+            if let Some(fire) = boundary_crease_crossed(p, q, &creases) {
+                fires.push((v, input, face, fire.edge, fire.f_pre, fire.f_post));
+                if census {
+                    eprintln!(
+                        "YANG_S45_BOUNDARY_DOMAIN v{v} left {input:?}:{face} across edge {} \
+                         f_pre={:.4e} f_post={:.4e} travel={:.4e} \
+                         pre=({:.9},{:.9},{:.9}) post=({:.9},{:.9},{:.9})",
+                        fire.edge,
+                        fire.f_pre,
+                        fire.f_post,
+                        ((post[0] - pre[0]).powi(2)
+                            + (post[1] - pre[1]).powi(2)
+                            + (post[2] - pre[2]).powi(2))
+                        .sqrt(),
+                        pre[0],
+                        pre[1],
+                        pre[2],
+                        post[0],
+                        post[1],
+                        post[2],
+                    );
+                }
+            }
+        }
+    }
+    BOUNDARY_DOMAIN_FIRES.with(|c| c.set(fires.len()));
+    if fires.is_empty() {
+        return Ok(());
+    }
+    let n_verts = fires
+        .iter()
+        .map(|f| f.0)
+        .collect::<std::collections::BTreeSet<u32>>()
+        .len();
+    if census {
+        eprintln!(
+            "YANG_S45_BOUNDARY_DOMAIN SUMMARY fires={} verts={n_verts}",
+            fires.len(),
+        );
+    }
+    // Corpus inventory: the subprocess runner discards a worker's stderr, so
+    // every mode also APPENDS one line per fire to the file named by
+    // `YANG_S45_BOUNDARY_DOMAIN_LOG`, keyed by the worker's `ASSAY_CASE` and
+    // the rung in force (best effort, never an error).
+    if let Some(path) = std::env::var_os("YANG_S45_BOUNDARY_DOMAIN_LOG") {
+        use std::io::Write as _;
+        let case = std::env::var("ASSAY_CASE").unwrap_or_default();
+        let rung = crate::stage1_tessellate::chord_refine_scale();
+        if let Ok(mut f) = std::fs::OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open(path)
+        {
+            for &(v, input, face, edge, f_pre, f_post) in &fires {
+                let _ = writeln!(
+                    f,
+                    "{case} rung={rung} v{v} {input:?}:{face} edge={edge} f_pre={f_pre:.4e} \
+                     f_post={f_post:.4e}"
+                );
+            }
+        }
+    }
+    if !stop {
+        return Ok(());
+    }
+    // `stop` mode: the hard wall (the A/B knob the corpus measurement uses;
+    // spec §7 records why it is not the production default — many-facet
+    // operands carry out-of-domain relocations their oracles survive, and
+    // the ladder cannot reach them). No under-resolution certificate: the
+    // overrun past the crease is not the true junction's clearance from the
+    // corner, so no rung can be named from it.
+    let (v0, ..) = fires[0];
+    Err(YangError::stage4_region_invalid(
+        v0,
+        Stage4InvalidReason::RelocationCrossedCrease,
+    ))
+}
+
 fn relocation_domain_postcondition(
     mesh: &Mesh,
     attribution: &TriangleAttributionMap,
@@ -14760,6 +14933,12 @@ fn stage4_relocate_and_correct_inner(
     // caller resolves the output-edge index; relocations referencing a
     // now-absent vertex are simply not emitted (the caller guards the index).
     relocation_domain_postcondition(mesh, attribution, brep_a, brep_b, &s4_entry_pos)?;
+    // Yang §4.5 boundary-point domain certificate (spec
+    // `specs/yang_45_boundary_point_domain_certificate.md`): a relocated
+    // model-edge crossing whose exact root left its face across a crease is
+    // §4.5.2's own trigger — raised here, typed, instead of surfacing as a
+    // stray output edge the render tessellator declines (P0003).
+    boundary_domain_postcondition(mesh, attribution, brep_a, brep_b, &s4_entry_pos)?;
 
     Ok((relocations, collapsed_any))
 }

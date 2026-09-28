@@ -1042,6 +1042,326 @@ pub(crate) fn on_crease(p: Point3, s0: Surface, s1: Surface) -> bool {
 }
 
 // ---------------------------------------------------------------------------
+// Yang §4.5 — the BOUNDARY-POINT domain certificate
+// (spec `specs/yang_45_boundary_point_domain_certificate.md`)
+// ---------------------------------------------------------------------------
+//
+// §4.5 collects "the point pairs that cannot converge to a distance of 0
+// WITHIN THEIR DOMAINS" (`refs/text/yang2025_hybrid_boolean.txt:648-651`) and
+// §4.5.1 excludes from its own remedy "the boundary points that glide along
+// the boundary curves" (`:637-651`, Fig. 13) — a mesh vertex that is one
+// operand's MODEL EDGE crossing the other operand's face. The relocation arms
+// solve such a vertex exactly (a line × torus root, a circle × plane root) on
+// the EXTENDED surfaces; the solution can lie past a crease that bounds the
+// face it started on, and every downstream stage then reads a junction the
+// B-Rep does not have. Measured on P0003 (2026-09-28): the cutter's end-cap
+// rim (a `Circle` edge of B) crossing the boss's lateral face relocated onto
+// the exact circle × lateral-plane root 9.9e-4 ABOVE the boss's top cap (past
+// the lateral face's top edge), and the boss's top edge crossing B's torus
+// relocated onto the exact line × torus root 1.27° INSIDE the revolve's open
+// wedge (past the torus face's rim circle). Neither arm has a domain
+// postcondition; the two phantom junctions ride into Stage 6 as a 1.8 mm
+// stray edge and the render tessellator declines the face's loop
+// (`torus patch UV-CDT failed`). At `d_ε/2` the case is SUPPORTED_CORRECT —
+// §4.5.2 is the paper's remedy for this class, and this certificate is the
+// trigger it lacked.
+//
+// The certificate generalizes [`crease_crossed_by_step`] (the triple-junction
+// arm's, §4.5.1 inc-2c-3b-12) in two ways the measured sites demand:
+// * creases come from the operand's B-REP EDGES, not from surface pairs
+//   reconstructed out of the mesh incidence — a `LineSegment` edge between two
+//   planes (the boss's top edge) has no circle to reconstruct, and a torus ×
+//   axial plane pair meets in TWO circles of which only one is the rim;
+// * a crease has an EXTENT. The divider plane of a line crease extends past
+//   the edge's ends and through a non-convex face's interior (the 9-gon),
+//   and a rim circle's plane cuts the tube a second time half a turn away;
+//   a crossing counts only where the step meets the crease itself.
+
+/// The extent of a crease along its divider plane.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub(crate) enum CreaseExtent {
+    /// A `LineSegment` edge: the segment `p0 → p1`.
+    Segment { p0: Point3, p1: Point3 },
+    /// A `Circle` edge: the circle in the divider plane.
+    Circle { center: Point3, radius: f64 },
+    /// A conic edge (ellipse / parabola / hyperbola): its plane meets its
+    /// surface in that one curve, so the plane is the extent.
+    Whole,
+}
+
+/// One crease of one FACE: the plane a step must not cross, the face's own
+/// surface, the neighbour across the crease when the topology names one, and
+/// the crease's extent.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub(crate) struct FaceCrease {
+    /// The transverse plane through the crease — for a line edge, the plane
+    /// spanned by the edge and the face normal; for a planar curve, its plane.
+    pub divider: Surface,
+    pub s_own: Surface,
+    pub s_other: Option<Surface>,
+    pub extent: CreaseExtent,
+    /// The B-Rep edge index on its operand (diagnostics).
+    pub edge: u32,
+}
+
+/// Every face's creases for one operand, indexed by face.
+#[derive(Clone, Debug, Default)]
+pub(crate) struct CreaseIndex {
+    pub faces: Vec<Vec<FaceCrease>>,
+}
+
+impl CreaseIndex {
+    /// Build from the operand's B-Rep: each loop edge of each face is a crease
+    /// of that face unless the surface across it is the same surface (a seam
+    /// or a split of one surface is not a boundary of its domain). The
+    /// neighbour is found by the edge index when two faces reference the same
+    /// edge, else by the edge's unordered vertex pair (the m1 convention emits
+    /// one directed copy per half-edge). `SurfacePair` edges have no plane and
+    /// are declined — not approximated.
+    pub fn build(brep: &crate::BRep) -> Self {
+        let edges = brep.edges();
+        let verts = brep.vertices();
+        let faces = brep.faces();
+        // edge index -> faces referencing it; vertex pair -> (face, edge) list.
+        let mut by_edge: Vec<Vec<u32>> = vec![Vec::new(); edges.len()];
+        let mut by_pair: std::collections::HashMap<(u32, u32), Vec<(u32, u32)>> =
+            std::collections::HashMap::new();
+        for (fi, f) in faces.iter().enumerate() {
+            for &ei in f.outer_loop.iter().chain(f.inner_loops.iter().flatten()) {
+                let Some(e) = edges.get(ei as usize) else {
+                    continue;
+                };
+                by_edge[ei as usize].push(fi as u32);
+                let key = (e.start.min(e.end), e.start.max(e.end));
+                by_pair.entry(key).or_default().push((fi as u32, ei));
+            }
+        }
+        let mut out: Vec<Vec<FaceCrease>> = Vec::with_capacity(faces.len());
+        for (fi, f) in faces.iter().enumerate() {
+            let s_own = f.surface;
+            let mut list: Vec<FaceCrease> = Vec::new();
+            for &ei in f.outer_loop.iter().chain(f.inner_loops.iter().flatten()) {
+                let Some(e) = edges.get(ei as usize) else {
+                    continue;
+                };
+                // The neighbour across this edge: same edge index on another
+                // face, else another face's edge on the same vertex pair with
+                // the same curve.
+                let key = (e.start.min(e.end), e.start.max(e.end));
+                let mut s_other: Option<Surface> = by_edge[ei as usize]
+                    .iter()
+                    .find(|&&g| g != fi as u32)
+                    .and_then(|&g| faces.get(g as usize))
+                    .map(|g| g.surface);
+                if s_other.is_none() {
+                    s_other = by_pair
+                        .get(&key)
+                        .into_iter()
+                        .flatten()
+                        .find(|&&(g, ej)| {
+                            g != fi as u32
+                                && edges.get(ej as usize).is_some_and(|x| x.curve == e.curve)
+                        })
+                        .and_then(|&(g, _)| faces.get(g as usize))
+                        .map(|g| g.surface);
+                }
+                if s_other == Some(s_own) {
+                    continue; // a seam / split of ONE surface bounds no domain
+                }
+                let Some((divider, extent)) = crease_divider(e, verts, s_own) else {
+                    continue;
+                };
+                list.push(FaceCrease {
+                    divider,
+                    s_own,
+                    s_other,
+                    extent,
+                    edge: ei,
+                });
+            }
+            out.push(list);
+        }
+        Self { faces: out }
+    }
+}
+
+/// The divider plane and extent of one B-Rep edge on the face whose surface is
+/// `s_own`. `None` for a degenerate edge, a curve without a plane, or a face
+/// normal the edge direction does not span a plane with.
+pub(crate) fn crease_divider(
+    e: &crate::BRepEdge,
+    verts: &[crate::BRepVertex],
+    s_own: Surface,
+) -> Option<(Surface, CreaseExtent)> {
+    let plane = |n: [f64; 3], through: [f64; 3]| -> Option<Surface> {
+        let l = (n[0] * n[0] + n[1] * n[1] + n[2] * n[2]).sqrt();
+        if !l.is_finite() || l <= 0.0 {
+            return None;
+        }
+        let nu = [n[0] / l, n[1] / l, n[2] / l];
+        Some(Surface::Plane {
+            normal: cad_primitives::Vector3::new(nu[0], nu[1], nu[2]),
+            d: -(nu[0] * through[0] + nu[1] * through[1] + nu[2] * through[2]),
+        })
+    };
+    match e.curve {
+        Curve::LineSegment => {
+            let p0 = verts.get(e.start as usize)?.point;
+            let p1 = verts.get(e.end as usize)?.point;
+            let (a, b) = (p0.as_array(), p1.as_array());
+            let dir = [b[0] - a[0], b[1] - a[1], b[2] - a[2]];
+            let mid = [
+                (a[0] + b[0]) / 2.0,
+                (a[1] + b[1]) / 2.0,
+                (a[2] + b[2]) / 2.0,
+            ];
+            let (_, n_own) = crate::stage4_relocate::surface_distance_and_normal(s_own, mid)?;
+            // The plane spanned by the edge and the face normal: transverse
+            // to the face along the whole edge.
+            let n = [
+                dir[1] * n_own[2] - dir[2] * n_own[1],
+                dir[2] * n_own[0] - dir[0] * n_own[2],
+                dir[0] * n_own[1] - dir[1] * n_own[0],
+            ];
+            let len = (dir[0] * dir[0] + dir[1] * dir[1] + dir[2] * dir[2]).sqrt();
+            let nl = (n[0] * n[0] + n[1] * n[1] + n[2] * n[2]).sqrt();
+            // Degenerate: a zero-length edge, or an edge along the normal.
+            if len.is_nan() || len <= 0.0 || nl.is_nan() || nl <= 1e-9 * len {
+                return None;
+            }
+            Some((plane(n, a)?, CreaseExtent::Segment { p0, p1 }))
+        }
+        Curve::Circle {
+            center,
+            normal,
+            radius,
+        } => {
+            if !(radius.is_finite() && radius > 0.0) {
+                return None;
+            }
+            Some((
+                plane(normal.as_array(), center.as_array())?,
+                CreaseExtent::Circle { center, radius },
+            ))
+        }
+        Curve::Ellipse { center, normal, .. } | Curve::Hyperbola { center, normal, .. } => Some((
+            plane(normal.as_array(), center.as_array())?,
+            CreaseExtent::Whole,
+        )),
+        Curve::Parabola { vertex, normal, .. } => Some((
+            plane(normal.as_array(), vertex.as_array())?,
+            CreaseExtent::Whole,
+        )),
+        Curve::SurfacePair { .. } => None,
+    }
+}
+
+/// A boundary-point step that left its face across a crease.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub(crate) struct CreaseFire {
+    /// Index into the face's crease list.
+    pub crease: usize,
+    /// The B-Rep edge of the crossed crease.
+    pub edge: u32,
+    /// Signed distances of the step's ends to the divider plane.
+    pub f_pre: f64,
+    pub f_post: f64,
+}
+
+/// Did the step `pre → post` leave the face across one of its creases?
+///
+/// The predicate is the [`crease_crossed_by_step`] SIGN comparison — both ends
+/// farther from the divider than the propagated evaluation-precision band, on
+/// strictly opposite sides — plus the EXTENT test: the point where the step
+/// meets the divider must lie on the crease itself, within the step's own
+/// length plus the band (a mesh end sits within one chord sag of the curve it
+/// samples, and the step is that sag's correction; nothing farther along the
+/// divider than the step's reach was crossed by it). A vertex riding the
+/// crease (either end within the band) is a boundary point gliding along its
+/// boundary curve — exempt, as in the triple-junction certificate.
+pub(crate) fn boundary_crease_crossed(
+    pre: Point3,
+    post: Point3,
+    creases: &[FaceCrease],
+) -> Option<CreaseFire> {
+    let (a, b) = (pre.as_array(), post.as_array());
+    let travel = ((b[0] - a[0]).powi(2) + (b[1] - a[1]).powi(2) + (b[2] - a[2]).powi(2)).sqrt();
+    if travel.is_nan() || travel <= 0.0 {
+        return None;
+    }
+    for (i, c) in creases.iter().enumerate() {
+        let band = |x: Point3| -> f64 {
+            let xa = x.as_array();
+            crate::stage4_relocate::junction_certificate_band(xa, c.divider)
+                + crate::stage4_relocate::junction_certificate_band(xa, c.s_own)
+                + c.s_other.map_or(0.0, |s| {
+                    crate::stage4_relocate::junction_certificate_band(xa, s)
+                })
+        };
+        let (Some(fp), Some(fq)) = (
+            surface_distance(c.divider, pre),
+            surface_distance(c.divider, post),
+        ) else {
+            continue;
+        };
+        if !(fp.abs() > band(pre) && fq.abs() > band(post) && (fp < 0.0) != (fq < 0.0)) {
+            continue;
+        }
+        // Where the step meets the divider.
+        let t = fp / (fp - fq);
+        let x = [
+            a[0] + t * (b[0] - a[0]),
+            a[1] + t * (b[1] - a[1]),
+            a[2] + t * (b[2] - a[2]),
+        ];
+        let tol = travel + band(Point3::new(x[0], x[1], x[2]));
+        let on_extent = match c.extent {
+            CreaseExtent::Segment { p0, p1 } => {
+                let (p, q) = (p0.as_array(), p1.as_array());
+                let d = [q[0] - p[0], q[1] - p[1], q[2] - p[2]];
+                let l2 = d[0] * d[0] + d[1] * d[1] + d[2] * d[2];
+                if l2.is_nan() || l2 <= 0.0 {
+                    false
+                } else {
+                    let w = [x[0] - p[0], x[1] - p[1], x[2] - p[2]];
+                    let s = (w[0] * d[0] + w[1] * d[1] + w[2] * d[2]) / l2;
+                    let sc = s.clamp(0.0, 1.0);
+                    let foot = [p[0] + sc * d[0], p[1] + sc * d[1], p[2] + sc * d[2]];
+                    let dist = ((x[0] - foot[0]).powi(2)
+                        + (x[1] - foot[1]).powi(2)
+                        + (x[2] - foot[2]).powi(2))
+                    .sqrt();
+                    dist <= tol
+                }
+            }
+            CreaseExtent::Circle { center, radius } => {
+                let cc = center.as_array();
+                let w = [x[0] - cc[0], x[1] - cc[1], x[2] - cc[2]];
+                let Surface::Plane { normal, .. } = c.divider else {
+                    continue;
+                };
+                let n = normal.as_array();
+                let h = w[0] * n[0] + w[1] * n[1] + w[2] * n[2];
+                let r = [w[0] - h * n[0], w[1] - h * n[1], w[2] - h * n[2]];
+                let rho = (r[0] * r[0] + r[1] * r[1] + r[2] * r[2]).sqrt();
+                (rho - radius).abs() <= tol
+            }
+            CreaseExtent::Whole => true,
+        };
+        if !on_extent {
+            continue;
+        }
+        return Some(CreaseFire {
+            crease: i,
+            edge: c.edge,
+            f_pre: fp,
+            f_post: fq,
+        });
+    }
+    None
+}
+
+// ---------------------------------------------------------------------------
 // §4.5.1 inc-2c-3b-12b — the REPAIR: truncate → transit → q-points
 // ---------------------------------------------------------------------------
 

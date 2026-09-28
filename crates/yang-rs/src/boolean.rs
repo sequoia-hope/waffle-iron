@@ -823,7 +823,14 @@ pub fn boolean(
         }
     }
     // Detect-then-refine. Pass 1 at natural resolution.
+    crate::stage4_correct::reset_boundary_domain_fires();
     let natural = boolean_once(a, b, op, backend, false);
+    // Yang §4.5 boundary-point domain fires of the NATURAL op (read before
+    // any retry re-runs Stage 4 and overwrites the count).
+    let natural_domain_fires = match &natural {
+        Ok(_) => crate::stage4_correct::boundary_domain_fires(),
+        Err(_) => 0,
+    };
     let brep_probe_out = |out: &BRep| {
         if std::env::var_os("YANG_BREP_PROBE").is_some() {
             for (vi, v) in out.vertices().iter().enumerate() {
@@ -944,7 +951,99 @@ pub fn boolean(
         brep_probe_out(&refined);
         return Ok(refined);
     }
+    // Yang §4.5 boundary-point domain certificate (spec
+    // `specs/yang_45_boundary_point_domain_certificate.md`): the natural op
+    // EMITTED, but Stage 4 recorded relocations that left their face across
+    // a crease — boundary points that did not converge "within their
+    // domains", the paper's §4.5.2 trigger for exactly this population
+    // (Fig. 13's exclusion from §4.5.1). Refine, and adopt only a rung that
+    // emits with NO fire; otherwise the natural output stands as it always
+    // has (the fires are inventoried, never a wall — spec §7).
+    if natural_domain_fires > 0 {
+        if let Some(refined) = refine_452_domain(a, b, op, backend, natural_domain_fires) {
+            brep_probe_out(&refined);
+            return Ok(refined);
+        }
+    }
     natural
+}
+
+/// Is the domain-fire ladder in force? `YANG_S45_BOUNDARY_DOMAIN` unset (the
+/// production default) = yes; `census` / `stop` / `off` = no (report-only,
+/// the hard-STOP A/B knob, and certificate-off respectively — the last two
+/// never reach here with a count anyway).
+fn refine_452_domain_enabled() -> bool {
+    !matches!(
+        std::env::var("YANG_S45_BOUNDARY_DOMAIN").as_deref(),
+        Ok("census") | Ok("stop") | Ok("1") | Ok("on") | Ok("0") | Ok("off")
+    )
+}
+
+/// The §4.5.2 ladder for a natural op that emitted WITH boundary-point domain
+/// fires (`boundary_domain_postcondition`). Same rungs and the same Q3 guard
+/// shell as [`refine_452`] — a rung is adopted only when it emits a
+/// watertight 2-manifold body — plus the certificate's own clause: the rung
+/// must record NO fire. No under-resolution certificate names a first rung
+/// here (the overrun past a crease is not the true junction's clearance
+/// from the corner), so the fixed budget applies; `YANG_452_ROUNDS`
+/// overrides it for the census ladder.
+///
+/// Measured (2026-09-28): P0003's two fires clear at d_ε/2 (adopted,
+/// SUPPORTED_CORRECT); the many-facet gear cases keep fires at every rung
+/// and keep their natural output (spec §7).
+fn refine_452_domain(
+    a: &BRep,
+    b: &BRep,
+    op: BoolOp,
+    backend: &dyn MeshBoolean,
+    natural_fires: usize,
+) -> Option<BRep> {
+    if !refine_452_domain_enabled() {
+        return None;
+    }
+    let probe = std::env::var_os("YANG_452_PROBE").is_some();
+    let rounds = refine_452_rounds(None);
+    if probe {
+        eprintln!(
+            "[s452-domain] op={op:?} natural emitted with {natural_fires} boundary-domain \
+             fire(s); rungs={rounds:?}"
+        );
+    }
+    let require_clean = std::env::var_os("YANG_452_REQUIRE_CLEAN").is_some();
+    for factor in rounds {
+        crate::stage4_correct::reset_boundary_domain_fires();
+        let out = crate::stage1_tessellate::with_refined_chord(factor, || {
+            let ra = a.retessellated_at_current_d_eps()?;
+            let rb = b.retessellated_at_current_d_eps()?;
+            boolean_once(&ra, &rb, op, backend, false)
+        });
+        let fires = crate::stage4_correct::boundary_domain_fires();
+        let brep = match out {
+            Ok(brep) => brep,
+            Err(e) => {
+                if probe {
+                    eprintln!("[s452-domain]   d_eps/{factor} -> Err({e:?})");
+                }
+                continue;
+            }
+        };
+        let unpaired = refine_452_unpaired(&brep);
+        let improper = output_improper_count(&brep);
+        if probe {
+            eprintln!(
+                "[s452-domain]   d_eps/{factor} -> Ok tris={} unpaired={unpaired} \
+                 improper={improper} fires={fires}",
+                brep.mesh.tris.len(),
+            );
+        }
+        if unpaired == 0 && fires == 0 && (improper == 0 || !require_clean) {
+            return Some(brep);
+        }
+    }
+    if probe {
+        eprintln!("[s452-domain]   no rung emitted fire-free — the natural output stands");
+    }
+    None
 }
 
 fn boolean_once(

@@ -59,6 +59,7 @@ mod s452_chord_refine;
 mod s452_under_resolution_ladder;
 mod s453_line_overtake;
 mod s455_edge_in_plane;
+mod s45_boundary_domain;
 mod s4_boundary_curve;
 mod s4_circle_pair_corner;
 mod s4_line_curve_junction_metric;

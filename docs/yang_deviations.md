@@ -103,6 +103,7 @@ Presented 2026-07-16; the user's answer (2026-07-17) was **"i have no opinion on
 | N63 | RESOLVED (2026-09-21, B2 pipe checkpoint 1) | Stage-4 torus implicit-pair relocation STOPped on an operand's OWN G1 cylinder↔torus rim (a tangent pair, rank-deficient by construction) although the vertex lies on the shared rim exactly; now skipped at a tangent pair off the intersection curve. NOTE: the projection of an operand's own transversal rim vertices is KEPT — it corrects Stage-1 samples of recovered rims that sit off the torus (R0026), a §4.4.2 restoration gap in its own right |
 | N64 | EXTENSION — PERMANENT-proposed (2026-09-27, P0001; paper silent) | §4.5.5 is applied one dimension DOWN: an edge (or vertex) of one operand within the #178 coincidence line of a partner planar face is identified onto the plane and its sub-segments inside the face become identically-sampled shared mesh edges (crossings minted into every copy of both crossed edges, inside endpoints as interior Steiner points, the sub-segment as an interior CDT constraint). The paper's §4.5.5 addresses coplanar FACE pairs only; its stated rationale (discretization does not maintain coplanarity) and remedy (identical sampling on the shared part) are what the arm implements |
 | N65 | RESOLVED (2026-09-27, P0002) | The §4.3.3 Case-IV per-claim verdict judged the EDGE ("any exact root inside the segment" ⇒ valid) instead of the vertex's OWN solution; a line × quadric solve with one in-segment root and one beyond the edge passed the vertex sitting on the far root, the phantom loop stayed MIXED and rode into Stage 6 as `ring rejected by CDT`. Now the vertex's own root (the nearest) is judged, per the paper's "no solution in one of the two parametric domains" — a statement about the solution, not the edge (spec `yang_433_case_iv_corner_phantom.md` §9) |
+| N66 | RESOLVED (2026-09-28, P0003) | Stage-4 relocation of a BOUNDARY point (one operand's model edge crossing the other's face) accepted any exact root of the extended surfaces — a circle × plane root past the plane face's edge, a line × torus root past the torus face's rim — and nothing asked whether the solution lay within the face's domain (§4.5: "cannot converge to a distance of 0 WITHIN THEIR DOMAINS"); the phantom junctions rode into Stage 6 as a stray edge the render tessellator declined. Now `boundary_domain_postcondition` (creases from the operand's B-Rep edges, a divider plane + extent per crease, the §3t sign test) records the fires and the op-level §4.5.2 ladder (`refine_452_domain`) adopts a fire-free rung, else the natural output stands and the fires are inventoried — a hard STOP would convert five CORRECT gear cases the ladder cannot reach (spec `yang_45_boundary_point_domain_certificate.md` §7) |
 | #137 diag | HISTORICAL | #137 (2026-07-15): C0065/R0074 — the torus∩plane solver EXISTS and RUNS; the blocker is mesh RESOLUTION nea… |
 | #137 diag 2 | HISTORICAL | #137 (2026-07-15, follow-up): resolution ALONE is not the fix — it flips the loud STOP into a silent-wrong … |
 
@@ -4583,3 +4584,52 @@ root to its post-relocation position — with roots of one point reached
 through two edge records identified at f64 noise (`own_root_verdict`).
 Certified now, the existing §4.5.2 ladder converts P0002 in one rung.
 Corpus: one category move, zero detail moves (spec §9.1).
+
+### N66 — Boundary-point relocations accepted exact roots outside their face's domain (found and fixed 2026-09-28, P0003)
+
+**Paper:** §4.5 (`refs/text/yang2025_hybrid_boolean.txt:648-651`): "we
+collect the point pairs that cannot converge to a distance of 0 within
+their domains"; §4.5.1 (`:637-651`, Fig. 13) excludes "the boundary points
+that glide along the boundary curves" from the first strategy — "for other
+cases, we apply the second strategy", §4.5.2 local refinement; §4.5.1's
+own words for the defect (`:672-676`): "a full step length that takes the
+point to a position p1 outside the surface S2 where the point is initially
+located".
+
+**Implementation gap:** a mesh vertex that is one operand's MODEL EDGE
+crossing the other operand's face is relocated to the exact root of
+(edge curve ∩ face surface) — the seeded triple Newton for a line × torus
+(`relocate_onto_implicit_triple`), the nearest closed-form root for a
+circle × plane (`circle_plane_nearest_root`) — on the EXTENDED surfaces,
+with a displacement corridor as the only acceptance. No arm asked whether
+the root lies on the bounded face. P0003: B's end-cap rim crossing A's
+lateral face landed 9.9e-4 above the boss's top cap (past the lateral
+face's top edge); A's top edge crossing B's torus landed 1.27° inside the
+revolve's open wedge (past the torus rim). Neither the §4-I9 carrier-domain
+check (needs the crossed corner as a still mesh vertex on the travel
+segment) nor the §3t crease certificate (conic triple arm only; circle
+creases of cylinder/cone pairs only) could see either. `YANG_CHORD_REFINE`
+2×/4×/8×/16× all SUPPORTED_CORRECT — a resolution deficit with its trigger
+missing.
+
+**Fix:** `boundary_domain_postcondition` (`stage4_correct.rs`) at the end of
+Stage 4, for every moved vertex against every face its attributed triangles
+carry: the face's creases come from the operand's B-Rep EDGES
+(`CreaseIndex::build` — line creases between planes and torus × plane rims
+included, which the surface-pair reconstruction could not name), each with a
+DIVIDER plane and an EXTENT (`crease_divider`); the certificate
+(`boundary_crease_crossed`) is the §3t sign test plus the extent test (the
+step's crossing of the divider must lie on the crease within the step's own
+length + band — the line vocabulary is safe on a non-convex face, the circle
+vocabulary safe on a torus whose cap plane cuts the tube twice). The fires are
+RECORDED and the op-level ladder (`refine_452_domain`) re-runs the op at
+d_ε/2, d_ε/4, adopting a rung that emits watertight with NO fire — P0003
+converges at d_ε/2; otherwise the natural output stands and the fires are
+inventoried (`YANG_S45_BOUNDARY_DOMAIN_LOG`). The hard STOP (`stop` mode)
+is the A/B measurement knob only: it converts R0003 (42 fires), R0004,
+R0032, R0049, R0070 — many-facet gear operands whose sub-chord facet
+creases the ladder cannot reach, the §4.5.1 corridor family — from CORRECT
+to ERROR for a defect they survive (spec §7), the §3t verdict restated.
+Not a band: sign at evaluation precision, extent at the step's own reach.
+Unit pins `tests_unit/s45_boundary_domain.rs` (7). Corpus: spec §7.
+
