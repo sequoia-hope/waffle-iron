@@ -804,7 +804,21 @@ impl ExactChain {
                         chain.frame = parsed.basis;
                         frame_set = true;
                     }
-                    sketches.insert(id.to_string(), parsed);
+                    // Keyed the way the engine resolves `params.sketch_id`:
+                    // by the Sketch FEATURE's id (`rebuild.rs`
+                    // `find_sketch_in_tree` matches `feature.id`). The
+                    // engine-authored corpus mints the inner `sketch.id`
+                    // equal to the feature id, so the two keys coincided
+                    // there; the prospector's gen3 documents (P-series) mint
+                    // them apart, and keying by the inner id read every one
+                    // as "sketch not defined before this feature"
+                    // (2026-09-28, P0004's meta adjudication).
+                    let key = if feature_id.is_empty() {
+                        id.to_string()
+                    } else {
+                        feature_id.clone()
+                    };
+                    sketches.insert(key, parsed);
                 }
                 "Extrude" => {
                     let params = op

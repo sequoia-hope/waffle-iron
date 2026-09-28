@@ -1,5 +1,43 @@
 # Spec: Stage-4 general conic triple-surface junction relocation
 
+> **Junction-map candidates — the conic × plane-pair corner (2026-09-28,
+> P0004).** The R0070 amendment below admitted a `vert_line` endpoint that
+> also terminates an exact plane∩plane segment (`vert_pp_planes`); the SAME
+> corner with any other single conic in place of the line was still
+> `n_maps == 1` and fell to its single-curve arm. Measured on P0004
+> (prospector seed 1 index 30, minimized: square boss, 293° square revolve
+> about an oblique axis, square boss, square cut; `YANG_V_PROBE=128`,
+> `YANG_S6_NONPLANAR_PROBE`, `NONMANIFOLD_SITE_PROBE`, 2026-09-28; scale
+> 3.5): in the subtract, Stage-4 v128 = (−14.7569, 3, −3) is
+> {A:Cone, A:Plane y = 3, B:Plane} — the crease of the previous union (A's
+> revolve cone against the second boss's y = 3 face) crossed by the
+> cutter's face. Its incident Stage-3 edges are one cone × B-plane
+> ELLIPSE (`vert_cone_ellipse`) and one exact y = 3 ∩ B-plane segment
+> (`vert_pp_planes`, which counts zero toward `n_maps`); the PR-KV11 pass
+> serves only the cylinder-ellipse map, so the vertex went to the
+> cone-ellipse arm and landed on the ellipse 1.23e-1 OFF the y = 3 plane
+> (displacement 2.39e-1), and Stage 6 STOPped `s6-planar-loop-nonplanar`
+> face 13 (compact v127). Sibling corners of the same configuration that
+> also terminated a LINE edge were solved by the triple block in the same
+> run (`[triple-gate] … metric=line`). Wired: `pp_conic_corner =
+> vert_pp_planes ∧ n_maps ≥ 1` replaces `pp_line_corner` (which it
+> subsumes — `vert_line` is counted in `n_maps`); the block's existing
+> exactly-3-surfaces guard, plane-pair line metric and domain certificate
+> apply unchanged. Monotone: every vertex this admits was relocated WRONG
+> before (single-curve arm), never STOPped. Result: v128 relocates with
+> ρ 2.83e-1 against the line-corridor gate 1.09 (d_ε 2.92e-1, sin θ
+> 0.537), P0004 ⇒ SUPPORTED_CORRECT; the un-minimized seed-1 index 30
+> (circle boss, non-convex revolve, square boss, 7-star cut) advances past
+> the reassembly wall to kernel-v2 `TessellationFailed` face 54 "patch
+> triangulation folded (inverted triangle) — KV9-F2" — a later, different
+> signature, recorded in the triage ledger. Pins: kernel-v2
+> `tests/s4_conic_pp_corner_chain.rs` (a 200° frustum creased by an
+> oblique slab, then cut by a tilted box whose two lateral faces cross the
+> conic crease: RED at "reassembled output would be non-2-manifold"
+> without the admission — mutation-checked — GREEN with it, both corners
+> exact output vertices on all three surfaces) and the `assay_kv2` smoke
+> pin `P0004 → SupportedCorrect`.
+
 > **Torus-edge candidates (2026-09-12, later — R0050): the same amendment
 > for the TORUS block's endpoint-mix STOP.** A torus intersection edge is
 > untyped (no conic map; the "(2t) KV6d Tier B" torus block relocates its

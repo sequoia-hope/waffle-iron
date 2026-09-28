@@ -11023,12 +11023,28 @@ fn stage4_relocate_and_correct_inner(
             // error (R0070 op 3: 8.5e-7 at 1.7e-2 scale, `s6-planar-loop-
             // nonplanar`). Monotone: a vertex this admits was relocated
             // wrong before, never STOPped.
-            let pp_line_corner = vert_line.contains_key(&v) && vert_pp_planes.contains_key(&v);
+            //
+            // P0004 (2026-09-28, spec "Junction-map candidates — the conic ×
+            // plane-pair corner"): the same corner with ANY single conic in
+            // place of the line. A cone × plane ELLIPSE endpoint terminating
+            // an exact plane∩plane segment is {cone, plane, plane} — the
+            // crease of a previous boolean (A's cone against its own planar
+            // face) crossed by B's face. The PR-KV11 pass above serves only
+            // the cylinder-ellipse map, so the cone-ellipse (and parabola /
+            // hyperbola / surface-pair) endpoint scored `n_maps == 1`, fell
+            // to its single-curve arm and slid along the ellipse OFF A's
+            // plane by the chord error (P0004: 1.2e-1 at scale 3.5,
+            // `s6-planar-loop-nonplanar`). The pp segment is a curve through
+            // the vertex exactly as the line map is; it is held out of
+            // `n_maps` only because the segment itself needs no relocation.
+            // Monotone: every vertex this admits was relocated WRONG before
+            // (single-curve arm), never STOPped.
+            let pp_conic_corner = vert_pp_planes.contains_key(&v) && n_maps >= 1;
             if n_maps < 2
                 && !same_type_junction.contains(&v)
                 && !circle_pair_corner
                 && !torus_conic_mix
-                && !pp_line_corner
+                && !pp_conic_corner
             {
                 continue;
             }

@@ -314,6 +314,32 @@ fn r0026_reads_genus_one() {
     assert_stable("R0026 phase ¼", &ladder(&c, &[256], 0.25), 0, 1);
 }
 
+/// P0004 (adjudicated 2026-09-28 at its conversion): a prospector (gen3)
+/// document — the Sketch FEATURE id and the inner `sketch.id` differ, and
+/// the reader used to key sketches by the inner id and report every
+/// P-series case "sketch not defined before this feature". Read the way
+/// the engine resolves `sketch_id` (`rebuild.rs` `find_sketch_in_tree`:
+/// the feature id), the document is two bodies — the first boss (a
+/// radius-4 diamond × depth 5 = 160) never touches the revolve/boss stack
+/// the cut acts on — each a ball: boundary χ = 4, two components.
+#[test]
+fn p0004_reads_two_balls_through_the_feature_id_key() {
+    let c = chain("P0004");
+    let r = ladder(&c, &[128, 256], 0.5);
+    assert_stable("P0004", &r, 4, 2);
+    let small = r
+        .last()
+        .unwrap()
+        .body_volumes
+        .iter()
+        .copied()
+        .fold(f64::INFINITY, f64::min);
+    assert!(
+        (small - 160.0).abs() < 2.0,
+        "the detached first boss reads 2·4²·5 = 160, got {small}"
+    );
+}
+
 // ---- instruments -----------------------------------------------------------
 
 /// One case on a ladder (`ASSAY_CASE`, `EXACT_CELLS`, `EXACT_PHASE`,

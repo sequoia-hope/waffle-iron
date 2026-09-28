@@ -106,8 +106,13 @@ Do NOT skip to lower-priority items because they are easier.
    `specs/yang_45_boundary_point_domain_certificate.md`); on 2026-09-28
    the remaining seed-1 signatures were adjudicated (`specs/assay_prospector.md`
    §8: re-judge, feature-floor check, ×1e-3/×1e3 scale test, site probe)
-   and **P0004–P0007 are the open P-series ERROR tail** — P0004 subtract
-   reassembly non-2-manifold (a Stage-4 relocation left its planar face),
+   and P0004–P0007 were promoted; **P0004 CONVERTED 2026-09-28 (night)**
+   (a {cone, plane, plane} corner whose exact plane∩plane segment endpoint
+   counted zero toward the Stage-4 triple block unless its curve was a
+   LINE — spec `yang_stage4_conic_triple_junction.md` top blockquote; its
+   un-minimized lineage now STOPs one crate later in kernel-v2's render
+   tessellator, "patch triangulation folded — KV9-F2", a NEW signature to
+   re-minimize). **P0005–P0007 are the open P-series ERROR tail** —
    P0005 auto-union non-2-manifold (a cone × plane Stage-4 membrane),
    P0006 a Stage-1 chart polygon that crosses itself after a gear union,
    P0007 `SelfIntersectingBooleanOutput` — each its own kernel session

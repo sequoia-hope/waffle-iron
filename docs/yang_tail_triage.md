@@ -43,7 +43,40 @@ after the reconciliation run (release, 8 jobs, 360 s; wall 577 s, F0085
 regression since 2026-08-01 is outstanding (checked over every commit of
 `results.json`).
 
-## 2026-09-28 (later) — the five un-promoted seed-1 prospector signatures ADJUDICATED: four PROMOTED as P0004–P0007 (loud kernel STOPs on generic geometry, each scale-invariant across three decades and, for the two reassembly STOPs, sited by `NONMANIFOLD_SITE_PROBE`), one RETIRED as an authored sub-floor gear (the A14.2 wall by contract; the generator now draws a circle below the floor); canonical **SCORE_PENDING**
+## 2026-09-28 (night) — P0004 CONVERTS: the Stage-4 conic × plane-pair corner joins the triple block's candidates; canonical **305C / 0W / 10E / 4EE / 0T + 0 UNSUPPORTED** (release, 8 jobs, 900 s; wall 926.6 s; F0072 534.2 s, F0085 370.7 s; exactly one category move — P0004 — and zero detail moves)
+
+**Anchored** (`NONMANIFOLD_SITE_PROBE`, `YANG_S6_NONPLANAR_PROBE`,
+`YANG_S5_FOLD_PROBE`, `YANG_V_PROBE=125..131`, `YANG_LRR_PROBE`; the
+minimized P0004 and the un-minimized seed-1 index 30 lineage both): the
+off-plane vertex of `s6-planar-loop-nonplanar` is a Stage-4 relocation of
+a {A:Cone, A:Plane, B:Plane} corner — the crease of the previous union
+(the revolve's cone against the second boss's y = 3 face) crossed by the
+cutter's face. Its Stage-3 incidence is one cone × B-plane ellipse
+(`vert_cone_ellipse`) plus one exact plane∩plane segment (`vert_pp_planes`,
+counted zero toward the triple block's `n_maps`); the R0070 admission
+paired the pp map with `vert_line` only, so the vertex scored one curve,
+took the cone-ellipse arm and slid along the ellipse 1.23e-1 off A's plane
+(pre-relocation it was ON the plane, `pre_dist = 0`). The P0003 boundary
+domain certificate wrote nothing: a crease vertex that LEAVES its crease
+is not a crease CROSSING. **Fix** (spec
+`yang_stage4_conic_triple_junction.md`, top blockquote): `pp_conic_corner
+= vert_pp_planes ∧ n_maps ≥ 1` admits the corner to the triple block
+(exactly three surfaces, plane-pair line metric, domain certificate
+unchanged); v128 relocates with ρ 2.83e-1 against gate 1.09. **Pins:**
+kernel-v2 `tests/s4_conic_pp_corner_chain.rs` (RED without the admission —
+mutation-checked — GREEN with it), smoke pin `P0004 → SupportedCorrect`,
+meta adjudicated from the exact-membership readout (the reader now keys
+sketches by the Sketch FEATURE id the way `rebuild.rs` resolves
+`sketch_id`; prospector documents were silently NOT COVERED before).
+**New signature, not a customer of this fix:** the un-minimized seed-1
+index 30 (circle boss, non-convex 5-star revolve, square boss, 7-star cut
+at scale 3.54) advances past the reassembly wall to kernel-v2
+`boolean_subtract TessellationFailed { face 54, "patch triangulation
+folded (inverted triangle) — KV9-F2" }` — the render tessellator, one
+crate later; adjudicate it as its own finding (re-minimize under the new
+signature from `target/prospect/seed-1/candidates/X00000001-00030.lineage.json`).
+
+## 2026-09-28 (later) — the five un-promoted seed-1 prospector signatures ADJUDICATED: four PROMOTED as P0004–P0007 (loud kernel STOPs on generic geometry, each scale-invariant across three decades and, for the two reassembly STOPs, sited by `NONMANIFOLD_SITE_PROBE`), one RETIRED as an authored sub-floor gear (the A14.2 wall by contract; the generator now draws a circle below the floor); canonical **not measured separately — superseded by the night row above**
 
 **Method** (spec `assay_prospector.md` §8, now written down there): each
 finding re-judged on the current kernel (`PROSPECT_CANDIDATE=<stem>
@@ -55,7 +88,7 @@ judged at ×1e-3 and ×1e3 (a rescaled `.recipe.json` through
 
 | id | minimal recipe | STOP | site / scale behaviour |
 |---|---|---|---|
-| **P0004** | `convex4:boss convex4:rev(293°, oblique axis) convex4:boss convex4:cut` | `boolean_subtract` "reassembled output would be non-2-manifold" | `s6-planar-loop-nonplanar`: face 13 vertex 127 off its plane by 1.2e-1 at scale 3.5 — a Stage-4 relocation left its planar face; identical at ×1e-3 / ×1e3 |
+| ~~**P0004**~~ | `convex4:boss convex4:rev(293°, oblique axis) convex4:boss convex4:cut` | ~~`boolean_subtract` "reassembled output would be non-2-manifold"~~ | ~~`s6-planar-loop-nonplanar`: face 13 vertex 127 off its plane by 1.2e-1 at scale 3.5 — a Stage-4 relocation left its planar face; identical at ×1e-3 / ×1e3~~ **CONVERTED 2026-09-28 (night)** — the conic × plane-pair corner (row above) |
 | **P0005** | `convex4:boss convex4:rev(300°) gear10:sym circle:boss` | auto-union "reassembled output would be non-2-manifold" | `s4-halfedge-pairing`: edge fwd 2 / rev 0 between A's cone face 4 and B's plane 114 — a Stage-4 membrane; ×1e-3 identical, ×1e3 ⇒ `LocalRefinementRequired` |
 | **P0006** | `convex4:boss convex4:boss circle:boss gear10:boss convex4:boss(oblique)` | auto-union rejects the INPUT: "Stage-1 chart polygon of face 11 crosses itself 8 time(s) (rim segment demand None)" | the accumulated body's face after the gear union cannot be charted; identical at ×1e-3 / ×1e3 |
 | **P0007** | `circle:boss circle:boss nonconvex6:boss(oblique) convex4:∪` | `SelfIntersectingBooleanOutput { 47 × 69, penetrations: 4 }` | kernel-v2's output gate; identical at ×1e3, ×1e-3 hits the feature-floor wall |

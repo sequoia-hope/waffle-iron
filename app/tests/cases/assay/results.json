@@ -1,8 +1,8 @@
 {
-  "errored": 11,
+  "errored": 10,
   "failed": 0,
   "generated": "kernel-v2 (assay_kv2 categorized run)",
-  "passed": 304,
+  "passed": 305,
   "results": [
     {
       "category": "SUPPORTED_CORRECT",
@@ -1895,10 +1895,10 @@
       "status": "pass"
     },
     {
-      "category": "ERROR",
-      "detail": "1 engine error(s): 1c7a9c37-e09f-4f87-a0fe-f13f836ffdf1: operation error: kernel error: boolean operation failed: kernel-v2 boolean_subtract failed: BooleanFailed(\"yang-rs: reassembled output would be non-2-manifold\")",
+      "category": "SUPPORTED_CORRECT",
+      "detail": "all checks passed",
       "id": "P0004",
-      "status": "error"
+      "status": "pass"
     },
     {
       "category": "ERROR",

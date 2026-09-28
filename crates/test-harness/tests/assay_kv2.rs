@@ -1383,11 +1383,18 @@ fn smoke_corpus_boundary_categories() {
         // three decades of uniform scale). ERROR-class pins with
         // `derived_meta`; a conversion moves the pin.
         // P0004: square boss, 293° square revolve on an oblique axis, square
-        // boss, square cut ⇒ boolean_subtract "reassembled output would be
-        // non-2-manifold"; site s6-planar-loop-nonplanar (face 13 vertex
-        // 127 off its plane by 1.2e-1 at scale 3.5 — a relocation left its
-        // planar face).
-        ("P0004", Category::Error),
+        // boss, square cut. Was boolean_subtract "reassembled output would
+        // be non-2-manifold" (site s6-planar-loop-nonplanar: a vertex 1.2e-1
+        // off its plane at scale 3.5). CONVERTED 2026-09-28 (night): the
+        // vertex was a {cone, plane, plane} corner — the previous union's
+        // cone-against-plane crease crossed by the cutter's face — whose
+        // exact plane∩plane segment endpoint counted zero toward the
+        // Stage-4 triple block unless its curve was a LINE, so it slid
+        // along the cone × plane ellipse off the plane (spec
+        // `yang_stage4_conic_triple_junction.md`, "the conic × plane-pair
+        // corner"). Two bodies (the cut splits the stack), exact-membership
+        // volume pinned.
+        ("P0004", Category::SupportedCorrect),
         // P0005: square boss, 300° square revolve (a cone face), 10-tooth
         // gear symmetric boss, circle boss ⇒ auto-union "reassembled output
         // would be non-2-manifold"; site s4-halfedge-pairing: a doubled
