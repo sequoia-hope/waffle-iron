@@ -1377,6 +1377,33 @@ fn smoke_corpus_boundary_categories() {
         // §4.5.2 ladder's d_ε/2 rung emits fire-free and is adopted. χ 2,
         // Monte-Carlo volume pinned.
         ("P0003", Category::SupportedCorrect),
+        // P0004–P0007 PROMOTED 2026-09-28 (the seed-1 findings adjudicated
+        // per spec §8: each re-judged on the current kernel, its geometry
+        // checked against the feature floor, and its signature held across
+        // three decades of uniform scale). ERROR-class pins with
+        // `derived_meta`; a conversion moves the pin.
+        // P0004: square boss, 293° square revolve on an oblique axis, square
+        // boss, square cut ⇒ boolean_subtract "reassembled output would be
+        // non-2-manifold"; site s6-planar-loop-nonplanar (face 13 vertex
+        // 127 off its plane by 1.2e-1 at scale 3.5 — a relocation left its
+        // planar face).
+        ("P0004", Category::Error),
+        // P0005: square boss, 300° square revolve (a cone face), 10-tooth
+        // gear symmetric boss, circle boss ⇒ auto-union "reassembled output
+        // would be non-2-manifold"; site s4-halfedge-pairing: a doubled
+        // directed edge (fwd 2 / rev 0) between A's cone face and B's plane
+        // — a Stage-4 membrane. ×1e3 ⇒ LocalRefinementRequired.
+        ("P0005", Category::Error),
+        // P0006: two square bosses, a circle boss, a 10-tooth gear boss, a
+        // square boss on an oblique plane ⇒ auto-union rejects the INPUT:
+        // "Stage-1 chart polygon of face 11 crosses itself 8 time(s) (rim
+        // segment demand None)" — the accumulated body's face after the
+        // gear union cannot be charted.
+        ("P0006", Category::Error),
+        // P0007: two circle bosses, a non-convex hexagon boss on an oblique
+        // plane, a square extrude-union ⇒ SelfIntersectingBooleanOutput
+        // (4 penetrations) at kernel-v2's output gate.
+        ("P0007", Category::Error),
     ];
     // Per-case CPU budget, expressed in RELEASE-equivalent seconds and scaled
     // for debug. `scripts/test.sh` runs test-harness WITHOUT `--release`, and
@@ -1471,8 +1498,8 @@ fn full_corpus_categorized() {
     let cases = discover_cases(&dir);
     assert_eq!(
         cases.len(),
-        315,
-        "expected the 315-case assay corpus (194 legacy + 118 C-series + 3 P-series)"
+        319,
+        "expected the 319-case assay corpus (194 legacy + 118 C-series + 7 P-series)"
     );
 
     // Per-case timeout (default 30s, env-overridable) so no single case can

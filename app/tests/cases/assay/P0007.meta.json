@@ -1,0 +1,66 @@
+{
+  "id": "P0007",
+  "description": "4 ops, extrude(circle,boss)×2+extrude(polygon,boss)+boolean-union(polygon) — prospector seed 1 index 16 (already minimal, step 1 rounded): two circle bosses, a non-convex hexagon boss on an oblique plane, a square extrude-union ⇒ boolean_union SelfIntersectingBooleanOutput { face_a: FaceId(47), face_b: FaceId(69), penetrations: 4 } (the kernel-v2 output self-intersection gate). ×1e3 identical; ×1e-3 hits the input feature-floor wall. (2026-09-28; ERROR-class pin, derived_meta: expectations unadjudicated until conversion)",
+  "master_seed": 0,
+  "test_seed": 0,
+  "scale": 0.0025648154835565705,
+  "log_scale": -2.590943873185937,
+  "plane_origin": [
+    0.0,
+    0.0,
+    0.0
+  ],
+  "plane_normal": [
+    0.0,
+    0.0,
+    1.0
+  ],
+  "operations": [
+    {
+      "kind": "extrude",
+      "profile_type": "unknown",
+      "profile_size": 0.0,
+      "depth_or_angle": 0.0009051703515762518,
+      "is_cut": false
+    },
+    {
+      "kind": "extrude",
+      "profile_type": "unknown",
+      "profile_size": 0.0,
+      "depth_or_angle": 0.00129,
+      "is_cut": false
+    },
+    {
+      "kind": "extrude",
+      "profile_type": "unknown",
+      "profile_size": 0.0,
+      "depth_or_angle": 0.0014916897932656882,
+      "is_cut": false
+    },
+    {
+      "kind": "extrude",
+      "profile_type": "unknown",
+      "profile_size": 0.0,
+      "depth_or_angle": 0.0025648154835565705,
+      "is_cut": false
+    },
+    {
+      "kind": "boolean-union",
+      "profile_type": "none",
+      "profile_size": 0.0,
+      "depth_or_angle": 0.0,
+      "is_cut": false
+    }
+  ],
+  "oracles": {
+    "euler_target": 2,
+    "expect_watertight": true,
+    "max_bbox_extent": 0.25648154835565706,
+    "expect_positive_volume": true,
+    "volume_monotonicity": [],
+    "expect_rebuild_error": false,
+    "derived_meta": true
+  },
+  "generator_version": 100,
+  "featured": true
+}

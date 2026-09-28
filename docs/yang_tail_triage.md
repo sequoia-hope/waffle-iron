@@ -43,6 +43,33 @@ after the reconciliation run (release, 8 jobs, 360 s; wall 577 s, F0085
 regression since 2026-08-01 is outstanding (checked over every commit of
 `results.json`).
 
+## 2026-09-28 (later) — the five un-promoted seed-1 prospector signatures ADJUDICATED: four PROMOTED as P0004–P0007 (loud kernel STOPs on generic geometry, each scale-invariant across three decades and, for the two reassembly STOPs, sited by `NONMANIFOLD_SITE_PROBE`), one RETIRED as an authored sub-floor gear (the A14.2 wall by contract; the generator now draws a circle below the floor); canonical **SCORE_PENDING**
+
+**Method** (spec `assay_prospector.md` §8, now written down there): each
+finding re-judged on the current kernel (`PROSPECT_CANDIDATE=<stem>
+prospect_judge` — none of the five moved with the P0001–P0003 fixes), its
+smallest authored segment measured against `MIN_FEATURE_SIZE`, its recipe
+judged at ×1e-3 and ×1e3 (a rescaled `.recipe.json` through
+`PROSPECT_RECIPE`), and the reassembly STOPs run under
+`NONMANIFOLD_SITE_PROBE=1` so the pin names a site, not a symptom.
+
+| id | minimal recipe | STOP | site / scale behaviour |
+|---|---|---|---|
+| **P0004** | `convex4:boss convex4:rev(293°, oblique axis) convex4:boss convex4:cut` | `boolean_subtract` "reassembled output would be non-2-manifold" | `s6-planar-loop-nonplanar`: face 13 vertex 127 off its plane by 1.2e-1 at scale 3.5 — a Stage-4 relocation left its planar face; identical at ×1e-3 / ×1e3 |
+| **P0005** | `convex4:boss convex4:rev(300°) gear10:sym circle:boss` | auto-union "reassembled output would be non-2-manifold" | `s4-halfedge-pairing`: edge fwd 2 / rev 0 between A's cone face 4 and B's plane 114 — a Stage-4 membrane; ×1e-3 identical, ×1e3 ⇒ `LocalRefinementRequired` |
+| **P0006** | `convex4:boss convex4:boss circle:boss gear10:boss convex4:boss(oblique)` | auto-union rejects the INPUT: "Stage-1 chart polygon of face 11 crosses itself 8 time(s) (rim segment demand None)" | the accumulated body's face after the gear union cannot be charted; identical at ×1e-3 / ×1e3 |
+| **P0007** | `circle:boss circle:boss nonconvex6:boss(oblique) convex4:∪` | `SelfIntersectingBooleanOutput { 47 × 69, penetrations: 4 }` | kernel-v2's output gate; identical at ×1e3, ×1e-3 hits the feature-floor wall |
+| retired | `convex4:boss gear17:boss nonconvex9:boss convex4:boss` at scale 1.4e-4 | "face 602 is degenerate (zero-area / collinear)" | the 17-tooth gear at module 2.26e-5 m authors 2.6e-7 m segments — BELOW `MIN_FEATURE_SIZE`; the un-rounded 7-op candidate is SUPPORTED_CORRECT at ×100. Its ×10…×1000 form gives `NonManifoldVertex`, and that minimized to TWO SQUARE BOSSES whose 1-sig-digit coordinates put one box's lateral edge exactly in the other's cap: a 1-D contact, a legitimately non-manifold union (the 0-D-contact walls' class) — the minimizer's rounding MINTED it |
+
+**Two harness defects closed / recorded:** `gen3::draw_profile` draws a
+circle where a gear would author segments below 10 × `MIN_FEATURE_SIZE`
+(`gear_draw_respects_the_input_feature_floor`; the rng stream is
+untouched, so seeds reproduce); and the minimizer's 1-sig-digit rounding
+can mint a coincidence that keeps a number-stripped signature — §8 step 1
+now demands the cross-check against the un-rounded lineage.
+
+**Corpus** (release, 8 jobs, 900 s): SCORE_DETAIL_PENDING
+
 ## 2026-09-28 — P0003 CONVERTED ⇒ 304C: two Stage-4 BOUNDARY-POINT relocations (B's end-cap rim across A's lateral face, A's top edge across B's torus) converged on exact roots OUTSIDE their faces' domains and nothing asked; the Yang §4.5 domain certificate (creases from the B-Rep edges, divider + extent, the §3t sign test) names both, the §4.5.2 ladder's d_ε/2 rung emits fire-free and is adopted (a hard STOP would convert five CORRECT gear cases the ladder cannot reach, so the certificate is trigger + inventory, not a wall); canonical **304C / 0W / 7E / 4EE / 0T + 0 UNSUPPORTED**
 
 **Anchor** (`KV2_TORUS_PATCH_EDGES=22`, `YANG_MESH_DUMP=1`, a scratch

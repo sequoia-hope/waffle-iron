@@ -103,10 +103,17 @@ Do NOT skip to lower-priority items because they are easier.
    needle-star union, a star cut, a circle revolve-cut; ALL THREE
    CONVERTED by 2026-09-28: §4.5.5 edge-in-plane conformity, the §4.3.3
    own-root verdict, the §4.5 boundary-point domain certificate —
-   `specs/yang_45_boundary_point_domain_certificate.md`) and holds five
-   more minimized signatures for adjudication (`specs/assay_prospector.md`
-   §8) — the P-series is where the next kernel session starts: adjudicate
-   those five, then run `prospect_run` / `prospect_minimize` for more
+   `specs/yang_45_boundary_point_domain_certificate.md`); on 2026-09-28
+   the remaining seed-1 signatures were adjudicated (`specs/assay_prospector.md`
+   §8: re-judge, feature-floor check, ×1e-3/×1e3 scale test, site probe)
+   and **P0004–P0007 are the open P-series ERROR tail** — P0004 subtract
+   reassembly non-2-manifold (a Stage-4 relocation left its planar face),
+   P0005 auto-union non-2-manifold (a cone × plane Stage-4 membrane),
+   P0006 a Stage-1 chart polygon that crosses itself after a gear union,
+   P0007 `SelfIntersectingBooleanOutput` — each its own kernel session
+   (anchor against the un-minimized lineage in `target/prospect/seed-1/`
+   first: the minimizer's rounding can mint a contact that keeps a
+   signature); then run `prospect_run` / `prospect_minimize` for more
    (`docs/TESTING.md` §"Running the assay prospector"). The boundary-point
    certificate's INVENTORY (`YANG_S45_BOUNDARY_DOMAIN_LOG`) names the
    out-of-domain relocations the gear cases (R0003 ×42, R0004, R0032,

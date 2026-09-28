@@ -332,12 +332,46 @@ fn draw_profile(rng: &mut Rng, r: f64) -> Profile {
         _ => {
             let teeth = 8 + rng.below(20) as u32;
             // tip radius = module·(teeth/2 + 1) = r
-            Profile::Gear {
-                teeth,
-                module: r / (teeth as f64 / 2.0 + 1.0),
+            let module = r / (teeth as f64 / 2.0 + 1.0);
+            // INPUT feature-floor contract (A14.2): a gear's involute
+            // polyline has segments ≈ 1 % of its module, and a candidate
+            // drawn at a 1e-4 m scale authors segments below
+            // `MIN_FEATURE_SIZE` — the kernel then rightly refuses the
+            // INPUT (`face # is degenerate`), which is a wall by contract,
+            // not a finding (seed 1 index 5, adjudicated 2026-09-28). Keep
+            // the vocabulary generic: below the floor the draw is a circle.
+            if gear_min_segment(teeth, module) < GEAR_SEGMENT_FLOOR {
+                Profile::Circle { r }
+            } else {
+                Profile::Gear { teeth, module }
             }
         }
     }
+}
+
+/// The smallest profile segment a drawn gear may author: ten times the
+/// kernel's `MIN_FEATURE_SIZE`, so a candidate never sits ON the feature
+/// floor's rounding edge either.
+const GEAR_SEGMENT_FLOOR: f64 = 10.0 * cad_primitives::MIN_FEATURE_SIZE;
+
+/// The shortest segment of the gear profile the builder will author for
+/// `(teeth, module)` — measured on the same helper `write_profile` uses.
+fn gear_min_segment(teeth: u32, module: f64) -> f64 {
+    let (_, positions, profiles) = gear_profile(teeth, module, 20.0);
+    let mut min = f64::INFINITY;
+    for p in &profiles {
+        let n = p.vertex_ids.len();
+        for i in 0..n {
+            let (Some(a), Some(b)) = (
+                positions.get(&p.vertex_ids[i]),
+                positions.get(&p.vertex_ids[(i + 1) % n]),
+            ) else {
+                continue;
+            };
+            min = min.min(((a.0 - b.0).powi(2) + (a.1 - b.1).powi(2)).sqrt());
+        }
+    }
+    min
 }
 
 fn draw_unit_normal(rng: &mut Rng) -> [f64; 3] {
@@ -710,6 +744,36 @@ mod tests {
         }
         let u = Rng::new(7).unit();
         assert!((0.0..1.0).contains(&u));
+    }
+
+    /// Seed 1 index 5 (2026-09-28): a 17-tooth gear at module 2.26e-5 m
+    /// authored 2.6e-7 m segments — below `MIN_FEATURE_SIZE` — and the
+    /// kernel's INPUT feature-floor wall graded it ERROR. The draw must not
+    /// author below the floor; above it the gear vocabulary is unchanged.
+    #[test]
+    fn gear_draw_respects_the_input_feature_floor() {
+        assert!(gear_min_segment(17, 2.2621130904020902e-05) < GEAR_SEGMENT_FLOOR);
+        assert!(gear_min_segment(17, 2.2621130904020902e-03) > GEAR_SEGMENT_FLOOR);
+        // Every gear the vocabulary can draw at a 1e-4 m tip radius is
+        // replaced by a circle; at 1e-1 m the gears stay gears.
+        for seed in 0..64u64 {
+            let mut rng = Rng::new(seed);
+            if let Profile::Gear { teeth, module } = draw_profile(&mut rng, 1e-4) {
+                panic!("sub-floor gear drawn: teeth {teeth} module {module}");
+            }
+        }
+        let mut gears = 0;
+        for seed in 0..64u64 {
+            let mut rng = Rng::new(seed);
+            if let Profile::Gear { teeth, module } = draw_profile(&mut rng, 1e-1) {
+                assert!(gear_min_segment(teeth, module) >= GEAR_SEGMENT_FLOOR);
+                gears += 1;
+            }
+        }
+        assert!(
+            gears > 0,
+            "the gear vocabulary must survive above the floor"
+        );
     }
 
     #[test]

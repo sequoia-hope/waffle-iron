@@ -259,7 +259,10 @@ Manual, per signature, by the session that reviews the report:
 
 1. cross-check the candidate's own oracles against each other (the C0035
    lesson: a self-contradictory meta is an authoring error, not a kernel
-   finding);
+   finding), its smallest authored feature against `MIN_FEATURE_SIZE` (an
+   input below the floor is the A14.2 wall by contract — seed 1 index 5),
+   and its minimum against the un-rounded lineage (rounding can mint a
+   contact that keeps the signature);
 2. for SUPPORTED_WRONG, confirm with an independent reading (the lattice at
    two rungs, a hand calculation, or the sidecar) — the oracle invalidates
    in both directions;
@@ -303,17 +306,25 @@ minimizer keeps a reduction only if the signature is byte-identical):
 | ring rejected by CDT | `circle:boss star8(0.42):cut` (2 ops, already minimal) | **P0002** — CONVERTED 2026-09-27 (§4.3.3 Case-IV verdict on the vertex's own root, spec `yang_433_case_iv_corner_phantom.md` §9; meta adjudicated χ 2, analytic volume) |
 | torus patch UV-CDT failed | `nonconvex9:boss circle:rev-cut` (6 → 2) | **P0003** |
 | planar triangle collapsed at render precision (the P0 finding) | `octagon:boss star4(r_in 2, r_out 22):boss ∪` (3 ops) | **P0001** — CONVERTED 2026-09-27 (§4.5.5 edge-in-plane, spec `yang_455_edge_in_plane_conformity.md`; meta adjudicated χ 2, analytic volume) |
-| subtract: reassembled non-2-manifold | `convex4:boss convex4:rev convex4:boss convex4:cut` (4 → 4, profiles simplified) | — |
-| union (auto): reassembled non-2-manifold | `convex4:boss convex4:rev gear10:sym circle:boss` (6 → 4) | — |
+| subtract: reassembled non-2-manifold | `convex4:boss convex4:rev convex4:boss convex4:cut` (4 → 4, profiles simplified) | **P0004** (2026-09-28; site `s6-planar-loop-nonplanar`: face 13 vertex 127 off its plane by 1.2e-1 at scale 3.5 — a relocation left its planar face; signature identical at ×1e-3 and ×1e3) |
+| union (auto): reassembled non-2-manifold | `convex4:boss convex4:rev gear10:sym circle:boss` (6 → 4) | **P0005** (2026-09-28; site `s4-halfedge-pairing`: a doubled directed edge fwd 2 / rev 0 between A's cone face and B's plane — a Stage-4 membrane; ×1e-3 identical, ×1e3 ⇒ `LocalRefinementRequired`) |
 | cone periodic strip (KV14 Slice E) | `convex4:boss convex4:rev convex4:cut convex4:cut` (8 → 4) | — (documented sub-slice) |
-| input face degenerate (zero-area / collinear) | `convex4:boss gear17:boss nonconvex9:boss convex4:boss` (7 → 4) | — |
-| Stage-# chart polygon of face # cr… (input rejected) | `convex4:boss convex4:boss circle:boss gear10:boss convex4:boss` (6 → 5) | — |
-| SelfIntersectingBooleanOutput (penetrations 4) | `circle:boss circle:boss nonconvex6:boss convex4:∪` (4 → 4) | — |
+| input face degenerate (zero-area / collinear) | `convex4:boss gear17:boss nonconvex9:boss convex4:boss` (7 → 4) | **NOT a finding** (2026-09-28): the drawn gear (module 2.26e-5 m) authors 2.6e-7 m profile segments, below `MIN_FEATURE_SIZE` — the A14.2 INPUT feature-floor wall by contract. The un-rounded 7-op candidate is SUPPORTED_CORRECT at ×100; the 4-op minimum at ×10…×1000 gives `NonManifoldVertex`, and THAT minimized to two square bosses whose 1-sig-digit coordinates put one box's lateral edge exactly in the other's cap (a 1-D contact — a legitimately non-manifold union, the 0-D-contact walls' class). Generator fixed: a gear below the floor is drawn as a circle (`gear_draw_respects_the_input_feature_floor`). |
+| Stage-# chart polygon of face # cr… (input rejected) | `convex4:boss convex4:boss circle:boss gear10:boss convex4:boss` (6 → 5) | **P0006** (2026-09-28; the accumulated body's face 11 after the gear union crosses itself 8× in its Stage-1 chart, rim demand `None`; identical at ×1e-3 and ×1e3) |
+| SelfIntersectingBooleanOutput (penetrations 4) | `circle:boss circle:boss nonconvex6:boss convex4:∪` (4 → 4) | **P0007** (2026-09-28; kernel-v2's output self-intersection gate, faces 47 × 69; identical at ×1e3, ×1e-3 hits the feature-floor wall) |
 
-The un-promoted five are packaged under `target/prospect/seed-1/findings/`
-(re-creatable from seed 1 with `prospect_run` + `prospect_minimize`); they
-are promoted when a session adjudicates them (§8 step 1–2) — the three
-promoted ones are the two 2-op minima plus the P0 finding.
+All eight seed-1 signatures are adjudicated (2026-09-28): six promoted
+(P0001–P0007 less the retired one), one a documented sub-slice, one an
+authored sub-floor gear. The adjudication method, per finding: re-judge on
+the current kernel (`PROSPECT_CANDIDATE=<stem> prospect_judge`), measure the
+smallest authored segment against `MIN_FEATURE_SIZE`, judge the recipe at
+×1e-3 / ×1e3 (a rescaled `.recipe.json` through `PROSPECT_RECIPE`), and
+for a reassembly STOP run `NONMANIFOLD_SITE_PROBE=1` to name the site in
+the pin. **Minimizer hazard (the retired finding's lesson):** rounding to
+one significant digit can MINT a coincidence (two bosses meeting along an
+edge) that keeps a number-stripped signature while changing the cause —
+cross-check a minimum against its un-rounded lineage before promoting
+(step 1 below).
 
 **Mutation findings (P5, seed 1, 120 mutants; parent is SUPPORTED_CORRECT):**
 

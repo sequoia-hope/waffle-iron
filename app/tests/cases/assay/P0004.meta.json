@@ -1,0 +1,59 @@
+{
+  "id": "P0004",
+  "description": "4 ops, extrude(polygon,boss)+revolve(polygon,boss)+extrude(polygon,boss)+extrude(polygon,cut) — prospector seed 1 index 30, minimized (profiles → convex4, 1 sig. digit): square boss, 293° square revolve on an oblique axis, square boss, square cut ⇒ boolean_subtract BooleanFailed \"reassembled output would be non-2-manifold\"; site (NONMANIFOLD_SITE_PROBE) s6-planar-loop-nonplanar: face 13 vert 127 off-plane 1.23e-1 at scale 3.5 (a relocated vertex left its planar face). Scale-invariant (×1e-3, ×1e3 identical). (2026-09-28; ERROR-class pin, derived_meta: expectations unadjudicated until conversion)",
+  "master_seed": 0,
+  "test_seed": 0,
+  "scale": 30.0,
+  "log_scale": 1.4771212547196624,
+  "plane_origin": [
+    0.0,
+    0.0,
+    0.0
+  ],
+  "plane_normal": [
+    0.0,
+    1.0,
+    0.0
+  ],
+  "operations": [
+    {
+      "kind": "extrude",
+      "profile_type": "unknown",
+      "profile_size": 0.0,
+      "depth_or_angle": 5.0,
+      "is_cut": false
+    },
+    {
+      "kind": "revolve",
+      "profile_type": "unknown",
+      "profile_size": 0.0,
+      "depth_or_angle": 293.4713066769533,
+      "is_cut": false
+    },
+    {
+      "kind": "extrude",
+      "profile_type": "unknown",
+      "profile_size": 0.0,
+      "depth_or_angle": 20.0,
+      "is_cut": false
+    },
+    {
+      "kind": "extrude",
+      "profile_type": "unknown",
+      "profile_size": 0.0,
+      "depth_or_angle": 30.0,
+      "is_cut": true
+    }
+  ],
+  "oracles": {
+    "euler_target": 2,
+    "expect_watertight": true,
+    "max_bbox_extent": 3000.0,
+    "expect_positive_volume": true,
+    "volume_monotonicity": [],
+    "expect_rebuild_error": false,
+    "derived_meta": true
+  },
+  "generator_version": 100,
+  "featured": true
+}

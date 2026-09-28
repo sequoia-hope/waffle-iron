@@ -1,6 +1,6 @@
 {
   "master_seed": 42,
-  "count": 315,
+  "count": 319,
   "generator_version": 4,
   "cases": [
     {
@@ -2206,6 +2206,34 @@
       "filename": "P0003.waffle",
       "meta_filename": "P0003.meta.json",
       "description": "2 ops, extrude(polygon,boss)+revolve(circle,cut) — prospector seed 1 index 14, minimized 6→2: non-convex 9-gon boss, circle revolve-cut ⇒ boolean_subtract TessellationFailed \"torus patch UV-CDT failed (self-intersecting projection / seam-crossing patch)\" (2026-09-27; ERROR-class pin, derived_meta: expectations unadjudicated until conversion)",
+      "featured": true
+    },
+    {
+      "id": "P0004",
+      "filename": "P0004.waffle",
+      "meta_filename": "P0004.meta.json",
+      "description": "4 ops, extrude(polygon,boss)+revolve(polygon,boss)+extrude(polygon,boss)+extrude(polygon,cut) — prospector seed 1 index 30, minimized (profiles → convex4, 1 sig. digit): square boss, 293° square revolve on an oblique axis, square boss, square cut ⇒ boolean_subtract BooleanFailed \"reassembled output would be non-2-manifold\"; site (NONMANIFOLD_SITE_PROBE) s6-planar-loop-nonplanar: face 13 vert 127 off-plane 1.23e-1 at scale 3.5 (a relocated vertex left its planar face). Scale-invariant (×1e-3, ×1e3 identical). (2026-09-28; ERROR-class pin, derived_meta: expectations unadjudicated until conversion)",
+      "featured": true
+    },
+    {
+      "id": "P0005",
+      "filename": "P0005.waffle",
+      "meta_filename": "P0005.meta.json",
+      "description": "4 ops, extrude(polygon,boss)+revolve(polygon,boss)+extrude(gear,symmetric)+extrude(circle,boss) — prospector seed 1 index 19, minimized 6→4: square boss, 300° square revolve (a cone face), 10-tooth gear symmetric boss on an oblique plane, circle boss ⇒ auto-union boolean_union BooleanFailed \"reassembled output would be non-2-manifold\"; site (NONMANIFOLD_SITE_PROBE) s4-halfedge-pairing: a doubled directed edge fwd=2 rev=0 between A's cone face 4 and B's plane 114 (a Stage-4 membrane). ×1e-3 identical; ×1e3 ⇒ LocalRefinementRequired. (2026-09-28; ERROR-class pin, derived_meta: expectations unadjudicated until conversion)",
+      "featured": true
+    },
+    {
+      "id": "P0006",
+      "filename": "P0006.waffle",
+      "meta_filename": "P0006.meta.json",
+      "description": "5 ops, extrude(polygon,boss)×2+extrude(circle,boss)+extrude(gear,boss)+extrude(polygon,boss) — prospector seed 1 index 35, minimized 6→5: two square bosses, a circle boss, a 10-tooth gear boss, a square boss on an oblique plane ⇒ auto-union boolean_union BooleanFailed \"yang-rs rejected the converted input B-Rep: Stage-1 chart polygon of face 11 crosses itself 8 time(s) (rim segment demand None): boundary sampling coarser than the face's feature size\" — the accumulated body's face 11 (after the gear union) cannot be charted. Scale-invariant (×1e-3, ×1e3 identical). (2026-09-28; ERROR-class pin, derived_meta: expectations unadjudicated until conversion)",
+      "featured": true
+    },
+    {
+      "id": "P0007",
+      "filename": "P0007.waffle",
+      "meta_filename": "P0007.meta.json",
+      "description": "4 ops, extrude(circle,boss)×2+extrude(polygon,boss)+boolean-union(polygon) — prospector seed 1 index 16 (already minimal, step 1 rounded): two circle bosses, a non-convex hexagon boss on an oblique plane, a square extrude-union ⇒ boolean_union SelfIntersectingBooleanOutput { face_a: FaceId(47), face_b: FaceId(69), penetrations: 4 } (the kernel-v2 output self-intersection gate). ×1e3 identical; ×1e-3 hits the input feature-floor wall. (2026-09-28; ERROR-class pin, derived_meta: expectations unadjudicated until conversion)",
       "featured": true
     }
   ]

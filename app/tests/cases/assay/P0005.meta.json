@@ -1,0 +1,59 @@
+{
+  "id": "P0005",
+  "description": "4 ops, extrude(polygon,boss)+revolve(polygon,boss)+extrude(gear,symmetric)+extrude(circle,boss) — prospector seed 1 index 19, minimized 6→4: square boss, 300° square revolve (a cone face), 10-tooth gear symmetric boss on an oblique plane, circle boss ⇒ auto-union boolean_union BooleanFailed \"reassembled output would be non-2-manifold\"; site (NONMANIFOLD_SITE_PROBE) s4-halfedge-pairing: a doubled directed edge fwd=2 rev=0 between A's cone face 4 and B's plane 114 (a Stage-4 membrane). ×1e-3 identical; ×1e3 ⇒ LocalRefinementRequired. (2026-09-28; ERROR-class pin, derived_meta: expectations unadjudicated until conversion)",
+  "master_seed": 0,
+  "test_seed": 0,
+  "scale": 900.0,
+  "log_scale": 2.9542425094393248,
+  "plane_origin": [
+    0.0,
+    0.0,
+    0.0
+  ],
+  "plane_normal": [
+    1.0,
+    0.0,
+    0.0
+  ],
+  "operations": [
+    {
+      "kind": "extrude",
+      "profile_type": "unknown",
+      "profile_size": 0.0,
+      "depth_or_angle": 80.0,
+      "is_cut": false
+    },
+    {
+      "kind": "revolve",
+      "profile_type": "unknown",
+      "profile_size": 0.0,
+      "depth_or_angle": 300.0,
+      "is_cut": false
+    },
+    {
+      "kind": "extrude",
+      "profile_type": "unknown",
+      "profile_size": 0.0,
+      "depth_or_angle": 350.0,
+      "is_cut": false
+    },
+    {
+      "kind": "extrude",
+      "profile_type": "unknown",
+      "profile_size": 0.0,
+      "depth_or_angle": 900.0,
+      "is_cut": false
+    }
+  ],
+  "oracles": {
+    "euler_target": 2,
+    "expect_watertight": true,
+    "max_bbox_extent": 90000.0,
+    "expect_positive_volume": true,
+    "volume_monotonicity": [],
+    "expect_rebuild_error": false,
+    "derived_meta": true
+  },
+  "generator_version": 100,
+  "featured": true
+}
