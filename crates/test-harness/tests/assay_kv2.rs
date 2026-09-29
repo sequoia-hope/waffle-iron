@@ -1412,11 +1412,24 @@ fn smoke_corpus_boundary_categories() {
         // two live bodies (the first boss never merges); volume pinned.
         ("P0005", Category::SupportedCorrect),
         // P0006: two square bosses, a circle boss, a 10-tooth gear boss, a
-        // square boss on an oblique plane ⇒ auto-union rejects the INPUT:
-        // "Stage-1 chart polygon of face 11 crosses itself 8 time(s) (rim
-        // segment demand None)" — the accumulated body's face after the
-        // gear union cannot be charted.
-        ("P0006", Category::Error),
+        // square boss on an oblique plane. Was auto-union rejecting the
+        // INPUT: "Stage-1 chart polygon of face 11 crosses itself 8 time(s)
+        // (rim segment demand None)" — the circle boss's cylinder lateral
+        // after the gear union. CONVERTED 2026-09-29: the periodic strip's
+        // seam meridian was read off the WINDOW vertices' widest gap alone,
+        // and the lower encircling loop — a rim with gear-tooth excursions
+        // that double back in θ — crossed it three times, so the unroll
+        // wrapped the excursion's far vertex to the other end of the strip.
+        // The seam is now validated (every encircling loop crosses it once,
+        // no window straddles it, the ribbon it opens is simple) with a
+        // widest-first rescue over every boundary-azimuth gap (spec
+        // `yang_stage1_curved_holed_patch.md` "Slice B seam — P0006"; pins
+        // `tests_unit/s1_strip_seam_crossing.rs`, mutation-checked). The
+        // un-minimized six-op lineage converts with the same rule (its face
+        // 13 crossed once per loop but the seam closure chord ran through a
+        // serpentine wall). Adjudicated by the Cherchi sidecar: one shell,
+        // genus 0; one body; exact-membership volume pinned.
+        ("P0006", Category::SupportedCorrect),
         // P0007: two circle bosses, a non-convex hexagon boss on an oblique
         // plane, a square extrude-union ⇒ SelfIntersectingBooleanOutput
         // (4 penetrations) at kernel-v2's output gate.

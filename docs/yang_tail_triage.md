@@ -43,6 +43,35 @@ after the reconciliation run (release, 8 jobs, 360 s; wall 577 s, F0085
 regression since 2026-08-01 is outstanding (checked over every commit of
 `results.json`).
 
+## 2026-09-29 — P0006 CONVERTS: the periodic strip's seam meridian is now one the ribbon can OPEN at (one crossing per encircling loop, no window straddle, a simple ribbon), rescued widest-first when the window-gap scan's choice is not; canonical **307C / 0W / 8E / 4EE / 0T + 0 UNSUPPORTED** (release, 8 jobs, 900 s; wall 1143.4 s; R0085 694.8 s, F0072 659.3 s, F0085 435.1 s; exactly one category move — P0006 — and zero detail moves)
+
+**Anchored** (`YANG_SPLIT_PROBE`, `YANG_T133_PROBE`, `YANG_T145_PROBE`, an
+offline segment-crossing scan of the dumped chart polygons): face 11 of the
+op-5 operand is the circle boss's cylinder lateral, a periodic strip whose
+LOWER encircling loop is the bottom rim with gear-tooth excursions
+(intersection curves that double back in θ) and whose one window is the
+square boss on the far side. The seam was read off the WINDOW vertices'
+widest gap alone; it landed inside an excursion the lower loop crosses
+THREE times, the `rem_euclid` unroll wrapped the excursion's far vertex to
+the other end of the strip (u 227 between neighbours at u 18427 and 18803),
+and the chart polygon crossed itself eight times. The un-minimized six-op
+lineage (seed-1 index 35) failed one clause later: face 13 crossed the
+meridian once per loop, but the ribbon's seam closure — the chord from the
+upper chain's first vertex (u 1189) to the lower chain's (u 491) — ran
+through a serpentine wall beside the seam (two crossings, both against that
+chord). **Fix** (spec `yang_stage1_curved_holed_patch.md` "Slice B seam —
+P0006"): a seam candidate is valid iff every encircling loop crosses it
+exactly once, no window edge crosses it, and the ribbon it opens is simple;
+the scan's choice is judged first (byte-identical when valid), else every
+boundary-azimuth gap widest-first, else a typed STOP. **Pins:**
+`tests_unit/s1_strip_seam_crossing.rs` (tongue + step fixtures, both
+mutation-checked), smoke pin `P0006 → SupportedCorrect`. **Adjudicated** by
+the Cherchi sidecar (`adjudicate_case`, `TOPO_SIDECAR=1`): one shell, genus
+0 (χ 2), the kernel agrees; the exact-membership ladder is STABLE here
+(components 1, χ_solid 1 at 128…1024 cells; volume 6.1361/6.1364/6.1311e11
+at 256/512/1024) — one body, `expected_volume` 6.1311e11, tol 3e-3 (kernel
+6.1305e11). Open P-series tail: P0007.
+
 ## 2026-09-28 (late night) — P0005 CONVERTS: the §4.4.1(a) edge split wound its halves GEOMETRICALLY and inverted a needle half; the halves now inherit the parent's winding combinatorially; canonical **306C / 0W / 9E / 4EE / 0T + 0 UNSUPPORTED** (release, 8 jobs, 900 s; wall 923.3 s; R0085 575.1 s, F0072 530.9 s, F0085 364.8 s; exactly one category move — P0005 — and zero detail moves)
 
 **Anchored** (`NONMANIFOLD_SITE_PROBE`, `YANG_V_PROBE_NEAR` + direct

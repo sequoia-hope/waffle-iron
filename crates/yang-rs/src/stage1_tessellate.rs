@@ -2811,7 +2811,7 @@ pub(crate) fn tessellate_lateral_holed_cdt(
     // Branch cut: place the seam so the unroll is contiguous AND — for a
     // periodic strip — the seam AVOIDS the interior windows (a window
     // straddling the cut would split into two u-fragments and break the CDT).
-    let cut = if encircling.is_empty() {
+    let cut_scan = if encircling.is_empty() {
         // Bounded partial patch (Slice A): the face covers ONE contiguous
         // azimuth interval and the seam belongs in its COMPLEMENT wedge. That
         // wedge is read off the outer loop's UNWRAPPED azimuth range — walk
@@ -2892,7 +2892,266 @@ pub(crate) fn tessellate_lateral_holed_cdt(
                 cut = last + 0.5 * wrap; // may exceed π; only used mod 2π below
             }
         }
+
         cut
+    };
+
+    // Unroll a boundary vertex to 2D parameter space, measured from a given
+    // seam meridian (`cut`); the seam itself is chosen below.
+    let project_at = |g: u32, cut: f64| -> cad_primitives::Point2 {
+        let (theta, v) = raw(g);
+        let un = (theta - cut).rem_euclid(two_pi);
+        match kind {
+            LateralKind::Cylinder { radius } => cad_primitives::Point2::new(radius * un, v),
+            LateralKind::Cone { half_angle } => {
+                let ell = v.abs() / half_angle.cos();
+                let psi = un * half_angle.sin();
+                cad_primitives::Point2::new(ell * psi.cos(), ell * psi.sin())
+            }
+        }
+    };
+
+    // Open a closed encircling loop into a u-ASCENDING chain. The loop
+    // is u-monotone with a single seam wrap, but its traversal sense
+    // depends on the winding sign (a +2π rim ascends in u, a −2π rim
+    // descends). The sense is read from the loop's WINDING (an exact
+    // ±2π quantity), and the chain starts just after its one seam
+    // wrap (the single descending u-step, ≈ −2πr) — never from a
+    // comparison of the anchor's two neighbours' u. R0063 (2026-09-22,
+    // `docs/yang_tail_triage.md`): the min-u vertex of the op-2 holed
+    // lateral was a notch corner whose GENERATOR-LINE wall rises from
+    // it at the same azimuth, so both neighbours tied at the anchor's
+    // u to within one ulp and the tie — decided by which cap-normal
+    // rounding the corner carried — laid the chain DESCENDING; the
+    // ribbon then ran the long way round at two heights and the chart
+    // polygon crossed itself (the loud Stage-1 STOP, demand `None`
+    // because no rim chord was involved). A loop whose two neighbours
+    // differ in u is opened identically to before.
+    let open_chain = |poly: &[u32], cut: f64| -> Vec<u32> {
+        let n = poly.len();
+        let ascending: Vec<u32> = if winding(poly) >= 0.0 {
+            poly.to_vec()
+        } else {
+            poly.iter().rev().copied().collect()
+        };
+        let us: Vec<f64> = ascending.iter().map(|&g| project_at(g, cut).x()).collect();
+        let mut start = 0usize;
+        let mut drop = f64::INFINITY;
+        for k in 0..n {
+            let d = us[(k + 1) % n] - us[k];
+            if d < drop {
+                drop = d;
+                start = (k + 1) % n;
+            }
+        }
+        (0..n).map(|k| ascending[(start + k) % n]).collect()
+    };
+
+    // The periodic strip's ribbon at a given seam (Slice B): the two
+    // encircling loops are the strip's lower/upper v-boundaries. Open each
+    // at the seam into an ascending-u chain, then lay the lower one forward
+    // and the upper one reversed → ONE ribbon polygon. The ascending chain
+    // spans [u_min, u_max] but the strip is periodic, so the seam segment
+    // from u_max back to u_min+2πr is missing: re-emit each chain's FIRST
+    // vertex as a param-space DUPLICATE at u += 2πr (same global vertex, so
+    // it maps back to the seam point) — the chain now spans a full 2π and
+    // the ribbon's final quad covers the seam wedge. Any non-encircling
+    // loop is an interior window carried as a CDT hole. Returns the local
+    // vertex pool, its global ids, the outer ribbon and the holes.
+    type Ribbon = (
+        Vec<cad_primitives::Point2>,
+        Vec<u32>,
+        Vec<u32>,
+        Vec<Vec<u32>>,
+    );
+    let build_ribbon = |cut: f64, radius: f64| -> Ribbon {
+        let mut local_verts: Vec<cad_primitives::Point2> = Vec::new();
+        let mut global_of_local: Vec<u32> = Vec::new();
+        let mut local_of_global: std::collections::HashMap<u32, u32> =
+            std::collections::HashMap::new();
+        let mut intern = |g: u32,
+                          local_verts: &mut Vec<cad_primitives::Point2>,
+                          global_of_local: &mut Vec<u32>|
+         -> u32 {
+            if let Some(&l) = local_of_global.get(&g) {
+                return l;
+            }
+            let l = local_verts.len() as u32;
+            local_verts.push(project_at(g, cut));
+            global_of_local.push(g);
+            local_of_global.insert(g, l);
+            l
+        };
+        let mean_v = |poly: &[u32]| -> f64 {
+            poly.iter().map(|&g| raw(g).1).sum::<f64>() / poly.len() as f64
+        };
+        let (lower, upper) = if mean_v(encircling[0]) <= mean_v(encircling[1]) {
+            (encircling[0], encircling[1])
+        } else {
+            (encircling[1], encircling[0])
+        };
+        let bottom = open_chain(lower, cut);
+        let top = open_chain(upper, cut);
+        let seam_shift = two_pi * radius;
+        let push_seam_dup = |g: u32,
+                             local_verts: &mut Vec<cad_primitives::Point2>,
+                             global_of_local: &mut Vec<u32>|
+         -> u32 {
+            let p = project_at(g, cut);
+            let l = local_verts.len() as u32;
+            local_verts.push(cad_primitives::Point2::new(p.x() + seam_shift, p.y()));
+            global_of_local.push(g);
+            l
+        };
+        let mut outer: Vec<u32> = Vec::with_capacity(bottom.len() + top.len() + 2);
+        for &g in &bottom {
+            outer.push(intern(g, &mut local_verts, &mut global_of_local));
+        }
+        outer.push(push_seam_dup(
+            bottom[0],
+            &mut local_verts,
+            &mut global_of_local,
+        ));
+        outer.push(push_seam_dup(
+            top[0],
+            &mut local_verts,
+            &mut global_of_local,
+        ));
+        for &g in top.iter().rev() {
+            outer.push(intern(g, &mut local_verts, &mut global_of_local));
+        }
+        let holes: Vec<Vec<u32>> = windows
+            .iter()
+            .map(|window| {
+                window
+                    .iter()
+                    .map(|&g| intern(g, &mut local_verts, &mut global_of_local))
+                    .collect()
+            })
+            .collect();
+        (local_verts, global_of_local, outer, holes)
+    };
+    let ribbon_crossings = |r: &Ribbon| -> usize {
+        let (local_verts, _, outer, holes) = r;
+        let polys: Vec<Vec<cad_primitives::Point2>> = std::iter::once(outer)
+            .chain(holes.iter())
+            .map(|lp| lp.iter().map(|&l| local_verts[l as usize]).collect())
+            .collect();
+        chart_polygon_crossings(&polys).len()
+    };
+
+    // The seam meridian must be one the ribbon can OPEN at (P0006,
+    // 2026-09-29, `docs/yang_tail_triage.md`): every ENCIRCLING loop
+    // crosses it EXACTLY ONCE (the single wrap `open_chain` starts after),
+    // no WINDOW edge crosses it (a straddling window would split into two
+    // u-fragments), and the ribbon it opens is a SIMPLE polygon — its seam
+    // closure is the chord from the upper chain's first vertex to the
+    // lower chain's, both merely "first after the wrap", so a wall that
+    // serpentines back under that chord crosses it. The gap scan reads only
+    // the boundary VERTICES' azimuths, which says nothing about where the
+    // loops' EDGES run: P0006's lower encircling loop is a rim with
+    // gear-tooth excursions — an intersection curve that doubles back in θ
+    // — and the widest window-free wedge put the cut inside one excursion,
+    // where the loop crosses the meridian three times; the `rem_euclid`
+    // unroll then laid the excursion's far vertex at the OTHER end of the
+    // strip (u 227 between neighbours at u 18427 and 18803) and the chart
+    // polygon crossed itself eight times (the loud `Stage1ChartCrossing`,
+    // demand `None`). P0006's un-minimized six-op lineage crossed once per
+    // loop but its seam closure chord ran through a serpentine wall beside
+    // the seam (face 13, two crossings). The scan's choice is validated
+    // first, so a valid choice is kept bit-identical; otherwise every gap
+    // between consecutive boundary azimuths is a candidate (crossing counts
+    // are constant inside a gap — edges cross meridians, vertices sit on
+    // gap ends), widest-first, and the first valid one wins; no valid
+    // meridian at all is a typed STOP.
+    let crossings_of = |poly: &[u32], meridian: f64| -> usize {
+        let n = poly.len();
+        let mut count = 0usize;
+        for i in 0..n {
+            let (t0, _) = raw(poly[i]);
+            let (t1, _) = raw(poly[(i + 1) % n]);
+            let mut d = t1 - t0;
+            while d > std::f64::consts::PI {
+                d -= two_pi;
+            }
+            while d < -std::f64::consts::PI {
+                d += two_pi;
+            }
+            let a = (meridian - t0).rem_euclid(two_pi);
+            let crosses = if d > 0.0 { a < d } else { a > two_pi + d };
+            if crosses {
+                count += 1;
+            }
+        }
+        count
+    };
+    let cut = match (encircling.len(), kind) {
+        (2, LateralKind::Cylinder { radius }) => {
+            let probe = std::env::var_os("YANG_SPLIT_PROBE").is_some();
+            let judge = |meridian: f64| -> Result<(), String> {
+                let census: Vec<usize> = encircling
+                    .iter()
+                    .map(|lp| crossings_of(lp, meridian))
+                    .collect();
+                let wins: Vec<usize> = windows
+                    .iter()
+                    .map(|lp| crossings_of(lp, meridian))
+                    .collect();
+                if census.iter().any(|&c| c != 1) || wins.iter().any(|&c| c != 0) {
+                    return Err(format!(
+                        "encircling crossings {census:?}, window crossings {wins:?}"
+                    ));
+                }
+                let x = ribbon_crossings(&build_ribbon(meridian, radius));
+                if x != 0 {
+                    return Err(format!("ribbon crosses itself {x} time(s)"));
+                }
+                Ok(())
+            };
+            match judge(cut_scan) {
+                Ok(()) => cut_scan,
+                Err(why) => {
+                    let mut all: Vec<f64> = std::iter::once(&outer_poly)
+                        .chain(inner_polys.iter())
+                        .flatten()
+                        .map(|&g| raw(g).0)
+                        .collect();
+                    all.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
+                    let mut gaps: Vec<(f64, f64)> = all
+                        .windows(2)
+                        .map(|w| (w[1] - w[0], 0.5 * (w[0] + w[1])))
+                        .collect();
+                    if let (Some(&first), Some(&last)) = (all.first(), all.last()) {
+                        let wrap = (first + two_pi) - last;
+                        gaps.push((wrap, last + 0.5 * wrap));
+                    }
+                    gaps.sort_by(|a, b| b.0.partial_cmp(&a.0).unwrap_or(std::cmp::Ordering::Equal));
+                    let rescued = gaps
+                        .iter()
+                        .map(|&(_, mid)| mid)
+                        .find(|&mid| judge(mid).is_ok());
+                    if probe {
+                        eprintln!(
+                            "[stage1-strip-seam] face {f_idx}: gap-scan cut {cut_scan:.6} \
+                             rejected ({why}); rescued {rescued:?}"
+                        );
+                    }
+                    match rescued {
+                        Some(mid) => mid,
+                        None => {
+                            return Err(YangError::MalformedTopology(format!(
+                                "face {f_idx}: periodic cylinder strip has no seam meridian \
+                                 that opens a simple ribbon ({} encircling, {} windows; \
+                                 gap-scan seam: {why})",
+                                encircling.len(),
+                                windows.len()
+                            )));
+                        }
+                    }
+                }
+            }
+        }
+        _ => cut_scan,
     };
 
     // Unroll into u = r·θ' where θ' ∈ [0, 2π) measured from the cut, v = axial.
@@ -2905,18 +3164,7 @@ pub(crate) fn tessellate_lateral_holed_cdt(
     // which makes the CDT emit a skewed fan whose flat facets inflate the mapped
     // 3D area (a Schwarz-lantern artefact); the isometric development preserves
     // the cone's intrinsic metric so Delaunay yields well-shaped grid triangles.
-    let project = |g: u32| -> cad_primitives::Point2 {
-        let (theta, v) = raw(g);
-        let un = (theta - cut).rem_euclid(two_pi);
-        match kind {
-            LateralKind::Cylinder { radius } => cad_primitives::Point2::new(radius * un, v),
-            LateralKind::Cone { half_angle } => {
-                let ell = v.abs() / half_angle.cos();
-                let psi = un * half_angle.sin();
-                cad_primitives::Point2::new(ell * psi.cos(), ell * psi.sin())
-            }
-        }
-    };
+    let project = |g: u32| -> cad_primitives::Point2 { project_at(g, cut) };
 
     // Intern boundary vertices into a local param-space pool (each global vertex
     // maps 1:1 — the CDT is boundary-only, no Steiner points, so map-back is
@@ -2960,13 +3208,11 @@ pub(crate) fn tessellate_lateral_holed_cdt(
                 .collect();
             (outer, holes)
         }
-        // Periodic strip (Slice B): the two encircling loops are the strip's
-        // lower/upper v-boundaries. Open each at the seam into an ascending-u
-        // chain, then lay the lower one forward and the upper one reversed →
-        // ONE simple ribbon polygon. Any non-encircling loop is an interior
-        // window carried as a CDT hole.
+        // Periodic strip (Slice B): the ribbon `build_ribbon` opened at the
+        // seam chosen above (validated there: every encircling loop crosses
+        // it once, no window straddles it, the ribbon is simple).
         2 => {
-            // The ribbon unroll below assumes the CYLINDER's rectangular
+            // The ribbon unroll assumes the CYLINDER's rectangular
             // (u = r·θ') layout — the seam wedge is a fixed 2π·r u-shift and the
             // strip is u-monotone. A cone develops to an annular sector where a
             // full-2π rim closes on itself (ψ spans 2π·sinα), so its periodic
@@ -2982,94 +3228,9 @@ pub(crate) fn tessellate_lateral_holed_cdt(
                     )));
                 }
             };
-            // Open a closed encircling loop into a u-ASCENDING chain. The loop
-            // is u-monotone with a single seam wrap, but its traversal sense
-            // depends on the winding sign (a +2π rim ascends in u, a −2π rim
-            // descends). The sense is read from the loop's WINDING (an exact
-            // ±2π quantity), and the chain starts just after its one seam
-            // wrap (the single descending u-step, ≈ −2πr) — never from a
-            // comparison of the anchor's two neighbours' u. R0063 (2026-09-22,
-            // `docs/yang_tail_triage.md`): the min-u vertex of the op-2 holed
-            // lateral was a notch corner whose GENERATOR-LINE wall rises from
-            // it at the same azimuth, so both neighbours tied at the anchor's
-            // u to within one ulp and the tie — decided by which cap-normal
-            // rounding the corner carried — laid the chain DESCENDING; the
-            // ribbon then ran the long way round at two heights and the chart
-            // polygon crossed itself (the loud Stage-1 STOP, demand `None`
-            // because no rim chord was involved). A loop whose two neighbours
-            // differ in u is opened identically to before.
-            let open_chain = |poly: &[u32]| -> Vec<u32> {
-                let n = poly.len();
-                let ascending: Vec<u32> = if winding(poly) >= 0.0 {
-                    poly.to_vec()
-                } else {
-                    poly.iter().rev().copied().collect()
-                };
-                let us: Vec<f64> = ascending.iter().map(|&g| project(g).x()).collect();
-                let mut start = 0usize;
-                let mut drop = f64::INFINITY;
-                for k in 0..n {
-                    let d = us[(k + 1) % n] - us[k];
-                    if d < drop {
-                        drop = d;
-                        start = (k + 1) % n;
-                    }
-                }
-                (0..n).map(|k| ascending[(start + k) % n]).collect()
-            };
-            let mean_v = |poly: &[u32]| -> f64 {
-                poly.iter().map(|&g| raw(g).1).sum::<f64>() / poly.len() as f64
-            };
-            let (lower, upper) = if mean_v(encircling[0]) <= mean_v(encircling[1]) {
-                (encircling[0], encircling[1])
-            } else {
-                (encircling[1], encircling[0])
-            };
-            let bottom = open_chain(lower);
-            let top = open_chain(upper);
-            // Close the wrap: the ascending chain spans [u_min, u_max] but the
-            // strip is periodic, so the seam segment from u_max back to
-            // u_min+2πr is missing. Re-emit each chain's FIRST vertex as a
-            // param-space DUPLICATE at u += 2πr (same global vertex, so it maps
-            // back to the seam point) — the chain now spans a full 2π and the
-            // ribbon's final quad covers the seam wedge.
-            let seam_shift = two_pi * radius;
-            let push_seam_dup = |g: u32,
-                                 local_verts: &mut Vec<cad_primitives::Point2>,
-                                 global_of_local: &mut Vec<u32>|
-             -> u32 {
-                let p = project(g);
-                let l = local_verts.len() as u32;
-                local_verts.push(cad_primitives::Point2::new(p.x() + seam_shift, p.y()));
-                global_of_local.push(g);
-                l
-            };
-            let mut outer: Vec<u32> = Vec::with_capacity(bottom.len() + top.len() + 2);
-            for &g in &bottom {
-                outer.push(intern(g, &mut local_verts, &mut global_of_local));
-            }
-            outer.push(push_seam_dup(
-                bottom[0],
-                &mut local_verts,
-                &mut global_of_local,
-            ));
-            outer.push(push_seam_dup(
-                top[0],
-                &mut local_verts,
-                &mut global_of_local,
-            ));
-            for &g in top.iter().rev() {
-                outer.push(intern(g, &mut local_verts, &mut global_of_local));
-            }
-            let holes = windows
-                .iter()
-                .map(|window| {
-                    window
-                        .iter()
-                        .map(|&g| intern(g, &mut local_verts, &mut global_of_local))
-                        .collect()
-                })
-                .collect();
+            let (verts, globals, outer, holes) = build_ribbon(cut, radius);
+            local_verts = verts;
+            global_of_local = globals;
             (outer, holes)
         }
         n => {

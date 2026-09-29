@@ -50,6 +50,7 @@ mod s1_chart_crossing;
 mod s1_planar_chart_crossing;
 mod s1_ribbon_open_chain;
 mod s1_self_contact;
+mod s1_strip_seam_crossing;
 mod s433_generator_stage0;
 mod s433_tangent_relocation;
 mod s434_chain_decimate;

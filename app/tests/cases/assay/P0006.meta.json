@@ -1,6 +1,6 @@
 {
   "id": "P0006",
-  "description": "5 ops, extrude(polygon,boss)×2+extrude(circle,boss)+extrude(gear,boss)+extrude(polygon,boss) — prospector seed 1 index 35, minimized 6→5: two square bosses, a circle boss, a 10-tooth gear boss, a square boss on an oblique plane ⇒ auto-union boolean_union BooleanFailed \"yang-rs rejected the converted input B-Rep: Stage-1 chart polygon of face 11 crosses itself 8 time(s) (rim segment demand None): boundary sampling coarser than the face's feature size\" — the accumulated body's face 11 (after the gear union) cannot be charted. Scale-invariant (×1e-3, ×1e3 identical). (2026-09-28; ERROR-class pin, derived_meta: expectations unadjudicated until conversion)",
+  "description": "5 ops, extrude(polygon,boss)\u00d72+extrude(circle,boss)+extrude(gear,boss)+extrude(polygon,boss) \u2014 prospector seed 1 index 35, minimized 6\u21925: two square bosses, a circle boss, a 10-tooth gear boss, a square boss on an oblique plane \u21d2 auto-union boolean_union BooleanFailed \"yang-rs rejected the converted input B-Rep: Stage-1 chart polygon of face 11 crosses itself 8 time(s) (rim segment demand None): boundary sampling coarser than the face's feature size\" \u2014 the accumulated body's face 11 (after the gear union) cannot be charted. Scale-invariant (\u00d71e-3, \u00d71e3 identical). CONVERTED 2026-09-29: the periodic-strip seam meridian was chosen from the window vertices' widest gap alone; the lower encircling loop crossed it three times (a gear-tooth excursion doubles back in \u03b8) and the rem_euclid unroll wrapped the excursion's far vertex to the other end of the strip. The seam is now validated \u2014 every encircling loop crosses it once, no window straddles it, and the ribbon it opens is a simple polygon \u2014 with a widest-first rescue over every boundary-azimuth gap (spec yang_stage1_curved_holed_patch.md, 'Slice B seam \u2014 P0006'). Adjudicated by the Cherchi sidecar reference (adjudicate_case, TOPO_SIDECAR=1): one shell, genus 0 (\u03c7 2), the kernel's output agrees; one body (every boss merges). expected_volume = the exact-membership readout at 1024 cells (6.1311e11; ladder 256/512/1024: 6.1361/6.1364/6.1311e11), tol covers the ladder spread and the kernel's cylinder chord deficit (kernel 6.1305e11).",
   "master_seed": 0,
   "test_seed": 0,
   "scale": 20000.0,
@@ -59,7 +59,11 @@
     "expect_positive_volume": true,
     "volume_monotonicity": [],
     "expect_rebuild_error": false,
-    "derived_meta": true
+    "derived_meta": false,
+    "expected_shell_count": 1,
+    "expected_solid_count": 1,
+    "expected_volume": 613110000000.0,
+    "expected_volume_tol_rel": 0.003
   },
   "generator_version": 100,
   "featured": true

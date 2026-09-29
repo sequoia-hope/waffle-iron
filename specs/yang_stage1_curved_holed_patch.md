@@ -165,7 +165,11 @@ normal, matching `tessellate_lateral_face`'s `orient_target`.
      full 2π (the seam wedge). Interior windows become CDT holes.
   4. Seam placement avoids windows: the branch cut is chosen from the WINDOW
      vertices' angular coverage (widest window-free wedge) so no window
-     straddles the seam and splits.
+     straddles the seam and splits. **Since 2026-09-29 (P0006) that choice is
+     VALIDATED** — every encircling loop must cross the meridian exactly once,
+     no window edge may cross it, and the ribbon it opens must be a simple
+     polygon — and rescued widest-first over every boundary-azimuth gap when
+     it is not (see "Slice B seam — P0006" below).
   5. Any other encircling count ⇒ typed `MalformedTopology` (loud).
   Unit tests: `periodic_strip_two_encircling_rims` (pure tube strip, exact
   inscribed-area oracle) + the Slice A tests stay green.
@@ -840,3 +844,54 @@ a 54° arc 182° → 236° puts its midpoint sample on the notch corner's
 azimuth), leaving 182° → 209° the unique widest gap in the union. RED on
 the old rule in the descending sense (stash-certified: the chain opened at
 u 0.24 → 0.24 → 6.05 and Slice G's chord contract refused it).
+
+## Slice B seam — P0006 (2026-09-29): the seam meridian is one the ribbon can OPEN at, not merely a window-free azimuth
+
+P0006's op-5 auto-union rejected its accumulated body at Stage 1: the
+circle boss's cylinder lateral (face 11) is a periodic strip whose LOWER
+encircling loop is the bottom rim with gear-tooth excursions — intersection
+curves that double back in θ — and whose one window (a square boss) sits on
+the far side. Rule 4 read the seam off the WINDOW vertices' widest gap,
+which says nothing about where the encircling loops' EDGES run: the cut
+landed inside an excursion the lower loop crosses THREE times, the
+`rem_euclid` unroll wrapped the excursion's far vertex to the other end of
+the strip (u 227 between neighbours at u 18427 and 18803), and
+`chart_polygon_crossings` fired eight times (`Stage1ChartCrossing`, demand
+`None`). The un-minimized six-op lineage failed one clause later: its face
+13 crossed the scan's meridian once per loop, but the ribbon's seam CLOSURE
+— the chord from the upper chain's first vertex to the lower chain's, both
+merely "first after the wrap" — ran through a serpentine wall beside the
+seam (two crossings). Both are seam PLACEMENT defects, not sampling ones:
+the loops are simple in 3D and every meridian through the flat rim stretch
+opens a simple ribbon.
+
+**Rule now** (`tessellate_lateral_holed_cdt`, the `(2, Cylinder)` seam
+arm): a candidate meridian is valid iff (a) every ENCIRCLING loop crosses it
+exactly once — the single wrap `open_chain` starts after; (b) no WINDOW
+edge crosses it — a straddling window would split into two u-fragments;
+(c) the ribbon `build_ribbon` opens at it is a SIMPLE polygon
+(`chart_polygon_crossings` empty) — the closure chord clause. Crossings are
+counted per edge against the wrapped Δθ (a meridian at azimuth `c` is
+crossed by the edge `t0 → t1` iff `c` lies inside the (−π, π]-wrapped
+step). The gap scan's historical choice is judged FIRST, so a strip it
+already opens correctly is byte-identical; otherwise every gap between
+consecutive boundary azimuths (all loops — crossing counts are constant
+inside a gap, since edges cross meridians and vertices sit on gap ends) is
+tried widest-first and the first valid midpoint wins; no valid meridian is
+a typed `MalformedTopology` STOP naming the scan's failure. Probe:
+`YANG_SPLIT_PROBE=1` prints `[stage1-strip-seam] face N: gap-scan cut …
+rejected (…); rescued …`.
+
+**Pins:** `tests_unit/s1_strip_seam_crossing.rs` — (i) a unit strip whose
+lower loop carries a TONGUE (up at 200°, BACK to 180° at z = 1, up, FORWARD
+to 220° at z = 1.5, down) so meridians in 180°…200° are crossed three
+times, with a diamond window at 5°…15° that puts the gap-scan seam at
+190°: RED on the old rule (`crossings: 1`), GREEN now; (ii) a unit strip
+with a raised STEP at 195°…225° and an upper rim whose first vertex after
+the 190° seam is 210°, so every loop crosses the meridian once but the
+seam closure chord (210°, 2) → (195°, 0) passes through the step's top
+arc: RED with clauses (a)+(b) alone (stash-certified, `crossings: 1`),
+GREEN with (c). Both check the developable area to the chord error.
+Corpus: P0006 → SUPPORTED_CORRECT (Cherchi sidecar: one shell, genus 0;
+one body; exact-membership volume 6.1311e11 at 1024 cells vs the kernel's
+6.1305e11); the un-minimized seed-1 index-35 lineage → SUPPORTED_CORRECT.
