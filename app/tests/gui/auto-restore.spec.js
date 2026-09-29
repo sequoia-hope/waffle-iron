@@ -188,6 +188,52 @@ test.describe('Reload restore', () => {
 		expectNoAnyCrash(crashes);
 	});
 
+	test('ask: Discard leaves the empty startup document open', async ({ page }) => {
+		const crashes = collectCrashErrors(page);
+		await setPolicy(page, 'ask');
+		const seeded = await seedTwoTabDocument(page);
+
+		await page.reload();
+		await waitEngine(page);
+		await page.getByTestId('auto-restore-discard').click();
+		await expect(page.getByTestId('auto-restore-dialog')).toHaveCount(0);
+		await page.waitForTimeout(3000);
+
+		const info = await page.evaluate(() => window.__waffle.getDocumentInfo());
+		expect(info.storageId).not.toBe(seeded.docId);
+		expect(info.tabs.length).toBeLessThanOrEqual(1);
+		expect(await page.evaluate(() => window.__waffle.getMeshes().length)).toBe(0);
+		expectNoAnyCrash(crashes);
+	});
+
+	test('ask: Discard is honored by a resuming agent link', async ({ page }) => {
+		// The agent link reopens "the agent's document" after a reload so an
+		// agent mid-work is not left on the blank bootstrap. It must not do so
+		// over the user's explicit Discard: that answer is the instruction.
+		const crashes = collectCrashErrors(page);
+		await setPolicy(page, 'ask');
+		const seeded = await seedTwoTabDocument(page);
+		await page.evaluate((docId) => {
+			// A consented session from an earlier pairing (its relay is gone).
+			sessionStorage.setItem(
+				'waffle-agent-link',
+				JSON.stringify({ relay: 'ws://127.0.0.1:1', session: 'test-session', agentName: 'test', docId })
+			);
+		}, seeded.docId);
+
+		await page.reload();
+		await waitEngine(page);
+		await page.getByTestId('auto-restore-discard').click();
+		await expect(page.getByTestId('auto-restore-dialog')).toHaveCount(0);
+		await page.waitForTimeout(3000);
+
+		const info = await page.evaluate(() => window.__waffle.getDocumentInfo());
+		expect(info.storageId).not.toBe(seeded.docId);
+		expect(info.tabs.length).toBeLessThanOrEqual(1);
+		expect(await page.evaluate(() => window.__waffle.getMeshes().length)).toBe(0);
+		expectNoAnyCrash(crashes);
+	});
+
 	test('ask: Restore reopens every tab under the same identity', async ({ page }) => {
 		const crashes = collectCrashErrors(page);
 		await setPolicy(page, 'ask');

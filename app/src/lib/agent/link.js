@@ -19,6 +19,7 @@ import {
 	getDocumentName,
 	reopenDocumentById,
 	subscribeRebuildProgress,
+	wasStartupRestoreDeclined,
 	whenStartupRestoreSettled
 } from '$lib/engine/store.svelte.js';
 import { showToast } from '$lib/ui/toast.svelte.js';
@@ -495,11 +496,14 @@ export async function resumeAgentLink() {
 	agentLink.set({ state: 'reconnecting', agentName: stored.agentName, relay: stored.relay, reason: null, errorClass: null });
 	await whenStartupRestoreSettled();
 	if (socket || !readStored()?.session) return;
-	// The agent's document, whatever the restore policy did: a `never` (or a
-	// discarded offer) leaves the blank startup document, and an agent mid-work
-	// then builds on nothing — what happened on 2026-09-23 when iOS reloaded
-	// the tab between two assembly calls.
-	if (stored.docId && getDocumentInfo().storageId !== stored.docId) {
+	// The agent's document, whatever the restore POLICY did: a `never` leaves
+	// the blank startup document, and an agent mid-work then builds on nothing
+	// — what happened on 2026-09-23 when iOS reloaded the tab between two
+	// assembly calls. The user's Discard in the restore dialog is different:
+	// they were asked and said "start empty", and reopening the document
+	// anyway showed them their old tabs loading over that answer. The relay's
+	// reload note tells the agent to check; it can document_open explicitly.
+	if (stored.docId && !wasStartupRestoreDeclined() && getDocumentInfo().storageId !== stored.docId) {
 		try {
 			if (await reopenDocumentById(stored.docId)) {
 				showToast('info', `Reopened the agent's document: ${getDocumentName()}`);

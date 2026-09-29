@@ -588,6 +588,18 @@ const startupRestoreSettled = new Promise((resolve) => {
 	};
 });
 
+/**
+ * True once the user answered the restore offer with Discard. That answer is
+ * an instruction — start empty — and nothing else on the page (the agent
+ * link's resume in particular) may reopen a previous document over it.
+ */
+let startupRestoreDeclined = false;
+
+/** Whether the user declined this tab's startup restore offer (`discardAutoSave`). */
+export function wasStartupRestoreDeclined() {
+	return startupRestoreDeclined;
+}
+
 /** True while `openDocumentRecord` is loading a document into the engine. */
 let documentLoadPending = false;
 
@@ -7926,6 +7938,7 @@ export async function restoreAutoSave() {
 
 export async function discardAutoSave() {
 	const offer = autoRestoreState;
+	startupRestoreDeclined = true;
 	// A document offer points at the stored DOCUMENT (autosave writes the
 	// record itself), so Discard only dismisses it. A draft is a copy: this
 	// tab's own is dropped; another live tab's is left alone.
