@@ -1032,6 +1032,13 @@ export const ENGINE_DEFS = {
         "description": "Source file name (display + diagnostics), e.g. `minihexa.step`.",
         "type": "string"
       },
+      "product": {
+        "description": "One product of a multi-product STEP, by its product name\n(`step_import::StepProduct::name`), imported ALONE and in the\nproduct's own frame — how a component of a board STEP becomes a Part\n(`specs/kicad_board_link.md` C3). Absent: the whole file, world-placed.",
+        "type": [
+          "string",
+          "null"
+        ]
+      },
       "rotation_deg": {
         "default": [
           0,

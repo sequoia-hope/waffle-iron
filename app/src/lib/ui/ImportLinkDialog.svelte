@@ -15,7 +15,7 @@
 		kind === 'kicad'
 			? {
 					title: 'Link a KiCad board',
-					hint: 'Paste a link to a .kicad_pcb on GitHub, GitLab or Gitea. The board outline becomes an exact solid, its footprints an assembly, and the document keeps the link and the commit — not a copy.',
+					hint: 'Paste a link to a .kicad_pcb on GitHub, GitLab or Gitea. The board outline becomes an exact solid, its footprints an assembly, and the document keeps the link and the commit — not a copy. A STEP export of the board beside it (board.step) supplies the component models.',
 					placeholder: 'https://github.com/owner/repo/blob/main/hardware/board.kicad_pcb'
 				}
 			: {

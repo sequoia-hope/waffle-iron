@@ -12,9 +12,11 @@
 
 pub mod blob;
 mod convert;
+pub mod products;
 mod units;
 
 pub use blob::{decode_step_blob, encode_step_blob, STEP_BLOB_ENCODING};
+pub use products::{parse_step_products, StepOccurrence, StepPlacement, StepProduct, StepProducts};
 pub use units::scan_length_unit_scale;
 
 use std::sync::{Arc, Mutex, OnceLock};
@@ -70,6 +72,43 @@ pub fn parse_step_cached(
         guard.push((key, Arc::clone(&parsed)));
     }
     Ok(parsed)
+}
+
+/// `parse_step_products` behind the same kind of cache as
+/// `parse_step_cached`: an assembly evaluation asks for a product of one
+/// board STEP once per instance, and a re-sync asks again.
+pub fn parse_step_products_cached(
+    step_text: &str,
+    source_name: &str,
+) -> Result<Arc<StepProducts>, StepImportError> {
+    const CACHE_CAP: usize = 4;
+    type CacheEntries = Vec<(u64, Arc<StepProducts>)>;
+    static CACHE: OnceLock<Mutex<CacheEntries>> = OnceLock::new();
+
+    let key = fnv1a(step_text.as_bytes());
+    let cache = CACHE.get_or_init(|| Mutex::new(Vec::new()));
+    if let Ok(guard) = cache.lock() {
+        if let Some((_, data)) = guard.iter().find(|(k, _)| *k == key) {
+            return Ok(Arc::clone(data));
+        }
+    }
+    let parsed = Arc::new(parse_step_products(step_text, source_name)?);
+    if let Ok(mut guard) = cache.lock() {
+        if guard.len() >= CACHE_CAP {
+            guard.remove(0);
+        }
+        guard.push((key, Arc::clone(&parsed)));
+    }
+    Ok(parsed)
+}
+
+/// Whether `text` is an ISO 10303-21 exchange structure (a STEP file), by
+/// its mandatory first token — how a source of unknown kind is told from a
+/// `.waffle` document without parsing either.
+pub fn looks_like_step(text: &str) -> bool {
+    text.trim_start_matches('\u{feff}')
+        .trim_start()
+        .starts_with("ISO-10303-21;")
 }
 
 fn fnv1a(bytes: &[u8]) -> u64 {

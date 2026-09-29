@@ -942,26 +942,51 @@ pub(super) fn kicad_link(
             json!({ "reason": "pcb_text is required." }),
         ));
     }
-    let msg = match args.get("locator") {
-        Some(l) if !l.is_null() => {
-            let locator: file_format::Locator = serde_json::from_value(l.clone()).map_err(|e| {
+    let parse_locator = |key: &str| -> Result<Option<file_format::Locator>, ToolFailure> {
+        match args.get(key) {
+            Some(l) if !l.is_null() => serde_json::from_value(l.clone()).map(Some).map_err(|e| {
                 ToolFailure::new(
                     "InvalidArguments",
-                    format!("locator: {e}"),
+                    format!("{key}: {e}"),
                     json!({ "reason": e.to_string() }),
                 )
-            })?;
-            UiToEngine::LinkKicadFromLocator {
-                file_name,
-                locator,
-                data,
-                resolved_commit: args
-                    .get("resolved_commit")
-                    .and_then(Value::as_str)
-                    .map(str::to_string),
-            }
+            }),
+            _ => Ok(None),
         }
-        _ => UiToEngine::ImportKicad { file_name, data },
+    };
+    // The board STEP beside it (C3): its products are the component models.
+    let board_step = match args.get("step_text").and_then(Value::as_str) {
+        Some(text) if !text.is_empty() => Some(crate::messages::BoardStepData {
+            file_name: args
+                .get("step_file_name")
+                .and_then(Value::as_str)
+                .unwrap_or("board.step")
+                .to_string(),
+            data: text.to_string(),
+            locator: parse_locator("step_locator")?,
+            resolved_commit: args
+                .get("step_resolved_commit")
+                .and_then(Value::as_str)
+                .map(str::to_string),
+        }),
+        _ => None,
+    };
+    let msg = match parse_locator("locator")? {
+        Some(locator) => UiToEngine::LinkKicadFromLocator {
+            file_name,
+            locator,
+            data,
+            resolved_commit: args
+                .get("resolved_commit")
+                .and_then(Value::as_str)
+                .map(str::to_string),
+            board_step,
+        },
+        None => UiToEngine::ImportKicad {
+            file_name,
+            data,
+            board_step,
+        },
     };
     let step = apply_step(
         state,
@@ -978,6 +1003,7 @@ pub(super) fn kicad_link(
         out["placeholder_tabs"] = json!(rec.placeholder_tabs);
         out["board"] = json!(rec.board);
         out["component_count"] = json!(rec.components.len());
+        out["board_step_source_id"] = json!(rec.board_step);
     }
     Ok(out)
 }

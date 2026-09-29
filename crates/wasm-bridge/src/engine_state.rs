@@ -74,6 +74,8 @@ pub struct KicadBoardRecord {
     pub board_instance: uuid::Uuid,
     /// Footprint name → placeholder Part tab.
     pub placeholder_tabs: std::collections::BTreeMap<String, String>,
+    /// The `Step` source supplying the component models (C3), if any.
+    pub board_step: Option<uuid::Uuid>,
     pub board: feature_engine::kicad::BoardMeta,
     /// Instance id → component record.
     pub components: std::collections::BTreeMap<uuid::Uuid, feature_engine::kicad::ComponentMeta>,

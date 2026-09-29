@@ -1,5 +1,5 @@
 {
-  "manifest_hash": "a3d8c29a3ff80eb8ce690117e598975c8db90bf729184710ea1efeda67bd51a3",
+  "manifest_hash": "8229981feff7d72fab4bd25a5a054238599ccd337703df3145002b826ddb508c",
   "protocol": "waffle-agent-link/1",
   "tools": [
     {
@@ -5566,6 +5566,13 @@
                 "description": "Source file name (display + diagnostics), e.g. `minihexa.step`.",
                 "type": "string"
               },
+              "product": {
+                "description": "One product of a multi-product STEP, by its product name\n(`step_import::StepProduct::name`), imported ALONE and in the\nproduct's own frame — how a component of a board STEP becomes a Part\n(`specs/kicad_board_link.md` C3). Absent: the whole file, world-placed.",
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
               "rotation_deg": {
                 "default": [
                   0,
@@ -10320,6 +10327,13 @@
               "file_name": {
                 "description": "Source file name (display + diagnostics), e.g. `minihexa.step`.",
                 "type": "string"
+              },
+              "product": {
+                "description": "One product of a multi-product STEP, by its product name\n(`step_import::StepProduct::name`), imported ALONE and in the\nproduct's own frame — how a component of a board STEP becomes a Part\n(`specs/kicad_board_link.md` C3). Absent: the whole file, world-placed.",
+                "type": [
+                  "string",
+                  "null"
+                ]
               },
               "rotation_deg": {
                 "default": [
@@ -16224,7 +16238,7 @@
         "readOnlyHint": false,
         "title": "Link KiCad board"
       },
-      "description": "Link a KiCad board (`.kicad_pcb` text): the board outline becomes an exact solid in a new Board Part tab (Derived provenance), each footprint shape a placeholder Part, and the footprints a Board assembly tab (one instance per footprint keyed by its uuid in external_key, a mate connector per mounting hole). With `locator` the source is LINKED (git file at the resolved commit); without it, embedded. Opens the Board tab. specs/kicad_board_link.md.",
+      "description": "Link a KiCad board (`.kicad_pcb` text): the board outline becomes an exact solid in a new Board Part tab (Derived provenance), each footprint shape a placeholder Part, and the footprints a Board assembly tab (one instance per footprint keyed by its uuid in external_key, a mate connector per mounting hole). With `locator` the source is LINKED (git file at the resolved commit); without it, embedded. With `step_text` (the board's own STEP export, `kicad-cli pcb export step`) each footprint the STEP models becomes an instance of that product placed as KiCad placed it; the rest stay placeholders, loudly. Opens the Board tab. specs/kicad_board_link.md.",
       "inputSchema": {
         "additionalProperties": false,
         "properties": {
@@ -16254,6 +16268,22 @@
           "resolved_commit": {
             "description": "The commit the text was fetched at (git locators).",
             "type": "string"
+          },
+          "step_file_name": {
+            "description": "Name recorded on the STEP source, e.g. \"main.step\".",
+            "type": "string"
+          },
+          "step_locator": {
+            "description": "Where the STEP lives (a v4 Locator); omit for an embedded copy.",
+            "type": "object"
+          },
+          "step_resolved_commit": {
+            "description": "The commit the STEP was fetched at (git locators).",
+            "type": "string"
+          },
+          "step_text": {
+            "description": "The board STEP export (ISO 10303-21 text) beside the board: its per-footprint products become the component models.",
+            "type": "string"
           }
         },
         "required": [
@@ -16271,6 +16301,13 @@
           "board": {
             "description": "BoardMeta: title, rev, date, company, comments, copper_layers, thickness_m, net_count, footprint_count.",
             "type": "object"
+          },
+          "board_step_source_id": {
+            "description": "The Step source supplying component models, when a readable STEP was given.",
+            "type": [
+              "string",
+              "null"
+            ]
           },
           "board_tab": {
             "type": "string"

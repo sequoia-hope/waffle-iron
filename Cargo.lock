@@ -2100,6 +2100,7 @@ dependencies = [
  "base64",
  "flate2",
  "thiserror 1.0.69",
+ "truck-assembly",
  "truck-meshalgo",
  "truck-stepio",
  "truck-topology",

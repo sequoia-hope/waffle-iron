@@ -137,9 +137,14 @@ fn handle_message(
             Ok(model_updated_response(state))
         }
 
-        UiToEngine::ImportKicad { file_name, data } => {
+        UiToEngine::ImportKicad {
+            file_name,
+            data,
+            board_step,
+        } => {
             let entry = SourceEntry::embedded(file_name.clone(), SourceKind::KicadPcb, &data);
-            link_kicad(state, kb, entry, &file_name, &data)
+            let board_step = board_step.map(board_step_entry).transpose()?;
+            link_kicad(state, kb, entry, &file_name, &data, board_step)
         }
 
         UiToEngine::LinkKicadFromLocator {
@@ -147,6 +152,7 @@ fn handle_message(
             locator,
             data,
             resolved_commit,
+            board_step,
         } => {
             if !locator.is_shareable() {
                 return Err(BridgeError::InvalidRequest {
@@ -160,7 +166,8 @@ fn handle_message(
                 commit: c.to_ascii_lowercase(),
                 at: chrono::Utc::now(),
             });
-            link_kicad(state, kb, entry, &file_name, &data)
+            let board_step = board_step.map(board_step_entry).transpose()?;
+            link_kicad(state, kb, entry, &file_name, &data, board_step)
         }
 
         UiToEngine::QueryEntityMeta {
@@ -589,7 +596,32 @@ fn handle_message(
                     refresh_kicad_records(state);
                     state.engine.rebuild_from_scratch(kb);
                 }
-                None => state.engine.rebuild_from_scratch(kb),
+                None => {
+                    state.engine.rebuild_from_scratch(kb);
+                    // R5: a board STEP that changed re-syncs every board it
+                    // models (the boards' records name their companion);
+                    // a first fetch after an offline load only refreshes.
+                    refresh_kicad_records(state);
+                    let boards: Vec<uuid::Uuid> = state
+                        .kicad_boards
+                        .iter()
+                        .filter(|r| r.board_step == Some(source_id))
+                        .map(|r| r.source_id)
+                        .collect();
+                    if changed {
+                        for board in boards {
+                            let Some(text) = state.engine.sources.text(board) else {
+                                continue;
+                            };
+                            let pcb = kicad_pcb::parse_kicad_pcb(&text).map_err(|e| {
+                                BridgeError::InvalidRequest {
+                                    reason: format!("board {board}: {e}"),
+                                }
+                            })?;
+                            resync_kicad(state, kb, board, &pcb)?;
+                        }
+                    }
+                }
             }
             Ok(model_updated_response(state))
         }
@@ -1223,6 +1255,7 @@ fn link_kicad(
     entry: SourceEntry,
     file_name: &str,
     data: &str,
+    board_step: Option<(SourceEntry, String)>,
 ) -> Result<EngineToUi, BridgeError> {
     use feature_engine::kicad::{derive_board, DeriveOptions};
 
@@ -1232,7 +1265,20 @@ fn link_kicad(
         reason: format!("{file_name}: {e}"),
     })?;
     let source_id = entry.id;
-    let derived = derive_board(source_id, &pcb, DeriveOptions::default());
+
+    // The board STEP (spec §3 C2–C4): a `Step` source whose products are
+    // the component models. One that does not read still lands as a source
+    // (its warning names why) and every component gets a placeholder.
+    let mut step_warnings = Vec::new();
+    let models = board_step.map(|(step_entry, text)| {
+        let step_id = step_entry.id;
+        let name = step_entry.name.clone();
+        state.engine.sources.insert_text(step_id, &text);
+        state.sources.push(step_entry);
+        board_step_models(state, step_id, &name, &pcb, &mut step_warnings)
+    });
+
+    let derived = derive_board(source_id, &pcb, DeriveOptions::default(), models.flatten());
 
     state.engine.sources.insert_text(source_id, data);
     state.sources.push(entry);
@@ -1272,8 +1318,60 @@ fn link_kicad(
         .engine
         .warnings
         .extend(derived.warnings.iter().cloned());
+    state.engine.warnings.extend(step_warnings);
     state.engine.warnings.extend(assembly_warnings);
     Ok(model_updated_response(state))
+}
+
+/// The `Step` source entry for a board STEP handed over with a board
+/// (`BoardStepData`): linked when it came with a shareable locator,
+/// embedded otherwise. A `Local` locator is refused, as for the board.
+fn board_step_entry(
+    bs: crate::messages::BoardStepData,
+) -> Result<(SourceEntry, String), BridgeError> {
+    let entry = match bs.locator {
+        Some(locator) => {
+            if !locator.is_shareable() {
+                return Err(BridgeError::InvalidRequest {
+                    reason: "board_step: a Local locator cannot be linked".to_string(),
+                });
+            }
+            let mut entry = SourceEntry::linked(bs.file_name.clone(), SourceKind::Step, locator);
+            entry.set_content(&bs.data);
+            entry.fetched_at = Some(chrono::Utc::now());
+            entry.resolved = bs.resolved_commit.map(|c| file_format::Resolved {
+                commit: c.to_ascii_lowercase(),
+                at: chrono::Utc::now(),
+            });
+            entry
+        }
+        None => SourceEntry::embedded(bs.file_name.clone(), SourceKind::Step, &bs.data),
+    };
+    Ok((entry, bs.data))
+}
+
+/// The component models of a board STEP the store holds (spec §3 C2–C4),
+/// or `None` with a `BoardStepUnusable` warning when it does not read.
+fn board_step_models(
+    state: &EngineState,
+    step_id: uuid::Uuid,
+    file_name: &str,
+    pcb: &kicad_pcb::Pcb,
+    warnings: &mut Vec<String>,
+) -> Option<feature_engine::kicad::BoardStepModels> {
+    let text = state.engine.sources.text(step_id)?;
+    match step_import::parse_step_products_cached(&text, file_name) {
+        Ok(products) => Some(feature_engine::kicad::BoardStepModels::from_products(
+            step_id, file_name, &products, pcb,
+        )),
+        Err(e) => {
+            warnings.push(format!(
+                "BoardStepUnusable: {file_name} could not be read ({e}); every component is a \
+                 placeholder"
+            ));
+            None
+        }
+    }
 }
 
 /// The tabs a `KicadPcb` source derived, found from the tabs themselves
@@ -1367,12 +1465,14 @@ pub(crate) fn refresh_kicad_records(state: &mut EngineState) {
                 components.insert(inst.id, component_meta(fp));
             }
         }
+        let board_step = feature_engine::kicad::board_step_of(&part_trees[&board_tab].extra);
         records.push(crate::engine_state::KicadBoardRecord {
             source_id: entry.id,
             board_tab,
             assembly_tab,
             board_instance,
             placeholder_tabs: tabs.placeholders,
+            board_step,
             board: board_meta(entry.id, &pcb),
             components,
         });
@@ -1409,8 +1509,20 @@ fn resync_kicad(
         });
     };
 
-    let derived = derive_board(source_id, pcb, DeriveOptions::default());
-    let mut warnings = derived.warnings.clone();
+    // R5: the companion STEP the board tree names, as the store holds it
+    // now (a `ProvideSource` on the STEP itself lands here too).
+    let mut warnings = Vec::new();
+    let models =
+        feature_engine::kicad::board_step_of(&part_trees[&board_tab].extra).and_then(|step_id| {
+            let name = state
+                .sources
+                .iter()
+                .find(|s| s.id == step_id)
+                .map(|s| s.name.clone())?;
+            board_step_models(state, step_id, &name, pcb, &mut warnings)
+        });
+    let derived = derive_board(source_id, pcb, DeriveOptions::default(), models);
+    warnings.extend(derived.warnings.iter().cloned());
 
     // R1: the board, in place.
     let board = resync_features(&part_trees[&board_tab], &derived.board_tree, source_id);

@@ -37,6 +37,7 @@ fn import(
         UiToEngine::ImportKicad {
             file_name: name.to_string(),
             data: data.to_string(),
+            board_step: None,
         },
         kernel,
     )
@@ -361,6 +362,7 @@ fn linked_board_records_its_locator_commit_and_hash() {
             },
             data: RECT_V8.to_string(),
             resolved_commit: Some(sha.to_uppercase()),
+            board_step: None,
         },
         &mut kernel,
     );
@@ -394,6 +396,7 @@ fn a_local_locator_is_refused() {
             },
             data: RECT_V8.to_string(),
             resolved_commit: None,
+            board_step: None,
         },
         &mut kernel,
     );

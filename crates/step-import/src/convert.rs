@@ -13,7 +13,7 @@ use waffle_types::kernel::{
 use std::result::Result;
 
 /// Analytic shell straight out of the STEP topology.
-type CShell = CompressedShell<Point3, Curve3D, Surface>;
+pub(crate) type CShell = CompressedShell<Point3, Curve3D, Surface>;
 /// The same shell after per-face tessellation.
 type MeshedCShell = CompressedShell<Point3, PolylineCurve<Point3>, Option<PolygonMesh>>;
 
@@ -111,7 +111,7 @@ fn collect_placed_shells(
 }
 
 /// Clone a shell with a placement matrix applied to all geometry.
-fn place_shell(shell: &CShell, matrix: &Matrix4) -> CShell {
+pub(crate) fn place_shell(shell: &CShell, matrix: &Matrix4) -> CShell {
     let mut placed = shell.clone();
     if *matrix != Matrix4::from_scale(1.0) {
         placed
@@ -132,7 +132,11 @@ fn place_shell(shell: &CShell, matrix: &Matrix4) -> CShell {
 
 /// Tessellate one shell and flatten it into the neutral contract, converting
 /// file units to meters.
-fn convert_shell(shell: &CShell, unit_scale: f64, warnings: &mut Vec<String>) -> ImportedShellData {
+pub(crate) fn convert_shell(
+    shell: &CShell,
+    unit_scale: f64,
+    warnings: &mut Vec<String>,
+) -> ImportedShellData {
     // Tolerance from the shell's own extent: diameter/1000 in file units
     // (matches upstream practice), floored to keep degenerate shells sane.
     let bbox: BoundingBox<Point3> = shell.vertices.iter().collect();

@@ -239,3 +239,10 @@ depend on them are `#[ignore]`-tagged with reason `refs-fixture`.
   sketch-offset-tool / project-face-offset (imported-cylinder e2e).
   SI3 remainder: exact arcs where the STEP edge was a circle, datum axis
   from an imported cylinder axis.
+- 2026-09-29 — **SI4 first slice: per-product split** (KiCad board link C3,
+  `specs/kicad_board_link.md` §8). `step_import::parse_step_products` keeps
+  the first level of the product tree (occurrence name + placement →
+  product realized once in its own frame); `ImportedBodyParams.product`
+  imports one product alone; a `PartRef{source_id: <Step>, tab_id:
+  <product>}` is a Part in assemblies. Composite `ImportStep` unchanged.
+  Scale/LOD policy, inch units and richer diagnostics remain open.

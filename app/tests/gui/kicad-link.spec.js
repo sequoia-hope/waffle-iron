@@ -10,26 +10,44 @@ import { test, expect } from './helpers/waffle-test.js';
 import { moveToWorld, clickWorld } from './helpers/worldToScreen.js';
 import { collectCrashErrors, expectNoAnyCrash } from './helpers/state.js';
 
-const RECT_V8 = fs.readFileSync(
-	new URL('../../../crates/kicad-pcb/tests/fixtures/rect_v8.kicad_pcb', import.meta.url),
-	'utf8'
-);
+const fixture = (name) =>
+	fs.readFileSync(new URL('../../../crates/kicad-pcb/tests/fixtures/' + name, import.meta.url), 'utf8');
+const RECT_V8 = fixture('rect_v8.kicad_pcb');
+// The O5 board and KiCad 7's own STEP export of it (C3: the component models).
+const TWO_SIDED = fixture('two_sided.kicad_pcb');
+const TWO_SIDED_STEP = fixture('two_sided.step');
 const SHA = '9fceb02aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa';
 const b64 = (s) => Buffer.from(s, 'utf8').toString('base64');
 
-/** Serve the fixture as `acme/board` on a mocked GitHub API. */
+/**
+ * Serve `acme/board` on a mocked GitHub API: `hw/rect_v8.kicad_pcb` with NO
+ * STEP beside it (the sibling lookups 404, as GitHub answers for a missing
+ * file), and `hw/two_sided.kicad_pcb` with `hw/two_sided.step`.
+ */
 async function mockGithub(page) {
+	const files = {
+		'hw/rect_v8.kicad_pcb': RECT_V8,
+		'hw/two_sided.kicad_pcb': TWO_SIDED,
+		'hw/two_sided.step': TWO_SIDED_STEP
+	};
 	await page.route('https://api.github.com/**', async (route) => {
 		const url = route.request().url();
 		if (url.endsWith('/repos/acme/board/commits/main')) {
 			return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ sha: SHA }) });
 		}
-		if (url.includes('/repos/acme/board/contents/hw/rect_v8.kicad_pcb?ref=' + SHA)) {
-			return route.fulfill({
-				status: 200,
-				contentType: 'application/json',
-				body: JSON.stringify({ content: b64(RECT_V8), sha: 'ce01', encoding: 'base64' })
-			});
+		const m = url.match(/\/repos\/acme\/board\/contents\/([^?]+)\?ref=(.+)$/);
+		if (m && m[2] === SHA) {
+			const path = decodeURIComponent(m[1]);
+			if (files[path] !== undefined) {
+				return route.fulfill({
+					status: 200,
+					contentType: 'application/json',
+					body: JSON.stringify({ content: b64(files[path]), sha: 'ce01', encoding: 'base64' })
+				});
+			}
+			if (/\.(step|stp)$/i.test(path)) {
+				return route.fulfill({ status: 404, contentType: 'application/json', body: JSON.stringify({ message: 'Not Found' }) });
+			}
 		}
 		return route.fulfill({ status: 500, body: 'unexpected ' + url });
 	});
@@ -118,6 +136,66 @@ test.describe('KiCad board link', () => {
 		await expect(card).not.toBeVisible({ timeout: 5000 });
 		await panel.locator('[data-testid="kicad-detail-close"]').click();
 		await expect(panel).not.toBeVisible();
+
+		expectNoAnyCrash(crashes);
+	});
+
+	test('a board STEP beside the board supplies the component models, placed as KiCad placed them', async ({ waffle }) => {
+		const page = waffle.page;
+		const crashes = collectCrashErrors(page);
+		await mockGithub(page);
+
+		await page.evaluate(() => window.__waffle.showImportLinkDialog('kicad'));
+		const dialog = page.locator('[data-testid="import-link-dialog"]');
+		await page.locator('[data-testid="import-link-url"]').fill('https://github.com/acme/board/blob/main/hw/two_sided.kicad_pcb');
+		await page.locator('[data-testid="import-link-submit"]').click();
+		await expect(dialog).not.toBeVisible({ timeout: 30000 });
+		await page.waitForFunction(
+			() => (window.__waffle.getDocumentState().documentTabs ?? []).some((t) => t.name === 'two_sided assembly'),
+			{ timeout: 30000 }
+		);
+
+		// Two linked sources: the board and its STEP, both at the commit.
+		const sources = await page.evaluate(() => window.__waffle.getSources());
+		expect(sources.map((s) => s.kind).sort()).toEqual(['KicadPcb', 'Step']);
+		const step = sources.find((s) => s.kind === 'Step');
+		expect(step.name).toBe('two_sided.step');
+		expect(step.resolved?.commit).toBe(SHA);
+		expect(step.pack).toBe(false);
+
+		// Only the un-modelled footprint (U1) has a placeholder tab.
+		const doc = await page.evaluate(() => window.__waffle.getDocumentState());
+		const names = doc.documentTabs.map((t) => t.name);
+		expect(names).toContain('NoModel placeholder');
+		expect(names.filter((n) => n.endsWith('placeholder'))).toHaveLength(1);
+
+		// The assembly: R1 and C1 are instances of the STEP's `box` product;
+		// U1 is the placeholder.
+		const asm = doc.documentTabs.find((t) => t.name === 'two_sided assembly');
+		await page.evaluate((id) => window.__waffle.switchTab(id), asm.id);
+		await page.waitForFunction(() => (window.__waffle.getMeshes() ?? []).length >= 4, { timeout: 30000 });
+		const tree = await page.evaluate(() => window.__waffle.getAssembly());
+		const inst = (n) => tree.instances.find((i) => i.name === n);
+		expect(inst('R1').source).toEqual({ source_id: step.id, tab_id: 'box' });
+		expect(inst('C1').source.tab_id).toBe('box');
+		expect(inst('U1').source.source_id ?? null).toBeNull();
+		expect(inst('R1').transform.translation_m[2]).toBeCloseTo(0.00165, 9);
+
+		// The model renders where KiCad put it: the 10 mm cube on R1, rotated
+		// 37° about the footprint origin on the copper top (+0.05 mm). Hover
+		// its top face ⇒ R1's card.
+		await fitAll(page);
+		await page.waitForTimeout(300);
+		const aabb = await page.evaluate(() => window.__waffle.getMeshBoundingBox());
+		const u = aabb.max[0] / 0.05; // the board is 50 mm wide
+		const rad = (37 * Math.PI) / 180;
+		const cx = 0.020 + 0.005 * Math.cos(rad) - 0.005 * Math.sin(rad);
+		const cy = -0.015 + 0.005 * Math.sin(rad) + 0.005 * Math.cos(rad);
+		await moveToWorld(page, [cx * u, cy * u, 0.01165 * u]);
+		const card = page.locator('[data-testid="kicad-hover-card"]');
+		await expect(card).toBeVisible({ timeout: 5000 });
+		await expect(card.locator('[data-testid="kicad-card-reference"]')).toHaveText('R1');
+		await expect(card).toContainText('front');
 
 		expectNoAnyCrash(crashes);
 	});

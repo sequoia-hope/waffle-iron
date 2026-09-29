@@ -536,6 +536,12 @@ pub struct ImportedBodyParams {
     /// Extra uniform scale on top of the file's unit conversion (1.0 = none).
     #[serde(default = "default_scale")]
     pub scale: f64,
+    /// One product of a multi-product STEP, by its product name
+    /// (`step_import::StepProduct::name`), imported ALONE and in the
+    /// product's own frame — how a component of a board STEP becomes a Part
+    /// (`specs/kicad_board_link.md` C3). Absent: the whole file, world-placed.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub product: Option<String>,
 }
 
 fn default_scale() -> f64 {
@@ -553,6 +559,19 @@ impl ImportedBodyParams {
             translation_m: [0.0; 3],
             rotation_deg: [0.0; 3],
             scale: 1.0,
+            product: None,
+        }
+    }
+
+    /// One product of the STEP behind `source_id`, in its own frame.
+    pub fn product_of_source(
+        file_name: impl Into<String>,
+        source_id: Uuid,
+        product: impl Into<String>,
+    ) -> Self {
+        Self {
+            product: Some(product.into()),
+            ..Self::from_source(file_name, source_id)
         }
     }
 
@@ -566,6 +585,7 @@ impl ImportedBodyParams {
             translation_m: [0.0; 3],
             rotation_deg: [0.0; 3],
             scale: 1.0,
+            product: None,
         }
     }
 

@@ -25,12 +25,14 @@ use waffle_types::{
 };
 
 use crate::assembly::{
-    AssemblyTree, AxialAnchor, Frame, Instance, MateConnector, PartRef, Transform,
+    quat_from_basis, quat_mul, quat_normalize, AssemblyTree, AxialAnchor, Frame, Instance,
+    MateConnector, PartRef, Transform,
 };
 use crate::types::{
     CombineMode, DepthMode, ExtrudeParams, Feature, FeatureTree, Operation, Provenance,
     ProvenanceOrigin,
 };
+use step_import::{StepPlacement, StepProducts};
 
 /// Rules (spec §2.3): the `rule` string of a `Derived` provenance record.
 pub const RULE_BOARD_OUTLINE: &str = "kicad.board_outline";
@@ -50,6 +52,18 @@ pub const RULE_BOARD_PART: &str = "kicad.board_part";
 /// The `extra` key carrying derivation on instances and connectors (v4 §2.6
 /// `x-` convention): `{"source_id": …, "rule": …, "key": …}`.
 pub const X_DERIVED: &str = "x-derived";
+/// The board Part tree's `x-derived` record also names the board STEP that
+/// supplied its component models (spec §3 C2/C3), when one did — how a
+/// re-sync and a reload find the companion without a persisted record.
+pub const X_BOARD_STEP: &str = "board_step";
+/// KiCad's own STEP export stands a component off its face by a small
+/// fixed distance (0.05 mm in KiCad 7's `kicad-cli pcb export step`,
+/// measured on the O5 fixture) rather than placing it exactly on the
+/// copper. The placement check tolerates that much along the face normal
+/// and nothing else.
+pub const KICAD_STANDOFF_MAX_M: f64 = 1e-4;
+/// Placement agreement in metres / quaternion dot (spec §5 O5).
+const PLACEMENT_TOL_M: f64 = 1e-9;
 
 /// The built-in XY datum plane (`rebuild.rs` `FRONT_PLANE_ID`, `planes.js`).
 const XY_DATUM_ID: &str = "00000000-0000-0000-0000-000000000001";
@@ -126,6 +140,192 @@ pub struct PlaceholderPart {
     pub tree: FeatureTree,
 }
 
+/// Where a board STEP puts one component's model (spec §3 C2): the
+/// product to instance and the occurrence's world placement.
+#[derive(Debug, Clone, PartialEq)]
+pub struct ModelPlacement {
+    pub product: String,
+    pub transform: Transform,
+}
+
+/// The component models a board STEP supplies (spec §3 C2–C4): `kicad-cli
+/// pcb export step` writes one occurrence per footprint named by its
+/// reference designator (KiCad 7, 8, 9 — pinned by O5/O6 on a KiCad 7
+/// export), placing a product named after the model file; the board
+/// itself is an auto-named occurrence of a `… PCB` product.
+#[derive(Debug, Clone)]
+pub struct BoardStepModels {
+    /// The `Step` source the products come from.
+    pub source_id: Uuid,
+    pub file_name: String,
+    /// Reference designator → model, for every footprint the STEP models.
+    pub by_reference: BTreeMap<String, ModelPlacement>,
+    /// Every product name in the file, in file order.
+    pub products: Vec<String>,
+    pub warnings: Vec<String>,
+}
+
+impl BoardStepModels {
+    /// Match the STEP's occurrences to the board's footprints: by the
+    /// occurrence name, else by the product name (spec §3 C2; §5 O6). A
+    /// board occurrence is ignored silently (§3 C4); anything else that
+    /// matches no reference is one warning. A matched placement that
+    /// disagrees with the board's own footprint composition (§2.3, beyond
+    /// KiCad's standoff) is a loud "out of date" warning — the STEP's
+    /// placement still stands, being what the user linked.
+    pub fn from_products(source_id: Uuid, file_name: &str, step: &StepProducts, pcb: &Pcb) -> Self {
+        let mut warnings: Vec<String> = step
+            .warnings
+            .iter()
+            .map(|w| format!("{file_name}: {w}"))
+            .collect();
+        let stem = file_name
+            .rsplit('/')
+            .next()
+            .unwrap_or(file_name)
+            .rsplit_once('.')
+            .map(|(s, _)| s)
+            .unwrap_or(file_name);
+        let mut by_reference: BTreeMap<String, ModelPlacement> = BTreeMap::new();
+        let mut unmatched = Vec::new();
+        for occ in &step.occurrences {
+            let product = &step.products[occ.product];
+            let fp = pcb
+                .footprints
+                .iter()
+                .find(|f| f.reference == occ.name)
+                .or_else(|| pcb.footprints.iter().find(|f| f.reference == product.name));
+            let Some(fp) = fp else {
+                if !is_board_product(&occ.name, &product.name, stem) {
+                    unmatched.push(format!("{} ({})", occ.name, product.name));
+                }
+                continue;
+            };
+            if product.body.is_empty() {
+                warnings.push(format!(
+                    "{}: product `{}` in {file_name} has no geometry; a placeholder stands in",
+                    fp.reference, product.name
+                ));
+                continue;
+            }
+            let transform = transform_of(&occ.placement);
+            if let Some(why) = placement_disagrees(fp, pcb.thickness_m, &transform) {
+                warnings.push(format!(
+                    "{}: {file_name} places its model where the board does not ({why}); the \
+                     STEP may be out of date — its placement is used as linked",
+                    fp.reference
+                ));
+            }
+            let prior = by_reference.insert(
+                fp.reference.clone(),
+                ModelPlacement {
+                    product: product.name.clone(),
+                    transform,
+                },
+            );
+            if prior.is_some() {
+                warnings.push(format!(
+                    "{}: {file_name} places more than one model for it; the last is used",
+                    fp.reference
+                ));
+            }
+        }
+        if !unmatched.is_empty() {
+            warnings.push(format!(
+                "{file_name}: {} occurrence(s) match no footprint reference and were ignored: {}",
+                unmatched.len(),
+                unmatched.join(", ")
+            ));
+        }
+        BoardStepModels {
+            source_id,
+            file_name: file_name.to_string(),
+            by_reference,
+            products: step.products.iter().map(|p| p.name.clone()).collect(),
+            warnings,
+        }
+    }
+}
+
+/// Spec §3 C4: the board's own product in a KiCad export — an auto-named
+/// occurrence (`=>[0:1:1:4]`, OpenCascade's label) of a product named
+/// `<stem> PCB` (KiCad 7), `PCB`, `board` or the file stem.
+fn is_board_product(occurrence: &str, product: &str, stem: &str) -> bool {
+    occurrence.starts_with("=>")
+        || product.ends_with(" PCB")
+        || product == "PCB"
+        || product == "board"
+        || product == stem
+}
+
+/// A STEP placement as an assembly transform.
+pub fn transform_of(p: &StepPlacement) -> Transform {
+    Transform {
+        translation_m: p.translation_m,
+        rotation_quat: quat_from_basis(p.axes[0], p.axes[1], p.axes[2]),
+    }
+}
+
+/// Spec §2.3: `T_board_side ∘ T_place ∘ T_model` for a footprint's first
+/// model — where the board says the model's origin goes. `None` for a
+/// footprint with no model. The `rotate` triple is KiCad's, whose sign is
+/// NEGATED relative to a right-hand rotation (pinned about Z by O5), applied
+/// as `Rz·Ry·Rx`; the offset is in the footprint's frame, after the
+/// rotation.
+pub fn expected_model_transform(fp: &Footprint, thickness_m: f64) -> Option<Transform> {
+    let model = fp.models.first()?;
+    let axis = |axis: [f64; 3], deg: f64| -> [f64; 4] {
+        let (s, c) = ((-deg).to_radians() / 2.0).sin_cos();
+        [axis[0] * s, axis[1] * s, axis[2] * s, c]
+    };
+    let rz = axis([0.0, 0.0, 1.0], model.rotate_deg[2]);
+    let ry = axis([0.0, 1.0, 0.0], model.rotate_deg[1]);
+    let rx = axis([1.0, 0.0, 0.0], model.rotate_deg[0]);
+    let t_model = Transform {
+        translation_m: model.offset_m,
+        rotation_quat: quat_normalize(quat_mul(quat_mul(rz, ry), rx)),
+    };
+    Some(footprint_transform(fp, thickness_m).compose(&t_model))
+}
+
+/// Why `actual` (the STEP's placement) is not where the board puts the
+/// footprint's model: the rotation differs, the in-plane position differs,
+/// or the standoff along the face normal is not KiCad's small one.
+fn placement_disagrees(fp: &Footprint, thickness_m: f64, actual: &Transform) -> Option<String> {
+    let expected = expected_model_transform(fp, thickness_m)?;
+    let d = (0..4)
+        .map(|i| actual.rotation_quat[i] * expected.rotation_quat[i])
+        .sum::<f64>()
+        .abs();
+    if 1.0 - d > PLACEMENT_TOL_M {
+        return Some("the orientation differs".to_string());
+    }
+    let dt = [
+        actual.translation_m[0] - expected.translation_m[0],
+        actual.translation_m[1] - expected.translation_m[1],
+        actual.translation_m[2] - expected.translation_m[2],
+    ];
+    if dt[0].abs() > PLACEMENT_TOL_M || dt[1].abs() > PLACEMENT_TOL_M {
+        return Some(format!(
+            "the in-plane position differs by ({:.3}, {:.3}) mm",
+            dt[0] * 1e3,
+            dt[1] * 1e3
+        ));
+    }
+    // Outward along the face: +Z on the front, −Z on the back.
+    let standoff = match fp.side {
+        Side::Front => dt[2],
+        Side::Back => -dt[2],
+    };
+    if !(-PLACEMENT_TOL_M..=KICAD_STANDOFF_MAX_M).contains(&standoff) {
+        return Some(format!(
+            "the height off the face differs by {:.3} mm",
+            dt[2] * 1e3
+        ));
+    }
+    None
+}
+
 /// Everything derived from one board, before tabs exist.
 #[derive(Debug, Clone)]
 pub struct DerivedBoard {
@@ -139,6 +339,8 @@ pub struct DerivedBoard {
     pub placeholders: Vec<PlaceholderPart>,
     pub board_meta: BoardMeta,
     pub warnings: Vec<String>,
+    /// The board STEP's models, when one accompanies the board (C3).
+    pub models: Option<BoardStepModels>,
     footprints: Vec<Footprint>,
     thickness_m: f64,
     options: DeriveOptions,
@@ -147,12 +349,25 @@ pub struct DerivedBoard {
 /// Derive the board Part tree, the placeholder Parts and the metadata.
 /// The assembly is built afterwards by [`DerivedBoard::assembly`], once the
 /// bridge knows the tab ids the instances must reference.
-pub fn derive_board(source_id: Uuid, pcb: &Pcb, options: DeriveOptions) -> DerivedBoard {
+pub fn derive_board(
+    source_id: Uuid,
+    pcb: &Pcb,
+    options: DeriveOptions,
+    models: Option<BoardStepModels>,
+) -> DerivedBoard {
     let mut warnings = pcb.warnings.clone();
+    if let Some(m) = &models {
+        warnings.extend(m.warnings.iter().cloned());
+    }
     let thickness_m = pcb.thickness_m;
 
     let mut board_tree = FeatureTree::new();
     board_tree.extra = derived_extra(source_id, RULE_BOARD_PART, "board");
+    if let Some(m) = &models {
+        if let Some(d) = board_tree.extra.get_mut(X_DERIVED) {
+            d[X_BOARD_STEP] = json!(m.source_id);
+        }
+    }
     let mut sketch_w = SketchWriter::default();
     let (outer_ids, holes_ids, outline_error) = match pcb.outline_loops() {
         Ok(loops) => {
@@ -254,10 +469,17 @@ pub fn derive_board(source_id: Uuid, pcb: &Pcb, options: DeriveOptions) -> Deriv
     }
 
     // Placeholders: one Part per distinct footprint shape that gets an
-    // instance, box = pad bounding box × 1 mm in the footprint's own frame.
+    // instance and has no model in the board STEP, box = pad bounding box
+    // × 1 mm in the footprint's own frame.
+    let modelled = |fp: &Footprint| {
+        models
+            .as_ref()
+            .is_some_and(|m| m.by_reference.contains_key(&fp.reference))
+    };
     let mut placeholders: Vec<PlaceholderPart> = Vec::new();
     for fp in &pcb.footprints {
         if !instance_wanted(fp, &options)
+            || modelled(fp)
             || placeholders.iter().any(|p| p.footprint == fp.footprint)
         {
             continue;
@@ -279,6 +501,7 @@ pub fn derive_board(source_id: Uuid, pcb: &Pcb, options: DeriveOptions) -> Deriv
         placeholders,
         board_meta,
         warnings,
+        models,
         footprints: pcb.footprints.clone(),
         thickness_m,
         options,
@@ -346,22 +569,49 @@ impl DerivedBoard {
             if !instance_wanted(fp, &self.options) {
                 continue;
             }
-            let Some(tab) = placeholder_tabs.get(&fp.footprint) else {
-                warnings.push(format!(
-                    "{}: no placeholder part for footprint {}",
-                    fp.reference, fp.footprint
-                ));
-                continue;
+            // Spec §3 C2: the board STEP's product, where the STEP puts it;
+            // C3: a placeholder where the STEP has no model, loudly.
+            let modelled = self
+                .models
+                .as_ref()
+                .and_then(|m| m.by_reference.get(&fp.reference).map(|p| (m, p)));
+            let (source, transform) = match modelled {
+                Some((m, p)) => (
+                    PartRef {
+                        source_id: Some(m.source_id),
+                        tab_id: p.product.clone(),
+                    },
+                    p.transform,
+                ),
+                None => {
+                    if let Some(m) = &self.models {
+                        warnings.push(format!(
+                            "ComponentModelMissing: {} has no model in {}; a placeholder stands in",
+                            fp.reference, m.file_name
+                        ));
+                    }
+                    let Some(tab) = placeholder_tabs.get(&fp.footprint) else {
+                        warnings.push(format!(
+                            "{}: no placeholder part for footprint {}",
+                            fp.reference, fp.footprint
+                        ));
+                        continue;
+                    };
+                    (
+                        PartRef {
+                            source_id: None,
+                            tab_id: tab.clone(),
+                        },
+                        footprint_transform(fp, self.thickness_m),
+                    )
+                }
             };
             let id = Uuid::new_v4();
             tree.instances.push(Instance {
                 id,
                 name: fp.reference.clone(),
-                source: PartRef {
-                    source_id: None,
-                    tab_id: tab.clone(),
-                },
-                transform: footprint_transform(fp, self.thickness_m),
+                source,
+                transform,
                 fixed: false,
                 suppressed: false,
                 external_key: Some(fp.uuid.clone()),
@@ -485,6 +735,16 @@ pub fn derived_of(extra: &Map<String, serde_json::Value>) -> Option<(Uuid, &str,
     let d = extra.get(X_DERIVED)?;
     let source_id = d.get("source_id")?.as_str()?.parse().ok()?;
     Some((source_id, d.get("rule")?.as_str()?, d.get("key")?.as_str()?))
+}
+
+/// The board STEP a board Part tree's `x-derived` record names, if any.
+pub fn board_step_of(extra: &Map<String, serde_json::Value>) -> Option<Uuid> {
+    extra
+        .get(X_DERIVED)?
+        .get(X_BOARD_STEP)?
+        .as_str()?
+        .parse()
+        .ok()
 }
 
 /// The `x-derived` field holding the rule's own name.
@@ -619,6 +879,16 @@ pub fn resync_features(old: &FeatureTree, fresh: &FeatureTree, source_id: Uuid) 
 
     let mut tree = old.clone();
     tree.features = out;
+    // The tree's own record is the fresh one (the board STEP it names may
+    // have come or gone); every other key of `extra` is the user's.
+    match fresh.extra.get(X_DERIVED) {
+        Some(d) => {
+            tree.extra.insert(X_DERIVED.to_string(), d.clone());
+        }
+        None => {
+            tree.extra.remove(X_DERIVED);
+        }
+    }
     tree.provenance
         .retain(|id, _| derived_rule(old, *id, source_id).is_none() || kept_ids.contains(id));
     for (id, p) in &fresh.provenance {
@@ -1121,7 +1391,7 @@ mod tests {
         let source = Uuid::new_v4();
         let holes = kicad_pcb::parse_kicad_pcb(HOLES).unwrap();
         let rect = kicad_pcb::parse_kicad_pcb(RECT).unwrap();
-        let mut old = derive_board(source, &holes, DeriveOptions::default()).board_tree;
+        let mut old = derive_board(source, &holes, DeriveOptions::default(), None).board_tree;
         assert_eq!(
             old.features.len(),
             5,
@@ -1132,7 +1402,7 @@ mod tests {
         old.features.push(user);
         let old_ids: Vec<Uuid> = old.features.iter().map(|f| f.id).collect();
 
-        let fresh = derive_board(source, &rect, DeriveOptions::default()).board_tree;
+        let fresh = derive_board(source, &rect, DeriveOptions::default(), None).board_tree;
         let out = resync_features(&old, &fresh, source);
         assert_eq!(
             rules(&out, source),
@@ -1162,13 +1432,13 @@ mod tests {
         let source = Uuid::new_v4();
         let holes = kicad_pcb::parse_kicad_pcb(HOLES).unwrap();
         let rect = kicad_pcb::parse_kicad_pcb(RECT).unwrap();
-        let mut old = derive_board(source, &rect, DeriveOptions::default()).board_tree;
+        let mut old = derive_board(source, &rect, DeriveOptions::default(), None).board_tree;
         let user = user_feature("enclosure");
         let user_id = user.id;
         old.features.push(user);
         let board_id = old.features[1].id;
 
-        let fresh = derive_board(source, &holes, DeriveOptions::default()).board_tree;
+        let fresh = derive_board(source, &holes, DeriveOptions::default(), None).board_tree;
         let out = resync_features(&old, &fresh, source);
         assert_eq!(
             rules(&out, source),
@@ -1207,7 +1477,7 @@ mod tests {
     fn resync_assembly_keeps_ids_renames_and_reports_dangling_mates() {
         let source = Uuid::new_v4();
         let rect = kicad_pcb::parse_kicad_pcb(RECT).unwrap();
-        let derived = derive_board(source, &rect, DeriveOptions::default());
+        let derived = derive_board(source, &rect, DeriveOptions::default(), None);
         let mut tabs = BTreeMap::new();
         for p in &derived.placeholders {
             tabs.insert(p.footprint.clone(), format!("tab-{}", p.footprint));
@@ -1247,7 +1517,7 @@ mod tests {
         // Fresh: R1 still there (new ids), the mounting hole gone.
         let mut pruned = rect.clone();
         pruned.footprints.retain(|f| f.reference != "H1");
-        let fresh = derive_board(source, &pruned, DeriveOptions::default())
+        let fresh = derive_board(source, &pruned, DeriveOptions::default(), None)
             .assembly("board-tab", &tabs)
             .0;
         let (out, id_map, gone) = resync_assembly(&old, fresh, source);
@@ -1359,5 +1629,167 @@ mod tests {
             })
             .unwrap();
         assert_eq!(start, (-1.0, 0.0));
+    }
+
+    // ── C3: the board STEP as the component-model supply ────────────────
+
+    const TWO_SIDED: &str = include_str!("../../kicad-pcb/tests/fixtures/two_sided.kicad_pcb");
+    /// `kicad-cli pcb export step` (KiCad 7.0.11) of TWO_SIDED with our own
+    /// 10 mm cube as every model.
+    const TWO_SIDED_STEP: &str = include_str!("../../kicad-pcb/tests/fixtures/two_sided.step");
+
+    fn two_sided_models() -> (Pcb, BoardStepModels, Uuid) {
+        let pcb = kicad_pcb::parse_kicad_pcb(TWO_SIDED).unwrap();
+        let step = step_import::parse_step_products(TWO_SIDED_STEP, "two_sided").unwrap();
+        let step_source = Uuid::new_v4();
+        let models = BoardStepModels::from_products(step_source, "two_sided.step", &step, &pcb);
+        (pcb, models, step_source)
+    }
+
+    /// Spec §5 O5: for each modelled footprint, KiCad's own placement equals
+    /// `T_board_side ∘ T_place ∘ T_model` — rotation and in-plane position
+    /// to 1e-9, height off the face by KiCad 7's 0.05 mm standoff, outward
+    /// on both sides. This pins the back-side composition and the negated
+    /// `rotate` sign the spec asserts.
+    #[test]
+    fn o5_kicad_step_placements_equal_the_footprint_composition_plus_the_standoff() {
+        let (pcb, models, _) = two_sided_models();
+        assert!(
+            !models.warnings.iter().any(|w| w.contains("out of date")),
+            "{:?}",
+            models.warnings
+        );
+        for (reference, standoff) in [("R1", 0.05e-3), ("C1", -0.05e-3)] {
+            let fp = pcb
+                .footprints
+                .iter()
+                .find(|f| f.reference == reference)
+                .unwrap();
+            let expected = expected_model_transform(fp, pcb.thickness_m).unwrap();
+            let actual = &models.by_reference[reference].transform;
+            let d: f64 = (0..4)
+                .map(|i| actual.rotation_quat[i] * expected.rotation_quat[i])
+                .sum::<f64>()
+                .abs();
+            assert!(
+                1.0 - d < 1e-9,
+                "{reference}: rotation {actual:?} vs {expected:?}"
+            );
+            for k in 0..2 {
+                assert!(
+                    (actual.translation_m[k] - expected.translation_m[k]).abs() < 1e-9,
+                    "{reference}: axis {k} {actual:?} vs {expected:?}"
+                );
+            }
+            assert!(
+                (actual.translation_m[2] - expected.translation_m[2] - standoff).abs() < 1e-9,
+                "{reference}: standoff {actual:?} vs {expected:?}"
+            );
+        }
+        // The sign pin: C1's `(rotate (xyz 0 0 90))` read as +90° would put
+        // its x axis 180° off — KiCad's rotate IS negated.
+        let c1 = pcb.footprints.iter().find(|f| f.reference == "C1").unwrap();
+        let mut flipped = c1.clone();
+        flipped.models[0].rotate_deg[2] = -90.0;
+        let wrong = expected_model_transform(&flipped, pcb.thickness_m).unwrap();
+        let actual = &models.by_reference["C1"].transform;
+        let d: f64 = (0..4)
+            .map(|i| actual.rotation_quat[i] * wrong.rotation_quat[i])
+            .sum::<f64>()
+            .abs();
+        assert!(
+            1.0 - d > 0.5,
+            "the positive reading must NOT match: dot {d}"
+        );
+        // And the actual numbers KiCad wrote, so the fixture is legible.
+        let r1 = &models.by_reference["R1"].transform;
+        assert_eq!(r1.translation_m, [20e-3, -15e-3, 1.65e-3]);
+        assert_eq!(models.by_reference["C1"].product, "box");
+    }
+
+    /// Spec §5 O6: every modelled reference matches (R1, C1: 2 of 2), the
+    /// board's own occurrence is ignored without a word, and the one
+    /// un-modelled footprint (U1) is exactly one `ComponentModelMissing`
+    /// with a placeholder — never a wrong model.
+    #[test]
+    fn o6_occurrences_match_by_reference_and_the_unmodelled_footprint_is_loud() {
+        let (pcb, models, step_source) = two_sided_models();
+        assert_eq!(models.by_reference.keys().collect::<Vec<_>>(), ["C1", "R1"]);
+        // Products in occurrence order (sorted by name: the auto-named board first).
+        assert_eq!(models.products, ["two_sided PCB", "box"]);
+        assert!(
+            !models.warnings.iter().any(|w| w.contains("ignored")),
+            "the board product is not a warning: {:?}",
+            models.warnings
+        );
+        let source = Uuid::new_v4();
+        let derived = derive_board(source, &pcb, DeriveOptions::default(), Some(models));
+        assert_eq!(board_step_of(&derived.board_tree.extra), Some(step_source));
+        let shapes: Vec<&str> = derived
+            .placeholders
+            .iter()
+            .map(|p| p.footprint.as_str())
+            .collect();
+        assert_eq!(
+            shapes,
+            ["Waffle:NoModel"],
+            "placeholders only for the unmodelled shape"
+        );
+        let mut tabs = BTreeMap::new();
+        tabs.insert("Waffle:NoModel".to_string(), "tab-nomodel".to_string());
+        let (tree, _, warnings) = derived.assembly("board-tab", &tabs);
+        let by_name = |n: &str| tree.instances.iter().find(|i| i.name == n).unwrap();
+        assert_eq!(
+            by_name("R1").source,
+            PartRef {
+                source_id: Some(step_source),
+                tab_id: "box".to_string()
+            }
+        );
+        assert_eq!(by_name("C1").source.tab_id, "box");
+        assert_eq!(by_name("U1").source.tab_id, "tab-nomodel");
+        let missing: Vec<&String> = warnings
+            .iter()
+            .filter(|w| w.contains("ComponentModelMissing"))
+            .collect();
+        assert_eq!(missing.len(), 1, "{warnings:?}");
+        assert!(missing[0].contains("U1"));
+    }
+
+    /// A STEP exported from an older revision of the board (R1 since moved)
+    /// is used as linked but says so.
+    #[test]
+    fn a_step_that_disagrees_with_the_board_is_reported_as_out_of_date() {
+        let moved = TWO_SIDED.replace("(at 20 15 37)", "(at 21 15 37)");
+        let pcb = kicad_pcb::parse_kicad_pcb(&moved).unwrap();
+        let step = step_import::parse_step_products(TWO_SIDED_STEP, "two_sided").unwrap();
+        let models = BoardStepModels::from_products(Uuid::new_v4(), "two_sided.step", &step, &pcb);
+        let stale: Vec<&String> = models
+            .warnings
+            .iter()
+            .filter(|w| w.contains("out of date"))
+            .collect();
+        assert_eq!(stale.len(), 1, "{:?}", models.warnings);
+        assert!(
+            stale[0].starts_with("R1:") && stale[0].contains("1.000, 0.000"),
+            "{}",
+            stale[0]
+        );
+        // Used as linked all the same.
+        assert!(models.by_reference.contains_key("R1"));
+    }
+
+    /// A re-sync replaces the tree's own record: a board that gains a STEP
+    /// names it, one that loses it stops naming it.
+    #[test]
+    fn resync_carries_the_fresh_board_step_record() {
+        let (pcb, models, step_source) = two_sided_models();
+        let source = Uuid::new_v4();
+        let without = derive_board(source, &pcb, DeriveOptions::default(), None).board_tree;
+        let with = derive_board(source, &pcb, DeriveOptions::default(), Some(models)).board_tree;
+        let gained = resync_features(&without, &with, source);
+        assert_eq!(board_step_of(&gained.extra), Some(step_source));
+        let lost = resync_features(&with, &without, source);
+        assert_eq!(board_step_of(&lost.extra), None);
     }
 }

@@ -58,6 +58,7 @@ fn link(state: &mut EngineState, kernel: &mut KernelV2Adapter) -> Uuid {
         UiToEngine::ImportKicad {
             file_name: "rect_v8.kicad_pcb".to_string(),
             data: A.to_string(),
+            board_step: None,
         },
         kernel,
     );

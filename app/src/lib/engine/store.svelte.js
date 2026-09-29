@@ -1285,7 +1285,7 @@ export async function initEngine() {
 			// Test SETUP: real file pickers can't be driven from Playwright.
 			importStepFromText: (fileName, text) => importStepFromText(fileName, text),
 			importStepFromLink: (url) => importStepFromLink(url),
-			importKicadFromText: (fileName, text) => importKicadFromText(fileName, text),
+			importKicadFromText: (fileName, text, boardStep) => importKicadFromText(fileName, text, boardStep ?? null),
 			linkKicadFromLink: (url) => linkKicadFromLink(url),
 			showImportLinkDialog: (kind) => showImportLinkDialog(kind),
 			queryEntityMeta: (bodyId, instancePath) => queryEntityMeta(bodyId, instancePath),
@@ -9126,13 +9126,18 @@ export async function importStepFromLink(url) {
  * @param {string} text
  * @returns {Promise<boolean>}
  */
-export async function importKicadFromText(fileName, text) {
+export async function importKicadFromText(fileName, text, boardStep = null) {
 	if (!bridge || !engineReady) return false;
-	log('action', 'Import KiCad board', { fileName, bytes: text.length });
+	log('action', 'Import KiCad board', { fileName, bytes: text.length, boardStep: boardStep?.file_name ?? null });
 	entityMetaCache.clear();
 	try {
-		await sendRebuild({ type: 'ImportKicad', file_name: fileName, data: text });
-		showToast('info', `Linked board ${fileName}`);
+		await sendRebuild({
+			type: 'ImportKicad',
+			file_name: fileName,
+			data: text,
+			board_step: boardStep ? { file_name: boardStep.file_name, data: boardStep.data } : null
+		});
+		showToast('info', boardStep ? `Linked board ${fileName} with models from ${boardStep.file_name}` : `Linked board ${fileName}`);
 		return true;
 	} catch (err) {
 		log('error', `KiCad import failed: ${err?.message || err}`);
@@ -9142,7 +9147,10 @@ export async function importKicadFromText(fileName, text) {
 }
 
 /**
- * Open a file picker for a `.kicad_pcb` and import it.
+ * Open a file picker for a `.kicad_pcb` — and, picked alongside it, the
+ * board's STEP export (specs/kicad_board_link.md C3): its products become
+ * the component models. One file at a time still works; a STEP alone is
+ * refused.
  * @returns {Promise<boolean>}
  */
 export async function importKicad() {
@@ -9150,15 +9158,59 @@ export async function importKicad() {
 	return new Promise((resolve) => {
 		const input = document.createElement('input');
 		input.type = 'file';
-		input.accept = '.kicad_pcb';
+		input.accept = '.kicad_pcb,.step,.stp';
+		input.multiple = true;
 		input.onchange = async () => {
-			const file = input.files?.[0];
-			if (!file) { resolve(false); return; }
-			const text = await file.text();
-			resolve(await importKicadFromText(file.name, text));
+			const files = Array.from(input.files ?? []);
+			const pcb = files.find((f) => f.name.toLowerCase().endsWith('.kicad_pcb'));
+			if (!pcb) {
+				if (files.length) showToast('error', 'Pick the .kicad_pcb (with its STEP export beside it, if you have one)');
+				resolve(false);
+				return;
+			}
+			const step = files.find((f) => /\.(step|stp)$/i.test(f.name));
+			const text = await pcb.text();
+			const boardStep = step ? { file_name: step.name, data: await step.text() } : null;
+			resolve(await importKicadFromText(pcb.name, text, boardStep));
 		};
 		input.click();
 	});
+}
+
+/**
+ * The board STEP that sits beside a linked `.kicad_pcb` (`<stem>.step`,
+ * then `<stem>.stp`), at the same commit. `null` when there is none: a
+ * missing companion is an ordinary outcome (placeholders), any other
+ * failure to fetch it is reported and treated the same.
+ * @param {any} locator the board's locator
+ * @param {string|null} resolvedCommit
+ * @returns {Promise<{file_name: string, locator: any, data: string, resolved_commit: string|null} | null>}
+ */
+async function fetchBoardStepBeside(locator, resolvedCommit) {
+	const { fetchGitAt } = await import('$lib/storage/sources.js');
+	const { fetchUrlLocator } = await import('$lib/storage/git/hosts.js');
+	const { cachePut } = await import('$lib/storage/git/cache.js');
+	const { gitBlobSha1 } = await import('$lib/storage/git/hash.js');
+	const isGit = locator.type === 'Git';
+	const path = isGit ? locator.path : locator.url;
+	const stem = path.replace(/\.kicad_pcb$/i, '');
+	for (const ext of ['.step', '.stp']) {
+		const sibling = stem + ext;
+		const fileName = sibling.split('/').pop() || '';
+		const stepLocator = isGit ? { ...locator, path: sibling } : { ...locator, url: sibling };
+		try {
+			const { text } = isGit ? await fetchGitAt(stepLocator, resolvedCommit) : await fetchUrlLocator(sibling);
+			await cachePut(await gitBlobSha1(text), text);
+			log('action', 'Board STEP found beside the board', { fileName });
+			return { file_name: fileName, locator: stepLocator, data: text, resolved_commit: resolvedCommit };
+		} catch (err) {
+			if (err?.code === 'not_found') continue;
+			log('warn', `Board STEP ${fileName} could not be fetched: ${err?.message || err}`);
+			showToast('warning', `Could not fetch ${fileName} beside the board (${err?.message || err}); components are placeholders`);
+			return null;
+		}
+	}
+	return null;
 }
 
 /**
@@ -9195,14 +9247,22 @@ export async function linkKicadFromLink(url) {
 			({ text } = await fetchUrlLocator(locator.url));
 		}
 		await cachePut(await gitBlobSha1(text), text);
+		// The board's STEP export beside it (C3): the component models.
+		const boardStep = await fetchBoardStepBeside(locator, resolvedCommit);
 		await sendRebuild({
 			type: 'LinkKicadFromLocator',
 			file_name: fileName,
 			locator,
 			data: text,
-			resolved_commit: resolvedCommit
+			resolved_commit: resolvedCommit,
+			board_step: boardStep
 		});
-		showToast('info', `Linked board ${fileName}`);
+		showToast(
+			'info',
+			boardStep
+				? `Linked board ${fileName} with models from ${boardStep.file_name}`
+				: `Linked board ${fileName} (no ${fileName.replace(/\.kicad_pcb$/i, '.step')} beside it: components are placeholders)`
+		);
 		return true;
 	} catch (err) {
 		log('error', `KiCad link failed: ${err?.message || err}`);

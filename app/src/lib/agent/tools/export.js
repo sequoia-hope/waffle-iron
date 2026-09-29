@@ -33,8 +33,10 @@ export const kicadLinkTool = {
 		'Link a KiCad board (`.kicad_pcb` text): the board outline becomes an exact solid in a new Board Part tab ' +
 		'(Derived provenance), each footprint shape a placeholder Part, and the footprints a Board assembly tab ' +
 		'(one instance per footprint keyed by its uuid in external_key, a mate connector per mounting hole). ' +
-		'With `locator` the source is LINKED (git file at the resolved commit); without it, embedded. Opens the ' +
-		'Board tab. specs/kicad_board_link.md.',
+		'With `locator` the source is LINKED (git file at the resolved commit); without it, embedded. With ' +
+		'`step_text` (the board\'s own STEP export, `kicad-cli pcb export step`) each footprint the STEP models ' +
+		'becomes an instance of that product placed as KiCad placed it; the rest stay placeholders, loudly. ' +
+		'Opens the Board tab. specs/kicad_board_link.md.',
 	inputSchema: {
 		type: 'object',
 		properties: {
@@ -45,6 +47,10 @@ export const kicadLinkTool = {
 				description: 'Where the file lives (v4 Locator: {type:"Git", remote, path, ref, host?} or {type:"Url", url}). Omit for an embedded copy.'
 			},
 			resolved_commit: { type: 'string', description: 'The commit the text was fetched at (git locators).' },
+			step_text: { type: 'string', description: 'The board STEP export (ISO 10303-21 text) beside the board: its per-footprint products become the component models.' },
+			step_file_name: { type: 'string', description: 'Name recorded on the STEP source, e.g. "main.step".' },
+			step_locator: { type: 'object', description: 'Where the STEP lives (a v4 Locator); omit for an embedded copy.' },
+			step_resolved_commit: { type: 'string', description: 'The commit the STEP was fetched at (git locators).' },
 			on_error: onErrorSchema
 		},
 		required: ['file_name', 'pcb_text'],
@@ -56,7 +62,8 @@ export const kicadLinkTool = {
 		assembly_tab: { type: 'string' },
 		placeholder_tabs: { type: 'object', additionalProperties: { type: 'string' }, description: 'footprint name → placeholder Part tab id' },
 		board: { type: 'object', description: 'BoardMeta: title, rev, date, company, comments, copper_layers, thickness_m, net_count, footprint_count.' },
-		component_count: { type: 'integer' }
+		component_count: { type: 'integer' },
+		board_step_source_id: { type: ['string', 'null'], description: 'The Step source supplying component models, when a readable STEP was given.' }
 	}),
 	annotations: { title: 'Link KiCad board', readOnlyHint: false, destructiveHint: false, openWorldHint: false }
 };

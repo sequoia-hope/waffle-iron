@@ -643,9 +643,37 @@ pub(crate) fn execute_feature(
                     reason,
                 }
             })?;
-            let parsed = step_import::parse_step_cached(&step_text, &params.file_name)
-                .map_err(|e| fail(e.to_string()))?;
-            let mut data = (*parsed).clone();
+            let mut data = match &params.product {
+                // One product of the file, in its own frame (C3): a product
+                // the file does not have is the feature's own loud error.
+                Some(product) => {
+                    let products =
+                        step_import::parse_step_products_cached(&step_text, &params.file_name)
+                            .map_err(|e| fail(e.to_string()))?;
+                    let found = products
+                        .products
+                        .iter()
+                        .find(|p| p.name == *product)
+                        .ok_or_else(|| {
+                            fail(format!(
+                                "product `{product}` is not in {} (products: {})",
+                                params.file_name,
+                                products
+                                    .products
+                                    .iter()
+                                    .map(|p| p.name.as_str())
+                                    .collect::<Vec<_>>()
+                                    .join(", ")
+                            ))
+                        })?;
+                    found.body.clone()
+                }
+                None => {
+                    let parsed = step_import::parse_step_cached(&step_text, &params.file_name)
+                        .map_err(|e| fail(e.to_string()))?;
+                    (*parsed).clone()
+                }
+            };
             data.apply_scale(params.scale);
             data.apply_placement(params.rotation_deg, params.translation_m);
             Ok(modeling_ops::execute_import(kb, &data)?)

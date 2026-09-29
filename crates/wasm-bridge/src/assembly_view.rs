@@ -502,6 +502,11 @@ fn resolve_source(part: &PartRef, ctx: &Ctx) -> Result<Resolved, String> {
             let text = ctx.sources.text(source_id).ok_or_else(|| {
                 format!("linked source {source_id} is unavailable (fetch it first)")
             })?;
+            // A STEP source: `tab_id` names one of its products, a Part of
+            // exactly that product in its own frame (C3).
+            if step_import::looks_like_step(&text) {
+                return Ok(Resolved::Part(step_product_tree(source_id, &part.tab_id)));
+            }
             let loaded = file_format::load_document(&text)
                 .map_err(|e| format!("linked source {source_id}: {e}"))?;
             let tab = loaded
@@ -522,7 +527,34 @@ fn resolve_source(part: &PartRef, ctx: &Ctx) -> Result<Resolved, String> {
     }
 }
 
-/// The tabs of a linked `.waffle` source, for the "add instance" chooser.
+/// The Part a product of a STEP source is: one `ImportedBody` feature
+/// naming the source and the product, under an id that is a pure function
+/// of both — the same on every evaluation, so the part engine is reused and
+/// the render body ids (`{instance}/{feature}/{key}`) stay put.
+fn step_product_tree(source_id: Uuid, product: &str) -> FeatureTree {
+    // FNV-1a over the source id and the product name, 128-bit.
+    let mut h: u128 = 0x6c62_272e_07bb_0142_62b8_2175_6295_c58d ^ source_id.as_u128();
+    for b in product.bytes() {
+        h ^= b as u128;
+        h = h.wrapping_mul(0x0000_0000_0100_0000_0000_0000_0000_013b);
+    }
+    let mut tree = FeatureTree::new();
+    tree.features.push(feature_engine::types::Feature {
+        id: Uuid::from_u128(h),
+        name: product.to_string(),
+        operation: feature_engine::types::Operation::ImportedBody {
+            params: feature_engine::types::ImportedBodyParams::product_of_source(
+                product, source_id, product,
+            ),
+        },
+        suppressed: false,
+        references: Vec::new(),
+    });
+    tree
+}
+
+/// The tabs of a linked `.waffle` source — or the products of a linked STEP,
+/// each a Part — for the "add instance" chooser.
 pub fn source_tabs(
     source_id: Uuid,
     sources: &feature_engine::sources::SourceStore,
@@ -530,6 +562,16 @@ pub fn source_tabs(
     let text = sources
         .text(source_id)
         .ok_or_else(|| format!("linked source {source_id} is unavailable (fetch it first)"))?;
+    if step_import::looks_like_step(&text) {
+        let products = step_import::parse_step_products_cached(&text, "step")
+            .map_err(|e| format!("linked source {source_id}: {e}"))?;
+        return Ok(products
+            .products
+            .iter()
+            .filter(|p| !p.body.is_empty())
+            .map(|p| (p.name.clone(), p.name.clone(), "Part".to_string()))
+            .collect());
+    }
     let loaded =
         file_format::load_document(&text).map_err(|e| format!("linked source {source_id}: {e}"))?;
     Ok(loaded

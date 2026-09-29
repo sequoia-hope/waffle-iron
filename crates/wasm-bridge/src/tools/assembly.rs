@@ -104,7 +104,7 @@ type SourceTabList = Vec<(String, String, String)>;
 fn source_tabs(state: &EngineState) -> Vec<(Uuid, String, SourceTabList)> {
     crate::dispatch::source_statuses(state)
         .into_iter()
-        .filter(|s| s.kind == "Waffle" && s.available)
+        .filter(|s| (s.kind == "Waffle" || s.kind == "Step") && s.available)
         .filter_map(|s| {
             crate::assembly_view::source_tabs(s.id, &state.engine.sources)
                 .ok()

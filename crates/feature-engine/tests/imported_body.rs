@@ -85,6 +85,7 @@ fn imported_body_bad_blob_is_a_loud_feature_error() {
                 translation_m: [0.0; 3],
                 rotation_deg: [0.0; 3],
                 scale: 1.0,
+                product: None,
             },
         },
         &mut kernel,

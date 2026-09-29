@@ -54,6 +54,20 @@ fn default_normal() -> [f64; 3] {
 // the payload itself — boxing them would buy nothing (same call as
 // `Operation` / `TabKind`).
 #[allow(clippy::large_enum_variant)]
+/// A board STEP that accompanies a `.kicad_pcb` (`specs/kicad_board_link.md`
+/// §2.1 `board_step`): with a locator it becomes a LINKED `Step` source,
+/// without one an embedded copy. Its first-level products are the
+/// component models (C3).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct BoardStepData {
+    pub file_name: String,
+    pub data: String,
+    #[serde(default)]
+    pub locator: Option<file_format::Locator>,
+    #[serde(default)]
+    pub resolved_commit: Option<String>,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "type")]
 pub enum UiToEngine {
@@ -296,6 +310,10 @@ pub enum UiToEngine {
     ImportKicad {
         file_name: String,
         data: String,
+        /// The board's STEP export beside it (C3): its products become the
+        /// component models, matched per footprint by reference designator.
+        #[serde(default)]
+        board_step: Option<BoardStepData>,
     },
     /// The same for a board the host fetched through a locator: a LINKED
     /// `KicadPcb` source (hashed, resolved commit recorded, not packed).
@@ -305,6 +323,8 @@ pub enum UiToEngine {
         data: String,
         #[serde(default)]
         resolved_commit: Option<String>,
+        #[serde(default)]
+        board_step: Option<BoardStepData>,
     },
     /// What a linked KiCad board knows about a body or an assembly instance
     /// (`specs/kicad_board_link.md` §2.4, C4) — the hover card's question.
