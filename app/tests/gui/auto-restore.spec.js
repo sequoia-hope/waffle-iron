@@ -84,10 +84,23 @@ test.describe('Reload restore', () => {
 		const crashes = collectCrashErrors(page);
 		const seeded = await seedTwoTabDocument(page);
 
+		// The dialog must not appear at any point of the automatic reopen —
+		// not only once it is done. It used to render for the whole reopen (a
+		// document that rebuilds for minutes showed "Reopen Your Last Work?"
+		// over its own reopen, with a Discard that could not stop it).
+		await page.addInitScript(() => {
+			// (Init scripts also run in the engine worker, which has no document.)
+			if (typeof document === 'undefined') return;
+			window.__restoreDialogSeen = false;
+			new MutationObserver(() => {
+				if (document.querySelector('[data-testid="auto-restore-dialog"]')) window.__restoreDialogSeen = true;
+			}).observe(document, { childList: true, subtree: true });
+		});
 		await page.reload();
 		await waitEngine(page);
 		await page.waitForFunction(() => window.__waffle.getMeshes().length >= 1, null, { timeout: 30000 });
 		await expect(page.getByTestId('auto-restore-dialog')).toHaveCount(0);
+		expect(await page.evaluate(() => window.__restoreDialogSeen)).toBe(false);
 
 		const info = await page.evaluate(() => window.__waffle.getDocumentInfo());
 		expect(info.storageId).toBe(seeded.docId);

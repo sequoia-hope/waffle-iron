@@ -574,7 +574,9 @@ let autoSaveTimer = null;
 /**
  * What a reload can bring back (`findStartupRestore`), while it is offered or
  * being reopened.
- * @type {{ available: boolean, timestamp: number, source: 'legacy' | 'draft' | 'indexeddb', docId?: string, draftKey?: string, name?: string } | null}
+ * `offered` is true only under the `ask` policy: the dialog renders on it, so
+ * an automatic reopen (`auto`) never shows a question it is not asking.
+ * @type {{ available: boolean, offered?: boolean, timestamp: number, source: 'legacy' | 'draft' | 'indexeddb', docId?: string, draftKey?: string, name?: string } | null}
  */
 let autoRestoreState = $state(null);
 
@@ -1112,7 +1114,13 @@ export async function initEngine() {
 		// at the end of startup (`auto`) or offered in AutoRestoreDialog (`ask`).
 		const restorePolicy = getSetting('restoreOnReload');
 		if (!handoffPending && restorePolicy !== 'never') {
-			autoRestoreState = await findStartupRestore();
+			const found = await findStartupRestore();
+			// `offered` is what AutoRestoreDialog renders on. Under `auto` the
+			// offer is only the reopen's input: showing the dialog then put
+			// "Reopen Your Last Work?" over a reopen already in progress — for a
+			// document that rebuilds for minutes, over an empty viewport with the
+			// old tabs already in the bar — and its Discard could not stop it.
+			autoRestoreState = found ? { ...found, offered: restorePolicy === 'ask' } : null;
 		}
 		pruneDrafts().catch(() => {});
 		installAutosaveLifecycle();

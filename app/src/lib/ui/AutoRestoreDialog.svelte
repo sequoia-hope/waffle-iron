@@ -27,7 +27,7 @@
 	}
 </script>
 
-{#if state?.available}
+{#if state?.available && state.offered}
 	<!-- svelte-ignore a11y_no_static_element_interactions -->
 	<div class="overlay" data-testid="auto-restore-dialog">
 		<div class="dialog">
