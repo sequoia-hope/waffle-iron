@@ -126,8 +126,19 @@ jobs:
       - name: .waffle JSON Schema golden
         run: cargo test -p file-format --features json-schema --test schema_golden
 
-      - name: Categorized-assay smoke gate
-        run: cargo test -p test-harness --test assay_kv2
+      # RELEASE, matching `scripts/test.sh` (corpus replay is release-only
+      # policy, docs/TESTING.md): the gate replays 100 pinned corpus cases
+      # sequentially, and unoptimized they burn ~4.5× the CPU. In debug the
+      # step took 36 min on a quiet runner (run 36550869201) and on a loaded
+      # one ran past the job's 120-minute bound five pushes out of six on
+      # 2026-09-29 (runs 36506402663 … 36618859145 — every one cancelled
+      # mid-gate with every earlier step green). Release the kernel stack is
+      # already compiled by the render-view step above, so the extra build is
+      # the test-harness binary alone. Measured 2026-09-29: the 100-case gate
+      # passes in 238 s release on the dev box (load ≈ 1), 270 s including
+      # the test-harness compile on top of a warm release graph.
+      - name: Categorized-assay smoke gate (release)
+        run: cargo test --release -p test-harness --test assay_kv2
 
       - name: wasm32 check (M7 standing invariant)
         run: |
