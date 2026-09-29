@@ -1,6 +1,6 @@
 {
   "id": "P0007",
-  "description": "4 ops, extrude(circle,boss)×2+extrude(polygon,boss)+boolean-union(polygon) — prospector seed 1 index 16 (already minimal, step 1 rounded): two circle bosses, a non-convex hexagon boss on an oblique plane, a square extrude-union ⇒ boolean_union SelfIntersectingBooleanOutput { face_a: FaceId(47), face_b: FaceId(69), penetrations: 4 } (the kernel-v2 output self-intersection gate). ×1e3 identical; ×1e-3 hits the input feature-floor wall. (2026-09-28; ERROR-class pin, derived_meta: expectations unadjudicated until conversion)",
+  "description": "4 ops, extrude(circle,boss)\u00d72+extrude(polygon,boss)+boolean-union(polygon) \u2014 prospector seed 1 index 16 (already minimal, step 1 rounded): two circle bosses, a non-convex hexagon boss on an oblique plane, a square extrude-union \u21d2 boolean_union SelfIntersectingBooleanOutput { face_a: FaceId(47), face_b: FaceId(69), penetrations: 4 } (the kernel-v2 output self-intersection gate). \u00d71e3 identical; \u00d71e-3 hits the input feature-floor wall. CONVERTED 2026-09-29: the hexagon union's output carried its flank \u00d7 cylinder boundaries as EllipseArc edges; the square union re-entered them (KV14 ellipse re-entry samples them at Stage 1) but the \u00a74.4.2 carried-edge restoration read INPUT circles only, so every re-entered ellipse boundary left as mesh-density LineSegment chords and the render sampler drew the flank along the 3D chord while the cylinder followed its chart (a 1.8e-6 crossing against the 2.7e-7 band). The restoration now admits Ellipse candidates with the same certification in the ellipse's own parameter (spec yang_434_output_chord_refinement.md 'The ellipse arm'). Adjudicated by the exact-membership ladder (STABLE: one component, \u03c7_solid 1 at 256/512/1024 cells; volume 6.4349/6.4465/6.4448e-9) against the kernel (one body, \u03c7 2, 6.4452e-9); the Cherchi sidecar certifies the chain through the hexagon union (one shell, genus 0) and declines the box union by its own rational-evaluation limit. expected_volume = the 1024-cell readout, tol covers the ladder spread.",
   "master_seed": 0,
   "test_seed": 0,
   "scale": 0.0025648154835565705,
@@ -59,7 +59,11 @@
     "expect_positive_volume": true,
     "volume_monotonicity": [],
     "expect_rebuild_error": false,
-    "derived_meta": true
+    "derived_meta": false,
+    "expected_shell_count": 1,
+    "expected_solid_count": 1,
+    "expected_volume": 6.4448e-09,
+    "expected_volume_tol_rel": 0.003
   },
   "generator_version": 100,
   "featured": true

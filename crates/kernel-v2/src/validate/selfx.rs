@@ -74,6 +74,38 @@ pub fn validate_boolean_output_self_intersection(
         );
     }
     if let Some(v) = hit {
+        // Site probe (read-only, env-gated): the two faces' surfaces and
+        // every loop edge's curve + endpoints, so a penetration can be
+        // traced to the B-Rep edge whose curve the render sampler drew
+        // (P0007, 2026-09-29: a plane × cylinder boundary rendered as a
+        // straight chord).
+        if std::env::var_os("KV2_SELFX_SITE_PROBE").is_some() {
+            for face in [v.face_a, v.face_b] {
+                if let Ok(f) = arena.face(face) {
+                    eprintln!("[selfx-face] {face:?} surface {:?}", f.surface);
+                    for (k, lp) in std::iter::once(f.outer_loop)
+                        .chain(f.inner_loops.iter().copied())
+                        .enumerate()
+                    {
+                        let hes = arena.loop_half_edges(lp).unwrap_or_default();
+                        for h in hes {
+                            let Ok(he) = arena.half_edge(h) else { continue };
+                            let o = arena.vertex(he.origin).map(|vv| vv.point);
+                            let d = arena
+                                .half_edge(he.next)
+                                .and_then(|n| arena.vertex(n.origin))
+                                .map(|vv| vv.point);
+                            eprintln!(
+                                "[selfx-face]   loop{k} {h:?} {:?} -> {:?} curve {:?}",
+                                o.ok(),
+                                d.ok(),
+                                he.curve
+                            );
+                        }
+                    }
+                }
+            }
+        }
         return Err(KernelV2Error::SelfIntersectingBooleanOutput {
             face_a: v.face_a,
             face_b: v.face_b,

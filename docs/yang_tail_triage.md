@@ -43,6 +43,38 @@ after the reconciliation run (release, 8 jobs, 360 s; wall 577 s, F0085
 regression since 2026-08-01 is outstanding (checked over every commit of
 `results.json`).
 
+## 2026-09-29 (later) — P0007 CONVERTS: the §4.4.2 carried-edge restoration admits `Ellipse` input edges, so a re-entered oblique plane × cylinder boundary leaves as an ellipse arc instead of mesh-density chords; canonical **308C / 0W / 7E / 4EE / 0T + 0 UNSUPPORTED** (release, 8 jobs, 900 s; wall 1206.8 s; R0085 729.4 s, F0072 713.0 s, F0085 466.7 s; exactly one category move — P0007 — and zero detail moves)
+
+**Anchored** (`KV2_SELFX_SITE_PROBE` extended to print both faces' loop
+curves; new `KV2_OUT_CURVE_CENSUS` per-op output curve census;
+`YANG_STAGE0_DUMP_DIR`; `YANG_434_OUT=census`): the penetrated face 69 is
+the hexagon boss's flank plane, whose boundary on cylinder 1 (face 47) is
+a 4-chord `LineSegment` polyline where a plane × cylinder ellipse arc
+belongs; the hexagon union's own output carried those boundaries as 22
+`EllipseArc` half-edges, and the square union re-entered them (KV14
+ellipse re-entry sampled them fine) but emitted them as 200 `Line`
+half-edges — the `YANG_434_OUT=census` rows read `carried=none` for all
+114 deep same-input Plane×Cylinder chords because the restoration's
+candidate set was `Circle` only (the spec's own "the census names any
+further kinds if they appear"). The render sampler drew the flank along
+the 3D chord and the cylinder along its chart; they cross by ≈ 1.8e-6
+against the 2.7e-7 band. **Fix** (spec `yang_434_output_chord_refinement.md`
+"The ellipse arm"): `Ellipse` candidates with the circle branch's
+certification in the ellipse's own parameter; circle branch byte-identical.
+**Pins:** `tests_unit/s434_output_restore.rs` (ellipse typed / off-curve /
+wide sweep), kernel-v2 `boolean_chains::ellipse_bounded_tunnel_reentry`
+now asserts ellipse SURVIVAL (RED before: 0 of 16), smoke pin `P0007 →
+SupportedCorrect`. **Harness:** the explicit Union `BooleanCombine` is a
+`BodyMerge` in the exact-membership reader and a skipped operand in the
+topology instrument (both were NotCovered); `truncate_ops` keys sketches
+by the Sketch FEATURE id too. **Adjudicated:** exact-membership ladder
+STABLE (one component, χ_solid 1; 6.4349/6.4465/6.4448e-9 at
+256/512/1024) vs the kernel's one body, χ 2, 6.4452e-9; the Cherchi
+sidecar certifies through the hexagon union (genus 0) and declines the box
+union by its rational-evaluation limit. The un-minimized index-16 lineage
+converts too. **The P-series ERROR tail is EMPTY**; next: new
+`prospect_run` seeds, and re-minimize the index-19 / index-30 lineages.
+
 ## 2026-09-29 — P0006 CONVERTS: the periodic strip's seam meridian is now one the ribbon can OPEN at (one crossing per encircling loop, no window straddle, a simple ribbon), rescued widest-first when the window-gap scan's choice is not; canonical **307C / 0W / 8E / 4EE / 0T + 0 UNSUPPORTED** (release, 8 jobs, 900 s; wall 1143.4 s; R0085 694.8 s, F0072 659.3 s, F0085 435.1 s; exactly one category move — P0006 — and zero detail moves)
 
 **Anchored** (`YANG_SPLIT_PROBE`, `YANG_T133_PROBE`, `YANG_T145_PROBE`, an

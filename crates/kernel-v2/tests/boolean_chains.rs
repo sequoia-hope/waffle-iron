@@ -396,6 +396,38 @@ fn ellipse_bounded_tunnel_reentry() {
     let out = boolean_op(&mut a, tunneled, notch, BoolOp::Subtract)
         .unwrap_or_else(|e| panic!("re-enter ellipse-bounded tunnel: {e:?}"));
     validate_solid(&a, out).expect("re-entered result validates");
+    // P0007 (2026-09-29): the re-entered ellipse boundary must LEAVE as an
+    // ellipse. The notch is far from the tunnel, so every tunnel ellipse
+    // edge is carried through unchanged; before the §4.4.2 restoration's
+    // ellipse arm the output carried them as mesh-density LineSegment
+    // chords (the render sampler then drew the cap side along the 3D chord
+    // and the tunnel wall along its chart — kernel-v2's
+    // `SelfIntersectingBooleanOutput` on P0007).
+    let mut ellipse_half_edges_out = 0usize;
+    for &sh in &a.solids[out.0 as usize]
+        .as_ref()
+        .expect("output solid alive")
+        .shells
+    {
+        for &f in &a.shells[sh.0 as usize].as_ref().expect("shell alive").faces {
+            let face = a.face(f).expect("face alive");
+            for lp in std::iter::once(face.outer_loop).chain(face.inner_loops.iter().copied()) {
+                for h in a.loop_half_edges(lp).expect("loop walks") {
+                    if matches!(
+                        a.half_edge(h).map(|he| he.curve),
+                        Ok(kernel_v2::Curve::EllipseArc { .. })
+                    ) {
+                        ellipse_half_edges_out += 1;
+                    }
+                }
+            }
+        }
+    }
+    assert!(
+        ellipse_half_edges_out >= ellipse_half_edges,
+        "the tunnel's ellipse edges must survive re-entry as EllipseArc: \
+         {ellipse_half_edges_out} half-edges after vs {ellipse_half_edges} before"
+    );
     let v2 = volume_of(&a, out);
     // The notch decrement is planar-exact up to the tunnel wall's re-facet
     // drift (the Slice D precedent bound).

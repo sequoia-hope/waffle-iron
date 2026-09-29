@@ -114,3 +114,19 @@ arc, start==end = full rim). yang already evaluates `Curve::Ellipse` in
 - Near-half arc (sweep ≈ π): kernel-v2 already rejects as ambiguous upstream —
   yang never receives it. yang still uses `rem_euclid` (CCW), correct for < π.
 - Ellipse endpoint not on the ellipse (bad input): loud `MalformedTopology`.
+
+## Re-entered ellipses must LEAVE as ellipses — P0007 (2026-09-29)
+
+Stage 1 sampled a re-entered `Curve::Ellipse` edge correctly, but the
+OUTPUT side had no ellipse vocabulary: the §4.4.2 carried-edge restoration
+(`stage5_output_refine::restore_carried_edge_curves`) matched same-input
+boundary chords against INPUT `Circle` edges only, so every re-entered
+ellipse boundary left the second boolean as mesh-density `LineSegment`
+chords. kernel-v2's render sampler then drew the planar owner along the 3D
+chord and the cylinder owner along its chart, and the two meshes crossed by
+the chord's sagitta (P0007: 1.8e-6 against the 2.7e-7 grazing band —
+`SelfIntersectingBooleanOutput`). The restoration now admits `Ellipse`
+candidates (spec `yang_434_output_chord_refinement.md`, "The ellipse arm").
+The kernel-v2 pin `boolean_chains::ellipse_bounded_tunnel_reentry` now
+asserts the tunnel's ellipse edges SURVIVE re-entry as `EllipseArc` (RED
+before: 0 of 16 half-edges).

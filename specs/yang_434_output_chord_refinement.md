@@ -473,3 +473,61 @@ coarse runs (byte-identical), the 3-edge loop floor.
   unchanged. The restoration is certification-driven and self-declining;
   every decline keeps the per-segment status quo loudly countable
   (`[s434-restore]` stats line under `YANG_441_VERBOSE`).
+
+## The ellipse arm — P0007 (2026-09-29): carried `Ellipse` input edges restore too
+
+**Measured.** P0007 (`circle:boss circle:boss nonconvex6:boss(oblique)
+convex4:∪`): the hexagon union's output carries its flank × cylinder
+boundaries as `EllipseArc` edges (22 half-edges). The square union
+RE-ENTERS that body: KV14's ellipse re-entry samples the edges as Stage-1
+ellipse chains, but on the way OUT the restoration's candidate set was
+`Circle` only ("Circle today; the census names any further kinds if they
+appear" — §2) and the `YANG_434_OUT=census` row read `carried=none` for
+every one of the 114 deep same-input Plane×Cylinder chords. The output
+carried them as mesh-density `LineSegment` chords (12.5° each, sagitta
+2.7e-6); kernel-v2's render sampler drew the flank side along the 3D chord
+and the cylinder side along its chart-straight boundary, and the two
+meshes crossed by ≈ 1.8e-6 against the 2.7e-7 grazing band — the
+`SelfIntersectingBooleanOutput` STOP (faces 47 × 69, 4 penetrations).
+Probes: `KV2_SELFX_SITE_PROBE` now also prints both faces' surfaces and
+loop-edge curves; `KV2_OUT_CURVE_CENSUS` (kernel-v2 `boolean::boolean_op`)
+names every straight edge shared between a planar and a curved output face
+and censuses the output's curve kinds per op (P0007: 2 → 2 → 32 chords;
+`EllipseArc` 0 → 22 → 4 before the fix, 20 after).
+
+**Rule now** (`restore_carried_edge_curves`, `carried_curve_match`):
+candidates are the `Circle` AND `Ellipse` edges on the two input faces'
+loops. The ellipse residual is the distance to the foot the ellipse's own
+angular parameter names (`ellipse_param` → `conic_eval`: exact zero on
+the curve, an upper bound otherwise — sound for a test that only ever
+ACCEPTS within the band). Certification is the circle branch's, in the
+ellipse's parameter: both endpoints within `TAU_EVAL·(1 + max(a, coord))`,
+exactly ONE distinct in-band conic (key: kind + center + sign-canonical
+normal + major axis + radii), sweep `|Δt| ≤ π/2`, and the minor-arc
+midpoint (`conic_eval(t0 + Δt/2)`) on BOTH owner surfaces. Re-typing goes
+through `orient_directed_curve` (its ellipse arm already existed). The
+circle branch is unchanged bit-for-bit (`RestoreStats.typed_ellipses`
+counts the new arm; the `[s434-restore]` log shows it). Downstream the
+I5-1b seam merge already coalesces ellipse runs, `from_yang` imports
+`Ellipse` → `EllipseArc`, and kernel-v2 samples them at render density.
+
+**Pins.** `tests_unit/s434_output_restore.rs`: an oblique plane × cylinder
+section ellipse (φ = 0.5, r = 10) — chord typed on both copies with
+twin-opposed normals (RED before: `no_candidate`), off-ellipse decline is
+the identity, wide sweep declines. kernel-v2
+`boolean_chains::ellipse_bounded_tunnel_reentry` now asserts the tunnel's
+ellipse edges SURVIVE the second boolean as `EllipseArc` (stash-certified
+RED: 0 of 16 half-edges). Corpus: P0007 → SUPPORTED_CORRECT; its
+un-minimized seed-1 index-16 lineage → SUPPORTED_CORRECT.
+
+**Harness.** P0007 ends in an explicit `BooleanCombine` Union of a NewBody
+boss into the main body, which neither adjudication instrument covered:
+the exact-membership reader now records it as a `BodyMerge` (folds the two
+anchored bodies into one set-union body; no new operand — the per-body
+readout stops counting the overlap twice; Subtract/Intersect combines stay
+typed out) and the topology instrument skips it as an operand. The
+Cherchi sidecar certifies P0007's chain through the hexagon union (one
+shell, genus 0) and declines the box union by its own limit ("a fully
+implicit patch that requires exact rationals"); the exact-membership
+ladder is STABLE (one component, χ_solid 1 at 256/512/1024; 6.4349 /
+6.4465 / 6.4448e-9) and the kernel agrees (one body, χ 2, 6.4452e-9).

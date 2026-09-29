@@ -159,6 +159,30 @@ fn isolate_operation_inner(
     serde_json::to_string(&doc).ok()
 }
 
+/// Is solid-bearing op `k` an explicit UNION combine of existing bodies?
+/// It contributes no operand of its own to the set union of the live
+/// bodies — both of its inputs are already operands — so the topology
+/// instrument skips it rather than trying to build it standalone (P0007,
+/// 2026-09-29: "operand 4 failed to build").
+pub fn op_is_union_combine(waffle: &serde_json::Value, k: usize) -> bool {
+    let Some(feats) = features(waffle) else {
+        return false;
+    };
+    let mut ops = feats
+        .iter()
+        .filter(|f| f.get("operation").and_then(|o| o.get("type")) != Some(&"Sketch".into()));
+    let Some(op) = ops.nth(k) else {
+        return false;
+    };
+    op.pointer("/operation/type")
+        .and_then(serde_json::Value::as_str)
+        == Some("BooleanCombine")
+        && op
+            .pointer("/operation/params/operation/type")
+            .and_then(serde_json::Value::as_str)
+            == Some("Union")
+}
+
 /// Does this sketch's plane resolve against a DATUM (context-free, so the
 /// sketch can be isolated) rather than a previous feature's face?
 pub fn sketch_is_datum_anchored(feats: &[serde_json::Value], sketch_id: &str) -> bool {
@@ -328,11 +352,17 @@ pub fn truncate_ops(waffle: &serde_json::Value, keep_ops: usize) -> Option<serde
                 .map(str::to_string)
         })
         .collect();
+    // An op's `sketch_id` names the Sketch FEATURE (the way `rebuild.rs`
+    // resolves it); prospector documents carry a different inner
+    // `sketch.id`, so both are honoured (2026-09-29: P0007's truncation
+    // dropped every sketch and the tool built "no active features").
     kept.retain(|f| {
         !is_sketch(f)
-            || f.pointer("/operation/sketch/id")
-                .and_then(serde_json::Value::as_str)
-                .is_some_and(|id| referenced.iter().any(|r| r == id))
+            || [f.pointer("/id"), f.pointer("/operation/sketch/id")]
+                .into_iter()
+                .flatten()
+                .filter_map(serde_json::Value::as_str)
+                .any(|id| referenced.iter().any(|r| r == id))
     });
     *list = kept;
     if let Some(ai) = doc.pointer_mut("/tabs/0/kind/features/active_index") {

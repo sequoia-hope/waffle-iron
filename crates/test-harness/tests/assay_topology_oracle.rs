@@ -120,6 +120,12 @@ fn adjudicate_case() {
     let tol = oracle_tol(scale);
     let mut scans = Vec::new();
     for k in 0..cuts.len() {
+        // An explicit Union combine of two live bodies contributes no operand
+        // of its own (P0007): both inputs are already in the set union.
+        if test_harness::assay::volume_oracle_doc::op_is_union_combine(&waffle, k) {
+            eprintln!("[topo] {id} operand {k}: Union combine — no operand of its own, skipped");
+            continue;
+        }
         // Any-body: a NewBody op is still an operand of the live set union
         // (P0005's revolve is `merge: false`, then unioned by the gear).
         let s = operand_scan_any_body(&waffle, k, tol)
@@ -162,6 +168,11 @@ fn reference_topology(id: &str, waffle: &serde_json::Value, ops: usize, tol: f64
     fs::create_dir_all(&dir).expect("scratch dir");
     let mut inputs = Vec::new();
     for k in 0..ops {
+        // A Union combine of two live bodies has no operand of its own
+        // (P0007): both inputs are already chained below.
+        if test_harness::assay::volume_oracle_doc::op_is_union_combine(waffle, k) {
+            continue;
+        }
         let json = isolate_operation_any_body(waffle, k).expect("isolated operand document");
         let mut b = ModelBuilder::kernel_v2();
         b.load(&json).expect("operand loads");

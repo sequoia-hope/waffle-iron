@@ -51,6 +51,46 @@ fn dist_to_circle(p: Point3, center: Point3, normal: [f64; 3], radius: f64) -> f
     ((rl - radius).powi(2) + h * h).sqrt()
 }
 
+/// 3D distance from `p` to the ellipse, measured at the foot the ellipse's
+/// own angular parameter names (`ellipse_param` → `conic_eval`): exact
+/// zero for an on-curve point and an upper bound on the true distance
+/// otherwise — sufficient for a certification that only ever ACCEPTS
+/// within the classify band (P0007, 2026-09-29: the re-entered oblique
+/// plane × cylinder boundaries are `Curve::Ellipse` input edges).
+fn dist_to_ellipse(p: Point3, curve: &Curve) -> Option<f64> {
+    let Curve::Ellipse {
+        center,
+        normal,
+        major_axis,
+        major_radius,
+        minor_radius,
+    } = *curve
+    else {
+        return None;
+    };
+    let t = crate::geom::ellipse_param(p, center, normal, major_axis, major_radius, minor_radius);
+    let q = crate::geom::conic_eval(curve, t)?;
+    let (pa, qa) = (p.as_array(), q.as_array());
+    Some(((pa[0] - qa[0]).powi(2) + (pa[1] - qa[1]).powi(2) + (pa[2] - qa[2]).powi(2)).sqrt())
+}
+
+/// The max endpoint residual of a chord `(p, q)` against a carried conic
+/// candidate — `Circle` and `Ellipse`; `None` for every other curve kind.
+fn carried_residual(curve: &Curve, p: Point3, q: Point3) -> Option<f64> {
+    match *curve {
+        Curve::Circle {
+            center,
+            normal,
+            radius,
+        } => {
+            let n = crate::normalize3(normal.as_array());
+            Some(dist_to_circle(p, center, n, radius).max(dist_to_circle(q, center, n, radius)))
+        }
+        Curve::Ellipse { .. } => Some(dist_to_ellipse(p, curve)?.max(dist_to_ellipse(q, curve)?)),
+        _ => None,
+    }
+}
+
 /// The candidate carried-curve match for a same-input seam chord: the
 /// non-`LineSegment` curves on the loops of the two INPUT faces the chord's
 /// owners descend from, tested by both chord endpoints' distance to the
@@ -72,20 +112,13 @@ fn carried_curve_match(
                 let Some(e) = input.1.get(ei as usize) else {
                     continue;
                 };
-                let d = match e.curve {
-                    Curve::Circle {
-                        center,
-                        normal,
-                        radius,
-                    } => {
-                        let n = crate::normalize3(normal.as_array());
-                        dist_to_circle(p, center, n, radius)
-                            .max(dist_to_circle(q, center, n, radius))
-                    }
-                    // Non-circle conics: not yet measured for this family
-                    // (rims of revolves/extrudes are circles). Left to the
-                    // census's unmatched count.
-                    _ => continue,
+                // Circle (revolve/extrude rims) and Ellipse (a re-entered
+                // oblique plane × cylinder boundary, KV14 ellipse re-entry —
+                // P0007 named it through this census on 2026-09-29).
+                // Parabola / hyperbola / surface-pair inputs are left to the
+                // census's unmatched count until a case names them.
+                let Some(d) = carried_residual(&e.curve, p, q) else {
+                    continue;
                 };
                 if best.as_ref().is_none_or(|(_, bd)| d < *bd) {
                     best = Some((e.curve, d));
@@ -325,7 +358,7 @@ pub(crate) fn restore_gate_enabled() -> bool {
     }
 }
 
-#[derive(Default)]
+#[derive(Default, Debug)]
 pub(crate) struct RestoreStats {
     pub eligible: usize,
     pub typed_chords: usize,
@@ -334,34 +367,73 @@ pub(crate) struct RestoreStats {
     pub declined_ambiguous: usize,
     pub declined_sweep: usize,
     pub declined_midpoint: usize,
+    /// Of `typed_chords`, those re-typed onto an `Ellipse` (P0007).
+    pub typed_ellipses: usize,
 }
 
-/// Canonical dedup key for a candidate circle (normal sign-canonicalized).
-fn circle_key(center: Point3, normal: [f64; 3], radius: f64) -> [u64; 7] {
-    let mut n = normal;
-    let flip = match n.iter().find(|&&c| c != 0.0) {
-        Some(&c) => c < 0.0,
-        None => false,
+/// Canonical dedup key for a candidate conic (normal sign-canonicalized;
+/// the circle's normal is unit-normalized first, as the residual test
+/// reads it). Two candidates share a key iff they are the same curve up
+/// to the normal's sign.
+fn conic_key(curve: &Curve) -> Vec<u64> {
+    let canon_n = |n: [f64; 3]| -> [f64; 3] {
+        let flip = match n.iter().find(|&&c| c != 0.0) {
+            Some(&c) => c < 0.0,
+            None => false,
+        };
+        if flip {
+            [-n[0], -n[1], -n[2]]
+        } else {
+            n
+        }
     };
-    if flip {
-        n = [-n[0], -n[1], -n[2]];
+    let mut k: Vec<u64> = Vec::with_capacity(13);
+    match *curve {
+        Curve::Circle {
+            center,
+            normal,
+            radius,
+        } => {
+            let n = canon_n(crate::normalize3(normal.as_array()));
+            let c = center.as_array();
+            k.push(1);
+            k.extend(c.iter().map(|x| x.to_bits()));
+            k.extend(n.iter().map(|x| x.to_bits()));
+            k.push(radius.to_bits());
+        }
+        Curve::Ellipse {
+            center,
+            normal,
+            major_axis,
+            major_radius,
+            minor_radius,
+        } => {
+            let n = canon_n(normal.as_array());
+            k.push(2);
+            k.extend(center.as_array().iter().map(|x| x.to_bits()));
+            k.extend(n.iter().map(|x| x.to_bits()));
+            k.extend(major_axis.as_array().iter().map(|x| x.to_bits()));
+            k.push(major_radius.to_bits());
+            k.push(minor_radius.to_bits());
+        }
+        _ => k.push(0),
     }
-    let c = center.as_array();
-    [
-        c[0].to_bits(),
-        c[1].to_bits(),
-        c[2].to_bits(),
-        n[0].to_bits(),
-        n[1].to_bits(),
-        n[2].to_bits(),
-        radius.to_bits(),
-    ]
+    k
 }
 
-/// Re-type carried same-input boundary chords onto their input circles.
-/// Pure in-place curve re-typing: never touches vertices, loop structure, or
-/// edge indices — with the gate off (or nothing eligible) the topology is
-/// byte-identical.
+/// Re-type carried same-input boundary chords onto their input conics —
+/// `Circle` (revolve/extrude rims) and, since 2026-09-29 (P0007), `Ellipse`
+/// (the KV14 re-entered oblique plane × cylinder boundary: Stage 1 sampled
+/// it as an ellipse chain, but the output emitted its chords straight and
+/// the render sampler drew the planar side along the 3D chord while the
+/// cylinder side followed its chart — a self-intersection at the chord's
+/// sagitta, kernel-v2's `SelfIntersectingBooleanOutput`). Pure in-place
+/// curve re-typing: never touches vertices, loop structure, or edge
+/// indices — with the gate off (or nothing eligible) the topology is
+/// byte-identical. The circle branch is unchanged bit-for-bit; the ellipse
+/// branch runs the same certification (both endpoints in band, exactly one
+/// candidate, sweep ≤ π/2, minor-arc midpoint on BOTH owner surfaces) in
+/// the ellipse's own angular parameter.
 pub(crate) fn restore_carried_edge_curves(
     verts: &[Point3],
     edges: &mut [BRepEdge],
@@ -412,9 +484,9 @@ pub(crate) fn restore_carried_edge_curves(
                 .chain(qa.iter())
                 .fold(0.0f64, |m, &c| m.max(c.abs()))
         };
-        // Distinct in-band candidate circles from the two input faces' loops
+        // Distinct in-band candidate conics from the two input faces' loops
         // (the classify band the merge and from_yang import both use).
-        let mut in_band: BTreeMap<[u64; 7], Curve> = BTreeMap::new();
+        let mut in_band: BTreeMap<Vec<u64>, Curve> = BTreeMap::new();
         let mut any_candidate = false;
         for fi in [attr_a.face, attr_b.face] {
             let Some(f) = input.0.get(fi as usize) else {
@@ -425,20 +497,17 @@ pub(crate) fn restore_carried_edge_curves(
                     let Some(e) = input.1.get(ei as usize) else {
                         continue;
                     };
-                    let Curve::Circle {
-                        center,
-                        normal,
-                        radius,
-                    } = e.curve
-                    else {
+                    let Some(d) = carried_residual(&e.curve, p, q) else {
                         continue;
                     };
                     any_candidate = true;
-                    let n = crate::normalize3(normal.as_array());
-                    let d = dist_to_circle(p, center, n, radius)
-                        .max(dist_to_circle(q, center, n, radius));
-                    if d <= cad_primitives::TAU_EVAL * (1.0 + radius.max(coord)) {
-                        in_band.insert(circle_key(center, n, radius), e.curve);
+                    let scale = match e.curve {
+                        Curve::Circle { radius, .. } => radius,
+                        Curve::Ellipse { major_radius, .. } => major_radius,
+                        _ => unreachable!("carried_residual admits conics only"),
+                    };
+                    if d <= cad_primitives::TAU_EVAL * (1.0 + scale.max(coord)) {
+                        in_band.insert(conic_key(&e.curve), e.curve);
                     }
                 }
             }
@@ -455,7 +524,62 @@ pub(crate) fn restore_carried_edge_curves(
             stats.declined_ambiguous += 1;
             continue;
         }
-        let circle = *in_band.values().next().expect("len == 1");
+        let conic = *in_band.values().next().expect("len == 1");
+        // Ellipse arm (P0007): sweep guard and minor-arc midpoint DOMAIN
+        // certification in the ellipse's own angular parameter, the same
+        // two rules the circle branch below applies in its frame.
+        if let Curve::Ellipse {
+            center,
+            normal,
+            major_axis,
+            major_radius,
+            minor_radius,
+        } = conic
+        {
+            let param = |x: Point3| {
+                crate::geom::ellipse_param(
+                    x,
+                    center,
+                    normal,
+                    major_axis,
+                    major_radius,
+                    minor_radius,
+                )
+            };
+            let (t0, t1) = (param(p), param(q));
+            let mut dt = t1 - t0;
+            while dt > std::f64::consts::PI {
+                dt -= 2.0 * std::f64::consts::PI;
+            }
+            while dt <= -std::f64::consts::PI {
+                dt += 2.0 * std::f64::consts::PI;
+            }
+            if dt.abs() > std::f64::consts::FRAC_PI_2 {
+                stats.declined_sweep += 1;
+                continue;
+            }
+            let Some(mid) = crate::geom::conic_eval(&conic, t0 + 0.5 * dt) else {
+                stats.declined_sweep += 1;
+                continue;
+            };
+            let band = cad_primitives::TAU_EVAL * (1.0 + major_radius.max(coord));
+            let on = |surf| {
+                surface_distance_and_normal(surf, mid.as_array())
+                    .is_some_and(|(d, _)| d.abs() <= band)
+            };
+            if !(on(s0) && on(s1)) {
+                stats.declined_midpoint += 1;
+                continue;
+            }
+            for &(_, ei) in uses {
+                let (s, e) = (edges[ei].start, edges[ei].end);
+                edges[ei].curve = crate::stage5_topology::orient_directed_curve(conic, s, e, verts);
+            }
+            stats.typed_chords += 1;
+            stats.typed_ellipses += 1;
+            continue;
+        }
+        let circle = conic;
         // Sweep guard: a mesh chord subtends a small arc; anything past π/2
         // is not this family (and approaches the minor-side ambiguity).
         // Then the DOMAIN certification: the restored arc must lie on BOTH
@@ -468,7 +592,7 @@ pub(crate) fn restore_carried_edge_curves(
         // arc-plane · face-normal ≈ 0.0005 at the anchor).
         {
             let Curve::Circle { center, normal, .. } = circle else {
-                unreachable!("in_band holds circles only");
+                unreachable!("in_band holds circles and ellipses only; ellipses returned above");
             };
             let n = crate::normalize3(normal.as_array());
             let c = center.as_array();
@@ -495,7 +619,7 @@ pub(crate) fn restore_carried_edge_curves(
             // Minor-arc midpoint: bisect the in-plane directions and put the
             // point back on the circle at the stored radius.
             let Curve::Circle { radius, .. } = circle else {
-                unreachable!("in_band holds circles only");
+                unreachable!("the ellipse arm returned above");
             };
             let bis = [
                 u[0] / lu + v[0] / lv,

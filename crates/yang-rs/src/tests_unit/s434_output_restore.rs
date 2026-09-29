@@ -288,3 +288,132 @@ fn chord_of_rim_between_edge_on_planes_declined() {
     assert_eq!(stats.declined_midpoint, 1, "{}", stats.eligible);
     assert_eq!(fx.edges, before, "declined pass must be the identity");
 }
+
+/// P0007 (2026-09-29): a re-entered OBLIQUE plane × cylinder boundary is a
+/// `Curve::Ellipse` input edge. The pass must re-type its chords the way it
+/// re-types circle rims — endpoints in band, one candidate, sweep ≤ π/2,
+/// minor-arc midpoint on both owner surfaces — with twin-opposed normals.
+/// The owner faces are the cylinder (axis z, r = 10) and the plane through
+/// the origin with normal (sin φ, 0, cos φ); the section ellipse has
+/// major axis (cos φ, 0, −sin φ), a = r / cos φ, b = r.
+fn oblique_section() -> (Curve, Surface, Surface) {
+    let r = 10.0;
+    let phi = 0.5f64;
+    let (sp, cp) = (phi.sin(), phi.cos());
+    let ellipse = Curve::Ellipse {
+        center: Point3::new(0.0, 0.0, 0.0),
+        normal: Vector3::new(sp, 0.0, cp),
+        major_axis: Vector3::new(cp, 0.0, -sp),
+        major_radius: r / cp,
+        minor_radius: r,
+    };
+    let cyl = Surface::Cylinder {
+        axis_point: Point3::new(0.0, 0.0, 0.0),
+        axis_dir: Vector3::new(0.0, 0.0, 1.0),
+        radius: r,
+    };
+    let plane = Surface::Plane {
+        normal: Vector3::new(sp, 0.0, cp),
+        d: 0.0,
+    };
+    (ellipse, cyl, plane)
+}
+
+fn ellipse_fixture(t0: f64, t1: f64) -> Fixture {
+    let (ellipse, cyl, plane) = oblique_section();
+    let mut fx = fixture(0.1, [(InputId::A, 0), (InputId::A, 1)]);
+    let at = |t: f64| crate::geom::conic_eval(&ellipse, t).expect("ellipse eval");
+    fx.verts[0] = at(t0);
+    fx.verts[1] = at(t1);
+    fx.faces[0].surface = cyl;
+    fx.faces[1].surface = plane;
+    fx
+}
+
+#[test]
+fn carried_ellipse_chord_typed_on_both_copies() {
+    let (ellipse, _, _) = oblique_section();
+    let mut fx = ellipse_fixture(0.3, 0.5);
+    let (in_faces, in_edges) = input_with_curves(&[ellipse, Curve::LineSegment]);
+    // RED before the ellipse arm: `no_candidate` — the pass read circles
+    // only and the chord stayed a LineSegment.
+    let stats = restore_carried_edge_curves(
+        &fx.verts,
+        &mut fx.edges,
+        &fx.faces,
+        &fx.attr,
+        (&in_faces, &in_edges),
+        (&[], &[]),
+    );
+    assert_eq!(stats.typed_chords, 1, "{stats:?}");
+    assert_eq!(stats.typed_ellipses, 1);
+    let n_of = |e: &BRepEdge| match e.curve {
+        Curve::Ellipse { normal, .. } => normal,
+        ref c => panic!("expected ellipse, got {c:?}"),
+    };
+    let (na, nb) = (n_of(&fx.edges[0]), n_of(&fx.edges[2]));
+    assert!(
+        (na.x() + nb.x()).abs() < 1e-12 && (na.z() + nb.z()).abs() < 1e-12,
+        "twin-opposed normals: {na:?} {nb:?}"
+    );
+    assert!(matches!(fx.edges[1].curve, Curve::LineSegment));
+    assert!(matches!(fx.edges[3].curve, Curve::LineSegment));
+    assert_eq!((fx.edges[0].start, fx.edges[0].end), (0, 1));
+    assert_eq!((fx.edges[2].start, fx.edges[2].end), (1, 0));
+}
+
+#[test]
+fn off_ellipse_chord_declined() {
+    // Wrong minor radius: both endpoints sit ~0.5 off the candidate.
+    let mut fx = ellipse_fixture(0.3, 0.5);
+    let (ellipse, _, _) = oblique_section();
+    let Curve::Ellipse {
+        center,
+        normal,
+        major_axis,
+        major_radius,
+        ..
+    } = ellipse
+    else {
+        unreachable!()
+    };
+    let wrong = Curve::Ellipse {
+        center,
+        normal,
+        major_axis,
+        major_radius,
+        minor_radius: 10.5,
+    };
+    let (in_faces, in_edges) = input_with_curves(&[wrong]);
+    let before = fx.edges.clone();
+    let stats = restore_carried_edge_curves(
+        &fx.verts,
+        &mut fx.edges,
+        &fx.faces,
+        &fx.attr,
+        (&in_faces, &in_edges),
+        (&[], &[]),
+    );
+    assert_eq!(stats.typed_chords, 0);
+    assert!(stats.declined_offcurve >= 1, "{stats:?}");
+    assert_eq!(fx.edges, before, "declined pass must be the identity");
+}
+
+#[test]
+fn wide_ellipse_sweep_declined() {
+    let (ellipse, _, _) = oblique_section();
+    let mut fx = ellipse_fixture(0.0, 2.0);
+    let (in_faces, in_edges) = input_with_curves(&[ellipse]);
+    let before = fx.edges.clone();
+    let stats = restore_carried_edge_curves(
+        &fx.verts,
+        &mut fx.edges,
+        &fx.faces,
+        &fx.attr,
+        (&in_faces, &in_edges),
+        (&[], &[]),
+    );
+    assert_eq!(stats.typed_chords, 0);
+    assert_eq!(stats.declined_sweep, 1, "{stats:?}");
+    assert_eq!(fx.edges, before);
+}

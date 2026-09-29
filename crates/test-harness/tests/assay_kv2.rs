@@ -1431,9 +1431,24 @@ fn smoke_corpus_boundary_categories() {
         // genus 0; one body; exact-membership volume pinned.
         ("P0006", Category::SupportedCorrect),
         // P0007: two circle bosses, a non-convex hexagon boss on an oblique
-        // plane, a square extrude-union ⇒ SelfIntersectingBooleanOutput
-        // (4 penetrations) at kernel-v2's output gate.
-        ("P0007", Category::Error),
+        // plane, a square extrude-union. Was SelfIntersectingBooleanOutput
+        // (4 penetrations) at kernel-v2's output gate. CONVERTED 2026-09-29:
+        // the hexagon union's output carried the flank × cylinder
+        // boundaries as EllipseArc edges; the square union RE-ENTERED them
+        // (KV14 ellipse re-entry samples them at Stage 1) but the §4.4.2
+        // carried-edge restoration read INPUT circles only, so every
+        // re-entered ellipse boundary left as mesh-density LineSegment
+        // chords — the render sampler drew the flank along the 3D chord and
+        // the cylinder along its chart, crossing by the chord's sagitta
+        // (1.8e-6 vs the 2.7e-7 band). The restoration now admits Ellipse
+        // candidates with the same certification in the ellipse's own
+        // parameter (spec `yang_434_output_chord_refinement.md` "The
+        // ellipse arm"; pins `tests_unit/s434_output_restore.rs` +
+        // kernel-v2 `boolean_chains::ellipse_bounded_tunnel_reentry`, which
+        // now asserts the ellipse edges SURVIVE re-entry — RED before: 0 of
+        // 16). Adjudicated by the Cherchi sidecar; exact-membership volume
+        // pinned.
+        ("P0007", Category::SupportedCorrect),
     ];
     // Per-case CPU budget, expressed in RELEASE-equivalent seconds and scaled
     // for debug. `scripts/test.sh` runs test-harness WITHOUT `--release`, and

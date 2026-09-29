@@ -549,7 +549,11 @@ ASSAY_CASE=R0053 TOPO_GRIDS=16 TOPO_SIDECAR=1 \
 ```
 
 `TOPO_KEEP_OPS=k` truncates the document to its first `k` ops (a chain
-prefix); gate env vars apply to the kernel side. Needs the sidecar
+prefix); gate env vars apply to the kernel side. An explicit Union
+`BooleanCombine` (the prospector's `convex4:∪`) is skipped as an operand —
+both of its inputs are already in the set union — and the exact-membership
+reader folds it as a body MERGE (`BodyMerge`; Subtract / Intersect combines
+stay NotCovered) — P0007, 2026-09-29. Needs the sidecar
 (`scripts/build_sidecars.sh`). Cut chains are not covered (the tool is not
 re-authored). Measured 2026-09-03: R0044's union reads genus 1 by reference
 = the kernel's; R0053 read "genus 15" by reference vs the kernel's 1 under

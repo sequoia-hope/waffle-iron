@@ -1,8 +1,8 @@
 {
-  "errored": 8,
+  "errored": 7,
   "failed": 0,
   "generated": "kernel-v2 (assay_kv2 categorized run)",
-  "passed": 307,
+  "passed": 308,
   "results": [
     {
       "category": "SUPPORTED_CORRECT",
@@ -1913,10 +1913,10 @@
       "status": "pass"
     },
     {
-      "category": "ERROR",
-      "detail": "1 engine error(s): 9f5e0162-5b7a-40ad-a5ef-f463c568d7ba: operation error: kernel error: boolean operation failed: kernel-v2 boolean_union failed: SelfIntersectingBooleanOutput { face_a: FaceId(47), face_b: FaceId(69), penetrations: 4 }",
+      "category": "SUPPORTED_CORRECT",
+      "detail": "all checks passed",
       "id": "P0007",
-      "status": "error"
+      "status": "pass"
     }
   ],
   "total": 319

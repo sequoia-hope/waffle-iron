@@ -447,6 +447,76 @@ pub fn boolean_op(
     // resolution — the layer where sub-sagitta B-Rep-level penetrations
     // (the C0116 cyl×cyl graze class) become observable. Loud typed
     // reject; never a snap or trim repair (P9). See `validate::selfx`.
+    // Output-curve census (read-only, env-gated; P0007, 2026-09-29): every
+    // straight edge shared between a PLANAR face and a CURVED one is a
+    // plane × quadric boundary the output carries as a chord — the render
+    // sampler then draws the planar side along the 3D chord and the curved
+    // side along its chart, and the two meshes cross by the chord's
+    // sagitta (the selfx gate's finding on P0007). Names each such edge by
+    // its faces and endpoints so the op that minted it can be found.
+    if std::env::var_os("KV2_OUT_CURVE_CENSUS").is_some() {
+        let is_plane = |f: FaceId| {
+            matches!(
+                arena.face(f).ok().and_then(|ff| ff.surface),
+                Some(Surface::Plane(_))
+            )
+        };
+        let mut chords = 0usize;
+        for fid in out_face_ids.iter().flatten() {
+            let Ok(f) = arena.face(*fid) else { continue };
+            if !is_plane(*fid) {
+                continue;
+            }
+            for lp in std::iter::once(f.outer_loop).chain(f.inner_loops.iter().copied()) {
+                for h in arena.loop_half_edges(lp).unwrap_or_default() {
+                    let Ok(he) = arena.half_edge(h) else { continue };
+                    if !matches!(he.curve, Curve::LineSegment) {
+                        continue;
+                    }
+                    let Ok(tw) = arena.half_edge(he.twin) else {
+                        continue;
+                    };
+                    let Ok(tl) = arena.loop_(tw.loop_id) else {
+                        continue;
+                    };
+                    if is_plane(tl.face) {
+                        continue;
+                    }
+                    let o = arena.vertex(he.origin).map(|v| v.point.as_array());
+                    let d = arena
+                        .half_edge(he.next)
+                        .and_then(|n| arena.vertex(n.origin))
+                        .map(|v| v.point.as_array());
+                    chords += 1;
+                    eprintln!(
+                        "[out-curve] {op:?} plane {fid:?} × curved {:?} chord {:?} -> {:?}",
+                        tl.face,
+                        o.ok(),
+                        d.ok()
+                    );
+                }
+            }
+        }
+        let mut kinds: std::collections::BTreeMap<&'static str, usize> = Default::default();
+        for fid in out_face_ids.iter().flatten() {
+            let Ok(f) = arena.face(*fid) else { continue };
+            for lp in std::iter::once(f.outer_loop).chain(f.inner_loops.iter().copied()) {
+                for h in arena.loop_half_edges(lp).unwrap_or_default() {
+                    let Ok(he) = arena.half_edge(h) else { continue };
+                    let k = match he.curve {
+                        Curve::LineSegment => "Line",
+                        Curve::SurfacePair { .. } => "SurfacePair",
+                        Curve::Circle { .. } => "Circle",
+                        Curve::Arc { .. } => "Arc",
+                        Curve::EllipseArc { .. } => "EllipseArc",
+                        Curve::HyperbolaArc { .. } => "HyperbolaArc",
+                    };
+                    *kinds.entry(k).or_insert(0) += 1;
+                }
+            }
+        }
+        eprintln!("[out-curve] {op:?} plane×curved chords: {chords}; half-edge kinds {kinds:?}");
+    }
     crate::validate::validate_boolean_output_self_intersection(arena, out_solid)?;
     // KV13 F2: record the boolean's per-face lineage in the journal.
     record_boolean_evolution(arena, op, &out, &out_face_ids, &a_faces, &b_faces);
