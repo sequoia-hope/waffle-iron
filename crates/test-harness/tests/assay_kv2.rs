@@ -1463,7 +1463,18 @@ fn smoke_corpus_boundary_categories() {
     // `--no-fail-fast` here, so the (unrelated) `assay_complexity_gen` failure
     // aborted every later test-harness binary — assay_kv2 included — from the
     // day #172 added the C0116 expectation until the gate was fixed.
-    const CPU_BUDGET_RELEASE_SECS: u64 = 120;
+    //
+    // 2026-09-29: 120 → 300. The bound is a RUNAWAY guard, not a verdict, and
+    // it is spent on whatever core runs it: C0116 measures 61.7 s release on
+    // the dev box today (up from 49.5 s in July), and the first release run
+    // of this gate on the GitHub runner (run 36635231156, the day the CI step
+    // moved to `--release`) clipped it at exactly `timeout after 120s CPU` —
+    // the runner's cores are > 2× slower on this exact-arithmetic workload.
+    // 300 s is ~5× the dev-box cost of the heaviest pin; the policy that a
+    // pin must be CHEAP (≈ ≤ 60 s release locally — see the R0044 / F0082 /
+    // R0019 notes above) is unchanged, it is just no longer the runaway
+    // bound doing double duty as the admission test.
+    const CPU_BUDGET_RELEASE_SECS: u64 = 300;
     let budget =
         Duration::from_secs(CPU_BUDGET_RELEASE_SECS * if cfg!(debug_assertions) { 6 } else { 1 });
     for (id, expect) in expected {
