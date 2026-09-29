@@ -164,7 +164,16 @@
 			collapseLevel++;
 			flushSync();
 		}
+		relayoutSeq++;
 	}
+
+	/**
+	 * Counts completed ladder walks (`data-relayout-seq`). The walk runs in a
+	 * microtask after a ResizeObserver tick, so a test that resizes the window
+	 * must wait for the count to move before measuring the toolbar — a fixed
+	 * delay lost that race on a starved CI runner (layout-overflow.spec.js).
+	 */
+	let relayoutSeq = $state(0);
 
 	function scheduleRelayout() {
 		if (relayoutQueued) return;
@@ -580,7 +589,7 @@
 	});
 </script>
 
-<div class="toolbar" data-testid="toolbar" data-collapse-level={collapseLevel} bind:this={toolbarEl}>
+<div class="toolbar" data-testid="toolbar" data-collapse-level={collapseLevel} data-relayout-seq={relayoutSeq} bind:this={toolbarEl}>
 	{#if !hideBrand}
 		<div class="toolbar-brand">Waffle Iron</div>
 	{/if}

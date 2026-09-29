@@ -19,17 +19,56 @@ import { expectNothingOffscreen, expectViewportUsable, dragDivider } from './hel
 /** Desktop widths the shell must survive (the mobile projects cover ≤768). */
 const WIDTHS = [1920, 1600, 1366, 1280, 1100, 1024, 900, 800];
 
-async function settle(page) {
-	// A resize re-measures the toolbar in a microtask + ResizeObserver tick.
-	await page.waitForTimeout(150);
+/**
+ * Resize the window and wait for the toolbar's collapse ladder to have walked
+ * for it: a resize re-measures the toolbar in a microtask after a
+ * ResizeObserver tick, and the toolbar counts completed walks in
+ * `data-relayout-seq`. A fixed 150 ms wait lost that race on the loaded
+ * four-core CI runner (four Chromiums rendering through SwiftShader): the
+ * oracle then measured a toolbar one or two rungs short of the new width and
+ * reported its right end outside the window. The wait also requires the
+ * in-flow content to fit, so a ladder that runs out of rungs still fails
+ * here, with a timeout naming the state.
+ */
+async function resizeTo(page, size) {
+	const toolbar = page.getByTestId('toolbar');
+	const before = Number(await toolbar.getAttribute('data-relayout-seq'));
+	const current = page.viewportSize();
+	await page.setViewportSize(size);
+	const widthChanged = !current || current.width !== size.width;
+	await page.waitForFunction(
+		([before, widthChanged]) => {
+			const el = document.querySelector('[data-testid="toolbar"]');
+			if (!el) return false;
+			if (widthChanged && Number(el.dataset.relayoutSeq) <= before) return false;
+			// Same sum as the toolbar's own contentFits(): in-flow children only.
+			const cs = getComputedStyle(el);
+			const avail = el.clientWidth - parseFloat(cs.paddingLeft) - parseFloat(cs.paddingRight);
+			const gap = parseFloat(cs.columnGap) || 0;
+			let needed = 0;
+			let count = 0;
+			for (const child of el.children) {
+				const ccs = getComputedStyle(child);
+				if (ccs.display === 'none' || ccs.position === 'fixed' || ccs.position === 'absolute') continue;
+				count++;
+				if (child.classList.contains('toolbar-spacer')) continue;
+				needed += child.getBoundingClientRect().width + (parseFloat(ccs.marginLeft) || 0) + (parseFloat(ccs.marginRight) || 0);
+			}
+			needed += gap * Math.max(0, count - 1);
+			return needed <= avail + 0.5;
+		},
+		[before, widthChanged],
+		{ timeout: 15000 }
+	);
+	// One frame for the settled level to paint before the oracle measures.
+	await page.waitForTimeout(50);
 }
 
 test.describe('Layout overflow', () => {
 	test('modeling toolbar fits at every desktop width', async ({ waffle }) => {
 		const page = waffle.page;
 		for (const width of WIDTHS) {
-			await page.setViewportSize({ width, height: 720 });
-			await settle(page);
+			await resizeTo(page, { width, height: 720 });
 			await expectNothingOffscreen(page, expect, `modeling @${width}`);
 			await expectViewportUsable(page, expect, `modeling @${width}`);
 			// The settings gear is the LAST in-flow item: it is the one that
@@ -41,12 +80,10 @@ test.describe('Layout overflow', () => {
 	test('toolbar re-expands when the window grows back', async ({ waffle }) => {
 		const page = waffle.page;
 		const toolbar = page.getByTestId('toolbar');
-		await page.setViewportSize({ width: 900, height: 720 });
-		await settle(page);
+		await resizeTo(page, { width: 900, height: 720 });
 		const narrow = Number(await toolbar.getAttribute('data-collapse-level'));
 		expect(narrow).toBeGreaterThan(0);
-		await page.setViewportSize({ width: 2400, height: 720 });
-		await settle(page);
+		await resizeTo(page, { width: 2400, height: 720 });
 		expect(Number(await toolbar.getAttribute('data-collapse-level'))).toBe(0);
 		await expect(page.getByTestId('toolbar-btn-export-step')).toBeVisible();
 	});
@@ -55,8 +92,7 @@ test.describe('Layout overflow', () => {
 		const page = waffle.page;
 		await clickSketch(page);
 		for (const width of WIDTHS) {
-			await page.setViewportSize({ width, height: 720 });
-			await settle(page);
+			await resizeTo(page, { width, height: 720 });
 			await expectNothingOffscreen(page, expect, `sketch @${width}`);
 			await page.getByTestId('toolbar-btn-constraints-dropdown').click();
 			await expect(page.getByTestId('constraints-dropdown')).toBeVisible();
@@ -78,8 +114,7 @@ test.describe('Layout overflow', () => {
 		await waitForFeatureCount(page, 1, 10000);
 		await clickExtrude(page);
 		for (const size of [{ width: 1280, height: 720 }, { width: 1024, height: 500 }, { width: 900, height: 400 }]) {
-			await page.setViewportSize(size);
-			await settle(page);
+			await resizeTo(page, size);
 			await expectNothingOffscreen(page, expect, `extrude dialog @${size.width}x${size.height}`);
 			const dialog = await page.getByTestId('extrude-dialog').boundingBox();
 			expect(dialog.y + dialog.height, `extrude dialog bottom @${size.height}`).toBeLessThanOrEqual(size.height + 1);
@@ -89,8 +124,7 @@ test.describe('Layout overflow', () => {
 	test('overlay browsers leave the view usable', async ({ waffle }) => {
 		const page = waffle.page;
 		for (const width of [1280, 1024, 800]) {
-			await page.setViewportSize({ width, height: 720 });
-			await settle(page);
+			await resizeTo(page, { width, height: 720 });
 			await clickToolbarAction(page, 'examples');
 			await expect(page.getByTestId('examples-browser')).toBeVisible();
 			await expectNothingOffscreen(page, expect, `examples browser @${width}`);
@@ -103,21 +137,18 @@ test.describe('Layout overflow', () => {
 
 	test('side panels cannot squeeze the view out', async ({ waffle }) => {
 		const page = waffle.page;
-		await page.setViewportSize({ width: 1024, height: 640 });
-		await settle(page);
+		await resizeTo(page, { width: 1024, height: 640 });
 		// Drag both dividers far past their limits.
 		await dragDivider(page, 'left', 1000);
 		await dragDivider(page, 'right', 0);
 		await expectNothingOffscreen(page, expect, 'both panels at max @1024');
 		await expectViewportUsable(page, expect, 'both panels at max @1024');
 		// Shrinking the window afterwards re-clamps the panels.
-		await page.setViewportSize({ width: 800, height: 640 });
-		await settle(page);
+		await resizeTo(page, { width: 800, height: 640 });
 		await expectNothingOffscreen(page, expect, 'both panels at max, window shrunk to 800');
 		await expectViewportUsable(page, expect, 'both panels at max, window shrunk to 800');
 		// Growing it back keeps everything in place.
-		await page.setViewportSize({ width: 1600, height: 640 });
-		await settle(page);
+		await resizeTo(page, { width: 1600, height: 640 });
 		await expectNothingOffscreen(page, expect, 'window grown to 1600');
 	});
 });
