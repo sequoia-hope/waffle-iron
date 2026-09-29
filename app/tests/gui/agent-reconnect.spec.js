@@ -112,6 +112,15 @@ test.describe('Agent link reconnect', () => {
 
 	test('a reloaded tab reopens its work, then resumes; the agent is told once', async ({ page, baseURL }) => {
 		const crashes = collectCrashErrors(page);
+		// The tab's own `auto` policy reopens the draft; the default `ask` would
+		// hold the resume until the user answered the restore dialog.
+		await page.addInitScript(() => {
+			try {
+				if (!localStorage.getItem('waffle:settings')) {
+					localStorage.setItem('waffle:settings', JSON.stringify({ restoreOnReload: 'auto', settingsVersion: 1 }));
+				}
+			} catch {}
+		});
 		const r = await startRelay(baseURL);
 		await pairAgent(page, r, CLIENT_NAME);
 		await createExtrudedBox(page);

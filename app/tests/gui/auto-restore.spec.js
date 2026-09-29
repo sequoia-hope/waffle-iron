@@ -1,10 +1,12 @@
 /**
  * Reload restore (`restoreOnReload` setting, `$lib/storage/drafts.js`,
  * `AutoRestoreDialog`):
- * - `auto` (default) reopens this tab's work without asking;
- * - `ask` offers it; Discard drops only this tab's draft, never the stored
- *   document, and Restore reopens the WHOLE document (every tab, its identity)
- *   so the next autosave cannot overwrite it with a one-tab copy;
+ * - `ask` (default since 2026-09-29; a previous document is never reopened
+ *   unless the user says so) offers it; Discard drops only this tab's draft,
+ *   never the stored document, and Restore reopens the WHOLE document (every
+ *   tab, its identity) so the next autosave cannot overwrite it with a
+ *   one-tab copy;
+ * - `auto` reopens this tab's work without asking;
  * - `never` starts empty;
  * - hiding the tab stores a pending edit at once instead of after the delay.
  */
@@ -57,12 +59,16 @@ async function waitEngine(page) {
 	await page.waitForFunction(() => window.__waffle?.getState()?.engineReady === true, null, { timeout: 30000 });
 }
 
-/** Persist the reload policy before the app first loads (kept across reloads). */
+/**
+ * Persist the reload policy before the app first loads (kept across reloads).
+ * Stamped with the current SETTINGS_VERSION: an unstamped 'auto' is the old
+ * default and migrates to 'ask' (see the migration test).
+ */
 async function setPolicy(page, policy) {
 	await page.addInitScript((p) => {
 		try {
 			if (!localStorage.getItem('waffle:settings')) {
-				localStorage.setItem('waffle:settings', JSON.stringify({ restoreOnReload: p }));
+				localStorage.setItem('waffle:settings', JSON.stringify({ restoreOnReload: p, settingsVersion: 1 }));
 			}
 		} catch {}
 	}, policy);
@@ -80,8 +86,50 @@ async function seedTwoTabDocument(page) {
 }
 
 test.describe('Reload restore', () => {
-	test('auto (default): a reload reopens this tab\'s work without asking', async ({ page }) => {
+	test('ask (default): a reload offers this tab\'s work and reopens nothing until answered', async ({ page }) => {
 		const crashes = collectCrashErrors(page);
+		const seeded = await seedTwoTabDocument(page);
+		expect((await page.evaluate(() => window.__waffle.getSettings())).restoreOnReload).toBe('ask');
+
+		await page.reload();
+		await waitEngine(page);
+		await expect(page.getByTestId('auto-restore-dialog')).toBeVisible();
+		await page.waitForTimeout(2000);
+		const info = await page.evaluate(() => window.__waffle.getDocumentInfo());
+		expect(info.storageId).not.toBe(seeded.docId);
+		expect(await page.evaluate(() => window.__waffle.getMeshes().length)).toBe(0);
+		await expect(page.getByTestId('auto-restore-dialog')).toBeVisible();
+		expectNoAnyCrash(crashes);
+	});
+
+	test('a stored "auto" from before the default changed is read as "ask"', async ({ page }) => {
+		// `persist` writes every key, so every install that ever changed a
+		// setting stored `restoreOnReload: 'auto'` — the old default, not a
+		// choice. Settings written before SETTINGS_VERSION 1 migrate; a
+		// version-1 'auto' is a choice and stays.
+		await page.addInitScript(() => {
+			try {
+				if (!localStorage.getItem('waffle:settings')) {
+					localStorage.setItem('waffle:settings', JSON.stringify({ restoreOnReload: 'auto', showRotationCenter: true }));
+				}
+			} catch {}
+		});
+		await page.goto('/');
+		await waitEngine(page);
+		const migrated = await page.evaluate(() => window.__waffle.getSettings());
+		expect(migrated.restoreOnReload).toBe('ask');
+		expect(migrated.showRotationCenter).toBe(true);
+		expect(migrated.settingsVersion).toBe(1);
+
+		await page.evaluate(() => window.__waffle.updateSettings({ restoreOnReload: 'auto' }));
+		await page.reload();
+		await waitEngine(page);
+		expect((await page.evaluate(() => window.__waffle.getSettings())).restoreOnReload).toBe('auto');
+	});
+
+	test('auto: a reload reopens this tab\'s work without asking', async ({ page }) => {
+		const crashes = collectCrashErrors(page);
+		await setPolicy(page, 'auto');
 		const seeded = await seedTwoTabDocument(page);
 
 		// The dialog must not appear at any point of the automatic reopen —
@@ -111,6 +159,7 @@ test.describe('Reload restore', () => {
 
 	test('a reload that lost sessionStorage still reopens this tab\'s work', async ({ page }) => {
 		const crashes = collectCrashErrors(page);
+		await setPolicy(page, 'auto');
 		const seeded = await seedTwoTabDocument(page);
 
 		// An iOS tab discard does not reliably keep sessionStorage, and with it
@@ -148,6 +197,7 @@ test.describe('Reload restore', () => {
 
 	test('an open, unfinished sketch comes back after a reload', async ({ page }) => {
 		const crashes = collectCrashErrors(page);
+		await setPolicy(page, 'auto');
 		await page.goto('/');
 		await waitEngine(page);
 		await page.evaluate(() => window.__waffle.enterSketch([0, 0, 0], [0, 0, 1]));

@@ -24,9 +24,18 @@ export const SETTINGS_DEFAULTS = Object.freeze({
 	sketchScaleOnFirstDimension: true,
 	/**
 	 * What a reload does with this tab's last work: 'auto' reopens it,
-	 * 'ask' offers it, 'never' starts empty (RESTORE_ON_RELOAD).
+	 * 'ask' offers it, 'never' starts empty (RESTORE_ON_RELOAD). Default
+	 * 'ask' since 2026-09-29: a previous document is never reopened unless
+	 * the user says so (it was 'auto'; see SETTINGS_VERSION).
 	 */
-	restoreOnReload: 'auto',
+	restoreOnReload: 'ask',
+	/**
+	 * Schema version of the persisted object (SETTINGS_VERSION). `persist`
+	 * writes every key, so a stored value cannot be told from a stored
+	 * default; the version says which defaults the stored copy was written
+	 * under, and `normalize` migrates a value that was only the old default.
+	 */
+	settingsVersion: 0,
 	/**
 	 * Debug: show the point an orbit turns about — a small translucent green
 	 * sphere at `controls.orbitPivot` — WHILE a rotate is in progress. Off by
@@ -36,6 +45,16 @@ export const SETTINGS_DEFAULTS = Object.freeze({
 	/** Inline CSS-token overrides: { '--accent': '#rrggbb', ... }. */
 	colors: {},
 });
+
+/**
+ * Version stamped into the persisted settings. Bump it when a default changes
+ * and add the migration to `normalize`:
+ * - 1 (2026-09-29): `restoreOnReload` default 'auto' → 'ask'. A stored 'auto'
+ *   written under version 0 was the default of every install (the value is
+ *   persisted whenever ANY setting changes), so it becomes 'ask'; a user who
+ *   wants 'auto' picks it again in Settings, and version 1 keeps it.
+ */
+export const SETTINGS_VERSION = 1;
 
 /** Valid values of each string-enum setting. */
 export const RESTORE_ON_RELOAD = Object.freeze(['auto', 'ask', 'never']);
@@ -126,7 +145,10 @@ function normalize(raw) {
 			s[k] = raw[k];
 		}
 		s.colors = sanitizeColors(raw.colors);
+		// Migrations (SETTINGS_VERSION): a value that was only the old default.
+		if (s.settingsVersion < 1 && s.restoreOnReload === 'auto') s.restoreOnReload = 'ask';
 	}
+	s.settingsVersion = SETTINGS_VERSION;
 	return s;
 }
 

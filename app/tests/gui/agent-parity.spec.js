@@ -165,8 +165,9 @@ test.describe('Agent link O3 parity', () => {
 				const viaAgent = await canonicalDocument(page);
 
 				// The fresh page must start EMPTY: it shares the browser context with
-				// the agent's page, and startup restore (`restoreOnReload: 'auto'`)
-				// reopens the newest draft of ANY tab when a tab has none of its own.
+				// the agent's page, and startup restore (`restoreOnReload`, an 'auto'
+				// reopen or the default 'ask' dialog holding the page) finds the
+				// newest draft of ANY tab when a tab has none of its own.
 				// Once the agent page's 3 s autosave debounce has flushed — always on a
 				// slow CI runner, rarely locally — that draft is the agent's own work,
 				// and replaying on top of it doubled every feature (CI, 2026-09-17).

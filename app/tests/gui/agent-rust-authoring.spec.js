@@ -310,7 +310,7 @@ test.describe('the recorded goldens', () => {
 		test.setTimeout(600000);
 		// Every sequence runs in the SAME browser context here (one test), so
 		// each `goto` would otherwise reopen the previous sequence's work —
-		// `restoreOnReload` defaults to 'auto' — and record its leftover
+		// (`restoreOnReload` 'auto', or the default 'ask' holding the page) — and record its leftover
 		// errors and shifted ids as if they were this sequence's answer. The
 		// comparison runs get a context per test and never see it.
 		await page.goto('/');
