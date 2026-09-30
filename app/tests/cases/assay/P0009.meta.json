@@ -1,0 +1,62 @@
+{
+  "id": "P0009",
+  "description": "4 ops, scale=9.00e2, extrude(polygon,boss)+revolve(polygon,boss)+extrude(gear,symmetric)+extrude(polygon,boss) \u2014 prospector seed 1 index 19 RE-minimized 2026-09-30 (P0008 + a square boss unioned onto the chain; 6\u21924): the loud twin of P0008. Was auto-union boolean_union BooleanFailed \"reassembled output would be non-2-manifold\" \u2014 site i6-edge-overuse fwd=2 rev=1 on INPUT A (16 edges, the chained body's cone face \u00d7 the gear flank planes; identical on the un-minimized lineage): yang Stage 1's boundary-only cone chart CDT emitted the same planar-neighbor ears/chords as kernel-v2's render, and Stage 0's input conformality check caught the doubled triangles one boolean later. CONVERTED 2026-09-30: stage1_tessellate/planar_neighbor_chords.rs applies the same combinatorial rule on the holed-lateral CDT's output (both kinds) \u2014 an interior triangle edge whose ends lie on the same planar neighbor is split at its midpoint lifted onto the surface (radius linear in the axial coordinate). Meta adjudicated from the kernel readout under the in-line exact-membership oracle: two bodies, \u03c7 4, volume 1.97727e9 (tol 2e-3).",
+  "master_seed": 0,
+  "test_seed": 0,
+  "scale": 900.0,
+  "log_scale": 2.9542425094393248,
+  "plane_origin": [
+    0.0,
+    0.0,
+    0.0
+  ],
+  "plane_normal": [
+    1.0,
+    0.0,
+    0.0
+  ],
+  "operations": [
+    {
+      "kind": "extrude",
+      "profile_type": "unknown",
+      "profile_size": 0.0,
+      "depth_or_angle": 80.0,
+      "is_cut": false
+    },
+    {
+      "kind": "revolve",
+      "profile_type": "unknown",
+      "profile_size": 0.0,
+      "depth_or_angle": 300.0,
+      "is_cut": false
+    },
+    {
+      "kind": "extrude",
+      "profile_type": "unknown",
+      "profile_size": 0.0,
+      "depth_or_angle": 360.0,
+      "is_cut": false
+    },
+    {
+      "kind": "extrude",
+      "profile_type": "unknown",
+      "profile_size": 0.0,
+      "depth_or_angle": 900.0,
+      "is_cut": false
+    }
+  ],
+  "oracles": {
+    "euler_target": 2,
+    "expect_watertight": true,
+    "max_bbox_extent": 90000.0,
+    "expect_positive_volume": true,
+    "volume_monotonicity": [],
+    "expect_rebuild_error": false,
+    "expected_volume": 1977269814.05,
+    "expected_volume_tol_rel": 0.002,
+    "expected_solid_count": 2,
+    "expected_shell_count": 1
+  },
+  "generator_version": 100,
+  "featured": true
+}

@@ -1449,6 +1449,32 @@ fn smoke_corpus_boundary_categories() {
         // 16). Adjudicated by the Cherchi sidecar; exact-membership volume
         // pinned.
         ("P0007", Category::SupportedCorrect),
+        // P0008 / P0009 (2026-09-30, prospector seed 1 index 19 RE-minimized
+        // after P0005's conversion): a square boss, a 300° PENTAGON revolve
+        // (slender cone faces, half-angle 0.085) and a 10-tooth gear
+        // symmetric boss on a plane 7.6° off the cone axis — the gear's
+        // flank planes cut the cone in ELLIPSE arcs that are locally convex
+        // in the cone's chart. P0008 (3 steps) was a SILENT WRONG
+        // (`watertight_mesh`: six render edges with FOUR incident
+        // triangles): kernel-v2's boundary-only patch CDT clipped ears over
+        // three consecutive arc samples and used chords between two of
+        // them as interior diagonals — every such triangle/chord spans
+        // points of ONE plane, so it lies inside the gear flank's own sheet
+        // and coincides with the flank's ear. P0009 (P0008 + a square boss)
+        // was the loud twin: yang Stage 1's boundary-only cone CDT does the
+        // same, and the next boolean's Stage-0 input check STOPped
+        // `i6-edge-overuse` (fwd=2 rev=1, cone face × flank planes).
+        // CONVERTED 2026-09-30 by the same combinatorial rule in both
+        // tessellators — an interior chart edge whose two ends lie on the
+        // same PLANAR neighbor is split at its on-surface midpoint
+        // (kernel-v2 `tessellate/developable.rs` P0008 criterion, pin
+        // `tests/p0008_coplanar_neighbor_edge.rs`; yang-rs
+        // `stage1_tessellate/planar_neighbor_chords.rs`, pin
+        // `tests_unit/s1_planar_neighbor_chords.rs`). Metas adjudicated
+        // from the kernel readout under the in-line exact-membership
+        // oracle: two bodies (the first boss never merges), χ 4.
+        ("P0008", Category::SupportedCorrect),
+        ("P0009", Category::SupportedCorrect),
     ];
     // Per-case CPU budget, expressed in RELEASE-equivalent seconds and scaled
     // for debug. `scripts/test.sh` runs test-harness WITHOUT `--release`, and
@@ -1554,8 +1580,8 @@ fn full_corpus_categorized() {
     let cases = discover_cases(&dir);
     assert_eq!(
         cases.len(),
-        319,
-        "expected the 319-case assay corpus (194 legacy + 118 C-series + 7 P-series)"
+        321,
+        "expected the 321-case assay corpus (194 legacy + 118 C-series + 9 P-series)"
     );
 
     // Per-case timeout (default 30s, env-overridable) so no single case can

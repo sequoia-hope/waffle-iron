@@ -9,7 +9,7 @@ use modeling_ops::types::OpResult;
 use waffle_types::kernel::units::{
     TAU_COINCIDENT, TAU_NORMALIZE_SQ, TAU_TESS_GRID_FACTOR, TAU_TESS_GRID_MIN, TAU_WELD_MAX,
 };
-use waffle_types::kernel::RenderMesh;
+use waffle_types::kernel::{FaceRange, RenderMesh};
 use waffle_types::kernel::{KernelIntrospect, KernelSolidHandle};
 use waffle_types::Role;
 
@@ -272,6 +272,11 @@ struct HybridComplex {
     /// vertices of (shells touching it − 1). Added back to `vertex_count`
     /// for the Euler characteristic ([`shell_decomposition`]).
     pinch_extra: usize,
+    /// `ASSAY_WATERTIGHT_PROBE` only (empty otherwise): for every
+    /// T-subdivided residue edge, the indices of the triangles whose edge
+    /// slots produced it — so a non-manifold residue can be named by its
+    /// owning faces (`RenderMesh::face_ranges`) and triangles.
+    residue_owners: HashMap<QEdge, Vec<usize>>,
 }
 
 /// Shell decomposition of a welded triangle complex (spec
@@ -493,12 +498,24 @@ fn hybrid_edge_complex(mesh: &RenderMesh, inv_grid: f64) -> HybridComplex {
     }
     let dec = shell_decomposition(&tri_vids, &tri_keys);
 
+    let mut residue_owners: HashMap<QEdge, Vec<usize>> = HashMap::new();
+    if std::env::var_os("ASSAY_WATERTIGHT_PROBE").is_some() {
+        for (ti, slots) in tri_keys.iter().enumerate() {
+            for k in slots.iter().flatten() {
+                if let HybridEdgeKey::Quant(e) = k {
+                    residue_owners.entry(*e).or_default().push(ti);
+                }
+            }
+        }
+    }
+
     HybridComplex {
         closed_edges,
         residue_sub,
         vertex_count,
         shells: dec.shells,
         pinch_extra: dec.pinch_extra,
+        residue_owners,
     }
 }
 
@@ -689,6 +706,33 @@ pub fn check_watertight_mesh(mesh: &RenderMesh) -> OracleVerdict {
                 by as f64 * grid,
                 bz as f64 * grid
             );
+            // Owners: the face (by `face_ranges`) and triangle of every
+            // edge slot that produced this residue sub-edge.
+            let face_of = |ti: usize| -> Option<&FaceRange> {
+                let idx = (ti * 3) as u32;
+                mesh.face_ranges
+                    .iter()
+                    .find(|r| r.start_index <= idx && idx < r.end_index)
+            };
+            for &ti in hybrid
+                .residue_owners
+                .get(e)
+                .map(Vec::as_slice)
+                .unwrap_or(&[])
+            {
+                let tri = &mesh.indices[ti * 3..ti * 3 + 3];
+                let p = |vi: u32| -> [f32; 3] {
+                    let i = vi as usize * 3;
+                    [mesh.vertices[i], mesh.vertices[i + 1], mesh.vertices[i + 2]]
+                };
+                eprintln!(
+                    "[watertight-probe]   owner tri {ti} face {:?} [{:?} {:?} {:?}]",
+                    face_of(ti).map(|r| r.face_id),
+                    p(tri[0]),
+                    p(tri[1]),
+                    p(tri[2])
+                );
+            }
         }
     }
 

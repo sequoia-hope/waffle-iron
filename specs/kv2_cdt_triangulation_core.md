@@ -325,6 +325,72 @@ kind, twin face and surface, vertex valence, length, interior sample count,
 tightest consecutive spacing) and `KV2_SUBRES_DUMP=<path>` (the chart
 polygon, holes and CDT triangles for offline replay).
 
+## 6f. P0008 — the planar-neighbor chord criterion (2026-09-30, prospector seed 1 index 19)
+
+**Finding.** The developable patch (`tessellate/developable.rs`) refines its
+boundary-only CDT by two criteria — the chord bound in Δu and the
+orientation-faithful lift (KV9-F2b). Neither sees this: a boundary curve
+that is a PLANAR section of the surface (an `EllipseArc` / `HyperbolaArc`
+/ an oblique `Arc` against a planar neighbor) is locally convex in the
+chart, so the ear clip emits triangles over three consecutive samples of
+it and, one level up, interior diagonals between two of its samples. Three
+points of a planar curve span a triangle IN that curve's plane; two span a
+segment in it. Such a triangle has zero lift off the NEIGHBOR (it renders
+the neighbor's sheet, not this surface) and coincides with the neighbor's
+own ear over the same samples — P0008: six render edges with FOUR
+incident triangles, a 0.085-rad cone's ellipse-arc ears ≡ a gear flank's
+ears; with the ears split, one chord survived as an interior diagonal of
+BOTH faces. The watertight oracle sees it only when the neighbor's CDT
+happens to clip the same ear (rounding-dependent); otherwise the overlap
+is silent. yang Stage 1's own CDT does the same (P0009,
+`yang_stage1_curved_holed_patch.md` Slice H).
+
+**Rule (combinatorial; no constant, no band).** Every boundary node
+carries the planar face(s) across the half-edge(s) it lies on (`node_nbr`:
+loop origins two, interior samples one; a boundary sub-edge split inherits
+the tags common to its ends; interior splits none). The THIRD refinement
+criterion, `coplanar_edge`: an `Interior`-kind chart edge whose two ends
+share a tag. It is split at its chart midpoint lifted onto the surface —
+directly, with no LEPP walk, because only an interior split lifts the edge
+(a `Chord`/`ArcSample` split lerps on the 3D chord and stays in the
+plane). Both incident triangles split (conforming). The minted node is
+untagged, so the criterion fires once per such edge and terminates; the
+chord and fold criteria are evaluated first and unchanged.
+
+**Visible-lift gate (R0085, same day).** The split earns its keep only when
+the on-surface midpoint clears the chord's own 3D midpoint by more than the
+render height floor (`render_height_floor`, the emit gate's f32-ulp floor —
+no new constant). The first corpus run STOPped R0085 op 3 at face 1764
+"patch triangle below render resolution": the flagged chord ran along the
+seam generator u = 0 of a near-flat cone (three nodes on one straight
+surface line), so its lift was zero and the split minted the collinear
+needle the emit gate rejects. A chord that lies ON the surface overlaps
+the neighbor by less than render resolution already; it stays, and the
+emit gate remains the loud check.
+
+**Why not a triangle rule.** "All three corners tagged" is the ear; the
+surviving chord a–b (cone [a,y,b] + [z,a,b] against plane [b,x,a] +
+[P,b,a]) has an untagged apex on each side and is still a segment of the
+neighbor's plane inside the neighbor's face. The edge rule subsumes the
+triangle rule (an all-tagged triangle has three tagged edges).
+
+**Non-cases.** A boundary sub-edge between two tagged nodes IS the shared
+boundary (kept). A chord whose ends lie on two DIFFERENT planes (a flank
+corner) is a legitimate diagonal. A cylinder's rim circle is straight in
+the chart — no ear, no chord. Two branches of one hyperbola bound a cone
+face from the same plane, and a chord between the branches lies in the
+plane between them — inside the cone, outside the plane's kept region — and
+is split anyway (harmless: one extra on-surface node).
+
+**Pins.** `tests/p0008_coplanar_neighbor_edge.rs` — the exact P0008
+document through the `Kernel` trait (square boss, 300° pentagon revolve,
+symmetric 10-tooth gear on a 7.6°-tilted plane); no exact-bit render edge
+used by more than two triangles (RED before the criterion, mutation-checked;
+GREEN with it). Corpus smoke pin `P0008 → SupportedCorrect`. Torus and
+sphere patches (`surfaces/`) are outside this criterion — their planar
+sections are quartic / chart-curved and have shown no double cover; a
+count-4 residue there is its own finding.
+
 ## 7. Research basis
 
 - Constrained Delaunay triangulation and its max-min-angle optimality:

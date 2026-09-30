@@ -1,0 +1,55 @@
+{
+  "id": "P0008",
+  "description": "3 ops, scale=7.72e2, extrude(polygon,boss)+revolve(polygon,boss)+extrude(gear,symmetric) \u2014 prospector seed 1 index 19 RE-minimized 2026-09-30 (after P0005 converted; 6\u21923): square boss, 300\u00b0 pentagon revolve (slender cone faces, half-angle 0.085 rad), 10-tooth module-111 gear symmetric boss on a plane 7.6\u00b0 off the cone axis. Was a SILENT WRONG: watertight_mesh 6 unpaired edges (6 non-manifold, FOUR incident triangles each) \u2014 kernel-v2's boundary-only developable patch CDT clipped ears over three consecutive samples of a cone \u00d7 flank ELLIPSE arc and used chords between two of them as interior diagonals; three points of a planar curve span a triangle IN that plane, so the cone's ear coincided with the gear flank's own ear and the chord survived as a diagonal of BOTH faces. CONVERTED 2026-09-30: the P0008 refinement criterion (tessellate/developable.rs) tags boundary nodes with their planar neighbor and splits any interior chart edge whose ends share one at its on-surface midpoint (pin tests/p0008_coplanar_neighbor_edge.rs, RED before). Meta adjudicated from the kernel readout under the in-line exact-membership oracle: two bodies (the first boss never merges), \u03c7 4, volume 8.5486e8 (tol 2e-3 covers the cone/cylinder chord deficit).",
+  "master_seed": 0,
+  "test_seed": 0,
+  "scale": 772.0,
+  "log_scale": 2.887617300335736,
+  "plane_origin": [
+    0.0,
+    0.0,
+    0.0
+  ],
+  "plane_normal": [
+    1.0,
+    0.0,
+    0.0
+  ],
+  "operations": [
+    {
+      "kind": "extrude",
+      "profile_type": "unknown",
+      "profile_size": 0.0,
+      "depth_or_angle": 80.0,
+      "is_cut": false
+    },
+    {
+      "kind": "revolve",
+      "profile_type": "unknown",
+      "profile_size": 0.0,
+      "depth_or_angle": 300.0,
+      "is_cut": false
+    },
+    {
+      "kind": "extrude",
+      "profile_type": "unknown",
+      "profile_size": 0.0,
+      "depth_or_angle": 361.5,
+      "is_cut": false
+    }
+  ],
+  "oracles": {
+    "euler_target": 2,
+    "expect_watertight": true,
+    "max_bbox_extent": 77200.0,
+    "expect_positive_volume": true,
+    "volume_monotonicity": [],
+    "expect_rebuild_error": false,
+    "expected_volume": 854858178.5,
+    "expected_volume_tol_rel": 0.002,
+    "expected_solid_count": 2,
+    "expected_shell_count": 1
+  },
+  "generator_version": 100,
+  "featured": true
+}

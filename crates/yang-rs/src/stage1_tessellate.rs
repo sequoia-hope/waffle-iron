@@ -1834,6 +1834,9 @@ pub(crate) fn stage1_tessellate_once(
         let operand_chord_budget: Option<f64> =
             curved_chord_bound(edges).or_else(|| ellipse_rim_chord_bound(edges));
         let mut face_tri_ranges: Vec<std::ops::Range<usize>> = Vec::with_capacity(faces.len());
+        // P0008: which B-Rep edges bound a PLANAR face (the holed-lateral
+        // CDT's planar-neighbor chord rule, `planar_neighbor_chords`).
+        let edge_planar = edge_planar_faces(faces, edges.len());
         for (f_idx, f) in faces.iter().enumerate() {
             let range_start = out_tris.len();
             // PR-KV7: ALL loops (outer + rings) must be segments for the
@@ -2015,6 +2018,7 @@ pub(crate) fn stage1_tessellate_once(
                         edges,
                         &rim_rings,
                         &inserted_rims,
+                        &edge_planar,
                         &mut out_verts,
                         &mut sources,
                         ChartBudget {
@@ -2070,6 +2074,7 @@ pub(crate) fn stage1_tessellate_once(
                         edges,
                         &rim_rings,
                         &inserted_rims,
+                        &edge_planar,
                         verts,
                         apex,
                         axis_dir,
@@ -2129,6 +2134,8 @@ mod self_contact;
 pub(crate) use self_contact::*;
 mod chart_chord;
 pub(crate) use chart_chord::*;
+mod planar_neighbor_chords;
+pub(crate) use planar_neighbor_chords::*;
 
 /// PR-KV6b-1: CDT tessellation of a planar face whose loops mix straight and
 /// `Curve::Circle` edges (annular sectors, holed circle caps, …). The
@@ -2718,6 +2725,7 @@ pub(crate) fn tessellate_lateral_holed_cdt(
     f: &BRepFace,
     edges: &[BRepEdge],
     chains: &std::collections::BTreeMap<u32, Vec<u32>>,
+    edge_planar: &[[Option<u32>; 2]],
     out_verts: &mut Vec<Point3>,
     sources: &mut Vec<TessellationSource>,
     chart_budget: ChartBudget,
@@ -2770,6 +2778,22 @@ pub(crate) fn tessellate_lateral_holed_cdt(
     for inner in &f.inner_loops {
         inner_polys.push(loop_polyline(f_idx, inner, edges, chains)?);
     }
+    // P0008: planar-neighbor tags of every boundary vertex (the planar face
+    // across the B-Rep edge(s) it lies on) — the split pass below runs on
+    // the final triangulation of either path (`planar_neighbor_chords`).
+    let planar_tags = {
+        let mut loops_attr: Vec<Vec<(u32, u32)>> = Vec::with_capacity(1 + f.inner_loops.len());
+        loops_attr.push(loop_polyline_attributed(
+            f_idx,
+            &f.outer_loop,
+            edges,
+            chains,
+        )?);
+        for inner in &f.inner_loops {
+            loops_attr.push(loop_polyline_attributed(f_idx, inner, edges, chains)?);
+        }
+        vertex_planar_tags(f_idx, &loops_attr, edge_planar)
+    };
 
     let two_pi = 2.0 * std::f64::consts::PI;
 
@@ -3422,7 +3446,7 @@ pub(crate) fn tessellate_lateral_holed_cdt(
             .collect())
     };
     if !seed_enabled {
-        let tris_g = boundary_only()?;
+        let mut tris_g = boundary_only()?;
         if probe_on || log_path.is_some() {
             let line = match (kind, seed) {
                 (LateralKind::Cylinder { radius }, Some((step, bound))) => {
@@ -3452,6 +3476,16 @@ pub(crate) fn tessellate_lateral_holed_cdt(
             };
             emit_probe(&line);
         }
+        split_planar_neighbor_chords(
+            f_idx,
+            &mut tris_g,
+            &planar_tags,
+            &is_boundary,
+            axis_point,
+            axis_dir,
+            out_verts,
+            sources,
+        );
         orient_and_push(&tris_g, out_verts, out_tris);
         return Ok(());
     }
@@ -3546,7 +3580,7 @@ pub(crate) fn tessellate_lateral_holed_cdt(
             global_of_pool.push(g);
             n_steiner += 1;
         }
-        let tris_g: Vec<[u32; 3]> = tris_l
+        let mut tris_g: Vec<[u32; 3]> = tris_l
             .iter()
             .map(|t| {
                 [
@@ -3576,6 +3610,16 @@ pub(crate) fn tessellate_lateral_holed_cdt(
                     census.boundary_max_ratio
                 ));
             }
+            split_planar_neighbor_chords(
+                f_idx,
+                &mut tris_g,
+                &planar_tags,
+                &is_boundary,
+                axis_point,
+                axis_dir,
+                out_verts,
+                sources,
+            );
             orient_and_push(&tris_g, out_verts, out_tris);
             return Ok(());
         }
@@ -3833,6 +3877,7 @@ pub(crate) fn tessellate_lateral_face(
     edges: &[BRepEdge],
     rim_rings: &std::collections::BTreeMap<u32, Vec<u32>>,
     inserted_rims: &std::collections::BTreeSet<u32>,
+    edge_planar: &[[Option<u32>; 2]],
     out_verts: &mut Vec<Point3>,
     sources: &mut Vec<TessellationSource>,
     chart_budget: ChartBudget,
@@ -3854,6 +3899,7 @@ pub(crate) fn tessellate_lateral_face(
             f,
             edges,
             rim_rings,
+            edge_planar,
             out_verts,
             sources,
             chart_budget,
@@ -4071,6 +4117,7 @@ pub(crate) fn tessellate_lateral_face(
             f,
             edges,
             rim_rings,
+            edge_planar,
             out_verts,
             sources,
             chart_budget,

@@ -769,6 +769,55 @@ derivation, the census flagging the R0026 fan, and the tongue strip
 (boundary-only violates; seeded meets the budget with on-surface,
 source-faithful Steiner vertices and a watertight ribbon).
 
+## Slice H — planar-neighbor chords (2026-09-30, P0009)
+
+**The defect.** The holed-lateral CDT is boundary-only (the cone kind
+always; the cylinder kind under the seed gate, and the seeded grid keeps a
+clearance of h/2 from the boundary, so boundary-only ears survive there
+too). A PLANAR section curve on the face — an ellipse or hyperbola arc, an
+oblique circle — is locally convex in the (u, v) chart, and a boundary-only
+CDT clips ears over consecutive samples of it and, one level up, chooses
+chords between two of its samples as interior diagonals. Every such chord
+joins two points of ONE plane, the neighbor face's, so the emitted mesh
+carries a segment (or a whole triangle) lying inside the neighbor's own
+sheet. P0009 (seed-1 index 19 re-minimized: a pentagon revolve's 0.085-rad
+cone against a 10-tooth gear's flank planes): the doubled compact triangle
+`source [(A,232),(A,2481)]` is exactly the cone's ear ≡ the flank's ear,
+and Stage 0 STOPs `i6-edge-overuse` fwd=2 rev=1 on the next boolean's
+input check. Same class as kernel-v2's render double cover (P0008,
+`tessellate/developable.rs`, the P0008 refinement criterion).
+
+**The rule (combinatorial — no constant, no band).**
+`stage1_tessellate/planar_neighbor_chords.rs`:
+
+1. `edge_planar_faces(faces, n_edges)` — per B-Rep edge, the (≤ 2) PLANAR
+   faces it bounds; computed once in the Stage-1 driver and threaded through
+   `tessellate_lateral_face` / `tessellate_cone_face` into
+   `tessellate_lateral_holed_cdt`.
+2. `vertex_planar_tags(f_idx, loops_attr, table)` — from
+   `loop_polyline_attributed` (vertex i's following segment lies on edge
+   `lp[i].1`, its preceding one on `lp[i−1].1`): each boundary vertex's
+   planar neighbors OTHER than this face (loop corners carry both incident
+   edges' neighbors, chain samples one).
+3. `split_planar_neighbor_chords` on the FINAL triangle list of either path
+   (boundary-only or seeded): every interior (non-boundary) triangle edge
+   whose ends share a tag splits at its midpoint lifted onto the surface —
+   azimuth and axial coordinate averaged, radius interpolated linearly in
+   the axial coordinate (exact for cones and cylinders) — a `BRepFace`
+   source of this face; both incident triangles split (conforming). The
+   minted vertex is untagged, so one split per such edge terminates the
+   pass (a fixpoint loop, each round strictly removing one tagged chord).
+   Boundary segments between two tagged samples ARE the shared boundary
+   and stay; chords whose ends lie on DIFFERENT planes (a flank corner)
+   stay.
+
+**Pins:** `tests_unit/s1_planar_neighbor_chords.rs` (the split's vertex on
+the surface at mid-azimuth / mid-height, four triangles and no surviving
+chord, idempotence; the two non-cases; the tag tables), smoke pin `P0009 →
+SupportedCorrect`. Torus and sphere faces have their own tessellators and
+are outside this slice (their plane sections are quartics / chart-curved
+circles); a count-4 residue there is its own finding.
+
 ## Slice F-4 — CLOSED torus with WINDOWS only (2026-09-17, C0065)
 
 **The configuration.** A through-slot bitten out of a torus tube (C0065's

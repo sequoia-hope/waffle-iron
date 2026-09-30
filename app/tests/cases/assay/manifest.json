@@ -1,6 +1,6 @@
 {
   "master_seed": 42,
-  "count": 319,
+  "count": 321,
   "generator_version": 4,
   "cases": [
     {
@@ -2234,6 +2234,20 @@
       "filename": "P0007.waffle",
       "meta_filename": "P0007.meta.json",
       "description": "4 ops, extrude(circle,boss)×2+extrude(polygon,boss)+boolean-union(polygon) — prospector seed 1 index 16 (already minimal, step 1 rounded): two circle bosses, a non-convex hexagon boss on an oblique plane, a square extrude-union ⇒ boolean_union SelfIntersectingBooleanOutput { face_a: FaceId(47), face_b: FaceId(69), penetrations: 4 } (the kernel-v2 output self-intersection gate). ×1e3 identical; ×1e-3 hits the input feature-floor wall. (2026-09-28; ERROR-class pin, derived_meta: expectations unadjudicated until conversion)",
+      "featured": true
+    },
+    {
+      "id": "P0008",
+      "filename": "P0008.waffle",
+      "meta_filename": "P0008.meta.json",
+      "description": "3 ops, scale=7.72e2, extrude(polygon,boss)+revolve(polygon,boss)+extrude(gear,symmetric) — prospector seed 1 index 19 RE-minimized 2026-09-30 (after P0005 converted; 6→3): square boss, 300° pentagon revolve (slender cone faces, half-angle 0.085 rad), 10-tooth module-111 gear symmetric boss on a plane 7.6° off the cone axis. Was a SILENT WRONG: watertight_mesh 6 unpaired edges (6 non-manifold, FOUR incident triangles each) — kernel-v2's boundary-only developable patch CDT clipped ears over three consecutive samples of a cone × flank ELLIPSE arc and used chords between two of them as interior diagonals; three points of a planar curve span a triangle IN that plane, so the cone's ear coincided with the gear flank's own ear and the chord survived as a diagonal of BOTH faces. CONVERTED 2026-09-30: the P0008 refinement criterion (tessellate/developable.rs) tags boundary nodes with their planar neighbor and splits any interior chart edge whose ends share one at its on-surface midpoint (pin tests/p0008_coplanar_neighbor_edge.rs, RED before). Meta adjudicated from the kernel readout under the in-line exact-membership oracle: two bodies (the first boss never merges), χ 4, volume 8.5486e8 (tol 2e-3 covers the cone/cylinder chord deficit).",
+      "featured": true
+    },
+    {
+      "id": "P0009",
+      "filename": "P0009.waffle",
+      "meta_filename": "P0009.meta.json",
+      "description": "4 ops, scale=9.00e2, extrude(polygon,boss)+revolve(polygon,boss)+extrude(gear,symmetric)+extrude(polygon,boss) — prospector seed 1 index 19 RE-minimized 2026-09-30 (P0008 + a square boss unioned onto the chain; 6→4): the loud twin of P0008. Was auto-union boolean_union BooleanFailed \"reassembled output would be non-2-manifold\" — site i6-edge-overuse fwd=2 rev=1 on INPUT A (16 edges, the chained body's cone face × the gear flank planes; identical on the un-minimized lineage): yang Stage 1's boundary-only cone chart CDT emitted the same planar-neighbor ears/chords as kernel-v2's render, and Stage 0's input conformality check caught the doubled triangles one boolean later. CONVERTED 2026-09-30: stage1_tessellate/planar_neighbor_chords.rs applies the same combinatorial rule on the holed-lateral CDT's output (both kinds) — an interior triangle edge whose ends lie on the same planar neighbor is split at its midpoint lifted onto the surface (radius linear in the axial coordinate). Meta adjudicated from the kernel readout under the in-line exact-membership oracle: two bodies, χ 4, volume 1.97727e9 (tol 2e-3).",
       "featured": true
     }
   ]

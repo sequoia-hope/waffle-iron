@@ -43,6 +43,83 @@ after the reconciliation run (release, 8 jobs, 360 s; wall 577 s, F0085
 regression since 2026-08-01 is outstanding (checked over every commit of
 `results.json`).
 
+## 2026-09-30 — P0008 / P0009 CONVERT: a curved face's boundary-only CDT may not carry an interior chord whose two ends lie on the same PLANAR neighbor (kernel-v2 render patch AND yang Stage 1); the seed-1 index-19 lineage re-minimized after P0005 was a SILENT WRONG plus its loud Stage-0 twin; canonical **310C / 0W / 7E / 4EE / 0T + 0 UNSUPPORTED** over 321 cases (release, 8 jobs, 900 s; wall 958.9 s; R0085 595.8 s, F0072 558.5 s, F0085 392.5 s; exactly two category moves — the new P0008 and P0009 rows — and zero detail moves; the first run's R0085 regression is closed by the visible-lift gate)
+
+**The lineage.** P0005 was seed-1 index 19 minimized with a SQUARE revolve.
+Re-minimized on the current kernel (26 verdicts) the same lineage is
+`convex4:boss convex5:rev gear10:sym convex4:boss` (a PENTAGON revolve —
+its cone faces have half-angle 0.085 rad; the gear plane is 7.6° off the
+cone axis, so the flank planes cut the cone in ELLIPSE arcs), still
+`reassembled output would be non-2-manifold` on the last auto-union, site
+(`NONMANIFOLD_SITE_PROBE`) **`i6-edge-overuse` fwd=2 rev=1 on INPUT A**:
+16 edges of the chained body's cone face against four gear-flank planes,
+identical on the un-minimized document (no minted contact), ×1e-3
+identical, ×1e3 a loud `LocalRefinementRequired`. Its 3-step PREFIX
+(`convex4:boss convex5:rev gear10:sym`, another rounding of the same
+steps; 19 verdicts) is a **silent `wrong[watertight_mesh]`** — six render
+edges with FOUR incident triangles — and at other roundings reads CORRECT.
+Index 30 (the old "patch triangulation folded — KV9-F2" lineage) is
+CORRECT on the current kernel (3 bodies, χ 6, oracle-covered): closed.
+
+**Anchored** (new: `ASSAY_WATERTIGHT_PROBE=1` prints, per unpaired residue
+edge, the OWNER triangle and face — `HybridComplex::residue_owners`;
+`KV2_PATCH_CHAIN_PROBE=300`, `KV2_EARCLIP_PROBE`, `KV2_OUT_CURVE_CENSUS`):
+every count-4 edge is a chord a–b where a, m, b are three CONSECUTIVE
+samples of one `EllipseArc` on cone face 300 (the revolve's cone remnant
+by its end cap, one loop of eleven ellipse pieces) shared with a flank
+plane (484/501/503/505). The cone's unrolled-chart ear clip emitted the
+boundary-only ear [b,m,a] and the plane's CDT emitted [a,m,b] — three
+points of a planar curve span a triangle IN that curve's plane, so the
+cone's flat render of its sliver coincides with the plane's ear exactly.
+Splitting the ears alone left ONE count-4 edge: the chord a–b survived as
+an interior diagonal of BOTH faces' triangulations (cone [a,y,b]+[z,a,b],
+plane [b,x,a]+[P,b,a]) — the rule is on EDGES, not triangles: an interior
+chart edge whose two ends both lie on one planar neighbor renders as a 3D
+segment inside that neighbor's face. Not the P0007 chord class: the
+census shows 1018 `HyperbolaArc` + 26 `EllipseArc` half-edges and only
+the ten revolve-cap generators as plane × curved `LineSegment` chords.
+One boolean later yang Stage 1's own boundary-only cone CDT emits the
+same ears/chords, and Stage 0's input check reports the doubled compact
+triangle (`source [(A,232),(A,2481)]`) as `i6-edge-overuse`.
+
+**Fix** — the same combinatorial rule in both tessellators, no constant,
+no band. kernel-v2 `tessellate/developable.rs` (the P0008 refinement
+criterion): every boundary node is tagged with the planar face across the
+half-edge(s) it lies on (loop origins carry two, samples one, boundary
+sub-edge splits inherit the tags common to their ends); an interior chart
+edge whose ends share a tag is split at its `Interior` midpoint — the
+on-surface lift — with no LEPP walk (a boundary split lerps on the chord
+and stays in the plane), both incident triangles conforming; the minted
+node is untagged, so one split per edge terminates. yang-rs
+`stage1_tessellate/planar_neighbor_chords.rs`: `edge_planar_faces` (the
+B-Rep's per-edge planar faces, computed once in the Stage-1 driver and
+threaded through `tessellate_lateral_face` / `tessellate_cone_face`),
+`vertex_planar_tags` from `loop_polyline_attributed`, and
+`split_planar_neighbor_chords` on the holed-lateral CDT's final triangles
+(both kinds, both paths) — the midpoint lifted with azimuth and axial
+coordinate averaged and radius linear in the axial coordinate (exact for
+cones and cylinders), a `BRepFace` source of the face. **Pins:** kernel-v2
+`tests/p0008_coplanar_neighbor_edge.rs` (the exact 3-step geometry through
+the `Kernel` trait; no exact-bit render edge used by more than two
+triangles — RED before, six edges × 4), yang-rs
+`tests_unit/s1_planar_neighbor_chords.rs` (the split, the two non-cases,
+the tag tables), smoke pins `P0008 → SupportedCorrect`, `P0009 →
+SupportedCorrect` (corpus 319 → 321). **Adjudicated** from the kernel
+readout under the in-line exact-membership oracle: two bodies each (the
+first boss never merges), main body one shell χ 2, volumes 8.5486e8 /
+1.97727e9 (tol 2e-3). **First full run moved R0085 CORRECT → ERROR**
+(`patch triangle below render resolution`, face 1764, `KV2_SUBRES_PROBE`):
+the flagged chord ran along a near-flat cone's seam generator u = 0 —
+three nodes on one straight surface line — so its on-surface midpoint had
+zero lift and the split minted the collinear needle the emit gate rejects.
+The kernel-v2 criterion now splits only when the lift exceeds the render
+height floor (the emit gate's own floor; a chord ON the surface overlaps
+the neighbor below resolution already); R0085 back to CORRECT. Torus and sphere patches have their own
+tessellators and are NOT covered by the rule — a plane × torus section is
+a quartic (`SurfacePair`), a plane × sphere section a circle straight in
+neither chart; the next document that shows a count-4 residue there names
+its customer.
+
 ## 2026-09-29 (later) — P0007 CONVERTS: the §4.4.2 carried-edge restoration admits `Ellipse` input edges, so a re-entered oblique plane × cylinder boundary leaves as an ellipse arc instead of mesh-density chords; canonical **308C / 0W / 7E / 4EE / 0T + 0 UNSUPPORTED** (release, 8 jobs, 900 s; wall 1206.8 s; R0085 729.4 s, F0072 713.0 s, F0085 466.7 s; exactly one category move — P0007 — and zero detail moves)
 
 **Anchored** (`KV2_SELFX_SITE_PROBE` extended to print both faces' loop

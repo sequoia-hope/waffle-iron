@@ -581,6 +581,28 @@ fn tessellate_developable_patch(
         usize,
         (crate::arena::HalfEdgeId, crate::arena::HalfEdgeId),
     > = std::collections::HashMap::new();
+    // Planar-neighbor tags per BOUNDARY node (P0008, 2026-09-30): the
+    // planar face(s) across the half-edge(s) this node lies on — a loop
+    // origin lies on two half-edges, an interior sample on one. Every
+    // boundary node of a planar section curve (ellipse / hyperbola / an
+    // oblique arc) lies IN the neighbor's plane, so a chart triangle whose
+    // three corners share a planar neighbor spans a flat triangle in that
+    // plane — it renders the neighbor's sheet, not this surface (zero lift
+    // off the neighbor), and coincides with or overlaps the neighbor's own
+    // triangles there. The refinement below splits such a triangle on its
+    // longest INTERIOR edge (an on-surface midpoint), which is the only
+    // edge that can carry lift. Nodes minted by interior splits carry no
+    // tag; a boundary sub-edge split inherits the tags common to its ends.
+    let mut node_nbr: std::collections::HashMap<usize, [Option<FaceId>; 2]> =
+        std::collections::HashMap::new();
+    let planar_twin = |h: crate::arena::HalfEdgeId| -> Result<Option<FaceId>, KernelV2Error> {
+        let tw = arena.half_edge(arena.half_edge(h)?.twin)?;
+        let f = arena.loop_(tw.loop_id)?.face;
+        Ok(match arena.face(f)?.surface {
+            Some(Surface::Plane(_)) => Some(f),
+            _ => None,
+        })
+    };
     for &lid in &all_loops {
         let hes = arena.loop_half_edges(lid)?;
         if hes.len() < 3 {
@@ -597,6 +619,8 @@ fn tessellate_developable_patch(
             if i == 0 {
                 u_cur = unroll_u(theta_p);
             }
+            let nbr_here = planar_twin(h)?;
+            let nbr_prev = planar_twin(hes[(i + hes.len() - 1) % hes.len()])?;
             // Dev-only chain probe: per-half-edge curve kind + endpoints for
             // one face id — names WHICH boundary curve minted a fold's deep
             // ArcSample layer (Arc gets conforming inserts; the conic arms
@@ -662,6 +686,20 @@ fn tessellate_developable_patch(
             if prov_on {
                 node_prov.insert(origin_node, (h, he.twin));
             }
+            if nbr_here.is_some() || nbr_prev.is_some() {
+                node_nbr.insert(origin_node, [nbr_here, nbr_prev]);
+            }
+            // Interior samples of this half-edge lie on its curve — in the
+            // plane of `nbr_here` when that neighbor is planar.
+            let sample_tag = |idx: usize,
+                              node_nbr: &mut std::collections::HashMap<
+                usize,
+                [Option<FaceId>; 2],
+            >| {
+                if nbr_here.is_some() {
+                    node_nbr.insert(idx, [nbr_here, None]);
+                }
+            };
             match he.curve {
                 Curve::LineSegment => {
                     let (theta_q, hq) = theta_h(q, e1, e2)?;
@@ -709,6 +747,7 @@ fn tessellate_developable_patch(
                         let su = u_cur + sense * dir * sweep * frac * r_unroll;
                         let (_, sh) = theta_h(*sp, e1, e2)?;
                         entries.push((nodes.len(), PatchEdgeKind::ArcSample));
+                        sample_tag(nodes.len(), &mut node_nbr);
                         nodes.push(PatchNode {
                             p2: Point2::new(su, sh),
                             pos: [sp.x(), sp.y(), sp.z()],
@@ -740,6 +779,7 @@ fn tessellate_developable_patch(
                         total_theta += delta;
                         theta_prev = theta_s;
                         entries.push((nodes.len(), PatchEdgeKind::ArcSample));
+                        sample_tag(nodes.len(), &mut node_nbr);
                         nodes.push(PatchNode {
                             p2: Point2::new(u_cur, sh),
                             pos: [sp.x(), sp.y(), sp.z()],
@@ -772,6 +812,7 @@ fn tessellate_developable_patch(
                         total_theta += delta;
                         theta_prev = theta_s;
                         entries.push((nodes.len(), PatchEdgeKind::ArcSample));
+                        sample_tag(nodes.len(), &mut node_nbr);
                         nodes.push(PatchNode {
                             p2: Point2::new(u_cur, sh),
                             pos: [sp.x(), sp.y(), sp.z()],
@@ -799,6 +840,7 @@ fn tessellate_developable_patch(
                         total_theta += delta;
                         theta_prev = theta_s;
                         entries.push((nodes.len(), PatchEdgeKind::ArcSample));
+                        sample_tag(nodes.len(), &mut node_nbr);
                         nodes.push(PatchNode {
                             p2: Point2::new(u_cur, sh),
                             pos: [sp.x(), sp.y(), sp.z()],
@@ -1491,6 +1533,75 @@ fn tessellate_developable_patch(
         }
         dev < sag
     };
+    // P0008 (2026-09-30): the THIRD refinement criterion — an INTERIOR
+    // chart edge whose two ends both lie on ONE planar neighbor's boundary
+    // renders as a 3D segment IN that neighbor's plane: the neighbor's
+    // face region contains it (a chord of the neighbor's own convex ear
+    // over the same samples), so the two render sheets meet along it and
+    // the mesh is non-manifold there — the seed-1 index-19 double cover
+    // (six render edges with four incident triangles: a slender cone's
+    // ellipse-arc ears ≡ a gear flank's ears; after the ears alone were
+    // split, one chord a–b survived as an interior diagonal of BOTH
+    // faces). A boundary sub-edge between two such nodes IS the shared
+    // boundary and stays. Purely combinatorial: no constant, no band.
+    // Returns the longest such interior edge of the triangle; its
+    // on-surface midpoint (the `Interior` split below) is the lift.
+    //
+    // The split earns its keep only when that lift is VISIBLE: the
+    // on-surface midpoint must clear the chord's own 3D midpoint by more
+    // than the render height floor (the emit gate's f32-ulp floor, not a
+    // new constant). A chord along a generator — a straight line ON the
+    // surface — lifts by nothing, and splitting it would only mint the
+    // sub-resolution needle the emit gate rejects (R0085 op 3, face 1764:
+    // three nodes on the seam generator u = 0); such a chord coincides
+    // with the surface, so its overlap with the neighbor is below render
+    // resolution already and the gate's verdict stays the loud check.
+    let coplanar_height_floor = render_height_floor(nodes.iter().map(|n| &n.pos));
+    let coplanar_edge = |t: [usize; 3],
+                         wnodes: &[WNode],
+                         nodes: &[PatchNode],
+                         node_nbr: &std::collections::HashMap<usize, [Option<FaceId>; 2]>,
+                         boundary: &std::collections::BTreeMap<(usize, usize), PatchEdgeKind>|
+     -> Option<(usize, usize)> {
+        let tags = |w: usize| {
+            node_nbr
+                .get(&wnodes[w].node)
+                .copied()
+                .unwrap_or([None, None])
+        };
+        let mut best: Option<(usize, usize, f64)> = None;
+        for (i, j) in [(0usize, 1usize), (1, 2), (2, 0)] {
+            let (wa, wb) = (t[i], t[j]);
+            if kind_of(&wnodes[wa], &wnodes[wb], boundary) != PatchEdgeKind::Interior {
+                continue;
+            }
+            let (ta, tb) = (tags(wa), tags(wb));
+            if !ta
+                .iter()
+                .flatten()
+                .any(|f| tb.iter().flatten().any(|g| g == f))
+            {
+                continue;
+            }
+            let (qa, qb) = (wnodes[wa].p2, wnodes[wb].p2);
+            let lifted = surface_point((qa.x() + qb.x()) / 2.0, (qa.y() + qb.y()) / 2.0);
+            let (pa, pb) = (nodes[wnodes[wa].node].pos, nodes[wnodes[wb].node].pos);
+            let lift = ((lifted[0] - (pa[0] + pb[0]) / 2.0).powi(2)
+                + (lifted[1] - (pa[1] + pb[1]) / 2.0).powi(2)
+                + (lifted[2] - (pa[2] + pb[2]) / 2.0).powi(2))
+            .sqrt();
+            if lift <= coplanar_height_floor {
+                continue;
+            }
+            let dx = qa.x() - qb.x();
+            let dy = qa.y() - qb.y();
+            let l2 = dx * dx + dy * dy;
+            if best.is_none_or(|b| l2 > b.2) {
+                best = Some((wa, wb, l2));
+            }
+        }
+        best.map(|(a, b, _)| (a, b))
+    };
     let max_du = |t: [usize; 3], wnodes: &[WNode]| -> f64 {
         let mut best = -1.0f64;
         for (i, j) in [(0usize, 1usize), (1, 2), (2, 0)] {
@@ -1559,9 +1670,14 @@ fn tessellate_developable_patch(
         } else {
             w_limit
         };
-        if du <= limit
-            && !(lift_refine && du > du_floor && lift_inverts(wtris[seed], &wnodes, &nodes))
-        {
+        let chord_or_fold = du > limit
+            || (lift_refine && du > du_floor && lift_inverts(wtris[seed], &wnodes, &nodes));
+        let coplanar = if chord_or_fold {
+            None
+        } else {
+            coplanar_edge(wtris[seed], &wnodes, &nodes, &node_nbr, &boundary)
+        };
+        if !chord_or_fold && coplanar.is_none() {
             continue;
         }
         guard += 1;
@@ -1571,9 +1687,19 @@ fn tessellate_developable_patch(
         // LEPP walk: follow strictly-longer neighbor maxima (Euclidean
         // length strictly increases each hop, so the walk is finite; the
         // inner guard is a loud tripwire, never a silent clamp).
+        //
+        // A neighbor-coplanar interior edge (P0008) is split directly, no
+        // walk: only an INTERIOR split — an on-surface midpoint — lifts
+        // the edge off the neighbor's plane (a boundary split lerps on the
+        // chord and stays in it). Both triangles sharing the edge are
+        // split (conforming), and the minted node carries no neighbor
+        // tag, so the criterion terminates in one split per such edge.
         let mut cur = seed;
         let mut hops = 0usize;
         let (ia, ib) = loop {
+            if let Some((a, b)) = coplanar {
+                break (a, b);
+            }
             hops += 1;
             if hops > wtris.len() + 16 {
                 return Err(fail("refinement LEPP walk did not terminate"));
@@ -1625,6 +1751,21 @@ fn tessellate_developable_patch(
                     let k2 = (wb.node.min(node_idx), wb.node.max(node_idx));
                     boundary.insert(k1, kind);
                     boundary.insert(k2, kind);
+                    // A boundary sub-edge split lerps on the chord, which
+                    // stays in every plane both ends share (P0008 tags).
+                    let (ta, tb) = (
+                        node_nbr.get(&wa.node).copied().unwrap_or([None, None]),
+                        node_nbr.get(&wb.node).copied().unwrap_or([None, None]),
+                    );
+                    let mut common = ta
+                        .iter()
+                        .flatten()
+                        .filter(|f| tb.iter().flatten().any(|g| g == *f))
+                        .copied();
+                    let tag = [common.next(), common.next()];
+                    if tag[0].is_some() {
+                        node_nbr.insert(node_idx, tag);
+                    }
                 }
                 let mi = wnodes.len();
                 wnodes.push(WNode {
