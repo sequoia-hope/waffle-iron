@@ -993,6 +993,56 @@ active assembly after a load. Pinned by `tool_tabs.rs`
 "tab_switch_back_to_a_part_renders_its_bodies" and `host_stdio.rs`
 "an_opened_assembly_document_is_evaluated".
 
+### 4.13 Seamless mode — how the viewer becomes the editor
+
+V3 made a viewer able to change the document. What it is not yet is the
+**editor**: the toolbar, the feature dialogs, the tree's own actions and
+sketching are still only in the page that owns the engine. Closing that is
+the remaining P-D work, and there are two ways to do it. This section records
+which, and why, before either is built.
+
+**Option A — swap the transport.** Every mutation the editor makes goes
+through one chokepoint: `store.svelte.js`'s `send`/`sendRebuild` call
+`EngineBridge.send`, and 39 call sites reach the engine that way and no
+other. A `ViewerBridge` with the same interface, posting `UiToEngine` over
+the viewer socket instead of to the worker, would light up the whole editor
+at once.
+
+It founders on geometry. `EngineToUi::ModelUpdated` carries the meshes
+inline — that is what a worker in the same process should do, and exactly
+what a link across a phone should not (§4.2: the wire cost is bodies, and the
+answer is content addressing). A raw-message transport would have to re-solve
+blob identity, caching and delta inside the response shape the store already
+expects, i.e. rebuild §4.4 badly. It also doubles down on §1.2's finding that
+the JS store is authoritative for tabs, trees and assemblies: two authorities
+for the same document, reconciled per message.
+
+**Option B — bind the UI to tools (recommended).** Keep the model exactly as
+P-D has it — snapshot, keyed update, content-addressed blobs — and give the
+editor's own components an action binding that resolves to `sendCommand` on a
+viewer and to the store on the page. Every affordance that matters already
+has a tool behind it (`feature_add`, `feature_edit`, `feature_delete`,
+`feature_suppress`, `feature_rename`, `sketch_create`, `tab_*`, `undo`,
+`redo`, `document_save`, `export_*`), and the tools are the layer the host
+queue orders. Each component wired is a shippable increment rather than a
+flag day, and the viewer keeps holding no authoritative state.
+
+Its cost is honest: a handful of components learn a seam they do not have
+today, and anything with no tool behind it needs one — which is the right
+pressure, because an affordance an agent cannot reach is one half of this
+system cannot see.
+
+**Sketching stays out (§4.9).** It needs a solver round trip per drag and the
+in-progress session would have to become host state. Neither option changes
+that; it is its own spec.
+
+**Order.** (1) the tree's actions — suppress, delete, rename, rollback — they
+are one tool each and the panel is already on the viewer; (2) the toolbar's
+feature dialogs, which are `feature_add` with a params object the dialog
+already builds; (3) document actions beyond Save — new, open, import, export;
+(4) a `command` permission prompt richer than the single `vc` claim, if
+per-tool consent turns out to be wanted.
+
 ---
 
 ## 5. Phasing
