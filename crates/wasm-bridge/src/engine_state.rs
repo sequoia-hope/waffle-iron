@@ -134,10 +134,34 @@ impl EngineState {
 
     /// Every part engine available for reuse — the cache plus the views
     /// currently open — leaving none behind. What the next
-    /// `assembly_view::evaluate` is handed; whatever it does not take is gone.
+    /// `assembly_view::evaluate` is handed; whatever it does not take comes
+    /// back through [`Self::park_unused_part_engines`].
     pub fn take_part_engines(&mut self) -> Vec<(feature_engine::assembly::PartRef, Engine)> {
         self.stash_assembly_views();
         std::mem::take(&mut self.part_cache)
+    }
+
+    /// Keep the engines an evaluation did not take, minus the stale ones.
+    ///
+    /// An engine the evaluation left behind is one of two things. If the pass
+    /// built a part with the same `PartRef`, the leftover is the OLD engine for
+    /// a tree that has since changed — stale, and dropping it is the point.
+    /// Otherwise no live instance names that part at all: it is hidden
+    /// (`suppressed`) or its instance was removed, and the engine is still an
+    /// exact build of a tree nobody touched. Parking it is what makes showing a
+    /// hidden instance again cost the solve instead of a full part rebuild.
+    pub fn park_unused_part_engines(
+        &mut self,
+        unused: Vec<(feature_engine::assembly::PartRef, Engine)>,
+        built: &[(feature_engine::assembly::PartRef, Engine)],
+    ) {
+        for (part, engine) in unused {
+            if built.iter().any(|(p, _)| *p == part) {
+                continue;
+            }
+            self.part_cache.retain(|(p, _)| *p != part);
+            self.part_cache.push((part, engine));
+        }
     }
 
     /// The document's name, used for save and export file names.

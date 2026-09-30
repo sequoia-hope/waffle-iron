@@ -1710,3 +1710,66 @@ fn edit_assembly_reuses_the_part_engines_whose_trees_did_not_change() {
     assert!(view.parts[0].1.feature_results.is_empty());
     assert!(state.part_cache.is_empty(), "the stale engine was kept");
 }
+
+/// Hiding an instance (`suppressed`) leaves its part with no live instance, so
+/// the evaluation does not take its engine — but the part's TREE did not
+/// change, so the engine is still exactly what showing it again needs. It is
+/// parked rather than dropped, and the show is a solve, not a rebuild.
+#[test]
+fn hiding_and_showing_an_instance_does_not_rebuild_its_part() {
+    let mut state = EngineState::new();
+    let mut kernel = KernelV2Adapter::new();
+    let part_tree = cube_part(&mut state, &mut kernel);
+    assert_eq!(part_tree.features.len(), 1);
+    let part = part_tab(&state);
+
+    let tree = AssemblyTree {
+        instances: vec![instance("A", &part, Transform::identity(), true)],
+        ..Default::default()
+    };
+    let tab_id = assembly_tab(&mut state, &tree);
+    dispatch(
+        &mut state,
+        UiToEngine::OpenAssembly {
+            tab_id: tab_id.clone(),
+        },
+        &mut kernel,
+    );
+    let view = state.assembly.as_mut().expect("an open assembly");
+    view.parts[0].1.warnings.push("built once".into());
+
+    // Hide it: nothing renders, and the engine waits in the cache.
+    let mut hidden = tree.clone();
+    hidden.instances[0].suppressed = true;
+    dispatch(
+        &mut state,
+        UiToEngine::EditAssembly {
+            tab_id: tab_id.clone(),
+            assembly: hidden,
+        },
+        &mut kernel,
+    );
+    assert!(state.assembly.as_ref().unwrap().parts.is_empty());
+    assert_eq!(
+        state.part_cache.len(),
+        1,
+        "the hidden instance's part engine was thrown away"
+    );
+
+    // Show it again: the same engine, bodies and meshes included.
+    dispatch(
+        &mut state,
+        UiToEngine::EditAssembly {
+            tab_id: tab_id.clone(),
+            assembly: tree,
+        },
+        &mut kernel,
+    );
+    let view = state.assembly.as_ref().expect("an open assembly");
+    assert_eq!(view.parts.len(), 1);
+    assert_eq!(view.placements.len(), 1);
+    assert!(
+        view.parts[0].1.warnings.iter().any(|w| w == "built once"),
+        "the part was rebuilt for a show"
+    );
+}

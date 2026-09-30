@@ -750,7 +750,7 @@ fn handle_message(
             state.hover = None;
             // The views being left keep their part engines for this
             // evaluation (the parts that did not change are not rebuilt).
-            let reuse = state.take_part_engines();
+            let mut reuse = state.take_part_engines();
             // Opening a part in context is a tab switch too (the store leaves
             // the assembly tab for the part's), and it happens FIRST: the
             // stash must capture the outgoing tab's live tree before anything
@@ -767,8 +767,9 @@ fn handle_message(
                 &assembly_trees,
                 &state.engine.sources,
                 kb,
-                reuse,
+                &mut reuse,
             );
+            state.park_unused_part_engines(reuse, &view.parts);
             let (context_view, context) =
                 crate::assembly_view::ContextView::new(view, assembly_tab_id, instance_path)
                     .map_err(|reason| BridgeError::InvalidRequest { reason })?;
@@ -977,7 +978,7 @@ fn open_assembly(
     // The view being replaced (an `EditAssembly` re-evaluates the open tab on
     // every connector, mate or instance edit) hands its part engines to this
     // evaluation: only a part whose tree changed is rebuilt.
-    let reuse = state.take_part_engines();
+    let mut reuse = state.take_part_engines();
     state.session.switch_tab(tab_id, &mut state.engine)?;
     // The live tree is not the assembly's content; keep the renderer on the
     // instances only. (An `Assembly` tab holds no tree, so the switch already
@@ -992,8 +993,11 @@ fn open_assembly(
         &assembly_trees,
         &state.engine.sources,
         kb,
-        reuse,
+        &mut reuse,
     );
+    // A part with no live instance this pass — a hidden one's — keeps its
+    // engine, so un-hiding it is a solve rather than a rebuild.
+    state.park_unused_part_engines(reuse, &view.parts);
     // The solved placements are derived, but they are saved WITH the tab
     // (v4 §2.5) and the session composes the file now (S2 C3c) — so they go
     // back into the tab that was just evaluated. The store keeps its own copy

@@ -181,8 +181,10 @@ struct Ctx<'a> {
     parts: Vec<(PartRef, Engine)>,
     /// Part engines of an earlier evaluation, offered for reuse: one whose
     /// tree is still the part's current tree is taken as is (its kernel
-    /// bodies and render meshes included) instead of being rebuilt.
-    reuse: Vec<(PartRef, Engine)>,
+    /// bodies and render meshes included) instead of being rebuilt. What is
+    /// left when the evaluation ends is what it did not want; the caller
+    /// decides whether to park it (see `EngineState::park_unused_part_engines`).
+    reuse: &'a mut Vec<(PartRef, Engine)>,
     errors: Vec<String>,
     warnings: Vec<String>,
 }
@@ -215,15 +217,18 @@ const MAX_DEPTH: usize = 8;
 /// replaced, or the host's cache of views it left): a part whose tree is
 /// unchanged is taken from it rather than rebuilt, so an edit to the
 /// assembly itself — a connector, a mate, an instance — costs the solve, not
-/// a rebuild and re-tessellation of every part. Engines whose part changed,
-/// or that no instance names any more, are dropped.
+/// a rebuild and re-tessellation of every part. What this evaluation does not
+/// take is LEFT IN `reuse` for the caller: an engine whose part changed is
+/// stale and belongs in the bin, but one that simply has no live instance this
+/// pass — a hidden (suppressed) instance's part — is still good, and parking it
+/// is what makes showing it again free.
 pub fn evaluate(
     tree: AssemblyTree,
     part_trees: &HashMap<String, FeatureTree>,
     assembly_trees: &HashMap<String, AssemblyTree>,
     sources: &feature_engine::sources::SourceStore,
     kb: &mut dyn KernelBundle,
-    reuse: Vec<(PartRef, Engine)>,
+    reuse: &mut Vec<(PartRef, Engine)>,
 ) -> AssemblyView {
     let mut ctx = Ctx {
         part_trees,
