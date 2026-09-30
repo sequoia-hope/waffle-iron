@@ -23,7 +23,13 @@
 		getSelectedRefs
 	} from '$lib/engine/store.svelte.js';
 	import { QUERIES } from '$lib/agent/queries.js';
-	import { sendSelection, startViewer, viewerLink } from '$lib/viewer/link.js';
+	import {
+		grantEditing,
+		sendCommand,
+		sendSelection,
+		startViewer,
+		viewerLink
+	} from '$lib/viewer/link.js';
 
 	const params = $page.url.searchParams;
 	const host = (params.get('host') ?? '').replace(/\s+/g, '');
@@ -38,6 +44,33 @@
 		}
 	}
 	const linkError = hostIsValid(host) ? null : 'This viewer link has no valid host address.';
+
+	// V3 (§4.3 `command`): what this viewer can do to the document. Every one
+	// of these is the same tool the agent calls, queued by the host against
+	// the agent's own calls, so the two never interleave mid-rebuild.
+	let busy = $state(null);
+	let commandError = $state(null);
+
+	async function run(label, tool, args = {}) {
+		if (busy) return;
+		busy = label;
+		commandError = null;
+		try {
+			const result = await sendCommand(tool, args);
+			if (result.isError) {
+				commandError = result.structuredContent?.error?.message ?? `${tool} was refused.`;
+			}
+		} catch (err) {
+			commandError = err instanceof Error ? err.message : String(err);
+		} finally {
+			busy = null;
+		}
+	}
+
+	async function toggleEditing() {
+		commandError = null;
+		await grantEditing(!$viewerLink.canCommand);
+	}
 
 	let tabs = $derived(getDocumentTabs());
 	let activeTab = $derived(tabs.find((t) => t.id === getActiveTabId()) ?? null);
@@ -103,9 +136,29 @@
 			<span class="name" data-testid="viewer-document">{$viewerLink.documentName ?? 'Waffle Iron viewer'}</span>
 			<span class="tabs">
 				{#each tabs as tab (tab.id)}
-					<span class="tab" class:active={tab.id === activeTab?.id}>{tab.name}</span>
+					{#if $viewerLink.canCommand}
+						<button
+							class="tab"
+							class:active={tab.id === activeTab?.id}
+							disabled={!!busy}
+							data-testid="viewer-tab"
+							onclick={() => run('switch', 'tab_switch', { tab_id: tab.id })}>{tab.name}</button
+						>
+					{:else}
+						<span class="tab" class:active={tab.id === activeTab?.id}>{tab.name}</span>
+					{/if}
 				{/each}
 			</span>
+			{#if $viewerLink.state === 'attached'}
+				<button
+					class="edit"
+					data-testid="viewer-edit-toggle"
+					aria-pressed={$viewerLink.canCommand}
+					onclick={toggleEditing}
+				>
+					{$viewerLink.canCommand ? 'Editing' : 'View only'}
+				</button>
+			{/if}
 			<span
 				class="status"
 				data-testid="viewer-status"
@@ -118,6 +171,25 @@
 				{#if $viewerLink.state === 'attached'}· {$viewerLink.bodies} {$viewerLink.bodies === 1 ? 'body' : 'bodies'}{/if}
 			</span>
 		</header>
+		{#if $viewerLink.canCommand}
+			<div class="actions" data-testid="viewer-actions">
+				<button disabled={!!busy} onclick={() => run('undo', 'undo')} data-testid="viewer-undo"
+					>Undo</button
+				>
+				<button disabled={!!busy} onclick={() => run('redo', 'redo')} data-testid="viewer-redo"
+					>Redo</button
+				>
+				<button
+					disabled={!!busy}
+					onclick={() => run('save', 'document_save')}
+					data-testid="viewer-save">Save</button
+				>
+				{#if busy}<span class="busy">{busy}…</span>{/if}
+			</div>
+		{/if}
+		{#if commandError}
+			<p class="failure" data-testid="viewer-command-error">{commandError}</p>
+		{/if}
 		{#if $viewerLink.rebuilding}
 			<p class="rebuilding" data-testid="viewer-rebuilding">
 				<span class="spinner"></span>
@@ -189,6 +261,50 @@
 	.tab.active {
 		border-color: var(--accent, #89b4fa);
 		color: var(--text-primary, #cdd6f4);
+	}
+	.edit {
+		flex-shrink: 0;
+		padding: 2px 10px;
+		border-radius: 4px;
+		border: 1px solid var(--border-color, #45475a);
+		background: transparent;
+		color: var(--text-secondary, #a6adc8);
+		font: inherit;
+		cursor: pointer;
+	}
+	.edit[aria-pressed='true'] {
+		border-color: var(--accent, #89b4fa);
+		color: var(--accent, #89b4fa);
+	}
+	.actions {
+		display: flex;
+		align-items: center;
+		gap: 8px;
+		padding: 4px 12px;
+		border-bottom: 1px solid var(--border-color, #45475a);
+		background: var(--bg-secondary, #181825);
+	}
+	.actions button {
+		padding: 3px 10px;
+		border-radius: 4px;
+		border: 1px solid var(--border-color, #45475a);
+		background: transparent;
+		color: var(--text-primary, #cdd6f4);
+		font: inherit;
+		cursor: pointer;
+	}
+	.actions button:disabled {
+		opacity: 0.5;
+		cursor: default;
+	}
+	.busy {
+		font-size: 12px;
+		color: var(--text-secondary, #a6adc8);
+	}
+	button.tab {
+		font: inherit;
+		background: transparent;
+		cursor: pointer;
 	}
 	.status {
 		white-space: nowrap;

@@ -289,7 +289,11 @@ async def test_a_resume_that_holds_the_current_state_gets_only_a_welcome(
     )
     again = await resumed.recv_type("welcome")
     assert again["viewer_id"] == welcome["viewer_id"], "the same viewer"
-    assert len(again["session"].split(".")) == 3, "an HMAC token: viewer_id.expiry.signature"
+    assert len(again["session"].split(".")) == 4, (
+        "an HMAC token: viewer_id.expiry.claims.signature"
+    )
+    assert again["session"].split(".")[2] == "v", "a viewer that has not consented may only look"
+    assert again["can_command"] is False
     # Nothing but the heartbeat (and its token refresh) follows: no snapshot, no blobs.
     assert (await resumed.recv_type("ping", skip=("update",))) == {"type": "ping"}
     refresh = await resumed.recv_type("session")
@@ -532,11 +536,22 @@ def test_viewer_pairing_expires_codes_and_sessions() -> None:
     token, expires_at = pairing.mint("viewer-x")
     assert expires_at == now[0] + 60.0
     assert pairing.admit_session(token).ok
-    viewer_id, expiry, signature = token.split(".")
+    viewer_id, expiry, claims, signature = token.split(".")
+    assert claims == "v", "no command claim without consent"
     assert (
-        pairing.admit_session(f"{viewer_id}.{int(expiry) + 1000}.{signature}").reason
+        pairing.admit_session(f"{viewer_id}.{int(expiry) + 1000}.{claims}.{signature}").reason
         == "session_expired"
-    )
+    ), "an expiry cannot be extended: it is signed"
+    assert (
+        pairing.admit_session(f"{viewer_id}.{expiry}.vc.{signature}").reason == "session_expired"
+    ), "nor can the command claim be added: it is signed too"
+
+    # A token minted WITH the claim carries it back through admission, so a
+    # viewer that consented keeps editing across a reload (§4.7).
+    granted, _ = pairing.mint("viewer-y", can_command=True)
+    admitted_y = pairing.admit_session(granted)
+    assert admitted_y.ok and admitted_y.can_command
+    assert admitted_y.session.split(".")[2] == "vc", "the re-minted token keeps the claim"
     assert (
         ViewerPairing(clock, resume_s=60.0, secret=b"other").admit_session(token).reason
         == "session_expired"
@@ -545,3 +560,81 @@ def test_viewer_pairing_expires_codes_and_sessions() -> None:
     persistent = ViewerPairing(clock, persistent_code="keep", secret=b"s")
     assert persistent.issue_code() == ("keep", None)
     assert persistent.admit_code("keep").ok and persistent.admit_code("keep").ok
+
+
+async def test_a_viewer_may_look_but_not_touch_until_it_consents(
+    stack: tuple[HostBackend, ViewerServer, str],
+) -> None:
+    """V3 (§4.3 `command`, §4.7): a viewer runs tools only after its own
+    consent, the command takes the SAME backend call an agent tool takes, and
+    the change it makes reaches every other viewer the ordinary way."""
+    _backend, server, url = stack
+    viewer, welcome, _snapshot = await attached(url, server)
+    watcher, _w2, _s2 = await attached(url, server)
+    assert welcome["can_command"] is False, "a fresh viewer looks"
+
+    await viewer.send({"type": "command", "id": "c1", "tool": "feature_add", "arguments": {}})
+    refused = await viewer.recv_type("command_result", skip=("update", "snapshot"))
+    assert refused["id"] == "c1" and refused["isError"] is True
+    assert refused["structuredContent"]["error"]["code"] == "CommandNotPermitted"
+
+    # The consent click mints a token that carries the claim.
+    await viewer.send({"type": "consent"})
+    granted = await viewer.recv_type("session")
+    assert granted["can_command"] is True
+    assert granted["session"].split(".")[2] == "vc"
+    # §4.7: the command token is the page's `sessionStorage` one; the
+    # view-only twin beside it is what survives a tab discard.
+    assert granted["resume_session"].split(".")[2] == "v"
+
+    await viewer.send({"type": "command", "id": "c2", "tool": "feature_add", "arguments": {}})
+    # The rebuild bracket runs first — the viewer's own spinner — then the result.
+    started = await viewer.recv_type("rebuild", skip=("update", "snapshot"))
+    assert started["state"] == "started" and started["tool"] == "feature_add"
+    done = await viewer.recv_type("command_result", skip=("rebuild", "update", "snapshot"))
+    assert done["id"] == "c2" and done["isError"] is False
+    assert done["structuredContent"] == {"done": True}
+
+    # The other viewer sees the change without asking for it (§4.6 step 2).
+    change = await watcher.recv_type("update", skip=("rebuild",))
+    assert change["revision"] == 1 and change["base_revision"] == 0
+
+    # The three viewer tools are ANSWERED by a viewer, never called from one.
+    await viewer.send({"type": "command", "id": "c3", "tool": "selection_get", "arguments": {}})
+    loop_refused = await viewer.recv_type("command_result", skip=("update", "snapshot", "rebuild"))
+    assert loop_refused["structuredContent"]["error"]["code"] == "ToolUnavailable"
+
+    # Consent is revocable in the same breath.
+    await viewer.send({"type": "consent", "granted": False})
+    revoked = await viewer.recv_type("session")
+    assert revoked["can_command"] is False and revoked["session"].split(".")[2] == "v"
+    await viewer.send({"type": "command", "id": "c4", "tool": "feature_add", "arguments": {}})
+    again = await viewer.recv_type("command_result", skip=("update", "snapshot", "rebuild"))
+    assert again["structuredContent"]["error"]["code"] == "CommandNotPermitted"
+
+    await viewer.close()
+    await watcher.close()
+
+
+async def test_a_consented_viewer_keeps_editing_across_a_reload(
+    stack: tuple[HostBackend, ViewerServer, str],
+) -> None:
+    """The claim rides in the token, so a killed tab that resumes is still
+    editing — without a second consent click (§4.6 step 4, §4.7)."""
+    _backend, server, url = stack
+    viewer, _welcome, _snapshot = await attached(url, server)
+    await viewer.send({"type": "consent"})
+    granted = await viewer.recv_type("session")
+    await viewer.close()
+
+    resumed = await FakeViewer.connect(url)
+    await resumed.attach(session=granted["session"])
+    welcome = await resumed.recv_type("welcome")
+    assert welcome["can_command"] is True, "the claim survived the reload"
+
+    await resumed.send({"type": "command", "id": "r1", "tool": "feature_add", "arguments": {}})
+    done = await resumed.recv_type(
+        "command_result", skip=("rebuild", "update", "snapshot", "session")
+    )
+    assert done["isError"] is False
+    await resumed.close()

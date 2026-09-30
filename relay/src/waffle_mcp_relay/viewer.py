@@ -121,6 +121,7 @@ class ViewerAdmission:
     expires_at: float | None = None
     reason: str | None = None
     resumed: bool = False
+    can_command: bool = False
 
 
 @dataclass
@@ -184,22 +185,35 @@ class ViewerPairing:
                 return self._start()
         return ViewerAdmission(False, reason="invalid_code")
 
-    def mint(self, viewer_id: str) -> tuple[str, float]:
-        """A token for `viewer_id` valid for the resume window from now."""
+    def mint(self, viewer_id: str, *, can_command: bool = False) -> tuple[str, float]:
+        """A token for `viewer_id` valid for the resume window from now.
+
+        `can_command` puts the V3 `command` claim in the token (§4.7): only a
+        token minted after this viewer's own consent click may mutate, and the
+        page keeps that one in `sessionStorage` alone.
+        """
         expires_at = int(self._clock() + self._resume_s)
-        message = f"{viewer_id}.{expires_at}"
+        claims = "vc" if can_command else "v"
+        message = f"{viewer_id}.{expires_at}.{claims}"
         signature = hmac.new(self._secret, message.encode("ascii"), hashlib.sha256).hexdigest()
         return f"{message}.{signature}", float(expires_at)
 
-    def _verify(self, token: object) -> str | None:
-        """The viewer id a token names, when its signature holds and it has not expired."""
+    def _verify(self, token: object) -> tuple[str, bool] | None:
+        """The viewer id and command claim a token names, when its signature
+        holds and it has not expired. A three-part token is one minted before
+        claims existed: view-only."""
         if not isinstance(token, str):
             return None
         parts = token.split(".")
-        if len(parts) != 3:
+        if len(parts) == 3:
+            viewer_id, expiry, signature = parts
+            claims = "v"
+            message = f"{viewer_id}.{expiry}"
+        elif len(parts) == 4:
+            viewer_id, expiry, claims, signature = parts
+            message = f"{viewer_id}.{expiry}.{claims}"
+        else:
             return None
-        viewer_id, expiry, signature = parts
-        message = f"{viewer_id}.{expiry}"
         expected = hmac.new(self._secret, message.encode("ascii"), hashlib.sha256).hexdigest()
         if not hmac.compare_digest(expected.encode("ascii"), signature.encode("ascii")):
             return None
@@ -208,13 +222,14 @@ class ViewerPairing:
                 return None
         except ValueError:
             return None
-        return viewer_id
+        return viewer_id, claims == "vc"
 
     def admit_session(self, token: object) -> ViewerAdmission:
         self._prune()
-        viewer_id = self._verify(token)
-        if viewer_id is None:
+        verified = self._verify(token)
+        if verified is None:
             return ViewerAdmission(False, reason="session_expired")
+        viewer_id, can_command = verified
         session = self._sessions.get(viewer_id)
         if session is not None:
             if session.connected:
@@ -224,9 +239,14 @@ class ViewerPairing:
                 del self._sessions[viewer_id]
                 return ViewerAdmission(False, reason="session_expired")
         self._sessions[viewer_id] = _Session(connected=True)
-        fresh, expires_at = self.mint(viewer_id)
+        fresh, expires_at = self.mint(viewer_id, can_command=can_command)
         return ViewerAdmission(
-            True, viewer_id=viewer_id, session=fresh, expires_at=expires_at, resumed=True
+            True,
+            viewer_id=viewer_id,
+            session=fresh,
+            expires_at=expires_at,
+            resumed=True,
+            can_command=can_command,
         )
 
     def disconnected(self, viewer_id: str) -> None:
@@ -265,6 +285,9 @@ class ViewerConnection:
     focused_at: float = 0.0
     selection: dict[str, Any] | None = None
     last_pong: float = 0.0
+    # V3: this viewer may run tools (its token carried the claim, or the user
+    # consented in this tab). Every refresh re-mints with the same claim.
+    can_command: bool = False
     send_lock: asyncio.Lock = field(default_factory=asyncio.Lock)
     # Capture / view requests in flight, by id.
     pending: dict[str, asyncio.Future[dict[str, Any]]] = field(default_factory=dict)
@@ -555,6 +578,7 @@ class ViewerServer:
             visible=attach.get("visible") is not False,
             encoding=_pick_encoding(attach.get("encodings")),
             focused_at=loop.time(),
+            can_command=admission.can_command,
         )
         have = attach.get("have")
         if isinstance(have, dict):
@@ -571,6 +595,7 @@ class ViewerServer:
                 "encoding": viewer.encoding,
                 "epoch": self._host.epoch,
                 "host_build": self._host.host_build,
+                "can_command": viewer.can_command,
             }
             await ws.send(json.dumps(welcome))
             await self._send_snapshot_unless_held(viewer)
@@ -644,6 +669,15 @@ class ViewerServer:
                     if viewer.visible:
                         viewer.focused_at = loop.time()
                     await self.push_activity()
+                elif kind == "consent":
+                    # §4.7: the command claim is minted only here, on the
+                    # user's own click in this viewer, and the page keeps the
+                    # token it mints in `sessionStorage` alone.
+                    viewer.can_command = frame.get("granted") is not False
+                    viewer.focused_at = loop.time()
+                    await self._refresh_session(viewer)
+                elif kind == "command":
+                    await self._run_command(viewer, frame)
                 elif kind in ("capture_result", "view_result"):
                     future = viewer.pending.pop(str(frame.get("id")), None)
                     if future is not None and not future.done():
@@ -684,6 +718,93 @@ class ViewerServer:
         except ConnectionClosed:
             pass
 
+    def _session_frame(self, viewer: ViewerConnection) -> dict[str, Any]:
+        """A re-minted token for this viewer, with its current claims.
+
+        A viewer that may command gets a SECOND, view-only token beside it:
+        §4.7 keeps the command token in `sessionStorage` alone, and without a
+        token the page can also keep in `localStorage` an iOS tab discard
+        would cost it the resume entirely. The pair is "edit here, look
+        anywhere": the weaker one is what survives the discard.
+        """
+        token, expires_at = self.pairing.mint(viewer.viewer_id, can_command=viewer.can_command)
+        viewer.session = token
+        frame: dict[str, Any] = {
+            "type": "session",
+            "session": token,
+            "expires_at": expires_at,
+            "can_command": viewer.can_command,
+        }
+        if viewer.can_command:
+            resume, _ = self.pairing.mint(viewer.viewer_id, can_command=False)
+            frame["resume_session"] = resume
+        return frame
+
+    async def _refresh_session(self, viewer: ViewerConnection) -> None:
+        """Re-mint this viewer's token with its current claims and send it."""
+        await self._send_json(viewer, self._session_frame(viewer))
+
+    async def _run_command(self, viewer: ViewerConnection, frame: dict[str, Any]) -> None:
+        """V3 `command{id, tool, arguments}`: a user action from a viewer, run
+        through the SAME backend call an agent tool takes, so the host queues
+        the two against each other and every viewer sees one order (§4.3).
+
+        The answer is a `command_result` carrying the tool result verbatim.
+        The change itself reaches every viewer the usual way — the host emits
+        its snapshot after a mutating tool and `push` turns that into updates.
+        """
+        request_id = frame.get("id")
+        tool = frame.get("tool")
+        arguments = frame.get("arguments")
+        if not isinstance(arguments, dict):
+            arguments = {}
+
+        async def refuse(code: str, message: str, details: dict[str, Any]) -> None:
+            await self._send_json(
+                viewer,
+                {
+                    "type": "command_result",
+                    "id": request_id,
+                    "isError": True,
+                    "content": [{"type": "text", "text": message}],
+                    "structuredContent": {
+                        "error": {"code": code, "message": message, "details": details}
+                    },
+                },
+            )
+
+        if not isinstance(tool, str) or not tool:
+            await refuse("InvalidParams", "command needs a tool name", {})
+            return
+        if not viewer.can_command:
+            await refuse(
+                "CommandNotPermitted",
+                "This viewer may look but not touch: grant editing in the viewer first.",
+                {"tool": tool},
+            )
+            return
+        if tool in VIEWER_TOOLS:
+            # These are ANSWERED by a viewer; letting one call them would ask
+            # the focused viewer (possibly itself) and wait on its own socket.
+            await refuse(
+                "ToolUnavailable",
+                f"{tool} is answered by a viewer, not called from one",
+                {"tool": tool},
+            )
+            return
+        # The user's own input: this viewer is the focused one.
+        viewer.focused_at = asyncio.get_running_loop().time()
+        try:
+            result = await self._host.call(tool, arguments)
+        except LinkError as err:
+            await refuse(err.code, err.message, err.details or {"tool": tool})
+            return
+        except Exception as err:  # noqa: BLE001 - a refusal is better than a dropped frame
+            log.exception("viewer command %s failed", tool)
+            await refuse("Internal", str(err), {"tool": tool})
+            return
+        await self._send_json(viewer, {"type": "command_result", "id": request_id, **result})
+
     async def _heartbeat(self, viewer: ViewerConnection) -> None:
         loop = asyncio.get_running_loop()
         try:
@@ -695,13 +816,10 @@ class ViewerServer:
                     return
                 # A fresh token with every ping (§4.7): the resume window
                 # runs from the viewer's last sign of life, restart or not.
-                token, expires_at = self.pairing.mint(viewer.viewer_id)
-                viewer.session = token
+                frame = self._session_frame(viewer)
                 async with viewer.send_lock:
                     await viewer.ws.send(json.dumps({"type": "ping"}))
-                    await viewer.ws.send(
-                        json.dumps({"type": "session", "session": token, "expires_at": expires_at})
-                    )
+                    await viewer.ws.send(json.dumps(frame))
         except ConnectionClosed:
             return
 

@@ -1,9 +1,12 @@
 # Waffle Iron Server Mode — Headless Kernel Host, Dual-Transport MCP, Viewer Sync
 
 Status: **rev 1 — P-A (S0, S1, S2) complete 2026-09-16; P-B (S3) C1–C6
-complete 2026-09-17; P-C (S4) checkpoint 1 landed 2026-09-23 (§3.5): the
-`waffle-host` binary and the relay's `--kernel host`; wheels (H6), H1/H2/H5
-measurements and the viewer (P-D) are open.** First written 2026-09-15 as
+complete 2026-09-17; P-C (S4) checkpoints 1–2 landed 2026-09-23 (§3.5): the
+`waffle-host` binary and the relay's `--kernel host`; P-D (the viewer)
+checkpoints 1–2 landed 2026-09-23 and V3 (viewer commands) 2026-09-30 (§4.12
+— read it, not this line, for what exists). Open: wheels (H6), H1/H2/H5
+measurements, V7's face-chunk encoding, V8's manual iOS cell, and the V3
+follow-ons in §4.12.** First written 2026-09-15 as
 rev 0 (investigation + spec, no implementation); §2.3 carries the landed
 state, and the audit sections (§0, §1, §3.1) are kept as the survey that
 motivated it — read them as "before S0", not as current.
@@ -643,7 +646,8 @@ Control frames are JSON text; blobs are binary frames
 | V→H | `visible` | `bool` (page visibility; only visible viewers answer capture requests) |
 | H→V / V→H | `capture_request` / `capture_result` | `id`, `max_edge_px` / `id`, `png_base64`, `width`, `height`, or `error{code, message, details}` |
 | H→V / V→H | `view_request` / `view_result` | `id`, `view?`, `fit` / `id`, `camera`, or `error{…}` |
-| V→H | `command` (phase V3) | `id`, `tool`, `arguments` — user actions from the viewer go through the same tool layer and queue |
+| V→H | `command` | `id`, `tool`, `arguments` — user actions from the viewer go through the same tool layer and queue; answered by `command_result{id, content, structuredContent, isError}` |
+| V→H | `consent` | `granted` (default true) — the user's own click grants or withdraws this viewer's `command` claim; answered by a re-minted `session` |
 | both | `ping` / `pong`, `bye` | as rev-2 |
 
 `BodyEntry = {body_id, name, feature_id, visible_default, mesh_id,
@@ -931,11 +935,50 @@ tokens that outlive the process.
   and `target/` cached on `Cargo.lock`), so `viewer.spec.js` is a CI oracle
   rather than a local-only one.
 
-Not yet: `command` (V3 — a viewer still mutates nothing); V4's several
-viewers sharing one document is implemented and tested in the relay but has
-no GUI case; face-chunk encoding (V7 unmeasured); the H3 `decimate_mesh`
-order (previews are not content-addressed — a snapshot carries none);
-`parameters` in the snapshot; V8 (the manual iOS cell).
+**V3 — viewer commands (landed 2026-09-30).** A viewer may now change the
+document, and does it through the same tool layer and the same queue an agent
+call takes, so the two are linearized against each other and every viewer sees
+one order.
+
+- **Relay** (`viewer.py`): `command{id, tool, arguments}` → `HostBackend.call`
+  (the very call `server.py` makes for an agent, so `self._queue` orders them)
+  → `command_result{id, content, structuredContent, isError}`. Refused
+  `CommandNotPermitted` without the claim, and `ToolUnavailable` for the three
+  tools a viewer ANSWERS — letting a viewer call `selection_get` would ask the
+  focused viewer, possibly itself, and wait on its own socket. The change
+  itself needs no special path: the host emits its snapshot after a mutating
+  tool and `push` turns that into the update every viewer already gets.
+- **Auth** (§4.7): the session token grew a claims field —
+  `<viewer_id>.<expiry>.<v|vc>.<hmac>` — so the claim is signed, cannot be
+  edited onto a token, and survives a reload and a relay restart. `consent`
+  (V→H, `granted` to withdraw) is the only thing that mints `vc`, and it is
+  sent by the user's own click in that viewer. A three-part token from before
+  claims existed verifies as view-only. A `vc` session carries a **view-only
+  twin** (`resume_session`) beside it: the page keeps `vc` in `sessionStorage`
+  alone (§4.7) and the twin in `localStorage`, so an iOS tab discard resumes
+  as a viewer that asks again rather than losing the session or silently
+  resuming into editing.
+- **Page** (`link.js`, `/view`): `sendCommand(tool, args)` and
+  `grantEditing(bool)`; `writeStored` splits the two tokens; a **View
+  only / Editing** toggle in the bar, and with it an action row — Undo, Redo,
+  Save — and tab chips that become buttons calling `tab_switch`. In-flight
+  commands are rejected when the socket closes, and the claim is dropped with
+  it.
+- Oracles: `relay/tests/test_viewer.py` (refusal before consent, the rebuild
+  bracket and the result, the other viewer's update, the viewer-tool loop
+  refused, consent withdrawn, the claim surviving a reload, signature
+  coverage of expiry AND claims) and `app/tests/gui/viewer.spec.js` (a real
+  page granting editing, undo/redo changing what the AGENT sees, a tab the
+  agent adds switched from the viewer).
+
+Not yet: the viewer's UI is still its own shell rather than the editor's
+chrome — a phone can look, undo, save and switch tabs, but the toolbar,
+feature dialogs and sketching are not on it (§4.9 keeps interactive sketching
+out of scope; the rest is V3 follow-on work). V4's several viewers sharing one
+document is implemented and tested in the relay but has no GUI case;
+face-chunk encoding (V7 unmeasured); the H3 `decimate_mesh` order (previews
+are not content-addressed — a snapshot carries none); `parameters` in the
+snapshot; V8 (the manual iOS cell).
 
 **Two defects found by building the example headless** (fixed with the
 above, both in the shared engine rather than the host):

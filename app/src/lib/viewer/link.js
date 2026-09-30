@@ -56,6 +56,7 @@ const TERMINAL_BYE = new Set(['invalid_code', 'session_expired', 'protocol_misma
  *   agent: string | null,
  *   viewers: number,
  *   reason: string | null,
+ *   canCommand: boolean,
  * }} ViewerStatus
  */
 
@@ -73,7 +74,10 @@ export const viewerLink = writable({
 	rebuilding: null,
 	agent: null,
 	viewers: 0,
-	reason: null
+	reason: null,
+	// V3 (§4.3 `command`): whether this viewer may run tools. False until the
+	// user grants editing in this tab; the claim then rides in its token.
+	canCommand: false
 });
 
 /** Counters the tests read: what was fetched, what the cache answered. */
@@ -102,6 +106,9 @@ const memory = new Map();
 const decoded = new Map();
 /** Blob requests in flight, by id. */
 const wanted = new Map();
+/** V3 `command` calls in flight, by id. */
+const commands = new Map();
+let nextCommandId = 1;
 /** The full state this viewer holds: the last snapshot with every update merged onto it. */
 let held = null;
 /** The blob encoding this viewer asked for and the host agreed to. */
@@ -132,13 +139,24 @@ function readStored(host) {
 	return null;
 }
 
-/** @param {string} host @param {{ session: string | null, epoch: string | null, revision: number | null } | null} value */
-function writeStored(host, value) {
+/**
+ * @param {string} host
+ * @param {{ session: string | null, epoch: string | null, revision: number | null } | null} value
+ * @param {string | null} [resumeSession] a view-only token for `localStorage`
+ *   when `value.session` carries the command claim (§4.7: a token that may
+ *   mutate is held in `sessionStorage` alone, so another tab of this browser
+ *   cannot resume INTO editing — it resumes as a viewer and asks again).
+ */
+function writeStored(host, value, resumeSession = null) {
 	// Both (§4.6): an iOS tab discard does not reliably keep sessionStorage,
-	// and a viewer holds no authority that another tab could misuse.
-	for (const storage of [sessionStorage, localStorage]) {
+	// and a view-only session holds no authority another tab could misuse.
+	const weaker = value && resumeSession ? { ...value, session: resumeSession } : value;
+	for (const [storage, record] of [
+		[sessionStorage, value],
+		[localStorage, weaker]
+	]) {
 		try {
-			if (value) storage.setItem(storageKey(host), JSON.stringify(value));
+			if (record) storage.setItem(storageKey(host), JSON.stringify(record));
 			else storage.removeItem(storageKey(host));
 		} catch {
 			// unavailable
@@ -237,13 +255,30 @@ function open({ host, code, session, have }) {
 				});
 				// §4.6 step 5: a host in the state this browser holds sends only
 				// this; one that is not sends its snapshot right after.
-				update({ state: 'attached', viewerId: frame.viewer_id, encoding, reason: null, stale: false });
+				update({
+					state: 'attached',
+					viewerId: frame.viewer_id,
+					encoding,
+					reason: null,
+					stale: false,
+					canCommand: frame.can_command === true
+				});
 				break;
 			}
 			case 'session':
 				// A refreshed token (§4.7): the resume window runs from now.
-				rememberSession(frame.session);
+				// `resume_session` rides beside it once this viewer may command.
+				rememberSession(frame.session, frame.resume_session ?? null);
+				if (typeof frame.can_command === 'boolean') update({ canCommand: frame.can_command });
 				break;
+			case 'command_result': {
+				const pending = commands.get(frame.id);
+				if (pending) {
+					commands.delete(frame.id);
+					pending.resolve(frame);
+				}
+				break;
+			}
 			case 'snapshot':
 				viewerStats.snapshots += 1;
 				held = frame;
@@ -300,7 +335,11 @@ function open({ host, code, session, have }) {
 	ws.onclose = () => {
 		if (socket === ws) socket = null;
 		for (const id of [...wanted.keys()]) settle(id, null);
-		update({ rebuilding: null });
+		for (const [id, pending] of [...commands.entries()]) {
+			commands.delete(id);
+			pending.reject(new Error('The viewer link closed before the command answered.'));
+		}
+		update({ rebuilding: null, canCommand: false });
 		if (byeReason !== null && TERMINAL_BYE.has(byeReason)) {
 			update({ state: 'failed', reason: byeReason });
 			return;
@@ -310,15 +349,19 @@ function open({ host, code, session, have }) {
 	};
 }
 
-/** @param {string} session */
-function rememberSession(session) {
+/** @param {string} session @param {string | null} [resumeSession] */
+function rememberSession(session, resumeSession = null) {
 	if (!hostUrl || typeof session !== 'string') return;
 	const stored = readStored(hostUrl);
-	writeStored(hostUrl, {
-		session,
-		epoch: stored?.epoch ?? null,
-		revision: stored?.revision ?? null
-	});
+	writeStored(
+		hostUrl,
+		{
+			session,
+			epoch: stored?.epoch ?? null,
+			revision: stored?.revision ?? null
+		},
+		resumeSession
+	);
 }
 
 /** A snapshot or a merged update: draw it, remember it, cache it. */
@@ -461,6 +504,53 @@ function onBlob(raw) {
  * editor's own `selection_get`, so the answer has one implementation.
  * @param {Record<string, unknown>} payload
  */
+/**
+ * Grant (or withdraw) editing from THIS viewer (§4.7): the relay re-mints
+ * this viewer's token with the `command` claim, and the page keeps that one
+ * in `sessionStorage` alone. Resolves once the relay has answered.
+ * @param {boolean} [granted]
+ * @returns {Promise<boolean>} whether this viewer may command now
+ */
+export function grantEditing(granted = true) {
+	if (!socket || socket.readyState !== WebSocket.OPEN) return Promise.resolve(false);
+	send(socket, { type: 'consent', granted });
+	return new Promise((resolve) => {
+		const stop = viewerLink.subscribe((s) => {
+			if (s.canCommand === granted) {
+				queueMicrotask(() => stop());
+				resolve(granted);
+			}
+		});
+		setTimeout(() => {
+			stop();
+			resolve(false);
+		}, 5000);
+	});
+}
+
+/**
+ * Run one tool on the host from this viewer (§4.3 `command`). The host queues
+ * it against the agent's calls, so both see one order, and the change comes
+ * back as the ordinary `update` every viewer gets.
+ * @param {string} tool
+ * @param {object} [args]
+ * @returns {Promise<{content: any[], structuredContent: any, isError: boolean}>}
+ */
+export function sendCommand(tool, args = {}) {
+	if (!socket || socket.readyState !== WebSocket.OPEN) {
+		return Promise.reject(new Error('The viewer is not connected.'));
+	}
+	const id = `c${nextCommandId++}`;
+	const answer = new Promise((resolve, reject) => {
+		commands.set(id, { resolve, reject });
+		setTimeout(() => {
+			if (commands.delete(id)) reject(new Error(`${tool} did not answer in time.`));
+		}, 120000);
+	});
+	send(socket, { type: 'command', id, tool, arguments: args });
+	return answer;
+}
+
 export function sendSelection(payload) {
 	if (!socket) return;
 	send(socket, { type: 'select', ...payload });
@@ -572,7 +662,11 @@ function installLifecycle() {
 	window.__waffleViewer = {
 		state: () => get(viewerLink),
 		stats: () => ({ ...viewerStats }),
-		dropConnection: () => socket?.close(4001, 'test_drop')
+		dropConnection: () => socket?.close(4001, 'test_drop'),
+		// V3: the command path without the UI, so a test can prove the refusal
+		// a granted viewer never sees.
+		command: (tool, args) => sendCommand(tool, args ?? {}),
+		grant: (granted) => grantEditing(granted !== false)
 	};
 }
 

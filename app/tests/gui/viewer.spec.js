@@ -9,6 +9,9 @@
  *   blob it already holds.
  * - An edit that leaves a body unchanged sends no blob; a new document empties
  *   the view.
+ * - A viewer the user grants editing runs tools on the host through `command`
+ *   (§4.3, V3): undo/redo/save and tab switching change the document the agent
+ *   is holding, and a viewer that was never granted is refused.
  * - Changes arrive as keyed `update` frames (§4.3) behind `rebuild` frames,
  *   the geometry rides in the compact `mq/1` encoding (§4.5), and the viewer
  *   answers `viewport_view`, `viewport_capture` and `selection_get` for the
@@ -187,6 +190,65 @@ test.describe('Viewer (server mode P-D)', () => {
 		// Nothing is left spinning, and the agent the banner would name is known.
 		await expect(page.getByTestId('viewer-rebuilding')).toBeHidden();
 		expect((await viewerState(page)).agent).toBe(AGENT);
+		expectNoAnyCrash(crashes);
+	});
+
+	test('a viewer the user grants editing runs tools on the host, and is refused before that (V3)', async ({
+		page
+	}) => {
+		const crashes = collectCrashErrors(page);
+		const connect = ok(await relay.callTool('waffle_connect'));
+		await page.goto(connect.pairing_url);
+		await page.waitForFunction(() => window.__waffleViewer?.state().state === 'attached', null, {
+			timeout: 30000
+		});
+		await buildBox(relay);
+		await expect.poll(async () => (await viewerState(page)).bodies, { timeout: 20000 }).toBe(1);
+
+		// A viewer looks until its own user says otherwise (§4.7): no claim, no
+		// action row, and the command path itself is refused.
+		expect((await viewerState(page)).canCommand).toBe(false);
+		await expect(page.getByTestId('viewer-edit-toggle')).toHaveAttribute('aria-pressed', 'false');
+		await expect(page.getByTestId('viewer-actions')).toHaveCount(0);
+		const refused = await page.evaluate(() => window.__waffleViewer.command('undo'));
+		expect(refused.isError).toBe(true);
+		expect(refused.structuredContent.error.code).toBe('CommandNotPermitted');
+
+		// The consent click mints the claim; the actions appear with it.
+		await page.getByTestId('viewer-edit-toggle').click();
+		await expect(page.getByTestId('viewer-edit-toggle')).toHaveAttribute('aria-pressed', 'true');
+		await expect(page.getByTestId('viewer-actions')).toBeVisible();
+
+		// Undo runs on the HOST: the viewer's own model follows, and so does
+		// what the agent sees — one document, one order.
+		await page.getByTestId('viewer-undo').click();
+		await expect.poll(async () => (await viewerState(page)).bodies, { timeout: 20000 }).toBe(0);
+		expect(ok(await relay.callTool('model_summary')).bodies).toHaveLength(0);
+
+		await page.getByTestId('viewer-redo').click();
+		await expect.poll(async () => (await viewerState(page)).bodies, { timeout: 20000 }).toBe(1);
+		expect(ok(await relay.callTool('model_summary')).bodies).toHaveLength(1);
+
+		// A tab the agent adds is one the viewer can switch to.
+		const added = ok(await relay.callTool('tab_add', { kind: 'Part', name: 'Second' }));
+		await expect
+			.poll(async () => (await page.getByTestId('viewer-tab').count()), { timeout: 20000 })
+			.toBeGreaterThan(1);
+		await page.getByTestId('viewer-tab').last().click();
+		await expect
+			.poll(async () => ok(await relay.callTool('document_info')).active_tab, { timeout: 20000 })
+			.toBe(added.tab_id);
+
+		// The three viewer tools stay a viewer's to ANSWER, never to call.
+		const looped = await page.evaluate(() => window.__waffleViewer.command('selection_get'));
+		expect(looped.isError).toBe(true);
+		expect(looped.structuredContent.error.code).toBe('ToolUnavailable');
+
+		// Withdrawing consent puts it back to looking.
+		await page.getByTestId('viewer-edit-toggle').click();
+		await expect(page.getByTestId('viewer-edit-toggle')).toHaveAttribute('aria-pressed', 'false');
+		const again = await page.evaluate(() => window.__waffleViewer.command('undo'));
+		expect(again.structuredContent.error.code).toBe('CommandNotPermitted');
 		expectNoAnyCrash(crashes);
 	});
 });
