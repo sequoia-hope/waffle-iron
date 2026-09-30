@@ -289,9 +289,7 @@ async def test_a_resume_that_holds_the_current_state_gets_only_a_welcome(
     )
     again = await resumed.recv_type("welcome")
     assert again["viewer_id"] == welcome["viewer_id"], "the same viewer"
-    assert len(again["session"].split(".")) == 4, (
-        "an HMAC token: viewer_id.expiry.claims.signature"
-    )
+    assert len(again["session"].split(".")) == 4, "an HMAC token: viewer_id.expiry.claims.signature"
     assert again["session"].split(".")[2] == "v", "a viewer that has not consented may only look"
     assert again["can_command"] is False
     # Nothing but the heartbeat (and its token refresh) follows: no snapshot, no blobs.
