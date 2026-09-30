@@ -353,6 +353,20 @@ let axisVisibility = $state(new Map());
 let bodyVisibility = $state(new Map());
 
 /**
+ * Assembly instances hidden from the viewport, by instance id. An assembly
+ * body's id is its leaf path followed by the part-local body id
+ * (`render_view.rs::body_id_of`: `<instance uuid>/…/<feature uuid>/<key>`), so
+ * hiding one id hides the instance AND everything under it when it is a
+ * sub-assembly, without enumerating bodies that a rebuild may replace.
+ *
+ * This is a display filter, nothing more. An instance's `suppressed` flag is
+ * the model-level opposite: it takes the instance out of the mate solve and is
+ * saved with the document.
+ * @type {Set<string>}
+ */
+let hiddenInstances = $state(new Set());
+
+/**
  * Test-introspection counters: the number of edge bodies and topological
  * vertices the overlays are ACTUALLY rendering right now. The overlay
  * components publish their derived render-array lengths here so GUI tests can
@@ -6677,7 +6691,15 @@ export function hideAllAxes() {
  * @returns {boolean}
  */
 export function isBodyVisible(bodyId) {
-	return bodyVisibility.get(bodyId) ?? true;
+	if (bodyVisibility.get(bodyId) === false) return false;
+	if (hiddenInstances.size === 0) return true;
+	// An assembly body id is `<instance uuid>/…/<feature uuid>/<key>`: any
+	// instance segment on the path being hidden hides the body.
+	const parts = bodyId.split('/');
+	for (let i = 0; i < parts.length - 2; i++) {
+		if (hiddenInstances.has(parts[i])) return false;
+	}
+	return true;
 }
 
 /**
@@ -6688,6 +6710,39 @@ export function toggleBodyVisibility(bodyId) {
 	const next = new Map(bodyVisibility);
 	next.set(bodyId, !(bodyVisibility.get(bodyId) ?? true));
 	bodyVisibility = next;
+}
+
+// -- Assembly instance visibility --
+
+/**
+ * Whether an assembly instance is shown in the viewport. Purely client-side:
+ * no engine message, no rebuild, no autosave — unlike `suppressed`, which is a
+ * model edit (see `hiddenInstances`).
+ * @param {string} instanceId
+ * @returns {boolean}
+ */
+export function isInstanceVisible(instanceId) {
+	return !hiddenInstances.has(instanceId);
+}
+
+/**
+ * Show or hide an assembly instance (and, for a sub-assembly, its members).
+ * @param {string} instanceId
+ */
+export function toggleInstanceVisibility(instanceId) {
+	const next = new Set(hiddenInstances);
+	if (!next.delete(instanceId)) next.add(instanceId);
+	hiddenInstances = next;
+}
+
+/** Show every hidden assembly instance. */
+export function showAllInstances() {
+	if (hiddenInstances.size > 0) hiddenInstances = new Set();
+}
+
+/** How many assembly instances are hidden (for the panel's "show all"). */
+export function hiddenInstanceCount() {
+	return hiddenInstances.size;
 }
 
 // -- Feature-edit rollback --

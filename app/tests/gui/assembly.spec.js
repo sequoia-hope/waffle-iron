@@ -131,6 +131,31 @@ test.describe('Assemblies', () => {
 		await page.waitForFunction(() => (window.__waffle.getAssemblyStatus()?.errors ?? []).length === 0, { timeout: 10000 });
 	});
 
+	test('hiding an instance is display-only, and showing it back is free', async ({ waffle }) => {
+		const page = waffle.page;
+		const partTab = await cubePartAndAssembly(page);
+		await page.evaluate((t) => window.__waffle.addInstance({ tabId: t, name: 'A' }), partTab);
+		const b = await page.evaluate((t) => window.__waffle.addInstance({ tabId: t, name: 'B', transform: { translation_m: [0.03, 0, 0], rotation_quat: [0, 0, 0, 1] } }), partTab);
+		await page.waitForFunction(() => window.__waffle.getMeshes().length === 2, { timeout: 30000 });
+		await page.waitForFunction((n) => window.__waffle.getRenderedOverlayPlacements().edges.length === n, 2, { timeout: 10000 });
+
+		// The eye on B's row: the viewport drops it, the MODEL does not move.
+		await page.locator('[data-testid="asm-instance-visibility-1"]').click();
+		await page.waitForFunction((n) => window.__waffle.getRenderedOverlayPlacements().edges.length === n, 1, { timeout: 10000 });
+		const drawn = await page.evaluate(() => window.__waffle.getRenderedOverlayPlacements().edges);
+		expect(drawn.some((e) => e.bodyId.startsWith(b + '/'))).toBe(false);
+		// Still two bodies in the engine, still unsuppressed, still placed: this
+		// is a render filter, not an edit.
+		expect(await page.evaluate(() => window.__waffle.getMeshes().length)).toBe(2);
+		const asm = await page.evaluate(() => window.__waffle.getAssembly());
+		expect(asm.instances.every((i) => !i.suppressed)).toBe(true);
+		expect(asm.placements[b].translation_m).toEqual([0.03, 0, 0]);
+
+		// Show all brings it straight back — nothing was rebuilt to get it.
+		await page.locator('[data-testid="asm-show-all-instances"]').click();
+		await page.waitForFunction((n) => window.__waffle.getRenderedOverlayPlacements().edges.length === n, 2, { timeout: 10000 });
+	});
+
 	test('the assembly saves with the document and reopens on its tab from storage', async ({ waffle }) => {
 		const page = waffle.page;
 		const partTab = await cubePartAndAssembly(page);
@@ -176,7 +201,10 @@ test.describe('Assemblies', () => {
 		await page.waitForFunction(() => window.__waffle.getMeshes().length === 2, { timeout: 30000 });
 		await expect(page.locator('[data-testid="asm-instance-1"]')).toBeVisible();
 
-		// Move the second instance 25 mm in x through the panel.
+		// Move the second instance 25 mm in x through the panel. The transform
+		// fields live behind the row's own `pos` disclosure.
+		await page.locator('[data-testid="asm-instance-position-toggle-1"]').click();
+		await expect(page.locator('[data-testid="asm-instance-tx-1"]')).toBeVisible();
 		await page.locator('[data-testid="asm-instance-tx-1"]').fill('25');
 		await page.locator('[data-testid="asm-instance-tx-1"]').press('Enter');
 		await page.waitForFunction(() => {

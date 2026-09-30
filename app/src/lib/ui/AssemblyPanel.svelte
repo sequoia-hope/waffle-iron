@@ -32,6 +32,10 @@
 		getSourceTabs,
 		getActiveTabId,
 		openPartInContext,
+		isInstanceVisible,
+		toggleInstanceVisibility,
+		showAllInstances,
+		hiddenInstanceCount,
 		MATE_KINDS
 	} from '$lib/engine/store.svelte.js';
 	import { eulerDegToQuat, quatToEulerDeg } from '$lib/engine/rotation.js';
@@ -54,6 +58,19 @@
 		}
 		return opts;
 	});
+	/**
+	 * Instances whose position row is open. The transform numbers are six
+	 * fields per instance — the panel is unreadable with them all showing, and
+	 * they are an occasional edit, so each row reveals its own.
+	 * @type {Set<string>}
+	 */
+	let positionsOpen = $state(new Set());
+	function togglePositions(id) {
+		const next = new Set(positionsOpen);
+		if (!next.delete(id)) next.add(id);
+		positionsOpen = next;
+	}
+
 	let selectedInstance = $derived(getSelectedInstanceId());
 	let selectedPath = $derived(getSelectedInstancePath());
 	/** A same-document Part instance can be edited in this assembly's context. */
@@ -221,9 +238,14 @@
 {#if asm}
 	<div class="assembly-panel" data-testid="assembly-panel">
 		<div class="section">
-			<div class="section-header">Instances ({asm.instances.length})</div>
+			<div class="section-header">
+				Instances ({asm.instances.length})
+				{#if hiddenInstanceCount() > 0}
+					<button class="act" data-testid="asm-show-all-instances" title="Show every instance hidden from the viewport" onclick={() => showAllInstances()}>show all ({hiddenInstanceCount()})</button>
+				{/if}
+			</div>
 			{#each asm.instances as inst, i (inst.id)}
-				<div class="row instance" class:selected={selectedInstance === inst.id} data-testid="asm-instance-{i}">
+				<div class="row instance" class:selected={selectedInstance === inst.id} class:hidden-item={!isInstanceVisible(inst.id)} data-testid="asm-instance-{i}">
 					<div class="row-main">
 						<input
 							class="name"
@@ -232,6 +254,14 @@
 							onchange={(e) => run(() => updateInstance(inst.id, { name: e.currentTarget.value }))}
 						/>
 						<span class="meta" data-testid="asm-instance-part-{i}">{partName(inst)}</span>
+						<button
+							class="act visibility-toggle"
+							title={isInstanceVisible(inst.id) ? 'Hide from the viewport (display only)' : 'Show in the viewport'}
+							data-testid="asm-instance-visibility-{i}"
+							onclick={() => toggleInstanceVisibility(inst.id)}
+						>
+							{isInstanceVisible(inst.id) ? '◉' : '◎'}
+						</button>
 						{#if editableInContext(inst)}
 							<button class="act" title="Edit this part in the context of the assembly (the other instances show as ghosts)" data-testid="asm-instance-edit-context-{i}" disabled={busy} onclick={() => run(() => openPartInContext([inst.id]))}>edit</button>
 						{/if}
@@ -239,21 +269,33 @@
 					</div>
 					<div class="row-sub">
 						<label title="Grounded: never moved by mates"><input type="checkbox" data-testid="asm-instance-fixed-{i}" checked={!!inst.fixed} disabled={busy} onchange={(e) => run(() => updateInstance(inst.id, { fixed: e.currentTarget.checked }))} /> fixed</label>
-						<label><input type="checkbox" data-testid="asm-instance-suppressed-{i}" checked={!!inst.suppressed} disabled={busy} onchange={(e) => run(() => updateInstance(inst.id, { suppressed: e.currentTarget.checked }))} /> hide</label>
-						<span class="xyz">
-							{#each ['x', 'y', 'z'] as axis, k}
-								<input class="num" type="number" step="0.1" title="{axis} (mm)" data-testid="asm-instance-t{axis}-{i}" value={mm(inst.transform?.translation_m?.[k])} disabled={busy} onchange={(e) => setTranslation(inst, k, e.currentTarget.value)} />
-							{/each}
-							<span class="unit">mm</span>
-						</span>
-						<span class="xyz" title="rotation, XYZ Euler (°)">
-							{#each ['x', 'y', 'z'] as axis, k}
-								<input class="num" type="number" step="5" title="rotate about {axis} (°)" data-testid="asm-instance-r{axis}-{i}" value={eulerOf(inst)[k]} disabled={busy} onchange={(e) => setRotation(inst, k, e.currentTarget.value)} />
-							{/each}
-							<span class="unit">°</span>
-						</span>
+						<label title="Suppressed: out of the model — no mate solve, saved with the document"><input type="checkbox" data-testid="asm-instance-suppressed-{i}" checked={!!inst.suppressed} disabled={busy} onchange={(e) => run(() => updateInstance(inst.id, { suppressed: e.currentTarget.checked }))} /> suppress</label>
+						<button
+							class="act"
+							title={positionsOpen.has(inst.id) ? 'Hide position' : 'Show position and rotation'}
+							data-testid="asm-instance-position-toggle-{i}"
+							onclick={() => togglePositions(inst.id)}
+						>
+							{positionsOpen.has(inst.id) ? '▾' : '▸'} pos
+						</button>
 						<button class="act" title="Connector at this instance's origin" data-testid="asm-instance-origin-connector-{i}" disabled={busy} onclick={() => handleAddOriginConnector(inst)}>+ frame</button>
 					</div>
+					{#if positionsOpen.has(inst.id)}
+						<div class="row-sub" data-testid="asm-instance-position-{i}">
+							<span class="xyz">
+								{#each ['x', 'y', 'z'] as axis, k}
+									<input class="num" type="number" step="0.1" title="{axis} (mm)" data-testid="asm-instance-t{axis}-{i}" value={mm(inst.transform?.translation_m?.[k])} disabled={busy} onchange={(e) => setTranslation(inst, k, e.currentTarget.value)} />
+								{/each}
+								<span class="unit">mm</span>
+							</span>
+							<span class="xyz" title="rotation, XYZ Euler (°)">
+								{#each ['x', 'y', 'z'] as axis, k}
+									<input class="num" type="number" step="5" title="rotate about {axis} (°)" data-testid="asm-instance-r{axis}-{i}" value={eulerOf(inst)[k]} disabled={busy} onchange={(e) => setRotation(inst, k, e.currentTarget.value)} />
+								{/each}
+								<span class="unit">°</span>
+							</span>
+						</div>
+					{/if}
 				</div>
 			{/each}
 			{#if selectedPath && selectedPath.length > 1}
@@ -421,6 +463,10 @@
 		padding: 4px 12px;
 		font-weight: 600;
 		color: var(--text-secondary, #a6adc8);
+		display: flex;
+		align-items: center;
+		gap: 6px;
+		flex-wrap: wrap;
 	}
 	.row {
 		padding: 3px 12px;
@@ -498,6 +544,18 @@
 	}
 	.act.primary {
 		border-color: var(--accent, #89b4fa);
+	}
+	/* Hidden from the viewport — the row is still fully editable. */
+	.row.instance.hidden-item .name,
+	.row.instance.hidden-item .meta,
+	.row.instance.hidden-item .row-sub {
+		opacity: 0.4;
+	}
+	/* The eye reads as state, not as a button: no chrome around it. */
+	.visibility-toggle {
+		border-color: transparent;
+		padding: 0 2px;
+		font-size: 12px;
 	}
 	.act:disabled {
 		opacity: 0.5;
