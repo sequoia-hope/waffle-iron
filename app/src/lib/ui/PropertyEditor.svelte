@@ -76,6 +76,11 @@
 					{ key: 'params.radius', label: 'Radius', type: 'number', value: operation.params?.radius },
 					{ key: 'params.inner_radius', label: 'Bore radius', type: 'number', value: operation.params?.inner_radius },
 				];
+			case 'Sweep':
+				return [
+					{ key: '_info', label: 'Path', type: 'info', value: operation.params?.path?.type === 'Sketch3d' ? '3D sketch chain' : `${operation.params?.path?.entity_ids?.length ?? 0} sketch entities` },
+					{ key: '_info2', label: 'Combine', type: 'info', value: operation.params?.combine ?? 'NewBody' },
+				];
 			case 'Fillet':
 				return [
 					{ key: 'params.radius', label: 'Radius', type: 'number', value: operation.params?.radius },

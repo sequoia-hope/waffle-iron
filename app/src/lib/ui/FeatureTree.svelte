@@ -468,6 +468,7 @@
 			case 'Extrude': return '\u25A7';
 			case 'Revolve': return '\u21BB';
 			case 'Pipe': return '\u2312';
+			case 'Sweep': return '\u2933';
 			case 'Fillet': return '\u25CF';
 			case 'Chamfer': return '\u25C6';
 			case 'Shell': return '\u25A1';

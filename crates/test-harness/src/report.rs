@@ -161,6 +161,7 @@ impl ModelBuilder {
                 Operation::PatternLinear { .. } => "PatternLinear",
                 Operation::PatternMirror { .. } => "PatternMirror",
                 Operation::Pipe { .. } => "Pipe",
+                Operation::Sweep { .. } => "Sweep",
                 Operation::Script { .. } => "Script",
                 Operation::UnionAll { .. } => "UnionAll",
                 Operation::Unknown(_) => "Unknown",
@@ -400,6 +401,14 @@ fn describe_operation(op: &Operation) -> String {
         Operation::Pipe { params } => format!(
             "Pipe: sketch={} entities={:?} radius={:.4} inner={:?}",
             params.sketch_id, params.entity_ids, params.radius, params.inner_radius
+        ),
+        Operation::Sweep { params } => format!(
+            "Sweep: section sketch={} profile={} region={} path={:?} combine={:?}",
+            params.sketch_id,
+            params.profile_index,
+            params.region.is_some(),
+            params.path,
+            params.combine
         ),
         Operation::UnionAll { params } => match &params.targets {
             feature_engine::types::UnionTargets::All => "UnionAll: all live bodies".to_string(),

@@ -296,6 +296,12 @@ pub enum Operation {
     Pipe {
         params: PipeParams,
     },
+    /// General sweep: a planar sketch profile along an open or closed chain
+    /// of lines and arcs from a planar sketch or a `Sketch3d`, one solid
+    /// (`specs/b6_general_sweep.md` S6).
+    Sweep {
+        params: SweepParams,
+    },
     /// A custom feature script (`specs/custom_features_and_modeling_roadmap.md`
     /// Part A): a Rhai script from the document's sources table, run inside
     /// the engine over the same operations the tree has.
@@ -371,6 +377,9 @@ enum KnownOperation {
     Pipe {
         params: PipeParams,
     },
+    Sweep {
+        params: SweepParams,
+    },
     Script {
         params: ScriptParams,
     },
@@ -396,6 +405,7 @@ pub const OPERATION_TAGS: &[&str] = &[
     "PatternLinear",
     "PatternMirror",
     "Pipe",
+    "Sweep",
     "Script",
     "UnionAll",
 ];
@@ -418,6 +428,7 @@ impl From<KnownOperation> for Operation {
             KnownOperation::PatternLinear { params } => Operation::PatternLinear { params },
             KnownOperation::PatternMirror { params } => Operation::PatternMirror { params },
             KnownOperation::Pipe { params } => Operation::Pipe { params },
+            KnownOperation::Sweep { params } => Operation::Sweep { params },
             KnownOperation::Script { params } => Operation::Script { params },
             KnownOperation::UnionAll { params } => Operation::UnionAll { params },
         }
@@ -458,6 +469,7 @@ impl Operation {
             Operation::PatternLinear { .. } => "PatternLinear",
             Operation::PatternMirror { .. } => "PatternMirror",
             Operation::Pipe { .. } => "Pipe",
+            Operation::Sweep { .. } => "Sweep",
             Operation::Script { .. } => "Script",
             Operation::UnionAll { .. } => "UnionAll",
             Operation::Unknown(v) => crate::opaque::type_tag(v),
@@ -858,6 +870,101 @@ pub struct PipeParams {
 /// pipe has no profile).
 #[allow(dead_code)]
 pub(crate) fn normalize_pipe_combine(params: &PipeParams) -> EffectiveCombine {
+    let mode = params.combine.unwrap_or(CombineMode::NewBody);
+    let targets = match mode {
+        CombineMode::NewBody => TargetStrategy::Explicit(Vec::new()),
+        _ => match &params.targets {
+            Some(list) if !list.is_empty() => TargetStrategy::Explicit(list.clone()),
+            _ => TargetStrategy::MostRecentLegacy,
+        },
+    };
+    EffectiveCombine { mode, targets }
+}
+
+/// Parameters for a general sweep (`specs/b6_general_sweep.md` S6): a
+/// planar sketch profile (the SECTION) carried along a path of lines and
+/// arcs, built by the kernel as ONE solid — consecutive segments share
+/// their rim, no boolean between them. Lengths in meters.
+///
+/// The section is used exactly where it is drawn (nothing auto-centres it):
+/// the **pierce rule** requires the section sketch's plane to be
+/// perpendicular to the path's start tangent and the path's start point to
+/// lie in that plane, so draw the section on a plane through the path's
+/// first point, normal to its first segment. The path may be OPEN (two
+/// planar caps) or CLOSED (a ring, no caps). A corner between two STRAIGHT
+/// segments is mitred by the bisector plane; a bend (an arc) must be entered
+/// and left tangentially — a corner at an arc is refused. For now the
+/// section must be a plain polygon: a circle, an arc-bearing profile or a
+/// profile with holes is refused as a typed capability wall (B6 S4), never
+/// silently approximated by its chord polygon.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "json-schema", derive(schemars::JsonSchema))]
+pub struct SweepParams {
+    /// The SECTION sketch feature's id (a planar sketch).
+    pub sketch_id: Uuid,
+    /// Whole-loop profile of the section sketch, like `ExtrudeParams`
+    /// (ignored when `profile_entity_ids` or `region` is present).
+    pub profile_index: usize,
+    /// See `ExtrudeParams::profile_entity_ids`: the section is the solved
+    /// loop bounded by exactly this entity-id set.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub profile_entity_ids: Option<Vec<u32>>,
+    /// Explicit sub-region of the section sketch (an `outer` polygon, no
+    /// holes) that no whole-loop profile denotes, like
+    /// `ExtrudeParams::region`. When `Some`, `profile_index` is ignored.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub region: Option<waffle_types::Region>,
+    /// Where the path comes from: lines/arcs of a planar sketch, or a chain
+    /// of a `Sketch3d`.
+    pub path: SweepPathRef,
+    /// Boolean combine against `targets`; `None` ⇒ NewBody.
+    #[serde(default)]
+    pub combine: Option<CombineMode>,
+    /// Explicit target bodies for `Add`/`Cut`/`Intersect`. A combine with
+    /// no targets falls back to the most recent solid body (the pipe's
+    /// rule: the section's plane rarely shares a face with anything).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub targets: Option<Vec<GeomRef>>,
+}
+
+/// The path of a sweep (`specs/b6_general_sweep.md` §8). Either source
+/// yields the same world-space chain, so the kernel never learns which it
+/// was; the chain is re-extracted from the CURRENT sketch at every rebuild,
+/// so editing the path re-sweeps the solid.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(tag = "type")]
+#[cfg_attr(feature = "json-schema", derive(schemars::JsonSchema))]
+pub enum SweepPathRef {
+    /// Lines and arcs of a planar sketch (construction geometry allowed),
+    /// in any order, forming ONE chain. Open: the path starts at the free
+    /// end holding the FIRST listed entity. Closed: the path starts at the
+    /// START point of the FIRST listed entity and walks in that entity's
+    /// own direction — so the first entity you list is where the section
+    /// pierces (its sketch plane must contain that point and be
+    /// perpendicular to that entity's direction there). Branching or
+    /// disconnected selections are refused. The path sketch may be the
+    /// section sketch itself or another sketch.
+    Sketch {
+        sketch_id: Uuid,
+        entity_ids: Vec<u32>,
+    },
+    /// A chain of a `Sketch3d` feature (its lines, arcs and fillets,
+    /// evaluated at rebuild): the chain containing `entity_id`, or the
+    /// sketch's only chain when `entity_id` is absent — a sketch with
+    /// several chains and no `entity_id` is refused. The chain is used as
+    /// the 3D sketch evaluates it (`sketch3d_get` shows the order): the
+    /// section pierces at its first edge's start point and the sweep runs
+    /// in that edge's direction.
+    Sketch3d {
+        sketch_id: Uuid,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        entity_id: Option<u32>,
+    },
+}
+
+/// Normalize a sweep's combine choice: the pipe's rule (`None` ⇒ NewBody; a
+/// mode with no explicit targets ⇒ the most recent solid body).
+pub(crate) fn normalize_sweep_combine(params: &SweepParams) -> EffectiveCombine {
     let mode = params.combine.unwrap_or(CombineMode::NewBody);
     let targets = match mode {
         CombineMode::NewBody => TargetStrategy::Explicit(Vec::new()),

@@ -5729,7 +5729,7 @@ export function showBooleanDialog() {
 	// body is not an operand (the engine refuses a consumed one loudly,
 	// `specs/b4_balanced_union.md` §2.4).
 	const bodies = tree.features
-		.filter(f => ['Extrude', 'Revolve', 'Pipe', 'BooleanCombine', 'UnionAll', 'Chamfer', 'Fillet', 'Shell', 'ImportedBody', 'PatternCircular', 'PatternLinear', 'PatternMirror', 'Script'].includes(f.operation?.type))
+		.filter(f => ['Extrude', 'Revolve', 'Pipe', 'Sweep', 'BooleanCombine', 'UnionAll', 'Chamfer', 'Fillet', 'Shell', 'ImportedBody', 'PatternCircular', 'PatternLinear', 'PatternMirror', 'Script'].includes(f.operation?.type))
 		.filter(f => !f.suppressed && !consumedFeatures.has(f.id))
 		.map(f => ({ featureId: f.id, name: f.name }));
 

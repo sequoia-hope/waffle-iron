@@ -226,10 +226,6 @@ pub enum KernelV2Error {
     /// rounding.
     SweepPathNotChained { segment: usize },
 
-    /// The path returns to its start: a closed sweep (no caps, every joint
-    /// mitred) is spec §5.2 / increment S5.
-    SweepClosedPathUnsupported,
-
     /// Path segment `segment` is malformed: a non-finite endpoint, a
     /// zero-length line, an arc with a non-positive radius, an endpoint off
     /// its own circle or out of its arc plane, or a full-circle arc.
@@ -274,6 +270,26 @@ pub enum KernelV2Error {
     /// The section's `(u, v)` basis is not orthonormal, so reading section
     /// coordinates in the transported frame would skew the swept solid.
     SweepSectionBasisNotOrthonormal,
+
+    /// The sweep assembler (B6 S2) takes a POLYGON section without holes.
+    /// A circle section is `pipe`; holed and arc-bearing sections round a
+    /// bend are increment S4 (`specs/b6_general_sweep.md` §2, §11).
+    /// `reason` names the unsupported shape.
+    SweepSectionUnsupported { reason: &'static str },
+
+    /// Section edge `edge` is neither parallel nor perpendicular to arc
+    /// segment `segment`'s revolve axis, so sweeping it round the bend is an
+    /// arc-bounded CONE patch — increment S3 (KV6c increment 5). A section
+    /// drawn with its edges along and across the path plane's normal (a
+    /// rectangle, an L, a stepped rim) never hits this.
+    SweepObliqueEdgeOnBend { segment: usize, edge: usize },
+
+    /// A CLOSED path whose parallel-transported section frame does not
+    /// return to its start (a 3D ring with holonomy): the last segment's
+    /// far rim and the first segment's near rim would be different curves,
+    /// so the ring cannot close without a twist. A planar closed path has
+    /// no holonomy and never hits this (spec §5.2 / S5).
+    SweepClosedPathTwisted,
 
     /// Slice under construction: the named entry point is specified (RED
     /// oracles pin its contract) but not implemented yet.

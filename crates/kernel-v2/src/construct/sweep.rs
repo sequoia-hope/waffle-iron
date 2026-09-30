@@ -421,6 +421,12 @@ pub struct SweepPath {
     stations: Vec<SweepStation>,
     segments: Vec<SweepSegment>,
     length: f64,
+    /// A ring (spec §5.2 / S5): the last segment ends where the first
+    /// starts. There are still `segments + 1` stations — the last one is
+    /// station 0 seen from the other side, computed from the same two
+    /// tangents so its cut plane is bit-identical — and the assembler
+    /// builds no caps and one ring of rims.
+    closed: bool,
 }
 
 /// Per-edge geometry, derived once in step 2 of [`SweepPath::new`].
@@ -440,13 +446,20 @@ impl SweepPath {
     ///    swept solid), and the **pierce rule** holds — the section plane is
     ///    perpendicular to the path's start tangent and the path's start
     ///    point lies in it;
-    /// 2. the chain is non-empty, OPEN (a closed path is S5), chained
-    ///    head-to-tail exactly, and every segment is well formed;
+    /// 2. the chain is non-empty, chained head-to-tail exactly (a chain
+    ///    whose last segment ends at its first segment's start is CLOSED —
+    ///    a ring, S5 — whether or not it says so), and every segment is
+    ///    well formed;
     /// 3. every joint is either G1 or a mitre between two STRAIGHT segments,
-    ///    and no joint doubles back;
+    ///    and no joint doubles back — on a ring the wrap-around joint too;
     /// 4. every line segment keeps positive length between its two cut
     ///    planes for every point of the section, and every arc segment's
-    ///    section clears its revolve axis.
+    ///    section clears its revolve axis;
+    /// 5. on a ring, the frame transported once round the loop returns to
+    ///    the section's own frame (no holonomy) — a planar ring always does;
+    ///    a skew 3D ring that does not is refused
+    ///    ([`KernelV2Error::SweepClosedPathTwisted`]) rather than built
+    ///    with a twist at one joint.
     ///
     /// The frames are parallel-transported (spec §6) as the stations are
     /// built, so there is no second pass and nothing to keep in step.
@@ -466,18 +479,22 @@ impl SweepPath {
         if chain.edges.is_empty() {
             return Err(KernelV2Error::SweepPathEmpty);
         }
-        if chain.closed {
-            return Err(KernelV2Error::SweepClosedPathUnsupported);
-        }
         let n = chain.edges.len();
         for i in 0..n - 1 {
             if chain.edges[i].b != chain.edges[i + 1].a {
                 return Err(KernelV2Error::SweepPathNotChained { segment: i });
             }
         }
-        if n > 1 && chain.edges[n - 1].b == chain.edges[0].a {
-            return Err(KernelV2Error::SweepClosedPathUnsupported);
+        // A ring is a ring by its coordinates, not by its flag: a chain that
+        // returns to its start is closed whether or not it says so, and one
+        // that claims closure without returning is mis-chained at its last
+        // joint. (A single edge cannot close: `edge_geometry` refuses the
+        // zero-length line and the full-circle arc that would.)
+        let returns = n > 1 && chain.edges[n - 1].b == chain.edges[0].a;
+        if chain.closed && !returns {
+            return Err(KernelV2Error::SweepPathNotChained { segment: n - 1 });
         }
+        let closed = returns;
 
         // ---- 2b. per-segment geometry ------------------------------------
         let mut geoms: Vec<EdgeGeom> = Vec::with_capacity(n);
@@ -519,12 +536,24 @@ impl SweepPath {
         let mut stations: Vec<SweepStation> = Vec::with_capacity(n + 1);
 
         for i in 0..=n {
+            // On a ring, station 0 and station n are the same joint seen
+            // from either side: both take the last segment's end tangent as
+            // `t_in` and the first segment's start tangent as `t_out`, so
+            // their cut planes come out bit-identical.
             let t_in = if i > 0 {
                 Some(geoms[i - 1].t_end)
+            } else if closed {
+                Some(geoms[n - 1].t_end)
             } else {
                 None
             };
-            let t_out = if i < n { Some(geoms[i].t_start) } else { None };
+            let t_out = if i < n {
+                Some(geoms[i].t_start)
+            } else if closed {
+                Some(geoms[0].t_start)
+            } else {
+                None
+            };
             let point = if i < n {
                 geoms[i].start
             } else {
@@ -551,7 +580,11 @@ impl SweepPath {
                     } else {
                         let straight =
                             |g: &EdgeGeom| matches!(g.kind, SweepSegmentKind::Line { .. });
-                        if !straight(&geoms[i - 1]) || !straight(&geoms[i]) {
+                        // The incoming segment: the previous one, or on a
+                        // ring's wrap-around joint (station 0 and station
+                        // n alike) the last one.
+                        let incoming = if i > 0 { i - 1 } else { n - 1 };
+                        if !straight(&geoms[incoming]) || !straight(&geoms[i % n]) {
                             return Err(KernelV2Error::SweepMitreAtCurvedJoint { joint: i });
                         }
                         let bisector = unit3(add3(ti, to))
@@ -666,6 +699,22 @@ impl SweepPath {
             }
         }
 
+        // ---- 5. a ring must close without a twist ------------------------
+        // The frame carried once round the loop and turned through the
+        // wrap-around joint must be the seed again: the last lateral's far
+        // rim IS ring 0, so a frame that comes back rotated would join a
+        // rotated section to the drawn one. A planar ring has no holonomy;
+        // a skew 3D ring generally does, and is refused rather than built
+        // with one twisted joint.
+        if closed {
+            let back = stations[n].frame_out.unwrap_or(stations[n].frame);
+            let agree =
+                dot3(of_unit(back.x), of_unit(seed.x)).min(dot3(of_unit(back.y), of_unit(seed.y)));
+            if 1.0 - agree > SWEEP_TANGENT_TOLERANCE {
+                return Err(KernelV2Error::SweepClosedPathTwisted);
+            }
+        }
+
         let segments: Vec<SweepSegment> = geoms
             .iter()
             .map(|g| SweepSegment {
@@ -682,7 +731,13 @@ impl SweepPath {
             stations,
             segments,
             length,
+            closed,
         })
+    }
+
+    /// Whether the path is a ring (module docs on `closed`).
+    pub fn closed(&self) -> bool {
+        self.closed
     }
 
     /// The section, exactly as given.
@@ -826,6 +881,9 @@ fn orthonormalize(t: V3, x_hint: V3, handed: f64) -> SweepFrame {
         y: as_unit(y),
     }
 }
+
+mod assemble;
+pub use assemble::{sweep, SweepResult, SWEEP_EDGE_ALIGNMENT_TOLERANCE};
 
 /// Some unit vector perpendicular to unit `t` — the unreachable fallback of
 /// [`orthonormalize`], written out rather than left to a panic.

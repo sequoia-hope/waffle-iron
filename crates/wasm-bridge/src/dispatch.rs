@@ -2193,6 +2193,7 @@ fn operation_name(op: &Operation) -> String {
         Operation::Extrude { .. } => "Extrude".to_string(),
         Operation::Revolve { .. } => "Revolve".to_string(),
         Operation::Pipe { .. } => "Pipe".to_string(),
+        Operation::Sweep { .. } => "Sweep".to_string(),
         Operation::Fillet { .. } => "Fillet".to_string(),
         Operation::Chamfer { .. } => "Chamfer".to_string(),
         Operation::Shell { .. } => "Shell".to_string(),

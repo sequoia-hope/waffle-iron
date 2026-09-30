@@ -671,6 +671,59 @@ impl Kernel for MockKernel {
         Ok(handle)
     }
 
+    /// Argument validation only, the way `pipe` does it: a polygon section
+    /// of at least three finite vertices, a non-empty head-to-tail chain,
+    /// and the S4 capability wall (holes) as a typed `NotSupported`. The
+    /// pierce rule and the corner rules are the real kernel's.
+    fn sweep(
+        &mut self,
+        section: &SweepSection,
+        path: &crate::sketch3d::Chain3d,
+    ) -> Result<KernelSolidHandle, KernelError> {
+        if section.outer.len() < 3 {
+            return Err(KernelError::Other {
+                message: format!(
+                    "sweep: section needs at least 3 vertices, got {}",
+                    section.outer.len()
+                ),
+            });
+        }
+        if section
+            .outer
+            .iter()
+            .any(|(u, v)| !(u.is_finite() && v.is_finite()))
+        {
+            return Err(KernelError::Other {
+                message: "sweep: section has a non-finite vertex".to_string(),
+            });
+        }
+        if !section.holes.is_empty() {
+            return Err(KernelError::NotSupported {
+                operation: "sweep: a holed section (B6 S4)".to_string(),
+            });
+        }
+        if path.edges.is_empty() {
+            return Err(KernelError::Other {
+                message: "sweep: empty path".to_string(),
+            });
+        }
+        for (i, pair) in path.edges.windows(2).enumerate() {
+            if pair[0].b != pair[1].a {
+                return Err(KernelError::Other {
+                    message: format!("sweep: segments {i} and {} are not chained", i + 1),
+                });
+            }
+        }
+        if path.closed && path.edges[path.edges.len() - 1].b != path.edges[0].a {
+            return Err(KernelError::Other {
+                message: "sweep: closed path does not return to its start".to_string(),
+            });
+        }
+        let (handle, solid) = self.make_box_solid(1.0, 1.0, 1.0);
+        self.solids.insert(handle.raw(), solid);
+        Ok(handle)
+    }
+
     /// Rigid copy: re-ID every entity and move positions, centroids and
     /// normals by the placement. Lengths and areas are invariant under a
     /// rigid motion, so they are carried verbatim.

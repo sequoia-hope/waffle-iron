@@ -10,8 +10,12 @@ Owner crates: `kernel-v2` (increments S1–S5), `waffle-types` +
 `feature-engine` + `wasm-bridge` (S6), `app` (S7).
 
 Status: feature set approved 2026-09-25. **S1 LANDED 2026-09-25**
-(`kernel_v2::construct::sweep`, `crates/kernel-v2/tests/b6_sweep.rs`, 22
-tests); S2 onward is design. §4 was corrected by what S1 measured.
+(`kernel_v2::construct::sweep`, `crates/kernel-v2/tests/b6_sweep.rs`, 23
+tests). **S2 + S5 LANDED 2026-09-30** (`kernel_v2::construct::sweep::assemble`,
+`crates/kernel-v2/tests/b6_sweep_assemble.rs`, 21 tests): the assembler for a
+polygon section, open AND closed paths, mitred corners, bends as partial
+revolves, exact Pappus volumes, boolean re-entry. **S6 (the operation) in the
+same session.** S3/S4 remain design. §4 was corrected by what S1 measured.
 
 **Sequencing decided 2026-09-25: 3D sketch first** (`specs/sketch3d.md`), then
 this. The user's target is a genuinely 3D member run, so the planar-path-only
@@ -322,10 +326,10 @@ until S6.
 | # | What | Gate |
 |---|---|---|
 | **S1 ✅ DONE (2026-09-25)** | `SweepPath::new(&Chain3d, &Profile)` — open path, **sharp corners allowed**, 3D from the start (the sequencing note above): the mitre solver, the §6 parallel-transport frames, the pierce rule, `SweepStation::rim`, and nine typed refusals, as a pure validated value with no arena mutation. The corner gates are exact (linear functionals decided by the section's support function, `section_support`, for polygon/circle/arc-polygon alike). 22 tests: the both-sides rim identity over in-plane and out-of-plane corners, the RMF property at a joint, an arc's rigid rotation about its own axis, no-twist on a planar path, the offset section, every refusal, and a filleted `Sketch3d` corner sweeping end to end. §4 corrected twice by what this increment measured. | — |
-| **S2** | Sweep assembler for a **polygon section, no holes**, `Parallel`/`Perpendicular` edges only — line and arc segments, shared rims, mitred corners, caps. The mitred rectangular elbow. Oracles: Pappus volume, χ, extrude continuity. | S1 |
+| **S2 ✅ DONE (2026-09-30)** | `sweep(&mut arena, &SweepPath) -> SweepResult` (`construct/sweep/assemble.rs`): the assembler for a **polygon section, no holes**, `Parallel`/`Perpendicular` edges on a bend — line and arc segments, shared rims by vertex identity, mitred corners, caps. Direct assembly in the partial revolve's `[wb, af, wt, ab]` wall-loop layout with the station index added; every lateral's surface is classified on the actual 3D rim points against the arc's own axis (so a 3D path needs nothing more), an axis-parallel edge a cylinder with the material-side `reversed` sense, an axis-perpendicular edge an annular sector, an oblique edge the typed S3 wall `SweepObliqueEdgeOnBend`. Oracles (21 tests): census + `validate_solid` on every fixture; EXACT volume to 1e-12 — `A·L` through the section CENTROID on mitred runs (an off-centre section loses its inside-of-turn coordinate on both legs, pinned), Pappus `A·θ·R_c` on bends; extrude continuity (same census, exact volume and vertex set as `extrude`); the left-handed section; a hexagon; the S-bend's bore/solid cylinder senses; determinism; refusals with the arena untouched; boolean re-entry (elbow − box, handlebar − box through its bend, ring ∪ box, frame − box opening the ring). | S1 |
 | **S3** | **`Oblique` section edges on a partial revolve** — the arc-bounded cone patch, KV6c increment 5. Converts a typed wall the general lathe wants anyway. | S2 |
 | **S4** | **Holed and `ArcPolygon` sections on a partial revolve** — converts `RevolveProfileHolesUnsupported` and `ArcPolygonProfileUnsupported`. Hollow and rounded sections round a bend; tube sections. | S3 |
-| **S5** | **Closed paths** (no caps, every joint mitred) + the pipe-continuity oracle. | S2 |
+| **S5 ✅ DONE (2026-09-30, with S2)** | **Closed paths**: a chain is a ring by its COORDINATES (last end == first start), flag or no flag; `SweepPath::new` gives the wrap-around joint the same two tangents from both sides (stations 0 and n share their cut plane bit-for-bit), gates it like any other, and refuses a 3D ring whose transported frame comes back rotated (`SweepClosedPathTwisted` — a planar ring never does). The assembler builds `n` rings, no caps, genus 1; `SweepClosedPathUnsupported` is retired. Oracles: the mitred picture frame (`A·perimeter`), the rounded frame (Pappus on four fillets), a skew ring refused, frame − box opening the ring to genus 0. **The pipe-continuity oracle is NOT in this increment** — the polygon assembler refuses a circle section (`SweepSectionUnsupported`) and defers to `pipe`; subsuming `pipe` is S4's business once a circle section can be assembled here. | S2 |
 | **S6** | `Operation::Sweep` + `SweepParams`, `feature-engine` execution, the pierce rule, `sweep` over the bridge and MCP, `ctx.sweep` in scripts. WASM rebuilt in the same commit. | S2 |
 | **S7** | Sweep dialog: pick section, pick path, corner treatment, combine. GUI spec. | S6 |
 | **(later)** | 3D paths (§5.3, §6) once a 3D sketch exists; per-joint `roll`; the frame feature (§10); helical paths as their own spec. | 3D sketch |

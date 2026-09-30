@@ -91,9 +91,10 @@ pub use pipe::{
 
 mod sweep;
 pub use sweep::{
-    section_support, SweepFrame, SweepPath, SweepSegment, SweepSegmentKind, SweepStation,
-    SWEEP_ARC_ENDPOINT_TOLERANCE, SWEEP_MIN_AXIS_CLEARANCE_REL, SWEEP_MIN_CORNER_CLEARANCE_REL,
-    SWEEP_PIERCE_TOLERANCE, SWEEP_TANGENT_TOLERANCE,
+    section_support, sweep, SweepFrame, SweepPath, SweepResult, SweepSegment, SweepSegmentKind,
+    SweepStation, SWEEP_ARC_ENDPOINT_TOLERANCE, SWEEP_EDGE_ALIGNMENT_TOLERANCE,
+    SWEEP_MIN_AXIS_CLEARANCE_REL, SWEEP_MIN_CORNER_CLEARANCE_REL, SWEEP_PIERCE_TOLERANCE,
+    SWEEP_TANGENT_TOLERANCE,
 };
 
 mod extrude;

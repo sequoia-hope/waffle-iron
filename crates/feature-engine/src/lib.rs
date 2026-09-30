@@ -371,7 +371,7 @@ impl Engine {
                 .first()
                 .map(|fid| (*fid, FeatureTree::body_id(*fid, &OutputKey::Main)))
             }
-            Operation::Revolve { .. } | Operation::Pipe { .. } => {
+            Operation::Revolve { .. } | Operation::Pipe { .. } | Operation::Sweep { .. } => {
                 rebuild::find_consumed_feature_ids(
                     feature,
                     &self.feature_results,
@@ -420,6 +420,7 @@ impl Engine {
             Operation::Extrude { params } => Some(types::normalize_extrude_combine(params)),
             Operation::Revolve { params } => Some(types::normalize_revolve_combine(params)),
             Operation::Pipe { params } => Some(types::normalize_pipe_combine(params)),
+            Operation::Sweep { params } => Some(types::normalize_sweep_combine(params)),
             _ => None,
         }
         .filter(|eff| {

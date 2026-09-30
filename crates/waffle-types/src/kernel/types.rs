@@ -339,6 +339,24 @@ pub enum PipePathSegment {
     },
 }
 
+/// The planar section a sweep carries along a path (`Kernel::sweep`,
+/// `specs/b6_general_sweep.md` §8): a polygon in the `(u, v)` coordinates of
+/// the plane frame `(plane_origin, plane_normal, plane_x_axis)` — the same
+/// frame `make_faces_from_profiles` takes, `y = normal × x_axis`. `outer` is
+/// counter-clockwise WITHOUT the repeated closing vertex; `holes` are the
+/// hole loops (S4 — refused typed until then). Positions in meters.
+///
+/// The pierce rule is the kernel's: the section plane must be perpendicular
+/// to the path's start tangent and the path's start point must lie in it.
+#[derive(Debug, Clone, PartialEq)]
+pub struct SweepSection {
+    pub plane_origin: [f64; 3],
+    pub plane_normal: [f64; 3],
+    pub plane_x_axis: [f64; 3],
+    pub outer: Vec<(f64, f64)>,
+    pub holes: Vec<Vec<(f64, f64)>>,
+}
+
 /// placement applied to a body at export (`Kernel::export_step_bodies`).
 /// `rotation` is row-major, orthonormal, determinant +1.
 #[derive(Debug, Clone, Copy, PartialEq)]

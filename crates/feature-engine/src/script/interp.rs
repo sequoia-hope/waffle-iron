@@ -155,6 +155,13 @@ pub fn build_engine(limits: &Limits) -> Engine {
         },
     );
     engine.register_fn(
+        "sweep",
+        |ctx: &mut Ctx, region: Region, path: Map, opts: Map| ctx.sweep(&region, &path, &opts),
+    );
+    engine.register_fn("sweep", |ctx: &mut Ctx, region: Region, path: Map| {
+        ctx.sweep(&region, &path, &Map::new())
+    });
+    engine.register_fn(
         "boolean",
         |ctx: &mut Ctx, op: &str, a: Dynamic, b: Dynamic| ctx.boolean(op, &a, &b),
     );

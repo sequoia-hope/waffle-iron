@@ -2,7 +2,7 @@ use std::collections::HashMap;
 
 use modeling_ops::{
     execute_boolean, execute_chamfer, execute_extrude, execute_fillet, execute_pipe,
-    execute_revolve, execute_shell, BooleanKind, OpResult,
+    execute_revolve, execute_shell, execute_sweep, BooleanKind, OpResult,
 };
 use uuid::Uuid;
 use waffle_types::kernel::units::TAU_WORK;
@@ -12,7 +12,8 @@ use crate::resolve::{resolve_by_position, resolve_with_fallback};
 use crate::sources::SourceStore;
 use crate::types::{
     normalize_extrude_combine, BooleanOp, CombineMode, DepthMode, EngineError, Feature,
-    FeatureTree, ImportedBodyParams, Operation, PlaneDefinition, SecondDirection, TargetStrategy,
+    FeatureTree, ImportedBodyParams, Operation, PlaneDefinition, SecondDirection, SweepParams,
+    SweepPathRef, TargetStrategy,
 };
 use modeling_ops::KernelBundle;
 use waffle_types::kernel::KernelIntrospect;
@@ -452,11 +453,28 @@ fn depends_on_tree_position(feature: &Feature, tree: &FeatureTree) -> bool {
             params.sketch_id,
             false,
         ),
+        Operation::Sweep { params } => (
+            crate::types::normalize_sweep_combine(params),
+            params.sketch_id,
+            false,
+        ),
         _ => return false,
     };
     let positional_targets = !matches!(eff.mode, CombineMode::NewBody)
         && !matches!(eff.targets, TargetStrategy::Explicit(_));
-    let projected = find_sketch_in_tree(sketch_id, tree).is_ok_and(|s| !s.projected.is_empty());
+    let has_projected =
+        |id: Uuid| find_sketch_in_tree(id, tree).is_ok_and(|s| !s.projected.is_empty());
+    let projected = has_projected(sketch_id)
+        // A sweep's PATH sketch is read when the sweep runs, like its section.
+        || matches!(
+            &feature.operation,
+            Operation::Sweep {
+                params: SweepParams {
+                    path: SweepPathRef::Sketch { sketch_id, .. },
+                    ..
+                },
+            } if has_projected(*sketch_id)
+        );
     positional_targets || through_all || projected
 }
 
@@ -1180,6 +1198,41 @@ pub(crate) fn execute_feature(
             Ok(result)
         }
 
+        Operation::Sweep { params } => {
+            let _sketch_result = find_sketch_result(params.sketch_id, feature_results)?;
+            let section_sketch =
+                current_sketch(params.sketch_id, feature_results, tree, kb, context)?;
+            let mut section_warnings: Vec<String> = Vec::new();
+            let (outer, holes) =
+                resolve_sweep_section(&section_sketch, params, &mut section_warnings)?;
+            let section = waffle_types::kernel::SweepSection {
+                plane_origin: section_sketch.plane_origin,
+                plane_normal: unit_normal(section_sketch.plane_normal),
+                plane_x_axis: sketch_x_axis(&section_sketch),
+                outer,
+                holes,
+            };
+            let path = resolve_sweep_path(&params.path, feature_results, tree, kb, context)?;
+            let sweep_result = execute_sweep(kb, &section, &path, None)?;
+            let eff = crate::types::normalize_sweep_combine(params);
+            let mut combine_warnings: Vec<String> = section_warnings;
+            let combine_targets = match eff.mode {
+                CombineMode::NewBody => Vec::new(),
+                _ => resolve_combine_targets(
+                    &eff.targets,
+                    feature,
+                    feature_results,
+                    tree,
+                    already_consumed,
+                    &mut combine_warnings,
+                )?,
+            };
+            let mut result = dispatch_combine(kb, &eff, &combine_targets, sweep_result, "sweep")?;
+            carry_untargeted_siblings(&mut result, &eff, feature_results);
+            result.diagnostics.warnings.extend(combine_warnings);
+            Ok(result)
+        }
+
         Operation::PatternCircular { params } => crate::pattern::execute(
             feature,
             kb,
@@ -1625,6 +1678,32 @@ pub(crate) fn find_consumed_feature_ids(
         }
         Operation::Pipe { params } => {
             let eff = crate::types::normalize_pipe_combine(params);
+            match eff.mode {
+                CombineMode::NewBody => vec![],
+                CombineMode::Add | CombineMode::Cut | CombineMode::Intersect => {
+                    match &eff.targets {
+                        TargetStrategy::Explicit(list) => list
+                            .iter()
+                            .filter(|gr| find_solid_handle(gr, feature_results).is_ok())
+                            .filter_map(|gr| match &gr.anchor {
+                                waffle_types::Anchor::FeatureOutput { feature_id, .. } => {
+                                    Some(*feature_id)
+                                }
+                                _ => None,
+                            })
+                            .collect(),
+                        _ => find_most_recent_consumed(
+                            feature,
+                            feature_results,
+                            tree,
+                            already_consumed,
+                        ),
+                    }
+                }
+            }
+        }
+        Operation::Sweep { params } => {
+            let eff = crate::types::normalize_sweep_combine(params);
             match eff.mode {
                 CombineMode::NewBody => vec![],
                 CombineMode::Add | CombineMode::Cut | CombineMode::Intersect => {
@@ -2206,6 +2285,199 @@ fn carry_untargeted_siblings(
         result.diagnostics.warnings.push(format!(
             "output {key:?} of feature {fid} was not targeted; kept unchanged as a separate body"
         ));
+    }
+}
+
+/// The sketch `sketch_id` as it is NOW: projected points re-derived from
+/// the current model and its derived data (positions, profiles) recomputed
+/// — the same preparation the extrude, revolve and pipe arms do inline.
+fn current_sketch(
+    sketch_id: Uuid,
+    feature_results: &HashMap<Uuid, OpResult>,
+    tree: &FeatureTree,
+    kb: &mut dyn KernelBundle,
+    context: Option<&EditContext>,
+) -> Result<Sketch, EngineError> {
+    let sketch_ref = find_sketch_in_tree(sketch_id, tree)?;
+    let mut sketch = sketch_ref.clone();
+    if !sketch.projected.is_empty() {
+        reproject_sketch(&mut sketch, feature_results, kb.as_introspect(), context);
+        sketch.solved_positions.clear();
+        sketch.solved_profiles.clear();
+    }
+    sketch
+        .recompute_derived_checked()
+        .map_err(|e| EngineError::SketchGenerator {
+            sketch_id,
+            reason: e.to_string(),
+        })?;
+    Ok(sketch)
+}
+
+/// A sweep section's `(outer, holes)` loops in sketch `(u, v)`.
+type SectionLoops = (Vec<(f64, f64)>, Vec<Vec<(f64, f64)>>);
+
+/// The sweep's section polygon in the section sketch's `(u, v)`
+/// (`specs/b6_general_sweep.md` S6): an explicit `region` (re-resolved
+/// against the current sketch by its boundary signature, as an extrude's
+/// is), else the whole-loop profile `profile_index` / `profile_entity_ids`
+/// addresses, read through its vertex order. A circle, an arc-bearing or a
+/// spline-bearing profile is refused as a typed capability wall (B6 S4) —
+/// its chord polygon would be a silent approximation.
+fn resolve_sweep_section(
+    sketch: &Sketch,
+    params: &SweepParams,
+    warnings: &mut Vec<String>,
+) -> Result<SectionLoops, EngineError> {
+    if params.region.is_some() {
+        let (resolved, _) = resolve_extrude_regions(sketch, params.region.as_ref(), &[], warnings);
+        let region = resolved.expect("a Some region resolves to Some");
+        return Ok((region.outer, region.holes));
+    }
+    let index = resolve_profile_index(
+        sketch,
+        params.profile_index,
+        params.profile_entity_ids.as_deref(),
+    )?;
+    let profile = &sketch.solved_profiles[index];
+    let curved = if profile.circle.is_some() {
+        Some("a circle")
+    } else if !profile.arc_segments.is_empty() {
+        Some("an arc-bearing profile")
+    } else if !profile.spline_segments.is_empty() {
+        Some("a spline-bearing profile")
+    } else {
+        None
+    };
+    if let Some(what) = curved {
+        return Err(EngineError::KernelError(
+            waffle_types::kernel::KernelError::NotSupported {
+                operation: format!(
+                    "sweep: the section is {what}; a sweep section must be a plain polygon \
+                     for now (holed and arc-bearing sections are B6 S4, \
+                     specs/b6_general_sweep.md §2)"
+                ),
+            },
+        ));
+    }
+    if profile.vertex_ids.len() < 3 {
+        return Err(EngineError::OpError(
+            modeling_ops::OpError::InvalidParameter {
+                reason: format!(
+                    "sweep: section profile {index} of sketch {} has no polygon vertex order",
+                    sketch.id
+                ),
+            },
+        ));
+    }
+    let mut outer = Vec::with_capacity(profile.vertex_ids.len());
+    for vid in &profile.vertex_ids {
+        let Some(&p) = sketch.solved_positions.get(vid) else {
+            return Err(EngineError::OpError(
+                modeling_ops::OpError::InvalidParameter {
+                    reason: format!(
+                        "sweep: section vertex {vid} of sketch {} has no solved position",
+                        sketch.id
+                    ),
+                },
+            ));
+        };
+        outer.push(p);
+    }
+    // `SweepSection::outer` is counter-clockwise; a loop addressed as a
+    // hole winds the other way, so orient it (a reversal, not a reshaping).
+    let twice_area: f64 = outer
+        .iter()
+        .zip(outer.iter().cycle().skip(1))
+        .map(|(a, b)| a.0 * b.1 - b.0 * a.1)
+        .sum();
+    if twice_area < 0.0 {
+        outer.reverse();
+    }
+    Ok((outer, Vec::new()))
+}
+
+/// The sweep's path as a world-space chain (`specs/b6_general_sweep.md`
+/// §8): a planar sketch's line/arc selection ordered by
+/// `extract_path_chain` and embedded through the sketch's plane frame, or
+/// the named chain of a `Sketch3d` evaluated against the current model.
+/// Either way the kernel sees one `Chain3d`.
+fn resolve_sweep_path(
+    path: &SweepPathRef,
+    feature_results: &HashMap<Uuid, OpResult>,
+    tree: &FeatureTree,
+    kb: &mut dyn KernelBundle,
+    context: Option<&EditContext>,
+) -> Result<waffle_types::sketch3d::Chain3d, EngineError> {
+    match path {
+        SweepPathRef::Sketch {
+            sketch_id,
+            entity_ids,
+        } => {
+            let sketch = current_sketch(*sketch_id, feature_results, tree, kb, context)?;
+            let chain = waffle_types::path::extract_path_chain(
+                &sketch.entities,
+                &sketch.solved_positions,
+                entity_ids,
+            )
+            .map_err(|e| {
+                EngineError::OpError(modeling_ops::OpError::InvalidParameter {
+                    reason: format!("sweep path (sketch {sketch_id}): {e}"),
+                })
+            })?;
+            Ok(waffle_types::path::chain3d_from_plane(
+                sketch.plane_origin,
+                unit_normal(sketch.plane_normal),
+                sketch_x_axis(&sketch),
+                &chain,
+            ))
+        }
+        SweepPathRef::Sketch3d {
+            sketch_id,
+            entity_id,
+        } => {
+            let sketch = tree
+                .features
+                .iter()
+                .find(|f| f.id == *sketch_id)
+                .and_then(|f| match &f.operation {
+                    Operation::Sketch3d { sketch } => Some(sketch),
+                    _ => None,
+                })
+                .ok_or(EngineError::SketchNotFound { id: *sketch_id })?;
+            let ev = crate::sketch3d::evaluate(sketch, feature_results, kb.as_introspect(), tree)?;
+            let chain = match entity_id {
+                Some(eid) => ev
+                    .chains
+                    .iter()
+                    .find(|c| c.edges.iter().any(|e| e.entity_id == *eid))
+                    .ok_or_else(|| EngineError::ResolutionFailed {
+                        reason: format!(
+                            "sweep path: 3D sketch {sketch_id} has no chain through entity {eid} \
+                             ({} chains)",
+                            ev.chains.len()
+                        ),
+                    })?,
+                None => match ev.chains.as_slice() {
+                    [only] => only,
+                    [] => {
+                        return Err(EngineError::ResolutionFailed {
+                            reason: format!("sweep path: 3D sketch {sketch_id} has no chain"),
+                        })
+                    }
+                    many => {
+                        return Err(EngineError::ResolutionFailed {
+                            reason: format!(
+                                "sweep path: 3D sketch {sketch_id} has {} chains; name one with \
+                                 `entity_id`",
+                                many.len()
+                            ),
+                        })
+                    }
+                },
+            };
+            Ok(chain.clone())
+        }
     }
 }
 

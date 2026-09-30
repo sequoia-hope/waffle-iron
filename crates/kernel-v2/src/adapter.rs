@@ -61,8 +61,8 @@ use crate::{BrepArena, FaceId, HalfEdgeId, KernelV2Error, SolidId, Surface, Vert
 use cad_primitives::{BoolOp, Point2, Point3, Vector3};
 use waffle_types::kernel::{
     AxisKind, ClosedProfile, EdgeRange, EdgeRenderData, EntityAxis, FaceRange, KernelError,
-    KernelId, KernelSolidHandle, PipePathSegment, RenderMesh, StepExportBody, TopoKind,
-    TopoSignature,
+    KernelId, KernelSolidHandle, PipePathSegment, RenderMesh, StepExportBody, SweepSection,
+    TopoKind, TopoSignature,
 };
 use waffle_types::kernel::{Kernel, KernelIntrospect};
 
@@ -758,6 +758,64 @@ impl Kernel for KernelV2Adapter {
         let path = crate::PipePath::new(origin, ux, vy, edges).map_err(map_err)?;
         let result = crate::pipe(&mut self.arena, &path, radius, inner_radius).map_err(map_err)?;
         self.subfloor_twin_probe(result.solid, "pipe OUTPUT");
+        Ok(self.alloc_handle(result.solid))
+    }
+
+    fn sweep(
+        &mut self,
+        section: &SweepSection,
+        path: &waffle_types::sketch3d::Chain3d,
+    ) -> Result<KernelSolidHandle, KernelError> {
+        // Same frame convention as `make_faces_from_profiles` and `pipe`:
+        // y = n × x. The section is a polygon in that frame's (u, v).
+        let n = section.plane_normal;
+        let x = section.plane_x_axis;
+        let y = [
+            n[1] * x[2] - n[2] * x[1],
+            n[2] * x[0] - n[0] * x[2],
+            n[0] * x[1] - n[1] * x[0],
+        ];
+        let origin = Point3::new(
+            section.plane_origin[0],
+            section.plane_origin[1],
+            section.plane_origin[2],
+        );
+        let ux = Vector3::new(x[0], x[1], x[2]);
+        let vy = Vector3::new(y[0], y[1], y[2]);
+        let to_pts = |loop_: &[(f64, f64)]| -> Vec<Point2> {
+            loop_.iter().map(|&(u, v)| Point2::new(u, v)).collect()
+        };
+        let outer = to_pts(&section.outer);
+        let holes: Vec<Vec<Point2>> = section.holes.iter().map(|h| to_pts(h)).collect();
+        let map_err = |e: KernelV2Error| match e {
+            // Capability walls: typed NotSupported (assay UNSUPPORTED). The
+            // roadmap items are named in `specs/b6_general_sweep.md` §2/§11.
+            KernelV2Error::SweepSectionUnsupported { reason } => {
+                Self::not_supported(&format!("sweep: {reason} (spec b6_general_sweep.md S4)"))
+            }
+            KernelV2Error::SweepObliqueEdgeOnBend { segment, edge } => {
+                Self::not_supported(&format!(
+                    "sweep: section edge {edge} is oblique to the bend axis of path segment \
+                     {segment} — an arc-bounded cone patch (spec b6_general_sweep.md S3)"
+                ))
+            }
+            KernelV2Error::SweepClosedPathTwisted => Self::not_supported(
+                "sweep: the closed 3D path's transported frame does not return to its start \
+                 (spec b6_general_sweep.md §5)",
+            ),
+            KernelV2Error::NotImplemented(what) => {
+                Self::not_supported(&format!("sweep: {what} (spec b6_general_sweep.md)"))
+            }
+            // Invalid input (the pierce rule, a bad chain, a corner that
+            // does not fit): plain errors — never the NotSupported marker.
+            other => KernelError::Other {
+                message: format!("kernel-v2 sweep failed: {other}"),
+            },
+        };
+        let profile = crate::Profile::new(origin, ux, vy, outer, holes).map_err(map_err)?;
+        let sweep_path = crate::SweepPath::new(path, &profile).map_err(map_err)?;
+        let result = crate::sweep(&mut self.arena, &sweep_path).map_err(map_err)?;
+        self.subfloor_twin_probe(result.solid, "sweep OUTPUT");
         Ok(self.alloc_handle(result.solid))
     }
 

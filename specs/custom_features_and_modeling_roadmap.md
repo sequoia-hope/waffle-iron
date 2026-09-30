@@ -512,6 +512,12 @@ orderings (a balanced tree must give the same solid as a chain: the assay's
   (the SUM), and a mitre is only possible between two STRAIGHT segments,
   because a plane cuts a bent member in a different curve than it cuts a
   straight one. Bends therefore enter a path tangentially, as fillets.
+  **B6 S2 + S5 landed 2026-09-30** (`construct::sweep::assemble`): the
+  assembler — a polygon section along an open or CLOSED chain, mitred
+  corners, bends as partial revolves (cylinders + annular sectors), exact
+  Pappus volumes, boolean re-entry; S6 wires `Operation::Sweep` end to end
+  in the same session. Oblique section edges on a bend (S3) and holed /
+  arc-bearing sections (S4) stay typed walls.
 - A visual scripting editor.
 
 ## Part C — Sequencing

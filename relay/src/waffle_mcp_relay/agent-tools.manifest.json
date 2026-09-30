@@ -1,5 +1,5 @@
 {
-  "manifest_hash": "8229981feff7d72fab4bd25a5a054238599ccd337703df3145002b826ddb508c",
+  "manifest_hash": "aa63e2076b39fd29084d11bb5ac2b1b49404a73c5dfea606dc1c42befe64d302",
   "protocol": "waffle-agent-link/1",
   "tools": [
     {
@@ -4569,7 +4569,7 @@
         "readOnlyHint": false,
         "title": "Add feature"
       },
-      "description": "Add a feature at the end of the feature tree (one undo step). operation is an Operation: {\"type\":\"Extrude\",\"params\":{…}}, Revolve, Pipe, BooleanCombine, UnionAll, DatumPlane, MateConnector, PatternCircular, PatternLinear, PatternMirror, Script, a full Sketch, or a Sketch3d. A Sketch3d is SPATIAL reference geometry — lines and arcs in 3D and the points that define them — and produces NO body: it is the path a sweep or a frame runs along, and it is not extrudable (no plane, no region, no profile). {\"type\":\"Sketch3d\",\"sketch\":{\"id\": a uuid, \"entities\":[…]}} with entities: {\"type\":\"Point\", id, xyz:[x,y,z], attach?, xyz_expr?: [expr|null, …] (mm-space), construction?}, {\"type\":\"Line\", id, start_id, end_id}, {\"type\":\"Arc\", id, start_id, end_id, via_id} (three distinct non-collinear points — via_id is any point ON the arc), and {\"type\":\"Fillet\", id, at_point_id, radius (m), radius_expr?} which rounds the corner where exactly two STRAIGHT segments meet, exactly tangent to both. Two points coincide by SHARING a point id, not by a constraint — there is no 3D solver. A point derives its position instead of stating it with attach: {\"type\":\"AlongAxis\", from: another point id, axis:\"X\"|\"Y\"|\"Z\", distance} (the axis-locked run most frame geometry is made of), {\"type\":\"Offset\", from, delta:[x,y,z]}, {\"type\":\"Vertex\", reference: a Vertex GeomRef}, {\"type\":\"EdgePoint\", reference: an Edge GeomRef, t: 0..1 along it by arc length}, or {\"type\":\"OnPlane\", reference: a planar face or datum plane, uv}. Read back what it evaluated to with sketch3d_get — an attached point resolves only at rebuild, so the xyz you wrote is just a hint. A UnionAll folds EVERY live body of the part (or params.targets {type:\"Selected\", bodies:[Solid GeomRefs]}) into connected solids with ONE feature — a balanced tree of pairwise unions with a bounding-box fast path — so prefer it over a chain of BooleanCombine steps on many overlapping bodies: params {targets?: {type:\"All\"}}. A BooleanCombine whose operand was already consumed by an earlier feature is refused (chain onto that feature's own output instead). A Pipe sweeps a circle along an OPEN, tangent-continuous chain of sketch lines and arcs (construction geometry is fine) as ONE solid: params {sketch_id, entity_ids: [the path entities, any order], radius (m), inner_radius? (m, hollow), combine?, targets?} — no boolean between segments, so a handlebar or hose is one body; a corner or a bend tighter than the tube radius is refused. A Script runs a custom feature script (Rhai) that the document carries as a `Script` source: params {source_id, entry?: \"feature\", args: {name: value in model units, or {origin, normal} / a datum plane id for a plane param}, arg_exprs?: {name: \"expression\"}}; the script declares its parameters in `// @param name: type` header lines and calls ctx.sketch / extrude / revolve / boolean over the same operations as these tools; add the source with script_source_add and prefer script_feature_add (same node, takes the args directly) — see docs/CUSTOM_FEATURE_SCRIPTS.md. A PatternCircular/PatternLinear/PatternMirror copies seed BODIES (params.seeds: Solid GeomRefs {kind:\"Solid\", anchor:{type:\"FeatureOutput\", feature_id, output_key}}, from model_summary bodies, or {\"type\":\"All\"} for EVERY live body at that point in the tree — which is how you say \"take everything I just built and turn it four times\" without listing it) — it does not re-run the seed feature. Circular: axis {method:\"explicit\", origin, direction} or {method:\"entity\", geom_ref: a cylindrical/conical face, a circular edge, or a straight edge}, count (instances INCLUDING the seed, ≥ 2), angle_deg (TOTAL sweep; 360 spaces 360/count apart, otherwise the last instance lands at angle_deg), skip?: [instance indices ≥ 1]. Linear: direction (AxisRef, direction only), count, spacing (m; negative reverses), second?: {direction, count, spacing} for a grid (index i + j·count). Mirror: plane {method:\"explicit\", origin: a point on the plane, direction: the plane NORMAL} or {method:\"entity\", geom_ref: a planar face or datum plane}; one copy, the seed's mirror image (no count, no skip). All: combine?: NewBody (default: every instance its own body) | Add (folds targets + instances into connected bodies) | Cut | Intersect, with targets?: explicit Solid GeomRefs (never auto by position; Cut/Intersect need one). The pattern takes custody of its seeds (their features are consumed) and emits every instance: Main = the seed itself, then Body:1… — so chain later booleans onto the PATTERN's outputs, not the seed feature's. A MateConnector is a named frame on the part that assemblies mate its instances by (model_summary lists the evaluated ones): params {name, geom_ref?: a Face or Edge GeomRef (face_list, selection_get), frame?: {origin, z_axis, x_axis} in part coordinates when there is no geom_ref, anchor?: \"middle\"|\"positive_end\"|\"negative_end\" along a cylindrical/conical/toroidal face's axis, flip_z?, rotation_deg?, offset_m?: [x, y, z] along its own axes}; a pick with no frame (a vertex, a freeform face) fails the feature. Address a sketch loop with params.sketch_id = the Sketch feature id and params.profile_entity_ids = the loop's entity ids (from sketch_create or sketch_regions); profile_index is then ignored but still required (use 0). Fillet, Chamfer and Shell are refused (Deferred); STEP imports are not authored here. A step whose feature or any downstream feature newly fails to rebuild is rolled back by default; kernel capability limits (NotSupported) are reported verbatim — do not retry them with altered parameters. Units: lengths in meters, angles in degrees; *_expr expressions are mm-space (a bare 20 means 20 mm).",
+      "description": "Add a feature at the end of the feature tree (one undo step). operation is an Operation: {\"type\":\"Extrude\",\"params\":{…}}, Revolve, Pipe, Sweep, BooleanCombine, UnionAll, DatumPlane, MateConnector, PatternCircular, PatternLinear, PatternMirror, Script, a full Sketch, or a Sketch3d. A Sketch3d is SPATIAL reference geometry — lines and arcs in 3D and the points that define them — and produces NO body: it is the path a sweep or a frame runs along, and it is not extrudable (no plane, no region, no profile). {\"type\":\"Sketch3d\",\"sketch\":{\"id\": a uuid, \"entities\":[…]}} with entities: {\"type\":\"Point\", id, xyz:[x,y,z], attach?, xyz_expr?: [expr|null, …] (mm-space), construction?}, {\"type\":\"Line\", id, start_id, end_id}, {\"type\":\"Arc\", id, start_id, end_id, via_id} (three distinct non-collinear points — via_id is any point ON the arc), and {\"type\":\"Fillet\", id, at_point_id, radius (m), radius_expr?} which rounds the corner where exactly two STRAIGHT segments meet, exactly tangent to both. Two points coincide by SHARING a point id, not by a constraint — there is no 3D solver. A point derives its position instead of stating it with attach: {\"type\":\"AlongAxis\", from: another point id, axis:\"X\"|\"Y\"|\"Z\", distance} (the axis-locked run most frame geometry is made of), {\"type\":\"Offset\", from, delta:[x,y,z]}, {\"type\":\"Vertex\", reference: a Vertex GeomRef}, {\"type\":\"EdgePoint\", reference: an Edge GeomRef, t: 0..1 along it by arc length}, or {\"type\":\"OnPlane\", reference: a planar face or datum plane, uv}. Read back what it evaluated to with sketch3d_get — an attached point resolves only at rebuild, so the xyz you wrote is just a hint. A UnionAll folds EVERY live body of the part (or params.targets {type:\"Selected\", bodies:[Solid GeomRefs]}) into connected solids with ONE feature — a balanced tree of pairwise unions with a bounding-box fast path — so prefer it over a chain of BooleanCombine steps on many overlapping bodies: params {targets?: {type:\"All\"}}. A BooleanCombine whose operand was already consumed by an earlier feature is refused (chain onto that feature's own output instead). A Pipe sweeps a circle along an OPEN, tangent-continuous chain of sketch lines and arcs (construction geometry is fine) as ONE solid: params {sketch_id, entity_ids: [the path entities, any order], radius (m), inner_radius? (m, hollow), combine?, targets?} — no boolean between segments, so a handlebar or hose is one body; a corner or a bend tighter than the tube radius is refused. A Sweep carries a planar sketch PROFILE (a plain polygon for now — a circle, arc-bearing or holed section is refused as a capability wall, never chord-approximated) along a path of lines and arcs as ONE solid, no boolean between segments: params {sketch_id: the SECTION sketch, profile_index (or profile_entity_ids, or region: {outer: [[u,v],…]} for a sub-region), path: {type:\"Sketch\", sketch_id, entity_ids: [lines/arcs, any order, construction fine — the path sketch may be the section sketch or another]} or {type:\"Sketch3d\", sketch_id, entity_id?: a member of the chain wanted (omit when the 3D sketch has one chain)}, combine?, targets?}. The path may be OPEN (two caps) or CLOSED (a ring, no caps). Where the path STARTS: an open sketch path at the free end holding the first listed entity; a closed sketch path at the START point of the FIRST listed entity, walking that entity's own direction; a Sketch3d chain at its first edge's start as sketch3d_get orders it. That start point is where the section pierces. Corners between two STRAIGHT segments are mitred; a bend (arc) must be entered and left tangentially. The pierce rule: the section sketch plane must be perpendicular to the path's first segment and contain the path's start point — draw the section on a plane through the path start, normal to its first segment; nothing auto-centres it (an offset section is a legitimate offset member). Lengths in meters. A Script runs a custom feature script (Rhai) that the document carries as a `Script` source: params {source_id, entry?: \"feature\", args: {name: value in model units, or {origin, normal} / a datum plane id for a plane param}, arg_exprs?: {name: \"expression\"}}; the script declares its parameters in `// @param name: type` header lines and calls ctx.sketch / extrude / revolve / boolean over the same operations as these tools; add the source with script_source_add and prefer script_feature_add (same node, takes the args directly) — see docs/CUSTOM_FEATURE_SCRIPTS.md. A PatternCircular/PatternLinear/PatternMirror copies seed BODIES (params.seeds: Solid GeomRefs {kind:\"Solid\", anchor:{type:\"FeatureOutput\", feature_id, output_key}}, from model_summary bodies, or {\"type\":\"All\"} for EVERY live body at that point in the tree — which is how you say \"take everything I just built and turn it four times\" without listing it) — it does not re-run the seed feature. Circular: axis {method:\"explicit\", origin, direction} or {method:\"entity\", geom_ref: a cylindrical/conical face, a circular edge, or a straight edge}, count (instances INCLUDING the seed, ≥ 2), angle_deg (TOTAL sweep; 360 spaces 360/count apart, otherwise the last instance lands at angle_deg), skip?: [instance indices ≥ 1]. Linear: direction (AxisRef, direction only), count, spacing (m; negative reverses), second?: {direction, count, spacing} for a grid (index i + j·count). Mirror: plane {method:\"explicit\", origin: a point on the plane, direction: the plane NORMAL} or {method:\"entity\", geom_ref: a planar face or datum plane}; one copy, the seed's mirror image (no count, no skip). All: combine?: NewBody (default: every instance its own body) | Add (folds targets + instances into connected bodies) | Cut | Intersect, with targets?: explicit Solid GeomRefs (never auto by position; Cut/Intersect need one). The pattern takes custody of its seeds (their features are consumed) and emits every instance: Main = the seed itself, then Body:1… — so chain later booleans onto the PATTERN's outputs, not the seed feature's. A MateConnector is a named frame on the part that assemblies mate its instances by (model_summary lists the evaluated ones): params {name, geom_ref?: a Face or Edge GeomRef (face_list, selection_get), frame?: {origin, z_axis, x_axis} in part coordinates when there is no geom_ref, anchor?: \"middle\"|\"positive_end\"|\"negative_end\" along a cylindrical/conical/toroidal face's axis, flip_z?, rotation_deg?, offset_m?: [x, y, z] along its own axes}; a pick with no frame (a vertex, a freeform face) fails the feature. Address a sketch loop with params.sketch_id = the Sketch feature id and params.profile_entity_ids = the loop's entity ids (from sketch_create or sketch_regions); profile_index is then ignored but still required (use 0). Fillet, Chamfer and Shell are refused (Deferred); STEP imports are not authored here. A step whose feature or any downstream feature newly fails to rebuild is rolled back by default; kernel capability limits (NotSupported) are reported verbatim — do not retry them with altered parameters. Units: lengths in meters, angles in degrees; *_expr expressions are mm-space (a bare 20 means 20 mm).",
       "inputSchema": {
         "$defs": {
           "Anchor": {
@@ -5966,6 +5966,22 @@
               {
                 "properties": {
                   "params": {
+                    "$ref": "#/$defs/SweepParams"
+                  },
+                  "type": {
+                    "const": "Sweep",
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "type",
+                  "params"
+                ],
+                "type": "object"
+              },
+              {
+                "properties": {
+                  "params": {
                     "$ref": "#/$defs/ScriptParams"
                   },
                   "type": {
@@ -6016,6 +6032,7 @@
                         "PatternLinear",
                         "PatternMirror",
                         "Pipe",
+                        "Sweep",
                         "Script",
                         "UnionAll"
                       ]
@@ -8914,6 +8931,135 @@
                 "const": "Iso606",
                 "description": "ISO 606 tooth gap form (the only form implemented).",
                 "type": "string"
+              }
+            ]
+          },
+          "SweepParams": {
+            "description": "Parameters for a general sweep (`specs/b6_general_sweep.md` S6): a\nplanar sketch profile (the SECTION) carried along a path of lines and\narcs, built by the kernel as ONE solid — consecutive segments share\ntheir rim, no boolean between them. Lengths in meters.\n\nThe section is used exactly where it is drawn (nothing auto-centres it):\nthe **pierce rule** requires the section sketch's plane to be\nperpendicular to the path's start tangent and the path's start point to\nlie in that plane, so draw the section on a plane through the path's\nfirst point, normal to its first segment. The path may be OPEN (two\nplanar caps) or CLOSED (a ring, no caps). A corner between two STRAIGHT\nsegments is mitred by the bisector plane; a bend (an arc) must be entered\nand left tangentially — a corner at an arc is refused. For now the\nsection must be a plain polygon: a circle, an arc-bearing profile or a\nprofile with holes is refused as a typed capability wall (B6 S4), never\nsilently approximated by its chord polygon.",
+            "properties": {
+              "combine": {
+                "anyOf": [
+                  {
+                    "$ref": "#/$defs/CombineMode"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "description": "Boolean combine against `targets`; `None` ⇒ NewBody."
+              },
+              "path": {
+                "$ref": "#/$defs/SweepPathRef",
+                "description": "Where the path comes from: lines/arcs of a planar sketch, or a chain\nof a `Sketch3d`."
+              },
+              "profile_entity_ids": {
+                "description": "See `ExtrudeParams::profile_entity_ids`: the section is the solved\nloop bounded by exactly this entity-id set.",
+                "items": {
+                  "format": "uint32",
+                  "minimum": 0,
+                  "type": "integer"
+                },
+                "type": [
+                  "array",
+                  "null"
+                ]
+              },
+              "profile_index": {
+                "description": "Whole-loop profile of the section sketch, like `ExtrudeParams`\n(ignored when `profile_entity_ids` or `region` is present).",
+                "format": "uint",
+                "minimum": 0,
+                "type": "integer"
+              },
+              "region": {
+                "anyOf": [
+                  {
+                    "$ref": "#/$defs/Region"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "description": "Explicit sub-region of the section sketch (an `outer` polygon, no\nholes) that no whole-loop profile denotes, like\n`ExtrudeParams::region`. When `Some`, `profile_index` is ignored."
+              },
+              "sketch_id": {
+                "description": "The SECTION sketch feature's id (a planar sketch).",
+                "format": "uuid",
+                "type": "string"
+              },
+              "targets": {
+                "description": "Explicit target bodies for `Add`/`Cut`/`Intersect`. A combine with\nno targets falls back to the most recent solid body (the pipe's\nrule: the section's plane rarely shares a face with anything).",
+                "items": {
+                  "$ref": "#/$defs/GeomRef"
+                },
+                "type": [
+                  "array",
+                  "null"
+                ]
+              }
+            },
+            "required": [
+              "sketch_id",
+              "profile_index",
+              "path"
+            ],
+            "type": "object"
+          },
+          "SweepPathRef": {
+            "description": "The path of a sweep (`specs/b6_general_sweep.md` §8). Either source\nyields the same world-space chain, so the kernel never learns which it\nwas; the chain is re-extracted from the CURRENT sketch at every rebuild,\nso editing the path re-sweeps the solid.",
+            "oneOf": [
+              {
+                "description": "Lines and arcs of a planar sketch (construction geometry allowed),\nin any order, forming ONE chain. Open: the path starts at the free\nend holding the FIRST listed entity. Closed: the path starts at the\nSTART point of the FIRST listed entity and walks in that entity's\nown direction — so the first entity you list is where the section\npierces (its sketch plane must contain that point and be\nperpendicular to that entity's direction there). Branching or\ndisconnected selections are refused. The path sketch may be the\nsection sketch itself or another sketch.",
+                "properties": {
+                  "entity_ids": {
+                    "items": {
+                      "format": "uint32",
+                      "minimum": 0,
+                      "type": "integer"
+                    },
+                    "type": "array"
+                  },
+                  "sketch_id": {
+                    "format": "uuid",
+                    "type": "string"
+                  },
+                  "type": {
+                    "const": "Sketch",
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "type",
+                  "sketch_id",
+                  "entity_ids"
+                ],
+                "type": "object"
+              },
+              {
+                "description": "A chain of a `Sketch3d` feature (its lines, arcs and fillets,\nevaluated at rebuild): the chain containing `entity_id`, or the\nsketch's only chain when `entity_id` is absent — a sketch with\nseveral chains and no `entity_id` is refused. The chain is used as\nthe 3D sketch evaluates it (`sketch3d_get` shows the order): the\nsection pierces at its first edge's start point and the sweep runs\nin that edge's direction.",
+                "properties": {
+                  "entity_id": {
+                    "format": "uint32",
+                    "minimum": 0,
+                    "type": [
+                      "integer",
+                      "null"
+                    ]
+                  },
+                  "sketch_id": {
+                    "format": "uuid",
+                    "type": "string"
+                  },
+                  "type": {
+                    "const": "Sketch3d",
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "type",
+                  "sketch_id"
+                ],
+                "type": "object"
               }
             ]
           },
@@ -9331,7 +9477,7 @@
         "readOnlyHint": false,
         "title": "Edit feature"
       },
-      "description": "Replace a feature's operation (same type; read it with feature_get first) and rebuild (one undo step). The feature becomes agent-authored. Imported and derived features cannot be edited. operation is an Operation: {\"type\":\"Extrude\",\"params\":{…}}, Revolve, Pipe, BooleanCombine, UnionAll, DatumPlane, MateConnector, PatternCircular, PatternLinear, PatternMirror, Script, a full Sketch, or a Sketch3d. A Sketch3d is SPATIAL reference geometry — lines and arcs in 3D and the points that define them — and produces NO body: it is the path a sweep or a frame runs along, and it is not extrudable (no plane, no region, no profile). {\"type\":\"Sketch3d\",\"sketch\":{\"id\": a uuid, \"entities\":[…]}} with entities: {\"type\":\"Point\", id, xyz:[x,y,z], attach?, xyz_expr?: [expr|null, …] (mm-space), construction?}, {\"type\":\"Line\", id, start_id, end_id}, {\"type\":\"Arc\", id, start_id, end_id, via_id} (three distinct non-collinear points — via_id is any point ON the arc), and {\"type\":\"Fillet\", id, at_point_id, radius (m), radius_expr?} which rounds the corner where exactly two STRAIGHT segments meet, exactly tangent to both. Two points coincide by SHARING a point id, not by a constraint — there is no 3D solver. A point derives its position instead of stating it with attach: {\"type\":\"AlongAxis\", from: another point id, axis:\"X\"|\"Y\"|\"Z\", distance} (the axis-locked run most frame geometry is made of), {\"type\":\"Offset\", from, delta:[x,y,z]}, {\"type\":\"Vertex\", reference: a Vertex GeomRef}, {\"type\":\"EdgePoint\", reference: an Edge GeomRef, t: 0..1 along it by arc length}, or {\"type\":\"OnPlane\", reference: a planar face or datum plane, uv}. Read back what it evaluated to with sketch3d_get — an attached point resolves only at rebuild, so the xyz you wrote is just a hint. A UnionAll folds EVERY live body of the part (or params.targets {type:\"Selected\", bodies:[Solid GeomRefs]}) into connected solids with ONE feature — a balanced tree of pairwise unions with a bounding-box fast path — so prefer it over a chain of BooleanCombine steps on many overlapping bodies: params {targets?: {type:\"All\"}}. A BooleanCombine whose operand was already consumed by an earlier feature is refused (chain onto that feature's own output instead). A Pipe sweeps a circle along an OPEN, tangent-continuous chain of sketch lines and arcs (construction geometry is fine) as ONE solid: params {sketch_id, entity_ids: [the path entities, any order], radius (m), inner_radius? (m, hollow), combine?, targets?} — no boolean between segments, so a handlebar or hose is one body; a corner or a bend tighter than the tube radius is refused. A Script runs a custom feature script (Rhai) that the document carries as a `Script` source: params {source_id, entry?: \"feature\", args: {name: value in model units, or {origin, normal} / a datum plane id for a plane param}, arg_exprs?: {name: \"expression\"}}; the script declares its parameters in `// @param name: type` header lines and calls ctx.sketch / extrude / revolve / boolean over the same operations as these tools; add the source with script_source_add and prefer script_feature_add (same node, takes the args directly) — see docs/CUSTOM_FEATURE_SCRIPTS.md. A PatternCircular/PatternLinear/PatternMirror copies seed BODIES (params.seeds: Solid GeomRefs {kind:\"Solid\", anchor:{type:\"FeatureOutput\", feature_id, output_key}}, from model_summary bodies, or {\"type\":\"All\"} for EVERY live body at that point in the tree — which is how you say \"take everything I just built and turn it four times\" without listing it) — it does not re-run the seed feature. Circular: axis {method:\"explicit\", origin, direction} or {method:\"entity\", geom_ref: a cylindrical/conical face, a circular edge, or a straight edge}, count (instances INCLUDING the seed, ≥ 2), angle_deg (TOTAL sweep; 360 spaces 360/count apart, otherwise the last instance lands at angle_deg), skip?: [instance indices ≥ 1]. Linear: direction (AxisRef, direction only), count, spacing (m; negative reverses), second?: {direction, count, spacing} for a grid (index i + j·count). Mirror: plane {method:\"explicit\", origin: a point on the plane, direction: the plane NORMAL} or {method:\"entity\", geom_ref: a planar face or datum plane}; one copy, the seed's mirror image (no count, no skip). All: combine?: NewBody (default: every instance its own body) | Add (folds targets + instances into connected bodies) | Cut | Intersect, with targets?: explicit Solid GeomRefs (never auto by position; Cut/Intersect need one). The pattern takes custody of its seeds (their features are consumed) and emits every instance: Main = the seed itself, then Body:1… — so chain later booleans onto the PATTERN's outputs, not the seed feature's. A MateConnector is a named frame on the part that assemblies mate its instances by (model_summary lists the evaluated ones): params {name, geom_ref?: a Face or Edge GeomRef (face_list, selection_get), frame?: {origin, z_axis, x_axis} in part coordinates when there is no geom_ref, anchor?: \"middle\"|\"positive_end\"|\"negative_end\" along a cylindrical/conical/toroidal face's axis, flip_z?, rotation_deg?, offset_m?: [x, y, z] along its own axes}; a pick with no frame (a vertex, a freeform face) fails the feature. Address a sketch loop with params.sketch_id = the Sketch feature id and params.profile_entity_ids = the loop's entity ids (from sketch_create or sketch_regions); profile_index is then ignored but still required (use 0). Fillet, Chamfer and Shell are refused (Deferred); STEP imports are not authored here. A step whose feature or any downstream feature newly fails to rebuild is rolled back by default; kernel capability limits (NotSupported) are reported verbatim — do not retry them with altered parameters. Units: lengths in meters, angles in degrees; *_expr expressions are mm-space (a bare 20 means 20 mm).",
+      "description": "Replace a feature's operation (same type; read it with feature_get first) and rebuild (one undo step). The feature becomes agent-authored. Imported and derived features cannot be edited. operation is an Operation: {\"type\":\"Extrude\",\"params\":{…}}, Revolve, Pipe, Sweep, BooleanCombine, UnionAll, DatumPlane, MateConnector, PatternCircular, PatternLinear, PatternMirror, Script, a full Sketch, or a Sketch3d. A Sketch3d is SPATIAL reference geometry — lines and arcs in 3D and the points that define them — and produces NO body: it is the path a sweep or a frame runs along, and it is not extrudable (no plane, no region, no profile). {\"type\":\"Sketch3d\",\"sketch\":{\"id\": a uuid, \"entities\":[…]}} with entities: {\"type\":\"Point\", id, xyz:[x,y,z], attach?, xyz_expr?: [expr|null, …] (mm-space), construction?}, {\"type\":\"Line\", id, start_id, end_id}, {\"type\":\"Arc\", id, start_id, end_id, via_id} (three distinct non-collinear points — via_id is any point ON the arc), and {\"type\":\"Fillet\", id, at_point_id, radius (m), radius_expr?} which rounds the corner where exactly two STRAIGHT segments meet, exactly tangent to both. Two points coincide by SHARING a point id, not by a constraint — there is no 3D solver. A point derives its position instead of stating it with attach: {\"type\":\"AlongAxis\", from: another point id, axis:\"X\"|\"Y\"|\"Z\", distance} (the axis-locked run most frame geometry is made of), {\"type\":\"Offset\", from, delta:[x,y,z]}, {\"type\":\"Vertex\", reference: a Vertex GeomRef}, {\"type\":\"EdgePoint\", reference: an Edge GeomRef, t: 0..1 along it by arc length}, or {\"type\":\"OnPlane\", reference: a planar face or datum plane, uv}. Read back what it evaluated to with sketch3d_get — an attached point resolves only at rebuild, so the xyz you wrote is just a hint. A UnionAll folds EVERY live body of the part (or params.targets {type:\"Selected\", bodies:[Solid GeomRefs]}) into connected solids with ONE feature — a balanced tree of pairwise unions with a bounding-box fast path — so prefer it over a chain of BooleanCombine steps on many overlapping bodies: params {targets?: {type:\"All\"}}. A BooleanCombine whose operand was already consumed by an earlier feature is refused (chain onto that feature's own output instead). A Pipe sweeps a circle along an OPEN, tangent-continuous chain of sketch lines and arcs (construction geometry is fine) as ONE solid: params {sketch_id, entity_ids: [the path entities, any order], radius (m), inner_radius? (m, hollow), combine?, targets?} — no boolean between segments, so a handlebar or hose is one body; a corner or a bend tighter than the tube radius is refused. A Sweep carries a planar sketch PROFILE (a plain polygon for now — a circle, arc-bearing or holed section is refused as a capability wall, never chord-approximated) along a path of lines and arcs as ONE solid, no boolean between segments: params {sketch_id: the SECTION sketch, profile_index (or profile_entity_ids, or region: {outer: [[u,v],…]} for a sub-region), path: {type:\"Sketch\", sketch_id, entity_ids: [lines/arcs, any order, construction fine — the path sketch may be the section sketch or another]} or {type:\"Sketch3d\", sketch_id, entity_id?: a member of the chain wanted (omit when the 3D sketch has one chain)}, combine?, targets?}. The path may be OPEN (two caps) or CLOSED (a ring, no caps). Where the path STARTS: an open sketch path at the free end holding the first listed entity; a closed sketch path at the START point of the FIRST listed entity, walking that entity's own direction; a Sketch3d chain at its first edge's start as sketch3d_get orders it. That start point is where the section pierces. Corners between two STRAIGHT segments are mitred; a bend (arc) must be entered and left tangentially. The pierce rule: the section sketch plane must be perpendicular to the path's first segment and contain the path's start point — draw the section on a plane through the path start, normal to its first segment; nothing auto-centres it (an offset section is a legitimate offset member). Lengths in meters. A Script runs a custom feature script (Rhai) that the document carries as a `Script` source: params {source_id, entry?: \"feature\", args: {name: value in model units, or {origin, normal} / a datum plane id for a plane param}, arg_exprs?: {name: \"expression\"}}; the script declares its parameters in `// @param name: type` header lines and calls ctx.sketch / extrude / revolve / boolean over the same operations as these tools; add the source with script_source_add and prefer script_feature_add (same node, takes the args directly) — see docs/CUSTOM_FEATURE_SCRIPTS.md. A PatternCircular/PatternLinear/PatternMirror copies seed BODIES (params.seeds: Solid GeomRefs {kind:\"Solid\", anchor:{type:\"FeatureOutput\", feature_id, output_key}}, from model_summary bodies, or {\"type\":\"All\"} for EVERY live body at that point in the tree — which is how you say \"take everything I just built and turn it four times\" without listing it) — it does not re-run the seed feature. Circular: axis {method:\"explicit\", origin, direction} or {method:\"entity\", geom_ref: a cylindrical/conical face, a circular edge, or a straight edge}, count (instances INCLUDING the seed, ≥ 2), angle_deg (TOTAL sweep; 360 spaces 360/count apart, otherwise the last instance lands at angle_deg), skip?: [instance indices ≥ 1]. Linear: direction (AxisRef, direction only), count, spacing (m; negative reverses), second?: {direction, count, spacing} for a grid (index i + j·count). Mirror: plane {method:\"explicit\", origin: a point on the plane, direction: the plane NORMAL} or {method:\"entity\", geom_ref: a planar face or datum plane}; one copy, the seed's mirror image (no count, no skip). All: combine?: NewBody (default: every instance its own body) | Add (folds targets + instances into connected bodies) | Cut | Intersect, with targets?: explicit Solid GeomRefs (never auto by position; Cut/Intersect need one). The pattern takes custody of its seeds (their features are consumed) and emits every instance: Main = the seed itself, then Body:1… — so chain later booleans onto the PATTERN's outputs, not the seed feature's. A MateConnector is a named frame on the part that assemblies mate its instances by (model_summary lists the evaluated ones): params {name, geom_ref?: a Face or Edge GeomRef (face_list, selection_get), frame?: {origin, z_axis, x_axis} in part coordinates when there is no geom_ref, anchor?: \"middle\"|\"positive_end\"|\"negative_end\" along a cylindrical/conical/toroidal face's axis, flip_z?, rotation_deg?, offset_m?: [x, y, z] along its own axes}; a pick with no frame (a vertex, a freeform face) fails the feature. Address a sketch loop with params.sketch_id = the Sketch feature id and params.profile_entity_ids = the loop's entity ids (from sketch_create or sketch_regions); profile_index is then ignored but still required (use 0). Fillet, Chamfer and Shell are refused (Deferred); STEP imports are not authored here. A step whose feature or any downstream feature newly fails to rebuild is rolled back by default; kernel capability limits (NotSupported) are reported verbatim — do not retry them with altered parameters. Units: lengths in meters, angles in degrees; *_expr expressions are mm-space (a bare 20 means 20 mm).",
       "inputSchema": {
         "$defs": {
           "Anchor": {
@@ -10728,6 +10874,22 @@
               {
                 "properties": {
                   "params": {
+                    "$ref": "#/$defs/SweepParams"
+                  },
+                  "type": {
+                    "const": "Sweep",
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "type",
+                  "params"
+                ],
+                "type": "object"
+              },
+              {
+                "properties": {
+                  "params": {
                     "$ref": "#/$defs/ScriptParams"
                   },
                   "type": {
@@ -10778,6 +10940,7 @@
                         "PatternLinear",
                         "PatternMirror",
                         "Pipe",
+                        "Sweep",
                         "Script",
                         "UnionAll"
                       ]
@@ -13676,6 +13839,135 @@
                 "const": "Iso606",
                 "description": "ISO 606 tooth gap form (the only form implemented).",
                 "type": "string"
+              }
+            ]
+          },
+          "SweepParams": {
+            "description": "Parameters for a general sweep (`specs/b6_general_sweep.md` S6): a\nplanar sketch profile (the SECTION) carried along a path of lines and\narcs, built by the kernel as ONE solid — consecutive segments share\ntheir rim, no boolean between them. Lengths in meters.\n\nThe section is used exactly where it is drawn (nothing auto-centres it):\nthe **pierce rule** requires the section sketch's plane to be\nperpendicular to the path's start tangent and the path's start point to\nlie in that plane, so draw the section on a plane through the path's\nfirst point, normal to its first segment. The path may be OPEN (two\nplanar caps) or CLOSED (a ring, no caps). A corner between two STRAIGHT\nsegments is mitred by the bisector plane; a bend (an arc) must be entered\nand left tangentially — a corner at an arc is refused. For now the\nsection must be a plain polygon: a circle, an arc-bearing profile or a\nprofile with holes is refused as a typed capability wall (B6 S4), never\nsilently approximated by its chord polygon.",
+            "properties": {
+              "combine": {
+                "anyOf": [
+                  {
+                    "$ref": "#/$defs/CombineMode"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "description": "Boolean combine against `targets`; `None` ⇒ NewBody."
+              },
+              "path": {
+                "$ref": "#/$defs/SweepPathRef",
+                "description": "Where the path comes from: lines/arcs of a planar sketch, or a chain\nof a `Sketch3d`."
+              },
+              "profile_entity_ids": {
+                "description": "See `ExtrudeParams::profile_entity_ids`: the section is the solved\nloop bounded by exactly this entity-id set.",
+                "items": {
+                  "format": "uint32",
+                  "minimum": 0,
+                  "type": "integer"
+                },
+                "type": [
+                  "array",
+                  "null"
+                ]
+              },
+              "profile_index": {
+                "description": "Whole-loop profile of the section sketch, like `ExtrudeParams`\n(ignored when `profile_entity_ids` or `region` is present).",
+                "format": "uint",
+                "minimum": 0,
+                "type": "integer"
+              },
+              "region": {
+                "anyOf": [
+                  {
+                    "$ref": "#/$defs/Region"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "description": "Explicit sub-region of the section sketch (an `outer` polygon, no\nholes) that no whole-loop profile denotes, like\n`ExtrudeParams::region`. When `Some`, `profile_index` is ignored."
+              },
+              "sketch_id": {
+                "description": "The SECTION sketch feature's id (a planar sketch).",
+                "format": "uuid",
+                "type": "string"
+              },
+              "targets": {
+                "description": "Explicit target bodies for `Add`/`Cut`/`Intersect`. A combine with\nno targets falls back to the most recent solid body (the pipe's\nrule: the section's plane rarely shares a face with anything).",
+                "items": {
+                  "$ref": "#/$defs/GeomRef"
+                },
+                "type": [
+                  "array",
+                  "null"
+                ]
+              }
+            },
+            "required": [
+              "sketch_id",
+              "profile_index",
+              "path"
+            ],
+            "type": "object"
+          },
+          "SweepPathRef": {
+            "description": "The path of a sweep (`specs/b6_general_sweep.md` §8). Either source\nyields the same world-space chain, so the kernel never learns which it\nwas; the chain is re-extracted from the CURRENT sketch at every rebuild,\nso editing the path re-sweeps the solid.",
+            "oneOf": [
+              {
+                "description": "Lines and arcs of a planar sketch (construction geometry allowed),\nin any order, forming ONE chain. Open: the path starts at the free\nend holding the FIRST listed entity. Closed: the path starts at the\nSTART point of the FIRST listed entity and walks in that entity's\nown direction — so the first entity you list is where the section\npierces (its sketch plane must contain that point and be\nperpendicular to that entity's direction there). Branching or\ndisconnected selections are refused. The path sketch may be the\nsection sketch itself or another sketch.",
+                "properties": {
+                  "entity_ids": {
+                    "items": {
+                      "format": "uint32",
+                      "minimum": 0,
+                      "type": "integer"
+                    },
+                    "type": "array"
+                  },
+                  "sketch_id": {
+                    "format": "uuid",
+                    "type": "string"
+                  },
+                  "type": {
+                    "const": "Sketch",
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "type",
+                  "sketch_id",
+                  "entity_ids"
+                ],
+                "type": "object"
+              },
+              {
+                "description": "A chain of a `Sketch3d` feature (its lines, arcs and fillets,\nevaluated at rebuild): the chain containing `entity_id`, or the\nsketch's only chain when `entity_id` is absent — a sketch with\nseveral chains and no `entity_id` is refused. The chain is used as\nthe 3D sketch evaluates it (`sketch3d_get` shows the order): the\nsection pierces at its first edge's start point and the sweep runs\nin that edge's direction.",
+                "properties": {
+                  "entity_id": {
+                    "format": "uint32",
+                    "minimum": 0,
+                    "type": [
+                      "integer",
+                      "null"
+                    ]
+                  },
+                  "sketch_id": {
+                    "format": "uuid",
+                    "type": "string"
+                  },
+                  "type": {
+                    "const": "Sketch3d",
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "type",
+                  "sketch_id"
+                ],
+                "type": "object"
               }
             ]
           },
@@ -15118,7 +15410,7 @@
         "readOnlyHint": true,
         "title": "Check script"
       },
-      "description": "Check a custom feature script without adding anything: parse its header, compile it and confirm the entry function. Pass text (unsaved script) or source_id (a stored script source). With args the script is also DRY-RUN against a recorder with no kernel — runtime errors, ctx.fail, limits and the @output contract are exercised and the recorded child operations listed — so run it with the args you intend to use before script_feature_add. Errors carry the stage and the interpreter's message verbatim. A script is Rhai text with a header of `// @feature name=\"…\" version=N`, `// @param name: type [= default] [min=..] [max=..]` (types: int, number, length (meters), angle (degrees), bool, string, plane, body, face, edge) and `// @output name: main|body|face|edge|connector` lines, then `fn feature(ctx, p) { … }` calling ctx.sketch(p.plane) → sk.point/line/circle/arc/rect/polygon/gear/sprocket → sk.finish().regions(), ctx.extrude / revolve / boolean / pattern_circular / pattern_linear / pipe / union_all / mate_connector, and query chains (.faces().normal_near([0,0,1], 5).largest_area()). Its return value names the node's outputs. See docs/CUSTOM_FEATURE_SCRIPTS.md. Units: lengths in meters, angles in degrees; *_expr expressions are mm-space (a bare 20 means 20 mm).",
+      "description": "Check a custom feature script without adding anything: parse its header, compile it and confirm the entry function. Pass text (unsaved script) or source_id (a stored script source). With args the script is also DRY-RUN against a recorder with no kernel — runtime errors, ctx.fail, limits and the @output contract are exercised and the recorded child operations listed — so run it with the args you intend to use before script_feature_add. Errors carry the stage and the interpreter's message verbatim. A script is Rhai text with a header of `// @feature name=\"…\" version=N`, `// @param name: type [= default] [min=..] [max=..]` (types: int, number, length (meters), angle (degrees), bool, string, plane, body, face, edge) and `// @output name: main|body|face|edge|connector` lines, then `fn feature(ctx, p) { … }` calling ctx.sketch(p.plane) → sk.point/line/circle/arc/rect/polygon/gear/sprocket → sk.finish().regions(), ctx.extrude / revolve / boolean / pattern_circular / pattern_linear / pipe / sweep / union_all / mate_connector, and query chains (.faces().normal_near([0,0,1], 5).largest_area()). Its return value names the node's outputs. See docs/CUSTOM_FEATURE_SCRIPTS.md. Units: lengths in meters, angles in degrees; *_expr expressions are mm-space (a bare 20 means 20 mm).",
       "inputSchema": {
         "additionalProperties": false,
         "properties": {
@@ -15319,7 +15611,7 @@
         "readOnlyHint": false,
         "title": "Add script source"
       },
-      "description": "Add a custom feature script to the document as an embedded Script source (saved with the file, shareable by many nodes). Pass text, or library (\"gear\" or \"sprocket\") for one of the built-in scripts. Refused with InvalidScript (stage + reason) when the script does not check — run script_run_check first. The name defaults to the header's @feature name. Not an undo step (sources are assets); the source stays in the document even with no node using it. A script is Rhai text with a header of `// @feature name=\"…\" version=N`, `// @param name: type [= default] [min=..] [max=..]` (types: int, number, length (meters), angle (degrees), bool, string, plane, body, face, edge) and `// @output name: main|body|face|edge|connector` lines, then `fn feature(ctx, p) { … }` calling ctx.sketch(p.plane) → sk.point/line/circle/arc/rect/polygon/gear/sprocket → sk.finish().regions(), ctx.extrude / revolve / boolean / pattern_circular / pattern_linear / pipe / union_all / mate_connector, and query chains (.faces().normal_near([0,0,1], 5).largest_area()). Its return value names the node's outputs. See docs/CUSTOM_FEATURE_SCRIPTS.md. ",
+      "description": "Add a custom feature script to the document as an embedded Script source (saved with the file, shareable by many nodes). Pass text, or library (\"gear\" or \"sprocket\") for one of the built-in scripts. Refused with InvalidScript (stage + reason) when the script does not check — run script_run_check first. The name defaults to the header's @feature name. Not an undo step (sources are assets); the source stays in the document even with no node using it. A script is Rhai text with a header of `// @feature name=\"…\" version=N`, `// @param name: type [= default] [min=..] [max=..]` (types: int, number, length (meters), angle (degrees), bool, string, plane, body, face, edge) and `// @output name: main|body|face|edge|connector` lines, then `fn feature(ctx, p) { … }` calling ctx.sketch(p.plane) → sk.point/line/circle/arc/rect/polygon/gear/sprocket → sk.finish().regions(), ctx.extrude / revolve / boolean / pattern_circular / pattern_linear / pipe / sweep / union_all / mate_connector, and query chains (.faces().normal_near([0,0,1], 5).largest_area()). Its return value names the node's outputs. See docs/CUSTOM_FEATURE_SCRIPTS.md. ",
       "inputSchema": {
         "additionalProperties": false,
         "properties": {

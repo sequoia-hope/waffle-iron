@@ -2097,6 +2097,22 @@
         {
           "properties": {
             "params": {
+              "$ref": "#/$defs/SweepParams"
+            },
+            "type": {
+              "const": "Sweep",
+              "type": "string"
+            }
+          },
+          "required": [
+            "type",
+            "params"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "params": {
               "$ref": "#/$defs/ScriptParams"
             },
             "type": {
@@ -2147,6 +2163,7 @@
                   "PatternLinear",
                   "PatternMirror",
                   "Pipe",
+                  "Sweep",
                   "Script",
                   "UnionAll"
                 ]
@@ -5320,6 +5337,135 @@
           "const": "Iso606",
           "description": "ISO 606 tooth gap form (the only form implemented).",
           "type": "string"
+        }
+      ]
+    },
+    "SweepParams": {
+      "description": "Parameters for a general sweep (`specs/b6_general_sweep.md` S6): a\nplanar sketch profile (the SECTION) carried along a path of lines and\narcs, built by the kernel as ONE solid — consecutive segments share\ntheir rim, no boolean between them. Lengths in meters.\n\nThe section is used exactly where it is drawn (nothing auto-centres it):\nthe **pierce rule** requires the section sketch's plane to be\nperpendicular to the path's start tangent and the path's start point to\nlie in that plane, so draw the section on a plane through the path's\nfirst point, normal to its first segment. The path may be OPEN (two\nplanar caps) or CLOSED (a ring, no caps). A corner between two STRAIGHT\nsegments is mitred by the bisector plane; a bend (an arc) must be entered\nand left tangentially — a corner at an arc is refused. For now the\nsection must be a plain polygon: a circle, an arc-bearing profile or a\nprofile with holes is refused as a typed capability wall (B6 S4), never\nsilently approximated by its chord polygon.",
+      "properties": {
+        "combine": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/CombineMode"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Boolean combine against `targets`; `None` ⇒ NewBody."
+        },
+        "path": {
+          "$ref": "#/$defs/SweepPathRef",
+          "description": "Where the path comes from: lines/arcs of a planar sketch, or a chain\nof a `Sketch3d`."
+        },
+        "profile_entity_ids": {
+          "description": "See `ExtrudeParams::profile_entity_ids`: the section is the solved\nloop bounded by exactly this entity-id set.",
+          "items": {
+            "format": "uint32",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "type": [
+            "array",
+            "null"
+          ]
+        },
+        "profile_index": {
+          "description": "Whole-loop profile of the section sketch, like `ExtrudeParams`\n(ignored when `profile_entity_ids` or `region` is present).",
+          "format": "uint",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "region": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Region"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Explicit sub-region of the section sketch (an `outer` polygon, no\nholes) that no whole-loop profile denotes, like\n`ExtrudeParams::region`. When `Some`, `profile_index` is ignored."
+        },
+        "sketch_id": {
+          "description": "The SECTION sketch feature's id (a planar sketch).",
+          "format": "uuid",
+          "type": "string"
+        },
+        "targets": {
+          "description": "Explicit target bodies for `Add`/`Cut`/`Intersect`. A combine with\nno targets falls back to the most recent solid body (the pipe's\nrule: the section's plane rarely shares a face with anything).",
+          "items": {
+            "$ref": "#/$defs/GeomRef"
+          },
+          "type": [
+            "array",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "sketch_id",
+        "profile_index",
+        "path"
+      ],
+      "type": "object"
+    },
+    "SweepPathRef": {
+      "description": "The path of a sweep (`specs/b6_general_sweep.md` §8). Either source\nyields the same world-space chain, so the kernel never learns which it\nwas; the chain is re-extracted from the CURRENT sketch at every rebuild,\nso editing the path re-sweeps the solid.",
+      "oneOf": [
+        {
+          "description": "Lines and arcs of a planar sketch (construction geometry allowed),\nin any order, forming ONE chain. Open: the path starts at the free\nend holding the FIRST listed entity. Closed: the path starts at the\nSTART point of the FIRST listed entity and walks in that entity's\nown direction — so the first entity you list is where the section\npierces (its sketch plane must contain that point and be\nperpendicular to that entity's direction there). Branching or\ndisconnected selections are refused. The path sketch may be the\nsection sketch itself or another sketch.",
+          "properties": {
+            "entity_ids": {
+              "items": {
+                "format": "uint32",
+                "minimum": 0,
+                "type": "integer"
+              },
+              "type": "array"
+            },
+            "sketch_id": {
+              "format": "uuid",
+              "type": "string"
+            },
+            "type": {
+              "const": "Sketch",
+              "type": "string"
+            }
+          },
+          "required": [
+            "type",
+            "sketch_id",
+            "entity_ids"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "A chain of a `Sketch3d` feature (its lines, arcs and fillets,\nevaluated at rebuild): the chain containing `entity_id`, or the\nsketch's only chain when `entity_id` is absent — a sketch with\nseveral chains and no `entity_id` is refused. The chain is used as\nthe 3D sketch evaluates it (`sketch3d_get` shows the order): the\nsection pierces at its first edge's start point and the sweep runs\nin that edge's direction.",
+          "properties": {
+            "entity_id": {
+              "format": "uint32",
+              "minimum": 0,
+              "type": [
+                "integer",
+                "null"
+              ]
+            },
+            "sketch_id": {
+              "format": "uuid",
+              "type": "string"
+            },
+            "type": {
+              "const": "Sketch3d",
+              "type": "string"
+            }
+          },
+          "required": [
+            "type",
+            "sketch_id"
+          ],
+          "type": "object"
         }
       ]
     },

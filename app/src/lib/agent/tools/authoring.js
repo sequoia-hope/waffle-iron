@@ -91,7 +91,7 @@ export const sketchCreateTool = {
 };
 
 const operationNote =
-	'operation is an Operation: {"type":"Extrude","params":{…}}, Revolve, Pipe, BooleanCombine, UnionAll, DatumPlane, MateConnector, ' +
+	'operation is an Operation: {"type":"Extrude","params":{…}}, Revolve, Pipe, Sweep, BooleanCombine, UnionAll, DatumPlane, MateConnector, ' +
 	'PatternCircular, PatternLinear, PatternMirror, Script, a full Sketch, or a Sketch3d. A Sketch3d is SPATIAL ' +
 	'reference geometry — lines and arcs in 3D and the points that define them — and produces NO body: it is the ' +
 	'path a sweep or a frame runs along, and it is not extrudable (no plane, no region, no profile). ' +
@@ -113,7 +113,18 @@ const operationNote =
 	'earlier feature is refused (chain onto that feature\'s own output instead). A Pipe sweeps a circle along an OPEN, tangent-continuous ' +
 	'chain of sketch lines and arcs (construction geometry is fine) as ONE solid: params {sketch_id, entity_ids: [the ' +
 	'path entities, any order], radius (m), inner_radius? (m, hollow), combine?, targets?} — no boolean between segments, ' +
-	'so a handlebar or hose is one body; a corner or a bend tighter than the tube radius is refused. A Script runs a custom feature script (Rhai) that ' +
+	'so a handlebar or hose is one body; a corner or a bend tighter than the tube radius is refused. A Sweep carries a planar sketch ' +
+	'PROFILE (a plain polygon for now — a circle, arc-bearing or holed section is refused as a capability wall, never chord-approximated) ' +
+	'along a path of lines and arcs as ONE solid, no boolean between segments: params {sketch_id: the SECTION sketch, profile_index ' +
+	'(or profile_entity_ids, or region: {outer: [[u,v],…]} for a sub-region), path: {type:"Sketch", sketch_id, entity_ids: [lines/arcs, ' +
+	'any order, construction fine — the path sketch may be the section sketch or another]} or {type:"Sketch3d", sketch_id, entity_id?: ' +
+	'a member of the chain wanted (omit when the 3D sketch has one chain)}, combine?, targets?}. The path may be OPEN (two caps) or CLOSED ' +
+	'(a ring, no caps). Where the path STARTS: an open sketch path at the free end holding the first listed entity; a closed sketch path ' +
+	'at the START point of the FIRST listed entity, walking that entity\'s own direction; a Sketch3d chain at its first edge\'s start as ' +
+	'sketch3d_get orders it. That start point is where the section pierces. Corners between two STRAIGHT segments are mitred; a bend (arc) must be entered and left tangentially. The pierce ' +
+	'rule: the section sketch plane must be perpendicular to the path\'s first segment and contain the path\'s start point — draw the ' +
+	'section on a plane through the path start, normal to its first segment; nothing auto-centres it (an offset section is a legitimate ' +
+	'offset member). Lengths in meters. A Script runs a custom feature script (Rhai) that ' +
 	'the document carries as a `Script` source: params {source_id, entry?: "feature", args: {name: value in model ' +
 	'units, or {origin, normal} / a datum plane id for a plane param}, arg_exprs?: {name: "expression"}}; the ' +
 	'script declares its parameters in `// @param name: type` header lines and calls ctx.sketch / extrude / ' +

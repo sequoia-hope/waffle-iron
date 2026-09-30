@@ -51,6 +51,7 @@ const AUTHORABLE: &[&str] = &[
     "PatternLinear",
     "PatternMirror",
     "Pipe",
+    "Sweep",
     "Script",
     "UnionAll",
 ];

@@ -236,6 +236,25 @@ pub trait Kernel {
             operation: "pipe".to_string(),
         })
     }
+
+    /// Sweep a planar polygon `section` along `path`, a chain of lines and
+    /// arcs in WORLD coordinates (open or closed; sharp corners between
+    /// straight segments are mitred, bends must enter tangentially), as ONE
+    /// directly assembled solid — consecutive segments share their rim, no
+    /// boolean (`specs/b6_general_sweep.md`). The section is used exactly
+    /// where it is drawn (nothing auto-centres it) and must be pierced by
+    /// the path start (§8). Capability walls (a holed or arc-bearing
+    /// section, a section edge oblique to a bend's axis, a twisted 3D ring)
+    /// are typed `NotSupported`; invalid input is a plain error.
+    fn sweep(
+        &mut self,
+        _section: &SweepSection,
+        _path: &crate::sketch3d::Chain3d,
+    ) -> Result<KernelSolidHandle, KernelError> {
+        Err(KernelError::NotSupported {
+            operation: "sweep".to_string(),
+        })
+    }
 }
 
 /// What kind of analytic geometry an [`EntityAxis`] came from. Reported so a

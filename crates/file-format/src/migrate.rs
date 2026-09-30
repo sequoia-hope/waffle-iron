@@ -138,6 +138,9 @@ fn migrate_feature_v1_to_v2(feature: &mut Feature) {
         Operation::Pipe { .. } => {
             // Postdates v5; radii are meters by definition.
         }
+        Operation::Sweep { .. } => {
+            // Postdates v5; the section region (if any) is meters by definition.
+        }
         Operation::UnionAll { .. } => {
             // Postdates v5; no lengths.
         }

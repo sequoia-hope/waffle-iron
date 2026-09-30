@@ -342,7 +342,7 @@ bridge actually sends and JS actually stores into the file) — a drift hazard
 
 `operation` is internally tagged with `type` ∈ `Sketch`, `Extrude`, `Revolve`,
 `Fillet`, `Chamfer`, `Shell`, `BooleanCombine`, `DatumPlane`, `ImportedBody`,
-`MateConnector`, `PatternCircular`, `PatternLinear`, `Pipe`, `Script`,
+`MateConnector`, `PatternCircular`, `PatternLinear`, `Pipe`, `Sweep`, `Script`,
 `UnionAll`.
 Parameter payloads sit under `sketch` (for `Sketch`) or `params` (all others).
 
@@ -590,6 +590,30 @@ Zero live bodies is a per-feature error; one body passes through unchanged
 (with a warning). Since the same date a `BooleanCombine` (§7.5) whose
 operand's feature an earlier feature consumed is a per-feature error rather
 than a silent duplicate of the stale body.
+
+### 7.13 `Sweep` — `SweepParams` (types.rs, 2026-09-30)
+
+A planar sketch profile (the SECTION) swept along a chain of lines and
+arcs, built by the kernel as ONE solid whose consecutive segments share
+their rim (`specs/b6_general_sweep.md` S6). The path is OPEN (two planar
+caps) or CLOSED (a ring, no caps); a corner between two straight segments
+is mitred by the bisector plane, a bend must be entered and left
+tangentially. The section is used where it is drawn — the pierce rule: its
+sketch plane is perpendicular to the path's start tangent and the path
+starts in that plane — and must for now be a plain polygon: a circle, an
+arc-bearing or holed section is a typed capability wall (B6 S4), never a
+chord approximation. The path is re-extracted from the current sketch at
+every rebuild. New operation kind, no reader-floor bump.
+
+| Field | Type | Req/default | Notes |
+|---|---|---|---|
+| `sketch_id` | UUID | ✔ | The SECTION sketch **feature's** id (planar). |
+| `profile_index` | usize | ✔ | Whole-loop profile of the section sketch, as `Extrude`; ignored when `profile_entity_ids` or `region` is present. |
+| `profile_entity_ids` | u32[] \| null | opt | The section is the loop bounded by exactly this entity-id set (§7.2 semantics). |
+| `region` | Region \| null | opt | Explicit sub-region (`outer` polygon in sketch `(u, v)`, no holes) that no whole-loop profile denotes, as `ExtrudeParams::region`. |
+| `path` | `{"type":"Sketch", sketch_id, entity_ids}` \| `{"type":"Sketch3d", sketch_id, entity_id?}` | ✔ | `Sketch`: lines/arcs of a planar sketch (construction allowed, any order, one chain, open or closed — an open chain starts at the free end holding the first listed entity, a closed one at the first listed entity's own start). The path sketch may be the section sketch or another. `Sketch3d`: the evaluated chain of that 3D-sketch feature containing `entity_id`, or its only chain. |
+| `combine` | CombineMode \| null | opt | `null` ⇒ NewBody. |
+| `targets` | GeomRef[] \| null | opt | Explicit targets; a combine with none falls back to the most recent solid body (the pipe's rule). |
 
 ## 8. Persistent geometry references — `GeomRef`
 

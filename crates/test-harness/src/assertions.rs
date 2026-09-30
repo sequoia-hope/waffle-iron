@@ -114,6 +114,7 @@ pub fn assert_tree_structure(
                 feature_engine::types::Operation::Extrude { .. } => "Extrude",
                 feature_engine::types::Operation::Revolve { .. } => "Revolve",
                 feature_engine::types::Operation::Pipe { .. } => "Pipe",
+                feature_engine::types::Operation::Sweep { .. } => "Sweep",
                 feature_engine::types::Operation::Fillet { .. } => "Fillet",
                 feature_engine::types::Operation::Chamfer { .. } => "Chamfer",
                 feature_engine::types::Operation::Shell { .. } => "Shell",

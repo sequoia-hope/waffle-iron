@@ -420,21 +420,28 @@ fn malformed_chains_are_refused_typed() {
         SweepPath::new(&chain(vec![]), &s).unwrap_err(),
         KernelV2Error::SweepPathEmpty
     );
+    // A ring (S5): accepted, and known to be a ring whether or not it says
+    // so — its coordinates decide.
     let mut closed = chain(vec![
         line([0.0; 3], [10.0, 0.0, 0.0]),
         line([10.0, 0.0, 0.0], [10.0, 10.0, 0.0]),
         line([10.0, 10.0, 0.0], [0.0; 3]),
     ]);
     closed.closed = true;
-    assert_eq!(
-        SweepPath::new(&closed, &s).unwrap_err(),
-        KernelV2Error::SweepClosedPathUnsupported
-    );
-    // ...and a ring that forgot to say so is still a ring.
+    let section = square([0.0; 3], [0.0, 1.0, 0.0], [0.0, 0.0, 1.0], 0.5);
+    assert!(SweepPath::new(&closed, &section).expect("a ring").closed());
     closed.closed = false;
+    assert!(SweepPath::new(&closed, &section).expect("a ring").closed());
+    // ...while a chain that CLAIMS closure without returning is mis-chained
+    // at its last joint.
+    let mut liar = chain(vec![
+        line([0.0; 3], [10.0, 0.0, 0.0]),
+        line([10.0, 0.0, 0.0], [10.0, 10.0, 0.0]),
+    ]);
+    liar.closed = true;
     assert_eq!(
-        SweepPath::new(&closed, &s).unwrap_err(),
-        KernelV2Error::SweepClosedPathUnsupported
+        SweepPath::new(&liar, &s).unwrap_err(),
+        KernelV2Error::SweepPathNotChained { segment: 1 }
     );
     let gapped = chain(vec![
         line([0.0; 3], [10.0, 0.0, 0.0]),

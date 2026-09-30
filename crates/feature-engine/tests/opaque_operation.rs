@@ -64,7 +64,7 @@ fn known_tags_round_trip_as_before_and_report_their_tag() {
     // `Operation::Unknown` which tags are THIS build's rather than a newer
     // build's, so a kind that reaches the enum without reaching the list would
     // parse as opaque and fail its own rebuild.
-    assert_eq!(OPERATION_TAGS.len(), 17);
+    assert_eq!(OPERATION_TAGS.len(), 18);
 }
 
 #[test]

@@ -9,6 +9,7 @@ pub mod pattern;
 pub mod pipe;
 pub mod revolve;
 pub mod shell;
+pub mod sweep;
 pub mod types;
 
 pub use boolean::{execute_boolean, BooleanKind};
@@ -22,4 +23,5 @@ pub use pattern::{execute_pattern_instances, Instance, PatternSeed};
 pub use pipe::execute_pipe;
 pub use revolve::execute_revolve;
 pub use shell::execute_shell;
+pub use sweep::execute_sweep;
 pub use types::*;

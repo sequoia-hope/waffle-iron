@@ -28,8 +28,8 @@ use crate::assembly::{AxialAnchor, Frame};
 use crate::types::{
     AxisRef, BooleanOp, BooleanParams, CombineMode, DepthMode, ExtrudeParams, Feature,
     LinearSecondDirection, MateConnectorParams, Operation, PatternCircularParams,
-    PatternLinearParams, PatternMirrorParams, PatternSeeds, PipeParams, RevolveParams,
-    UnionAllParams, UnionTargets,
+    PatternLinearParams, PatternMirrorParams, PatternSeeds, PipeParams, RevolveParams, SweepParams,
+    SweepPathRef, UnionAllParams, UnionTargets,
 };
 
 /// Geometry budget (spec §A5): more child operations than this is a runaway
@@ -1138,6 +1138,102 @@ impl Ctx {
             references: Vec::new(),
         };
         self.record(feature, "pipe")
+    }
+
+    /// `ctx.sweep(region, #{ path_sketch, entity_ids } | #{ path_sketch3d,
+    /// entity_id? }, #{ combine, targets })` — the region (a finished
+    /// sketch's closed loop, as `extrude`/`revolve` take) swept along a
+    /// path: the named line/arc entities of a script sketch (`path_sketch`,
+    /// a sketch ref; open or closed, corners mitred), or a chain of a
+    /// `Sketch3d` FEATURE of the document named by its id string
+    /// (`path_sketch3d`; scripts author no 3D sketches of their own).
+    /// Spec `specs/b6_general_sweep.md` S6.
+    pub fn sweep(
+        &mut self,
+        region: &Region,
+        path: &Map,
+        opts: &Map,
+    ) -> Result<FeatureRef, Box<EvalAltResult>> {
+        let path_ref = match (map_get(path, "path_sketch"), map_get(path, "path_sketch3d")) {
+            (Some(_), Some(_)) => {
+                return rt("sweep: give ONE of `path_sketch` or `path_sketch3d`");
+            }
+            (Some(sk), None) => {
+                let Some(sketch) = sk.clone().try_cast::<SketchRef>() else {
+                    return rt(format!(
+                        "sweep: `path_sketch` must be a sketch ref (from sk.finish()), got {}",
+                        sk.type_name()
+                    ));
+                };
+                let Some(ids) = map_get(path, "entity_ids") else {
+                    return rt("sweep: `path_sketch` needs `entity_ids`");
+                };
+                let Some(arr) = ids.clone().try_cast::<Array>() else {
+                    return rt("sweep: `entity_ids` must be an array of entity ids");
+                };
+                let mut entity_ids: Vec<u32> = Vec::with_capacity(arr.len());
+                for d in &arr {
+                    let Ok(v) = d.as_int() else {
+                        return rt("sweep: entity ids must be integers");
+                    };
+                    if v < 0 {
+                        return rt(format!("sweep: entity id {v} is negative"));
+                    }
+                    entity_ids.push(v as u32);
+                }
+                if entity_ids.is_empty() {
+                    return rt("sweep: at least one path entity is required");
+                }
+                SweepPathRef::Sketch {
+                    sketch_id: sketch.id,
+                    entity_ids,
+                }
+            }
+            (None, Some(id)) => {
+                let Ok(text) = id.clone().into_immutable_string() else {
+                    return rt("sweep: `path_sketch3d` must be a Sketch3d feature id string");
+                };
+                let Ok(sketch_id) = Uuid::parse_str(&text) else {
+                    return rt(format!("sweep: `path_sketch3d` {text:?} is not a UUID"));
+                };
+                let entity_id = match map_get(path, "entity_id") {
+                    None => None,
+                    Some(d) => match d.as_int() {
+                        Ok(v) if v >= 0 => Some(v as u32),
+                        _ => return rt("sweep: `entity_id` must be a non-negative integer"),
+                    },
+                };
+                SweepPathRef::Sketch3d {
+                    sketch_id,
+                    entity_id,
+                }
+            }
+            (None, None) => return rt("sweep: the path needs `path_sketch` or `path_sketch3d`"),
+        };
+        let combine = combine_mode(opts)?;
+        let targets = body_refs(map_get(opts, "targets"), "sweep.targets")?;
+        if !matches!(combine, CombineMode::NewBody) && targets.is_empty() {
+            return rt(format!("sweep: combine {combine:?} needs `targets`"));
+        }
+        let id = Uuid::new_v4();
+        let feature = Feature {
+            id,
+            name: "script sweep".into(),
+            operation: Operation::Sweep {
+                params: SweepParams {
+                    sketch_id: region.0.sketch.id,
+                    profile_index: region.0.index,
+                    profile_entity_ids: Some(region.0.entity_ids.clone()),
+                    region: None,
+                    path: path_ref,
+                    combine: Some(combine),
+                    targets: Some(targets),
+                },
+            },
+            suppressed: false,
+            references: Vec::new(),
+        };
+        self.record(feature, "sweep")
     }
 
     pub fn boolean(
