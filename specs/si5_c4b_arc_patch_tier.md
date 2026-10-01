@@ -1,6 +1,6 @@
 # SI5 C4b — the arc-patch tier (arcs and ellipse arcs)
 
-Status: **design**, 2026-10-01. Checkpoint C4b of
+Status: **design**, 2026-10-01; **C4b-M measured** (§5). Checkpoint C4b of
 `specs/step_import_si5_exact_analytic_ingestion.md` §7, following C4a (full
 bands) and C4a′ (the geometry-provenance tier,
 `specs/si5_geometry_provenance_tier.md`).
@@ -134,29 +134,62 @@ the ingest-side refusal and the validator-side refusal from drifting apart.
 
 ---
 
-## 5. Measurements to take BEFORE writing code (checkpoint C4b-M)
+## 5. C4b-M — the measurements, taken first (2026-10-01)
 
-Numbers this design needs and does not have. Each is a probe over ABC chunk
-0000, in the shape §2/§5.1 established, and each can change the plan:
+`ABC_DIR=/tmp/abc/chunk0000 ABC_N=400 cargo test -p test-harness --test
+si5_analytic --release -- --ignored --nocapture c4b_arc_patch_census`:
 
-1. **How much reach does the cone-section-ellipse wall cost?** Of the
-   in-vocabulary arc-patch models, how many have an `ELLIPSE` edge on a
-   `CONICAL_SURFACE` face (walled) versus on a cylinder or a plane
-   (supported)? If that number is large, C4b's ellipse scope is gated on
-   KV16b rather than on ingestion, and the increment splits again.
-2. **Do multi-loop arc patches actually exist in the corpus?** §3.3 is the
-   only genuinely new logic in C4b; if every arc patch has exactly one
-   boundary loop, the unrolled ranking has no customer yet and should be
-   written as the one-loop statement plus a typed refusal for the rest, not as
-   general machinery nobody can test. (The C4a′ increment is the cautionary
-   tale: a gate that cannot fire is not coverage.)
-3. **Per-model reach of the whole tier**, so the +25.8-point figure is
-   confirmed on the same 400 models the other checkpoints report.
-4. **Half-turn and near-half-turn arcs** — already measured at 11 %; re-check
-   it survives the `interior`-based mapping, since this is the one place C4b
-   can silently build the complementary arc.
+```
+  in C4b surface/curve vocabulary   166  (41.5 %)
+    of those, walled by a CONE-section ellipse (KV16b)  0  (0.0 % of vocab)
+  PROJECTED C4b reach               166  (41.5 % of scanned)
+  arc-patch faces                   1113
+    loops per arc patch: {1: 1111, 2: 2}
+  ellipse edge uses by face kind: {"cylindrical": 60, "planar": 20}
+  open arcs 2305: exactly a half turn 261, within 1° of one 126
+```
 
----
+Two of the four change the plan.
+
+### 5.1 The cone-section ellipse wall costs NOTHING — ellipses are free
+
+**Zero** of the 166 in-vocabulary models puts an ellipse on a conical face. All
+80 ellipse edge uses in the sample are on **cylinders (60)** and **planes
+(20)** — precisely the two forms whose validators already handle `EllipseArc`
+(PR-KV9 and the planar exact area). So C4b's ellipse scope is not gated on
+KV16b at all; the cone-ellipse refusal stays in the code as a named wall, but
+it is a wall with no customer in this sample rather than a reach cost.
+
+### 5.2 The unrolled outer-loop ranking has almost no customer — do NOT build it
+
+**1 111 of 1 113** arc patches have exactly one boundary loop; **2** have two.
+So §3.3's general machinery — ranking loops by unrolled winding in the (θ, h)
+domain — would be written for 0.18 % of faces, against a law that only the
+validator can currently check.
+
+C4a′ is the precedent for what to do instead, and it cuts the other way: there,
+a gate that could not fire was removed; here, a form that DOES occur (twice)
+gets a **typed refusal** naming it, and the 1-loop case is stated as what it
+is — a single boundary loop is the outer loop, no ranking needed. That is
+honest, reachable, measurable, and it removes the hardest part of C4b. When a
+corpus case demands the ranking, the refusal will say so by name and the work
+will have a customer to validate against.
+
+**Revised §3.3**: a curved patch with exactly one `Edges` loop takes that loop
+as Outer; two or more is `AnalyticIngestUnsupported("a curved patch with more
+than one boundary loop")`.
+
+### 5.3 Reach, and the half-turn share
+
+- **Projected reach 166/400 (41.5 %)** against C4a′'s 75 (18.8 %) — about
+  **+23 points**, in line with §1's +25.8 estimate. The census gate is coarser
+  than ingestion (it checks surfaces, curves and loop kinds, not every form
+  rule), so 41.5 % is an upper bound and the ingestion run is the number of
+  record.
+- **Half turns are 16.8 % of open arcs** (261 exactly + 126 within 1°, of
+  2 305) — higher than the 11 % §3.1 quoted from a different denominator. One
+  arc in six is a half turn, so reading `interior` rather than deriving the
+  side from endpoints is load-bearing for the tier, not a nicety.
 
 ## 6. Oracles
 

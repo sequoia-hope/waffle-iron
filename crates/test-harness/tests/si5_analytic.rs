@@ -963,6 +963,212 @@ fn extractor_eligibility_against_the_text_census() {
     assert!(scanned > 0, "no models scanned under {dir}");
 }
 
+/// **C4b-M, the measurement checkpoint of `specs/si5_c4b_arc_patch_tier.md`.**
+/// Four numbers the C4b design needs and does not have, two of which can change
+/// the plan:
+///
+/// 1. what the CONE-section-ellipse wall (KV16b) costs in model reach;
+/// 2. whether multi-loop arc patches exist at all — if they do not, C4b's only
+///    genuinely new logic (outer-loop ranking in the unrolled domain) has no
+///    customer yet and must not be written as general machinery;
+/// 3. the projected per-model reach of the whole tier;
+/// 4. the share of arcs at or near a half turn, which is the one place a C4b
+///    mapping can silently build the complementary arc.
+///
+///     ABC_DIR=/tmp/abc/chunk0000 ABC_N=400 \
+///         cargo test -p test-harness --test si5_analytic --release \
+///         -- --ignored --nocapture c4b_arc_patch_census
+#[test]
+#[ignore = "corpus: needs ABC_DIR (scripts/fetch-abc-corpus.sh)"]
+fn c4b_arc_patch_census() {
+    use std::collections::BTreeMap;
+    use waffle_types::kernel::{AnalyticCurve, AnalyticLoop, AnalyticShellData, AnalyticSurface};
+
+    let Ok(dir) = std::env::var("ABC_DIR") else {
+        eprintln!("ABC_DIR unset — skipping");
+        return;
+    };
+    let n: usize = std::env::var("ABC_N")
+        .ok()
+        .and_then(|s| s.parse().ok())
+        .unwrap_or(200);
+    let max_bytes: u64 = std::env::var("ABC_MAX_BYTES")
+        .ok()
+        .and_then(|s| s.parse().ok())
+        .unwrap_or(2_000_000);
+
+    /// C4b's surface/curve vocabulary: planes, cylinders, cones; lines,
+    /// circles (open or closed), ellipses. Spheres and tori are C5.
+    fn c4b_vocab(shell: &AnalyticShellData) -> bool {
+        shell.faces.iter().all(|f| {
+            matches!(
+                f.surface,
+                AnalyticSurface::Plane { .. }
+                    | AnalyticSurface::Cylinder { .. }
+                    | AnalyticSurface::Cone { .. }
+            )
+        }) && shell
+            .faces
+            .iter()
+            .all(|f| f.loops.iter().all(|l| matches!(l, AnalyticLoop::Edges(_))))
+    }
+
+    let mut scanned = 0usize;
+    let mut vocab = 0usize;
+    let mut vocab_with_cone_ellipse = 0usize;
+    let mut projected_reach = 0usize;
+    let mut arc_patch_faces = 0usize;
+    let mut loops_per_arc_patch: BTreeMap<usize, usize> = BTreeMap::new();
+    let mut ellipse_on: BTreeMap<&'static str, usize> = BTreeMap::new();
+    let mut arcs = 0usize;
+    let mut arcs_half_turn = 0usize;
+    let mut arcs_near_half = 0usize;
+
+    let prev_hook = std::panic::take_hook();
+    std::panic::set_hook(Box::new(|_| {}));
+
+    for path in corpus_files(&dir) {
+        if scanned >= n {
+            break;
+        }
+        let Ok(md) = std::fs::metadata(&path) else {
+            continue;
+        };
+        if md.len() > max_bytes {
+            continue;
+        }
+        let Ok(text) = std::fs::read_to_string(&path) else {
+            continue;
+        };
+        scanned += 1;
+        let id = path
+            .file_stem()
+            .map(|s| s.to_string_lossy().to_string())
+            .unwrap_or_default();
+        let parsed = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            step_import::parse_step_analytic(&text, &id)
+        }));
+        let Ok(Ok(import)) = parsed else { continue };
+        let Some(shells) = import
+            .shells
+            .iter()
+            .map(|s| s.as_ref().ok())
+            .collect::<Option<Vec<_>>>()
+        else {
+            continue;
+        };
+        if !shells.iter().all(|s| c4b_vocab(s)) {
+            continue;
+        }
+        vocab += 1;
+
+        let mut cone_ellipse = false;
+        for shell in &shells {
+            // Which faces use which edges, so an ellipse can be attributed to
+            // the surface it actually bounds.
+            for (fi, face) in shell.faces.iter().enumerate() {
+                let kind = face.surface.surface_type_str();
+                let mut closed_circles = 0usize;
+                let mut loops_here = 0usize;
+                for lp in &face.loops {
+                    let AnalyticLoop::Edges(os) = lp else {
+                        continue;
+                    };
+                    loops_here += 1;
+                    for o in os {
+                        let e = &shell.edges[o.edge as usize];
+                        match e.curve {
+                            AnalyticCurve::Circle { .. } if e.start == e.end => closed_circles += 1,
+                            AnalyticCurve::Ellipse { .. } => {
+                                *ellipse_on.entry(kind).or_default() += 1;
+                                if matches!(face.surface, AnalyticSurface::Cone { .. }) {
+                                    cone_ellipse = true;
+                                }
+                            }
+                            _ => {}
+                        }
+                    }
+                }
+                let curved = !matches!(face.surface, AnalyticSurface::Plane { .. });
+                if curved && closed_circles == 0 {
+                    arc_patch_faces += 1;
+                    *loops_per_arc_patch.entry(loops_here).or_default() += 1;
+                }
+                let _ = fi;
+            }
+            // Arc sweeps, from the file's own `interior` point (never derived
+            // from the endpoints — spec §3.1).
+            for e in &shell.edges {
+                if let AnalyticCurve::Circle {
+                    center,
+                    radius,
+                    interior,
+                    ..
+                } = e.curve
+                {
+                    if e.start == e.end {
+                        continue;
+                    }
+                    arcs += 1;
+                    let p = shell.vertices[e.start as usize];
+                    let q = shell.vertices[e.end as usize];
+                    // Chord/radius geometry: the sweep of the arc THROUGH
+                    // `interior` is > π iff `interior` is on the far side.
+                    let v =
+                        |a: Point3| [a.x() - center.x(), a.y() - center.y(), a.z() - center.z()];
+                    let dot = |a: [f64; 3], b: [f64; 3]| a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
+                    let (vp, vq, vi) = (v(p), v(q), v(interior));
+                    let cos_pq = (dot(vp, vq) / (radius * radius)).clamp(-1.0, 1.0);
+                    let minor = cos_pq.acos();
+                    // `interior` nearer the midpoint direction of the MINOR arc
+                    // means the arc is the minor one.
+                    let mid = [vp[0] + vq[0], vp[1] + vq[1], vp[2] + vq[2]];
+                    let sweep = if dot(mid, vi) >= 0.0 {
+                        minor
+                    } else {
+                        2.0 * std::f64::consts::PI - minor
+                    };
+                    let half = std::f64::consts::PI;
+                    if (sweep - half).abs() <= 1e-9 {
+                        arcs_half_turn += 1;
+                    } else if (sweep - half).abs() <= half / 180.0 {
+                        arcs_near_half += 1;
+                    }
+                }
+            }
+        }
+        if cone_ellipse {
+            vocab_with_cone_ellipse += 1;
+        } else {
+            projected_reach += 1;
+        }
+    }
+    std::panic::set_hook(prev_hook);
+
+    eprintln!("\nC4b CENSUS over {scanned} models (<= {max_bytes} bytes)");
+    eprintln!(
+        "  in C4b surface/curve vocabulary   {vocab}  ({:.1} %)",
+        100.0 * vocab as f64 / scanned.max(1) as f64
+    );
+    eprintln!(
+        "    of those, walled by a CONE-section ellipse (KV16b)  {vocab_with_cone_ellipse}  \
+         ({:.1} % of vocab)",
+        100.0 * vocab_with_cone_ellipse as f64 / vocab.max(1) as f64
+    );
+    eprintln!(
+        "  PROJECTED C4b reach               {projected_reach}  ({:.1} % of scanned)",
+        100.0 * projected_reach as f64 / scanned.max(1) as f64
+    );
+    eprintln!("  arc-patch faces                   {arc_patch_faces}");
+    eprintln!("    loops per arc patch: {loops_per_arc_patch:?}");
+    eprintln!("  ellipse edge uses by face kind: {ellipse_on:?}");
+    eprintln!(
+        "  open arcs {arcs}: exactly a half turn {arcs_half_turn}, within 1° of one \
+         {arcs_near_half}"
+    );
+    assert!(scanned > 0, "no models scanned under {dir}");
+}
+
 /// What share of real models does the ingest path actually take, and what
 /// walls the rest — measured, per spec §8's "categorized" posture rather than
 /// asserted.
