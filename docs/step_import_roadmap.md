@@ -181,9 +181,14 @@ default mm with a diagnostic warning if absent. User `scale` multiplies it.
 - **SI4 — assembly fidelity + scale.** Per-component sub-bodies behind one
   feature (user deferred), board-scale performance (LOD/tolerance policy),
   inch units, richer diagnostics for unsupported entities.
-- **SI5 — exact ingestion for analytic-only imports.** R_0603-class bodies
-  (plane/cylinder/cone/torus + line/arc edges only) enter the kernel-v2
-  arena as exact solids → full yang booleans, analytic primacy end-to-end.
+- **SI5 — exact ingestion for analytic-only imports (IN PROGRESS, 2026-10-01).**
+  R_0603-class bodies (plane/cylinder/cone/sphere/torus + line/circle/ellipse
+  edges only) enter the kernel-v2 arena as exact solids → full yang booleans,
+  analytic primacy end-to-end. **Design spec and plan of record:
+  `specs/step_import_si5_exact_analytic_ingestion.md`** (checkpoints C1–C7;
+  C1 = spec + measurement tooling, DONE). Measured reach: 54.0 % of ABC chunk
+  0000 passes the vocabulary gate and 98.9 % of those are already exact to the
+  arena's own `import_band`, i.e. 53.4 % of the corpus is ingestible exactly.
 
 ## 5. Test fixtures (committed, license-clean)
 
@@ -211,6 +216,21 @@ depend on them are `#[ignore]`-tagged with reason `refs-fixture`.
   (b-splines + OCC tolerance make exact ingestion impossible in general);
   decided truck git-pin over 0.3.0+custom-assembly-walker (walker exists
   upstream, tested).
+- **2026-10-01 — HALF OF THAT 2026-07-11 PREMISE IS REFUTED, measured.** The
+  b-spline half stands: a *general* import cannot be an arena solid, so the
+  mesh-backed body is permanent for the freeform tier. The "OCC tolerance" half
+  does not. It conflated a file's *declared* uncertainty
+  (`UNCERTAINTY_MEASURE_WITH_UNIT`, a conformance statement) with its *actual*
+  vertex-on-surface residual. Measured over every (face, boundary vertex)
+  incidence: the OCC/KiCad files the decision was formed on come in at max
+  4.2e-17 (`R_0603`), 3.6e-13 (`SOT-23`), 8.8e-13 (`USB_C`) against declared
+  1e-7 — and over ABC chunk 0000, 98.9 % of in-vocabulary models are inside the
+  arena's own `import_band` (~1e-9) across 6.18 M incidences. Closure tolerance
+  was never the obstacle; the vocabulary gate is the only real one. See
+  `specs/step_import_si5_exact_analytic_ingestion.md` §2.3, and note the method
+  warning in §2.2 — the first run of the probe reported a *fabricated* 9.9 m
+  residual (a number regex that did not match OCC's `-1.E-02` form), which
+  would have "confirmed" the old premise had it been recorded.
 
 ## 7. Ledger
 
@@ -246,3 +266,14 @@ depend on them are `#[ignore]`-tagged with reason `refs-fixture`.
   imports one product alone; a `PartRef{source_id: <Step>, tab_id:
   <product>}` is a Part in assemblies. Composite `ImportStep` unchanged.
   Scale/LOD policy, inch units and richer diagnostics remain open.
+- 2026-10-01 — **SI5 started: design spec + measurement tooling (C1).**
+  `specs/step_import_si5_exact_analytic_ingestion.md` is the plan of record.
+  New: `scripts/fetch-abc-corpus.sh`, `scripts/si5_census.py` (vocabulary gate
+  over the raw exchange file), `scripts/si5_exactness.py` (vertex-on-surface
+  residual per (face, vertex) incidence), `scripts/si5_census_report.py`.
+  Findings: the vocabulary gate admits **54.0 %** of ABC chunk 0000 (67.3 % by
+  surfaces alone — reproducing the independent `abc_probe.rs` figure exactly —
+  then 80.2 % of those survive the *edge-curve* gate, which nobody had measured);
+  **98.9 %** of admitted models are exact to `import_band` already; and the
+  2026-07-11 "OCC tolerance" objection is refuted (§6 entry above). Next: C2,
+  the analytic extraction contract, gated off, no arena.

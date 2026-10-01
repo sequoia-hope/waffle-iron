@@ -33,6 +33,9 @@ libc = "0.2"
 # production code must not depend on either from here.
 cherchi-rs = { path = "../cherchi-rs" }
 cherchi-sidecar-rs = { path = "../cherchi-sidecar-rs" }
+# External-corpus probe (tests/abc_probe.rs): import a real-world STEP model
+# and push its welded mesh through the native boolean. Dev-only.
+step-import = { path = "../step-import" }
 
 [[bin]]
 name = "assay_gen"
