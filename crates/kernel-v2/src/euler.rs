@@ -176,9 +176,7 @@ pub fn mvfs(arena: &mut BrepArena, p: Point3) -> Result<MvfsResult, KernelV2Erro
     let face = FaceId(arena.faces.len() as u32);
     let outer_loop = LoopId(arena.loops.len() as u32);
 
-    arena.solids.push(Some(Solid {
-        shells: vec![shell],
-    }));
+    arena.solids.push(Some(Solid::constructed(vec![shell])));
     arena.shells.push(Some(Shell {
         solid,
         faces: vec![face],

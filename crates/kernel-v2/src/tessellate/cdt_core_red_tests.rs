@@ -322,7 +322,7 @@ fn max_edge_incidence(mesh: &RenderMesh) -> usize {
             shell,
         }));
         arena.shells.push(Some(Shell { solid, faces: vec![fid], genus: 0 }));
-        arena.solids.push(Some(Solid { shells: vec![shell] }));
+        arena.solids.push(Some(Solid::constructed(vec![shell])));
         (arena, fid)
     }
 
@@ -640,7 +640,7 @@ fn max_edge_incidence(mesh: &RenderMesh) -> usize {
             shell,
         }));
         arena.shells.push(Some(Shell { solid, faces: vec![fid], genus: 0 }));
-        arena.solids.push(Some(Solid { shells: vec![shell] }));
+        arena.solids.push(Some(Solid::constructed(vec![shell])));
         (arena, fid)
     }
 
@@ -696,9 +696,7 @@ fn build_planar_twin(offset: f64) -> (BrepArena, FaceId) {
         faces: vec![fid],
         genus: 0,
     }));
-    arena.solids.push(Some(Solid {
-        shells: vec![shell],
-    }));
+    arena.solids.push(Some(Solid::constructed(vec![shell])));
     (arena, fid)
 }
 

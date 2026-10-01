@@ -86,6 +86,12 @@ pub const PLANARITY_DEBUG_TOLERANCE: f64 = 1e-12;
 
 /// Scale-relative planarity band at point `p` (see
 /// [`PLANARITY_DEBUG_TOLERANCE`]).
+/// Debug-tier only, like [`eval_floor_linear`] and [`coord_mag`]: every call
+/// site is inside a `#[cfg(any(debug_assertions, feature = "strict-validation"))]`
+/// block. (Latent until 2026-10-01 — the release-without-`strict-validation`
+/// configuration aborted on unused-variable errors before the dead-code pass
+/// ran, so this never surfaced; CI lints a debug build, where it is live.)
+#[cfg(any(debug_assertions, feature = "strict-validation"))]
 fn planarity_band(p: Point3) -> f64 {
     PLANARITY_DEBUG_TOLERANCE * (1.0 + p.x().abs().max(p.y().abs()).max(p.z().abs()))
 }
@@ -459,33 +465,47 @@ pub fn validate_solid(arena: &BrepArena, solid: SolidId) -> Result<TopologyRepor
     // directional `Curve::Circle::normal` replaces the Newell normal of a
     // loop that has no polygonal walk). Cylinder faces: the curved
     // orientation rules (see `validate_cylinder_face`).
+    // The solid's geometry tier (spec `si5_geometry_provenance_tier.md`): the
+    // debug-tier on-surface bands below floor at it, so an ingested solid is
+    // held to the band its file's own roundings can honour rather than to the
+    // construction tripwire whose premise does not cover it.
+    let tier = solid_ref.provenance;
     for &f in &face_ids {
         let face = arena.face(f)?;
         match face.surface {
-            Some(Surface::Plane(plane)) => validate_planar_face(arena, f, face, plane)?,
+            Some(Surface::Plane(plane)) => validate_planar_face(arena, f, face, plane, tier)?,
             Some(Surface::Cylinder {
                 axis_point,
                 axis_dir,
                 radius,
                 reversed,
-            }) => validate_cylinder_face(arena, f, face, axis_point, axis_dir, radius, reversed)?,
+            }) => validate_cylinder_face(
+                arena, f, face, axis_point, axis_dir, radius, reversed, tier,
+            )?,
             Some(Surface::Cone {
                 apex,
                 axis_dir,
                 half_angle,
                 reversed,
-            }) => validate_cone_face(arena, f, face, apex, axis_dir, half_angle, reversed)?,
+            }) => validate_cone_face(arena, f, face, apex, axis_dir, half_angle, reversed, tier)?,
             Some(Surface::Torus {
                 center,
                 axis_dir,
                 major_radius,
                 minor_radius,
                 ..
-            }) => {
-                validate_torus_face(arena, f, face, center, axis_dir, major_radius, minor_radius)?
-            }
+            }) => validate_torus_face(
+                arena,
+                f,
+                face,
+                center,
+                axis_dir,
+                major_radius,
+                minor_radius,
+                tier,
+            )?,
             Some(Surface::Sphere { center, radius, .. }) => {
-                validate_sphere_face(arena, f, face, center, radius)?
+                validate_sphere_face(arena, f, face, center, radius, tier)?
             }
             None => return Err(KernelV2Error::FaceWithoutSurface { face: f }),
         }
@@ -714,6 +734,35 @@ fn loop_area_input(
 fn import_band(radius: f64, p: Point3) -> f64 {
     let m = p.x().abs().max(p.y().abs()).max(p.z().abs());
     1e-9 * (1.0 + radius.max(m))
+}
+
+/// The floor a solid's GEOMETRY TIER puts under every debug-tier on-surface
+/// band (spec `si5_geometry_provenance_tier.md` §3.2).
+///
+/// Each site computes its own band as before and then takes
+/// `site_band.max(provenance_floor(..))`, so a band can only ever GROW, and
+/// only for an [`GeometryProvenance::Asserted`] solid — a class that did not
+/// exist before SI5 C3/C4a. That monotonicity is why this rule cannot move a
+/// verdict for any pre-existing producer: for `Constructed` the floor is
+/// identically zero.
+///
+/// For an `Asserted` solid the floor is [`import_band`] — the same band this
+/// validator already applies to the *arc* endpoints of the very same files.
+/// What makes that honest rather than a widening is that the claim it relaxes
+/// (a vertex lies on its own curve) is bracketed in PRODUCTION by three gates
+/// that are not `cfg`-gated at all: `ingest`'s on-surface gate and its
+/// seam-anchor reconciliation, and the rim-radius agreement in the curved face
+/// validators. Spec §4 measures that bracket as a sweep.
+#[cfg(any(debug_assertions, feature = "strict-validation"))]
+pub(crate) fn provenance_floor(
+    provenance: crate::arena::GeometryProvenance,
+    scale: f64,
+    p: Point3,
+) -> f64 {
+    match provenance {
+        crate::arena::GeometryProvenance::Constructed => 0.0,
+        crate::arena::GeometryProvenance::Asserted => import_band(scale, p),
+    }
 }
 
 /// Whole-arena invariant re-verification used by the Euler operators'

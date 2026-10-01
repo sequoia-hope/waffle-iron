@@ -441,9 +441,7 @@ fn build_on_axis_frustum(
         faces: vec![f_base, f_top, f_lat],
         genus: 0,
     }));
-    arena.solids.push(Some(Solid {
-        shells: vec![shell],
-    }));
+    arena.solids.push(Some(Solid::constructed(vec![shell])));
 
     // ---- full production validation (defense in depth) --------------------
     finalize_solid(arena, solid)?;
@@ -660,9 +658,7 @@ fn build_on_axis_wedge(
         faces: vec![f_cap0, f_cap1, f_sb, f_st, f_wl],
         genus: 0,
     }));
-    arena.solids.push(Some(Solid {
-        shells: vec![shell],
-    }));
+    arena.solids.push(Some(Solid::constructed(vec![shell])));
 
     finalize_solid(arena, solid)?;
     // Result contract: start/end caps per the partial-revolve convention;
@@ -802,9 +798,7 @@ fn build_on_axis_apex_cone(
         faces: vec![f_cap, f_lat],
         genus: 0,
     }));
-    arena.solids.push(Some(Solid {
-        shells: vec![shell],
-    }));
+    arena.solids.push(Some(Solid::constructed(vec![shell])));
 
     // ---- full production validation (defense in depth) --------------------
     finalize_solid(arena, solid)?;
@@ -1261,9 +1255,7 @@ fn build_on_axis_lathe(
         faces: (0..=p).map(|i| FaceId(f0 + i as u32)).collect(),
         genus: 0,
     }));
-    arena.solids.push(Some(Solid {
-        shells: vec![shell],
-    }));
+    arena.solids.push(Some(Solid::constructed(vec![shell])));
 
     // Full production validation: the twin pairing, the manifold census and
     // the `surface.normal ≡ Newell(outer_loop)` invariant are all checked

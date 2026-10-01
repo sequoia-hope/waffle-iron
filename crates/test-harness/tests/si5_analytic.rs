@@ -584,6 +584,205 @@ fn unsupported_fixtures_hit_their_capability_wall_by_name() {
 }
 
 // =========================================================================
+// The geometry-provenance tier (spec `si5_geometry_provenance_tier.md`)
+// =========================================================================
+
+/// ABC `00000007` in miniature: the file's `CIRCLE` radius record and its own
+/// anchor vertex are two independent roundings of one quantity, so they
+/// disagree — by 4.6e-11 in that model, against a 1e-12 construction band.
+/// Nudging the anchor RADIALLY reproduces it from the vertex side (§5.5: neither
+/// number is "the wrong one"), and it is the shape that isolates the claim: the
+/// anchor leaves its circle while every other record stays untouched.
+fn anchor_pushed_off_its_circle_by(
+    shell: &waffle_types::kernel::AnalyticShellData,
+    delta: f64,
+) -> waffle_types::kernel::AnalyticShellData {
+    use waffle_types::kernel::AnalyticCurve;
+    let mut out = shell.clone();
+    let anchors: Vec<u32> = out
+        .edges
+        .iter()
+        .filter(|e| matches!(e.curve, AnalyticCurve::Circle { .. }) && e.is_closed())
+        .map(|e| e.start)
+        .collect();
+    assert!(!anchors.is_empty(), "fixture carries no closed CIRCLE edge");
+    for v in anchors {
+        let p = out.vertices[v as usize];
+        // The fixture's rims are about the z axis, so "radial" is the xy ray.
+        let r = p.x().hypot(p.y());
+        let s = (r + delta) / r;
+        out.vertices[v as usize] = Point3::new(p.x() * s, p.y() * s, p.z());
+    }
+    out
+}
+
+/// Coarsen the `CIRCLE` radius RECORD instead — the other side of the same
+/// disagreement, and the one the production gates own (see the bracket test).
+fn circle_radius_coarsened_by(
+    shell: &waffle_types::kernel::AnalyticShellData,
+    delta: f64,
+) -> waffle_types::kernel::AnalyticShellData {
+    use waffle_types::kernel::AnalyticCurve;
+    let mut out = shell.clone();
+    for e in &mut out.edges {
+        if let AnalyticCurve::Circle { radius, .. } = &mut e.curve {
+            *radius += delta;
+        }
+    }
+    out
+}
+
+/// An `Asserted` solid is held to the import tier, so a 4e-11 self-disagreement
+/// ingests — the whole of the 11-model class (§1.1).
+#[test]
+fn an_asserted_anchor_off_its_own_circle_ingests() {
+    let shell = anchor_pushed_off_its_circle_by(&analytic_shell("cylinder"), 4.0e-11);
+    let mut arena = BrepArena::new();
+    let solid = kernel_v2::ingest_analytic(&mut arena, &shell)
+        .expect("a 4e-11 record disagreement is inside the import tier");
+    assert_eq!(
+        arena.solid(solid).expect("live").provenance,
+        kernel_v2::GeometryProvenance::Asserted,
+        "an ingested solid's coordinates are the file's, not the kernel's"
+    );
+}
+
+/// The other half of that claim, and the one that makes it a tier assignment
+/// rather than a band widening: the SAME geometry, called `Constructed`, is
+/// still refused by the construction tripwire. Nothing was loosened for any
+/// producer that places its own coordinates.
+#[test]
+fn the_same_defect_on_a_constructed_solid_is_still_refused() {
+    let shell = anchor_pushed_off_its_circle_by(&analytic_shell("cylinder"), 4.0e-11);
+    let mut arena = BrepArena::new();
+    let solid = kernel_v2::ingest_analytic(&mut arena, &shell).expect("ingests as asserted");
+
+    arena.solids[solid.index()]
+        .as_mut()
+        .expect("live")
+        .provenance = kernel_v2::GeometryProvenance::Constructed;
+
+    match kernel_v2::validate_solid(&arena, solid) {
+        Err(kernel_v2::KernelV2Error::VertexOffSurface { .. }) => {}
+        other => panic!(
+            "the construction tripwire must still refuse 4e-11 on geometry claimed as \
+             constructed, got {other:?}"
+        ),
+    }
+}
+
+/// The oracle for "no production coverage was given up" (§4). Relaxing a
+/// debug-tier tripwire is only honest if the claim it was making is still held
+/// somewhere that always compiles, and for C4a's vocabulary three PRODUCTION
+/// gates bracket it. This test is the measured bracket, so a later loosening of
+/// any of them turns red here rather than silently opening the window the
+/// tripwire used to cover.
+///
+/// Both columns of the sweep that established it (cylinder fixture, r = 5 mm):
+/// a coarsened radius record is owned by the rim-radius agreement from 1e-11,
+/// and both shapes are owned by the seam-anchor reconciliation from 5e-9.
+#[test]
+fn production_gates_bracket_the_on_curve_claim() {
+    let base = analytic_shell("cylinder");
+    for (delta, want) in [
+        (1.0e-11, "rim circle radius disagrees with the surface"),
+        (1.0e-9, "rim circle radius disagrees with the surface"),
+    ] {
+        let mut arena = BrepArena::new();
+        match kernel_v2::ingest_analytic(&mut arena, &circle_radius_coarsened_by(&base, delta)) {
+            Err(kernel_v2::KernelV2Error::CurvedGeometryMismatch { reason, .. }) => {
+                assert_eq!(reason, want, "radius record off by {delta:.0e}")
+            }
+            other => panic!("a radius record off by {delta:.0e} must be refused, got {other:?}"),
+        }
+    }
+    for shape in [anchor_pushed_off_its_circle_by, circle_radius_coarsened_by] {
+        let mut arena = BrepArena::new();
+        match kernel_v2::ingest_analytic(&mut arena, &shape(&base, 5.0e-9)) {
+            Err(kernel_v2::KernelV2Error::AnalyticIngestUnsupported(reason)) => assert_eq!(
+                reason,
+                "a rim needing a re-anchored seam shares its anchor vertex with another edge",
+                "5e-9 is past the import tier and the seam-anchor gate owns it"
+            ),
+            other => panic!("5e-9 off the circle must be refused in production, got {other:?}"),
+        }
+    }
+}
+
+/// A block overlapping the ingested cylinder with no coplanar face pair, so
+/// the join can be measured through a real boolean rather than asserted.
+fn offset_block(arena: &mut BrepArena) -> SolidId {
+    let side = 0.020;
+    let profile = Profile::new(
+        Point3::new(0.004, 0.0, 0.006),
+        Vector3::new(1.0, 0.0, 0.0),
+        Vector3::new(0.0, 1.0, 0.0),
+        vec![
+            Point2::new(-side / 2.0, -side / 2.0),
+            Point2::new(side / 2.0, -side / 2.0),
+            Point2::new(side / 2.0, side / 2.0),
+            Point2::new(-side / 2.0, side / 2.0),
+        ],
+        vec![],
+    )
+    .expect("square profile");
+    extrude(arena, &profile, Vector3::new(0.0, 0.0, 1.0), H)
+        .expect("offset block extrude")
+        .solid
+}
+
+/// The lattice: a boolean carries its operands' faces through, so one asserted
+/// operand makes the output asserted (§3.3). Without this the ingested
+/// geometry's own roundings would meet the construction tripwire one operation
+/// later — a loud refusal, which is the direction a lost tier fails in.
+#[test]
+fn provenance_joins_through_a_boolean() {
+    let mut arena = BrepArena::new();
+    let ingested =
+        kernel_v2::ingest_analytic(&mut arena, &analytic_shell("cylinder")).expect("ingests");
+    let built = offset_block(&mut arena);
+    let joined = boolean_op(&mut arena, ingested, built, BoolOp::Union).expect("union");
+    assert_eq!(
+        arena.solid(joined).expect("live").provenance,
+        kernel_v2::GeometryProvenance::Asserted,
+        "a union with an ingested operand carries the file's tier"
+    );
+
+    let mut only_built = BrepArena::new();
+    let a = cylinder(&mut only_built);
+    let b = offset_block(&mut only_built);
+    let c = boolean_op(&mut only_built, a, b, BoolOp::Union).expect("union");
+    assert_eq!(
+        only_built.solid(c).expect("live").provenance,
+        kernel_v2::GeometryProvenance::Constructed,
+        "a union of constructed operands stays at the construction tier"
+    );
+}
+
+/// A rigid placement moves coordinates without placing them, so the copy keeps
+/// the source's tier — and the copy is validated, which it could not survive
+/// if the tier were dropped.
+#[test]
+fn provenance_survives_a_transform() {
+    let shell = anchor_pushed_off_its_circle_by(&analytic_shell("cylinder"), 4.0e-11);
+    let mut arena = BrepArena::new();
+    let src = kernel_v2::ingest_analytic(&mut arena, &shell).expect("ingests");
+    let moved = kernel_v2::transform_solid(
+        &mut arena,
+        src,
+        &RigidPlacement {
+            translation: [0.05, 0.0, 0.0],
+            ..RigidPlacement::IDENTITY
+        },
+    )
+    .expect("a moved copy of an ingested solid validates at its own tier");
+    assert_eq!(
+        arena.solid(moved).expect("live").provenance,
+        kernel_v2::GeometryProvenance::Asserted
+    );
+}
+
+// =========================================================================
 // Corpus cross-check (#[ignore]d — needs the ABC corpus)
 // =========================================================================
 
@@ -1060,4 +1259,15 @@ fn ingestion_over_the_corpus() {
         }
     }
     assert!(scanned > 0, "no models scanned under {dir}");
+    // The doc comment above has claimed since C3 that in-vocabulary success
+    // "should be 100 %, and every miss is a finding". Since the provenance
+    // tier (spec `si5_geometry_provenance_tier.md`) it IS 100 %, so assert it:
+    // the next miss should be a red test, not a line of output nobody reads.
+    assert_eq!(
+        in_vocab_ingested,
+        in_vocab,
+        "{} in-vocabulary model(s) refused — each one is a finding, not a \
+         tolerance to widen",
+        in_vocab - in_vocab_ingested
+    );
 }

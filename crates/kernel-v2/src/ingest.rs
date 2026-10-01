@@ -963,6 +963,15 @@ pub fn ingest_analytic(
     //     vertex on its own face's surface, at the band this tier claims
     //     exactness in. A trip is a measurement about the file — recorded by
     //     the probe, refused loudly, never snapped.
+    //
+    //     This is one of the three PRODUCTION gates that between them bracket
+    //     the file's on-curve claim too, which is what lets the debug-tier
+    //     construction tripwire be banded by provenance rather than by curve
+    //     form (spec `si5_geometry_provenance_tier.md` §4, where the bracket
+    //     is measured as a sweep): the other two are the rim-radius agreement
+    //     in `validate_cylinder_face`/`validate_cone_face` (1e-9 · r) and 1e's
+    //     seam-anchor reconciliation, which refuses a rim whose anchor cannot
+    //     be placed on its own circle.
     for plan in &plans {
         let fi = plan.face;
         for &v in &plan.cycle {
@@ -1151,7 +1160,13 @@ pub fn ingest_analytic(
     }
 
     let solid_id = SolidId(arena.solids.len() as u32);
-    arena.solids.push(Some(Solid { shells: Vec::new() }));
+    // ASSERTED, not constructed (spec `si5_geometry_provenance_tier.md`): every
+    // coordinate below is the file's own rounding, so the debug-tier tripwires
+    // must band this solid at the import tier rather than at the construction
+    // tier whose premise ("the assembler placed it from closed form") is false
+    // here. The on-curve claim is not dropped: the three production gates of
+    // 1g / 1e / `validate_*_face` bracket it (spec §4).
+    arena.solids.push(Some(Solid::asserted(Vec::new())));
     let shell_id = ShellId(arena.shells.len() as u32);
     arena.shells.push(Some(Shell {
         solid: solid_id,

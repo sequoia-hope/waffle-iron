@@ -90,9 +90,7 @@ fn boolean_output_torus_patch_tessellates_watertight_and_on_surface() {
         faces: vec![fid],
         genus: 0,
     }));
-    arena.solids.push(Some(Solid {
-        shells: vec![shell],
-    }));
+    arena.solids.push(Some(Solid::constructed(vec![shell])));
 
     let mut mesh = RenderMesh::default();
     tessellate_torus_patch(&arena, fid, 24, &mut mesh).expect("torus patch tessellates");

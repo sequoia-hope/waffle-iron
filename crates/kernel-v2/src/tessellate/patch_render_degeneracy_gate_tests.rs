@@ -75,9 +75,7 @@ fn build_cylinder_patch(with_twin: bool) -> (BrepArena, FaceId, usize) {
         faces: vec![fid],
         genus: 0,
     }));
-    arena.solids.push(Some(Solid {
-        shells: vec![shell],
-    }));
+    arena.solids.push(Some(Solid::constructed(vec![shell])));
     (arena, fid, n)
 }
 
@@ -208,9 +206,7 @@ fn build_patch(radius: f64, tz: &[(f64, f64)]) -> (BrepArena, FaceId, usize) {
         faces: vec![fid],
         genus: 0,
     }));
-    arena.solids.push(Some(Solid {
-        shells: vec![shell],
-    }));
+    arena.solids.push(Some(Solid::constructed(vec![shell])));
     (arena, fid, n)
 }
 

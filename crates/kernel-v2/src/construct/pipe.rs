@@ -482,9 +482,7 @@ pub fn pipe(
         faces,
         genus: if inner.is_some() { 1 } else { 0 },
     }));
-    arena.solids.push(Some(Solid {
-        shells: vec![shell],
-    }));
+    arena.solids.push(Some(Solid::constructed(vec![shell])));
 
     finalize_solid(arena, solid)?;
     Ok(PipeResult {

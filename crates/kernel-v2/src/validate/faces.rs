@@ -36,7 +36,13 @@ pub(crate) fn validate_planar_face(
     f: FaceId,
     face: &crate::arena::Face,
     plane: crate::arena::Plane,
+    tier: crate::arena::GeometryProvenance,
 ) -> Result<(), KernelV2Error> {
+    // Only the debug-tier bands read the geometry tier (spec
+    // `si5_geometry_provenance_tier.md` §3.2), and they compile out in a
+    // release build without `strict-validation`.
+    #[cfg(not(any(debug_assertions, feature = "strict-validation")))]
+    let _ = tier;
     // Arc-in-plane production rule, shared by all loops of this face.
     let arcs_in_plane = |hes: &[HalfEdgeId]| -> Result<(), KernelV2Error> {
         for &(_, nu, _) in &loop_arcs(arena, hes)? {
@@ -120,6 +126,11 @@ pub(crate) fn validate_planar_face(
     // ---- strict-tier geometric tripwires (see module docs) ----------------
     #[cfg(any(debug_assertions, feature = "strict-validation"))]
     {
+        // Spec `si5_geometry_provenance_tier.md` §3.2: the construction band
+        // for a loop vertex on its face plane, floored at the solid's geometry
+        // tier (identically zero for a constructed solid, so no verdict here
+        // moves for any producer that predates SI5).
+        let plane_vertex_band = |p: Point3| planarity_band(p).max(provenance_floor(tier, 0.0, p));
         let mut loops = vec![face.outer_loop];
         loops.extend(face.inner_loops.iter().copied());
         for lid in loops {
@@ -135,8 +146,8 @@ pub(crate) fn validate_planar_face(
                         p.x(),
                         p.y(),
                         p.z(),
-                        planarity_band(p),
-                        d.abs() > planarity_band(p),
+                        plane_vertex_band(p),
+                        d.abs() > plane_vertex_band(p),
                         plane.normal.x,
                         plane.normal.y,
                         plane.normal.z,
@@ -159,12 +170,12 @@ pub(crate) fn validate_planar_face(
                     let d = (p.x() - plane.point.x()) * plane.normal.x
                         + (p.y() - plane.point.y()) * plane.normal.y
                         + (p.z() - plane.point.z()) * plane.normal.z;
-                    if d.abs() > planarity_band(p) {
+                    if d.abs() > plane_vertex_band(p) {
                         if std::env::var_os("KV2_PLANARITY_PROBE").is_some() {
                             eprintln!(
                                 "[nonplanar-probe] site=loop-vertex face={f:?} d={d:.3e} \
                              band={:.3e} p=({:.17e},{:.17e},{:.17e})",
-                                planarity_band(p),
+                                plane_vertex_band(p),
                                 p.x(),
                                 p.y(),
                                 p.z()
@@ -452,10 +463,14 @@ pub(crate) fn validate_planar_face(
                         });
                     }
                 };
+                // The curve FORM told the two tiers apart while only the
+                // assembler and `recover` minted full circles; an asserted
+                // solid's circle is the file's own number, so its band floors
+                // at the import tier (spec `si5_geometry_provenance_tier.md`).
                 let plane_band = if is_arc {
                     import_band(radius, center)
                 } else {
-                    planarity_band(center)
+                    planarity_band(center).max(provenance_floor(tier, radius, center))
                 };
                 let d = (center.x() - plane.point.x()) * plane.normal.x
                     + (center.y() - plane.point.y()) * plane.normal.y
@@ -489,9 +504,14 @@ pub(crate) fn validate_planar_face(
                         import_band(radius, p)
                     } else {
                         // Canonical band floored at evaluation precision
-                        // (see `eval_floor_linear`).
+                        // (see `eval_floor_linear`) and at the solid's
+                        // geometry tier — this is `planar-circle-anchor`, the
+                        // site that refused 9 of the 11 in-vocabulary SI5
+                        // models at residuals 9.1e-12 … 4.8e-11 (spec
+                        // `si5_geometry_provenance_tier.md` §1.1).
                         CURVED_SURFACE_DEBUG_TOLERANCE
                             .max(eval_floor_linear(coord_mag(p).max(coord_mag(center))))
+                            .max(provenance_floor(tier, radius, p))
                     };
                     let dr = ((p.x() - center.x()).powi(2)
                         + (p.y() - center.y()).powi(2)
@@ -567,7 +587,13 @@ pub(crate) fn validate_cylinder_face(
     axis_dir: crate::arena::UnitVector3,
     radius: f64,
     reversed: bool,
+    tier: crate::arena::GeometryProvenance,
 ) -> Result<(), KernelV2Error> {
+    // Only the debug-tier bands read the geometry tier (spec
+    // `si5_geometry_provenance_tier.md` §3.2), and they compile out in a
+    // release build without `strict-validation`.
+    #[cfg(not(any(debug_assertions, feature = "strict-validation")))]
+    let _ = tier;
     let mismatch = |reason: &'static str| KernelV2Error::CurvedGeometryMismatch { face: f, reason };
     if !radius.is_finite() || radius <= 0.0 {
         return Err(mismatch("cylinder radius must be finite and positive"));
@@ -663,7 +689,8 @@ pub(crate) fn validate_cylinder_face(
             // Canonical band floored at evaluation precision (see
             // `eval_floor_linear` — the linear analog of the torus site).
             let band = CURVED_SURFACE_DEBUG_TOLERANCE
-                .max(eval_floor_linear(coord_mag(p).max(coord_mag(axis_point))));
+                .max(eval_floor_linear(coord_mag(p).max(coord_mag(axis_point))))
+                .max(provenance_floor(tier, radius, p));
             if (dist_to_axis(p) - radius).abs() > band {
                 return Err(vertex_off_surface(
                     f,
@@ -677,7 +704,8 @@ pub(crate) fn validate_cylinder_face(
         }
         for &(c, _, _) in &rims {
             let band = CURVED_SURFACE_DEBUG_TOLERANCE
-                .max(eval_floor_linear(coord_mag(c).max(coord_mag(axis_point))));
+                .max(eval_floor_linear(coord_mag(c).max(coord_mag(axis_point))))
+                .max(provenance_floor(tier, radius, c));
             if dist_to_axis(c) > band {
                 return Err(vertex_off_surface(
                     f,
@@ -703,13 +731,15 @@ pub(crate) fn validate_cylinder_face(
                 ];
                 let len = (d[0] * d[0] + d[1] * d[1] + d[2] * d[2]).sqrt();
                 let off = (cx[0] * cx[0] + cx[1] * cx[1] + cx[2] * cx[2]).sqrt();
-                if off > CURVED_SURFACE_DEBUG_TOLERANCE * len.max(1.0) {
+                let seam_band = (CURVED_SURFACE_DEBUG_TOLERANCE * len.max(1.0))
+                    .max(provenance_floor(tier, radius, p0));
+                if off > seam_band {
                     return Err(vertex_off_surface(
                         f,
                         "cyl-seam-not-ruling",
                         p0,
                         off,
-                        CURVED_SURFACE_DEBUG_TOLERANCE * len.max(1.0),
+                        seam_band,
                         &cyl_desc(),
                     ));
                 }
@@ -729,6 +759,7 @@ pub(crate) fn validate_cylinder_face(
 /// KV6d revolve constructor (increment 3) produces it; this foundation
 /// validator is deliberately topology-agnostic so it accepts whatever shape the
 /// constructor settles on while still guarding the surface geometry.
+#[allow(clippy::too_many_arguments)]
 pub(crate) fn validate_torus_face(
     arena: &BrepArena,
     f: FaceId,
@@ -737,7 +768,13 @@ pub(crate) fn validate_torus_face(
     axis_dir: crate::arena::UnitVector3,
     major_radius: f64,
     minor_radius: f64,
+    tier: crate::arena::GeometryProvenance,
 ) -> Result<(), KernelV2Error> {
+    // Only the debug-tier bands read the geometry tier (spec
+    // `si5_geometry_provenance_tier.md` §3.2), and they compile out in a
+    // release build without `strict-validation`.
+    #[cfg(not(any(debug_assertions, feature = "strict-validation")))]
+    let _ = tier;
     let mismatch = |reason: &'static str| KernelV2Error::CurvedGeometryMismatch { face: f, reason };
     if !minor_radius.is_finite() || minor_radius <= 0.0 {
         return Err(mismatch("torus minor_radius must be finite and positive"));
@@ -780,7 +817,12 @@ pub(crate) fn validate_torus_face(
                 let l = coord_mag(p).max(coord_mag(center));
                 let floor = 2.0 * minor_radius * eval_floor_linear(l)
                     + 8.0 * f64::EPSILON * minor_radius * minor_radius;
-                let band = (CURVED_SURFACE_DEBUG_TOLERANCE * minor_radius.max(1.0)).max(floor);
+                // The geometry tier enters in the SAME units as the residual:
+                // a linear file-tier allowance δ appears here as ≈ 2·minor·δ
+                // (spec `si5_geometry_provenance_tier.md` §3.2).
+                let band = (CURVED_SURFACE_DEBUG_TOLERANCE * minor_radius.max(1.0))
+                    .max(floor)
+                    .max(2.0 * minor_radius * provenance_floor(tier, major_radius, p));
                 if on_torus_residual(p) > band {
                     return Err(vertex_off_surface(
                         f,
@@ -800,6 +842,15 @@ pub(crate) fn validate_torus_face(
             }
         }
     }
+    // The same discard its sphere sibling has carried since KV6d: with the
+    // debug tier compiled out, nothing else in this function reads the
+    // topology or the centre. (Pre-existing in the release-without-
+    // `strict-validation` configuration, which the CI lint job — a debug
+    // build, where `debug_assertions` keeps these live — never sees.)
+    #[cfg(not(any(debug_assertions, feature = "strict-validation")))]
+    {
+        let _ = (arena, face, center);
+    }
     Ok(())
 }
 
@@ -817,7 +868,13 @@ pub(crate) fn validate_sphere_face(
     face: &crate::arena::Face,
     center: Point3,
     radius: f64,
+    tier: crate::arena::GeometryProvenance,
 ) -> Result<(), KernelV2Error> {
+    // Only the debug-tier bands read the geometry tier (spec
+    // `si5_geometry_provenance_tier.md` §3.2), and they compile out in a
+    // release build without `strict-validation`.
+    #[cfg(not(any(debug_assertions, feature = "strict-validation")))]
+    let _ = tier;
     let mismatch = |reason: &'static str| KernelV2Error::CurvedGeometryMismatch { face: f, reason };
     if !radius.is_finite() || radius <= 0.0 {
         return Err(mismatch("sphere radius must be finite and positive"));
@@ -836,7 +893,8 @@ pub(crate) fn validate_sphere_face(
         for lid in loops {
             for p in arena.loop_points(lid)? {
                 let band = (CURVED_SURFACE_DEBUG_TOLERANCE * radius.max(1.0))
-                    .max(eval_floor_linear(coord_mag(p).max(coord_mag(center))));
+                    .max(eval_floor_linear(coord_mag(p).max(coord_mag(center))))
+                    .max(provenance_floor(tier, radius, p));
                 let res = geom::sphere_residual(p, center, radius).abs();
                 if res > band {
                     return Err(vertex_off_surface(

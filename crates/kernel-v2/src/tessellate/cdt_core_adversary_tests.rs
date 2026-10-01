@@ -65,9 +65,7 @@ fn build_planar_loop(pts: &[Point3]) -> (BrepArena, FaceId) {
         faces: vec![fid],
         genus: 0,
     }));
-    arena.solids.push(Some(Solid {
-        shells: vec![shell],
-    }));
+    arena.solids.push(Some(Solid::constructed(vec![shell])));
     (arena, fid)
 }
 

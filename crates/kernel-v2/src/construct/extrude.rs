@@ -419,9 +419,7 @@ fn extrude_circle(
         faces: vec![f_base, f_top, f_lat],
         genus: 0,
     }));
-    arena.solids.push(Some(Solid {
-        shells: vec![shell],
-    }));
+    arena.solids.push(Some(Solid::constructed(vec![shell])));
 
     // ---- full production validation (defense in depth) --------------------
     finalize_solid(arena, solid)?;
@@ -844,9 +842,7 @@ fn extrude_arc_profile(
         faces: shell_faces,
         genus: holes.len() as u32,
     }));
-    arena.solids.push(Some(Solid {
-        shells: vec![shell],
-    }));
+    arena.solids.push(Some(Solid::constructed(vec![shell])));
 
     finalize_solid(arena, solid)?;
     Ok(ExtrudeResult {
@@ -919,9 +915,7 @@ fn circle_lamina(
         faces: vec![f_front, f_back],
         genus: 0,
     }));
-    arena.solids.push(Some(Solid {
-        shells: vec![shell],
-    }));
+    arena.solids.push(Some(Solid::constructed(vec![shell])));
 
     finalize_solid(arena, solid)?;
     Ok(LaminaResult {

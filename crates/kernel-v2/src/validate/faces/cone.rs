@@ -30,7 +30,13 @@ pub(crate) fn validate_cone_face(
     axis_dir: crate::arena::UnitVector3,
     half_angle: f64,
     reversed: bool,
+    tier: crate::arena::GeometryProvenance,
 ) -> Result<(), KernelV2Error> {
+    // Only the debug-tier bands read the geometry tier (spec
+    // `si5_geometry_provenance_tier.md` §3.2), and they compile out in a
+    // release build without `strict-validation`.
+    #[cfg(not(any(debug_assertions, feature = "strict-validation")))]
+    let _ = tier;
     let mismatch = |reason: &'static str| KernelV2Error::CurvedGeometryMismatch { face: f, reason };
     if !half_angle.is_finite() || half_angle <= 0.0 || half_angle >= std::f64::consts::FRAC_PI_2 {
         return Err(mismatch("cone half_angle must be finite in (0, π/2)"));
@@ -148,9 +154,19 @@ pub(crate) fn validate_cone_face(
             // `eval_floor_linear`); the residual multiplies the ε·l-noisy
             // axial coordinate τ by tan(half_angle), so a near-flat cone
             // amplifies the floor by that factor.
-            let band = CURVED_SURFACE_DEBUG_TOLERANCE.max(
-                eval_floor_linear(coord_mag(p).max(coord_mag(apex))) * half_angle.tan().max(1.0),
-            );
+            // …and at the solid's geometry tier (spec
+            // `si5_geometry_provenance_tier.md`): this is `cone-vertex`, where
+            // a rim radius, a half-angle and an apex are THREE independent
+            // file roundings, which is why no anchor reconciliation can make
+            // them agree to the construction band. The residual is a plain
+            // length, so the floor enters as one; the scale is the point's own
+            // magnitude (a cone has no single radius).
+            let band = CURVED_SURFACE_DEBUG_TOLERANCE
+                .max(
+                    eval_floor_linear(coord_mag(p).max(coord_mag(apex)))
+                        * half_angle.tan().max(1.0),
+                )
+                .max(provenance_floor(tier, 0.0, p));
             if on_cone_residual(p) > band {
                 return Err(vertex_off_surface(
                     f,

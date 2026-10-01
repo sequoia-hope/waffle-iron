@@ -605,9 +605,7 @@ fn build_partial_revolve(
         faces: shell_faces,
         genus: 0,
     }));
-    arena.solids.push(Some(Solid {
-        shells: vec![shell],
-    }));
+    arena.solids.push(Some(Solid::constructed(vec![shell])));
 
     finalize_solid(arena, solid)?;
     Ok(RevolveResult {
@@ -906,9 +904,7 @@ fn build_full_revolve(
         faces: (0..k).map(face_of).collect(),
         genus: 1,
     }));
-    arena.solids.push(Some(Solid {
-        shells: vec![shell],
-    }));
+    arena.solids.push(Some(Solid::constructed(vec![shell])));
 
     finalize_solid(arena, solid)?;
     Ok(RevolveResult {

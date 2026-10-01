@@ -286,9 +286,9 @@ fn thin_coaxial_rim_strip_tessellates_without_folding() {
         faces: vec![fid],
         genus: 0,
     }));
-    arena.solids.push(Some(Solid {
-        shells: vec![ShellId(0)],
-    }));
+    arena
+        .solids
+        .push(Some(Solid::constructed(vec![ShellId(0)])));
 
     let mut mesh = RenderMesh::default();
     tessellate_cone_patch(&arena, fid, 72, &mut mesh).expect(
@@ -411,9 +411,9 @@ fn pool_curves_carry_their_vertex_inserts_across_the_strip() {
         faces: vec![fid, fid_n],
         genus: 0,
     }));
-    arena.solids.push(Some(Solid {
-        shells: vec![ShellId(0)],
-    }));
+    arena
+        .solids
+        .push(Some(Solid::constructed(vec![ShellId(0)])));
 
     // Gate OFF (default): the low rim inserts at θ_V (vertex pool, always
     // on), the high rim cannot see it — the unpaired node sits mid-chord

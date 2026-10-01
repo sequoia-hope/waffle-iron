@@ -463,9 +463,7 @@ pub fn sweep(arena: &mut BrepArena, path: &SweepPath) -> Result<SweepResult, Ker
         faces: shell_faces,
         genus: u32::from(closed),
     }));
-    arena.solids.push(Some(Solid {
-        shells: vec![shell],
-    }));
+    arena.solids.push(Some(Solid::constructed(vec![shell])));
 
     finalize_solid(arena, solid)?;
     Ok(SweepResult {

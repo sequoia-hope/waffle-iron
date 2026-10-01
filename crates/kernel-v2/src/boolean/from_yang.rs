@@ -5,6 +5,7 @@
 //! strategy and the circle-edge sense derivation.
 
 use super::*;
+use crate::arena::GeometryProvenance;
 use std::collections::BTreeSet;
 
 mod classify;
@@ -83,18 +84,33 @@ pub fn from_yang_brep_indexed(
     arena: &mut BrepArena,
     brep: &yang_rs::BRep,
 ) -> Result<(SolidId, Vec<Option<FaceId>>), KernelV2Error> {
-    from_yang_brep_indexed_with_operands(arena, brep, &BTreeSet::new())
+    from_yang_brep_indexed_with_operands(
+        arena,
+        brep,
+        &BTreeSet::new(),
+        GeometryProvenance::Constructed,
+    )
 }
 
 /// [`from_yang_brep_indexed`] with the boolean OPERANDS' vertex positions
-/// (bit-exact keys). The recovery pass uses them to anchor a re-minted torus
-/// seam at a rim's ORIGINAL vertex (spec `b2_pipe_sweep.md` §5 — a pipe
-/// chain's rims must all anchor at one phase); an empty set means "no
-/// operand knowledge" (the lowest-index aligned vertex is used instead).
+/// (bit-exact keys) and their joined [`GeometryProvenance`].
+///
+/// The positions let the recovery pass anchor a re-minted torus seam at a
+/// rim's ORIGINAL vertex (spec `b2_pipe_sweep.md` §5 — a pipe chain's rims
+/// must all anchor at one phase); an empty set means "no operand knowledge"
+/// (the lowest-index aligned vertex is used instead).
+///
+/// The provenance is the operands' join (spec
+/// `si5_geometry_provenance_tier.md` §3.3): a boolean carries its operands'
+/// faces through, so an output built from an INGESTED operand holds the
+/// file's own roundings and must be banded at the file's tier. It is stamped
+/// on the new solid BEFORE the `finalize_solid` at the end of this function,
+/// which is where the debug-tier tripwires read it.
 pub fn from_yang_brep_indexed_with_operands(
     arena: &mut BrepArena,
     brep: &yang_rs::BRep,
     operand_points: &BTreeSet<[u64; 3]>,
+    provenance: GeometryProvenance,
 ) -> Result<(SolidId, Vec<Option<FaceId>>), KernelV2Error> {
     // PR-KV7: recover B-Rep granularity (output curve tagging) before
     // classification — chord runs on recovered exact circles become arcs /
@@ -971,7 +987,10 @@ pub fn from_yang_brep_indexed_with_operands(
 
     // Solid + shells (component order = ascending smallest face index).
     let solid_id = SolidId(arena.solids.len() as u32);
-    arena.solids.push(Some(Solid { shells: Vec::new() }));
+    arena.solids.push(Some(Solid {
+        shells: Vec::new(),
+        provenance,
+    }));
     let mut shell_of_face: Vec<ShellId> = vec![ShellId(0); yfaces.len()];
     for (&rep, faces) in &shells_faces {
         let shell_id = ShellId(arena.shells.len() as u32);

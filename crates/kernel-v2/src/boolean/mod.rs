@@ -199,6 +199,12 @@ pub fn boolean_op(
     // rebuild voids" claim and is deleted.
     let (ya, a_faces) = to_yang_brep_indexed(arena, a)?;
     let (yb, b_faces) = to_yang_brep_indexed(arena, b)?;
+    // The output's geometry tier is the operands' JOIN (spec
+    // `si5_geometry_provenance_tier.md` §3.3): a boolean carries operand
+    // faces through unchanged and relocates operand vertices, so a single
+    // ingested operand makes every band on the output a file-tier band.
+    // `Asserted > Constructed`, so `max` IS the join.
+    let operand_provenance = arena.solid(a)?.provenance.max(arena.solid(b)?.provenance);
     // Task #134 (spec `yang_disjoint_union_passthrough`): a UNION of
     // strictly AABB-disjoint operands (yang's own predicate — beyond the
     // YR24 weld band, conservative curved bounds) is the DISJOINT SUM.
@@ -211,8 +217,12 @@ pub fn boolean_op(
         let mut shells = arena.solid(a)?.shells.clone();
         shells.extend(arena.solid(b)?.shells.iter().copied());
         let new_id = SolidId(arena.solids.len() as u32);
+        // Provenance joins (spec `si5_geometry_provenance_tier.md` §3.3) —
+        // here most plainly of all: the operands' faces ARE the output faces,
+        // so an ingested operand's file roundings are the output's.
         arena.solids.push(Some(Solid {
             shells: shells.clone(),
+            provenance: operand_provenance,
         }));
         for sh in shells {
             arena.shell_mut(sh)?.solid = new_id;
@@ -435,7 +445,7 @@ pub fn boolean_op(
         })
         .collect();
     let (out_solid, out_face_ids) =
-        from_yang_brep_indexed_with_operands(arena, &out, &operand_points)?;
+        from_yang_brep_indexed_with_operands(arena, &out, &operand_points, operand_provenance)?;
     // F1 (design review 2026-07-12): PRODUCTION planarity gate for the
     // assembled boolean output. The debug-only tripwire in `validate_solid`
     // rests on "planar by construction", which is false for yang re-entry —
@@ -688,7 +698,9 @@ pub fn split_solid_into_bodies(
     }
 
     // First cluster stays in the original solid; the rest get fresh solids.
+    // A split does not place geometry, so every piece keeps the parent's tier.
     let mut result = Vec::with_capacity(groups.len());
+    let provenance = arena.solid(solid)?.provenance;
     let mut clusters = groups.into_iter();
     let first = clusters.next().expect("groups.len() > 1");
     arena.solid_mut(solid)?.shells = first;
@@ -697,6 +709,7 @@ pub fn split_solid_into_bodies(
         let new_id = SolidId(arena.solids.len() as u32);
         arena.solids.push(Some(Solid {
             shells: cluster.clone(),
+            provenance,
         }));
         for sh in cluster {
             arena.shell_mut(sh)?.solid = new_id;

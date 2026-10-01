@@ -174,8 +174,6 @@ pub(crate) fn build_frustum(
         faces: vec![f_base, f_top, f_lat],
         genus: 0,
     }));
-    arena.solids.push(Some(Solid {
-        shells: vec![shell],
-    }));
+    arena.solids.push(Some(Solid::constructed(vec![shell])));
     (arena, solid, f_lat)
 }

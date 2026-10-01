@@ -525,8 +525,12 @@ fn copy_solid(
             genus: shell.genus,
         }));
     }
+    // A rigid placement moves coordinates but does not place them: the copy
+    // keeps the source's GEOMETRY tier (spec `si5_geometry_provenance_tier.md`
+    // §3.3 — distinct from the KV13 face-pid lineage stamped below).
     arena.solids.push(Some(Solid {
         shells: src_solid.shells.iter().map(|s| smap[s]).collect(),
+        provenance: src_solid.provenance,
     }));
 
     // ── Validate BEFORE stamping provenance (finalize_solid order) ──────

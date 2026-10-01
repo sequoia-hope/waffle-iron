@@ -286,9 +286,7 @@ pub(crate) fn build_torus_revolve(
         faces: vec![f_base, f_top, f_lat],
         genus: 0,
     }));
-    arena.solids.push(Some(Solid {
-        shells: vec![shell],
-    }));
+    arena.solids.push(Some(Solid::constructed(vec![shell])));
 
     finalize_solid(arena, solid)?;
     Ok(RevolveResult {
@@ -416,9 +414,7 @@ fn assemble_closed_torus(
         faces: vec![f_lat],
         genus: 1,
     }));
-    arena.solids.push(Some(Solid {
-        shells: vec![shell],
-    }));
+    arena.solids.push(Some(Solid::constructed(vec![shell])));
 
     finalize_solid(arena, solid)?;
     Ok(RevolveResult {
@@ -515,9 +511,7 @@ fn assemble_closed_sphere(
         faces: vec![f_sph],
         genus: 0,
     }));
-    arena.solids.push(Some(Solid {
-        shells: vec![shell],
-    }));
+    arena.solids.push(Some(Solid::constructed(vec![shell])));
 
     finalize_solid(arena, solid)?;
     Ok(RevolveResult {

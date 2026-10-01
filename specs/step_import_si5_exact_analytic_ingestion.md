@@ -694,7 +694,12 @@ would disagree about the same file, which is its own reason not to leave it to a
 `cfg`.
 
 **The fix is provenance, not a band**, and it is its own increment because it
-changes a kernel-v2 core type: a solid must record whether its geometry was
+changes a kernel-v2 core type. **DONE 2026-10-01** —
+`specs/si5_geometry_provenance_tier.md`, which also records the one thing this
+section got wrong: the production on-curve gate implied below turned out to be
+unreachable in C4a's vocabulary (the rim-radius agreement and the seam-anchor
+reconciliation already bracket it, measured as a sweep), so it was dropped and
+deferred to C4b. The design as written: a solid must record whether its geometry was
 constructed or asserted, and the curved tripwires must band at the tier that
 produced them. Every production gate is unaffected — orientation, Newell,
 Euler–Poincaré, twin-curve consistency, the self-intersection gate and SI5's own
@@ -884,6 +889,20 @@ Each is an atomic, committable increment. Nothing after C1 touches app code.
     1.0e-11 – 4.6e-11. Fixing it is the next increment because it changes a
     kernel-v2 core type (a solid's provenance); widening the band instead is
     refused.
+  - **C4a′ — the geometry-provenance tier. DONE 2026-10-01**, spec
+    `specs/si5_geometry_provenance_tier.md` (its own increment, as §5.5 said:
+    it changes a kernel-v2 core type). `Solid` records a
+    `GeometryProvenance` — `Constructed` (the kernel placed these coordinates)
+    or `Asserted` (an exchange file did) — the join is taken through booleans
+    and transforms, and every debug-tier on-surface band FLOORS at the solid's
+    tier instead of inferring the tier from the curve form. Reach 64 → **75 of
+    400 (18.8 %)**, in-vocabulary success 85.3 % → **100 %**, and the whole
+    `VertexOffSurface` refusal class is gone. Its own finding: the production
+    on-curve gate this spec's §5.5 implied was needed is **unreachable inside
+    C4a's vocabulary** — a measured sweep shows the rim-radius agreement and
+    the seam-anchor reconciliation own every residual that matters — so it was
+    removed rather than shipped as fake coverage, and belongs to C4b, where an
+    arc endpoint can sit on its plane yet off its own arc.
   - **C4b — the arc-patch tier.** `Curve::Arc` from the file's axis plus
     `interior` (never re-derived — §5.1), the outer-loop determination in the
     **unrolled** `(θ, h)` domain rather than by 3-D signed area, and planar faces
@@ -1051,3 +1070,23 @@ subset a reader would need — and `si5_census.py` already measures it.
   would accept the swap). Containment settles it exactly — a face's net signed
   area over all its loops is positive — and it costs no corpus reach.
   Next: **C4**, cylinders and cones with seam minting.
+- 2026-10-01 — **C4a′ (the provenance tier) DONE.** Spec
+  `specs/si5_geometry_provenance_tier.md`. A `Solid` now records WHO placed its
+  coordinates, the join is taken through booleans / transforms / splits, and the
+  five face validators floor their debug-tier bands at that tier rather than
+  inferring it from the curve form. Reach **64 → 75 of 400 (16.0 % → 18.8 %)**,
+  273 solids / 5 708 faces, in-vocabulary success **85.3 % → 100 %**; the
+  bookkeeping closes exactly (12 models tripped the mis-tiered tripwire, the 11
+  in-vocabulary ones all ingest, the twelfth moves on to its real C4b wall) and
+  `ingestion_over_the_corpus` now ASSERTS 100 %.
+  The increment's own finding is a refutation of its first design: the
+  production on-curve gate it began with is **unreachable inside C4a's
+  vocabulary**. A sweep over both shapes of the real defect (anchor pushed off
+  its circle, radius record coarsened) shows the rim-radius agreement owns the
+  record from 1e-11 and the seam-anchor reconciliation owns both from 5e-9, so
+  the new gate could never fire. It was removed with its error variant rather
+  than shipped — a gate that cannot fire reads like coverage without being any
+  — and the bracket that does hold the claim is now pinned as a test. It lands
+  for real at C4b, where an arc endpoint can lie on its plane and off its arc
+  with nothing else to catch it.
+  Next: **C4b**, the arc-patch tier (+25.8 points of model reach).

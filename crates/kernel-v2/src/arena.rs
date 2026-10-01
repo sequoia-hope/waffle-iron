@@ -576,11 +576,78 @@ pub struct Shell {
     pub genus: u32,
 }
 
+/// Who placed a solid's coordinates — and therefore which band the
+/// debug-tier geometric tripwires may hold them to (spec
+/// `si5_geometry_provenance_tier.md`).
+///
+/// The construction tripwires ([`crate::validate::PLANARITY_DEBUG_TOLERANCE`],
+/// [`crate::validate::CURVED_SURFACE_DEBUG_TOLERANCE`]) state their own
+/// premise: geometry is exact *by construction*, because the assembler places
+/// it from closed form. SI5's `ingest_analytic` is the first producer for
+/// which that premise is false — its coordinates are an exchange file's own
+/// roundings, and a file can disagree with itself (ABC `00000007` writes a
+/// `CIRCLE` radius at ten significant digits against an anchor vertex at
+/// fifteen, 4.6e-11 apart). Before this type the validator inferred the tier
+/// from the curve FORM — a `Curve::Arc` endpoint got the import band, a
+/// `Curve::Circle` anchor got the construction band — which was sound only
+/// while the arena's constructors and `recover` were the only producers of a
+/// full circle.
+///
+/// The ordering is a lattice: `Asserted > Constructed`, and the join is taken
+/// wherever geometry meets (a boolean whose operand was ingested, a
+/// transformed copy). A producer that FORGETS to carry `Asserted` tightens a
+/// band and gets a loud [`crate::KernelV2Error::VertexOffSurface`]; it can
+/// never silently admit worse geometry.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Default)]
+pub enum GeometryProvenance {
+    /// The kernel itself: the arena's constructors from closed form
+    /// (primitives, extrude, revolve, sweep, pipe) or the boolean reassembly.
+    /// Exact by construction, which is exactly what the construction
+    /// tripwires assert. Within such a solid the existing split by curve form
+    /// still applies and is still correct — `recover`-minted canonical
+    /// circles are construction-exact, Stage-4-relocated patch vertices are
+    /// f64-computed and band at the import tier.
+    #[default]
+    Constructed,
+    /// An exchange file somebody else wrote ([`crate::ingest_analytic`]).
+    /// Every coordinate is the file's own rounding, so every debug-tier band
+    /// floors at the import tier — the same band this validator already
+    /// applies to the arc endpoints of the same files. The claim that a
+    /// vertex lies on its own curve is not dropped: three PRODUCTION gates
+    /// bracket it — `ingest`'s on-surface gate and seam-anchor reconciliation
+    /// and the rim-radius agreement in the face validators (spec §4, measured
+    /// as a sweep).
+    Asserted,
+}
+
 /// A solid: one or more shells.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Solid {
     /// Member shells (first is the peripheral shell), in creation order.
     pub shells: Vec<ShellId>,
+    /// Who placed this solid's coordinates. See [`GeometryProvenance`] — it
+    /// is a field rather than a side table so that every producer has to say
+    /// which it is, at the point where it knows.
+    pub provenance: GeometryProvenance,
+}
+
+impl Solid {
+    /// A solid the kernel built itself ([`GeometryProvenance::Constructed`]).
+    pub fn constructed(shells: Vec<ShellId>) -> Self {
+        Self {
+            shells,
+            provenance: GeometryProvenance::Constructed,
+        }
+    }
+
+    /// A solid assembled from an exchange file's own numbers
+    /// ([`GeometryProvenance::Asserted`]).
+    pub fn asserted(shells: Vec<ShellId>) -> Self {
+        Self {
+            shells,
+            provenance: GeometryProvenance::Asserted,
+        }
+    }
 }
 
 // ---------------------------------------------------------------------------

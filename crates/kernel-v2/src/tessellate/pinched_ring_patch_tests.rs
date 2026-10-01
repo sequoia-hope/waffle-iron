@@ -82,9 +82,7 @@ fn finish_face(arena: &mut BrepArena, outer: LoopId, inner: Vec<LoopId>) -> Face
         faces: vec![fid],
         genus: 0,
     }));
-    arena.solids.push(Some(Solid {
-        shells: vec![shell],
-    }));
+    arena.solids.push(Some(Solid::constructed(vec![shell])));
     fid
 }
 
