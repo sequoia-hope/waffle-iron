@@ -4,11 +4,22 @@
 //! An imported body is a **mesh-backed** body: per-face triangle meshes plus
 //! analytic surface classification (with full parameters for planes — the
 //! data sketch-on-face and offset planes consume). It is NOT an exact kernel
-//! solid — real-world STEP files contain b-spline surfaces and are only
-//! closed to the writing kernel's tolerance, so they cannot pass kernel-v2's
-//! exactness invariants. The kernel stores these bodies beside its arena
-//! solids behind ordinary `KernelSolidHandle`s (SI1); exact ingestion of
-//! analytic-only imports is roadmapped (SI5).
+//! solid, because real-world STEP files contain b-spline surfaces, which have
+//! no representation in kernel-v2's exact `Surface` vocabulary. The kernel
+//! stores these bodies beside its arena solids behind ordinary
+//! `KernelSolidHandle`s (SI1).
+//!
+//! This tier is **permanent** — roughly a third of real-world CAD contains
+//! freeform geometry. What it is not is the only tier: a shell whose every
+//! surface and curve IS in the vocabulary is extracted exactly instead, as
+//! [`crate::kernel::AnalyticShellData`] (SI5).
+//!
+//! The original rationale here also claimed imports "are only closed to the
+//! writing kernel's tolerance, so they cannot pass kernel-v2's exactness
+//! invariants". That half was **measured and refuted** on 2026-10-01: it
+//! confused a file's *declared* uncertainty with its actual vertex-on-surface
+//! residual, which is ~1e-13 on the OpenCascade files the claim was made
+//! about. See `specs/step_import_si5_exact_analytic_ingestion.md` §2.4.
 //!
 //! These types are RUNTIME-ONLY (like `RenderMesh`): the persisted artifact
 //! is the compressed STEP text inside the feature parameters, re-parsed on

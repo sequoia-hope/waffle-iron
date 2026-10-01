@@ -53,7 +53,7 @@ pub(crate) fn parse_step_impl(
 /// every path, with the path's placement matrix baked into the geometry
 /// (file units). Falls back to the raw `manifold_solid_brep` table when the
 /// file has no usable product structure.
-fn collect_placed_shells(
+pub(crate) fn collect_placed_shells(
     table: &Table,
     warnings: &mut Vec<String>,
 ) -> Result<Vec<CShell>, StepImportError> {

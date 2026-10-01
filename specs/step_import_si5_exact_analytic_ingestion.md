@@ -1,7 +1,8 @@
 # SI5 — exact ingestion of analytic STEP into the kernel-v2 arena
 
-**Status:** DESIGN. Checkpoint 1 of the structural fix (design spec → gated-off
-primitive with tests → wired increments). Created 2026-10-01.
+**Status:** IN PROGRESS — **C1 and C2 landed 2026-10-01, next is C3.** Nothing
+is reachable from the app yet; the mesh tier still serves every import.
+Created 2026-10-01. Checkpoints and their state: §7.
 **Plan of record it serves:** `docs/step_import_roadmap.md` §4 milestone SI5.
 **Companion:** `specs/boolean_hardening_external_corpus.md` §7 deferred this
 scope fork to the user; the user chose SI5 (2026-10-01).
@@ -106,7 +107,7 @@ Topology SI5's assembler must handle, over the 5 397 ingestible models:
 | planes only (polyhedral) | 846 | **15.7 %** | the C3 beachhead: no seams, no curves |
 | has torus | 723 | 13.4 % | ring-torus-only check |
 | has sphere | 368 | 6.8 % | canonical z-up re-seam |
-| degenerate `VERTEX_LOOP` | 275 | 5.1 % | `LoopBoundary::Lone` (§5.3) |
+| degenerate `VERTEX_LOOP` | 275 | 5.1 % | **refused** — the reader drops it silently (§5.3) |
 | voids (`BREP_WITH_VOIDS`) | 55 | 1.0 % | multi-shell solids (§5.2) |
 | no solid at all (shell/geom set) | 11 | 0.2 % | refuse |
 | `SURFACE_CURVE`/`SEAM_CURVE` wrapper | **0** | 0 % | no pcurve indirection to unwrap |
@@ -207,6 +208,53 @@ was never the obstacle. SI5's gate is the surface/curve vocabulary, nothing else
 > independent 67.3 % figure. Both scanners now token-scan, and the blind-spot
 > sweep in `si5_census.py` prints any unclassified geometric entity name so the
 > census cannot silently miss a type we have never seen.
+
+---
+
+### 2.5 What the extractor actually achieves (measured at C2)
+
+§2.1's 54.0 % is a gate on the raw exchange file, so it is an **upper bound**.
+What `step_import::parse_step_analytic` achieves is a separate, independent
+measurement — it gates on what truck actually parsed — and comparing the two is
+the cheapest coherence check available:
+
+```sh
+ABC_DIR=/tmp/abc/chunk0000 ABC_N=400 cargo test -p test-harness \
+  --test si5_analytic --release -- --ignored --nocapture extractor_eligibility
+```
+
+Over 400 models (2026-10-01): **197 fully eligible (49.3 %)**, 191 rejected by
+both, **97.0 % agreement, and all 12 disagreements in the same direction** —
+census eligible, extractor stricter. Zero cases of the extractor accepting
+something the census rejected, which is the direction that would indicate a
+leak in the gate.
+
+The 4.7-point gap between 54.0 % and 49.3 % is fully accounted for:
+
+| cause | models | verdict |
+|---|---|---|
+| source declares a `VERTEX_LOOP`, which truck's reader **silently drops** | 9 | deliberate refusal to avoid a silently-wrong solid — §5.3 |
+| spindle torus (`minor ≥ major`) | 1 | correct refusal — out of the kernel's vocabulary |
+| file contains no solid or shell | 2 | correct refusal — the census cannot see this from entity names |
+
+The `VERTEX_LOOP` row is the one that matters, and it is the reason this
+measurement moved: it was **50.5 % at 98.2 %** before the guard existed, when
+those files were being extracted from a topology the reader had quietly
+truncated. §5.3 has the mechanism and the verification. Giving up 2.3 points of
+reach to turn a class of silent wrongs into a loud stop is the trade this
+project takes every time (P9/P10).
+
+Real-world OCC geometry, by contrast, extracts completely:
+
+| fixture | result |
+|---|---|
+| `R_0603.step` | fully eligible; 26 faces; `{cylindrical, planar}` |
+| `USB_C.step` | **34/34 shells eligible**; 515 faces; cones and tori included |
+
+Both run the extraction's own oracle — every boundary vertex of every face
+re-checked against the surface *as extracted*, within 1e-9 relative. That is
+what makes the parameter extraction trustworthy rather than merely compiled:
+a transcription error in any axis, radius or apex shows up as a residual.
 
 ---
 
@@ -364,6 +412,15 @@ Closed torus (`V=1,E=2,F=1,G=1`, loop `aba⁻¹b⁻¹`) and closed sphere
 (`V=2,E=1,F=1`, one meridian `Arc` twin pair) have their own canonical
 assemblies at `construct/revolve/closed.rs:321` and `:449`.
 
+A note on a wrong turn, kept because it is the kind of mistake this spec exists
+to prevent: C2 first saw faces arriving with **no bounds at all** and recorded
+them as legitimately seamless spheres and tori, i.e. as early customers for seam
+minting. They are not. Those files *do* declare a bound — `FACE_BOUND` →
+`VERTEX_LOOP` — which truck's reader discards (§5.3). The symptom was the
+reader's, not the format's, and the fix belongs in §5.3, not here. Verified on
+`00000052_666139e3bff64d4e8a6ce183_step_001`: `#264 = FACE_BOUND('', #473, .T.)`
+with `#473 = VERTEX_LOOP('', #613)`.
+
 One constraint to respect while mapping the `CCLL` form: `Arc`/`EllipseArc` are
 **minor arcs only** (sweep < π) and a near-half arc is *rejected* as ambiguous
 rather than guessed (`boolean::ARC_MINOR_AMBIGUITY_BAND = 1e-6`). A STEP rim
@@ -400,7 +457,31 @@ means capturing `CompressedSolid::boundaries` before `convert.rs:76` flattens it
 `VERTEX_LOOP` (a loop that is a single vertex — cone apex, sphere pole) maps to
 `LoopBoundary::Lone(VertexId)`, which the arena already has (`arena.rs:502`).
 The apex-cone assembler `build_on_axis_apex_cone`
-(`construct/revolve/on_axis.rs:481`) is the existing precedent.
+(`construct/revolve/on_axis.rs:481`) is the existing precedent, and
+[`AnalyticLoop::Vertex`] is the contract slot for it.
+
+**Blocked upstream, and it is a SILENT loss — discovered at C2.** truck's
+reader has no `vertex_loop` table at all. `FaceBound.bound` is typed `EdgeLoop`,
+with the upstream comment *"For now, we are going with the policy of accepting
+nothing but edgeloop"* (`truck-stepio/src/in/mod.rs:2626-2630`), and a bound
+that fails to resolve is `filter_map`'d away
+(`truck-stepio/src/in/convert.rs:60,106`). So a face whose ring is a
+`VERTEX_LOOP` comes back **missing that ring**, with nothing in the compressed
+shell to record that a boundary was dropped.
+
+For the mesh tier that is cosmetic. For an exact ingest it is a **silent wrong
+answer** — we would assemble a solid that disagrees with the file about its own
+boundary, and `validate_solid` would happily accept it, because a solid missing
+a ring is still a valid solid. So `parse_step_analytic` refuses any file whose
+text contains `VERTEX_LOOP`, file-wide, and the mesh tier serves it. That is the
+P9/P10 trade taken deliberately: give up the 5.1 % of the corpus that has a
+degenerate loop rather than ship a class of silently-wrong solids.
+
+Ways out, for whichever checkpoint first needs that 5.1 %: patch truck, take a
+second pass over `Table` to read the `VERTEX_LOOP` entity directly (the
+`FACE_BOUND` → `VERTEX_LOOP` → `VERTEX_POINT` chain is in the exchange file we
+already hold), or own the reader (§10). Not something to improvise inside the
+extractor.
 
 ### 5.4 Inner loops and orientation
 
@@ -491,19 +572,35 @@ goal is that the branch is taken by freeform models only.
 
 Each is an atomic, committable increment. Nothing after C1 touches app code.
 
-- **C1 — this spec + the measurement tooling.** Promote `si5_census.py` and
-  `si5_exactness.py` to `scripts/`, record §2, update
-  `docs/step_import_roadmap.md` §6 ledger to supersede the 2026-07-11 "exact
-  ingestion impossible" entry with the measurement that overturns it. No Rust.
-- **C2 — the analytic extraction contract, gated off.** A new
-  `AnalyticBrepData` in `waffle-types` (shell/face/loop/edge/vertex index tables
-  carrying `AnalyticSurface` + `AnalyticCurve` with full parameters and
-  orientation preserved) plus `step_import::extract_analytic(&CShell) ->
-  Result<AnalyticBrepData, Ineligible>` with a typed `Ineligible` naming the
-  entity that failed the gate. Pure data, no arena, no kernel dependency. Tests:
-  the two committed fixtures plus new real-writer fixtures; assert the cylinder
-  fixture's `SURFACE_OF_REVOLUTION` lateral is reported `Ineligible`, not
-  silently coerced (§4.3).
+- **C1 — this spec + the measurement tooling. DONE 2026-10-01.**
+  `scripts/{fetch-abc-corpus.sh,si5_census.py,si5_exactness.py,si5_census_report.py,si5_face_topology.py}`,
+  §2 recorded, `docs/step_import_roadmap.md` §6 ledger superseded. No Rust.
+- **C2 — the analytic extraction contract, gated off. DONE 2026-10-01.**
+  `waffle_types::kernel::analytic` — `AnalyticSurface` / `AnalyticCurve` /
+  `AnalyticEdge` / `OrientedEdge` / `AnalyticLoop` / `AnalyticFace` /
+  `AnalyticShellData`, full parameters, orientation preserved as orientation.
+  `step_import::parse_step_analytic` → `AnalyticImport` (one verdict per shell)
+  with a typed `Ineligible` naming the entity and index that failed. Pure data:
+  no arena, no kernel dependency, nothing reachable from the app.
+  Measured in §2.5. Three things the design gained from contact with the data:
+  - **`AnalyticCurve` carries an `interior` point.** Two endpoints on a circle
+    define two arcs and the half-turn case is genuinely ambiguous, so endpoints
+    alone would let a consumer silently build the complementary arc. The point
+    comes from the middle of the file's own parameter range.
+  - **`same_sense` is measured, not replayed.** truck may `invert()` a surface
+    during parsing, the `Processor` carries its own orientation flag, and
+    `CompressedFace` carries a second one that an `ORIENTED_CLOSED_SHELL` flips
+    without touching the surface. Evaluating the normal and comparing it to the
+    natural outward direction is independent of all three.
+  - **Extraction is exact, not sampled.** Every parameter is read through
+    truck's public accessors (`RevolutedCurve::origin/axis`, `Line`'s endpoints,
+    `Torus::large_radius`, the placement matrix's columns) — no trigonometry and
+    no fitting. A non-uniform scale (which would mean an ellipsoid) is a typed
+    refusal, not a silent average.
+  New fixtures: `crates/step-import/tests/fixtures/analytic/{cylinder,cone,sphere,torus,drilled_block}.step`,
+  generated by **our own** `kernel_v2::step_export` (the truck-written ones
+  cannot carry a `CYLINDRICAL_SURFACE` at all, §4.3) and golden-pinned in
+  `crates/test-harness/tests/si5_analytic.rs`.
 - **C3 — arena assembly, planar-only.** `kernel_v2::ingest_analytic` for models
   whose every face is a `PLANE` (measured: the polyhedral share of the
   ingestible subset, §2.1) — no seams, no curved surfaces, `Curve::LineSegment`
@@ -542,6 +639,12 @@ on-surface tripwire is not enough. Every ingestion must run, in production:
 4. An **import-tier on-surface gate**: every vertex against every incident
    surface within `import_band` (`validate.rs:714`), typed, naming face and
    residual. This is §2.2's measurement promoted to a runtime check.
+   **Partly live since C2** — the extraction's test oracle
+   (`step-import/src/analytic.rs`, `assert_vertices_on_surfaces`) already
+   re-derives each surface from the parameters as extracted and checks every
+   boundary vertex against it at 1e-9 relative, which is what makes the
+   parameter extraction trustworthy rather than merely compiled. C3 promotes it
+   from a test helper to a production gate on the ingest path.
 
 Independent cross-checks, reusing what exists rather than inventing:
 
@@ -575,6 +678,12 @@ Independent cross-checks, reusing what exists rather than inventing:
 - **`ImportedSurface` must not be the gate.** It is a 6-way classification with
   no parameters and it already mislabels our own cylinder fixture as `Freeform`.
   The gate belongs on truck's `Surface`/`Curve3D` variants, upstream.
+  **Closed at C2** — `analytic.rs` gates on the parsed variant, and the module
+  header says why.
+- **Bundle size: measured, not a risk.** C2 left the WASM bundle 3 KB *smaller*
+  and gzip-identical at 4.14 MB. The extraction path is dead-code-eliminated
+  while nothing in the bridge calls it, so the cost arrives with C6, not before.
+  Re-measure there.
 - **ABC is one corpus from one writer.** Onshape and OCC both measured clean, but
   "every writer is this clean" is not established. The import-tier gate (oracle 4)
   is what makes a dirty writer a loud refusal instead of a silent wrong answer.
@@ -610,3 +719,19 @@ subset a reader would need — and `si5_census.py` already measures it.
   kernel-v2's canonical `CCLL` lateral form, which §5.1 had assumed backwards.
   Checkpoints C1–C7 defined. Next: **C2**, the analytic extraction contract —
   pure data, gated off, no arena.
+- 2026-10-01 — **C2 DONE.** Contract in `waffle-types`, extractor in
+  `step-import`, five first-party analytic fixtures, 11 new tests (2 of them
+  `refs-fixture`-gated, 1 corpus-gated). Measured (§2.5): **49.3 %** of 400 ABC
+  models fully extract, against the text census's 54.0 % upper bound, at
+  **97.0 % agreement with every disagreement in the stricter direction** — the
+  coherence check the plan asked for. Real OCC geometry extracts completely:
+  `R_0603` fully, `USB_C` 34/34 shells, 515 faces, every boundary vertex
+  verified on its extracted surface within 1e-9 relative.
+  The gap to the census is itemized in §2.5, and finding it surfaced a
+  **silent-wrong class**: truck's reader discards a `FACE_BOUND -> VERTEX_LOOP`
+  without reporting it, so a face can arrive missing a ring and
+  `validate_solid` would accept the resulting solid happily. Such files are now
+  refused file-wide (§5.3), which cost 2.3 points of reach — 50.5 % → 49.3 % —
+  and is the right trade. The first reading of that symptom was a
+  misdiagnosis ("a seamless sphere needs a minted seam"), corrected in §5.1.
+  Next: **C3**, planar-only arena assembly.

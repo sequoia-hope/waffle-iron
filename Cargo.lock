@@ -2098,6 +2098,7 @@ name = "step-import"
 version = "0.1.0"
 dependencies = [
  "base64",
+ "cad-primitives",
  "flate2",
  "thiserror 1.0.69",
  "truck-assembly",

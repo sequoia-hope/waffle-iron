@@ -10,11 +10,13 @@
 //! (Apache-2.0, git-pinned — see Cargo.toml). truck types must never leak
 //! past this crate's API.
 
+pub mod analytic;
 pub mod blob;
 mod convert;
 pub mod products;
 mod units;
 
+pub use analytic::{parse_step_analytic, AnalyticImport, Ineligible};
 pub use blob::{decode_step_blob, encode_step_blob, STEP_BLOB_ENCODING};
 pub use products::{parse_step_products, StepOccurrence, StepPlacement, StepProduct, StepProducts};
 pub use units::scan_length_unit_scale;

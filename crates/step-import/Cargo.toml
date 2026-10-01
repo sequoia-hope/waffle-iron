@@ -14,6 +14,9 @@ license = "MIT"
 # crate's API — consumers see only `waffle_types` contract types.
 
 [dependencies]
+# The analytic contract (SI5) is stated in cad-primitives' Point3/Vector3 —
+# the base layer both this crate and the kernel share.
+cad-primitives = { path = "../cad-primitives" }
 waffle-types = { path = "../waffle-types" }
 truck-stepio = { git = "https://github.com/ricosjp/truck", rev = "baf8cd5fb7b1c495169d902745f8b42427df66f9" }
 truck-meshalgo = { git = "https://github.com/ricosjp/truck", rev = "baf8cd5fb7b1c495169d902745f8b42427df66f9", default-features = false, features = ["tessellation"] }

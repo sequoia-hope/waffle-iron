@@ -10,6 +10,7 @@
 //! `mock-kernel` so production builds — including the WASM bundle — never
 //! compile it; enable it from `[dev-dependencies]`.
 
+pub mod analytic;
 pub mod import;
 pub mod traits;
 pub mod types;
@@ -18,6 +19,7 @@ pub mod units;
 #[cfg(feature = "mock-kernel")]
 pub mod mock;
 
+pub use analytic::*;
 pub use import::*;
 pub use traits::*;
 pub use types::*;
