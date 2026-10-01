@@ -364,6 +364,45 @@ pub enum KernelV2Error {
     /// twin mismatch, degree-4 boundary) for the assay census / diagnostics.
     UnsupportedCurvedBoolean { face: FaceId, reason: &'static str },
 
+    // ----- exact analytic ingestion (SI5 C3, `crate::ingest`) --------------
+    /// An imported analytic face carries a surface outside the ingestion
+    /// vocabulary of the current SI5 checkpoint (C3: planes only). `face`
+    /// indexes the shell's own face table and `surface` names the
+    /// classification ("cylindrical", "conical", …), so a corpus census can
+    /// group refusals by the capability they are waiting on. A roadmap row,
+    /// not a defect: the caller falls back to the mesh-backed tier.
+    AnalyticIngestUnsupportedSurface { face: usize, surface: &'static str },
+
+    /// An imported analytic edge carries a curve outside the ingestion
+    /// vocabulary of the current SI5 checkpoint (C3: lines only). Indices and
+    /// naming as in [`KernelV2Error::AnalyticIngestUnsupportedSurface`].
+    AnalyticIngestUnsupportedCurve { edge: usize, curve: &'static str },
+
+    /// An imported analytic shell carries topology outside the ingestion
+    /// vocabulary with no single index to name — today only a `VERTEX_LOOP`
+    /// boundary (a cone apex or sphere pole; the arena represents it, the
+    /// planar tier does not).
+    AnalyticIngestUnsupported(&'static str),
+
+    /// An imported analytic shell contradicts itself or the file's own
+    /// declarations: a loop that is discontinuous, open, zero-area or wound
+    /// against the face's declared sense; an edge not shared by exactly two
+    /// oriented edges, or shared in the same direction twice; a disconnected
+    /// shell; a non-genus-representable Euler characteristic; an
+    /// inward-oriented shell. This is a REAL finding about the exchange file,
+    /// surfaced loudly and never repaired (P9/P10) — the payload names the
+    /// violated condition and `KV2_INGEST_PROBE` dumps the site.
+    InvalidAnalyticShell(&'static str),
+
+    /// A boundary vertex of an imported analytic face lies further off that
+    /// face's own surface than the import band (`TAU_EVAL·(1 + ‖p‖∞)`) — the
+    /// import-tier on-surface gate (SI5 spec §8 oracle 4). `face` indexes the
+    /// shell's face table; the residual and the band are dumped by
+    /// `KV2_INGEST_PROBE`, since the error type is `Eq` and carries no floats.
+    /// A refusal, never a snap: the exact tier's whole claim is that the file
+    /// is already closed to better than this.
+    AnalyticVertexOffSurface { face: usize },
+
     // ----- render tessellation (PR-KV3, `tessellate`) ----------------------
     /// Planar-face tessellation failed: the exact ear-clipping pass could
     /// not find a valid hole bridge or a clippable ear. Unreachable for the

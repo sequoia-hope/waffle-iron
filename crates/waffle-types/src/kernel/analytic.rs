@@ -165,7 +165,29 @@ pub enum AnalyticLoop {
 #[derive(Debug, Clone, PartialEq)]
 pub struct AnalyticFace {
     pub surface: AnalyticSurface,
-    /// Outer loop **first**, then rings (holes).
+    /// The face's boundary loops **in the file's own order, which does NOT
+    /// put the outer boundary first**.
+    ///
+    /// This field once promised outer-first and the promise was unkeepable.
+    /// STEP marks the outer boundary with a subtype (`FACE_OUTER_BOUND` rather
+    /// than `FACE_BOUND`), not with a position, and real writers interleave
+    /// them freely — and the reader we extract from collapses both entities
+    /// into one table (`truck_stepio::r#in::FaceBound`, "FACE_OUTER_BOUNDS is
+    /// also parsed to this struct"), so **the outer marker is gone before the
+    /// data reaches us**. It is the sibling of the dropped `VERTEX_LOOP`: a
+    /// silent loss, invisible to a mesh tier whose triangulator re-derives
+    /// hole nesting anyway, and a silently-wrong solid for an exact one.
+    /// Measured on ABC chunk 0000: 7 of 28 polyhedral models have at least
+    /// one face whose first loop is a ring (SI5 C3, 2026-10-01).
+    ///
+    /// So which loop is outer is the CONSUMER's determination, and it is a
+    /// measurement, not a convention: on a planar face, the outer boundary is
+    /// the loop whose exact signed area about the face's outward normal is
+    /// positive, and every ring's is negative (ISO 10303-42 winds a bound so
+    /// the material lies to its left). That test needs the surface's own law —
+    /// a curved patch needs its parametric domain, not a 3-D area — which is
+    /// knowledge the kernel has and this contract does not. A consumer that
+    /// cannot make the determination must refuse the face, never guess.
     pub loops: Vec<AnalyticLoop>,
     /// `false` when the solid's outward direction is opposite the surface's own
     /// normal.
@@ -179,14 +201,11 @@ pub struct AnalyticFace {
 }
 
 impl AnalyticFace {
-    /// The outer loop, which is always present and always first.
-    pub fn outer_loop(&self) -> &AnalyticLoop {
-        &self.loops[0]
-    }
-
-    /// The ring (hole) loops.
-    pub fn rings(&self) -> &[AnalyticLoop] {
-        &self.loops[1..]
+    /// The face has rings (holes) to tell apart from its outer boundary.
+    /// Which loop is which is the consumer's measurement — see [`Self::loops`]
+    /// for why there is no `outer_loop()` accessor here.
+    pub fn has_rings(&self) -> bool {
+        self.loops.len() > 1
     }
 }
 
@@ -257,7 +276,7 @@ mod tests {
     }
 
     #[test]
-    fn outer_loop_is_first_and_rings_follow() {
+    fn a_face_with_two_loops_has_rings() {
         let face = AnalyticFace {
             surface: plane(),
             loops: vec![
@@ -272,14 +291,11 @@ mod tests {
             ],
             same_sense: true,
         };
-        assert_eq!(
-            face.outer_loop(),
-            &AnalyticLoop::Edges(vec![OrientedEdge {
-                edge: 0,
-                forward: true
-            }])
-        );
-        assert_eq!(face.rings().len(), 1);
+        // Which of the two is the outer boundary is NOT recorded here — the
+        // file does not put it first and the reader loses the marker, so the
+        // consumer measures it (see `AnalyticFace::loops`).
+        assert!(face.has_rings());
+        assert_eq!(face.loops.len(), 2);
     }
 
     #[test]

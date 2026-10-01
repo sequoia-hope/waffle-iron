@@ -884,7 +884,8 @@ mod tests {
         // The lateral is the 4-edge [rim, seam, rim, seam] loop, with the seam
         // traversed twice in opposite directions — the form 51 % of real-world
         // cylindrical faces arrive in.
-        let AnalyticLoop::Edges(oriented) = lateral.outer_loop() else {
+        assert_eq!(lateral.loops.len(), 1, "the lateral has one boundary");
+        let AnalyticLoop::Edges(oriented) = &lateral.loops[0] else {
             panic!("edges")
         };
         assert_eq!(oriented.len(), 4, "CCLL lateral loop");
@@ -982,7 +983,7 @@ mod tests {
              distinction the kernel records as `reversed`"
         );
 
-        let ringed = shell.faces.iter().filter(|f| !f.rings().is_empty()).count();
+        let ringed = shell.faces.iter().filter(|f| f.has_rings()).count();
         assert_eq!(ringed, 2, "both caps carry the bore's ring");
     }
 

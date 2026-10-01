@@ -194,9 +194,12 @@ default mm with a diagnostic warning if absent. User `scale` multiplies it.
   edges only) enter the kernel-v2 arena as exact solids → full yang booleans,
   analytic primacy end-to-end. **Design spec and plan of record:
   `specs/step_import_si5_exact_analytic_ingestion.md`** (checkpoints C1–C7;
-  C1 = spec + measurement tooling, DONE). Measured reach: 54.0 % of ABC chunk
-  0000 passes the vocabulary gate and 98.9 % of those are already exact to the
-  arena's own `import_band`, i.e. 53.4 % of the corpus is ingestible exactly.
+  **C1, C2 and C3 DONE 2026-10-01**, next is C4). Measured reach: 54.0 % of ABC
+  chunk 0000 passes the vocabulary gate and 98.9 % of those are already exact to
+  the arena's own `import_band`, i.e. 53.4 % of the corpus is ingestible exactly.
+  The planar tier is live in the kernel (`kernel_v2::ingest_analytic`) and
+  ingests 100 % of the in-vocabulary models in a 400-model sample; nothing is
+  wired to the app until C6.
 
 ## 5. Test fixtures (committed, license-clean)
 
@@ -300,3 +303,21 @@ depend on them are `#[ignore]`-tagged with reason `refs-fixture`.
   a ring and `validate_solid` would accept the solid built from it. Such files
   are now refused file-wide, costing 2.3 points of reach. Nothing is reachable
   from the app yet. Next: C3, planar-only arena assembly.
+- 2026-10-01 — **SI5 C3: the planar tier enters the arena.**
+  `kernel_v2::ingest_analytic` assembles an analytic shell of planes and lines
+  into a real arena solid (three passes: validate before any mutation, assemble,
+  then `validate_solid` + the self-intersection gate + a positive-volume
+  orientation check). Twins wire on the FILE's own edge index, since STEP
+  shares one `EDGE_CURVE` between the two faces that meet along it. Measured
+  over 400 ABC models: 28 ingested (208 solids, 4 669 faces), **28 of 28
+  in-vocabulary models**, against an independent text census of 29 polyhedral
+  models — the single-model gap is C2's file-wide `VERTEX_LOOP` refusal.
+  **Found a second silent-wrong class in the reader:** STEP marks the outer
+  boundary of a face with a subtype (`FACE_OUTER_BOUND`) and truck parses it
+  into the same table as an ordinary `FACE_BOUND`, so "which loop is outer" is
+  not in the data at all — 7 of those 28 polyhedral models have a face whose
+  first loop is a ring. The exact tier now DETERMINES it (positive exact signed
+  area about the outward normal) and refuses a face that has no such loop or
+  two. Also measured: `parse_step_analytic`'s shell order varies between runs
+  (truck's tables are `HashMap`s), which makes an imported face's persistent id
+  unstable — a C6 prerequisite, recorded in the spec's §5.7.
