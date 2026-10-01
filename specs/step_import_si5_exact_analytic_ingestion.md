@@ -1,6 +1,7 @@
 # SI5 — exact ingestion of analytic STEP into the kernel-v2 arena
 
-**Status:** IN PROGRESS — **C1, C2 and C3 landed 2026-10-01, next is C4.**
+**Status:** IN PROGRESS — **C1, C2, C3 and C4a landed 2026-10-01, next is the
+tripwire-tier increment (§5.5) then C4b.**
 Nothing is reachable from the app yet; the mesh tier still serves every import.
 Created 2026-10-01. Checkpoints and their state: §7.
 **Plan of record it serves:** `docs/step_import_roadmap.md` §4 milestone SI5.
@@ -66,9 +67,10 @@ JOBS=14 ./scripts/si5_census.py    /tmp/abc/chunk0000 > /tmp/si5_census.tsv
 JOBS=14 ./scripts/si5_exactness.py /tmp/abc/chunk0000 > /tmp/si5_exactness.tsv
 ./scripts/si5_census_report.py /tmp/si5_census.tsv /tmp/si5_exactness.tsv
 ./scripts/si5_face_topology.py  /tmp/abc/chunk0000 120
+./scripts/si5_seam_shape.py     /tmp/abc/chunk0000 400
 ```
 
-All three probes are pure text scans over the exchange file — no truck, no kernel,
+All these probes are pure text scans over the exchange file — no truck, no kernel,
 no tessellation — so they measure the **input**, not our handling of it. That
 independence is the point: it is why Gate 1 below can be checked against the
 truck-based probe's figure and why a disagreement localizes to one of the two.
@@ -153,12 +155,17 @@ the all-models figure would be measuring a population we never ingest.
 
 ### 2.3 Cylindrical face topology (the §5.1 input)
 
-Over 120 corpus files containing cylinders (1 609 cylindrical faces), the
-distribution of loop/edge shape is in §5.1's table. The headline: **50.9 % of
-cylindrical faces already arrive in kernel-v2's canonical 4-edge `CCLL` lateral
-form**, 40.5 % as two single-circle loops needing a minted seam. This was assumed
-backwards before being measured, and it moves seam minting from "the biggest
-piece" to "needed for a large minority".
+Over 400 corpus files containing a cylinder or cone (6 316 such faces), the
+form distribution is in §5.1's table. The headline: **58.4 % are partial arc
+patches and 37.9 % are full bands, every one of which needs a minted seam.**
+
+A loop-size census (120 files, `si5_face_topology.py`) was taken first and read
+backwards — its 50.9 % `CCLL` share was recorded here as "already kernel-v2's
+canonical lateral form", which would have made seam minting a minority concern.
+It is the opposite: `CCLL` is the *partial patch*, because the two line edges are
+distinct records and the two circle edges are open arcs, neither of which an
+edge-count signature can see. §5.1 carries the refutation and the probe
+(`si5_seam_shape.py`) that made it.
 
 Units: all 10 000 models declare `SI_UNIT($, .METRE.)` alongside a
 `CONVERSION_BASED_UNIT('METRE', …)` complex instance. `units.rs:29-43` handles
@@ -390,23 +397,108 @@ seam anchor vertices, two closed rim `Circle` half-edges, one straight seam
 `[rim_b, seam_up, rim_t, seam_dn]` in which the seam appears twice, once in
 each direction.
 
-**Measured, not assumed** — `./scripts/si5_face_topology.py /tmp/abc/chunk0000 120`
-(deterministic seeded sample: 120 corpus files containing cylinders, 1 609
-cylindrical faces):
+#### The loop-signature census was one level too shallow — and said the opposite
 
-| loop/edge signature of a `CYLINDRICAL_SURFACE` face | curves | faces | meaning |
+This section first recorded `./scripts/si5_face_topology.py`'s loop-size
+signatures and concluded from them that the dominant `CCLL` form (one loop of
+circle, circle, line, line) "already matches the target topology", so that seam
+minting was the minority's problem. **That inference is wrong.** A signature
+counts edges per loop; it cannot see an edge's own endpoints or its record
+identity, and both distinctions are exactly where the canonical form lives.
+`./scripts/si5_seam_shape.py /tmp/abc/chunk0000 400` goes the level deeper
+(400 corpus files containing a cylinder or cone, 6 316 such faces) and finds, in
+the `CCLL` faces:
+
+- the two `L` edges are two **distinct `EDGE_CURVE` records**, never one seam
+  traversed twice — 1 305 of 1 305 measured;
+- the two `C` edges are **open** (`edge_start != edge_end`), i.e. circular
+  **arcs** — 2 610 of 2 610.
+
+So `CCLL` is not a full band with a seam. It is the *partial* patch — a fillet,
+a half-round, a rounded corner — bounded by two arcs and two rulings. The
+canonical full band arrives only in the 2×single-closed-circle form, and that
+form always needs a minted seam. Dumping one `CCLL` face confirms it edge by
+edge (`00007847_…_step_000.step` face `#35`: a half-cylinder of radius 0.01
+whose "rims" are two diametral arcs and whose "seams" are `#224` and `#226`,
+different records).
+
+Re-measured on the honest taxonomy — **full band** = every loop is one closed
+circle; **arc patch** = no closed circle anywhere:
+
+| form of a `CYLINDRICAL`/`CONICAL_SURFACE` face | faces | share | what it needs |
 |---|---|---|---|
-| one loop of 4 edges | `CCLL` | 819 (50.9 %) | **already kernel-v2's canonical lateral** |
-| two loops of 1 edge | `C` + `C` | 651 (40.5 %) | full band, **seam must be minted** |
-| one loop of 4 | `EELL` / `CELL` | 112 loops | obliquely cut — `EllipseArc` rims |
-| 5/6/8-edge loops, `(1,4)`, `(1,8)`, … | mixed | ~140 (8.6 %) | partial patches — the tail below |
+| arc patch | 3 686 | 58.4 % | `Curve::Arc` mapping + the unrolled-domain outer-loop test; no boolean re-entry |
+| full band, 2 rim loops | 2 397 | 37.9 % | **a minted seam**; full boolean capability |
+| mixed (closed circle + open edges in one face) | 172 | 2.7 % | refusal — the arena has no such face |
+| 1 / 3 / 4 / 6 / 10 rim loops | 38 | 0.6 % | refusal (holed band, unclosed band) |
 
-So the dominant real-world form **already matches the target topology**, which
-is the opposite of what this section assumed before it was measured. Seam
-minting is needed for the two-circle-loop case (~40 % of cylindrical faces), not
-for the majority. `extrude_circle` (`construct/extrude.rs:266-425`) is the
-assembly template and `recover.rs:30-40` is the precedent for minting an exact
-on-circle seam foot where none exists.
+Per **model** — which is what decides reach, since one unsupportable face sends
+the whole file to the mesh tier — of the 400 cylinder/cone-bearing models:
+
+| | models | share |
+|---|---|---|
+| outside the C4 surface/curve vocabulary (b-splines, …) | 202 | 50.5 % |
+| in vocabulary, **full bands only** | 81 | **20.2 %** |
+| in vocabulary, both forms | 71 | 17.8 % |
+| in vocabulary, arc patches only | 32 | 8.0 % |
+| in vocabulary, some face form outside both | 14 | 3.5 % |
+
+That table is the checkpoint split (§7): the full-band tier alone is 20.2 % of
+cylinder-bearing models **with full boolean capability**, and it is self-contained
+— a model whose curved faces are all full bands cannot contain a planar arc
+either, because an arc edge's other face is always a curved patch.
+`extrude_circle` (`construct/extrude.rs:266-425`) is the assembly template and
+`recover.rs:30-40` is the precedent for minting an exact on-circle seam foot
+where none exists.
+
+#### Minting a seam means choosing where to cut a circle that has no cut
+
+The minted seam must be a **ruling** (`validate_cylinder_face`'s
+`cyl-seam-not-ruling` check), so the two rims' anchor vertices have to sit at
+one azimuth about the axis. They do not always:
+
+- **82.4 %** of the 2 397 full bands already have their two anchors aligned to
+  < 1e-9 rad; the rest are spread to p90 = π/2, max = π.
+- A rim anchor is named by another edge in **4 of 4 794** cases (0.08 %).
+
+So minting also has to **re-anchor** a rim. That is not a repair of geometry and
+not a tolerance move: the anchor of a *closed* edge is pure representation gauge
+— Stroud's fake edge — and sliding it along its own circle changes no point of
+the boundary, because the loop is the entire circle either way. It is admissible
+exactly when the vertex is load-bearing for nothing else, which is why the 0.08 %
+is measured rather than assumed, and those faces are refused instead.
+
+The re-anchored point is computed as `c₁ + r₁·ĝ₀` — the other rim's own centre
+and radius, along the kept anchor's unit radial direction — so it lands exactly
+on the circle the file declared, and therefore on both surfaces that circle
+bounds. The import-tier on-surface gate certifies it like any other vertex.
+
+Alignment is not pairwise: a stepped shaft chains bands rim → band → rim, and
+two bands sharing a rim are necessarily coaxial (a shared full circle is each
+surface's own rim). So the constraint is **per connected component of
+rims-joined-by-bands**: pick one anchor direction per component and re-anchor the
+rest to it. A component containing two *pinned* rims (anchors shared with other
+edges) whose directions disagree is a refusal.
+
+#### Which way a rim circle is traversed is derived, never read
+
+A closed rim gives no orientation clue from its endpoints — both traversals run
+start → start, and `AnalyticCurve::interior` does not separate them either (a
+full circle passes through every one of its own points in both directions). The
+file's circle axis would say, but it is exactly the kind of sign that
+`same_sense` taught us not to replay (truck inverts curves during parsing, the
+`Processor` carries its own orientation flag, and `EDGE_CURVE.same_sense` is a
+third). So C4 derives it from the surface's own material law instead:
+
+- on the lateral, `validate_cylinder_face`/`validate_cone_face`'s rule — with
+  `reversed == false` each rim's traversal axis points **toward** the other rim,
+  with `reversed == true` away — and `reversed = !same_sense`;
+- on the face across that rim, the negation (twins carry negated circle normals).
+
+The file's declared circle axis is then used only as a geometric consistency
+check (`|n̂·â| ≈ 1`), and the oriented-edge flags only for the thing pass 1d
+already verifies: that the rim's two uses run opposite ways. Nothing in the
+result depends on an absolute sign we cannot trust.
 
 Closed torus (`V=1,E=2,F=1,G=1`, loop `aba⁻¹b⁻¹`) and closed sphere
 (`V=2,E=1,F=1`, one meridian `Arc` twin pair) have their own canonical
@@ -421,11 +513,16 @@ reader's, not the format's, and the fix belongs in §5.3, not here. Verified on
 `00000052_666139e3bff64d4e8a6ce183_step_001`: `#264 = FACE_BOUND('', #473, .T.)`
 with `#473 = VERTEX_LOOP('', #613)`.
 
-One constraint to respect while mapping the `CCLL` form: `Arc`/`EllipseArc` are
-**minor arcs only** (sweep < π) and a near-half arc is *rejected* as ambiguous
-rather than guessed (`boolean::ARC_MINOR_AMBIGUITY_BAND = 1e-6`). A STEP rim
-written as one full `CIRCLE` maps to the closed `Curve::Circle`; a rim split
-into two half-arcs does not, and must be recognized and re-joined.
+One constraint that turns out **not** to bind, and it is worth saying why: the
+minor-arc rule. `from_yang_brep` rejects a near-half arc as ambiguous
+(`boolean::ARC_MINOR_AMBIGUITY_BAND = 1e-6`) because it must *derive* the arc's
+directional normal from its two endpoints, where a half turn is genuinely
+undecidable. The arena's `Curve::Arc` itself has no such limit —
+`geom::ccw_sweep` is well defined on all of `(0, 2π]` once the normal is given —
+and an imported arc arrives with the file's own axis plus
+`AnalyticCurve::interior`, which pins the side. That matters, because exact and
+near half turns are **11 %** of arc-patch arcs in the corpus (539 exact + 207 in
+179–180°, of ~6 456). C4b may therefore take them; it must not re-derive.
 
 Two of those canonical forms are **required for boolean re-entry**, not merely
 for validation:
@@ -548,6 +645,66 @@ residual.** Do not widen a band to admit it (P9/P10). The mesh path still serves
 it. A refusal is a roadmap item with a measurement attached, which is exactly
 what the P-series promotion path consumes.
 
+#### The premise above is false in one dimension nobody had measured (C4a)
+
+"No reconciliation is needed at all" rested on §2.2, which measured the residual
+of a vertex against its incident **surfaces**. A vertex also has to lie on its
+incident **curves**, and that is independent data in the exchange file. Measured
+at C4a over 4 932 closed rim anchors in 400 corpus models
+(`si5_seam_shape.py` question 6, |anchor − its own `CIRCLE`|):
+
+| | |
+|---|---|
+| p50 | 8.7e-19 |
+| p90 | 9.9e-17 |
+| p99 | **4.0e-11** |
+| max | **5.0e-11** |
+| within `CURVED_SURFACE_DEBUG_TOLERANCE` (1e-12) | 94.3 % |
+| within `import_band` (1e-9) | **100 %** |
+
+The cause is visible in the text. ABC `00000007_…_step_000` writes
+`CIRCLE('', #107, 0.0910485145000000)` — ten significant digits, zero-padded —
+and the anchor vertex `0.0910485144535982`, fifteen. The radius record was
+already coarse before it was formatted. Neither number is "the wrong one"; they
+are two independent roundings of one quantity, and the file disagrees with
+itself by 4.6e-11.
+
+**What this is not.** It is not a defect population to refuse: 100 % of it is
+inside the band this tier documents, measures itself against, and already uses
+for arcs. It is not noise to absorb either: the arena's law is that a
+`Curve::Circle` half-edge's origin lies *on* its circle, exactly.
+
+**What it is.** `CURVED_SURFACE_DEBUG_TOLERANCE` is documented at
+`validate.rs:220-228` as a **construction-bug tripwire** — "curved geometry is
+exact by construction (the assembler places rim anchors at `center + r·û`), so
+this is … not a production gate". C4a is the first producer of a full-circle
+edge that was **not constructed**, so the tripwire's own stated premise does not
+hold for its input. The validator has been distinguishing the two tiers by a
+proxy — `Curve::Arc` endpoints get `import_band`, `Curve::Circle` anchors get the
+construction band, because until now only imports and boolean outputs made arcs —
+and C4a is where that proxy runs out.
+
+Measured consequence, the whole class and nothing else: of 400 models,
+**11 in-vocabulary models are refused by this tripwire**, one site each, at
+1.0e-11 – 4.6e-11 against a 1e-12 band — `planar-circle-anchor` ×9,
+`cyl-canonical-vertex` ×1, `cone-vertex` ×1. That is the entire gap between
+C4a's 85.3 % in-vocabulary success and 100 %. It fires only under
+`strict-validation` / `debug_assertions`, so the test tier and a release app
+would disagree about the same file, which is its own reason not to leave it to a
+`cfg`.
+
+**The fix is provenance, not a band**, and it is its own increment because it
+changes a kernel-v2 core type: a solid must record whether its geometry was
+constructed or asserted, and the curved tripwires must band at the tier that
+produced them. Every production gate is unaffected — orientation, Newell,
+Euler–Poincaré, twin-curve consistency, the self-intersection gate and SI5's own
+import-tier on-surface gate all run on an ingested solid exactly as before.
+Reconciling the anchor onto its circle instead (`c + r·ĝ`, which the seam
+alignment already computes) would fix the `planar-circle-anchor` site, but it
+cannot fix `cone-vertex`: there the rim radius, the half-angle and the vertex are
+*three* independent roundings, and no choice of anchor makes all three agree to
+1e-12. Reconciliation is the wrong lever for a tier mismatch.
+
 ### 5.6 Resource safety — and the panic that reaches the browser
 
 Measured 2026-09-30 (`abc_probe.rs:182-190`): an uncapped in-process import loop
@@ -627,7 +784,9 @@ goal is that the branch is taken by freeform models only.
 Each is an atomic, committable increment. Nothing after C1 touches app code.
 
 - **C1 — this spec + the measurement tooling. DONE 2026-10-01.**
-  `scripts/{fetch-abc-corpus.sh,si5_census.py,si5_exactness.py,si5_census_report.py,si5_face_topology.py}`,
+  `scripts/{fetch-abc-corpus.sh,si5_census.py,si5_exactness.py,si5_census_report.py,si5_face_topology.py}`
+  (`si5_seam_shape.py` joined them at C4, and refuted `si5_face_topology.py`'s
+  reading — §5.1),
   §2 recorded, `docs/step_import_roadmap.md` §6 ledger superseded. No Rust.
 - **C2 — the analytic extraction contract, gated off. DONE 2026-10-01.**
   `waffle_types::kernel::analytic` — `AnalyticSurface` / `AnalyticCurve` /
@@ -670,7 +829,8 @@ Each is an atomic, committable increment. Nothing after C1 touches app code.
   (`AnalyticIngestUnsupportedSurface` / `…Curve` / `AnalyticIngestUnsupported`
   / `InvalidAnalyticShell` / `AnalyticVertexOffSurface`), `KV2_INGEST_PROBE`
   for the site dump. Gated off: nothing in the app or the adapter calls it.
-  Measured by `c3_planar_ingestion_over_the_corpus`, which reports two
+  Measured by `ingestion_over_the_corpus` (named `c3_planar_ingestion_over_the_corpus`
+  until C4a generalized it), which reports two
   different things on purpose — raw reach, and success *within* the
   vocabulary, where a miss is a finding rather than a missing capability:
 
@@ -693,8 +853,44 @@ Each is an atomic, committable increment. Nothing after C1 touches app code.
 
   C3 also found the §5.4 `FACE_OUTER_BOUND` loss and the §5.7 order
   nondeterminism.
-- **C4 — cylinders and cones, with seam minting.** §5.1. The first increment
-  where a model gains full boolean capability.
+- **C4 — cylinders and cones.** §5.1's re-measurement splits this in two, along
+  the line the corpus itself draws: a face is a **full band** (every loop one
+  closed circle) or an **arc patch** (no closed circle anywhere), and the two
+  need disjoint machinery. The split is not a convenience — the first half is
+  the one that gains boolean capability, and it is self-contained.
+  - **C4a — the full-band tier. DONE 2026-10-01.** Closed-circle edges only:
+    `Curve::Circle` mapping, the derived rim traversal sense, seam minting with
+    per-component re-anchoring, and the circle-bounded planar cap/ring loop.
+    Every ingested cylinder presents exactly two full-circle rims, so these
+    solids are `to_yang_brep`-eligible — **the first increment where an imported
+    model gains full boolean capability** (pinned by
+    `an_ingested_cylinder_is_boolean_eligible`). An open (arc) circle edge is a
+    typed refusal naming C4b. It also accepts the arena's own canonical seamed
+    lateral, which no corpus writer emits but `kernel_v2::step_export` does —
+    that is what makes the export → extract → ingest fixed point (§8.7) an
+    acceptance oracle for curved solids as well as planar ones. New fixture
+    `frustum` (a `CONICAL_SURFACE` band, the form 413 corpus conical faces take);
+    `cylinder` and `drilled_block` moved from the refusal list to the acceptance
+    list in this commit, and the apex `cone` stayed, named.
+
+    | sample | ingested | solids / faces | in vocabulary | of those ingested |
+    |---|---|---|---|---|
+    | 400 models, C3 | 28 (7.0 %) | 208 / 4 669 | 28 | 28 (100 %) |
+    | 400 models, **C4a** | **64 (16.0 %)** | **256 / 5 533** | 75 | **64 (85.3 %)** |
+
+    The 11 in-vocabulary misses are **one class with one cause**, measured and
+    named in §5.5: a construction-bug tripwire banded at 1e-12 applied to
+    geometry that was not constructed, where the file's own records disagree by
+    1.0e-11 – 4.6e-11. Fixing it is the next increment because it changes a
+    kernel-v2 core type (a solid's provenance); widening the band instead is
+    refused.
+  - **C4b — the arc-patch tier.** `Curve::Arc` from the file's axis plus
+    `interior` (never re-derived — §5.1), the outer-loop determination in the
+    **unrolled** `(θ, h)` domain rather than by 3-D signed area, and planar faces
+    with arc edges. Adds 25.8 points of model reach at the tessellate/measure/
+    export tier; these faces bounce off `to_yang_brep` by design. Whether
+    `ELLIPSE` edges (oblique cuts: 406 of 3 686 arc patches) come in here or
+    wait is a C4b scoping call, not a C4a one.
 - **C5 — spheres and tori.** Including the canonical z-up re-seam.
 - **C6 — wire it.** `import_body` tries `ingest_analytic` first and falls back to
   the mesh-backed body on `Ineligible`; the fallback must be visible as a feature
@@ -753,10 +949,18 @@ Independent cross-checks, reusing what exists rather than inventing:
 
 ## 9. Risks
 
-- **Seam minting is the whole game.** If choosing seam anchors interacts badly
-  with yang's rim-ring caching, C4 stalls and only the planar tier lands. That is
-  still worth shipping: it is the polyhedral share of the corpus, exactly, with
-  full booleans.
+- **Seam minting is the whole game** — and the C4 re-measurement (§5.1) raised
+  the stake rather than lowering it: the form that "already matched" the
+  canonical lateral turned out to be the partial patch, so EVERY full band needs
+  a minted seam and 17.6 % of them need a re-anchored rim as well. If choosing
+  seam anchors interacts badly with yang's rim-ring caching, C4a stalls and only
+  the planar tier lands. That is still worth shipping: it is the polyhedral share
+  of the corpus, exactly, with full booleans.
+- **A loop-signature census is not a topology census.** The §5.1 error — reading
+  `CCLL` as a seamed band because it has the right edge counts — cost nothing
+  only because the deeper probe ran before the code did. Any further "the corpus
+  already gives us X" claim in this spec must be measured at the level of
+  identities (which record, which vertex), not of counts.
 - **Canonical-form mismatch is a capability tail, not a bug.** Expect a
   population of ingested solids that validate and render but refuse booleans with
   `UnsupportedCurvedBoolean`. Each is a typed, measured roadmap row.

@@ -90,6 +90,35 @@ fn cone(arena: &mut BrepArena) -> SolidId {
     .solid
 }
 
+/// Cone FRUSTUM: a CONICAL_SURFACE band between two full-circle rims, plus two
+/// PLANE caps — the form 413 of the corpus's conical faces arrive in (spec
+/// §5.1), and the one C4a ingests. (The apex `cone` above is the other form:
+/// its lateral has a single rim and a singular point, which C4a refuses.)
+fn frustum(arena: &mut BrepArena) -> SolidId {
+    let profile = Profile::new(
+        Point3::new(0.0, 0.0, 0.0),
+        Vector3::new(1.0, 0.0, 0.0),
+        Vector3::new(0.0, 0.0, 1.0),
+        vec![
+            Point2::new(0.0, 0.0),
+            Point2::new(R, 0.0),
+            Point2::new(R / 2.0, H),
+            Point2::new(0.0, H),
+        ],
+        vec![],
+    )
+    .expect("frustum profile");
+    revolve(
+        arena,
+        &profile,
+        Point3::new(0.0, 0.0, 0.0),
+        Vector3::new(0.0, 0.0, 1.0),
+        2.0 * PI,
+    )
+    .expect("full-turn frustum")
+    .solid
+}
+
 /// Closed sphere (V=2, E=1, F=1): one SPHERICAL_SURFACE, one meridian.
 fn sphere(arena: &mut BrepArena) -> SolidId {
     let profile = Profile::circle(
@@ -249,6 +278,7 @@ type Build = fn(&mut BrepArena) -> SolidId;
 const FIXTURES: &[(&str, Build)] = &[
     ("cylinder", cylinder),
     ("cone", cone),
+    ("frustum", frustum),
     ("sphere", sphere),
     ("torus", torus),
     ("drilled_block", drilled_block),
@@ -256,26 +286,40 @@ const FIXTURES: &[(&str, Build)] = &[
     ("slotted_block", slotted_block),
 ];
 
-/// The fixtures C3 ingests (planar vocabulary), with their builders and their
+/// The fixtures the ingest path accepts, with their builders and their
 /// `(V, E, F, R, S, G)` — so an ingestion test can compare the ingested solid
 /// against the constructed one it was exported from, and the comparison
 /// cannot pass vacuously if both paths lose the same structure.
-const PLANAR_FIXTURES: &[(&str, Build, Counts)] = &[
+const INGESTED_FIXTURES: &[(&str, Build, Counts)] = &[
+    // C3, the planar tier.
     ("block", block, (8, 12, 6, 0, 1, 0)),
     // Two ring loops (the hole's mouth on each cap) and genus 1, back-solved
     // from the Euler characteristic since STEP states no genus.
     ("slotted_block", slotted_block, (16, 24, 10, 2, 1, 1)),
+    // C4a, full curved bands. Stroud's single-fake-edge cylinder: two seam
+    // anchors, two closed rims plus the seam, two caps plus the lateral.
+    ("cylinder", cylinder, (2, 3, 3, 0, 1, 0)),
+    ("frustum", frustum, (2, 3, 3, 0, 1, 0)),
+    // A block with a through bore: the bore's two rims are RINGS of the caps,
+    // which is the `reversed` cavity orientation case a cap cannot exercise.
+    ("drilled_block", drilled_block, (10, 15, 7, 2, 1, 1)),
 ];
 
-/// The fixtures C3 must REFUSE, with the vocabulary member that walls each.
+/// The fixtures the ingest path must REFUSE, with the reason that walls each.
 /// A silent partial ingest of one of these would be the whole point of SI5
-/// missed, so the refusal is pinned as tightly as the acceptance.
-const CURVED_FIXTURES: &[(&str, &str)] = &[
-    ("cylinder", "cylindrical"),
-    ("cone", "conical"),
-    ("sphere", "spherical"),
-    ("torus", "toroidal"),
-    ("drilled_block", "cylindrical"),
+/// missed, so the refusal is pinned as tightly as the acceptance — and when a
+/// later checkpoint lands the capability, the row MOVES to
+/// [`INGESTED_FIXTURES`] in the same commit (a stale wall is itself a defect).
+const UNSUPPORTED_FIXTURES: &[(&str, &str)] = &[
+    ("sphere", "surface: spherical"),
+    ("torus", "surface: toroidal"),
+    // The apex cone's lateral has ONE rim and a singular point, not a band.
+    // The corpus writes that shape with a `VERTEX_LOOP`, which C2 refuses
+    // file-wide (spec §5.3), so it has no customer before C5.
+    (
+        "cone",
+        "a curved face is not a full band of two closed rims (C4b partial patch)",
+    ),
 ];
 
 #[test]
@@ -320,6 +364,7 @@ fn analytic_fixtures_carry_the_entities_si5_extracts() {
             &["CYLINDRICAL_SURFACE", "PLANE", "CIRCLE", "LINE"],
         ),
         ("cone", &["CONICAL_SURFACE", "CIRCLE"]),
+        ("frustum", &["CONICAL_SURFACE", "PLANE", "CIRCLE", "LINE"]),
         ("sphere", &["SPHERICAL_SURFACE"]),
         ("torus", &["TOROIDAL_SURFACE"]),
         (
@@ -329,10 +374,10 @@ fn analytic_fixtures_carry_the_entities_si5_extracts() {
         ("block", &["PLANE", "LINE"]),
         ("slotted_block", &["PLANE", "LINE", "FACE_BOUND"]),
     ];
-    // The two planar fixtures earn their place by carrying NO curve and NO
+    // `block` and `slotted_block` earn their place by carrying NO curve and NO
     // curved surface — that is what makes them the C3 tier's inputs rather
     // than a second copy of `drilled_block`.
-    for (name, ..) in PLANAR_FIXTURES {
+    for name in ["block", "slotted_block"] {
         let text = std::fs::read_to_string(fixture_path(&format!("{name}.step")))
             .unwrap_or_else(|e| panic!("{name}.step: {e} — regenerate with UPDATE_SI5_FIXTURES=1"));
         for banned in [
@@ -410,7 +455,7 @@ fn counts(arena: &BrepArena, solid: SolidId) -> Counts {
 /// mis-assembled.
 #[test]
 fn planar_fixtures_ingest_and_match_the_solid_they_came_from() {
-    for (name, build, want_counts) in PLANAR_FIXTURES {
+    for (name, build, want_counts) in INGESTED_FIXTURES {
         let mut built = BrepArena::new();
         let built_solid = build(&mut built);
 
@@ -447,7 +492,7 @@ fn planar_fixtures_ingest_and_match_the_solid_they_came_from() {
 /// survive the first pass would move on the second.
 #[test]
 fn ingesting_an_exported_ingested_solid_is_a_fixed_point() {
-    for (name, ..) in PLANAR_FIXTURES {
+    for (name, ..) in INGESTED_FIXTURES {
         let mut first = BrepArena::new();
         let a = kernel_v2::ingest_analytic(&mut first, &analytic_shell(name))
             .unwrap_or_else(|e| panic!("{name}: first ingestion refused: {e:?}"));
@@ -516,23 +561,25 @@ fn a_ringed_face_with_an_inverted_sense_is_refused_as_a_net_area_violation() {
     );
 }
 
-/// Every curved fixture must hit the C3 capability wall by NAME. A silent
-/// partial ingest here — a cylinder quietly assembled as something planar —
+/// Every out-of-vocabulary fixture must hit its capability wall by NAME. A
+/// silent partial ingest here — a sphere quietly assembled as something else —
 /// is the silent-wrong class SI5 exists to avoid, so the refusal is pinned as
-/// tightly as the acceptance. When C4/C5 land, these move to acceptance in
-/// the same commit (a stale wall is itself a defect).
+/// tightly as the acceptance. When a later checkpoint lands the capability,
+/// the row moves to `INGESTED_FIXTURES` in the same commit (a stale wall is
+/// itself a defect).
 #[test]
-fn curved_fixtures_hit_the_c3_capability_wall_by_name() {
-    for (name, surface) in CURVED_FIXTURES {
+fn unsupported_fixtures_hit_their_capability_wall_by_name() {
+    for (name, reason) in UNSUPPORTED_FIXTURES {
         let shell = analytic_shell(name);
         let mut arena = BrepArena::new();
-        match kernel_v2::ingest_analytic(&mut arena, &shell) {
-            Err(kernel_v2::KernelV2Error::AnalyticIngestUnsupportedSurface {
-                surface: got,
-                ..
-            }) => assert_eq!(got, *surface, "{name}: walled on {got}, expected {surface}"),
-            other => panic!("{name}: expected the planar-tier surface wall, got {other:?}"),
-        }
+        let got = match kernel_v2::ingest_analytic(&mut arena, &shell) {
+            Err(kernel_v2::KernelV2Error::AnalyticIngestUnsupportedSurface { surface, .. }) => {
+                format!("surface: {surface}")
+            }
+            Err(kernel_v2::KernelV2Error::AnalyticIngestUnsupported(r)) => r.to_string(),
+            other => panic!("{name}: expected a typed capability wall, got {other:?}"),
+        };
+        assert_eq!(&got, reason, "{name}: walled on the wrong thing");
     }
 }
 
@@ -717,27 +764,28 @@ fn extractor_eligibility_against_the_text_census() {
     assert!(scanned > 0, "no models scanned under {dir}");
 }
 
-/// What share of real models does C3 actually ingest, and what walls the
-/// rest — measured, per spec §8's "categorized" posture rather than asserted.
+/// What share of real models does the ingest path actually take, and what
+/// walls the rest — measured, per spec §8's "categorized" posture rather than
+/// asserted.
 ///
 ///     ABC_DIR=/tmp/abc/chunk0000 ABC_N=400 \
 ///         cargo test -p test-harness --test si5_analytic --release \
-///         -- --ignored --nocapture c3_planar_ingestion
+///         -- --ignored --nocapture ingestion_over_the_corpus
 ///
-/// Two numbers matter and they answer different questions:
+/// Three numbers matter and they answer different questions:
 ///
-/// 1. **Reach**: models where every shell became an arena solid. Compare it
-///    to the census's polyhedral share (15.7 % of the ingestible subset,
-///    spec §2.1) — C3 cannot exceed that, and falling short of it localizes
-///    a gap in the assembler rather than in the vocabulary.
+/// 1. **Reach**: models where every shell became an arena solid.
 /// 2. **In-vocabulary success**: of the models whose extracted shells are
-///    ALREADY planes-and-lines, how many ingest. This one should be 100 %,
-///    and every miss is a finding with a named cause — a structural claim in
-///    the file that the arena's law refuses (P9/P10), not a tolerance to
-///    widen.
+///    ALREADY inside the current checkpoint's vocabulary, how many ingest.
+///    This one should be 100 %, and every miss is a finding with a named
+///    cause — a structural claim in the file that the arena's law refuses
+///    (P9/P10), not a tolerance to widen.
+/// 3. **The planar sub-tier**, kept separately so a C4a regression that only
+///    affects curved bands is visible as a divergence between the two rather
+///    than as one number moving.
 #[test]
 #[ignore = "corpus: needs ABC_DIR (scripts/fetch-abc-corpus.sh)"]
-fn c3_planar_ingestion_over_the_corpus() {
+fn ingestion_over_the_corpus() {
     use std::collections::BTreeMap;
     use waffle_types::kernel::{AnalyticCurve, AnalyticShellData, AnalyticSurface};
 
@@ -754,9 +802,9 @@ fn c3_planar_ingestion_over_the_corpus() {
         .and_then(|s| s.parse().ok())
         .unwrap_or(2_000_000);
 
-    /// Is this shell already inside C3's vocabulary? (Planes and lines, as
-    /// EXTRACTED — independent of whether the assembler accepts it, which is
-    /// the whole point of measuring the two separately.)
+    /// Is this shell already inside the planar C3 vocabulary? (Planes and
+    /// lines, as EXTRACTED — independent of whether the assembler accepts it,
+    /// which is the whole point of measuring the two separately.)
     fn planar(shell: &AnalyticShellData) -> bool {
         shell
             .faces
@@ -768,38 +816,95 @@ fn c3_planar_ingestion_over_the_corpus() {
                 .all(|e| matches!(e.curve, AnalyticCurve::Line))
     }
 
-    /// The census's own planes-only predicate, as a text scan (tokens, not
-    /// `= NAME(` heads — spec §2.4's scanner trap). This is the independent
-    /// upper bound C3's reach is compared against, so the gap between it and
-    /// `in_vocab` is exactly what the extractor's file-wide refusals cost.
+    /// Is this shell inside C4a's vocabulary? Planes, cylinders and cones;
+    /// lines and CLOSED circles; every curved face a full band of two closed
+    /// rims, every planar loop either a chain of chords or one closed circle.
+    /// The form test is the part a surface/curve census cannot do — it is
+    /// exactly what spec §5.1's re-measurement showed matters.
+    fn c4a(shell: &AnalyticShellData) -> bool {
+        use waffle_types::kernel::AnalyticLoop;
+        let closed_circle = |e: u32| {
+            let e = &shell.edges[e as usize];
+            e.start == e.end && matches!(e.curve, AnalyticCurve::Circle { .. })
+        };
+        if !shell.edges.iter().all(|e| match e.curve {
+            AnalyticCurve::Line => e.start != e.end,
+            AnalyticCurve::Circle { .. } => e.start == e.end,
+            AnalyticCurve::Ellipse { .. } => false,
+        }) {
+            return false;
+        }
+        shell.faces.iter().all(|f| {
+            let loops: Option<Vec<&Vec<_>>> = f
+                .loops
+                .iter()
+                .map(|l| match l {
+                    AnalyticLoop::Edges(os) => Some(os),
+                    AnalyticLoop::Vertex(_) => None,
+                })
+                .collect();
+            let Some(loops) = loops else { return false };
+            let rim = |os: &Vec<waffle_types::kernel::OrientedEdge>| {
+                os.len() == 1 && closed_circle(os[0].edge)
+            };
+            let chords = |os: &Vec<waffle_types::kernel::OrientedEdge>| {
+                os.len() >= 3 && os.iter().all(|o| !closed_circle(o.edge))
+            };
+            match f.surface {
+                AnalyticSurface::Plane { .. } => loops.iter().all(|os| rim(os) || chords(os)),
+                AnalyticSurface::Cylinder { .. } | AnalyticSurface::Cone { .. } => {
+                    // Two single-rim loops, or the canonical seamed lateral.
+                    (loops.len() == 2 && loops.iter().all(|os| rim(os)))
+                        || (loops.len() == 1
+                            && loops[0].len() == 4
+                            && loops[0].iter().filter(|o| closed_circle(o.edge)).count() == 2)
+                }
+                _ => false,
+            }
+        })
+    }
+
+    /// The census's own predicates, as text scans (tokens, not `= NAME(`
+    /// heads — spec §2.4's scanner trap). These are the INDEPENDENT upper
+    /// bounds reach is compared against, so a gap between one of them and the
+    /// corresponding `in_vocab` count is exactly what the extractor's
+    /// file-wide refusals plus the form gate cost.
+    const OUT_OF_C4A: &[&str] = &[
+        "SPHERICAL_SURFACE",
+        "TOROIDAL_SURFACE",
+        "B_SPLINE_SURFACE",
+        "BEZIER_SURFACE",
+        "SURFACE_OF_REVOLUTION",
+        "SURFACE_OF_LINEAR_EXTRUSION",
+        "OFFSET_SURFACE",
+        "B_SPLINE_CURVE",
+        "BEZIER_CURVE",
+        "TRIMMED_CURVE",
+        "POLYLINE",
+        "ELLIPSE",
+        "PARABOLA",
+        "HYPERBOLA",
+    ];
     fn text_polyhedral(t: &str) -> bool {
-        const NON_PLANE: &[&str] = &[
-            "CYLINDRICAL_SURFACE",
-            "CONICAL_SURFACE",
-            "SPHERICAL_SURFACE",
-            "TOROIDAL_SURFACE",
-            "B_SPLINE_SURFACE",
-            "BEZIER_SURFACE",
-            "SURFACE_OF_REVOLUTION",
-            "SURFACE_OF_LINEAR_EXTRUSION",
-            "OFFSET_SURFACE",
-            "B_SPLINE_CURVE",
-            "BEZIER_CURVE",
-            "TRIMMED_CURVE",
-            "POLYLINE",
-            "CIRCLE",
-            "ELLIPSE",
-            "PARABOLA",
-            "HYPERBOLA",
-        ];
-        !NON_PLANE.iter().any(|e| t.contains(e))
+        !OUT_OF_C4A.iter().any(|e| t.contains(e))
+            && !["CYLINDRICAL_SURFACE", "CONICAL_SURFACE", "CIRCLE"]
+                .iter()
+                .any(|e| t.contains(e))
+    }
+    /// The C4a SURFACE+CURVE gate only: it cannot see the band/patch form, so
+    /// it is a genuine upper bound rather than a prediction.
+    fn text_c4a(t: &str) -> bool {
+        !OUT_OF_C4A.iter().any(|e| t.contains(e))
     }
 
     let mut scanned = 0usize;
     let mut text_poly = 0usize;
+    let mut text_curved = 0usize;
     let mut ingested = 0usize;
+    let mut planar_ingested = 0usize;
     let mut in_vocab = 0usize;
     let mut in_vocab_ingested = 0usize;
+    let mut vocab_planar = 0usize;
     let mut solids = 0usize;
     let mut faces = 0usize;
     let mut buckets: BTreeMap<String, usize> = BTreeMap::new();
@@ -824,6 +929,9 @@ fn c3_planar_ingestion_over_the_corpus() {
         scanned += 1;
         if text_polyhedral(&text) {
             text_poly += 1;
+        }
+        if text_c4a(&text) {
+            text_curved += 1;
         }
         let id = path
             .file_stem()
@@ -857,8 +965,12 @@ fn c3_planar_ingestion_over_the_corpus() {
             continue;
         };
         let all_planar = shells.iter().all(|s| planar(s));
-        if all_planar {
+        let all_c4a = shells.iter().all(|s| c4a(s));
+        if all_c4a {
             in_vocab += 1;
+            if all_planar {
+                vocab_planar += 1;
+            }
         }
 
         let mut arena = BrepArena::new();
@@ -897,21 +1009,24 @@ fn c3_planar_ingestion_over_the_corpus() {
             ingested += 1;
             solids += here.len();
             faces += here.iter().map(|&(_, f)| f).sum::<usize>();
-            if all_planar {
+            if all_c4a {
                 in_vocab_ingested += 1;
+            }
+            if all_planar {
+                planar_ingested += 1;
             }
         } else {
             *buckets.entry(why.clone()).or_default() += 1;
-            if all_planar && in_vocab_failures.len() < 20 {
+            if all_c4a && in_vocab_failures.len() < 20 {
                 in_vocab_failures.push(format!("{id}: {why}"));
             }
         }
     }
     std::panic::set_hook(prev_hook);
 
-    eprintln!("\nSI5 C3 PLANAR INGESTION over {scanned} models (<= {max_bytes} bytes)");
+    eprintln!("\nSI5 C3+C4a INGESTION over {scanned} models (<= {max_bytes} bytes)");
     eprintln!(
-        "  ingested            {ingested}  ({:.1} %)  -> {solids} solids, {faces} faces",
+        "  ingested              {ingested}  ({:.1} %)  -> {solids} solids, {faces} faces",
         100.0 * ingested as f64 / scanned.max(1) as f64
     );
     eprintln!(
@@ -919,9 +1034,18 @@ fn c3_planar_ingestion_over_the_corpus() {
         100.0 * in_vocab_ingested as f64 / in_vocab.max(1) as f64
     );
     eprintln!(
-        "  text census says polyhedral {text_poly} -> the {} model(s) between that and \
-         `in vocabulary` are the extractor's file-wide refusals",
-        text_poly.saturating_sub(in_vocab)
+        "    of those, planar only {vocab_planar} (ingested {planar_ingested}) -> C4a's own \
+         contribution is {} model(s)",
+        ingested.saturating_sub(planar_ingested)
+    );
+    eprintln!(
+        "  text census upper bounds: polyhedral {text_poly}, C4a surface+curve gate \
+         {text_curved}"
+    );
+    eprintln!(
+        "    the {} model(s) between the C4a gate and `in vocabulary` are the extractor's \
+         file-wide refusals plus the BAND/PATCH form gate the text cannot see",
+        text_curved.saturating_sub(in_vocab)
     );
     eprintln!("\n  what walls the rest:");
     let mut rows: Vec<_> = buckets.iter().collect();

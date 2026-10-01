@@ -51,3 +51,8 @@ crates/kernel-v2/target/
 # (Committed test fixtures live under app/tests/ / crates/*/tests/, not root.)
 /*.waffle
 app/static/share/
+
+# Python bytecode from the `scripts/` probes (si5_seam_shape.py imports
+# si5_exactness.py as a module, which writes one).
+__pycache__/
+*.pyc
