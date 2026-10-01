@@ -1,6 +1,6 @@
 # SI5 C4b — the arc-patch tier (arcs and ellipse arcs)
 
-Status: **design**, 2026-10-01; **C4b-M measured** (§5). Checkpoint C4b of
+Status: **LANDED**, 2026-10-01 (C4b-M measured first, §5; outcome in §7). Checkpoint C4b of
 `specs/step_import_si5_exact_analytic_ingestion.md` §7, following C4a (full
 bands) and C4a′ (the geometry-provenance tier,
 `specs/si5_geometry_provenance_tier.md`).
@@ -205,3 +205,85 @@ be fooled by a self-consistent mistake:
   cylinder patch and its planar face), and a cone patch from a partial revolve.
 - The corpus census, with in-vocabulary success **asserted** at 100 % as
   C4a′ left it — so a C4b miss is a red test.
+
+---
+
+## 7. Outcome (2026-10-01)
+
+| | C4a′ | C4b |
+|---|---|---|
+| reach, 400 models | 75 (18.8 %) | **148 (37.0 %)** |
+| solids / faces | 273 / 5 708 | **518 / 10 233** |
+
+**+18.2 points**, against the §5.3 upper bound of 41.5 %; the gap is entirely
+named refusals (18 unclosed/holed bands, 2 closed ellipses, 1 mixed-form loop).
+
+### 7.1 What it took beyond the plan: one gap in `signed_volume`
+
+The first corpus run after the ingestion work converted nothing like the
+projection — **29 models** stopped at
+`CurvedGeometryMismatch { reason: "signed_volume: loop mixes full circles with
+arcs" }`. The cause is architectural rather than geometric, and it was invisible
+until C4b produced the shape: `signed_volume` has an **exact-rational** path for
+faces whose loops are circles and segments, and an **f64** path
+(`planar_arc_face_flux`) for faces with arcs. A face that mixes a full circle
+with arc chains — a disc whose ring is a chain of arcs, an arc patch's cap
+beside one — fits neither: the rational path refuses any arc, and the f64 path
+had no circle term. No boolean output had ever produced the combination, so the
+wall had never been reachable.
+
+It needed no new closed form. **A closed circle is the Δθ = 2π case of the arc
+formula already there**: the chord term vanishes (`p0 == p1`) and the segment
+correction is `±r²(2π − sin 2π) = ±2πr²`, exactly twice the circle's area. Those
+faces' volume term is f64 rather than exact-rational, which is not a precision
+regression — before C4b they were refused outright.
+
+Reach went 114 → 148 with that one term.
+
+### 7.2 The one finding left standing, anchored
+
+`00000062_767e4372b5f94a88a7a17d90_step_003`, face 35:
+`TessellationFailed { reason: "ring rejected by CDT (degenerate/self-intersecting)" }`.
+One model of 400, reached through the self-intersection gate (which tessellates),
+so it is a **render-tier** finding on real imported geometry rather than an
+ingestion one. Recorded here with its model and face so the follow-up has an
+anchor rather than a class name; not fixed in this increment, because a CDT ring
+rejection is kernel-v2 M1/KV2 work with its own oracles.
+
+The corpus census now also reports **every validation-tier refusal** as a
+finding, in or out of vocabulary: once ingest has assembled a solid, a refusal is
+about geometry, not capability, and the model's name is what a follow-up needs.
+
+### 7.3 Tests
+
+In `crates/kernel-v2/src/ingest/tests.rs`, built on a new `half_round` fixture —
+a cylinder cut through its axis, which is the corpus's own `CCLL` arc-patch form
+(two open arcs, two distinct rulings, no seam) with half-disc caps whose loops
+have just two edges:
+
+- `a_half_round_ingests_as_an_arc_patch_with_its_exact_volume` — (V, E, F, R, S,
+  G) = (4, 6, 4, 0, 1, 0) with nothing minted, and volume π r² h / 2 exactly.
+- `an_arcs_side_comes_from_the_files_interior_point_not_its_endpoints` — the
+  same four vertices, circles and edges with each `interior` moved to the far
+  side and every loop reversed: the other half. Both halves have identical
+  volume, so the oracle is the tessellated body's own y-extent. A reading that
+  derived an arc's side from its endpoints could not tell the two files apart —
+  and these arcs are half turns, the case `from_yang_brep` must refuse.
+- `a_closed_ellipse_edge_is_a_typed_refusal_naming_the_tier`,
+  `a_windowed_curved_patch_is_refused_by_name`,
+  `an_unclosed_band_is_still_a_typed_refusal` — the three walls, each named.
+- `an_arc_that_does_not_bound_its_face_is_refused_by_the_winding` — the C4a-era
+  arc-vocabulary test, rewritten: the refusal moved one step later (to the exact
+  winding measurement) rather than weakening.
+
+### 7.4 What C4b did NOT do, and why
+
+- The unrolled-domain outer-loop ranking (§5.2): 2 of 1 113 patches, refused by
+  name instead.
+- Closed `ELLIPSE` edges: rim-like, and no interior point can settle the sense
+  of a curve that passes through all its own points both ways. 2 models.
+- Unclosed and holed bands: 18 models, the largest named bucket — a band with a
+  ring is a shape the arena has no face for.
+- The in-vocabulary assertion still uses C4a's form predicate, so the corpus
+  test's 100 % claim does not yet cover the C4b forms. Widening it belongs with
+  **C7** (the corpus gate), where the predicate becomes the gate's definition.

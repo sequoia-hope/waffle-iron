@@ -903,7 +903,20 @@ Each is an atomic, committable increment. Nothing after C1 touches app code.
     the seam-anchor reconciliation own every residual that matters — so it was
     removed rather than shipped as fake coverage, and belongs to C4b, where an
     arc endpoint can sit on its plane yet off its own arc.
-  - **C4b — the arc-patch tier.** `Curve::Arc` from the file's axis plus
+  - **C4b — the arc-patch tier. DONE 2026-10-01**, spec
+    `specs/si5_c4b_arc_patch_tier.md` (ellipse edges included, per the user's
+    scoping call). Reach **75 → 148 of 400 (18.8 % → 37.0 %)**, 518 solids /
+    10 233 faces. Measured first (C4b-M), which redirected the work twice: the
+    cone-section-ellipse wall costs ZERO reach (no corpus model puts an ellipse
+    on a cone), and the unrolled-domain outer-loop ranking was NOT built because
+    1 111 of 1 113 arc patches have exactly one boundary loop — the windowed
+    patch is a named refusal instead. The increment's own discovery was a
+    `signed_volume` gap no boolean output could ever reach: a face mixing a full
+    circle with arc chains fitted neither the exact-rational path nor the f64
+    arc path, and the fix was recognizing a closed circle as the Δθ = 2π case of
+    the arc formula already there (29 models, reach 114 → 148). Original text
+    for the record:
+  - **C4b (as designed).** `Curve::Arc` from the file's axis plus
     `interior` (never re-derived — §5.1), the outer-loop determination in the
     **unrolled** `(θ, h)` domain rather than by 3-D signed area, and planar faces
     with arc edges. Adds 25.8 points of model reach at the tessellate/measure/
@@ -1090,3 +1103,21 @@ subset a reader would need — and `si5_census.py` already measures it.
   for real at C4b, where an arc endpoint can lie on its plane and off its arc
   with nothing else to catch it.
   Next: **C4b**, the arc-patch tier (+25.8 points of model reach).
+- 2026-10-01 — **C4b DONE.** `specs/si5_c4b_arc_patch_tier.md`. Open `CIRCLE`
+  and `ELLIPSE` edges become `Curve::Arc` / `Curve::EllipseArc` with their side
+  READ from the file's own `interior` point; 1c admits mixed arc/chord chains
+  (including the 2-edge loop a half-disc needs); a single-loop curved patch
+  takes its only loop as the outer boundary. Reach **18.8 % → 37.0 %** of 400
+  models, 518 solids / 10 233 faces.
+  Three things worth carrying forward. (1) **Measuring first changed the plan
+  twice** — ellipses turned out free (no corpus cone carries one) and the
+  unrolled-domain ranking turned out to have 2 customers in 1 113, so it was
+  replaced by a named refusal; both decisions are the C4a′ lesson applied
+  forward. (2) **The real work was not where the design expected it**: 29 of the
+  39 models still refused after the ingestion work stopped at a `signed_volume`
+  limitation — a face mixing a full circle with arc chains fits neither of its
+  two paths — which no boolean output had ever been able to produce. One term
+  fixed it, because a closed circle is the Δθ = 2π case of the arc formula that
+  was already there. (3) One finding is left standing and anchored by name:
+  `00000062_…_step_003` face 35, a CDT ring rejection at the render tier.
+  Next: **C5** (spheres and tori — 27 models in the sample), then C6/C7.

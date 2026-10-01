@@ -553,11 +553,29 @@ pub(crate) fn planar_face_signed_area2(
                     };
                     area2 += sign * semi_transverse * semi_conjugate * (dt - dt.sinh());
                 }
-                Curve::Circle { .. } => {
-                    return Err(crate::error::KernelV2Error::CurvedGeometryMismatch {
-                        face: f,
-                        reason: "signed_volume: loop mixes full circles with arcs",
-                    });
+                // SI5 C4b: a face can mix a full circle with arc chains — a
+                // disc whose ring is a chain of arcs, or an arc patch's cap
+                // beside one. Neither of `signed_volume`'s two paths covered
+                // it: the exact-rational path refuses any arc, and this one
+                // had no circle term. It needs none of its own, because a
+                // closed circle IS the Δθ = 2π case of the arc formula above:
+                // its chord term vanishes (p0 == p1) and the segment
+                // correction is `±r²(2π − sin 2π) = ±2πr²`, exactly twice the
+                // circle's area.
+                //
+                // Such a face's volume term is therefore f64 rather than
+                // exact-rational. That is not a precision regression: before
+                // C4b these faces were refused outright, and the arc-bearing
+                // f64 path is the same one every other arc face has used
+                // since PR-KV6a (~1e-15 relative).
+                Curve::Circle { normal, radius, .. } => {
+                    let nu = [normal.x, normal.y, normal.z];
+                    let sign = if nu[0] * n[0] + nu[1] * n[1] + nu[2] * n[2] >= 0.0 {
+                        1.0
+                    } else {
+                        -1.0
+                    };
+                    area2 += sign * 2.0 * std::f64::consts::PI * radius * radius;
                 }
                 // M5: a transversal quadric-pair curve is never planar
                 // (degenerate configurations produce conics upstream) —

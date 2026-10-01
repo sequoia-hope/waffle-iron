@@ -975,9 +975,8 @@ fn extractor_eligibility_against_the_text_census() {
 /// 4. the share of arcs at or near a half turn, which is the one place a C4b
 ///    mapping can silently build the complementary arc.
 ///
-///     ABC_DIR=/tmp/abc/chunk0000 ABC_N=400 \
-///         cargo test -p test-harness --test si5_analytic --release \
-///         -- --ignored --nocapture c4b_arc_patch_census
+/// Recipe: `ABC_DIR=/tmp/abc/chunk0000 ABC_N=400 cargo test -p test-harness
+/// --test si5_analytic --release -- --ignored --nocapture c4b_arc_patch_census`
 #[test]
 #[ignore = "corpus: needs ABC_DIR (scripts/fetch-abc-corpus.sh)"]
 fn c4b_arc_patch_census() {
@@ -1023,6 +1022,8 @@ fn c4b_arc_patch_census() {
     let mut arcs = 0usize;
     let mut arcs_half_turn = 0usize;
     let mut arcs_near_half = 0usize;
+    let mut ellipse_sweeps: Vec<f64> = Vec::new();
+    let mut ellipse_minor_vs_r: Vec<f64> = Vec::new();
 
     let prev_hook = std::panic::take_hook();
     std::panic::set_hook(Box::new(|_| {}));
@@ -1079,10 +1080,14 @@ fn c4b_arc_patch_census() {
                         let e = &shell.edges[o.edge as usize];
                         match e.curve {
                             AnalyticCurve::Circle { .. } if e.start == e.end => closed_circles += 1,
-                            AnalyticCurve::Ellipse { .. } => {
+                            AnalyticCurve::Ellipse { minor_radius, .. } => {
                                 *ellipse_on.entry(kind).or_default() += 1;
                                 if matches!(face.surface, AnalyticSurface::Cone { .. }) {
                                     cone_ellipse = true;
+                                }
+                                if let AnalyticSurface::Cylinder { radius, .. } = face.surface {
+                                    ellipse_minor_vs_r
+                                        .push((minor_radius - radius).abs() / radius.max(1e-9));
                                 }
                             }
                             _ => {}
@@ -1095,6 +1100,55 @@ fn c4b_arc_patch_census() {
                     *loops_per_arc_patch.entry(loops_here).or_default() += 1;
                 }
                 let _ = fi;
+            }
+            // Ellipse edges: the parametric sweep through the file's own
+            // `interior` point (the C4b mapping rule, prototyped here), and the
+            // `minor_radius == cylinder radius` law `validate_cylinder_patch`
+            // enforces on an oblique section.
+            for (ei, e) in shell.edges.iter().enumerate() {
+                let AnalyticCurve::Ellipse {
+                    center,
+                    normal,
+                    major_axis,
+                    major_radius,
+                    minor_radius,
+                    interior,
+                } = e.curve
+                else {
+                    continue;
+                };
+                let n = [normal.x(), normal.y(), normal.z()];
+                let m = [major_axis.x(), major_axis.y(), major_axis.z()];
+                let w = [
+                    n[1] * m[2] - n[2] * m[1],
+                    n[2] * m[0] - n[0] * m[2],
+                    n[0] * m[1] - n[1] * m[0],
+                ];
+                let param = |q: Point3| {
+                    let d = [q.x() - center.x(), q.y() - center.y(), q.z() - center.z()];
+                    let u = (d[0] * m[0] + d[1] * m[1] + d[2] * m[2]) / major_radius;
+                    let v = (d[0] * w[0] + d[1] * w[1] + d[2] * w[2]) / minor_radius;
+                    v.atan2(u)
+                };
+                let tau = 2.0 * std::f64::consts::PI;
+                let (t0, t1, ti) = (
+                    param(shell.vertices[e.start as usize]),
+                    param(shell.vertices[e.end as usize]),
+                    param(interior),
+                );
+                let fwd = (t1 - t0).rem_euclid(tau);
+                let fwd_i = (ti - t0).rem_euclid(tau);
+                // CCW about the DECLARED normal passes `interior` iff the
+                // interior parameter lies inside the forward span.
+                let sweep = if e.start == e.end {
+                    tau
+                } else if fwd_i < fwd {
+                    fwd
+                } else {
+                    tau - fwd
+                };
+                ellipse_sweeps.push(sweep);
+                let _ = ei;
             }
             // Arc sweeps, from the file's own `interior` point (never derived
             // from the endpoints — spec §3.1).
@@ -1165,6 +1219,32 @@ fn c4b_arc_patch_census() {
     eprintln!(
         "  open arcs {arcs}: exactly a half turn {arcs_half_turn}, within 1° of one \
          {arcs_near_half}"
+    );
+    let pct = |v: &mut Vec<f64>, q: f64| -> f64 {
+        if v.is_empty() {
+            return f64::NAN;
+        }
+        v.sort_by(|a, b| a.partial_cmp(b).unwrap());
+        v[((v.len() - 1) as f64 * q) as usize]
+    };
+    let over_pi = ellipse_sweeps
+        .iter()
+        .filter(|s| **s > std::f64::consts::PI)
+        .count();
+    let n_ell = ellipse_sweeps.len();
+    eprintln!(
+        "  ellipse arcs {n_ell}: sweep p50 {:.4} p90 {:.4} max {:.4} rad; OVER π: {over_pi}",
+        pct(&mut ellipse_sweeps, 0.5),
+        pct(&mut ellipse_sweeps, 0.9),
+        pct(&mut ellipse_sweeps, 1.0)
+    );
+    let n_mr = ellipse_minor_vs_r.len();
+    eprintln!(
+        "  |minor_radius − cyl r| / r over {n_mr} cylinder ellipses: p50 {:.3e} p90 {:.3e} \
+         max {:.3e}  (patch validator band 1e-9)",
+        pct(&mut ellipse_minor_vs_r, 0.5),
+        pct(&mut ellipse_minor_vs_r, 0.9),
+        pct(&mut ellipse_minor_vs_r, 1.0)
     );
     assert!(scanned > 0, "no models scanned under {dir}");
 }
@@ -1422,14 +1502,19 @@ fn ingestion_over_the_corpus() {
             }
         } else {
             *buckets.entry(why.clone()).or_default() += 1;
-            if all_c4a && in_vocab_failures.len() < 20 {
+            // An in-vocabulary refusal is a finding — and so is ANY
+            // validation-tier refusal, in or out of vocabulary: ingest got far
+            // enough to assemble a solid, so the disagreement is about geometry
+            // rather than about capability. Naming the model is what gives the
+            // follow-up an anchor.
+            if (all_c4a || why.starts_with("validation:")) && in_vocab_failures.len() < 20 {
                 in_vocab_failures.push(format!("{id}: {why}"));
             }
         }
     }
     std::panic::set_hook(prev_hook);
 
-    eprintln!("\nSI5 C3+C4a INGESTION over {scanned} models (<= {max_bytes} bytes)");
+    eprintln!("\nSI5 C3+C4a+C4b INGESTION over {scanned} models (<= {max_bytes} bytes)");
     eprintln!(
         "  ingested              {ingested}  ({:.1} %)  -> {solids} solids, {faces} faces",
         100.0 * ingested as f64 / scanned.max(1) as f64
@@ -1459,7 +1544,7 @@ fn ingestion_over_the_corpus() {
         eprintln!("    x{count:<5} {why}");
     }
     if !in_vocab_failures.is_empty() {
-        eprintln!("\n  IN-VOCABULARY FAILURES (each one is a finding):");
+        eprintln!("\n  FINDINGS (in-vocabulary refusals, and every validation-tier refusal):");
         for f in &in_vocab_failures {
             eprintln!("    {f}");
         }

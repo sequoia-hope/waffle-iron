@@ -222,9 +222,14 @@ fn an_unsupported_surface_is_a_typed_capability_refusal() {
 }
 
 #[test]
-fn an_arc_edge_is_a_typed_refusal_naming_the_next_checkpoint() {
-    // An OPEN circle edge is the partial-patch tier. C4a names it rather than
-    // guessing a traversal for it.
+fn an_arc_that_does_not_bound_its_face_is_refused_by_the_winding() {
+    // C4b admits an OPEN circle edge, so this box-with-an-arc — an arc of a
+    // radius-1 circle about the origin pasted onto a unit box's edge, which
+    // bounds none of the faces it is claimed by — no longer stops at the
+    // vocabulary. It stops one step later, at the measurement that cannot be
+    // argued with: with the circular segment's exact area included, no loop of
+    // that face winds as an outer boundary. The refusal moved, it did not
+    // weaken (spec §5.4 — never a flip to taste).
     let mut shell = unit_box();
     shell.edges[5].curve = AnalyticCurve::Circle {
         center: v(0.0, 0.0, 0.0),
@@ -235,10 +240,10 @@ fn an_arc_edge_is_a_typed_refusal_naming_the_next_checkpoint() {
     let mut arena = BrepArena::new();
     assert_eq!(
         ingest_analytic(&mut arena, &shell),
-        Err(KernelV2Error::AnalyticIngestUnsupportedCurve {
-            edge: 5,
-            curve: "circular arc (C4b)",
-        })
+        Err(KernelV2Error::InvalidAnalyticShell(
+            "a face has no loop winding as its outer boundary (its declared sense contradicts \
+             its own boundary)"
+        ))
     );
 }
 
@@ -650,17 +655,19 @@ fn a_cone_frustum_ingests_with_its_rims_at_their_own_radii() {
 }
 
 #[test]
-fn a_curved_arc_patch_is_a_typed_refusal_naming_c4b() {
-    // Drop one rim loop from the lateral: no longer a full band. C4a names
-    // the partial-patch tier rather than assembling something the arena's
-    // canonical cylinder rules would then reject with a vaguer message.
+fn an_unclosed_band_is_still_a_typed_refusal() {
+    // Drop one rim loop from the lateral: ONE closed rim and nothing else. C4b
+    // admits patches bounded by OPEN edges, so this stays what it always was —
+    // a band that does not close, a shape the arena has no face for and that no
+    // choice of seam repairs.
     let mut shell = cylinder(2.0, 3.0, 0.0);
     shell.faces[0].loops.pop();
     let mut arena = BrepArena::new();
     assert_eq!(
         ingest_analytic(&mut arena, &shell),
         Err(KernelV2Error::AnalyticIngestUnsupported(
-            "a curved face is not a full band of two closed rims (C4b partial patch)"
+            "a curved face is neither a full band of two closed rims nor a patch of open edges \
+             (an unclosed or holed band)"
         ))
     );
 }
@@ -765,4 +772,261 @@ fn an_ingested_cylinder_is_boolean_eligible() {
     let mut arena = BrepArena::new();
     let solid = ingest_analytic(&mut arena, &cylinder(1.0, 2.0, 0.0)).expect("ingests");
     crate::boolean::to_yang_brep(&arena, solid).expect("converts for the boolean pipeline");
+}
+
+// ---------------------------------------------------------------------------
+// C4b — the arc-patch tier (spec `si5_c4b_arc_patch_tier.md`)
+// ---------------------------------------------------------------------------
+
+/// An arc edge: one `EDGE_CURVE` between two DISTINCT vertices, whose side is
+/// pinned by the file's own `interior` point (never derived from the endpoints).
+fn arc_edge(
+    start: u32,
+    end: u32,
+    center: Point3,
+    axis: Vector3,
+    radius: f64,
+    interior: Point3,
+) -> AnalyticEdge {
+    AnalyticEdge {
+        start,
+        end,
+        curve: AnalyticCurve::Circle {
+            center,
+            normal: axis,
+            radius,
+            interior,
+        },
+    }
+}
+
+/// A HALF-ROUND: a cylinder of `radius` and height `h` cut by the plane y = 0,
+/// keeping y ≥ 0. Four vertices, six edges, four faces — and it is the corpus's
+/// own arc-patch shape:
+///
+/// - the lateral is the `CCLL` form §5.1 measured as 58.4 % of curved faces:
+///   two OPEN arcs and two DISTINCT rulings, no seam anywhere;
+/// - the two caps are planar faces bounded by an arc and a chord — a 2-edge
+///   loop, which bounds area only because one edge is curved;
+/// - the cut face is an ordinary rectangle.
+///
+/// Its volume is π r² h / 2 exactly, which makes it a closed-form oracle, and a
+/// half turn is the sweep the boolean path has to refuse as ambiguous — so this
+/// fixture also pins that reading `interior` escapes that limit.
+fn half_round(radius: f64, h: f64) -> AnalyticShellData {
+    let (a, b, c, d) = (0u32, 1u32, 2u32, 3u32); // +r bottom, −r bottom, +r top, −r top
+    AnalyticShellData {
+        vertices: vec![
+            v(radius, 0.0, 0.0),
+            v(-radius, 0.0, 0.0),
+            v(radius, 0.0, h),
+            v(-radius, 0.0, h),
+        ],
+        edges: vec![
+            // 0: bottom arc A → B through +y
+            arc_edge(a, b, v(0.0, 0.0, 0.0), Z, radius, v(0.0, radius, 0.0)),
+            // 1: bottom chord B → A
+            edge(b, a),
+            // 2: top arc C → D through +y
+            arc_edge(c, d, v(0.0, 0.0, h), Z, radius, v(0.0, radius, h)),
+            // 3: top chord D → C
+            edge(d, c),
+            // 4: ruling at +r, A → C
+            edge(a, c),
+            // 5: ruling at −r, B → D
+            edge(b, d),
+        ],
+        faces: vec![
+            // The arc patch: bottom arc (increasing azimuth, i.e. toward the
+            // top), up the −r ruling, top arc back, down the +r ruling.
+            AnalyticFace {
+                surface: AnalyticSurface::Cylinder {
+                    axis_point: v(0.0, 0.0, 0.0),
+                    axis_dir: Z,
+                    radius,
+                },
+                loops: vec![AnalyticLoop::Edges(vec![
+                    oe(0, true),
+                    oe(5, true),
+                    oe(2, false),
+                    oe(4, false),
+                ])],
+                same_sense: true,
+            },
+            // Bottom half-disc: plane z = 0 declared +z, outward is −z, so the
+            // loop runs chord then arc.
+            plane_face(v(0.0, 0.0, 0.0), Z, false, vec![oe(1, false), oe(0, false)]),
+            // Top half-disc: outward +z — arc then chord.
+            plane_face(v(0.0, 0.0, h), Z, true, vec![oe(2, true), oe(3, true)]),
+            // The cut face: plane y = 0, outward −y.
+            plane_face(
+                v(0.0, 0.0, 0.0),
+                Vector3::new(0.0, 1.0, 0.0),
+                false,
+                vec![oe(4, true), oe(3, false), oe(5, false), oe(1, true)],
+            ),
+        ],
+    }
+}
+
+#[test]
+fn a_half_round_ingests_as_an_arc_patch_with_its_exact_volume() {
+    let (radius, h) = (2.0, 3.0);
+    let mut arena = BrepArena::new();
+    let solid =
+        ingest_analytic(&mut arena, &half_round(radius, h)).expect("the half-round ingests");
+    let report = crate::validate::validate_solid(&arena, solid).expect("validates");
+    // Nothing is minted: the file's own four vertices and six edges ARE the
+    // arena's, unlike a full band where a seam appears from nowhere.
+    assert_eq!(
+        (
+            report.vertices,
+            report.edges,
+            report.faces,
+            report.rings,
+            report.shells,
+            report.genus
+        ),
+        (4, 6, 4, 0, 1, 0)
+    );
+    let vol = geom::signed_volume(&arena, solid).unwrap();
+    let want = PI * radius * radius * h / 2.0;
+    assert!(
+        (vol - want).abs() <= 1e-12 * want,
+        "half-round volume {vol} vs {want}"
+    );
+}
+
+#[test]
+fn an_arcs_side_comes_from_the_files_interior_point_not_its_endpoints() {
+    // The half-round's arcs are HALF turns, where the two endpoints alone are
+    // genuinely undecidable — which is exactly why `from_yang_brep` refuses a
+    // near-half arc rather than guessing. Move each `interior` to the far side
+    // and mirror the document with it (a reflection reverses every loop): the
+    // result is the OTHER half, on the same four vertices, the same two circles
+    // and the same six edges. A reading that derived an arc's side from its
+    // endpoints could not tell these two files apart, so it would build one of
+    // them inside out. The oracle is the tessellated body's own extent, since
+    // both halves have identical volume.
+    let (radius, h) = (2.0, 3.0);
+    let mut flipped = half_round(radius, h);
+    for (ei, far) in [(0usize, v(0.0, -radius, 0.0)), (2usize, v(0.0, -radius, h))] {
+        let AnalyticCurve::Circle {
+            center,
+            normal,
+            radius: r,
+            ..
+        } = flipped.edges[ei].curve
+        else {
+            unreachable!("arc edge")
+        };
+        flipped.edges[ei].curve = AnalyticCurve::Circle {
+            center,
+            normal,
+            radius: r,
+            interior: far,
+        };
+    }
+    // Every loop reversed, and the cut face's outward normal is now +y.
+    flipped.faces[0].loops = vec![AnalyticLoop::Edges(vec![
+        oe(4, true),
+        oe(2, true),
+        oe(5, false),
+        oe(0, false),
+    ])];
+    flipped.faces[1].loops = vec![AnalyticLoop::Edges(vec![oe(0, true), oe(1, true)])];
+    flipped.faces[2].loops = vec![AnalyticLoop::Edges(vec![oe(3, false), oe(2, false)])];
+    flipped.faces[3].same_sense = true;
+    flipped.faces[3].loops = vec![AnalyticLoop::Edges(vec![
+        oe(1, false),
+        oe(5, true),
+        oe(3, true),
+        oe(4, false),
+    ])];
+
+    let mut arena = BrepArena::new();
+    let solid = ingest_analytic(&mut arena, &flipped).expect("the mirrored half-round ingests");
+    let vol = geom::signed_volume(&arena, solid).unwrap();
+    let want = PI * radius * radius * h / 2.0;
+    assert!(
+        (vol - want).abs() <= 1e-12 * want,
+        "mirrored half-round volume {vol} vs {want}"
+    );
+
+    // The bodies really are different halves, and only the render mesh can say
+    // so: the file's four vertices all sit at y = 0, so the discriminator is the
+    // sampled arc.
+    let extent = |s| {
+        let mesh = crate::tessellate::tessellate(&arena, s).expect("tessellates");
+        mesh.positions
+            .iter()
+            .skip(1)
+            .step_by(3)
+            .fold((f64::MAX, f64::MIN), |(lo, hi), y| (lo.min(*y), hi.max(*y)))
+    };
+    let (lo, hi) = extent(solid);
+    assert!(
+        hi <= 1e-9 && lo < -radius * 0.9,
+        "the mirrored body should occupy y <= 0, got y in [{lo}, {hi}]"
+    );
+
+    let mut original = BrepArena::new();
+    let o = ingest_analytic(&mut original, &half_round(radius, h)).expect("ingests");
+    let omesh = crate::tessellate::tessellate(&original, o).expect("tessellates");
+    let (olo, ohi) = omesh
+        .positions
+        .iter()
+        .skip(1)
+        .step_by(3)
+        .fold((f64::MAX, f64::MIN), |(lo, hi), y| (lo.min(*y), hi.max(*y)));
+    assert!(
+        olo >= -1e-9 && ohi > radius * 0.9,
+        "the original body should occupy y >= 0, got y in [{olo}, {ohi}]"
+    );
+}
+
+#[test]
+fn a_closed_ellipse_edge_is_a_typed_refusal_naming_the_tier() {
+    // An open ellipse arc is C4b's; a CLOSED one is rim-like, and no interior
+    // point can settle the sense of a curve that passes through all its own
+    // points both ways.
+    let mut shell = half_round(2.0, 3.0);
+    shell.edges.push(AnalyticEdge {
+        start: 0,
+        end: 0,
+        curve: AnalyticCurve::Ellipse {
+            center: v(0.0, 0.0, 0.0),
+            normal: Z,
+            major_axis: Vector3::new(1.0, 0.0, 0.0),
+            major_radius: 3.0,
+            minor_radius: 2.0,
+            interior: v(-3.0, 0.0, 0.0),
+        },
+    });
+    let mut arena = BrepArena::new();
+    assert_eq!(
+        ingest_analytic(&mut arena, &shell),
+        Err(KernelV2Error::AnalyticIngestUnsupportedCurve {
+            edge: 6,
+            curve: "closed ELLIPSE edge (C4b takes open ellipse arcs)",
+        })
+    );
+}
+
+#[test]
+fn a_windowed_curved_patch_is_refused_by_name() {
+    // Measured at 2 of 1 113 corpus arc patches (spec §5.2): a second boundary
+    // loop needs outer-loop ranking in the unrolled (θ, h) domain, which is NOT
+    // built — so the wall names it instead of a guess.
+    let mut shell = half_round(2.0, 3.0);
+    let extra = AnalyticLoop::Edges(vec![oe(0, true), oe(5, true), oe(2, false), oe(4, false)]);
+    shell.faces[0].loops.push(extra);
+    let mut arena = BrepArena::new();
+    assert_eq!(
+        ingest_analytic(&mut arena, &shell),
+        Err(KernelV2Error::AnalyticIngestUnsupported(
+            "a curved patch has more than one boundary loop (C4b: unrolled-domain outer-loop \
+             ranking)"
+        ))
+    );
 }

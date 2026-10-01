@@ -130,6 +130,15 @@ fn on_surface_band(p: Point3) -> f64 {
 
 type V3 = [f64; 3];
 
+/// The same direction, reversed — a backwards walk of a curved edge (C4b).
+fn neg_unit(n: UnitVector3) -> UnitVector3 {
+    UnitVector3 {
+        x: -n.x,
+        y: -n.y,
+        z: -n.z,
+    }
+}
+
 fn sub(a: Point3, b: Point3) -> V3 {
     [a.x() - b.x(), a.y() - b.y(), a.z() - b.z()]
 }
@@ -450,6 +459,10 @@ pub fn ingest_analytic(
     //     half-edge pair. A `CIRCLE` edge is admitted only CLOSED — an open one
     //     is an arc, the C4b partial-patch tier.
     let mut rims: BTreeMap<u32, Rim> = BTreeMap::new();
+    // C4b: the arena curve of every OPEN curved edge, in the direction the file
+    // declares (start → end). A loop walking such an edge backwards takes the
+    // negated normal, which is exactly `curves_twin_consistent`'s rule.
+    let mut open_curves: BTreeMap<u32, Curve> = BTreeMap::new();
     for (ei, edge) in shell.edges.iter().enumerate() {
         let (s, e) = (edge.start as usize, edge.end as usize);
         if s >= shell.vertices.len() || e >= shell.vertices.len() {
@@ -484,16 +497,64 @@ pub fn ingest_analytic(
                 radius,
                 ..
             } => {
-                if s != e {
-                    // The partial-patch tier (C4b): an arc, whose traversal the
-                    // file pins with its axis plus `interior`. Named rather
-                    // than guessed.
-                    return Err(KernelV2Error::AnalyticIngestUnsupportedCurve {
-                        edge: ei,
-                        curve: "circular arc (C4b)",
-                    });
-                }
                 let axis = normal.as_array();
+                if s != e {
+                    // C4b, the partial-patch tier: an ARC. Its traversal side
+                    // is READ from the file's own `interior` point, never
+                    // derived from the two endpoints — which is why this tier
+                    // may take the 16.8 % of corpus arcs at or within 1° of a
+                    // half turn that `from_yang_brep` must refuse as ambiguous
+                    // (spec `si5_c4b_arc_patch_tier.md` §3.1, §5.3).
+                    if !(len3(axis).is_finite()
+                        && (len3(axis) - 1.0).abs() <= INGEST_NORMAL_TOLERANCE
+                        && radius.is_finite()
+                        && radius > 0.0)
+                    {
+                        return Err(KernelV2Error::InvalidAnalyticShell(
+                            "an arc edge has a non-unit axis or a non-positive radius",
+                        ));
+                    }
+                    let (p, q, i) = (
+                        shell.vertices[s],
+                        shell.vertices[e],
+                        match edge.curve {
+                            AnalyticCurve::Circle { interior, .. } => interior,
+                            _ => unreachable!("in the Circle arm"),
+                        },
+                    );
+                    // CCW about the DECLARED axis from p to q: does it pass the
+                    // file's interior point? If not, the arc runs the other way
+                    // and the arena curve carries the negated axis.
+                    let Some(span) = geom::ccw_sweep(center, axis, p, q) else {
+                        return Err(KernelV2Error::InvalidAnalyticShell(
+                            "an arc endpoint has no radial direction from its centre",
+                        ));
+                    };
+                    let Some(to_i) = geom::ccw_sweep(center, axis, p, i) else {
+                        return Err(KernelV2Error::InvalidAnalyticShell(
+                            "an arc's interior point has no radial direction from its centre",
+                        ));
+                    };
+                    let forward = to_i < span;
+                    let n = if forward {
+                        axis
+                    } else {
+                        [-axis[0], -axis[1], -axis[2]]
+                    };
+                    open_curves.insert(
+                        ei as u32,
+                        Curve::Arc {
+                            center,
+                            normal: UnitVector3 {
+                                x: n[0],
+                                y: n[1],
+                                z: n[2],
+                            },
+                            radius,
+                        },
+                    );
+                    continue;
+                }
                 if !(len3(axis).is_finite()
                     && (len3(axis) - 1.0).abs() <= INGEST_NORMAL_TOLERANCE
                     && radius.is_finite()
@@ -513,11 +574,81 @@ pub fn ingest_analytic(
                     },
                 );
             }
-            AnalyticCurve::Ellipse { .. } => {
-                return Err(KernelV2Error::AnalyticIngestUnsupportedCurve {
-                    edge: ei,
-                    curve: "ellipse (C4b)",
-                })
+            AnalyticCurve::Ellipse {
+                center,
+                normal,
+                major_axis,
+                major_radius,
+                minor_radius,
+                interior,
+            } => {
+                // C4b takes OPEN ellipse arcs — the oblique cut, 60 of whose 80
+                // corpus uses are on a cylinder and 20 on a plane, both forms
+                // the validators already carry (PR-KV9 and the exact planar
+                // area). A CLOSED ellipse is a rim-like edge whose sense no
+                // interior point can settle — the band machinery for it does
+                // not exist — so it is named, not guessed.
+                if s == e {
+                    return Err(KernelV2Error::AnalyticIngestUnsupportedCurve {
+                        edge: ei,
+                        curve: "closed ELLIPSE edge (C4b takes open ellipse arcs)",
+                    });
+                }
+                let axis = normal.as_array();
+                let maj = major_axis.as_array();
+                if !(len3(axis).is_finite()
+                    && (len3(axis) - 1.0).abs() <= INGEST_NORMAL_TOLERANCE
+                    && (len3(maj) - 1.0).abs() <= INGEST_NORMAL_TOLERANCE
+                    && major_radius.is_finite()
+                    && minor_radius.is_finite()
+                    && minor_radius > 0.0
+                    && major_radius >= minor_radius)
+                {
+                    return Err(KernelV2Error::InvalidAnalyticShell(
+                        "an ellipse edge has a non-unit frame or non-ordered radii",
+                    ));
+                }
+                // Same rule as the arc, in the ellipse's own parameter.
+                let param = |pt: Point3| {
+                    geom::ellipse_param(center, axis, maj, major_radius, minor_radius, pt)
+                };
+                let (Some(t0), Some(t1), Some(ti)) = (
+                    param(shell.vertices[s]),
+                    param(shell.vertices[e]),
+                    param(interior),
+                ) else {
+                    return Err(KernelV2Error::InvalidAnalyticShell(
+                        "an ellipse endpoint has no parameter in the declared frame",
+                    ));
+                };
+                let tau = 2.0 * std::f64::consts::PI;
+                let forward = (ti - t0).rem_euclid(tau) < (t1 - t0).rem_euclid(tau);
+                let n = if forward {
+                    axis
+                } else {
+                    [-axis[0], -axis[1], -axis[2]]
+                };
+                open_curves.insert(
+                    ei as u32,
+                    Curve::EllipseArc {
+                        center,
+                        normal: UnitVector3 {
+                            x: n[0],
+                            y: n[1],
+                            z: n[2],
+                        },
+                        // The twin carries the negated normal and the SAME
+                        // major axis (`arena.rs`): the frame's minor direction
+                        // flips with the normal, so the point set is identical.
+                        major_axis: UnitVector3 {
+                            x: maj[0],
+                            y: maj[1],
+                            z: maj[2],
+                        },
+                        major_radius,
+                        minor_radius,
+                    },
+                );
             }
         }
     }
@@ -570,11 +701,16 @@ pub fn ingest_analytic(
                 shapes.push(seamed);
                 continue;
             }
-            if oriented.len() < 3 {
-                // Every straight-edge loop is a chain of chords, so a 1- or
-                // 2-edge one bounds no area.
+            // Every straight-edge loop is a chain of chords, so a 1- or 2-edge
+            // one bounds no area. A C4b chain carrying a curved edge does: a
+            // half-disc is one arc and one chord, a lens two arcs.
+            let curved_edges = oriented
+                .iter()
+                .filter(|oe| open_curves.contains_key(&oe.edge))
+                .count();
+            if oriented.len() < 3 && (curved_edges == 0 || oriented.len() < 2) {
                 return Err(KernelV2Error::InvalidAnalyticShell(
-                    "a loop of line edges has fewer than three edges",
+                    "a loop bounds no area: fewer than three edges and no curved edge",
                 ));
             }
             let mut cycle = Vec::with_capacity(oriented.len());
@@ -614,15 +750,57 @@ pub fn ingest_analytic(
                 forwards,
             });
         }
-        // A curved face must be a FULL BAND: two closed rims, either as two
+        // A curved face is either a FULL BAND — two closed rims, as two
         // single-rim loops (every corpus writer) or as the canonical seamed
-        // lateral (our own exporter). Everything else curved — arc patches,
-        // holed bands, unclosed bands — is the C4b/C5 tier, named rather than
-        // mangled.
+        // lateral (our own exporter) — or, since C4b, an ARC PATCH: one chain
+        // of arcs, ellipse arcs and rulings.
         if surfs[fi].is_curved() && band_of(&shapes).is_none() {
-            return Err(KernelV2Error::AnalyticIngestUnsupported(
-                "a curved face is not a full band of two closed rims (C4b partial patch)",
-            ));
+            // Measured (`c4b_arc_patch_census`, spec §5.2): 1 111 of 1 113
+            // corpus arc patches have exactly ONE boundary loop and 2 have
+            // two. So the single-loop case is stated as what it is — the only
+            // loop IS the outer boundary — and the windowed patch is a named
+            // refusal rather than general unrolled-domain ranking machinery
+            // written for 0.18 % of faces against a law only the validator can
+            // check. When a case demands that ranking, this wall names it.
+            // A patch is bounded by OPEN edges. A curved face whose loop is a
+            // closed circle is an unclosed band (one rim, or a rim plus a ring)
+            // — a shape the arena has no face for, and one that no choice of
+            // seam fixes, so it stays the refusal it was before C4b.
+            if !shapes
+                .iter()
+                .all(|sh| matches!(sh, LoopShape::Polygon { .. }))
+            {
+                return Err(KernelV2Error::AnalyticIngestUnsupported(
+                    "a curved face is neither a full band of two closed rims nor a patch of \
+                     open edges (an unclosed or holed band)",
+                ));
+            }
+            if shapes.len() != 1 {
+                return Err(KernelV2Error::AnalyticIngestUnsupported(
+                    "a curved patch has more than one boundary loop (C4b: unrolled-domain \
+                     outer-loop ranking)",
+                ));
+            }
+            // A conical patch bounded by a conic SECTION arc is kernel-v2's own
+            // KV16b vocabulary gap, not an ingestion one: `validate_cone_patch`
+            // has no rule for an ellipse on a cone (no constant-radius axis-⊥
+            // projection, unlike the cylinder-section ellipse). Zero corpus
+            // models hit this in the 400-model sample (spec §5.1), so it is a
+            // named wall rather than a reach cost.
+            if matches!(surfs[fi], FaceSurface::Cone { .. }) {
+                let ellipse_here = shapes.iter().any(|sh| match sh {
+                    LoopShape::Polygon { edges, .. } => edges
+                        .iter()
+                        .any(|e| matches!(open_curves.get(e), Some(Curve::EllipseArc { .. }))),
+                    _ => false,
+                });
+                if ellipse_here {
+                    return Err(KernelV2Error::AnalyticIngestUnsupported(
+                        "a conical patch is bounded by an ellipse arc (KV16b cone-section \
+                         conic vocabulary)",
+                    ));
+                }
+            }
         }
         face_loops.push(shapes);
     }
@@ -641,7 +819,12 @@ pub fn ingest_analytic(
         if !surfs[fi].is_curved() {
             continue;
         }
-        let band = band_of(shapes).expect("1c admitted only full bands on a curved face");
+        // A C4b arc patch has no rim at all, so it has no traversal sense to
+        // derive and no seam to place: its boundary arcs carry the side the
+        // file's own `interior` points pinned in 1b.
+        let Some(band) = band_of(shapes) else {
+            continue;
+        };
         let (e0, e1) = (&band.rim_a, &band.rim_b);
         let (r0, r1) = (rims[e0], rims[e1]);
         let axis = surfs[fi].axis().expect("curved");
@@ -800,9 +983,45 @@ pub fn ingest_analytic(
         },
         radius: r.radius,
     };
+    // C4b: the arena curve a loop sees when it walks `edge` in the given
+    // direction. A backwards walk negates the normal — `curves_twin_consistent`'s
+    // rule, so the two uses of one file edge pair up by construction.
+    let curve_for = |edge: u32, forward: bool| -> Curve {
+        match open_curves.get(&edge) {
+            None => Curve::LineSegment,
+            Some(&c) if forward => c,
+            Some(&c) => match c {
+                Curve::Arc {
+                    center,
+                    normal,
+                    radius,
+                } => Curve::Arc {
+                    center,
+                    normal: neg_unit(normal),
+                    radius,
+                },
+                Curve::EllipseArc {
+                    center,
+                    normal,
+                    major_axis,
+                    major_radius,
+                    minor_radius,
+                } => Curve::EllipseArc {
+                    center,
+                    normal: neg_unit(normal),
+                    major_axis,
+                    major_radius,
+                    minor_radius,
+                },
+                other => other,
+            },
+        }
+    };
     for (fi, shapes) in face_loops.iter().enumerate() {
-        if surfs[fi].is_curved() {
-            let band = band_of(shapes).expect("1c admitted only full bands on a curved face");
+        // A curved face with a band becomes ONE lateral loop; a curved PATCH
+        // (C4b) has no band and takes the ordinary chain path below, exactly
+        // like a planar face — its single loop is its outer boundary.
+        if let (true, Some(band)) = (surfs[fi].is_curved(), band_of(shapes)) {
             let (e0, e1) = (band.rim_a, band.rim_b);
             let (r0, r1) = (rims[&e0], rims[&e1]);
             let (n0, n1) = (rim_sense[&(e0, fi)], rim_sense[&(e1, fi)]);
@@ -846,7 +1065,11 @@ pub fn ingest_analytic(
                     cycle: cycle.clone(),
                     edges: edges.clone(),
                     forwards: forwards.clone(),
-                    curves: vec![Curve::LineSegment; cycle.len()],
+                    curves: edges
+                        .iter()
+                        .zip(forwards.iter())
+                        .map(|(&e, &fwd)| curve_for(e, fwd))
+                        .collect(),
                 }),
                 LoopShape::Seamed { .. } => {
                     // The canonical lateral is a curved face's shape; a planar
@@ -949,7 +1172,48 @@ pub fn ingest_analytic(
                     normal: n2,
                     radius: r2,
                 },
+            )
+            | (
+                Curve::Arc {
+                    center: c1,
+                    normal: n1,
+                    radius: r1,
+                },
+                Curve::Arc {
+                    center: c2,
+                    normal: n2,
+                    radius: r2,
+                },
             ) => c1 == c2 && r1 == r2 && n1.x == -n2.x && n1.y == -n2.y && n1.z == -n2.z,
+            // C4b: the ellipse twin negates the normal and keeps the SAME major
+            // axis (`arena.rs`) — the frame's minor direction flips with the
+            // normal, so the point set is identical, traversed oppositely.
+            (
+                Curve::EllipseArc {
+                    center: c1,
+                    normal: n1,
+                    major_axis: m1,
+                    major_radius: a1,
+                    minor_radius: b1,
+                },
+                Curve::EllipseArc {
+                    center: c2,
+                    normal: n2,
+                    major_axis: m2,
+                    major_radius: a2,
+                    minor_radius: b2,
+                },
+            ) => {
+                c1 == c2
+                    && a1 == a2
+                    && b1 == b2
+                    && m1.x == m2.x
+                    && m1.y == m2.y
+                    && m1.z == m2.z
+                    && n1.x == -n2.x
+                    && n1.y == -n2.y
+                    && n1.z == -n2.z
+            }
             _ => false,
         };
         if !twinned {
@@ -1019,9 +1283,11 @@ pub fn ingest_analytic(
     let mut net_area: Vec<f64> = vec![0.0; shell.faces.len()];
     for (pi, plan) in plans.iter().enumerate() {
         if surfs[plan.face].is_curved() {
-            // A full band has exactly one loop, already Outer: there is no
-            // second loop to rank it against, and the containment argument
-            // below is about a planar face's rings.
+            // A full band has exactly one loop, and so does every arc patch 1c
+            // admits (spec `si5_c4b_arc_patch_tier.md` §5.2 — the windowed
+            // patch is refused there by name). Either way there is no second
+            // loop to rank it against, and the containment argument below is
+            // about a planar face's rings.
             outer_of_face[plan.face] = Some(pi);
             continue;
         }
@@ -1042,7 +1308,39 @@ pub fn ingest_analytic(
             }
             _ => {
                 let pts: Vec<Point3> = plan.cycle.iter().map(|&v| vpos[v as usize]).collect();
-                let curves = vec![geom::LoopEdgeCurve::Line; pts.len()];
+                // C4b: a chord contributes its chord only, a curved edge its
+                // exact circular / elliptic segment — so a half-disc's area is
+                // the half-disc's, not the triangle's, and the outer-loop
+                // determination of §5.4 stays exact on arc boundaries.
+                let curves: Vec<geom::LoopEdgeCurve> = plan
+                    .curves
+                    .iter()
+                    .map(|c| match *c {
+                        Curve::Arc {
+                            center,
+                            normal: n,
+                            radius,
+                        } => geom::LoopEdgeCurve::Circle {
+                            center,
+                            normal: [n.x, n.y, n.z],
+                            radius,
+                        },
+                        Curve::EllipseArc {
+                            center,
+                            normal: n,
+                            major_axis: m,
+                            major_radius,
+                            minor_radius,
+                        } => geom::LoopEdgeCurve::Ellipse {
+                            center,
+                            normal: [n.x, n.y, n.z],
+                            major_axis: [m.x, m.y, m.z],
+                            major_radius,
+                            minor_radius,
+                        },
+                        _ => geom::LoopEdgeCurve::Line,
+                    })
+                    .collect();
                 geom::planar_loop_signed_area(normal, &pts, &curves)
             }
         };
