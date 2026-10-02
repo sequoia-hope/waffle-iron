@@ -133,7 +133,9 @@ pub use brep::{
     BRep, BRepEdge, BRepFace, BRepVertex, InputId, TessellationMap, TessellationSource,
     TriangleAttribution, TriangleAttributionMap, MATCH_TOLERANCE,
 };
-pub use stage1_tessellate::patch_tessellators::{tessellate_sphere_patch, tessellate_torus_patch};
+pub use stage1_tessellate::patch_tessellators::{
+    tessellate_sphere_patch, tessellate_sphere_patch_in_frame, tessellate_torus_patch,
+};
 pub(crate) use stage1_tessellate::*;
 pub(crate) use stage4_correct::*;
 pub(crate) use stage4_relocate::*;

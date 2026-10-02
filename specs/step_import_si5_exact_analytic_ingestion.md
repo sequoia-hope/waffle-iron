@@ -1155,4 +1155,14 @@ subset a reader would need — and `si5_census.py` already measures it.
   (exact vs truck's mesh tier) now runs over the corpus
   (`ingested_volume_agrees_with_the_mesh_tier`), with a per-face probe
   (`si5_volume_probe`) that anchors an outlier to a face and a poloidal
-  region. Next: **C5b** (patches: two closed-form fluxes), then C6/C7.
+  region. **C5b (same day)**: the torus and sphere PATCHES — two closed-form
+  fluxes (`torus_arc_patch_flux` by the parameter-domain Green identity,
+  `sphere_arc_patch_flux` by Gauss–Bonnet + the vector area), the sphere in
+  the vocabulary with the band / windowed / seam-slit forms as named C5c
+  refusals, a per-patch lat/long frame for the sphere tessellator, the
+  torus patch a boolean operand once Stage 4's own-vertex tangency rule
+  covered the fillet corner, and a spade-domain flush at the CDT boundary;
+  reach **40.0 % → 42.0 %** (168 of 400). Oracle 5 gained a third path (our
+  own render mesh beside truck's) and a shell-order-independent face probe
+  (`si5_face_probe`) that reads a validation-tier `FaceId` back to the
+  file's face. Full record: `si5_c5_sphere_torus_tier.md` §5. Next: C6/C7.

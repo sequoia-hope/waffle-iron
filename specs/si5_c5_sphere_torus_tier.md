@@ -1,6 +1,7 @@
 # SI5 C5 — spheres and tori
 
-Status: **C5-M measured and C5a LANDED 2026-10-02** (§2, §4); C5b next. Checkpoint C5 of
+Status: **C5-M measured, C5a and C5b LANDED 2026-10-02** (§2, §4, §5); C5c is the
+named-refusal tail (§3) and C6/C7 follow. Checkpoint C5 of
 `specs/step_import_si5_exact_analytic_ingestion.md` §7, following C4b
 (`specs/si5_c4b_arc_patch_tier.md`). Split into increments by the forms the
 corpus actually writes (§2), the way C4 was split by band vs patch.
@@ -225,6 +226,15 @@ poloidal edges contribute), the sphere by `Φ = (1/3)[r·A + C·½∮x×dx]` wit
 `A` from Gauss–Bonnet over circular arcs. Render: the existing UV-CDT paths,
 verified on the corpus. Boolean: both already typed walls.
 
+> **Corrected at landing (§5):** the torus patch is NOT a boolean wall — the
+> M5 torus arm takes an arc-bounded torus patch (that is what every chained
+> torus boolean re-enters with), so an ingested fillet patch is a first-class
+> operand. What walled it was a Stage-4 rule gap at every fillet CORNER; the
+> sphere patch stays the typed wall it has been since KV6d. And "the existing
+> UV-CDT paths" needed two things the corpus showed: a per-patch lat/long
+> frame (the canonical z-up pole sat exactly on the corner blend's vertex),
+> and a spade-domain flush at the CDT boundary.
+
 ### C5c — named refusals, no customer yet
 
 Sphere band (§2.3, 2 models); windowed sphere (§2.5, 3 models); torus band
@@ -309,7 +319,127 @@ carries the independence.
 
 ---
 
-## 5. Ledger
+## 5. C5b outcome (2026-10-02)
+
+| | C5a | C5b |
+|---|---|---|
+| reach, 400 models | 160 (40.0 %) | **168 (42.0 %)** |
+| solids / faces | 533 / 10 440 | **545 / 11 498** |
+
++8 models, one more than the census's 7 pure-patch customers: the eighth
+(`00000299`) was walled upstream by its sphere patches and, once through,
+exposed a CDT finding on a C4b cylinder patch (§5.3). In-vocabulary success
+stays 100 %; `00000062` face 35 (a planar face with rings) remains the only
+validation-tier finding. The refusal buckets are now exactly the C5c forms:
+`a spherical face bounded by a closed circle (C5c)` ×5, the unclosed/holed
+band ×20, the closed ELLIPSE ×2, the closed torus ×1.
+
+### 5.1 What landed, against §3
+
+- **Volume.** `geom::torus_arc_patch_flux`: the Green identity over the
+  `(θ, φ)` domain, `H(θ, φ) = r[(c₁ sin θ − c₂ cos θ) K(φ) + θ G(φ)]`, where
+  `G` is C5a's band antiderivative — the band is the rectangle
+  `[0, 2π] × [φ_s, φ_e]` and the two agree term for term. Each loop's `θ` is
+  unwrapped along its own walk and its offset is immaterial (`Σ ΔG = 0`
+  around a closed loop), so the branch cut is not a case; a Villarceau arc,
+  a chord, a poloidal arc off the walk's azimuth, or a loop winding the axis
+  or the tube is a loud mismatch. `geom::sphere_arc_patch_flux`: Gauss–Bonnet
+  with `κ_g = σh/(aρ)` constant along each arc (`h` the signed height of the
+  arc's plane along its own axis) plus the exterior angles, and the vector
+  area `½Σ[c × (p₁ − p₀) + a²Δ m̂]`; an exterior angle of `±π` (the closed
+  sphere's seam slit) and an area outside `(0, 4πr²)` are loud.
+- **Ingest.** `FaceSurface::Sphere`; the C5b torus-patch refusal is gone;
+  three named refusals replace the 1a wall: a sphere face bounded by a
+  closed circle (band / windowed, C5c), a curved patch loop that walks one
+  edge twice (our exporter's closed sphere, C5c), and a LINE edge on a sphere
+  or torus (no straight line lies on either — the on-surface gate sees only
+  endpoints). Every member of the analytic contract is now in the surface
+  vocabulary.
+- **Render.** `tessellate_sphere_patch` chooses its lat/long frame per
+  patch: `ê₁ = m̂` (the mean boundary direction; poles on the great circle
+  ⊥ `m̂`, so a corner blend sees neither), then `ê₃ = m̂` (the pole AT `m̂`,
+  so the complement of a small loop — the KV6d notched sphere — wraps it and
+  the pole-cap arm takes it), then the canonical frame; each is only a
+  parameterization of the same exact patch (boundary vertices bit-exact),
+  so trying them in order is a representability search, not a fallback.
+  yang-rs gained `tessellate_sphere_patch_in_frame`; the old entry point
+  delegates with the identity frame, byte-identical for Stage 1.
+- **Boolean.** `an_ingested_torus_patch_is_boolean_eligible`: the quarter
+  puck ∪ a block, in two placements, to 1e-9 of the closed form. It STOPped
+  first: yang Stage 4, `LocalRefinementRequired` at the fillet's corner
+  vertex, where the triple Newton onto {torus, cylinder, cut plane} is
+  rank-deficient because the fillet is TANGENT to the cylinder it rounds.
+  The pair arm already skipped an operand's own vertex at a tangent pair
+  (the B2 pipe rule); the triple arm now applies the same rule
+  (`stage4_correct.rs`), because every fillet corner is one. A tangency ON
+  an intersection curve stays the loud STOP it was.
+- **Fixtures** (`kernel_v2::ingest::fixtures`, public so the harness exports
+  them): the quarter puck `(8, 12, 6, 0, 1, 0)` with its fillet as the
+  `CCCC` rectangle; the quarter boss `(14, 21, 9, 0, 1, 0)` with a
+  `reversed` concave patch; the ball octant `(4, 6, 4, 0, 1, 0)`, three
+  great arcs; the capped octant `(6, 9, 5, 0, 1, 0)` with a small-circle
+  arc; the dimpled cube `(10, 15, 7, 0, 1, 0)` with a `reversed` sphere
+  patch. Each pinned at the origin AND displaced by `(1.3, −0.7, 0.4)` — the
+  `C·ŵ`, `C·â` and `C·∫n dA` terms vanish for a solid centred on the
+  origin — to 1e-12 of the closed form, with the render mesh's deficit
+  shrinking ≥ 3× under a 4× finer chord (linear in the tolerance; measured
+  3.9× on every fixture — a region error would not move). `quarter_puck`
+  and `capped_octant` are analytic STEP fixtures and fixed points of
+  export → extract → ingest.
+
+### 5.2 Oracle 5, with a third path
+
+`ingested_volume_agrees_with_the_mesh_tier` now also tessellates every
+ingested solid with OUR render path and reports it beside truck's mesh, so
+the C5b patch tessellators are measured on the corpus's own patches:
+
+```
+                                 vs truck's mesh                      vs OUR render mesh
+  planar (C3)              n=28   p50 3.3e-16  p90 6.8e-15  max 3.1e-14   p50 2.5e-16  p90 7.4e-15  max 3.3e-14
+  curved (C4a/C4b)         n=120  p50 1.39e-3  p90 5.41e-3  max 7.93e-2   p50 3.08e-4  p90 1.30e-3  max 6.58e-3
+  torus-bearing (C5a)      n=12   p50 2.94e-3  p90 6.16e-3  max 3.41e-2   p50 1.30e-3  p90 1.40e-3  max 2.18e-2
+  sphere/torus patch (C5b) n=8    p50 6.42e-4  p90 2.60e-3  max 4.36e-3   p50 6.90e-5  p90 9.51e-5  max 6.45e-4
+  (0 mesh-tier failures, 0 render failures)
+```
+
+The C5b tier is the tightest of the four on both paths: our UV-CDT patches
+sit within 1e-4 of the exact term at p90, truck's meshes within the usual
+chord band. The two truck outliers are C5a's (§4.2), unchanged.
+
+The one outlier against our own mesh, `00000188` (2.2 % at the default
+tolerance), converges to 3.7e-4 at `rel = 1e-5` and its three torus regions
+match truck's vertex spans exactly (`si5_volume_probe`): it is a `reversed`
+band on a torus of `R = 225, r = 221` mm — a 6 mm waist on a 221 mm tube
+radius — and the chord tolerance is RELATIVE to the circle being sampled,
+so the φ-direction sag is 0.2 mm on a 6 mm feature. Not a region error; the
+tolerance's definition, converging as a chord does.
+
+### 5.3 Two findings on the way, both fixed
+
+- **The spade domain.** `00000299` reached the self-intersection gate for
+  the first time and its 0.2 mm cylinder arc patch came back `ring rejected
+  by CDT`: the unrolled ring was a clean 38-point rectangle whose first
+  ruling vertex sat at `u = 3.34e-52` instead of `0`, and spade refuses any
+  coordinate with `0 < |x| < 1.79e-43` (`TooSmall`, folded into
+  `DegenerateInput`). That is a restriction of spade's number domain, not
+  geometry; the cherchi-rs wrapper now maps such a value to the zero it
+  rounds from, at the one boundary where the restriction lives
+  (`spade_point`, with a unit test). Anchored with the new `si5_face_probe`,
+  which ingests each shell into its own arena because
+  `parse_step_analytic`'s shell order varies per process and a cross-shell
+  `FaceId` does not survive a rerun.
+- **The fillet corner in Stage 4** (§5.1, Boolean).
+
+### 5.4 Left open, by name
+
+- C5c: the sphere band and the windowed sphere (5 models, now one named
+  bucket), our exporter's closed sphere and bent tube (seam slits), the
+  plane-seeded torus band, Villarceau arcs.
+- `00000062` face 35: a planar face with two rings, `ring rejected by CDT` —
+  unchanged, and not the spade-domain class (its ring IS geometric).
+- The sphere patch at the boolean boundary stays a typed wall.
+
+## 6. Ledger
 
 - 2026-10-02 — **C5-M.** `c5_sphere_torus_census` written and run; §2
   recorded. The decisive numbers: the latitude band is 21 of 31 models and
@@ -321,3 +451,10 @@ carries the independence.
   three kernel paths that lacked it; the first corpus run of oracle 5, with
   both outliers anchored to truck's chord coarseness and every fillet's
   region confirmed against truck's own vertices. Next: **C5b**.
+- 2026-10-02 — **C5b DONE.** §5. Reach 40.0 % → 42.0 %; two closed-form
+  flux terms; the sphere in the vocabulary with three named refusals; a
+  per-patch sphere frame; the torus patch a first-class boolean operand
+  after the Stage-4 fillet-corner rule; the spade-domain flush; oracle 5
+  gains our own render mesh as a third path. Next: C6 (wire the ingest
+  tier into the app's import, with the mesh-tier fallback) / C7 (the corpus
+  gate), per `step_import_si5_exact_analytic_ingestion.md` §7.

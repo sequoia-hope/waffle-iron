@@ -144,9 +144,7 @@ pub fn cdt_polygon_with_holes(
             return Ok(h);
         }
         let p = verts[idx as usize];
-        let h = cdt
-            .insert(SpadePoint2::new(p.x(), p.y()))
-            .map_err(map_insertion_error)?;
+        let h = cdt.insert(spade_point(p)).map_err(map_insertion_error)?;
         // If spade merged this into an already-used handle, two distinct caller
         // indices are coincident -> degenerate constraint graph.
         if handle_of.contains(&Some(h)) {
@@ -395,9 +393,7 @@ fn floodfill_cdt_impl(
             return Ok(h);
         }
         let p = verts[idx as usize];
-        let h = cdt
-            .insert(SpadePoint2::new(p.x(), p.y()))
-            .map_err(map_insertion_error)?;
+        let h = cdt.insert(spade_point(p)).map_err(map_insertion_error)?;
         handle_of[idx as usize] = Some(h);
         Ok(h)
     };
@@ -584,9 +580,7 @@ pub fn cdt_polygon_with_holes_keep_interior(
             return Ok(h);
         }
         let p = verts[idx as usize];
-        let h = cdt
-            .insert(SpadePoint2::new(p.x(), p.y()))
-            .map_err(map_insertion_error)?;
+        let h = cdt.insert(spade_point(p)).map_err(map_insertion_error)?;
         if handle_of.contains(&Some(h)) {
             return Err(CdtError::DuplicateVertex);
         }
@@ -796,9 +790,7 @@ fn cdt_refined_impl(
             return Ok(h);
         }
         let p = verts[idx as usize];
-        let h = cdt
-            .insert(SpadePoint2::new(p.x(), p.y()))
-            .map_err(map_insertion_error)?;
+        let h = cdt.insert(spade_point(p)).map_err(map_insertion_error)?;
         if handle_of.contains(&Some(h)) {
             return Err(CdtError::DuplicateVertex);
         }
@@ -900,7 +892,7 @@ fn cdt_refined_impl(
                     }
                     // Exact duplicates return the existing handle; a NaN-free
                     // grid point cannot otherwise fail.
-                    let _ = cdt.insert(SpadePoint2::new(p.x(), p.y()));
+                    let _ = cdt.insert(spade_point(p));
                 }
             }
         }
@@ -1053,9 +1045,7 @@ pub fn cdt_with_interior_constraints(
             return Ok(h);
         }
         let p = verts[idx as usize];
-        let h = cdt
-            .insert(SpadePoint2::new(p.x(), p.y()))
-            .map_err(map_insertion_error)?;
+        let h = cdt.insert(spade_point(p)).map_err(map_insertion_error)?;
         if handle_of.contains(&Some(h)) {
             return Err(CdtError::DuplicateVertex);
         }
@@ -1242,6 +1232,27 @@ fn rotate_min_first(t: &mut [u32; 3]) {
 /// Map a spade `InsertionError` to a [`CdtError`]. Every variant
 /// (`NAN` / `TooSmall` / `TooLarge`) is an invalid coordinate, i.e.
 /// degenerate input.
+/// A caller point as spade must receive it. spade refuses any coordinate whose
+/// magnitude lies strictly between 0 and [`spade::MIN_ALLOWED_VALUE`]
+/// (`1.79e-43`, `InsertionError::TooSmall`): that is a restriction of its
+/// number domain, not a statement about geometry, and such a value is the
+/// rounding residue of a computation whose exact answer is 0 (measured
+/// 2026-10-02: a cylinder patch's unrolled ruling landed at `u = 3.3e-52`
+/// instead of `0`, and the whole 38-point rectangle came back
+/// `DegenerateInput`). Zero is the unique representable value within any
+/// distance of such a coordinate, so it is mapped there — nowhere else is a
+/// coordinate altered. NaN and `TooLarge` still surface as insertion errors.
+fn spade_point(p: CadPoint2) -> SpadePoint2<f64> {
+    let flush = |x: f64| {
+        if x != 0.0 && x.abs() < spade::MIN_ALLOWED_VALUE {
+            0.0
+        } else {
+            x
+        }
+    };
+    SpadePoint2::new(flush(p.x()), flush(p.y()))
+}
+
 fn map_insertion_error(e: InsertionError) -> CdtError {
     match e {
         InsertionError::NAN | InsertionError::TooSmall | InsertionError::TooLarge => {
@@ -1410,6 +1421,33 @@ fn centroid_in_polygon_rational(
 
 #[cfg(test)]
 mod tests {
+    /// A coordinate below spade's `MIN_ALLOWED_VALUE` is a rounding residue of
+    /// an exact zero (a cylinder patch's unrolled ruling at `u = 3.3e-52`,
+    /// 2026-10-02), and spade refuses it as `TooSmall`. The wrapper maps it to
+    /// the zero it is, so the 38-point rectangle that came back
+    /// `DegenerateInput` triangulates; a genuinely degenerate input still does
+    /// not.
+    #[test]
+    fn a_sub_minimum_coordinate_is_the_zero_it_rounds_from() {
+        let verts = vec![
+            CadPoint2::new(3.34e-52, -5.0e-4),
+            CadPoint2::new(6.16e-36, -4.9e-18),
+            CadPoint2::new(-3.14e-4, 2.46e-36),
+            CadPoint2::new(-3.14e-4, -5.0e-4),
+        ];
+        let outer = [0u32, 1, 2, 3];
+        let tris = cdt_polygon_with_holes_floodfill(&verts, &outer, &[])
+            .expect("a 0.3 mm by 0.5 mm rectangle triangulates");
+        assert_eq!(tris.len(), 2);
+        // Still refused: a loop of two coincident-after-flush points and one more.
+        let degenerate = vec![
+            CadPoint2::new(1.0e-50, 0.0),
+            CadPoint2::new(0.0, 1.0e-50),
+            CadPoint2::new(1.0, 1.0),
+        ];
+        assert!(cdt_polygon_with_holes_floodfill(&degenerate, &[0, 1, 2], &[]).is_err());
+    }
+
     use super::*;
 
     // ---- seeded refined CDT (chord-band fix, 2026-08-08) -----------------

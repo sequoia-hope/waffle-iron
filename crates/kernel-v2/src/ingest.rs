@@ -30,10 +30,17 @@
 //!   closed circles coaxial with its axis — the fillet around a boss or a
 //!   hole, 21 of the 31 sphere/torus-bearing models in the sample and a form
 //!   no kernel-v2 constructor builds (spec `si5_c5_sphere_torus_tier.md`).
+//! - **C5b** — torus and sphere **patches**: a `TOROIDAL_SURFACE` bounded by
+//!   open latitude and poloidal arcs (the parameter rectangle, every torus
+//!   patch in the sample) and a `SPHERICAL_SURFACE` bounded by great/small
+//!   circle arcs (the three-fillet corner blend). Both take the C4b patch path
+//!   unchanged — the work was the two closed-form volume terms
+//!   (`geom::torus_arc_patch_flux`, `geom::sphere_arc_patch_flux`).
 //!
-//! A sphere, a torus patch, a windowed sphere, a holed band and a vertex loop
-//! are typed, loud refusals here naming their checkpoint (C5b / C5c), never a
-//! guess. The caller falls back to the mesh tier (C6 wires that fallback).
+//! A sphere band or windowed sphere, the closed sphere's seam slit, a holed
+//! band and a vertex loop are typed, loud refusals here naming their
+//! checkpoint (C5c), never a guess. The caller falls back to the mesh tier (C6
+//! wires that fallback).
 //!
 //! ## Why a direct assembler and not an Euler sequence
 //!
@@ -222,6 +229,13 @@ enum FaceSurface {
         minor: f64,
         reversed: bool,
     },
+    /// C5b. The cavity flag records a spherical dimple (the material outside
+    /// the ball). A sphere has no axis: its only admitted form is the patch.
+    Sphere {
+        center: Point3,
+        radius: f64,
+        reversed: bool,
+    },
 }
 
 impl FaceSurface {
@@ -231,7 +245,7 @@ impl FaceSurface {
 
     fn axis(&self) -> Option<V3> {
         match *self {
-            FaceSurface::Plane { .. } => None,
+            FaceSurface::Plane { .. } | FaceSurface::Sphere { .. } => None,
             FaceSurface::Cylinder { axis_dir, .. }
             | FaceSurface::Cone { axis_dir, .. }
             | FaceSurface::Torus { axis_dir, .. } => Some(axis_dir),
@@ -243,7 +257,8 @@ impl FaceSurface {
             FaceSurface::Plane { .. } => false,
             FaceSurface::Cylinder { reversed, .. }
             | FaceSurface::Cone { reversed, .. }
-            | FaceSurface::Torus { reversed, .. } => reversed,
+            | FaceSurface::Torus { reversed, .. }
+            | FaceSurface::Sphere { reversed, .. } => reversed,
         }
     }
 
@@ -285,6 +300,9 @@ impl FaceSurface {
                 let tau = dot3(d, axis_dir);
                 let rho = len3(radial(d, axis_dir));
                 Some(((rho - major).hypot(tau) - minor).abs())
+            }
+            FaceSurface::Sphere { center, radius, .. } => {
+                Some((len3(sub(p, center)) - radius).abs())
             }
         }
     }
@@ -333,6 +351,15 @@ impl FaceSurface {
                 axis_dir: u(axis_dir),
                 major_radius: major,
                 minor_radius: minor,
+                reversed,
+            },
+            FaceSurface::Sphere {
+                center,
+                radius,
+                reversed,
+            } => Surface::Sphere {
+                center,
+                radius,
                 reversed,
             },
         }
@@ -499,11 +526,10 @@ pub fn ingest_analytic(
     //     normal negated (exact in f64, so the stored plane is still the
     //     file's own geometry), a curved surface's cavity flag set.
     let mut surfs: Vec<FaceSurface> = Vec::with_capacity(shell.faces.len());
-    for (fi, face) in shell.faces.iter().enumerate() {
-        let unsupported = |what: &'static str| KernelV2Error::AnalyticIngestUnsupportedSurface {
-            face: fi,
-            surface: what,
-        };
+    // Since C5b every member of the analytic contract is in the surface
+    // vocabulary; `KernelV2Error::AnalyticIngestUnsupportedSurface` stays for
+    // the next surface the contract grows.
+    for face in shell.faces.iter() {
         let unit_axis = |v: cad_primitives::Vector3, what: &'static str| -> Result<V3, _> {
             let a = v.as_array();
             let l = len3(a);
@@ -589,9 +615,18 @@ pub fn ingest_analytic(
                     reversed: !face.same_sense,
                 }
             }
-            // C5b (patches) / C5c (bands and windowed spheres), spec
-            // `si5_c5_sphere_torus_tier.md` §3.
-            AnalyticSurface::Sphere { .. } => return Err(unsupported("spherical (C5b)")),
+            AnalyticSurface::Sphere { center, radius } => {
+                if !(radius.is_finite() && radius > 0.0) {
+                    return Err(KernelV2Error::InvalidAnalyticShell(
+                        "a sphere radius is not finite and positive",
+                    ));
+                }
+                FaceSurface::Sphere {
+                    center,
+                    radius,
+                    reversed: !face.same_sense,
+                }
+            }
         });
     }
 
@@ -897,6 +932,23 @@ pub fn ingest_analytic(
         // single-rim loops (every corpus writer) or as the canonical seamed
         // lateral (our own exporter) — or, since C4b, an ARC PATCH: one chain
         // of arcs, ellipse arcs and rulings.
+        // A sphere's only admitted form is the PATCH (C5b). Its two closed-
+        // circle forms are named refusals (spec §2.3, §2.5 — C5c): the band
+        // between two circles is self-seeding but 2 models, non-coaxial by law
+        // and without a canonical seam; the windowed sphere needs the
+        // unrolled-domain outer-loop ranking C4b refuses on every curved
+        // surface. Both must be caught here, BEFORE 1d asks the face for an
+        // axis it does not have.
+        if matches!(surfs[fi], FaceSurface::Sphere { .. })
+            && !shapes
+                .iter()
+                .all(|sh| matches!(sh, LoopShape::Polygon { .. }))
+        {
+            return Err(KernelV2Error::AnalyticIngestUnsupported(
+                "a spherical face bounded by a closed circle (C5c: sphere band / windowed \
+                 sphere)",
+            ));
+        }
         if surfs[fi].is_curved() && band_of(&shapes).is_none() {
             // Measured (`c4b_arc_patch_census`, spec §5.2): 1 111 of 1 113
             // corpus arc patches have exactly ONE boundary loop and 2 have
@@ -924,14 +976,39 @@ pub fn ingest_analytic(
                      outer-loop ranking)",
                 ));
             }
-            // The torus patch — a parameter rectangle of two latitude and two
-            // poloidal arcs, every one of the 121 in the sample — reaches the
-            // UV-CDT tessellator today but has no volume term: that is C5b
-            // (spec `si5_c5_sphere_torus_tier.md` §2.4), named here.
-            if matches!(surfs[fi], FaceSurface::Torus { .. }) {
-                return Err(KernelV2Error::AnalyticIngestUnsupported(
-                    "a toroidal patch of open arcs (C5b)",
+            // C5b: no straight line lies on a sphere or a torus, so a LINE edge
+            // on such a face is an impossible boundary claim — the on-surface
+            // gate (1g) sees only its endpoints, so it is named here.
+            if matches!(
+                surfs[fi],
+                FaceSurface::Sphere { .. } | FaceSurface::Torus { .. }
+            ) && shapes.iter().any(|sh| match sh {
+                LoopShape::Polygon { edges, .. } => {
+                    edges.iter().any(|e| !open_curves.contains_key(e))
+                }
+                _ => false,
+            }) {
+                return Err(KernelV2Error::InvalidAnalyticShell(
+                    "a line edge bounds a spherical or toroidal face (no straight line lies on \
+                     either surface)",
                 ));
+            }
+            // A patch loop that walks one edge TWICE is a seam slit, not a
+            // region: our own exporter's closed sphere is two uses of one
+            // meridian arc between the poles, whose boundary doubles back on
+            // itself and bounds the whole sphere with no sign to say so (the
+            // sphere flux refuses the ±π exterior angle too, as a P10 net).
+            // The closed forms of our own writer — the sphere, the bent tube —
+            // are C5c (spec `si5_c5_sphere_torus_tier.md` §3), named here.
+            if let [LoopShape::Polygon { edges, .. }] = &shapes[..] {
+                let mut seen = edges.clone();
+                seen.sort_unstable();
+                if seen.windows(2).any(|w| w[0] == w[1]) {
+                    return Err(KernelV2Error::AnalyticIngestUnsupported(
+                        "a curved patch loop uses one edge twice (a seam slit — C5c: our own \
+                         exporter's closed sphere / bent tube)",
+                    ));
+                }
             }
             // A conical patch bounded by a conic SECTION arc is kernel-v2's own
             // KV16b vocabulary gap, not an ingestion one: `validate_cone_patch`
@@ -1959,7 +2036,7 @@ fn point_on_axis(s: &FaceSurface) -> Point3 {
         FaceSurface::Plane { origin, .. } => origin,
         FaceSurface::Cylinder { axis_point, .. } => axis_point,
         FaceSurface::Cone { apex, .. } => apex,
-        FaceSurface::Torus { center, .. } => center,
+        FaceSurface::Torus { center, .. } | FaceSurface::Sphere { center, .. } => center,
     }
 }
 
@@ -1995,6 +2072,8 @@ fn components_of(num_faces: usize, plans: &[LoopPlan]) -> usize {
         .collect::<BTreeSet<_>>()
         .len()
 }
+
+pub mod fixtures;
 
 #[cfg(test)]
 mod tests;

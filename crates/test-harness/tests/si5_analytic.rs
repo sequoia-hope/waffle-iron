@@ -347,6 +347,27 @@ fn rounded_puck(arena: &mut BrepArena) -> SolidId {
     kernel_v2::ingest_analytic(arena, &shell).expect("the rounded puck ingests")
 }
 
+/// SI5 C5b: a QUARTER of the rounded puck — its fillet is the corpus's torus
+/// PATCH form (the `CCCC` parameter rectangle, every torus patch in the
+/// sample), beside a cylinder arc patch and planar faces bounded by arcs and
+/// lines. Enters through `ingest_analytic` like the puck; the shell is
+/// kernel-v2's own (`kernel_v2::ingest::fixtures`), so this file does not
+/// carry a second copy of a 12-edge index table.
+fn quarter_puck(arena: &mut BrepArena) -> SolidId {
+    let shell = kernel_v2::ingest::fixtures::quarter_puck(0.030, 0.050, 0.0075);
+    kernel_v2::ingest_analytic(arena, &shell).expect("the quarter puck ingests")
+}
+
+/// SI5 C5b: a ball octant cut at `z = zc` — the sphere PATCH form (`CCCC`
+/// here: two great arcs, a quarter equator and a SMALL circle, so the
+/// Gauss–Bonnet geodesic-curvature term is live) beside planar faces with
+/// arcs. The three-fillet corner blend of the corpus is this patch's `CCC`
+/// cousin.
+fn capped_octant(arena: &mut BrepArena) -> SolidId {
+    let shell = kernel_v2::ingest::fixtures::capped_octant(0.020, 0.008);
+    kernel_v2::ingest_analytic(arena, &shell).expect("the capped octant ingests")
+}
+
 const FIXTURES: &[(&str, Build)] = &[
     ("cylinder", cylinder),
     ("cone", cone),
@@ -357,6 +378,8 @@ const FIXTURES: &[(&str, Build)] = &[
     ("block", block),
     ("slotted_block", slotted_block),
     ("rounded_puck", rounded_puck),
+    ("quarter_puck", quarter_puck),
+    ("capped_octant", capped_octant),
 ];
 
 /// The fixtures the ingest path accepts, with their builders and their
@@ -382,6 +405,11 @@ const INGESTED_FIXTURES: &[(&str, Build, Counts)] = &[
     // comparison below is ingest-vs-reingest; the Pappus closed form is pinned
     // in kernel-v2's own `ingest::tests`.
     ("rounded_puck", rounded_puck, (3, 5, 4, 0, 1, 0)),
+    // C5b, the patch forms: nothing minted, the file's own tables are the
+    // arena's — 8 vertices / 12 edges / 6 faces for the quarter puck (torus
+    // patch), 6 / 9 / 5 for the capped octant (sphere patch).
+    ("quarter_puck", quarter_puck, (8, 12, 6, 0, 1, 0)),
+    ("capped_octant", capped_octant, (6, 9, 5, 0, 1, 0)),
 ];
 
 /// The fixtures the ingest path must REFUSE, with the reason that walls each.
@@ -390,7 +418,15 @@ const INGESTED_FIXTURES: &[(&str, Build, Counts)] = &[
 /// later checkpoint lands the capability, the row MOVES to
 /// [`INGESTED_FIXTURES`] in the same commit (a stale wall is itself a defect).
 const UNSUPPORTED_FIXTURES: &[(&str, &str)] = &[
-    ("sphere", "surface: spherical (C5b)"),
+    // The CLOSED sphere: since C5b the surface is in the vocabulary, and the
+    // wall moved one step later — our exporter writes it as ONE meridian arc
+    // used twice in one loop, a seam slit whose "patch" has no area sign
+    // (C5c's closed forms of our own writer).
+    (
+        "sphere",
+        "a curved patch loop uses one edge twice (a seam slit — C5c: our own exporter's closed \
+         sphere / bent tube)",
+    ),
     // The CLOSED torus: one loop of four closed circles (aba⁻¹b⁻¹), neither a
     // latitude band nor the seamed lateral — C5c's bent-tube / closed forms.
     (
@@ -462,6 +498,20 @@ fn analytic_fixtures_carry_the_entities_si5_extracts() {
         (
             "rounded_puck",
             &["TOROIDAL_SURFACE", "CYLINDRICAL_SURFACE", "PLANE", "CIRCLE"],
+        ),
+        (
+            "quarter_puck",
+            &[
+                "TOROIDAL_SURFACE",
+                "CYLINDRICAL_SURFACE",
+                "PLANE",
+                "CIRCLE",
+                "LINE",
+            ],
+        ),
+        (
+            "capped_octant",
+            &["SPHERICAL_SURFACE", "PLANE", "CIRCLE", "LINE"],
         ),
     ];
     // `block` and `slotted_block` earn their place by carrying NO curve and NO
@@ -1400,10 +1450,33 @@ fn ingested_volume_agrees_with_the_mesh_tier() {
     let prev_hook = std::panic::take_hook();
     std::panic::set_hook(Box::new(|_| {}));
 
+    // Divergence-theorem volume of OUR render mesh of the ingested solid — the
+    // third path (C5b): the UV-CDT patch tessellators were written for boolean
+    // outputs and are verified on the corpus's own patches here, loud on a
+    // failure and measured against the exact term otherwise.
+    fn render_volume(mesh: &kernel_v2::RenderMesh) -> f64 {
+        let p = |i: u32| {
+            let k = i as usize * 3;
+            [
+                mesh.positions[k],
+                mesh.positions[k + 1],
+                mesh.positions[k + 2],
+            ]
+        };
+        let mut six = 0.0;
+        for t in mesh.indices.chunks_exact(3) {
+            let (a, b, c) = (p(t[0]), p(t[1]), p(t[2]));
+            six += a[0] * (b[1] * c[2] - b[2] * c[1]) - a[1] * (b[0] * c[2] - b[2] * c[0])
+                + a[2] * (b[0] * c[1] - b[1] * c[0]);
+        }
+        six / 6.0
+    }
+
     let mut scanned = 0usize;
-    // (tier, model, rel deviation)
-    let mut rows: Vec<(&'static str, String, f64)> = Vec::new();
+    // (tier, model, rel deviation vs truck's mesh, rel deviation vs OUR render mesh)
+    let mut rows: Vec<(&'static str, String, f64, Option<f64>)> = Vec::new();
     let mut mesh_failed = 0usize;
+    let mut render_failed: Vec<String> = Vec::new();
     for path in corpus_files(&dir) {
         if scanned >= n {
             break;
@@ -1436,10 +1509,26 @@ fn ingested_volume_agrees_with_the_mesh_tier() {
         };
         let mut arena = BrepArena::new();
         let mut exact = 0.0;
+        let mut ours = Some(0.0);
         let mut ok = true;
         for shell in &shells {
             match kernel_v2::ingest_analytic(&mut arena, shell) {
-                Ok(solid) => exact += kernel_v2::geom::signed_volume(&arena, solid).unwrap(),
+                Ok(solid) => {
+                    exact += kernel_v2::geom::signed_volume(&arena, solid).unwrap();
+                    match kernel_v2::tessellate(&arena, solid) {
+                        Ok(mesh) => {
+                            if let Some(v) = ours.as_mut() {
+                                *v += render_volume(&mesh);
+                            }
+                        }
+                        Err(e) => {
+                            ours = None;
+                            if render_failed.len() < 20 {
+                                render_failed.push(format!("{id}: {e:?}"));
+                            }
+                        }
+                    }
+                }
                 Err(_) => {
                     ok = false;
                     break;
@@ -1449,7 +1538,23 @@ fn ingested_volume_agrees_with_the_mesh_tier() {
         if !ok {
             continue;
         }
-        let tier = if shells.iter().any(|s| {
+        // A sphere face, or a torus face with no closed circle, is the C5b
+        // patch tier; a torus with closed rims is the C5a band tier.
+        let is_patch_tier = shells.iter().any(|s| {
+            s.faces.iter().any(|f| match f.surface {
+                AnalyticSurface::Sphere { .. } => true,
+                AnalyticSurface::Torus { .. } => f.loops.iter().all(|l| match l {
+                    waffle_types::kernel::AnalyticLoop::Edges(os) => os
+                        .iter()
+                        .all(|o| s.edges[o.edge as usize].start != s.edges[o.edge as usize].end),
+                    _ => false,
+                }),
+                _ => false,
+            })
+        });
+        let tier = if is_patch_tier {
+            "sphere/torus patch (C5b)"
+        } else if shells.iter().any(|s| {
             s.faces
                 .iter()
                 .any(|f| matches!(f.surface, AnalyticSurface::Torus { .. }))
@@ -1473,23 +1578,53 @@ fn ingested_volume_agrees_with_the_mesh_tier() {
         };
         let mv = mesh_tier_volume(&body);
         let rel = (exact - mv).abs() / exact.abs().max(1e-300);
-        rows.push((tier, id, rel));
+        let rel_ours = ours.map(|o| (exact - o).abs() / exact.abs().max(1e-300));
+        rows.push((tier, id, rel, rel_ours));
     }
     std::panic::set_hook(prev_hook);
 
     eprintln!(
-        "\nSI5 EXACT vs MESH-TIER VOLUME over {scanned} models ({mesh_failed} mesh-tier failures)"
+        "\nSI5 EXACT vs MESH-TIER VOLUME over {scanned} models ({mesh_failed} mesh-tier failures, \
+         {} render failures)",
+        render_failed.len()
     );
-    for tier in ["planar (C3)", "curved (C4a/C4b)", "torus-bearing (C5a)"] {
+    let tiers = [
+        "planar (C3)",
+        "curved (C4a/C4b)",
+        "torus-bearing (C5a)",
+        "sphere/torus patch (C5b)",
+    ];
+    for tier in tiers {
         let mut v: Vec<f64> = rows.iter().filter(|r| r.0 == tier).map(|r| r.2).collect();
         if v.is_empty() {
-            eprintln!("  {tier:<22} (none)");
+            eprintln!("  {tier:<26} (none)");
             continue;
         }
         v.sort_by(|a, b| a.partial_cmp(b).unwrap());
         let q = |f: f64| v[((v.len() - 1) as f64 * f) as usize];
         eprintln!(
-            "  {tier:<22} n={:<4} rel |exact − mesh|: p50 {:.2e}  p90 {:.2e}  max {:.2e}",
+            "  {tier:<26} n={:<4} rel |exact − truck mesh|: p50 {:.2e}  p90 {:.2e}  max {:.2e}",
+            v.len(),
+            q(0.5),
+            q(0.9),
+            q(1.0)
+        );
+    }
+    eprintln!("  and against OUR render mesh of the ingested solid (C5b oracle):");
+    for tier in tiers {
+        let mut v: Vec<f64> = rows
+            .iter()
+            .filter(|r| r.0 == tier)
+            .filter_map(|r| r.3)
+            .collect();
+        if v.is_empty() {
+            eprintln!("  {tier:<26} (none)");
+            continue;
+        }
+        v.sort_by(|a, b| a.partial_cmp(b).unwrap());
+        let q = |f: f64| v[((v.len() - 1) as f64 * f) as usize];
+        eprintln!(
+            "  {tier:<26} n={:<4} rel |exact − our mesh|:   p50 {:.2e}  p90 {:.2e}  max {:.2e}",
             v.len(),
             q(0.5),
             q(0.9),
@@ -1499,9 +1634,28 @@ fn ingested_volume_agrees_with_the_mesh_tier() {
     let mut outliers: Vec<_> = rows.iter().filter(|r| r.2 > 2e-2).collect();
     outliers.sort_by(|a, b| b.2.partial_cmp(&a.2).unwrap());
     if !outliers.is_empty() {
-        eprintln!("  OUTLIERS (> 2e-2 — a chord band cannot explain these):");
-        for (tier, id, rel) in outliers.iter().take(20) {
+        eprintln!("  OUTLIERS vs truck (> 2e-2 — a chord band cannot explain these):");
+        for (tier, id, rel, _) in outliers.iter().take(20) {
             eprintln!("    {rel:.3e}  {id}  [{tier}]");
+        }
+    }
+    let mut ours_out: Vec<_> = rows
+        .iter()
+        .filter(|r| r.3.is_some_and(|o| o > 1e-2))
+        .collect();
+    ours_out.sort_by(|a, b| b.3.partial_cmp(&a.3).unwrap());
+    if !ours_out.is_empty() {
+        eprintln!(
+            "  OUTLIERS vs OUR mesh (> 1e-2 — the render tessellator disagrees with the term):"
+        );
+        for (tier, id, _, rel) in ours_out.iter().take(20) {
+            eprintln!("    {:.3e}  {id}  [{tier}]", rel.unwrap());
+        }
+    }
+    if !render_failed.is_empty() {
+        eprintln!("  RENDER FAILURES (an ingested solid the tessellator refused):");
+        for f in &render_failed {
+            eprintln!("    {f}");
         }
     }
     assert!(scanned > 0, "no models scanned under {dir}");
@@ -2302,7 +2456,7 @@ fn ingestion_over_the_corpus() {
     }
     std::panic::set_hook(prev_hook);
 
-    eprintln!("\nSI5 C3+C4a+C4b+C5a INGESTION over {scanned} models (<= {max_bytes} bytes)");
+    eprintln!("\nSI5 C3+C4a+C4b+C5a+C5b INGESTION over {scanned} models (<= {max_bytes} bytes)");
     eprintln!(
         "  ingested              {ingested}  ({:.1} %)  -> {solids} solids, {faces} faces",
         100.0 * ingested as f64 / scanned.max(1) as f64
@@ -2552,5 +2706,110 @@ fn si5_volume_probe() {
             ours,
             truck_ranges
         );
+    }
+}
+
+/// Anchor a validation-tier refusal of one corpus model to the FILE's own face:
+/// every shell is ingested into its own fresh arena (so an arena `FaceId` IS
+/// the face's index in that shell — `parse_step_analytic`'s shell order varies
+/// per process, so a cross-shell index would not survive a rerun), and a
+/// refusal that names a face prints that face's surface and loops, with the
+/// ring provenance probe on. `ABC_FACE=<shell>:<face>` prints one face
+/// unconditionally.
+///
+///     ABC_DIR=… ABC_CASE=00000299_52a153d2417747b5926ff9df_step_004 \
+///         cargo test -p test-harness --test si5_analytic --release \
+///         -- --ignored --nocapture si5_face_probe
+#[test]
+#[ignore = "probe: needs ABC_DIR and ABC_CASE"]
+fn si5_face_probe() {
+    use waffle_types::kernel::{AnalyticCurve, AnalyticLoop, AnalyticShellData};
+    let (Ok(dir), Ok(case)) = (std::env::var("ABC_DIR"), std::env::var("ABC_CASE")) else {
+        eprintln!("ABC_DIR / ABC_CASE unset — skipping");
+        return;
+    };
+    let path = corpus_files(&dir)
+        .into_iter()
+        .find(|p| p.file_stem().is_some_and(|s| s.to_string_lossy() == case))
+        .expect("case in corpus");
+    let text = std::fs::read_to_string(&path).unwrap();
+    let import = step_import::parse_step_analytic(&text, &case).unwrap();
+
+    fn describe(shell: &AnalyticShellData, si: usize, fi: usize) {
+        let f = &shell.faces[fi];
+        eprintln!(
+            "shell {si} face {fi}: {} same_sense={} {:?}",
+            f.surface.surface_type_str(),
+            f.same_sense,
+            f.surface
+        );
+        for (li, lp) in f.loops.iter().enumerate() {
+            let AnalyticLoop::Edges(os) = lp else {
+                eprintln!("  loop {li}: VERTEX_LOOP");
+                continue;
+            };
+            let sig: String = os
+                .iter()
+                .map(|o| {
+                    let e = &shell.edges[o.edge as usize];
+                    match e.curve {
+                        AnalyticCurve::Line => 'L',
+                        AnalyticCurve::Circle { .. } if e.start == e.end => 'O',
+                        AnalyticCurve::Circle { .. } => 'C',
+                        AnalyticCurve::Ellipse { .. } => 'E',
+                    }
+                })
+                .collect();
+            eprintln!("  loop {li}: {} edges [{sig}]", os.len());
+            for o in os {
+                let e = &shell.edges[o.edge as usize];
+                eprintln!(
+                    "    edge {} fwd={} {:?} -> {:?} {:?}",
+                    o.edge,
+                    o.forward,
+                    shell.vertices[e.start as usize],
+                    shell.vertices[e.end as usize],
+                    e.curve
+                );
+            }
+        }
+    }
+
+    let pick: Option<(usize, usize)> = std::env::var("ABC_FACE").ok().and_then(|s| {
+        let (a, b) = s.split_once(':')?;
+        Some((a.parse().ok()?, b.parse().ok()?))
+    });
+    std::env::set_var("KV2_RING_PROVENANCE", "1");
+    for (si, shell) in import.shells.iter().enumerate() {
+        let shell = match shell {
+            Ok(s) => s,
+            Err(e) => {
+                eprintln!("shell {si}: ineligible ({e})");
+                continue;
+            }
+        };
+        if let Some((ps, pf)) = pick {
+            if ps == si {
+                describe(shell, si, pf);
+            }
+        }
+        let mut arena = BrepArena::new();
+        match kernel_v2::ingest_analytic(&mut arena, shell) {
+            Ok(_) => eprintln!("shell {si} ({} faces): ingests", shell.faces.len()),
+            Err(e) => {
+                eprintln!("shell {si} ({} faces): {e:?}", shell.faces.len());
+                let named = match &e {
+                    kernel_v2::KernelV2Error::TessellationFailed { face, .. }
+                    | kernel_v2::KernelV2Error::CurvedGeometryMismatch { face, .. } => {
+                        Some(face.0 as usize)
+                    }
+                    kernel_v2::KernelV2Error::AnalyticVertexOffSurface { face } => Some(*face),
+                    _ => None,
+                };
+                if let Some(fi) = named.filter(|&fi| fi < shell.faces.len()) {
+                    describe(shell, si, fi);
+                }
+            }
+        }
     }
 }

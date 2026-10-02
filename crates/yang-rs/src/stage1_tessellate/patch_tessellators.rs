@@ -1385,16 +1385,50 @@ pub fn tessellate_sphere_patch(
     holes: &[Vec<Point3>],
     max_3d_area: f64,
 ) -> Option<(Vec<Point3>, Vec<[u32; 3]>)> {
+    tessellate_sphere_patch_in_frame(
+        center,
+        radius,
+        reversed,
+        [[1.0, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, 1.0]],
+        boundary,
+        holes,
+        max_3d_area,
+    )
+}
+
+/// [`tessellate_sphere_patch`] in an explicit orthonormal lat/long frame
+/// `[ê₁, ê₂, ê₃]`: longitude is measured about `ê₃` from `ê₁`, latitude from
+/// the `(ê₁, ê₂)` equator. The sphere is isotropic, so the frame changes
+/// nothing about the patch — only where the two poles and the meridian seam
+/// of the parameterization fall. A caller whose patch boundary passes through
+/// (or near) the canonical `ẑ` pole — SI5 C5b's spherical corner blend has a
+/// vertex exactly there — chooses a frame whose poles lie off the patch and
+/// gets the same UV-CDT; boundary vertices still pass through bit-for-bit.
+pub fn tessellate_sphere_patch_in_frame(
+    center: Point3,
+    radius: f64,
+    reversed: bool,
+    frame: [[f64; 3]; 3],
+    boundary: &[Point3],
+    holes: &[Vec<Point3>],
+    max_3d_area: f64,
+) -> Option<(Vec<Point3>, Vec<[u32; 3]>)> {
     use std::f64::consts::{FRAC_PI_2, TAU};
     if boundary.len() < 3 || !(radius.is_finite() && radius > 0.0) {
         return None;
     }
     let c = center.as_array();
     let r = radius;
+    let [e1, e2, e3] = frame;
     let eval = |u: f64, v: f64| -> Point3 {
         let (su, cu) = u.sin_cos();
         let (sv, cv) = v.sin_cos();
-        Point3::new(c[0] + r * cv * cu, c[1] + r * cv * su, c[2] + r * sv)
+        let (a, b, d) = (r * cv * cu, r * cv * su, r * sv);
+        Point3::new(
+            c[0] + a * e1[0] + b * e2[0] + d * e3[0],
+            c[1] + a * e1[1] + b * e2[1] + d * e3[1],
+            c[2] + a * e1[2] + b * e2[2] + d * e3[2],
+        )
     };
     let snap = |a: f64| (a / 1e-12).round() * 1e-12;
     // A boundary vertex too close to a pole makes its longitude meaningless
@@ -1410,7 +1444,13 @@ pub fn tessellate_sphere_patch(
         let mut vs = Vec::with_capacity(pts.len());
         for p in pts {
             let pa = p.as_array();
-            let w = [pa[0] - c[0], pa[1] - c[1], pa[2] - c[2]];
+            let d = [pa[0] - c[0], pa[1] - c[1], pa[2] - c[2]];
+            // Frame coordinates: (ê₁, ê₂, ê₃) components of p − c.
+            let w = [
+                d[0] * e1[0] + d[1] * e1[1] + d[2] * e1[2],
+                d[0] * e2[0] + d[1] * e2[1] + d[2] * e2[2],
+                d[0] * e3[0] + d[1] * e3[1] + d[2] * e3[2],
+            ];
             let rho = (w[0] * w[0] + w[1] * w[1]).sqrt();
             if rho < polar_band {
                 return None; // boundary touches a pole — later slice

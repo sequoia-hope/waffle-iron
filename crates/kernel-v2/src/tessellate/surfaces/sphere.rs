@@ -205,11 +205,68 @@ pub(crate) fn tessellate_sphere_patch(
     let seg = 2.0 * PI * r / f64::from(n_seg.max(3));
     let max_area = seg * seg;
 
-    let Some((verts, tris)) =
-        yang_rs::tessellate_sphere_patch(center, r, reversed, &boundary, &holes, max_area)
-    else {
+    // SI5 C5b: the lat/long frame is chosen PER PATCH, because the consumer
+    // has no longitude at a pole and the canonical z-up frame put one exactly
+    // on the vertex of the corner blend (a ball octant's `(0, 0, r)`). The
+    // frame is only a parameterization of the same exact patch — boundary
+    // vertices pass through bit-for-bit, Steiner points are on-surface in any
+    // frame — so the frames below are tried in order and the first the
+    // consumer can represent wins; `None` from one means "this
+    // parameterization cannot see the patch", never a different answer. With
+    // `m̂` the mean boundary direction:
+    //
+    // 1. `ê₁ = m̂`, poles on the great circle ⊥ `m̂`: a patch within 90° of its
+    //    own mean direction (every corner blend) sees both poles outside it
+    //    and the seam on the far side — the disk arm.
+    // 2. `ê₃ = m̂`, the pole AT the mean direction: a patch that is the
+    //    COMPLEMENT of a small loop (a sphere with a notch, the KV6d boolean
+    //    output) has its boundary wrapping that pole — the pole-cap arm.
+    // 3. the canonical frame, for a boundary with no usable mean direction.
+    let mut frames: Vec<[[f64; 3]; 3]> = Vec::with_capacity(3);
+    {
+        let mut m = [0.0f64; 3];
+        for p in boundary.iter().chain(holes.iter().flatten()) {
+            let d = [p.x() - c[0], p.y() - c[1], p.z() - c[2]];
+            let l = (d[0] * d[0] + d[1] * d[1] + d[2] * d[2]).sqrt().max(1e-300);
+            m = [m[0] + d[0] / l, m[1] + d[1] / l, m[2] + d[2] / l];
+        }
+        let ml = (m[0] * m[0] + m[1] * m[1] + m[2] * m[2]).sqrt();
+        if ml > 1e-6 * boundary.len() as f64 {
+            let m = [m[0] / ml, m[1] / ml, m[2] / ml];
+            let t = if m[0].abs() < 0.9 {
+                [1.0, 0.0, 0.0]
+            } else {
+                [0.0, 1.0, 0.0]
+            };
+            let raw = [
+                m[1] * t[2] - m[2] * t[1],
+                m[2] * t[0] - m[0] * t[2],
+                m[0] * t[1] - m[1] * t[0],
+            ];
+            let rl = (raw[0] * raw[0] + raw[1] * raw[1] + raw[2] * raw[2]).sqrt();
+            let q = [raw[0] / rl, raw[1] / rl, raw[2] / rl];
+            let cross = |a: [f64; 3], b: [f64; 3]| {
+                [
+                    a[1] * b[2] - a[2] * b[1],
+                    a[2] * b[0] - a[0] * b[2],
+                    a[0] * b[1] - a[1] * b[0],
+                ]
+            };
+            // 1. ê₁ = m̂, ê₃ = q̂ (⊥ m̂), ê₂ = ê₃ × ê₁.
+            frames.push([m, cross(q, m), q]);
+            // 2. ê₃ = m̂, ê₁ = q̂, ê₂ = ê₃ × ê₁.
+            frames.push([q, cross(m, q), m]);
+        }
+    }
+    frames.push([[1.0, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, 1.0]]);
+    let Some((verts, tris)) = frames.iter().find_map(|&frame| {
+        yang_rs::tessellate_sphere_patch_in_frame(
+            center, r, reversed, frame, &boundary, &holes, max_area,
+        )
+    }) else {
         return Err(fail(
-            "sphere patch UV-CDT failed (multi-wrap / pole-crossing boundary — later slice)",
+            "sphere patch UV-CDT failed in every frame (multi-wrap / pole-touching boundary — \
+             later slice)",
         ));
     };
 

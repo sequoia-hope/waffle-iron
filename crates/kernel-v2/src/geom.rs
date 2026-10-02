@@ -281,24 +281,32 @@ pub fn signed_volume(
                         minor_radius,
                         reversed,
                     }) => {
-                        // Two band forms, told apart by what the full-circle
-                        // rims ARE: profile circles (radius = minor, normal ⊥
-                        // axis) make the bent tube of `b2_pipe_sweep.md` §3;
-                        // LATITUDE circles (coaxial with the torus) make the
-                        // SI5 C5a fillet band, which no constructor builds and
-                        // which has its own closed form.
-                        // `all`, not `any`: the closed torus carries both a
-                        // coaxial equator seam and a profile circle.
-                        let latitude =
-                            loop_data
-                                .iter()
-                                .flat_map(|(_, _, c)| c.iter())
-                                .all(|(_, nu, _)| {
-                                    (nu.x * axis_dir.x + nu.y * axis_dir.y + nu.z * axis_dir.z)
-                                        .abs()
-                                        > 0.5
-                                });
-                        flux_f64 += if latitude {
+                        // Three forms, told apart by the full-circle rims. No
+                        // rim at all is the SI5 C5b PATCH of open latitude and
+                        // poloidal arcs (the parameter rectangle). With rims,
+                        // what they ARE decides: profile circles (radius =
+                        // minor, normal ⊥ axis) make the bent tube of
+                        // `b2_pipe_sweep.md` §3; LATITUDE circles (coaxial
+                        // with the torus) make the SI5 C5a fillet band, which
+                        // no constructor builds and which has its own closed
+                        // form. `all`, not `any`: the closed torus carries
+                        // both a coaxial equator seam and a profile circle.
+                        let mut rims = loop_data.iter().flat_map(|(_, _, c)| c.iter()).peekable();
+                        let no_rims = rims.peek().is_none();
+                        let latitude = rims.all(|(_, nu, _)| {
+                            (nu.x * axis_dir.x + nu.y * axis_dir.y + nu.z * axis_dir.z).abs() > 0.5
+                        });
+                        flux_f64 += if no_rims {
+                            torus_arc_patch_flux(
+                                arena,
+                                f,
+                                face,
+                                center,
+                                axis_dir,
+                                major_radius,
+                                minor_radius,
+                            )?
+                        } else if latitude {
                             torus_latitude_band_flux(
                                 arena,
                                 f,
@@ -322,7 +330,19 @@ pub fn signed_volume(
                             )?
                         };
                     }
-                    _ => {
+                    Some(Surface::Sphere {
+                        center,
+                        radius,
+                        reversed,
+                    }) => {
+                        // SI5 C5b: the sphere's first volume term — the patch
+                        // of great/small-circle arcs, by Gauss–Bonnet and the
+                        // vector area (see the helper). The closed modeling
+                        // sphere's seam-slit loop is refused there by name.
+                        flux_f64 +=
+                            sphere_arc_patch_flux(arena, f, face, center, radius, reversed)?;
+                    }
+                    None => {
                         return Err(crate::error::KernelV2Error::CurvedGeometryMismatch {
                             face: f,
                             reason: "signed_volume: arc-bounded face without a typed surface",

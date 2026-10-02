@@ -205,7 +205,11 @@ fn a_reversed_sense_stores_the_outward_normal_not_the_declared_one() {
 }
 
 #[test]
-fn an_unsupported_surface_is_a_typed_capability_refusal() {
+fn a_sphere_bounded_by_straight_edges_is_an_impossible_boundary_not_a_patch() {
+    // Until C5b this was the vocabulary wall ("spherical (C5b)"). The sphere
+    // is in the vocabulary now, so the same shell fails one step later, on the
+    // claim itself: no straight line lies on a sphere, and the on-surface gate
+    // would only ever see the two endpoints of one.
     let mut shell = unit_box();
     shell.faces[0].surface = AnalyticSurface::Sphere {
         center: v(0.0, 0.0, 0.0),
@@ -214,10 +218,10 @@ fn an_unsupported_surface_is_a_typed_capability_refusal() {
     let mut arena = BrepArena::new();
     assert_eq!(
         ingest_analytic(&mut arena, &shell),
-        Err(KernelV2Error::AnalyticIngestUnsupportedSurface {
-            face: 0,
-            surface: "spherical (C5b)",
-        })
+        Err(KernelV2Error::InvalidAnalyticShell(
+            "a line edge bounds a spherical or toroidal face (no straight line lies on either \
+             surface)"
+        ))
     );
 }
 
@@ -1419,81 +1423,322 @@ fn a_torus_latitude_band_is_a_typed_boolean_wall_not_a_bent_tube() {
     }
 }
 
+// ---------------------------------------------------------------------------
+// C5b — torus and sphere patches (spec `si5_c5_sphere_torus_tier.md` §3)
+// ---------------------------------------------------------------------------
+
+const X: Vector3 = Vector3::new(1.0, 0.0, 0.0);
+const Y: Vector3 = Vector3::new(0.0, 1.0, 0.0);
+
+use super::fixtures::{
+    ball_octant, capped_octant, capped_octant_volume, dimpled_cube, quarter_boss,
+    quarter_boss_volume, quarter_puck, translate,
+};
+
+/// Ingest, validate, pin the counts, and check the closed-form volume to
+/// 1e-12 and the render mesh's divergence volume to the chord bound — at the
+/// origin and displaced, so the position-dependent flux terms are exercised.
+fn pin_c5b_fixture(
+    name: &str,
+    shell: AnalyticShellData,
+    want_counts: (usize, usize, usize, usize, usize, usize),
+    want_volume: f64,
+) {
+    for d in [[0.0, 0.0, 0.0], [1.3, -0.7, 0.4]] {
+        let shell = translate(shell.clone(), d);
+        let mut arena = BrepArena::new();
+        let solid = ingest_analytic(&mut arena, &shell)
+            .unwrap_or_else(|e| panic!("{name} at {d:?} ingests: {e:?}"));
+        let report = crate::validate::validate_solid(&arena, solid).expect("validates");
+        assert_eq!(
+            (
+                report.vertices,
+                report.edges,
+                report.faces,
+                report.rings,
+                report.shells,
+                report.genus
+            ),
+            want_counts,
+            "{name} counts"
+        );
+        let vol = geom::signed_volume(&arena, solid).unwrap();
+        assert!(
+            (vol - want_volume).abs() <= 1e-12 * want_volume,
+            "{name} at {d:?}: volume {vol:.17e} vs closed form {want_volume:.17e}"
+        );
+        // The render mesh is inscribed, so it reads LOW by the chord deficit —
+        // once per curvature direction, so a sphere-dominated solid sits near
+        // twice the cylinder's. A region error would not shrink with the
+        // chord: refining the chord tolerance 4× must cut the deficit by at
+        // least 3× (the segment count grows as 1/√tol, the sagitta as 1/n²,
+        // so the deficit is LINEAR in the tolerance — 4× in the limit;
+        // measured 3.9× on every fixture here).
+        let mesh = crate::tessellate::tessellate(&arena, solid)
+            .unwrap_or_else(|e| panic!("{name} at {d:?} tessellates: {e:?}"));
+        let coarse = (mesh_volume(&mesh) - want_volume).abs();
+        assert!(
+            coarse <= 1e-2 * want_volume,
+            "{name} at {d:?}: mesh volume off by {coarse:.3e} of {want_volume:.3e} — beyond any \
+             chord-error bound"
+        );
+        let fine_mesh = crate::tessellate::tessellate_with_chord_tolerance(
+            &arena,
+            solid,
+            crate::tessellate::RENDER_CHORD_TOLERANCE_REL / 4.0,
+        )
+        .unwrap_or_else(|e| panic!("{name} at {d:?} tessellates finely: {e:?}"));
+        let fine = (mesh_volume(&fine_mesh) - want_volume).abs();
+        assert!(
+            fine <= coarse / 3.0,
+            "{name} at {d:?}: mesh deficit {coarse:.3e} → {fine:.3e} at 4× finer chord — not \
+             converging as a chord error does"
+        );
+    }
+}
+
 #[test]
-fn a_torus_patch_is_a_typed_refusal_naming_c5b() {
-    // A quarter of the puck's fillet band as a parameter rectangle — the
-    // corpus's CCCC form — reaches the UV-CDT tessellator but has no volume
-    // term yet; it is named, not guessed. (The shell is only the face.)
+fn a_quarter_puck_ingests_with_its_fillet_as_a_torus_patch() {
+    // Nothing is minted: 8 vertices, 12 edges, 6 faces are the file's own.
     let (rc, h, rho) = (3.0, 5.0, 0.75);
-    let big = rc - rho;
-    let shell = AnalyticShellData {
-        vertices: vec![
-            v(rc, 0.0, h - rho),
-            v(0.0, rc, h - rho),
-            v(0.0, big, h),
-            v(big, 0.0, h),
-        ],
+    pin_c5b_fixture(
+        "quarter puck",
+        quarter_puck(rc, h, rho),
+        (8, 12, 6, 0, 1, 0),
+        rounded_puck_volume(rc, h, rho) / 4.0,
+    );
+}
+
+#[test]
+fn a_quarter_boss_ingests_with_its_concave_fillet_as_a_reversed_torus_patch() {
+    let (l, t, rb, hb, rho) = (4.0, 1.0, 1.5, 2.0, 0.5);
+    pin_c5b_fixture(
+        "quarter boss",
+        quarter_boss(l, t, rb, hb, rho),
+        (14, 21, 9, 0, 1, 0),
+        quarter_boss_volume(l, t, rb, hb, rho),
+    );
+}
+
+#[test]
+fn a_ball_octant_ingests_with_its_spherical_triangle() {
+    let r = 2.0;
+    pin_c5b_fixture(
+        "ball octant",
+        ball_octant(r),
+        (4, 6, 4, 0, 1, 0),
+        PI * r * r * r / 6.0,
+    );
+}
+
+#[test]
+fn a_capped_octant_ingests_with_a_small_circle_arc_on_its_sphere_patch() {
+    let (r, zc) = (2.0, 0.8);
+    pin_c5b_fixture(
+        "capped octant",
+        capped_octant(r, zc),
+        (6, 9, 5, 0, 1, 0),
+        capped_octant_volume(r, zc),
+    );
+}
+
+#[test]
+fn a_dimpled_cube_ingests_with_its_sphere_patch_reversed() {
+    let (l, r) = (3.0, 1.2);
+    pin_c5b_fixture(
+        "dimpled cube",
+        dimpled_cube(l, r),
+        (10, 15, 7, 0, 1, 0),
+        l * l * l - PI * r * r * r / 6.0,
+    );
+    let mut arena = BrepArena::new();
+    ingest_analytic(&mut arena, &dimpled_cube(l, r)).expect("ingests");
+    let reversed = arena
+        .faces
+        .iter()
+        .flatten()
+        .find_map(|f| match f.surface {
+            Some(Surface::Sphere { reversed, .. }) => Some(reversed),
+            _ => None,
+        })
+        .expect("a sphere face");
+    assert!(reversed, "the dimple is a cavity-sense patch");
+}
+
+#[test]
+fn a_patchs_side_still_comes_from_the_files_interior_point_on_a_sphere() {
+    // The C4b rule, on the new surface: move the octant's three arcs'
+    // interior points to the far side of their circles and mirror the whole
+    // document (which reverses every loop) — the arcs are now the OTHER
+    // three-quarter circles. The on-surface gate is blind to it (the same six
+    // endpoints), so the only thing that can notice is the side reading.
+    // The mirrored, far-side shell is not a closed solid any more; the point is
+    // that it is REFUSED, not assembled as the octant.
+    let r = 2.0;
+    let mut shell = ball_octant(r);
+    for e in &mut shell.edges {
+        if let AnalyticCurve::Circle { interior, .. } = &mut e.curve {
+            *interior = v(-interior.x(), -interior.y(), -interior.z());
+        }
+    }
+    let mut arena = BrepArena::new();
+    assert!(
+        ingest_analytic(&mut arena, &shell).is_err(),
+        "the far-side arcs bound no solid and must not ingest as the octant"
+    );
+}
+
+#[test]
+fn a_sphere_band_and_a_windowed_sphere_are_typed_refusals_naming_c5c() {
+    // A zone between two closed latitude circles (spec §2.3, 2 models): the
+    // sense is self-seeding but there is no canonical seam, so it is named.
+    let r: f64 = 2.0;
+    let (z1, z2): (f64, f64) = (-0.5, 0.9);
+    let (a1, a2) = ((r * r - z1 * z1).sqrt(), (r * r - z2 * z2).sqrt());
+    let zone = AnalyticShellData {
+        vertices: vec![v(a1, 0.0, z1), v(a2, 0.0, z2)],
         edges: vec![
-            arc_edge(
-                0,
-                1,
-                v(0.0, 0.0, h - rho),
-                Z,
-                rc,
-                v(rc * 0.5f64.sqrt(), rc * 0.5f64.sqrt(), h - rho),
-            ),
-            arc_edge(
-                1,
-                2,
-                v(0.0, big, h - rho),
-                Vector3::new(1.0, 0.0, 0.0),
-                rho,
-                v(
-                    0.0,
-                    big + rho * 0.5f64.sqrt(),
-                    h - rho + rho * 0.5f64.sqrt(),
-                ),
-            ),
-            arc_edge(
-                2,
-                3,
-                v(0.0, 0.0, h),
-                Z,
-                big,
-                v(big * 0.5f64.sqrt(), big * 0.5f64.sqrt(), h),
-            ),
-            arc_edge(
-                3,
-                0,
-                v(big, 0.0, h - rho),
-                Vector3::new(0.0, 1.0, 0.0),
-                rho,
-                v(
-                    big + rho * 0.5f64.sqrt(),
-                    0.0,
-                    h - rho + rho * 0.5f64.sqrt(),
-                ),
-            ),
+            rim_edge(0, v(0.0, 0.0, z1), Z, a1, v(-a1, 0.0, z1)),
+            rim_edge(1, v(0.0, 0.0, z2), Z, a2, v(-a2, 0.0, z2)),
         ],
         faces: vec![AnalyticFace {
-            surface: AnalyticSurface::Torus {
-                center: v(0.0, 0.0, h - rho),
-                axis_dir: Z,
-                major_radius: big,
-                minor_radius: rho,
+            surface: AnalyticSurface::Sphere {
+                center: v(0.0, 0.0, 0.0),
+                radius: r,
             },
-            loops: vec![AnalyticLoop::Edges(vec![
-                oe(0, true),
-                oe(1, true),
-                oe(2, true),
-                oe(3, true),
-            ])],
+            loops: vec![
+                AnalyticLoop::Edges(vec![oe(0, true)]),
+                AnalyticLoop::Edges(vec![oe(1, true)]),
+            ],
+            same_sense: true,
+        }],
+    };
+    // The windowed sphere (spec §2.5, 3 models): a patch with a closed-circle
+    // ring — a hole drilled into the spherical triangle.
+    let mut windowed = ball_octant(r);
+    let zw = 0.9 * r / 3f64.sqrt();
+    let aw = 0.15 * r;
+    windowed
+        .vertices
+        .push(v(r / 3f64.sqrt() + aw, r / 3f64.sqrt(), zw));
+    windowed.edges.push(rim_edge(
+        4,
+        v(r / 3f64.sqrt(), r / 3f64.sqrt(), zw),
+        Z,
+        aw,
+        v(r / 3f64.sqrt() - aw, r / 3f64.sqrt(), zw),
+    ));
+    windowed.faces[3]
+        .loops
+        .push(AnalyticLoop::Edges(vec![oe(6, true)]));
+    for shell in [zone, windowed] {
+        let mut arena = BrepArena::new();
+        match ingest_analytic(&mut arena, &shell) {
+            Err(KernelV2Error::AnalyticIngestUnsupported(r)) => {
+                assert!(r.contains("C5c"), "{r}")
+            }
+            other => panic!("expected the named C5c refusal, got {other:?}"),
+        }
+    }
+}
+
+#[test]
+fn the_closed_spheres_seam_slit_is_a_typed_refusal_not_a_zero_area_patch() {
+    // Our own exporter's closed sphere: one meridian arc from pole to pole,
+    // used twice in one loop. As a "patch" its boundary doubles back on
+    // itself, and Gauss–Bonnet has no sign for a ±π exterior angle — it would
+    // measure an area of 0, 2πr² or 4πr² depending on a rounding. Named.
+    let r = 2.0;
+    let shell = AnalyticShellData {
+        vertices: vec![v(0.0, 0.0, -r), v(0.0, 0.0, r)],
+        edges: vec![arc_edge(0, 1, v(0.0, 0.0, 0.0), Y, r, v(r, 0.0, 0.0))],
+        faces: vec![AnalyticFace {
+            surface: AnalyticSurface::Sphere {
+                center: v(0.0, 0.0, 0.0),
+                radius: r,
+            },
+            loops: vec![AnalyticLoop::Edges(vec![oe(0, true), oe(0, false)])],
             same_sense: true,
         }],
     };
     let mut arena = BrepArena::new();
     match ingest_analytic(&mut arena, &shell) {
-        Err(KernelV2Error::AnalyticIngestUnsupported(r)) => assert!(r.contains("C5b"), "{r}"),
-        other => panic!("expected the named C5b refusal, got {other:?}"),
+        Err(KernelV2Error::AnalyticIngestUnsupported(reason)) => {
+            assert!(
+                reason.contains("seam slit") && reason.contains("C5c"),
+                "{reason}"
+            )
+        }
+        other => panic!("expected the named seam-slit refusal, got {other:?}"),
+    }
+}
+
+#[test]
+fn an_ingested_torus_patch_is_boolean_eligible() {
+    // Spec §3 called the torus patch a boolean wall; it is not. The M5 torus
+    // arm takes an arc-bounded torus patch (that is what every chained torus
+    // boolean re-enters with), so the ingested quarter puck is a first-class
+    // operand — unlike the C5a band. Pinned with two real booleans, a block
+    // standing through the puck's two discs inside the quarter, and one
+    // straddling its two cut faces; the fillet face meets nothing in either
+    // and survives whole. Union = puck/4 + block − the block's run through
+    // the puck (the x, y ≥ 0 part of its section, over the puck's height).
+    //
+    // Both STOPped before 2026-10-02 in yang Stage 4 — `LocalRefinementRequired`
+    // at the fillet's corner vertex, where the torus is TANGENT to the
+    // cylinder it fillets and the triple Newton onto {torus, cylinder, cut
+    // plane} is rank-deficient by construction. The pair arm already skipped
+    // an operand's own tangent vertex; the triple arm now does too
+    // (`stage4_correct.rs`), because every fillet corner is one.
+    let (rc, h, rho) = (3.0, 5.0, 0.75);
+    for (lo, hi, overlap_section) in [(0.5, 1.5, 1.0), (-1.0, 1.0, 1.0)] {
+        let mut arena = BrepArena::new();
+        let puck = ingest_analytic(&mut arena, &quarter_puck(rc, h, rho)).expect("ingests");
+        let profile = crate::profile::Profile::new(
+            v(0.0, 0.0, -1.0),
+            X,
+            Y,
+            vec![
+                cad_primitives::Point2::new(lo, lo),
+                cad_primitives::Point2::new(hi, lo),
+                cad_primitives::Point2::new(hi, hi),
+                cad_primitives::Point2::new(lo, hi),
+            ],
+            vec![],
+        )
+        .expect("block profile");
+        let block = crate::construct::extrude(&mut arena, &profile, Z, 7.0)
+            .expect("block")
+            .solid;
+        let out = crate::boolean::boolean_op(
+            &mut arena,
+            puck,
+            block,
+            cad_primitives::BoolOp::Union,
+        )
+        .unwrap_or_else(|e| {
+            panic!("block [{lo}, {hi}]²: the ingested torus patch takes part in a boolean: {e:?}")
+        });
+        let vol = geom::signed_volume(&arena, out).unwrap();
+        let side = hi - lo;
+        let want = rounded_puck_volume(rc, h, rho) / 4.0 + side * side * 7.0 - overlap_section * h;
+        assert!(
+            (vol - want).abs() <= 1e-9 * want,
+            "block [{lo}, {hi}]²: union volume {vol:.17e} vs {want:.17e}"
+        );
+    }
+}
+
+#[test]
+fn an_ingested_sphere_patch_is_a_typed_boolean_wall() {
+    // `to_yang_brep`'s sphere arm takes only the pristine closed modeling
+    // sphere; a patch is the typed wall it has been since KV6d.
+    let mut arena = BrepArena::new();
+    let solid = ingest_analytic(&mut arena, &ball_octant(2.0)).expect("ingests");
+    match crate::boolean::to_yang_brep(&arena, solid) {
+        Err(KernelV2Error::UnsupportedCurvedBoolean { reason, .. }) => {
+            assert!(reason.contains("sphere patch"), "{reason}")
+        }
+        other => panic!("expected the typed sphere-patch boolean wall, got {other:?}"),
     }
 }

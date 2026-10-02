@@ -13146,26 +13146,27 @@ fn stage4_relocate_and_correct_inner(
             }
             let partners = &vert_partners[&v];
             let p = mesh.verts[v as usize];
+            // Is the torus TANGENT to `other` at this vertex (parallel
+            // normals)? The note above: at an operand's OWN vertex such a pair
+            // leaves the Newton rank-deficient by construction while the
+            // vertex already lies on the shared rim exactly — nothing to solve.
+            let tangent_to = |other: &Surface| -> bool {
+                match (
+                    surface_distance_and_normal(t_surf, p.as_array()),
+                    surface_distance_and_normal(*other, p.as_array()),
+                ) {
+                    (Some((_, a)), Some((_, b))) => {
+                        let d = a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
+                        1.0 - d * d
+                            <= cad_primitives::MIN_FEATURE_SIZE * cad_primitives::MIN_FEATURE_SIZE
+                    }
+                    _ => false,
+                }
+            };
             let (proj, n0, n1, line_div, slab_div) = match partners.as_slice() {
                 [s1] => {
-                    if !on_curve.contains(&v) {
-                        // An operand's own boundary vertex: skip where the
-                        // pair is tangent there (see the note above).
-                        let tangent = match (
-                            surface_distance_and_normal(t_surf, p.as_array()),
-                            surface_distance_and_normal(*s1, p.as_array()),
-                        ) {
-                            (Some((_, a)), Some((_, b))) => {
-                                let d = a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
-                                1.0 - d * d
-                                    <= cad_primitives::MIN_FEATURE_SIZE
-                                        * cad_primitives::MIN_FEATURE_SIZE
-                            }
-                            _ => false,
-                        };
-                        if tangent {
-                            continue 'torus_verts;
-                        }
+                    if !on_curve.contains(&v) && tangent_to(s1) {
+                        continue 'torus_verts;
                     }
                     if std::env::var_os("YANG_TORUS_PROBE").is_some()
                         && relocate_onto_implicit_pair(p, t_surf, *s1).is_none()
@@ -13204,6 +13205,21 @@ fn stage4_relocate_and_correct_inner(
                     // the PR-KV11 line metric `2·d_ε/|L̂·n_torus|`
                     // (`junction_line_divergence`; R0077, 2026-09-11 — the
                     // curve corridor refused an exact box-edge pierce).
+                    //
+                    // SI5 C5b (2026-10-02): the pair arm's own-vertex tangency
+                    // rule applies here too. A FILLET corner — the torus
+                    // patch's own vertex where it meets its G1 neighbour
+                    // (cylinder, cone or plane) and a third face — is exactly
+                    // such a junction: the triple Newton is rank-deficient at
+                    // every one of them by construction, and the vertex is a
+                    // Stage-1 B-Rep vertex lying on all three surfaces
+                    // exactly. Measured on the ingested quarter puck ∪ a
+                    // block that never touches the fillet: the first STOP was
+                    // this corner. A tangency at a vertex ON the intersection
+                    // curve stays the loud STOP it always was.
+                    if !on_curve.contains(&v) && (tangent_to(s1) || tangent_to(s2)) {
+                        continue 'torus_verts;
+                    }
                     if std::env::var_os("YANG_TORUS_PROBE").is_some()
                         && relocate_onto_implicit_triple(p, t_surf, *s1, *s2).is_none()
                     {

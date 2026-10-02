@@ -638,6 +638,359 @@ pub(crate) fn torus_latitude_band_phis(
     Some((phi_s, phi_s + dphi))
 }
 
+/// Divergence-theorem flux `(1/3)∮ x·n dA` through a torus PATCH — SI5 C5b
+/// (spec `si5_c5_sphere_torus_tier.md` §3): a [`Surface::Torus`] face bounded
+/// by OPEN arcs, each either a LATITUDE arc (axis ∥ `â`, centre on the axis —
+/// `φ` constant along it) or a POLOIDAL arc (radius `r`, centre on the tube
+/// centre circle — `θ` constant along it). The corpus writes every torus
+/// patch as the parameter rectangle `CCCC`, two of each (spec §2.4); the
+/// Green identity below takes any region of that vocabulary, holes included.
+///
+/// Derivation. With `x = C + (R + r cos φ) ŵ(θ) + r sin φ â`,
+/// `ŵ(θ) = cos θ ê₁ + sin θ ê₂`, outward `n = cos φ ŵ + sin φ â` and
+/// `dA = r (R + r cos φ) dθ dφ`, the integrand over the parameter domain is
+///
+/// ```text
+/// f(θ, φ) = r (R + r cos φ) [ (c₁ cos θ + c₂ sin θ) cos φ + c_a sin φ + R cos φ + r ],
+///           c₁ = C·ê₁,  c₂ = C·ê₂,  c_a = C·â.
+/// ```
+///
+/// Green's theorem with `∂F/∂θ = f` turns `∬ f dθ dφ` into `∮ F dφ`, to which
+/// a latitude arc (`dφ = 0`) contributes nothing and a poloidal arc at azimuth
+/// `θ_k` contributes `H(θ_k, φ_end) − H(θ_k, φ_start)`, `∂H/∂φ = F`:
+///
+/// ```text
+/// H(θ, φ) = r [ (c₁ sin θ − c₂ cos θ) K(φ) + θ G(φ) ],
+/// K(φ)    = R sin φ + r (φ/2 + sin 2φ / 4),
+/// G(φ)    = c_a (−R cos φ + (r/2) sin²φ) + (R² + r²) sin φ + Rr (φ/2 + sin 2φ / 4) + Rr φ.
+/// ```
+///
+/// `G` is the latitude band's own antiderivative ([`torus_latitude_band_flux`]):
+/// the band is the rectangle `[0, 2π] × [φ_s, φ_e]`, and this function
+/// reproduces its closed form term for term. The `(θ, φ)` frame is
+/// right-handed about `n`, and a `reversed` face's boundary is walked with
+/// material on its left about `−n` — clockwise in `(θ, φ)` — so the loop
+/// integral's sign flips with the integrand's and the flux is `(1/3) Σ ΔH` for
+/// BOTH senses (the cylinder-patch argument). Each loop's `θ` is unwrapped
+/// along its own walk, and its absolute offset is immaterial: `Σ_loop ΔG = 0`
+/// for a closed loop, and the other term is `θ`-periodic — so the torus's
+/// branch cut is not a case. Anything outside the vocabulary — a Villarceau
+/// arc, a chord, an arc off the surface, a poloidal arc away from the walk's
+/// current azimuth, a loop that winds around the axis or the tube — is a loud
+/// mismatch, never a chord approximation (P9).
+pub(crate) fn torus_arc_patch_flux(
+    arena: &crate::arena::BrepArena,
+    f: crate::arena::FaceId,
+    face: &crate::arena::Face,
+    center: Point3,
+    axis_dir: crate::arena::UnitVector3,
+    major: f64,
+    minor: f64,
+) -> Result<f64, crate::error::KernelV2Error> {
+    use crate::arena::Curve;
+    use std::f64::consts::PI;
+    let mismatch = |reason: &'static str| crate::error::KernelV2Error::CurvedGeometryMismatch {
+        face: f,
+        reason,
+    };
+    let a = [axis_dir.x, axis_dir.y, axis_dir.z];
+    let c = [center.x(), center.y(), center.z()];
+    let dot = |u: [f64; 3], v: [f64; 3]| u[0] * v[0] + u[1] * v[1] + u[2] * v[2];
+    let cross = |u: [f64; 3], v: [f64; 3]| {
+        [
+            u[1] * v[2] - u[2] * v[1],
+            u[2] * v[0] - u[0] * v[2],
+            u[0] * v[1] - u[1] * v[0],
+        ]
+    };
+    // Any frame ⊥ â; the flux is frame-invariant.
+    let e1 = {
+        let t = if a[0].abs() < 0.9 {
+            [1.0, 0.0, 0.0]
+        } else {
+            [0.0, 1.0, 0.0]
+        };
+        let raw = cross(a, t);
+        let l = dot(raw, raw).sqrt();
+        [raw[0] / l, raw[1] / l, raw[2] / l]
+    };
+    let e2 = cross(a, e1);
+    let (c1, c2, ca) = (dot(c, e1), dot(c, e2), dot(c, a));
+    let gfun = |phi: f64| {
+        let (s, co) = phi.sin_cos();
+        ca * (-major * co + 0.5 * minor * s * s)
+            + (major * major + minor * minor) * s
+            + major * minor * (0.5 * phi + 0.25 * (2.0 * phi).sin())
+            + major * minor * phi
+    };
+    let kfun = |phi: f64| major * phi.sin() + minor * (0.5 * phi + 0.25 * (2.0 * phi).sin());
+    let hfun = |theta: f64, phi: f64| {
+        minor * ((c1 * theta.sin() - c2 * theta.cos()) * kfun(phi) + theta * gfun(phi))
+    };
+    let band = 1e-9 * (1.0 + major + minor);
+    // Cylindrical coordinates about the torus axis: (τ, radial vector).
+    let cyl = |p: [f64; 3]| {
+        let d = [p[0] - c[0], p[1] - c[1], p[2] - c[2]];
+        let tau = dot(d, a);
+        (
+            tau,
+            [d[0] - tau * a[0], d[1] - tau * a[1], d[2] - tau * a[2]],
+        )
+    };
+
+    let mut loops = vec![face.outer_loop];
+    loops.extend(face.inner_loops.iter().copied());
+    let mut sum = 0.0f64;
+    for lid in loops {
+        let hes = arena.loop_half_edges(lid)?;
+        let Some(&h0) = hes.first() else {
+            return Err(mismatch("signed_volume: torus patch with an empty loop"));
+        };
+        let p_first = arena.vertex(arena.half_edge(h0)?.origin)?.point;
+        let (_, rad0) = cyl([p_first.x(), p_first.y(), p_first.z()]);
+        if dot(rad0, rad0).sqrt() <= band {
+            return Err(mismatch(
+                "signed_volume: torus patch vertex on the torus axis",
+            ));
+        }
+        // θ of the walk's current vertex, unwrapped along the loop.
+        let mut theta_acc = dot(rad0, e2).atan2(dot(rad0, e1));
+        let mut dtheta_total = 0.0f64;
+        let mut dphi_total = 0.0f64;
+        for &h in &hes {
+            let he = arena.half_edge(h)?;
+            let p0 = arena.vertex(he.origin)?.point;
+            let p1 = arena.vertex(arena.half_edge(he.next)?.origin)?.point;
+            let Curve::Arc {
+                center: cs,
+                normal,
+                radius: ra,
+            } = he.curve
+            else {
+                return Err(mismatch(
+                    "signed_volume: torus patch edge is not a circular arc (latitude or \
+                     poloidal) — no closed form",
+                ));
+            };
+            let nu = [normal.x, normal.y, normal.z];
+            let along = dot(nu, a);
+            let (tau, rad) = cyl([cs.x(), cs.y(), cs.z()]);
+            let rho = dot(rad, rad).sqrt();
+            let Some(sweep) = ccw_sweep(cs, nu, p0, p1) else {
+                return Err(mismatch(
+                    "signed_volume: degenerate torus patch arc endpoints",
+                ));
+            };
+            if along.abs() > 1.0 - 1e-9 {
+                // LATITUDE arc: centred on the axis, its (ρ, τ) on the tube.
+                if rho > band {
+                    return Err(mismatch(
+                        "signed_volume: torus patch latitude arc is not centred on the axis",
+                    ));
+                }
+                if ((ra - major).hypot(tau) - minor).abs() > band {
+                    return Err(mismatch(
+                        "signed_volume: torus patch latitude arc does not lie on the torus",
+                    ));
+                }
+                let dtheta = along.signum() * sweep;
+                theta_acc += dtheta;
+                dtheta_total += dtheta;
+            } else if along.abs() <= 1e-9 {
+                // POLOIDAL arc: the tube circle at one azimuth.
+                if tau.abs() > band || (rho - major).abs() > band || (ra - minor).abs() > band {
+                    return Err(mismatch(
+                        "signed_volume: torus patch poloidal arc is not the tube circle at its \
+                         azimuth",
+                    ));
+                }
+                let ghat = [rad[0] / rho, rad[1] / rho, rad[2] / rho];
+                if dot(nu, ghat).abs() > 1e-9 {
+                    return Err(mismatch(
+                        "signed_volume: torus patch arc is neither latitude nor poloidal \
+                         (a Villarceau circle has no closed form here)",
+                    ));
+                }
+                let theta_c = dot(ghat, e2).atan2(dot(ghat, e1));
+                let wrap = (theta_c - theta_acc + PI).rem_euclid(2.0 * PI) - PI;
+                if wrap.abs() > 1e-9 {
+                    return Err(mismatch(
+                        "signed_volume: torus patch poloidal arc is not at the walk's current \
+                         azimuth",
+                    ));
+                }
+                // CCW about ĝ × â is +φ (∂x/∂φ at φ = 0 is r·â).
+                let m = cross(ghat, a);
+                let s = dot(nu, m).signum();
+                let q0 = [p0.x() - cs.x(), p0.y() - cs.y(), p0.z() - cs.z()];
+                let phi0 = dot(q0, a).atan2(dot(q0, ghat));
+                let phi1 = phi0 + s * sweep;
+                sum += hfun(theta_acc, phi1) - hfun(theta_acc, phi0);
+                dphi_total += s * sweep;
+            } else {
+                return Err(mismatch(
+                    "signed_volume: torus patch arc is neither latitude nor poloidal \
+                     (a Villarceau circle has no closed form here)",
+                ));
+            }
+        }
+        if dtheta_total.abs() > 1e-9 || dphi_total.abs() > 1e-9 {
+            return Err(mismatch(
+                "signed_volume: torus patch loop winds around the axis or the tube — not a \
+                 parameter-plane region",
+            ));
+        }
+    }
+    Ok(sum / 3.0)
+}
+
+/// Divergence-theorem flux `(1/3)∮ x·n dA` through a SPHERE PATCH — SI5 C5b
+/// (spec `si5_c5_sphere_torus_tier.md` §3): a [`Surface::Sphere`] face bounded
+/// by circular arcs, great or small (the corpus's three-fillet corner blend is
+/// `CCC`, spec §2.4).
+///
+/// Derivation. On the sphere `x = C + ρ n` with `n` the unit normal away from
+/// the centre, so `x·n = C·n + ρ` and, with `σ = −1` for a cavity (`reversed`),
+///
+/// ```text
+/// Φ = (1/3) [ σ ρ A + C · ∫ n_out dA ],   ∫ n_out dA = ½ ∮ x × dx.
+/// ```
+///
+/// `A` is the patch area; the vector area is a boundary quantity, walked with
+/// material on the left about `n_out`, so it already carries the face's sense.
+/// Both are closed forms over circular arcs:
+///
+/// - **Vector area.** An arc of radius `a` about centre `c` sweeping `Δ` CCW
+///   about `m̂` from `p₀` to `p₁` contributes `½ [ c × (p₁ − p₀) + a² Δ m̂ ]`.
+/// - **Area by Gauss–Bonnet.** `A = ρ² (2π χ − T)`, `χ = 1 − #holes`, where
+///   `T` is the boundary's total turning about `n_out`. Along an arc the
+///   geodesic curvature is constant: with `h = m̂ · (c − C)` the signed height
+///   of the arc's plane along its own axis (`h² + a² = ρ²`), the binormal of
+///   the CCW-about-`m̂` traversal is `m̂` and `m̂ · n_out = σ h / ρ` at every
+///   point of the arc, so `κ_g = σ h / (a ρ)` and `∫ κ_g ds = σ h Δ / ρ`. At
+///   each vertex the exterior angle is `atan2((T_in × T_out) · n_out, T_in · T_out)`.
+///   A great circle has `h = 0` and turns only at its vertices; a hemisphere
+///   (`T = 0`) gives `A = 2πρ²`, a polar cap at height `h` gives `2πρ(ρ − h)`.
+///
+/// An exterior angle of `±π` — the boundary doubling back on itself, which is
+/// what the closed modeling sphere's seam slit does — has no sign and would
+/// silently measure the wrong region, so it is a loud mismatch; so is a
+/// non-arc edge, an arc off the sphere, or an area outside `(0, 4πρ²)`.
+pub(crate) fn sphere_arc_patch_flux(
+    arena: &crate::arena::BrepArena,
+    f: crate::arena::FaceId,
+    face: &crate::arena::Face,
+    center: Point3,
+    radius: f64,
+    reversed: bool,
+) -> Result<f64, crate::error::KernelV2Error> {
+    use crate::arena::Curve;
+    use std::f64::consts::PI;
+    let mismatch = |reason: &'static str| crate::error::KernelV2Error::CurvedGeometryMismatch {
+        face: f,
+        reason,
+    };
+    let dot = |u: [f64; 3], v: [f64; 3]| u[0] * v[0] + u[1] * v[1] + u[2] * v[2];
+    let cross = |u: [f64; 3], v: [f64; 3]| {
+        [
+            u[1] * v[2] - u[2] * v[1],
+            u[2] * v[0] - u[0] * v[2],
+            u[0] * v[1] - u[1] * v[0],
+        ]
+    };
+    let unit = |u: [f64; 3]| -> Option<[f64; 3]> {
+        let l = dot(u, u).sqrt();
+        (l.is_finite() && l > 0.0).then(|| [u[0] / l, u[1] / l, u[2] / l])
+    };
+    let sigma = if reversed { -1.0 } else { 1.0 };
+    let c = [center.x(), center.y(), center.z()];
+    let band = 1e-9 * (1.0 + radius);
+
+    let mut loops = vec![face.outer_loop];
+    loops.extend(face.inner_loops.iter().copied());
+    let n_holes = face.inner_loops.len() as f64;
+    let mut turning = 0.0f64;
+    let mut vec_area = [0.0f64; 3];
+    for lid in loops {
+        let hes = arena.loop_half_edges(lid)?;
+        // (arc centre, CCW axis, start, end) per edge, for the vertex angles.
+        let mut arcs: Vec<([f64; 3], [f64; 3], Point3, Point3)> = Vec::with_capacity(hes.len());
+        for &h in &hes {
+            let he = arena.half_edge(h)?;
+            let p0 = arena.vertex(he.origin)?.point;
+            let p1 = arena.vertex(arena.half_edge(he.next)?.origin)?.point;
+            let Curve::Arc {
+                center: cs,
+                normal,
+                radius: ra,
+            } = he.curve
+            else {
+                return Err(mismatch(
+                    "signed_volume: sphere patch edge is not a circular arc — no closed form",
+                ));
+            };
+            let nu = [normal.x, normal.y, normal.z];
+            let csv = [cs.x(), cs.y(), cs.z()];
+            let d = [csv[0] - c[0], csv[1] - c[1], csv[2] - c[2]];
+            let hgt = dot(d, nu);
+            let off = [d[0] - hgt * nu[0], d[1] - hgt * nu[1], d[2] - hgt * nu[2]];
+            if dot(off, off).sqrt() > band {
+                return Err(mismatch(
+                    "signed_volume: sphere patch arc's circle is not centred on the sphere's \
+                     diameter along its own axis",
+                ));
+            }
+            if (hgt * hgt + ra * ra - radius * radius).abs() > band * radius {
+                return Err(mismatch(
+                    "signed_volume: sphere patch arc does not lie on the sphere",
+                ));
+            }
+            let Some(sweep) = ccw_sweep(cs, nu, p0, p1) else {
+                return Err(mismatch(
+                    "signed_volume: degenerate sphere patch arc endpoints",
+                ));
+            };
+            turning += sigma * hgt * sweep / radius;
+            let dp = [p1.x() - p0.x(), p1.y() - p0.y(), p1.z() - p0.z()];
+            let cx = cross(csv, dp);
+            for k in 0..3 {
+                vec_area[k] += 0.5 * (cx[k] + ra * ra * sweep * nu[k]);
+            }
+            arcs.push((csv, nu, p0, p1));
+        }
+        for i in 0..arcs.len() {
+            let (ci, ni, _, pe) = arcs[i];
+            let (cj, nj, ps, _) = arcs[(i + 1) % arcs.len()];
+            let (Some(t_in), Some(t_out), Some(n_at)) = (
+                unit(cross(ni, [pe.x() - ci[0], pe.y() - ci[1], pe.z() - ci[2]])),
+                unit(cross(nj, [ps.x() - cj[0], ps.y() - cj[1], ps.z() - cj[2]])),
+                unit([pe.x() - c[0], pe.y() - c[1], pe.z() - c[2]]),
+            ) else {
+                return Err(mismatch(
+                    "signed_volume: degenerate tangent at a sphere patch vertex",
+                ));
+            };
+            let n_out = [sigma * n_at[0], sigma * n_at[1], sigma * n_at[2]];
+            let ext = dot(cross(t_in, t_out), n_out).atan2(dot(t_in, t_out));
+            if PI - ext.abs() <= 1e-9 {
+                return Err(mismatch(
+                    "signed_volume: sphere patch boundary reverses direction at a vertex (a \
+                     seam slit has no area sign)",
+                ));
+            }
+            turning += ext;
+        }
+    }
+    let area = radius * radius * (2.0 * PI * (1.0 - n_holes) - turning);
+    let full = 4.0 * PI * radius * radius;
+    if !(area > 0.0 && area < full * (1.0 + 1e-9)) {
+        return Err(mismatch(
+            "signed_volume: sphere patch boundary turning gives no area in (0, 4πr²)",
+        ));
+    }
+    Ok((sigma * radius * area + dot(c, vec_area)) / 3.0)
+}
+
 /// Public alias of [`torus_latitude_band_phis`] for the SI5 harness probes.
 #[allow(clippy::too_many_arguments)]
 pub fn torus_latitude_band_phis_pub(
