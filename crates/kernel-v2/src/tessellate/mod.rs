@@ -226,11 +226,17 @@ pub fn tessellate_with_chord_tolerance(
                         tessellate_cone_patch(arena, f, n_seg, &mut mesh)?
                     }
                 }
-                Some(Surface::Torus { .. }) => {
-                    // Canonical modeling lateral (structured seam-arc loop, KV6d
-                    // 1-3) vs a boolean-output patch (trimmed polyline boundary,
-                    // KV6d 5b2 — delegated to yang-rs's UV-CDT consumer).
-                    if face_has_circle_edge(arena, f)? {
+                Some(Surface::Torus { axis_dir, .. }) => {
+                    // Three forms, told apart by the full-circle edges. A
+                    // LATITUDE rim (coaxial with the torus) is the SI5 C5a
+                    // fillet band; a profile rim is the canonical modeling
+                    // lateral (structured seam-arc loop, KV6d 1-3); no full
+                    // circle is a boolean-output patch (trimmed polyline
+                    // boundary, KV6d 5b2 — delegated to yang-rs's UV-CDT
+                    // consumer).
+                    if torus_face_is_latitude_band(arena, f, axis_dir)? {
+                        tessellate_torus_latitude_band(arena, f, n_seg, &mut mesh)?
+                    } else if face_has_circle_edge(arena, f)? {
                         tessellate_torus_lateral(arena, f, n_seg, &mut mesh)?
                     } else {
                         tessellate_torus_patch(arena, f, n_seg, &mut mesh)?
@@ -377,6 +383,34 @@ fn planar_face_is_canonical_cap(arena: &BrepArena, fid: FaceId) -> Result<bool, 
 }
 
 /// Does any loop of the face carry a `Curve::Circle` half-edge?
+/// Is this torus face a LATITUDE band — every full-circle edge COAXIAL with
+/// the torus, the SI5 C5a fillet form? A profile rim (normal ⊥ axis) makes
+/// the bent-tube lateral instead, and the CLOSED torus carries both (its
+/// outer-equator seam circle is coaxial, its profile circle is not), so the
+/// test is `all`, not `any`.
+fn torus_face_is_latitude_band(
+    arena: &BrepArena,
+    fid: FaceId,
+    axis_dir: UnitVector3,
+) -> Result<bool, KernelV2Error> {
+    let face = arena.face(fid)?;
+    let mut loops = vec![face.outer_loop];
+    loops.extend(face.inner_loops.iter().copied());
+    let mut circles = 0usize;
+    for lid in loops {
+        for h in arena.loop_half_edges(lid)? {
+            if let Curve::Circle { normal, .. } = arena.half_edge(h)?.curve {
+                circles += 1;
+                let along = normal.x * axis_dir.x + normal.y * axis_dir.y + normal.z * axis_dir.z;
+                if along.abs() <= 0.5 {
+                    return Ok(false);
+                }
+            }
+        }
+    }
+    Ok(circles > 0)
+}
+
 fn face_has_circle_edge(arena: &BrepArena, fid: FaceId) -> Result<bool, KernelV2Error> {
     let face = arena.face(fid)?;
     let mut loops = vec![face.outer_loop];

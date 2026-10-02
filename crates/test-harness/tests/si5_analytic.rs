@@ -275,6 +275,78 @@ fn export(name: &str, build: Build) -> String {
 /// A fixture's builder: fills a fresh arena and returns the solid to export.
 type Build = fn(&mut BrepArena) -> SolidId;
 
+/// SI5 C5a: a ROUNDED PUCK — a cylinder whose top edge is filleted, so its
+/// fillet is a torus LATITUDE band (two closed circles coaxial with the
+/// torus), the corpus's own fillet form and one no kernel-v2 constructor
+/// builds. It therefore enters the arena through `ingest_analytic` itself,
+/// from the shell an exchange file would write; the exported fixture then
+/// carries the arena's seamed form with a poloidal ARC seam, which is what
+/// the round trip has to accept back.
+fn rounded_puck(arena: &mut BrepArena) -> SolidId {
+    use waffle_types::kernel::{
+        AnalyticCurve, AnalyticEdge, AnalyticFace, AnalyticLoop, AnalyticShellData,
+        AnalyticSurface, OrientedEdge,
+    };
+    let (rc, h, rho) = (0.030, 0.050, 0.0075);
+    let big = rc - rho;
+    let z = Vector3::new(0.0, 0.0, 1.0);
+    let p = |x: f64, y: f64, zz: f64| Point3::new(x, y, zz);
+    let rim = |anchor: u32, center: Point3, radius: f64| AnalyticEdge {
+        start: anchor,
+        end: anchor,
+        curve: AnalyticCurve::Circle {
+            center,
+            normal: z,
+            radius,
+            interior: p(-radius, 0.0, center.z()),
+        },
+    };
+    let oe = |edge: u32, forward: bool| OrientedEdge { edge, forward };
+    let plane = |origin: Point3, same_sense: bool, loop_edges: Vec<OrientedEdge>| AnalyticFace {
+        surface: AnalyticSurface::Plane { origin, normal: z },
+        loops: vec![AnalyticLoop::Edges(loop_edges)],
+        same_sense,
+    };
+    let shell = AnalyticShellData {
+        vertices: vec![p(rc, 0.0, 0.0), p(rc, 0.0, h - rho), p(big, 0.0, h)],
+        edges: vec![
+            rim(0, p(0.0, 0.0, 0.0), rc),
+            rim(1, p(0.0, 0.0, h - rho), rc),
+            rim(2, p(0.0, 0.0, h), big),
+        ],
+        faces: vec![
+            plane(p(0.0, 0.0, 0.0), false, vec![oe(0, false)]),
+            AnalyticFace {
+                surface: AnalyticSurface::Cylinder {
+                    axis_point: p(0.0, 0.0, 0.0),
+                    axis_dir: z,
+                    radius: rc,
+                },
+                loops: vec![
+                    AnalyticLoop::Edges(vec![oe(0, true)]),
+                    AnalyticLoop::Edges(vec![oe(1, true)]),
+                ],
+                same_sense: true,
+            },
+            AnalyticFace {
+                surface: AnalyticSurface::Torus {
+                    center: p(0.0, 0.0, h - rho),
+                    axis_dir: z,
+                    major_radius: big,
+                    minor_radius: rho,
+                },
+                loops: vec![
+                    AnalyticLoop::Edges(vec![oe(1, false)]),
+                    AnalyticLoop::Edges(vec![oe(2, true)]),
+                ],
+                same_sense: true,
+            },
+            plane(p(0.0, 0.0, h), true, vec![oe(2, false)]),
+        ],
+    };
+    kernel_v2::ingest_analytic(arena, &shell).expect("the rounded puck ingests")
+}
+
 const FIXTURES: &[(&str, Build)] = &[
     ("cylinder", cylinder),
     ("cone", cone),
@@ -284,6 +356,7 @@ const FIXTURES: &[(&str, Build)] = &[
     ("drilled_block", drilled_block),
     ("block", block),
     ("slotted_block", slotted_block),
+    ("rounded_puck", rounded_puck),
 ];
 
 /// The fixtures the ingest path accepts, with their builders and their
@@ -303,6 +376,12 @@ const INGESTED_FIXTURES: &[(&str, Build, Counts)] = &[
     // A block with a through bore: the bore's two rims are RINGS of the caps,
     // which is the `reversed` cavity orientation case a cap cannot exercise.
     ("drilled_block", drilled_block, (10, 15, 7, 2, 1, 1)),
+    // C5a, the torus latitude band: three anchors, three rims plus two minted
+    // seams (the torus's a poloidal arc), four faces. The fixture was written
+    // by the ingest path (there is no constructor for a fillet), so the
+    // comparison below is ingest-vs-reingest; the Pappus closed form is pinned
+    // in kernel-v2's own `ingest::tests`.
+    ("rounded_puck", rounded_puck, (3, 5, 4, 0, 1, 0)),
 ];
 
 /// The fixtures the ingest path must REFUSE, with the reason that walls each.
@@ -311,14 +390,21 @@ const INGESTED_FIXTURES: &[(&str, Build, Counts)] = &[
 /// later checkpoint lands the capability, the row MOVES to
 /// [`INGESTED_FIXTURES`] in the same commit (a stale wall is itself a defect).
 const UNSUPPORTED_FIXTURES: &[(&str, &str)] = &[
-    ("sphere", "surface: spherical"),
-    ("torus", "surface: toroidal"),
+    ("sphere", "surface: spherical (C5b)"),
+    // The CLOSED torus: one loop of four closed circles (aba⁻¹b⁻¹), neither a
+    // latitude band nor the seamed lateral — C5c's bent-tube / closed forms.
+    (
+        "torus",
+        "a loop mixes a full circle with other edges and is not the canonical [rim, seam, \
+         rim, seam] lateral",
+    ),
     // The apex cone's lateral has ONE rim and a singular point, not a band.
     // The corpus writes that shape with a `VERTEX_LOOP`, which C2 refuses
     // file-wide (spec §5.3), so it has no customer before C5.
     (
         "cone",
-        "a curved face is not a full band of two closed rims (C4b partial patch)",
+        "a curved face is neither a full band of two closed rims nor a patch of open edges \
+         (an unclosed or holed band)",
     ),
 ];
 
@@ -373,6 +459,10 @@ fn analytic_fixtures_carry_the_entities_si5_extracts() {
         ),
         ("block", &["PLANE", "LINE"]),
         ("slotted_block", &["PLANE", "LINE", "FACE_BOUND"]),
+        (
+            "rounded_puck",
+            &["TOROIDAL_SURFACE", "CYLINDRICAL_SURFACE", "PLANE", "CIRCLE"],
+        ),
     ];
     // `block` and `slotted_block` earn their place by carrying NO curve and NO
     // curved surface — that is what makes them the C3 tier's inputs rather
@@ -1249,6 +1339,174 @@ fn c4b_arc_patch_census() {
     assert!(scanned > 0, "no models scanned under {dir}");
 }
 
+/// Spec §8 oracle 5, run over the corpus: the same file ingested EXACTLY and
+/// tessellated by truck's mesh tier must agree in volume to the chord-error
+/// bound. The two paths share nothing — truck trims and triangulates each
+/// face with its own machinery — so a wrong region on a curved face (the
+/// three-quarter round in place of the fillet, a bore wall's cavity sense
+/// inverted) shows up here as a volume disagreement far outside the ~1e-3
+/// chord band, without any fixture having to anticipate it.
+///
+///     ABC_DIR=/tmp/abc/chunk0000 ABC_N=400 \
+///         cargo test -p test-harness --test si5_analytic --release \
+///         -- --ignored --nocapture ingested_volume_agrees_with_the_mesh_tier
+///
+/// Reported per tier (planar / curved / torus-bearing) so the sensitivity of
+/// the check is visible: a fillet is a small fraction of its part, so the
+/// torus bucket's max is the number to read.
+#[test]
+#[ignore = "corpus: needs ABC_DIR (scripts/fetch-abc-corpus.sh)"]
+fn ingested_volume_agrees_with_the_mesh_tier() {
+    use waffle_types::kernel::{AnalyticCurve, AnalyticSurface};
+
+    let Ok(dir) = std::env::var("ABC_DIR") else {
+        eprintln!("ABC_DIR unset — skipping");
+        return;
+    };
+    let n: usize = std::env::var("ABC_N")
+        .ok()
+        .and_then(|s| s.parse().ok())
+        .unwrap_or(200);
+    let max_bytes: u64 = std::env::var("ABC_MAX_BYTES")
+        .ok()
+        .and_then(|s| s.parse().ok())
+        .unwrap_or(2_000_000);
+
+    // Divergence-theorem volume of truck's per-face triangle soup. No weld
+    // needed: each triangle's `det/6` term is independent of vertex sharing,
+    // and the soup is closed up to coincident boundary runs.
+    fn mesh_tier_volume(body: &waffle_types::kernel::import::ImportedBodyData) -> f64 {
+        let mut six = 0.0;
+        for shell in &body.shells {
+            for face in &shell.faces {
+                let p = |i: u32| {
+                    let k = i as usize * 3;
+                    [
+                        face.positions[k],
+                        face.positions[k + 1],
+                        face.positions[k + 2],
+                    ]
+                };
+                for t in face.indices.chunks_exact(3) {
+                    let (a, b, c) = (p(t[0]), p(t[1]), p(t[2]));
+                    six += a[0] * (b[1] * c[2] - b[2] * c[1]) - a[1] * (b[0] * c[2] - b[2] * c[0])
+                        + a[2] * (b[0] * c[1] - b[1] * c[0]);
+                }
+            }
+        }
+        six / 6.0
+    }
+
+    let prev_hook = std::panic::take_hook();
+    std::panic::set_hook(Box::new(|_| {}));
+
+    let mut scanned = 0usize;
+    // (tier, model, rel deviation)
+    let mut rows: Vec<(&'static str, String, f64)> = Vec::new();
+    let mut mesh_failed = 0usize;
+    for path in corpus_files(&dir) {
+        if scanned >= n {
+            break;
+        }
+        let Ok(md) = std::fs::metadata(&path) else {
+            continue;
+        };
+        if md.len() > max_bytes {
+            continue;
+        }
+        let Ok(text) = std::fs::read_to_string(&path) else {
+            continue;
+        };
+        scanned += 1;
+        let id = path
+            .file_stem()
+            .map(|s| s.to_string_lossy().to_string())
+            .unwrap_or_default();
+        let parsed = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            step_import::parse_step_analytic(&text, &id)
+        }));
+        let Ok(Ok(import)) = parsed else { continue };
+        let Some(shells) = import
+            .shells
+            .iter()
+            .map(|s| s.as_ref().ok())
+            .collect::<Option<Vec<_>>>()
+        else {
+            continue;
+        };
+        let mut arena = BrepArena::new();
+        let mut exact = 0.0;
+        let mut ok = true;
+        for shell in &shells {
+            match kernel_v2::ingest_analytic(&mut arena, shell) {
+                Ok(solid) => exact += kernel_v2::geom::signed_volume(&arena, solid).unwrap(),
+                Err(_) => {
+                    ok = false;
+                    break;
+                }
+            }
+        }
+        if !ok {
+            continue;
+        }
+        let tier = if shells.iter().any(|s| {
+            s.faces
+                .iter()
+                .any(|f| matches!(f.surface, AnalyticSurface::Torus { .. }))
+        }) {
+            "torus-bearing (C5a)"
+        } else if shells.iter().any(|s| {
+            s.edges
+                .iter()
+                .any(|e| !matches!(e.curve, AnalyticCurve::Line))
+        }) {
+            "curved (C4a/C4b)"
+        } else {
+            "planar (C3)"
+        };
+        let mesh = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            step_import::parse_step(&text, &id)
+        }));
+        let Ok(Ok(body)) = mesh else {
+            mesh_failed += 1;
+            continue;
+        };
+        let mv = mesh_tier_volume(&body);
+        let rel = (exact - mv).abs() / exact.abs().max(1e-300);
+        rows.push((tier, id, rel));
+    }
+    std::panic::set_hook(prev_hook);
+
+    eprintln!(
+        "\nSI5 EXACT vs MESH-TIER VOLUME over {scanned} models ({mesh_failed} mesh-tier failures)"
+    );
+    for tier in ["planar (C3)", "curved (C4a/C4b)", "torus-bearing (C5a)"] {
+        let mut v: Vec<f64> = rows.iter().filter(|r| r.0 == tier).map(|r| r.2).collect();
+        if v.is_empty() {
+            eprintln!("  {tier:<22} (none)");
+            continue;
+        }
+        v.sort_by(|a, b| a.partial_cmp(b).unwrap());
+        let q = |f: f64| v[((v.len() - 1) as f64 * f) as usize];
+        eprintln!(
+            "  {tier:<22} n={:<4} rel |exact − mesh|: p50 {:.2e}  p90 {:.2e}  max {:.2e}",
+            v.len(),
+            q(0.5),
+            q(0.9),
+            q(1.0)
+        );
+    }
+    let mut outliers: Vec<_> = rows.iter().filter(|r| r.2 > 2e-2).collect();
+    outliers.sort_by(|a, b| b.2.partial_cmp(&a.2).unwrap());
+    if !outliers.is_empty() {
+        eprintln!("  OUTLIERS (> 2e-2 — a chord band cannot explain these):");
+        for (tier, id, rel) in outliers.iter().take(20) {
+            eprintln!("    {rel:.3e}  {id}  [{tier}]");
+        }
+    }
+    assert!(scanned > 0, "no models scanned under {dir}");
+}
+
 /// SI5 C5-M: the boundary FORMS of spherical and toroidal faces in the corpus,
 /// measured before any C5 code — the same discipline that redirected C4b twice
 /// (`specs/si5_c4b_arc_patch_tier.md` §5).
@@ -2044,7 +2302,7 @@ fn ingestion_over_the_corpus() {
     }
     std::panic::set_hook(prev_hook);
 
-    eprintln!("\nSI5 C3+C4a+C4b INGESTION over {scanned} models (<= {max_bytes} bytes)");
+    eprintln!("\nSI5 C3+C4a+C4b+C5a INGESTION over {scanned} models (<= {max_bytes} bytes)");
     eprintln!(
         "  ingested              {ingested}  ({:.1} %)  -> {solids} solids, {faces} faces",
         100.0 * ingested as f64 / scanned.max(1) as f64
@@ -2091,4 +2349,208 @@ fn ingestion_over_the_corpus() {
          tolerance to widen",
         in_vocab - in_vocab_ingested
     );
+}
+
+/// Anchor one model from the exact-vs-mesh-tier oracle: per-face fluxes from
+/// our own render mesh (fine chord tolerance, so ≈ the exact per-face term)
+/// beside truck's per-face mesh fluxes, both sorted by magnitude, so a face
+/// whose region differs between the two tiers stands out by name.
+///
+///     ABC_DIR=… ABC_CASE=00000103_52f7124261ae4c558f800775_step_000 \
+///         cargo test -p test-harness --test si5_analytic --release \
+///         -- --ignored --nocapture si5_volume_probe
+#[test]
+#[ignore = "probe: needs ABC_DIR and ABC_CASE"]
+fn si5_volume_probe() {
+    let (Ok(dir), Ok(case)) = (std::env::var("ABC_DIR"), std::env::var("ABC_CASE")) else {
+        eprintln!("ABC_DIR / ABC_CASE unset — skipping");
+        return;
+    };
+    let path = corpus_files(&dir)
+        .into_iter()
+        .find(|p| p.file_stem().is_some_and(|s| s.to_string_lossy() == case))
+        .expect("case in corpus");
+    let text = std::fs::read_to_string(&path).unwrap();
+    let import = step_import::parse_step_analytic(&text, &case).unwrap();
+    let mut arena = BrepArena::new();
+    let mut exact = 0.0;
+    let mut solids = Vec::new();
+    for shell in &import.shells {
+        let shell = shell.as_ref().unwrap();
+        let s = kernel_v2::ingest_analytic(&mut arena, shell).unwrap();
+        exact += kernel_v2::geom::signed_volume(&arena, s).unwrap();
+        solids.push(s);
+    }
+    let tri_flux = |a: [f64; 3], b: [f64; 3], c: [f64; 3]| {
+        (a[0] * (b[1] * c[2] - b[2] * c[1]) - a[1] * (b[0] * c[2] - b[2] * c[0])
+            + a[2] * (b[0] * c[1] - b[1] * c[0]))
+            / 6.0
+    };
+    eprintln!("exact volume {exact:.9e}");
+    for (rel, label) in [(1e-3, "default"), (1e-5, "fine")] {
+        let mut ours = 0.0;
+        let mut per_face: Vec<(f64, String)> = Vec::new();
+        for &s in &solids {
+            let mesh =
+                kernel_v2::tessellate::tessellate_with_chord_tolerance(&arena, s, rel).unwrap();
+            let p = |i: u32| {
+                let k = i as usize * 3;
+                [
+                    mesh.positions[k],
+                    mesh.positions[k + 1],
+                    mesh.positions[k + 2],
+                ]
+            };
+            for fr in &mesh.face_ranges {
+                let mut f = 0.0;
+                for t in
+                    mesh.indices[fr.start as usize..(fr.start + fr.count) as usize].chunks_exact(3)
+                {
+                    f += tri_flux(p(t[0]), p(t[1]), p(t[2]));
+                }
+                ours += f;
+                let face = arena.face(fr.face).unwrap();
+                let surf = match face.surface {
+                    Some(kernel_v2::Surface::Plane(_)) => "plane".to_string(),
+                    Some(kernel_v2::Surface::Cylinder { reversed, .. }) => {
+                        format!("cyl rev={reversed}")
+                    }
+                    Some(kernel_v2::Surface::Cone { reversed, .. }) => {
+                        format!("cone rev={reversed}")
+                    }
+                    Some(kernel_v2::Surface::Torus {
+                        reversed,
+                        major_radius,
+                        minor_radius,
+                        ..
+                    }) => {
+                        format!("torus rev={reversed} R={major_radius:.4e} r={minor_radius:.4e}")
+                    }
+                    Some(kernel_v2::Surface::Sphere { .. }) => "sphere".to_string(),
+                    _ => "?".to_string(),
+                };
+                per_face.push((f, format!("{surf} tris={}", fr.count / 3)));
+            }
+        }
+        eprintln!(
+            "our mesh ({label} rel {rel:.0e}) volume {ours:.9e}  rel dev {:.3e}",
+            (ours - exact).abs() / exact.abs()
+        );
+        if label == "fine" {
+            per_face.sort_by(|a, b| b.0.abs().partial_cmp(&a.0.abs()).unwrap());
+            eprintln!("  our per-face fluxes (fine):");
+            for (f, d) in per_face.iter().take(40) {
+                eprintln!("    {f:+.6e}  {d}");
+            }
+        }
+    }
+    let body = step_import::parse_step(&text, &case).unwrap();
+    let mut truck = 0.0;
+    let mut per_face: Vec<(f64, usize)> = Vec::new();
+    for shell in &body.shells {
+        for face in &shell.faces {
+            let p = |i: u32| {
+                let k = i as usize * 3;
+                [
+                    face.positions[k],
+                    face.positions[k + 1],
+                    face.positions[k + 2],
+                ]
+            };
+            let mut f = 0.0;
+            for t in face.indices.chunks_exact(3) {
+                f += tri_flux(p(t[0]), p(t[1]), p(t[2]));
+            }
+            truck += f;
+            per_face.push((f, face.indices.len() / 3));
+        }
+    }
+    per_face.sort_by(|a, b| b.0.abs().partial_cmp(&a.0.abs()).unwrap());
+    eprintln!(
+        "truck mesh volume {truck:.9e}  rel dev {:.3e}",
+        (truck - exact).abs() / exact.abs()
+    );
+    eprintln!("  truck per-face fluxes:");
+    for (f, n) in per_face.iter().take(40) {
+        eprintln!("    {f:+.6e}  tris={n}");
+    }
+    // REGION check, independent of volume: for every torus face of ours,
+    // the poloidal interval the exact path chose, beside the poloidal range
+    // truck's OWN vertices occupy on that torus (any truck face whose
+    // vertices all lie on it). A region mismatch is a φ-range mismatch.
+    for (fi, face) in arena.faces.iter().enumerate() {
+        let Some(face) = face else { continue };
+        let Some(kernel_v2::Surface::Torus {
+            center,
+            axis_dir,
+            major_radius,
+            minor_radius,
+            reversed,
+        }) = face.surface
+        else {
+            continue;
+        };
+        let a = [axis_dir.x, axis_dir.y, axis_dir.z];
+        let phi_of = |p: [f64; 3]| {
+            let d = [p[0] - center.x(), p[1] - center.y(), p[2] - center.z()];
+            let tau = d[0] * a[0] + d[1] * a[1] + d[2] * a[2];
+            let rad = [d[0] - tau * a[0], d[1] - tau * a[1], d[2] - tau * a[2]];
+            let rho = (rad[0] * rad[0] + rad[1] * rad[1] + rad[2] * rad[2]).sqrt();
+            let res = ((rho - major_radius).hypot(tau) - minor_radius).abs();
+            (tau.atan2(rho - major_radius), res)
+        };
+        // Ours: the rims' φ, start first (the flux's own reader).
+        let ours = kernel_v2::geom::torus_latitude_band_phis_pub(
+            &arena,
+            face,
+            center,
+            a,
+            major_radius,
+            minor_radius,
+            reversed,
+        );
+        let mut truck_ranges = Vec::new();
+        for shell in &body.shells {
+            for tf in &shell.faces {
+                let n = tf.positions.len() / 3;
+                if n == 0 {
+                    continue;
+                }
+                let mut phis = Vec::with_capacity(n);
+                let mut on = true;
+                for i in 0..n {
+                    let (phi, res) = phi_of([
+                        tf.positions[3 * i],
+                        tf.positions[3 * i + 1],
+                        tf.positions[3 * i + 2],
+                    ]);
+                    if res > 1e-6 * minor_radius.max(1e-3) {
+                        on = false;
+                        break;
+                    }
+                    phis.push(phi);
+                }
+                if on {
+                    // Range as a CCW interval from the minimum, so a range
+                    // straddling ±π still reads as one span.
+                    phis.sort_by(|x, y| x.partial_cmp(y).unwrap());
+                    let mut best = (0.0, phis[0]);
+                    for k in 0..phis.len() {
+                        let gap = (phis[(k + 1) % phis.len()] - phis[k]).rem_euclid(2.0 * PI);
+                        if gap > best.0 {
+                            best = (gap, phis[(k + 1) % phis.len()]);
+                        }
+                    }
+                    let lo = best.1;
+                    let span = 2.0 * PI - best.0;
+                    truck_ranges.push((lo, lo + span, n));
+                }
+            }
+        }
+        eprintln!(
+            "  torus face {fi} rev={reversed}: OUR region φ ∈ {:?}; truck vertex spans on this torus: {:?}",
+            ours,
+            truck_ranges
+        );
+    }
 }

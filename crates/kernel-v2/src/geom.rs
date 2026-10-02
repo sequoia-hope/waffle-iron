@@ -14,6 +14,7 @@ mod conics;
 mod flux;
 mod loop_area;
 pub(crate) use conics::*;
+pub use flux::torus_latitude_band_phis_pub;
 pub(crate) use flux::*;
 pub(crate) use loop_area::*;
 
@@ -280,18 +281,46 @@ pub fn signed_volume(
                         minor_radius,
                         reversed,
                     }) => {
-                        // Spec `b2_pipe_sweep.md` §3: the bent-tube band
-                        // (two full profile rims + a seam-arc twin pair).
-                        flux_f64 += torus_band_flux(
-                            arena,
-                            f,
-                            face,
-                            center,
-                            axis_dir,
-                            major_radius,
-                            minor_radius,
-                            reversed,
-                        )?;
+                        // Two band forms, told apart by what the full-circle
+                        // rims ARE: profile circles (radius = minor, normal ⊥
+                        // axis) make the bent tube of `b2_pipe_sweep.md` §3;
+                        // LATITUDE circles (coaxial with the torus) make the
+                        // SI5 C5a fillet band, which no constructor builds and
+                        // which has its own closed form.
+                        // `all`, not `any`: the closed torus carries both a
+                        // coaxial equator seam and a profile circle.
+                        let latitude =
+                            loop_data
+                                .iter()
+                                .flat_map(|(_, _, c)| c.iter())
+                                .all(|(_, nu, _)| {
+                                    (nu.x * axis_dir.x + nu.y * axis_dir.y + nu.z * axis_dir.z)
+                                        .abs()
+                                        > 0.5
+                                });
+                        flux_f64 += if latitude {
+                            torus_latitude_band_flux(
+                                arena,
+                                f,
+                                face,
+                                center,
+                                axis_dir,
+                                major_radius,
+                                minor_radius,
+                                reversed,
+                            )?
+                        } else {
+                            torus_band_flux(
+                                arena,
+                                f,
+                                face,
+                                center,
+                                axis_dir,
+                                major_radius,
+                                minor_radius,
+                                reversed,
+                            )?
+                        };
                     }
                     _ => {
                         return Err(crate::error::KernelV2Error::CurvedGeometryMismatch {

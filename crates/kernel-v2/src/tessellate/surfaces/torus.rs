@@ -465,3 +465,244 @@ pub(crate) fn tessellate_torus_patch(
     });
     Ok(())
 }
+
+/// Tessellate a torus LATITUDE BAND — SI5 C5a (spec
+/// `si5_c5_sphere_torus_tier.md` §3): a [`Surface::Torus`] face between two
+/// closed circles coaxial with the torus, the fillet around a boss or a hole.
+/// The outer loop is `[rim, seam, rim, seam]` with a poloidal seam-arc twin
+/// pair (the ingest path's minted fake edge), no inner loops.
+///
+/// A `(θ × φ)` quad grid: θ wraps the full turn (the closed-torus row recipe —
+/// no duplicated seam column), φ runs from the START rim to the end rim, the
+/// region [`crate::geom::torus_latitude_band_phis`] reads from the rims'
+/// senses so this and the volume term see ONE region. Each rim row is sampled
+/// BITWISE with the recipe its neighbour uses — `circle_frame(centre, −ν,
+/// anchor)` at `n_seg`, the PR-KV7 rule of the cylinder lateral — so the
+/// shared rim is watertight by construction; interior rows need no partner.
+pub(crate) fn tessellate_torus_latitude_band(
+    arena: &BrepArena,
+    fid: FaceId,
+    n_seg: u32,
+    out: &mut RenderMesh,
+) -> Result<(), KernelV2Error> {
+    use std::f64::consts::PI;
+    let face = arena.face(fid)?;
+    let Some(Surface::Torus {
+        center,
+        axis_dir,
+        major_radius: r_maj,
+        minor_radius: r_min,
+        reversed,
+    }) = face.surface
+    else {
+        return Err(KernelV2Error::TessellationFailed {
+            face: fid,
+            reason: "tessellate_torus_latitude_band on a non-torus face",
+        });
+    };
+    let fail = |reason: &'static str| KernelV2Error::TessellationFailed { face: fid, reason };
+    if !face.inner_loops.is_empty() {
+        return Err(fail("torus latitude band with inner loops"));
+    }
+    let ax = [axis_dir.x, axis_dir.y, axis_dir.z];
+    let c = [center.x(), center.y(), center.z()];
+    let (phi_s, phi_e) =
+        crate::geom::torus_latitude_band_phis(arena, face, center, ax, r_maj, r_min, reversed)
+            .ok_or(fail(
+                "torus latitude band is not two coaxial rims on the torus with opposite senses",
+            ))?;
+
+    // The two rims in walk order with their anchors; which is the start rim
+    // is the one whose φ matches `phi_s`.
+    let hes = arena.loop_half_edges(face.outer_loop)?;
+    let mut rims = Vec::new();
+    for &h in &hes {
+        let he = arena.half_edge(h)?;
+        if let Curve::Circle {
+            center: cc,
+            normal,
+            radius,
+        } = he.curve
+        {
+            let d = [cc.x() - c[0], cc.y() - c[1], cc.z() - c[2]];
+            let tau = d[0] * ax[0] + d[1] * ax[1] + d[2] * ax[2];
+            let phi = tau.atan2(radius - r_maj);
+            rims.push((cc, normal, radius, arena.vertex(he.origin)?.point, phi));
+        }
+    }
+    let [ra, rb] = rims[..] else {
+        return Err(fail(
+            "torus latitude band must carry exactly two full-circle rims",
+        ));
+    };
+    let near = |p: f64, q: f64| {
+        (p - q)
+            .rem_euclid(2.0 * PI)
+            .min((q - p).rem_euclid(2.0 * PI))
+            < 1e-9
+    };
+    let (start, end) = if near(ra.4, phi_s) {
+        (ra, rb)
+    } else {
+        (rb, ra)
+    };
+
+    // Analytic outward normal at a surface point (reversed-aware).
+    let normal_at = |p: [f64; 3]| -> [f64; 3] {
+        let d = [p[0] - c[0], p[1] - c[1], p[2] - c[2]];
+        let t = d[0] * ax[0] + d[1] * ax[1] + d[2] * ax[2];
+        let rv = [d[0] - t * ax[0], d[1] - t * ax[1], d[2] - t * ax[2]];
+        let rl = (rv[0] * rv[0] + rv[1] * rv[1] + rv[2] * rv[2])
+            .sqrt()
+            .max(1e-300);
+        let q = [
+            c[0] + r_maj * rv[0] / rl,
+            c[1] + r_maj * rv[1] / rl,
+            c[2] + r_maj * rv[2] / rl,
+        ];
+        let mut n = [p[0] - q[0], p[1] - q[1], p[2] - q[2]];
+        let nl = (n[0] * n[0] + n[1] * n[1] + n[2] * n[2]).sqrt().max(1e-300);
+        n = [n[0] / nl, n[1] / nl, n[2] / nl];
+        if reversed {
+            n = [-n[0], -n[1], -n[2]];
+        }
+        n
+    };
+
+    // A rim row in its NEIGHBOUR's frame (bitwise the cap / cylinder-lateral
+    // recipe). Returns whether the row advances CCW about `+â`, so the strip
+    // can re-index it to the interior rows' sense.
+    let sample_rim = |row: &(Point3, UnitVector3, f64, Point3, f64),
+                      out: &mut RenderMesh|
+     -> Result<bool, KernelV2Error> {
+        let (c0, nu, r, anc, _) = *row;
+        let cap_nu = UnitVector3 {
+            x: -nu.x,
+            y: -nu.y,
+            z: -nu.z,
+        };
+        let Some((e1, e2)) = circle_frame(c0, cap_nu, anc) else {
+            return Err(fail(
+                "degenerate circle frame on a torus latitude rim (anchor on the axis)",
+            ));
+        };
+        for k in 0..n_seg {
+            let theta = 2.0 * PI * (k as f64) / (n_seg as f64);
+            let (s, co) = theta.sin_cos();
+            let p = [
+                c0.x() + r * (co * e1[0] + s * e2[0]),
+                c0.y() + r * (co * e1[1] + s * e2[1]),
+                c0.z() + r * (co * e1[2] + s * e2[2]),
+            ];
+            out.positions.extend_from_slice(&p);
+            out.normals.extend_from_slice(&normal_at(p));
+        }
+        Ok(cap_nu.x * ax[0] + cap_nu.y * ax[1] + cap_nu.z * ax[2] > 0.0)
+    };
+
+    // Interior rows advance CCW about `+â` from the start rim's anchor
+    // azimuth, so the start row's seam column and the interior columns line
+    // up (the anchors share an azimuth to within the import band — 1e of the
+    // ingest path re-anchors them).
+    let anc = start.3;
+    let dv = [anc.x() - c[0], anc.y() - c[1], anc.z() - c[2]];
+    let t0 = dv[0] * ax[0] + dv[1] * ax[1] + dv[2] * ax[2];
+    let g = [dv[0] - t0 * ax[0], dv[1] - t0 * ax[1], dv[2] - t0 * ax[2]];
+    let gl = (g[0] * g[0] + g[1] * g[1] + g[2] * g[2]).sqrt();
+    if !(gl.is_finite() && gl > 0.0) {
+        return Err(fail("torus latitude band anchor sits on the axis"));
+    }
+    let w0 = [g[0] / gl, g[1] / gl, g[2] / gl];
+    let m0 = [
+        ax[1] * w0[2] - ax[2] * w0[1],
+        ax[2] * w0[0] - ax[0] * w0[2],
+        ax[0] * w0[1] - ax[1] * w0[0],
+    ];
+    let dphi = phi_e - phi_s;
+    // φ steps at the same chord density as a full profile circle at `n_seg`.
+    let n_phi = ((dphi / (2.0 * PI / n_seg as f64)).ceil() as usize).max(1);
+    let n = n_seg as usize;
+
+    let range_start = out.indices.len() as u32;
+    let base = out.num_vertices() as u32;
+    // Row 0: start rim (neighbour's frame).
+    let start_ccw = sample_rim(&start, out)?;
+    // Rows 1..n_phi−1: interior.
+    for j in 1..n_phi {
+        let phi = phi_s + dphi * (j as f64) / (n_phi as f64);
+        let (sp, cp) = phi.sin_cos();
+        let rad = r_maj + r_min * cp;
+        for k in 0..n {
+            let theta = 2.0 * PI * (k as f64) / (n as f64);
+            let (st, ct) = theta.sin_cos();
+            let wth = [
+                ct * w0[0] + st * m0[0],
+                ct * w0[1] + st * m0[1],
+                ct * w0[2] + st * m0[2],
+            ];
+            let p = [
+                c[0] + rad * wth[0] + r_min * sp * ax[0],
+                c[1] + rad * wth[1] + r_min * sp * ax[1],
+                c[2] + rad * wth[2] + r_min * sp * ax[2],
+            ];
+            out.positions.extend_from_slice(&p);
+            out.normals.extend_from_slice(&normal_at(p));
+        }
+    }
+    // Row n_phi: end rim (neighbour's frame).
+    let end_ccw = sample_rim(&end, out)?;
+
+    // Column index of row j at azimuth step k, re-indexing the rim rows whose
+    // neighbour frame advances CW about `+â`.
+    let idx = |j: usize, k: usize| -> u32 {
+        let ccw = if j == 0 {
+            start_ccw
+        } else if j == n_phi {
+            end_ccw
+        } else {
+            true
+        };
+        let kk = if ccw { k % n } else { (n - (k % n)) % n };
+        base + (j * n + kk) as u32
+    };
+    let pos = |out: &RenderMesh, vi: u32| {
+        let i = vi as usize * 3;
+        [out.positions[i], out.positions[i + 1], out.positions[i + 2]]
+    };
+    // Wind each triangle to agree with the analytic outward normal at its
+    // centroid (reversed-aware), the torus lateral's rule.
+    let emit = |a: u32, b: u32, cc: u32, out: &mut RenderMesh| {
+        let (pa, pb, pc) = (pos(out, a), pos(out, b), pos(out, cc));
+        let e1 = [pb[0] - pa[0], pb[1] - pa[1], pb[2] - pa[2]];
+        let e2 = [pc[0] - pa[0], pc[1] - pa[1], pc[2] - pa[2]];
+        let gn = [
+            e1[1] * e2[2] - e1[2] * e2[1],
+            e1[2] * e2[0] - e1[0] * e2[2],
+            e1[0] * e2[1] - e1[1] * e2[0],
+        ];
+        let cen = [
+            (pa[0] + pb[0] + pc[0]) / 3.0,
+            (pa[1] + pb[1] + pc[1]) / 3.0,
+            (pa[2] + pb[2] + pc[2]) / 3.0,
+        ];
+        let on = normal_at(cen);
+        if gn[0] * on[0] + gn[1] * on[1] + gn[2] * on[2] >= 0.0 {
+            out.indices.extend_from_slice(&[a, b, cc]);
+        } else {
+            out.indices.extend_from_slice(&[a, cc, b]);
+        }
+    };
+    for j in 0..n_phi {
+        for k in 0..n {
+            let (a, b, cc, d) = (idx(j, k), idx(j, k + 1), idx(j + 1, k + 1), idx(j + 1, k));
+            emit(a, b, cc, out);
+            emit(a, cc, d, out);
+        }
+    }
+    out.face_ranges.push(FaceRange {
+        face: fid,
+        start: range_start,
+        count: out.indices.len() as u32 - range_start,
+    });
+    Ok(())
+}

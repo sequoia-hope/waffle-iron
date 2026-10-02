@@ -848,6 +848,43 @@ pub fn to_yang_brep_indexed(
                             reason: "curved lateral non-{canonical,partial,torus} edge pattern",
                         });
                     }
+                    // SI5 C5a (spec `si5_c5_sphere_torus_tier.md` §2.1): the
+                    // torus pattern above only says "circle, arc, circle,
+                    // arc". yang's structured torus is the bent TUBE — its
+                    // circles are PROFILE circles (radius = minor, normal ⊥
+                    // axis). An ingested fillet band has the same pattern with
+                    // LATITUDE circles and a poloidal seam, and emitting it
+                    // here would re-enter Stage 1 as a tube — a silent wrong
+                    // boolean. The band renders, measures and exports; the
+                    // boolean is the typed wall C4b §1.1 promised.
+                    if torus {
+                        if let Some(Surface::Torus {
+                            axis_dir,
+                            minor_radius,
+                            ..
+                        }) = face.surface
+                        {
+                            for &h in &[hes[0], hes[2]] {
+                                if let Curve::Circle { normal, radius, .. } =
+                                    arena.half_edge(h)?.curve
+                                {
+                                    let along = normal.x * axis_dir.x
+                                        + normal.y * axis_dir.y
+                                        + normal.z * axis_dir.z;
+                                    if along.abs() > 1e-9
+                                        || (radius - minor_radius).abs() > 1e-9 * minor_radius
+                                    {
+                                        return Err(KernelV2Error::UnsupportedCurvedBoolean {
+                                            face: f,
+                                            reason: "torus lateral rims are latitude circles \
+                                                     (SI5 C5a fillet band; no structured yang \
+                                                     re-entry)",
+                                        });
+                                    }
+                                }
+                            }
+                        }
+                    }
                     // Canonical: the two segments must be the seam twin pair.
                     // Partial: two DISTINCT rulings (each twins with a cap edge).
                     // Torus: the two seam ARCS (positions 1, 3) are the twin pair.

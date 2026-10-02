@@ -1,6 +1,6 @@
 # SI5 C5 — spheres and tori
 
-Status: **C5-M measured 2026-10-02 (§2); C5a in progress.** Checkpoint C5 of
+Status: **C5-M measured and C5a LANDED 2026-10-02** (§2, §4); C5b next. Checkpoint C5 of
 `specs/step_import_si5_exact_analytic_ingestion.md` §7, following C4b
 (`specs/si5_c4b_arc_patch_tier.md`). Split into increments by the forms the
 corpus actually writes (§2), the way C4 was split by band vs patch.
@@ -234,7 +234,82 @@ Villarceau arcs (0 faces); plane-only seeded bands (§2.2, walled upstream).
 
 ---
 
-## 4. Ledger
+## 4. C5a outcome (2026-10-02)
+
+| | C4b | C5a |
+|---|---|---|
+| reach, 400 models | 148 (37.0 %) | **160 (40.0 %)** |
+| solids / faces | 518 / 10 233 | **533 / 10 440** |
+
++12 models; the sphere/torus-bearing models still refused wall only on the
+named C5b/C5c forms (`spherical (C5b)` ×9, `toroidal patch (C5b)` ×5) or on
+C4b's named refusals in another shell. In-vocabulary success stays 100 %; no
+new validation-tier finding (`00000062` face 35 remains the only one).
+
+### 4.1 What landed, against §3
+
+Ingest exactly as designed (1a torus, `torus_rim_phi`, the seed + propagate
+1d with its two refusals, the poloidal-arc seam in 1e, a file-written seam
+checked against that arc). `signed_volume`'s latitude closed form and the
+`(θ, φ)` render grid share one region reader
+(`geom::torus_latitude_band_phis`), so the two paths cannot disagree about
+which region a band is. `to_yang_brep`'s structured torus arm now refuses a
+latitude rim by name. One correction to the first cut: the latitude detector
+must be `all` circles coaxial, not `any` — the CLOSED torus carries a coaxial
+equator seam beside its profile circle and would have been misrouted.
+
+Pinned (`ingest::tests`): the rounded puck at `(3, 5, 4, 0, 1, 0)` with its
+Pappus volume to 1e-12 and the seam arc's exact centre; the boss-on-plate
+(concave fillet, `reversed`, a ring loop) at `(5, 8, 6, 1, 1, 0)` and its
+Pappus volume; the tessellated mesh within 3e-3 of both; every rim flag
+flipped ⇒ the same solid; the two-plane bead and the contradicting-neighbours
+shell refused by name; `to_yang_brep` the typed wall; a torus patch named
+C5b. In the harness, `rounded_puck.step` (written by the ingest path, since
+no constructor can) is a fixed point through export → extract → ingest with
+its arc seam, and matches its own re-ingest on topology and volume.
+
+### 4.2 Spec §8 oracle 5, run for the first time
+
+`ingested_volume_agrees_with_the_mesh_tier` — the exact arena volume against
+truck's own tessellation of the same file, two paths that share nothing:
+
+```
+  planar (C3)            n=28   rel |exact − mesh|: p50 4.00e-16  p90 6.76e-15  max 3.06e-14
+  curved (C4a/C4b)       n=120  rel |exact − mesh|: p50 1.39e-3   p90 5.41e-3   max 7.93e-2
+  torus-bearing (C5a)    n=12   rel |exact − mesh|: p50 2.94e-3   p90 6.16e-3   max 3.41e-2
+```
+
+The planar tier agrees to rounding; the curved tiers to the chord band at
+p90. The two outliers above 2e-2 were anchored with `si5_volume_probe`
+(per-face fluxes from a fine tessellation of ours beside truck's, and the
+poloidal range truck's vertices occupy on each torus against ours):
+
+- `00000251` (7.93 %) is a plain cylinder truck meshes as a **9-gon** —
+  18 triangles; the inscribed-area deficit `1 − (9/2π) sin(2π/9) = 7.93 %`
+  matches the deviation to three digits, on the lateral and the caps alike.
+- `00000103` (3.41 %) has 17-gon cylinders (2.3 %) and four quarter-round
+  fillets at one chord row each; on **all four** — two convex, two
+  `reversed` — truck's vertices span exactly our `(φ_s, φ_e)`
+  (`−π/2..0`, `π/2..π`, `π..3π/2`, `0..π/2`). The region is right; the
+  residual is the chord.
+
+So the oracle's resolution on real parts is set by truck's coarseness, not
+by ours — which is why the fixtures carry the exact claims and the corpus
+carries the independence.
+
+### 4.3 Left open, by name
+
+- The windowed sphere, the sphere band, the bent tube with poloidal rims and
+  the plane-seeded sense: §3 C5c, each a typed refusal.
+- `validate_torus_face` stays topology-agnostic: nothing in the validator
+  checks a torus band's winding the way `validate_cylinder_patch` checks a
+  cylinder's. The band's region is established upstream (1d) and read by two
+  consumers through one function; a validator-side law would be a P10 net,
+  not a capability.
+
+---
+
+## 5. Ledger
 
 - 2026-10-02 — **C5-M.** `c5_sphere_torus_census` written and run; §2
   recorded. The decisive numbers: the latitude band is 21 of 31 models and
@@ -242,3 +317,7 @@ Villarceau arcs (0 faces); plane-only seeded bands (§2.2, walled upstream).
   of rims where the truth is known, which closes the "just read the flag"
   option with a measurement rather than an argument; every band's rim
   component has a derivable seed. Next: **C5a**.
+- 2026-10-02 — **C5a DONE.** §4. Reach 37.0 % → 40.0 %; the band in all
+  three kernel paths that lacked it; the first corpus run of oracle 5, with
+  both outliers anchored to truck's chord coarseness and every fillet's
+  region confirmed against truck's own vertices. Next: **C5b**.

@@ -923,7 +923,30 @@ Each is an atomic, committable increment. Nothing after C1 touches app code.
     export tier; these faces bounce off `to_yang_brep` by design. Whether
     `ELLIPSE` edges (oblique cuts: 406 of 3 686 arc patches) come in here or
     wait is a C4b scoping call, not a C4a one.
-- **C5 — spheres and tori.** Including the canonical z-up re-seam.
+- **C5 — spheres and tori.** Spec `specs/si5_c5_sphere_torus_tier.md`,
+  split by the forms the corpus writes (its §2, measured first): the torus
+  LATITUDE band is 21 of the 31 sphere/torus-bearing models and a form no
+  kernel-v2 constructor builds; patches are parameter rectangles and
+  spherical triangles; the closed sphere's z-up re-seam has no customer
+  (every closed sphere in the sample carries a `VERTEX_LOOP` and is refused
+  at C2).
+  - **C5a — the torus latitude band. DONE 2026-10-02.** Reach **148 → 160 of
+    400 (37.0 % → 40.0 %)**, 533 solids / 10 440 faces. Not an ingestion
+    increment: `signed_volume` gained the band's closed form, the render
+    tessellator a `(θ, φ)` grid for it, and `to_yang_brep` a P10 guard — its
+    structured torus arm never checked that its circles were profile circles
+    and would have emitted a fillet band to Stage 1 as a bent tube. The band's
+    rim sense is PROPAGATED from a neighbouring cylinder/cone band (the file's
+    own orientation flag was measured wrong on 3.9 % of rims where the C4a
+    law knows the truth). Spec §8 oracle 5 ran over the corpus for the first
+    time: planar models agree with truck's mesh tier to 3e-14, curved ones to
+    the chord band; the two outliers above 2e-2 are truck's own coarse
+    meshes (a 9-gon cylinder — its 7.93 % inscribed-area deficit matches the
+    deviation to three digits — and single-row quarter-round fillets), with
+    every fillet's poloidal region confirmed against truck's own vertices.
+  - **C5b — torus and sphere patches.** Two volume closed forms.
+  - **C5c — named refusals**: the sphere band, the windowed sphere, the
+    bent tube with poloidal rims, plane-only seeded bands.
 - **C6 — wire it.** `import_body` tries `ingest_analytic` first and falls back to
   the mesh-backed body on `Ineligible`; the fallback must be visible as a feature
   warning, never silent. Collapse the adapter branches that the arena path makes
@@ -1121,3 +1144,15 @@ subset a reader would need — and `si5_census.py` already measures it.
   was already there. (3) One finding is left standing and anchored by name:
   `00000062_…_step_003` face 35, a CDT ring rejection at the render tier.
   Next: **C5** (spheres and tori — 27 models in the sample), then C6/C7.
+- 2026-10-02 — **C5-M and C5a DONE.** `specs/si5_c5_sphere_torus_tier.md`.
+  Measured first: 31 models at stake (not 27 — the earlier count missed
+  multi-form models), the torus latitude band 21 of them, and the file's
+  `ORIENTED_EDGE` flag wrong on 60 of 1 544 rims where the C4a law knows
+  the truth — a measurement that closes the "just read the flag" option C4a
+  had only argued against. C5a landed the band in all three kernel paths
+  that lacked it (volume, render, the yang guard); reach **37.0 % → 40.0 %**.
+  The increment's own addition to the oracle set: spec §8 oracle 5
+  (exact vs truck's mesh tier) now runs over the corpus
+  (`ingested_volume_agrees_with_the_mesh_tier`), with a per-face probe
+  (`si5_volume_probe`) that anchors an outlier to a face and a poloidal
+  region. Next: **C5b** (patches: two closed-form fluxes), then C6/C7.

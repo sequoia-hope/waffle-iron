@@ -216,7 +216,7 @@ fn an_unsupported_surface_is_a_typed_capability_refusal() {
         ingest_analytic(&mut arena, &shell),
         Err(KernelV2Error::AnalyticIngestUnsupportedSurface {
             face: 0,
-            surface: "spherical",
+            surface: "spherical (C5b)",
         })
     );
 }
@@ -1029,4 +1029,471 @@ fn a_windowed_curved_patch_is_refused_by_name() {
              ranking)"
         ))
     );
+}
+
+// ---------------------------------------------------------------------------
+// C5a — the torus latitude band (spec `si5_c5_sphere_torus_tier.md`)
+// ---------------------------------------------------------------------------
+
+/// A ROUNDED PUCK: a cylinder of radius `rc` and height `h` whose top edge is
+/// filleted at radius `rho` — bottom disc, cylinder band, a torus LATITUDE
+/// band (the quarter round, major `rc − rho`, minor `rho`, centre at
+/// `z = h − rho`), and a top disc of radius `rc − rho`. The corpus's own
+/// fillet form (62 of 183 torus faces, 21 of 31 models), which no kernel-v2
+/// constructor builds. Its volume is closed-form by Pappus:
+/// `π rc² (h − ρ) + π R² ρ + π² ρ² R / 2 + 2π ρ³ / 3` with `R = rc − ρ`, and
+/// the torus centre is off the origin so the flux's `C·â` term is exercised.
+fn rounded_puck(rc: f64, h: f64, rho: f64) -> AnalyticShellData {
+    let big = rc - rho;
+    AnalyticShellData {
+        vertices: vec![v(rc, 0.0, 0.0), v(rc, 0.0, h - rho), v(big, 0.0, h)],
+        edges: vec![
+            rim_edge(0, v(0.0, 0.0, 0.0), Z, rc, v(-rc, 0.0, 0.0)),
+            rim_edge(1, v(0.0, 0.0, h - rho), Z, rc, v(-rc, 0.0, h - rho)),
+            rim_edge(2, v(0.0, 0.0, h), Z, big, v(-big, 0.0, h)),
+        ],
+        faces: vec![
+            plane_face(v(0.0, 0.0, 0.0), Z, false, vec![oe(0, false)]),
+            AnalyticFace {
+                surface: AnalyticSurface::Cylinder {
+                    axis_point: v(0.0, 0.0, 0.0),
+                    axis_dir: Z,
+                    radius: rc,
+                },
+                loops: vec![
+                    AnalyticLoop::Edges(vec![oe(0, true)]),
+                    AnalyticLoop::Edges(vec![oe(1, true)]),
+                ],
+                same_sense: true,
+            },
+            // The fillet: material INSIDE the tube (a convex edge), so the
+            // torus's own outward normal is the solid's.
+            AnalyticFace {
+                surface: AnalyticSurface::Torus {
+                    center: v(0.0, 0.0, h - rho),
+                    axis_dir: Z,
+                    major_radius: big,
+                    minor_radius: rho,
+                },
+                loops: vec![
+                    AnalyticLoop::Edges(vec![oe(1, false)]),
+                    AnalyticLoop::Edges(vec![oe(2, true)]),
+                ],
+                same_sense: true,
+            },
+            plane_face(v(0.0, 0.0, h), Z, true, vec![oe(2, false)]),
+        ],
+    }
+}
+
+fn rounded_puck_volume(rc: f64, h: f64, rho: f64) -> f64 {
+    let big = rc - rho;
+    PI * rc * rc * (h - rho)
+        + PI * big * big * rho
+        + PI * PI * rho * rho * big / 2.0
+        + 2.0 * PI * rho * rho * rho / 3.0
+}
+
+/// Divergence-theorem volume of a render mesh, for the free differential
+/// oracle between the closed-form `signed_volume` and the tessellator.
+fn mesh_volume(mesh: &crate::tessellate::RenderMesh) -> f64 {
+    let p = |i: u32| {
+        let k = i as usize * 3;
+        [
+            mesh.positions[k],
+            mesh.positions[k + 1],
+            mesh.positions[k + 2],
+        ]
+    };
+    let mut six = 0.0;
+    for t in mesh.indices.chunks(3) {
+        let (a, b, c) = (p(t[0]), p(t[1]), p(t[2]));
+        six += a[0] * (b[1] * c[2] - b[2] * c[1]) - a[1] * (b[0] * c[2] - b[2] * c[0])
+            + a[2] * (b[0] * c[1] - b[1] * c[0]);
+    }
+    six / 6.0
+}
+
+#[test]
+fn a_rounded_puck_ingests_with_its_fillet_as_a_torus_latitude_band() {
+    let (rc, h, rho) = (3.0, 5.0, 0.75);
+    let mut arena = BrepArena::new();
+    let solid = ingest_analytic(&mut arena, &rounded_puck(rc, h, rho)).expect("the puck ingests");
+    let report = crate::validate::validate_solid(&arena, solid).expect("validates");
+    // Three anchors, three rims plus TWO minted seams (one per band — the
+    // torus's is a poloidal arc), four faces.
+    assert_eq!(
+        (
+            report.vertices,
+            report.edges,
+            report.faces,
+            report.rings,
+            report.shells,
+            report.genus
+        ),
+        (3, 5, 4, 0, 1, 0)
+    );
+    let vol = geom::signed_volume(&arena, solid).unwrap();
+    let want = rounded_puck_volume(rc, h, rho);
+    assert!(
+        (vol - want).abs() <= 1e-12 * want,
+        "puck volume {vol:.17e} vs Pappus {want:.17e}"
+    );
+    // The minted seam lies ON the face: a poloidal arc of the tube radius,
+    // centred on the tube's centre circle at the rims' azimuth.
+    let seam = arena
+        .half_edges
+        .iter()
+        .flatten()
+        .find_map(|he| match he.curve {
+            Curve::Arc { center, radius, .. } => Some((center, radius)),
+            _ => None,
+        })
+        .expect("a seam arc");
+    assert_eq!(seam, (v(rc - rho, 0.0, h - rho), rho));
+    // The tessellator sees the same region the volume term does.
+    let mesh = crate::tessellate::tessellate(&arena, solid).expect("tessellates");
+    let mv = mesh_volume(&mesh);
+    assert!(
+        (mv - want).abs() <= 3e-3 * want,
+        "mesh volume {mv} vs {want} — beyond the chord-error bound"
+    );
+}
+
+#[test]
+fn a_torus_bands_sense_is_propagated_from_its_neighbour_not_read_from_the_file() {
+    // Flip EVERY rim flag. The census measured the file's flag wrong on 3.9 %
+    // of rims where the truth is known (spec §2.2); a reading that consulted it
+    // would build the three-quarter round here and get the wrong volume.
+    let (rc, h, rho) = (3.0, 5.0, 0.75);
+    let mut shell = rounded_puck(rc, h, rho);
+    for f in &mut shell.faces {
+        for l in &mut f.loops {
+            if let AnalyticLoop::Edges(os) = l {
+                for o in os {
+                    o.forward = !o.forward;
+                }
+            }
+        }
+    }
+    let mut arena = BrepArena::new();
+    let solid = ingest_analytic(&mut arena, &shell).expect("flags are not read");
+    let vol = geom::signed_volume(&arena, solid).unwrap();
+    let want = rounded_puck_volume(rc, h, rho);
+    assert!((vol - want).abs() <= 1e-12 * want, "{vol} vs {want}");
+}
+
+/// A BOSS ON A PLATE with the concave fillet at its base: the material is
+/// OUTSIDE the tube (`same_sense: false` ⇒ `reversed`), the plate's top face
+/// is an annulus whose ring is the fillet's base rim, and the fillet's sense
+/// is seeded by the boss band. Volume by Pappus: the plate, the boss, and the
+/// fillet's square-minus-quarter-disc section revolved —
+/// `2π [ρ²(rb + ρ/2) − (πρ²/4)(rb + ρ) + ρ³/3]`.
+fn boss_on_plate(rp: f64, t: f64, rb: f64, hb: f64, rho: f64) -> AnalyticShellData {
+    let big = rb + rho;
+    AnalyticShellData {
+        vertices: vec![
+            v(rp, 0.0, 0.0),
+            v(rp, 0.0, t),
+            v(big, 0.0, t),
+            v(rb, 0.0, t + rho),
+            v(rb, 0.0, t + hb),
+        ],
+        edges: vec![
+            rim_edge(0, v(0.0, 0.0, 0.0), Z, rp, v(-rp, 0.0, 0.0)),
+            rim_edge(1, v(0.0, 0.0, t), Z, rp, v(-rp, 0.0, t)),
+            rim_edge(2, v(0.0, 0.0, t), Z, big, v(-big, 0.0, t)),
+            rim_edge(3, v(0.0, 0.0, t + rho), Z, rb, v(-rb, 0.0, t + rho)),
+            rim_edge(4, v(0.0, 0.0, t + hb), Z, rb, v(-rb, 0.0, t + hb)),
+        ],
+        faces: vec![
+            plane_face(v(0.0, 0.0, 0.0), Z, false, vec![oe(0, false)]),
+            AnalyticFace {
+                surface: AnalyticSurface::Cylinder {
+                    axis_point: v(0.0, 0.0, 0.0),
+                    axis_dir: Z,
+                    radius: rp,
+                },
+                loops: vec![
+                    AnalyticLoop::Edges(vec![oe(0, true)]),
+                    AnalyticLoop::Edges(vec![oe(1, true)]),
+                ],
+                same_sense: true,
+            },
+            // Plate top: an annulus, ring first (the file order the reader
+            // loses the outer marker of — spec §5.4).
+            AnalyticFace {
+                surface: AnalyticSurface::Plane {
+                    origin: v(0.0, 0.0, t),
+                    normal: Z,
+                },
+                loops: vec![
+                    AnalyticLoop::Edges(vec![oe(2, true)]),
+                    AnalyticLoop::Edges(vec![oe(1, true)]),
+                ],
+                same_sense: true,
+            },
+            AnalyticFace {
+                surface: AnalyticSurface::Torus {
+                    center: v(0.0, 0.0, t + rho),
+                    axis_dir: Z,
+                    major_radius: big,
+                    minor_radius: rho,
+                },
+                loops: vec![
+                    AnalyticLoop::Edges(vec![oe(2, true)]),
+                    AnalyticLoop::Edges(vec![oe(3, true)]),
+                ],
+                same_sense: false,
+            },
+            AnalyticFace {
+                surface: AnalyticSurface::Cylinder {
+                    axis_point: v(0.0, 0.0, 0.0),
+                    axis_dir: Z,
+                    radius: rb,
+                },
+                loops: vec![
+                    AnalyticLoop::Edges(vec![oe(3, true)]),
+                    AnalyticLoop::Edges(vec![oe(4, true)]),
+                ],
+                same_sense: true,
+            },
+            plane_face(v(0.0, 0.0, t + hb), Z, true, vec![oe(4, false)]),
+        ],
+    }
+}
+
+#[test]
+fn a_concave_fillet_ingests_as_a_reversed_band_with_its_pappus_volume() {
+    let (rp, t, rb, hb, rho) = (4.0, 1.0, 1.5, 2.0, 0.5);
+    let mut arena = BrepArena::new();
+    let solid = ingest_analytic(&mut arena, &boss_on_plate(rp, t, rb, hb, rho))
+        .expect("the boss on a plate ingests");
+    let report = crate::validate::validate_solid(&arena, solid).expect("validates");
+    assert_eq!(
+        (
+            report.vertices,
+            report.edges,
+            report.faces,
+            report.rings,
+            report.shells,
+            report.genus
+        ),
+        (5, 8, 6, 1, 1, 0)
+    );
+    let torus = arena
+        .faces
+        .iter()
+        .flatten()
+        .find_map(|f| match f.surface {
+            Some(Surface::Torus { reversed, .. }) => Some(reversed),
+            _ => None,
+        })
+        .expect("a torus face");
+    assert!(torus, "the concave fillet is a cavity-sense band");
+    let vol = geom::signed_volume(&arena, solid).unwrap();
+    let want = PI * rp * rp * t
+        + PI * rb * rb * hb
+        + 2.0
+            * PI
+            * (rho * rho * (rb + rho / 2.0) - (PI * rho * rho / 4.0) * (rb + rho)
+                + rho * rho * rho / 3.0);
+    assert!(
+        (vol - want).abs() <= 1e-12 * want,
+        "boss-on-plate volume {vol:.17e} vs Pappus {want:.17e}"
+    );
+    let mesh = crate::tessellate::tessellate(&arena, solid).expect("tessellates");
+    let mv = mesh_volume(&mesh);
+    assert!(
+        (mv - want).abs() <= 3e-3 * want,
+        "mesh volume {mv} vs {want} — beyond the chord-error bound"
+    );
+}
+
+#[test]
+fn a_bead_between_two_planar_rims_is_refused_by_name_not_guessed() {
+    // A half torus sitting on a plane: both rims lie on the one planar face,
+    // and nothing in the component can say whether the band is the upper or
+    // the lower half. Spec §2.2: the plane-seeded rule has no corpus customer.
+    let (big, r) = (3.0, 1.0);
+    let shell = AnalyticShellData {
+        vertices: vec![v(big + r, 0.0, 0.0), v(big - r, 0.0, 0.0)],
+        edges: vec![
+            rim_edge(0, v(0.0, 0.0, 0.0), Z, big + r, v(-(big + r), 0.0, 0.0)),
+            rim_edge(1, v(0.0, 0.0, 0.0), Z, big - r, v(-(big - r), 0.0, 0.0)),
+        ],
+        faces: vec![
+            AnalyticFace {
+                surface: AnalyticSurface::Torus {
+                    center: v(0.0, 0.0, 0.0),
+                    axis_dir: Z,
+                    major_radius: big,
+                    minor_radius: r,
+                },
+                loops: vec![
+                    AnalyticLoop::Edges(vec![oe(0, true)]),
+                    AnalyticLoop::Edges(vec![oe(1, true)]),
+                ],
+                same_sense: true,
+            },
+            AnalyticFace {
+                surface: AnalyticSurface::Plane {
+                    origin: v(0.0, 0.0, 0.0),
+                    normal: Z,
+                },
+                loops: vec![
+                    AnalyticLoop::Edges(vec![oe(0, false)]),
+                    AnalyticLoop::Edges(vec![oe(1, true)]),
+                ],
+                same_sense: false,
+            },
+        ],
+    };
+    let mut arena = BrepArena::new();
+    match ingest_analytic(&mut arena, &shell) {
+        Err(KernelV2Error::AnalyticIngestUnsupported(r)) => {
+            assert!(r.contains("plane-seeded sense"), "{r}")
+        }
+        other => panic!("expected the named C5 refusal, got {other:?}"),
+    }
+}
+
+#[test]
+fn neighbours_that_fix_the_same_sign_on_both_rims_are_a_refusal() {
+    // The puck's top disc replaced by a cylinder of the top rim's radius
+    // running DOWN into the solid, capped below: both faces across the torus's
+    // rims now derive "+axis" for the torus, which no region of the band can
+    // satisfy — the file's faces disagree about the band, and 1d says so.
+    let (rc, h, rho) = (3.0, 5.0, 0.75);
+    let big = rc - rho;
+    let mut shell = rounded_puck(rc, h, rho);
+    shell.faces.pop();
+    shell.vertices.push(v(big, 0.0, h - rho));
+    shell.edges.push(rim_edge(
+        3,
+        v(0.0, 0.0, h - rho),
+        Z,
+        big,
+        v(-big, 0.0, h - rho),
+    ));
+    shell.faces.push(AnalyticFace {
+        surface: AnalyticSurface::Cylinder {
+            axis_point: v(0.0, 0.0, 0.0),
+            axis_dir: Z,
+            radius: big,
+        },
+        loops: vec![
+            AnalyticLoop::Edges(vec![oe(2, true)]),
+            AnalyticLoop::Edges(vec![oe(3, true)]),
+        ],
+        same_sense: true,
+    });
+    shell.faces.push(plane_face(
+        v(0.0, 0.0, h - rho),
+        Z,
+        false,
+        vec![oe(3, false)],
+    ));
+    let mut arena = BrepArena::new();
+    match ingest_analytic(&mut arena, &shell) {
+        Err(KernelV2Error::InvalidAnalyticShell(r)) => {
+            assert!(r.contains("not opposite about its axis"), "{r}")
+        }
+        other => panic!("expected the sense-disagreement refusal, got {other:?}"),
+    }
+}
+
+#[test]
+fn a_torus_latitude_band_is_a_typed_boolean_wall_not_a_bent_tube() {
+    // `to_yang_brep`'s structured torus arm matches (Circle, Arc, Circle, Arc)
+    // — the bent tube's pattern — and the fillet band has the same pattern
+    // with LATITUDE circles. Emitting it would re-enter Stage 1 as a tube:
+    // the spec §2.1 silent-wrong, now a named refusal.
+    let mut arena = BrepArena::new();
+    let solid = ingest_analytic(&mut arena, &rounded_puck(3.0, 5.0, 0.75)).expect("ingests");
+    match crate::boolean::to_yang_brep(&arena, solid) {
+        Err(KernelV2Error::UnsupportedCurvedBoolean { reason, .. }) => {
+            assert!(reason.contains("latitude circles"), "{reason}")
+        }
+        other => panic!("expected the typed C5a boolean wall, got {other:?}"),
+    }
+}
+
+#[test]
+fn a_torus_patch_is_a_typed_refusal_naming_c5b() {
+    // A quarter of the puck's fillet band as a parameter rectangle — the
+    // corpus's CCCC form — reaches the UV-CDT tessellator but has no volume
+    // term yet; it is named, not guessed. (The shell is only the face.)
+    let (rc, h, rho) = (3.0, 5.0, 0.75);
+    let big = rc - rho;
+    let shell = AnalyticShellData {
+        vertices: vec![
+            v(rc, 0.0, h - rho),
+            v(0.0, rc, h - rho),
+            v(0.0, big, h),
+            v(big, 0.0, h),
+        ],
+        edges: vec![
+            arc_edge(
+                0,
+                1,
+                v(0.0, 0.0, h - rho),
+                Z,
+                rc,
+                v(rc * 0.5f64.sqrt(), rc * 0.5f64.sqrt(), h - rho),
+            ),
+            arc_edge(
+                1,
+                2,
+                v(0.0, big, h - rho),
+                Vector3::new(1.0, 0.0, 0.0),
+                rho,
+                v(
+                    0.0,
+                    big + rho * 0.5f64.sqrt(),
+                    h - rho + rho * 0.5f64.sqrt(),
+                ),
+            ),
+            arc_edge(
+                2,
+                3,
+                v(0.0, 0.0, h),
+                Z,
+                big,
+                v(big * 0.5f64.sqrt(), big * 0.5f64.sqrt(), h),
+            ),
+            arc_edge(
+                3,
+                0,
+                v(big, 0.0, h - rho),
+                Vector3::new(0.0, 1.0, 0.0),
+                rho,
+                v(
+                    big + rho * 0.5f64.sqrt(),
+                    0.0,
+                    h - rho + rho * 0.5f64.sqrt(),
+                ),
+            ),
+        ],
+        faces: vec![AnalyticFace {
+            surface: AnalyticSurface::Torus {
+                center: v(0.0, 0.0, h - rho),
+                axis_dir: Z,
+                major_radius: big,
+                minor_radius: rho,
+            },
+            loops: vec![AnalyticLoop::Edges(vec![
+                oe(0, true),
+                oe(1, true),
+                oe(2, true),
+                oe(3, true),
+            ])],
+            same_sense: true,
+        }],
+    };
+    let mut arena = BrepArena::new();
+    match ingest_analytic(&mut arena, &shell) {
+        Err(KernelV2Error::AnalyticIngestUnsupported(r)) => assert!(r.contains("C5b"), "{r}"),
+        other => panic!("expected the named C5b refusal, got {other:?}"),
+    }
 }

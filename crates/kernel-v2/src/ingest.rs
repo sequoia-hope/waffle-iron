@@ -24,10 +24,16 @@
 //!   ingested this way presents exactly the two full-circle rims
 //!   `to_yang_brep` requires.
 //!
-//! An **open** circle edge (an arc) is the partial-patch tier, C4b: a typed,
-//! loud refusal here naming the checkpoint, never a guess. So is an ellipse, a
-//! sphere, a torus, a holed band, and a vertex loop. The caller falls back to
-//! the mesh tier (C6 wires that fallback).
+//! - **C4b** — the arc patch: open circle and ellipse arcs with their side
+//!   READ from the file's `interior` point (spec `si5_c4b_arc_patch_tier.md`).
+//! - **C5a** — the torus **latitude band**: a `TOROIDAL_SURFACE` between two
+//!   closed circles coaxial with its axis — the fillet around a boss or a
+//!   hole, 21 of the 31 sphere/torus-bearing models in the sample and a form
+//!   no kernel-v2 constructor builds (spec `si5_c5_sphere_torus_tier.md`).
+//!
+//! A sphere, a torus patch, a windowed sphere, a holed band and a vertex loop
+//! are typed, loud refusals here naming their checkpoint (C5b / C5c), never a
+//! guess. The caller falls back to the mesh tier (C6 wires that fallback).
 //!
 //! ## Why a direct assembler and not an Euler sequence
 //!
@@ -97,6 +103,22 @@
 //! nothing else — measured at 4 of 4 794, and those faces are refused instead.
 //! Because bands chain (a stepped shaft shares rims), the azimuth is chosen per
 //! CONNECTED COMPONENT of rims-joined-by-bands, not pairwise.
+//!
+//! ## The one thing a torus band cannot derive, and where it comes from (C5a)
+//!
+//! Two rims bound ONE cylinder band, so "toward the other rim" fixes the
+//! sense. Two latitude circles on a torus bound TWO complementary regions
+//! (genus 1): the quarter-round between them or the three-quarter round the
+//! other way, and the band's own geometry cannot say which. The file's
+//! `ORIENTED_EDGE` flag could — and it is now MEASURED to disagree with the
+//! C4a law on 60 of 1 544 cylinder/cone rims (3.9 %, spec §2.2), so it seeds
+//! nothing. What does: every band's rim component holds a cylinder or cone
+//! band whose own law fixes the sense (58 of 64 in the sample), and the sense
+//! PROPAGATES across a torus band exactly. For the region running +φ from rim
+//! *s* to rim *e* — either region — the start rim is traversed CCW about `+â`
+//! and the end rim CCW about `−â` (1d derives it), so one rim fixed by its
+//! neighbour fixes the other, and which rim got `+â` says which region the
+//! face is. A band whose component has no such seed is a named refusal.
 
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -191,6 +213,15 @@ enum FaceSurface {
         half_angle: f64,
         reversed: bool,
     },
+    /// C5a. A ring torus (`major > minor`, enforced at extraction); the
+    /// cavity flag records a concave fillet (the material outside the tube).
+    Torus {
+        center: Point3,
+        axis_dir: V3,
+        major: f64,
+        minor: f64,
+        reversed: bool,
+    },
 }
 
 impl FaceSurface {
@@ -201,16 +232,18 @@ impl FaceSurface {
     fn axis(&self) -> Option<V3> {
         match *self {
             FaceSurface::Plane { .. } => None,
-            FaceSurface::Cylinder { axis_dir, .. } | FaceSurface::Cone { axis_dir, .. } => {
-                Some(axis_dir)
-            }
+            FaceSurface::Cylinder { axis_dir, .. }
+            | FaceSurface::Cone { axis_dir, .. }
+            | FaceSurface::Torus { axis_dir, .. } => Some(axis_dir),
         }
     }
 
     fn reversed(&self) -> bool {
         match *self {
             FaceSurface::Plane { .. } => false,
-            FaceSurface::Cylinder { reversed, .. } | FaceSurface::Cone { reversed, .. } => reversed,
+            FaceSurface::Cylinder { reversed, .. }
+            | FaceSurface::Cone { reversed, .. }
+            | FaceSurface::Torus { reversed, .. } => reversed,
         }
     }
 
@@ -238,6 +271,20 @@ impl FaceSurface {
                     return None;
                 }
                 Some((len3(radial(d, axis_dir)) - geom::cone_radius_at(tau, half_angle)).abs())
+            }
+            FaceSurface::Torus {
+                center,
+                axis_dir,
+                major,
+                minor,
+                ..
+            } => {
+                // A LENGTH, unlike `geom::torus_residual`'s length²: the
+                // distance from the tube's centre circle, less the tube radius.
+                let d = sub(p, center);
+                let tau = dot3(d, axis_dir);
+                let rho = len3(radial(d, axis_dir));
+                Some(((rho - major).hypot(tau) - minor).abs())
             }
         }
     }
@@ -275,8 +322,79 @@ impl FaceSurface {
                 half_angle,
                 reversed,
             },
+            FaceSurface::Torus {
+                center,
+                axis_dir,
+                major,
+                minor,
+                reversed,
+            } => Surface::Torus {
+                center,
+                axis_dir: u(axis_dir),
+                major_radius: major,
+                minor_radius: minor,
+                reversed,
+            },
         }
     }
+
+    /// C5a: the poloidal angle of a closed rim on this torus — `φ` with
+    /// `ρ = R + r cos φ`, `τ = r sin φ` — after checking the circle really is
+    /// a latitude circle of THIS torus: axis parallel, centre on the axis, and
+    /// radius-and-height consistent with one `φ` within the import band. Any
+    /// disagreement is a refusal naming it; nothing is snapped.
+    fn torus_rim_phi(&self, r: &Rim) -> Result<f64, KernelV2Error> {
+        let FaceSurface::Torus {
+            center,
+            axis_dir,
+            major,
+            minor,
+            ..
+        } = *self
+        else {
+            unreachable!("torus_rim_phi on a non-torus");
+        };
+        if dot3(r.declared_axis, axis_dir).abs() < 1.0 - INGEST_NORMAL_TOLERANCE {
+            return Err(KernelV2Error::InvalidAnalyticShell(
+                "a torus band's rim circle is not coaxial with the torus (not a latitude circle)",
+            ));
+        }
+        let d = sub(r.center, center);
+        let tau = dot3(d, axis_dir);
+        if len3(radial(d, axis_dir)) > on_surface_band(r.center) {
+            return Err(KernelV2Error::InvalidAnalyticShell(
+                "a torus band's rim circle is not centred on the torus axis",
+            ));
+        }
+        // The rim lies on the torus iff its (ρ, τ) is `minor` from the tube
+        // centre circle — the same quantity the on-surface gate bands.
+        if ((r.radius - major).hypot(tau) - minor).abs() > on_surface_band(r.center) {
+            return Err(KernelV2Error::InvalidAnalyticShell(
+                "a torus band's rim circle does not lie on the torus",
+            ));
+        }
+        Ok(tau.atan2(r.radius - major))
+    }
+}
+
+/// The traversal axis of a rim about `axis` as a sign: `+1` CCW about `+axis`.
+fn axis_sign(sense: V3, axis: V3) -> f64 {
+    if dot3(sense, axis) > 0.0 {
+        1.0
+    } else {
+        -1.0
+    }
+}
+
+/// The stored sense vector for `r` that is CCW about `sign · axis`: `±r`'s own
+/// declared axis, so a twin's negation is bit-exact (1d's rule).
+fn sense_about(r: &Rim, axis: V3, sign: f64) -> V3 {
+    let s = sign * axis_sign(r.declared_axis, axis);
+    [
+        s * r.declared_axis[0],
+        s * r.declared_axis[1],
+        s * r.declared_axis[2],
+    ]
 }
 
 /// The parameters of a closed `CIRCLE` edge, as the file declares them.
@@ -447,8 +565,33 @@ pub fn ingest_analytic(
                     reversed: !face.same_sense,
                 }
             }
-            AnalyticSurface::Sphere { .. } => return Err(unsupported("spherical")),
-            AnalyticSurface::Torus { .. } => return Err(unsupported("toroidal")),
+            AnalyticSurface::Torus {
+                center,
+                axis_dir,
+                major_radius,
+                minor_radius,
+            } => {
+                let a = unit_axis(axis_dir, "a torus axis is not unit length")?;
+                if !(minor_radius.is_finite()
+                    && minor_radius > 0.0
+                    && major_radius.is_finite()
+                    && major_radius > minor_radius)
+                {
+                    return Err(KernelV2Error::InvalidAnalyticShell(
+                        "a torus is not a ring torus (needs major > minor > 0)",
+                    ));
+                }
+                FaceSurface::Torus {
+                    center,
+                    axis_dir: a,
+                    major: major_radius,
+                    minor: minor_radius,
+                    reversed: !face.same_sense,
+                }
+            }
+            // C5b (patches) / C5c (bands and windowed spheres), spec
+            // `si5_c5_sphere_torus_tier.md` §3.
+            AnalyticSurface::Sphere { .. } => return Err(unsupported("spherical (C5b)")),
         });
     }
 
@@ -781,6 +924,15 @@ pub fn ingest_analytic(
                      outer-loop ranking)",
                 ));
             }
+            // The torus patch — a parameter rectangle of two latitude and two
+            // poloidal arcs, every one of the 121 in the sample — reaches the
+            // UV-CDT tessellator today but has no volume term: that is C5b
+            // (spec `si5_c5_sphere_torus_tier.md` §2.4), named here.
+            if matches!(surfs[fi], FaceSurface::Torus { .. }) {
+                return Err(KernelV2Error::AnalyticIngestUnsupported(
+                    "a toroidal patch of open arcs (C5b)",
+                ));
+            }
             // A conical patch bounded by a conic SECTION arc is kernel-v2's own
             // KV16b vocabulary gap, not an ingestion one: `validate_cone_patch`
             // has no rule for an ellipse on a cone (no constant-radius axis-⊥
@@ -813,8 +965,15 @@ pub fn ingest_analytic(
     //
     //     `rim_sense[(edge, face)]` is the traversal axis of that rim AS WALKED
     //     by that face.
+    //
+    //     C5a: a cylinder or cone band SEEDS (its own law fixes the sense); a
+    //     torus band's rims are checked here and its sense PROPAGATED below,
+    //     because on a torus two latitude circles bound two regions and only
+    //     a neighbour can say which (module docs).
     let mut rim_sense: BTreeMap<(u32, usize), V3> = BTreeMap::new();
     let mut uf: BTreeMap<u32, u32> = rims.keys().map(|&k| (k, k)).collect();
+    // Torus bands awaiting a sense: (face, [rim_a, rim_b]).
+    let mut torus_bands: Vec<(usize, [u32; 2])> = Vec::new();
     for (fi, shapes) in face_loops.iter().enumerate() {
         if !surfs[fi].is_curved() {
             continue;
@@ -828,6 +987,26 @@ pub fn ingest_analytic(
         let (e0, e1) = (&band.rim_a, &band.rim_b);
         let (r0, r1) = (rims[e0], rims[e1]);
         let axis = surfs[fi].axis().expect("curved");
+        if matches!(surfs[fi], FaceSurface::Torus { .. }) {
+            // Both rims must be latitude circles of THIS torus at two distinct
+            // poloidal angles. `torus_rim_phi` checks the geometry; two rims
+            // at one angle would be one circle written twice.
+            let (p0, p1) = (surfs[fi].torus_rim_phi(&r0)?, surfs[fi].torus_rim_phi(&r1)?);
+            let FaceSurface::Torus { minor, .. } = surfs[fi] else {
+                unreachable!()
+            };
+            let dphi = (p1 - p0).rem_euclid(2.0 * std::f64::consts::PI);
+            if dphi * minor <= on_surface_band(r0.center)
+                || (2.0 * std::f64::consts::PI - dphi) * minor <= on_surface_band(r0.center)
+            {
+                return Err(KernelV2Error::InvalidAnalyticShell(
+                    "a torus band's two rims lie at the same poloidal angle",
+                ));
+            }
+            uf_union(&mut uf, *e0, *e1);
+            torus_bands.push((fi, [*e0, *e1]));
+            continue;
+        }
         let d = sub(r1.center, r0.center);
         let t = dot3(d, axis);
         // The rims must be distinct cross-sections of the same axis, and the
@@ -880,6 +1059,74 @@ pub fn ingest_analytic(
         rim_sense.insert((*e0, fi), sense(&r0, d));
         rim_sense.insert((*e1, fi), sense(&r1, [-d[0], -d[1], -d[2]]));
         uf_union(&mut uf, *e0, *e1);
+    }
+
+    // C5a: propagate senses across torus bands to a fixpoint. Why the two
+    // rims of ONE torus face are traversed oppositely about its axis,
+    // whichever region the face is: with `x = C + (R + r cos φ) ŵ(θ) +
+    // r sin φ â` and outward `n = cos φ ŵ + sin φ â`, the frame (∂θ, ∂φ) is
+    // right-handed about `n` (ŵ' = â × ŵ), so the boundary of the region
+    // `φ_s < φ < φ_e` with material on the left runs +θ at `φ_s` (CCW about
+    // `+â`) and −θ at `φ_e` (CCW about `−â`); `reversed` flips both. Which of
+    // the two complementary regions the face is follows from which rim got
+    // `+â` — the fact 1e and the volume/render paths read back.
+    loop {
+        let mut changed = false;
+        for &(fi, [e0, e1]) in &torus_bands {
+            if rim_sense.contains_key(&(e0, fi)) {
+                continue;
+            }
+            let axis = surfs[fi].axis().expect("torus");
+            // The sense a neighbour has fixed for rim `e`, as THIS face must
+            // walk it (the negation).
+            let from_neighbour = |e: u32| {
+                rim_sense
+                    .iter()
+                    .find(|((re, rf), _)| *re == e && *rf != fi)
+                    .map(|(_, &n)| [-n[0], -n[1], -n[2]])
+            };
+            let (n0, n1) = (from_neighbour(e0), from_neighbour(e1));
+            let (mine0, mine1) = match (n0, n1) {
+                (Some(m0), Some(m1)) => {
+                    if axis_sign(m0, axis) == axis_sign(m1, axis) {
+                        if probe {
+                            eprintln!(
+                                "[ingest-probe] torus band face {fi}: rims {e0} and {e1} are \
+                                 both fixed CCW about {:+.0}·axis by their neighbours",
+                                axis_sign(m0, axis)
+                            );
+                        }
+                        return Err(KernelV2Error::InvalidAnalyticShell(
+                            "the faces across a torus band's two rims fix senses that are not \
+                             opposite about its axis (the file's faces disagree about which \
+                             region the band is)",
+                        ));
+                    }
+                    (m0, m1)
+                }
+                (Some(m0), None) => (m0, sense_about(&rims[&e1], axis, -axis_sign(m0, axis))),
+                (None, Some(m1)) => (sense_about(&rims[&e0], axis, -axis_sign(m1, axis)), m1),
+                (None, None) => continue,
+            };
+            rim_sense.insert((e0, fi), mine0);
+            rim_sense.insert((e1, fi), mine1);
+            changed = true;
+        }
+        if !changed {
+            break;
+        }
+    }
+    for &(fi, [e0, _]) in &torus_bands {
+        if !rim_sense.contains_key(&(e0, fi)) {
+            // Measured (spec §2.2): the 6 plane-only components in 400 models
+            // sit in a model walled upstream by a non-band cylinder, so the
+            // plane-seeded rule (outer CCW, ring CW by containment) has no
+            // customer yet and is named rather than built.
+            return Err(KernelV2Error::AnalyticIngestUnsupported(
+                "a torus band's rim component has no cylinder or cone band to seed its sense \
+                 (C5: plane-seeded sense)",
+            ));
+        }
     }
 
     // Every rim must be incident to at least one curved face: a full circle
@@ -1036,18 +1283,73 @@ pub fn ingest_analytic(
                     (k, true)
                 }
             };
+            // The seam is a RULING on a cylinder or cone. On a torus (C5a) it
+            // is the POLOIDAL ARC at the rims' shared azimuth `ĝ` — centre
+            // `C + R·ĝ`, radius `r` — running +φ from the start rim (the one
+            // walked CCW about `+â`, `−â` when reversed; 1d) to the end rim,
+            // which is the arc lying ON the face. The arc from anchor a to
+            // anchor b therefore carries `+(ĝ × â)` when a is the start rim
+            // and the negation otherwise; its twin the negation again.
+            let (seam_up, seam_dn) = match surfs[fi] {
+                FaceSurface::Torus {
+                    center,
+                    axis_dir,
+                    major,
+                    minor,
+                    reversed,
+                } => {
+                    let Some(g) = unitize(radial(sub(vpos[r0.anchor as usize], center), axis_dir))
+                    else {
+                        return Err(KernelV2Error::InvalidAnalyticShell(
+                            "a torus band's rim anchor sits on the torus axis",
+                        ));
+                    };
+                    let cp = offset(center, [g[0] * major, g[1] * major, g[2] * major]);
+                    let m = [
+                        g[1] * axis_dir[2] - g[2] * axis_dir[1],
+                        g[2] * axis_dir[0] - g[0] * axis_dir[2],
+                        g[0] * axis_dir[1] - g[1] * axis_dir[0],
+                    ];
+                    let a_is_start = axis_sign(n0, axis_dir) == if reversed { -1.0 } else { 1.0 };
+                    let up = if a_is_start { m } else { [-m[0], -m[1], -m[2]] };
+                    // A seam the FILE wrote (our own exporter's form) must be
+                    // this arc: same poloidal circle, checked — not adopted.
+                    if band.seam.is_some() {
+                        match open_curves.get(&seam) {
+                            Some(&Curve::Arc {
+                                center: fc,
+                                radius: fr,
+                                ..
+                            }) if len3(sub(fc, cp)) <= on_surface_band(cp)
+                                && (fr - minor).abs() <= on_surface_band(cp) => {}
+                            _ => {
+                                return Err(KernelV2Error::InvalidAnalyticShell(
+                                    "a torus band's file-written seam is not the poloidal arc \
+                                     at its rims' azimuth",
+                                ));
+                            }
+                        }
+                    }
+                    let arc = |n: V3| Curve::Arc {
+                        center: cp,
+                        normal: UnitVector3 {
+                            x: n[0],
+                            y: n[1],
+                            z: n[2],
+                        },
+                        radius: minor,
+                    };
+                    (arc(up), arc([-up[0], -up[1], -up[2]]))
+                }
+                _ => (Curve::LineSegment, Curve::LineSegment),
+            };
             plans.push(LoopPlan {
                 face: fi,
                 kind: LoopKind::Outer,
                 cycle: vec![r0.anchor, r0.anchor, r1.anchor, r1.anchor],
                 edges: vec![e0, seam, e1, seam],
                 forwards: vec![rim_forward(&r0, n0), fwd, rim_forward(&r1, n1), !fwd],
-                curves: vec![
-                    circle_at(&r0, n0),
-                    Curve::LineSegment,
-                    circle_at(&r1, n1),
-                    Curve::LineSegment,
-                ],
+                curves: vec![circle_at(&r0, n0), seam_up, circle_at(&r1, n1), seam_dn],
             });
             continue;
         }
@@ -1657,6 +1959,7 @@ fn point_on_axis(s: &FaceSurface) -> Point3 {
         FaceSurface::Plane { origin, .. } => origin,
         FaceSurface::Cylinder { axis_point, .. } => axis_point,
         FaceSurface::Cone { apex, .. } => apex,
+        FaceSurface::Torus { center, .. } => center,
     }
 }
 

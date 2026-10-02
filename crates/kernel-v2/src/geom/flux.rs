@@ -511,3 +511,143 @@ pub(crate) fn torus_band_flux(
     let r2 = minor * minor;
     Ok(sigma * alpha * major * PI * r2 + PI * r2 * rim_dots / 3.0)
 }
+
+/// Divergence-theorem flux `(1/3)∮ x·n dA` through a torus LATITUDE BAND —
+/// SI5 C5a (spec `si5_c5_sphere_torus_tier.md` §3): a torus face between two
+/// closed circles COAXIAL with the torus, the fillet around a boss or a hole.
+/// The outer loop is the two latitude rims plus the poloidal seam-arc twin
+/// pair the ingest path mints; the seam is a fake edge and contributes nothing.
+///
+/// Derivation. With `x = C + (R + r cos φ) ŵ(θ) + r sin φ â` and the torus's
+/// outward normal `n = cos φ ŵ + sin φ â`, `x·n = C·ŵ(θ) cos φ + (C·â) sin φ +
+/// R cos φ + r` and `dA = r (R + r cos φ) dθ dφ`. Over the full turn in θ the
+/// `C·ŵ` term integrates to zero, so with `G` the antiderivative of
+/// `[(C·â) sin φ + R cos φ + r](R + r cos φ)`:
+///
+/// ```text
+/// Φ = ±(2πr/3)·[G(φ_e) − G(φ_s)],
+/// G(φ) = (C·â)(−R cos φ + (r/2) sin²φ) + (R² + r²) sin φ
+///        + Rr(φ/2 + sin 2φ/4) + Rr φ.
+/// ```
+///
+/// The region is the +φ sweep from the START rim — the one traversed CCW
+/// about `+â` (about `−â` when `reversed`), the fact 1d of the ingest path
+/// established — to the end rim, `φ_e − φ_s ∈ (0, 2π)`. `reversed` negates
+/// the whole flux (the face's outward normal is `−n`). Check: a full turn has
+/// `G(2π) − G(0) = 3πRr`, giving the torus volume `2π²Rr²`.
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn torus_latitude_band_flux(
+    arena: &crate::arena::BrepArena,
+    f: crate::arena::FaceId,
+    face: &crate::arena::Face,
+    center: Point3,
+    axis_dir: crate::arena::UnitVector3,
+    major: f64,
+    minor: f64,
+    reversed: bool,
+) -> Result<f64, crate::error::KernelV2Error> {
+    use std::f64::consts::PI;
+    let mismatch = |reason: &'static str| crate::error::KernelV2Error::CurvedGeometryMismatch {
+        face: f,
+        reason,
+    };
+    if !face.inner_loops.is_empty() {
+        return Err(mismatch(
+            "signed_volume: torus latitude band with inner loops has no closed form",
+        ));
+    }
+    let a = [axis_dir.x, axis_dir.y, axis_dir.z];
+    let (phi_s, phi_e) = torus_latitude_band_phis(arena, face, center, a, major, minor, reversed)
+        .ok_or(mismatch(
+        "signed_volume: torus latitude band is not two coaxial rims on the torus with \
+             opposite senses",
+    ))?;
+    let c_dot_a = center.x() * a[0] + center.y() * a[1] + center.z() * a[2];
+    let g = |phi: f64| {
+        let (s, c) = phi.sin_cos();
+        c_dot_a * (-major * c + 0.5 * minor * s * s)
+            + (major * major + minor * minor) * s
+            + major * minor * (0.5 * phi + 0.25 * (2.0 * phi).sin())
+            + major * minor * phi
+    };
+    let sigma = if reversed { -1.0 } else { 1.0 };
+    Ok(sigma * (2.0 * PI * minor / 3.0) * (g(phi_e) - g(phi_s)))
+}
+
+/// The poloidal interval `(φ_s, φ_e)` of a torus latitude band's outer loop,
+/// read from its two `Curve::Circle` rims: each rim's `φ` from its radius and
+/// axial offset (`ρ = R + r cos φ`, `τ = r sin φ`), the start rim by its
+/// traversal sense (CCW about `+â`, `−â` when reversed), and `φ_e` unwrapped
+/// to lie within one turn after `φ_s`. `None` for any other loop shape, or
+/// when the rims do not lie on the torus, are not coaxial, or are not
+/// traversed oppositely — the callers name the refusal. Shared by the volume
+/// term and the render tessellator so the two read ONE region.
+pub(crate) fn torus_latitude_band_phis(
+    arena: &crate::arena::BrepArena,
+    face: &crate::arena::Face,
+    center: Point3,
+    a: [f64; 3],
+    major: f64,
+    minor: f64,
+    reversed: bool,
+) -> Option<(f64, f64)> {
+    use crate::arena::Curve;
+    use std::f64::consts::PI;
+    let hes = arena.loop_half_edges(face.outer_loop).ok()?;
+    let mut rims: Vec<(f64, f64)> = Vec::new(); // (φ, sign about +â)
+    for &h in &hes {
+        let he = arena.half_edge(h).ok()?;
+        if let Curve::Circle {
+            center: cc,
+            normal,
+            radius,
+        } = he.curve
+        {
+            let along = normal.x * a[0] + normal.y * a[1] + normal.z * a[2];
+            if along.abs() < 1.0 - 1e-9 {
+                return None;
+            }
+            let d = [
+                cc.x() - center.x(),
+                cc.y() - center.y(),
+                cc.z() - center.z(),
+            ];
+            let tau = d[0] * a[0] + d[1] * a[1] + d[2] * a[2];
+            let off = [d[0] - tau * a[0], d[1] - tau * a[1], d[2] - tau * a[2]];
+            if (off[0] * off[0] + off[1] * off[1] + off[2] * off[2]).sqrt() > 1e-9 * (1.0 + major) {
+                return None;
+            }
+            if ((radius - major).hypot(tau) - minor).abs() > 1e-9 * (1.0 + minor) {
+                return None;
+            }
+            rims.push((tau.atan2(radius - major), along.signum()));
+        }
+    }
+    let [(p0, s0), (p1, s1)] = rims[..] else {
+        return None;
+    };
+    if s0 == s1 {
+        return None;
+    }
+    let start_sign = if reversed { -1.0 } else { 1.0 };
+    let (phi_s, phi_e_raw) = if s0 == start_sign { (p0, p1) } else { (p1, p0) };
+    let dphi = (phi_e_raw - phi_s).rem_euclid(2.0 * PI);
+    if !(dphi > 0.0 && dphi < 2.0 * PI) {
+        return None;
+    }
+    Some((phi_s, phi_s + dphi))
+}
+
+/// Public alias of [`torus_latitude_band_phis`] for the SI5 harness probes.
+#[allow(clippy::too_many_arguments)]
+pub fn torus_latitude_band_phis_pub(
+    arena: &crate::arena::BrepArena,
+    face: &crate::arena::Face,
+    center: Point3,
+    a: [f64; 3],
+    major: f64,
+    minor: f64,
+    reversed: bool,
+) -> Option<(f64, f64)> {
+    torus_latitude_band_phis(arena, face, center, a, major, minor, reversed)
+}
