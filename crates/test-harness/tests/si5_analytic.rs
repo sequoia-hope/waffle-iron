@@ -1249,6 +1249,536 @@ fn c4b_arc_patch_census() {
     assert!(scanned > 0, "no models scanned under {dir}");
 }
 
+/// SI5 C5-M: the boundary FORMS of spherical and toroidal faces in the corpus,
+/// measured before any C5 code — the same discipline that redirected C4b twice
+/// (`specs/si5_c4b_arc_patch_tier.md` §5).
+///
+///     ABC_DIR=/tmp/abc/chunk0000 ABC_N=400 \
+///         cargo test -p test-harness --test si5_analytic --release \
+///         -- --ignored --nocapture c5_sphere_torus_census
+///
+/// What decides C5's machinery, each a number this prints:
+///
+/// 1. **Per-face form** of every sphere/torus face: a PATCH (open edges only),
+///    a BAND (closed circles only — the fillet band around a boss is a torus
+///    between two latitude circles), the closed seam form our own exporter
+///    writes, or mixed. The arena's sphere/torus validators are
+///    topology-agnostic, but `signed_volume` and the tessellator are NOT:
+///    `signed_volume` has no sphere term at all and only the bent-tube band
+///    for a torus, and the torus tessellator routes any closed circle to the
+///    bent-tube lateral. Which forms the corpus writes is what C5 must make
+///    those two paths carry.
+/// 2. **What each closed circle / arc on a torus IS** — a latitude circle
+///    (coaxial with the torus), a poloidal profile circle (radius = minor,
+///    centre on the major circle), or neither (Villarceau) — and on a sphere,
+///    a great circle or a small one. The volume/tessellation closed forms
+///    differ per kind.
+/// 3. **Loops per face**, for the outer-loop question C4b answered with a
+///    named refusal.
+/// 4. **Per-model reach** at stake: models fully inside C4b's vocabulary plus
+///    spheres and tori, split by which torus/sphere forms they need. Plus the
+///    text-level count of sphere/torus models C2 already refuses for a
+///    `VERTEX_LOOP` (spec §5.3) — reach C5 cannot recover.
+#[test]
+#[ignore = "corpus: needs ABC_DIR (scripts/fetch-abc-corpus.sh)"]
+fn c5_sphere_torus_census() {
+    use std::collections::BTreeMap;
+    use waffle_types::kernel::{AnalyticCurve, AnalyticLoop, AnalyticShellData, AnalyticSurface};
+
+    let Ok(dir) = std::env::var("ABC_DIR") else {
+        eprintln!("ABC_DIR unset — skipping");
+        return;
+    };
+    let n: usize = std::env::var("ABC_N")
+        .ok()
+        .and_then(|s| s.parse().ok())
+        .unwrap_or(200);
+    let max_bytes: u64 = std::env::var("ABC_MAX_BYTES")
+        .ok()
+        .and_then(|s| s.parse().ok())
+        .unwrap_or(2_000_000);
+
+    /// C5's surface vocabulary is the whole analytic contract; every loop an
+    /// edge loop (a `VERTEX_LOOP` file is refused at C2 anyway).
+    fn c5_vocab(shell: &AnalyticShellData) -> bool {
+        shell
+            .faces
+            .iter()
+            .all(|f| f.loops.iter().all(|l| matches!(l, AnalyticLoop::Edges(_))))
+    }
+    fn has_sphere_or_torus(shell: &AnalyticShellData) -> bool {
+        shell.faces.iter().any(|f| {
+            matches!(
+                f.surface,
+                AnalyticSurface::Sphere { .. } | AnalyticSurface::Torus { .. }
+            )
+        })
+    }
+
+    let v = |a: Point3, b: Point3| [a.x() - b.x(), a.y() - b.y(), a.z() - b.z()];
+    let dot = |a: [f64; 3], b: [f64; 3]| a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
+    let norm = |a: [f64; 3]| dot(a, a).sqrt();
+
+    /// Which circle of a torus is this (closed or arc)? Relative bands at
+    /// 1e-9, the arena's own curved-rim band.
+    fn torus_circle_kind(
+        center: Point3,
+        axis: [f64; 3],
+        major: f64,
+        minor: f64,
+        c_center: Point3,
+        c_normal: [f64; 3],
+        c_radius: f64,
+    ) -> &'static str {
+        let d = [
+            c_center.x() - center.x(),
+            c_center.y() - center.y(),
+            c_center.z() - center.z(),
+        ];
+        let tau = d[0] * axis[0] + d[1] * axis[1] + d[2] * axis[2];
+        let radial = [
+            d[0] - tau * axis[0],
+            d[1] - tau * axis[1],
+            d[2] - tau * axis[2],
+        ];
+        let rho = (radial[0] * radial[0] + radial[1] * radial[1] + radial[2] * radial[2]).sqrt();
+        let along = (c_normal[0] * axis[0] + c_normal[1] * axis[1] + c_normal[2] * axis[2]).abs();
+        let band = 1e-9 * major.max(1.0);
+        if along > 1.0 - 1e-9 && rho <= band {
+            "latitude"
+        } else if along < 1e-9
+            && (rho - major).abs() <= band
+            && tau.abs() <= band
+            && (c_radius - minor).abs() <= 1e-9 * minor
+        {
+            "poloidal"
+        } else {
+            "other"
+        }
+    }
+
+    let mut scanned = 0usize;
+    let mut text_st_models = 0usize;
+    let mut text_st_with_vertex_loop = 0usize;
+    let mut vocab_models = 0usize;
+    let mut vocab_with_st = 0usize;
+    let mut st_faces: BTreeMap<&'static str, usize> = BTreeMap::new();
+    let mut st_forms: BTreeMap<String, usize> = BTreeMap::new();
+    let mut st_loops: BTreeMap<String, usize> = BTreeMap::new();
+    let mut torus_closed_kinds: BTreeMap<&'static str, usize> = BTreeMap::new();
+    let mut torus_arc_kinds: BTreeMap<&'static str, usize> = BTreeMap::new();
+    let mut sphere_arc_kinds: BTreeMap<&'static str, usize> = BTreeMap::new();
+    let mut sphere_closed = 0usize;
+    let mut models_by_need: BTreeMap<String, usize> = BTreeMap::new();
+    let mut examples: BTreeMap<String, String> = BTreeMap::new();
+    let mut band_rim_neighbors: BTreeMap<String, usize> = BTreeMap::new();
+    let mut band_component_seeds: BTreeMap<String, usize> = BTreeMap::new();
+    let mut flag_vs_law: BTreeMap<&'static str, usize> = BTreeMap::new();
+    let mut flag_disagree_examples: Vec<String> = Vec::new();
+
+    let prev_hook = std::panic::take_hook();
+    std::panic::set_hook(Box::new(|_| {}));
+
+    for path in corpus_files(&dir) {
+        if scanned >= n {
+            break;
+        }
+        let Ok(md) = std::fs::metadata(&path) else {
+            continue;
+        };
+        if md.len() > max_bytes {
+            continue;
+        }
+        let Ok(text) = std::fs::read_to_string(&path) else {
+            continue;
+        };
+        scanned += 1;
+        if text.contains("SPHERICAL_SURFACE") || text.contains("TOROIDAL_SURFACE") {
+            text_st_models += 1;
+            if text.contains("VERTEX_LOOP") {
+                text_st_with_vertex_loop += 1;
+            }
+        }
+        let id = path
+            .file_stem()
+            .map(|s| s.to_string_lossy().to_string())
+            .unwrap_or_default();
+        let parsed = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            step_import::parse_step_analytic(&text, &id)
+        }));
+        let Ok(Ok(import)) = parsed else { continue };
+        let Some(shells) = import
+            .shells
+            .iter()
+            .map(|s| s.as_ref().ok())
+            .collect::<Option<Vec<_>>>()
+        else {
+            continue;
+        };
+        if !shells.iter().all(|s| c5_vocab(s)) {
+            continue;
+        }
+        vocab_models += 1;
+        if !shells.iter().any(|s| has_sphere_or_torus(s)) {
+            continue;
+        }
+        vocab_with_st += 1;
+
+        let mut needs: Vec<String> = Vec::new();
+        for shell in &shells {
+            for face in &shell.faces {
+                let (kind, torus) = match face.surface {
+                    AnalyticSurface::Sphere { .. } => ("sphere", None),
+                    AnalyticSurface::Torus {
+                        center,
+                        axis_dir,
+                        major_radius,
+                        minor_radius,
+                    } => (
+                        "torus",
+                        Some((
+                            center,
+                            [axis_dir.x(), axis_dir.y(), axis_dir.z()],
+                            major_radius,
+                            minor_radius,
+                        )),
+                    ),
+                    _ => continue,
+                };
+                *st_faces.entry(kind).or_default() += 1;
+                let mut closed = 0usize;
+                let mut arcs = 0usize;
+                let mut lines = 0usize;
+                let mut ellipses = 0usize;
+                let mut seam_uses = 0usize;
+                let mut loops_here = 0usize;
+                let mut sig = String::new();
+                for lp in &face.loops {
+                    let AnalyticLoop::Edges(os) = lp else {
+                        continue;
+                    };
+                    loops_here += 1;
+                    // An edge named twice in ONE loop is a seam (our own
+                    // exporter's closed sphere/torus form).
+                    let mut seen: BTreeMap<u32, usize> = BTreeMap::new();
+                    for o in os {
+                        *seen.entry(o.edge).or_default() += 1;
+                    }
+                    seam_uses += seen.values().filter(|&&c| c > 1).count();
+                    if !sig.is_empty() {
+                        sig.push('|');
+                    }
+                    for o in os {
+                        let e = &shell.edges[o.edge as usize];
+                        match e.curve {
+                            AnalyticCurve::Line => {
+                                lines += 1;
+                                sig.push('L');
+                            }
+                            AnalyticCurve::Circle {
+                                center: cc,
+                                normal: cn,
+                                radius: cr,
+                                ..
+                            } => {
+                                let cn = [cn.x(), cn.y(), cn.z()];
+                                let tk = torus.map(|(tc, ta, maj, min)| {
+                                    torus_circle_kind(tc, ta, maj, min, cc, cn, cr)
+                                });
+                                if e.start == e.end {
+                                    closed += 1;
+                                    sig.push('O');
+                                    match (kind, tk) {
+                                        ("torus", Some(k)) => {
+                                            *torus_closed_kinds.entry(k).or_default() += 1
+                                        }
+                                        _ => sphere_closed += 1,
+                                    }
+                                } else {
+                                    arcs += 1;
+                                    sig.push('C');
+                                    match (kind, tk) {
+                                        ("torus", Some(k)) => {
+                                            *torus_arc_kinds.entry(k).or_default() += 1
+                                        }
+                                        _ => {
+                                            if let AnalyticSurface::Sphere { center, radius } =
+                                                face.surface
+                                            {
+                                                let off = norm(v(cc, center));
+                                                let k = if off <= 1e-9 * radius.max(1.0) {
+                                                    "great"
+                                                } else {
+                                                    "small"
+                                                };
+                                                *sphere_arc_kinds.entry(k).or_default() += 1;
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                            AnalyticCurve::Ellipse { .. } => {
+                                ellipses += 1;
+                                sig.push('E');
+                            }
+                        }
+                    }
+                }
+                let form = if seam_uses > 0 {
+                    "seamed (an edge used twice in one loop)"
+                } else if closed > 0 && arcs + lines + ellipses == 0 {
+                    "band (closed circles only)"
+                } else if closed == 0 {
+                    "patch (open edges only)"
+                } else {
+                    "mixed (closed circle + open edges)"
+                };
+                let label = format!("{kind}: {form}");
+                *st_forms.entry(label.clone()).or_default() += 1;
+                *st_loops
+                    .entry(format!("{label} — {loops_here} loop(s)"))
+                    .or_default() += 1;
+                examples
+                    .entry(format!("{label} [{sig}]"))
+                    .or_insert(id.clone());
+                if !needs.contains(&label) {
+                    needs.push(label);
+                }
+            }
+        }
+        needs.sort();
+        *models_by_need.entry(needs.join(" + ")).or_default() += 1;
+
+        // (a) + (b): the rim-sense question. A closed circle names its two
+        // faces; for each torus/sphere BAND rim, what is across it, and does
+        // every component of rims-joined-by-bands contain a face whose own law
+        // can seed the sense (a cylinder/cone band: "toward the other rim"; a
+        // plane: outer CCW / ring CW)? And on every cylinder/cone band, does
+        // the FILE's flag (`forward` about the declared circle axis) agree
+        // with the law-derived sense? That agreement rate is the trust claim
+        // reading the flag would rest on.
+        for shell in &shells {
+            let closed_circle = |e: u32| {
+                let e = &shell.edges[e as usize];
+                e.start == e.end && matches!(e.curve, AnalyticCurve::Circle { .. })
+            };
+            // face index -> (kind, is_band_of_two_rims, rims)
+            let mut face_form: Vec<(&'static str, bool, Vec<u32>)> = Vec::new();
+            for face in &shell.faces {
+                let loops: Vec<&Vec<_>> = face
+                    .loops
+                    .iter()
+                    .filter_map(|l| match l {
+                        AnalyticLoop::Edges(os) => Some(os),
+                        _ => None,
+                    })
+                    .collect();
+                let band = loops.len() == 2
+                    && loops
+                        .iter()
+                        .all(|os| os.len() == 1 && closed_circle(os[0].edge));
+                let rims: Vec<u32> = loops
+                    .iter()
+                    .flat_map(|os| os.iter().map(|o| o.edge))
+                    .filter(|&e| closed_circle(e))
+                    .collect();
+                face_form.push((face.surface.surface_type_str(), band, rims));
+            }
+            // rim edge -> faces using it
+            let mut rim_faces: BTreeMap<u32, Vec<usize>> = BTreeMap::new();
+            for (fi, (_, _, rims)) in face_form.iter().enumerate() {
+                for &r in rims {
+                    rim_faces.entry(r).or_default().push(fi);
+                }
+            }
+            // union-find over rims joined by ANY two-rim band face
+            let mut parent: BTreeMap<u32, u32> = rim_faces.keys().map(|&k| (k, k)).collect();
+            fn find(p: &mut BTreeMap<u32, u32>, mut x: u32) -> u32 {
+                while p[&x] != x {
+                    let up = p[&p[&x]];
+                    p.insert(x, up);
+                    x = up;
+                }
+                x
+            }
+            for (_, band, rims) in &face_form {
+                if *band {
+                    let (a, b) = (find(&mut parent, rims[0]), find(&mut parent, rims[1]));
+                    if a != b {
+                        parent.insert(a.max(b), a.min(b));
+                    }
+                }
+            }
+            for (fi, (kind, band, rims)) in face_form.iter().enumerate() {
+                if !*band || !matches!(*kind, "toroidal" | "spherical") {
+                    continue;
+                }
+                let mut nb: Vec<String> = Vec::new();
+                for &r in rims {
+                    let other = rim_faces[&r].iter().find(|&&g| g != fi);
+                    nb.push(match other {
+                        Some(&g) => {
+                            let (k, b, _) = &face_form[g];
+                            format!("{k}{}", if *b { " band" } else { "" })
+                        }
+                        None => "UNPAIRED".into(),
+                    });
+                }
+                nb.sort();
+                *band_rim_neighbors.entry(nb.join(" / ")).or_default() += 1;
+                let root = find(&mut parent, rims[0]);
+                let mut seeds: Vec<&str> = Vec::new();
+                for (g, (k, b, rs)) in face_form.iter().enumerate() {
+                    if rs.iter().any(|&r| find(&mut parent, r) == root) {
+                        match (*k, *b) {
+                            ("cylindrical" | "conical", true) => seeds.push("cyl/cone band"),
+                            ("planar", _) => seeds.push("plane"),
+                            _ => {}
+                        }
+                        let _ = g;
+                    }
+                }
+                seeds.sort();
+                seeds.dedup();
+                let seed_label = if seeds.is_empty() {
+                    "NO seed".to_string()
+                } else {
+                    seeds.join(" + ")
+                };
+                if !seeds.contains(&"cyl/cone band") {
+                    examples
+                        .entry(format!(
+                            "band WITHOUT a curved-band seed ({seed_label}) [{nb:?}]"
+                        ))
+                        .or_insert(id.clone());
+                }
+                *band_component_seeds.entry(seed_label).or_default() += 1;
+                // A sphere band's two rims: coaxial (a zone between parallel
+                // circles — a meridian seam exists) or not?
+                if *kind == "spherical" {
+                    let ax = |e: u32| match shell.edges[e as usize].curve {
+                        AnalyticCurve::Circle { normal, .. } => {
+                            [normal.x(), normal.y(), normal.z()]
+                        }
+                        _ => unreachable!(),
+                    };
+                    let coax = dot(ax(rims[0]), ax(rims[1])).abs() > 1.0 - 1e-9;
+                    examples
+                        .entry(format!("sphere band rims coaxial={coax}"))
+                        .or_insert(id.clone());
+                }
+            }
+            // (b) file flag vs the C4a material law on every cylinder/cone band.
+            for (fi, face) in shell.faces.iter().enumerate() {
+                let (kind, band, rims) = &face_form[fi];
+                if !*band || !matches!(*kind, "cylindrical" | "conical") {
+                    continue;
+                }
+                let axis = match face.surface {
+                    AnalyticSurface::Cylinder { axis_dir, .. }
+                    | AnalyticSurface::Cone { axis_dir, .. } => {
+                        [axis_dir.x(), axis_dir.y(), axis_dir.z()]
+                    }
+                    _ => unreachable!(),
+                };
+                let circ = |e: u32| match shell.edges[e as usize].curve {
+                    AnalyticCurve::Circle { center, normal, .. } => {
+                        (center, [normal.x(), normal.y(), normal.z()])
+                    }
+                    _ => unreachable!(),
+                };
+                let (c0, n0) = circ(rims[0]);
+                let (c1, n1) = circ(rims[1]);
+                let d = v(c1, c0);
+                let reversed = !face.same_sense;
+                for (k, (c_n, toward)) in [(n0, d), (n1, [-d[0], -d[1], -d[2]])]
+                    .into_iter()
+                    .enumerate()
+                {
+                    let mut s: f64 = if dot(c_n, toward) > 0.0 { 1.0 } else { -1.0 };
+                    if reversed {
+                        s = -s;
+                    }
+                    // The file: the loop's use of this rim.
+                    let fwd = face
+                        .loops
+                        .iter()
+                        .find_map(|l| match l {
+                            AnalyticLoop::Edges(os) if os.len() == 1 && os[0].edge == rims[k] => {
+                                Some(os[0].forward)
+                            }
+                            _ => None,
+                        })
+                        .expect("band rim use");
+                    let file_s: f64 = if fwd { 1.0 } else { -1.0 };
+                    let _ = axis;
+                    *flag_vs_law
+                        .entry(if (s - file_s).abs() < 0.5 {
+                            "agree"
+                        } else {
+                            "DISAGREE"
+                        })
+                        .or_default() += 1;
+                    if (s - file_s).abs() >= 0.5 && flag_disagree_examples.len() < 5 {
+                        flag_disagree_examples.push(format!(
+                            "{id} face {fi} rim {} ({kind}, same_sense={})",
+                            rims[k], face.same_sense
+                        ));
+                    }
+                }
+            }
+        }
+    }
+    std::panic::set_hook(prev_hook);
+
+    eprintln!("\nC5 CENSUS over {scanned} models (<= {max_bytes} bytes)");
+    eprintln!(
+        "  text: models with a sphere or torus {text_st_models}, of which with a VERTEX_LOOP \
+         (refused at C2) {text_st_with_vertex_loop}"
+    );
+    eprintln!(
+        "  in C5 surface vocabulary (all analytic, edge loops) {vocab_models} ({:.1} %), of \
+         which with a sphere/torus face {vocab_with_st} ({:.1} % of scanned) = reach at stake",
+        100.0 * vocab_models as f64 / scanned.max(1) as f64,
+        100.0 * vocab_with_st as f64 / scanned.max(1) as f64
+    );
+    eprintln!("  sphere/torus faces: {st_faces:?}");
+    eprintln!("  forms:");
+    for (k, c) in &st_forms {
+        eprintln!("    x{c:<5} {k}");
+    }
+    eprintln!("  loops per face:");
+    for (k, c) in &st_loops {
+        eprintln!("    x{c:<5} {k}");
+    }
+    eprintln!("  torus CLOSED circles by kind: {torus_closed_kinds:?}");
+    eprintln!("  torus ARCS by kind: {torus_arc_kinds:?}");
+    eprintln!("  sphere arcs by kind: {sphere_arc_kinds:?}; sphere closed circles {sphere_closed}");
+    eprintln!("  models by the forms they need:");
+    let mut rows: Vec<_> = models_by_need.iter().collect();
+    rows.sort_by_key(|(_, c)| std::cmp::Reverse(**c));
+    for (k, c) in rows {
+        eprintln!("    x{c:<5} {k}");
+    }
+    eprintln!("  one example per form/signature:");
+    for (k, id) in &examples {
+        eprintln!("    {k}: {id}");
+    }
+    eprintln!("  sphere/torus BAND rims — what is across the two rims:");
+    for (k, c) in &band_rim_neighbors {
+        eprintln!("    x{c:<5} {k}");
+    }
+    eprintln!("  sphere/torus BANDS — sense seeds available in the rim component:");
+    for (k, c) in &band_component_seeds {
+        eprintln!("    x{c:<5} {k}");
+    }
+    eprintln!("  cylinder/cone band rims: FILE flag vs the C4a material law: {flag_vs_law:?}");
+    for e in &flag_disagree_examples {
+        eprintln!("    disagree: {e}");
+    }
+    assert!(scanned > 0, "no models scanned under {dir}");
+}
+
 /// What share of real models does the ingest path actually take, and what
 /// walls the rest — measured, per spec §8's "categorized" posture rather than
 /// asserted.
