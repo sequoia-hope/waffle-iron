@@ -17,7 +17,7 @@ pub use chamfer::execute_chamfer;
 pub use diff::{signature_similarity, snapshot, DiffResult, TopoSnapshot};
 pub use extrude::{execute_extrude, execute_symmetric_extrude};
 pub use fillet::execute_fillet;
-pub use import::execute_import;
+pub use import::{execute_import, execute_import_analytic, merge_import_results};
 pub use kernel_ext::KernelBundle;
 pub use pattern::{execute_pattern_instances, Instance, PatternSeed};
 pub use pipe::execute_pipe;

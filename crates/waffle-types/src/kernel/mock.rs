@@ -956,6 +956,120 @@ impl Kernel for MockKernel {
         Ok(handle)
     }
 
+    /// Mock ingest of an exact analytic shell (SI5 C6): the file's own
+    /// topology mirrored as synthetic entities — one MockVertex per shell
+    /// vertex, one MockEdge per edge (chord length, a closed circle its
+    /// circumference), one MockFace per face (surface_type from the surface,
+    /// a plane's outward normal from its descriptor and sense, centroid the
+    /// mean of its boundary vertices, area a deterministic proxy).
+    fn import_analytic_shell(
+        &mut self,
+        shell: &super::analytic::AnalyticShellData,
+    ) -> Result<KernelSolidHandle, KernelError> {
+        use super::analytic::{AnalyticCurve, AnalyticLoop, AnalyticSurface};
+        if shell.is_empty() {
+            return Err(KernelError::Other {
+                message: "import_analytic_shell: shell has no faces".to_string(),
+            });
+        }
+        let mut vertices: Vec<MockVertex> = Vec::with_capacity(shell.vertices.len());
+        for p in &shell.vertices {
+            vertices.push(MockVertex {
+                id: KernelId(self.next_id),
+                position: [p.x(), p.y(), p.z()],
+            });
+            self.next_id += 1;
+        }
+        let dist = |a: [f64; 3], b: [f64; 3]| {
+            ((a[0] - b[0]).powi(2) + (a[1] - b[1]).powi(2) + (a[2] - b[2]).powi(2)).sqrt()
+        };
+        let mut edges: Vec<MockEdge> = Vec::with_capacity(shell.edges.len());
+        for e in &shell.edges {
+            let (Some(s), Some(t)) = (vertices.get(e.start as usize), vertices.get(e.end as usize))
+            else {
+                return Err(KernelError::Other {
+                    message: "import_analytic_shell: edge vertex index out of range".to_string(),
+                });
+            };
+            let length = match e.curve {
+                AnalyticCurve::Circle { radius, .. } if e.is_closed() => {
+                    std::f64::consts::TAU * radius
+                }
+                _ => dist(s.position, t.position),
+            };
+            edges.push(MockEdge {
+                id: KernelId(self.next_id),
+                start: s.id,
+                end: t.id,
+                length,
+            });
+            self.next_id += 1;
+        }
+        let mut faces: Vec<MockFace> = Vec::with_capacity(shell.faces.len());
+        for f in &shell.faces {
+            let normal = match f.surface {
+                AnalyticSurface::Plane { normal, .. } => {
+                    let n = [normal.x(), normal.y(), normal.z()];
+                    if f.same_sense {
+                        n
+                    } else {
+                        [-n[0], -n[1], -n[2]]
+                    }
+                }
+                _ => [0.0, 0.0, 1.0],
+            };
+            let mut edge_ids = Vec::new();
+            let mut boundary: Vec<[f64; 3]> = Vec::new();
+            for lp in &f.loops {
+                match lp {
+                    AnalyticLoop::Edges(oriented) => {
+                        for oe in oriented {
+                            if let Some(e) = edges.get(oe.edge as usize) {
+                                edge_ids.push(e.id);
+                            }
+                            if let Some(e) = shell.edges.get(oe.edge as usize) {
+                                if let Some(v) = vertices.get(e.start as usize) {
+                                    boundary.push(v.position);
+                                }
+                            }
+                        }
+                    }
+                    AnalyticLoop::Vertex(v) => {
+                        if let Some(v) = vertices.get(*v as usize) {
+                            boundary.push(v.position);
+                        }
+                    }
+                }
+            }
+            let n = boundary.len().max(1) as f64;
+            let mut centroid = [0.0; 3];
+            for p in &boundary {
+                for k in 0..3 {
+                    centroid[k] += p[k] / n;
+                }
+            }
+            faces.push(MockFace {
+                id: KernelId(self.next_id),
+                edges: edge_ids,
+                normal,
+                centroid,
+                area: boundary.len() as f64, // deterministic proxy
+                surface_type: f.surface.surface_type_str().to_string(),
+            });
+            self.next_id += 1;
+        }
+        let handle = self.alloc_handle();
+        self.solids.insert(
+            handle.raw(),
+            MockSolid {
+                vertices,
+                edges,
+                faces,
+            },
+        );
+        Ok(handle)
+    }
+
     fn boolean_union(
         &mut self,
         a: &KernelSolidHandle,

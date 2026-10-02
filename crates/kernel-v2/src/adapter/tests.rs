@@ -798,3 +798,85 @@ fn entity_axis_is_none_without_analytic_geometry() {
         );
     }
 }
+
+/// SI5 C6: an exact analytic shell enters through the trait and is an
+/// ordinary arena solid — everything the mesh-backed tier refuses
+/// (exact volume, analytic STEP export, a boolean) works, `solid_is_exact`
+/// says so, and the render mesh is the kernel's own.
+#[test]
+fn an_exact_analytic_import_is_a_first_class_arena_solid() {
+    use crate::ingest::fixtures;
+    let mut adapter = KernelV2Adapter::new();
+    let (rc, h, rho) = (3.0, 5.0, 0.75);
+    let shell = fixtures::quarter_puck(rc, h, rho);
+    let handle = adapter
+        .import_analytic_shell(&shell)
+        .expect("the quarter puck ingests");
+    assert!(adapter.solid_is_exact(&handle));
+
+    // Exact volume: the quarter of the rounded puck, in closed form.
+    let got = adapter.solid_volume(&handle).expect("exact volume");
+    let big = rc - rho;
+    let want = (std::f64::consts::PI * rc * rc * (h - rho)
+        + std::f64::consts::PI * big * big * rho
+        + std::f64::consts::PI * std::f64::consts::PI * rho * rho * big / 2.0
+        + 2.0 * std::f64::consts::PI * rho * rho * rho / 3.0)
+        / 4.0;
+    assert!(
+        ((got - want) / want).abs() < 1e-12,
+        "volume {got:.17e} vs {want:.17e}"
+    );
+
+    // Render + edges come from the kernel's own tessellator (face ranges
+    // keyed by arena face ids, not imported slots).
+    let mesh = adapter.tessellate(&handle, 0.001).expect("tessellates");
+    assert_eq!(mesh.face_ranges.len(), shell.faces.len());
+    assert!(adapter.extract_edges(&handle, 0.001).is_ok());
+
+    // Analytic STEP export — the mesh tier's typed refusal does not apply.
+    let step = adapter
+        .export_step(&handle, "quarter_puck.step")
+        .expect("exports analytically");
+    assert!(
+        step.contains("TOROIDAL_SURFACE"),
+        "the fillet is written exactly"
+    );
+
+    // A boolean operand (the SI1 wall is for mesh-backed bodies only): the
+    // unit box, translated to poke out of the puck's flat bottom, unioned
+    // in. Exact volume: the puck's quarter plus the half of the box that
+    // lies outside it.
+    let face = stage_unit_square(&mut adapter);
+    let unit = adapter
+        .extrude_face(face, [0.0, 0.0, 1.0], 1.0)
+        .expect("box extrudes");
+    let block = adapter
+        .transform_body(
+            &unit,
+            &waffle_types::kernel::RigidPlacement {
+                rotation: [[1.0, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, 1.0]],
+                translation: [0.5, 0.5, -0.5],
+            },
+        )
+        .expect("rigid move");
+    let union = adapter
+        .boolean_union(&handle, &block)
+        .expect("exact import is an operand");
+    let v_union = adapter
+        .solid_volume(&union)
+        .expect("exact volume of the result");
+    let want_union = want + 0.5;
+    assert!(
+        ((v_union - want_union) / want_union).abs() < 1e-9,
+        "union volume {v_union:.17e} vs {want_union:.17e}"
+    );
+}
+
+/// The mesh-backed tier still answers `false` — the exporter's "left out"
+/// warning keys on this.
+#[test]
+fn a_mesh_backed_import_is_not_exact() {
+    let mut adapter = KernelV2Adapter::new();
+    let handle = adapter.import_body(&imported_test_data()).expect("import");
+    assert!(!adapter.solid_is_exact(&handle));
+}

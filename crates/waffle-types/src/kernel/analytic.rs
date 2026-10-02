@@ -230,6 +230,198 @@ impl AnalyticShellData {
         (self.vertices.len(), self.edges.len(), self.faces.len())
     }
 
+    /// Uniform scale about the model origin, EXACT on every member of the
+    /// vocabulary: points and radii scale, directions and the cone's
+    /// half-angle do not. The user's per-import scale factor; must be applied
+    /// BEFORE [`Self::apply_placement`], mirroring the mesh contract.
+    ///
+    /// `scale` must be finite and positive — a mirror or a collapse is not a
+    /// scale, and applying one would silently invert every face sense. The
+    /// caller refuses such a factor for the exact tier (the feature-engine
+    /// serves it from the mesh tier with a warning).
+    pub fn apply_scale(&mut self, scale: f64) {
+        debug_assert!(scale.is_finite() && scale > 0.0, "apply_scale({scale})");
+        if scale == 1.0 {
+            return;
+        }
+        let sp = |p: Point3| Point3::new(p.x() * scale, p.y() * scale, p.z() * scale);
+        for p in &mut self.vertices {
+            *p = sp(*p);
+        }
+        for e in &mut self.edges {
+            e.curve = match e.curve {
+                AnalyticCurve::Line => AnalyticCurve::Line,
+                AnalyticCurve::Circle {
+                    center,
+                    normal,
+                    radius,
+                    interior,
+                } => AnalyticCurve::Circle {
+                    center: sp(center),
+                    normal,
+                    radius: radius * scale,
+                    interior: sp(interior),
+                },
+                AnalyticCurve::Ellipse {
+                    center,
+                    normal,
+                    major_axis,
+                    major_radius,
+                    minor_radius,
+                    interior,
+                } => AnalyticCurve::Ellipse {
+                    center: sp(center),
+                    normal,
+                    major_axis,
+                    major_radius: major_radius * scale,
+                    minor_radius: minor_radius * scale,
+                    interior: sp(interior),
+                },
+            };
+        }
+        for f in &mut self.faces {
+            f.surface = match f.surface {
+                AnalyticSurface::Plane { origin, normal } => AnalyticSurface::Plane {
+                    origin: sp(origin),
+                    normal,
+                },
+                AnalyticSurface::Cylinder {
+                    axis_point,
+                    axis_dir,
+                    radius,
+                } => AnalyticSurface::Cylinder {
+                    axis_point: sp(axis_point),
+                    axis_dir,
+                    radius: radius * scale,
+                },
+                AnalyticSurface::Cone {
+                    apex,
+                    axis_dir,
+                    half_angle,
+                } => AnalyticSurface::Cone {
+                    apex: sp(apex),
+                    axis_dir,
+                    half_angle,
+                },
+                AnalyticSurface::Sphere { center, radius } => AnalyticSurface::Sphere {
+                    center: sp(center),
+                    radius: radius * scale,
+                },
+                AnalyticSurface::Torus {
+                    center,
+                    axis_dir,
+                    major_radius,
+                    minor_radius,
+                } => AnalyticSurface::Torus {
+                    center: sp(center),
+                    axis_dir,
+                    major_radius: major_radius * scale,
+                    minor_radius: minor_radius * scale,
+                },
+            };
+        }
+    }
+
+    /// Rigid placement: rotate by intrinsic X→Y→Z Euler angles (degrees)
+    /// about the model origin, then translate (meters) — the same convention
+    /// as [`crate::kernel::ImportedBodyData::apply_placement`]. Every point
+    /// moves by `R·p + t`, every direction by `R·v`; radii and angles are
+    /// untouched, and a proper rotation preserves every face's sense.
+    pub fn apply_placement(&mut self, rotation_deg: [f64; 3], translation_m: [f64; 3]) {
+        let r = crate::kernel::rotation_matrix_xyz_deg(rotation_deg);
+        let t = translation_m;
+        let mul = |v: [f64; 3]| {
+            [
+                r[0][0] * v[0] + r[0][1] * v[1] + r[0][2] * v[2],
+                r[1][0] * v[0] + r[1][1] * v[1] + r[1][2] * v[2],
+                r[2][0] * v[0] + r[2][1] * v[1] + r[2][2] * v[2],
+            ]
+        };
+        let pp = |p: Point3| {
+            let q = mul([p.x(), p.y(), p.z()]);
+            Point3::new(q[0] + t[0], q[1] + t[1], q[2] + t[2])
+        };
+        let pv = |v: Vector3| {
+            let q = mul([v.x(), v.y(), v.z()]);
+            Vector3::new(q[0], q[1], q[2])
+        };
+        for p in &mut self.vertices {
+            *p = pp(*p);
+        }
+        for e in &mut self.edges {
+            e.curve = match e.curve {
+                AnalyticCurve::Line => AnalyticCurve::Line,
+                AnalyticCurve::Circle {
+                    center,
+                    normal,
+                    radius,
+                    interior,
+                } => AnalyticCurve::Circle {
+                    center: pp(center),
+                    normal: pv(normal),
+                    radius,
+                    interior: pp(interior),
+                },
+                AnalyticCurve::Ellipse {
+                    center,
+                    normal,
+                    major_axis,
+                    major_radius,
+                    minor_radius,
+                    interior,
+                } => AnalyticCurve::Ellipse {
+                    center: pp(center),
+                    normal: pv(normal),
+                    major_axis: pv(major_axis),
+                    major_radius,
+                    minor_radius,
+                    interior: pp(interior),
+                },
+            };
+        }
+        for f in &mut self.faces {
+            f.surface = match f.surface {
+                AnalyticSurface::Plane { origin, normal } => AnalyticSurface::Plane {
+                    origin: pp(origin),
+                    normal: pv(normal),
+                },
+                AnalyticSurface::Cylinder {
+                    axis_point,
+                    axis_dir,
+                    radius,
+                } => AnalyticSurface::Cylinder {
+                    axis_point: pp(axis_point),
+                    axis_dir: pv(axis_dir),
+                    radius,
+                },
+                AnalyticSurface::Cone {
+                    apex,
+                    axis_dir,
+                    half_angle,
+                } => AnalyticSurface::Cone {
+                    apex: pp(apex),
+                    axis_dir: pv(axis_dir),
+                    half_angle,
+                },
+                AnalyticSurface::Sphere { center, radius } => AnalyticSurface::Sphere {
+                    center: pp(center),
+                    radius,
+                },
+                AnalyticSurface::Torus {
+                    center,
+                    axis_dir,
+                    major_radius,
+                    minor_radius,
+                } => AnalyticSurface::Torus {
+                    center: pp(center),
+                    axis_dir: pv(axis_dir),
+                    major_radius,
+                    minor_radius,
+                },
+            };
+        }
+    }
+
     /// Every distinct surface classification present, for diagnostics.
     pub fn surface_kinds(&self) -> Vec<&'static str> {
         let mut kinds: Vec<&'static str> = self
@@ -322,6 +514,186 @@ mod tests {
             plane().surface_type_str()
         );
         assert_eq!(AnalyticCurve::Line.curve_type_str(), "line");
+    }
+
+    /// A shell with one of every surface and curve kind, so the two
+    /// transforms are exercised on every arm.
+    fn one_of_everything() -> AnalyticShellData {
+        let p = |x: f64, y: f64, z: f64| Point3::new(x, y, z);
+        let v = |x: f64, y: f64, z: f64| Vector3::new(x, y, z);
+        AnalyticShellData {
+            vertices: vec![p(1.0, 0.0, 0.0), p(0.0, 1.0, 0.0)],
+            edges: vec![
+                AnalyticEdge {
+                    start: 0,
+                    end: 1,
+                    curve: AnalyticCurve::Line,
+                },
+                AnalyticEdge {
+                    start: 0,
+                    end: 0,
+                    curve: AnalyticCurve::Circle {
+                        center: p(0.0, 0.0, 0.0),
+                        normal: v(0.0, 0.0, 1.0),
+                        radius: 1.0,
+                        interior: p(-1.0, 0.0, 0.0),
+                    },
+                },
+                AnalyticEdge {
+                    start: 0,
+                    end: 1,
+                    curve: AnalyticCurve::Ellipse {
+                        center: p(0.0, 0.0, 0.0),
+                        normal: v(0.0, 0.0, 1.0),
+                        major_axis: v(1.0, 0.0, 0.0),
+                        major_radius: 1.0,
+                        minor_radius: 0.5,
+                        interior: p(0.5, 0.0, 0.0),
+                    },
+                },
+            ],
+            faces: vec![
+                AnalyticFace {
+                    surface: plane(),
+                    loops: vec![AnalyticLoop::Vertex(0)],
+                    same_sense: true,
+                },
+                AnalyticFace {
+                    surface: AnalyticSurface::Cylinder {
+                        axis_point: p(0.0, 0.0, 0.0),
+                        axis_dir: v(0.0, 0.0, 1.0),
+                        radius: 2.0,
+                    },
+                    loops: vec![AnalyticLoop::Vertex(0)],
+                    same_sense: false,
+                },
+                AnalyticFace {
+                    surface: AnalyticSurface::Cone {
+                        apex: p(0.0, 0.0, 3.0),
+                        axis_dir: v(0.0, 0.0, -1.0),
+                        half_angle: 0.4,
+                    },
+                    loops: vec![AnalyticLoop::Vertex(0)],
+                    same_sense: true,
+                },
+                AnalyticFace {
+                    surface: AnalyticSurface::Sphere {
+                        center: p(1.0, 1.0, 1.0),
+                        radius: 0.25,
+                    },
+                    loops: vec![AnalyticLoop::Vertex(0)],
+                    same_sense: true,
+                },
+                AnalyticFace {
+                    surface: AnalyticSurface::Torus {
+                        center: p(0.0, 0.0, 0.0),
+                        axis_dir: v(1.0, 0.0, 0.0),
+                        major_radius: 3.0,
+                        minor_radius: 1.0,
+                    },
+                    loops: vec![AnalyticLoop::Vertex(0)],
+                    same_sense: true,
+                },
+            ],
+        }
+    }
+
+    fn near(a: Point3, b: Point3) -> bool {
+        (a.x() - b.x()).abs() < 1e-12
+            && (a.y() - b.y()).abs() < 1e-12
+            && (a.z() - b.z()).abs() < 1e-12
+    }
+
+    #[test]
+    fn scale_moves_points_and_radii_but_not_directions_or_angles() {
+        let mut s = one_of_everything();
+        s.apply_scale(2.0);
+        assert!(near(s.vertices[0], Point3::new(2.0, 0.0, 0.0)));
+        let AnalyticCurve::Circle {
+            radius, interior, ..
+        } = s.edges[1].curve
+        else {
+            panic!()
+        };
+        assert_eq!(radius, 2.0);
+        assert!(near(interior, Point3::new(-2.0, 0.0, 0.0)));
+        let AnalyticCurve::Ellipse {
+            major_radius,
+            minor_radius,
+            major_axis,
+            ..
+        } = s.edges[2].curve
+        else {
+            panic!()
+        };
+        assert_eq!((major_radius, minor_radius), (2.0, 1.0));
+        assert_eq!(
+            major_axis,
+            Vector3::new(1.0, 0.0, 0.0),
+            "directions are not scaled"
+        );
+        let AnalyticSurface::Cone {
+            apex, half_angle, ..
+        } = s.faces[2].surface
+        else {
+            panic!()
+        };
+        assert!(near(apex, Point3::new(0.0, 0.0, 6.0)));
+        assert_eq!(half_angle, 0.4, "the half-angle is scale-free");
+        let AnalyticSurface::Torus {
+            major_radius,
+            minor_radius,
+            ..
+        } = s.faces[4].surface
+        else {
+            panic!()
+        };
+        assert_eq!((major_radius, minor_radius), (6.0, 2.0));
+        assert!(!s.faces[1].same_sense, "a positive scale keeps every sense");
+    }
+
+    #[test]
+    fn placement_rotates_then_translates_points_and_only_rotates_directions() {
+        let mut s = one_of_everything();
+        // 90° about Z: x̂ → ŷ; then +10 in x.
+        s.apply_placement([0.0, 0.0, 90.0], [10.0, 0.0, 0.0]);
+        assert!(near(s.vertices[0], Point3::new(10.0, 1.0, 0.0)));
+        let AnalyticCurve::Ellipse {
+            center, major_axis, ..
+        } = s.edges[2].curve
+        else {
+            panic!()
+        };
+        assert!(near(center, Point3::new(10.0, 0.0, 0.0)));
+        assert!((major_axis.x()).abs() < 1e-12 && (major_axis.y() - 1.0).abs() < 1e-12);
+        let AnalyticSurface::Torus {
+            axis_dir, center, ..
+        } = s.faces[4].surface
+        else {
+            panic!()
+        };
+        assert!(
+            (axis_dir.y() - 1.0).abs() < 1e-12,
+            "the torus axis rotated with it"
+        );
+        assert!(near(center, Point3::new(10.0, 0.0, 0.0)));
+        let AnalyticSurface::Cone { apex, axis_dir, .. } = s.faces[2].surface else {
+            panic!()
+        };
+        assert!(near(apex, Point3::new(10.0, 0.0, 3.0)));
+        assert!(
+            (axis_dir.z() + 1.0).abs() < 1e-12,
+            "an axis along Z is fixed by a Z rotation"
+        );
+    }
+
+    #[test]
+    fn identity_placement_and_unit_scale_are_noops() {
+        let before = one_of_everything();
+        let mut s = before.clone();
+        s.apply_scale(1.0);
+        s.apply_placement([0.0; 3], [0.0; 3]);
+        assert_eq!(s, before);
     }
 
     #[test]

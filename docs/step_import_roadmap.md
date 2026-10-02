@@ -194,12 +194,15 @@ default mm with a diagnostic warning if absent. User `scale` multiplies it.
   edges only) enter the kernel-v2 arena as exact solids → full yang booleans,
   analytic primacy end-to-end. **Design spec and plan of record:
   `specs/step_import_si5_exact_analytic_ingestion.md`** (checkpoints C1–C7;
-  **C1, C2 and C3 DONE 2026-10-01**, next is C4). Measured reach: 54.0 % of ABC
-  chunk 0000 passes the vocabulary gate and 98.9 % of those are already exact to
-  the arena's own `import_band`, i.e. 53.4 % of the corpus is ingestible exactly.
-  The planar tier is live in the kernel (`kernel_v2::ingest_analytic`) and
-  ingests 100 % of the in-vocabulary models in a 400-model sample; nothing is
-  wired to the app until C6.
+  **C1–C6 DONE by 2026-10-02**, next is C7, the corpus gate). Measured reach:
+  54.0 % of ABC chunk 0000 passes the vocabulary gate and 98.9 % of those are
+  already exact to the arena's own `import_band`; the kernel ingests 42.0 %
+  of a 400-model sample exactly (planes, cylinder/cone bands and patches,
+  torus bands and patches, sphere patches). **Live in the app since C6:** the
+  import feature serves each shell from the exact tier when it can
+  (`feature_engine::import_tiers`) and from the mesh tier otherwise, with a
+  feature warning naming the shell and the reason — an exact import has an
+  exact volume, exports analytically and is a boolean operand.
 
 ## 5. Test fixtures (committed, license-clean)
 
@@ -321,3 +324,13 @@ depend on them are `#[ignore]`-tagged with reason `refs-fixture`.
   two. Also measured: `parse_step_analytic`'s shell order varies between runs
   (truck's tables are `HashMap`s), which makes an imported face's persistent id
   unstable — a C6 prerequisite, recorded in the spec's §5.7.
+- 2026-10-02 — **SI5 C6: the exact tier is wired into the import feature.**
+  `step_import::parse_step_tiered` serves each shell exactly or, with the
+  reason, from the mesh tier; the feature-engine applies scale and placement
+  to the analytic parameters and ingests through the new
+  `Kernel::import_analytic_shell`; a kernel refusal falls back per shell from
+  the same canonical shell list (shell order is now sorted on geometry —
+  the §5.7 prerequisite). A `BREP_WITH_VOIDS` boundary is a named refusal
+  until the exact tier carries voids. The STEP exporter asks the kernel per
+  body whether it is exact. Per-product (KiCad) imports stay on the mesh
+  tier, said so on the feature.

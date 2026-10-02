@@ -947,10 +947,28 @@ Each is an atomic, committable increment. Nothing after C1 touches app code.
   - **C5b — torus and sphere patches.** Two volume closed forms.
   - **C5c — named refusals**: the sphere band, the windowed sphere, the
     bent tube with poloidal rims, plane-only seeded bands.
-- **C6 — wire it.** `import_body` tries `ingest_analytic` first and falls back to
-  the mesh-backed body on `Ineligible`; the fallback must be visible as a feature
-  warning, never silent. Collapse the adapter branches that the arena path makes
-  dead for analytic models.
+- **C6 — wire it. DONE 2026-10-02.** The import feature is served per SHELL
+  by the first tier that can carry it: `step_import::parse_step_tiered` (one
+  parse, exact extraction per shell, tessellation ONLY of the shells it
+  refuses) → `Kernel::import_analytic_shell` (the arena, via
+  `ingest_analytic`) with the feature's scale and placement applied to the
+  analytic parameters themselves (`AnalyticShellData::{apply_scale,
+  apply_placement}`, exact on every arm) → on an extractor refusal OR a
+  kernel refusal, the mesh tier for that shell, from the same canonical shell
+  list, with a feature warning naming the shell and the reason
+  (`feature_engine::import_tiers`). The §5.7 canonical shell order landed
+  with it (`collect_placed_shells` sorts on the placed vertex multiset, so
+  the mesh and exact parses index the same shells and a face's persistent
+  id no longer depends on a `HashMap` seed), and so did the §5.2 void
+  grouping: a boundary of a `BREP_WITH_VOIDS` is a named refusal
+  (`Ineligible::Voids`) before its geometry is read, because an outer shell
+  ingested alone is a silently filled block. The adapter's mesh-tier
+  branches are untouched — an exact import never reaches them — and the
+  STEP exporter asks the kernel per body (`KernelIntrospect::solid_is_exact`)
+  instead of inferring "mesh-backed" from the feature's operation, so an
+  exact import is written like any constructed body. Not attempted by the
+  exact tier, each with its reason on the feature: a per-product (KiCad
+  component) import, and a scale that is not a positive finite factor.
 - **C7 — corpus gate.** Promote a sampled SI5 tier into the assay/prospector
   path so a regression in ingestion is a red test, per
   `specs/boolean_hardening_external_corpus.md`.
@@ -1166,3 +1184,21 @@ subset a reader would need — and `si5_census.py` already measures it.
   own render mesh beside truck's) and a shell-order-independent face probe
   (`si5_face_probe`) that reads a validation-tier `FaceId` back to the
   file's face. Full record: `si5_c5_sphere_torus_tier.md` §5. Next: C6/C7.
+- 2026-10-02 — **C6 DONE.** The exact tier is live in the app's import
+  feature (details in §7's C6 entry). Seven crates touched, all additive on
+  the traits (`Kernel::import_analytic_shell`, `KernelIntrospect::solid_is_exact`
+  default to the pre-C6 behaviour; `MockKernel` mirrors an analytic shell as
+  synthetic topology so the feature-engine suite exercises the exact path).
+  Proven on the real kernel through the feature path
+  (`test-harness/tests/si5_c6_tiered_import.rs`): the rounded puck imports
+  as an arena solid with an exact volume and an analytic export; truck's
+  NURBS-rimmed cylinder is served by the mesh tier with "shell 0 … no exact
+  representation" on the feature; the closed sphere — accepted by the
+  extractor, refused by the kernel as a seam slit — falls back the same way
+  with the kernel's own finding; a placement edit replays the cached tiered
+  parse and the exact body moves. Two facts the in-tree fixtures corrected
+  on the way: truck's `cube.step` is fully in vocabulary (it is the exporter's
+  own `analytic/*.step` that were assumed to be the only exact fixtures) and
+  its `cylinder.step` fails on NURBS *edge curves*, not on a swept surface.
+  Next: **C7** (corpus gate), then the C5c refusal tail and voids (§5.2) as
+  the first measured customers of the fallback warning.

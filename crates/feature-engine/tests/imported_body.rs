@@ -311,3 +311,147 @@ fn feature_tree_preserves_unknown_keys() {
         "features + active_index only"
     );
 }
+
+// =========================================================================
+// SI5 C6 — the two tiers
+// =========================================================================
+
+const CYLINDER_STEP: &str = include_str!("../../step-import/tests/fixtures/cylinder.step");
+
+fn import_op_for(file: &str, text: &str, scale: f64) -> Operation {
+    let mut params = ImportedBodyParams::embedded(file, text);
+    params.scale = scale;
+    Operation::ImportedBody { params }
+}
+
+/// Truck's cube is in the exact vocabulary: served by the exact tier, no
+/// fallback warning anywhere.
+#[test]
+fn an_in_vocabulary_file_is_served_exactly_without_a_fallback_warning() {
+    let mut kernel = MockKernel::new();
+    let mut engine = Engine::new();
+    let id = engine
+        .add_feature(
+            "Import cube.step".to_string(),
+            import_op_for("cube.step", CUBE_STEP, 1.0),
+            &mut kernel,
+        )
+        .expect("adds");
+    assert!(engine.errors.is_empty(), "{:?}", engine.errors);
+    let result = &engine.feature_results[&id];
+    assert_eq!(result.outputs.len(), 1);
+    assert_eq!(result.outputs[0].0, waffle_types::OutputKey::Main);
+    assert!(
+        !engine.warnings.iter().any(|w| w.contains("mesh tier")),
+        "{:?}",
+        engine.warnings
+    );
+    // The mock mirrors the analytic topology: six planar faces, twelve
+    // edges — the file's own tables, not a tessellation.
+    let created = &result.provenance.created;
+    let faces = created
+        .iter()
+        .filter(|e| e.kind == waffle_types::TopoKind::Face)
+        .count();
+    let edges = created
+        .iter()
+        .filter(|e| e.kind == waffle_types::TopoKind::Edge)
+        .count();
+    assert_eq!((faces, edges), (6, 12));
+}
+
+/// Truck's cylinder writes NURBS rims: the exact tier refuses it by name
+/// and the mesh tier serves it, with the reason on the feature.
+#[test]
+fn an_out_of_vocabulary_file_falls_back_to_the_mesh_tier_loudly() {
+    let mut kernel = MockKernel::new();
+    let mut engine = Engine::new();
+    let id = engine
+        .add_feature(
+            "Import cylinder.step".to_string(),
+            import_op_for("cylinder.step", CYLINDER_STEP, 1.0),
+            &mut kernel,
+        )
+        .expect("adds");
+    assert!(engine.errors.is_empty(), "{:?}", engine.errors);
+    assert_eq!(
+        engine.feature_results[&id].outputs.len(),
+        1,
+        "one composite mesh body"
+    );
+    let fallback: Vec<&String> = engine
+        .warnings
+        .iter()
+        .filter(|w| w.contains("served from the mesh tier"))
+        .collect();
+    assert_eq!(fallback.len(), 1, "{:?}", engine.warnings);
+    assert!(
+        fallback[0].contains("shell 0") && fallback[0].contains("no exact representation"),
+        "{}",
+        fallback[0]
+    );
+}
+
+/// A scale that is not a positive finite factor is not a scale: the exact
+/// tier does not attempt it and the whole file is served from the mesh tier
+/// with the reason attached (the mesh tier applies the factor as before).
+#[test]
+fn a_non_positive_scale_is_served_from_the_mesh_tier_with_a_warning() {
+    let mut kernel = MockKernel::new();
+    let mut engine = Engine::new();
+    engine
+        .add_feature(
+            "Import cube.step".to_string(),
+            import_op_for("cube.step", CUBE_STEP, -1.0),
+            &mut kernel,
+        )
+        .expect("adds");
+    assert!(engine.errors.is_empty(), "{:?}", engine.errors);
+    assert!(
+        engine
+            .warnings
+            .iter()
+            .any(|w| w.contains("scale -1") && w.contains("mesh tier")),
+        "{:?}",
+        engine.warnings
+    );
+}
+
+/// The exact tier applies the feature's scale and placement to the analytic
+/// parameters themselves: the mock's face centroids are the mean of the
+/// placed boundary vertices, so a 2× scale and a +0.5 m shift put every
+/// centroid x of the 10 mm cube in [0.5, 0.52].
+#[test]
+fn the_exact_tier_scales_and_places_the_analytic_geometry() {
+    let mut kernel = MockKernel::new();
+    let mut engine = Engine::new();
+    let mut params = ImportedBodyParams::embedded("cube.step", CUBE_STEP);
+    params.scale = 2.0;
+    params.translation_m = [0.5, 0.0, 0.0];
+    let id = engine
+        .add_feature(
+            "Import cube.step".to_string(),
+            Operation::ImportedBody { params },
+            &mut kernel,
+        )
+        .expect("adds");
+    assert!(engine.errors.is_empty(), "{:?}", engine.errors);
+    let centroids: Vec<[f64; 3]> = engine.feature_results[&id]
+        .provenance
+        .created
+        .iter()
+        .filter(|e| e.kind == waffle_types::TopoKind::Face)
+        .filter_map(|e| e.signature.centroid)
+        .collect();
+    assert_eq!(centroids.len(), 6);
+    for c in &centroids {
+        assert!(
+            (0.5 - 1e-9..=0.52 + 1e-9).contains(&c[0]),
+            "centroid {c:?} not scaled and translated"
+        );
+    }
+    assert!(
+        centroids.iter().any(|c| (c[0] - 0.52).abs() < 1e-9),
+        "the far face sits at 0.5 + 2 × 10 mm: {centroids:?}"
+    );
+}

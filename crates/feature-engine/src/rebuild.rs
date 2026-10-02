@@ -661,40 +661,63 @@ pub(crate) fn execute_feature(
                     reason,
                 }
             })?;
-            let mut data = match &params.product {
-                // One product of the file, in its own frame (C3): a product
-                // the file does not have is the feature's own loud error.
-                Some(product) => {
-                    let products =
-                        step_import::parse_step_products_cached(&step_text, &params.file_name)
-                            .map_err(|e| fail(e.to_string()))?;
-                    let found = products
-                        .products
-                        .iter()
-                        .find(|p| p.name == *product)
-                        .ok_or_else(|| {
-                            fail(format!(
-                                "product `{product}` is not in {} (products: {})",
-                                params.file_name,
-                                products
-                                    .products
-                                    .iter()
-                                    .map(|p| p.name.as_str())
-                                    .collect::<Vec<_>>()
-                                    .join(", ")
-                            ))
-                        })?;
-                    found.body.clone()
-                }
-                None => {
-                    let parsed = step_import::parse_step_cached(&step_text, &params.file_name)
+            // One product of the file, in its own frame (C3): a product the
+            // file does not have is the feature's own loud error. Served
+            // from the mesh tier (SI5 C6 covers whole-file imports).
+            if let Some(product) = &params.product {
+                let products =
+                    step_import::parse_step_products_cached(&step_text, &params.file_name)
                         .map_err(|e| fail(e.to_string()))?;
-                    (*parsed).clone()
-                }
+                let found = products
+                    .products
+                    .iter()
+                    .find(|p| p.name == *product)
+                    .ok_or_else(|| {
+                        fail(format!(
+                            "product `{product}` is not in {} (products: {})",
+                            params.file_name,
+                            products
+                                .products
+                                .iter()
+                                .map(|p| p.name.as_str())
+                                .collect::<Vec<_>>()
+                                .join(", ")
+                        ))
+                    })?;
+                let reason = crate::import_tiers::mesh_only_reason(params);
+                return crate::import_tiers::execute_mesh_import(
+                    params,
+                    found.body.clone(),
+                    kb,
+                    reason,
+                )
+                .map_err(fail);
+            }
+            // Whole file: a form the exact tier does not attempt goes to the
+            // mesh tier with the reason attached; everything else is served
+            // per shell by the first tier that can carry it (SI5 C6,
+            // `import_tiers`).
+            if let Some(reason) = crate::import_tiers::mesh_only_reason(params) {
+                let parsed = step_import::parse_step_cached(&step_text, &params.file_name)
+                    .map_err(|e| fail(e.to_string()))?;
+                return crate::import_tiers::execute_mesh_import(
+                    params,
+                    (*parsed).clone(),
+                    kb,
+                    Some(reason),
+                )
+                .map_err(fail);
+            }
+            let tiered = step_import::parse_step_tiered_cached(&step_text, &params.file_name)
+                .map_err(|e| fail(e.to_string()))?;
+            let file_name = params.file_name.clone();
+            let mut mesh_whole_file = || {
+                step_import::parse_step_cached(&step_text, &file_name)
+                    .map(|p| (*p).clone())
+                    .map_err(|e| e.to_string())
             };
-            data.apply_scale(params.scale);
-            data.apply_placement(params.rotation_deg, params.translation_m);
-            Ok(modeling_ops::execute_import(kb, &data)?)
+            crate::import_tiers::execute_tiered_import(params, &tiered, kb, &mut mesh_whole_file)
+                .map_err(fail)
         }
 
         Operation::Extrude { params } => {

@@ -23,6 +23,7 @@ use wasm_bridge::messages::*;
 use wasm_bridge::*;
 
 const CUBE_STEP: &str = include_str!("../../step-import/tests/fixtures/cube.step");
+const CYLINDER_STEP: &str = include_str!("../../step-import/tests/fixtures/cylinder.step");
 
 // ── kernel-side solids ──────────────────────────────────────────────────
 
@@ -390,7 +391,10 @@ fn count_solids(text: &str) -> usize {
 /// `ExportStep` writes EVERY live body of the part (not just the last), and
 /// reports — rather than drops or facets — a mesh-backed imported body.
 #[test]
-fn export_step_message_writes_every_live_body_and_warns_about_imported_ones() {
+fn export_step_message_writes_every_live_body_including_an_exact_import() {
+    // SI5 C6: truck's cube is planes bounded by lines, so the import feature
+    // serves it from the EXACT tier and the exporter writes it like any
+    // constructed body — three solids, no "left out" warning.
     let mut state = EngineState::new();
     let mut kernel = KernelV2Adapter::new();
     state.set_project_name("two-bodies");
@@ -422,6 +426,15 @@ fn export_step_message_writes_every_live_body_and_warns_about_imported_ones() {
         &mut kernel,
     );
     assert!(state.engine.errors.is_empty(), "{:?}", state.engine.errors);
+    assert!(
+        !state
+            .engine
+            .warnings
+            .iter()
+            .any(|w| w.contains("mesh tier")),
+        "the cube is served exactly: {:?}",
+        state.engine.warnings
+    );
 
     let response = dispatch(&mut state, UiToEngine::ExportStep, &mut kernel);
     let EngineToUi::ExportReady {
@@ -431,26 +444,76 @@ fn export_step_message_writes_every_live_body_and_warns_about_imported_ones() {
     else {
         panic!("expected ExportReady, got {response:?}");
     };
-    assert_eq!(count_solids(&step_data), 2, "both extrudes");
-    assert!(step_data.contains("FILE_NAME('two-bodies.step',"));
-    assert_eq!(warnings.len(), 1, "{warnings:?}");
-    assert!(
-        warnings[0].contains("Import cube.step") && warnings[0].contains("imported"),
-        "{warnings:?}"
+    assert_eq!(
+        count_solids(&step_data),
+        3,
+        "both extrudes and the exact import"
     );
+    assert!(step_data.contains("FILE_NAME('two-bodies.step',"));
+    assert!(warnings.is_empty(), "{warnings:?}");
 
     let data = read_back(&step_data);
-    assert_eq!(data.face_count(), 12);
-    // Two 20 mm squares 100 mm apart in the sketch plane, 10 mm tall: the
-    // extents are 120 × 20 × 10 mm whichever world axes the sketch basis
-    // maps u and v onto.
-    let b = bbox(&data);
-    let mut extents = [b[3] - b[0], b[4] - b[1], b[5] - b[2]];
-    extents.sort_by(|a, b| a.partial_cmp(b).unwrap());
-    for (got, want) in extents.iter().zip([0.01, 0.02, 0.12]) {
-        assert!((got - want).abs() <= 1e-12, "extents {extents:?}");
-    }
-    assert_close(volume(&data), 2.0 * 0.02 * 0.02 * 0.01, 1e-9, "two boxes");
+    assert_eq!(data.face_count(), 18);
+    // Two boxes of 20 × 20 × 10 mm plus the fixture's 10 mm cube.
+    assert_close(
+        volume(&data),
+        2.0 * 0.02 * 0.02 * 0.01 + 0.01 * 0.01 * 0.01,
+        1e-9,
+        "two boxes and the cube",
+    );
+}
+
+/// A mesh-backed import (truck's cylinder: NURBS rims, out of the exact
+/// vocabulary) is still left out of the export, by name, with the fallback
+/// itself already reported as a feature warning at import time.
+#[test]
+fn export_step_message_warns_about_a_mesh_backed_import() {
+    let mut state = EngineState::new();
+    let mut kernel = KernelV2Adapter::new();
+    state.set_project_name("one-body");
+
+    let s1 = square_sketch(&mut state, &mut kernel, (0.0, 0.0), 0.02);
+    dispatch(
+        &mut state,
+        UiToEngine::AddFeature {
+            provenance: None,
+            operation: new_body_extrude(s1, 0.01),
+        },
+        &mut kernel,
+    );
+    dispatch(
+        &mut state,
+        UiToEngine::ImportStep {
+            file_name: "cylinder.step".to_string(),
+            data: CYLINDER_STEP.to_string(),
+        },
+        &mut kernel,
+    );
+    assert!(state.engine.errors.is_empty(), "{:?}", state.engine.errors);
+    assert!(
+        state
+            .engine
+            .warnings
+            .iter()
+            .any(|w| w.contains("served from the mesh tier")),
+        "the fallback is visible: {:?}",
+        state.engine.warnings
+    );
+
+    let response = dispatch(&mut state, UiToEngine::ExportStep, &mut kernel);
+    let EngineToUi::ExportReady {
+        step_data,
+        warnings,
+    } = response
+    else {
+        panic!("expected ExportReady, got {response:?}");
+    };
+    assert_eq!(count_solids(&step_data), 1, "the extrude alone");
+    assert_eq!(warnings.len(), 1, "{warnings:?}");
+    assert!(
+        warnings[0].contains("Import cylinder.step") && warnings[0].contains("mesh-backed"),
+        "{warnings:?}"
+    );
 }
 
 /// With an assembly open, `ExportStep` writes each rendered instance's

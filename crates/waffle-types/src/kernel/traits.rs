@@ -1,3 +1,4 @@
+use super::analytic::AnalyticShellData;
 use super::import::ImportedBodyData;
 use super::types::*;
 use std::collections::HashMap;
@@ -120,6 +121,28 @@ pub trait Kernel {
     fn import_body(&mut self, _data: &ImportedBodyData) -> Result<KernelSolidHandle, KernelError> {
         Err(KernelError::NotSupported {
             operation: "import_body".to_string(),
+        })
+    }
+
+    /// Ingest an externally-imported EXACT analytic shell as a first-class
+    /// kernel solid (STEP import SI5 C6,
+    /// `specs/step_import_si5_exact_analytic_ingestion.md`): no tessellation
+    /// anywhere in the path, so the body renders, measures, exports and
+    /// enters booleans like any constructed solid. The data is already
+    /// placed in world coordinates (meters).
+    ///
+    /// A kernel REFUSES a shell it cannot carry exactly (an out-of-vocabulary
+    /// form, a vertex off its own surface, a self-contradicting loop) with a
+    /// typed error naming the finding — never a repaired or approximated
+    /// solid. The caller serves such a shell from the mesh tier
+    /// ([`Self::import_body`]) and says so. The default is `NotSupported`,
+    /// so this is additive for every implementor.
+    fn import_analytic_shell(
+        &mut self,
+        _shell: &AnalyticShellData,
+    ) -> Result<KernelSolidHandle, KernelError> {
+        Err(KernelError::NotSupported {
+            operation: "import_analytic_shell".to_string(),
         })
     }
 
@@ -362,6 +385,18 @@ pub trait KernelIntrospect {
         solid: &KernelSolidHandle,
         kind: TopoKind,
     ) -> Vec<(KernelId, TopoSignature)>;
+
+    /// Whether the solid is carried EXACTLY by the kernel — an arena solid
+    /// with analytic surfaces — as opposed to a mesh-backed imported body
+    /// ([`Kernel::import_body`]), which has no analytic geometry to write,
+    /// integrate or intersect. Consumers that must say "this body was left
+    /// out" (the STEP exporter) ask this rather than inferring it from a
+    /// feature's operation, because since SI5 C6 an imported feature's body
+    /// may be either. The default is `true`: a kernel without a mesh tier
+    /// has only exact solids.
+    fn solid_is_exact(&self, _solid: &KernelSolidHandle) -> bool {
+        true
+    }
 
     /// The solid's volume in m³, integrated exactly from its B-Rep
     /// (`specs/waffle_mcp_server.md` ICR-1). A kernel that cannot integrate a

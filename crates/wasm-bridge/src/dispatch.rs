@@ -4,7 +4,7 @@ use file_format::{
     git_blob_sha1, Embed, ProjectMetadata, SourceEntry, SourceKind, TabKind, WaffleDocument,
 };
 use modeling_ops::KernelBundle;
-use waffle_types::kernel::{RenderMesh, RigidPlacement, StepExportBody};
+use waffle_types::kernel::{KernelIntrospect, RenderMesh, RigidPlacement, StepExportBody};
 use waffle_types::OutputKey;
 
 use crate::engine_state::{BridgeError, EngineState};
@@ -819,7 +819,7 @@ fn handle_message(
             // Whole model: every live body of the part — or, with an assembly
             // open, every rendered instance's bodies at their world
             // placements (a flat multi-body file) — written analytically.
-            let (bodies, warnings) = step_export_bodies(state);
+            let (bodies, warnings) = step_export_bodies(state, kb.as_introspect());
             if bodies.is_empty() {
                 return Err(BridgeError::NoMeshData);
             }
@@ -1973,8 +1973,14 @@ fn model_updated_response(state: &EngineState) -> EngineToUi {
 /// assembly: the same for each rendered leaf's part engine, placed by the
 /// leaf's solved world transform and named `instance / feature`. A
 /// mesh-backed imported body has no analytic geometry to write and is
-/// reported in `warnings` rather than faceted or silently dropped.
-fn step_export_bodies(state: &EngineState) -> (Vec<StepExportBody>, Vec<String>) {
+/// reported in `warnings` rather than faceted or silently dropped — asked of
+/// the kernel per body (`solid_is_exact`), because since SI5 C6 an imported
+/// feature's body is exact whenever the file's shell could be carried
+/// exactly, and such a body IS written.
+fn step_export_bodies(
+    state: &EngineState,
+    kernel: &dyn KernelIntrospect,
+) -> (Vec<StepExportBody>, Vec<String>) {
     let mut bodies = Vec::new();
     let mut warnings = Vec::new();
     match &state.assembly {
@@ -1983,16 +1989,24 @@ fn step_export_bodies(state: &EngineState) -> (Vec<StepExportBody>, Vec<String>)
                 let (_, engine) = &view.parts[leaf.part];
                 let prefix = view.leaf_name(&leaf.path);
                 let placement = rigid_placement_of(&leaf.transform);
-                collect_step_bodies(engine, &prefix, Some(placement), &mut bodies, &mut warnings);
+                collect_step_bodies(
+                    engine,
+                    kernel,
+                    &prefix,
+                    Some(placement),
+                    &mut bodies,
+                    &mut warnings,
+                );
             }
         }
-        None => collect_step_bodies(&state.engine, "", None, &mut bodies, &mut warnings),
+        None => collect_step_bodies(&state.engine, kernel, "", None, &mut bodies, &mut warnings),
     }
     (bodies, warnings)
 }
 
 fn collect_step_bodies(
     engine: &feature_engine::Engine,
+    kernel: &dyn KernelIntrospect,
     prefix: &str,
     placement: Option<RigidPlacement>,
     out: &mut Vec<StepExportBody>,
@@ -2021,18 +2035,18 @@ fn collect_step_bodies(
         } else {
             format!("{prefix} / {}", feature.name)
         };
-        if matches!(feature.operation, Operation::ImportedBody { .. }) {
-            warnings.push(format!(
-                "`{name}` is a mesh-backed imported body and was not written \
-                 (its own STEP text is the document's source)"
-            ));
-            continue;
-        }
         for (key, body) in solids {
             let body_name = match key {
                 OutputKey::Body { index } => format!("{name} / Body {index}"),
                 _ => name.clone(),
             };
+            if !kernel.solid_is_exact(&body.handle) {
+                warnings.push(format!(
+                    "`{body_name}` is a mesh-backed imported body and was not written \
+                     (its own STEP text is the document's source)"
+                ));
+                continue;
+            }
             out.push(StepExportBody {
                 handle: body.handle.clone(),
                 name: body_name,

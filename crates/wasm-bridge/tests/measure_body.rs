@@ -12,7 +12,7 @@ use waffle_types::*;
 use wasm_bridge::messages::*;
 use wasm_bridge::*;
 
-const CUBE_STEP: &str = include_str!("../../step-import/tests/fixtures/cube.step");
+const CYLINDER_STEP: &str = include_str!("../../step-import/tests/fixtures/cylinder.step");
 
 fn datum_xy() -> GeomRef {
     GeomRef {
@@ -199,14 +199,17 @@ fn a_planar_box_measures_exactly() {
 
 #[test]
 fn a_body_the_kernel_cannot_integrate_falls_back_to_the_mesh_and_says_why() {
-    // An imported STEP body is mesh-backed in kernel-v2: no exact integral.
+    // A mesh-backed import has no exact integral. Since SI5 C6 the cube
+    // fixture is served EXACTLY (it is planes bounded by lines), so the
+    // mesh-backed example is truck's cylinder, whose NURBS rims keep it on
+    // the mesh tier.
     let mut state = EngineState::new();
     let mut kernel = KernelV2Adapter::new();
     let import = added_id(dispatch(
         &mut state,
         UiToEngine::ImportStep {
-            file_name: "cube.step".to_string(),
-            data: CUBE_STEP.to_string(),
+            file_name: "cylinder.step".to_string(),
+            data: CYLINDER_STEP.to_string(),
         },
         &mut kernel,
     ));

@@ -25,7 +25,7 @@ use truck_meshalgo::prelude::*;
 use truck_stepio::r#in::{step_geometry::*, Table};
 use waffle_types::kernel::{
     AnalyticCurve, AnalyticEdge, AnalyticFace, AnalyticLoop, AnalyticShellData, AnalyticSurface,
-    OrientedEdge,
+    ImportedShellData, OrientedEdge,
 };
 
 use crate::convert::CShell;
@@ -68,6 +68,17 @@ pub enum Ineligible {
     SilentlyDroppedTopology { entity: &'static str },
     #[error("shell has no faces")]
     Empty,
+    /// The shell is one boundary of a `BREP_WITH_VOIDS` — an outer shell with
+    /// `shells_in_solid - 1` voids, or one of those voids. The exact tier
+    /// builds one solid per shell, so the outer shell alone would be a
+    /// silently filled block and a void alone an inside-out body; the whole
+    /// solid stays on the mesh tier until the exact tier carries voids (SI5
+    /// spec §5.2).
+    #[error(
+        "shell is one of {shells_in_solid} boundaries of a solid with voids — \
+         exact ingestion of voids is SI5 spec §5.2"
+    )]
+    Voids { shells_in_solid: usize },
 }
 
 /// Every shell of a STEP file, each either extracted exactly or rejected by
@@ -158,10 +169,119 @@ pub fn parse_step_analytic(
         source_name: source_name.to_string(),
         shells: shells
             .iter()
-            .map(|s| extract_analytic(s, unit_scale))
+            .map(|s| extract_placed(s, unit_scale))
             .collect(),
         warnings,
     })
+}
+
+/// One shell of a tiered import: served exactly, or from the mesh tier with
+/// the reason named.
+#[derive(Debug, Clone)]
+pub enum TieredShell {
+    Exact(AnalyticShellData),
+    Mesh {
+        why: Ineligible,
+        data: ImportedShellData,
+    },
+}
+
+/// Every shell of a STEP file, each served by the tier that can carry it —
+/// the SI5 C6 contract. Shells are in the canonical order
+/// (`convert::collect_placed_shells`), the same order [`crate::parse_step`]
+/// uses, so `shells[i]` here and `parse_step(..).shells[i]` are the same
+/// shell of the file.
+///
+/// Only the shells the exact tier refuses are tessellated: the tessellator is
+/// the thing SI5 exists to stop running (spec §1).
+#[derive(Debug, Clone)]
+pub struct TieredImport {
+    pub source_name: String,
+    pub shells: Vec<TieredShell>,
+    pub warnings: Vec<String>,
+}
+
+impl TieredImport {
+    pub fn exact_count(&self) -> usize {
+        self.shells
+            .iter()
+            .filter(|s| matches!(s, TieredShell::Exact(_)))
+            .count()
+    }
+
+    pub fn mesh_count(&self) -> usize {
+        self.shells.len() - self.exact_count()
+    }
+
+    /// One line per mesh-tier shell naming why, for a feature warning. A
+    /// fallback must be visible to the user, never silent.
+    pub fn rejections(&self) -> Vec<String> {
+        self.shells
+            .iter()
+            .enumerate()
+            .filter_map(|(i, s)| match s {
+                TieredShell::Mesh { why, .. } => Some(format!("shell {i}: {why}")),
+                TieredShell::Exact(_) => None,
+            })
+            .collect()
+    }
+}
+
+/// Parse STEP text once and serve every shell from the exact tier when it
+/// can be, from the mesh tier (tessellated, named reason) when it cannot.
+pub fn parse_step_tiered(
+    step_text: &str,
+    source_name: &str,
+) -> Result<TieredImport, StepImportError> {
+    let table = Table::from_step(step_text).ok_or(StepImportError::Parse)?;
+    let mut warnings = Vec::new();
+    let (unit_scale, unit_warning) = crate::units::scan_length_unit_scale(step_text);
+    warnings.extend(unit_warning);
+
+    let shells = crate::convert::collect_placed_shells(&table, &mut warnings)?;
+    if shells.is_empty() {
+        return Err(StepImportError::NoSolids);
+    }
+    // The same file-level refusal as `parse_step_analytic`, for the same
+    // reason (a dropped `VERTEX_LOOP` is a silent topology loss).
+    let dropped_loop = step_text.contains("VERTEX_LOOP");
+
+    let mut out = Vec::with_capacity(shells.len());
+    for placed in &shells {
+        let exact = if dropped_loop {
+            Err(Ineligible::SilentlyDroppedTopology {
+                entity: "a VERTEX_LOOP",
+            })
+        } else {
+            extract_placed(placed, unit_scale)
+        };
+        out.push(match exact {
+            Ok(shell) => TieredShell::Exact(shell),
+            Err(why) => TieredShell::Mesh {
+                why,
+                data: crate::convert::convert_shell(&placed.shell, unit_scale, &mut warnings),
+            },
+        });
+    }
+    Ok(TieredImport {
+        source_name: source_name.to_string(),
+        shells: out,
+        warnings,
+    })
+}
+
+/// Extract one placed shell exactly, refusing a boundary of a solid with
+/// voids before looking at its geometry.
+fn extract_placed(
+    placed: &crate::convert::PlacedShell,
+    unit_scale: f64,
+) -> Result<AnalyticShellData, Ineligible> {
+    if placed.shells_in_solid > 1 {
+        return Err(Ineligible::Voids {
+            shells_in_solid: placed.shells_in_solid,
+        });
+    }
+    extract_analytic(&placed.shell, unit_scale)
 }
 
 /// Extract one shell exactly, or say precisely why not.
@@ -1077,5 +1197,96 @@ mod vertex_loop_guard {
             "and for the right reason: {err:?}"
         );
         assert!(err.to_string().contains("silently drops"));
+    }
+}
+
+#[cfg(test)]
+mod tiered {
+    use super::*;
+
+    fn fixture(rel: &str) -> String {
+        let path = format!("{}/tests/fixtures/{rel}", env!("CARGO_MANIFEST_DIR"));
+        std::fs::read_to_string(&path).unwrap_or_else(|e| panic!("{path}: {e}"))
+    }
+
+    /// The C6 contract on in-tree fixtures: truck's cube is planes bounded by
+    /// lines, so it is served exactly and nothing is tessellated; truck's
+    /// cylinder writes its rims as B-spline curves (12 `B_SPLINE_CURVE`
+    /// entities), which is out of vocabulary by name, so that shell is served
+    /// from the mesh tier with the reason attached.
+    #[test]
+    fn the_tier_is_decided_per_shell_and_the_mesh_fallback_is_named() {
+        let cube = parse_step_tiered(&fixture("cube.step"), "cube").expect("parses");
+        assert_eq!(cube.shells.len(), 1);
+        assert_eq!(cube.exact_count(), 1);
+        assert!(cube.rejections().is_empty());
+        let TieredShell::Exact(shell) = &cube.shells[0] else {
+            panic!("the cube is exact")
+        };
+        assert_eq!(shell.faces.len(), 6);
+
+        let cyl = parse_step_tiered(&fixture("cylinder.step"), "cylinder").expect("parses");
+        assert_eq!(cyl.exact_count(), 0);
+        assert_eq!(cyl.mesh_count(), 1);
+        let TieredShell::Mesh { why, data } = &cyl.shells[0] else {
+            panic!("truck's cylinder is mesh-tier")
+        };
+        assert!(matches!(why, Ineligible::Curve { .. }), "{why:?}");
+        assert!(
+            !data.faces.is_empty(),
+            "the mesh tier actually tessellated it"
+        );
+        assert_eq!(cyl.rejections().len(), 1);
+        assert!(cyl.rejections()[0].starts_with("shell 0: "));
+    }
+
+    /// The tiered parse and the mesh parse index the same shells: both walk
+    /// `collect_placed_shells`, whose order is canonical, so the mesh tier's
+    /// `shells[i]` is the exact tier's `shells[i]` — what lets a consumer
+    /// fall back per shell by index.
+    #[test]
+    fn tiered_and_mesh_parses_agree_on_the_shell_list() {
+        for name in ["cube.step", "cylinder.step", "analytic/drilled_block.step"] {
+            let text = fixture(name);
+            let mesh = crate::parse_step(&text, name).expect("mesh parse");
+            let tiered = parse_step_tiered(&text, name).expect("tiered parse");
+            assert_eq!(mesh.shells.len(), tiered.shells.len(), "{name}");
+            for (m, t) in mesh.shells.iter().zip(&tiered.shells) {
+                let faces = match t {
+                    TieredShell::Exact(s) => s.faces.len(),
+                    TieredShell::Mesh { data, .. } => data.faces.len(),
+                };
+                assert_eq!(m.faces.len(), faces, "{name}: face count per shell");
+            }
+        }
+    }
+
+    /// A boundary of a `BREP_WITH_VOIDS` is refused before its geometry is
+    /// looked at, however clean that geometry is — the exact tier builds
+    /// one solid per shell and cannot carry the grouping yet (spec §5.2).
+    #[test]
+    fn a_shell_of_a_solid_with_voids_is_refused_by_name() {
+        let text = fixture("analytic/block.step");
+        let table = Table::from_step(&text).expect("parses");
+        let mut warnings = Vec::new();
+        let placed = crate::convert::collect_placed_shells(&table, &mut warnings).expect("shells");
+        assert_eq!(placed.len(), 1);
+        let (unit_scale, _) = crate::units::scan_length_unit_scale(&text);
+        assert!(
+            extract_placed(&placed[0], unit_scale).is_ok(),
+            "the control is eligible"
+        );
+
+        let as_outer_of_a_voided_solid = crate::convert::PlacedShell {
+            shell: placed[0].shell.clone(),
+            solid: 0,
+            shells_in_solid: 2,
+        };
+        let err = extract_placed(&as_outer_of_a_voided_solid, unit_scale).expect_err("refused");
+        assert!(
+            matches!(err, Ineligible::Voids { shells_in_solid: 2 }),
+            "{err:?}"
+        );
+        assert!(err.to_string().contains("voids"));
     }
 }

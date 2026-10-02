@@ -905,6 +905,24 @@ impl Kernel for KernelV2Adapter {
         Ok(KernelSolidHandle::from_raw(raw))
     }
 
+    /// SI5 C6: an exact analytic shell enters the arena through
+    /// [`crate::ingest_analytic`] and comes back as an ordinary arena solid —
+    /// every branch keyed on `imported_slot_of` is bypassed, so the body
+    /// renders through the kernel's own tessellator, integrates exactly,
+    /// exports analytically and is a boolean operand. A refusal is the
+    /// ingest's own typed finding, forwarded verbatim: the caller falls back
+    /// to the mesh tier and names the reason.
+    fn import_analytic_shell(
+        &mut self,
+        shell: &waffle_types::kernel::AnalyticShellData,
+    ) -> Result<KernelSolidHandle, KernelError> {
+        let solid =
+            crate::ingest_analytic(&mut self.arena, shell).map_err(|e| KernelError::Other {
+                message: format!("exact ingestion refused: {e}"),
+            })?;
+        Ok(self.alloc_handle(solid))
+    }
+
     fn export_step(
         &mut self,
         solid: &KernelSolidHandle,
@@ -1500,6 +1518,11 @@ fn unit_array(v: crate::arena::UnitVector3) -> [f64; 3] {
 }
 
 impl KernelIntrospect for KernelV2Adapter {
+    /// Exact unless the handle is a mesh-backed imported slot.
+    fn solid_is_exact(&self, solid: &KernelSolidHandle) -> bool {
+        self.imported_slot_of(solid).is_none()
+    }
+
     /// ICR-1: the exact-rational B-Rep volume (`geom::signed_volume`). An
     /// imported STEP body is mesh-backed and has no exact integral; a curved
     /// configuration outside `signed_volume`'s validated vocabulary errors.
