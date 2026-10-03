@@ -14,7 +14,7 @@ pub mod types;
 
 pub use boolean::{execute_boolean, BooleanKind};
 pub use chamfer::execute_chamfer;
-pub use diff::{signature_similarity, snapshot, DiffResult, TopoSnapshot};
+pub use diff::{signature_match, signature_similarity, snapshot, DiffResult, TopoSnapshot};
 pub use extrude::{execute_extrude, execute_symmetric_extrude};
 pub use fillet::execute_fillet;
 pub use import::{execute_import, execute_import_analytic, merge_import_results};

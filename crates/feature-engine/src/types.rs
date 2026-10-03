@@ -1531,6 +1531,20 @@ pub enum EngineError {
     #[error("GeomRef resolution failed: {reason}")]
     ResolutionFailed { reason: String },
 
+    /// N0 of `specs/agent_mechanical_design.md` §5.1: a `Selector::Signature`
+    /// whose fingerprint fits several entities EQUALLY well. Nothing in the
+    /// reference distinguishes them, so it names the candidates (their
+    /// transient `KernelId`s, for diagnosis — never for persistence) instead
+    /// of binding to whichever one happens to come first, which is what it
+    /// did before.
+    #[error(
+        "the reference's signature matches {} entities equally well ({candidates:?}, score {:.1}%); \
+         the reference is ambiguous",
+        candidates.len(),
+        score * 100.0
+    )]
+    ReferenceAmbiguous { candidates: Vec<u64>, score: f64 },
+
     #[error("kernel error: {0}")]
     KernelError(#[from] waffle_types::kernel::KernelError),
 
@@ -1600,6 +1614,11 @@ pub enum ErrorKind {
         matches: usize,
     },
     ResolutionFailed,
+    /// A `Selector::Signature` that fits several entities equally well (N0).
+    /// A host must re-author the reference, not retry it.
+    ReferenceAmbiguous {
+        candidates: Vec<u64>,
+    },
     SourceUnavailable {
         source_id: Option<Uuid>,
     },
@@ -1676,6 +1695,9 @@ impl From<&EngineError> for ErrorKind {
                 matches: *matches,
             },
             EngineError::ResolutionFailed { .. } => ErrorKind::ResolutionFailed,
+            EngineError::ReferenceAmbiguous { candidates, .. } => ErrorKind::ReferenceAmbiguous {
+                candidates: candidates.clone(),
+            },
             EngineError::KernelError(k) => k.into(),
             EngineError::OpError(op) => match op {
                 modeling_ops::OpError::Kernel(k) => k.into(),

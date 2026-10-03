@@ -157,7 +157,26 @@ fn diff_kind(
 
 /// Compute similarity between two topology signatures (0.0 to 1.0).
 /// Higher means more similar. Used for signature-based matching.
+///
+/// **Zero weight scores 0.0 here**, which is indistinguishable from "weighed
+/// every field and agreed on none". A caller that BINDS a reference must use
+/// [`signature_match`] instead, which separates the two (N0 of
+/// `specs/agent_mechanical_design.md` §5.1): a pair of signatures sharing no
+/// field at all is not a bad match, it is no comparison.
 pub fn signature_similarity(a: &TopoSignature, b: &TopoSignature) -> f64 {
+    signature_match(a, b).unwrap_or(0.0)
+}
+
+/// [`signature_similarity`] with the no-comparison case told apart from a
+/// score of zero: `None` when `a` and `b` share no field this scorer weighs
+/// (surface type, area, centroid, normal, length), so there was nothing to
+/// compare.
+///
+/// The index-only fingerprint the viewport used to mint — `adjacency_hash`
+/// and nothing else — lands here: `adjacency_hash` carries no geometry and
+/// is deliberately not weighed, so every candidate "scored" 0.0 and the
+/// best match was whichever entity came first.
+pub fn signature_match(a: &TopoSignature, b: &TopoSignature) -> Option<f64> {
     let mut score = 0.0;
     let mut weight = 0.0;
 
@@ -212,8 +231,8 @@ pub fn signature_similarity(a: &TopoSignature, b: &TopoSignature) -> f64 {
     }
 
     if weight > 0.0 {
-        score / weight
+        Some(score / weight)
     } else {
-        0.0
+        None
     }
 }

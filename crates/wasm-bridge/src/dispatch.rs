@@ -1066,7 +1066,6 @@ fn list_faces(
         mesh,
         &result.provenance.role_assignments,
         introspect,
-        false,
     )
     .into_iter()
     .map(|(face, geom_ref)| ListedFace {

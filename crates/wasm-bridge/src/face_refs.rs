@@ -15,18 +15,26 @@ use waffle_types::{
 /// `(face, its GeomRef)` for each face range of `mesh`, in range order.
 ///
 /// A face with a role gets a `Role` selector, stable across rebuilds. A face
-/// without one gets a `Signature` selector: its geometric fingerprint when
-/// `fingerprint_roleless` (a ghost body must be resolvable against the owning
-/// part's signatures — `signature_similarity` ignores `adjacency_hash`, so an
-/// index-only fallback would match an arbitrary face), otherwise the
-/// face-index fallback the viewport has always used.
+/// without one gets a `Signature` selector carrying its geometric
+/// fingerprint.
+///
+/// **N0 of `specs/agent_mechanical_design.md` §5.1.** A roleless face used to
+/// get a choice: the fingerprint, or — on the viewport's own path and the
+/// agent's `face_list` — a signature whose only field was the face INDEX in
+/// `adjacency_hash`. `signature_similarity` does not read `adjacency_hash`,
+/// so that selector carried no geometry at all: every candidate scored 0.0
+/// and the reference resolved to whichever face was created first, with a
+/// "0.0%" warning. That was the ICR-3 limit, and it bit every imported STEP
+/// body (which has no roles at all). There is no index fallback any more —
+/// the fingerprint is the only roleless selector, and a fingerprint that
+/// cannot identify one face is refused at resolution rather than bound (see
+/// `feature_engine::resolve::resolve_by_signature`).
 pub fn face_geom_refs(
     feature_id: Uuid,
     output_key: &OutputKey,
     mesh: &RenderMesh,
     role_assignments: &[(KernelId, Role)],
     introspect: &dyn KernelIntrospect,
-    fingerprint_roleless: bool,
 ) -> Vec<(KernelId, GeomRef)> {
     let role_map: HashMap<_, _> = role_assignments.iter().cloned().collect();
     let anchored = |selector: Selector| GeomRef {
@@ -42,14 +50,13 @@ pub fn face_geom_refs(
 
     mesh.face_ranges
         .iter()
-        .enumerate()
-        .map(|(face_idx, range)| {
+        .map(|range| {
             let selector = if let Some(role) = role_map.get(&range.face_id) {
                 Selector::Role {
                     role: role.clone(),
                     index: 0,
                 }
-            } else if fingerprint_roleless {
+            } else {
                 let sig = introspect.compute_signature(range.face_id, TopoKind::Face);
                 Selector::Signature {
                     signature: TopoSignature {
@@ -59,18 +66,6 @@ pub fn face_geom_refs(
                         normal: sig.normal,
                         bbox: None,
                         adjacency_hash: None,
-                        length: None,
-                    },
-                }
-            } else {
-                Selector::Signature {
-                    signature: TopoSignature {
-                        surface_type: None,
-                        area: None,
-                        centroid: None,
-                        normal: None,
-                        bbox: None,
-                        adjacency_hash: Some(face_idx as u64),
                         length: None,
                     },
                 }

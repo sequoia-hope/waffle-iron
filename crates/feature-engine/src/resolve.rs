@@ -64,7 +64,7 @@ pub fn resolve_geom_ref(
             resolve_by_role(op_result, role, *index, geom_ref.policy)
         }
         Selector::Signature { ref signature } => {
-            resolve_by_signature(op_result, signature, geom_ref.policy)
+            resolve_by_signature(op_result, signature, geom_ref.kind, geom_ref.policy)
         }
         Selector::Query { ref query } => {
             resolve_by_query(op_result, query, geom_ref.kind, geom_ref.policy)
@@ -242,40 +242,68 @@ pub fn resolve_with_fallback(
     }
 }
 
-/// Resolve a GeomRef with the kernel at hand: a `Selector::Query` anchored at
-/// a body output is answered over that body's CURRENT entities (every face /
-/// edge of the body, with live signatures), not over the feature's
-/// provenance diff. The diff records what an operation CREATED — right for a
-/// standalone extrude, but a merged or cut body's surviving faces are absent
-/// from it and its deleted faces present, so a query over the diff can miss
-/// the face the caller means or name one that no longer exists. Every other
-/// selector, and a query when the body cannot be listed, takes
-/// [`resolve_with_fallback`].
+/// Resolve a GeomRef with the kernel at hand: a `Selector::Query` or a
+/// `Selector::Signature` anchored at a body output is answered over that
+/// body's CURRENT entities (every face / edge of the body, with live
+/// signatures), not over the feature's provenance diff. The diff records what
+/// an operation CREATED — right for a standalone extrude, but a merged or cut
+/// body's surviving faces are absent from it and its deleted faces present,
+/// so a query over the diff can miss the face the caller means or name one
+/// that no longer exists. Every other selector, and the two above when the
+/// body cannot be listed, take [`resolve_with_fallback`].
+///
+/// N0 of `specs/agent_mechanical_design.md` §5.1 brought `Signature` onto
+/// this path for the reason the doc above already gave for `Query`: a UNION's
+/// `created` list holds no faces at all (the diff matches every result face
+/// to an operand face and calls it survived), so a fingerprint for a boolean
+/// result's face had nothing of its own kind to match against and fell back
+/// to whatever the first created entity was — measured as a cap resolving to
+/// a vertex.
 pub fn resolve_geom_ref_live(
     geom_ref: &GeomRef,
     feature_results: &std::collections::HashMap<Uuid, OpResult>,
     introspect: &dyn KernelIntrospect,
 ) -> Result<ResolvedRef, EngineError> {
-    if let (
-        Selector::Query { query },
-        Anchor::FeatureOutput {
-            feature_id,
-            output_key,
-        },
-    ) = (&geom_ref.selector, &geom_ref.anchor)
+    if let Anchor::FeatureOutput {
+        feature_id,
+        output_key,
+    } = &geom_ref.anchor
     {
-        refuse_scoped(geom_ref)?;
-        if let Some(body) = feature_results.get(feature_id).and_then(|r| {
-            r.outputs
-                .iter()
-                .find(|(k, _)| key_matches(k, output_key))
-                .map(|(_, b)| b)
-        }) {
-            let live = introspect.compute_all_signatures(&body.handle, geom_ref.kind);
-            if !live.is_empty() {
-                let candidates: Vec<(KernelId, &TopoSignature)> =
-                    live.iter().map(|(id, sig)| (*id, sig)).collect();
-                return resolve_query_over(&candidates, query, geom_ref.kind, geom_ref.policy);
+        if matches!(
+            geom_ref.selector,
+            Selector::Query { .. } | Selector::Signature { .. }
+        ) {
+            refuse_scoped(geom_ref)?;
+            if let Some(body) = feature_results.get(feature_id).and_then(|r| {
+                r.outputs
+                    .iter()
+                    .find(|(k, _)| key_matches(k, output_key))
+                    .map(|(_, b)| b)
+            }) {
+                let live = introspect.compute_all_signatures(&body.handle, geom_ref.kind);
+                if !live.is_empty() {
+                    let candidates: Vec<(KernelId, &TopoSignature)> =
+                        live.iter().map(|(id, sig)| (*id, sig)).collect();
+                    match &geom_ref.selector {
+                        Selector::Query { query } => {
+                            return resolve_query_over(
+                                &candidates,
+                                query,
+                                geom_ref.kind,
+                                geom_ref.policy,
+                            );
+                        }
+                        Selector::Signature { signature } => {
+                            return resolve_signature_over(
+                                &candidates,
+                                signature,
+                                geom_ref.kind,
+                                geom_ref.policy,
+                            );
+                        }
+                        _ => unreachable!("guarded by the matches! above"),
+                    }
+                }
             }
         }
     }
@@ -537,23 +565,97 @@ fn resolve_by_role(
 }
 
 /// Resolve by geometric signature (fallback when role fails).
+/// Two scores closer than this are the SAME score: the difference is f64
+/// summation rounding over a handful of weighted terms, not information about
+/// which candidate the reference meant. `TAU_WORK` is the workspace's working
+/// floor; a genuine geometric difference exceeds it by orders of magnitude.
+const SIGNATURE_TIE: f64 = waffle_types::kernel::units::TAU_WORK;
+
+/// Resolve a `Selector::Signature` by scoring every created entity against the
+/// stored fingerprint.
+///
+/// Two refusals are policy-independent (N0 of
+/// `specs/agent_mechanical_design.md` §5.1) because neither is a question of
+/// confidence — in both, the reference does not identify an entity at all:
+///
+/// - the fingerprint shares no scorable field with any candidate
+///   ([`modeling_ops::signature_match`] returns `None` for all of them), the
+///   case of the index-only signature the viewport used to mint; and
+/// - the best score is shared by several candidates, so nothing in the
+///   reference distinguishes them.
+///
+/// Before N0 both bound to the first created entity, with a "0.0%" warning in
+/// the first case and silently in the second.
 fn resolve_by_signature(
     op_result: &OpResult,
     target_sig: &waffle_types::TopoSignature,
+    kind: TopoKind,
     policy: ResolvePolicy,
 ) -> Result<ResolvedRef, EngineError> {
-    let mut best_match: Option<(KernelId, f64)> = None;
+    // Only entities of the reference's OWN kind are candidates. Scoring a
+    // face's fingerprint against an edge or a vertex record compares the one
+    // field they happen to share — a vertex carries a centroid and nothing
+    // else — so a cap and the seam vertex sitting on it both scored 100%, and
+    // which one won was the order `created` happened to be in (measured on a
+    // cylinder extrude: face, edge and vertex all at `[0, −5, 0]`).
+    let candidates: Vec<(KernelId, &TopoSignature)> = op_result
+        .provenance
+        .created
+        .iter()
+        .filter(|e| e.kind == kind)
+        .map(|e| (e.kernel_id, &e.signature))
+        .collect();
+    resolve_signature_over(&candidates, target_sig, kind, policy)
+}
 
-    for entity in &op_result.provenance.created {
-        let sim = modeling_ops::signature_similarity(&entity.signature, target_sig);
-        if let Some((_, best_sim)) = best_match {
-            if sim > best_sim {
-                best_match = Some((entity.kernel_id, sim));
-            }
-        } else {
-            best_match = Some((entity.kernel_id, sim));
-        }
+/// Score `target_sig` against `candidates` and bind the single best — the
+/// shared core of the provenance form ([`resolve_by_signature`]) and the live
+/// body-wide form ([`resolve_geom_ref_live`]).
+fn resolve_signature_over(
+    candidates: &[(KernelId, &TopoSignature)],
+    target_sig: &waffle_types::TopoSignature,
+    kind: TopoKind,
+    policy: ResolvePolicy,
+) -> Result<ResolvedRef, EngineError> {
+    let scored: Vec<(KernelId, f64)> = candidates
+        .iter()
+        .filter_map(|(id, sig)| modeling_ops::signature_match(sig, target_sig).map(|s| (*id, s)))
+        .collect();
+
+    if scored.is_empty() {
+        return Err(EngineError::ResolutionFailed {
+            reason: if candidates.is_empty() {
+                format!("No entities of kind {kind:?} to match signature against")
+            } else {
+                format!(
+                    "the reference's signature carries no geometry to match against \
+                     {} candidate(s) of kind {kind:?} — nothing to compare, so \
+                     nothing may be bound",
+                    candidates.len()
+                )
+            },
+        });
     }
+
+    let best_sim = scored
+        .iter()
+        .map(|(_, s)| *s)
+        .fold(f64::NEG_INFINITY, f64::max);
+    let tied: Vec<u64> = scored
+        .iter()
+        .filter(|(_, s)| (best_sim - *s).abs() <= SIGNATURE_TIE)
+        .map(|(id, _)| id.0)
+        .collect();
+    if tied.len() > 1 {
+        return Err(EngineError::ReferenceAmbiguous {
+            candidates: tied,
+            score: best_sim,
+        });
+    }
+    let best_match = scored
+        .iter()
+        .find(|(_, s)| *s == best_sim)
+        .map(|(id, s)| (*id, *s));
 
     match best_match {
         Some((id, sim)) if sim > 0.5 => {
@@ -1042,5 +1144,79 @@ mod tests {
         };
         let result = resolve_by_query(&op, &query, TopoKind::Face, ResolvePolicy::Strict).unwrap();
         assert_eq!(result.kernel_id, KernelId(2)); // largest area
+    }
+
+    // --- N0 defect 2: a fingerprint that cannot distinguish must REFUSE ---
+    // `specs/agent_mechanical_design.md` §5.1. Both of these used to bind to
+    // the FIRST created face and carry a "0.0%" warning, under BestEffort AND
+    // (for the tie) under Strict — the ICR-3 limit.
+
+    /// An index-only signature (`adjacency_hash` and nothing else) carries no
+    /// geometry: `signature_similarity` never reads `adjacency_hash`, so every
+    /// candidate scores 0.0 and the "best" match is whichever face came first.
+    /// Refused now, under either policy.
+    #[test]
+    fn signature_with_no_geometry_refuses_under_both_policies() {
+        let op = make_op_result(vec![
+            make_face(1, "planar", 10.0, [0.0, 0.0, 0.0], [0.0, 0.0, 1.0]),
+            make_face(2, "planar", 20.0, [0.0, 0.0, 5.0], [0.0, 0.0, -1.0]),
+        ]);
+        let index_only = TopoSignature {
+            adjacency_hash: Some(1),
+            ..TopoSignature::empty()
+        };
+        for policy in [ResolvePolicy::BestEffort, ResolvePolicy::Strict] {
+            let err = resolve_by_signature(&op, &index_only, TopoKind::Face, policy)
+                .expect_err("a geometry-free signature must not bind");
+            assert!(
+                matches!(&err, EngineError::ResolutionFailed { reason }
+                         if reason.contains("carries no geometry")),
+                "{policy:?}: want a typed geometry-free refusal, got {err:?}"
+            );
+        }
+    }
+
+    /// Two candidates the fingerprint fits equally well: nothing in the
+    /// reference distinguishes them, so it names both and refuses rather than
+    /// picking the one that happens to be first.
+    #[test]
+    fn equally_matching_candidates_refuse_and_name_themselves() {
+        let twin = |id| make_face(id, "planar", 10.0, [1.0, 2.0, 3.0], [0.0, 0.0, 1.0]);
+        let op = make_op_result(vec![
+            twin(7),
+            twin(9),
+            make_face(11, "cylindrical", 99.0, [9.0, 9.0, 9.0], [1.0, 0.0, 0.0]),
+        ]);
+        let target = twin(7).signature;
+        for policy in [ResolvePolicy::BestEffort, ResolvePolicy::Strict] {
+            let err = resolve_by_signature(&op, &target, TopoKind::Face, policy)
+                .expect_err("an ambiguous fingerprint must not bind");
+            match &err {
+                EngineError::ReferenceAmbiguous { candidates, .. } => {
+                    assert_eq!(candidates, &vec![7u64, 9u64], "{policy:?}: {err:?}");
+                }
+                other => panic!("{policy:?}: want ReferenceAmbiguous, got {other:?}"),
+            }
+        }
+    }
+
+    /// The far side of the same rule: a fingerprint that fits ONE candidate
+    /// best still resolves, and a near-miss still resolves with a warning.
+    #[test]
+    fn a_distinguishing_signature_still_resolves() {
+        let op = make_op_result(vec![
+            make_face(1, "planar", 10.0, [0.0, 0.0, 0.0], [0.0, 0.0, 1.0]),
+            make_face(2, "planar", 10.0, [0.0, 0.0, 5.0], [0.0, 0.0, -1.0]),
+        ]);
+        let exact = make_face(2, "planar", 10.0, [0.0, 0.0, 5.0], [0.0, 0.0, -1.0]).signature;
+        let hit = resolve_by_signature(&op, &exact, TopoKind::Face, ResolvePolicy::Strict)
+            .expect("exact match");
+        assert_eq!(hit.kernel_id, KernelId(2));
+        assert!(hit.warnings.is_empty(), "{:?}", hit.warnings);
+
+        let perturbed = make_face(2, "planar", 10.2, [0.0, 0.0, 5.01], [0.0, 0.0, -1.0]).signature;
+        let hit = resolve_by_signature(&op, &perturbed, TopoKind::Face, ResolvePolicy::Strict)
+            .expect("near match");
+        assert_eq!(hit.kernel_id, KernelId(2));
     }
 }

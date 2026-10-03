@@ -171,7 +171,6 @@ fn build_face_entries(
         mesh,
         role_assignments,
         introspect,
-        ghost.is_some(),
     );
 
     let mut entries = Vec::new();
