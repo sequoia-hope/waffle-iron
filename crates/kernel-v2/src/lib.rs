@@ -115,7 +115,8 @@ pub use introspect::{extract_edges, extract_edges_with_chord_tolerance, face_pla
 pub use journal::{descendants, face_lineage, EvoKind, Evolution, FaceLineage, OpTag};
 pub use measure::{distance, distance_along, DistanceResult, On, Target};
 pub use pid::{
-    edge_pid, seeded_face_pid, solid_face_pids, solid_pids, vertex_pid, FacePids, SolidPids,
+    boolean_output_face_pids, edge_pid, face_boundary_key, seeded_boolean_face_pid,
+    seeded_face_pid, solid_face_pids, solid_pids, vertex_pid, FacePids, SolidPids,
 };
 pub use profile::{Profile, ProfileEdge, ProfileRegion};
 pub use projection::{project_edges, project_solid};

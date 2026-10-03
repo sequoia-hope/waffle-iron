@@ -99,6 +99,11 @@ const DOMAIN_EDGE: u64 = 0x4544_4745_5f56_3100; // "EDGE_V1"
 const DOMAIN_VERTEX: u64 = 0x5645_5254_5f56_3100; // "VERT_V1"
 /// Domain tag mixed into every content-seeded FACE pid (D0 item 1).
 const DOMAIN_FACE: u64 = 0x4641_4345_5f56_3100; // "FACE_V1"
+/// Domain tag mixed into every content-seeded BOOLEAN-OUTPUT face pid
+/// (D0 item 1b). Its own domain, so a construct-born face and a
+/// boolean-born one can never land on the same id even if their key words
+/// happened to be numerically equal.
+const DOMAIN_FACE_BOOL: u64 = 0x4642_4f4f_4c5f_5631; // "FBOOL_V1"
 
 /// 64-bit mixing step (the SplitMix64 finalizer applied to `state ^ value`).
 /// Chosen because it is a well-studied avalanche function that needs no
@@ -140,6 +145,124 @@ fn digest(domain: u64, words: &[u64]) -> Pid {
 pub fn seeded_face_pid(seed: FaceSeed, output: u64, role: u64) -> Pid {
     let h = digest(DOMAIN_FACE, &[seed.origin[0], seed.origin[1], output, role]);
     Pid(h.0 | PID_CONTENT_BASE)
+}
+
+/// The content-seeded persistent id of a face a BOOLEAN produced (D0 item 1b).
+///
+/// `seed` is the boolean feature's stable 128-bit name, `root` the output
+/// face's lineage root (the pid where its geometry was introduced, already
+/// content-seeded by item 1), and `rank` the disambiguator that separates
+/// several output faces sharing one root — the split patches of one operand
+/// face. See [`boolean_output_face_pids`] for how the rank is chosen.
+///
+/// Why not `(seed, output ordinal, role)` like a constructor's faces: an
+/// output face's role is not a property of the step, it is a property of
+/// *where the operands met*, so the only position in the output a reader
+/// could point at is an arena index, which is exactly the allocation order
+/// item 1b exists to get out of the id. The root is the content; the rank
+/// separates patches of one root by their own geometry.
+///
+/// Same frozen-format obligation as [`seeded_face_pid`]: ids reach
+/// documents, so this function must never drift. Top bit set
+/// ([`PID_CONTENT_BASE`]) so hash ids and counter ids stay disjoint.
+pub fn seeded_boolean_face_pid(seed: FaceSeed, root: Pid, rank: u64) -> Pid {
+    let h = digest(
+        DOMAIN_FACE_BOOL,
+        &[seed.origin[0], seed.origin[1], root.0, rank],
+    );
+    Pid(h.0 | PID_CONTENT_BASE)
+}
+
+/// A face's own content key: the positions of its boundary vertices (outer
+/// loop and every ring), as [`point_key`] words, ascending and deduped.
+///
+/// This is the rank key of [`boolean_output_face_pids`], and the reason it is
+/// a *sorted list* rather than just the lowest vertex is free tie-breaking:
+/// comparing two sorted lists lexicographically compares their minima first,
+/// so the primary discriminator is the lowest boundary vertex either way, and
+/// equal minima fall through to the next vertex instead of becoming an
+/// ambiguity. It reads nothing but the face's own geometry — no arena index,
+/// no creation order — so an edit elsewhere on the body cannot move it.
+pub fn face_boundary_key(arena: &BrepArena, face: FaceId) -> Result<Vec<[u64; 3]>, KernelV2Error> {
+    let mut key: Vec<[u64; 3]> = Vec::new();
+    for h in face_half_edges(arena, face)? {
+        key.push(point_key(arena.vertex(arena.half_edge(h)?.origin)?.point));
+    }
+    key.sort_unstable();
+    key.dedup();
+    Ok(key)
+}
+
+/// Content-seeded pids for a boolean's own OUTPUT faces (D0 item 1b).
+///
+/// `rooted` is `(output face, its lineage root)` for every output face whose
+/// ancestry the boolean could attribute to an operand face. Faces absent from
+/// the list keep whatever id they carry — a genuinely new surface with no
+/// operand ancestor has no content to seed from, and inventing one would be a
+/// name without a meaning.
+///
+/// # The rank
+///
+/// Output faces are grouped by root — several faces share one root exactly
+/// when the boolean SPLIT one operand face into patches — and within a group
+/// a face's rank is **the number of distinct [`face_boundary_key`]s that
+/// order below its own**. Not its index in the sorted order: two faces with
+/// equal keys then take the *same* rank and so the same id, which
+/// [`stamp`] refuses as [`KernelV2Error::PidCollision`] rather than handing
+/// out two names by arena order. A group of one — the overwhelming majority —
+/// ranks 0 whatever its geometry does.
+///
+/// The usual rank caveat still applies inside a group of two or more: the
+/// rank is a position, so moving one patch's boundary past another's swaps
+/// the two ids. That is the same trade [`rank_groups`] documents for edges,
+/// and it is as good as a positional disambiguator gets — but note what has
+/// changed since item 1: the group is now the patches of ONE root, not every
+/// face of the body, so an edit anywhere else cannot renumber it.
+///
+/// Returns one pid per entry of `rooted`, keyed by face.
+pub fn boolean_output_face_pids(
+    arena: &BrepArena,
+    seed: FaceSeed,
+    rooted: &[(FaceId, Pid)],
+) -> Result<BTreeMap<FaceId, Pid>, KernelV2Error> {
+    // Group by root, each member carrying its own content key.
+    let mut groups: BTreeMap<Pid, BTreeMap<FaceId, Vec<[u64; 3]>>> = BTreeMap::new();
+    for &(face, root) in rooted {
+        groups
+            .entry(root)
+            .or_default()
+            .insert(face, face_boundary_key(arena, face)?);
+    }
+
+    let mut keyed: Vec<(FaceId, Vec<u64>)> = Vec::with_capacity(rooted.len());
+    for (root, members) in &groups {
+        let mut distinct: Vec<&Vec<[u64; 3]>> = members.values().collect();
+        distinct.sort_unstable();
+        distinct.dedup();
+        for (face, key) in members {
+            // `distinct` is sorted, so the count of keys strictly below this
+            // one is its position in it — and equal keys share that position.
+            let rank = distinct.partition_point(|k| *k < key) as u64;
+            keyed.push((*face, vec![seed.origin[0], seed.origin[1], root.0, rank]));
+        }
+    }
+    keyed.sort_by_key(|(f, _)| f.0);
+    // The hash goes through `seeded_boolean_face_pid` rather than repeating
+    // its digest here, so there is exactly one place the format lives; the
+    // word vector is only the shape `stamp`'s collision refusal wants.
+    stamp(
+        &keyed,
+        |w| {
+            seeded_boolean_face_pid(
+                FaceSeed {
+                    origin: [w[0], w[1]],
+                },
+                Pid(w[2]),
+                w[3],
+            )
+        },
+        "face",
+    )
 }
 
 /// Every persistent id of one solid, in one pass.
@@ -558,6 +681,181 @@ mod tests {
             stamp(&keyed, |_| Pid(42), "vertex"),
             Err(KernelV2Error::PidCollision { kind: "vertex" })
         );
+    }
+
+    #[test]
+    fn a_boolean_face_pid_is_domain_separated_from_a_construct_one() {
+        let seed = FaceSeed { origin: [11, 22] };
+        // Numerically identical words, different domains: the two schemes
+        // must not be able to mint the same number for different faces.
+        assert_ne!(
+            seeded_boolean_face_pid(seed, Pid(3), 4),
+            seeded_face_pid(seed, 3, 4),
+            "boolean and construct face domains must not alias"
+        );
+        for (root, rank) in [(Pid(0), 0u64), (Pid(3), 4), (Pid(u64::MAX), 7)] {
+            assert!(
+                seeded_boolean_face_pid(seed, root, rank).0 >= PID_CONTENT_BASE,
+                "a content-seeded id must stay in the top half of the space"
+            );
+        }
+        assert_ne!(
+            seeded_boolean_face_pid(seed, Pid(3), 0),
+            seeded_boolean_face_pid(seed, Pid(3), 1),
+            "the rank must reach the id"
+        );
+        assert_ne!(
+            seeded_boolean_face_pid(seed, Pid(3), 0),
+            seeded_boolean_face_pid(FaceSeed { origin: [11, 23] }, Pid(3), 0),
+            "the op seed must reach the id"
+        );
+    }
+
+    /// A fixture for the grouping logic: one arena, four unit-square faces
+    /// (two lamina solids' worth is more plumbing than this needs, so the
+    /// faces come from two boxes), used only for their boundary geometry.
+    fn two_boxes() -> (BrepArena, Vec<FaceId>, Vec<FaceId>) {
+        use crate::{extrude, Profile};
+        use cad_primitives::{Point2, Vector3};
+
+        let mut arena = BrepArena::new();
+        let square = |z: f64| {
+            Profile::new(
+                Point3::new(0.0, 0.0, z),
+                Vector3::new(1.0, 0.0, 0.0),
+                Vector3::new(0.0, 1.0, 0.0),
+                vec![
+                    Point2::new(0.0, 0.0),
+                    Point2::new(1.0, 0.0),
+                    Point2::new(1.0, 1.0),
+                    Point2::new(0.0, 1.0),
+                ],
+                vec![],
+            )
+            .expect("rectangle")
+        };
+        let a = extrude(&mut arena, &square(0.0), Vector3::new(0.0, 0.0, 1.0), 1.0)
+            .expect("box a")
+            .solid;
+        let b = extrude(&mut arena, &square(5.0), Vector3::new(0.0, 0.0, 1.0), 1.0)
+            .expect("box b")
+            .solid;
+        let fa = solid_faces(&arena, a).expect("faces of a");
+        let fb = solid_faces(&arena, b).expect("faces of b");
+        (arena, fa, fb)
+    }
+
+    /// The common case: every output face has its own root, so every rank is
+    /// 0 and the id is pure content — seed plus root, nothing positional.
+    #[test]
+    fn a_root_with_one_output_face_ranks_zero() {
+        let (arena, fa, _) = two_boxes();
+        let seed = FaceSeed { origin: [7, 8] };
+        let rooted: Vec<(FaceId, Pid)> = fa
+            .iter()
+            .enumerate()
+            .map(|(i, &f)| (f, Pid(100 + i as u64)))
+            .collect();
+        let ids = boolean_output_face_pids(&arena, seed, &rooted).expect("pids");
+        for (face, root) in &rooted {
+            assert_eq!(
+                ids[face],
+                seeded_boolean_face_pid(seed, *root, 0),
+                "a lone member of its root group ranks 0"
+            );
+        }
+    }
+
+    /// Two patches of ONE root — a split operand face — are separated by
+    /// their own boundary geometry, and the ranks follow the content key's
+    /// order, not the faces' arena order.
+    #[test]
+    fn two_patches_of_one_root_rank_by_their_content_key() {
+        let (arena, fa, _) = two_boxes();
+        let seed = FaceSeed { origin: [7, 8] };
+        // Box b's faces sit at z = 5..6, box a's at z = 0..1, so a's
+        // boundary keys all order below b's.
+        let (lo, hi) = (fa[0], fa[1]);
+        let lo_key = face_boundary_key(&arena, lo).expect("key");
+        let hi_key = face_boundary_key(&arena, hi).expect("key");
+        assert_ne!(lo_key, hi_key, "the two faces differ in content");
+        let (first, second) = if lo_key < hi_key { (lo, hi) } else { (hi, lo) };
+
+        let root = Pid(42);
+        let ids = boolean_output_face_pids(&arena, seed, &[(lo, root), (hi, root)]).expect("pids");
+        assert_eq!(ids[&first], seeded_boolean_face_pid(seed, root, 0));
+        assert_eq!(ids[&second], seeded_boolean_face_pid(seed, root, 1));
+        assert_ne!(ids[&lo], ids[&hi], "two patches of one root are distinct");
+    }
+
+    /// Two faces of one root whose content keys compare EQUAL take the same
+    /// rank, so the stamp refuses rather than handing out two names by arena
+    /// order. There is no third thing to break the tie that is not an
+    /// allocation number, and an allocation number is what item 1b removes.
+    #[test]
+    fn two_indistinguishable_patches_of_one_root_are_refused() {
+        use crate::{make_face_from_profile, Profile};
+        use cad_primitives::{Point2, Vector3};
+
+        // A lamina's two faces are the real instance of the tie: front and
+        // back are distinct faces over ONE boundary, so their content keys
+        // are equal and nothing but an arena number could order them.
+        let mut arena = BrepArena::new();
+        let profile = Profile::new(
+            Point3::new(0.0, 0.0, 0.0),
+            Vector3::new(1.0, 0.0, 0.0),
+            Vector3::new(0.0, 1.0, 0.0),
+            vec![
+                Point2::new(0.0, 0.0),
+                Point2::new(1.0, 0.0),
+                Point2::new(1.0, 1.0),
+                Point2::new(0.0, 1.0),
+            ],
+            vec![],
+        )
+        .expect("rectangle");
+        let lamina = make_face_from_profile(&mut arena, &profile).expect("lamina");
+        assert_eq!(
+            face_boundary_key(&arena, lamina.front).expect("front key"),
+            face_boundary_key(&arena, lamina.back).expect("back key"),
+            "the two sides of a lamina really do share one boundary"
+        );
+
+        let seed = FaceSeed { origin: [7, 8] };
+        let root = Pid(42);
+        assert_eq!(
+            boolean_output_face_pids(&arena, seed, &[(lamina.front, root), (lamina.back, root)]),
+            Err(KernelV2Error::PidCollision { kind: "face" }),
+            "two faces of one root that cannot be told apart by content must \
+             refuse, never be ordered by arena id"
+        );
+    }
+
+    /// A face with no attributable operand ancestor is simply absent from
+    /// the result — a genuinely new surface has no content to seed from, and
+    /// a name invented for it would mean nothing.
+    #[test]
+    fn an_unrooted_output_face_gets_no_content_id() {
+        let (arena, fa, _) = two_boxes();
+        let seed = FaceSeed { origin: [7, 8] };
+        let ids = boolean_output_face_pids(&arena, seed, &[(fa[0], Pid(1))]).expect("pids");
+        assert_eq!(ids.len(), 1);
+        assert!(!ids.contains_key(&fa[1]));
+    }
+
+    /// The content key reads the face's own boundary and nothing else, so it
+    /// is a function of geometry: the same face answers the same key, and a
+    /// face somewhere else answers a different one.
+    #[test]
+    fn the_content_key_is_the_faces_own_boundary() {
+        let (arena, fa, fb) = two_boxes();
+        let k = face_boundary_key(&arena, fa[0]).expect("key");
+        assert_eq!(k, face_boundary_key(&arena, fa[0]).expect("again"));
+        assert_ne!(k, face_boundary_key(&arena, fb[0]).expect("other box"));
+        assert_eq!(k.len(), 4, "a square cap has four boundary vertices");
+        let mut sorted = k.clone();
+        sorted.sort_unstable();
+        assert_eq!(k, sorted, "the key is ascending");
     }
 
     /// The public single-entity doors agree with the bulk map, and the
