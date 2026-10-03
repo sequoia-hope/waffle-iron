@@ -688,6 +688,25 @@ impl Curve2 {
     /// A polyline's length is the length of the polyline, which is what the
     /// drawing shows.
     pub fn length(&self) -> f64 {
+        self.length_with_steps(ELLIPSE_QUADRATURE_STEPS)
+    }
+
+    /// [`Self::length`] with the ellipse arm's composite-Simpson quadrature at
+    /// `steps` intervals instead of [`ELLIPSE_QUADRATURE_STEPS`].
+    ///
+    /// Every other arm has a closed form and ignores `steps`, so this differs
+    /// from [`Self::length`] on the ellipse arm alone. `steps` is rounded down
+    /// to an even number and floored at 2, which is what Simpson needs.
+    ///
+    /// **Why it is public** (Q6 of `specs/agent_mechanical_design.md` §4.2).
+    /// An arc length an agent is handed must say which tier it is, and the
+    /// ellipse arm's tier is "a quadrature, not a closed form". The honest
+    /// statement of its accuracy is a MEASURED one, so `kernel_v2`'s
+    /// `edge_length` reports `|length_with_steps(2N) − length()|` as the
+    /// convergence witness alongside the value. Re-deriving the integrand
+    /// there would have been a second integrator of the same curve; this is
+    /// the one.
+    pub fn length_with_steps(&self, steps: usize) -> f64 {
         match *self {
             Curve2::Point(_) => 0.0,
             Curve2::Line { start, end } => {
@@ -714,7 +733,7 @@ impl Curve2 {
                     let dy = -major_radius * s * major_axis[1] + minor_radius * c * p[1];
                     (dx * dx + dy * dy).sqrt()
                 };
-                let n = ELLIPSE_QUADRATURE_STEPS;
+                let n = steps.max(2) & !1;
                 let h = (end_param - start_param) / n as f64;
                 let mut acc = speed(start_param) + speed(end_param);
                 for i in 1..n {
@@ -1368,6 +1387,63 @@ mod tests {
             end_param: TAU,
         };
         assert!((circle_as_ellipse.length() - 2.0 * TAU).abs() < 1e-10);
+    }
+
+    /// Q6's convergence witness: doubling the step count moves the ellipse
+    /// arm and nothing else, and the movement is the size the residual is
+    /// reported as.
+    #[test]
+    fn only_the_ellipse_arm_reads_the_step_count() {
+        for closed_form in [
+            Curve2::Point(Point2::new(1.0, 2.0)),
+            Curve2::Line {
+                start: Point2::new(0.0, 0.0),
+                end: Point2::new(3.0, 4.0),
+            },
+            Curve2::Circle {
+                center: Point2::new(0.0, 0.0),
+                radius: 2.0,
+                start_angle: 0.0,
+                end_angle: TAU,
+            },
+            Curve2::Polyline {
+                points: vec![Point2::new(0.0, 0.0), Point2::new(1.0, 0.0)],
+                closed: false,
+            },
+        ] {
+            assert_eq!(
+                closed_form.length(),
+                closed_form.length_with_steps(8),
+                "a closed form must ignore the step count: {closed_form:?}"
+            );
+        }
+
+        // A well-conditioned ellipse: `length()` already sits at f64
+        // resolution, so the witness is tiny but it is MEASURED, not assumed.
+        let e = Curve2::Ellipse {
+            center: Point2::new(0.0, 0.0),
+            major_axis: [1.0, 0.0],
+            major_radius: 2.0,
+            minor_radius: 1.0,
+            start_param: 0.0,
+            end_param: TAU,
+        };
+        let residual = (e.length_with_steps(2 * ELLIPSE_QUADRATURE_STEPS) - e.length()).abs();
+        assert!(
+            residual < 1e-12,
+            "a 2:1 ellipse's quadrature has converged: residual {residual}"
+        );
+        // A coarse quadrature of the SAME curve has not, which is what makes
+        // the witness worth reporting at all.
+        let coarse = (e.length_with_steps(8) - e.length()).abs();
+        assert!(
+            coarse > residual,
+            "8 intervals must be visibly worse than {ELLIPSE_QUADRATURE_STEPS}: {coarse}"
+        );
+        // An odd or absurd step count is rounded into Simpson's domain rather
+        // than dividing by zero or integrating half the curve.
+        assert!(e.length_with_steps(0).is_finite());
+        assert_eq!(e.length_with_steps(7), e.length_with_steps(6));
     }
 
     /// What the ellipse quadrature actually delivers, against a far finer

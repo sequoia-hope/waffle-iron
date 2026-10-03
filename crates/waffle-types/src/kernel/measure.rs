@@ -7,9 +7,9 @@
 //! [`Method`] it was obtained by, so a mesh number is never presented as a
 //! measurement.
 //!
-//! The trait grows one method per Q increment (Q1 distance, Q2 interference
-//! and Q3 mass properties have landed; Q5 thickness and Q6 `edge_length` add
-//! theirs in their own increments). Methods default to `NotSupported`, so each
+//! The trait grows one method per Q increment (Q1 distance, Q2 interference,
+//! Q3 mass properties and Q6 `edge_length` have landed; Q5 thickness adds
+//! its own in its increment). Methods default to `NotSupported`, so each
 //! addition is additive for every implementor.
 
 use super::types::{KernelError, KernelId, KernelSolidHandle};
@@ -204,6 +204,60 @@ pub struct MassProperties {
     pub method: Method,
 }
 
+// ---------------------------------------------------------------------------
+// Q6 — edge arc length
+// ---------------------------------------------------------------------------
+
+/// How an arc length was obtained (Q6 of `specs/agent_mechanical_design.md`
+/// §4.2).
+///
+/// Three tiers rather than [`Method`]'s two, because an edge has a third case
+/// that neither of those describes honestly: a curve whose speed has a closed
+/// form but whose INTEGRAL does not (an ellipse, a hyperbola — both elliptic
+/// integrals). Calling such a number `Exact` would overclaim and calling it
+/// `Mesh` would understate it, so it says what it is and carries a measured
+/// witness.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum LengthMethod {
+    /// A closed form evaluated in f64: a line's chord, a circle's `2πr`, a
+    /// circular arc's `rΔθ`. The number cannot be improved.
+    Exact,
+    /// A convergent quadrature of a closed-form speed function.
+    ///
+    /// `residual` is the MEASURED difference between the reported value and
+    /// the same quadrature at twice the step count — a convergence witness,
+    /// not a proven error bound. It is reported so a consumer can see when
+    /// the integrand is hard (a very eccentric ellipse: the implementation's
+    /// own accuracy census is on `Curve2::length`) rather than trusting a
+    /// constant.
+    Quadrature { residual: f64 },
+    /// The sum of a sampled polyline's chords, which is a LOWER bound on the
+    /// true arc length (a chord is never longer than the arc it subtends).
+    ///
+    /// `chord_bound` is the sampling band in meters when the sampler was ours
+    /// — the render chord band, the same one [`Method::Mesh`] carries — and
+    /// `None` when the polyline arrived from outside (a mesh-backed imported
+    /// body), where we do not know what it was sampled at and will not invent
+    /// a number for it.
+    Chords { chord_bound: Option<f64> },
+}
+
+/// The arc length of one edge, and what kind of curve it is (Q6).
+#[derive(Debug, Clone, PartialEq)]
+pub struct EdgeLength {
+    /// Arc length in meters — the length of the whole curve, not its chord.
+    pub value: f64,
+    /// The analytic family, as one lowercase token: `line`, `circle`, `arc`,
+    /// `ellipse_arc`, `hyperbola_arc`, `surface_pair` (an SSI curve defined
+    /// by its two surfaces), or `polyline` (an imported body's sampled edge).
+    pub curve_type: &'static str,
+    /// Whether the edge closes on itself — a full circle or ellipse, whose
+    /// two endpoints are one seam vertex.
+    pub closed: bool,
+    /// Which tier `value` is.
+    pub method: LengthMethod,
+}
+
 /// Geometric measurement over bodies the kernel holds (§4.1).
 pub trait KernelMeasure {
     /// Minimum distance (or the gap along `opts.along`) between `a` and `b`,
@@ -260,6 +314,23 @@ pub trait KernelMeasure {
     ) -> Result<MassProperties, KernelError> {
         Err(KernelError::NotSupported {
             operation: "mass properties".to_string(),
+        })
+    }
+
+    /// The arc length of one edge, its analytic family, and the tier the
+    /// length is (Q6).
+    ///
+    /// This is the length of the CURVE. `TopoSignature::length` — what
+    /// `compute_signature` reports for an edge — is the straight-line
+    /// distance between its endpoints, which is 0 for a full circle; the two
+    /// are different quantities and a consumer asking "how long is this rim"
+    /// wants this one.
+    ///
+    /// `edge` must be an edge id. A kind mismatch is `EntityNotFound`, not a
+    /// guess.
+    fn edge_length(&self, _edge: KernelId) -> Result<EdgeLength, KernelError> {
+        Err(KernelError::NotSupported {
+            operation: "edge arc length".to_string(),
         })
     }
 }
