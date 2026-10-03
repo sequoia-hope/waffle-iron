@@ -481,6 +481,17 @@ merges. All four were mutation-checked by withdrawing the seed in
 - *`ingest` inherits the seed.* A STEP import under an installed seed stamps
   its faces by file order, which is stable across re-imports of the same
   file. Untested; the import path has no identity pin yet.
+- *A script's children have no identity of their own, and must not get one
+  here.* `script::execute` runs each child through `execute_feature` without
+  installing a seed, so a child's faces are named by the SCRIPT feature's
+  uuid plus the child's position in the script's construct sequence. That is
+  deliberate, and the reason is a finding worth recording: `script/host.rs`
+  mints every child's `Uuid` with `Uuid::new_v4()`, so a child feature's id
+  is random per run. Seeding from it would make script-generated face pids
+  change on every rebuild — strictly worse than the parent's stable seed. A
+  script child gets a durable identity only once the host mints its ids
+  deterministically (e.g. hashed from the script source position), and that
+  is the prerequisite for any annotation anchored inside a script.
 
 ## 5. D1 — Kernel projection and section
 
