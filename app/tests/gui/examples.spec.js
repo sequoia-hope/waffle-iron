@@ -36,9 +36,37 @@ async function documentInfo(page) {
 }
 
 test.describe('Examples panel', () => {
+	// Every test here opens a multi-megabyte document, and the budget has to
+	// cover the WHOLE test, hooks included. `test.setTimeout()` in a test BODY
+	// cannot: `beforeEach` and the context/page fixtures run BEFORE the body, so
+	// they were still measured against the config's 60 s default — which is what
+	// the CI flake was (runs 37088666207, 37090989929, 37105839946, 37107232394,
+	// all four traces recording `testTimeout: 60000` for a test that asks for
+	// 300 s, all four spending the entire 60 s inside `browser.newContext`).
+	// Declared on the describe, it covers hooks and fixtures too.
+	test.describe.configure({ timeout: 300000 });
+
 	test.beforeEach(async ({ page }) => {
 		await page.goto('/');
 		await page.waitForFunction(() => window.__waffle?.getState()?.engineReady === true, null, { timeout: 30000 });
+	});
+
+	// Hand the next test a browser that is not still holding this one's
+	// document. Playwright reuses ONE browser process per worker across the
+	// whole file, so the heaviest document in the suite is otherwise still being
+	// reclaimed when the next test asks for a context — measured on this file
+	// with one worker: `browser.newContext` costs 5-8 ms on a fresh browser, but
+	// 2963 ms in the browser that just finished the gravel bike, and 3.2 ms once
+	// this hook has dropped the renderer. On the four-core CI runner with four
+	// workers that 3 s inflates past the hook's budget, which is why this file
+	// and no other flaked. Navigating away charges the reclamation to the test
+	// that built the document, which is the test that budgeted for it.
+	//
+	// Only on success: Playwright captures the failure screenshot during `page`
+	// fixture teardown, i.e. AFTER this hook, so a blank page here would blank
+	// the screenshot of a genuine failure.
+	test.afterEach(async ({ page }, testInfo) => {
+		if (testInfo.status === testInfo.expectedStatus) await page.goto('about:blank');
 	});
 
 	test('lists the shipped examples and opens the gravel bike as a new document', async ({ page }) => {
@@ -47,8 +75,8 @@ test.describe('Examples panel', () => {
 		// rebuilds and tessellates into 1.15 M triangles before anything renders.
 		// ~24 s locally; a shared 4-core runner takes several times that, and the
 		// 60 s default cut it off at zero bodies (CI, 2026-09-23). Still a real
-		// bound — a document that never builds fails.
-		test.setTimeout(300000);
+		// bound — a document that never builds fails. The 300 s is configured on
+		// the describe, so it covers this test's hooks as well as its body.
 		const crashes = collectCrashErrors(page);
 		const before = await documentInfo(page);
 
@@ -100,7 +128,6 @@ test.describe('Examples panel', () => {
 		// PatternCircular — the largest body count in the suite, though only
 		// ~26 k triangles, since every body is a box. ~7 s locally; a shared
 		// runner takes several times that (the bike's budget applies here too).
-		test.setTimeout(300000);
 		const crashes = collectCrashErrors(page);
 		const before = await documentInfo(page);
 
