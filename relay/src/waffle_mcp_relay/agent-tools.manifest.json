@@ -1,5 +1,5 @@
 {
-  "manifest_hash": "a3977c1c04c7893004e0ccde941f815e2c14e6ff6da6b54e4c71b152032c123c",
+  "manifest_hash": "94f3bec0792036ad4e1fe7dbc6a6838b242e025c5d9405eb9d90bfc73dd51bb7",
   "protocol": "waffle-agent-link/1",
   "tools": [
     {
@@ -2917,7 +2917,7 @@
         "readOnlyHint": true,
         "title": "Evaluate expression"
       },
-      "description": "Evaluate an expression against the design parameters, as a dimension field would. mm-space: a bare number means millimeters for lengths (degrees for angles); unit suffixes (mm, cm, m, in, ft, deg, rad) and parameter names are allowed. Returns value_mm plus the dimension the expression produced, or value_mm null with the evaluation error. Pass dimension to have it judged as that kind of field would judge it: \"25deg\" asked for as a Length is an error, not 25 mm.",
+      "description": "Evaluate an expression against the design parameters AND the live model, as a dimension field would. mm-space: a bare number means millimeters for lengths (degrees for angles); unit suffixes (mm, cm, m, in, ft, deg, rad) and parameter names are allowed. Measurement functions read the model by ENTITY NAME (entity_name / body_rename): distance(a, b), angle(a, b), length(edge), radius(entity), area(face), volume(body) — mm, degrees, mm^2 and mm^3 respectively, so sqrt(area(top)) is a length a depth takes and area(top) is not. mass(body) is reserved and refuses until a material table exists. Returns value_mm plus the dimension the expression produced, or value_mm null with the evaluation error. Pass dimension to have it judged as that kind of field would judge it: \"25deg\" asked for as a Length is an error, not 25 mm.",
       "inputSchema": {
         "additionalProperties": false,
         "properties": {
@@ -2932,7 +2932,7 @@
             "type": "string"
           },
           "expression": {
-            "description": "e.g. \"width / 2\" or \"1.5in\".",
+            "description": "e.g. \"width / 2\", \"1.5in\", or \"distance(wall_a, wall_b) / 2\".",
             "type": "string"
           }
         },
@@ -16984,7 +16984,7 @@
         "readOnlyHint": false,
         "title": "Set parameters"
       },
-      "description": "Write the design-parameter table and rebuild (one undo step). By default parameters REPLACES the table, so an omitted parameter is removed; with merge:true the rows are applied over the current table and delete removes parameters by name or id, so you can set one value without re-sending the rest. Expressions are mm-space and may reference other parameters by name. Keep a parameter's id to preserve it; omit id for a new one. A row whose id names an existing parameter with a DIFFERENT name is a rename: every expression that reads it — other parameters and feature fields alike — is rewritten, so use this rather than deleting and re-adding. A failing expression is reported per parameter, not rolled back; a delete of a parameter something still reads is refused naming the dependents (read them first with parameters_get).",
+      "description": "Write the design-parameter table and rebuild (one undo step). By default parameters REPLACES the table, so an omitted parameter is removed; with merge:true the rows are applied over the current table and delete removes parameters by name or id, so you can set one value without re-sending the rest. Expressions are mm-space and may reference other parameters by name, and may MEASURE the model by entity name (distance, angle, length, radius, area, volume — see expression_evaluate); a parameter that measures acquires a rebuild dependency on the feature that owns the measured entity, and may only measure geometry earlier in the tree than the first feature that reads it. Keep a parameter's id to preserve it; omit id for a new one. A row whose id names an existing parameter with a DIFFERENT name is a rename: every expression that reads it — other parameters and feature fields alike — is rewritten, so use this rather than deleting and re-adding. A failing expression is reported per parameter, not rolled back; a delete of a parameter something still reads is refused naming the dependents (read them first with parameters_get).",
       "inputSchema": {
         "additionalProperties": false,
         "properties": {

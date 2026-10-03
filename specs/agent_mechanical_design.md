@@ -839,6 +839,18 @@ Owner: `feature-engine` (`expr.rs`, `params.rs`, `types.rs`), `file-format`,
    `angle`, `volume`, `area`, `length`, `radius`, `mass`. Arguments accept N1
    names. A parameter that reads geometry acquires a rebuild dependency on
    the referenced feature; cycles are typed errors.
+
+   **LANDED 2026-10-03, as D2.** P4 and D2 are one increment — this row asks
+   for "D2 as specified" and that is what landed, so there is nothing left
+   here that is not there. The implementation notes are in
+   `specs/drawings_and_mbd.md` §6, "Implementation notes (D2)": the entity
+   namespace is separate from the parameter namespace (and must be, or the
+   parameter fixpoint waits forever on a name that is not a parameter), the
+   dependency is on the LATER of a reference's anchor feature and its pid's
+   lineage root, the cycle is caught ordinally before any number is
+   computed, and `mass` is reserved and refuses until M1 gives it a density
+   and `Dim` a mass axis. `expression_evaluate` and `parameters_set` both
+   describe the functions in their tool text.
 5. **P5 — read the table as data.** `parameters_get` returns the full table
    (`id, name, expression, unit, value, comment, error, depends_on[],
    used_by[]`), the two dependency lists derived from the parser (which
@@ -1010,7 +1022,12 @@ Found and fixed in review (2026-10-03):
   legal before P1). No repo file is affected; pinned as a rule.
 - *`Dim` carries only length and angle exponents.* Mass, time and
   temperature are not modelled; P4's `mass(…)` will need the vector
-  widened.
+  widened. **Still open after P4/D2** (2026-10-03), deliberately: `mass`
+  is in the grammar and refuses by name, because widening `Dim` adds a
+  serialized `Dimension` variant — and with it a reader-floor obligation —
+  for a function that has no density to read until M1. `area` and `volume`
+  needed no widening: they are `length^2` and `length^3`, which the
+  exponents already compose.
 - *The reader floor is unresolved* (see above): either a v8 row in
   `docs/FILE_FORMAT.md` §4, or an explicit note there that this one is
   additive-and-droppable by design.
@@ -1755,7 +1772,7 @@ Where the tree suggests a different route than the document's wording.
 | P5 | `parameters_get`, dependencies, merge | P1 | wasm-bridge |
 | P2 | document table, instance overrides | P1 | feature-engine, file-format |
 | P3 | remaining numeric fields | P1 | feature-engine |
-| P4 | measurement functions (D2) | Q1, N1 | feature-engine |
+| P4 | measurement functions (D2) | Q1, N1 | feature-engine, wasm-bridge — **LANDED 2026-10-03** (notes: `specs/drawings_and_mbd.md` §6) |
 | K1 | rule framework, storage, geometric rules | Q1, Q2, Q5, Q6 | waffle-types, feature-engine, file-format |
 | K2 | `rules_check`, `rules_get`, `rules_set` | K1 | wasm-bridge |
 | K3 | `Hole` feature, tables, fastener rules | K1, N1 | feature-engine, wasm-bridge |

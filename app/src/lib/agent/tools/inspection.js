@@ -548,15 +548,22 @@ export const sketch3dGetTool = {
 export const expressionEvaluateTool = {
 	name: 'expression_evaluate',
 	description:
-		'Evaluate an expression against the design parameters, as a dimension field would. mm-space: a bare ' +
-		'number means millimeters for lengths (degrees for angles); unit suffixes (mm, cm, m, in, ft, deg, rad) ' +
-		'and parameter names are allowed. Returns value_mm plus the dimension the expression produced, or ' +
-		'value_mm null with the evaluation error. Pass dimension to have it judged as that kind of field ' +
-		'would judge it: "25deg" asked for as a Length is an error, not 25 mm.',
+		'Evaluate an expression against the design parameters AND the live model, as a dimension field would. ' +
+		'mm-space: a bare number means millimeters for lengths (degrees for angles); unit suffixes (mm, cm, m, ' +
+		'in, ft, deg, rad) and parameter names are allowed. Measurement functions read the model by ENTITY NAME ' +
+		'(entity_name / body_rename): distance(a, b), angle(a, b), length(edge), radius(entity), area(face), ' +
+		'volume(body) — mm, degrees, mm^2 and mm^3 respectively, so sqrt(area(top)) is a length a depth takes ' +
+		'and area(top) is not. mass(body) is reserved and refuses until a material table exists. Returns ' +
+		'value_mm plus the dimension the expression produced, or value_mm null with the evaluation error. Pass ' +
+		'dimension to have it judged as that kind of field would judge it: "25deg" asked for as a Length is an ' +
+		'error, not 25 mm.',
 	inputSchema: {
 		type: 'object',
 		properties: {
-			expression: { type: 'string', description: 'e.g. "width / 2" or "1.5in".' },
+			expression: {
+				type: 'string',
+				description: 'e.g. "width / 2", "1.5in", or "distance(wall_a, wall_b) / 2".'
+			},
 			dimension: {
 				type: 'string',
 				enum: ['Length', 'Angle', 'Count', 'Ratio'],
