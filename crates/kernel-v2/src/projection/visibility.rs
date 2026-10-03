@@ -400,9 +400,41 @@ fn min_opt(a: Option<f64>, b: Option<f64>) -> Option<f64> {
 /// triangulation; a degeneracy at every point is the configuration (a curve
 /// lying IN a face parallel to the line of sight), and only the second is
 /// counted as [`ProjectionDeclines::ray_grazes_face`].
-const RECAST_FRACTIONS: [f64; 5] = [0.5, 0.3, 0.7, 0.2, 0.8];
+///
+/// The ORDER is also the order [`verdict`]'s span check probes in, which is
+/// why the midpoint is followed by the two points FURTHEST from it rather than
+/// by its neighbours: those three bracket the middle three fifths of the
+/// piece, so an unsplit visibility change anywhere in that window makes two
+/// probes disagree and is counted instead of being drawn whole. A change in
+/// the outer fifths still escapes, which is the honest limit of a fixed probe
+/// set — only the split can rule it out.
+const RECAST_FRACTIONS: [f64; 5] = [0.5, 0.2, 0.8, 0.35, 0.65];
+
+/// How many DECISIVE casts [`verdict`] takes on one piece before it stops.
+///
+/// One is the verdict and the others are its confirmation. Three rather than
+/// two because two adjacent probes bracket only the span between them: with
+/// the midpoint and both outer probes of [`RECAST_FRACTIONS`], the window in
+/// which an unsplit change is caught is three fifths of the piece rather than
+/// three tenths, for one more ray cast per piece against a mesh the view has
+/// already built.
+const SPAN_PROBES: u32 = 3;
 
 /// Is the curve visible over `[a, b]`, and at what occluder depth?
+///
+/// The verdict is the FIRST decisive cast's — the midpoint's, unless that one
+/// was degenerate — and a second decisive cast elsewhere on the piece has to
+/// CONFIRM it. That second cast is what keeps `RECAST_FRACTIONS` honest: the
+/// re-cast rests on "visibility is constant along a piece", which holds only
+/// if the piece was split at every crossing and tangency, and the split
+/// declines some of both ([`ProjectionDeclines::split_tangency`],
+/// [`ProjectionDeclines::silhouette_off_face`]). Where the premise fails, the
+/// two points can sit on opposite sides of an unsplit change and answer
+/// differently — so a disagreement is DETECTED and counted as
+/// [`ProjectionDeclines::piece_spans_change`], never resolved by taking more
+/// probes and voting. Voting would convert a curve known to be half wrong into
+/// one confidently claimed whole, which is the opposite of what a drawing's
+/// reader needs.
 fn verdict(
     geometry: &Curve2,
     lift: &[Point3],
@@ -413,6 +445,8 @@ fn verdict(
     declines: &mut ProjectionDeclines,
 ) -> (Visibility, Option<f64>) {
     let mut unliftable = false;
+    let mut decided: Option<(Visibility, Option<f64>)> = None;
+    let mut n_decided = 0u32;
     for f in RECAST_FRACTIONS {
         let t = a + (b - a) * f;
         let Some(q) = geometry.eval(t) else {
@@ -423,15 +457,32 @@ fn verdict(
             unliftable = true;
             continue;
         };
-        match occ.occluder_depth(p3, q, basis) {
+        let this = match occ.occluder_depth(p3, q, basis) {
             // Something is in front: decided, whatever else the cast grazed.
-            (Some(d), _) => return (Visibility::Hidden, Some(d)),
+            (Some(d), _) => (Visibility::Hidden, Some(d)),
             // Nothing in front and nothing grazed: decided.
-            (None, false) => return (Visibility::Visible, None),
-            // Nothing in front, but the ray only TOUCHED what it met. Try
-            // another point of the same piece.
-            (None, true) => {}
+            (None, false) => (Visibility::Visible, None),
+            // Nothing in front, but the ray only TOUCHED what it met. Not a
+            // verdict; try another point of the same piece.
+            (None, true) => continue,
+        };
+        // The first decisive cast speaks for the piece; the rest confirm or
+        // contradict it.
+        let first = *decided.get_or_insert(this);
+        n_decided += 1;
+        if first.0 != this.0 {
+            declines.piece_spans_change = declines.piece_spans_change.saturating_add(1);
+            return first;
         }
+        if n_decided >= SPAN_PROBES {
+            return first;
+        }
+    }
+    if let Some(answer) = decided {
+        // Fewer than `SPAN_PROBES` points of the piece could be decided at all
+        // — the rest grazed or could not be lifted — so there is less to
+        // confirm against than asked for, and what was decided stands.
+        return answer;
     }
     if unliftable {
         declines.depth_unliftable = declines.depth_unliftable.saturating_add(1);

@@ -356,6 +356,20 @@ pub struct ProjectionDeclines {
     /// the count is how a caller tells a decided drawing from a degenerate
     /// one.
     pub ray_grazes_face: u32,
+    /// D1c: a classified piece whose visibility is NOT constant along it —
+    /// two interior points of the one piece were each decided, and they
+    /// disagreed. The piece claims one visibility for its whole length, so
+    /// this says the drawing carries a half-hidden curve drawn whole, and the
+    /// cause is upstream: the crossing where the visibility changes was not
+    /// split (a declined tangency, a dropped silhouette arc, a discarded
+    /// fold).
+    ///
+    /// It is detected rather than voted on. The verdict reported is the one at
+    /// the point the classification decided at — the midpoint, or the first
+    /// non-degenerate re-cast — and the disagreement is counted, because a
+    /// majority over a handful of probe points would turn a known-wrong curve
+    /// into a confidently-wrong one. Counted once per piece.
+    pub piece_spans_change: u32,
     /// D1c: bodies whose curves were classified against their OWN geometry
     /// only. Visibility is computed per body, so in a multi-body view a curve
     /// hidden behind a DIFFERENT body is still reported visible. Counted once
@@ -365,7 +379,7 @@ pub struct ProjectionDeclines {
 
 impl ProjectionDeclines {
     /// Every counter with its name — so a report cannot drift from the struct.
-    pub fn counts(&self) -> [(&'static str, u32); 9] {
+    pub fn counts(&self) -> [(&'static str, u32); 10] {
         [
             (
                 "silhouette_grazing_removal",
@@ -381,6 +395,7 @@ impl ProjectionDeclines {
             ("split_budget", self.split_budget),
             ("depth_unliftable", self.depth_unliftable),
             ("ray_grazes_face", self.ray_grazes_face),
+            ("piece_spans_change", self.piece_spans_change),
             ("cross_body", self.cross_body),
         ]
     }
@@ -409,6 +424,9 @@ impl ProjectionDeclines {
         self.split_budget = self.split_budget.saturating_add(other.split_budget);
         self.depth_unliftable = self.depth_unliftable.saturating_add(other.depth_unliftable);
         self.ray_grazes_face = self.ray_grazes_face.saturating_add(other.ray_grazes_face);
+        self.piece_spans_change = self
+            .piece_spans_change
+            .saturating_add(other.piece_spans_change);
         self.cross_body = self.cross_body.saturating_add(other.cross_body);
     }
 }
@@ -1717,9 +1735,10 @@ mod tests {
     fn declines_count_by_kind_and_add_up() {
         let mut a = ProjectionDeclines::default();
         assert_eq!(a.total(), 0);
-        assert_eq!(a.counts().len(), 9, "every field must be in `counts`");
+        assert_eq!(a.counts().len(), 10, "every field must be in `counts`");
         a.split_tangency = 2;
         a.ray_grazes_face = 1;
+        a.piece_spans_change = 4;
         let mut b = ProjectionDeclines {
             cross_body: 3,
             split_tangency: 1,
@@ -1729,7 +1748,8 @@ mod tests {
         assert_eq!(b.split_tangency, 3);
         assert_eq!(b.ray_grazes_face, 1);
         assert_eq!(b.cross_body, 3);
-        assert_eq!(b.total(), 7);
+        assert_eq!(b.piece_spans_change, 4);
+        assert_eq!(b.total(), 11);
         // Named counters, so a report cannot drift from the struct.
         let named: Vec<&str> = b
             .counts()
@@ -1739,7 +1759,12 @@ mod tests {
             .collect();
         assert_eq!(
             named,
-            vec!["split_tangency", "ray_grazes_face", "cross_body"],
+            vec![
+                "split_tangency",
+                "ray_grazes_face",
+                "piece_spans_change",
+                "cross_body"
+            ],
             "counts() reports in field order"
         );
     }
