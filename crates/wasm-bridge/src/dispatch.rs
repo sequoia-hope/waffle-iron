@@ -1254,11 +1254,41 @@ fn measure_distance(
                    introspect: &dyn KernelIntrospect,
                    op: &MeasureOperand|
      -> Result<MeasureEntity, BridgeError> {
-        // An N1 name is resolved to the reference it labels and then measured
-        // as that reference (`specs/agent_mechanical_design.md` §5.2: every
-        // `EntityRef` argument takes a name in place of a ref or a body id).
-        // A body name becomes the body operand, so a name reaches whichever
-        // of the two it was given to.
+        // An N1 name is measured as whatever it points at TODAY
+        // (`specs/agent_mechanical_design.md` §5.2: every `EntityRef`
+        // argument takes a name in place of a ref or a body id). An ENTITY
+        // name goes through `names::resolve`, the same resolution
+        // `names_list` reports — the stored persistent id first, the authored
+        // fallback when that id is gone. Resolving the stored reference
+        // directly instead would refuse a name the listing calls resolvable,
+        // which is one question answered two ways. A body name becomes the
+        // body operand, so a name reaches whichever of the two it was given
+        // to.
+        if let MeasureOperand::Name { name } = op {
+            if let Some(named) = state.engine.tree.named_ref(name) {
+                let resolved = feature_engine::names::resolve(
+                    named,
+                    &state.engine.feature_results,
+                    introspect,
+                )
+                .map_err(|e| BridgeError::InvalidRequest {
+                    reason: format!("the name \"{name}\" does not resolve: {e}"),
+                })?;
+                return match named.kind {
+                    TopoKind::Face => Ok(MeasureEntity::Face(resolved.kernel_id)),
+                    TopoKind::Edge => Ok(MeasureEntity::Edge(resolved.kernel_id)),
+                    TopoKind::Vertex => Ok(MeasureEntity::Vertex(resolved.kernel_id)),
+                    // A shell or solid name is a BODY, which the `body`
+                    // operand names directly; refuse rather than guess.
+                    other => Err(BridgeError::InvalidRequest {
+                        reason: format!(
+                            "\"{name}\" names a {other:?}, which is not a measurement operand; \
+                             name the body with `body_id`"
+                        ),
+                    }),
+                };
+            }
+        }
         let op = &match op {
             MeasureOperand::Name { name } => {
                 match crate::entity_names::resolve_target(

@@ -298,6 +298,47 @@ fn a_named_face_can_be_measured_by_name() {
     assert_eq!(by_name["method"], "exact");
 }
 
+/// A measure by name answers through the same resolution `names_list`
+/// reports: once the stored pid is gone the authored fallback answers, in
+/// both places. Measured 2026-10-03: reading the stored reference directly
+/// made the measure refuse (as `Internal`) a name the listing in the very
+/// same state called `resolves: true`.
+#[test]
+fn a_name_whose_pid_is_gone_still_measures_through_its_fallback() {
+    let mut state = EngineState::new();
+    let mut kernel = KernelV2Adapter::new();
+    let (extrude, body) = plate(&mut state, &mut kernel, 0.04, 0.01, 1);
+    let face = top_face_ref(&mut state, &mut kernel, &body);
+    ok(
+        &mut state,
+        &mut kernel,
+        "entity_name",
+        json!({ "target": { "type": "entity", "geom_ref": face }, "name": "top_face" }),
+    );
+
+    // Editing the named face's own feature re-stamps its pid (D0 item 1).
+    set_depth(&mut state, &mut kernel, extrude, 0.02);
+    let entry = listed(&mut state, &mut kernel, "top_face");
+    assert_eq!(entry["resolved_by"], "query", "the pid is gone: {entry}");
+    assert_eq!(entry["resolves"], true, "{entry}");
+
+    // The point sits 100 mm above the new top cap (z = 20 mm).
+    let measured = ok(
+        &mut state,
+        &mut kernel,
+        "measure_distance",
+        json!({
+            "a": { "type": "name", "name": "top_face" },
+            "b": { "type": "point", "point": [0.0, 0.0, 0.12] },
+        }),
+    );
+    assert_eq!(
+        measured["distance_m"].as_f64().map(|d| (d - 0.1).abs() < 1e-9),
+        Some(true),
+        "the fallback's face is 100 mm below the probe point: {measured}"
+    );
+}
+
 /// Re-extrude the plate at a new depth, through the tool an agent would use.
 fn set_depth(state: &mut EngineState, kernel: &mut KernelV2Adapter, extrude: Uuid, depth: f64) {
     let params = {
