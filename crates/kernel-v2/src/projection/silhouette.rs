@@ -877,17 +877,15 @@ fn closed_path_is_on_face(
 /// verdict is the same at every density
 /// (`the_closed_path_verdict_is_the_same_at_every_chord_density`).
 fn mesh_inscription_band(mesh: &crate::tessellate::RenderMesh, surface: &Surface) -> f64 {
-    let at = |i: u32| {
-        let k = (i as usize) * 3;
-        [
-            mesh.positions[k],
-            mesh.positions[k + 1],
-            mesh.positions[k + 2],
-        ]
-    };
     let mut longest_sq = 0.0f64;
     for t in mesh.indices.chunks_exact(3) {
-        let (a, b, c) = (at(t[0]), at(t[1]), at(t[2]));
+        let (Some(a), Some(b), Some(c)) = (
+            mesh_vertex(mesh, t[0]),
+            mesh_vertex(mesh, t[1]),
+            mesh_vertex(mesh, t[2]),
+        ) else {
+            continue;
+        };
         for (p, q) in [(a, b), (b, c), (c, a)] {
             let e = sub(q, p);
             longest_sq = longest_sq.max(dot(e, e));
@@ -920,19 +918,34 @@ fn tightest_radius(surface: &Surface) -> f64 {
     }
 }
 
+/// One mesh vertex by index, or `None` if the index does not resolve.
+///
+/// A `RenderMesh` the tessellator built is internally consistent, so this
+/// never answers `None` today. It is an `Option` rather than three slice
+/// indexings because the alternative is three panics on a production path,
+/// which this crate's rule 4 forbids — and "the producer is correct" is an
+/// argument about the producer, not a property of this function.
+fn mesh_vertex(mesh: &crate::tessellate::RenderMesh, i: u32) -> Option<[f64; 3]> {
+    let k = (i as usize).checked_mul(3)?;
+    Some([
+        *mesh.positions.get(k)?,
+        *mesh.positions.get(k + 1)?,
+        *mesh.positions.get(k + 2)?,
+    ])
+}
+
 /// Distance from `p` to the nearest triangle of `mesh`.
 fn distance_to_mesh(mesh: &crate::tessellate::RenderMesh, p: [f64; 3]) -> f64 {
-    let at = |i: u32| {
-        let k = (i as usize) * 3;
-        [
-            mesh.positions[k],
-            mesh.positions[k + 1],
-            mesh.positions[k + 2],
-        ]
-    };
     let mut best = f64::INFINITY;
     for t in mesh.indices.chunks_exact(3) {
-        best = best.min(distance_to_triangle(p, at(t[0]), at(t[1]), at(t[2])));
+        let (Some(a), Some(b), Some(c)) = (
+            mesh_vertex(mesh, t[0]),
+            mesh_vertex(mesh, t[1]),
+            mesh_vertex(mesh, t[2]),
+        ) else {
+            continue;
+        };
+        best = best.min(distance_to_triangle(p, a, b, c));
         if best <= 0.0 {
             break;
         }
