@@ -359,6 +359,116 @@
 > the KV14 holed-lateral customers, the pinch-split customers
 > (C0058/F0058/F0060/R0038), the M8 coplanar rows and every open P/C ERROR row
 > — see `docs/yang_tail_triage.md`. **Corpus not re-measured.**
+> **2026-10-03 (night) refresh — P0019 CONVERTED, GATED; corpus not re-measured, flip owed.**
+> Deviation **N77**. The rim-cycle anchoring N73 unmasked is fixed with the rule
+> the OTHER copy of this machinery already states: SI5's STEP ingest
+> (`specs/step_import_si5_exact_analytic_ingestion.md`, "Alignment is not
+> pairwise") anchors **per connected component of rims-joined-by-bands**, one
+> direction per component, because two bands sharing a full-circle rim are
+> necessarily coaxial — a shared full circle is each surface's own rim. It is
+> admissible for the reason that paragraph gives and §4.4.2 implies
+> (`refs/text/yang2025_hybrid_boolean.txt:574-605`): a closed edge's anchor is
+> pure representation gauge — Stroud's fake edge — so sliding it along its own
+> circle changes no boundary point, and the paper restores a face from the
+> surfaces and curves it bounds, never from a seam's phase.
+> **Scope correction worth recording:** the defect is NOT specific to a rim
+> CYCLE. `recover.rs`'s PASS 1 pins BOTH rims of every pair it resolves, and
+> PASS 2 never moves a pinned anchor, so any band reaching PASS 2 with both
+> rims pinned at different azimuths keeps the annular form — which happens
+> whenever the pairing faces INTERLEAVE with the non-pairing ones along a run
+> of rim-sharing bands. P0019's five-band ring is the extreme case; the new
+> pin's **four-band CHAIN reproduces it** (PASS 1 pairs faces 0 and 2, pins
+> four rims, face 1 then sees |Δaz| = 2.51327412287182916e-1 rad between two
+> pinned anchors and stays annular).
+> **PASS 1C** (`crates/kernel-v2/src/recover.rs`, after PASS 2, one gated
+> block): union the two rim chains of every lateral whose rims are verifiably
+> coaxial with its own axis (both normals ∥ axis, both centres on one
+> axis-parallel line — a band that fails joins nothing and keeps the greedy
+> path); then per component fix ONE seam DIRECTION — a frame-free unit radial
+> vector, deliberately not an azimuth, because the bands of one component may
+> report their axis with EITHER sign (P0019's five cones alternate ±ẑ) and
+> `ortho_basis(+ẑ)`/`ortho_basis(−ẑ)` are different frames — chosen from, in
+> order, (1) a PINNED rim (PASS 0's torus bands), two pinned rims disagreeing
+> being a component refusal verbatim per the SI5 rule, (2) an already-anchored
+> COAXIAL lateral of the same output, which keeps PASS 2's C0117 cross-lateral
+> phase coherence, (3) the component's FIRST NATURAL SEAM — the lowest-face-index
+> band whose rims already retain an azimuth-aligned pair, at that pair's rim-a
+> vertex, so a band PASS 1 would have paired keeps its own feet exactly — else
+> (4) that scan's smallest-|Δaz| vertex; anchor every rim of the component
+> there (an existing vertex within `band`, else the exact minted `c + r·dir`);
+> and VERIFY each band's two feet are one ruling to the validator's own
+> `cyl-seam-not-ruling` bound 1e-12 (the F11 lesson), a band that still
+> disagrees being refused to the arc fallback. Recovery has no error channel by
+> design (P9 — `from_yang_brep` is the single authority on a malformed output),
+> so that refusal is conservative here and loud one layer down where
+> `validate_*_face` names the face; `KV2_RECOVER_PROBE` prints the measured
+> offset and the component for every band either way.
+> **Verdict.** `P0019: ERROR (0.1 s) → SUPPORTED_CORRECT (0.3 s)`, all five
+> bands seamed at ruling offsets `0`, `3.64200648169714843e-17`,
+> `3.64200648169714843e-17`, `2.88796976369154685e-17`,
+> `1.27195530643449169e-17`. Oracles **adjudicated** by the exact-membership
+> lattice, stable at every rung and both phases (`EXACT_CELLS=128,256,512,1024
+> EXACT_PHASE=0.5,0.25 EXACT_KERNEL=1`): components 2, `boundary_chi` 2, two
+> bodies on all eight readings; 1024-cell totals 1.216869e0 (phase 0.5) and
+> 1.216863e0 (0.25), mean **1.2168660e0**, against the kernel's tessellated
+> **1.214852e0** = rel **−1.66e-3**, the inscribed-lathe chord deficit.
+> `euler_target` is hand-adjudicated to **0**, not the generator's 2: the χ
+> oracle reads the MAIN body's mesh only and Main IS the genus-1 cone-band ring
+> (one shell, V 355 − E 1065 + F 710 = 0) — the lattice's 2 is the SUM over
+> both components (0 + 2), which is what `expected_volume` compares against.
+> `derived_meta` cleared.
+> **GATED on `YANG_SEAM_COMPONENT=1|on`.** It moves minted seam feet, and
+> therefore render phase, for every canonical band with a rim-sharing
+> neighbour, so the `full_corpus_categorized` proof and the flip to
+> always-on-with-a-kill-switch (the N75 shape) are **OWED**; until then the
+> P0019 category pin stays `Error`, which is what the default build measures.
+> **Evidence in lieu of a corpus run (corpus NOT re-measured; flip owed):**
+> every revolve customer in the corpus (87 cases — `"kind": "revolve"` in the
+> metas, plus the named sharer set R0004 / P0004 / P0005 / R0003 / R0049 /
+> C0107 / C0108, all already in it) re-judged by `single_case` at 900 s, ONCE
+> PER MODE, through the compiled assay binary at 6-way parallelism.
+> **Gate OFF: identical to the committed ledger** — 81 SUPPORTED_CORRECT,
+> 2 EXPECTED_ERROR (F0074, R0027), 4 ERROR (C0107, C0108, C0109 holding their
+> texts verbatim, plus P0019). **Gate ON: 82 / 2 / 3 — exactly ONE move, P0019
+> `ERROR → SUPPORTED_CORRECT`, and zero regressions**; every ERROR row keeps
+> its text verbatim and the named rows read R0004 4 s, P0004 2 s, P0005 14 s,
+> R0003 120 s, R0049 5 s, all SUPPORTED_CORRECT, with the four heaviest
+> (R0085 1083 s, R0044 714 s, R0019 575 s, R0053 547 s) inside the OFF run's
+> own spread (983 / 760 / 604 / 587 s at the same 6-way parallelism), so the
+> component pass has no measurable cost at corpus scale.
+> Byte-identity with the gate off is structural, not sampled: `component_mode`
+> false leaves `in_component` all-false (so PASS 1's loop is unchanged) and
+> `seam_components` empty (so PASS 1C does not execute).
+> `cargo test -p kernel-v2 --release` green (66 binaries, 823 passed, 0 failed),
+> `smoke_corpus_boundary_categories` PASSES in 646.4 s with the P0019 row still
+> pinned `Error` (the gate-off default), clippy
+> `--all-targets -p kernel-v2 -p test-harness -- -D warnings` clean,
+> `cargo fmt --check` clean.
+> **Pins.** `crates/kernel-v2/tests/n77_component_seam_anchoring.rs`, both
+> fixtures a lathe through a REAL boolean (an end-shave subtract of the
+> `axial < 0.1` slab — a strictly AABB-disjoint union will NOT do: task #134's
+> passthrough skips yang entirely, so recover is never called, which is how an
+> earlier draft of this pin proved nothing). The four-band external-axis ring
+> is RED→GREEN (gate off: P0019's wall verbatim on `FaceId(11)`; on: assembles,
+> validates, exactly ONE ring — the shaved cap's inner rim, a still-annular
+> band would add one — and the closed-form Pappus volume `21.5π −
+> π·4.796296296296296e-2`). The barrel washer is the rim-CHAIN no-regression
+> half and is deliberately NOT bitwise: the component rule picks a different
+> representational azimuth, so minted feet DO move; what may not move is the
+> SOLID (same V/E/F/R census, volume to 1e-9 relative, against `(8/3)π −
+> π·8.008333333333333e-2`). Mutation-checked both ways — neutering
+> `seam_component_mode()` fails the GREEN half with the verbatim KV6c wall, and
+> widening the per-rim reuse band to `1e9·band` so a rim reuses a far-off
+> vertex instead of minting makes the ruling check refuse and BOTH fixtures
+> fail with the same wall.
+> **Recorded, no customer left.** `yang_rs::BRep::new` REFUSES the annular cone
+> band as INPUT (`MalformedTopology("… cone periodic strip (2 encircling rims)
+> not yet supported (KV14 Slice E …)")`) while yang's own Stage 5 EMITS exactly
+> that form, and `BRep`'s fields are `pub(crate)` — which is why neither the
+> N73 pin nor this one can hand-build P0019's face and both go through
+> `boolean_op`. With component anchoring on, every band reaching kernel-v2 is
+> seamed, so the asymmetry has no customer; it stays a latent of the gate-off
+> path and of any future producer of a 2-encircling-rim input.
 > **2026-10-03 (late night) refresh — P0019's sense wall CONVERTED, the case
 > HALF-converted; corpus NOT re-measured this session (another assay held the
 > box).** Deviation **N73**. P0019's body is a **genus-1 ring of FIVE cone

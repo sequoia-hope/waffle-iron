@@ -1705,14 +1705,35 @@ fn smoke_corpus_boundary_categories() {
         // axis points TOWARD the opposite rim", AWAY on a cavity wall) off the
         // band's own two rim centres.
         //
-        // The case now stops one stage later on an UNMASKED LATENT:
+        // The case then stopped one stage later on an UNMASKED LATENT:
         // `CurvedGeometryMismatch { face: FaceId(17), reason: "cone face with
         // inner loops is outside the KV6c vocabulary" }`. Two of the five
         // bands keep the ANNULAR two-loop form because `recover.rs` anchors
         // seam feet greedily per face and these rims form a CYCLE — faces 0
         // and 2 reach PASS 2 with both anchors pinned π/12 (one lattice step)
-        // apart. Remedy = the SI5 spec's own component-wise anchoring; it
-        // moves minted seam feet corpus-wide, so it needs its own cycle.
+        // apart.
+        //
+        // **CONVERTED 2026-10-03 (night), deviation N77** — by the SI5 spec's
+        // own rule (`specs/step_import_si5_exact_analytic_ingestion.md`,
+        // "Alignment is not pairwise"): `recover.rs`'s new PASS 1C fixes ONE
+        // seam direction per connected COMPONENT of rims-joined-by-bands
+        // instead of greedily per face. All five bands seam (ruling offsets 0,
+        // 3.642e-17, 3.642e-17, 2.888e-17, 1.272e-17 against the 1e-12
+        // `cyl-seam-not-ruling` bound) and the case reads SUPPORTED_CORRECT in
+        // 0.3 s with fully adjudicated oracles — exact-membership lattice
+        // stable at every rung and both phases (components 2, boundary_chi 2 =
+        // the ring's 0 plus a χ-2 body, two bodies; 1024-cell two-phase mean
+        // 1.2168660e0 vs the kernel's 1.214852e0, rel −1.66e-3), with
+        // `euler_target` hand-adjudicated to 0 (the χ oracle reads the MAIN
+        // body only and Main IS the genus-1 ring: V 355 − E 1065 + F 710 = 0)
+        // and `derived_meta` cleared.
+        //
+        // The rule is **GATED on `YANG_SEAM_COMPONENT=1|on`** because it moves
+        // minted seam feet (hence render phase) for every canonical band with
+        // a rim-sharing neighbour; its `full_corpus_categorized` proof and the
+        // flip to always-on-with-a-kill-switch are OWED, so this pin stays
+        // `Error` — which is what the default build measures. The flip moves
+        // it to `SupportedCorrect`.
         ("P0019", Category::Error),
         // P0020 (5 ops, two chained Intersects) ⇒ an INPUT rejection, typed
         // `Stage1SelfTouchingLoop`. **CONVERTED 2026-10-03 (night, later)
