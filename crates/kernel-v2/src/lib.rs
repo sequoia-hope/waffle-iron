@@ -78,6 +78,7 @@ pub mod imported;
 pub mod ingest;
 pub mod introspect;
 pub mod journal;
+pub mod pid;
 pub mod profile;
 pub(crate) mod recover;
 pub mod step_export;
@@ -105,6 +106,7 @@ pub use euler::{
 pub use ingest::ingest_analytic;
 pub use introspect::{extract_edges, extract_edges_with_chord_tolerance, face_plane, surface_area};
 pub use journal::{descendants, face_lineage, EvoKind, Evolution, FaceLineage, OpTag};
+pub use pid::{edge_pid, solid_pids, vertex_pid, SolidPids};
 pub use profile::{Profile, ProfileEdge, ProfileRegion};
 pub use step_export::{write_step, StepSolid};
 pub use tessellate::{
