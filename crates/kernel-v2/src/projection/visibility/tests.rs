@@ -501,6 +501,132 @@ fn a_frustum_seen_edge_on_shows_four_curves_and_merges_the_seam_ruling() {
     );
 }
 
+/// A box with a `w` x `d` x `h` corner at `(x0, y0, z0)`.
+fn make_box_at(
+    a: &mut KernelV2Adapter,
+    (x0, y0, z0): (f64, f64, f64),
+    (w, d, h): (f64, f64, f64),
+) -> KernelSolidHandle {
+    let mut positions = std::collections::HashMap::new();
+    positions.insert(1, (x0, y0));
+    positions.insert(2, (x0 + w, y0));
+    positions.insert(3, (x0 + w, y0 + d));
+    positions.insert(4, (x0, y0 + d));
+    let profile = waffle_types::kernel::ClosedProfile {
+        entity_ids: vec![1, 2, 3, 4],
+        is_outer: true,
+        vertex_ids: vec![],
+        circle: None,
+        spline_segments: vec![],
+        arc_segments: vec![],
+    };
+    let faces = a
+        .make_faces_from_profiles(
+            &[profile],
+            [0.0, 0.0, z0],
+            [0.0, 0.0, 1.0],
+            [1.0, 0.0, 0.0],
+            &positions,
+        )
+        .expect("rectangle stages");
+    a.extrude_face(faces[0], [0.0, 0.0, 1.0], h).expect("box")
+}
+
+/// A blind slot cut into the side of a box, seen from ABOVE: everything the
+/// slot exposes is buried under the box's own top face and must come back
+/// hidden.
+///
+/// This is corpus case C0009's shape, and it is the pin for the RE-CAST rule.
+/// There the slot's blind-end edge runs along the occluding face's own symmetry
+/// line, which is where its CDT put a triangulation seam — so the ray from the
+/// piece's midpoint passed exactly through that seam, every incident triangle
+/// reported a boundary touch, and a face standing a fifth of the solid in front
+/// of the edge was taken for a graze. Nineteen of the forty-two cases the §5.3
+/// visibility sweep covers failed on it, and the stride-48 sample of seven had
+/// shown none of it.
+///
+/// What this fixture pins is the OUTCOME, which is right whatever the
+/// tessellator's seams do: the slot's own edges are hidden, their occluder is
+/// the top face, and the view declines nothing. The seam COINCIDENCE is pinned
+/// by the corpus oracle instead — producing one on purpose means pinning the
+/// triangulator's internal choices, which is not this test's business.
+#[test]
+fn a_blind_slots_edges_are_hidden_under_the_box_it_is_cut_into() {
+    let mut a = KernelV2Adapter::new();
+    let side = 0.020;
+    let box_ = make_box_at(&mut a, (0.0, 0.0, 0.0), (side, side, side));
+    // Entering the `+x` face and stopping inside, centred on the box's own
+    // mid-plane in `y`, which is where a CDT seam is likeliest.
+    let cutter = make_box_at(&mut a, (0.0025, 0.005, 0.003), (0.0275, 0.010, 0.005));
+    let slotted = a
+        .boolean_subtract(&box_, &cutter)
+        .expect("box minus a blind slot");
+    let v = view(&a, &slotted, [0.0, 0.0, -1.0]);
+
+    // The slot's BLIND END face stands at `x = 0.0025`, so its two horizontal
+    // edges project to segments at `u = 0.0025`, at depths `−0.008` (the roof)
+    // and `−0.003` (the floor). Both are deep inside the box's footprint with
+    // the top face over them, which is the configuration under test — the
+    // slot's MOUTH edges on the `+x` face are deliberately not included, since
+    // that face is parallel to the line of sight and grazing is the right
+    // answer there.
+    // The slot's floor edges are coincident in (u, v) with its roof edges and
+    // agree on visibility, so the merge collapses the pairs: what the view
+    // carries at the roof's depth is the slot's three interior edges plus its
+    // MOUTH edge on the `+x` face.
+    let at_roof: Vec<&ProjectedCurve> = v
+        .curves
+        .iter()
+        .filter(|c| c.depth.is_some_and(|dd| close(dd.at_midpoint, -0.008, 1e-9)))
+        .collect();
+    let on_outline = |c: &ProjectedCurve| match c.geometry {
+        Curve2::Line { start, end } => close(start.x(), side, 1e-9) && close(end.x(), side, 1e-9),
+        _ => false,
+    };
+    let interior: Vec<&&ProjectedCurve> = at_roof.iter().filter(|c| !on_outline(c)).collect();
+    assert_eq!(
+        interior.len(),
+        3,
+        "the slot's three interior edges must be in the view: {:?}",
+        v.curves
+            .iter()
+            .map(|c| (c.visibility, c.depth, c.geometry.clone()))
+            .collect::<Vec<_>>()
+    );
+    for c in &interior {
+        assert_eq!(
+            c.visibility,
+            Visibility::Hidden,
+            "an edge {:?} under the box's own top face is hidden",
+            c.geometry
+        );
+        let dd = c.depth.expect("depth");
+        let occ = dd.occluder.expect("a hidden edge names its occluder");
+        assert!(
+            close(occ, -side, 1e-6),
+            "the occluder must be the top face at {}, got {occ}",
+            -side
+        );
+    }
+    // And the mouth edge, which lies IN the `+x` face the line of sight runs
+    // along, is the grazing case: nothing stands between it and the viewer, so
+    // it stays visible and the view says out loud that it grazed.
+    let mouth: Vec<&&ProjectedCurve> = at_roof.iter().filter(|c| on_outline(c)).collect();
+    assert_eq!(mouth.len(), 1);
+    assert_eq!(mouth[0].visibility, Visibility::Visible);
+    assert!(
+        v.declines.ray_grazes_face > 0,
+        "the mouth edge grazes at every point of itself: {:?}",
+        v.declines
+    );
+    assert_eq!(
+        v.declines.total() - v.declines.ray_grazes_face,
+        0,
+        "{:?}",
+        v.declines
+    );
+}
+
 // ---------------------------------------------------------------------------
 // the splitting primitive's own properties
 // ---------------------------------------------------------------------------

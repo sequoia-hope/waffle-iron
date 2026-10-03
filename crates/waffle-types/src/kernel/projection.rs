@@ -285,10 +285,16 @@ pub struct CurveDepth {
     /// sampled — the curve's parameter midpoint. Depth grows AWAY from the
     /// viewer (see [`ViewBasis::project`]), so smaller is nearer.
     pub at_midpoint: f64,
-    /// Depth of the NEAREST face found in front of that point, when one was
+    /// Depth of the NEAREST face found in front of the curve, when one was
     /// found. `Some` exactly when the curve came back
     /// [`Visibility::Hidden`]; `None` for a visible one, where by definition
     /// nothing was in front.
+    ///
+    /// Measured at the point the classification actually decided at, which is
+    /// the curve's midpoint unless the cast there was degenerate and had to be
+    /// redone elsewhere on the same curve — so this is an occluder of the
+    /// curve, at a point of it, rather than specifically the one over
+    /// `at_midpoint`.
     pub occluder: Option<f64>,
 }
 

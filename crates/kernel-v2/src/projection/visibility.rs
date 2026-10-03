@@ -134,9 +134,9 @@ pub(crate) struct LiftedCurve {
 /// reproducible: the same view always declines at the same place. Exhausting
 /// it leaves the remaining curves UNSPLIT — each classified at its own
 /// midpoint, so still honestly tagged, just not cut — and counts
-/// [`ProjectionDeclines::split_budget`] once for the view. Chosen so a dense
-/// corpus body stays inside it: the all-pairs search over a 400-face gear's
-/// curves costs a few hundred thousand units.
+/// [`ProjectionDeclines::split_budget`] once for the view. No view of the
+/// corpus sample the §5.3 visibility oracle sweeps has reached it: that sweep
+/// asserts `split_budget == 0`, so the number is pinned rather than assumed.
 const SPLIT_BUDGET: u64 = 4_000_000;
 
 /// Relative margin added to the measured local gap before the ray starts, and
@@ -312,7 +312,7 @@ fn emit_classified(
         if b <= a {
             continue;
         }
-        let (vis, occluder) = verdict(&curve.geometry, lift, 0.5 * (a + b), basis, occ, declines);
+        let (vis, occluder) = verdict(&curve.geometry, lift, a, b, basis, occ, declines);
         match run_vis {
             Some(prev) if prev == vis => {
                 run_occluder = min_opt(run_occluder, occluder);
@@ -350,27 +350,67 @@ fn min_opt(a: Option<f64>, b: Option<f64>) -> Option<f64> {
     }
 }
 
-/// Is the curve visible at parameter `t`, and at what occluder depth?
+/// Fractions of a piece's own parameter span at which the ray may be cast, in
+/// order: the midpoint first, then four other interior points.
+///
+/// Visibility is constant along a piece — that is what the split established —
+/// so ANY interior point of it gives the piece's verdict, and a cast that came
+/// back DEGENERATE at one point can simply be redone at another. The
+/// alternative is to guess what a degeneracy means, and the guess is wrong
+/// either way: measured 2026-10-03 on corpus case C0009, a slot's blind-end
+/// edge runs along `y = 0`, which is also the symmetry line the face's own CDT
+/// put a triangulation seam on, so the ray from the piece's midpoint passed
+/// exactly through that seam and every incident triangle reported a boundary
+/// touch — while the face it was crossing stood a fifth of the solid in front
+/// of it. One point to the side and the same ray crosses a triangle's interior.
+///
+/// A degeneracy at ONE point of a piece is a coincidence of the mesh's
+/// triangulation; a degeneracy at every point is the configuration (a curve
+/// lying IN a face parallel to the line of sight), and only the second is
+/// counted as [`ProjectionDeclines::ray_grazes_face`].
+const RECAST_FRACTIONS: [f64; 5] = [0.5, 0.3, 0.7, 0.2, 0.8];
+
+/// Is the curve visible over `[a, b]`, and at what occluder depth?
 fn verdict(
     geometry: &Curve2,
     lift: &[Point3],
-    t: f64,
+    a: f64,
+    b: f64,
     basis: &ViewBasis,
     occ: &Occluders,
     declines: &mut ProjectionDeclines,
 ) -> (Visibility, Option<f64>) {
-    let Some(q) = geometry.eval(t) else {
-        declines.depth_unliftable = declines.depth_unliftable.saturating_add(1);
-        return (Visibility::Visible, None);
-    };
-    let Some((_, p3)) = lift_point(basis, lift, q) else {
-        declines.depth_unliftable = declines.depth_unliftable.saturating_add(1);
-        return (Visibility::Visible, None);
-    };
-    match occ.occluder_depth(p3, q, basis, declines) {
-        None => (Visibility::Visible, None),
-        Some(d) => (Visibility::Hidden, Some(d)),
+    let mut unliftable = false;
+    for f in RECAST_FRACTIONS {
+        let t = a + (b - a) * f;
+        let Some(q) = geometry.eval(t) else {
+            unliftable = true;
+            continue;
+        };
+        let Some((_, p3)) = lift_point(basis, lift, q) else {
+            unliftable = true;
+            continue;
+        };
+        match occ.occluder_depth(p3, q, basis) {
+            // Something is in front: decided, whatever else the cast grazed.
+            (Some(d), _) => return (Visibility::Hidden, Some(d)),
+            // Nothing in front and nothing grazed: decided.
+            (None, false) => return (Visibility::Visible, None),
+            // Nothing in front, but the ray only TOUCHED what it met. Try
+            // another point of the same piece.
+            (None, true) => {}
+        }
     }
+    if unliftable {
+        declines.depth_unliftable = declines.depth_unliftable.saturating_add(1);
+    } else {
+        // Grazing at every probed point of the piece: the configuration, not a
+        // coincidence. A face the ray only touches separates nothing, so the
+        // piece stays visible, and the count says the verdict rests on that
+        // argument.
+        declines.ray_grazes_face = declines.ray_grazes_face.saturating_add(1);
+    }
+    (Visibility::Visible, None)
 }
 
 /// The 3-D point of `q` on a curve whose source samples to `lift`, and its
@@ -562,6 +602,9 @@ struct Occluders {
     extent: f64,
     /// The view's own size, which the chord band is taken against.
     view_size: f64,
+    /// `KV2_VISIBILITY_PROBE`, read ONCE here rather than per ray: this is the
+    /// kernel's hot path and an env lookup per query costs more than the cast.
+    probe: bool,
 }
 
 impl Occluders {
@@ -637,6 +680,7 @@ impl Occluders {
             front_depth,
             extent,
             view_size,
+            probe: std::env::var_os("KV2_VISIBILITY_PROBE").is_some(),
         };
         for (i, bb) in boxes.iter().enumerate() {
             let (x0, y0) = occ.cell_of(bb[0], bb[1]);
@@ -672,18 +716,14 @@ impl Occluders {
         &self.cells[y * self.nx + x]
     }
 
-    /// Depth of the nearest face standing in front of `p3`, or `None` when
-    /// nothing does.
-    fn occluder_depth(
-        &self,
-        p3: [f64; 3],
-        q: Point2,
-        basis: &ViewBasis,
-        declines: &mut ProjectionDeclines,
-    ) -> Option<f64> {
+    /// Depth of the nearest face standing in front of `p3`, and whether the
+    /// cast GRAZED anything — touched a triangle without crossing its
+    /// interior. The caller re-casts a grazing miss elsewhere on the same
+    /// piece (see [`verdict`]).
+    fn occluder_depth(&self, p3: [f64; 3], q: Point2, basis: &ViewBasis) -> (Option<f64>, bool) {
         let cands = self.candidates(q);
         if cands.is_empty() {
-            return None;
+            return (None, false);
         }
         let margin = MARGIN_REL * self.extent;
         // The MEASURED local gap between the curve's own 3-D point and the
@@ -709,7 +749,7 @@ impl Occluders {
         // nothing to hit and no segment to build.
         let far = depth_origin - self.front_depth + margin;
         if !(far.is_finite() && far > 0.0) {
-            return None;
+            return (None, false);
         }
         let dir = [-w[0], -w[1], -w[2]];
         let p_far = [
@@ -718,6 +758,16 @@ impl Occluders {
             origin[2] + far * dir[2],
         ];
 
+        if self.probe {
+            println!(
+                "[vis] q=({:.6},{:.6}) p3={p3:?} cands={} gap={gap:.6e} offset={offset:.6e} \
+                 far={far:.6e} front_depth={:.6e} depth_origin={depth_origin:.6e}",
+                q.x(),
+                q.y(),
+                cands.len(),
+                self.front_depth
+            );
+        }
         let mut best: Option<f64> = None;
         let mut grazed = false;
         for &i in cands {
@@ -758,10 +808,10 @@ impl Occluders {
                 best = Some(best.map_or(t, |b: f64| b.min(t)));
             }
         }
-        if grazed {
-            declines.ray_grazes_face = declines.ray_grazes_face.saturating_add(1);
+        if self.probe {
+            println!("[vis]   -> best={best:?} grazed={grazed}");
         }
-        best.map(|t| depth_origin - t)
+        (best.map(|t| depth_origin - t), grazed)
     }
 }
 
