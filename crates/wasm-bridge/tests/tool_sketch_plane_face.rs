@@ -499,6 +499,141 @@ fn a_sketch_on_a_vanished_boss_top_refuses_and_lands_on_no_other_face() {
     );
 }
 
+/// Why the reader floor moved to v9 (`docs/FILE_FORMAT.md` §13.3): a reader
+/// that DROPS `Sketch.plane_face` builds a different solid from the same file.
+///
+/// This is the measurement, not an argument. The same document is rebuilt twice
+/// in each state — once as written, once as a v8 reader would have it, with the
+/// field gone:
+///
+/// - the face is there: identical. A dropping reader loses nothing, which is
+///   why every corpus document still loads and rebuilds the same way.
+/// - the face is GONE (the boss deleted): with the field, the sketch refuses
+///   and nothing downstream of it builds. Without it, the sketch stays at the
+///   frame it was solved in and the extrude on it produces a solid floating
+///   where the boss used to be.
+///
+/// That second row is §13.3's rule exactly — the `DesignParameter.unit`
+/// precedent that moved the floor to v8, where dropping the field turned a loud
+/// refusal into a silent build. Additive and defaulted is not enough.
+#[test]
+fn a_reader_that_drops_the_plane_face_builds_a_different_solid() {
+    /// Rebuild `sketch_feature` with `plane_face` stripped, the way a reader
+    /// that does not know the field would have loaded it.
+    fn drop_plane_face(
+        state: &mut EngineState,
+        kernel: &mut KernelV2Adapter,
+        sketch_feature: Uuid,
+    ) -> EngineToUi {
+        let Operation::Sketch { sketch } = &state
+            .engine
+            .tree
+            .features
+            .iter()
+            .find(|f| f.id == sketch_feature)
+            .expect("the sketch")
+            .operation
+        else {
+            panic!("not a sketch")
+        };
+        let mut sketch = sketch.clone();
+        assert!(
+            sketch.plane_face.take().is_some(),
+            "the field has to be there for dropping it to mean anything"
+        );
+        dispatch(
+            state,
+            UiToEngine::EditFeature {
+                feature_id: sketch_feature,
+                operation: Operation::Sketch { sketch },
+                provenance: None,
+            },
+            kernel,
+        )
+    }
+
+    // The solid an extrude on the sketch-on-the-boss produces, by volume.
+    fn boss_pad_volume(
+        state: &mut EngineState,
+        kernel: &mut KernelV2Adapter,
+        pad: Uuid,
+    ) -> Option<f64> {
+        let body = FeatureTree::body_id(pad, &OutputKey::Main);
+        if !state.engine.feature_results.contains_key(&pad) {
+            return None;
+        }
+        wasm_bridge::tessellation_runner::tessellate_missing_meshes(state, kernel);
+        match dispatch(state, UiToEngine::MeasureBody { body_id: body }, kernel) {
+            EngineToUi::BodyMeasured { volume_m3, .. } => Some(volume_m3.value),
+            _ => None,
+        }
+    }
+
+    // Row 1: the face is there. Dropping the field changes nothing.
+    let mut state = EngineState::new();
+    let mut kernel = KernelV2Adapter::new();
+    let (_boss, on_boss, _) = plate_with_boss_and_a_sketch_on_it(&mut state, &mut kernel);
+    let pad = added_id(dispatch(
+        &mut state,
+        UiToEngine::AddFeature {
+            operation: extrude_op(on_boss, &[310, 311, 312, 313], 0.002, true),
+            provenance: None,
+        },
+        &mut kernel,
+    ));
+    let with_field = boss_pad_volume(&mut state, &mut kernel, pad).expect("the pad builds");
+    drop_plane_face(&mut state, &mut kernel, on_boss);
+    let without_field = boss_pad_volume(&mut state, &mut kernel, pad).expect("and still builds");
+    assert_eq!(
+        with_field, without_field,
+        "with the face in place the field is inert, which is why the corpus loads"
+    );
+
+    // Row 2: the face is gone. The field is the difference between a refusal
+    // and a solid.
+    let mut state = EngineState::new();
+    let mut kernel = KernelV2Adapter::new();
+    let (boss, on_boss, _) = plate_with_boss_and_a_sketch_on_it(&mut state, &mut kernel);
+    let pad = added_id(dispatch(
+        &mut state,
+        UiToEngine::AddFeature {
+            operation: extrude_op(on_boss, &[310, 311, 312, 313], 0.002, true),
+            provenance: None,
+        },
+        &mut kernel,
+    ));
+    dispatch(
+        &mut state,
+        UiToEngine::DeleteFeature { feature_id: boss },
+        &mut kernel,
+    );
+    assert!(
+        !state.engine.feature_results.contains_key(&on_boss),
+        "as written, the sketch refuses and nothing downstream builds"
+    );
+    assert!(
+        !state.engine.feature_results.contains_key(&pad),
+        "including the pad on it"
+    );
+
+    let response = drop_plane_face(&mut state, &mut kernel, on_boss);
+    assert_eq!(
+        errors_of(&response)
+            .iter()
+            .filter(|(id, _)| *id == on_boss)
+            .count(),
+        0,
+        "a reader that dropped the field has nothing to refuse: {:?}",
+        errors_of(&response)
+    );
+    let volume = boss_pad_volume(&mut state, &mut kernel, pad)
+        .expect("and the pad builds — in space, where the boss used to be");
+    assert!(
+        volume > 0.0,
+        "a DIFFERENT solid from the same file: {volume}"
+    );
+}
+
 /// The other side of the rule, and what makes the refusal above meaningful:
 /// kernel-v2's content-seeded ids (D0 item 1) survive an edit to the body the
 /// face is on. Make the boss shorter and the sketch's face still resolves —
