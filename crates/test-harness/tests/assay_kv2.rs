@@ -1503,8 +1503,40 @@ fn smoke_corpus_boundary_categories() {
         // + a second Union anchored on the FIRST union's Main ⇒ 2 bodies,
         // 10678.57 = 1114.81 + 9563.76 exactly, the first union's second body
         // dropped. Both are byte-identical in `rel` at ×1e-3 AND ×1e3.
-        ("P0010", Category::SupportedWrong),
-        ("P0011", Category::SupportedWrong),
+        //
+        // BOTH CONVERTED 2026-10-03 — ONE cause, and it is in the engine's
+        // BODY BOOKKEEPING, not the kernel. `Operation::BooleanCombine` names
+        // exactly ONE output per operand (`body_a`/`body_b` are `GeomRef`s
+        // carrying an `OutputKey`) while `find_consumed_feature_ids` marks
+        // both operand FEATURES consumed WHOLE — and consumption is tracked
+        // per feature, so every other live output of either operand feature
+        // was hidden with no boolean ever touching it. Anchored by dumping
+        // each feature's output keys and `consumed` flag: P0010's operand is
+        // the `merge: true` extrude whose disjoint Add re-emitted its target
+        // as `Body{1}` (the first boss), P0011's is the FIRST
+        // `BooleanCombine`, whose disjoint operands made the kernel return
+        // two shells. The same custody rule the legacy most-recent path has
+        // followed since the 2026-08-08 R0090/R0030 base-drop and the
+        // explicit-target combines since F9 — never applied to the pair
+        // boolean. `rebuild::named_custody_outputs` is now the single list
+        // of a feature's name-based custody (explicit-target
+        // extrude/revolve/pipe/sweep, `BooleanCombine`,
+        // `UnionAll{Selected}` — which had the identical hole), read by both
+        // the sibling CARRY (`carry_untargeted_named`, with its loud "not
+        // targeted; kept unchanged as a separate body" warning) and the
+        // body-NAME inheritance (F9b). Pins:
+        // `feature-engine/tests/boolean_combine_custody.rs` (5, all RED
+        // before, incl. the invariant "a boolean's live set = (inputs −
+        // named operands) ∪ result") and
+        // `test-harness/tests/boolean_combine_custody_kv2.rs` (3 on real
+        // geometry). P0011's meta is adjudicated INDEPENDENTLY of the kernel
+        // — its three live bodies are polygonal prisms, so shoelace × depth
+        // gives 14146.780565193996, met to rel 4.2e-8 — and P0010 keeps
+        // `derived_meta` on purpose: its restored boss legitimately OVERLAPS
+        // the union result (kernel-measured 8.237708e-8 m³) and its third
+        // body is a true circle, so no kernel-independent volume SUM exists.
+        ("P0010", Category::SupportedCorrect),
+        ("P0011", Category::SupportedCorrect),
         // P0012: a `ThroughAll` cut whose target lies entirely behind its
         // sketch plane removes NOTHING (72016 = 72000 + 16 exactly, against a
         // lattice 62146). Root cause CONFIRMED BY CODE READING, not inferred:

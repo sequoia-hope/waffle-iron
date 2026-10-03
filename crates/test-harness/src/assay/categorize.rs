@@ -238,16 +238,32 @@ pub fn categorize(id: &str, waffle_json: &str, meta: &AssayMeta) -> CaseOutcome 
     // 4. Tessellate the last solid (scale-adaptive tolerance like the legacy
     //    runner; the adapter's planar tessellation is exact and ignores it).
     let tess_tol = (meta.scale * 0.01).clamp(1e-9, 0.1);
-    let mesh = match builder.tessellate_last_with_tol(tess_tol) {
+    let bodies = match builder.tessellate_last_bodies_with_tol(tess_tol) {
         Ok(m) => m,
         Err(e) => return err_outcome(format!("no solid / tessellation failed: {e}")),
     };
+    let mesh = crate::workflow::merge_meshes(bodies.clone());
 
     // 5. Validation: the legacy replay's mesh oracles + meta expectations.
     let mut failures: Vec<String> = Vec::new();
     for v in oracle::run_all_mesh_checks(&mesh) {
+        // `no_self_intersection` asks whether ONE solid penetrates itself, so
+        // it is judged per BODY below. On the merge of a multi-body result it
+        // would report two separate live bodies that legitimately overlap —
+        // bodies the document never unioned — as a kernel defect (P0010,
+        // 2026-10-03: the carried first boss overlaps the union result by
+        // 8.2e-8 m³ and each body is watertight and penetration-free).
+        if v.oracle_name == "no_self_intersection" {
+            continue;
+        }
         if !v.passed {
             failures.push(format!("{}: {}", v.oracle_name, v.detail));
+        }
+    }
+    for (i, body) in bodies.iter().enumerate() {
+        let v = oracle::check_no_self_intersection(body);
+        if !v.passed {
+            failures.push(format!("no_self_intersection (body {i}): {}", v.detail));
         }
     }
     if mesh.indices.is_empty() {
