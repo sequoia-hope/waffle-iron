@@ -33,21 +33,28 @@ const extrude = (sketchId, depth) => ({
 	params: { sketch_id: sketchId, profile_index: 0, profile_entity_ids: [5, 6, 7, 8], depth, symmetric: false, cut: false }
 });
 
-/** The read-only tools, in the order the sequence below calls them. */
+/**
+ * The read-only tools, in the order the engine routes them — which is the
+ * order the sequence below calls them, except where a tool needs a fixture the
+ * sequence has no reason to build. Those are commented where they sit.
+ */
 const READ_ONLY = [
 	'model_summary',
 	'feature_get',
 	'body_measure',
 	// Q1 of `specs/agent_mechanical_design.md` §4.3. The Rust side pins the
 	// numbers (`crates/wasm-bridge/tests/measure_distance.rs`); the sequence
-	// below calls it so this file keeps its own invariant — READ_ONLY is the
-	// tools the sequence calls, in order.
+	// below calls it so the page's own routing of it is exercised here too.
 	'measure_distance',
 	'face_list',
 	'sketch_regions',
 	'expression_evaluate',
 	'export_step',
 	'export_stl',
+	// `export_dxf` (2026-10-03, drawings D1a) routes like the other exporters.
+	// Not called by the sequence: it needs a drawing view to export. Its
+	// answers are pinned in `crates/wasm-bridge/tests/tool_export.rs`.
+	'export_dxf',
 	'script_run_check',
 	'script_source_get'
 ];
