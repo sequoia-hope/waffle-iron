@@ -1752,8 +1752,8 @@ fn full_corpus_categorized() {
     let cases = discover_cases(&dir);
     assert_eq!(
         cases.len(),
-        334,
-        "expected the 334-case assay corpus (194 legacy + 118 C-series + 22 P-series)"
+        336,
+        "expected the 336-case assay corpus (194 legacy + 118 C-series + 24 P-series)"
     );
 
     // Per-case timeout (default 30s, env-overridable) so no single case can

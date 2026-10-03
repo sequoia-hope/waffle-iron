@@ -582,6 +582,36 @@ ten give those families customers again, at 2–5 ops.
 | P0021 | `convex4:boss circle:boss circle:boss` | 3 | auto-union `SelfIntersectingBooleanOutput { penetrations: 5 }` — P0007's signature on three plain bosses | ERROR / ERROR (same class) | 710× | 0.4 s |
 | P0022 | `convex5:boss circle:boss circle:cut convex4:boss circle:thru` | 5 | `malformed B-Rep topology: face 2: interior junction … not contained by any lateral triangle — the mint would be silently dropped` | ERROR (same class) / **CORRECT** | 400× | 0.9 s |
 
+### The §5 grazing ray — P0023 / P0024 (2026-10-03)
+
+Not prospector finds: hand-authored from the Q2 reviewer's measurement. Two
+10 mm cubes meeting along ONE EDGE, flush in the third axis — the pair shares
+one edge and nothing else, and the faces normal to the flush axis are
+coplanar. The kernel's answer was a SILENT WRONG in both ops (`Intersect` ⇒ a
+copy of operand A at `1.0000000000000002e-6 m³`; `Union` ⇒ one operand, the
+other dropped), in 2 of 3 orientations. ANCHORED to Cherchi 2022 §5 ray
+selection: the +X ray from a patch vertex on the shared edge runs ALONG an
+edge of the other operand and never crosses it, and the degenerate ring
+resolution counts ONE hit where a graze must count 0 or 2 — so A's whole patch
+is labeled inside B. The C++ reference `mesh_booleans` emits byte-identical
+labels and the same operand-copy output on the same meshes, so the port is in
+parity and the method has no answer there: deviation **N69**, remediation =
+graze-aware ray selection (not landed — ray selection is corpus-wide and needs
+a full assay in its cycle). NETTED LOUD meanwhile by
+`InsideOutError::InnerLabelOutsideInputBounds`, a containment proof on the
+inner labels that cannot false-positive.
+
+The two corpus cases pin the HONEST answers; the silent wrong itself is pinned
+at `crates/kernel-v2/tests/p0023_edge_contact_boolean.rs`, where the test owns
+the operand vertex order that selects the unlucky ray (through the document
+path Stage 1 happens to emit a clean origin — the defect is ray-origin
+dependent, hence measure-zero and fuzz-invisible).
+
+| id | shape | ops | adjudicated answer | measured verdict | cost |
+|---|---|---|---|---|---|
+| P0023 | two edge-touching 10 mm cubes, explicit BooleanCombine **Intersect** | 3 | ZERO live bodies — two solids meeting in a SEGMENT share no volume (`expected_solid_count: 0`, mutation-checked: set to 1 it reads `solid count: 0 bodies (meta expects 1)`) | SUPPORTED_CORRECT — labeling keeps 0 of 24 arrangement triangles, the Intersect leaves no solid | 0.0 s |
+| P0024 | the same pair, explicit BooleanCombine **Union** | 3 | a LOUD refusal — `A ∪ B` is non-manifold at the shared segment, four faces along one edge, and kernel-v2 represents only 2-manifold solids (`expect_rebuild_error: true`); two bodies would also be honest, an operand drop never is | EXPECTED_ERROR — `InvalidBooleanOutput("an undirected output edge is not used by exactly two directed edges")`, the non-manifold edge said out loud | 0.0 s |
+
 "floor" is the smallest authored length as a multiple of `MIN_FEATURE_SIZE`
 (1e-6 m) — every promotion is at least 83× above it, so none is the A14.2
 sub-floor wall that retired a seed-1 finding. "cost" is wall time in release

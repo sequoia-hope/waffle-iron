@@ -101,6 +101,39 @@ pub enum InsideOutError {
     /// `orient3d(tri, ray.v1)` was Zero when classifying the nearest hit —
     /// the C++ asserts non-zero here.
     DegenerateOrientation { patch: u32, tri: u32 },
+    /// P0023 (2026-10-03) P10 NET: the §5 ray walk labeled a patch "inside
+    /// input `input`", but an EXPLICIT vertex of the patch lies strictly
+    /// OUTSIDE that input's own axis-aligned bounding box.
+    ///
+    /// This is a PROOF, not a tolerance. Every point of a region contained
+    /// in input `k` lies in input `k`'s closed region, hence in its
+    /// bounding box; a patch vertex outside that box refutes the label
+    /// outright. A correct label can never fire it, so the gate is
+    /// byte-neutral on every input the walk classifies soundly.
+    ///
+    /// The live customer: two cubes meeting along ONE edge, flush in the
+    /// third axis. The +X ray from a patch vertex of A runs ALONG an edge
+    /// of B (the line is the intersection of two of B's face planes), so it
+    /// never crosses B transversally; the degenerate ring resolution counts
+    /// exactly ONE hit and the nearest-hit orientation reads "entering",
+    /// labeling all of A inside B. `Intersect` then keeps all of A's
+    /// triangles and `Union` keeps only B's — the measured SILENT WRONG
+    /// (a copy of one operand, no STOP). The C++ reference
+    /// `mesh_booleans` was measured producing byte-identical labels and the
+    /// same operand-copy output on the same meshes (2026-10-03), so this is
+    /// NOT a port divergence: the §5 method has no answer for a ray that
+    /// grazes along the other input's boundary. The structural fix is
+    /// graze-aware ray selection (deviation N69); until it lands, this gate
+    /// makes the wrong answer LOUD.
+    ///
+    /// The violated axis, the patch vertex's coordinate on it and the
+    /// input's own bounds there are carried as formatted text because this
+    /// enum is `Eq` (the `KernelV2Error` precedent).
+    InnerLabelOutsideInputBounds {
+        patch: u32,
+        input: InputId,
+        witness: String,
+    },
 }
 
 /// Port of `computeInsideOut` (booleans.cpp:621), serial: for each patch,
@@ -158,6 +191,13 @@ where
 
     let border: BTreeSet<u32> = patches.border_verts.iter().copied().collect();
 
+    // P0023 P10 net: per-input bounding box over the PREPPED INPUT shells
+    // (`in_tris`, the same closed shells the ray walk tests against, in the
+    // same `multiplier`-scaled coordinate space as the patch vertices). The
+    // boxes are the containment proof's right-hand side — see
+    // `InsideOutError::InnerLabelOutsideInputBounds`.
+    let input_bounds = input_label_bounds(soup);
+
     let mut inner_labels: Vec<Label> = Vec::with_capacity(patches.patches.len());
     for (pi, patch) in patches.patches.iter().enumerate() {
         let pi = pi as u32;
@@ -203,18 +243,16 @@ where
                         );
                     }
                 }
+                refute_inner_label_by_input_bounds(soup, patch, &label, &input_bounds, pi)?;
                 inner_labels.push(label);
             }
             // KV4-F1: both f64 origin strategies failed (a fully-implicit
             // or sub-f64-resolution needle patch) — classify in exact
             // rational arithmetic, the branch the C++ exits on.
             Err(InsideOutError::NoExplicitRayOrigin { .. }) => {
-                inner_labels.push(rational_ray_inner_label(
-                    soup,
-                    patch,
-                    patch_surface_label,
-                    pi,
-                )?);
+                let label = rational_ray_inner_label(soup, patch, patch_surface_label, pi)?;
+                refute_inner_label_by_input_bounds(soup, patch, &label, &input_bounds, pi)?;
+                inner_labels.push(label);
             }
             Err(e) => return Err(e),
         }
@@ -232,6 +270,94 @@ pub(crate) fn compute_inside_out_brute(
 ) -> Result<Vec<Label>, InsideOutError> {
     let n = soup.in_tris.len() as u32;
     compute_inside_out_with(soup, patches, |_| (0..n).collect())
+}
+
+/// Per-input axis-aligned bounds over the prepped INPUT shells, keyed by
+/// `InputId` (P0023). Built from `in_tris` / `in_labels` — the same closed
+/// shells [`compute_inside_out_with`] ray-casts against — so the boxes and
+/// the patch vertices share one coordinate space (`soup.multiplier`), and
+/// only EXPLICIT vertices contribute: an input shell's corners are always
+/// explicit (implicit LPI/TPI points are minted by the arrangement, never
+/// by an input).
+///
+/// Sorted by `InputId`, so a lookup is a short linear scan over the (two,
+/// for a binary boolean) inputs.
+fn input_label_bounds(soup: &ArrangementSoup) -> Vec<(InputId, [f64; 3], [f64; 3])> {
+    let mut out: Vec<(InputId, [f64; 3], [f64; 3])> = Vec::new();
+    for (t, tri) in soup.in_tris.iter().enumerate() {
+        for &id in &soup.in_labels[t] {
+            let slot = match out.iter().position(|e| e.0 == id) {
+                Some(i) => i,
+                None => {
+                    out.push((id, [f64::INFINITY; 3], [f64::NEG_INFINITY; 3]));
+                    out.len() - 1
+                }
+            };
+            for &v in tri {
+                if let VertexCoords::Explicit(p) = &soup.verts[v as usize] {
+                    let (_, lo, hi) = &mut out[slot];
+                    for (k, &ck) in p.as_array().iter().enumerate() {
+                        lo[k] = lo[k].min(ck);
+                        hi[k] = hi[k].max(ck);
+                    }
+                }
+            }
+        }
+    }
+    out.sort_by_key(|e| e.0);
+    out
+}
+
+/// P0023 P10 net: refute a patch's inner label with a containment PROOF.
+///
+/// A patch labeled "inside input `k`" lies inside input `k`'s closed
+/// region, so every one of its points lies inside input `k`'s bounding box.
+/// An EXPLICIT patch vertex strictly outside that box therefore refutes the
+/// label — exactly, with no tolerance and no band — and the only honest
+/// answer is a STOP
+/// ([`InsideOutError::InnerLabelOutsideInputBounds`]).
+///
+/// Soundness in the firing direction is what makes this a net rather than a
+/// gate: a TRUE label cannot fire it, so every input the §5 walk classifies
+/// soundly is byte-identical. Implicit (LPI/TPI) patch vertices are skipped
+/// — their coordinates are not exact f64, so including them would trade the
+/// proof for an approximation; the explicit corners of the operands are
+/// enough to catch the measured defect (an operand labeled inside a box it
+/// does not even meet).
+fn refute_inner_label_by_input_bounds(
+    soup: &ArrangementSoup,
+    patch: &[u32],
+    label: &Label,
+    bounds: &[(InputId, [f64; 3], [f64; 3])],
+    pi: u32,
+) -> Result<(), InsideOutError> {
+    for &id in label {
+        let Some(&(_, lo, hi)) = bounds.iter().find(|e| e.0 == id) else {
+            continue;
+        };
+        for &t in patch {
+            for &v in &soup.tris[t as usize] {
+                let VertexCoords::Explicit(p) = &soup.verts[v as usize] else {
+                    continue;
+                };
+                let c = p.as_array();
+                for (k, &ck) in c.iter().enumerate() {
+                    if ck < lo[k] || ck > hi[k] {
+                        return Err(InsideOutError::InnerLabelOutsideInputBounds {
+                            patch: pi,
+                            input: id,
+                            witness: format!(
+                                "patch vertex {v} ({:e},{:e},{:e}) is outside input \
+                                 {id:?} on axis {k}: {ck:e} not in [{:e},{:e}]",
+                                c[0], c[1], c[2], lo[k], hi[k]
+                            ),
+                        });
+                    }
+                }
+            }
+        }
+    }
+    Ok(())
 }
 
 /// AABB of the ray segment `v0 → v1` (degenerate — zero thickness — in the
