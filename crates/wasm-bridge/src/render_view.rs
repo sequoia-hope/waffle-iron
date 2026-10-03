@@ -217,8 +217,52 @@ fn build_edge_entries(
     ghost: Option<&Ghost>,
 ) -> Vec<serde_json::Value> {
     let mut entries = Vec::new();
-    for (edge_idx, range) in edges.edge_ranges.iter().enumerate() {
-        // Use Signature-based selector with edge index as adjacency_hash
+    for range in edges.edge_ranges.iter() {
+        // A GEOMETRIC fingerprint, from this edge's own render polyline.
+        //
+        // This used to be the edge INDEX in `adjacency_hash` and nothing
+        // else. `signature_match` does not weigh `adjacency_hash` — nothing
+        // reads it anywhere — so that selector carried no geometry at all:
+        // before N0 it bound to whichever entity came first with a "0.0%"
+        // warning, and since N0 refuses a geometry-free fingerprint it binds
+        // to nothing, which would leave a viewport edge pick unresolvable.
+        // The N0 commit replaced the same fallback on the FACE path and left
+        // this one (`specs/agent_mechanical_design.md` §5.1 defect 2).
+        //
+        // The polyline is f32, so the length and centroid here carry ~1e-7
+        // relative error against the f64 signatures they are scored against.
+        // The scorer's terms are relative (length) and fall off over metres
+        // (centroid), so that is orders below what it can resolve — and it is
+        // real geometry, which an index is not.
+        let v = |i: u32| -> [f64; 3] {
+            let i = i as usize * 3;
+            match edges.vertices.get(i..i + 3) {
+                Some(p) => [p[0] as f64, p[1] as f64, p[2] as f64],
+                None => [0.0; 3],
+            }
+        };
+        let mut length = 0.0f64;
+        let mut sum = [0.0f64; 3];
+        let mut count = 0usize;
+        for i in range.start_vertex..range.end_vertex {
+            let (a, b) = (v(i), v(i + 1));
+            length +=
+                ((b[0] - a[0]).powi(2) + (b[1] - a[1]).powi(2) + (b[2] - a[2]).powi(2)).sqrt();
+        }
+        for i in range.start_vertex..=range.end_vertex {
+            let p = v(i);
+            for k in 0..3 {
+                sum[k] += p[k];
+            }
+            count += 1;
+        }
+        let centroid = (count > 0).then(|| {
+            [
+                sum[0] / count as f64,
+                sum[1] / count as f64,
+                sum[2] / count as f64,
+            ]
+        });
         let mut geom_ref = GeomRef {
             kind: TopoKind::Edge,
             anchor: Anchor::FeatureOutput {
@@ -229,11 +273,12 @@ fn build_edge_entries(
                 signature: TopoSignature {
                     surface_type: None,
                     area: None,
-                    centroid: None,
+                    centroid,
                     normal: None,
                     bbox: None,
-                    adjacency_hash: Some(edge_idx as u64),
-                    length: None,
+                    adjacency_hash: None,
+                    length: (length > 0.0).then_some(length),
+                    axis: None,
                 },
             },
             policy: ResolvePolicy::BestEffort,
