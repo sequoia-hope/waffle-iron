@@ -111,10 +111,11 @@ Presented 2026-07-16; the user's answer (2026-07-17) was **"i have no opinion on
 | N73 | RESOLVED (2026-10-03, P0019) | `from_yang_brep`'s full-circle sense derivation (`n_for`) admitted only two witnesses — a planar cap use, or `derive_curved`'s leaving-edge reading, whose surface match listed `Cylinder` and `Torus` only. A **cone** fell into its `_ => return None` and could never be read at all; and a band in the ANNULAR form (outer loop = one rim, inner loop = the other — how yang emits a surviving untouched lathe band, the seam being representation gauge, not boundary) has no edge leaving the anchor for that reading to use. So a lathe body with no planar cap anywhere — P0019's genus-1 ring of FIVE cone bands, from a non-convex profile revolved about an external axis — STOPped with `InvalidBooleanOutput("full-circle edge sense is underivable …")`, the wall R0004 once hit. §4.4.2 gives each boundary curve its sense from the patch it bounds (`refs/text/yang2025_hybrid_boolean.txt:574-605`, the `d_ε` contract at `:447-451`), with no planar neighbour anywhere in it; and the rule was already stated and ENFORCED twice in-repo — `validate_cone_face` and `validate_cylinder_face`, word for word ("each rim's traversal axis points TOWARD the opposite rim for an outward (solid) band", AWAY on a cavity wall) — and is the same law the SI5 STEP ingest derives a rim's traversal from (`specs/step_import_si5_exact_analytic_ingestion.md`, "Which way a rim circle is traversed is derived, never read"). It needs only the face's own two rim centres, which the annular form supplies as readily as the seamed one. `derive_axis_band` now reads it from the face's WHOLE rim inventory (either loop), appended to `n_for`'s ladder AFTER both existing readings so the increment is purely additive. Declines loudly on ≥3 rims, a rim axis disagreeing with the face axis, coplanar rim planes, and the single-rim APEX cone form (whose rule is "toward the apex" and has no producer here yet); the SPHERE deliberately keeps no arm, since `validate_sphere_face` is topology-agnostic and states no rim rule to propagate. Pins `crates/kernel-v2/tests/p0019_cone_rim_sense.rs`, mutation-checked both ways. P0019 itself is HALF-converted: it now stops one stage later on `CurvedGeometryMismatch { face: FaceId(17), reason: "cone face with inner loops is outside the KV6c vocabulary" }`, because `recover.rs` anchors seam feet greedily per face and these five rims form a CYCLE — faces 0 and 2 reach PASS 2 with both anchors pinned 15° (π/12, one lattice step) apart and keep the annular form. The remedy is the SI5 spec's own: anchor per CONNECTED COMPONENT of rims-joined-by-bands, one azimuth per component. Tracked in the P0019 row of `docs/yang_tail_triage.md`; it moves minted seam feet corpus-wide, so it needs a full-corpus proof in its own cycle |
 | N72 | RESOLVED (2026-10-03, P0016) | Stage 1 sizes every curved chart against ONE operand-level chord budget (`stage1_tessellate`'s `operand_chord_budget` = `curved_chord_bound`, else `ellipse_rim_chord_bound`), whose own comment names it "the operand's chord budget **as Stage 3/4 read it back**". Only the CYLINDER arms read it back (Stage 3 `chord_tol_for_curved_owner`, with the KV14 ellipse/hyperbola and M5 K11 surface-pair rungs; Stage 4 `input_curved_chord_bound`). BOTH CONE arms — Stage-3 `cone_chord_tol_for_owner` and Stage-4 `cone_chord_budget_from_owner` — instead demanded a `Curve::Circle` rim and called its absence a "producer fault", so a cone PATCH re-entering from a prior boolean, bounded by conic chains alone, STOPped on a band the operand demonstrably carried. P0016 measured it: the cone-owning operand's edge census was 2 ellipses + 6 hyperbolas + 10 segments, ZERO circles, and the Stage-3 STOP read `AmbiguousCurve { candidates: 0, matched: 0 }` — not an ambiguity (`ssi_rs::intersect` was never reached) and not §4.3.3's Case IV either, which is a disposition for a solve that RAN ("if there is no solution in one of the two parametric domains …", `refs/text/yang2025_hybrid_boolean.txt:518-537`). Fixing the Stage-3 arm alone moved the STOP one stage down to the Stage-4 twin (`LocalRefinementRequired`, probe site `cone_ellipse_budget`), where the §4.5.2 ladder could not help — `d_ε/2` and `d_ε/4` took the operand 20 → 20 → 22 triangles, because a missing band is not a resolution problem. Both arms now delegate to one single source, `owner_stage1_chord_budget`; the per-band N38 bound still wins wherever a rim Circle exists (every circle-rimmed cone case byte-identical, the multi-band gear revolve included) and the loud producer fault survives for an owner with no curved rim at all. Pins `crates/yang-rs/src/tests_unit/n71_cone_band_readback.rs`; `YANG_S3_AMBIG_PROBE` extended to all four producers of that one error text, without which a `{0,0}` cannot be localized at all |
 | N74 | OPEN (2026-10-03, P0020; remediation = `specs/yang_tangency_pinch_split.md` §0b, per-SHEET faces at Stage-6 emission; netted loud meanwhile by the typed `YangError::Stage1SelfTouchingLoop` at the consumer) | The Stage-4 `(4a2)` pass `split_pinch_vertices` correctly gives each SHEET of a self-touching boundary its own mesh vertex at the shared position (spec §0a, the 4-valent edge pinch certified by the `2 x (A, face) + 2 x (B, face)` attribution-plus-orientation signature, no tolerance involved), but Stage 6 emits output vertices 1:1 with `mesh.verts` and walks patch boundaries, so BOTH sheets land in the SAME output face: the emitted B-Rep face loop visits one position twice through two distinct vertices. kernel-v2's 2-manifold face model cannot carry that, and the next boolean's Stage-1 chart cannot triangulate it (the domain is two closed regions meeting at a point, and the zero-width slit between them carries boundary chains the neighbouring faces also use). Spec §0b already named this as the next increment ("the split sheets have to become separate FACES with their own edges and loops") and §0c recorded the render-side twin as a known fragility with no corpus case; **P0020 is the B-Rep-side corpus case**. Measured there: a cylinder lateral pinched at two contacts of 2.507e-6 and 6.155e-6, i.e. 25x and 62x the paper's single distance tolerance d_p = 1e-7 (`refs/text/yang2025_hybrid_boolean.txt:745-748`), so this is capability and NOT tolerance: a sub-resolution refusal in the edge-pinch arm was written, measured and reverted (it does not fire), the emitted mesh carries ZERO sub-d_p edges at every checkpoint, and KV15b's shortest Sec-4.3 candidate segment is 2.115e-7, above its own band. New instruments kept: `YANG_COINCIDENT_PROBE` (per-checkpoint census of distinct mesh vertices at bit-identical positions and of sub-d_p edges), `YANG_HOLED_DUP_PROBE`, `YANG_KV9_TWIN_PROBE`, `YANG_KV15B_PROBE`, plus pinch-edge LENGTHS on `YANG_EDGE_PINCH_PROBE` and Stage-4 ENTRY positions on `YANG_I1D_RELOC_PROBE` |
+| N76 | RESOLVED (2026-10-03 night, P0017) | A boolean OUTPUT face loop could traverse ONE `SurfacePair` intersection curve TWICE, and nothing detected it. kernel-v2's render CDT then refused the chart ring one crate later, blaming itself (`ring rejected by CDT (degenerate/self-intersecting)`) for geometry the loop had declared. Measured on P0017's `FaceId(28)`, a cone sliver: its loop is `Arc(136) + SurfacePair(137) + SurfacePair(138)` where 137 and 138 carry the SAME `{Cylinder r = 8.322345964738464e-4 axis +ŷ, Cone α = 0.8757228702119423 axis +x̂}` pair, field for field. On the cone's upper nappe that pair curve is a single-valued graph `h₊(θ)` — substituting the cone's own `(θ, h)` parametrization into the cylinder gives `(A + h)² + (B + h·tanα·cos(θ − φ))² = R²`, whose other root sits at `h₋ ≈ −7.03e-4`, the FAR nappe, 1.06e-3 away — and the two half-edges' spans are `[0.1420979, 0.2999498]` and `[0, 0.2999498]`: the second CONTAINS the first. The excursion `node3 → node5 → node3` is a ZERO-WIDTH spur pointing OUT of the material (`h₊(θ) − h_arc` has EXACT zeros at both of the rim arc's endpoints and dips to −5.0010e-7 between them, so the face's material region is the LENS between rim and curve, chart area ≈ 7.3e-8 — independently confirming N71's `+7.175427296555491e-8` sign). NOT a chord artifact: all nine ring points lie on the cone to machine precision (cone residual 0, −1.08e-19, at worst 6.93e-16) and the arc's chart image is exactly straight, so the ring's four proper self-crossings (`1–2 × 7–8`, `3–4 × 6–7`, `3–4 × 7–8`, `4–5 × 6–7`) are in the declared geometry and NO density removes them — measured in debug, forced rim N = 35 passes, N = 50 fails DIFFERENTLY (`reassembled output would be non-2-manifold`), N = 66/71/100/200 pass: a resolution lottery, not a convergence, so no §4.5.2 ladder may be driven off it. The crate already removed the STRAIGHT twin of this shape — `BRep::normalized_without_backtrack_spikes` (task #146, F0064) merges a consecutive `LineSegment` pair that is collinear AND reverses — but only on the INPUT operands, and its collinearity has to be MEASURED because `Curve::LineSegment`'s `PartialEq` is kind-only. A curved pair needs neither: `e1.curve == e2.curve` on a `SurfacePair` already means ONE curve, and the curve's tangent at the shared vertex is exact, `T = n̂_a × n̂_b` from `surface_distance_and_normal` (the same unit normals `relocate_onto_implicit_pair` Newtons on; `|n̂_a × n̂_b|² = sin²θ` is that operator's own `det`, reused with its `MIN_FEATURE_SIZE²` rank floor — no new constant). Two arcs of one smooth curve leaving `v` take either OPPOSITE tangent directions (a plain split, kept) or the SAME one (a double cover, merged), so the discriminant is the sign of `((v−a)·T)·((b−v)·T)`; measured at P0017's node 5 the two chord cosines are 0.998741 and 0.995439. `BRep::normalize_output_curve_backtracks` runs at the end of `boolean_once` on every path, rewriting LOOPS and the EDGE table only (the mesh, tessellation map and both attribution maps are the boolean's result, not a tessellation of this topology). Both covering uses merge to the same undirected edge — `FaceId(28)`'s loop and the cut cylinder's `LoopId(30)`, which carries the mirror spur — and twin pairing in `from_yang_brep` is keyed on `(vertex pair, CurveKey)`, never on edge index, so the output stays boundary-conformal. `FaceId(28)` becomes the exactly-correct two-edge LENS; `from_yang_brep`'s existing `lens_bigon` arm admits it (two non-`Seg` edges on DISTINCT curves), and the three mirrored developable `loop with fewer than 3 edges` walls (`tessellate/developable.rs`, `validate/faces.rs`, `validate/faces/cone.rs` — moved together so no twin is silenced) go to `< 2`, which N71 is what made measurable there (a bigon's vertices-only shoelace is identically 0; its canonical chart polygon is not). Fails closed at a tangency, on an axis, on an off-tangent chord, and when the pair IS the whole loop. Pins: `crates/yang-rs/src/brep.rs` `n76_curve_backtrack_tests` (five — the double cover with its measured cosines, the plain split that must NOT merge, the loop-level merge to the lens plus its fixpoint, the two fail-closed arms, the whole-loop spur) and the end-to-end `crates/test-harness/tests/n76_output_curve_backtrack.rs`, mutation-checked: with the predicate neutered it fails with the verbatim `TessellationFailed { face: FaceId(28), reason: "ring rejected by CDT (degenerate/self-intersecting)" }` and so does N71's cone pin. **Residue:** the rule is scoped to `Curve::SurfacePair`. `LineSegment` is out by construction (its `PartialEq` cannot establish one curve — that is the straight rule's own job) and the conic variants (`Circle`, `Ellipse`, `Parabola`, `Hyperbola`), whose `PartialEq` WOULD establish it and whose tangents are closed-form, have no measured customer; a doubled conic edge in one loop is the open extension |
 | #137 diag | HISTORICAL | #137 (2026-07-15): C0065/R0074 — the torus∩plane solver EXISTS and RUNS; the blocker is mesh RESOLUTION nea… |
 | #137 diag 2 | HISTORICAL | #137 (2026-07-15, follow-up): resolution ALONE is not the fix — it flips the loud STOP into a silent-wrong … |
 
-**OPEN count: 3** (N74, added 2026-10-03 night — the Stage-6 pinch-sheet emission gap, netted loud at the consumer; N68 RESOLVED 2026-10-03 late night; N2 — its remit includes the §4.5.4 removal half transferred from N6 at the 2026-07-17 user-ratified closure; N60 RESOLVED 2026-08-26 — and N67, added 2026-10-03 with its remediation tracked in `specs/yang_p0013_tip_land_under_the_chord.md` §4 P3; and N69, added 2026-10-03 — the §5 ray-graze gap, netted loud meanwhile). Capability gaps that are roadmap milestones, not deviations: M8 coplanar residue (task #130), M5 degree-4 SSI, KV6 revolve tail, #137 grazing-corner epic.
+**OPEN count: 3** (N76 is TAKEN and RESOLVED 2026-10-03 night — the next free number is **N77**; N74, added 2026-10-03 night — the Stage-6 pinch-sheet emission gap, netted loud at the consumer; N68 RESOLVED 2026-10-03 late night; N2 — its remit includes the §4.5.4 removal half transferred from N6 at the 2026-07-17 user-ratified closure; N60 RESOLVED 2026-08-26 — and N67, added 2026-10-03 with its remediation tracked in `specs/yang_p0013_tip_land_under_the_chord.md` §4 P3; and N69, added 2026-10-03 — the §5 ray-graze gap, netted loud meanwhile). Capability gaps that are roadmap milestones, not deviations: M8 coplanar residue (task #130), M5 degree-4 SSI, KV6 revolve tail, #137 grazing-corner epic.
 
 ---
 
@@ -5328,3 +5329,144 @@ reads 0 improper contacts, so the retry never runs, and the defect only
 becomes observable where no refinement path remains. The two-layer
 disjointness `validate/selfx.rs`'s header documents; the trigger reads the
 layer that cannot see the class.
+
+## N76 — a boolean OUTPUT loop could traverse one intersection curve TWICE (P0017)
+
+**State: RESOLVED (2026-10-03 night, P0017).** Ledger
+`docs/yang_tail_triage.md` 2026-10-03 (night). Pins
+`crates/yang-rs/src/brep.rs` `n76_curve_backtrack_tests` and
+`crates/test-harness/tests/n76_output_curve_backtrack.rs`.
+
+**Paper:** §4.1 — a trimmed surface's tessellation is the CDT of its
+parametric DOMAIN, bounded by the images of its boundary curves
+(`refs/text/yang2025_hybrid_boolean.txt:340-380`, Fig. 6: "A trimmed surface
+(a) is triangulated using CDT (b) … and remove the trimmed area as in [Diazzi
+et al. 2023], if it's a trimmed surface, generating a watertight mesh"). A
+boundary that covers one curve twice does not bound a domain, and nothing in
+the paper's pipeline emits one.
+
+**Divergence.** `boolean_once` emitted a face loop in which two consecutive
+half-edges carried the SAME `Curve::SurfacePair` and left their shared vertex
+in the SAME tangent direction — one covering the other, with a zero-width
+spur between them pointing OUT of the material. No postcondition saw it. The
+only consequence surfaced one crate later, in kernel-v2's render tessellator,
+and blamed the wrong component: `TessellationFailed { reason: "ring rejected
+by CDT (degenerate/self-intersecting)" }`.
+
+**Measured (P0017, `FaceId(28)`).** A cone sliver — apex
+`[-2.4969834927697054e-4, 5.17e-4, -2.7e-5]`, axis `+x̂`,
+`half_angle = 0.8757228702119423` — whose loop is `Arc(136) +
+SurfacePair(137) + SurfacePair(138)`. The arc is the constant-`h` rim circle
+at `h_arc = 3.606374095271683e-4`, exactly straight in the `(θ·r_unroll, h)`
+chart. Half-edges 137 and 138 carry one and the same pair:
+
+```
+Cylinder { axis_point: [-4.709225775969472e-4, -4.215112535003616e-4,
+                         1.366432516812921e-4], axis_dir: +ŷ,
+           radius: 8.322345964738464e-4 }
+Cone     { apex: [-2.4969834927697054e-4, 5.17e-4, -2.7e-5],
+           axis_dir: +x̂, half_angle: 0.8757228702119423 }
+```
+
+Substituting the cone's own `(θ, h)` parametrization into the cylinder gives
+`(A + h)² + (B + h·tanα·cos(θ − φ))² = R²` with `A = 2.2122422831997665e-4`,
+`B = −1.6364325168129212e-4`, `φ = −3.0705437195527816` — a quadratic in `h`
+whose far root sits at `h₋ ≈ −7.03e-4` (the opposite nappe, 1.06e-3 away), so
+on the face's own nappe the pair curve is the single-valued graph `h₊(θ)`.
+Evaluated at each ring node's own θ, `h₊` reproduces nodes 0, 3, 4, 5, 6, 7
+and 8 to `0`, `−6e-19`, `6e-15`, `2.7e-17`, `3.3e-19` (nodes 1 and 2 are the
+arc's own samples and miss it by 4.53e-7 and 6.39e-8, as they must). Hence
+
+```
+θ:      0            0.1420979      0.2999498
+        node 0       node 3         node 5
+he 137  spans   [0.1420979, 0.2999498]
+he 138  spans   [0,         0.2999498]   ⊃ 137
+```
+
+`h₊(θ) − h_arc` has EXACT zeros at both of the arc's endpoints
+(`h₊(θ₃) = 3.606374095272e-4 = h_arc` to the bit), dips to **−5.0010e-7** at
+θ ≈ 0.0712 and is positive beyond, so the material region is the LENS between
+rim and curve over `θ ∈ [0, 0.1420979]`, chart area ≈ 7.3e-8 — an independent
+integral confirming N71's canonical `+7.175427296555491e-8`. Beyond
+θ = 0.1420979 the lens is empty and the curve bounds the NEXT band up.
+
+**Not a sampling artifact.** Every one of the nine rejected ring points lies
+on the cone to machine precision (`r − h·tanα` = 0, −1.08e-19, worst
+6.93e-16 = rel 1.6e-12), so its chart image is exact; the ring's four proper
+self-crossings (`1–2 × 7–8`, `3–4 × 6–7`, `3–4 × 7–8`, `4–5 × 6–7`) are in the
+geometry the loop declares. Density cannot be the remedy and must not be
+reached for: forced rim N = 35 passes, N = 50 fails DIFFERENTLY
+(`reassembled output would be non-2-manifold`), N = 66/71/100/200 pass. A
+lottery, not a convergence.
+
+**Both uses, one locus.** `he 136`'s twin lives in `FaceId(29)` (a Cone, the
+band above, sharing the rim); `he 137`'s twin `he 181` and `he 138`'s twin
+`he 180` are **both in `LoopId(30)` of `FaceId(30)`, a Cylinder** — the cut
+face, carrying the mirror spur. Exactly two loops double-cover the curve and
+both exhibit the backtrack at node 5.
+
+**The fix — the curved twin of a normalization the crate already performs.**
+`BRep::normalized_without_backtrack_spikes` (task #146, F0064) already merges
+a consecutive straight pair `(a→v, v→b)` that is collinear AND reverses, on
+the INPUT operands. Its collinearity has to be MEASURED
+(`|d1×d2| ≤ 1e-9·|d1||d2|`) because `Curve::LineSegment`'s `PartialEq` is
+kind-only. A curved pair needs neither test: `Curve::SurfacePair`'s
+`PartialEq` compares both defining surfaces, so `e1.curve == e2.curve`
+already means ONE curve, and the tangent at the shared vertex is exact,
+
+```
+T = n̂_a × n̂_b          (surface_distance_and_normal — the same unit normals
+                          relocate_onto_implicit_pair Newtons on)
+|n̂_a × n̂_b|² = sin²θ    (that operator's own `det`, reused with its
+                          MIN_FEATURE_SIZE² rank floor — no new constant)
+```
+
+Two arcs of one smooth curve leaving `v` take either OPPOSITE tangent
+directions — a plain split of one boundary, kept untouched — or the SAME one,
+in which case one covers the other. The discriminant is the sign of
+`((v−a)·T) · ((b−v)·T)`. Measured at P0017's node 5:
+`T = [-0.10359312964056333, -0.9892792304044337, -0.10293234565327337]`,
+chord cosines **0.998741** and **0.995439**, same side, product negative.
+
+`BRep::normalize_output_curve_backtracks` applies it at the end of
+`boolean_once`, on every path (pass 1 and every §4.5.2 / §4.5.4 rung),
+rewriting LOOPS and the EDGE table only — the mesh, the tessellation map and
+both attribution maps are the boolean's own result, not a tessellation of this
+topology. Merged-away edge indices are left unreferenced; every consumer
+enumerates edges through the faces' loops. The fire count is 0 for any valid
+loop, so the output is byte-identical everywhere else (P0017 reports
+`[n76] op=Subtract merged 2 curved backtrack spike(s)` — the two loops above,
+exactly).
+
+`FaceId(28)` becomes the exactly-correct two-edge LENS `Arc(node0→node3) +
+SurfacePair(node3→node0)`, and `FaceId(30)` merges the mirror pair to the same
+undirected edge, so the twin pairing closes — `from_yang_brep` keys it on
+`(vertex pair, CurveKey)`, never on edge index. That loop was already in its
+vocabulary: the `lens_bigon` arm admits two non-`Seg` edges on DISTINCT
+curves, and still refuses a SAME-curve bigon (the zero-area form). The three
+mirrored developable `loop with fewer than 3 edges` walls —
+`tessellate/developable.rs`, `validate/faces.rs` and `validate/faces/cone.rs`,
+moved TOGETHER so no twin is silenced — go to `< 2`. N71 is what made a bigon
+measurable there: its vertices-only shoelace is identically 0, its canonical
+chart polygon is not.
+
+**Fails closed** (derives nothing, the loud wall stands) at a tangency of the
+two surfaces, at a point on a defining surface's axis, on a chord whose
+tangential component does not dominate (`CURVE_BACKTRACK_MIN_COS = 0.5`, a
+decisiveness floor and never an acceptance band — an arc may sweep far enough
+for its chord to turn away from the shared vertex's tangent), and when the
+pair IS the whole loop (`e1.start == e2.end`): a loop that is nothing but a
+spur encloses no area and there is no merged edge to make.
+
+**Residue.** The rule is scoped to `Curve::SurfacePair`. `LineSegment` is out
+by construction — its `PartialEq` cannot establish that two edges share one
+curve, which is exactly what the straight rule measures for itself. The conic
+variants (`Circle`, `Ellipse`, `Parabola`, `Hyperbola`) WOULD be established
+by `PartialEq` and have closed-form tangents, but no corpus case shows a
+doubled conic edge in one loop; that extension is open. And the question of
+why Stage 5/6 emitted the spur at all — the arrangement at natural rim N = 25
+cannot resolve a 5.0010e-7 lens whose own rim chord sagitta is 3.41e-6, Yang
+§4.5's Case V — is recorded, not fixed: the normalization makes the OUTPUT
+correct, and the N-lottery above says the resolution half has no monotone
+remedy to reach for.
