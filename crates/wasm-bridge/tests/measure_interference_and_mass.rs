@@ -104,6 +104,7 @@ fn cube(
         solve_status: SolveStatus::FullyConstrained,
         solved_positions,
         projected: Vec::new(),
+        plane_face: None,
         solved_profiles: vec![ClosedProfile {
             entity_ids: vec![l0, l1, l2, l3],
             is_outer: true,
@@ -176,6 +177,7 @@ fn cylinder_body(
         solve_status: SolveStatus::FullyConstrained,
         solved_positions: HashMap::new(),
         projected: Vec::new(),
+        plane_face: None,
         solved_profiles: vec![ClosedProfile {
             entity_ids: vec![base],
             is_outer: true,

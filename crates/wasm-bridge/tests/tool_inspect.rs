@@ -96,6 +96,7 @@ fn rectangle_sketch() -> Operation {
             solve_status: SolveStatus::FullyConstrained,
             solved_positions,
             projected: Vec::new(),
+            plane_face: None,
             solved_profiles: vec![ClosedProfile {
                 entity_ids: vec![5, 6, 7, 8],
                 is_outer: true,

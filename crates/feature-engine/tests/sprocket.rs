@@ -55,6 +55,7 @@ fn sketch_of(entities: Vec<SketchEntity>) -> Sketch {
         solved_positions: HashMap::new(),
         solved_profiles: Vec::new(),
         projected: vec![],
+        plane_face: None,
     }
 }
 

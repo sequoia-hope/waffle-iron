@@ -81,6 +81,7 @@ fn box_document() -> (EngineState, kernel_v2::KernelV2Adapter, String) {
             solve_status: SolveStatus::FullyConstrained,
             solved_positions: corners.iter().map(|&(id, x, y)| (id, (x, y))).collect(),
             projected: Vec::new(),
+            plane_face: None,
             solved_profiles: vec![ClosedProfile {
                 entity_ids: vec![10, 11, 12, 13],
                 is_outer: true,

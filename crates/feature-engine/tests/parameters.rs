@@ -113,6 +113,7 @@ fn rect_sketch_with_width_expr(width_expr: &str) -> Sketch {
         solved_positions: HashMap::new(),
         solved_profiles: Vec::new(),
         projected: Vec::new(),
+        plane_face: None,
     };
     sketch.recompute_derived();
     sketch

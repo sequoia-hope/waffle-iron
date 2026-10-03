@@ -1,6 +1,6 @@
 # The `.waffle` File Format — Specification
 
-**Format version: 8** (`FORMAT_VERSION`, `crates/file-format/src/save.rs`; the
+**Format version: 9** (`FORMAT_VERSION`, `crates/file-format/src/save.rs`; the
 version history is §4)
 **Spec written:** 2026-08-28 (v3), from the code as it exists on `main`; **v4
 section added 2026-09-07.** This document is *descriptive of the current
@@ -134,7 +134,7 @@ by the app's file picker.
 |---|---|---|---|
 | `format` | string | ✔ | Must be exactly `"waffle-iron"`; anything else ⇒ `LoadError::UnknownFormat`. |
 | `version` | u32 | ✔* | Format version (6 since 2026-09-24). `> 6` ⇒ `LoadError::FutureVersion` (refuse, don't guess). *The Rust loader defaults a missing/non-numeric version to `0`, which then fails migration (`no migration path from v0`). |
-| `min_reader_version` | u32 | opt (default 0) | Since 2026-08-28: the oldest reader (by its `FORMAT_VERSION`) that can parse this file. Readers refuse `max(version, min_reader_version) > FORMAT_VERSION` with `FutureVersion`. Writers set it to `MIN_READER_VERSION` (currently 6); bump it together with `version` whenever a change lands that old readers cannot parse — new constraint/selector/`PlaneDefinition` variants included, and any new field a reader must not silently ignore (v5: `GeomRef.scope`, §8 — a v4 reader would drop it and resolve the reference against the wrong part; v6: `Sketch.plane_x_axis`, §9.1 — a v5 reader would derive the basis from the normal and draw the sketch rotated). Since v4, new **tab kinds, source kinds and locator kinds do not** require a bump (§5.3), and since Phase 1b (2026-09-08) **new operation kinds do not either** (§7: unknown `Operation` kinds are preserved opaquely). Absent in pre-2026-08-28 files ⇒ no requirement. |
+| `min_reader_version` | u32 | opt (default 0) | Since 2026-08-28: the oldest reader (by its `FORMAT_VERSION`) that can parse this file. Readers refuse `max(version, min_reader_version) > FORMAT_VERSION` with `FutureVersion`. Writers set it to `MIN_READER_VERSION` (currently 9); bump it together with `version` whenever a change lands that old readers cannot parse — new constraint/selector/`PlaneDefinition` variants included, and any new field a reader must not silently ignore (v5: `GeomRef.scope`, §8 — a v4 reader would drop it and resolve the reference against the wrong part; v6: `Sketch.plane_x_axis`, §9.1 — a v5 reader would derive the basis from the normal and draw the sketch rotated; v9: `Sketch.plane_face`, §9.1 — a v8 reader would drop it and sketch into space where this one refuses). Since v4, new **tab kinds, source kinds and locator kinds do not** require a bump (§5.3), and since Phase 1b (2026-09-08) **new operation kinds do not either** (§7: unknown `Operation` kinds are preserved opaquely). Absent in pre-2026-08-28 files ⇒ no requirement. |
 | `document` | DocumentMetadata | ✔ | §5.1. `document.id` since v4 (writers always emit; a reader minting one for a hand-written file warns). |
 | `sources` | SourceEntry[] | opt (default `[]`) | v4 §5.5: external content the document depends on. |
 | `tabs` | Tab[] | ✔ | At least one tab expected; `load_document` rejects an `active_tab` that names no tab; `load_project` falls back to the first tab. |
@@ -183,6 +183,7 @@ they are converted on load (§4).
 | 6 | 2026-09-24 | `Sketch.plane_x_axis` (§9.1): the sketch's own in-plane +x direction, so a caller can orient a sketch instead of reproducing the engine's derivation (`docs/notes/eiffel/FEATURE_NOTES.md` §3). The only change; additive, but a v5 reader would drop it and derive the basis from the normal, drawing the sketch and everything built on it ROTATED, so the reader floor moved with it. | none (a v5 file parses as-is; absent `plane_x_axis` ⇒ derived). |
 | 7 | 2026-10-03 | `FeatureTree.names` (§6.1): entity names — agent/user labels over persistent references (N1, `specs/agent_mechanical_design.md` §5.2). The field itself is additive and defaulted, but each entry stores a `Selector::Pid` (§8, drawings spec D0) and `Selector` is a serde-tagged enum, so a v6 reader given one fails with a raw unknown-variant error. A new selector variant is a floor bump by §13.3, and this is the first version that writes one. | none (a v6 file parses as-is; absent `names` ⇒ the document has no names). |
 | 8 | 2026-10-03 | `DesignParameter.unit` (`Length \| Angle \| Count \| Ratio`) and `.comment` (P1, `specs/agent_mechanical_design.md` §6): the declared KIND of a design parameter, and a free-text note. Both are additive, defaulted and serialized only when present, and `unit` is a bare string an old reader simply drops — it does NOT fail. The floor moves anyway, by the §13.3 "must not silently ignore" clause: `unit` is the author's written statement that a parameter is an angle, and a reader that drops it hands that number to a length field as millimetres, building a solid the declaring reader refuses to build. Measured, one file and two solids, in `crates/feature-engine/tests/param_unit_floor.rs`. | none (a v7 file parses as-is; absent `unit` ⇒ a plain number that adopts its field's dimension, the pre-P1 behaviour). |
+| 9 | 2026-10-03 | `Sketch.plane_face` (§9.1): the identity of the model face a LOCAL sketch is drawn on — `{target: GeomRef, fallback?: GeomRef, signature: TopoSignature}`, the same pid/fallback pair a name stores (N2, `specs/agent_mechanical_design.md` §5.3 item 3). Additive, defaulted, omitted when absent, and an old reader does not FAIL on it. The floor moves for the v8 reason: a reader that drops it builds a DIFFERENT solid from the same file. With the field, a sketch whose face has been deleted refuses and nothing downstream of it builds; without it, the sketch stays at the frame it was solved in and the extrude on it produces a solid floating where the face used to be. Measured, one file and two solids, in `crates/wasm-bridge/tests/tool_sketch_plane_face.rs::a_reader_that_drops_the_plane_face_builds_a_different_solid`. | none (a v8 file parses as-is; absent `plane_face` ⇒ a sketch with no face identity to re-resolve, the pre-N2 behaviour). |
 
 Migrations run **sequentially** (v1→v2→v3→v4). They live only in the Rust loader;
 the JS `initDocumentState` applies the same tab-id rewrite so its tab list agrees
@@ -760,6 +761,7 @@ as authoritative when present.
 | `solved_positions` | {string→[f64,f64]} | default; omitted when empty | Derived (§10.1). |
 | `solved_profiles` | ClosedProfile[] | default; omitted when empty | Derived (§10.2). |
 | `projected` | ProjectedEntity[] | default; omitted when empty | External-geometry-driven points: `{point_id: u32, source: {geom_ref: GeomRef, kind: {"type":"Vertex"} | {"type":"EdgeSample","t":f64}}}`. Re-projected on rebuild. |
+| `plane_face` | SketchFaceRef \| absent | default absent; omitted when absent | **v9.** The identity of the LOCAL model face this sketch is drawn on (N2, `specs/agent_mechanical_design.md` §5.3 item 3): `{target: GeomRef, fallback?: GeomRef, signature: TopoSignature}` — the pid/fallback pair `names` stores (§6.1), plus the face's fingerprint at drawing time, which the refusal reports so an author can see WHICH face went missing. Re-resolved on EVERY rebuild: the face is there and where it was (silent, the cached `plane_origin`/`plane_normal` kept bit-for-bit), it moved or had to be re-found by geometry (warned, frame still kept), or it is gone (the sketch refuses and nothing downstream builds — it is never re-bound to whichever face now scores best). Absent for a sketch on a datum, on a bare origin/normal, on another instance's face (that travels in `plane`'s `scope`), or authored before v9. `plane` itself keeps the placeholder datum anchor a local sketch has always carried: the identity and the anchor are different jobs, and `rebuild`'s share-a-face target search branches on the anchor. |
 
 ### 9.2 `SketchEntity` (tagged `type`)
 
@@ -926,7 +928,10 @@ Anyone changing the format must touch all of them:
    gets built (v8: `DesignParameter.unit`; dropping it turns a loud
    dimension refusal into the pre-P1 silent coercion, so the same file
    builds a different solid in an old reader —
-   `crates/feature-engine/tests/param_unit_floor.rs`). **Since v4, new tab
+   `crates/feature-engine/tests/param_unit_floor.rs`; v9:
+   `Sketch.plane_face`, dropping it turns a sketch's loud refusal into the
+   pre-N2 silent sketch-into-space —
+   `crates/wasm-bridge/tests/tool_sketch_plane_face.rs`). **Since v4, new tab
    kinds, source kinds and locator kinds need no bump, and since Phase 1b
    neither do new operation kinds**: v4 readers preserve unknown ones opaquely
    (§5.3, §5.5, §7). That holds **even when the new kind's payload uses a new

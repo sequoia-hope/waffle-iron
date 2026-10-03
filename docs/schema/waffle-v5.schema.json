@@ -5213,6 +5213,17 @@
           "$ref": "#/$defs/GeomRef",
           "description": "The plane this sketch lies on, referenced via GeomRef."
         },
+        "plane_face": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/SketchFaceRef"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "The LOCAL model face this sketch was drawn on, when it was drawn on one\n(N2 of `specs/agent_mechanical_design.md` §5.3 item 3). Absent for a\nsketch on a datum plane, on a bare origin/normal, or on another\ninstance's face — the last of which travels in [`Sketch::plane`]'s\n`scope` and is re-derived by `feature_engine::context`.\n\nWhy this is not [`Sketch::plane`]: for a local sketch that field holds a\nPLACEHOLDER datum with a freshly minted uuid (it always has), and\n`feature_engine::rebuild`'s share-a-face target search branches on its\nanchor — so making it the real face reference would silently change\nwhich body an extrude on this sketch merges into. The identity and the\nanchor are different jobs, so they are different fields."
+        },
         "plane_normal": {
           "default": [
             0.0,
@@ -6503,6 +6514,35 @@
           "type": "object"
         }
       ]
+    },
+    "SketchFaceRef": {
+      "description": "The identity of the face a local sketch is drawn on, recorded so that every\nrebuild can prove the face is still there (N2 §5.3 item 3).\n\nThe pid/fallback pair is `feature_engine::resolve::pin_identity`'s, the same\none an entity name stores (N1): the persistent id answers by identity, its\nlineage root answers when a later operation rebuilt the face, and only then\ndoes the authored selector rebind by geometry. When none of the three\nanswers, the sketch REFUSES — it does not get drawn on whichever face\nhappened to score best — and `signature` is what the refusal reports, so the\nauthor can see which face went missing rather than only that one did.",
+      "properties": {
+        "fallback": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/GeomRef"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "The authored reference, stored only when a pid replaced it."
+        },
+        "signature": {
+          "$ref": "#/$defs/TopoSignature",
+          "description": "The face's fingerprint when the sketch was drawn — its surface type,\narea, centroid and normal. Reported by the refusal; never used to\nresolve (that would be the rebind this field exists to make visible)."
+        },
+        "target": {
+          "$ref": "#/$defs/GeomRef",
+          "description": "What to try first: a `Selector::Pid` when the kernel had an identity\nfor the face, else the reference as authored."
+        }
+      },
+      "required": [
+        "target",
+        "signature"
+      ],
+      "type": "object"
     },
     "SolveStatus": {
       "description": "Result of running the constraint solver.",

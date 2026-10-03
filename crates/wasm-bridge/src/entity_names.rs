@@ -137,6 +137,10 @@ pub(crate) fn list(
             body: Some(name.clone()),
             resolves: true,
             resolved_by: None,
+            resolved_via: None,
+            rebound: false,
+            lost_identity: None,
+            refusal: None,
             warnings: Vec::new(),
             created: None,
         });
@@ -149,22 +153,43 @@ pub(crate) fn list(
                 continue;
             }
         }
-        let (resolves, resolved_by, warnings) =
-            match names::resolve(named, &state.engine.feature_results, kb.as_introspect()) {
-                Ok(r) => (true, Some(r.resolved_by), r.warnings),
-                Err(e) => (false, None, vec![e.to_string()]),
-            };
-        out.push(ListedName {
+        // N2 §5.3 items 2 and 4: the rung that answered and, on a refusal, its
+        // classification — so an agent reads the state of each reference off
+        // fields instead of out of the warning prose.
+        let row = ListedName {
             name: name.clone(),
             kind: named.kind,
             geom_ref: Some(named.target.clone()),
             body: owner.as_ref().and_then(|id| display.get(id).cloned()),
             body_id: owner,
-            resolves,
-            resolved_by,
-            warnings,
             created: Some(named.created.clone()),
-        });
+            // Filled in by whichever arm below answers.
+            resolves: false,
+            resolved_by: None,
+            resolved_via: None,
+            rebound: false,
+            lost_identity: None,
+            refusal: None,
+            warnings: Vec::new(),
+        };
+        out.push(
+            match names::resolve(named, &state.engine.feature_results, kb.as_introspect()) {
+                Ok(r) => ListedName {
+                    resolves: true,
+                    resolved_by: Some(r.resolved_by),
+                    resolved_via: Some(r.via),
+                    rebound: r.rebound,
+                    lost_identity: r.lost_identity,
+                    warnings: r.warnings,
+                    ..row
+                },
+                Err(e) => ListedName {
+                    refusal: e.resolution_reason().cloned(),
+                    warnings: vec![e.to_string()],
+                    ..row
+                },
+            },
+        );
     }
 
     out.sort_by(|a, b| a.name.cmp(&b.name));

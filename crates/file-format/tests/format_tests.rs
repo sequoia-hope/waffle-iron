@@ -110,6 +110,7 @@ fn make_sketch_feature(name: &str) -> Feature {
             arc_segments: vec![],
         }],
         projected: vec![],
+        plane_face: None,
     };
 
     Feature {
@@ -701,6 +702,7 @@ fn make_rebuild_compatible_tree() -> FeatureTree {
             arc_segments: vec![],
         }],
         projected: vec![],
+        plane_face: None,
     };
 
     let sketch_feature = Feature {
@@ -924,6 +926,7 @@ fn round_trip_preserves_all_constraint_types() {
             arc_segments: vec![],
         }],
         projected: vec![],
+        plane_face: None,
     };
 
     let feature = Feature {
@@ -1317,6 +1320,7 @@ fn point_pair_hv_constraints_roundtrip() {
         solved_positions: std::collections::HashMap::new(),
         solved_profiles: vec![],
         projected: vec![],
+        plane_face: None,
     };
     let feature = Feature {
         id: sketch.id,
@@ -1782,13 +1786,16 @@ fn a_3d_sketch_round_trips() {
 /// v7 is N1's `Selector::Pid` (`specs/agent_mechanical_design.md` §5.2,
 /// 2026-10-03), a new SELECTOR variant, which §13.3 does make a bump; v8 is
 /// P1's `DesignParameter.unit`, a field an old reader must not silently
-/// ignore (`crates/feature-engine/tests/param_unit_floor.rs` measures why).
+/// ignore (`crates/feature-engine/tests/param_unit_floor.rs` measures why);
+/// v9 is N2's `Sketch.plane_face` (§5.3 item 3), the same shape of reason —
+/// a reader that drops it builds a sketch into space where this one refuses
+/// (`crates/feature-engine/tests/sketch_plane_face.rs` measures it).
 /// What this test holds is that the writer and the floor move together and
 /// only deliberately.
 #[test]
 fn the_3d_sketch_operation_did_not_move_the_format_floor() {
-    assert_eq!(file_format::FORMAT_VERSION, 8);
-    assert_eq!(file_format::MIN_READER_VERSION, 8);
+    assert_eq!(file_format::FORMAT_VERSION, 9);
+    assert_eq!(file_format::MIN_READER_VERSION, 9);
 }
 
 /// Neither did the `Drawing` tab kind (D4a, `specs/drawings_and_mbd.md` §8),

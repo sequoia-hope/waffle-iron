@@ -1345,6 +1345,9 @@ impl SketchWriter {
             solved_positions: HashMap::new(),
             solved_profiles: Vec::new(),
             projected: Vec::new(),
+            // A board outline is laid out on the XY datum, not on a model
+            // face: there is no face identity to re-resolve (N2 §5.3).
+            plane_face: None,
         };
         // The same finish the script host gives an engine-authored sketch:
         // loops extracted WITH kernel-ready arc segments. Leaving it to the

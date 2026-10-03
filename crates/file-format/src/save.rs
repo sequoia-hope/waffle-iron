@@ -38,7 +38,18 @@ use crate::sources::SourceEntry;
 ///     reader that drops it builds a DIFFERENT solid from the same file,
 ///     which is the v5/v6 rationale (`docs/FILE_FORMAT.md` §4, §13.3), and
 ///     `crates/feature-engine/tests/param_unit_floor.rs` measures it.
-pub const FORMAT_VERSION: u32 = 8;
+///   - **v9** (2026-10-03): `Sketch.plane_face` (N2,
+///     `specs/agent_mechanical_design.md` §5.3 item 3) — the identity of the
+///     model face a local sketch is drawn on. Additive, defaulted, omitted
+///     when absent, and a reader that drops it does not FAIL. The floor moves
+///     for the v8 reason: a reader that ignores it builds a DIFFERENT solid
+///     from the same file. With the field, a sketch whose face has been
+///     deleted refuses and nothing downstream of it builds; without it, the
+///     sketch stays at its cached frame and extrudes into space — the silent
+///     wrong answer N2 exists to remove. (Its content also carries a
+///     `Selector::Pid`, which is the v7 reason over again, but the semantic
+///     one is what settles it.)
+pub const FORMAT_VERSION: u32 = 9;
 
 /// Oldest reader (by its `FORMAT_VERSION`) that can parse files we write.
 ///
@@ -53,7 +64,7 @@ pub const FORMAT_VERSION: u32 = 8;
 /// opaquely. Purely additive defaulted fields never require a bump. Files
 /// without the field (all pre-2026-08-28 files, including the assay corpus)
 /// default to 0 and always pass. See `docs/FILE_FORMAT.md` §13.
-pub const MIN_READER_VERSION: u32 = 8;
+pub const MIN_READER_VERSION: u32 = 9;
 
 // Keep the constants coherent: we can never require a reader newer than the
 // version we claim to write.

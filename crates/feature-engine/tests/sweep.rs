@@ -46,6 +46,7 @@ fn sketch_on(normal: [f64; 3], entities: Vec<SketchEntity>) -> Sketch {
         solved_positions: HashMap::new(),
         solved_profiles: Vec::new(),
         projected: vec![],
+        plane_face: None,
     }
 }
 
@@ -340,7 +341,11 @@ fn sketch3d_path_by_only_chain_or_by_entity() {
         )
         .unwrap();
     let err = feature_error(&engine, ambiguous);
-    assert_eq!(err.kind, ErrorKind::ResolutionFailed, "{}", err.message);
+    assert!(
+        matches!(err.kind, ErrorKind::ResolutionFailed { .. }),
+        "{}",
+        err.message
+    );
     assert!(err.message.contains("2 chains"), "{}", err.message);
     assert!(!engine.feature_results.contains_key(&ambiguous));
 
@@ -378,10 +383,10 @@ fn sketch3d_path_by_only_chain_or_by_entity() {
             &mut kernel,
         )
         .unwrap();
-    assert_eq!(
+    assert!(matches!(
         feature_error(&engine, missing).kind,
-        ErrorKind::ResolutionFailed
-    );
+        ErrorKind::ResolutionFailed { .. }
+    ));
     let wrong_kind = engine
         .add_feature(
             "sweep".into(),
