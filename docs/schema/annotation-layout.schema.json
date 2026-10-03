@@ -1,0 +1,655 @@
+{
+  "$defs": {
+    "AnchorGeometry": {
+      "description": "What one annotation anchor resolved to in the view plane.",
+      "oneOf": [
+        {
+          "description": "A vertex, or a face/edge reduced to one representative point.",
+          "properties": {
+            "at": {
+              "items": {
+                "format": "double",
+                "type": "number"
+              },
+              "maxItems": 2,
+              "minItems": 2,
+              "type": "array"
+            },
+            "type": {
+              "const": "Point",
+              "type": "string"
+            }
+          },
+          "required": [
+            "type",
+            "at"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "An edge or a silhouette, as projected.",
+          "properties": {
+            "curve": {
+              "$ref": "#/$defs/LayoutCurve"
+            },
+            "type": {
+              "const": "Curve",
+              "type": "string"
+            }
+          },
+          "required": [
+            "type",
+            "curve"
+          ],
+          "type": "object"
+        }
+      ]
+    },
+    "AnnotationLayout": {
+      "description": "One annotation, resolved and measured, ready to draw.\n\nThe `GeomRef`s of [`Annotation`](super::Annotation) have become geometry\nand the [`Measured`](super::Measured) has become a number. A renderer that\nreads this cannot reach the model, which is the point: it has no way to\ndraw a value other than the measured one.",
+      "oneOf": [
+        {
+          "properties": {
+            "anchors": {
+              "description": "The resolved anchors, in the order `kind` expects.",
+              "items": {
+                "$ref": "#/$defs/AnchorGeometry"
+              },
+              "type": "array"
+            },
+            "dual_unit": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "kind": {
+              "$ref": "#/$defs/DimensionKind"
+            },
+            "placement": {
+              "$ref": "#/$defs/Placement2",
+              "default": {
+                "dx": 0.0,
+                "dy": 0.0
+              }
+            },
+            "precision": {
+              "format": "uint8",
+              "maximum": 255,
+              "minimum": 0,
+              "type": [
+                "integer",
+                "null"
+              ]
+            },
+            "type": {
+              "const": "Dimension",
+              "type": "string"
+            },
+            "value": {
+              "description": "The measured value — meters, or radians when\n[`DimensionKind::is_angular`].",
+              "format": "double",
+              "type": "number"
+            }
+          },
+          "required": [
+            "type",
+            "kind",
+            "anchors",
+            "value"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "leader": {
+              "anyOf": [
+                {
+                  "$ref": "#/$defs/AnchorGeometry"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "placement": {
+              "$ref": "#/$defs/Placement2",
+              "default": {
+                "dx": 0.0,
+                "dy": 0.0
+              }
+            },
+            "text": {
+              "type": "string"
+            },
+            "type": {
+              "const": "Note",
+              "type": "string"
+            }
+          },
+          "required": [
+            "type",
+            "text"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "at": {
+              "items": {
+                "format": "double",
+                "type": "number"
+              },
+              "maxItems": 2,
+              "minItems": 2,
+              "type": "array"
+            },
+            "half_size": {
+              "description": "Half-length of each arm of the cross, meters. The layout derives it\nfrom the marked entity's own size so a tiny hole does not get a\ncross the size of the part.",
+              "format": "double",
+              "type": "number"
+            },
+            "type": {
+              "const": "CentreMark",
+              "type": "string"
+            }
+          },
+          "required": [
+            "type",
+            "at",
+            "half_size"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "from": {
+              "items": {
+                "format": "double",
+                "type": "number"
+              },
+              "maxItems": 2,
+              "minItems": 2,
+              "type": "array"
+            },
+            "to": {
+              "items": {
+                "format": "double",
+                "type": "number"
+              },
+              "maxItems": 2,
+              "minItems": 2,
+              "type": "array"
+            },
+            "type": {
+              "const": "CentreLine",
+              "type": "string"
+            }
+          },
+          "required": [
+            "type",
+            "from",
+            "to"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "anchor": {
+              "$ref": "#/$defs/AnchorGeometry"
+            },
+            "label": {
+              "type": "string"
+            },
+            "placement": {
+              "$ref": "#/$defs/Placement2",
+              "default": {
+                "dx": 0.0,
+                "dy": 0.0
+              }
+            },
+            "type": {
+              "const": "Datum",
+              "type": "string"
+            }
+          },
+          "required": [
+            "type",
+            "label",
+            "anchor"
+          ],
+          "type": "object"
+        }
+      ]
+    },
+    "CurveKind": {
+      "description": "What the curve is in the drawing.\n\nSerde-able for the same reason as [`Visibility`].",
+      "oneOf": [
+        {
+          "const": "Edge",
+          "description": "The projection of a B-Rep edge.",
+          "type": "string"
+        },
+        {
+          "const": "Silhouette",
+          "description": "The locus on a curved face where the normal turns away from the viewer\n(D1b). `source` names the FACE, not an edge.",
+          "type": "string"
+        },
+        {
+          "const": "SectionOutline",
+          "description": "A loop of a section cut's cap (D1d).",
+          "type": "string"
+        }
+      ]
+    },
+    "DimensionKind": {
+      "description": "How a dimension measures its anchors.\n\n§7: \"`DimensionKind` reuses the seven sketch dimension kinds, with\n`Ordinate` added.\" The seven are the value-bearing arms of\n[`crate::sketch::SketchConstraint`] and the names here are deliberately\ntheirs, so the correspondence is checkable by grep rather than by belief.\nThe drafting vocabulary a user sees differs: `Distance` is an **aligned**\ndimension, `HDistance`/`VDistance` are **linear** horizontal/vertical, and\n`Angle` is **angular**. That translation is the UI's.",
+      "oneOf": [
+        {
+          "description": "Aligned linear: the distance between two anchors, measured along the\nline joining them — or, for two parallel lines, between them.\n(`SketchConstraint::Distance`.)",
+          "properties": {
+            "type": {
+              "const": "Distance",
+              "type": "string"
+            }
+          },
+          "required": [
+            "type"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "Perpendicular distance from a point to a line.\n(`SketchConstraint::PointLineDistance`.)",
+          "properties": {
+            "type": {
+              "const": "PointLineDistance",
+              "type": "string"
+            }
+          },
+          "required": [
+            "type"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "`|Δu|` only: the horizontal component, leaving the vertical free.\n(`SketchConstraint::HDistance`.)",
+          "properties": {
+            "type": {
+              "const": "HDistance",
+              "type": "string"
+            }
+          },
+          "required": [
+            "type"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "`|Δv|` only. (`SketchConstraint::VDistance`.)",
+          "properties": {
+            "type": {
+              "const": "VDistance",
+              "type": "string"
+            }
+          },
+          "required": [
+            "type"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "Angle between two lines, in RADIANS. (`SketchConstraint::Angle`;\nnote that constraint's *expression* evaluates in degrees — the\nconversion is the UI's, as everywhere else here.)",
+          "properties": {
+            "type": {
+              "const": "Angle",
+              "type": "string"
+            }
+          },
+          "required": [
+            "type"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "Radius of a circle, arc or ellipse. (`SketchConstraint::Radius`.)",
+          "properties": {
+            "type": {
+              "const": "Radius",
+              "type": "string"
+            }
+          },
+          "required": [
+            "type"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "Diameter — twice the radius, drawn through the centre.\n(`SketchConstraint::Diameter`.)",
+          "properties": {
+            "type": {
+              "const": "Diameter",
+              "type": "string"
+            }
+          },
+          "required": [
+            "type"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "One coordinate of a single anchor, measured from the view's ordinate\norigin along `axis`. Added by §7; it has no sketch counterpart.",
+          "properties": {
+            "axis": {
+              "$ref": "#/$defs/OrdinateAxis"
+            },
+            "type": {
+              "const": "Ordinate",
+              "type": "string"
+            }
+          },
+          "required": [
+            "type",
+            "axis"
+          ],
+          "type": "object"
+        }
+      ]
+    },
+    "LayoutCurve": {
+      "description": "A 2-D curve in the view plane, in view `(u, v)` and model units (meters).\n\nArm for arm the serde-able twin of [`Curve2`]; see the module docs. Angles\nrun counter-clockwise from `+u` and `start < end`, exactly as there.",
+      "oneOf": [
+        {
+          "description": "A line seen end-on.",
+          "properties": {
+            "at": {
+              "items": {
+                "format": "double",
+                "type": "number"
+              },
+              "maxItems": 2,
+              "minItems": 2,
+              "type": "array"
+            },
+            "type": {
+              "const": "Point",
+              "type": "string"
+            }
+          },
+          "required": [
+            "type",
+            "at"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "end": {
+              "items": {
+                "format": "double",
+                "type": "number"
+              },
+              "maxItems": 2,
+              "minItems": 2,
+              "type": "array"
+            },
+            "start": {
+              "items": {
+                "format": "double",
+                "type": "number"
+              },
+              "maxItems": 2,
+              "minItems": 2,
+              "type": "array"
+            },
+            "type": {
+              "const": "Line",
+              "type": "string"
+            }
+          },
+          "required": [
+            "type",
+            "start",
+            "end"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "A full circle when `end_angle - start_angle == 2π`.",
+          "properties": {
+            "center": {
+              "items": {
+                "format": "double",
+                "type": "number"
+              },
+              "maxItems": 2,
+              "minItems": 2,
+              "type": "array"
+            },
+            "end_angle": {
+              "format": "double",
+              "type": "number"
+            },
+            "radius": {
+              "format": "double",
+              "type": "number"
+            },
+            "start_angle": {
+              "format": "double",
+              "type": "number"
+            },
+            "type": {
+              "const": "Circle",
+              "type": "string"
+            }
+          },
+          "required": [
+            "type",
+            "center",
+            "radius",
+            "start_angle",
+            "end_angle"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "A full ellipse when `end_param - start_param == 2π`.",
+          "properties": {
+            "center": {
+              "items": {
+                "format": "double",
+                "type": "number"
+              },
+              "maxItems": 2,
+              "minItems": 2,
+              "type": "array"
+            },
+            "end_param": {
+              "format": "double",
+              "type": "number"
+            },
+            "major_axis": {
+              "items": {
+                "format": "double",
+                "type": "number"
+              },
+              "maxItems": 2,
+              "minItems": 2,
+              "type": "array"
+            },
+            "major_radius": {
+              "format": "double",
+              "type": "number"
+            },
+            "minor_radius": {
+              "format": "double",
+              "type": "number"
+            },
+            "start_param": {
+              "format": "double",
+              "type": "number"
+            },
+            "type": {
+              "const": "Ellipse",
+              "type": "string"
+            }
+          },
+          "required": [
+            "type",
+            "center",
+            "major_axis",
+            "major_radius",
+            "minor_radius",
+            "start_param",
+            "end_param"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "closed": {
+              "description": "`true` when the last point joins the first (the list does NOT\nrepeat it).",
+              "type": "boolean"
+            },
+            "points": {
+              "items": {
+                "items": {
+                  "format": "double",
+                  "type": "number"
+                },
+                "maxItems": 2,
+                "minItems": 2,
+                "type": "array"
+              },
+              "type": "array"
+            },
+            "type": {
+              "const": "Polyline",
+              "type": "string"
+            }
+          },
+          "required": [
+            "type",
+            "points",
+            "closed"
+          ],
+          "type": "object"
+        }
+      ]
+    },
+    "LayoutCurveEntry": {
+      "description": "One projected curve of the view, serde-able.",
+      "properties": {
+        "geometry": {
+          "$ref": "#/$defs/LayoutCurve"
+        },
+        "kind": {
+          "$ref": "#/$defs/CurveKind"
+        },
+        "visibility": {
+          "$ref": "#/$defs/Visibility"
+        }
+      },
+      "required": [
+        "geometry",
+        "visibility",
+        "kind"
+      ],
+      "type": "object"
+    },
+    "OrdinateAxis": {
+      "description": "Which view-plane axis an [`DimensionKind::Ordinate`] dimension reads.",
+      "oneOf": [
+        {
+          "description": "The view's horizontal axis.",
+          "properties": {
+            "type": {
+              "const": "U",
+              "type": "string"
+            }
+          },
+          "required": [
+            "type"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "The view's vertical axis.",
+          "properties": {
+            "type": {
+              "const": "V",
+              "type": "string"
+            }
+          },
+          "required": [
+            "type"
+          ],
+          "type": "object"
+        }
+      ]
+    },
+    "Placement2": {
+      "description": "The cosmetic offset of a label from its computed position, in view-plane\nunits (meters, like [`crate::kernel::projection::Curve2`]).\n\nThe same idea the sketch dimension labels already have, where the app\nkeeps it per constraint in `dimensionLabelOffsets`. Zero means \"wherever\nthe layout puts it\", which is the only value a freshly authored\nannotation has.",
+      "properties": {
+        "dx": {
+          "default": 0.0,
+          "format": "double",
+          "type": "number"
+        },
+        "dy": {
+          "default": 0.0,
+          "format": "double",
+          "type": "number"
+        }
+      },
+      "type": "object"
+    },
+    "Visibility": {
+      "description": "Whether the viewer can see a curve. D1a and D1b tag everything `Visible` —\na silhouette can be hidden too, and `Hidden` is produced by D1c.\n\nSerde-able (unlike [`Curve2`], which is built on the serde-less\n`cad_primitives::Point2`) so the app's layout record\n([`crate::annotation::layout`]) can carry the tag straight across the\nWASM boundary instead of mirroring it.",
+      "enum": [
+        "Visible",
+        "Hidden"
+      ],
+      "type": "string"
+    }
+  },
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "description": "Everything the app needs to draw one annotated view: the projected curves\nand the resolved annotations, in one view frame, in meters.\n\nThe sheet's own paper-space transform — the view scale and where on the\nsheet it sits — is D4a's and is deliberately not here. This record is the\nview's *contents*, in the view's own coordinates.",
+  "properties": {
+    "annotations": {
+      "default": [],
+      "items": {
+        "$ref": "#/$defs/AnnotationLayout"
+      },
+      "type": "array"
+    },
+    "bbox": {
+      "description": "`[min, max]` over every curve; `None` when there are none (an\nempty-but-present box is a lie — the same call\n[`ViewGeometry::bbox`] makes).",
+      "items": {
+        "items": {
+          "format": "double",
+          "type": "number"
+        },
+        "maxItems": 2,
+        "minItems": 2,
+        "type": "array"
+      },
+      "maxItems": 2,
+      "minItems": 2,
+      "type": [
+        "array",
+        "null"
+      ]
+    },
+    "curves": {
+      "items": {
+        "$ref": "#/$defs/LayoutCurveEntry"
+      },
+      "type": "array"
+    }
+  },
+  "required": [
+    "curves"
+  ],
+  "title": "ViewLayout",
+  "type": "object"
+}

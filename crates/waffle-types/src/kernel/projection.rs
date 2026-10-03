@@ -267,7 +267,13 @@ pub struct ProjectOpts {
 /// D1a and D1b tagged everything `Visible`; since D1c the kernel splits each
 /// projected curve at its crossings and classifies each piece, so `Hidden` is
 /// a produced answer and a drawing's HIDDEN layer is populated.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+///
+/// Serde-able (unlike [`Curve2`], which is built on the serde-less
+/// `cad_primitives::Point2`) so the app's layout record
+/// ([`crate::annotation::layout`]) can carry the tag straight across the
+/// WASM boundary instead of mirroring it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
+#[cfg_attr(feature = "json-schema", derive(schemars::JsonSchema))]
 pub enum Visibility {
     Visible,
     Hidden,
@@ -432,7 +438,10 @@ impl ProjectionDeclines {
 }
 
 /// What the curve is in the drawing.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+///
+/// Serde-able for the same reason as [`Visibility`].
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
+#[cfg_attr(feature = "json-schema", derive(schemars::JsonSchema))]
 pub enum CurveKind {
     /// The projection of a B-Rep edge.
     Edge,

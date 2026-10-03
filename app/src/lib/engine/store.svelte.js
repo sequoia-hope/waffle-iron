@@ -25,6 +25,7 @@ import { deleteDraft, getDraft, listDrafts, pruneDrafts, putDraft, rememberTabKe
 import { findConnectedChain, orderChain } from '$lib/sketch/chain.js';
 import { resolveChainSegments, offsetChainSegments } from '$lib/sketch/offset.js';
 import { isDatumPlaneRef, getPlaneIdFromRef, getPlaneById, resolvePlane, BUILTIN_PLANES } from './planes.js';
+import { renderViewSvg } from '$lib/drawings/svg.js';
 import { FORMAT_VERSION, MIN_READER_VERSION, fileTooNew } from './format.js';
 import { fetchTestCases, fetchTestCase, createTestCase as apiCreateTestCase, deleteTestCase as apiDeleteTestCase } from './testCaseApi.js';
 
@@ -1191,6 +1192,13 @@ export async function initEngine() {
 			getParameters: () => JSON.parse(JSON.stringify(getParameters())),
 			setParameters: (params) => setParameters(params),
 			evaluateExpression: (expr) => evaluateExpression(expr),
+			// The SVG dimension renderer (drawings spec D3). A PURE function of
+			// its argument — it reads no store state — so exposing it here is
+			// a door for tests and for the console, not an engine call. The
+			// drawing tab that will feed it a real `ViewLayout` is D4a; until
+			// then this is how the renderer is exercised against the layout
+			// records `waffle_types::annotation::layout` defines.
+			renderDrawingSvg: (input) => renderViewSvg(input ?? {}),
 			getMeshes: () => meshes.map(m => ({
 				featureId: m.featureId,
 				bodyId: m.bodyId ?? null,

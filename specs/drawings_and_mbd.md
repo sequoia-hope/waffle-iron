@@ -1512,7 +1512,7 @@ toast, not a silent stale value.
 This is what lets a drawing dimension's text, an MBD nominal, and a mass line
 in a title block all be ordinary expressions.
 
-## 7. D3 — Annotation model
+## 7. D3 — Annotation model (LANDED 2026-10-03)
 
 Owner: `waffle-types` (types), `feature-engine` (evaluation), `app`
 (rendering).
@@ -1545,6 +1545,221 @@ standard gap and overshoot, filled arrowheads with an architectural-tick
 option, text with a halo gap, and leader lines with a dot or arrow terminator.
 Line weights and text heights follow ISO 128 / ASME Y14.2 defaults scaled by
 the view scale, and are document settings.
+
+### Implementation notes (D3)
+
+Landed 2026-10-03. Where the plan above left a choice open, this is the choice
+made and why.
+
+**The model is split in three, and the split is the mechanism that makes a
+dimension measured.** §7 sketches one `Annotation` enum. What landed is that
+enum plus two companions, in `crates/waffle-types/src/annotation/`:
+
+| module | holds | written by |
+|---|---|---|
+| `annotation` | the document model — which entities, how to measure them | the UI / MCP |
+| `annotation::measure` | the value, from resolved anchor geometry | the rebuild |
+| `annotation::layout` | the record the renderers consume | the rebuild |
+
+`ViewLayout` is §7's "same layout record the engine emits" and §3's
+`AnnotationLayout (JSON)` edge made concrete. It carries the projected curves
+and the resolved annotations with every `GeomRef` already turned into
+geometry and every `Measured` already turned into a number — so a renderer
+holding one has **no path back to the model and therefore no way to draw a
+value other than the measured one**. That is asserted structurally, on the
+schema's `$defs` and `$ref` closure rather than on one instance
+(`the_layout_schema_carries_no_geom_ref`).
+
+**`Measured` has a third arm and it is the default.** §7's two —
+`Expr(String)` and `Value(f64)` — leave the ordinary case ("this dimension is
+however wide the part is") expressible only as a synthesized expression
+string naming anchors the annotation already holds, or as `Value`, which is
+exactly the typed-in number the spec forbids. `Measured::FromGeometry` names
+it directly. `Expr` stays for a *derived* value (D2's measurement functions, a
+title-block `mass(part)`); `Value` is documented as a cache or an imported
+nominal and is explicitly not offered by a UI. Also, both are struct
+variants, not newtypes: serde's internally-tagged representation — which
+every persisted enum in this tree uses — cannot serialize a newtype variant
+wrapping a primitive, since there is nowhere to put the tag.
+
+**`measure` refuses rather than guessing, in four places.** Two non-parallel
+lines have no single distance (`AnchorsNotParallel`, reporting the angle); a
+sampled polyline has no witness point, because its midpoint moves with the
+chord tolerance that sampled it, so a dimension on one would read a different
+number at a different render density; only a conic has a radius; a zero-length
+line or zero radius is `Degenerate`, not a zero dimension. Parallelism is
+tested on `|sin θ| ≤ 1e-7` — a *dimensionless* tolerance, so it does not
+scale with the lines' length or separation the way `TAU_MODEL` would, pinned
+by `parallelism_is_judged_on_the_angle_so_it_does_not_depend_on_the_lines_length`
+at 1 mm and 1 m.
+
+**An angular dimension reports the ACUTE angle, and cannot do better.** A
+projected curve is an undirected point set by `projection::Curve2`'s own
+contract ("traversal direction is deliberately not preserved"), so an edge's
+direction is known only up to sign and the obtuse supplement is not
+distinguishable from the acute one. Inventing one would mean picking a sign
+the projection does not carry.
+
+**`LayoutCurve` mirrors `Curve2` rather than reusing it, because
+`cad_primitives::Point2` derives no serde.** Adding serde there means editing
+a crate two layers down the stack for a consumer two layers up, so instead
+there is a serde-able twin over `[f64; 2]` with one conversion
+(`LayoutCurve::from_curve2`) and a test pinning it arm-for-arm. `Visibility`
+and `CurveKind` DID gain serde — they are C-like enums with nothing inside —
+so the tags cross directly. If `Point2` ever gains serde, `LayoutCurve`
+collapses to an alias and the conversion becomes the identity.
+
+**`Annotation` is not `PartialEq`.** `GeomRef` is not, and making it so means
+deriving `PartialEq` down through `TopoSignature` and `TopoQuery` — reference
+types four crates share — for a convenience here. Annotations are compared by
+their serialized form, which is also the form that gets persisted and the
+only one an equality would have to agree with.
+
+**No `tolerance` field and no `FeatureControlFrame` variant.** Both need M1's
+`Tolerance` / `GeometricTolerance`, which this increment does not invent.
+Adding the field later is additive (`#[serde(default)]`); adding the variant
+is not.
+
+**Nothing persists yet, so nothing bumped.** `Annotation` is unreachable from
+a `.waffle` file today — it becomes reachable when D4a adds
+`TabKind::Drawing` and M2 adds the `Pmi` feature. Measured against
+`docs/FILE_FORMAT.md` §13 rule 3: no new variant reaches a persisted type, no
+reader can encounter one, so the reader floor does not move and
+`docs/schema/waffle-v5.schema.json` is byte-unchanged (its golden is green).
+**That is the bump D4a owes**, and it owes it for the §13 reason v7 did: the
+annotations it persists are serde-tagged enums whose anchors carry a
+`Selector::Pid`. The shapes are pinned now anyway —
+`docs/schema/annotation.schema.json` and
+`docs/schema/annotation-layout.schema.json`, regenerated with
+`UPDATE_SCHEMA=1` — because the window between D3 and D4a is exactly when an
+accidental change is cheapest to make and hardest to notice.
+
+**The renderer is `app/src/lib/drawings/`: four modules and a thin
+component.** `style.js` holds the ISO 128-20 / ISO 129-1 / ISO 3098 defaults
+with their citations and the `drawingStyle(overrides)` document-settings seam;
+`format.js` turns a measured number into dimension text; `layout.js` is pure
+2-D geometry producing drawing primitives; `svg.js` emits the markup.
+`DrawingView.svelte` is one `{@html}` of `svg.js`'s string — deliberately not
+a declarative `{#each}` renderer, which would be a second source of truth for
+the same geometry. D4a's `DrawingSheet.svelte` composes it.
+
+**One SVG user unit is one paper millimetre, and the standards' numbers reach
+the output unscaled.** §7 says the defaults are "scaled by the view scale",
+which is true of the drawing and false of the pen: a 0.5 mm outline must
+print 0.5 mm wide at 1:1 and at 1:10, or a scaled-down view comes out with
+hairlines. So `layout.js` converts view-space meters to paper mm exactly once
+(`paperTransform`) and works in paper mm thereafter, and the `viewBox` is in
+paper mm with `width`/`height` in `mm` so the browser's print path is true to
+scale. The v-flip (view `v` up, SVG `y` down) is applied to coordinates, not
+as a `scale(1, -1)` transform, which would mirror the text.
+
+**Where the dimension line goes, with no authoring.** It sits
+`style.dimensionOffset` clear of the whole VIEW BOX, on the side away from
+the view's centre, plus the annotation's `placement`. Clearing the two
+witness points is not enough and was the first version's bug: a witness point
+is a wall's midpoint, not the part's extreme, so two opposite walls
+dimensioned for width put the line 2.5 mm *inside* a 40 × 25 mm plate —
+arrowheads, extension lines and all. The view's own bbox is the only thing
+that knows where the part ends. `placement` moves the whole dimension rather
+than only its label, matching how dragging a sketch dimension behaves and
+letting a drafter push one to the other side.
+
+**A radial arrowhead lands on the drawn rim, not at the printed radius.**
+For a circle those are the same point. For a hole seen obliquely they are
+not: the value is the ellipse's major radius (the hole's true radius) while
+the rim along the leader is `1/√((α/a)² + (β/b)²)`, up to `major − minor`
+nearer — 1.5 mm on a Ø16 rim at 45°. `layout.js` solves the reach on the
+ellipse, so the arrow touches the curve it points at and the text still reads
+the true size.
+
+**The renderer never invents a number.** A non-finite value prints an em dash
+(`measure` refuses one, so a record carrying one was built by something that
+did not — and `NaN` where a machinist reads a size is the worst possible
+output); `-0.00` is normalized to `0.00`; an annotation kind this build does
+not know draws nothing and reports the omission in `warnings`, because a
+placeholder glyph on a manufacturing drawing is worse than a visible absence.
+
+**Colours are four CSS variables declared once.** `--drawing-paper`,
+`--drawing-ink`, `--drawing-hidden` and `--drawing-annotation` are defined in
+`app/src/app.css`'s bare `:root` *in terms of the theme's own* tokens. A
+custom property is substituted where it is used, not where it is declared, so
+all nine existing themes and every future one get a drawing palette without a
+drawing block of their own.
+
+**What the two test suites each own.** The measurement is Rust's:
+`annotation::measure`'s unit tests for the rules, and
+`crates/test-harness/tests/d3_annotation_measure.rs` for the whole path —
+build a plate, project it top-down through D1, map each projected curve back
+to its edge's `EntityPid`, resolve the annotation's `Selector::Pid` anchors
+and measure. The plate's sides come back at the authored 40 mm and 25 mm, a
+cylinder rim at its radius, two adjacent walls at 90°, and an anchor whose
+pid is gone refuses *by name* rather than reading a plausible 25 mm off a
+neighbour. `app/tests/gui/drawing-dimension-svg.spec.js` owns the half Rust
+cannot reach — that the renderer PRINTS that value at the stated precision —
+and asserts on the SVG DOM, never on pixels. The assertion that keeps the two
+honest is that the drawn dimension line is as long as the printed number
+times the view scale; a 2 % error injected into the paper transform reddens
+it and leaves the text assertions green.
+
+A finding worth recording from writing that harness: **which world axis a
+named view puts on `u` is the view basis's choice, not something a test may
+assume.** `ViewFrame::looking_along([0, 0, -1])` derives its own `up`, and for
+the top view it lands the sketch's +y on `u`. The fixture pins its sketch +x
+to world +x (`rect_sketch_oriented` — `rect_sketch` takes the derived basis)
+and `expected_extent` derives the expected number with `basis.project_dir`,
+so the test predicts rather than records.
+
+**Still open after this increment:**
+
+- *Nothing emits a `ViewLayout` yet.* `ViewLayout::from_view` and the
+  measurement are built and tested, but the rebuild that resolves anchors
+  through `resolve_geom_ref_live`, measures, and caches the record is D4a's.
+  Until then the renderer's door is `window.__waffle.renderDrawingSvg(input)`
+  — a pure function, exposed for tests and the console, reading no store
+  state.
+- *`Measured::Expr` is not evaluated anywhere.* It needs D2's measurement
+  functions in the expression environment; the arm exists so D4a compiles
+  against the finished shape.
+- *A small circle's radial dimension stays inside.* ISO 129-1 puts the
+  dimension outside the circle with a leader when the text will not fit
+  between the arrowheads. The layout always draws the leader form for a
+  radius and the through-centre form for a diameter, which is wrong for a
+  large circle (the radius should go inside) and cramped for a very small
+  one. Deciding needs a text-width measurement, and §3 forbids text metrics
+  in Rust — so it belongs in `layout.js`, with the measurement taken from the
+  style's text height rather than from the DOM, to keep the function pure.
+- *No tolerance, precision or dual-unit document SETTING exists.* The
+  renderer takes `documentPrecision` and `unit` as arguments and
+  `drawingStyle(overrides)` takes the rest; wiring them to real document
+  settings is M1's, which is also where the `units.js` formatter gains
+  fractional inches.
+- *An ordinate dimension has no ordinate ORIGIN.* `DimensionKind::Ordinate`
+  reads one raw view-plane coordinate, so its number is measured from the
+  view frame's origin — which is a property of the projection, not of the
+  part, and is not the corner the sheet is laid out from (`svg.js` puts paper
+  `(0, 0)` at the bbox's top-left). The printed value therefore cannot be
+  read off the sheet, and moving the part in space changes it. An
+  `origin: GeomRef` (a datum vertex or edge) on the `Ordinate` variant is the
+  fix, and it is additive; it belongs with D4a, which is where a view frame
+  first becomes a document object.
+- *Nothing refuses `Measured::Value`.* It is documented as not authorable and
+  nothing in the tree constructs it (only `FromGeometry` is), but there is no
+  boundary that rejects one either — no MCP tool, no deserialization guard.
+  D4a and M2 own that refusal, at the same seam where they first make an
+  `Annotation` reachable from a file.
+- *A dual dimension's two units share one precision.* Two places of
+  millimetres is 0.01 mm; two places of inches is 0.254 mm, so the bracketed
+  value is 25× coarser than the primary it is supposed to restate. ASME
+  Y14.5 §1.6.2 wants the conversion to preserve the implied precision. The
+  rule is stated and pinned in `format.js`; a separate dual precision is
+  M1's, with the rest of the document settings.
+- *`Placement2` is in view-space meters.* For a label nudge, paper
+  millimetres would be the natural unit, and a label dragged on a 1:10 view
+  would then move the same distance on paper at any scale. It is meters here
+  to match every other coordinate in the record; revisit when the UI actually
+  drags one.
+- *The PMI overlay (M2) reuses `layout.js` but not `svg.js`.* The primitives
+  are emitter-agnostic by design; the three.js side of that is unwritten.
 
 ## 8. D4 — Drawing tab
 
@@ -1683,7 +1898,7 @@ under both schema settings.
 | D1c | visibility classification + oracle | D1b | kernel-v2 — **LANDED 2026-10-03** |
 | D1d | `section_with_plane` | D1a | kernel-v2 |
 | D2 | measurement functions in expressions | D0 | feature-engine |
-| D3 | `Annotation` types + SVG dimension renderer | D0 | waffle-types, app |
+| D3 | `Annotation` types + SVG dimension renderer | D0 | waffle-types, app — **LANDED 2026-10-03** |
 | D4a | `Drawing` tab kind, named + projected views, DXF/SVG export | D1c, D3 | file-format, feature-engine, app, wasm-bridge |
 | D4b | section + detail views, title block, sheet PDF | D1d, D2, D4a | same |
 | M1 | tolerance types, precision, material + mass | D2 | waffle-types, feature-engine, app |
