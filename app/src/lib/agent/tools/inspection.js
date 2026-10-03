@@ -432,9 +432,12 @@ export const measureThicknessTool = {
 		'answer always reports the spacing_m it used and how many samples it took. Each individual ' +
 		'cast is refined onto the analytic surfaces (a plate reports its thickness, and a tube ' +
 		'r_outer − r_inner, to rounding), and refined says how many were; declines counts the sites ' +
-		'that produced nothing, so an answer covering little of the body says so. A sharp corner has ' +
-		'no minimum wall at all — a taper is thinnest AT its acute corner, approaching zero — so read ' +
-		'min_m as "the thinnest place sampled", not as the body\'s medial axis. Lengths in meters.',
+		'that produced nothing, so an answer covering little of the body says so. min_m is the thinnest ' +
+		'cast ANYWHERE on the body, and every ACUTE edge is a sliver: a 4 mm slot through a tube ' +
+		'measures 0.04 mm where the tube wall is 3 mm, and a taper approaches zero at its sharp ' +
+		'corner. So read min_m together with thinnest.from/to and the histogram — a corner sliver is a ' +
+		'lone site in the lowest bin, a real wall is a populated one — and never as the body\'s medial ' +
+		'axis. Lengths in meters.',
 	inputSchema: {
 		type: 'object',
 		properties: {
