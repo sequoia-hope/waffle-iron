@@ -378,8 +378,17 @@ pub(crate) fn require_feature<'a>(
 /// A body's NAME is accepted in place of its id, which is N1's "every tool
 /// argument typed `EntityRef` accepts a name string in place of a `GeomRef` or
 /// body id" (`specs/agent_mechanical_design.md` §5.2) for every body-scoped
-/// tool at once. The id is tried first and a name second; the two cannot
-/// collide, since an id is `"{uuid}/{tag}"` and a name is one identifier.
+/// tool at once. **The id is tried first**, and a name only if no body has
+/// that id — which settles the one collision a body's display name can cause,
+/// since a display name is free text and can be spelled like another body's
+/// `"{uuid}/{tag}"` id.
+///
+/// A string that is BOTH a body's display name and an entity name resolves to
+/// the body here and to the entity in a `{"type":"name"}` operand. The agent
+/// surface cannot create that state — `entity_name` and `body_rename` each
+/// refuse a name the other side holds — so it takes a rename in the UI, which
+/// is deliberately not blocked on an agent's label (see
+/// `feature_engine::names`); `names_list` shows both entries.
 pub(crate) fn require_body(state: &EngineState, body_id: &str) -> Result<String, ToolFailure> {
     let bodies = rendered_bodies(state);
     if bodies

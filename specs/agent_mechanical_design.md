@@ -554,9 +554,16 @@ the only `EntityRef`-shaped argument today) gains a `{"type":"name"}` arm, and
 through — accepts a body's NAME in place of its id and returns the id, so
 `body_measure`, `face_list`, `measure_mass`, `measure_interference`,
 `export_stl`, `body_rename` and `names_list` all take a name for free with no
-second code path (an id is `"{uuid}/{tag}"` and a name is one identifier, so
-the two cannot collide; the id is tried first). "Every result that carries a
-`GeomRef`" is `face_list`, whose entries gain `name`.
+second code path. The id is tried FIRST, which settles the one collision
+possible: a body's display name is free text and can be spelled like another
+body's `"{uuid}/{tag}"` id. The one namespace is enforced in both directions —
+`entity_name` refuses a name a body's display name holds, and `body_rename`
+refuses a `new_name` an entity name holds — so a string cannot come to mean
+the entity in a `{"type":"name"}` operand and the body in `require_body`.
+(A rename in the UI is deliberately not blocked on an agent's label, so a
+hand-made document can still hold both; `names_list` lists both entries.)
+"Every result that carries a `GeomRef`" is `face_list`, whose entries gain
+`name`.
 
 **Open after this increment:**
 

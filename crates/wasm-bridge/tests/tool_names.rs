@@ -784,3 +784,47 @@ fn a_body_name_works_wherever_a_body_id_does() {
     );
     assert!(mass["volume_m3"].as_f64().unwrap() > 0.0, "{mass}");
 }
+
+/// The one namespace is enforced in BOTH directions (N1 §5.2). `entity_name`
+/// already refused a name a body held; `body_rename` must refuse one an
+/// entity holds, or the same string would answer as the entity through a
+/// `{"type":"name"}` operand and as the body through `require_body`.
+#[test]
+fn a_body_cannot_be_renamed_onto_an_entity_name() {
+    let mut state = EngineState::new();
+    let mut kernel = KernelV2Adapter::new();
+    let (_, body) = plate(&mut state, &mut kernel, 0.04, 0.01, 1);
+    let face = top_face_ref(&mut state, &mut kernel, &body);
+    ok(
+        &mut state,
+        &mut kernel,
+        "entity_name",
+        json!({ "target": { "type": "entity", "geom_ref": face }, "name": "top_face" }),
+    );
+
+    let (code, error) = refusal(
+        &mut state,
+        &mut kernel,
+        "body_rename",
+        json!({ "body_id": body.clone(), "new_name": "top_face" }),
+    );
+    assert_eq!(code, "NameTaken", "{error}");
+    assert_eq!(error["details"]["taken_by"], "an entity name", "{error}");
+
+    // The other direction, which already held: a body's display name is not
+    // available to an entity either.
+    ok(
+        &mut state,
+        &mut kernel,
+        "body_rename",
+        json!({ "body_id": body.clone(), "new_name": "plate" }),
+    );
+    let face = top_face_ref(&mut state, &mut kernel, &body);
+    let (code, _) = refusal(
+        &mut state,
+        &mut kernel,
+        "entity_name",
+        json!({ "target": { "type": "entity", "geom_ref": face }, "name": "plate" }),
+    );
+    assert_eq!(code, "NameTaken");
+}

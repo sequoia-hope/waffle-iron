@@ -543,7 +543,7 @@ Tool results with `isError: true`:
 | `ConnectorRefused` | `connector_add` with a `geom_ref` the engine cannot derive a frame from (`reason` verbatim from `ProbeConnectorRef`) |
 | `AssemblyEditFailed` | the engine refused the `EditAssembly` (`reason` verbatim) |
 | `InvalidArguments` | an argument combination the schema cannot express: both `rotation_quat` and `rotation_euler_deg`, a zero quaternion, several of `part_connector`/`geom_ref`/`frame`, `mate_add` with `a === b` |
-| `NameTaken` / `InvalidName` / `NameNotFound` | `entity_name` with a name the document already uses (for an entity or a body — one namespace), a name that is not one or two identifier segments, or whose `body.` segment is not the body the entity is in; `entity_unname` with a name the document does not have (N1, §5.2) |
+| `NameTaken` / `InvalidName` / `NameNotFound` | `entity_name` with a name the document already uses (for an entity or a body — one namespace), a name that is not one or two identifier segments, or whose `body.` segment is not the body the entity is in; `body_rename` with a `new_name` an entity name holds (the same namespace, the other direction); `entity_unname` with a name the document does not have (N1, §5.2) |
 | `ReferenceNotResolved` | `entity_name` with a `target` that no longer identifies one entity, or a `{type: name}` target naming nothing. A name must point at something real at the moment it is assigned |
 | `Internal` | the executor detects a broken invariant (rollback not byte-exact; `ModelDelta` inconsistent). The agent session is then **paused** automatically, and the bar tells the user why. |
 
