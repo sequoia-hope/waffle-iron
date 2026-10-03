@@ -526,6 +526,43 @@ fn axial_frame(a: [f64; 3], w: [f64; 3]) -> Option<(f64, f64, [f64; 3], [f64; 3]
 // path evaluation
 // ---------------------------------------------------------------------------
 
+/// A torus branch evaluated at one `θ`: the chart coordinates `(ρ, τ)` of the
+/// point and the sines and cosines of `θ` and of `φ(θ)`, which the tangent
+/// needs too.
+struct BranchAt {
+    rho: f64,
+    tau: f64,
+    sn: f64,
+    cs: f64,
+    sp: f64,
+    cp: f64,
+}
+
+/// A torus silhouette branch `φ(θ) = atan2(−m·cos θ, w∥) (+π)` at `θ`.
+///
+/// A free function over the branch's own parameters rather than a [`Path`]
+/// method: as a method it needed a non-`Branch` arm, and the only honest thing
+/// to put there was an `unreachable!` — a `panic!` on a production path, which
+/// this crate's rule 4 forbids however provably unreachable it is. Here the
+/// type system carries the obligation instead, and the Branch arms of [`Path`]
+/// are the only callers because they are the only holders of the parameters.
+fn branch_at(major: f64, minor: f64, m: f64, w_axial: f64, flip: bool, theta: f64) -> BranchAt {
+    let (sn, cs) = theta.sin_cos();
+    let mut phi = (-m * cs).atan2(w_axial);
+    if flip {
+        phi += PI;
+    }
+    let (sp, cp) = phi.sin_cos();
+    BranchAt {
+        rho: major + minor * cp,
+        tau: minor * sp,
+        sn,
+        cs,
+        sp,
+        cp,
+    }
+}
+
 impl Path {
     fn closed(&self) -> bool {
         !matches!(self, Path::Ruling { .. })
@@ -547,40 +584,26 @@ impl Path {
                 ))
             }
             Path::Branch {
-                center, a, u1, u2, ..
+                center,
+                a,
+                u1,
+                u2,
+                major,
+                minor,
+                m,
+                w_axial,
+                flip,
             } => {
-                let (rho, tau, sn, cs) = self.branch_at(s);
+                let b = branch_at(major, minor, m, w_axial, flip, s);
                 pt(add(
                     center,
                     add(
-                        add(scaled(u1, rho * cs), scaled(u2, rho * sn)),
-                        scaled(a, tau),
+                        add(scaled(u1, b.rho * b.cs), scaled(u2, b.rho * b.sn)),
+                        scaled(a, b.tau),
                     ),
                 ))
             }
         }
-    }
-
-    /// `(ρ, τ, sin θ, cos θ)` of a branch at `θ = s`.
-    fn branch_at(&self, s: f64) -> (f64, f64, f64, f64) {
-        let Path::Branch {
-            major,
-            minor,
-            m,
-            w_axial,
-            flip,
-            ..
-        } = *self
-        else {
-            unreachable!("branch_at is only called on a branch");
-        };
-        let (sn, cs) = s.sin_cos();
-        let mut phi = (-m * cs).atan2(w_axial);
-        if flip {
-            phi += PI;
-        }
-        let (sp, cp) = phi.sin_cos();
-        (major + minor * cp, minor * sp, sn, cs)
     }
 
     fn tangent(&self, s: f64) -> [f64; 3] {
@@ -594,32 +617,27 @@ impl Path {
                 a,
                 u1,
                 u2,
+                major,
                 minor,
                 m,
                 w_axial,
                 flip,
                 ..
             } => {
-                let (sn, cs) = s.sin_cos();
+                let b = branch_at(major, minor, m, w_axial, flip, s);
                 // `φ = atan2(−m cos θ, w∥)` ⟹ `dφ/dθ = w∥·m·sin θ / (w∥² + m²cos²θ)`.
-                let den = w_axial * w_axial + m * m * cs * cs;
+                let den = w_axial * w_axial + m * m * b.cs * b.cs;
                 let dphi = if den > 0.0 {
-                    w_axial * m * sn / den
+                    w_axial * m * b.sn / den
                 } else {
                     0.0
                 };
-                let (rho, _, _, _) = self.branch_at(s);
-                let mut phi = (-m * cs).atan2(w_axial);
-                if flip {
-                    phi += PI;
-                }
-                let (sp, cp) = phi.sin_cos();
-                let drho = -minor * sp * dphi;
-                let dtau = minor * cp * dphi;
-                let radial = add(scaled(u1, cs), scaled(u2, sn));
-                let dradial = add(scaled(u1, -sn), scaled(u2, cs));
+                let drho = -minor * b.sp * dphi;
+                let dtau = minor * b.cp * dphi;
+                let radial = add(scaled(u1, b.cs), scaled(u2, b.sn));
+                let dradial = add(scaled(u1, -b.sn), scaled(u2, b.cs));
                 add(
-                    add(scaled(radial, drho), scaled(dradial, rho)),
+                    add(scaled(radial, drho), scaled(dradial, b.rho)),
                     scaled(a, dtau),
                 )
             }
