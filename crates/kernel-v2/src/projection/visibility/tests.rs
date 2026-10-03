@@ -577,7 +577,10 @@ fn a_blind_slots_edges_are_hidden_under_the_box_it_is_cut_into() {
     let at_roof: Vec<&ProjectedCurve> = v
         .curves
         .iter()
-        .filter(|c| c.depth.is_some_and(|dd| close(dd.at_midpoint, -0.008, 1e-9)))
+        .filter(|c| {
+            c.depth
+                .is_some_and(|dd| close(dd.at_midpoint, -0.008, 1e-9))
+        })
         .collect();
     let on_outline = |c: &ProjectedCurve| match c.geometry {
         Curve2::Line { start, end } => close(start.x(), side, 1e-9) && close(end.x(), side, 1e-9),
