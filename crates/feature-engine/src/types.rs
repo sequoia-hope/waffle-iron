@@ -4,6 +4,7 @@ use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 use waffle_types::{GeomRef, OutputKey, Sketch};
 
+use crate::expr::Dimension;
 use crate::names::{NameTable, NamedRef};
 
 /// User-assigned body display names, keyed by a body's persistent identity
@@ -46,8 +47,14 @@ pub type ProvenanceTable = HashMap<Uuid, Provenance>;
 ///
 /// `expression` is evaluated in mm-space (see `crate::expr`): bare numeric
 /// literals mean millimeters in length contexts / degrees in angle contexts;
-/// unit suffixes (`in`, `cm`, ...) scale literals; other parameters may be
-/// referenced by name in any order (cycles are a loud per-parameter error).
+/// unit suffixes (`in`, `cm`, ...) scale literals AND commit the dimension;
+/// other parameters may be referenced by name in any order (cycles are a
+/// loud per-parameter error).
+///
+/// `unit` declares what KIND of quantity this parameter is (P1). It is
+/// optional: without it the parameter is a plain number that adopts the
+/// dimension of whatever field reads it, which is the pre-P1 behaviour and
+/// what every document written before P1 relies on.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[cfg_attr(feature = "json-schema", derive(schemars::JsonSchema))]
 pub struct DesignParameter {
@@ -64,6 +71,31 @@ pub struct DesignParameter {
     /// Evaluation error from the last rebuild (`None` = evaluated cleanly).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub error: Option<String>,
+    /// Declared dimension (P1, `specs/agent_mechanical_design.md` §6).
+    ///
+    /// `Some` is a contract in both directions: the expression must produce
+    /// that dimension (a mismatch is this parameter's own error), and the
+    /// parameter enters every expression that reads it already committed,
+    /// so a `Length` parameter in an angle field is refused there. `None`
+    /// leaves it a plain number that adopts whatever field consumes it —
+    /// the pre-P1 behaviour, which is why this is optional and absent by
+    /// default.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub unit: Option<Dimension>,
+    /// Free-text note: what this parameter is for.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub comment: Option<String>,
+    /// The dimension the last successful evaluation produced, alongside
+    /// `value`. Derived state, never persisted — the same pattern as
+    /// [`ScriptParams::arg_dimensions`], refilled by every parameter pass.
+    ///
+    /// `unit` alone cannot stand in for it: a parameter with no declared
+    /// unit whose expression commits one (`width = "2cm"`) is a length in
+    /// the rebuild's environment, and without this the bridge's stateless
+    /// preview ([`crate::params::cached_env`]) would read it as a plain
+    /// number and accept what the rebuild refuses.
+    #[serde(skip)]
+    pub tag: Option<crate::expr::Tag>,
 }
 
 impl DesignParameter {
@@ -74,7 +106,16 @@ impl DesignParameter {
             expression: expression.into(),
             value: 0.0,
             error: None,
+            unit: None,
+            comment: None,
+            tag: None,
         }
+    }
+
+    /// The same parameter with a declared dimension.
+    pub fn with_unit(mut self, unit: Dimension) -> Self {
+        self.unit = Some(unit);
+        self
     }
 }
 
@@ -1343,6 +1384,17 @@ pub struct ScriptParams {
     pub arg_exprs: std::collections::BTreeMap<String, String>,
     #[serde(default, skip_serializing_if = "std::collections::BTreeMap::is_empty")]
     pub arg_values: std::collections::BTreeMap<String, f64>,
+    /// The DIMENSION each cached `arg_values` entry was evaluated with (P1).
+    ///
+    /// Derived state, never persisted: the parameter pass runs at the start
+    /// of every rebuild and refills it before the script executes, so the
+    /// script layer can check `25deg` against a `@param … length` instead of
+    /// reading it as 25 mm. An entry missing (a `run` with no preceding
+    /// parameter pass) is treated as uncommitted — the pre-P1 reading —
+    /// rather than a refusal, because its absence says nothing about the
+    /// expression.
+    #[serde(skip)]
+    pub arg_dimensions: std::collections::BTreeMap<String, crate::expr::Tag>,
 }
 
 fn default_entry() -> String {

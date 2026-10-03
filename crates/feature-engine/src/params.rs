@@ -21,9 +21,17 @@ use std::collections::HashMap;
 
 use uuid::Uuid;
 
-use crate::expr::{self, ExprError, MM_TO_METERS};
+use crate::expr::{self, Dimension, Env, ExprError, Quantity, Span};
 use crate::types::{DesignParameter, FeatureTree, Operation, PlaneDefinition};
 use waffle_types::{DimensionUnit, SketchEntity, SolveStatus};
+
+/// The dimension a sketch dimension constraint drives.
+fn sketch_dimension(unit: DimensionUnit) -> Dimension {
+    match unit {
+        DimensionUnit::Length => Dimension::Length,
+        DimensionUnit::AngleDegrees => Dimension::Angle,
+    }
+}
 
 /// Result of the apply pass.
 #[derive(Debug, Default)]
@@ -39,13 +47,17 @@ pub struct ParamOutcome {
     pub errors: Vec<(Uuid, String)>,
 }
 
-/// Evaluate the parameter table into name → mm-space value, refreshing each
-/// parameter's cached `value` and `error` in place. Order-independent:
-/// unresolved parameters are retried until a fixpoint, so forward references
-/// work; leftovers (unknown names, cycles) get per-parameter errors and keep
-/// their last-good cached value.
-pub fn evaluate_parameters(params: &mut [DesignParameter]) -> HashMap<String, f64> {
-    let mut env: HashMap<String, f64> = HashMap::new();
+/// Evaluate the parameter table into an environment of dimensioned
+/// working-space values, refreshing each parameter's cached `value` and
+/// `error` in place. Order-independent: unresolved parameters are retried
+/// until a fixpoint, so forward references work; leftovers (unknown names,
+/// cycles) get per-parameter errors and keep their last-good cached value.
+///
+/// A parameter with a declared `unit` is checked against it and enters the
+/// environment COMMITTED to that dimension; one without stays a plain
+/// number that adopts whatever field consumes it.
+pub fn evaluate_parameters(params: &mut [DesignParameter]) -> Env {
+    let mut env: Env = Env::new();
 
     // Pre-validate names; mark duplicates (first occurrence wins).
     let mut pending: Vec<usize> = Vec::new();
@@ -70,10 +82,15 @@ pub fn evaluate_parameters(params: &mut [DesignParameter]) -> HashMap<String, f6
         let mut progressed = false;
         let mut still_pending = Vec::new();
         for &i in &pending {
-            match expr::evaluate(&params[i].expression, &env) {
-                Ok(v) => {
-                    env.insert(params[i].name.clone(), v);
-                    params[i].value = v;
+            match evaluate_declared(&params[i], &env) {
+                Ok(q) => {
+                    env.insert(params[i].name.clone(), q);
+                    params[i].value = q.value;
+                    // The DIMENSION is cached alongside the magnitude, so
+                    // `cached_env` can rebuild this exact environment for
+                    // the bridge's preview instead of guessing it from
+                    // `unit` (see `DesignParameter::tag`).
+                    params[i].tag = Some(q.tag);
                     params[i].error = None;
                     progressed = true;
                 }
@@ -92,7 +109,7 @@ pub fn evaluate_parameters(params: &mut [DesignParameter]) -> HashMap<String, f6
     // Whatever is left is stuck on an unknown name — either a genuine
     // unknown or a cycle. Re-evaluate once for the specific message.
     for &i in &pending {
-        let msg = match expr::evaluate(&params[i].expression, &env) {
+        let msg = match evaluate_declared(&params[i], &env) {
             Err(ExprError::UnknownIdentifier(name)) if seen.contains_key(&name) => {
                 format!("circular reference involving '{name}'")
             }
@@ -105,16 +122,48 @@ pub fn evaluate_parameters(params: &mut [DesignParameter]) -> HashMap<String, f6
     env
 }
 
+/// Evaluate one parameter's expression and apply its declared unit, if any.
+/// A declared unit the expression contradicts is this parameter's error.
+fn evaluate_declared(param: &DesignParameter, env: &Env) -> Result<Quantity, ExprError> {
+    let q = expr::evaluate_quantity(&param.expression, env)?;
+    match param.unit {
+        Some(want) => q.retag(want, Span::new(0, param.expression.len())),
+        None => Ok(q),
+    }
+}
+
 /// Environment from the parameters' CACHED values (no re-evaluation): every
 /// parameter whose last evaluation succeeded, first-of-name wins. Used by the
 /// bridge's stateless expression preview, which must match what the next
 /// rebuild will compute without mutating anything.
-pub fn cached_env(params: &[DesignParameter]) -> HashMap<String, f64> {
-    let mut env = HashMap::new();
+pub fn cached_env(params: &[DesignParameter]) -> Env {
+    let mut env = Env::new();
     for p in params {
-        if p.error.is_none() {
-            env.entry(p.name.clone()).or_insert(p.value);
+        if p.error.is_some() {
+            continue;
         }
+        // The cached magnitude plus the dimension the last evaluation
+        // actually produced. `unit` is NOT enough on its own: an undeclared
+        // parameter whose expression commits a dimension (`width = "2cm"`)
+        // is a length in the rebuild's environment, and reading it here as
+        // a plain number would make the preview accept what the rebuild
+        // refuses. `tag` is unset only before the first pass of a freshly
+        // deserialized tree, where falling back to the declared unit is the
+        // best available answer.
+        let q = match p.tag {
+            Some(tag) => Quantity {
+                value: p.value,
+                tag,
+            },
+            None => {
+                let q = Quantity::untagged(p.value);
+                match p.unit {
+                    Some(want) => q.retag(want, Span::new(0, p.expression.len())).unwrap_or(q),
+                    None => q,
+                }
+            }
+        };
+        env.entry(p.name.clone()).or_insert(q);
     }
     env
 }
@@ -135,23 +184,26 @@ pub fn apply_parameters(tree: &mut FeatureTree) -> ParamOutcome {
     for (idx, feature) in tree.features.iter_mut().enumerate() {
         let mut errs: Vec<String> = Vec::new();
         let changed = match &mut feature.operation {
-            Operation::Extrude { params } => apply_length_field(
+            Operation::Extrude { params } => apply_field(
                 "depth",
+                Dimension::Length,
                 &mut params.depth,
                 params.depth_expr.as_deref(),
                 &env,
                 &mut errs,
             ),
-            Operation::Revolve { params } => apply_angle_field(
+            Operation::Revolve { params } => apply_field(
                 "angle",
+                Dimension::Angle,
                 &mut params.angle,
                 params.angle_expr.as_deref(),
                 &env,
                 &mut errs,
             ),
             Operation::Pipe { params } => {
-                let a = apply_length_field(
+                let a = apply_field(
                     "radius",
+                    Dimension::Length,
                     &mut params.radius,
                     params.radius_expr.as_deref(),
                     &env,
@@ -162,12 +214,18 @@ pub fn apply_parameters(tree: &mut FeatureTree) -> ParamOutcome {
                     params.inner_radius_expr.as_deref(),
                 ) {
                     (Some(ri), expr @ Some(_)) => {
-                        apply_length_field("inner_radius", ri, expr, &env, &mut errs)
+                        apply_field("inner_radius", Dimension::Length, ri, expr, &env, &mut errs)
                     }
                     (None, Some(expr)) => {
                         let mut v = 0.0;
-                        let changed =
-                            apply_length_field("inner_radius", &mut v, Some(expr), &env, &mut errs);
+                        let changed = apply_field(
+                            "inner_radius",
+                            Dimension::Length,
+                            &mut v,
+                            Some(expr),
+                            &env,
+                            &mut errs,
+                        );
                         if changed {
                             params.inner_radius = Some(v);
                         }
@@ -189,14 +247,22 @@ pub fn apply_parameters(tree: &mut FeatureTree) -> ParamOutcome {
                     ..
                 } => {
                     let expr = distance_expr.clone();
-                    apply_length_field("distance", distance, expr.as_deref(), &env, &mut errs)
+                    apply_field(
+                        "distance",
+                        Dimension::Length,
+                        distance,
+                        expr.as_deref(),
+                        &env,
+                        &mut errs,
+                    )
                 }
                 PlaneDefinition::PointNormal { .. } => false,
             },
             Operation::Sketch { sketch } => apply_sketch(sketch, &env, &mut errs),
             Operation::Sketch3d { sketch } => apply_sketch3d(sketch, &env, &mut errs),
-            Operation::PatternCircular { params } => apply_angle_field(
+            Operation::PatternCircular { params } => apply_field(
                 "angle",
+                Dimension::Angle,
                 &mut params.angle_deg,
                 params.angle_expr.as_deref(),
                 &env,
@@ -204,16 +270,20 @@ pub fn apply_parameters(tree: &mut FeatureTree) -> ParamOutcome {
             ),
             Operation::Script { params } => {
                 // Expression-driven script arguments: evaluate each into the
-                // raw (mm-space / degrees / plain) cache; the script layer
-                // converts by the parameter's declared type.
+                // raw (mm-space / degrees / plain) cache. The declared type
+                // lives in the script's header, which is in the document's
+                // sources table and not reachable from here, so the DIMENSION
+                // travels with the value in `arg_dimensions` and the script
+                // layer checks it against the `@param` type it declared.
                 let mut changed = false;
                 for (name, expression) in &params.arg_exprs {
-                    match expr::evaluate(expression, &env) {
-                        Ok(v) => {
-                            if params.arg_values.get(name) != Some(&v) {
-                                params.arg_values.insert(name.clone(), v);
+                    match expr::evaluate_quantity(expression, &env) {
+                        Ok(q) => {
+                            if params.arg_values.get(name) != Some(&q.value) {
+                                params.arg_values.insert(name.clone(), q.value);
                                 changed = true;
                             }
+                            params.arg_dimensions.insert(name.clone(), q.tag);
                         }
                         Err(e) => errs.push(format!("{name} expression '{expression}': {e}")),
                     }
@@ -221,8 +291,9 @@ pub fn apply_parameters(tree: &mut FeatureTree) -> ParamOutcome {
                 changed
             }
             Operation::PatternLinear { params } => {
-                let mut changed = apply_length_field(
+                let mut changed = apply_field(
                     "spacing",
+                    Dimension::Length,
                     &mut params.spacing,
                     params.spacing_expr.as_deref(),
                     &env,
@@ -230,8 +301,9 @@ pub fn apply_parameters(tree: &mut FeatureTree) -> ParamOutcome {
                 );
                 if let Some(second) = params.second.as_mut() {
                     let expr = second.spacing_expr.clone();
-                    changed |= apply_length_field(
+                    changed |= apply_field(
                         "second spacing",
+                        Dimension::Length,
                         &mut second.spacing,
                         expr.as_deref(),
                         &env,
@@ -267,7 +339,7 @@ pub fn apply_parameters(tree: &mut FeatureTree) -> ParamOutcome {
 /// walk (`crate::sketch3d`).
 fn apply_sketch3d(
     sketch: &mut waffle_types::sketch3d::Sketch3d,
-    env: &HashMap<String, f64>,
+    env: &Env,
     errs: &mut Vec<String>,
 ) -> bool {
     use waffle_types::sketch3d::Sketch3dEntity;
@@ -284,8 +356,9 @@ fn apply_sketch3d(
                     let Some(expression) = expression.as_deref() else {
                         continue;
                     };
-                    changed |= apply_length_field(
+                    changed |= apply_field(
                         &format!("point {id} {}", ["x", "y", "z"][axis]),
+                        Dimension::Length,
                         &mut xyz[axis],
                         Some(expression),
                         env,
@@ -300,8 +373,9 @@ fn apply_sketch3d(
                 ..
             } => {
                 let expression = radius_expr.clone();
-                changed |= apply_length_field(
+                changed |= apply_field(
                     &format!("fillet {id} radius"),
+                    Dimension::Length,
                     radius,
                     expression.as_deref(),
                     env,
@@ -314,47 +388,23 @@ fn apply_sketch3d(
     changed
 }
 
-/// Evaluate a length expression (mm-space → meters) into `field`.
-/// Returns true if the value changed. Errors leave the field untouched.
-fn apply_length_field(
+/// Evaluate an expression into `field`, accepting it for `dimension` — the
+/// typed boundary. `Length` writes METERS, `Angle` writes DEGREES (what the
+/// fields store), `Count`/`Ratio` the plain number. Returns true if the
+/// value changed; any error (including a dimension the field cannot take,
+/// such as `25deg` in a depth) leaves the field untouched and is reported.
+fn apply_field(
     label: &str,
+    dimension: Dimension,
     field: &mut f64,
     expression: Option<&str>,
-    env: &HashMap<String, f64>,
+    env: &Env,
     errs: &mut Vec<String>,
 ) -> bool {
     let Some(expression) = expression else {
         return false;
     };
-    match expr::evaluate(expression, env) {
-        Ok(v) => {
-            let meters = v * MM_TO_METERS;
-            if meters != *field {
-                *field = meters;
-                true
-            } else {
-                false
-            }
-        }
-        Err(e) => {
-            errs.push(format!("{label} expression '{expression}': {e}"));
-            false
-        }
-    }
-}
-
-/// Evaluate an angle expression (degrees, verbatim) into `field`.
-fn apply_angle_field(
-    label: &str,
-    field: &mut f64,
-    expression: Option<&str>,
-    env: &HashMap<String, f64>,
-    errs: &mut Vec<String>,
-) -> bool {
-    let Some(expression) = expression else {
-        return false;
-    };
-    match expr::evaluate(expression, env) {
+    match expr::evaluate_quantity(expression, env).and_then(|q| q.accept(dimension)) {
         Ok(v) => {
             if v != *field {
                 *field = v;
@@ -375,11 +425,7 @@ fn apply_angle_field(
 /// written by a tool that did not run the solver) — solve it from its current
 /// geometry and recompute derived data. Returns true if the sketch's geometry
 /// or status was updated.
-fn apply_sketch(
-    sketch: &mut waffle_types::Sketch,
-    env: &HashMap<String, f64>,
-    errs: &mut Vec<String>,
-) -> bool {
+fn apply_sketch(sketch: &mut waffle_types::Sketch, env: &Env, errs: &mut Vec<String>) -> bool {
     // Pass 1: evaluate every expression-driven dimension, recording previous
     // values so a failed solve can restore a consistent sketch.
     let mut changed: Vec<(usize, f64)> = Vec::new(); // (constraint idx, old value)
@@ -390,12 +436,12 @@ fn apply_sketch(
         let Some(unit) = c.dimension_unit() else {
             continue;
         };
-        match expr::evaluate(&expression, env) {
-            Ok(v) => {
-                let new_value = match unit {
-                    DimensionUnit::Length => v * MM_TO_METERS,
-                    DimensionUnit::AngleDegrees => v,
-                };
+        // The constraint's own unit IS the dimension it asks for: a length
+        // dim stores meters, an angle dim degrees. A `25deg` on a length
+        // dimension is refused here rather than read as 25 mm.
+        let dimension = sketch_dimension(unit);
+        match expr::evaluate_quantity(&expression, env).and_then(|q| q.accept(dimension)) {
+            Ok(new_value) => {
                 let old = c.dimension_value().unwrap_or(0.0);
                 if new_value != old {
                     c.set_dimension_value(new_value);
@@ -501,8 +547,8 @@ mod tests {
     fn table_resolves_forward_references_any_order() {
         let mut params = vec![param("b", "a * 2"), param("a", "10")];
         let env = evaluate_parameters(&mut params);
-        assert_eq!(env.get("a"), Some(&10.0));
-        assert_eq!(env.get("b"), Some(&20.0));
+        assert_eq!(env.get("a").map(|q| q.value), Some(10.0));
+        assert_eq!(env.get("b").map(|q| q.value), Some(20.0));
         assert_eq!(params[0].value, 20.0);
         assert!(params[0].error.is_none());
         assert_eq!(params[1].value, 10.0);
@@ -512,7 +558,7 @@ mod tests {
     fn table_reports_cycles_without_hanging() {
         let mut params = vec![param("a", "b + 1"), param("b", "a + 1"), param("c", "5")];
         let env = evaluate_parameters(&mut params);
-        assert_eq!(env.get("c"), Some(&5.0));
+        assert_eq!(env.get("c").map(|q| q.value), Some(5.0));
         assert!(!env.contains_key("a"));
         assert!(params[0].error.as_deref().unwrap().contains("circular"));
         assert!(params[1].error.as_deref().unwrap().contains("circular"));
@@ -523,7 +569,7 @@ mod tests {
     fn table_reports_duplicates_and_bad_names_first_wins() {
         let mut params = vec![param("w", "1"), param("w", "2"), param("mm", "3")];
         let env = evaluate_parameters(&mut params);
-        assert_eq!(env.get("w"), Some(&1.0));
+        assert_eq!(env.get("w").map(|q| q.value), Some(1.0));
         assert!(params[1].error.as_deref().unwrap().contains("duplicate"));
         assert!(params[2].error.as_deref().unwrap().contains("reserved"));
     }
@@ -567,6 +613,37 @@ mod tests {
             },
             suppressed: false,
             references: Vec::new(),
+        }
+    }
+
+    fn revolve_feature(angle: f64, angle_expr: Option<&str>) -> Feature {
+        Feature {
+            id: Uuid::new_v4(),
+            name: "Revolve".to_string(),
+            operation: Operation::Revolve {
+                params: RevolveParams {
+                    sketch_id: Uuid::new_v4(),
+                    profile_index: 0,
+                    profile_entity_ids: None,
+                    axis_origin: [0.0; 3],
+                    axis_direction: [0.0, 0.0, 1.0],
+                    angle,
+                    angle_expr: angle_expr.map(str::to_string),
+                    cut: false,
+                    merge: true,
+                    combine: None,
+                    targets: None,
+                },
+            },
+            suppressed: false,
+            references: Vec::new(),
+        }
+    }
+
+    fn revolve_angle(tree: &FeatureTree, idx: usize) -> f64 {
+        match &tree.features[idx].operation {
+            Operation::Revolve { params } => params.angle,
+            other => panic!("expected revolve, got {other:?}"),
         }
     }
 
@@ -621,6 +698,193 @@ mod tests {
         assert_eq!(outcome.errors.len(), 1);
         assert_eq!(outcome.errors[0].0, feature_id);
         assert!(outcome.errors[0].1.contains("unknown variable 'nope'"));
+    }
+
+    // -- P1: the typed boundary (`specs/agent_mechanical_design.md` §6) --
+
+    #[test]
+    fn a_bare_number_in_a_depth_still_means_millimeters() {
+        // The pre-P1 contract, pinned: a bare number is mm-space, so a
+        // depth of `25` is 25 mm = 0.025 m, not 25 m.
+        let mut tree = tree_with(vec![], vec![extrude_feature(0.0, Some("25"))]);
+        assert!(apply_parameters(&mut tree).errors.is_empty());
+        assert_eq!(extrude_depth(&tree, 0), 0.025);
+    }
+
+    #[test]
+    fn an_angle_in_a_depth_is_refused_not_read_as_millimeters() {
+        // THE defect P1 exists to kill: before P1, `25deg` as a depth
+        // evaluated to the plain number 25 and the length boundary read it
+        // as 25 mm.
+        let mut tree = tree_with(vec![], vec![extrude_feature(0.010, Some("25deg"))]);
+        let outcome = apply_parameters(&mut tree);
+        assert_eq!(extrude_depth(&tree, 0), 0.010, "the depth must not change");
+        assert_eq!(outcome.first_changed, None);
+        assert_eq!(outcome.errors.len(), 1, "{:?}", outcome.errors);
+        let msg = &outcome.errors[0].1;
+        assert!(
+            msg.contains("expected a length, got an angle"),
+            "message was {msg:?}"
+        );
+        assert!(msg.contains("at bytes 0..5"), "message was {msg:?}");
+    }
+
+    #[test]
+    fn a_length_in_an_angle_is_refused_too() {
+        let mut tree = tree_with(vec![], vec![revolve_feature(360.0, Some("1in"))]);
+        let outcome = apply_parameters(&mut tree);
+        assert_eq!(revolve_angle(&tree, 0), 360.0);
+        assert_eq!(outcome.errors.len(), 1, "{:?}", outcome.errors);
+        assert!(
+            outcome.errors[0]
+                .1
+                .contains("expected an angle, got a length"),
+            "{}",
+            outcome.errors[0].1
+        );
+    }
+
+    #[test]
+    fn explicit_length_units_convert_at_the_boundary() {
+        for (expression, meters) in [
+            ("25 mm", 0.025),
+            ("1 in", 0.0254),
+            ("2cm", 0.020),
+            ("1m", 1.0),
+            ("10mm + 1in", 0.0354),
+        ] {
+            let mut tree = tree_with(vec![], vec![extrude_feature(0.0, Some(expression))]);
+            let outcome = apply_parameters(&mut tree);
+            assert!(
+                outcome.errors.is_empty(),
+                "{expression}: {:?}",
+                outcome.errors
+            );
+            let got = extrude_depth(&tree, 0);
+            assert!(
+                (got - meters).abs() < 1e-15,
+                "{expression}: expected {meters} m, got {got}"
+            );
+        }
+    }
+
+    #[test]
+    fn an_area_cannot_be_a_depth_but_its_root_can() {
+        let mut tree = tree_with(vec![], vec![extrude_feature(0.010, Some("5mm * 5mm"))]);
+        let outcome = apply_parameters(&mut tree);
+        assert_eq!(outcome.errors.len(), 1, "{:?}", outcome.errors);
+        assert!(
+            outcome.errors[0].1.contains("got length^2"),
+            "{}",
+            outcome.errors[0].1
+        );
+
+        let mut tree = tree_with(vec![], vec![extrude_feature(0.0, Some("sqrt(5mm * 5mm)"))]);
+        assert!(apply_parameters(&mut tree).errors.is_empty());
+        assert_eq!(extrude_depth(&tree, 0), 0.005);
+    }
+
+    #[test]
+    fn a_declared_parameter_unit_propagates_into_the_fields_that_read_it() {
+        let mut tree = tree_with(
+            vec![
+                param("height", "25").with_unit(Dimension::Length),
+                param("turn", "90").with_unit(Dimension::Angle),
+            ],
+            vec![
+                extrude_feature(0.0, Some("height")),
+                extrude_feature(0.010, Some("turn")),
+            ],
+        );
+        let outcome = apply_parameters(&mut tree);
+        assert_eq!(extrude_depth(&tree, 0), 0.025, "a length parameter fits");
+        assert_eq!(
+            extrude_depth(&tree, 1),
+            0.010,
+            "an angle parameter in a depth is refused"
+        );
+        assert_eq!(outcome.errors.len(), 1, "{:?}", outcome.errors);
+        assert!(
+            outcome.errors[0]
+                .1
+                .contains("expected a length, got an angle"),
+            "{}",
+            outcome.errors[0].1
+        );
+    }
+
+    #[test]
+    fn a_declared_unit_the_expression_contradicts_is_the_parameters_own_error() {
+        let mut params = vec![param("height", "25deg").with_unit(Dimension::Length)];
+        evaluate_parameters(&mut params);
+        let err = params[0].error.as_deref().unwrap();
+        assert!(err.contains("expected a length, got an angle"), "{err}");
+
+        let mut params = vec![param("teeth", "20.5").with_unit(Dimension::Count)];
+        evaluate_parameters(&mut params);
+        let err = params[0].error.as_deref().unwrap();
+        assert!(err.contains("whole non-negative count"), "{err}");
+    }
+
+    #[test]
+    fn one_radian_in_a_revolve_angle_is_degrees_at_the_boundary() {
+        // `rad` is P1's only new suffix, and the working space is degrees,
+        // so the conversion happens in the literal: 1 rad = 57.29577…°.
+        let mut tree = tree_with(vec![], vec![revolve_feature(0.0, Some("1rad"))]);
+        let outcome = apply_parameters(&mut tree);
+        assert!(outcome.errors.is_empty(), "{:?}", outcome.errors);
+        let got = revolve_angle(&tree, 0);
+        assert!(
+            (got - 180.0 / std::f64::consts::PI).abs() < 1e-12,
+            "expected 57.29577951308232 degrees, got {got}"
+        );
+        // And `pi rad` is the half turn it should be.
+        let mut tree = tree_with(vec![], vec![revolve_feature(0.0, Some("pi * 1rad"))]);
+        assert!(apply_parameters(&mut tree).errors.is_empty());
+        assert!((revolve_angle(&tree, 0) - 180.0).abs() < 1e-12);
+        // A radian is an ANGLE, so a depth refuses it like any other.
+        let mut tree = tree_with(vec![], vec![extrude_feature(0.010, Some("1rad"))]);
+        let outcome = apply_parameters(&mut tree);
+        assert_eq!(extrude_depth(&tree, 0), 0.010);
+        assert!(outcome.errors[0]
+            .1
+            .contains("expected a length, got an angle"));
+    }
+
+    #[test]
+    fn cached_env_reproduces_a_dimension_the_expression_committed_itself() {
+        // The preview must refuse exactly what the rebuild refuses. A
+        // parameter with NO declared unit whose expression commits one is
+        // the case `unit` alone cannot reconstruct.
+        let mut params = vec![param("width", "2cm"), param("turn", "90deg")];
+        let rebuild = evaluate_parameters(&mut params);
+        let preview = cached_env(&params);
+        for name in ["width", "turn"] {
+            let r = rebuild.get(name).copied().unwrap();
+            let p = preview.get(name).copied().unwrap();
+            assert_eq!(p.value, r.value, "{name}");
+            assert_eq!(p.tag, r.tag, "{name}: the preview must agree on the kind");
+        }
+        assert_eq!(preview["width"].dimension(), Some(Dimension::Length));
+        assert!(preview["width"].as_angle_degrees().is_err());
+        assert_eq!(preview["turn"].as_angle_degrees().unwrap(), 90.0);
+        assert!(preview["turn"].as_length_meters().is_err());
+        // A bare expression stays uncommitted on both sides.
+        let mut params = vec![param("plain", "25")];
+        evaluate_parameters(&mut params);
+        assert_eq!(cached_env(&params)["plain"].dimension(), None);
+    }
+
+    #[test]
+    fn cached_env_carries_the_declared_dimension_like_the_rebuild_will() {
+        let mut params = vec![param("turn", "90").with_unit(Dimension::Angle)];
+        evaluate_parameters(&mut params);
+        let env = cached_env(&params);
+        let q = env.get("turn").copied().unwrap();
+        assert_eq!(q.value, 90.0);
+        assert_eq!(q.dimension(), Some(Dimension::Angle));
+        assert_eq!(q.as_angle_degrees().unwrap(), 90.0);
+        assert!(q.as_length_meters().is_err());
     }
 
     #[test]

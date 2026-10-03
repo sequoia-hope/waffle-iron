@@ -42,6 +42,7 @@ fn params_for(s: &SprocketParams) -> ScriptParams {
         args,
         arg_exprs: BTreeMap::new(),
         arg_values: BTreeMap::new(),
+        arg_dimensions: Default::default(),
     }
 }
 

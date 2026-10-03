@@ -1802,12 +1802,19 @@ fn dispatch_evaluate_expression_uses_current_parameters() {
         &mut state,
         UiToEngine::EvaluateExpression {
             expression: "width * 2 + 1in".to_string(),
+            dimension: None,
         },
         &mut kernel,
     );
-    if let EngineToUi::ExpressionEvaluated { value, error } = &resp {
+    if let EngineToUi::ExpressionEvaluated {
+        value,
+        dimension,
+        error,
+    } = &resp
+    {
         assert_eq!(*error, None);
         assert!((value.unwrap() - 85.4).abs() < 1e-12);
+        assert_eq!(dimension.as_deref(), Some("length"));
     } else {
         panic!("expected ExpressionEvaluated, got {resp:?}");
     }
@@ -1817,10 +1824,11 @@ fn dispatch_evaluate_expression_uses_current_parameters() {
         &mut state,
         UiToEngine::EvaluateExpression {
             expression: "bogus + 1".to_string(),
+            dimension: None,
         },
         &mut kernel,
     );
-    if let EngineToUi::ExpressionEvaluated { value, error } = &resp {
+    if let EngineToUi::ExpressionEvaluated { value, error, .. } = &resp {
         assert_eq!(*value, None);
         assert!(error.as_deref().unwrap().contains("unknown variable"));
     } else {

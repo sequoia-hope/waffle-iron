@@ -27,7 +27,18 @@ use crate::sources::SourceEntry;
 ///     fails with a raw "unknown variant" parse error. A new selector variant
 ///     is a floor bump by the §13 rule, and this is the first increment that
 ///     writes one.
-pub const FORMAT_VERSION: u32 = 7;
+///   - **v8** (2026-10-03): `DesignParameter.unit` and `.comment` (P1,
+///     `specs/agent_mechanical_design.md` §6). Both are additive, defaulted
+///     and serialized only when present, and `unit`'s value is a bare string
+///     a reader either knows or drops — so an old reader does not FAIL on
+///     one. The floor still moves, because it must not silently ignore it:
+///     `unit` is the author's statement that a parameter is an angle (or a
+///     count), and a reader that drops it feeds that number to a length
+///     field as millimetres — the exact coercion P1 exists to refuse. A
+///     reader that drops it builds a DIFFERENT solid from the same file,
+///     which is the v5/v6 rationale (`docs/FILE_FORMAT.md` §4, §13.3), and
+///     `crates/feature-engine/tests/param_unit_floor.rs` measures it.
+pub const FORMAT_VERSION: u32 = 8;
 
 /// Oldest reader (by its `FORMAT_VERSION`) that can parse files we write.
 ///
@@ -42,7 +53,7 @@ pub const FORMAT_VERSION: u32 = 7;
 /// opaquely. Purely additive defaulted fields never require a bump. Files
 /// without the field (all pre-2026-08-28 files, including the assay corpus)
 /// default to 0 and always pass. See `docs/FILE_FORMAT.md` §13.
-pub const MIN_READER_VERSION: u32 = 7;
+pub const MIN_READER_VERSION: u32 = 8;
 
 // Keep the constants coherent: we can never require a reader newer than the
 // version we claim to write.

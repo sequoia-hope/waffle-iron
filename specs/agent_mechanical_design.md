@@ -158,7 +158,10 @@ Listed in the order the increments repair them.
    an Assembly has none and tabs cannot share. Gear and sprocket parameters,
    second-direction depth, sketch-region boundaries and assembly transforms
    take no expressions. `parameter_overrides` on an instance is declared and
-   not applied.
+   not applied. *(The dimension half of this is FIXED — P1, 2026-10-03: both
+   coercions are typed errors now, and the parser produces an AST. The table
+   is still per Part and the remaining fields still take no expressions:
+   P2 and P3.)*
 6. **No rule check of any kind.** A whole-repo search found no DFM,
    interference, fastener, thread, hole, wall-thickness or keep-out code. The
    only shipped checks are two closed-form planetary gear rules and the
@@ -688,6 +691,169 @@ Oracle: the existing `params.rs` suites plus: `depth_expr = "25deg"` is a
 typed error; `angle_expr = "1in"` is a typed error; a document parameter
 edited in the Assembly tab rebuilds both Parts that read it; a per-instance
 override produces two different solids from one Part tab.
+
+### Implementation notes (P1)
+
+Landed 2026-10-03 (`crates/feature-engine/src/expr/`, `params.rs`,
+`script/mod.rs`, `wasm-bridge`). Where the plan above left a choice open,
+this is the choice made and why.
+
+**The parser was already recursive-descent; what it lacked was a tree.** The
+pre-P1 `expr.rs` computed as it scanned — correct precedence, no AST — so an
+expression had no representation to read a dependency list off, and no way
+to carry what KIND of number it had produced. The module is now `parse` →
+`Expr` → `eval`, four files (`lex`, `parse`, `eval`, `dim`). The grammar is
+unchanged, deliberately: `+ - * / % ^` with `^` right-associative and
+binding tighter than unary minus, parentheses, calls, `pi`. Function names
+and arities are validated at PARSE time now (the AST is trustworthy);
+identifier resolution stays at evaluation, because the parameter table's
+fixpoint depends on `UnknownIdentifier` coming from there.
+`Expr::identifiers()` is the dependency list P5 needs.
+
+**Dimensions are exponents, and a bare number commits to nothing.** `Dim {
+length: i8, angle: i8 }` composes through the arithmetic, so `w * h` is a
+length², `w * h / t` a length, `sqrt(w * h)` a length, and an area reaching
+a depth is refused by name ("got length^2"). A unit suffix COMMITS the
+dimension (`Tag::Tagged`, carrying the byte range of the suffix so a
+mismatch can point at it); a bare literal stays `Tag::Untagged` and unifies
+with anything. That asymmetry is the whole backward-compatibility story:
+every expression in every pre-P1 document is bare numbers and parameter
+references, so nothing is newly refused, and `width + 1` still means "one
+more millimetre". `Count` and `Ratio` are both dimensionless at the
+exponent level and differ only in what the boundary demands (a count must
+be whole and non-negative).
+
+**The working space did NOT move to base units, and that was the
+compatibility decision.** Magnitudes stay mm for a length and degrees for an
+angle — the pre-P1 space — and base-unit conversion happens only at the
+typed boundary: `Quantity::as_length_meters` (the same `× 1e-3` the old
+`apply_length_field` did, so stored expressions evaluate to the same bits),
+`as_angle_degrees` (which is what every angle field on the tree stores),
+`as_angle_radians` for a consumer that wants the model's base angular unit,
+`as_count`, `as_ratio`. Canonicalising to metres/radians INSIDE the
+evaluator would have been cleaner on paper and would have changed
+floating-point results for `2cm` and friends, which is exactly what a
+backward-compatibility requirement forbids. The methods are named rather
+than dispatched through one `accept(Dimension)` so that an angle field
+cannot accidentally take radians; `accept` exists, and routes `Angle` to
+degrees.
+
+**Per-field dimensions, measured per field.** `apply_length_field` and
+`apply_angle_field` collapsed into `apply_field(label, Dimension, …)`, so
+every site states its contract: depth, radius, inner_radius, datum
+distance, pattern spacing, 3D-sketch point coordinates and fillet radii are
+`Length`; revolve and circular-pattern angles are `Angle`; a sketch
+dimension constraint asks for whatever its own `DimensionUnit` says. No
+`Count` field has an `*_expr` sidecar yet — P3 adds those — so `as_count`
+is exercised by the declared-unit path and by script arguments rather than
+by a feature field.
+
+**Script arguments needed one extra hop.** A script's `@param` type is in
+its header, which lives in the document's sources table, unreachable from
+the parameter pass. So the pass records each argument's dimension in
+`ScriptParams::arg_dimensions` (`#[serde(skip)]`, derived state refilled
+every rebuild) and `resolve_args` checks it against `ParamType`: `length` →
+Length, `angle` → Angle, `int` → Count, `number` → Ratio. An absent entry
+is read as uncommitted rather than refused, because its absence says
+nothing about the expression.
+
+**`DesignParameter.unit` is optional, not defaulted.** A declared unit is a
+contract in both directions — the expression must produce it, and the
+parameter enters the environment already committed, so an `Angle` parameter
+read by a depth is refused at the depth. Absent, the parameter is a plain
+number. It has to be optional: every existing document has no unit, and
+guessing one from the expression would reintroduce the coercion P1 removes.
+Both `unit` and `comment` serialize only when present, so no document's
+bytes change.
+
+**The reader floor MOVED to 8** (settled in review, 2026-10-03).
+`DesignParameter.unit` is additive and defaulted, and serde drops an
+unknown key, so a v7 reader does not FAIL on it — but
+`docs/FILE_FORMAT.md` §13.3 also bumps for "a new field that a reader
+must not silently ignore", and this is one.
+`crates/feature-engine/tests/param_unit_floor.rs` measures why: ONE
+document with `unit: "Angle"` on a parameter a depth reads builds a 4 mm
+extrude under a reader that knows the field (the depth is refused and
+left alone) and a 90 mm extrude under one that drops it. One file, two
+solids — the same harm shape as v5's `GeomRef.scope` and v6's
+`Sketch.plane_x_axis`. The half of the original argument that holds is
+pinned alongside it: a document that builds cleanly builds
+bit-identically without the field, because `unit` never changes a
+magnitude. §4 has a v8 row and §13.3 records the reasoning.
+
+**Compatibility, measured.** A census of all 342 tracked `.waffle` files
+(assay corpus, GUI fixtures, harness fixture, shipped examples, root
+samples) found ZERO parameter tables and ZERO expressions of any kind. So
+`corpus_backcompat`'s `every_repo_waffle_file_loads_migrates_and_round_trips`
+and `root_samples_rebuild_identically_before_and_after_migration` passing
+unchanged proves the SERIALIZATION is unchanged and says nothing at all
+about expression semantics — the corpus is not an oracle for this
+increment, and claiming it as one would be a false measurement. Expression
+semantics are pinned by tests instead: a bare `25` depth is 0.025 m,
+`25 mm` is 0.025 m, `1 in` is 0.0254 m, `10mm + 1in` is 0.0354 m, a
+revolve angle expression is degrees verbatim.
+
+**Two soft spots closed as the plan asked.** A non-finite intermediate is an
+error where it occurs, so `min(1/0, 5)` no longer evaluates to 5. `tan` is
+refused within `|cos θ| < 1e-9` of its pole, which bounds the result at
+about 1e9 working-space units — a kilometre of millimetres, past which the
+number is numerical noise rather than a dimension anyone drew.
+
+**The browser has no second parser, and never had one.** `evaluateExpression`
+in the store is the only path and it goes to this engine code, so a preview
+and the rebuilt geometry cannot disagree. `app/src/lib/units.js` parses a
+display MEASUREMENT (a number plus a suffix, in the document's display
+unit) and is not an expression evaluator — `isPlainMeasurement` is what
+routes everything else to the engine, and because `deg` is not one of its
+suffixes, `25deg` already took that route. Both files say so now.
+
+Still open:
+
+- ~~*The shipped WASM bundle predates this.*~~ Rebuilt in review
+  (fingerprint `ab0f4097…`), because the v8 floor made it load-bearing for
+  the two GUI specs that assert `min_reader_version`.
+- *No dialog asks for a dimension yet.* `EvaluateExpression` takes an
+  optional `dimension` and `expression_evaluate` exposes it, but
+  `ExtrudeDialog`, `RevolveDialog` and `DimensionInput` still call it
+  without one, so a wrong unit is caught at the rebuild (a loud feature
+  error) rather than as you type.
+- *`expr::evaluate` still discards the dimension.* It is kept for callers
+  that genuinely want a number, and is documented as such; every
+  meaningful field uses `evaluate_quantity` plus an `as_*` boundary.
+
+Found and fixed in review (2026-10-03):
+
+- *An oversized expression overflowed the stack.* Parser and evaluator are
+  both recursive and nothing bounded either: a 3 000-deep parenthesis nest,
+  a 4 000-term `1+1+…` chain and a 4 000-long unary run each aborted the
+  process (in WASM, a trap that kills the engine). Now
+  `ExprError::TooComplex`, bounded by `MAX_LEXEMES` (1024) and `MAX_DEPTH`
+  (64). Pre-existing, not a P1 regression.
+- *An overflowing dimension exponent was clamped.* A clamped exponent is a
+  wrong dimension a field can still accept. `Dim::compose`/`scaled` now
+  return `None` and the evaluator makes it a typed error.
+- *The preview could accept what the rebuild refuses.* `cached_env`
+  reconstructed a dimension from the declared `unit`, so an undeclared
+  parameter whose expression commits one (`width = "2cm"`) came back
+  uncommitted. The evaluated dimension is cached on the parameter now
+  (`DesignParameter::tag`, `serde(skip)`).
+- *The rules table.* `expr::dim`'s module docs now state every dimension
+  rule, including the judgement call: `25deg / 1deg` is a committed ratio
+  and a depth refuses it.
+- *No differential oracle existed.* The corpus has zero expressions, so
+  nothing measured the "grammar unchanged" claim.
+  `crates/feature-engine/tests/expr_differential.rs` carries the pre-P1
+  evaluator verbatim and compares over 200 generated expressions: 107 agree
+  bit-for-bit, 54 refused by both, 39 newly a dimension error, zero
+  divergences. A BARE trig argument still means degrees.
+- *`rad` newly reserves a plausible parameter name* (`rad` for a radius was
+  legal before P1). No repo file is affected; pinned as a rule.
+- *`Dim` carries only length and angle exponents.* Mass, time and
+  temperature are not modelled; P4's `mass(…)` will need the vector
+  widened.
+- *The reader floor is unresolved* (see above): either a v8 row in
+  `docs/FILE_FORMAT.md` §4, or an explicit note there that this one is
+  additive-and-droppable by design.
 
 ## 7. K — Mechanical rule check
 

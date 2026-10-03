@@ -664,8 +664,15 @@
       ]
     },
     "DesignParameter": {
-      "description": "A named design variable (parameter) on the feature tree.\n\n`expression` is evaluated in mm-space (see `crate::expr`): bare numeric\nliterals mean millimeters in length contexts / degrees in angle contexts;\nunit suffixes (`in`, `cm`, ...) scale literals; other parameters may be\nreferenced by name in any order (cycles are a loud per-parameter error).",
+      "description": "A named design variable (parameter) on the feature tree.\n\n`expression` is evaluated in mm-space (see `crate::expr`): bare numeric\nliterals mean millimeters in length contexts / degrees in angle contexts;\nunit suffixes (`in`, `cm`, ...) scale literals AND commit the dimension;\nother parameters may be referenced by name in any order (cycles are a\nloud per-parameter error).\n\n`unit` declares what KIND of quantity this parameter is (P1). It is\noptional: without it the parameter is a plain number that adopts the\ndimension of whatever field reads it, which is the pre-P1 behaviour and\nwhat every document written before P1 relies on.",
       "properties": {
+        "comment": {
+          "description": "Free-text note: what this parameter is for.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
         "error": {
           "description": "Evaluation error from the last rebuild (`None` = evaluated cleanly).",
           "type": [
@@ -686,6 +693,17 @@
           "description": "Identifier used in expressions: `[A-Za-z_][A-Za-z0-9_]*`, not reserved.",
           "type": "string"
         },
+        "unit": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Dimension"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Declared dimension (P1, `specs/agent_mechanical_design.md` §6).\n\n`Some` is a contract in both directions: the expression must produce\nthat dimension (a mismatch is this parameter's own error), and the\nparameter enters every expression that reads it already committed,\nso a `Length` parameter in an angle field is refused there. `None`\nleaves it a plain number that adopts whatever field consumes it —\nthe pre-P1 behaviour, which is why this is optional and absent by\ndefault."
+        },
         "value": {
           "default": 0.0,
           "description": "Cached last-good evaluated value (mm-space), refreshed each rebuild.\nKept on evaluation failure so dependents hold their last geometry.",
@@ -699,6 +717,31 @@
         "expression"
       ],
       "type": "object"
+    },
+    "Dimension": {
+      "description": "The kind of quantity a field that consumes an expression asks for.\n\nThis is the tag an expression-driven field carries (`specs/\nagent_mechanical_design.md` §6 P1): a depth or radius is a\n`Length`, a revolve or pattern angle an `Angle`, an instance count a\n`Count`, a scale factor a `Ratio`.",
+      "oneOf": [
+        {
+          "const": "Length",
+          "description": "A distance. Working space mm; model unit metres.",
+          "type": "string"
+        },
+        {
+          "const": "Angle",
+          "description": "A rotation. Working space degrees; also the unit every angle field\non the feature tree stores.",
+          "type": "string"
+        },
+        {
+          "const": "Count",
+          "description": "A whole non-negative number of things (instances, teeth).",
+          "type": "string"
+        },
+        {
+          "const": "Ratio",
+          "description": "A dimensionless number (a factor, a fraction).",
+          "type": "string"
+        }
+      ]
     },
     "DocumentMetadata": {
       "additionalProperties": true,
