@@ -350,6 +350,13 @@ fn parse_labels(mesh: Mesh, text: &str) -> Result<LabeledArrangement, SidecarErr
         // dump constrained edges; empty = "producer does not track it"
         // (spec `yang_s3_intersection_edge_provenance.md`).
         intersection_edges: Default::default(),
+        // Same contract for the per-VERTEX generator provenance: the sidecar
+        // dumps explicit f64 coordinates only, never the `VertexCoords`
+        // generators, so it cannot name an LPI's generating line. Empty =
+        // "producer does not track it" — the P0014 pencil weld is then a
+        // no-op and this producer behaves exactly as it did before
+        // (spec `yang_p0014_arrangement_lpi_pencil_weld.md`).
+        lpi_through_vertex: Vec::new(),
         num_inputs,
     })
 }

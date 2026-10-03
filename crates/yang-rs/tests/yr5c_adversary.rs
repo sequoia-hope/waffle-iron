@@ -864,6 +864,7 @@ mod tjunction {
             patch: vec![0, 0, 0],
             source: Vec::new(),
             intersection_edges: Default::default(),
+            lpi_through_vertex: Vec::new(),
             num_inputs: 2,
         }
     }

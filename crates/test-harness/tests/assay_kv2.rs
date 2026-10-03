@@ -1577,11 +1577,25 @@ fn smoke_corpus_boundary_categories() {
         // `LocalRefinementRequired` around vertex 4294967295 (u32::MAX — a
         // sentinel, not a real vertex, which is itself worth reading at the
         // conversion). Four of the 21 seed-2 ERROR rows carry this text.
-        // NOT pinned in this gate: 77.6 s release on this box (≈ 350 s in the
-        // debug build this gate also runs in) is beyond the "a pin must be
-        // CHEAP" policy stated below — same disposition as R0044 / F0082.
-        // Its verdict is recorded by `full_corpus_categorized` and the
-        // committed `results.json`.
+        // **CONVERTED 2026-10-03 (night)**: the twin behind that STOP is an
+        // LPI PENCIL the Stage-2 arrangement mints when a gear tessellation
+        // vertex lies 2 ULP off the boss plane — one LPI per incident mesh
+        // edge plus the vertex itself, six output vertices for one point,
+        // separations up to 2.730e-13 at scale 651 and EXACTLY distinct, so
+        // no exact de-duplication (ours or the C++ reference's) can fuse
+        // them. `cherchi-rs` now records the generator incidence
+        // (`LabeledArrangement::lpi_through_vertex`, tolerance-free) and the
+        // I6 weld fuses the pencil onto the explicit operand vertex inside
+        // its own unchanged KV10 band (`boolean::weld_lpi_pencils`; spec
+        // `specs/yang_p0014_arrangement_lpi_pencil_weld.md`, deviation N68).
+        // Oracles adjudicated at the conversion (exact-membership lattice:
+        // boundary_chi 2 / 1 component / 1 body on all eight rungs; volume
+        // 2.701028e8 ± 7e-3 — the gear's thin teeth limit the lattice, so
+        // the tol is the measured finest-rung half-spread) and `derived_meta`
+        // cleared. Now pinned here: the conversion took it from 77.6 s to
+        // 7.9 s release, so the "a pin must be CHEAP" bar it previously
+        // failed (same disposition as R0044 / F0082) is met.
+        ("P0014", Category::SupportedCorrect),
         //
         // P0015 (3 ops) was promoted as Stage-4
         // `RelocationCrossedCarrierVertex`, the R0085 family. **CONVERTED

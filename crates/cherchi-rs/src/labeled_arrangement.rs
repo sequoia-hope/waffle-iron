@@ -72,6 +72,31 @@ pub struct LabeledArrangement {
     /// hand-built test fixtures); the native arrangement always populates
     /// it. Spec: `specs/yang_s3_intersection_edge_provenance.md` (inc-1).
     pub intersection_edges: std::collections::BTreeSet<(u32, u32)>,
+    /// Per-VERTEX generator provenance: ascending, deduplicated
+    /// `(lpi_vertex, explicit_vertex)` pairs into `mesh.verts`, one for each
+    /// emitted line-plane-intersection vertex whose generating LINE has an
+    /// endpoint that is ALSO emitted as an explicit (input) vertex.
+    ///
+    /// Why the producer records it: when an input vertex `V` lies on the other
+    /// solid's face plane to within a few ULP but not EXACTLY, the exact
+    /// arrangement mints one LPI per mesh edge incident to `V` — a *pencil* of
+    /// output vertices spread over the sub-ULP off-plane distance, plus `V`
+    /// itself. Those are one geometric point under any f64 metric, but as
+    /// EXACT points they are distinct, so no exact de-duplication (here or in
+    /// the C++ reference) can fuse them, and a position-only near-weld cannot
+    /// tell them from the structurally-distinct near-coincidences a curved
+    /// operand pair legitimately carries. The generator incidence recorded
+    /// here is the exact, tolerance-free half of that decision: the consumer
+    /// adds its own coincidence band. Spec
+    /// `specs/yang_p0014_arrangement_lpi_pencil_weld.md`.
+    ///
+    /// Carries no tolerance and no geometry test: a pair is listed whenever
+    /// the LPI's line ends at the explicit vertex, however far apart the two
+    /// output points are. May be empty from a producer that does not track it
+    /// (the sidecar parity oracle, hand-built fixtures) — the same contract as
+    /// `source` and `intersection_edges`; a native arrangement always
+    /// populates it.
+    pub lpi_through_vertex: Vec<(u32, u32)>,
     /// Number of input solids (2 for a binary boolean).
     pub num_inputs: u32,
 }
@@ -209,6 +234,9 @@ mod tests {
                 vec![(InputId(1), 0)],
             ],
             intersection_edges: Default::default(),
+            // Hand-built fixture: no generator provenance (the documented
+            // "producer does not track it" contract).
+            lpi_through_vertex: Vec::new(),
             num_inputs: 2,
         }
     }

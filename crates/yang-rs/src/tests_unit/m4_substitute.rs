@@ -153,6 +153,7 @@ pub(crate) fn empty_arrangement() -> LabeledArrangement {
         patch: Vec::new(),
         source: Vec::new(),
         intersection_edges: Default::default(),
+        lpi_through_vertex: Vec::new(),
         num_inputs: 2,
     }
 }

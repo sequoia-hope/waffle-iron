@@ -627,6 +627,7 @@ fn hand_built_tube_arrangement() -> LabeledArrangement {
         patch,
         source: Vec::new(),
         intersection_edges: Default::default(),
+        lpi_through_vertex: Vec::new(),
         num_inputs: 2,
     }
 }
@@ -984,6 +985,7 @@ fn hand_built_single_input_tube() -> LabeledArrangement {
         patch,
         source: Vec::new(),
         intersection_edges: Default::default(),
+        lpi_through_vertex: Vec::new(),
         num_inputs: 2,
     }
 }
@@ -1103,6 +1105,7 @@ fn hand_built_planar_box_arrangement() -> LabeledArrangement {
         patch,
         source: Vec::new(),
         intersection_edges: Default::default(),
+        lpi_through_vertex: Vec::new(),
         num_inputs: 2,
     }
 }
@@ -1388,6 +1391,7 @@ fn hand_built_coincident_plane_arrangement() -> LabeledArrangement {
         patch,
         source: Vec::new(),
         intersection_edges: Default::default(),
+        lpi_through_vertex: Vec::new(),
         num_inputs: 2,
     }
 }
