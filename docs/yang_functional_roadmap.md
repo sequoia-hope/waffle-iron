@@ -9,6 +9,8 @@
 
 ## 0. Honest status (refreshed 2026-06-26; addendum 2026-09-04 below)
 
+> **2026-10-03 (afternoon UTC) refresh — MEASURED.** Canonical corpus **320C / 0W / 11E / 5EE / 0T + 0 UNSUPPORTED over 336 cases** (release, 8 jobs, 900 s; wall 1173.5 s). Versus the 318C/13E guard-on run: exactly two category moves — **P0016 and P0018 CORRECT** (the cone chord-budget readback, N72; the developable material-loop chart sampler, N71) — and **zero regressions**. The 11 ERROR rows are the seven loud-by-design C-series walls + P0017 (render-CDT sliver tail), P0019, P0020, P0021 (P0019 and P0020 in progress). Open: N69 graze-aware ray selection; the two seed-2 Stage-2 hangs; D0 item 1b (stamp boolean outputs after the journal).
+
 > **2026-10-03 (night, third) refresh — P0016 CONVERTED; corpus NOT
 > re-measured this session.** Deviation **N71**, and it is a MIRRORED PAIR.
 > Stage 1 sizes every curved chart against one operand-level chord budget

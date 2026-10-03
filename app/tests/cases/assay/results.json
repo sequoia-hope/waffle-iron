@@ -1,8 +1,8 @@
 {
-  "errored": 13,
+  "errored": 11,
   "failed": 0,
   "generated": "kernel-v2 (assay_kv2 categorized run)",
-  "passed": 318,
+  "passed": 320,
   "results": [
     {
       "category": "SUPPORTED_CORRECT",
@@ -1967,22 +1967,22 @@
       "status": "pass"
     },
     {
-      "category": "ERROR",
-      "detail": "1 engine error(s): 2b867e1e-56f2-42c0-9be3-b7494d5532f2: operation error: kernel error: boolean operation failed: kernel-v2 boolean_subtract failed: BooleanFailed(\"yang-rs: Stage-3 SSI refinement failed for intersection edge (6, 13): AmbiguousCurve { candidates: 0, matched: 0 }\")",
+      "category": "SUPPORTED_CORRECT",
+      "detail": "all checks passed",
       "id": "P0016",
-      "status": "error"
+      "status": "pass"
     },
     {
       "category": "ERROR",
-      "detail": "1 engine error(s): f2b681be-1c19-4ce7-8e82-a5f4800479f7: operation error: kernel error: boolean operation failed: kernel-v2 boolean_subtract failed: CurvedGeometryMismatch { face: FaceId(28), reason: \"bounded cone patch must have exactly one material-CCW loop\" }",
+      "detail": "1 engine error(s): f2b681be-1c19-4ce7-8e82-a5f4800479f7: operation error: kernel error: boolean operation failed: kernel-v2 boolean_subtract failed: TessellationFailed { face: FaceId(28), reason: \"ring rejected by CDT (degenerate/self-intersecting)\" }",
       "id": "P0017",
       "status": "error"
     },
     {
-      "category": "ERROR",
-      "detail": "1 engine error(s): 1355b817-bb44-445f-ac6f-02738c6a4694: operation error: kernel error: boolean operation failed: kernel-v2 boolean_subtract failed: CurvedGeometryMismatch { face: FaceId(27), reason: \"bounded cylinder patch must have exactly one material-CCW loop\" }",
+      "category": "SUPPORTED_CORRECT",
+      "detail": "all checks passed",
       "id": "P0018",
-      "status": "error"
+      "status": "pass"
     },
     {
       "category": "ERROR",
