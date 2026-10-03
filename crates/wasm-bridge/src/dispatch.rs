@@ -854,16 +854,7 @@ fn handle_message(
                     placement: b.placement,
                 })
                 .collect();
-            let frame = match view_dir {
-                None => waffle_types::kernel::ViewFrame::TOP,
-                Some(dir) => {
-                    let mut f = waffle_types::kernel::ViewFrame::looking_along(dir);
-                    if let Some(up) = up {
-                        f.up = up;
-                    }
-                    f
-                }
-            };
+            let frame = waffle_types::kernel::ViewFrame::from_parts(view_dir, up);
             let dxf_data = kb
                 .export_dxf(
                     &bodies,

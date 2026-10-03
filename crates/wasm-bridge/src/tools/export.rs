@@ -26,6 +26,7 @@
 use modeling_ops::KernelBundle;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
+use waffle_types::kernel::ViewFrame;
 
 use crate::engine_state::EngineState;
 use crate::messages::{EngineToUi, UiToEngine};
@@ -246,7 +247,7 @@ fn view_arguments(args: &Value) -> Result<ViewArgs, ToolFailure> {
         Some(v) => Some(vector3(v, "/up")?),
     };
     if let Some(v) = direction {
-        return Ok((Some(vector3(v, "/direction")?), up));
+        return check_orientable((Some(vector3(v, "/direction")?), up));
     }
     let name = match named {
         None => "top",
@@ -276,7 +277,28 @@ fn view_arguments(args: &Value) -> Result<ViewArgs, ToolFailure> {
             json!({ "path": "/view" }),
         ));
     };
-    Ok((Some(*dir), Some(up.unwrap_or(*default_up))))
+    check_orientable((Some(*dir), Some(up.unwrap_or(*default_up))))
+}
+
+/// `up` must not be parallel to the line of sight, or the view plane has no
+/// orientation.
+///
+/// The kernel refuses that pair too, but as a projection failure the bridge
+/// can only report as a REBUILD error — a feature named "DXF export" that
+/// does not exist, for a tool that rebuilds nothing. A bad argument is an
+/// `InvalidArgument` naming the argument, so the check belongs here, asked of
+/// the very frame the bridge will build ([`ViewFrame::from_parts`]) rather
+/// than of a second opinion about what "parallel" means.
+fn check_orientable((dir, up): ViewArgs) -> Result<ViewArgs, ToolFailure> {
+    if ViewFrame::from_parts(dir, up).basis().is_none() {
+        return Err(ToolFailure::new(
+            "InvalidArgument",
+            "up must not be parallel to the direction of sight; the view plane \
+             has no orientation without a perpendicular component.",
+            json!({ "path": "/up" }),
+        ));
+    }
+    Ok((dir, up))
 }
 
 /// A `[x, y, z]` argument of three finite numbers, not all zero.
@@ -469,9 +491,18 @@ mod tests {
             let d = dir[0] * up[0] + dir[1] * up[1] + dir[2] * up[2];
             assert_eq!(d, 0.0, "{name} up is not perpendicular to its direction");
         }
-        let mut dirs: Vec<[f64; 3]> = NAMED_VIEWS.iter().map(|(_, d, _)| *d).collect();
-        dirs.dedup();
-        assert_eq!(dirs.len(), 6, "the six views look six different ways");
+        // Pairwise, not `dedup` — which only removes CONSECUTIVE repeats and
+        // would miss `top` reappearing as `left`.
+        for (i, (a, da, _)) in NAMED_VIEWS.iter().enumerate() {
+            for (b, db, _) in &NAMED_VIEWS[i + 1..] {
+                assert_ne!(da, db, "{a} and {b} look the same way");
+            }
+        }
+        assert_eq!(
+            NAMED_VIEWS.len(),
+            6,
+            "the six views look six different ways"
+        );
     }
 
     #[test]
@@ -484,6 +515,11 @@ mod tests {
             json!({ "direction": [1.0, 2.0] }),
             json!({ "direction": "x" }),
             json!({ "up": [0.0, 0.0, 0.0] }),
+            // An `up` along the line of sight leaves the view plane without
+            // an orientation. The kernel refuses it too, but only as a
+            // projection failure the bridge reports as a rebuild error.
+            json!({ "view": "front", "up": [0.0, -2.0, 0.0] }),
+            json!({ "direction": [0.0, 0.0, 1.0], "up": [0.0, 0.0, 5.0] }),
         ] {
             match view_arguments(&args) {
                 Ok(v) => panic!("{args} should be refused, got {v:?}"),

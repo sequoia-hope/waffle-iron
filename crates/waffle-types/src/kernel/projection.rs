@@ -105,6 +105,28 @@ impl ViewFrame {
         }
     }
 
+    /// The frame a caller's OPTIONAL direction and up mean: no direction is
+    /// the [`ViewFrame::TOP`] flat-pattern view, and an explicit `up`
+    /// overrides the one [`ViewFrame::looking_along`] would pick.
+    ///
+    /// One place, because two callers need the same answer from the same
+    /// pair: the bridge builds the frame it projects with, and a tool that
+    /// validates arguments has to know whether THAT frame will have a basis
+    /// before it hands the work to the kernel. Deriving it twice is how the
+    /// validation and the projection come to disagree.
+    pub fn from_parts(dir: Option<[f64; 3]>, up: Option<[f64; 3]>) -> ViewFrame {
+        match dir {
+            None => ViewFrame::TOP,
+            Some(dir) => {
+                let mut frame = ViewFrame::looking_along(dir);
+                if let Some(up) = up {
+                    frame.up = up;
+                }
+                frame
+            }
+        }
+    }
+
     /// The orthonormal view basis, or `None` when the frame is degenerate
     /// (`dir` of zero length, or `up` parallel to `dir`).
     pub fn basis(&self) -> Option<ViewBasis> {
@@ -802,6 +824,33 @@ mod tests {
         }
         .basis()
         .is_none());
+    }
+
+    #[test]
+    fn from_parts_is_the_frame_an_optional_direction_and_up_mean() {
+        assert_eq!(ViewFrame::from_parts(None, None), ViewFrame::TOP);
+        // Without a direction there is no paper to orient, so a lone `up` is
+        // not a view: TOP keeps its own.
+        assert_eq!(
+            ViewFrame::from_parts(None, Some([1.0, 0.0, 0.0])),
+            ViewFrame::TOP
+        );
+        let f = ViewFrame::from_parts(Some([0.0, 1.0, 0.0]), Some([0.0, 0.0, 1.0]));
+        assert_eq!((f.dir, f.up), ([0.0, 1.0, 0.0], [0.0, 0.0, 1.0]));
+        // An explicit up WINS over the one `looking_along` would pick.
+        let f = ViewFrame::from_parts(Some([0.0, 0.0, -1.0]), Some([1.0, 0.0, 0.0]));
+        assert_eq!(f.up, [1.0, 0.0, 0.0]);
+        assert_eq!(
+            ViewFrame::from_parts(Some([0.0, 0.0, -1.0]), None).up,
+            ViewFrame::looking_along([0.0, 0.0, -1.0]).up
+        );
+        // The degenerate pair a caller must be told about rather than handed
+        // to the kernel.
+        assert!(
+            ViewFrame::from_parts(Some([0.0, 1.0, 0.0]), Some([0.0, -3.0, 0.0]))
+                .basis()
+                .is_none()
+        );
     }
 
     #[test]
