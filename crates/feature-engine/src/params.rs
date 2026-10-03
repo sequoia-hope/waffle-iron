@@ -1920,6 +1920,40 @@ mod tests {
         assert!(undo.is_empty());
     }
 
+    /// A rename must reach EVERY enumerated site, not just the one a test
+    /// happens to look at. `rename_parameter` and the reverse index walk the
+    /// same enumeration, so this and `every_expression_field_is_enumerated`
+    /// together say the rewrite covers a script argument and a 3D-sketch
+    /// coordinate as surely as an extrude depth.
+    #[test]
+    fn a_rename_reaches_every_enumerated_site() {
+        let mut tree = tree_with(vec![param("a", "1")], every_expression_feature());
+        let before = field_uses(&mut tree).len();
+        let undo = rename_parameter(&mut tree, "a", "alpha");
+        assert_eq!(
+            undo.len(),
+            before,
+            "every site read `a`, so every site must have been rewritten"
+        );
+        let after = field_uses(&mut tree);
+        assert_eq!(after.len(), before);
+        for site in &after {
+            assert_eq!(
+                site.expression, "alpha",
+                "{} {} was left behind",
+                site.feature_name, site.field
+            );
+            assert_eq!(site.reads, vec!["alpha".to_string()]);
+        }
+        assert_eq!(tree.parameters[0].name, "alpha");
+
+        // And the undo record puts every one of them back.
+        restore_expressions(&mut tree, &undo);
+        for site in &field_uses(&mut tree) {
+            assert_eq!(site.expression, "a", "{} {}", site.feature_name, site.field);
+        }
+    }
+
     #[test]
     fn a_renamed_parameter_still_drives_its_field() {
         let mut tree = tree_with(

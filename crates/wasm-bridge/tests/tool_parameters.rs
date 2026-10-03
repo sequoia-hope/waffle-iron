@@ -674,8 +674,14 @@ fn two_renames_onto_one_name_in_a_single_call_are_refused() {
             { "name": "tb", "expression": "b + 1" },
         ]}),
     );
-    let a = first["parameters"][0]["id"].as_str().expect("an id").to_string();
-    let b = first["parameters"][1]["id"].as_str().expect("an id").to_string();
+    let a = first["parameters"][0]["id"]
+        .as_str()
+        .expect("an id")
+        .to_string();
+    let b = first["parameters"][1]["id"]
+        .as_str()
+        .expect("an id")
+        .to_string();
 
     let error = refused(
         &mut state,
@@ -709,7 +715,10 @@ fn a_rename_whose_row_this_call_also_deletes_is_refused() {
         "parameters_set",
         json!({ "parameters": [{ "name": "w", "expression": "10" }] }),
     );
-    let w = first["parameters"][0]["id"].as_str().expect("an id").to_string();
+    let w = first["parameters"][0]["id"]
+        .as_str()
+        .expect("an id")
+        .to_string();
     let error = refused(
         &mut state,
         "parameters_set",
@@ -718,7 +727,10 @@ fn a_rename_whose_row_this_call_also_deletes_is_refused() {
                 "delete": [w] }),
     );
     assert_eq!(error["code"], "ParameterNameTaken");
-    assert_eq!(names(&ok(&mut state, "parameters_get", json!({}))), vec!["w"]);
+    assert_eq!(
+        names(&ok(&mut state, "parameters_get", json!({}))),
+        vec!["w"]
+    );
 }
 
 #[test]
@@ -734,7 +746,10 @@ fn a_full_table_send_keeps_both_sidecars_it_did_not_mention() {
             { "name": "turn", "expression": "90", "unit": "Angle", "comment": "half" },
         ]}),
     );
-    let id = first["parameters"][0]["id"].as_str().expect("an id").to_string();
+    let id = first["parameters"][0]["id"]
+        .as_str()
+        .expect("an id")
+        .to_string();
 
     let answer = ok(
         &mut state,

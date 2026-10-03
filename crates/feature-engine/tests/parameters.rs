@@ -526,11 +526,11 @@ fn undo_and_redo_of_a_rename_are_stable_when_repeated() {
         &mut kernel,
     );
 
-    let depth_expr = |engine: &Engine| match &engine.tree.find_feature(extrude_id).unwrap().operation
-    {
-        Operation::Extrude { params } => params.depth_expr.clone().unwrap(),
-        other => panic!("expected extrude, got {other:?}"),
-    };
+    let depth_expr =
+        |engine: &Engine| match &engine.tree.find_feature(extrude_id).unwrap().operation {
+            Operation::Extrude { params } => params.depth_expr.clone().unwrap(),
+            other => panic!("expected extrude, got {other:?}"),
+        };
     for pass in 0..2 {
         engine.undo(&mut kernel).unwrap();
         assert_eq!(engine.tree.parameters[0].name, "h", "undo pass {pass}");
