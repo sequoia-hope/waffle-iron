@@ -8,6 +8,7 @@ pub mod messages;
 pub mod process;
 pub mod render_view;
 pub mod session;
+pub mod sketch_query;
 pub mod stl_export;
 pub mod tessellation_runner;
 pub mod tools;

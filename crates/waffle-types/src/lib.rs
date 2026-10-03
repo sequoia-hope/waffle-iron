@@ -10,6 +10,7 @@ pub mod regions;
 pub mod roles;
 pub mod sketch;
 pub mod sketch3d;
+pub mod sketch_ops;
 pub mod sketch_plane;
 pub mod sketch_state;
 pub mod sprocket;
@@ -27,6 +28,7 @@ pub use profiles::extract_profiles;
 pub use regions::{compute_regions, resolve_region_by_identity, union_regions, Region, RegionEdge};
 pub use roles::*;
 pub use sketch::*;
+pub use sketch_ops::*;
 pub use sketch_plane::SketchPlaneBasis;
 pub use sketch_state::*;
 pub use sprocket::{

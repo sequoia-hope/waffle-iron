@@ -5,7 +5,7 @@
  * and split/remove entities at intersection points.
  */
 import { test, expect } from './helpers/waffle-test.js';
-import { clickSketch, clickLine } from './helpers/toolbar.js';
+import { clickSketch, clickLine, clickTool, isToolOffered } from './helpers/toolbar.js';
 import { clickAt, drawLine } from './helpers/canvas.js';
 import { getEntities, getEntityCountByType, waitForEntityCount } from './helpers/state.js';
 
@@ -17,11 +17,9 @@ test.describe('sketch trim tool', () => {
 	test('trim tool activates via toolbar button', async ({ waffle }) => {
 		const page = waffle.page;
 
-		const btn = page.locator('[data-testid="toolbar-btn-trim"]');
-		const visible = await btn.isVisible().catch(() => false);
-		expect(visible).toBe(true);
+		expect(await isToolOffered(page, 'trim')).toBe(true);
 
-		await btn.click();
+		await clickTool(page, 'trim');
 		await page.waitForFunction(
 			() => window.__waffle?.getState()?.activeTool === 'trim',
 			{ timeout: 3000 }
@@ -55,7 +53,7 @@ test.describe('sketch trim tool', () => {
 		expect(lineCountBefore).toBe(2);
 
 		// Activate trim tool
-		await page.locator('[data-testid="toolbar-btn-trim"]').click();
+		await clickTool(page, 'trim');
 		await page.waitForFunction(
 			() => window.__waffle?.getState()?.activeTool === 'trim',
 			{ timeout: 3000 }
@@ -91,7 +89,7 @@ test.describe('sketch trim tool', () => {
 		);
 
 		// Activate trim tool
-		await page.locator('[data-testid="toolbar-btn-trim"]').click();
+		await clickTool(page, 'trim');
 		await page.waitForFunction(
 			() => window.__waffle?.getState()?.activeTool === 'trim',
 			{ timeout: 3000 }
@@ -125,7 +123,7 @@ test.describe('sketch trim tool', () => {
 		await page.waitForTimeout(200);
 
 		// Activate trim tool
-		await page.locator('[data-testid="toolbar-btn-trim"]').click();
+		await clickTool(page, 'trim');
 		await page.waitForFunction(
 			() => window.__waffle?.getState()?.activeTool === 'trim',
 			{ timeout: 3000 }

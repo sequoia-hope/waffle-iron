@@ -5,7 +5,7 @@
  * and maintain geometric constraints.
  */
 import { test, expect } from './helpers/waffle-test.js';
-import { clickSketch, clickLine, pressKey } from './helpers/toolbar.js';
+import { clickSketch, clickLine, pressKey, clickTool, isToolOffered } from './helpers/toolbar.js';
 import { clickAt, drawLine } from './helpers/canvas.js';
 import { getEntities, getEntityCountByType, waitForEntityCount, getToolState } from './helpers/state.js';
 import { getConstraints } from './helpers/constraint.js';
@@ -18,11 +18,12 @@ test.describe('sketch fillet tool', () => {
 	test('fillet tool activates via toolbar button', async ({ waffle }) => {
 		const page = waffle.page;
 
-		const btn = page.locator('[data-testid="toolbar-btn-sketch-fillet"]');
-		const visible = await btn.isVisible().catch(() => false);
-		expect(visible).toBe(true);
+		// Offered, not necessarily INLINE: the toolbar collapses trailing tools
+		// into "More ▾" at narrow widths, so the width-independent question is
+		// whether the tool is offered at all (`clickTool` finds it either way).
+		expect(await isToolOffered(page, 'sketch-fillet')).toBe(true);
 
-		await btn.click();
+		await clickTool(page, 'sketch-fillet');
 		await page.waitForFunction(
 			() => window.__waffle?.getState()?.activeTool === 'sketch-fillet',
 			{ timeout: 3000 }
@@ -67,7 +68,7 @@ test.describe('sketch fillet tool', () => {
 		expect(arcsBefore).toBe(0);
 
 		// Activate fillet tool
-		await page.locator('[data-testid="toolbar-btn-sketch-fillet"]').click();
+		await clickTool(page, 'sketch-fillet');
 		await page.waitForFunction(
 			() => window.__waffle?.getState()?.activeTool === 'sketch-fillet',
 			{ timeout: 3000 }
@@ -125,7 +126,7 @@ test.describe('sketch fillet tool', () => {
 		);
 
 		// Activate fillet tool
-		await page.locator('[data-testid="toolbar-btn-sketch-fillet"]').click();
+		await clickTool(page, 'sketch-fillet');
 		await page.waitForFunction(
 			() => window.__waffle?.getState()?.activeTool === 'sketch-fillet',
 			{ timeout: 3000 }
@@ -146,7 +147,7 @@ test.describe('sketch fillet tool', () => {
 		const page = waffle.page;
 
 		// Activate fillet tool
-		await page.locator('[data-testid="toolbar-btn-sketch-fillet"]').click();
+		await clickTool(page, 'sketch-fillet');
 		await page.waitForFunction(
 			() => window.__waffle?.getState()?.activeTool === 'sketch-fillet',
 			{ timeout: 3000 }

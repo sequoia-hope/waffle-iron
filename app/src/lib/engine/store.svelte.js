@@ -22,8 +22,6 @@ import { stepConstraintModal, modalInstruction, isModalConstraint } from '$lib/s
 import { classifyDimension } from '$lib/sketch/dimensionHeuristic.js';
 import { getSetting, getSettings, updateSettings } from '$lib/ui/settings.svelte.js';
 import { deleteDraft, getDraft, listDrafts, pruneDrafts, putDraft, rememberTabKey, tabKey } from '$lib/storage/drafts.js';
-import { findConnectedChain, orderChain } from '$lib/sketch/chain.js';
-import { resolveChainSegments, offsetChainSegments } from '$lib/sketch/offset.js';
 import { isDatumPlaneRef, getPlaneIdFromRef, getPlaneById, resolvePlane, BUILTIN_PLANES } from './planes.js';
 import { renderViewSvg } from '$lib/drawings/svg.js';
 import { FORMAT_VERSION, MIN_READER_VERSION, fileTooNew } from './format.js';
@@ -1020,19 +1018,21 @@ export async function initEngine() {
 		const statusStr = statusObj.type || (typeof statusObj === 'string' ? statusObj : 'unknown');
 		const dof = statusObj.dof ?? msg.dof ?? -1;
 		const positions = solved.positions || msg.positions;
-		// `conflicts` are indices into the DRIVING constraint list the solver
-		// saw — triggerSolve excludes reference dimensions — so translate them
-		// back to sketchConstraints indices with the same filter, or badge
-		// highlighting shifts onto the wrong constraints whenever a reference
-		// dim precedes a conflict.
-		const failedDriving = statusObj.conflicts || msg.failed || [];
-		const drivingToLocal = [];
-		sketchConstraints.forEach((c, i) => {
-			if (!c.reference) drivingToLocal.push(i);
-		});
-		const failed = failedDriving
-			.map((j) => drivingToLocal[j])
-			.filter((i) => i != null);
+		// `conflicts` are indices into OUR OWN constraint array. The solver
+		// drops reference dimensions from the driving set itself and maps the
+		// indices back, once, in Rust (S2,
+		// `specs/agent_mechanical_design.md` §10.2) — this used to be a
+		// driving→local remap here, undoing a filter this file had applied on
+		// the way out, and it shifted badge highlighting onto the wrong
+		// constraint whenever a reference dimension preceded a conflict.
+		const failed = (statusObj.conflicts || msg.failed || []).filter(
+			(i) => i != null && i >= 0 && i < sketchConstraints.length
+		);
+		// The full solver state report (S2): residuals, redundancy, what
+		// moved, the null-space basis of what is still free, convergence.
+		// V2 is what turns the UI's constraint colouring onto it; it is kept
+		// here from now so there is one place to read it from.
+		const solveReport = solved.report ?? null;
 
 		// Apply-gate: a SolveFailed result is not a solution — the solver echoes
 		// its input positions for that status (sketch_drag_stability.md B3/I4),
@@ -1086,6 +1086,8 @@ export async function initEngine() {
 			status: statusStr,
 			dof,
 			failed,
+			// S2's report, in the caller's own constraint index space.
+			report: solveReport,
 			solveTime: msg.solveTime
 		};
 		recomputeOverConstrained();
@@ -1617,7 +1619,13 @@ export async function initEngine() {
 			setSketchSelection: (ids) => { sketchSelection = new Set(ids); },
 			// Pure chain/offset queries for branch-coverage tests (the tool
 			// flows themselves are driven with real pointer events).
-			findConnectedChain: (id) => findConnectedChain(id, sketchEntities, sketchPositions),
+			// Chain connectivity and the chain offset are engine geometry (S1):
+			// these probes ask the same Rust the tools do, so a test and a
+			// click cannot get different answers.
+			findConnectedChain: async (id) => {
+				const result = await querySketch({ type: 'Chain', seed: id, only_seed: false });
+				return result?.type === 'Chain' ? result.ids : [];
+			},
 			getOffsetToolState: () => _getOffsetToolState(),
 			faceBoundaryPreview: (ref) => faceBoundaryPreview(ref),
 			// Sketch-plane 2D → client-pixel position (the DimensionInput
@@ -1631,19 +1639,34 @@ export async function initEngine() {
 				const plane = buildSketchPlane(sketchMode.origin, sketchMode.normal, sketchMode.xAxis);
 				return sketchToScreen(x, y, plane, camera, canvas);
 			},
-			computeChainOffset: (ids, d) => {
-				const ordered = orderChain(ids, sketchEntities, sketchPositions);
-				if (ordered.error) return { error: ordered.error };
-				const resolved = resolveChainSegments(ordered.items, sketchEntities, sketchPositions);
-				if (resolved.error) return { error: resolved.error };
-				return offsetChainSegments(resolved.segments, ordered.closed, d);
+			computeChainOffset: async (ids, d) => {
+				const result = await querySketch({
+					type: 'OffsetPreview',
+					chain: ids,
+					distance: Math.abs(d),
+					side: d < 0 ? 'Right' : 'Left'
+				});
+				if (!result) return { error: 'unavailable' };
+				if (result.type === 'Refused') return { error: result.reason };
+				return { polyline: result.polyline, closed: result.closed, segments: result.polyline };
 			},
 			getSelectedConstraintIndex: () => getSelectedConstraintIndex(),
 			setSelectedConstraintIndex: (idx) => setSelectedConstraintIndex(idx),
 			deleteSelectedConstraint: () => deleteSelectedConstraint(),
 			getConstraintBadgeOffsets: () => Object.fromEntries(constraintBadgeOffsets),
 			getConstraintBadges: () => getConstraintBadges(),
-			addSketchEntity: (entity) => addLocalEntity(entity),
+			// Test SETUP entity creation (GUI rules: never to test drawing).
+			// It ALLOCATES an id when the caller omits one and answers with it,
+			// which is what every caller already assumed — `addLocalEntity`
+			// does not, so an id-less fixture used to be added locally, be
+			// REFUSED by the engine ("missing field `id`", logged and
+			// swallowed) and then be invisible to anything that addresses
+			// geometry by id.
+			addSketchEntity: (entity) => {
+				const withId = entity?.id != null ? entity : { ...entity, id: allocEntityId() };
+				addLocalEntity(withId);
+				return withId.id;
+			},
 			addSketchConstraint: (constraint) => addLocalConstraint(constraint),
 			removeSketchEntities: (ids) => removeSketchEntities(new Set(ids)),
 			createGear: (params) => createGear(params),
@@ -2534,6 +2557,152 @@ export function endSketchAction() {
 		sketchRedoStack = [];
 	}
 	pendingSketchAction = null;
+}
+
+// -- Sketch operations in the engine (S1, specs/agent_mechanical_design.md §10.1) --
+//
+// Trim, extend, offset, sketch fillet, mirror and projection are Rust
+// functions (`sketch_solver::ops`). This file keeps pointer handling and
+// rendering; it no longer decides where geometry goes. Two entry points:
+// `applySketchOps` commits a batch, `querySketch` asks for a preview — and the
+// preview comes from the same functions the commit runs, so a highlight
+// cannot disagree with what the click does.
+
+/**
+ * The live sketch state as a sketch-op request carries it. The engine's own
+ * `active_sketch` lags the UI by a round trip, so the state travels with the
+ * message — the same contract `SolveSketch` has.
+ */
+function liveSketchPayload() {
+	return JSON.parse(
+		JSON.stringify({
+			entities: sketchEntities.map((e) => {
+				if (e.type === 'Point' && e.id != null) {
+					const p = sketchPositions.get(e.id);
+					if (p) return { ...e, x: p.x, y: p.y };
+				}
+				return e;
+			}),
+			constraints: sketchConstraints.map((c) => mapConstraintForBridge(c)).filter(Boolean),
+			solved_positions: Object.fromEntries(
+				[...sketchPositions].map(([id, p]) => [id, [p.x, p.y]])
+			),
+			projected: projectedBindings,
+			plane_origin: [...sketchMode.origin],
+			plane_normal: [...sketchMode.normal],
+			...(sketchMode.xAxis ? { plane_x_axis: [...sketchMode.xAxis] } : {})
+		})
+	);
+}
+
+/**
+ * The whole sketch, for a snapshot undo entry. An engine-applied edit can add,
+ * remove AND change entities in one step (a trim repoints a line and drops a
+ * vertex); the add/remove-list undo entries cannot express a change at all, so
+ * an operation records the state on both sides of itself instead.
+ */
+function sketchSnapshot() {
+	return JSON.parse(
+		JSON.stringify({
+			entities: sketchEntities,
+			constraints: sketchConstraints,
+			positions: [...sketchPositions].map(([id, p]) => [id, { x: p.x, y: p.y }]),
+			projected: projectedBindings
+		})
+	);
+}
+
+/** Put a `sketchSnapshot()` back. */
+function restoreSketchSnapshot(snap) {
+	sketchEntities = snap.entities.map((e) => ({ ...e }));
+	sketchConstraints = snap.constraints.map((c) => ({ ...c }));
+	sketchPositions = new Map(snap.positions.map(([id, p]) => [Number(id), { x: p.x, y: p.y }]));
+	projectedBindings = snap.projected.map((b) => ({ ...b }));
+}
+
+/**
+ * Apply a batch of sketch operations in the engine and adopt the result.
+ *
+ * One batch is one undo step and one re-solve (§10.3). A typed refusal
+ * (`FilletDoesNotFit`, `OffsetRefused { branching }`, …) arrives as a
+ * rejection and is surfaced to the user — never swallowed into a no-op, which
+ * is what the JS tools did and what made a failed trim look like a trim.
+ *
+ * @param {Array<object>} ops - `SketchOp` values
+ * @returns {Promise<object | null>} the engine's answer, or null if refused
+ */
+export async function applySketchOps(ops) {
+	if (!bridge || !engineReady || !sketchMode.active || !ops.length) return null;
+	const before = sketchSnapshot();
+	const cameraBefore = getCameraState();
+	let response;
+	try {
+		response = await bridge.send({
+			type: 'ApplySketchOps',
+			live: liveSketchPayload(),
+			ops: JSON.parse(JSON.stringify(ops)),
+			// The engine must not mint an id this session has already handed
+			// out, so its allocator starts at our counter.
+			next_id: nextEntityId
+		});
+	} catch (err) {
+		const message = err?.message ?? String(err);
+		log('sketch', `Sketch operation refused: ${message}`);
+		showToast('warning', message);
+		return null;
+	}
+
+	sketchEntities = response.entities.map((e) => ({ ...e }));
+	sketchConstraints = response.constraints.map((c) => ({ ...c }));
+	projectedBindings = (response.projected ?? []).map((b) => ({ ...b }));
+	const next = new Map();
+	for (const e of sketchEntities) {
+		if (e.type === 'Point') next.set(e.id, { x: e.x, y: e.y });
+	}
+	sketchPositions = next;
+	if (response.next_id > nextEntityId) nextEntityId = response.next_id;
+
+	sketchUndoStack = [
+		...sketchUndoStack,
+		{ _isSnapshot: true, before, after: sketchSnapshot(), camera: cameraBefore }
+	];
+	sketchRedoStack = [];
+
+	recomputeOverConstrained();
+	reExtractProfiles();
+	triggerSolve(response.transient_constraints ?? []);
+	log('sketch', 'Sketch operations applied', {
+		ops: ops.map((o) => o.type),
+		added: response.edit?.added?.length ?? 0,
+		removed: response.edit?.removed?.length ?? 0,
+		changed: response.edit?.changed?.length ?? 0
+	});
+	return response;
+}
+
+/**
+ * Ask the engine about sketch geometry without changing it: the connected
+ * chain through an entity, or a trim / fillet / offset preview.
+ *
+ * Returns the `SketchQueryResult`; a `Refused` answer is a value, not a
+ * throw, because a hover over geometry a tool cannot act on is normal.
+ *
+ * @param {object} query - a `SketchQuery`
+ * @returns {Promise<object | null>}
+ */
+export async function querySketch(query) {
+	if (!bridge || !engineReady || !sketchMode.active) return null;
+	try {
+		const response = await bridge.send({
+			type: 'QuerySketch',
+			live: liveSketchPayload(),
+			query: JSON.parse(JSON.stringify(query))
+		});
+		return response.result ?? null;
+	} catch (err) {
+		log('sketch', `Sketch query failed: ${err?.message ?? err}`);
+		return null;
+	}
 }
 
 /**
@@ -8336,7 +8505,7 @@ export async function discardAutoSave() {
  * Trigger a constraint solve via the Rust solver (Levenberg-Marquardt) in the
  * WASM engine. Sends SolveSketch command through the bridge.
  */
-export function triggerSolve() {
+export function triggerSolve(transientConstraints = []) {
 	if (!bridge || !engineReady) return;
 	if (!sketchMode.active) return;
 	if (sketchEntities.length === 0) return;
@@ -8362,18 +8531,27 @@ export function triggerSolve() {
 			})
 		)
 	);
-	const driving = JSON.parse(
-		JSON.stringify(
-			sketchConstraints
-				.filter((c) => !c.reference)
-				.map((c) => mapConstraintForBridge(c))
-				.filter(Boolean)
-		)
+	// The FULL constraint list, reference dimensions included. The solver drops
+	// them from the driving set itself since S2
+	// (`specs/agent_mechanical_design.md` §10.2) and reports every conflict and
+	// residual index against THIS array — so index i here is index i there.
+	// Filtering on the way out is what used to shift the conflict indices by
+	// however many reference dimensions came first, and left the UI to undo a
+	// mapping it had applied itself.
+	//
+	// `transientConstraints` are pins for this solve only (a drag's
+	// `MovePoint`); they are appended AFTER the stored ones so the stored
+	// indices keep their meaning.
+	const constraints = JSON.parse(
+		JSON.stringify([
+			...sketchConstraints.map((c) => mapConstraintForBridge(c)).filter(Boolean),
+			...transientConstraints
+		])
 	);
 	// One atomic message: replace the engine's sketch state with the UI's live
-	// geometry + driving constraints, then solve. Avoids the multi-round-trip
+	// geometry + constraints, then solve. Avoids the multi-round-trip
 	// race/latency of separate sync messages.
-	bridge.send({ type: 'SolveSketch', entities, constraints: driving })
+	bridge.send({ type: 'SolveSketch', entities, constraints })
 		.catch((err) => log('error', `SolveSketch failed: ${err}`));
 }
 
@@ -9134,6 +9312,23 @@ function undoSketchAction() {
 	const action = sketchUndoStack[sketchUndoStack.length - 1];
 	sketchUndoStack = sketchUndoStack.slice(0, -1);
 
+	// An engine-applied operation (S1) records the whole sketch on both sides
+	// of itself: a trim repoints one line, mints a vertex and drops another in
+	// one step, which the entities/constraints add-lists below cannot express.
+	if (action._isSnapshot) {
+		restoreSketchSnapshot(action.before);
+		sketchRedoStack = [
+			...sketchRedoStack,
+			{ _isSnapshot: true, before: action.before, after: action.after, camera: getCameraState() }
+		];
+		restoreCameraState(action.camera);
+		recomputeOverConstrained();
+		reExtractProfiles();
+		triggerSolve();
+		resetTool();
+		return;
+	}
+
 	const idSet = new Set(action.entities.map(e => e.id));
 
 	// Find cascaded constraints (reference removed entities but not part of this action)
@@ -9209,6 +9404,22 @@ function redoSketchAction() {
 	if (sketchRedoStack.length === 0) return;
 	const action = sketchRedoStack[sketchRedoStack.length - 1];
 	sketchRedoStack = sketchRedoStack.slice(0, -1);
+
+	// The S1 snapshot entry's other side.
+	if (action._isSnapshot) {
+		const cameraBefore = getCameraState();
+		restoreSketchSnapshot(action.after);
+		sketchUndoStack = [
+			...sketchUndoStack,
+			{ _isSnapshot: true, before: action.before, after: action.after, camera: cameraBefore }
+		];
+		restoreCameraState(action.camera);
+		recomputeOverConstrained();
+		reExtractProfiles();
+		triggerSolve();
+		resetTool();
+		return;
+	}
 
 	// Pre-redo geometry + camera, so a later undo of this re-application
 	// reverts movement and viewport alike.

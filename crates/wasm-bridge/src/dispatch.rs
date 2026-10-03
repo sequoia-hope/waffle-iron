@@ -1047,6 +1047,27 @@ fn handle_message(
             Ok(EngineToUi::RegionsComputed { regions })
         }
 
+        UiToEngine::ApplySketchOps { live, ops, next_id } => {
+            let applied =
+                sketch_solver::ops::apply_ops(&live.to_sketch(), &ops, next_id).map_err(|e| {
+                    BridgeError::InvalidRequest {
+                        reason: e.to_string(),
+                    }
+                })?;
+            Ok(EngineToUi::SketchOpsApplied {
+                entities: applied.sketch.entities,
+                constraints: applied.sketch.constraints,
+                projected: applied.sketch.projected,
+                edit: applied.edit,
+                transient_constraints: applied.transient_constraints,
+                next_id: applied.next_id,
+            })
+        }
+
+        UiToEngine::QuerySketch { live, query } => Ok(EngineToUi::SketchQueried {
+            result: crate::sketch_query::answer(&live, &query),
+        }),
+
         UiToEngine::ExportStl => {
             // Whole model: merge all renderable bodies (a multi-body model would
             // otherwise lose every body but the last).
