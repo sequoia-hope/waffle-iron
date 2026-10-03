@@ -21,7 +21,7 @@ use std::collections::HashMap;
 
 use uuid::Uuid;
 
-use crate::expr::{self, Dimension, Env, ExprError, Quantity, Span};
+use crate::expr::{self, Dimension, Env, ExprError, Quantity, Span, Tag};
 use crate::types::{DesignParameter, FeatureTree, Operation, PlaneDefinition};
 use waffle_types::{DimensionUnit, SketchEntity, SolveStatus};
 
@@ -57,7 +57,49 @@ pub struct ParamOutcome {
 /// environment COMMITTED to that dimension; one without stays a plain
 /// number that adopts whatever field consumes it.
 pub fn evaluate_parameters(params: &mut [DesignParameter]) -> Env {
-    let mut env: Env = Env::new();
+    evaluate_parameters_in(params, &Env::new())
+}
+
+/// [`evaluate_parameters`] inside an OUTER scope — P2's document table seen
+/// from a Part's table.
+///
+/// A name the local table declares SHADOWS the outer one, and the shadowing
+/// is total: the outer value is not visible to the local table at all, not
+/// even to the shadowing row's own expression. `w = "w * 2"` over a document
+/// `w` is therefore a self-reference and a loud cycle, not a silent doubling
+/// of a value from a table the author cannot see from here. Half-visibility
+/// is the alternative and it is worse: `w` would mean the document's `w` in
+/// one row of this table and the local `w` in every other.
+///
+/// Returns the COMBINED environment — the outer names the local table does
+/// not shadow, plus every local name that resolved — which is what the
+/// feature fields read.
+pub fn evaluate_parameters_in(params: &mut [DesignParameter], outer: &Env) -> Env {
+    evaluate_table(params, outer, &HashMap::new())
+}
+
+/// Every parameter whose magnitude an instance override replaces, with the
+/// dimension the parameter itself carries. See [`pin_overrides`].
+pub type Pinned = HashMap<String, Quantity>;
+
+/// Evaluate a parameter table with some names PINNED to a magnitude supplied
+/// from outside (P2's `Instance.parameter_overrides`).
+///
+/// A pinned parameter's own expression is not evaluated: the override IS its
+/// value, and `value`/`tag` are set from the pin. Everything that reads it —
+/// other parameters, every feature field — follows, because the pin enters
+/// the environment before the fixpoint starts rather than being patched into
+/// it afterwards.
+fn evaluate_table(params: &mut [DesignParameter], outer: &Env, pinned: &Pinned) -> Env {
+    // Shadowed outer names are removed before the fixpoint starts, so an
+    // unresolved local name never falls back to an outer one.
+    let declared: std::collections::HashSet<String> =
+        params.iter().map(|p| p.name.clone()).collect();
+    let mut env: Env = outer
+        .iter()
+        .filter(|(name, _)| !declared.contains(name.as_str()))
+        .map(|(name, q)| (name.clone(), *q))
+        .collect();
 
     // The dependency cycles, read off the graph BEFORE any evaluation: the
     // fixpoint below can only report that a parameter never resolved, which
@@ -78,6 +120,15 @@ pub fn evaluate_parameters(params: &mut [DesignParameter]) -> Env {
             continue;
         }
         seen.insert(p.name.clone(), i);
+        // A pinned name resolves to the pin, not to its expression: the
+        // override replaces the row's value for this build.
+        if let Some(q) = pinned.get(&p.name) {
+            env.insert(p.name.clone(), *q);
+            p.value = q.value;
+            p.tag = Some(q.tag);
+            p.error = None;
+            continue;
+        }
         pending.push(i);
     }
 
@@ -164,6 +215,22 @@ fn evaluate_declared(param: &DesignParameter, env: &Env) -> Result<Quantity, Exp
 /// bridge's stateless expression preview, which must match what the next
 /// rebuild will compute without mutating anything.
 pub fn cached_env(params: &[DesignParameter]) -> Env {
+    cached_env_in(params, &[])
+}
+
+/// [`cached_env`] over both scopes (P2): the document table's cached values
+/// first, then the tab's, which SHADOW them — the same precedence the
+/// rebuild applies, so the preview still refuses exactly what the rebuild
+/// refuses.
+pub fn cached_env_in(params: &[DesignParameter], document: &[DesignParameter]) -> Env {
+    let mut env = cached_env_rows(document);
+    for (name, q) in cached_env_rows(params) {
+        env.insert(name, q);
+    }
+    env
+}
+
+fn cached_env_rows(params: &[DesignParameter]) -> Env {
     let mut env = Env::new();
     for p in params {
         if p.error.is_some() {
@@ -195,17 +262,131 @@ pub fn cached_env(params: &[DesignParameter]) -> Env {
     env
 }
 
+/// Turn an instance's `name → magnitude` overrides into pins for
+/// [`evaluate_table`], and name every override that addresses nothing.
+///
+/// The magnitude is a working-space number (mm for a length, degrees for an
+/// angle — the same space `value_mm` reports), because that is what
+/// `Instance.parameter_overrides` has always been declared to hold. Its
+/// DIMENSION comes from the parameter being overridden, never from the
+/// override: a declared `unit` commits it (and a `Count` override of `20.5`
+/// is refused by name, through the same `retag` the table itself uses), and
+/// otherwise the dimension the row's own expression produces is kept, so
+/// overriding `width = "2cm"` with `30` still yields a length.
+///
+/// An override naming a parameter the part does not declare is a loud error,
+/// not a new parameter. An instance cannot introduce a variable the part has
+/// no field reading, so the only thing such an override can be is a typo or a
+/// name the part has since renamed — and silently accepting it would leave
+/// the instance looking parameterised while building the default geometry.
+fn pin_overrides(
+    params: &mut [DesignParameter],
+    outer: &Env,
+    overrides: &std::collections::BTreeMap<String, f64>,
+) -> (Pinned, Vec<String>) {
+    // Pass one, as written: a row with no declared unit only reveals its
+    // dimension by evaluating. Cheap (a parse per row) and it also leaves
+    // `value`/`error` correct for the rows no override touches.
+    let plain = evaluate_table(params, outer, &HashMap::new());
+    let mut pinned = Pinned::new();
+    let mut errs = Vec::new();
+    for (name, value) in overrides {
+        let Some(p) = params.iter().find(|p| p.name == *name) else {
+            errs.push(format!(
+                "override of '{name}': this part declares no parameter of that name"
+            ));
+            continue;
+        };
+        let q = Quantity::untagged(*value);
+        let tag = match p.unit {
+            Some(unit) => match q.retag(unit, Span::new(0, 0)) {
+                Ok(q) => q.tag,
+                Err(e) => {
+                    errs.push(format!("override of '{name}': {e}"));
+                    continue;
+                }
+            },
+            // No declared unit: keep whatever the row's own expression
+            // committed, and nothing if it committed nothing.
+            None => plain.get(name).map(|q| q.tag).unwrap_or(Tag::Untagged),
+        };
+        pinned.insert(name.clone(), Quantity { value: *value, tag });
+    }
+    (pinned, errs)
+}
+
+/// What a parameter table SAYS, with every derived field left out: name,
+/// expression and declared unit, in table order.
+///
+/// Two tables with the same signature drive identical geometry, and that is
+/// the question a geometry cache has to answer. `value`, `error` and `tag`
+/// are the last evaluation's output, so comparing whole rows would call two
+/// identical tables different (and, worse, call a table that has since been
+/// re-evaluated the same as one that has not).
+pub fn table_signature(params: &[DesignParameter]) -> Vec<(String, String, Option<Dimension>)> {
+    params
+        .iter()
+        .map(|p| (p.name.clone(), p.expression.clone(), p.unit))
+        .collect()
+}
+
 /// Evaluate + apply all expressions on the tree. See module docs.
 pub fn apply_parameters(tree: &mut FeatureTree) -> ParamOutcome {
+    apply_parameters_scoped(tree, &mut [], None)
+}
+
+/// [`apply_parameters`] with the two outer scopes P2 adds.
+///
+/// `document` is the document-level table (`DocumentMetadata.parameters`):
+/// evaluated first, in its own scope, and seen by the tree's table and by
+/// every expression field. Its rows' `value`/`error` are refreshed in place,
+/// so the caller holding the document table reads the same answer the
+/// rebuild computed rather than evaluating it a second time.
+///
+/// `overrides` is the instance's `parameter_overrides` when this tree is
+/// being built as one placed occurrence of a part (`None` for the Part tab
+/// itself). It pins magnitudes on the tree's OWN table, so one part
+/// definition builds N different solids.
+pub fn apply_parameters_scoped(
+    tree: &mut FeatureTree,
+    document: &mut [DesignParameter],
+    overrides: Option<&std::collections::BTreeMap<String, f64>>,
+) -> ParamOutcome {
     let mut outcome = ParamOutcome::default();
 
-    let env = evaluate_parameters(&mut tree.parameters);
+    // The document scope first and on its own: it is ABOVE the tabs, so it
+    // cannot read a Part's parameters (which Part would it mean?).
+    let doc_env = evaluate_parameters(document);
+    for p in document.iter() {
+        if let Some(err) = &p.error {
+            outcome
+                .errors
+                .push((p.id, format!("document parameter '{}': {}", p.name, err)));
+        }
+    }
+
+    let mut override_errors: Vec<String> = Vec::new();
+    let pinned = match overrides.filter(|o| !o.is_empty()) {
+        Some(o) => {
+            let (pinned, errs) = pin_overrides(&mut tree.parameters, &doc_env, o);
+            override_errors = errs;
+            pinned
+        }
+        None => Pinned::new(),
+    };
+    let env = evaluate_table(&mut tree.parameters, &doc_env, &pinned);
     for p in &tree.parameters {
         if let Some(err) = &p.error {
             outcome
                 .errors
                 .push((p.id, format!("parameter '{}': {}", p.name, err)));
         }
+    }
+    // An override that addresses nothing belongs to no parameter and no
+    // feature, so it is reported against the nil id — the same channel the
+    // apply pass already uses for a table-level complaint.
+    for e in override_errors {
+        outcome.errors.push((Uuid::nil(), e));
     }
 
     for (idx, feature) in tree.features.iter_mut().enumerate() {
