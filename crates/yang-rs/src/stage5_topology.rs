@@ -555,6 +555,7 @@ fn run_meshup_splice_passes(
             &crate::stage3_ssi::NO_EDGE_PROVENANCE,
         )?;
         probe_remap_pre_pos("meshup", remap.as_ref());
+        crate::stage4_correct::coincident_vertex_census("s5-meshup", mesh);
         probe_record_incidence(&inc2, &cv2);
         *infos = i2;
         *intersection_curves = cv2;
@@ -1324,6 +1325,7 @@ fn run_fold_merge_passes(
             &crate::stage3_ssi::NO_EDGE_PROVENANCE,
         )?;
         probe_remap_pre_pos("fold-merge", remap.as_ref());
+        crate::stage4_correct::coincident_vertex_census("s5-fold-merge", mesh);
         probe_record_incidence(&inc2, &cv2);
         *infos = i2;
         *intersection_curves = cv2;
@@ -5478,6 +5480,7 @@ fn run_construct_passes(
             &crate::stage3_ssi::NO_EDGE_PROVENANCE,
         )?;
         probe_remap_pre_pos("construct", remap.as_ref());
+        crate::stage4_correct::coincident_vertex_census("s5-construct", mesh);
         probe_record_incidence(&inc2, &cv2);
         *infos = i2;
         *intersection_curves = cv2;
@@ -6212,6 +6215,7 @@ pub(crate) fn reconstruct_topology_stage4(
             // The collapse renumbered vertices: re-key the probe maps or their
             // columns name the wrong vertices (no-op when the gate is off).
             probe_remap_pre_pos("s453", remap.as_ref());
+            crate::stage4_correct::coincident_vertex_census("s5-s453", mesh);
             probe_record_incidence(&inc2, &cv2);
             infos = i2;
             intersection_curves = cv2;
@@ -6447,6 +6451,7 @@ pub(crate) fn reconstruct_topology_stage4(
                 &crate::stage3_ssi::NO_EDGE_PROVENANCE,
             )?;
             probe_remap_pre_pos("fig11", remap.as_ref());
+            crate::stage4_correct::coincident_vertex_census("s5-fig11", mesh);
             probe_record_incidence(&inc3, &cv3);
             infos = i3;
             intersection_curves = cv3;
@@ -6646,6 +6651,7 @@ pub(crate) fn reconstruct_topology_stage4(
             // when Stage 4 did not collapse, so omitting it silently misaligns
             // the probe columns on cases that looked unaffected.
             probe_remap_pre_pos("kv15b", remap.as_ref());
+            crate::stage4_correct::coincident_vertex_census("s5-kv15b", mesh);
             probe_record_incidence(&inc3, &cv3);
             infos = i3;
             intersection_curves = cv3;
@@ -6674,6 +6680,7 @@ pub(crate) fn reconstruct_topology_stage4(
                 &crate::stage3_ssi::NO_EDGE_PROVENANCE,
             )?;
             probe_remap_pre_pos("s194", remap.as_ref());
+            crate::stage4_correct::coincident_vertex_census("s5-s194", mesh);
             probe_record_incidence(&inc4, &cv4);
             infos = i4;
             intersection_curves = cv4;
@@ -6879,6 +6886,46 @@ pub(crate) fn emit_topology(
     // relocation-side repair.
     let mut simp_cross_minted = 0usize;
     let mut simp_cross_inherited = 0usize;
+    // Exact-coincident OUTPUT-vertex census (read-only, `YANG_COINCIDENT_PROBE`).
+    // Output vertices are 1:1 with `mesh.verts` (§(1) just below), so a
+    // DISTINCT pair at bit-identical positions leaves the pipeline as two
+    // B-Rep vertices at one point — the honest image of a PINCHED face, which
+    // the next boolean's Stage-1 chart cannot carry (`Stage1SelfTouchingLoop`,
+    // P0020 / N74). Every sub-resolution collapse deliberately excludes the
+    // exact-zero pair (KV15b B3, #194 B3), so no gate names it. Here the
+    // census is extended with each coincident vertex's RELOCATION tag and
+    // Stage-4 pre-position: pinch-split copies carry the original's tag, which
+    // is what identifies the group as a split rather than two independent
+    // arrivals.
+    crate::stage4_correct::coincident_vertex_census("s6-emit", mesh);
+    if std::env::var_os("YANG_COINCIDENT_PROBE").is_some() {
+        let mut by_pos: std::collections::BTreeMap<[u64; 3], Vec<u32>> =
+            std::collections::BTreeMap::new();
+        for (v, p) in mesh.verts.iter().enumerate() {
+            let a = p.as_array();
+            by_pos
+                .entry([a[0].to_bits(), a[1].to_bits(), a[2].to_bits()])
+                .or_default()
+                .push(v as u32);
+        }
+        for g in by_pos.values().filter(|g| g.len() > 1) {
+            let reloc: Vec<(u32, f64)> = relocations
+                .iter()
+                .copied()
+                .filter(|&(v, _)| g.contains(&v))
+                .collect();
+            let pre: Vec<(u32, Option<[f64; 3]>)> = g
+                .iter()
+                .map(|&v| {
+                    (
+                        v,
+                        S4_PRE_POS.with(|c| c.borrow().as_ref().and_then(|m| m.get(&v).copied())),
+                    )
+                })
+                .collect();
+            eprintln!("[coincident s6-emit]   {g:?} relocations {reloc:?} pre-positions {pre:?}");
+        }
+    }
     // (1) Vertices: 1:1 with the (possibly relocated) mesh.verts.
     let vertices: Vec<BRepVertex> = mesh
         .verts

@@ -1118,7 +1118,7 @@ ten give those families customers again, at 2–5 ops.
 | P0017 | `convex4:boss nonconvex10:rev circle:cut` | 3 | `CurvedGeometryMismatch "bounded cone patch must have exactly one material-CCW loop"`. **HALF-CONVERTED 2026-10-03** (deviation N71, see the dated section below): the postcondition measured its chart winding on a VERTICES-ONLY shoelace and rejected a correct sliver (−6.723e-7 against a canonical-chart +7.175e-8). Both arms fixed; the case now lands one stage later on an UNMASKED LATENT — `TessellationFailed "ring rejected by CDT (degenerate/self-intersecting)"` on the same 7.2e-8-area chart sliver, N68's family | ERROR (a degenerate zero-area input face) / ERROR (a CDT ring reject — **already the class it now reads at its own scale**) | 91× | 1.1 s → 0.5 s |
 | P0018 | `circle:boss circle:sym nonconvex7:cut` | 3 | the cylinder arm of the same postcondition. **CONVERTED 2026-10-03** (N71): chord shoelace −4.575 where the canonical chart polygon reads +18.305. Oracles adjudicated (one body, TWO shells, χ 4, volume 6.738844e6 ± 3e-3), `derived_meta` cleared | ERROR / ERROR (same class) | 8.9e7× | 1.0 s → 3.6 s |
 | P0019 | `convex4:boss nonconvex5:rev convex4:cut` | 3 | `InvalidBooleanOutput "full-circle edge sense is underivable"` (the wall R0004 once hit). **HALF-CONVERTED 2026-10-03 (late night)** (deviation N73, section below): the body is a genus-1 ring of FIVE cone bands with NO planar cap, and the derivation had no `FaceSurf::Cone` arm at all — the rule `validate_cone_face`/`validate_cylinder_face` both ENFORCE ("toward the opposite rim") needs only the band's two rim centres. Sense wall gone; the case now lands one stage later on an UNMASKED LATENT — `CurvedGeometryMismatch "cone face with inner loops is outside the KV6c vocabulary"`, two of the five bands left ANNULAR by `recover.rs`'s greedy per-face seam anchoring in a rim CYCLE (15° = π/12 apart) | ERROR / ERROR (same class) | 1.34e5× | 0.2 s |
-| P0020 | `circle:boss gear12:∩ convex4:∩` | 5 | `malformed B-Rep topology: face 0: holed lateral CDT failed: duplicate (coincident) loop vertex in CDT input` — an INPUT rejection, so the first Intersect's OWN output is malformed | ERROR (a different class: an interior-junction / weld-band ambiguous edge-split) / ERROR (same class) | 83× | 10.6 s |
+| P0020 | `circle:boss gear12:∩ convex4:∩` | 5 | `malformed B-Rep topology: face 0: holed lateral CDT failed: duplicate (coincident) loop vertex in CDT input` — an INPUT rejection, so the first Intersect's OWN output is malformed. **ANCHORED 2026-10-03 (see the dated section below): NOT a twin / mirrored-split-point defect — the first Intersect's output face is honestly PINCHED, and the wall is the `yang_tangency_pinch_split` §0b capability gap (per-SHEET faces) reaching Stage 1 one boolean later. Deviation N74; the wall is now the typed, localizing `Stage1SelfTouchingLoop`** | ERROR (a different class: an interior-junction / weld-band ambiguous edge-split) / ERROR (same class) | 83× | 10.6 s |
 | P0021 | `convex4:boss circle:boss circle:boss` | 3 | auto-union `SelfIntersectingBooleanOutput { penetrations: 5 }` — P0007's signature on three plain bosses | ERROR / ERROR (same class) | 710× | 0.4 s |
 | P0022 | `convex5:boss circle:boss circle:cut convex4:boss circle:thru` | 5 | `malformed B-Rep topology: face 2: interior junction … not contained by any lateral triangle — the mint would be silently dropped` | ERROR (same class) / **CORRECT** | 400× | 0.9 s |
 
@@ -1483,6 +1483,179 @@ failed, 5 ignored), which covers the SI5 ingest fixtures, the KV6c/KV6d cone
 and torus recovery suites, and `s434_typed_rim_seam_mint` — the other customer
 of the seam-minting pass this cycle probed. Clippy `--all-targets -D warnings`
 and `cargo fmt --check` clean. **Corpus NOT re-measured.**
+#### P0020 — ANCHORED 2026-10-03 (night): the face is honestly PINCHED; the wall is `yang_tangency_pinch_split` §0b, not a twin
+
+**Anchor, written before any code changed.** The triage row's reading ("two
+coincident loop vertices" ⇒ a twin / mirrored-split-point family, the M8
+ULP-twin arc-mirror class the sprocket pin once hit) is **WRONG**. Nothing
+here is a ULP twin, nothing is sub-resolution, and the sprocket
+`sprocket_bore_with_coplanar_caps` pin does NOT share the mechanism — that one
+was fixed by rim-override PROVENANCE on 2026-09-21
+(`specs/m8_rim_override_provenance.md`), has been un-quarantined since, and is
+a Stage-0 overlay story; this is a Stage-4/6 one.
+
+Measured, with the probes named at the end of this section:
+
+1. **The wall.** The SECOND Intersect rejects its own operand A — the first
+   Intersect's output — inside `BRep::new`'s eager Stage 1,
+   `tessellate_lateral_holed_cdt` on **face 0**: the cylinder lateral
+   (`Cylinder { axis_point (0,0,0), axis_dir (0,1,0), radius
+   0.05545100572570601 }`), a BOUNDED partial patch (Slice A: zero encircling
+   loops, no inner loop) whose outer loop is **234 edges = 230 Ellipse + 4
+   Circle** — the gear flank planes' sections of the cylinder.
+2. **The duplicates (`YANG_HOLED_DUP_PROBE`).** TWO pairs, each coincident
+   **bit-exactly in WORLD space (|Δ| = 0e0)**, not merely in the chart: loop
+   vertices `g41`/`g43` at
+   `(0.042710553480299125, 0.08758653930292547, 0.035364143668393674)` and
+   `g46`/`g48` at
+   `(0.042847645034476245, 0.08772606553522298, 0.03519791685585673)`. Both
+   lie on the cylinder exactly (√(x²+z²) = 0.0554510057…). Their arc-chain
+   midpoints (`g583`/`g584`, `g588`/`g589`) coincide too, because the two arcs
+   are one curve traversed both ways.
+3. **The structure is a SPUR, not a crossing.** The loop runs
+   `g41 → g42 → g43(≡g41)` and `g46 → g47 → g48(≡g46)`; the loop-window probe
+   measures the excursions at **6.155e-6** and **2.507e-6**, and loop edges
+   41/42 carry the SAME `Ellipse` (same centre, major axis, both radii) with
+   **opposite `normal` sign** — one curve traversed out and back. Edges 46/47
+   likewise. So the face's boundary touches itself at a point and the chart
+   carries two bit-identical `(u, v)` entries.
+4. **The producer, bisected (`YANG_COINCIDENT_PROBE`, a new per-checkpoint
+   census of distinct mesh vertices at bit-identical positions).** The
+   emitting Stage-4 pass (the second one, 1513 verts — the §4.3.3 density
+   guard re-runs the op) reads **0 coincident groups** at `s4-entry`,
+   `after-reloc`, `after-453-sweep`, `after-3c-merge` and `before-validate`,
+   and **2 groups** immediately after `(4a2)` `split_pinch_vertices` (1515
+   verts). `YANG_EDGE_PINCH_PROBE` names both sites:
+   `v1012 edge (1012,1015) CERTIFIED (len=2.507e-6)` and
+   `v1033 edge (1033,1036) CERTIFIED (len=6.155e-6)`, then "4a2 split 2 vertex
+   copies". The copies inherit the original's relocation `t` and survive
+   compaction into the emitted `689`/`1081` and `704`/`1082`.
+5. **So the split is RIGHT and the band hypothesis is REFUTED.** A
+   sub-resolution refusal was written, measured and reverted: the pinch
+   contacts are 2.507e-6 and 6.155e-6, i.e. **25× and 62× the paper's single
+   distance tolerance** d_p = 1e-7 (`refs/text/yang2025_hybrid_boolean.txt:
+   745-748`, §5: "The distance tolerance in our paper is uniformly set to 𝑑𝑝
+   and is specified as 10⁻⁷ in our experiments"), so they are genuine
+   tangential contacts of real extent and the §0a certificate is correct to
+   split them. The gate did not fire and the case was unchanged — recorded so
+   no later session re-tries it. The sub-`d_p` edge census reads **0** on the
+   emitted mesh at every checkpoint, and `YANG_KV15B_PROBE` puts the shortest
+   §4.3 candidate segment at **2.115e-7**, above its own band: there is
+   nothing for a collapse to own.
+6. **Where each contact point came from (`YANG_I1D_RELOC_PROBE`, now printing
+   the Stage-4 ENTRY position next to the destination).** Each is reached by
+   TWO relocations: the §4.5 ellipse arm (`stage4_correct.rs` L12277) finds a
+   vertex ALREADY exactly on the section ellipse (`entry == pos`, so
+   `rho ≤ TAU_WORK` and it does not move), and the PR-KV9 ellipse×ellipse
+   junction arm (L12458) brings a second arrangement vertex **3.33e-6** away
+   onto the exact junction. The `PR-KV9` junction-twin collapse cannot see the
+   pair: its group is drawn only from `vert_ell_junction.keys()`, so the
+   ellipse-arm occupant is not a "twin" by that population
+   (`YANG_KV9_TWIN_PROBE`, new, reports exactly that — and reports it EMPTY
+   here, because at that point the two are still ~5e-15 apart, not yet
+   coincident). That narrowness is real and recorded, but it is not this
+   defect: the two vertices are the two SHEETS of one pinch, and merging them
+   would delete the pinch the solid actually has.
+
+**Therefore P0020 is the FIRST corpus customer of
+`specs/yang_tangency_pinch_split.md` §0b**, whose own text already names the
+unfinished half: *"the next increment is Stage-6 emission, not more mesh work.
+The split sheets have to become separate FACES with their own edges and
+loops."* The mesh-level split is done and certified; Stage 6 still emits both
+sheets into ONE face, so the emitted B-Rep face loop visits one position twice
+— which kernel-v2's 2-manifold face model cannot carry and Stage 1's
+polygon-with-holes chart cannot triangulate (the domain is two closed regions
+meeting at a point, and the zero-width slit between them carries boundary
+chains the neighbouring flank faces also use, so neither dropping the slit nor
+paving it is faithful). §0c's "known fragility, named and not fixed" is the
+render-side twin of this; P0020 is the B-Rep-side one, and §0b now has a
+corpus case. Deviation **N74**.
+
+**What LANDED (a P10 net, not a conversion).** The wall was `cherchi-rs`'s
+`duplicate (coincident) loop vertex in CDT input` wrapped in
+`MalformedTopology` — loud, but naming neither the pair, nor the pinch, nor
+the producer, which is why the row read as a twin family for a day. Stage 1
+now refuses the same input one layer earlier, typed:
+
+```
+Stage1SelfTouchingLoop { face, vertices: (u32, u32), point: [f64; 3] }
+```
+
+raised only when the two colliding chart entries are **bit-identical in world
+space** (a chart-only collision keeps the old CDT path — no over-claiming).
+Verbatim, before and after:
+
+```
+before: BooleanFailed("yang-rs rejected the converted input B-Rep: yang-rs: malformed B-Rep topology: face 0: holed lateral CDT failed: duplicate (coincident) loop vertex in CDT input")
+after:  BooleanFailed("yang-rs rejected the converted input B-Rep: yang-rs: Stage-1 boundary loop of face 0 touches itself — distinct vertices 583 and 584 occupy the same point (4.271228925179577e-2, 8.75879753493436e-2, 3.536204720973056e-2), so the unrolled chart is self-touching (a PINCHED face: the Stage-4 edge-pinch split's sheets were emitted as one face, spec yang_tangency_pinch_split §0b)")
+```
+
+**Verdict: `P0020: ERROR (5.9s)`** — same category, honest text. It stays an
+ERROR row until §0b lands.
+
+**The remediation, and why it is NOT landed here.** The right wall is
+producer-side: Stage 6 should either emit per-SHEET faces (§0b) or refuse to
+emit a face loop that visits one position twice. The refusal alone would move
+P0020's failure to the FIRST Intersect — more honest — but C0058 and F0060 are
+SUPPORTED_CORRECT **because** the pinch is tolerated downstream, so a
+producer-side gate is a corpus-wide flip that cannot be landed in a session
+which may not run the assay (the same disposition N69 took the same day).
+
+**Pins.** `yang-rs/src/tests_unit/s1_self_touching_loop.rs` — a bounded
+unit-radius cylinder patch whose top boundary carries a generator spur out to
+a tip and back. With the two spur bases bit-identical it must read
+`Stage1SelfTouchingLoop { face: 0, vertices: (3, 5), point }`, the point
+bit-equal to the shared base; mutation-checked — with the gate disabled the
+fixture reproduces P0020's ORIGINAL text verbatim (`duplicate (coincident)
+loop vertex in CDT input`), so the fixture is a faithful minimum and the gate
+is what changes it. The companion pin moves the second base 5e-4 rad round — a
+thin NOTCH, not a pinch — and requires it to tessellate with all seven
+boundary vertices present, so the gate cannot become a proximity band. The
+corpus pin in `smoke_corpus_boundary_categories` keeps
+`("P0020", Category::Error)` with the anchor in its comment.
+
+**Sharers re-judged** (no corpus run; release `single_case`,
+`ASSAY_CASE_TIMEOUT_SECS=900`, host load ≈ 33-44 so wall times are inflated).
+28 cases: every KV14 holed-lateral customer, every pinch-split customer, the
+M8 coplanar rows, and every open P-series ERROR row. **ZERO moves.** The 24
+CORRECT stay CORRECT — C0058 61.9 s, F0058 1.4 s, **F0060 4.5 s**, R0038
+1.1 s, R0063 18.7 s, P0006 4.4 s, R0070 41.6 s, F0064 48.8 s, R0021 1.9 s,
+R0026 4.5 s, R0046 0.6 s, R0051 1.5 s, R0053 349.5 s, R0074 17.7 s, R0095
+3.9 s, R0085 797.1 s, R0004 4.7 s, R0100 1.6 s, C0065 2.8 s, C0063 0.5 s,
+P0005 13.5 s, P0007 28.7 s, P0013 2.3 s, P0022 3.6 s — and the four ERROR
+rows keep their own text verbatim (P0017 `ring rejected by CDT`, P0019
+`full-circle edge sense is underivable`, P0021
+`SelfIntersectingBooleanOutput { penetrations: 3 }`, P0020 the new typed
+pinch text). C0058 and F0060, the two cases the pinch split exists FOR, are
+the decisive controls: both still SUPPORTED_CORRECT, so the gate touches no
+tolerated pinch that downstream actually survives. `cargo test -p yang-rs
+--release` is green (1061 lib + 29 binaries, 0 failed); clippy
+`--all-targets -p yang-rs -- -D warnings` and `cargo fmt --check` clean;
+`cargo test -p kernel-v2 --release --no-fail-fast` green (40 binaries, 0
+failed); `cargo test -p test-harness --test sprocket_kv2 --release` 4 passed /
+0 failed, `sprocket_bore_with_coplanar_caps` included — the pin this row was
+once suspected of sharing is green and un-ignored. **Corpus not
+re-measured.**
+
+**New instruments, kept** (read-only, byte-identical unset):
+`YANG_COINCIDENT_PROBE` — per-checkpoint census of distinct mesh vertices at
+bit-identical positions AND of sub-`d_p` mesh edges, wired at `s4-entry`,
+`after-reloc`, `after-453-sweep`, `after-4a2-pinch-split`, `after-3c-merge`,
+`before-validate`, the Stage-5 driver's `s453` / `fig11` / `fold-merge` /
+`construct` / `kv15b` / `s194` sites, and `s6-emit`. It is the natural first
+question for the whole coincident-output-vertex family — "which checkpoint
+minted it?" — which here it answers in one line.
+`YANG_HOLED_DUP_PROBE` — the colliding chart pair with owner edges, world
+positions, |Δ|, and the loop WINDOW (neighbours and their distances) around
+each, which is what separates a pinch from a doubled chain or a chart aliasing.
+`YANG_KV9_TWIN_PROBE` — junction-arm twin groups plus any co-positioned
+occupant OUTSIDE that population.
+`YANG_KV15B_PROBE` — every §4.3 candidate segment within 10× its band, with
+the verdict (`COLLAPSE` / `SKIP over band` / `SKIP exact-zero (B3)`).
+`YANG_EDGE_PINCH_PROBE` now prints each certified/refused pinch edge's LENGTH,
+and `YANG_I1D_RELOC_PROBE` each relocation's Stage-4 ENTRY position — two
+relocations landing on one point are a defect only if they STARTED as two
+distinct model points, and the destination alone cannot say so.
 
 ### Four findings RETIRED, with reasons
 

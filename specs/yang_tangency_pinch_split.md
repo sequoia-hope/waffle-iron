@@ -133,6 +133,26 @@ point split has to close the loops it opens; only then does the χ question even
 arise. The mesh-level operation is done and certified, which is why it is banked
 here rather than abandoned.
 
+> **§0b now has a CORPUS CUSTOMER: P0020 (2026-10-03, deviation N74).** The
+> B-Rep-side manifestation, found one boolean downstream of the mint. A
+> cylinder boss ∩ a 12-tooth gear prism pinches its cylinder lateral at two
+> tangential contacts; `(4a2)` certifies and splits both
+> (`edge (1012,1015) len=2.507e-6`, `edge (1033,1036) len=6.155e-6` — 25× and
+> 62× the paper's `d_p`, so genuine contacts of real extent), Stage 6 emits
+> both sheets into ONE face, and that face's loop therefore visits one
+> position twice: `g41 → g42 → g43` with `g43` bit-identical to `g41` in world
+> space and the two spur edges carrying the SAME `Ellipse` with opposite
+> `normal` sign. The NEXT Intersect's Stage-1 chart cannot triangulate it (the
+> domain is two closed regions meeting at a point, and the zero-width slit
+> between them carries boundary chains the neighbouring flank faces also use,
+> so neither dropping nor paving the slit is faithful), so it is refused
+> there, typed: `YangError::Stage1SelfTouchingLoop`. The producer-side refusal
+> — Stage 6 declining to emit such a loop at all, which would move the failure
+> to the op that mints it — is a corpus-wide flip, because C0058 and F0060 are
+> SUPPORTED_CORRECT *because* the pinch is tolerated downstream; it needs its
+> own assay cycle. Full anchor: `docs/yang_tail_triage.md` §"P0020 — ANCHORED
+> 2026-10-03".
+
 (The oracle's own hybrid complex reads V = 1438, E = 4292, χ = 6 — a different
 weld granularity from the independent 1e-12 one above. They disagree on details
 and agree on the verdict: the armed output is not yet a clean set of closed

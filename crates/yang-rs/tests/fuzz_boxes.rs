@@ -392,6 +392,7 @@ fn err_variant_name(e: &YangError) -> &'static str {
         YangError::SsiRefinementFailed { .. } => "SsiRefinementFailed",
         YangError::Stage4ReversalUnresolved { .. } => "Stage4ReversalUnresolved",
         YangError::Stage1ChartCrossing { .. } => "Stage1ChartCrossing",
+        YangError::Stage1SelfTouchingLoop { .. } => "Stage1SelfTouchingLoop",
         YangError::Stage1ChartChordBound { .. } => "Stage1ChartChordBound",
         YangError::Stage1SelfContact { .. } => "Stage1SelfContact",
         YangError::Stage4RegionInvalid { .. } => "Stage4RegionInvalid",
