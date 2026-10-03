@@ -556,14 +556,23 @@ export function sendSelection(payload) {
 	send(socket, { type: 'select', ...payload });
 }
 
+/**
+ * The capture frame carries the tool's whole `arguments` object
+ * (specs/agent_mechanical_design.md §9), so a host-mode capture takes the same
+ * view, size, style and label arguments a page-mode one does — the relay
+ * forwards them untouched and the structured answer goes back whole. The
+ * legacy `max_edge_px` field is still read for a relay older than V1.
+ */
 async function answerCapture(ws, frame) {
 	const { VIEWPORT_QUERIES } = await import('$lib/agent/viewport.js');
 	try {
-		const result = VIEWPORT_QUERIES.viewport_capture.run({ max_edge_px: frame.max_edge_px ?? 1024 });
+		const args = frame.arguments ?? { max_edge_px: frame.max_edge_px ?? 1024 };
+		const result = VIEWPORT_QUERIES.viewport_capture.run(args);
 		send(ws, {
 			type: 'capture_result',
 			id: frame.id,
 			png_base64: result.content[0].data,
+			structured: result.structuredContent,
 			width: result.structuredContent.width,
 			height: result.structuredContent.height
 		});

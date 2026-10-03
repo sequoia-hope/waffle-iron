@@ -463,10 +463,17 @@ class ViewerServer:
             }
         request_id = uuid.uuid4().hex
         if tool == "viewport_capture":
+            # The whole argument object goes through untouched: V1 of
+            # specs/agent_mechanical_design.md §9 gave the capture a view, a
+            # size, a style and labels, and the relay is not the place that
+            # knows what they are — the page validates and answers them, in
+            # host mode exactly as in page mode. `max_edge_px` stays spelled
+            # out so a page older than V1 still gets the field it reads.
             frame = {
                 "type": "capture_request",
                 "id": request_id,
                 "max_edge_px": arguments.get("max_edge_px", 1024),
+                "arguments": arguments,
             }
         elif tool == "viewport_view":
             frame = {
@@ -504,12 +511,14 @@ class ViewerServer:
             png = answer.get("png_base64")
             if not isinstance(png, str):
                 raise LinkError("ViewerUnavailable", "the viewer sent no image", {"tool": tool})
-            structured = {
-                "mime_type": "image/png",
-                "width": answer.get("width"),
-                "height": answer.get("height"),
-                "viewer_id": viewer.viewer_id,
-            }
+            # The page's own structured answer (legend, labels, camera, size,
+            # style) is the result; the relay only names which viewer drew it.
+            page = answer.get("structured")
+            structured = dict(page) if isinstance(page, dict) else {}
+            structured.setdefault("mime_type", "image/png")
+            structured.setdefault("width", answer.get("width"))
+            structured.setdefault("height", answer.get("height"))
+            structured["viewer_id"] = viewer.viewer_id
             return {
                 "content": [{"type": "image", "data": png, "mimeType": "image/png"}],
                 "structuredContent": structured,
