@@ -1364,6 +1364,68 @@ fn the_on_path_band_is_the_chord_sagitta_and_tightens_with_it() {
     );
 }
 
+/// The "closed path with no crossings" verdict must not depend on the chord
+/// density the caller asked for — and before this test it did.
+///
+/// That verdict is settled by the face's own render triangles, which
+/// `tessellate_face` always builds at `RENDER_CHORD_TOLERANCE_REL`. The band
+/// it was compared against was keyed to the PROJECTION's `n_seg` instead, so
+/// the two described different meshes: at `n_seg = 1024` the band fell an
+/// order below the fixed mesh's real gap and the bored torus lost BOTH equator
+/// circles, i.e. asking for a finer drawing silently deleted the outline.
+///
+/// So the property under test is not "it works at the default" but "the
+/// verdict is the same at every density", which is the only form that cannot
+/// be satisfied by a band that happens to fit one mesh.
+#[test]
+fn the_closed_path_verdict_is_the_same_at_every_chord_density() {
+    // Four densities spanning two orders, the render default (180) among them.
+    const DENSITIES: [u32; 5] = [16, 32, 180, 512, 1024];
+    let (major, minor) = (0.020, 0.006);
+
+    // A plain closed torus takes the `hes.is_empty()` shortcut — its only
+    // boundary is the seam — so it pins the OTHER arm of the same branch.
+    let (arena, _, plain) = closed_torus(major, minor);
+    for n in DENSITIES {
+        let curves = face_silhouettes(&arena, plain, &basis_along([0.0, 0.0, 1.0]), n)
+            .expect("silhouettes at every density");
+        assert_eq!(curves.len(), 2, "n_seg {n}: a closed torus's two equators");
+    }
+
+    let (major, minor) = (0.020, 0.006);
+    let (mut arena, torus, _) = closed_torus(major, minor);
+    let bore = Profile::circle(
+        Point3::new(0.0, 0.0, -0.030),
+        uv(1.0, 0.0, 0.0),
+        uv(0.0, 1.0, 0.0),
+        P2::new(major, 0.0),
+        0.0015,
+    )
+    .expect("bore profile");
+    let drill = crate::extrude(&mut arena, &bore, uv(0.0, 0.0, 1.0), 0.060)
+        .expect("bore extrudes")
+        .solid;
+    let holed = crate::boolean_op(&mut arena, torus, drill, cad_primitives::BoolOp::Subtract)
+        .expect("torus minus a bore");
+    let fid = the_torus_face(&arena, holed);
+
+    for n in DENSITIES {
+        let curves = face_silhouettes(&arena, fid, &basis_along([0.0, 0.0, 1.0]), n)
+            .expect("silhouettes at every density");
+        let mut radii: Vec<f64> = curves
+            .iter()
+            .filter_map(|c| match c {
+                Curve2::Circle { radius, .. } => Some(*radius),
+                _ => None,
+            })
+            .collect();
+        radii.sort_by(f64::total_cmp);
+        assert_eq!(radii.len(), 2, "n_seg {n}: both equators, got {curves:?}");
+        assert!(close(radii[0], major - minor, 1e-12), "n_seg {n}");
+        assert!(close(radii[1], major + minor, 1e-12), "n_seg {n}");
+    }
+}
+
 /// `distance_to_triangle` against a brute-force sampling of the triangle, over
 /// the vertex, edge and interior regions — the one piece of the membership
 /// test that is pure arithmetic, and the one that decides whether a closed

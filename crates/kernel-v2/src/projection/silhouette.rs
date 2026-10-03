@@ -762,7 +762,7 @@ fn clip_path(
             // construction; otherwise nothing LOCAL decides it and the one
             // global question of this module gets asked (once, of the face's
             // own triangles).
-            if hes.is_empty() || closed_path_is_on_face(arena, fid, path, scale, n_seg)? {
+            if hes.is_empty() || closed_path_is_on_face(arena, fid, surface, path)? {
                 return Ok(vec![(0.0, TAU)]);
             }
             if tangencies > 0 {
@@ -842,9 +842,8 @@ fn clip_path(
 fn closed_path_is_on_face(
     arena: &BrepArena,
     fid: FaceId,
+    surface: &Surface,
     path: &Path,
-    scale: f64,
-    n_seg: u32,
 ) -> Result<bool, KernelV2Error> {
     const SAMPLES: usize = 48;
     let mesh = crate::tessellate::tessellate_face(arena, fid)?;
@@ -852,7 +851,7 @@ fn closed_path_is_on_face(
         census(fid, "closed path on a face with no triangles");
         return Ok(false);
     }
-    let band = 8.0 * scale * chord_sagitta_rel(n_seg) + TAU_MODEL;
+    let band = mesh_inscription_band(&mesh, surface);
     for k in 0..SAMPLES {
         let p = path.eval(TAU * (k as f64) / (SAMPLES as f64)).as_array();
         if distance_to_mesh(&mesh, p) > band {
@@ -860,6 +859,65 @@ fn closed_path_is_on_face(
         }
     }
     Ok(true)
+}
+
+/// How far a point that IS on the face may sit from the face's own render
+/// mesh: the mesh is inscribed, so the gap is the sagitta of its longest chord
+/// against the surface's tightest curvature, `ρ − √(ρ² − h²/4)` in closed form.
+///
+/// Measured from the mesh IN HAND, and that is the whole point of it.
+/// [`crate::tessellate::tessellate_face`] always meshes at
+/// `RENDER_CHORD_TOLERANCE_REL`, so a band keyed to the density the PROJECTION
+/// was asked for describes a different mesh than the one it is compared
+/// against — and at any chord tolerance finer than the render default it falls
+/// below the real gap and judges every closed path OFF its face. Measured
+/// 2026-10-03: a torus with a bore that misses both equator circles reported
+/// them at `n_seg = 180` and lost BOTH at `n_seg = 1024`, so asking for a
+/// finer drawing silently deleted the outline. Keyed to the mesh instead, the
+/// verdict is the same at every density
+/// (`the_closed_path_verdict_is_the_same_at_every_chord_density`).
+fn mesh_inscription_band(mesh: &crate::tessellate::RenderMesh, surface: &Surface) -> f64 {
+    let at = |i: u32| {
+        let k = (i as usize) * 3;
+        [
+            mesh.positions[k],
+            mesh.positions[k + 1],
+            mesh.positions[k + 2],
+        ]
+    };
+    let mut longest_sq = 0.0f64;
+    for t in mesh.indices.chunks_exact(3) {
+        let (a, b, c) = (at(t[0]), at(t[1]), at(t[2]));
+        for (p, q) in [(a, b), (b, c), (c, a)] {
+            let e = sub(q, p);
+            longest_sq = longest_sq.max(dot(e, e));
+        }
+    }
+    let rho = tightest_radius(surface);
+    // The sagitta of a chord of length `h` on a circle of radius `ρ`. A mesh
+    // coarser than the curvature it inscribes (`h/2 > ρ`) is bounded by `ρ`
+    // itself, which is what the clamped square root says.
+    let sagitta = rho - (rho * rho - 0.25 * longest_sq).max(0.0).sqrt();
+    sagitta + TAU_MODEL
+}
+
+/// The surface's tightest principal radius of curvature — the one that governs
+/// how far an inscribed chord can fall inside it.
+fn tightest_radius(surface: &Surface) -> f64 {
+    match *surface {
+        Surface::Sphere { radius, .. } => radius,
+        // The tube, not the ring: `r < R`, and the tube is the direction a
+        // render-mesh triangle edge bridges most tightly.
+        Surface::Torus { minor_radius, .. } => minor_radius,
+        Surface::Cylinder { radius, .. } => radius,
+        // Neither carries a CLOSED silhouette path — a cylinder's and a cone's
+        // are rulings and a plane has none — so this arm is reached only if
+        // one ever does. A cone's curvature tightens without bound toward the
+        // apex, so there is no finite radius to quote and this must not invent
+        // one: zero collapses the band to the model floor, which DECLINES, the
+        // documented safe direction for this module.
+        Surface::Cone { .. } | Surface::Plane(_) => 0.0,
+    }
 }
 
 /// Distance from `p` to the nearest triangle of `mesh`.
