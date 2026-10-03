@@ -107,6 +107,7 @@ Presented 2026-07-16; the user's answer (2026-07-17) was **"i have no opinion on
 | N67 | RESOLVED (2026-10-03, P0015) | The §4.5.2 op-level ladder treated its UNDER-RESOLUTION certificate as a futility PROOF: a demand past `REFINE_452_MAX_FACTOR` yielded an EMPTY rung list, so the op ran no refinement at all and its Stage-4 STOP stood by construction. The paper's loop skips no rung on a prediction — "The above procedures are repeated if optimization failure persists. The algorithm is guaranteed to terminate since the mesh intersections converge to the spline surface intersections under refinement" (`refs/text/yang2025_hybrid_boolean.txt:665-670`, §4.5). Measured on P0015: demand 159.37, and the op CONVERGES at `d_ε/32` (0 unpaired, 0 improper) while the certificate still read 9.96 — the inequality `d_ε/f < |d_far(q)|` is SUFFICIENT for placing that corner, never NECESSARY for a watertight output, and the re-measured demand is exactly `demand / f` (the corner clearance is refinement-invariant), so it carries no new information per rung. The ceiling now BOUNDS the ladder instead of vetoing it: a demand outside the budget runs the whole budget `[2, 4, 8, 16, 32, 64]` under the unchanged Q3 guard shell (spec `specs/yang_452_local_refinement.md` §10). The skip of rungs below an IN-budget demand is untouched and recorded as open in §10.5 |
 | N68 | OPEN (2026-10-03, P0013; remediation tracked in `specs/yang_p0013_tip_land_under_the_chord.md` §4 P3) | The §4.3.3 Case-IV rule-out only fires on a CLOSED component of refuted corners, so a phantom BUMP on a REAL intersection curve is never ruled out — the paper rules out per SOLUTION, not per loop. Two sub-gaps feed it: a claim whose shared edge is CURVED is declined outright (`CURVED-EDGE`, no verdict either way), and the §4.5.2 under-resolution demand is dropped whenever the clearance bound floors at 0 — which the 65-sample Lipschitz slack `len/128` guarantees for a short land on a long edge (P0013: a 9.2807e-6 land on a 5.1769e-3 edge). P1 fixed the clearance exactly (cylinders); the rule-out's loop shape and the guard's default-off state remain |
 | N69 | OPEN (2026-10-03, P0023/P0024; remediation = graze-aware ray selection, netted meanwhile by `InsideOutError::InnerLabelOutsideInputBounds`) | Cherchi 2022 §5 in/out classification picks the FIRST non-border explicit patch vertex and casts a +X ray, and never checks that the ray crosses the other input TRANSVERSALLY. When the origin sits on a shared edge the ray runs ALONG an edge of the other operand — its line is the intersection of two of that operand's face planes, so it is coplanar with both and crosses neither — and the degenerate vertex/edge ring resolution (`perturbRayAndFindIntersTri`) counts exactly ONE hit where a graze must count 0 or 2. The nearest-hit orientation then reads "entering" and the whole patch is labeled INSIDE the other input. Measured 2026-10-03 on two 10 mm cubes meeting along one edge, flush in the third axis: `Intersect` returns a copy of operand A (volume 1.0000000000000002e-6 m³, A's own) and `Union` returns one operand, dropping the other — a SILENT WRONG, no STOP, in 2 of 3 orientations (the third's ray misses the other operand and is correct). NOT a port divergence: the C++ reference `mesh_booleans` was run on the same two meshes and emitted byte-identical labels (`0 | 1 | 0` for all 12 of A's triangles) and the same operand-copy output, so cherchi-rs is in exact parity and the METHOD has no answer here. The paper's own remedy shape exists one branch over — the rational fallback already retries axes when "all three axis rays graze input geometry exactly" — but the f64 explicit branch, which is what production takes, has no graze test and no retry. Remediation: reject a candidate ray that is coplanar with any candidate triangle of another label it meets, and try the next origin/axis (exact, and byte-neutral on every non-grazing input); it is NOT landed here because ray selection is the single most load-bearing primitive in the stack and the change cannot be corpus-validated in a session that may not run the assay |
+| N71 | RESOLVED (2026-10-03, P0017/P0018) | kernel-v2's developable-patch material-CCW postcondition (`validate_cylinder_patch` / `validate_cone_patch`) measured its chart winding on a VERTICES-ONLY shoelace — every boundary edge replaced by its chart CHORD. A loop's winding is a property of its boundary CURVES: the planar arm has always known this (`geom::planar_loop_signed_area` adds each arc's exact circular-segment area to the chord polygon's), and §4.1's parametric-domain triangulation is defined on the domain bounded by the curves' images, not their chords. A patch whose boundary curve bulges further across the chart than the patch is wide therefore read the OPPOSITE sign and the kernel rejected its OWN correct output. Measured on P0018's `FaceId(27)`: an oblique plane∩cylinder ellipse arc whose chart image `h(θ) = 349.0216 − 221.2497·cos(θ − 0.42957)` dips to 127.77 at θ = 0.4296 while BOTH its endpoints and the whole 7-chord return polyline sit at 143.79–147.87 — chord shoelace −4.575 (a hole) against a canonical-chart +18.305 (material); on P0017's cone sliver, −6.723e-7 against +7.175e-8 (the chord polygon also overstates the area ~9×). Both arms now append each boundary curve's chart image via `tessellate::sampling` (`arc_interior_samples_frac`, `ellipse_interior_samples`, `hyperbola_interior_samples`, `surface_pair_edge_samples`) at the canonical chord density `RENDER_CHORD_TOLERANCE_REL` — the same polygon the render CDT triangulates (crate hard rule 5, one engine). Net winding, the band/apex-cap `mean_h` rules and every other tier are untouched (`mean_h` still reads loop VERTICES only). The quartic `SurfacePair` chart image has no closed form, so unlike the planar arm this is the canonical chart polygon rather than an exact integral — the exact closed forms for the conic arms (`h(θ)` sinusoidal on a cylinder, `τ(θ) = D/(n·â + tanα·B·cos(θ−φ))` on a cone) are the open refinement |
 | #137 diag | HISTORICAL | #137 (2026-07-15): C0065/R0074 — the torus∩plane solver EXISTS and RUNS; the blocker is mesh RESOLUTION nea… |
 | #137 diag 2 | HISTORICAL | #137 (2026-07-15, follow-up): resolution ALONE is not the fix — it flips the loud STOP into a silent-wrong … |
 
@@ -4922,3 +4923,105 @@ P0014 ERROR → SUPPORTED_CORRECT (28.4 s → 7.9 s), meta adjudicated
 mutation-checked in four directions. Spec
 `specs/yang_p0014_arrangement_lpi_pencil_weld.md`; §5 records the TPI-pencil
 and `t ≈ 0|1`-refusal residue, left loud with zero customers.
+
+---
+
+## N71 — the developable-patch winding was measured on chart CHORDS, not on the boundary curves (P0017/P0018)
+
+**State: RESOLVED (2026-10-03, P0017/P0018).**
+
+**Paper:** §4.1 (`refs/text/yang2025_hybrid_boolean.txt`) — a trimmed
+surface's tessellation is the triangulation of its PARAMETRIC DOMAIN, and that
+domain is bounded by the images of its boundary curves. Nothing in the paper
+licenses replacing a boundary curve by the chord between its endpoints when
+deciding which side of the boundary the domain lies on.
+
+**Divergence.** `kernel_v2::validate::faces::validate_cylinder_patch` and its
+cone twin `validate_cone_patch` decide a bounded patch's material sense from
+the signed area of a shoelace over the loop's VERTICES in the unrolled
+`(θ, h)` / developed `(θ, τ)` chart — one chart point per half-edge, every
+edge implicitly a straight chart segment. Four of the six `Curve` variants a
+boolean-output patch can carry have chart images that are NOT straight
+(`EllipseArc`, `HyperbolaArc`, `SurfacePair`, and an off-axis `Arc`), and the
+chart bulge is unbounded relative to the patch's own width. When the bulge
+exceeds it, the chord shoelace returns the OPPOSITE sign and the postcondition
+rejects a CORRECT face — `CurvedGeometryMismatch { reason: "bounded cylinder
+patch must have exactly one material-CCW loop" }` and its cone wording.
+
+The planar arm never had this gap: `geom::planar_loop_signed_area` takes the
+ring points AND the curves and adds each arc's exact circular-segment area, so
+"a ring winds CW about the face normal: exact area < 0" is exact there. The
+developable arms were the only orientation rule in the crate measured on
+chords.
+
+**Measured (P0018, the cylinder arm).** `FaceId(27)`, radius 89,
+`axis_point = [-235, 130, 88]`, axis `+x̂`, `reversed = false` (so
+`sense = +1`), ONE loop, `wrap = 0`. Its eight boundary vertices sit at chart
+`(θ, h)` = `(0, 147.874)`, `(0.859, 147.874)`, `(0.830, 147.293)`,
+`(0.744, 145.883)`, `(0.587, 144.296)`, `(0.429, 143.791)`,
+`(0.212, 144.761)`, `(0.029, 147.293)` — one `EllipseArc` from the first to
+the second, then seven `LineSegment` chords back. The chord shoelace is
+**−4.575297817481767** (CW ⇒ a hole ⇒ `positive = 0` ⇒ the STOP). But the
+ellipse is the oblique section of that cylinder by a plane through
+`(114.02162587571001, 130, 88)` with normal
+`(0.3732147969789698, −0.9277449624309184, 0)`, whose chart image is exactly
+`h(θ) = 349.0216 − 221.2497·cos(θ − 0.42957)`: it reaches **127.77** at
+θ = 0.4296, twenty chart units BELOW both of its own endpoints and sixteen
+below the lowest point of the return polyline. The arc is the region's LOWER
+boundary traversed left-to-right and the polyline its UPPER boundary
+right-to-left — counter-clockwise, material. On the canonical chart polygon
+the same loop measures **+18.30465761273355** and the face is accepted;
+P0018 reads `SUPPORTED_CORRECT`.
+
+**Measured (P0017, the cone arm).** `FaceId(28)`, `half_angle = 0.8757228702119423`,
+`reversed = true` (`sense = −1`), ONE loop of three edges — a constant-τ `Arc`
+and two cylinder×cone `SurfacePair` branches — spanning Δθ = 0.30 over
+τ ∈ [3.6064e-4, 3.6537e-4]. Chord shoelace **−6.722980363191853e-7**, canonical
+chart **+7.175427296555491e-8**: the chord polygon gets both the sign AND the
+magnitude wrong (≈ 9× too large) on a sliver this thin. The cut's nine other
+cone-band remnants (`FaceId(22..27, 29)`) were all positive under both
+measures, as were the ten bands of the first boolean — the defect is specific
+to the sliver, which is why a 310-CORRECT corpus never surfaced it.
+
+**Both arms, one rule (the twin lesson).** The two walls are the same
+postcondition written twice, and a one-sided fix would have silenced only the
+case that happened to be promoted. `developable_chart_edge_samples`
+(`crates/kernel-v2/src/validate/faces.rs`) is shared by both: given the
+half-edge and the caller's own `u_p` / `theta_p` / `delta` (never re-derived,
+so the net-winding analysis is byte-identical), it returns the edge's interior
+chart points in walk order using the SAME per-kind samplers
+`tessellate/developable.rs` pass 1 uses, at the canonical chord density
+`tessellate::RENDER_CHORD_TOLERANCE_REL` — so the winding is read off the very
+polygon the render CDT triangulates. A `LineSegment` contributes nothing (a
+chord is a straight chart segment in both places); `Curve::Circle` stays
+unreachable and loud. `mean_h` keeps reading loop VERTICES only, so the band
+and apex-cap rules do not move.
+
+**Residue.** (a) The quartic `SurfacePair` chart image has no closed form, so
+this is the canonical chart polygon, not an exact integral as in the planar
+arm. The conic arms DO have closed forms — `h(θ) = C − A·cos(θ − φ)` for a
+plane∩cylinder ellipse, `τ(θ) = D/(n·â + tanα·B·cos(θ − φ))` for a plane∩cone
+section, both exactly integrable — and promoting those two to exact bulge
+areas is the open refinement. (b) P0017 is only HALF converted: with the
+postcondition passing, the same 7.175e-8-area chart sliver reaches the render
+tessellator and is declined there — `TessellationFailed { reason: "ring
+rejected by CDT (degenerate/self-intersecting)" }`, N68's family (P0013). That
+is an UNMASKED LATENT, not a regression: validation used to STOP before
+tessellation ran, and P0017's own ×1e3 scale judgement already read a CDT ring
+reject.
+
+**Pins.** The corpus pair carries the rule end to end:
+`P0018` → `Category::SupportedCorrect`, adjudicated by the exact-membership
+lattice (one body, TWO shells — the non-convex cut severs a 4.298e3 speck —
+χ = 4, 1024-cell mean volume 6.738844e6 ± 3e-3; the kernel reads
+6.734419240e6, rel −6.57e-4 = the inscribed-mesh chord deficit on its
+radius-89/radius-100 cylinders), mutation-checked in three directions
+(`expected_solid_count` 1→99 ⇒ `solid count: 1 bodies (meta expects 99)`;
+`expected_volume_tol_rel` 3e-3→1e-9 ⇒ `expected_volume: 6.734419240e6 vs
+expected 6.738844000e6 (rel tol 1.0e-9)`; `euler_target` 4→2 ⇒
+`mesh_euler_characteristic: V(3731) − E(11150) + F(7423) = 4 (expected 2 for
+2 shell(s))`). `P0017` stays an ERROR pin on its new, later wall. Both rows
+are in `smoke_corpus_boundary_categories`. Diagnostic probes
+`KV2_CYLPATCH_PROBE` / the new `KV2_CONEPATCH_PROBE` now dump the per-loop
+wrap / `mean_h` / `area2` for EVERY developable patch and at the material-CCW
+wall, not only at the wrapping-count wall.
