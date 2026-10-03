@@ -1,5 +1,6 @@
-//! Content-seeded persistent ids for edges and vertices — D0 of
-//! `specs/drawings_and_mbd.md` §4 (items 2 and 3).
+//! Content-seeded persistent ids — D0 of `specs/drawings_and_mbd.md` §4:
+//! faces (item 1, [`seeded_face_pid`]) and edges/vertices (items 2 and 3,
+//! [`solid_pids`]).
 //!
 //! # Why content-seeded, and seeded from what
 //!
@@ -10,6 +11,14 @@
 //! stable name of that wall is its **lineage root** — the pid where the
 //! geometry was introduced, which `journal::face_lineage` recovers through
 //! any number of chained booleans.
+//!
+//! A root used to be a number from a per-arena counter, which is reproducible
+//! only when the whole arena is rebuilt in the same order. Since D0 item 1 a
+//! root is itself content-seeded ([`seeded_face_pid`]): the creating step's
+//! stable name plus the face's role within that step. That is what makes an
+//! INCREMENTAL rebuild safe — re-running one step in an arena whose counter
+//! has advanced now reproduces that step's face ids, so the edges named from
+//! them keep their ids too.
 //!
 //! So an edge is named from the *roots* of its two adjacent faces, not from
 //! their current pids:
@@ -60,16 +69,25 @@
 //!
 //! # Not stored
 //!
-//! These ids are **derived, never stored**: [`solid_pids`] recomputes them
-//! from the arena and the journal. There is no second source of truth to
-//! invalidate, nothing added to [`BrepArena`] (whose `Debug` string the
-//! determinism oracle compares), and no way for a stale id to outlive the
-//! geometry it named. The cost is one `O(E log E)` pass per query; callers
-//! that want every id at once ask for [`solid_pids`] directly.
+//! The EDGE and VERTEX ids are **derived, never stored**: [`solid_pids`]
+//! recomputes them from the arena and the journal. There is no second source
+//! of truth to invalidate and no way for a stale id to outlive the geometry
+//! it named. The cost is one `O(E log E)` pass per query; callers that want
+//! every id at once ask for [`solid_pids`] directly.
+//!
+//! A FACE id is stored, in `BrepArena::face_pids`, as it has been since
+//! KV13 F1 — the arena is where a stamp can be read back without
+//! re-executing the constructor that chose it. D0 item 1 added one more
+//! arena field, `BrepArena::face_seed`, the seed the current construct step
+//! stamps from; it is part of the canonical state the determinism oracle
+//! compares, so two runs that install the same seeds in the same order still
+//! compare equal.
 
 use std::collections::{BTreeMap, BTreeSet};
 
-use crate::arena::{BrepArena, FaceId, HalfEdgeId, Pid, SolidId, VertexId};
+use crate::arena::{
+    BrepArena, FaceId, FaceSeed, HalfEdgeId, Pid, SolidId, VertexId, PID_CONTENT_BASE,
+};
 use crate::error::KernelV2Error;
 use crate::journal::face_lineage;
 use cad_primitives::Point3;
@@ -79,6 +97,8 @@ use cad_primitives::Point3;
 const DOMAIN_EDGE: u64 = 0x4544_4745_5f56_3100; // "EDGE_V1"
 /// Domain tag mixed into every vertex pid.
 const DOMAIN_VERTEX: u64 = 0x5645_5254_5f56_3100; // "VERT_V1"
+/// Domain tag mixed into every content-seeded FACE pid (D0 item 1).
+const DOMAIN_FACE: u64 = 0x4641_4345_5f56_3100; // "FACE_V1"
 
 /// 64-bit mixing step (the SplitMix64 finalizer applied to `state ^ value`).
 /// Chosen because it is a well-studied avalanche function that needs no
@@ -100,6 +120,26 @@ fn digest(domain: u64, words: &[u64]) -> Pid {
     // Pid(0) is a legal monotonic face pid; keeping content ids off it costs
     // nothing and makes an unset id obvious in a dump.
     Pid(if h == 0 { 1 } else { h })
+}
+
+/// The content-seeded persistent id of a face created by a construct step
+/// (D0 item 1, the F4a reseed).
+///
+/// `seed` is the step's stable 128-bit name, `output` the ordinal of the
+/// stamping pass within that step (one step can build several solids), and
+/// `role` the face's position in its solid's own face list — for an extrude,
+/// base cap 0, top cap 1, then one lateral per profile edge. None of the
+/// three reads anything global, so an INCREMENTAL rebuild of one step
+/// reproduces exactly the ids a full rebuild would, which the monotonic
+/// counter could not. See [`BrepArena::assign_face_pids`].
+///
+/// The result always has its top bit set ([`PID_CONTENT_BASE`]), keeping the
+/// content ids and the counter's ids in disjoint halves of the number space.
+/// Same frozen-format obligation as [`digest`]: these ids are persisted in
+/// documents, so this function must never drift.
+pub fn seeded_face_pid(seed: FaceSeed, output: u64, role: u64) -> Pid {
+    let h = digest(DOMAIN_FACE, &[seed.origin[0], seed.origin[1], output, role]);
+    Pid(h.0 | PID_CONTENT_BASE)
 }
 
 /// Every persistent id of one solid, in one pass.
