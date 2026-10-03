@@ -210,6 +210,49 @@ tol_rel 3e-3 → 1e-9           ⇒ P0018: SUPPORTED_WRONG (3.6s) — expected_v
 euler_target 4 → 2            ⇒ P0018: SUPPORTED_WRONG (4.6s) — mesh_euler_characteristic: V(3731) - E(11150) + F(7423) = 4 (expected 2 for 2 shell(s))
 ```
 
+And the two arms get one end-to-end test each,
+`crates/test-harness/tests/n71_developable_chart_winding.rs`, RED→GREEN and
+mutation-checked together: neutering `developable_chart_edge_samples` to
+return an empty vector (the pre-N71 chord measure) makes BOTH fail with the
+verbatim walls —
+
+```
+test p0018_cylinder_patch_sliver_is_material ... FAILED
+test p0017_cone_patch_sliver_is_material ... FAILED
+  … CurvedGeometryMismatch { face: FaceId(27), reason: "bounded cylinder patch must have exactly one material-CCW loop" }
+  … CurvedGeometryMismatch { face: FaceId(28), reason: "bounded cone patch must have exactly one material-CCW loop" }
+```
+
+— and both pass with it in place. The cone arm needs this pin because P0017
+stays an ERROR row either way: its CATEGORY cannot detect a cone-arm revert,
+only its error TEXT can.
+
+### Sharers re-judged — 71 cases, zero category moves
+
+`single_case` at `ASSAY_CASE_TIMEOUT_SECS=900`, reconciled against the
+committed `results.json`: the previous customer of this exact error text
+(R0091 — the case P0012's reverted multi-target union measurement had flipped
+into it), the KV14 strip-seam customers (R0063, P0006), the §4.5.1 corridor
+customers (R0003, R0004, R0032, R0049, R0070-adjacent R0038/R0100), every open
+P-series ERROR row (P0013, P0016, P0019, P0020, P0021 — all still ERROR, all
+still their own text) and the whole cone/cylinder-patch-heavy C- and R-series
+(R0002/5/9/11/18/19/20/25/26/27/34/44/45/46/47/50/51/53/54/57/59/60/62/63/65/
+69/71/74/77/80/81/87/91/93/94/96/99/100, C0059–C0070, C0104, C0105, F0073–
+F0075, P0005/6/8/9/13/15/16/19/20/21/22). **Zero moves.** The single
+difference against the snapshot is `P0015 ERROR → SUPPORTED_CORRECT`, which is
+this morning's own merge (the snapshot is equally stale for it). The string
+`material-CCW` appears in NONE of the 71 verdicts.
+
+Cost: the heaviest re-runs (R0019 429.7 s, R0081 299.0 s, R0054 236.9 s,
+R0005 124.9 s, R0003 89.6 s, R0032 87.1 s) sit inside the session-to-session
+load spread for those cases, so the validator's added per-patch sampling has
+no measurable cost at corpus scale. `smoke_corpus_boundary_categories` passes
+in 390.0 s with both rows re-pinned; `cargo test -p kernel-v2 --release` is
+green across 40 test binaries; clippy `--all-targets -p kernel-v2
+-p test-harness -- -D warnings` and `cargo fmt --check` are clean.
+**The corpus was NOT re-measured** (another assay held the box), so the
+committed `results.json` is stale for P0018.
+
 ## 2026-10-03 (night) — **P0014 CONVERTED**: the Stage-2 arrangement minted an LPI PENCIL at a gear tessellation vertex 2 ULP off the boss plane, and no existing weld could see it — the producer now records the generator incidence and the I6 weld fuses the pencil inside its own band — **corpus not re-measured this session**
 
 `ASSAY_CASE=P0014 … single_case --release`: **ERROR 28.4 s →
