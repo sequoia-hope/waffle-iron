@@ -1284,6 +1284,13 @@
         },
         "name": {
           "type": "string"
+        },
+        "parameters": {
+          "description": "The DOCUMENT's design-parameter table (v11, P2,\n`specs/agent_mechanical_design.md` §6).\n\nAbove the tabs: every tab's expressions resolve through it after\ntheir own table, so one variable can drive two Parts — which is what\n`spring_od = tube_id - 1.5mm` needs when the tube and the spring are\nseparate Parts. Same row type as `FeatureTree.parameters`\n(`feature_engine::types::DesignParameter`), because it is the same\nkind of thing and a second row type would be a second evaluator.\n\nOmitted when empty, so no document without one changes bytes.",
+          "items": {
+            "$ref": "#/$defs/DesignParameter"
+          },
+          "type": "array"
         }
       },
       "required": [
@@ -2057,7 +2064,7 @@
             "format": "double",
             "type": "number"
           },
-          "description": "Design-parameter overrides for this instance (reserved; not applied\nin Phase 3).",
+          "description": "Design-parameter overrides for this instance (P2,\n`specs/agent_mechanical_design.md` §6): `name → working-space\nmagnitude` (mm for a length, degrees for an angle — the space\n`parameters_get` reports as `value_mm`).\n\nAn override PINS that parameter of the part for this instance: the\nrow's own expression is not evaluated, everything that reads it\nfollows, and the instance is built as its own solid. The dimension\ncomes from the part's parameter, not from the override, so a `Count`\nparameter still refuses a fractional override.\n\nA name the part does not declare is a loud error, not a new\nparameter. See `params::apply_parameters_scoped`.",
           "type": [
             "object",
             "null"

@@ -1801,13 +1801,17 @@ fn a_3d_sketch_round_trips() {
 /// (`crates/feature-engine/tests/sketch_plane_face.rs` measures it); v10 is
 /// the pid REPRESENTATION flip — a `Selector::Pid`'s ids are decimal strings,
 /// because a JSON number in JavaScript is an `f64` and a rounded id is a
-/// different entity (`waffle_types::pid_str`).
+/// different entity (`waffle_types::pid_str`); v11 is P2's two parameter
+/// scopes — `DocumentMetadata.parameters` and an applied
+/// `Instance.parameter_overrides` — where a reader that drops either builds a
+/// different solid from the same file
+/// (`crates/file-format/tests/param_scope_floor.rs`).
 /// What this test holds is that the writer and the floor move together and
 /// only deliberately.
 #[test]
 fn the_3d_sketch_operation_did_not_move_the_format_floor() {
-    assert_eq!(file_format::FORMAT_VERSION, 10);
-    assert_eq!(file_format::MIN_READER_VERSION, 10);
+    assert_eq!(file_format::FORMAT_VERSION, 11);
+    assert_eq!(file_format::MIN_READER_VERSION, 11);
 }
 
 /// v10: a pre-v10 file wrote its `Selector::Pid` ids as JSON NUMBERS, and it

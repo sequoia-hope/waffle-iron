@@ -1,7 +1,7 @@
 use chrono::{DateTime, Utc};
 use feature_engine::assembly::AssemblyTree;
 use feature_engine::drawing::Drawing;
-use feature_engine::types::FeatureTree;
+use feature_engine::types::{DesignParameter, FeatureTree};
 
 /// RFC 3339 UTC timestamps written the way JavaScript's `toISOString()`
 /// writes them (`2020-01-02T03:04:05.000Z`, always ≥ 3 fractional digits) so
@@ -110,6 +110,19 @@ pub struct DocumentMetadata {
     pub modified: DateTime<Utc>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub display_unit: Option<String>,
+    /// The DOCUMENT's design-parameter table (v11, P2,
+    /// `specs/agent_mechanical_design.md` §6).
+    ///
+    /// Above the tabs: every tab's expressions resolve through it after
+    /// their own table, so one variable can drive two Parts — which is what
+    /// `spring_od = tube_id - 1.5mm` needs when the tube and the spring are
+    /// separate Parts. Same row type as `FeatureTree.parameters`
+    /// (`feature_engine::types::DesignParameter`), because it is the same
+    /// kind of thing and a second row type would be a second evaluator.
+    ///
+    /// Omitted when empty, so no document without one changes bytes.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub parameters: Vec<DesignParameter>,
     /// Unknown keys preserved across load → save (v4 §2.6).
     #[serde(flatten)]
     pub extra: Map<String, Value>,
@@ -130,6 +143,7 @@ impl DocumentMetadata {
             created: now,
             modified: now,
             display_unit: None,
+            parameters: Vec::new(),
             extra: Map::new(),
         }
     }
@@ -148,6 +162,9 @@ impl From<&ProjectMetadata> for DocumentMetadata {
             created: m.created,
             modified: m.modified,
             display_unit: m.display_unit.clone(),
+            // A v1/v2 document predates the document layer entirely, so it
+            // has no document table to migrate.
+            parameters: Vec::new(),
             extra: Map::new(),
         }
     }

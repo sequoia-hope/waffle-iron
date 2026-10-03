@@ -75,7 +75,12 @@ fn v4_envelope_round_trip_keeps_identity_sources_and_tabs() {
     // coercion — docs/FILE_FORMAT.md §4, §13.3 and
     // `crates/feature-engine/tests/param_unit_floor.rs`). v7 was
     // `FeatureTree.names`'s `Selector::Pid`; v6 was `Sketch.plane_x_axis`.
-    assert_eq!(FORMAT_VERSION, 10);
+    // v11 since 2026-10-03 (P2's two parameter scopes:
+    // `DocumentMetadata.parameters` and an APPLIED
+    // `Instance.parameter_overrides` — a reader that drops either builds a
+    // different solid, `crates/file-format/tests/param_scope_floor.rs`); v10
+    // was the pid representation flip to decimal strings.
+    assert_eq!(FORMAT_VERSION, 11);
     assert_eq!(parsed["document"]["id"], doc.document.id.to_string());
     assert_eq!(parsed["sources"].as_array().unwrap().len(), 1);
     // `.git` is normalized away on the way in; host is inferred, not written.
