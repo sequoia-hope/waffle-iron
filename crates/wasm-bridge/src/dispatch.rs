@@ -2993,8 +2993,48 @@ pub fn document_info(state: &EngineState) -> DocumentInfo {
         // store: both hold the same rows, but the engine's are the ones the
         // last parameter pass filled `value`/`error` on.
         parameters: state.engine.document_parameters.clone(),
+        part_parameters: part_parameters(state),
         revision: state.session.revision(),
     }
+}
+
+/// Each Part tab's parameter names and values (P2) — see
+/// [`DocumentInfo::part_parameters`].
+///
+/// Reads each tab's stored tree directly rather than through
+/// `session::part_trees`, which CLONES every tree: this runs on every
+/// `ModelUpdated`, and all it needs is a name and a number per row. The
+/// ACTIVE tab's live tree wins over the session's copy, which is stale
+/// between a mutation and the next `stash_active`.
+fn part_parameters(
+    state: &EngineState,
+) -> std::collections::BTreeMap<String, Vec<crate::messages::PartParameter>> {
+    let active = state.session.active_tab_id();
+    let mut out = std::collections::BTreeMap::new();
+    for info in state.session.tabs() {
+        if info.kind != "Part" {
+            continue;
+        }
+        let rows: Vec<crate::messages::PartParameter> = if info.id == active {
+            &state.engine.tree
+        } else {
+            match state.session.tab(&info.id).and_then(|t| t.features()) {
+                Some(tree) => tree,
+                None => continue,
+            }
+        }
+        .parameters
+        .iter()
+        .map(|p| crate::messages::PartParameter {
+            name: p.name.clone(),
+            value: p.value,
+        })
+        .collect();
+        if !rows.is_empty() {
+            out.insert(info.id, rows);
+        }
+    }
+    out
 }
 
 /// The open assembly as evaluated, in the shape the UI and the assembly tools

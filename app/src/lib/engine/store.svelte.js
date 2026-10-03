@@ -1228,6 +1228,12 @@ export async function initEngine() {
 			getSelectedFeatureId: () => selectedFeatureId,
 			getParameters: () => JSON.parse(JSON.stringify(getParameters())),
 			setParameters: (params) => setParameters(params),
+			// P2's second scope. Exposed beside the tab table because a test
+			// asserting the shadowing rule has to read both.
+			getDocumentParameters: () => JSON.parse(JSON.stringify(getDocumentParameters())),
+			setDocumentParameters: (params) => setDocumentParameters(params),
+			getPartParameters: () => JSON.parse(JSON.stringify(getPartParameters())),
+			getDocumentTabs: () => JSON.parse(JSON.stringify(getDocumentTabs())),
 			// The optional second argument is the dimension the caller means
 			// the expression for (P1); forwarded so a test can exercise the
 			// refusal path, not only the number.
@@ -6481,6 +6487,70 @@ export async function setParameters(parameters, renames = []) {
 }
 
 /**
+ * The DOCUMENT-level design-parameter table, as the last rebuild evaluated it
+ * (P2, `specs/agent_mechanical_design.md` §6).
+ *
+ * Read from `document`, not from the feature tree: it is the same table
+ * whichever tab is open, including an Assembly or Drawing tab, which has no
+ * feature tree at all. Nothing here evaluates anything — `value` and `error`
+ * are the engine's, which is what keeps a preview and the geometry agreeing.
+ * @returns {Array<object>}
+ */
+export function getDocumentParameters() {
+	return sessionDocument?.parameters ?? [];
+}
+
+/**
+ * Each Part tab's parameter names and values, by tab id (P2) — what the
+ * assembly panel offers an override field for.
+ *
+ * On the wire rather than read off the tab list, because only the OPEN tab's
+ * tree is mirrored and the open tab is the assembly whenever that panel is
+ * showing (see `ModelUpdated.document.part_parameters`).
+ * @returns {Record<string, Array<{name: string, value: number}>>}
+ */
+export function getPartParameters() {
+	return sessionDocument?.part_parameters ?? {};
+}
+
+/**
+ * Replace the DOCUMENT-level parameter table (send the COMPLETE list) and
+ * rebuild everything that reads it, in every tab.
+ *
+ * **Not an undo step**, unlike {@link setParameters}: an undo stack is
+ * per-tab, and a document-wide edit undone from one tab while the others kept
+ * the new values is a half-undo. There is no `renames` argument for the same
+ * reason the tool refuses one — the rewrite would have to reach every tab's
+ * expressions, and this message carries one table.
+ *
+ * @param {Array<{id?: string, name: string, expression: string}>} parameters
+ */
+export async function setDocumentParameters(parameters) {
+	if (!bridge || !engineReady) return;
+	log('action', 'Set document parameters', { count: parameters.length });
+	const payload = parameters.map((p) => ({
+		id: p.id || crypto.randomUUID(),
+		name: p.name,
+		expression: p.expression,
+		value: typeof p.value === 'number' ? p.value : 0,
+		// Same rule as the tab table: an edit to one row sends the whole
+		// table, so dropping these would strip the author's declared
+		// dimension from every other row.
+		...(p.unit ? { unit: p.unit } : {}),
+		...(p.comment ? { comment: p.comment } : {})
+	}));
+	try {
+		await sendRebuild({
+			type: 'SetDocumentParameters',
+			parameters: JSON.parse(JSON.stringify(payload))
+		});
+	} catch (err) {
+		log('error', `Set document parameters failed: ${err.message}`);
+		showToast('error', `Document variables update failed: ${err.message}`);
+	}
+}
+
+/**
  * Evaluate one expression against the current variables (stateless).
  *
  * There is NO expression parser in the browser: this is the one path, and it
@@ -7755,13 +7825,33 @@ export async function addInstance({ tabId, sourceId = null, name, transform, fix
 	});
 }
 
-/** Patch an instance (`name`, `transform`, `fixed`, `suppressed`). */
+/**
+ * Patch an instance (`name`, `transform`, `fixed`, `suppressed`,
+ * `parameter_overrides`).
+ *
+ * The key list is a WHITELIST, so a field missing from it is silently
+ * dropped — which is why `parameter_overrides` (P2) had to be added here as
+ * well as to the engine: without it the panel's override edit would look
+ * like it worked and change nothing.
+ *
+ * `parameter_overrides: null` clears every override, and an empty map is the
+ * same as none (the engine writes no key at all), so `{}` and absent are not
+ * two different builds of one part.
+ */
 export async function updateInstance(instanceId, patch) {
 	return editAssembly((asm) => {
 		const inst = asm.instances.find(i => i.id === instanceId);
 		if (!inst) return false;
 		for (const k of ['name', 'transform', 'fixed', 'suppressed', 'external_key']) {
 			if (k in patch) inst[k] = JSON.parse(JSON.stringify(patch[k]));
+		}
+		if ('parameter_overrides' in patch) {
+			const map = patch.parameter_overrides;
+			const next = map && Object.keys(map).length > 0
+				? JSON.parse(JSON.stringify(map))
+				: undefined;
+			if (next) inst.parameter_overrides = next;
+			else delete inst.parameter_overrides;
 		}
 		return true;
 	});
@@ -8063,9 +8153,14 @@ export async function moveTab(tabId, index) {
 /**
  * The session's tab list as of the last `ModelUpdated` (S2 C4). `{id, name,
  * kind}` per tab; never a tree.
+ *
+ * `$state`, because the document-level parameter table rides on it (P2) and
+ * a panel reading `getDocumentParameters()` has to re-render when the engine
+ * re-evaluates it. The fields the tab bar reads were already mirrored into
+ * their own `$state` below; this one is read straight off the message.
  * @type {any}
  */
-let sessionDocument = null;
+let sessionDocument = $state(null);
 
 /**
  * Mirror the session's document into the store's `$state` (S2 C4, A2.1).
