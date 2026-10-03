@@ -79,6 +79,7 @@ pub mod imported;
 pub mod ingest;
 pub mod introspect;
 pub mod journal;
+pub mod mass;
 pub mod measure;
 pub mod pid;
 pub mod profile;

@@ -522,6 +522,23 @@ pub enum KernelV2Error {
     /// error, not a geometry one: nothing about the model is wrong.
     MeasureInvalidRequest { reason: &'static str },
 
+    /// Q3 of `specs/agent_mechanical_design.md` §4.2
+    /// ([`crate::mass::mass_properties`]): the moment integrator and
+    /// [`crate::geom::signed_volume`] both claim an exact volume for this
+    /// solid and they DISAGREE. The two derive a curved lateral's material
+    /// sense differently — `signed_volume` from the rim normals and traversal,
+    /// the moment integrator from `Surface::reversed` — so a mismatch is an
+    /// orientation defect in one of them. It STOPs: a wrong sense moves the
+    /// centroid and the inertia far more than it moves the volume, so a
+    /// volume that merely looked plausible would ship a wrong centroid.
+    ///
+    /// The two volumes are carried as formatted text because this enum is
+    /// `Eq` and an `f64` field would break that for every variant.
+    MassIntegratorDisagreement {
+        solid: crate::arena::SolidId,
+        volumes: String,
+    },
+
     // ----- persistent identity (`crate::pid`, D0) -------------------------
     /// A face of the solid whose persistent ids were requested carries no
     /// stamped `Pid`, so there is nothing to seed its edges and vertices

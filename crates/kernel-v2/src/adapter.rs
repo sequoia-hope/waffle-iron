@@ -65,8 +65,8 @@ use waffle_types::kernel::{
     StepExportBody, SweepSection, TopoKind, TopoSignature, ViewFrame, ViewGeometry,
 };
 use waffle_types::kernel::{
-    Distance, DistanceOpts, EntityRef, Kernel, KernelIntrospect, KernelMeasure, MeasureEntity,
-    Method,
+    Distance, DistanceOpts, EntityRef, Kernel, KernelIntrospect, KernelMeasure, MassProperties,
+    MeasureEntity, Method, DEFAULT_DENSITY_KG_M3,
 };
 
 mod profile_convert;
@@ -2253,5 +2253,47 @@ impl KernelMeasure for KernelV2Adapter {
                 }
             },
         })
+    }
+
+    /// Q3: volume, area, centroid and the inertia tensor (`crate::mass`).
+    fn mass_properties(
+        &self,
+        solid: &KernelSolidHandle,
+        density: Option<f64>,
+    ) -> Result<MassProperties, KernelError> {
+        if self.imported_slot_of(solid).is_some() {
+            return Err(Self::not_supported(
+                "mass properties: a mesh-backed imported body — its triangles live outside the \
+                 arena the moment integrator reads (STEP-import roadmap SI2)",
+            ));
+        }
+        let sid = self.solid_of(solid)?;
+        let density = density.unwrap_or(DEFAULT_DENSITY_KG_M3);
+        let m = crate::mass::mass_properties(&self.arena, sid, density).map_err(|e| {
+            KernelError::Other {
+                message: format!("mass properties: {e}"),
+            }
+        })?;
+        Ok(MassProperties {
+            volume: m.volume,
+            surface_area: m.surface_area,
+            centroid: m.centroid,
+            inertia_at_centroid: m.inertia_at_centroid,
+            principal_moments: m.principal_moments,
+            principal_axes: m.principal_axes,
+            density: m.density,
+            mass: m.mass,
+            method: Self::tier(m.exact, m.chord_bound),
+        })
+    }
+}
+
+impl KernelV2Adapter {
+    fn tier(exact: bool, chord_bound: f64) -> Method {
+        if exact {
+            Method::Exact
+        } else {
+            Method::Mesh { chord_bound }
+        }
     }
 }
