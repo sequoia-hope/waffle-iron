@@ -25,18 +25,24 @@
 //! Unlike Q2, a section is not a pure query: its whole point is the cut body,
 //! which the caller projects with D1a–c. So the result is copied BACK into the
 //! live arena and the scratch is dropped. What the live arena gains is one
-//! solid and one `Transform` journal entry — not a boolean's worth of
-//! entities, and not the box.
+//! solid and one journal entry — not a boolean's worth of entities, and not
+//! the box.
 //!
 //! **Pid hygiene.** `copy_solid_into` records `(source pid → copy pid)` in the
 //! destination's journal, so a fresh scratch arena's own allocator would hand
 //! out numbers that collide with the live pids appearing as those sources, and
 //! [`crate::journal::face_lineage`] would follow a chain through the
 //! collision. The scratch arena's allocator is therefore started at the live
-//! arena's `next_pid` and the live arena's is advanced past the scratch's
-//! afterwards, so every pid in both arenas comes from ONE monotonic sequence
-//! and a lineage walk cannot cross wires. That is what makes the cap's
+//! arena's `next_pid`, and the live arena's is advanced past the scratch's
+//! high-water mark BEFORE the copy back, so every pid in both arenas comes
+//! from ONE monotonic sequence and a lineage walk cannot cross wires. The
+//! order is load-bearing: copying first would hand out live pids from exactly
+//! the range the scratch arena had been using. That is what makes the cap's
 //! attribution below a fact rather than a coincidence.
+//!
+//! The lineage the copy writes is then RE-ROOTED onto the sectioned body's own
+//! faces ([`reroot_cut_lineage`]), because the scratch face it names as the
+//! ancestor is gone by the time the caller sees the result.
 //!
 //! ## Finding the cap: lineage, cross-checked against geometry
 //!
