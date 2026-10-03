@@ -1083,6 +1083,19 @@ const BORE_R: f64 = 0.002;
 /// ending exactly on the box's top face would be a §4.5.5 coplanar overlay
 /// case, which is a different thing to be testing than a section.
 fn bored_box_and_drawing() -> (EngineState, kernel_v2::KernelV2Adapter, String, String) {
+    bored_box_and_drawing_at(W / 2.0, D / 2.0)
+}
+
+/// The same plate, bored at an arbitrary `(u, v)` of its sketch plane.
+///
+/// Parameterized for the kept-side pin: with the bore CENTRED, a cut through
+/// the middle leaves two halves that are congruent and project identically, so
+/// no assertion on the drawing can tell which one the kernel kept. The bore has
+/// to be off centre for a mirrored kept half to be a measurable difference.
+fn bored_box_and_drawing_at(
+    bore_u: f64,
+    bore_v: f64,
+) -> (EngineState, kernel_v2::KernelV2Adapter, String, String) {
     let (mut state, mut kernel, part_tab, drawing_tab) = box_and_drawing();
     ok(
         &mut state,
@@ -1119,8 +1132,8 @@ fn bored_box_and_drawing() -> (EngineState, kernel_v2::KernelV2Adapter, String, 
                 is_outer: true,
                 vertex_ids: vec![],
                 circle: Some(CircleProfile {
-                    center_u: W / 2.0,
-                    center_v: D / 2.0,
+                    center_u: bore_u,
+                    center_v: bore_v,
                     radius: BORE_R,
                 }),
                 spline_segments: vec![],
@@ -1677,5 +1690,143 @@ fn a_views_cache_carries_the_key_it_was_built_from_and_the_key_is_a_function_of_
                 v.name
             );
         }
+    }
+}
+
+/// The half a section KEEPS is the half its arrows point into — measured on a
+/// part that can tell the two apart (D4b review).
+///
+/// ## Why the other section tests cannot catch this
+///
+/// A section view looks ALONG the cut normal, so the kept half's extent in
+/// that direction is edge-on and invisible in the view's 2-D box; and the cap
+/// is the solid's cross-section at the plane, which is the SAME for both
+/// halves whichever one is kept. On a plate bored down the middle, the two
+/// halves are congruent and project identically — `flip` could invert the
+/// kernel's kept side, or the arrows could point the wrong way, and every
+/// assertion in `a_horizontal_section_of_a_bored_box_hatches_one_outer_loop_and_one_hole`
+/// would still pass. That test pins the cap's SHAPE and the arrow's direction
+/// against the algebra; this one pins the algebra against the solid.
+///
+/// ## The measurement
+///
+/// Bore the plate OFF CENTRE in `u` (at `W/4`) and cut vertically at `W/2`, so
+/// the bore lies entirely in one half. The derivation says which:
+/// `cut_line_2d` returns the line's left perpendicular, which points at the
+/// DISCARDED side, and `KernelProjection::section_with_plane` keeps
+/// `(p − origin)·n̂ ≤ 0`. For a line drawn `+v` at `u = W/2` that normal is
+/// `−u`, so the kept half is `u ≥ W/2` — which EXCLUDES a bore at `W/4`. With
+/// `flip` the kept half includes it.
+///
+/// The oracle is frame-independent, because the section's own `(u, v)` depends
+/// on a basis this test is not about: a curve is INTERIOR when all of its
+/// points sit strictly inside the view's own box along one axis. The plain
+/// half is a rectangular prism seen end-on, so every curve lies on the
+/// boundary; the bore contributes its cylinder's silhouette, which runs
+/// through the middle. Zero interior curves against at least one is the whole
+/// difference, and it is exactly the difference a mirrored kept side inverts.
+#[test]
+fn a_sections_kept_half_is_the_one_its_arrows_point_into() {
+    let (mut state, mut kernel, part_tab, drawing_tab) = bored_box_and_drawing_at(W / 4.0, D / 2.0);
+    let front = ok(
+        &mut state,
+        &mut kernel,
+        "drawing_view_add",
+        json!({ "tab_id": part_tab, "view": "front", "placement_mm": [100.0, 100.0] }),
+    )["view_id"]
+        .as_str()
+        .expect("the front view's id")
+        .to_string();
+
+    // A VERTICAL cutting line at x = W/2, drawn upwards, running past both
+    // ends of the part as a drafter draws it. The front view's (u, v) is
+    // (world x, world z), and the wire takes millimetres.
+    let cut_u = W * 1000.0 / 2.0;
+    let mut interiors = Vec::new();
+    for flip in [false, true] {
+        let answer = ok(
+            &mut state,
+            &mut kernel,
+            "drawing_view_add",
+            json!({
+                "tab_id": part_tab,
+                "parent_view_id": front,
+                "section_mm": [cut_u, -2.0, cut_u, H * 1000.0 + 2.0],
+                "flip": flip,
+            }),
+        );
+        let id = answer["view_id"]
+            .as_str()
+            .expect("the section's id")
+            .to_string();
+        let laid_out = layout(&state, &drawing_tab, &id);
+        interiors.push((flip, interior_curve_count(&laid_out), laid_out.curves.len()));
+    }
+
+    let (_, plain_interior, plain_total) = interiors[0];
+    let (_, bored_interior, bored_total) = interiors[1];
+    assert_eq!(
+        plain_interior, 0,
+        "the unflipped cut keeps u >= W/2, which has no bore in it, so every curve should lie on \
+         the view's own boundary — got {plain_interior} interior of {plain_total} curves"
+    );
+    assert!(
+        bored_interior > 0,
+        "the flipped cut keeps u <= W/2, which contains the bore at W/4, so the bore's silhouette \
+         should run through the middle of the view — got {bored_interior} interior of \
+         {bored_total} curves"
+    );
+}
+
+/// How many of `layout`'s curves lie strictly inside its own box along one
+/// axis — see `a_sections_kept_half_is_the_one_its_arrows_point_into`.
+///
+/// One millimetre of inset, in model units: the bore sits `D/2 − BORE_R` = 3 mm
+/// from the nearer wall, so the band is comfortably clear of both the boundary
+/// curves it must exclude and the bore curves it must find.
+fn interior_curve_count(layout: &ViewLayout) -> usize {
+    let Some([[min_u, min_v], [max_u, max_v]]) = layout.bbox else {
+        return 0;
+    };
+    const INSET: f64 = 0.001;
+    layout
+        .curves
+        .iter()
+        .filter(|c| {
+            let pts = curve_extent_points(&c.geometry);
+            if pts.is_empty() {
+                return false;
+            }
+            let inside_u = pts
+                .iter()
+                .all(|p| p[0] > min_u + INSET && p[0] < max_u - INSET);
+            let inside_v = pts
+                .iter()
+                .all(|p| p[1] > min_v + INSET && p[1] < max_v - INSET);
+            inside_u || inside_v
+        })
+        .count()
+}
+
+/// Points that bound a layout curve: its ends for a segment, its box corners
+/// for a conic. Conservative — a conic's box contains the arc, so a curve is
+/// only called interior when it certainly is.
+fn curve_extent_points(curve: &LayoutCurve) -> Vec<[f64; 2]> {
+    match curve {
+        LayoutCurve::Point { at } => vec![*at],
+        LayoutCurve::Line { start, end } => vec![*start, *end],
+        LayoutCurve::Circle { center, radius, .. } => vec![
+            [center[0] - radius, center[1] - radius],
+            [center[0] + radius, center[1] + radius],
+        ],
+        LayoutCurve::Ellipse {
+            center,
+            major_radius,
+            ..
+        } => vec![
+            [center[0] - major_radius, center[1] - major_radius],
+            [center[0] + major_radius, center[1] + major_radius],
+        ],
+        LayoutCurve::Polyline { points, .. } => points.clone(),
     }
 }
