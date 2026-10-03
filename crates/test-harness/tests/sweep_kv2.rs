@@ -92,6 +92,7 @@ fn sketch(
             solved_positions: HashMap::new(),
             solved_profiles: Vec::new(),
             projected: vec![],
+            plane_face: None,
         },
     }
 }

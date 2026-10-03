@@ -1707,6 +1707,235 @@ toast, not a silent stale value.
 This is what lets a drawing dimension's text, an MBD nominal, and a mass line
 in a title block all be ordinary expressions.
 
+### Implementation notes (D2)
+
+Landed 2026-10-03 (`crates/feature-engine/src/expr/measure.rs`,
+`measure.rs`, `params.rs`, `lib.rs`, `drawing.rs`; `crates/wasm-bridge/src/
+{dispatch,drawing_view}.rs`). Where the plan above left a choice open, this
+is the choice made and why.
+
+**This increment IS P4** of `specs/agent_mechanical_design.md` §6 — "P4 —
+measurement functions. D2 as specified" — so that row is closed by this
+one, and the MCP spec says so.
+
+**Arguments are N1 entity NAMES, and §6's "`GeomRef`s written in the
+existing selector syntax" was not implementable as written.** There is no
+textual selector syntax in the tree: `Selector` is a serde-tagged enum
+authored as JSON, and nothing anywhere parses one out of a string. The N1
+name is what a person or an agent can type into a parameter field, it is
+what §6 P4 of the MCP spec asks for in the same words ("arguments accept N1
+names"), and a body's display name reaches a solid through the same door.
+So `distance(wall_a, wall_b)`, `area(plate.top_face)`, `volume(plate)`.
+
+**Entity names are a separate NAMESPACE, and that is the load-bearing
+decision.** A measurement parses to its own AST node (`Expr::Measure`), not
+to `Ident`s. `Expr::identifiers()` is the design-parameter dependency list
+and `evaluate_parameters`' fixpoint waits on `UnknownIdentifier` coming out
+of it — so an entity name collected there would be a name the table can
+never resolve and a parameter that never settles. With two node kinds the
+namespaces are disjoint by construction: a parameter and a face may share a
+spelling, neither shadows the other, and a parameter rename provably cannot
+rewrite an entity argument (`collect_reference_spans` does not descend into
+a `Measure`). `Expr::entity_references` is the other list, and
+`expr::rename_entity_reference` the other rename — a separate function from
+P5's `rename_identifier`, for the same reason: renaming the body `plate`
+must rewrite `volume(plate)` and must NOT touch a parameter called `plate`.
+
+**D2 reserves no new words.** A measurement name is callable-only, so a
+document with a parameter called `radius`, `length`, `area` or `distance`
+keeps working: a bare `radius` is that parameter, `radius(rim)` is the
+measurement, and the two readings are disjoint so there is no ambiguity to
+resolve. Adding the seven to `is_reserved_word` would have invalidated such
+a parameter — and every expression reading it — to buy nothing. (The
+arithmetic functions ARE reserved; that is pre-D2 behaviour, not a rule
+this extends.) Which argument parser runs is decided by the CALLEE, not by
+lookahead: every measurement takes only names and every arithmetic function
+only numbers.
+
+**One table owns name, arity and DIMENSION** (`expr::measure::
+MEASUREMENTS`), and the evaluator attaches the dimension rather than
+trusting whoever answered — so no measurer can report an area as a length.
+Lengths are mm, areas mm², volumes mm³, angles degrees: the evaluator's own
+working space (P1), converted from the kernel's metres once, next to each
+kernel call. A measurement COMMITS its dimension, unlike a bare literal,
+which is what makes `distance(a, b) / 2` a length a depth accepts,
+`sqrt(area(top))` a length, and `area(top)` a length² a depth refuses by
+name. Names, arities and the dotted-path grammar (`leaf` or `body.leaf`,
+`names::MAX_SEGMENT_LEN`) are all validated at PARSE time, as P1
+established.
+
+**`mass` is in the grammar and refuses, naming M1.** `Dim` carries length
+and angle exponents only, and the document model has no material table to
+read a density from, so there is no number it could return that this
+evaluator could carry honestly. It parses — name and arity checked, so the
+spelling cannot drift — and evaluation is a typed
+`MeasurementUnavailable`. Widening `Dim` now would add a serialized
+`Dimension` variant, and with it a reader-floor obligation (the D0/N1
+lesson), for a function that still could not answer. `volume(body)` is the
+one that works today.
+
+**The ordering rule is what makes a cycle a typed error rather than a
+hang.** A measurement may read only geometry EARLIER in the tree than the
+expression it drives. `crates/feature-engine/src/measure.rs` enforces it
+ordinally, before any number is computed: §6's cycle ("a feature whose own
+dimension reads its own output") is the rule violated with
+`owner == self`, and reading a LATER feature is the same violation —
+both would make the rebuild's answer depend on the order it happened to
+compute things in. A name's owning feature is the LATER of its reference's
+ANCHOR feature and its pid's lineage root (`Engine::pid_to_feature`):
+availability, not provenance, is what a rebuild has to wait for, and for a
+boolean-output face those two answers differ. A design parameter has no
+index of its own, so the rule is stated at its EARLIEST READER
+(`params::earliest_readers`, propagated through parameter→parameter edges):
+a parameter read by feature #3 may measure #0–#2 and nothing later.
+
+**A rebuild that measures runs more than one pass, and the rule is why it
+terminates.** `Engine::rebuild_once` is the old body, which never measures;
+`Engine::rebuild` is the loop — build, measure, and if a measured value
+moved a field, build again from that field's feature. Because a
+measurement reads only earlier geometry, each pass settles the lowest
+unsettled site and never disturbs an earlier one: the sites settle in index
+order, each once, in at most (sites + 1) passes. That bound is the budget,
+and exhausting it is a typed "did not settle" error rather than a loop —
+the backstop for the one case the ordinal rule cannot see, a name whose
+owner the kernel cannot attribute (a mesh-backed import), which also
+warns. A document with no measurement runs exactly one pass and pays
+nothing.
+
+**A pass with no model DEFERS, silently.** The pre-rebuild pass has no
+geometry, so every measurement there is skipped: no error, nothing
+written, the field keeps the value the last measuring pass gave it, and a
+measuring parameter enters the environment at its cached value so its
+dependents still resolve. Reporting "no geometry is available here" would
+put a permanent error on a perfectly correct document on every rebuild.
+The measuring pass is also the ONE reporter of expression errors when it
+runs (`rebuild_once(…, report_expressions: false)`): both reporting would
+duplicate every non-measurement expression error.
+
+**A body rename carries the expressions that measure it.** A body's display
+name IS a measurement argument, so `rename_body` rewrites `volume(plate)`
+through the AST's byte spans and the undo record carries both halves —
+restoring the name alone would leave every expression reading the other
+one. No rebuild: the rewritten expression denotes the same entity, so every
+measured value is unchanged by construction. Clearing an override leaves
+nothing to spell, so the expressions then refuse loudly, which is the
+honest outcome. There is no `entity_rename` tool for a non-body entity name
+yet (N1 gives assign and unname); `params::rename_entity` is the mechanism
+waiting for one.
+
+**Resolution is `names::resolve`, Strict, not the stored reference.** The
+same ladder `names_list` reports — the pid first, the authored fallback
+when the pid is gone — so a name the listing calls resolvable is a name an
+expression can measure, and one question is not answered two ways. A
+vanished identity is `ExprError::MeasurementFailed`, naming the function
+AND the name.
+
+**`area` and `radius` are introspection, not `KernelMeasure`.** `area`
+reads the face signature's own exact area (N0 fills it for every analytic
+surface) and `radius` the axis descriptor's radius (N0, Q6); `angle` is
+computed from normals and axis directions here, exactly as §4.1 of the MCP
+spec says it must be ("angles are not a kernel method"). `distance`,
+`length` and `volume` go to `KernelMeasure` (Q1, Q6, Q3). A face whose
+normal is `None` — a full-turn surface of revolution — is refused for
+`angle` rather than handed its axis, because those are different
+quantities.
+
+**`angle`'s two families, and what `distance` does across KINDS.** §6's
+table promises an angle "between two planar faces or two lines". The
+first family is the face normal. The second has no axis descriptor to
+read — a straight edge is not a surface of revolution — so its direction
+is the segment itself, taken from `edge_polyline`, whose contract is "two
+points for a straight edge; for a curved edge, its chord samples at the
+kernel's render density". Exactly two points IS the kernel saying the
+edge is a segment, and a CURVED edge is still refused rather than handed
+its chord: the chord points somewhere else entirely, and for a closed
+circle it is zero. `distance(a, b)` accepts MIXED kinds — a body and a
+face — because Q1's `MeasureEntity` admits the pair and the kernel
+measures it; the answer is the honest one for the question asked, so
+`distance(plate, plate.top_face)` is zero (a face of a body is on it),
+and a caller who wanted the opposite wall must name both faces. Both
+pinned in `crates/wasm-bridge/tests/measurement_expr.rs`
+(`mixed_operands_and_the_two_angle_families_answer_or_refuse_by_name`).
+
+**A name that is UNNAMED takes its expressions down loudly.** N1 gives
+assign and unname, not rename, so the way a measured name disappears is
+that someone clears it. The expression that spelled it then fails by name
+(`MeasurementFailed` naming the function and the name) and reports no
+number at all — never the value from the last rebuild. Pinned in
+`clearing_an_entity_name_leaves_a_typed_error_naming_the_name_that_is_gone`.
+
+**D3's `Measured::Expr` is evaluated through this path.** `check_measured`
+no longer refuses it (it is a legal authored value now), and `rebuild_view`
+evaluates it through a new `ExprDimensions` trait — a trait rather than the
+environment itself, because the environment is the parameter table AND the
+live kernel while `rebuild_view` is deliberately pure with respect to the
+document. The drawing tab supplies one built from the SOURCE tab's own
+engine (`ViewExprs`): the view draws that document, so it must measure that
+document. `None` still refuses by name, which is what an assembly source
+gets, having no single engine. The value is evaluated BEFORE the anchors
+are resolved — anchors-first hides a broken expression behind a missing
+anchor whenever both are wrong, and only one error per annotation is
+reported either way.
+
+**`expression_evaluate` measures the live model**, through the same
+measurer, so a dialog's preview and the rebuilt geometry cannot disagree —
+the property P1 and P5 both rest on. It sets no ordering floor: a preview
+drives no field, so it has no position and nothing to be circular with
+respect to.
+
+**The browser needed no change.** `isPlainMeasurement` requires a leading
+number, so `distance(a, b) / 2` already routed to the engine like every
+other expression. Nothing client-side evaluates anything.
+
+**Oracles.** `crates/feature-engine/tests/measurement.rs` (MockKernel: the
+ordering rule both ways, a vanished name, a kernel that cannot measure,
+`sqrt(area(…))` driving a depth to the measured value, the body rename and
+its undo/redo) and `crates/wasm-bridge/tests/measurement_expr.rs`
+(kernel-v2: a boss whose depth is `distance(wall_a, wall_b) / 2` is half
+the measured gap and a wider gap is a deeper boss; the same through a
+measuring parameter, whose `parameters_get` row reports the measured mm
+with `committed: true` and an EMPTY `depends_on`; 100 mm², a 10 mm rim,
+1000 mm³; `mass` refusing; the cycle with real pids). `params.rs`'s
+`every_expression_field_can_measure_and_is_enumerated_as_one` is D2's half
+of the `expression_sites` drift oracle: all fifteen fields plus the
+parameters, and zero errors from a deferred pass.
+
+Still open:
+
+- *`mass` waits for M1*, with the `Dim` widening and the reader-floor
+  question it brings.
+- *A measurement in an ASSEMBLY tab measures nothing.* `TreeMeasurer` is
+  built per part engine, and an assembly's instance-scoped references are
+  the same gap Q2 and Q6 have (`RefScope.instance_path` + a world-space
+  transform step). A drawing view sourced from an assembly therefore
+  refuses an expression dimension by name rather than measuring one leaf.
+- *An `along` distance and `thickness` are not exposed.* `DistanceOpts.
+  along` exists on the kernel contract and Q5 is unlanded; the grammar has
+  no place to put an option, and inventing a keyword argument for one
+  function is worse than waiting for the second customer.
+- *A measuring expression re-measures on every rebuild, which is a kernel
+  call per site per pass.* No caching: a cached measurement that goes stale
+  is exactly the silent-wrong-number this increment exists to remove, and
+  the cost is one BVH query on a document that has any measurement at all.
+- *No `entity_rename` tool*, so a non-body entity name cannot be changed in
+  one step; the rewrite mechanism is in place for when one lands.
+- *The settle budget's error names the features that were still moving, not
+  the cycle.* The ordinal rule names the loop precisely for every case it
+  can see; the budget is the backstop for the unattributable ones, where
+  there is no owning feature to name. It does report how many passes it
+  spent (`Engine::measure_passes`), which is the number a reader of that
+  error needs.
+
+**The pass count, measured.** The sites+1 bound is not loose: a COLD
+two-link chain (one depth measuring block 0, the next measuring block 1,
+whose side-face area is width × that very depth) takes exactly three
+passes for two sites. What makes the bound harmless is that a chain is
+rare: fifteen INDEPENDENT measuring sites over a twenty-feature tree take
+TWO passes, not sixteen, because every one of them reads geometry the
+first build already produced. An incremental rebuild of the same chain
+takes two, the first link having settled already. All four numbers are
+pinned in `crates/feature-engine/tests/measurement.rs`.
+
 ## 7. D3 — Annotation model (LANDED 2026-10-03)
 
 Owner: `waffle-types` (types), `feature-engine` (evaluation), `app`
@@ -2275,7 +2504,7 @@ under both schema settings.
 | D1b | analytic silhouettes | D1a | kernel-v2 — **LANDED 2026-10-03** |
 | D1c | visibility classification + oracle | D1b | kernel-v2 — **LANDED 2026-10-03** |
 | D1d | `section_with_plane` | D1a | kernel-v2 |
-| D2 | measurement functions in expressions | D0 | feature-engine |
+| D2 | measurement functions in expressions | D0 | feature-engine — **LANDED 2026-10-03** |
 | D3 | `Annotation` types + SVG dimension renderer | D0 | waffle-types, app — **LANDED 2026-10-03** |
 | D4a | `Drawing` tab kind, named + projected views, DXF/SVG export | D1c, D3 | file-format, feature-engine, app, wasm-bridge — **LANDED 2026-10-03** |
 | D4b | section + detail views, title block, sheet PDF | D1d, D2, D4a | same |

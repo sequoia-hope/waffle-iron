@@ -112,6 +112,138 @@ fn clean_spike_loop(
     }
 }
 
+/// The exact tangent DIRECTION of a `Curve::SurfacePair` at a point that lies
+/// on it: `n̂_a × n̂_b`, the cross product of the two defining surfaces' unit
+/// normals. The curve is the transversal intersection of two level sets, so
+/// its tangent is orthogonal to both gradients; `|n̂_a × n̂_b|² = sin²θ` between
+/// the normals is exactly the `det` that
+/// [`crate::stage4_relocate::relocate_onto_implicit_pair`] already uses as its
+/// transversality measure, with the same `MIN_FEATURE_SIZE²` rank floor — no
+/// new constant is introduced here.
+///
+/// `None` (the caller then FAILS CLOSED, changing nothing) for a non-pair
+/// curve, for a point on a defining surface's axis (no normal), and at a
+/// TANGENCY of the two surfaces (parallel normals), where the intersection is
+/// not a transversal curve and has no single tangent.
+fn surface_pair_tangent(curve: &Curve, p: [f64; 3]) -> Option<[f64; 3]> {
+    let Curve::SurfacePair { a, b } = *curve else {
+        return None;
+    };
+    let (_, na) = crate::stage4_relocate::surface_distance_and_normal(a, p)?;
+    let (_, nb) = crate::stage4_relocate::surface_distance_and_normal(b, p)?;
+    let t = [
+        na[1] * nb[2] - na[2] * nb[1],
+        na[2] * nb[0] - na[0] * nb[2],
+        na[0] * nb[1] - na[1] * nb[0],
+    ];
+    let l2 = t[0] * t[0] + t[1] * t[1] + t[2] * t[2];
+    let rank_eps = cad_primitives::MIN_FEATURE_SIZE * cad_primitives::MIN_FEATURE_SIZE;
+    if !(l2.is_finite() && l2 > rank_eps) {
+        return None;
+    }
+    let l = l2.sqrt();
+    Some([t[0] / l, t[1] / l, t[2] / l])
+}
+
+/// A chord may order its endpoint along the curve only when its TANGENTIAL
+/// component dominates: `|d·T| ≥ CURVE_BACKTRACK_MIN_COS · |d|`. This is a
+/// fail-closed decisiveness floor, never an acceptance band — an arc that
+/// sweeps far enough for its chord to turn away from the shared vertex's
+/// tangent derives NOTHING and the loud downstream wall stands. Measured on
+/// P0017's spur: 0.998741 and 0.995439.
+const CURVE_BACKTRACK_MIN_COS: f64 = 0.5;
+
+/// Is the consecutive loop edge pair `(ei: a→v, ej: v→b)` a CURVED
+/// backtrack-spike — the [`is_backtrack_spike_pair`] twin on an exact
+/// intersection curve (deviation **N76**, P0017)?
+///
+/// The straight rule has to MEASURE collinearity, because
+/// `Curve::LineSegment`'s `PartialEq` is kind-only. A `Curve::SurfacePair`
+/// compares both defining surfaces, so `e1.curve == e2.curve` already means
+/// the two edges lie on ONE curve, and the only remaining question is which
+/// way each leaves the shared vertex `v`. On a smooth curve through `v` there
+/// are exactly two tangent directions: two arcs leaving `v` either take
+/// OPPOSITE ones — a plain split of one boundary, kept untouched — or the SAME
+/// one, in which case one arc COVERS the other and the excursion
+/// `a → v → (back over a) → b` is a zero-width spur. The discriminant is the
+/// sign of `((v−a)·T) · ((b−v)·T)` for the exact tangent `T` at `v`.
+///
+/// Fails closed (returns `false`, nothing is rewritten) whenever the tangent
+/// is undefined, whenever either chord is not decisively tangential, and when
+/// the pair is the WHOLE loop (`e1.start == e2.end`): a loop that is nothing
+/// but a spur encloses no area and stays the loud reject it is.
+fn is_curve_backtrack_pair(verts: &[BRepVertex], edges: &[BRepEdge], ei: u32, ej: u32) -> bool {
+    if ei == ej {
+        return false;
+    }
+    let (e1, e2) = (&edges[ei as usize], &edges[ej as usize]);
+    if !matches!(e1.curve, Curve::SurfacePair { .. }) || e1.curve != e2.curve {
+        return false;
+    }
+    if e1.end != e2.start || e1.start == e2.end {
+        return false;
+    }
+    let a = verts[e1.start as usize].point.as_array();
+    let v = verts[e1.end as usize].point.as_array();
+    let b = verts[e2.end as usize].point.as_array();
+    let Some(t) = surface_pair_tangent(&e1.curve, v) else {
+        return false;
+    };
+    let d1 = [v[0] - a[0], v[1] - a[1], v[2] - a[2]];
+    let d2 = [b[0] - v[0], b[1] - v[1], b[2] - v[2]];
+    let l1 = (d1[0] * d1[0] + d1[1] * d1[1] + d1[2] * d1[2]).sqrt();
+    let l2 = (d2[0] * d2[0] + d2[1] * d2[1] + d2[2] * d2[2]).sqrt();
+    if !(l1 > 0.0 && l2 > 0.0) {
+        return false;
+    }
+    let p1 = d1[0] * t[0] + d1[1] * t[1] + d1[2] * t[2];
+    let p2 = d2[0] * t[0] + d2[1] * t[1] + d2[2] * t[2];
+    if p1.abs() < CURVE_BACKTRACK_MIN_COS * l1 || p2.abs() < CURVE_BACKTRACK_MIN_COS * l2 {
+        return false;
+    }
+    p1 * p2 < 0.0
+}
+
+/// Merge every curved backtrack-spike pair in one face loop into a single edge
+/// on the SAME curve (appending it to `edges`), iterating to a fixpoint.
+/// Mirrors [`clean_spike_loop`]; `*fires` counts the merges. See
+/// [`BRep::normalize_output_curve_backtracks`].
+fn clean_curve_backtrack_loop(
+    verts: &[BRepVertex],
+    edges: &mut Vec<BRepEdge>,
+    lp: &mut Vec<u32>,
+    fires: &mut usize,
+) {
+    'restart: loop {
+        let n = lp.len();
+        if n < 2 {
+            return;
+        }
+        for k in 0..n {
+            let (ei, ej) = (lp[k], lp[(k + 1) % n]);
+            if is_curve_backtrack_pair(verts, edges, ei, ej) {
+                let start = edges[ei as usize].start;
+                let end = edges[ej as usize].end;
+                let curve = edges[ei as usize].curve;
+                let new_idx = edges.len() as u32;
+                edges.push(BRepEdge { start, end, curve });
+                if k + 1 < n {
+                    lp[k] = new_idx;
+                    lp.remove(k + 1);
+                } else {
+                    // The spike pair wraps (last edge, first edge): the merged
+                    // edge takes slot 0, the wrapping last slot is dropped.
+                    lp[0] = new_idx;
+                    lp.remove(n - 1);
+                }
+                *fires += 1;
+                continue 'restart;
+            }
+        }
+        return;
+    }
+}
+
 #[derive(Clone, Debug, PartialEq)]
 pub struct BRepFace {
     pub surface: Surface,
@@ -867,6 +999,56 @@ impl BRep {
         )?))
     }
 
+    /// Normalize away CURVED backtrack-spike pairs in every face loop, in
+    /// place — deviation **N76** (P0017), the
+    /// [`Self::normalized_without_backtrack_spikes`] twin for an exact
+    /// intersection curve.
+    ///
+    /// A boolean OUTPUT loop can traverse one `SurfacePair` curve TWICE: two
+    /// consecutive edges on the same curve leaving their shared vertex in the
+    /// SAME tangent direction, so one covers the other and the excursion is a
+    /// zero-width spur pointing OUT of the material. P0017's `FaceId(28)` is
+    /// the corpus case — a cone sliver whose loop
+    /// `Arc + SurfacePair(node3→node5) + SurfacePair(node5→node0)` has
+    /// `h₊(θ₃) = h_arc` exactly, so the second edge retraces the first before
+    /// continuing; its nine-point chart ring carries four proper
+    /// self-crossings and the render CDT rightly refuses it
+    /// (`docs/yang_tail_triage.md`, the 2026-10-03 night section). Both
+    /// covering uses — here `FaceId(28)`'s loop and the cut cylinder's — merge
+    /// to the same undirected edge, so the output stays boundary-CONFORMAL;
+    /// twin pairing in `from_yang_brep` is keyed on
+    /// `(vertex pair, CurveKey)`, never on edge index.
+    ///
+    /// Rewrites LOOPS and the EDGE table only. The mesh, the tessellation map
+    /// and both attribution maps are the boolean's own result, not a
+    /// tessellation of this topology, and are left untouched — which is why
+    /// this is a separate method from the input-side normalizer (that one
+    /// re-tessellates from topology). Merged-away edge indices are simply left
+    /// unreferenced: every downstream consumer enumerates edges through the
+    /// faces' loops.
+    ///
+    /// Returns the number of merges; **0** (the overwhelming majority — a
+    /// valid loop never double-covers a curve) leaves `self` byte-identical.
+    pub(crate) fn normalize_output_curve_backtracks(&mut self) -> usize {
+        let mut fires = 0usize;
+        let verts = std::mem::take(&mut self.vertices);
+        let mut edges = std::mem::take(&mut self.edges);
+        for f in self.faces.iter_mut() {
+            let mut outer = std::mem::take(&mut f.outer_loop);
+            clean_curve_backtrack_loop(&verts, &mut edges, &mut outer, &mut fires);
+            f.outer_loop = outer;
+            let n_inner = f.inner_loops.len();
+            for j in 0..n_inner {
+                let mut inner = std::mem::take(&mut f.inner_loops[j]);
+                clean_curve_backtrack_loop(&verts, &mut edges, &mut inner, &mut fires);
+                f.inner_loops[j] = inner;
+            }
+        }
+        self.vertices = verts;
+        self.edges = edges;
+        fires
+    }
+
     /// Construct from a pre-tessellated mesh (no topology).
     /// Degenerate B-Rep: `TessellationMap` entries are all `Unknown`.
     pub fn from_mesh(mesh: Mesh) -> Self {
@@ -1344,6 +1526,263 @@ mod spike_normalization_tests {
                 .expect("normalize")
                 .is_none(),
             "a clean B-Rep must take the no-op fast path"
+        );
+    }
+}
+
+#[cfg(test)]
+mod n76_curve_backtrack_tests {
+    //! N76 (P0017): a boolean OUTPUT loop that traverses one `SurfacePair`
+    //! curve twice carries a zero-width spur. Every figure below is P0017's
+    //! own measured geometry (`docs/yang_tail_triage.md`, 2026-10-03 night).
+
+    use super::*;
+
+    /// P0017's cone, `FaceId(28)`'s surface.
+    fn p0017_cone() -> Surface {
+        Surface::Cone {
+            apex: Point3::new(-0.00024969834927697054, 0.000517, -2.7e-5),
+            axis_dir: cad_primitives::Vector3::new(1.0, 0.0, 0.0),
+            half_angle: 0.8757228702119423,
+        }
+    }
+
+    /// P0017's cut cylinder.
+    fn p0017_cylinder() -> Surface {
+        Surface::Cylinder {
+            axis_point: Point3::new(
+                -0.0004709225775969472,
+                -0.0004215112535003616,
+                0.0001366432516812921,
+            ),
+            axis_dir: cad_primitives::Vector3::new(0.0, 1.0, 0.0),
+            radius: 0.0008322345964738464,
+        }
+    }
+
+    fn p0017_pair() -> Curve {
+        Curve::SurfacePair {
+            a: p0017_cylinder(),
+            b: p0017_cone(),
+        }
+    }
+
+    /// The three loop vertices, in θ order along the shared curve:
+    /// `node0` (θ = 0), `node3` (θ = 0.1420979), `node5` (θ = 0.2999498).
+    fn p0017_verts() -> Vec<BRepVertex> {
+        vec![
+            BRepVertex {
+                point: Point3::new(
+                    0.00011093906025019774,
+                    0.00048629930727492094,
+                    -0.00045837898149140525,
+                ),
+            },
+            BRepVertex {
+                point: Point3::new(
+                    0.00011093906025019774,
+                    0.000547700692725079,
+                    -0.00045837898149140525,
+                ),
+            },
+            BRepVertex {
+                point: Point3::new(
+                    0.00011567029264257224,
+                    0.0006164179483835168,
+                    -0.0004537153073050707,
+                ),
+            },
+        ]
+    }
+
+    fn pair_edge(start: u32, end: u32) -> BRepEdge {
+        BRepEdge {
+            start,
+            end,
+            curve: p0017_pair(),
+        }
+    }
+
+    #[test]
+    fn p0017_double_cover_is_a_curved_backtrack() {
+        let verts = p0017_verts();
+        // `he 137` (node3 → node5) then `he 138` (node5 → node0): both leave
+        // node5 along +T, so 138 retraces 137 before continuing. Measured
+        // cosines at node5: 0.998741 and 0.995439.
+        let edges = vec![pair_edge(1, 2), pair_edge(2, 0)];
+        assert!(
+            is_curve_backtrack_pair(&verts, &edges, 0, 1),
+            "node3 and node0 both lie on the +T side of node5, so half-edge \
+             138's span contains 137's: a zero-width spur"
+        );
+        let t = surface_pair_tangent(&p0017_pair(), verts[2].point.as_array())
+            .expect("the cyl×cone pair is transversal at node5");
+        let proj = |i: usize| {
+            let p = verts[i].point.as_array();
+            let v = verts[2].point.as_array();
+            let d = [p[0] - v[0], p[1] - v[1], p[2] - v[2]];
+            let l = (d[0] * d[0] + d[1] * d[1] + d[2] * d[2]).sqrt();
+            (d[0] * t[0] + d[1] * t[1] + d[2] * t[2], l)
+        };
+        let (p3, l3) = proj(1);
+        let (p0, l0) = proj(0);
+        // The tangent's SIGN is the `n̂_a × n̂_b` order's; only agreement
+        // matters. Both endpoints sit on ONE side of node5 along the curve.
+        assert!(
+            p3 * p0 > 0.0,
+            "node3 ({p3:.6e}) and node0 ({p0:.6e}) are on the SAME side of \
+             node5 — that is the double cover"
+        );
+        assert!(
+            p3.abs() / l3 > 0.99 && p0.abs() / l0 > 0.99,
+            "both chords are decisively tangential ({}, {}) — far above the \
+             fail-closed floor {CURVE_BACKTRACK_MIN_COS}",
+            p3.abs() / l3,
+            p0.abs() / l0
+        );
+        assert!(
+            p3.abs() < p0.abs(),
+            "node3 ({:.6e}) is strictly inside the span node5 → node0 \
+             ({:.6e})",
+            p3.abs(),
+            p0.abs()
+        );
+    }
+
+    #[test]
+    fn a_plain_split_of_one_curve_is_not_a_backtrack() {
+        let verts = p0017_verts();
+        // node0 → node3 → node5 walks the SAME curve monotonically: the two
+        // arcs leave the shared node3 in OPPOSITE tangent directions, which is
+        // an ordinary split of one boundary and must never be merged.
+        let edges = vec![pair_edge(0, 1), pair_edge(1, 2)];
+        assert!(
+            !is_curve_backtrack_pair(&verts, &edges, 0, 1),
+            "a monotone split of one intersection curve is not a spur"
+        );
+    }
+
+    #[test]
+    fn clean_curve_backtrack_loop_merges_the_spur_into_the_lens() {
+        let verts = p0017_verts();
+        // FaceId(28)'s loop: rim Arc(node0 → node3), then the doubled pair.
+        let mut edges = vec![
+            BRepEdge {
+                start: 0,
+                end: 1,
+                curve: Curve::Circle {
+                    center: Point3::new(0.00011093906025019774, 0.000517, -2.7e-5),
+                    normal: cad_primitives::Vector3::new(1.0, 0.0, 0.0),
+                    radius: 0.0004324700662547,
+                },
+            },
+            pair_edge(1, 2),
+            pair_edge(2, 0),
+        ];
+        let mut lp = vec![0u32, 1, 2];
+        let mut fires = 0usize;
+        clean_curve_backtrack_loop(&verts, &mut edges, &mut lp, &mut fires);
+        assert_eq!(fires, 1, "exactly one spur merge");
+        assert_eq!(lp.len(), 2, "the loop becomes the two-edge LENS");
+        assert_eq!(lp[0], 0, "the rim Arc keeps its index");
+        let merged = &edges[lp[1] as usize];
+        assert_eq!(
+            (merged.start, merged.end),
+            (1, 0),
+            "the merged edge runs node3 → node0 — the lens's lower boundary"
+        );
+        assert_eq!(
+            merged.curve,
+            p0017_pair(),
+            "the merged edge stays on the SAME pair curve"
+        );
+        // Idempotent: a clean loop derives nothing.
+        let mut again = 0usize;
+        clean_curve_backtrack_loop(&verts, &mut edges, &mut lp, &mut again);
+        assert_eq!(again, 0, "the normalization is a fixpoint");
+    }
+
+    #[test]
+    fn a_tangency_and_an_off_tangent_chord_both_fail_closed() {
+        let verts = p0017_verts();
+        // (a) COAXIAL cylinders: the two normals are parallel everywhere, so
+        //     the "intersection" is not a transversal curve and has no single
+        //     tangent. No tangent ⇒ no verdict ⇒ no merge.
+        let coaxial = Curve::SurfacePair {
+            a: Surface::Cylinder {
+                axis_point: Point3::new(0.0, 0.0, 0.0),
+                axis_dir: cad_primitives::Vector3::new(1.0, 0.0, 0.0),
+                radius: 1.0,
+            },
+            b: Surface::Cylinder {
+                axis_point: Point3::new(0.0, 0.0, 0.0),
+                axis_dir: cad_primitives::Vector3::new(1.0, 0.0, 0.0),
+                radius: 2.0,
+            },
+        };
+        assert!(
+            surface_pair_tangent(&coaxial, [0.0, 1.0, 0.0]).is_none(),
+            "parallel normals have no curve tangent"
+        );
+        let edges = vec![
+            BRepEdge {
+                start: 1,
+                end: 2,
+                curve: coaxial,
+            },
+            BRepEdge {
+                start: 2,
+                end: 0,
+                curve: coaxial,
+            },
+        ];
+        assert!(
+            !is_curve_backtrack_pair(&verts, &edges, 0, 1),
+            "a tangency derives nothing and the loud wall stands"
+        );
+
+        // (b) A chord perpendicular to the tangent at the shared vertex cannot
+        //     order its endpoint along the curve — the decisiveness floor.
+        let t = surface_pair_tangent(&p0017_pair(), verts[2].point.as_array())
+            .expect("transversal at node5");
+        let v = verts[2].point.as_array();
+        let perp = {
+            // Any unit vector ⊥ T.
+            let seed = if t[0].abs() < 0.9 {
+                [1.0, 0.0, 0.0]
+            } else {
+                [0.0, 1.0, 0.0]
+            };
+            let d = seed[0] * t[0] + seed[1] * t[1] + seed[2] * t[2];
+            let w = [seed[0] - d * t[0], seed[1] - d * t[1], seed[2] - d * t[2]];
+            let l = (w[0] * w[0] + w[1] * w[1] + w[2] * w[2]).sqrt();
+            [w[0] / l, w[1] / l, w[2] / l]
+        };
+        let mut skewed = p0017_verts();
+        skewed[1] = BRepVertex {
+            point: Point3::new(
+                v[0] + 1e-4 * perp[0],
+                v[1] + 1e-4 * perp[1],
+                v[2] + 1e-4 * perp[2],
+            ),
+        };
+        let edges = vec![pair_edge(1, 2), pair_edge(2, 0)];
+        assert!(
+            !is_curve_backtrack_pair(&skewed, &edges, 0, 1),
+            "an off-tangent chord fails closed"
+        );
+    }
+
+    #[test]
+    fn the_whole_loop_being_the_spur_stays_loud() {
+        let verts = p0017_verts();
+        // `a → v` then `v → a`: a two-edge loop that is nothing but the spur
+        // encloses no area. There is no merged edge to make, so it is left to
+        // the loud downstream reject rather than normalized to a self-loop.
+        let edges = vec![pair_edge(1, 2), pair_edge(2, 1)];
+        assert!(
+            !is_curve_backtrack_pair(&verts, &edges, 0, 1),
+            "a loop that is only a spur is not normalizable"
         );
     }
 }

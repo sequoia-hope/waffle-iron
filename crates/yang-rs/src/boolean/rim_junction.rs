@@ -370,14 +370,18 @@ pub(crate) fn cyl_pair_graze_demand(
 const BAND_WITNESS_SAMPLES: usize = 512;
 
 /// Whether the N75 finite-extent Case-III ladder is enabled (spec
-/// `specs/yang_p0021_case_iii_finite_extent_depth.md`). GATED OFF by
-/// default: the conversion is measured per-case, but flipping it always-on
-/// is a corpus-cost decision that needs the full release categorized assay
-/// (P10), which the session that built it was not permitted to run.
+/// `specs/yang_p0021_case_iii_finite_extent_depth.md`).
+///
+/// **ALWAYS-ON since 2026-10-03 (evening UTC).** The full release
+/// categorized assay with the ladder on measured **321C / 0W / 10E / 5EE /
+/// 0T over 336** (8 jobs, 900 s; wall 1436.4 s; R0085 853.3 s, F0072
+/// 755.2 s): exactly one category move — P0021 → SUPPORTED_CORRECT — and
+/// zero regressions, so the P10 corpus-cost question is answered. Opt out
+/// with `YANG_172_EXTENT=0|off` (the kill switch every always-on rule keeps).
 pub(crate) fn extent_ladder_enabled() -> bool {
-    matches!(
+    !matches!(
         std::env::var("YANG_172_EXTENT").as_deref(),
-        Ok("1") | Ok("on")
+        Ok("0") | Ok("off")
     )
 }
 

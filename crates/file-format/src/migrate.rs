@@ -308,6 +308,7 @@ mod tests {
             solve_status: SolveStatus::FullyConstrained,
             solved_positions: positions,
             projected: vec![],
+            plane_face: None,
             solved_profiles: vec![ClosedProfile {
                 entity_ids: vec![1, 2, 3, 4],
                 is_outer: true,

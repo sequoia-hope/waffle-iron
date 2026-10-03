@@ -535,7 +535,7 @@ pub enum UiToEngine {
     /// an `f64` — so a whole drawing that went out to the page and came back
     /// would have every pid above `2^53` silently rounded, and every
     /// dimension anchored on one would refuse as "resolves to no geometry"
-    /// (measured; see `feature_engine::drawing::pid_string`). The tools
+    /// (measured; see `waffle_types::pid_str`). The tools
     /// construct the `Drawing` in Rust, where `u64` is exact. The page uses
     /// [`UiToEngine::DrawingEdit`], which never carries one.
     EditDrawing {
@@ -996,9 +996,24 @@ pub struct ListedEntity {
     /// under (`waffle_types::kernel::EntityPid`). `null` for a kernel with no
     /// persistent identity for this body — a mesh-backed import — never a
     /// fabricated number.
-    #[serde(skip_serializing_if = "Option::is_none")]
+    ///
+    /// Decimal STRINGS, like every pid that crosses this boundary
+    /// (`waffle_types::pid_str`): these ids are content-seeded `u64`s, a
+    /// gear body hands out a thousand of them, and a JSON number in
+    /// JavaScript rounds the ones above `2^53` onto a different entity.
+    /// Q6 shipped them as numbers; the `is_u64()` assertion in
+    /// `tests/tool_entity_list.rs` is now `is_string()`.
+    #[serde(
+        default,
+        with = "waffle_types::pid_str::option",
+        skip_serializing_if = "Option::is_none"
+    )]
     pub pid: Option<u64>,
-    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(
+        default,
+        with = "waffle_types::pid_str::option",
+        skip_serializing_if = "Option::is_none"
+    )]
     pub root_pid: Option<u64>,
     /// The reference that names this entity. For a FACE this is exactly the
     /// ref `face_list` and the viewport hand out, so the two tools cannot
@@ -1197,6 +1212,34 @@ pub struct ListedName {
     /// not resolve, and for a body name.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub resolved_by: Option<feature_engine::names::ResolvedBy>,
+    /// Which RUNG of the ladder answered (N2 §5.3): `pid`, `pid_root`, `role`,
+    /// `signature`, `query`, `position`, or one of the `BestEffort` rebinds
+    /// (`role_clamped`, `signature_low_confidence`, `query_first_of_kind`,
+    /// `kind_fallback`, `position_nearest`). `resolved_by` says which stored
+    /// reference answered; this says how. Together they close N1's open item:
+    /// `pid` no longer hides whether the id answered directly or through its
+    /// lineage root. `null` when the name does not resolve.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub resolved_via: Option<feature_engine::resolve::ResolvedVia>,
+    /// True when the name points at something that is NOT the identity it
+    /// recorded: the stored persistent id was gone and the authored fallback
+    /// answered, or the rung that answered was a `BestEffort` rebind. The one
+    /// flag worth branching on — `resolves: true` alone does not mean the name
+    /// still means what it did.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub rebound: bool,
+    /// Why the recorded identity stopped answering, when something else did
+    /// (N2 §5.3). `PidGone` here with `resolves: true` says: the face this
+    /// name was given to is gone, and the entity reported is whatever the
+    /// authored selector found instead.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub lost_identity: Option<feature_engine::types::ResolutionReason>,
+    /// The typed classification of a refusal (N2 §5.3 item 2), so an agent
+    /// branches on `NoMatch` / `Ambiguous` / `PidGone` / `ScopeMissing` instead
+    /// of reading `warnings`. `null` when the name resolves, and for a refusal
+    /// the ladder did not classify.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub refusal: Option<feature_engine::types::ResolutionReason>,
     /// Why it does not resolve, or what the resolver warned about — verbatim.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub warnings: Vec<String>,
@@ -1328,6 +1371,14 @@ pub enum EngineToUi {
         /// Non-fatal warnings from rebuild (e.g., auto-union fallback).
         #[serde(default, skip_serializing_if = "Vec::is_empty")]
         warnings: Vec<String>,
+        /// The subset of `warnings` a FEATURE raised, with its id (N2 §5.3
+        /// item 4). The feature tree puts a warning glyph on that row, and a
+        /// reference that rebound or a sketch whose face moved is exactly the
+        /// state a user needs to see on the feature rather than in a toast
+        /// that scrolls away. The message is the warning WITHOUT the feature's
+        /// name prefix, which the row already shows.
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        feature_warnings: Vec<(Uuid, String)>,
         /// Features whose bodies a later feature consumed (a merge, cut or
         /// union took custody): not live, not rendered, not a valid boolean
         /// operand (`specs/b4_balanced_union.md` §2.4). Sorted for a stable
@@ -1798,8 +1849,8 @@ pub struct DrawingAnnotationSpec {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct DrawingAnchorSpec {
     /// A decimal STRING, because a `u64` is not exact as a JSON number in
-    /// JavaScript (`feature_engine::drawing::pid_string`).
-    #[serde(with = "feature_engine::drawing::pid_string")]
+    /// JavaScript (`waffle_types::pid_str`).
+    #[serde(with = "waffle_types::pid_str")]
     pub pid: u64,
     #[serde(default = "edge_kind")]
     pub kind: waffle_types::TopoKind,
@@ -1821,7 +1872,7 @@ fn edge_kind() -> waffle_types::TopoKind {
 /// The AUTHORED annotations beside those layouts do carry their anchors, and
 /// a `Selector::Pid` in one serializes as a JSON **number** — a `u64` a
 /// JavaScript `JSON.parse` rounds above `2^53` (see
-/// `feature_engine::drawing::pid_string` for the measurement). That is
+/// `waffle_types::pid_str` for the measurement). That is
 /// inert, not safe by construction: the page reads the authored annotations
 /// only as a count, draws from the layouts, and writes back exclusively
 /// through [`DrawingEdit`], whose every field is a primitive and whose

@@ -1674,16 +1674,26 @@ fn smoke_corpus_boundary_categories() {
         // exact-membership 1024-cell mean 6.738844e6 ± 3e-3, kernel
         // 6.734419240e6 = rel −6.57e-4, the cylinder chord deficit).
         //
-        // P0017 is HALF-converted: its cone postcondition passes (the sliver
-        // remnant of cone band FaceId(16) reads +7.175e-8, not −6.723e-7)
-        // and the case lands one stage later on an UNMASKED LATENT that
-        // validation used to preempt — `TessellationFailed { face:
-        // FaceId(28), reason: "ring rejected by CDT
-        // (degenerate/self-intersecting)" }`, the render CDT declining that
-        // same 7.2e-8-area chart sliver (N68's family, P0013). Its ×1e3
-        // scale judgement ALREADY read a CDT ring reject, so the class is
-        // now the same at its own scale.
-        ("P0017", Category::Error),
+        // P0017 CONVERTED 2026-10-03 (night), deviation N76. Its cone
+        // postcondition passed with N71 (the sliver remnant of cone band
+        // FaceId(16) reads +7.175e-8, not −6.723e-7) and the case then landed
+        // on a SECOND wall — `TessellationFailed { face: FaceId(28), reason:
+        // "ring rejected by CDT (degenerate/self-intersecting)" }` — which was
+        // NOT a chord artifact: all nine chart points of that ring sit on the
+        // cone to machine precision, and its four proper self-crossings are in
+        // the geometry the loop declares. Half-edges 137 and 138 carry the SAME
+        // cyl×cone `SurfacePair`, and 138's span [0, 0.2999498] CONTAINS 137's
+        // [0.1420979, 0.2999498]: a zero-width spur pointing OUT of the
+        // material (`h₊(θ) − h_arc` has exact zeros at both arc endpoints and
+        // dips to −5.0010e-7 between them). `BRep::normalize_output_curve_backtracks`
+        // merges it — the curved twin of the straight backtrack spike task #146
+        // already removes on the input side — leaving the exactly-correct
+        // two-edge LENS. Adjudicated by the exact-membership lattice (stable at
+        // every rung and both phases: components = 2, two bodies 6.4059e-11 +
+        // 8.0718e-11; 1024-cell two-phase mean 1.4476685e-10, kernel
+        // 1.446021896e-10 = rel −1.14e-3, the inscribed-mesh chord deficit),
+        // `derived_meta` cleared.
+        ("P0017", Category::SupportedCorrect),
         ("P0018", Category::SupportedCorrect),
         // P0019 (3 ops) was promoted for `InvalidBooleanOutput("full-circle
         // edge sense is underivable …")` — the wall R0004 once hit. HALF-
@@ -1723,7 +1733,7 @@ fn smoke_corpus_boundary_categories() {
         // `SelfIntersectingBooleanOutput { penetrations: 5 }` at kernel-v2's
         // render-level output gate — P0007's signature, converted 2026-09-29,
         // residue on three plain bosses.
-        ("P0021", Category::Error),
+        ("P0021", Category::SupportedCorrect), // CONVERTED 2026-10-03: N75 finite-extent ladder always-on (321C/10E corpus proof)
         // P0022 (5 ops) was promoted for the junction-mint postcondition
         // catching itself ("interior junction … not contained by any lateral
         // triangle — the mint would be silently dropped"; ×1e-3 kept it, ×1e3

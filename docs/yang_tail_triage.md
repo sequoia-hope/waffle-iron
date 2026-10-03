@@ -43,6 +43,252 @@ after the reconciliation run (release, 8 jobs, 360 s; wall 577 s, F0085
 regression since 2026-08-01 is outstanding (checked over every commit of
 `results.json`).
 
+## 2026-10-03 (night) — **P0017 CONVERTED**: the output loop of a cone sliver traversed ONE intersection curve TWICE — a zero-width outward spur the straight-edge backtrack normalizer could not see, because its collinearity test is written for `LineSegment` (deviation **N76**) — **corpus not re-measured this session**
+
+### The anchor — written before any code changed
+
+P0017's second wall, left by the N71 conversion earlier the same day:
+
+```
+P0017: ERROR (0.5s) — … kernel-v2 boolean_subtract failed:
+TessellationFailed { face: FaceId(28), reason: "ring rejected by CDT (degenerate/self-intersecting)" }
+```
+
+**The rejected ring, verbatim** (`KV2_RING_REJECT_PROBE=1`): `cdt_err=TriangulationFailed
+outer_len=9 holes=0 npts=9`. Its nine chart points `(u, v) = (θ·r_unroll, h)` and
+their provenance (`KV2_RING_PROVENANCE=1`, `KV2_PATCH_CHAIN_PROBE=28`):
+
+| idx | u | v = h | from |
+|---|---|---|---|
+| 0 | −0.0 | 3.606374095271683e-4 | **vertex**, `he 136` `Arc` |
+| 1 | −2.1436197861787477e-5 | 3.606374095271683e-4 | arc sample |
+| 2 | −6.020997132069559e-5 | 3.606374095271683e-4 | arc sample |
+| 3 | −6.225928245302919e-5 | 3.606374095271683e-4 | **vertex**, `he 137` `SurfacePair` |
+| 4 | −9.705704479206982e-5 | 3.623893913367232e-4 | `he 137` sample |
+| 5 | −1.314211032937001e-4 | 3.653686419195428e-4 | **vertex**, `he 138` `SurfacePair` |
+| 6 | −9.897271106909461e-5 | 3.625226161582151e-4 | `he 138` sample |
+| 7 | −6.612664036429792e-5 | 3.60769818881806373e-4 | `he 138` sample |
+| 8 | −3.3069199778134375e-5 | 3.601379926151848e-4 | `he 138` sample |
+
+**FOUR proper self-crossings** (exact `orient2d` over the nine points):
+`1–2 × 7–8`, `3–4 × 6–7`, `3–4 × 7–8`, `4–5 × 6–7`.
+
+**It is not a chord artifact, and no density can fix it.** Every one of the nine
+points lies on face 28's cone to machine precision — the residual `r − h·tanα`
+reads `0`, `−1.08e-19` or at worst `6.93e-16` (`rel 1.6e-12`, node 5), so the
+chart image of each is EXACT and the arc, a constant-`h` circle, is a straight
+chart line exactly. The crossing is in the geometry the loop declares, not in
+its sampling.
+
+**What the geometry says.** The loop is `Arc(136) + SurfacePair(137) +
+SurfacePair(138)`, and **137 and 138 carry the SAME pair, field for field** —
+`Cylinder { axis_point: [-4.709225775969472e-4, -4.215112535003616e-4,
+1.366432516812921e-4], axis_dir: +ŷ, radius: 8.322345964738464e-4 }` ×
+`Cone { apex: [-2.4969834927697054e-4, 5.17e-4, -2.7e-5], axis_dir: +x̂,
+half_angle: 0.8757228702119423 }`. On the cone's upper nappe that pair curve is
+a single-valued graph `h₊(θ)`: substituting the cone's own `(θ, h)`
+parametrization into the cylinder gives `(A + h)² + (B + h·tanα·cos(θ − φ))² = R²`
+with `A = 2.2122422831997665e-4`, `B = −1.6364325168129212e-4`,
+`φ = −3.0705437195527816`, whose other root sits at `h₋ ≈ −7.03e-4` — the FAR
+nappe, 1.06e-3 away, never a candidate. Solved at each node's own θ, `h₊`
+reproduces nodes 0, 3, 4, 5, 6, 7, 8 to `0`, `−6e-19`, `6e-15`, `2.7e-17`,
+`3.3e-19` (nodes 1 and 2 are the arc's own samples and miss it by 4.53e-7 and
+6.39e-8, as they must). So:
+
+```
+θ:        0        0.1420979        0.2999498
+          node 0   node 3           node 5
+he 137 spans  [0.1420979, 0.2999498]
+he 138 spans  [0,         0.2999498]   ⊃ 137
+```
+
+**Half-edge 138 double-covers half-edge 137.** The excursion
+`node3 → node5 → node3` is a ZERO-WIDTH SPUR, and it points OUT of the material:
+`h₊(θ) − h_arc` has simple zeros exactly at `θ = 0` and `θ = 0.1420979` (both
+EXACT — `h₊(θ₃) = 3.606374095272e-4 = h_arc` to the bit), dips to
+**−5.0010e-7** at `θ ≈ 0.0712`, and is positive beyond. The face's material
+region is therefore the LENS between the rim arc and `h₊` over
+`θ ∈ [0, 0.1420979]`, chart area ≈ 7.3e-8 — which is the `+7.175427296555491e-8`
+N71's canonical measure read, so the N71 sign is confirmed by an independent
+integral. Beyond `θ = 0.1420979` the lens is empty and the curve bounds the
+NEXT band up, not this one.
+
+**One locus, two loops.** `twin_face` on each half-edge (the chain probe,
+extended this session): `he 136`'s twin is in `FaceId(29)`, a **Cone** (the
+band above, sharing the rim); `he 137`'s twin `he 181` and `he 138`'s twin
+`he 180` are **both in `LoopId(30)` of `FaceId(30)`, a Cylinder** — the cut
+face, carrying the mirror of the same spur. So exactly two loops double-cover
+this curve, and both exhibit the backtrack at node 5.
+
+**Why the P0013 rule did not fire, and why it must not.**
+`kernel_v2::tessellate::loop_conformity_segment_count` scopes itself to PLANAR
+faces with inner loops and a circular boundary edge (`yang_p0013_tip_land_under_the_chord.md`
+§4 P4, "Scope: planar faces"); face 28 is a CONE patch with ONE loop and no
+inner loop, so `loop_conformity_n_for` is never consulted. That is correct, not
+a gap: density is the wrong instrument here. Measured in debug with
+`YANG_NSEG_FLOOR` (natural rim N = 25, `[stage1-nseg]`):
+
+| forced rim N | verdict |
+|---|---|
+| 25 (natural) | ERROR — `TessellationFailed … ring rejected by CDT` |
+| 35 | SUPPORTED_CORRECT (11.1 s) |
+| 50 | ERROR — `BooleanFailed("yang-rs: reassembled output would be non-2-manifold")` |
+| 66 | SUPPORTED_CORRECT (14.6 s) |
+| 71 | SUPPORTED_CORRECT (15.6 s) |
+| 100 | SUPPORTED_CORRECT (17.7 s) |
+| 200 | SUPPORTED_CORRECT (50.0 s) |
+
+N = 35 already passes while N = 50 fails DIFFERENTLY — the dependence is not
+monotone, so driving a §4.5.2 ladder off this would be squeaking a case through
+a resolution lottery, exactly the posture `feedback_stop_band_tuning_build_mesh_updating`
+forbids. The rim sagitta model does not explain it either (at N = 35 the
+sagitta is 1.7389e-6, still 3.5× the 5.0010e-7 graze).
+
+### The un-minimized lineage — the same locus, plus ANOTHER one
+
+`PROSPECT_CANDIDATE=target/prospect/seed-2/candidates/X00000002-00027` (the
+17-op original P0017 was truncated from) does **not** reproduce the
+`ring rejected by CDT` signature any more — it moved when N71 landed, and now
+reads a DIFFERENT render-CDT wall:
+
+```
+TessellationFailed { face: FaceId(25), reason: "pinch sub-ring is not CCW" }
+```
+
+— the M3c arm of `kv2_cdt_triangulation_core` §6b/§6d. **N76 does not move it:**
+measured with the predicate neutered and with it live, the lineage reads that
+same wall verbatim both ways, while `[n76] op=Subtract merged 2 curved
+backtrack spike(s)` fires on two of its ops. So the lineage carries this
+locus AND a second one, and the second is a NEW signature to re-minimize —
+the same pattern P0004's lineage showed when it advanced to
+`patch triangulation folded — KV9-F2`. It is not a regression and not
+something this cycle claims.
+
+### The fix — the curved twin of a normalization the crate already performs
+
+`BRep::normalized_without_backtrack_spikes` (task #146, F0064) already removes
+exactly this shape when both edges are straight: a consecutive loop pair
+`(a→v, v→b)` that is collinear AND reverses (`dot(v−a, b−v) < 0`) is merged into
+one edge `a→b`. Its collinearity test is written for `LineSegment` — whose
+`PartialEq` is kind-only, so collinearity has to be MEASURED
+(`|d1×d2| ≤ 1e-9·|d1||d2|`) — and it is applied to the INPUT operands only.
+A curved intersection edge needs neither: `Curve::SurfacePair`'s `PartialEq`
+compares both defining surfaces, so `e1.curve == e2.curve` already means ONE
+curve, and the curve's tangent at the shared vertex is exact, `T = n̂_a × n̂_b`
+(`surface_distance_and_normal`, the same unit normals
+`relocate_onto_implicit_pair` Newtons on; `|n̂_a × n̂_b|² = sin²θ` is that
+operator's own `det`, reused as the transversality guard — no new constant).
+Two arcs of one smooth curve leaving `v` either take OPPOSITE tangent
+directions (a plain split of one boundary — kept) or the SAME one (a double
+cover — merged), and the discriminant is the sign of
+`((v−a)·T) · ((b−v)·T)`. Measured on P0017 at node 5:
+`T = [-0.10359312964056333, -0.9892792304044337, -0.10293234565327337]`,
+`(node3−node5)·T = 6.895072e-5` (cos **0.998741**) and
+`(node0−node5)·T = 1.296938e-4` (cos **0.995439**) — same side, product
+negative, nowhere near the fail-closed decisiveness floor.
+
+`BRep::normalize_output_curve_backtracks` runs this at the END of
+`boolean_once`, on the OUTPUT, rewriting loops and the edge table only (the
+mesh, the tessellation map and both attribution maps are the boolean's result,
+not a tessellation of this topology, and are untouched). Deviation **N76**.
+
+Face 28's loop becomes the two-edge LENS `Arc(node0→node3) +
+SurfacePair(node3→node0)` — the exactly-correct region — and `FaceId(30)`
+merges the mirror pair to the same undirected edge, so the twin pairing (keyed
+on `(vertex pair, CurveKey)`, never on edge index) closes. `from_yang_brep`
+already admits that loop: its `lens_bigon` arm wants two non-`Seg` edges on
+DISTINCT curves, which an `Arc` + a `SurfacePair` are. The three developable
+`loop with fewer than 3 edges` walls (`tessellate/developable.rs`,
+`validate/faces.rs`, `validate/faces/cone.rs` — the mirrored TRIPLE, all
+relaxed together so no twin is silenced) go to `< 2`: a patch bounded by two
+distinct curves meeting at two vertices bounds a real area, and N71 is what
+made it MEASURABLE there (the vertices-only shoelace of a bigon is identically
+0; the canonical chart polygon is not). A same-curve bigon stays the loud
+reject one crate upstream.
+
+### Verdict, pins and sharers
+
+```
+P0017: ERROR (0.5s) — … TessellationFailed { face: FaceId(28), reason: "ring rejected by CDT (degenerate/self-intersecting)" }
+P0017: SUPPORTED_CORRECT (1.2s) — all checks passed
+[n76] op=Subtract merged 2 curved backtrack spike(s) in the output loops
+```
+
+Exactly TWO merges — `FaceId(28)`'s loop and `LoopId(30)`'s mirror, the two
+the twin probe named, and nothing else.
+
+**Meta adjudicated, `derived_meta` cleared.** The exact-membership lattice
+(`assay_exact_membership one_case_ladder`, `EXACT_CELLS=128,256,512,1024
+EXACT_PHASE=0.5,0.25 EXACT_KERNEL=1`) is stable on all eight rungs:
+`components = 2`, `chi_solid = 2`, `boundary_chi = 4`, two bodies
+**6.4059e-11** and **8.0718e-11**. So `expected_solid_count: 2`,
+`expected_volume` = the 1024-cell two-phase mean **1.4476685e-10** (phase 0.5
+1.447774e-10, phase 0.25 1.447563e-10) with `expected_volume_tol_rel` **3e-3**;
+the runner reads **1.446021896e-10**, rel **−1.14e-3**, the inscribed-mesh
+chord deficit. The Euler oracle grades ONE body's mesh, so `euler_target: 2`
+with `expected_shell_count: 1`. Three independent mutations, verbatim:
+
+```
+expected_solid_count 2 → 99  ⇒ P0017: SUPPORTED_WRONG (1.2s) — solid count: 2 bodies (meta expects 99)
+tol_rel 3e-3 → 1e-9           ⇒ P0017: SUPPORTED_WRONG (1.0s) — expected_volume: 1.446021896e-10 vs expected 1.447668500e-10 (rel tol 1.0e-9)
+euler_target 2 → 4            ⇒ P0017: SUPPORTED_WRONG (1.3s) — mesh_euler_characteristic: V(826) - E(2468) + F(1644) = 2 (expected 4 for 1 shell(s))
+```
+
+**Pins.** `crates/yang-rs/src/brep.rs` `n76_curve_backtrack_tests` — five: the
+double cover with its measured cosines and the strict-inside ordering; the
+plain monotone split that must NOT merge; the loop-level merge to the lens
+plus its fixpoint; the two fail-closed arms (a coaxial-cylinder tangency, an
+off-tangent chord); the whole-loop spur. End-to-end
+`crates/test-harness/tests/n76_output_curve_backtrack.rs`, mutation-checked:
+with `is_curve_backtrack_pair` forced to `false` it fails with the verbatim
+`TessellationFailed { face: FaceId(28), reason: "ring rejected by CDT
+(degenerate/self-intersecting)" }` and N71's
+`p0017_cone_patch_sliver_is_material` fails with it too — that test's
+`ring rejected by CDT` assertion carried an explicit "un-quarantine when that
+family lands" note and is un-quarantined here, in the same change. Smoke pin
+`("P0017", Category::SupportedCorrect)`.
+
+**Sharers re-judged — zero moves, and `[n76]` fired on NONE of them.** Release
+`single_case` at 900 s: P0013 1.1 s, P0018 2.6 s, R0100 1.6 s, F0086 1.8 s,
+F0087 12.6 s, F0088 78.2 s, C0056 0.7 s, R0038 1.6 s, P0014 11.0 s,
+P0015 21.6 s, P0016 0.3 s, P0006 5.8 s — all **SUPPORTED_CORRECT** — plus
+P0019, P0020 and P0021 holding their own ledgered walls verbatim
+(`cone face with inner loops is outside the KV6c vocabulary`;
+`Stage-1 boundary loop of face 0 touches itself`;
+`SelfIntersectingBooleanOutput { … penetrations: 3 }`).
+
+A second set, the `SurfacePair`- and ring-reject-heavy R- and C-series rows
+whose own ledger text names this locus, all **SUPPORTED_CORRECT** too:
+R0011 2.5 s, R0016 111.5 s, R0025 33.1 s, R0028 5.1 s, R0049 4.5 s,
+R0050 30.2 s, R0059 6.1 s, R0074 13.5 s, R0077 2.0 s, C0065 3.1 s,
+R0004 4.8 s, R0070 53.7 s, R0032 121.5 s, R0020 1.6 s, R0044 462.9 s.
+**27 cases, zero category moves, and `[n76]` fired
+on NONE of them** — which is what makes the byte-identity STRUCTURAL rather
+than sampled: a loop that does not double-cover a curve is not rewritten at
+all. (CPU times run high across the board because the box sat at load 25–42
+on 24 cores; the budget is CPU-based, so the verdicts are load-insensitive.)
+
+`smoke_corpus_boundary_categories` PASSES in **538.9 s** with the P0017 row
+re-pinned to `SupportedCorrect`. `cargo test -p yang-rs --release` is green
+(76 binaries, 1509 passed, 0 failed, 8 ignored) and `cargo test -p kernel-v2
+--release` likewise (65 binaries, 821 passed, 0 failed, 5 ignored); clippy
+`--all-targets -p yang-rs -p kernel-v2 -p test-harness -- -D warnings` and
+`cargo fmt --check` are clean.
+
+**Still open, recorded not fixed.** WHY Stage 5/6 emitted the spur: the
+arrangement at natural rim N = 25 cannot resolve a 5.0010e-7 lens whose own
+rim chord sagitta is `4.3247e-4·(1 − cos(π/25)) = 3.41e-6`, 6.8× the graze —
+Yang §4.5's Case V ("both the meshes and surfaces intersect, but the
+intersected mesh patches do not correspond to the intersected surfaces",
+`refs/text/yang2025_hybrid_boolean.txt:440-446`). And `edge_graze_sites` is
+STRUCTURALLY blind to it: its wedge signature enumerates a vertex with ≥ 2
+incident **`LineSegment`** edges buried under the other operand's curved face,
+and the grazing feature here is a full rim CIRCLE with no such vertex at all.
+That is a real gap in the §4.3.3 / §4.5.2 site vocabulary — but the N-lottery
+above means it has no monotone remedy to reach for here, and extending the
+guard to circle edges is the broad form its own §7 corpus measurement
+REFUSED for segments. Its own cycle, with its own corpus run.
+
 ## 2026-10-03 (late) — **P0018 CONVERTED, P0017 HALF-CONVERTED**: the developable-patch material-CCW postcondition measured its chart winding on CHORDS, so a sliver bounded by a bulging curve read as a hole and the kernel rejected its own correct face (deviation **N71**) — **corpus not re-measured this session**
 
 ### The anchor — written before any code changed, both arms, un-minimized lineage first
@@ -1115,11 +1361,11 @@ ten give those families customers again, at 2–5 ops.
 | P0014 | `convex5:boss gear10:rev-cut` | 2 | Stage-4 `LocalRefinementRequired` around vertex **4294967295** (u32::MAX — a sentinel, not a vertex): the §4.4.1(a) unzip at `stage4_correct.rs:14388`, rooted in a 2.73e-13 (2-ULP) un-relocated ARRANGEMENT twin pair — a DIFFERENT locus from P0015. **CONVERTED 2026-10-03 (night)**: the twin is an LPI PENCIL the Stage-2 arrangement mints when a gear tessellation vertex lies 2 ULP off the boss plane (one LPI per incident mesh edge + the vertex itself; exactly distinct, so no exact dedup can fuse them); `cherchi-rs` now records the generator incidence and the I6 weld fuses the pencil inside its own KV10 band (spec `yang_p0014_arrangement_lpi_pencil_weld.md`). Oracles adjudicated, `derived_meta` cleared | **CORRECT** / ERROR (same class) | 3.09e6× | 77.6 s → 7.9 s |
 | P0015 | `convex4:boss gear27:boss convex5:rev-cut` | 3 | Stage-4 `RelocationCrossedCarrierVertex` (the R0085 family). **CONVERTED 2026-10-03 (evening)**: the §4.5.2 certificate's demand (159.37) sat past the ladder's ceiling and was read as a PROOF of futility ⇒ zero rungs; the op converges at `d_ε/32`. Oracles adjudicated, `derived_meta` cleared | ERROR / ERROR (same class) | 648× | 13.9 s |
 | P0016 | `convex4:boss convex4:rev-cut convex3:cut` | 3 | Stage-3 `AmbiguousCurve { candidates: 0, matched: 0 }` — **zero** candidates, so no curve was proposed at all. **CONVERTED 2026-10-03 (night)**: neither an ambiguity nor a producer fault — the CONE arms never read the owner's Stage-1 chord budget back, at BOTH stages (deviation N72, section below). Oracles adjudicated, `derived_meta` cleared | ERROR / ERROR (same class) | 3e4× | 0.4 s → 0.8 s |
-| P0017 | `convex4:boss nonconvex10:rev circle:cut` | 3 | `CurvedGeometryMismatch "bounded cone patch must have exactly one material-CCW loop"`. **HALF-CONVERTED 2026-10-03** (deviation N71, see the dated section below): the postcondition measured its chart winding on a VERTICES-ONLY shoelace and rejected a correct sliver (−6.723e-7 against a canonical-chart +7.175e-8). Both arms fixed; the case now lands one stage later on an UNMASKED LATENT — `TessellationFailed "ring rejected by CDT (degenerate/self-intersecting)"` on the same 7.2e-8-area chart sliver, N68's family | ERROR (a degenerate zero-area input face) / ERROR (a CDT ring reject — **already the class it now reads at its own scale**) | 91× | 1.1 s → 0.5 s |
+| ~~P0017~~ | `convex4:boss nonconvex10:rev circle:cut` | 3 | ~~`CurvedGeometryMismatch "bounded cone patch must have exactly one material-CCW loop"`~~ ~~`TessellationFailed "ring rejected by CDT (degenerate/self-intersecting)"`~~ **CONVERTED 2026-10-03 in two steps.** (1) **N71**: the postcondition measured its chart winding on a VERTICES-ONLY shoelace and rejected a correct sliver (−6.723e-7 against a canonical-chart +7.175e-8); both arms fixed, and the case landed on a SECOND wall. (2) **N76** (the conversion, see the 2026-10-03 night section): that wall was NOT a chord artifact — all nine chart points of `FaceId(28)`'s ring sit on the cone to machine precision and its four proper self-crossings are in the declared geometry. Half-edges 137 and 138 carry the SAME cyl×cone `SurfacePair` and 138's span `[0, 0.2999498]` CONTAINS 137's `[0.1420979, 0.2999498]`: a zero-width spur pointing OUT of the material. `BRep::normalize_output_curve_backtracks` merges it — the curved twin of the straight backtrack spike task #146 already removes on the INPUT side — leaving the exactly-correct two-edge LENS | ERROR (a degenerate zero-area input face) / ERROR (a CDT ring reject) | 91× | 1.1 s → **SUPPORTED_CORRECT 1.2 s** |
 | P0018 | `circle:boss circle:sym nonconvex7:cut` | 3 | the cylinder arm of the same postcondition. **CONVERTED 2026-10-03** (N71): chord shoelace −4.575 where the canonical chart polygon reads +18.305. Oracles adjudicated (one body, TWO shells, χ 4, volume 6.738844e6 ± 3e-3), `derived_meta` cleared | ERROR / ERROR (same class) | 8.9e7× | 1.0 s → 3.6 s |
 | P0019 | `convex4:boss nonconvex5:rev convex4:cut` | 3 | `InvalidBooleanOutput "full-circle edge sense is underivable"` (the wall R0004 once hit). **HALF-CONVERTED 2026-10-03 (late night)** (deviation N73, section below): the body is a genus-1 ring of FIVE cone bands with NO planar cap, and the derivation had no `FaceSurf::Cone` arm at all — the rule `validate_cone_face`/`validate_cylinder_face` both ENFORCE ("toward the opposite rim") needs only the band's two rim centres. Sense wall gone; the case now lands one stage later on an UNMASKED LATENT — `CurvedGeometryMismatch "cone face with inner loops is outside the KV6c vocabulary"`, two of the five bands left ANNULAR by `recover.rs`'s greedy per-face seam anchoring in a rim CYCLE (15° = π/12 apart) | ERROR / ERROR (same class) | 1.34e5× | 0.2 s |
 | P0020 | `circle:boss gear12:∩ convex4:∩` | 5 | `malformed B-Rep topology: face 0: holed lateral CDT failed: duplicate (coincident) loop vertex in CDT input` — an INPUT rejection, so the first Intersect's OWN output is malformed. **ANCHORED 2026-10-03 (see the dated section below): NOT a twin / mirrored-split-point defect — the first Intersect's output face is honestly PINCHED, and the wall is the `yang_tangency_pinch_split` §0b capability gap (per-SHEET faces) reaching Stage 1 one boolean later. Deviation N74; the wall is now the typed, localizing `Stage1SelfTouchingLoop`** | ERROR (a different class: an interior-junction / weld-band ambiguous edge-split) / ERROR (same class) | 83× | 10.6 s |
-| P0021 | `convex4:boss circle:boss circle:boss` | 3 | auto-union `SelfIntersectingBooleanOutput { face_a: FaceId(28), face_b: FaceId(32), penetrations: 3 }` — P0007's error TEXT but **not its family** (anchored 2026-10-03, see below): both faces are CYLINDERS and the curve census reads `plane×curved chords: 0` on every op. **ANCHORED + remediation BUILT and GATED 2026-10-03** (deviation **N75**, spec `yang_p0021_case_iii_finite_extent_depth.md`): the Case-III graze depth is measured at the two INFINITE axes' common perpendicular, whose foot lies 1.97 lengths off the end of one cylinder, so a razor lens reads "deep" and the demand is absorbed. Converts with `YANG_172_EXTENT=1` (SUPPORTED_CORRECT 2.0 s; the un-minimized lineage too); the always-on flip owes the full corpus assay (P10) so **this row stays E and its pin has not moved** | ERROR / ERROR (same class) | 710× | 0.4 s |
+| P0021 | `convex4:boss circle:boss circle:boss` | 3 | auto-union `SelfIntersectingBooleanOutput { face_a: FaceId(28), face_b: FaceId(32), penetrations: 3 }` — P0007's error TEXT but **not its family** (anchored 2026-10-03, see below): both faces are CYLINDERS and the curve census reads `plane×curved chords: 0` on every op. **ANCHORED + remediation BUILT and GATED 2026-10-03** (deviation **N75**, spec `yang_p0021_case_iii_finite_extent_depth.md`): the Case-III graze depth is measured at the two INFINITE axes' common perpendicular, whose foot lies 1.97 lengths off the end of one cylinder, so a razor lens reads "deep" and the demand is absorbed. Converts with `YANG_172_EXTENT=1` (SUPPORTED_CORRECT 2.0 s; the un-minimized lineage too); the always-on flip owes the full corpus assay (P10) so **this row stays E and its pin has not moved** | ERROR / ERROR (same class) | 710× | 0.4 s — **CONVERTED 2026-10-03 (evening UTC)**: `YANG_172_EXTENT` flipped always-on after the full-corpus proof (321C/10E over 336, one move, zero regressions); the meta's χ (kernel reads 1 body, χ 0 vs derived euler_target 2) still owes a sidecar adjudication |
 | P0022 | `convex5:boss circle:boss circle:cut convex4:boss circle:thru` | 5 | `malformed B-Rep topology: face 2: interior junction … not contained by any lateral triangle — the mint would be silently dropped` | ERROR (same class) / **CORRECT** | 400× | 0.9 s |
 
 ### The §5 grazing ray — P0023 / P0024 (2026-10-03)
@@ -1136,10 +1382,16 @@ resolution counts ONE hit where a graze must count 0 or 2 — so A's whole patch
 is labeled inside B. The C++ reference `mesh_booleans` emits byte-identical
 labels and the same operand-copy output on the same meshes, so the port is in
 parity and the method has no answer there: deviation **N69**, remediation =
-graze-aware ray selection (not landed — ray selection is corpus-wide and needs
-a full assay in its cycle). NETTED LOUD meanwhile by
-`InsideOutError::InnerLabelOutsideInputBounds`, a containment proof on the
-inner labels that cannot false-positive.
+graze-aware ray selection. **LANDED 2026-10-03 (late), always-on with the
+kill switch `CHERCHI_GRAZE_AWARE_RAY=0` — see the dated section below; the
+corpus was NOT re-measured and the `full_corpus_categorized` flip proof is
+OWED.** All three orientations now produce the honest answers
+(`Intersect` ⇒ `EmptyBooleanResult`, `Union` ⇒ `InvalidBooleanOutput("an
+undirected output edge is not used by exactly two directed edges")`).
+`InsideOutError::InnerLabelOutsideInputBounds`, the containment proof that
+netted the wrong answer LOUD meanwhile, stays armed as the fallback — it is
+silent on all three orientations now, which is what the kernel-v2 pin
+asserts.
 
 The two corpus cases pin the HONEST answers; the silent wrong itself is pinned
 at `crates/kernel-v2/tests/p0023_edge_contact_boolean.rs`, where the test owns
@@ -1149,8 +1401,8 @@ dependent, hence measure-zero and fuzz-invisible).
 
 | id | shape | ops | adjudicated answer | measured verdict | cost |
 |---|---|---|---|---|---|
-| P0023 | two edge-touching 10 mm cubes, explicit BooleanCombine **Intersect** | 3 | ZERO live bodies — two solids meeting in a SEGMENT share no volume (`expected_solid_count: 0`, mutation-checked: set to 1 it reads `solid count: 0 bodies (meta expects 1)`) | SUPPORTED_CORRECT — labeling keeps 0 of 24 arrangement triangles, the Intersect leaves no solid | 0.0 s |
-| P0024 | the same pair, explicit BooleanCombine **Union** | 3 | a LOUD refusal — `A ∪ B` is non-manifold at the shared segment, four faces along one edge, and kernel-v2 represents only 2-manifold solids (`expect_rebuild_error: true`); two bodies would also be honest, an operand drop never is | EXPECTED_ERROR — `InvalidBooleanOutput("an undirected output edge is not used by exactly two directed edges")`, the non-manifold edge said out loud | 0.0 s |
+| P0023 | two edge-touching 10 mm cubes, explicit BooleanCombine **Intersect** | 3 | ZERO live bodies — two solids meeting in a SEGMENT share no volume (`expected_solid_count: 0`, mutation-checked: set to 1 it reads `solid count: 0 bodies (meta expects 1)`) | SUPPORTED_CORRECT — labeling keeps 0 of 24 arrangement triangles, the Intersect leaves no solid (verdict UNCHANGED by the N69 flip, re-run 2026-10-03 late) | 0.0 s |
+| P0024 | the same pair, explicit BooleanCombine **Union** | 3 | a LOUD refusal — `A ∪ B` is non-manifold at the shared segment, four faces along one edge, and kernel-v2 represents only 2-manifold solids (`expect_rebuild_error: true`); two bodies would also be honest, an operand drop never is | EXPECTED_ERROR — `InvalidBooleanOutput("an undirected output edge is not used by exactly two directed edges")`, the non-manifold edge said out loud (verdict UNCHANGED by the N69 flip, re-run 2026-10-03 late) | 0.0 s |
 
 "floor" is the smallest authored length as a multiple of `MIN_FEATURE_SIZE`
 (1e-6 m) — every promotion is at least 83× above it, so none is the A14.2
@@ -1162,6 +1414,99 @@ the same disposition as R0044 and F0082; `full_corpus_categorized` and the
 committed `results.json` carried its verdict. **Superseded 2026-10-03
 (night):** its conversion dropped it to 7.9 s release, so it is now pinned
 there as `SupportedCorrect` like every other converted P-row.
+
+#### N69 RESOLVED-pending-corpus 2026-10-03 (late) — graze-aware §5 ray selection, always-on with a kill switch
+
+Full write-up: `docs/yang_deviations.md` N69 (the "LANDED" section). The
+explicit branch of `find_ray_endpoints` became a LADDER: a candidate ray is
+rejected iff some candidate triangle of a DIFFERENT input label — "candidate"
+by the prune's own exact `in_ray_aabb` filter, "different" by the prune's own
+same-input skip — has `orient3d(tri, v0)` and `orient3d(tri, v1)` BOTH `Zero`,
+i.e. its plane contains the ray's whole supporting line, so the ray cannot
+cross it. The search then advances to the next non-border origin, then to the
+Y and the Z axis, before the generated-ray branch and the rational path
+(both UNCHANGED). Exact `orient3d`, no band — a transversal ray can never
+satisfy it, and the walk order (axis-major, origin-minor, X first) makes the
+first candidate the C++ choice, so a transversal first ray selects the
+identical ray it always did.
+
+Cherchi 2022 names the gap and leaves it open:
+`refs/text/cherchi2022_interactive_robust_mesh_booleans.txt:470` ("rays may
+also be tangent at a (coplanar) triangle") and `:481`; §5.3's classification
+rests on the ray CROSSING (`:473-476`) and the `nextafter` perturbation
+(`:484-491`) only reconducts a vertex/edge hit to an interior one.
+
+Gate `CHERCHI_GRAZE_AWARE_RAY` — `0|off` kills it, `1|on` forces it, default
+ON — read ONCE per `compute_inside_out` call and threaded as a parameter.
+
+**Pins.** cherchi-rs unit oracle #8 (three N69 tests: the shared-edge ray is
+rejected and the next origin taken; all three axes exhausted ⇒
+`NoExplicitRayOrigin` ⇒ the rational path; a transversal first ray is
+untouched — identical ray AND identical labels), plus
+`octree_candidates_yield_identical_labels` now running both settings and
+asserting byte-neutrality. `crates/kernel-v2/tests/p0023_edge_contact_boolean.rs`
+asserts the honest answer per op and that the containment net stayed SILENT,
+mutation-checked with `CHERCHI_GRAZE_AWARE_RAY=0` (both tests then fail with
+"the P0023 containment net fired").
+
+**Corpus NOT re-measured; the flip proof is OWED.**
+
+##### Sharers re-judged (N69) — 28 cases, ZERO category moves, ZERO detail moves
+
+No corpus run (another `full_corpus_categorized` held the box); release
+`single_case`, `ASSAY_CASE_TIMEOUT_SECS=900`, host load ≈ 21–55 on 24 cores,
+so wall times are inflated. The set: the two edge-contact rows themselves,
+every M8 / Stage-0 coplanar customer, the three C-series non-manifold ERROR
+walls the flip could plausibly disturb, and ten CORRECT cases sampled
+deterministically from the committed `results.json`
+(`random.seed(69)`). "after" is the assay's own per-case time.
+
+| case | before | after |
+|---|---|---|
+| P0023 | SUPPORTED_CORRECT | SUPPORTED_CORRECT 0.0 s |
+| P0024 | EXPECTED_ERROR | EXPECTED_ERROR 0.0 s (detail byte-identical) |
+| F0064 | CORRECT | SUPPORTED_CORRECT 54.4 s |
+| F0072 | CORRECT | SUPPORTED_CORRECT 747.3 s |
+| R0070 | CORRECT | SUPPORTED_CORRECT 43.1 s |
+| R0025 | CORRECT | SUPPORTED_CORRECT 26.8 s |
+| R0053 | CORRECT | SUPPORTED_CORRECT 323.8 s |
+| R0081 | CORRECT | SUPPORTED_CORRECT 329.5 s |
+| C0044 | CORRECT | SUPPORTED_CORRECT 1.9 s |
+| C0056 | CORRECT | SUPPORTED_CORRECT 1.3 s |
+| C0065 | CORRECT | SUPPORTED_CORRECT 4.6 s |
+| C0067 | CORRECT | SUPPORTED_CORRECT 1.9 s |
+| R0015 | CORRECT | SUPPORTED_CORRECT 18.2 s |
+| R0100 | CORRECT | SUPPORTED_CORRECT 1.7 s |
+| F0086 | CORRECT | SUPPORTED_CORRECT 1.6 s |
+| C0046 | ERROR | ERROR 0.0 s — `NonManifoldVertex { vertex: VertexId(17) }`, detail byte-identical |
+| C0107 | ERROR | ERROR 0.1 s — `BooleanFailed("yang-rs: reassembled output would be non-2-manifold")`, byte-identical |
+| C0108 | ERROR | ERROR 0.2 s — same text, byte-identical |
+| C0020 | CORRECT | SUPPORTED_CORRECT 1.5 s |
+| C0035 | CORRECT | SUPPORTED_CORRECT 0.7 s |
+| C0051 | CORRECT | SUPPORTED_CORRECT 0.0 s |
+| C0087 | CORRECT | SUPPORTED_CORRECT 0.4 s |
+| F0057 | CORRECT | SUPPORTED_CORRECT 6.3 s |
+| F0066 | CORRECT | SUPPORTED_CORRECT 1.8 s |
+| P0009 | CORRECT | SUPPORTED_CORRECT 4.5 s |
+| R0016 | CORRECT | SUPPORTED_CORRECT 102.4 s |
+| R0061 | CORRECT | SUPPORTED_CORRECT 3.2 s |
+| R0090 | CORRECT | SUPPORTED_CORRECT 1.6 s |
+
+Cost is the other thing a ray-selection change can break — the ladder adds
+one octree query plus a handful of `orient3d` calls per patch — and the
+heaviest rows say it did not: F0072 747.3 s against a recorded 724.9 s run
+alone (608.9 s at 8 jobs), R0053 323.8 s against 349.5 s, R0081 329.5 s
+against 319.2 s, F0064 54.4 s against 48.8–60.2 s. All within the spread of
+the recorded figures at this load.
+
+Also green after the flip: `cargo test -p cherchi-rs --release` (581 lib +
+17 integration targets, 0 failed) **including the 18-cell C++ reference
+parity oracle** `parity_native_vs_sidecar` and `r0046_patch_label_parity` /
+`stage0_operand_inputcheck` / `single_coplanar_edge_parity` with
+`--include-ignored`; `cargo test -p yang-rs --release` (76 targets, lib 1065
+passed / 0 failed); `cargo test -p kernel-v2 --release` (65 targets, lib 304
+passed / 0 failed); clippy `--all-targets -D warnings` and `cargo fmt
+--check` clean on all three crates.
 
 #### P0021 — ANCHORED 2026-10-03; remediation BUILT and GATED (deviation **N75**)
 

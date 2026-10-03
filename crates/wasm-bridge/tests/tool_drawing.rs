@@ -86,6 +86,7 @@ fn box_and_drawing() -> (EngineState, kernel_v2::KernelV2Adapter, String, String
     let sketch = Operation::Sketch {
         sketch: Sketch {
             id: Uuid::new_v4(),
+            plane_face: None,
             plane: GeomRef {
                 kind: TopoKind::Face,
                 anchor: Anchor::Datum {

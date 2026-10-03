@@ -742,8 +742,18 @@ hand-made document can still hold both; `names_list` lists both entries.)
   the file stay green. The two tests that pinned the OLD loud-fallback
   behaviour were re-pointed, not deleted — the fallback is still reachable,
   just only where an identity is genuinely gone (a pocket floor named and
-  then turned into a through hole costs both the pid and its lineage root:
-  `a_name_whose_reference_is_gone_still_measures_through_its_fallback`).
+  then turned into a through hole costs both the pid and its lineage root).
+
+  **Amended 2026-10-03 during N2's review: the fallback is reachable only for
+  a `BestEffort` reference.** A name an agent minted is `Strict`, and a
+  `Strict` reference whose identity is gone REFUSES rather than answering with
+  whatever its authored selector finds — see §5.3's note "A `Strict` reference
+  never rebinds". The pin above moved accordingly:
+  `a_name_whose_reference_is_gone_refuses_rather_than_measuring_another_face`
+  (the listing says `resolves: false`, `refusal: PidGone` with the last-seen
+  feature, and `measure_distance` on the same name refuses with the same
+  account), and the warned rebind keeps its own pin on a `BestEffort` name,
+  `a_best_effort_name_whose_reference_is_gone_still_measures_through_its_fallback`.
 - *A name on a BOOLEAN's own output face loses its NUMBER on reopen, loudly
   — D0 item 1b.* `boolean/from_yang.rs` withdraws the construct seed around
   its `finalize_solid`, so boolean output faces keep counter pids and only
@@ -810,6 +820,183 @@ parameter edit that keeps topology, the same; after an edit that deletes the
 named face, `resolves: false` and the feature that referenced it reports
 `PidGone`, never a different face.
 
+#### Implementation notes (N2)
+
+Landed 2026-10-03. Where the plan above left a choice open, this is the choice
+made and why.
+
+**The ladder reports its rung, and that is what closed N1's last open item.**
+`ResolvedRef::via` (`feature_engine::resolve::ResolvedVia`) names which rung
+answered — `pid`, `pid_root`, `role`, `signature`, `query`, `position`, or one
+of five `BestEffort` rebinds (`role_clamped`, `signature_low_confidence`,
+`query_first_of_kind`, `kind_fallback`, `position_nearest`) — and
+`ResolvedVia::rebound()` is the one question a caller has to ask: did this
+bind to the identity I recorded, or to whatever was nearest? N1 left open
+that "`resolved_by: "pid"` does not distinguish a pid that answered directly
+from one that answered through its lineage root" and noted that splitting the
+enum would mean inferring it from the presence of a warning. It does not: the
+resolver knows its own rung, so `pid` vs `pid_root` is now a fact. The four
+`BestEffort` rebind warnings were also rewritten to name WHAT they bound and
+why it is not the recorded entity — "CLAMPED to index 1", "below the 50%
+floor", "bound the FIRST Face this feature created" — rather than the old
+telegraphic "Role {..} index 7 clamped to 1 (BestEffort)".
+
+**`ResolutionFailed` keeps its sentence; a second variant carries the
+structure.** §5.3 item 2 asks for `EngineError::ResolutionFailed` with a
+payload. `EngineError::ResolutionFailed { reason: String }` is constructed at
+about 110 sites across `resolve`, `rebuild`, `pattern`, `connector`,
+`union_all` and `context`, and most of them are not one reference lookup at
+all — a datum plane that is not in the tree, a boolean whose target list came
+out empty, a non-planar base face, a pattern axis that is not an axis. Those
+carry no reference to describe, and rewriting them all to pass `None` would
+have bought nothing. So the ladder's own refusals became
+`EngineError::ReferenceUnresolved(Box<ReferenceRefusal>)`, whose `Display` is
+byte-identical to the text it replaces (no message a user or a test reads
+moved) and which carries `ResolutionReason` + a `RefDigest`. BOTH variants map
+to `ErrorKind::ResolutionFailed`, so a host sees the one tag §5.3 asks for and
+reads `reason` to learn whether it was classified. `EngineError::
+resolution_text()` / `resolution_reason()` let a caller read either without
+knowing which it got.
+
+`RefDigest` is the reference flattened to `{kind, anchor_feature, selector}`
+rather than the whole `GeomRef` the plan writes, because `ErrorKind` is
+`PartialEq` (hosts and tests compare kinds) and `GeomRef` is not — its
+`Selector::Signature` arm carries `f64` fingerprints whose equality this
+codebase does not define. Deriving `PartialEq` down that tree in a lower crate
+to carry a diagnostic was not worth it.
+
+`PidGone { last_seen_feature }` is filled with the reference's ANCHOR feature,
+and the doc comment says so. It is not the feature that introduced the lineage
+root: that lives in `RebuildState::pid_to_feature`, which a resolver called
+mid-rebuild does not have. Reporting the anchor is the honest answer — the
+feature whose output this reference was last seen in — rather than a guess.
+
+**A sketch on a face had nothing to re-resolve, which is why it was silent.**
+§5.3 item 3 reads as a resolution change; the defect underneath it was that a
+LOCAL sketch-on-face kept no record of the face at all. `BeginSketch` threw
+the picked reference away and replaced it with a placeholder `Anchor::Datum`
+holding a fresh uuid (`beginSketchPlaneRef` in the page, `begin_sketch_plane_ref`
+in the tool layer, both unchanged since the scoped-ref work), and the sketch's
+frame was the cached `plane_origin`/`plane_normal` pair. Delete the boss and
+the sketch stayed where it was drawn, extruding into space, with nothing said.
+
+So `Sketch::plane_face` (`waffle_types::SketchFaceRef`) now records the face:
+`resolve::pin_identity`'s pid/fallback pair — the same shape N1 invented for a
+name, factored out so there is one copy of the rule — plus the face's
+signature at drawing time, which is what the refusal reports so an author can
+see WHICH face went missing. `dispatch::pin_sketch_plane_face` fills it at
+`BeginSketch`, the one chokepoint both the UI and `sketch_create` go through.
+
+`Sketch::plane` was deliberately NOT promoted to the real reference, even
+though that is where a face reference obviously belongs. `rebuild`'s
+share-a-face target search branches on that field's anchor (`find_consumed_feature_ids`
+step (a), "the sketch is drawn on a body's face → that body"), which has never
+fired for a local sketch because the anchor was always a datum. Making it the
+real reference would have changed which body an extrude on such a sketch
+merges into — silently, across the corpus. The anchor and the identity are
+different jobs.
+
+**The plane does not FOLLOW the face, deliberately.** `resolve_sketch_plane_face`
+has three outcomes: the face is there and where it was (silent, cached frame
+kept bit-for-bit); the face moved, or had to be re-found by geometry (warned,
+frame still kept); the face is gone (typed refusal, no result, nothing
+downstream builds). §5.3's "the cached numbers remain the solve-time frame for
+unchanged faces" implies a changed face should move the sketch, and that half
+is not here: moving a solved sketch's plane moves every point of it and every
+feature below it, and this increment's job is loudness, not tracking. The
+warning says exactly what was and was not done ("the sketch keeps the frame it
+was solved in, so its geometry no longer lies on that face"). Tracking is a
+separate increment, and it needs its own oracle.
+
+Drift is measured as PLANE disagreement — the cached origin's signed distance
+along the current normal, plus the normal's own difference — not as distance
+between origins. The two resolvers return deliberately different on-face
+origins (the engine's is the face centroid, the page's is a rendered
+triangle's), so comparing points would report every sketch as moved.
+
+**`Strict` is stamped at `execute_tool`, by shape.** One pass over a tool's
+arguments inserts `policy: Strict` into every object carrying `kind` + `anchor`
++ `selector` that does not already state a policy. One place covers every tool,
+because an argument is the only way a reference reaches one, and the viewport's
+own path is untouched — `face_list` still hands out `BestEffort` refs, which is
+what a user's pick needs. A reference that spells `BestEffort` keeps it: an
+agent may ask to rebind, and then the asking is in the transcript.
+
+**A `Strict` reference never rebinds, so the oracle's third clause holds
+literally** (settled 2026-10-03, in review; this replaces the "softer reading"
+N2 first shipped).
+
+The conflict looked like one between two merged increments. Measured on a named
+pocket floor turned into a through hole: the pid and its lineage root are both
+gone, N1's authored fallback answers through its role selector, and `names_list`
+reported `resolves: true` — the name reporting a DIFFERENT face as though
+nothing had happened to it. §5.3 asks for `resolves: false`; §5.2 kept the
+fallback deliberately and pinned it green. N2 first took the softer reading
+(report, do not refuse) and made the rebind machine-visible.
+
+The POLICY settles it instead, which is what item 1 was for all along:
+
+- **`Strict`** — every reference an agent authors — the refusal stands. The
+  fallback rebinds by GEOMETRY, and an agent handed a different face with a
+  warning it cannot see has been told nothing. It gets
+  `ReferenceUnresolved`/`PidGone` naming the last-seen feature, and re-authors.
+- **`BestEffort`** — a user's viewport pick, a document written before the
+  policy mattered — the fallback answers, `rebound: true` and `lost_identity`
+  say so, and the UI shows the warning to someone who can see the geometry.
+
+`resolve_pinned` reads that policy off the stored fallback, which is why
+`pin_identity` now carries the AUTHORED policy into it rather than overwriting
+it with `Strict` (the pinning RESOLVE is still `Strict` either way: a reference
+that does not identify one entity is a thing to fix while the author is looking
+at it). The pid `target` stays `Strict` — it names one entity or none.
+
+**And the stamp had to reach the references an agent actually holds.**
+`execute_tool`'s `strict_by_default` only fills a policy a caller OMITS, and an
+agent does not omit one: it echoes back the reference `face_list` printed, which
+`face_refs::face_geom_refs` builds `BestEffort` because the viewport shares that
+constructor. Measured 2026-10-03: the N1 and N2 oracles resolved `BestEffort`
+throughout, so item 1's loudness never reached the path that sources almost
+every agent reference. `face_list` now hands out `Strict` references in the JSON
+an agent reads — visible, rather than relying on a later stamp — while the
+viewport's own path keeps `BestEffort`. An agent that wants a rebind still
+spells `BestEffort` itself, and then the asking really is in the transcript.
+
+Pinned as `an_edit_that_deletes_the_named_face_refuses_with_pid_gone` and
+`a_best_effort_name_whose_face_is_gone_rebinds_and_says_so_instead`
+(`n2_resolution_oracle.rs`), with the measure-by-name pair in `tool_names.rs`
+and the authored-policy rule in
+`entity_names.rs::the_fallback_keeps_the_authored_policy_because_that_decides_the_rebind`.
+
+**The reader floor moved to v9.** `Sketch::plane_face` is additive, defaulted
+and omitted when absent, and an old reader does not FAIL on it — but by
+§13.3's own rule (the v8 `DesignParameter.unit` precedent) a reader that drops
+it builds a DIFFERENT solid from the same file: a sketch into space where this
+one refuses. `FORMAT_VERSION` and `MIN_READER_VERSION` are both 9, in `save.rs`
+and `app/src/lib/engine/format.js` together.
+
+**The UI is a glyph and a tooltip, as asked.** `ModelUpdated.feature_warnings`
+carries each warning with its feature id (the flat `warnings` list is
+name-prefixed strings, so nothing downstream could attribute one), the store
+mirrors it into `featureWarnings`, and the feature tree renders the error
+indicator's own affordance in the warning colour at
+`data-testid="feature-warning-{i}"`. An error wins the slot: a feature that
+failed has nothing left to warn about. No new panel.
+
+**What this increment did NOT touch:**
+
+- *`feature_get` does not list a boolean's `targets`.* It is a read with no
+  kernel, and those resolve inside the operation against state the rebuild has
+  moved on from; re-resolving them there would answer about different geometry
+  and call it the feature's. Their outcome reaches the agent as the feature's
+  error. Only the sketch's pinned plane face is listed, because it is the one
+  reference the engine re-resolves outside the operation.
+- *A sketch authored before N2 has no `plane_face`* and is left exactly as it
+  was — nothing to re-resolve, nothing reported. The loudness arrives when the
+  sketch is next re-authored on a face.
+- *User picks still carry `BestEffort`*, per item 1. The viewport shows the
+  warnings; the glyph above now makes the per-feature ones persistent rather
+  than a toast.
+
 ## 6. P — Design intent as parameters
 
 Owner: `feature-engine` (`expr.rs`, `params.rs`, `types.rs`), `file-format`,
@@ -839,6 +1026,18 @@ Owner: `feature-engine` (`expr.rs`, `params.rs`, `types.rs`), `file-format`,
    `angle`, `volume`, `area`, `length`, `radius`, `mass`. Arguments accept N1
    names. A parameter that reads geometry acquires a rebuild dependency on
    the referenced feature; cycles are typed errors.
+
+   **LANDED 2026-10-03, as D2.** P4 and D2 are one increment — this row asks
+   for "D2 as specified" and that is what landed, so there is nothing left
+   here that is not there. The implementation notes are in
+   `specs/drawings_and_mbd.md` §6, "Implementation notes (D2)": the entity
+   namespace is separate from the parameter namespace (and must be, or the
+   parameter fixpoint waits forever on a name that is not a parameter), the
+   dependency is on the LATER of a reference's anchor feature and its pid's
+   lineage root, the cycle is caught ordinally before any number is
+   computed, and `mass` is reserved and refuses until M1 gives it a density
+   and `Dim` a mass axis. `expression_evaluate` and `parameters_set` both
+   describe the functions in their tool text.
 5. **P5 — read the table as data.** `parameters_get` returns the full table
    (`id, name, expression, unit, value, comment, error, depends_on[],
    used_by[]`), the two dependency lists derived from the parser (which
@@ -1010,7 +1209,12 @@ Found and fixed in review (2026-10-03):
   legal before P1). No repo file is affected; pinned as a rule.
 - *`Dim` carries only length and angle exponents.* Mass, time and
   temperature are not modelled; P4's `mass(…)` will need the vector
-  widened.
+  widened. **Still open after P4/D2** (2026-10-03), deliberately: `mass`
+  is in the grammar and refuses by name, because widening `Dim` adds a
+  serialized `Dimension` variant — and with it a reader-floor obligation —
+  for a function that has no density to read until M1. `area` and `volume`
+  needed no widening: they are `length^2` and `length^3`, which the
+  exponents already compose.
 - *The reader floor is unresolved* (see above): either a v8 row in
   `docs/FILE_FORMAT.md` §4, or an explicit note there that this one is
   additive-and-droppable by design.
@@ -1755,7 +1959,7 @@ Where the tree suggests a different route than the document's wording.
 | P5 | `parameters_get`, dependencies, merge | P1 | wasm-bridge |
 | P2 | document table, instance overrides | P1 | feature-engine, file-format |
 | P3 | remaining numeric fields | P1 | feature-engine |
-| P4 | measurement functions (D2) | Q1, N1 | feature-engine |
+| P4 | measurement functions (D2) | Q1, N1 | feature-engine, wasm-bridge — **LANDED 2026-10-03** (notes: `specs/drawings_and_mbd.md` §6) |
 | K1 | rule framework, storage, geometric rules | Q1, Q2, Q5, Q6 | waffle-types, feature-engine, file-format |
 | K2 | `rules_check`, `rules_get`, `rules_set` | K1 | wasm-bridge |
 | K3 | `Hole` feature, tables, fastener rules | K1, N1 | feature-engine, wasm-bridge |

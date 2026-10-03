@@ -1,5 +1,5 @@
 {
-  "manifest_hash": "a3977c1c04c7893004e0ccde941f815e2c14e6ff6da6b54e4c71b152032c123c",
+  "manifest_hash": "641a3f7f8c9ba35bd5577434d99107fab185f6bc8194e3470d189633f60febbc",
   "protocol": "waffle-agent-link/1",
   "tools": [
     {
@@ -2247,7 +2247,7 @@
         "readOnlyHint": true,
         "title": "List entities"
       },
-      "description": "Every face, edge or vertex of one body, with its geometric content (Q6). Each entity carries its persistent id (pid/root_pid — content-derived, so it survives rebuilds and booleans), the GeomRef that names it, its entity_name if it has one, its signature (surface type, area, centroid, normal, bbox, and the axis descriptor of a cylinder/cone/sphere/torus), and its axis LINE (origin + direction) where it has one. An EDGE also carries length.arc_length_m — the length ALONG the curve, with curve_type and method: exact for lines, circles and circular arcs; quadrature (plus residual_m) for ellipse and hyperbola arcs, which have no closed form; chords (a lower bound) for SSI curves and imported polylines. A VERTEX carries position. body carries the whole body principal axes and centroid (the same integration measure_mass reports), or says why it has none. Order is by persistent id, so two listings of the same geometry are comparable. filter arms compose: query (TopoQuery filters), name (a * / ? glob over the entity name), bbox ([min, max] in meters, keeping entities whose own bbox is inside it). excluded_unevaluable counts entities a filter arm dropped because their own data could not answer it, so an empty list does not read as \"nothing matched\" when it means \"nothing could be asked\"; unresolved_names lists the body entity names that now bind to nothing, and name_warnings on an entity means its name was rebound by geometry after its persistent id went away and may be naming the wrong entity. A spherical axis has a centre and no direction. Lengths in meters.",
+      "description": "Every face, edge or vertex of one body, with its geometric content (Q6). Each entity carries its persistent id (pid/root_pid — content-derived, so it survives rebuilds and booleans; DECIMAL STRINGS, because an id above 2^53 is not exact as a JSON number — treat them as opaque, never as arithmetic), the GeomRef that names it, its entity_name if it has one, its signature (surface type, area, centroid, normal, bbox, and the axis descriptor of a cylinder/cone/sphere/torus), and its axis LINE (origin + direction) where it has one. An EDGE also carries length.arc_length_m — the length ALONG the curve, with curve_type and method: exact for lines, circles and circular arcs; quadrature (plus residual_m) for ellipse and hyperbola arcs, which have no closed form; chords (a lower bound) for SSI curves and imported polylines. A VERTEX carries position. body carries the whole body principal axes and centroid (the same integration measure_mass reports), or says why it has none. Order is by persistent id, so two listings of the same geometry are comparable. filter arms compose: query (TopoQuery filters), name (a * / ? glob over the entity name), bbox ([min, max] in meters, keeping entities whose own bbox is inside it). excluded_unevaluable counts entities a filter arm dropped because their own data could not answer it, so an empty list does not read as \"nothing matched\" when it means \"nothing could be asked\"; unresolved_names lists the body entity names that now bind to nothing, and name_warnings on an entity means its name was rebound by geometry after its persistent id went away and may be naming the wrong entity. A spherical axis has a centre and no direction. Lengths in meters.",
       "inputSchema": {
         "$defs": {
           "Filter": {
@@ -2629,7 +2629,8 @@
                   "type": "array"
                 },
                 "pid": {
-                  "type": "number"
+                  "pattern": "^[0-9]+$",
+                  "type": "string"
                 },
                 "position": {
                   "items": {
@@ -2638,7 +2639,8 @@
                   "type": "array"
                 },
                 "root_pid": {
-                  "type": "number"
+                  "pattern": "^[0-9]+$",
+                  "type": "string"
                 },
                 "signature": {
                   "type": "object"
@@ -2917,7 +2919,7 @@
         "readOnlyHint": true,
         "title": "Evaluate expression"
       },
-      "description": "Evaluate an expression against the design parameters, as a dimension field would. mm-space: a bare number means millimeters for lengths (degrees for angles); unit suffixes (mm, cm, m, in, ft, deg, rad) and parameter names are allowed. Returns value_mm plus the dimension the expression produced, or value_mm null with the evaluation error. Pass dimension to have it judged as that kind of field would judge it: \"25deg\" asked for as a Length is an error, not 25 mm.",
+      "description": "Evaluate an expression against the design parameters AND the live model, as a dimension field would. mm-space: a bare number means millimeters for lengths (degrees for angles); unit suffixes (mm, cm, m, in, ft, deg, rad) and parameter names are allowed. Measurement functions read the model by ENTITY NAME (entity_name / body_rename): distance(a, b), angle(a, b), length(edge), radius(entity), area(face), volume(body) — mm, degrees, mm^2 and mm^3 respectively, so sqrt(area(top)) is a length a depth takes and area(top) is not. mass(body) is reserved and refuses until a material table exists. Returns value_mm plus the dimension the expression produced, or value_mm null with the evaluation error. Pass dimension to have it judged as that kind of field would judge it: \"25deg\" asked for as a Length is an error, not 25 mm.",
       "inputSchema": {
         "additionalProperties": false,
         "properties": {
@@ -2932,7 +2934,7 @@
             "type": "string"
           },
           "expression": {
-            "description": "e.g. \"width / 2\" or \"1.5in\".",
+            "description": "e.g. \"width / 2\", \"1.5in\", or \"distance(wall_a, wall_b) / 2\".",
             "type": "string"
           }
         },
@@ -2973,7 +2975,7 @@
         "readOnlyHint": true,
         "title": "Read parameters"
       },
-      "description": "Read the design-parameter table. Each parameter carries its expression, the value and dimension the last rebuild evaluated, what it reads (depends_on), which parameters read it (used_by) and which FEATURE FIELDS read it (used_by_fields) — so you can see what a change will move before making it. An expression that does not evaluate reports its own error with value_mm null; the rest of the table still answers. Dependency cycles are listed in cycles, each as the names around the loop.",
+      "description": "Read the design-parameter table. Each parameter carries its expression, the value and dimension the last rebuild evaluated, which PARAMETERS it reads (depends_on), which ENTITIES it measures (measures), which parameters read it (used_by) and which FEATURE FIELDS read it (used_by_fields) — so you can see what a change will move before making it. An expression that does not evaluate reports its own error with value_mm null; the rest of the table still answers. Dependency cycles are listed in cycles, each as the names around the loop.",
       "inputSchema": {
         "additionalProperties": false,
         "properties": {},
@@ -2999,7 +3001,7 @@
                   "type": "string"
                 },
                 "depends_on": {
-                  "description": "Parameter names this expression reads directly. Empty if it does not parse.",
+                  "description": "PARAMETER names this expression reads directly. Empty if it does not parse, and empty for an expression that only measures the model — see `measures`.",
                   "items": {
                     "type": "string"
                   },
@@ -3040,6 +3042,13 @@
                 },
                 "id": {
                   "type": "string"
+                },
+                "measures": {
+                  "description": "Entity names this expression MEASURES (D2), e.g. the `plate` of `volume(plate) / 1000`. A separate namespace from depends_on: this parameter depends on that geometry being built, so its value moves when the feature that owns the entity changes. Absent when the expression measures nothing.",
+                  "items": {
+                    "type": "string"
+                  },
+                  "type": "array"
                 },
                 "name": {
                   "type": "string"
@@ -4416,17 +4425,13 @@
                 "type": "object"
               },
               {
-                "description": "Select by **persistent id** — the preferred selector for anything\nthat must stay attached to one specific entity across rebuilds: a\ndrawing dimension's anchor, a PMI item, an `UpTo` termination, a\n3D-sketch attachment (drawings spec D0,\n`specs/drawings_and_mbd.md` §4 item 4).\n\nBoth ids come from `waffle_types::kernel::EntityPid`. `pid` names the\nentity; `root_pid` names where its geometry was introduced, so the\nreference still resolves when a later boolean rebuilt the face it\npointed at. For edges and vertices the two are equal — their ids are\ncontent-seeded through the faces' roots already.\n\nUnlike every other selector this one NEVER rebinds: an entity whose\nid and root are both gone is a loud `ResolutionFailed`, under either\n`ResolvePolicy`. A nearest-match fallback is exactly how an\nannotation ends up dimensioning the wrong edge, and the whole point\nof a persistent id is that its absence is information.",
+                "description": "Select by **persistent id** — the preferred selector for anything\nthat must stay attached to one specific entity across rebuilds: a\ndrawing dimension's anchor, a PMI item, an `UpTo` termination, a\n3D-sketch attachment (drawings spec D0,\n`specs/drawings_and_mbd.md` §4 item 4).\n\nBoth ids come from `waffle_types::kernel::EntityPid`. `pid` names the\nentity; `root_pid` names where its geometry was introduced, so the\nreference still resolves when a later boolean rebuilt the face it\npointed at. For edges and vertices the two are equal — their ids are\ncontent-seeded through the faces' roots already.\n\nBoth are `u64` in Rust and **decimal STRINGS on the wire** — in a\n`.waffle` file (format v10) and in every message and tool payload\nalike. A content-seeded id routinely exceeds `2^53`, where a JSON\nnumber stops being exact in JavaScript; see [`crate::pid_str`] for\nthe measurement and for why there is one representation rather than\none per boundary. Reading accepts a bare number too, so every file\nwritten before the flip still loads.\n\nUnlike every other selector this one NEVER rebinds: an entity whose\nid and root are both gone is a loud `ResolutionFailed`, under either\n`ResolvePolicy`. A nearest-match fallback is exactly how an\nannotation ends up dimensioning the wrong edge, and the whole point\nof a persistent id is that its absence is information.",
                 "properties": {
                   "pid": {
-                    "format": "uint64",
-                    "minimum": 0,
-                    "type": "integer"
+                    "type": "string"
                   },
                   "root_pid": {
-                    "format": "uint64",
-                    "minimum": 0,
-                    "type": "integer"
+                    "type": "string"
                   },
                   "type": {
                     "const": "Pid",
@@ -8917,17 +8922,13 @@
                 "type": "object"
               },
               {
-                "description": "Select by **persistent id** — the preferred selector for anything\nthat must stay attached to one specific entity across rebuilds: a\ndrawing dimension's anchor, a PMI item, an `UpTo` termination, a\n3D-sketch attachment (drawings spec D0,\n`specs/drawings_and_mbd.md` §4 item 4).\n\nBoth ids come from `waffle_types::kernel::EntityPid`. `pid` names the\nentity; `root_pid` names where its geometry was introduced, so the\nreference still resolves when a later boolean rebuilt the face it\npointed at. For edges and vertices the two are equal — their ids are\ncontent-seeded through the faces' roots already.\n\nUnlike every other selector this one NEVER rebinds: an entity whose\nid and root are both gone is a loud `ResolutionFailed`, under either\n`ResolvePolicy`. A nearest-match fallback is exactly how an\nannotation ends up dimensioning the wrong edge, and the whole point\nof a persistent id is that its absence is information.",
+                "description": "Select by **persistent id** — the preferred selector for anything\nthat must stay attached to one specific entity across rebuilds: a\ndrawing dimension's anchor, a PMI item, an `UpTo` termination, a\n3D-sketch attachment (drawings spec D0,\n`specs/drawings_and_mbd.md` §4 item 4).\n\nBoth ids come from `waffle_types::kernel::EntityPid`. `pid` names the\nentity; `root_pid` names where its geometry was introduced, so the\nreference still resolves when a later boolean rebuilt the face it\npointed at. For edges and vertices the two are equal — their ids are\ncontent-seeded through the faces' roots already.\n\nBoth are `u64` in Rust and **decimal STRINGS on the wire** — in a\n`.waffle` file (format v10) and in every message and tool payload\nalike. A content-seeded id routinely exceeds `2^53`, where a JSON\nnumber stops being exact in JavaScript; see [`crate::pid_str`] for\nthe measurement and for why there is one representation rather than\none per boundary. Reading accepts a bare number too, so every file\nwritten before the flip still loads.\n\nUnlike every other selector this one NEVER rebinds: an entity whose\nid and root are both gone is a loud `ResolutionFailed`, under either\n`ResolvePolicy`. A nearest-match fallback is exactly how an\nannotation ends up dimensioning the wrong edge, and the whole point\nof a persistent id is that its absence is information.",
                 "properties": {
                   "pid": {
-                    "format": "uint64",
-                    "minimum": 0,
-                    "type": "integer"
+                    "type": "string"
                   },
                   "root_pid": {
-                    "format": "uint64",
-                    "minimum": 0,
-                    "type": "integer"
+                    "type": "string"
                   },
                   "type": {
                     "const": "Pid",
@@ -8988,6 +8989,17 @@
               "plane": {
                 "$ref": "#/$defs/GeomRef",
                 "description": "The plane this sketch lies on, referenced via GeomRef."
+              },
+              "plane_face": {
+                "anyOf": [
+                  {
+                    "$ref": "#/$defs/SketchFaceRef"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "description": "The LOCAL model face this sketch was drawn on, when it was drawn on one\n(N2 of `specs/agent_mechanical_design.md` §5.3 item 3). Absent for a\nsketch on a datum plane, on a bare origin/normal, or on another\ninstance's face — the last of which travels in [`Sketch::plane`]'s\n`scope` and is re-derived by `feature_engine::context`.\n\nWhy this is not [`Sketch::plane`]: for a local sketch that field holds a\nPLACEHOLDER datum with a freshly minted uuid (it always has), and\n`feature_engine::rebuild`'s share-a-face target search branches on its\nanchor — so making it the real face reference would silently change\nwhich body an extrude on this sketch merges into. The identity and the\nanchor are different jobs, so they are different fields."
               },
               "plane_normal": {
                 "default": [
@@ -10279,6 +10291,35 @@
                 "type": "object"
               }
             ]
+          },
+          "SketchFaceRef": {
+            "description": "The identity of the face a local sketch is drawn on, recorded so that every\nrebuild can prove the face is still there (N2 §5.3 item 3).\n\nThe pid/fallback pair is `feature_engine::resolve::pin_identity`'s, the same\none an entity name stores (N1): the persistent id answers by identity, its\nlineage root answers when a later operation rebuilt the face, and only then\ndoes the authored selector rebind by geometry. When none of the three\nanswers, the sketch REFUSES — it does not get drawn on whichever face\nhappened to score best — and `signature` is what the refusal reports, so the\nauthor can see which face went missing rather than only that one did.",
+            "properties": {
+              "fallback": {
+                "anyOf": [
+                  {
+                    "$ref": "#/$defs/GeomRef"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "description": "The authored reference, stored only when a pid replaced it."
+              },
+              "signature": {
+                "$ref": "#/$defs/TopoSignature",
+                "description": "The face's fingerprint when the sketch was drawn — its surface type,\narea, centroid and normal. Reported by the refusal; never used to\nresolve (that would be the rebind this field exists to make visible)."
+              },
+              "target": {
+                "$ref": "#/$defs/GeomRef",
+                "description": "What to try first: a `Selector::Pid` when the kernel had an identity\nfor the face, else the reference as authored."
+              }
+            },
+            "required": [
+              "target",
+              "signature"
+            ],
+            "type": "object"
           },
           "SolveStatus": {
             "description": "Result of running the constraint solver.",
@@ -13913,17 +13954,13 @@
                 "type": "object"
               },
               {
-                "description": "Select by **persistent id** — the preferred selector for anything\nthat must stay attached to one specific entity across rebuilds: a\ndrawing dimension's anchor, a PMI item, an `UpTo` termination, a\n3D-sketch attachment (drawings spec D0,\n`specs/drawings_and_mbd.md` §4 item 4).\n\nBoth ids come from `waffle_types::kernel::EntityPid`. `pid` names the\nentity; `root_pid` names where its geometry was introduced, so the\nreference still resolves when a later boolean rebuilt the face it\npointed at. For edges and vertices the two are equal — their ids are\ncontent-seeded through the faces' roots already.\n\nUnlike every other selector this one NEVER rebinds: an entity whose\nid and root are both gone is a loud `ResolutionFailed`, under either\n`ResolvePolicy`. A nearest-match fallback is exactly how an\nannotation ends up dimensioning the wrong edge, and the whole point\nof a persistent id is that its absence is information.",
+                "description": "Select by **persistent id** — the preferred selector for anything\nthat must stay attached to one specific entity across rebuilds: a\ndrawing dimension's anchor, a PMI item, an `UpTo` termination, a\n3D-sketch attachment (drawings spec D0,\n`specs/drawings_and_mbd.md` §4 item 4).\n\nBoth ids come from `waffle_types::kernel::EntityPid`. `pid` names the\nentity; `root_pid` names where its geometry was introduced, so the\nreference still resolves when a later boolean rebuilt the face it\npointed at. For edges and vertices the two are equal — their ids are\ncontent-seeded through the faces' roots already.\n\nBoth are `u64` in Rust and **decimal STRINGS on the wire** — in a\n`.waffle` file (format v10) and in every message and tool payload\nalike. A content-seeded id routinely exceeds `2^53`, where a JSON\nnumber stops being exact in JavaScript; see [`crate::pid_str`] for\nthe measurement and for why there is one representation rather than\none per boundary. Reading accepts a bare number too, so every file\nwritten before the flip still loads.\n\nUnlike every other selector this one NEVER rebinds: an entity whose\nid and root are both gone is a loud `ResolutionFailed`, under either\n`ResolvePolicy`. A nearest-match fallback is exactly how an\nannotation ends up dimensioning the wrong edge, and the whole point\nof a persistent id is that its absence is information.",
                 "properties": {
                   "pid": {
-                    "format": "uint64",
-                    "minimum": 0,
-                    "type": "integer"
+                    "type": "string"
                   },
                   "root_pid": {
-                    "format": "uint64",
-                    "minimum": 0,
-                    "type": "integer"
+                    "type": "string"
                   },
                   "type": {
                     "const": "Pid",
@@ -13984,6 +14021,17 @@
               "plane": {
                 "$ref": "#/$defs/GeomRef",
                 "description": "The plane this sketch lies on, referenced via GeomRef."
+              },
+              "plane_face": {
+                "anyOf": [
+                  {
+                    "$ref": "#/$defs/SketchFaceRef"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "description": "The LOCAL model face this sketch was drawn on, when it was drawn on one\n(N2 of `specs/agent_mechanical_design.md` §5.3 item 3). Absent for a\nsketch on a datum plane, on a bare origin/normal, or on another\ninstance's face — the last of which travels in [`Sketch::plane`]'s\n`scope` and is re-derived by `feature_engine::context`.\n\nWhy this is not [`Sketch::plane`]: for a local sketch that field holds a\nPLACEHOLDER datum with a freshly minted uuid (it always has), and\n`feature_engine::rebuild`'s share-a-face target search branches on its\nanchor — so making it the real face reference would silently change\nwhich body an extrude on this sketch merges into. The identity and the\nanchor are different jobs, so they are different fields."
               },
               "plane_normal": {
                 "default": [
@@ -15275,6 +15323,35 @@
                 "type": "object"
               }
             ]
+          },
+          "SketchFaceRef": {
+            "description": "The identity of the face a local sketch is drawn on, recorded so that every\nrebuild can prove the face is still there (N2 §5.3 item 3).\n\nThe pid/fallback pair is `feature_engine::resolve::pin_identity`'s, the same\none an entity name stores (N1): the persistent id answers by identity, its\nlineage root answers when a later operation rebuilt the face, and only then\ndoes the authored selector rebind by geometry. When none of the three\nanswers, the sketch REFUSES — it does not get drawn on whichever face\nhappened to score best — and `signature` is what the refusal reports, so the\nauthor can see which face went missing rather than only that one did.",
+            "properties": {
+              "fallback": {
+                "anyOf": [
+                  {
+                    "$ref": "#/$defs/GeomRef"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "description": "The authored reference, stored only when a pid replaced it."
+              },
+              "signature": {
+                "$ref": "#/$defs/TopoSignature",
+                "description": "The face's fingerprint when the sketch was drawn — its surface type,\narea, centroid and normal. Reported by the refusal; never used to\nresolve (that would be the rebind this field exists to make visible)."
+              },
+              "target": {
+                "$ref": "#/$defs/GeomRef",
+                "description": "What to try first: a `Selector::Pid` when the kernel had an identity\nfor the face, else the reference as authored."
+              }
+            },
+            "required": [
+              "target",
+              "signature"
+            ],
+            "type": "object"
           },
           "SolveStatus": {
             "description": "Result of running the constraint solver.",
@@ -16984,7 +17061,7 @@
         "readOnlyHint": false,
         "title": "Set parameters"
       },
-      "description": "Write the design-parameter table and rebuild (one undo step). By default parameters REPLACES the table, so an omitted parameter is removed; with merge:true the rows are applied over the current table and delete removes parameters by name or id, so you can set one value without re-sending the rest. Expressions are mm-space and may reference other parameters by name. Keep a parameter's id to preserve it; omit id for a new one. A row whose id names an existing parameter with a DIFFERENT name is a rename: every expression that reads it — other parameters and feature fields alike — is rewritten, so use this rather than deleting and re-adding. A failing expression is reported per parameter, not rolled back; a delete of a parameter something still reads is refused naming the dependents (read them first with parameters_get).",
+      "description": "Write the design-parameter table and rebuild (one undo step). By default parameters REPLACES the table, so an omitted parameter is removed; with merge:true the rows are applied over the current table and delete removes parameters by name or id, so you can set one value without re-sending the rest. Expressions are mm-space and may reference other parameters by name, and may MEASURE the model by entity name (distance, angle, length, radius, area, volume — see expression_evaluate); a parameter that measures acquires a rebuild dependency on the feature that owns the measured entity, and may only measure geometry earlier in the tree than the first feature that reads it. Keep a parameter's id to preserve it; omit id for a new one. A row whose id names an existing parameter with a DIFFERENT name is a rename: every expression that reads it — other parameters and feature fields alike — is rewritten, so use this rather than deleting and re-adding. A failing expression is reported per parameter, not rolled back; a delete of a parameter something still reads is refused naming the dependents (read them first with parameters_get).",
       "inputSchema": {
         "additionalProperties": false,
         "properties": {
@@ -21764,17 +21841,13 @@
                 "type": "object"
               },
               {
-                "description": "Select by **persistent id** — the preferred selector for anything\nthat must stay attached to one specific entity across rebuilds: a\ndrawing dimension's anchor, a PMI item, an `UpTo` termination, a\n3D-sketch attachment (drawings spec D0,\n`specs/drawings_and_mbd.md` §4 item 4).\n\nBoth ids come from `waffle_types::kernel::EntityPid`. `pid` names the\nentity; `root_pid` names where its geometry was introduced, so the\nreference still resolves when a later boolean rebuilt the face it\npointed at. For edges and vertices the two are equal — their ids are\ncontent-seeded through the faces' roots already.\n\nUnlike every other selector this one NEVER rebinds: an entity whose\nid and root are both gone is a loud `ResolutionFailed`, under either\n`ResolvePolicy`. A nearest-match fallback is exactly how an\nannotation ends up dimensioning the wrong edge, and the whole point\nof a persistent id is that its absence is information.",
+                "description": "Select by **persistent id** — the preferred selector for anything\nthat must stay attached to one specific entity across rebuilds: a\ndrawing dimension's anchor, a PMI item, an `UpTo` termination, a\n3D-sketch attachment (drawings spec D0,\n`specs/drawings_and_mbd.md` §4 item 4).\n\nBoth ids come from `waffle_types::kernel::EntityPid`. `pid` names the\nentity; `root_pid` names where its geometry was introduced, so the\nreference still resolves when a later boolean rebuilt the face it\npointed at. For edges and vertices the two are equal — their ids are\ncontent-seeded through the faces' roots already.\n\nBoth are `u64` in Rust and **decimal STRINGS on the wire** — in a\n`.waffle` file (format v10) and in every message and tool payload\nalike. A content-seeded id routinely exceeds `2^53`, where a JSON\nnumber stops being exact in JavaScript; see [`crate::pid_str`] for\nthe measurement and for why there is one representation rather than\none per boundary. Reading accepts a bare number too, so every file\nwritten before the flip still loads.\n\nUnlike every other selector this one NEVER rebinds: an entity whose\nid and root are both gone is a loud `ResolutionFailed`, under either\n`ResolvePolicy`. A nearest-match fallback is exactly how an\nannotation ends up dimensioning the wrong edge, and the whole point\nof a persistent id is that its absence is information.",
                 "properties": {
                   "pid": {
-                    "format": "uint64",
-                    "minimum": 0,
-                    "type": "integer"
+                    "type": "string"
                   },
                   "root_pid": {
-                    "format": "uint64",
-                    "minimum": 0,
-                    "type": "integer"
+                    "type": "string"
                   },
                   "type": {
                     "const": "Pid",

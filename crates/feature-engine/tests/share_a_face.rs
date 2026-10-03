@@ -108,6 +108,7 @@ fn make_sketch_op() -> Operation {
         solve_status: SolveStatus::FullyConstrained,
         solved_positions: rect_solved_positions(),
         projected: vec![],
+        plane_face: None,
         solved_profiles: rect_profiles(),
     };
     Operation::Sketch { sketch }
@@ -141,6 +142,7 @@ fn make_sketch_on_body(body_feature_id: Uuid) -> Operation {
         solve_status: SolveStatus::FullyConstrained,
         solved_positions: rect_solved_positions(),
         projected: vec![],
+        plane_face: None,
         solved_profiles: rect_profiles(),
     };
     Operation::Sketch { sketch }

@@ -349,7 +349,7 @@ export const entityListTool = {
 	name: 'entity_list',
 	description:
 		'Every face, edge or vertex of one body, with its geometric content (Q6). Each entity carries its ' +
-		'persistent id (pid/root_pid — content-derived, so it survives rebuilds and booleans), the GeomRef ' +
+		'persistent id (pid/root_pid — content-derived, so it survives rebuilds and booleans; DECIMAL STRINGS, because an id above 2^53 is not exact as a JSON number — treat them as opaque, never as arithmetic), the GeomRef ' +
 		'that names it, its entity_name if it has one, its signature (surface type, area, centroid, normal, ' +
 		'bbox, and the axis descriptor of a cylinder/cone/sphere/torus), and its axis LINE (origin + ' +
 		'direction) where it has one. An EDGE also carries length.arc_length_m — the length ALONG the curve, ' +
@@ -401,8 +401,15 @@ export const entityListTool = {
 				items: {
 					type: 'object',
 					properties: {
-						pid: { type: 'number' },
-						root_pid: { type: 'number' },
+						// Decimal STRINGS, not numbers: a persistent id is a
+						// content-seeded u64 and a JSON number here is an f64,
+						// so an id above 2^53 would reach a caller as a
+						// different entity (`waffle_types::pid_str`). Pinned
+						// by `file-format/tests/schema_golden.rs::
+						// no_pid_field_crosses_as_a_number`, which scans the
+						// generated relay manifest and so sees this file.
+						pid: { type: 'string', pattern: '^[0-9]+$' },
+						root_pid: { type: 'string', pattern: '^[0-9]+$' },
 						geom_ref: { type: 'object' },
 						name: { type: 'string' },
 						name_warnings: { type: 'array', items: { type: 'string' } },
@@ -548,15 +555,22 @@ export const sketch3dGetTool = {
 export const expressionEvaluateTool = {
 	name: 'expression_evaluate',
 	description:
-		'Evaluate an expression against the design parameters, as a dimension field would. mm-space: a bare ' +
-		'number means millimeters for lengths (degrees for angles); unit suffixes (mm, cm, m, in, ft, deg, rad) ' +
-		'and parameter names are allowed. Returns value_mm plus the dimension the expression produced, or ' +
-		'value_mm null with the evaluation error. Pass dimension to have it judged as that kind of field ' +
-		'would judge it: "25deg" asked for as a Length is an error, not 25 mm.',
+		'Evaluate an expression against the design parameters AND the live model, as a dimension field would. ' +
+		'mm-space: a bare number means millimeters for lengths (degrees for angles); unit suffixes (mm, cm, m, ' +
+		'in, ft, deg, rad) and parameter names are allowed. Measurement functions read the model by ENTITY NAME ' +
+		'(entity_name / body_rename): distance(a, b), angle(a, b), length(edge), radius(entity), area(face), ' +
+		'volume(body) — mm, degrees, mm^2 and mm^3 respectively, so sqrt(area(top)) is a length a depth takes ' +
+		'and area(top) is not. mass(body) is reserved and refuses until a material table exists. Returns ' +
+		'value_mm plus the dimension the expression produced, or value_mm null with the evaluation error. Pass ' +
+		'dimension to have it judged as that kind of field would judge it: "25deg" asked for as a Length is an ' +
+		'error, not 25 mm.',
 	inputSchema: {
 		type: 'object',
 		properties: {
-			expression: { type: 'string', description: 'e.g. "width / 2" or "1.5in".' },
+			expression: {
+				type: 'string',
+				description: 'e.g. "width / 2", "1.5in", or "distance(wall_a, wall_b) / 2".'
+			},
 			dimension: {
 				type: 'string',
 				enum: ['Length', 'Angle', 'Count', 'Ratio'],
@@ -590,7 +604,8 @@ export const parametersGetTool = {
 	name: 'parameters_get',
 	description:
 		'Read the design-parameter table. Each parameter carries its expression, the value and dimension the ' +
-		'last rebuild evaluated, what it reads (depends_on), which parameters read it (used_by) and which ' +
+		'last rebuild evaluated, which PARAMETERS it reads (depends_on), which ENTITIES it measures ' +
+		'(measures), which parameters read it (used_by) and which ' +
 		'FEATURE FIELDS read it (used_by_fields) — so you can see what a change will move before making it. ' +
 		'An expression that does not evaluate reports its own error with value_mm null; the rest of the table ' +
 		'still answers. Dependency cycles are listed in cycles, each as the names around the loop.',
@@ -636,7 +651,18 @@ export const parametersGetTool = {
 						depends_on: {
 							type: 'array',
 							items: { type: 'string' },
-							description: 'Parameter names this expression reads directly. Empty if it does not parse.'
+							description:
+								'PARAMETER names this expression reads directly. Empty if it does not parse, and ' +
+								'empty for an expression that only measures the model — see `measures`.'
+						},
+						measures: {
+							type: 'array',
+							items: { type: 'string' },
+							description:
+								'Entity names this expression MEASURES (D2), e.g. the `plate` of ' +
+								'`volume(plate) / 1000`. A separate namespace from depends_on: this parameter ' +
+								'depends on that geometry being built, so its value moves when the feature that ' +
+								'owns the entity changes. Absent when the expression measures nothing.'
 						},
 						used_by: {
 							type: 'array',

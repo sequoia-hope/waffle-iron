@@ -84,6 +84,7 @@ fn box_body(state: &mut EngineState, kernel: &mut KernelV2Adapter) -> String {
         solve_status: SolveStatus::FullyConstrained,
         solved_positions,
         projected: Vec::new(),
+        plane_face: None,
         solved_profiles: vec![ClosedProfile {
             entity_ids: vec![10, 11, 12, 13],
             is_outer: true,

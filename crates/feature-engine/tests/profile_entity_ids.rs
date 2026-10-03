@@ -94,6 +94,7 @@ fn two_square_sketch() -> Sketch {
         solve_status: SolveStatus::FullyConstrained,
         solved_positions,
         projected: vec![],
+        plane_face: None,
         solved_profiles: vec![
             square_profile([10, 11, 12, 13]),
             square_profile([20, 21, 22, 23]),

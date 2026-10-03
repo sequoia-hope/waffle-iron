@@ -2936,17 +2936,13 @@ export const ENGINE_DEFS = {
         "type": "object"
       },
       {
-        "description": "Select by **persistent id** — the preferred selector for anything\nthat must stay attached to one specific entity across rebuilds: a\ndrawing dimension's anchor, a PMI item, an `UpTo` termination, a\n3D-sketch attachment (drawings spec D0,\n`specs/drawings_and_mbd.md` §4 item 4).\n\nBoth ids come from `waffle_types::kernel::EntityPid`. `pid` names the\nentity; `root_pid` names where its geometry was introduced, so the\nreference still resolves when a later boolean rebuilt the face it\npointed at. For edges and vertices the two are equal — their ids are\ncontent-seeded through the faces' roots already.\n\nUnlike every other selector this one NEVER rebinds: an entity whose\nid and root are both gone is a loud `ResolutionFailed`, under either\n`ResolvePolicy`. A nearest-match fallback is exactly how an\nannotation ends up dimensioning the wrong edge, and the whole point\nof a persistent id is that its absence is information.",
+        "description": "Select by **persistent id** — the preferred selector for anything\nthat must stay attached to one specific entity across rebuilds: a\ndrawing dimension's anchor, a PMI item, an `UpTo` termination, a\n3D-sketch attachment (drawings spec D0,\n`specs/drawings_and_mbd.md` §4 item 4).\n\nBoth ids come from `waffle_types::kernel::EntityPid`. `pid` names the\nentity; `root_pid` names where its geometry was introduced, so the\nreference still resolves when a later boolean rebuilt the face it\npointed at. For edges and vertices the two are equal — their ids are\ncontent-seeded through the faces' roots already.\n\nBoth are `u64` in Rust and **decimal STRINGS on the wire** — in a\n`.waffle` file (format v10) and in every message and tool payload\nalike. A content-seeded id routinely exceeds `2^53`, where a JSON\nnumber stops being exact in JavaScript; see [`crate::pid_str`] for\nthe measurement and for why there is one representation rather than\none per boundary. Reading accepts a bare number too, so every file\nwritten before the flip still loads.\n\nUnlike every other selector this one NEVER rebinds: an entity whose\nid and root are both gone is a loud `ResolutionFailed`, under either\n`ResolvePolicy`. A nearest-match fallback is exactly how an\nannotation ends up dimensioning the wrong edge, and the whole point\nof a persistent id is that its absence is information.",
         "properties": {
           "pid": {
-            "format": "uint64",
-            "minimum": 0,
-            "type": "integer"
+            "type": "string"
           },
           "root_pid": {
-            "format": "uint64",
-            "minimum": 0,
-            "type": "integer"
+            "type": "string"
           },
           "type": {
             "const": "Pid",
@@ -3007,6 +3003,17 @@ export const ENGINE_DEFS = {
       "plane": {
         "$ref": "#/$defs/GeomRef",
         "description": "The plane this sketch lies on, referenced via GeomRef."
+      },
+      "plane_face": {
+        "anyOf": [
+          {
+            "$ref": "#/$defs/SketchFaceRef"
+          },
+          {
+            "type": "null"
+          }
+        ],
+        "description": "The LOCAL model face this sketch was drawn on, when it was drawn on one\n(N2 of `specs/agent_mechanical_design.md` §5.3 item 3). Absent for a\nsketch on a datum plane, on a bare origin/normal, or on another\ninstance's face — the last of which travels in [`Sketch::plane`]'s\n`scope` and is re-derived by `feature_engine::context`.\n\nWhy this is not [`Sketch::plane`]: for a local sketch that field holds a\nPLACEHOLDER datum with a freshly minted uuid (it always has), and\n`feature_engine::rebuild`'s share-a-face target search branches on its\nanchor — so making it the real face reference would silently change\nwhich body an extrude on this sketch merges into. The identity and the\nanchor are different jobs, so they are different fields."
       },
       "plane_normal": {
         "default": [
@@ -4298,6 +4305,35 @@ export const ENGINE_DEFS = {
         "type": "object"
       }
     ]
+  },
+  "SketchFaceRef": {
+    "description": "The identity of the face a local sketch is drawn on, recorded so that every\nrebuild can prove the face is still there (N2 §5.3 item 3).\n\nThe pid/fallback pair is `feature_engine::resolve::pin_identity`'s, the same\none an entity name stores (N1): the persistent id answers by identity, its\nlineage root answers when a later operation rebuilt the face, and only then\ndoes the authored selector rebind by geometry. When none of the three\nanswers, the sketch REFUSES — it does not get drawn on whichever face\nhappened to score best — and `signature` is what the refusal reports, so the\nauthor can see which face went missing rather than only that one did.",
+    "properties": {
+      "fallback": {
+        "anyOf": [
+          {
+            "$ref": "#/$defs/GeomRef"
+          },
+          {
+            "type": "null"
+          }
+        ],
+        "description": "The authored reference, stored only when a pid replaced it."
+      },
+      "signature": {
+        "$ref": "#/$defs/TopoSignature",
+        "description": "The face's fingerprint when the sketch was drawn — its surface type,\narea, centroid and normal. Reported by the refusal; never used to\nresolve (that would be the rebind this field exists to make visible)."
+      },
+      "target": {
+        "$ref": "#/$defs/GeomRef",
+        "description": "What to try first: a `Selector::Pid` when the kernel had an identity\nfor the face, else the reference as authored."
+      }
+    },
+    "required": [
+      "target",
+      "signature"
+    ],
+    "type": "object"
   },
   "SolveStatus": {
     "description": "Result of running the constraint solver.",
