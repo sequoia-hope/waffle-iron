@@ -62,20 +62,34 @@
 //! meridian, the closed torus's profile circle). Seams are dropped before the
 //! clip, which is why a closed surface's silhouette comes out whole.
 //!
+//! ## The one non-local question
+//!
+//! A **closed path with no crossings** is wholly inside the face or wholly
+//! outside it, and nothing local decides which. A face whose only boundary is
+//! its seams IS the whole closed surface, so that case is settled by
+//! construction; otherwise [`closed_path_is_on_face`] asks the face's own
+//! render triangles, once, in this branch only.
+//!
 //! ## Known boundaries, loud rather than guessed
 //!
-//! - A **closed path with no crossings** on a face that DOES have a boundary
-//!   is either wholly inside or wholly outside, and nothing local decides
-//!   which. It is declined (no curve emitted) and censused under
-//!   `KV2_SILHOUETTE_CENSUS`. A face with no boundary but its seams is the
-//!   whole closed surface, so the path is wholly inside and is emitted.
+//! All three are censused under `KV2_SILHOUETTE_CENSUS`, and all three
+//! UNDER-report (a missing arc of a drawing) rather than over-report.
+//!
+//! - A **grazing removal**: a hole whose boundary is TANGENT to the
+//!   silhouette's own plane at both ends of the arc it removes has no
+//!   transversal crossing to find, so the whole path is dropped rather than
+//!   drawn through the hole. Corpus case C0065 is exactly this — a square hole
+//!   bored through a torus's tube removes an arc of each latitude circle.
 //! - A crossing sequence that does not ALTERNATE enter/exit along a closed
 //!   path is a degenerate clip (a tangency the sign test did not catch, or a
-//!   boundary running along the silhouette). Declined and censused rather than
-//!   paired arbitrarily.
-//! - A surface-pair boundary edge is crossed on its render polyline, so the
-//!   crossing carries that polyline's chord error. Documented, not hidden: the
-//!   same chord band every other kernel-v2 consumer of that curve carries.
+//!   boundary running along the silhouette). Declined rather than paired
+//!   arbitrarily. Three paths of R0087's 422-face gear body hit it.
+//! - A chord-approximate boundary edge — a surface-pair curve's render
+//!   polyline, or a `LineSegment` bounding a curved face, which is what a
+//!   boolean output's boundary is — is crossed on that chord, so the crossing
+//!   carries the chord band. Documented, not hidden: the same band every other
+//!   kernel-v2 consumer of such a boundary carries, and the reason
+//!   [`Crossing3::rel_tol`] is per-arm.
 //!
 //! Silhouette curves are tagged [`Visibility::Visible`] at this increment;
 //! hidden-line classification is D1c.
@@ -191,6 +205,27 @@ fn clipped_paths(
     }
 
     let scale = face_scale(arena, fid, &surface)?;
+    if std::env::var_os("KV2_SILHOUETTE_CENSUS").is_some() {
+        let mut kinds: std::collections::BTreeMap<&str, usize> = Default::default();
+        for &h in &hes {
+            let k = match arena.half_edge(h)?.curve {
+                Curve::LineSegment => "line",
+                Curve::Circle { .. } => "circle",
+                Curve::Arc { .. } => "arc",
+                Curve::EllipseArc { .. } => "ellipse",
+                Curve::HyperbolaArc { .. } => "hyperbola",
+                Curve::SurfacePair { .. } => "pair",
+            };
+            *kinds.entry(k).or_default() += 1;
+        }
+        println!(
+            "[silhouette] face {} {} scale {scale:.6e}: {} path(s), boundary {:?}",
+            fid.0,
+            crate::signature::surface_type_str(&surface),
+            paths.len(),
+            kinds
+        );
+    }
     let mut out = Vec::new();
     for (path, functional) in paths {
         let intervals = clip_path(arena, fid, &surface, &path, &functional, &hes, scale, n_seg)?;
@@ -655,8 +690,8 @@ fn clip_path(
     scale: f64,
     n_seg: u32,
 ) -> Result<Vec<(f64, f64)>, KernelV2Error> {
-    let tol_on_path = 1e-6 * scale + TAU_MODEL;
     let mut xs: Vec<Crossing> = Vec::new();
+    let mut tangencies = 0usize;
     let (mut s_lo, mut s_hi) = (f64::INFINITY, f64::NEG_INFINITY);
 
     for &h in hes {
@@ -666,8 +701,13 @@ fn clip_path(
             s_lo = s_lo.min(s);
             s_hi = s_hi.max(s);
         }
-        for (p, tangent) in edge_crossings(arena, h, functional, n_seg)? {
-            if path.off_path(p) > tol_on_path {
+        for Crossing3 {
+            point: p,
+            tangent,
+            rel_tol,
+        } in edge_crossings(arena, h, functional, n_seg)?
+        {
+            if path.off_path(p) > rel_tol * scale + TAU_MODEL {
                 continue;
             }
             let Some(n) = crate::signature::outward_normal_at(surface, p) else {
@@ -679,6 +719,7 @@ fn clip_path(
             let d = dot(sdir, inward);
             let mag = norm(sdir) * norm(tangent);
             if mag.is_nan() || mag <= 0.0 || d.abs() <= TANGENCY_REL * mag {
+                tangencies += 1;
                 continue; // a tangency does not toggle
             }
             if !path.closed() {
@@ -698,13 +739,29 @@ fn clip_path(
 
     if path.closed() {
         if xs.is_empty() {
-            // Wholly inside or wholly outside, and nothing local decides
-            // which — unless the face has no boundary but its seams, in which
-            // case it IS the whole closed surface.
-            if hes.is_empty() {
+            // Wholly inside or wholly outside. A face whose only boundary is
+            // its seams IS the whole closed surface, so the path is inside by
+            // construction; otherwise nothing LOCAL decides it and the one
+            // global question of this module gets asked (once, of the face's
+            // own triangles).
+            if hes.is_empty() || closed_path_is_on_face(arena, fid, path, scale, n_seg)? {
                 return Ok(vec![(0.0, TAU)]);
             }
-            census(fid, "closed path with no crossings on a bounded face");
+            if tangencies > 0 {
+                // The honest shape of this decline, and the one the corpus
+                // actually produces (C0065: a square hole punched through a
+                // torus's tube removes an arc of each latitude circle, and
+                // the hole's boundary is TANGENT to the silhouette's plane at
+                // both ends of that arc, so the removal has no transversal
+                // crossing to find). Nothing is emitted rather than a circle
+                // that runs through the hole.
+                census(
+                    fid,
+                    "closed path meets the boundary only tangentially — grazing removal",
+                );
+            } else {
+                census(fid, "closed path lies off the face (no crossings)");
+            }
             return Ok(Vec::new());
         }
         let n = xs.len();
@@ -750,6 +807,110 @@ fn clip_path(
         }
     }
     Ok(out)
+}
+
+/// Whether a closed path that meets the face's boundary NOWHERE lies on the
+/// face — the one question in this module that is not local.
+///
+/// With no crossings the path is wholly inside or wholly outside, so a single
+/// verdict settles it, and the face's OWN triangles settle it: the render mesh
+/// is inscribed in the face, so a point on the face is within the chord
+/// sagitta of it and a point elsewhere on the same surface is at the distance
+/// that separates it from the face's region. Sampling the path and taking the
+/// worst distance is therefore a decision, not an estimate — except where the
+/// path runs within one sagitta OUTSIDE the boundary, i.e. tangent to it,
+/// which is the same grazing configuration the enter/exit sign test declines.
+/// Paid once per declining path, and only in this branch.
+fn closed_path_is_on_face(
+    arena: &BrepArena,
+    fid: FaceId,
+    path: &Path,
+    scale: f64,
+    n_seg: u32,
+) -> Result<bool, KernelV2Error> {
+    const SAMPLES: usize = 48;
+    let mesh = crate::tessellate::tessellate_face(arena, fid)?;
+    if mesh.indices.is_empty() {
+        census(fid, "closed path on a face with no triangles");
+        return Ok(false);
+    }
+    let band = 8.0 * scale * (1.0 - (PI / f64::from(n_seg.max(3))).cos()) + TAU_MODEL;
+    for k in 0..SAMPLES {
+        let p = path.eval(TAU * (k as f64) / (SAMPLES as f64)).as_array();
+        if distance_to_mesh(&mesh, p) > band {
+            return Ok(false);
+        }
+    }
+    Ok(true)
+}
+
+/// Distance from `p` to the nearest triangle of `mesh`.
+fn distance_to_mesh(mesh: &crate::tessellate::RenderMesh, p: [f64; 3]) -> f64 {
+    let at = |i: u32| {
+        let k = (i as usize) * 3;
+        [
+            mesh.positions[k],
+            mesh.positions[k + 1],
+            mesh.positions[k + 2],
+        ]
+    };
+    let mut best = f64::INFINITY;
+    for t in mesh.indices.chunks_exact(3) {
+        best = best.min(distance_to_triangle(p, at(t[0]), at(t[1]), at(t[2])));
+        if best <= 0.0 {
+            break;
+        }
+    }
+    best
+}
+
+/// Distance from `p` to the triangle `abc` — Ericson, *Real-Time Collision
+/// Detection* §5.1.5: the closest point is in the interior, on one of the
+/// three edges, or at one of the three vertices, decided by the barycentric
+/// region `p` projects into.
+fn distance_to_triangle(p: [f64; 3], a: [f64; 3], b: [f64; 3], c: [f64; 3]) -> f64 {
+    let ab = sub(b, a);
+    let ac = sub(c, a);
+    let ap = sub(p, a);
+    let d1 = dot(ab, ap);
+    let d2 = dot(ac, ap);
+    if d1 <= 0.0 && d2 <= 0.0 {
+        return norm(ap);
+    }
+    let bp = sub(p, b);
+    let d3 = dot(ab, bp);
+    let d4 = dot(ac, bp);
+    if d3 >= 0.0 && d4 <= d3 {
+        return norm(bp);
+    }
+    let vc = d1 * d4 - d3 * d2;
+    if vc <= 0.0 && d1 >= 0.0 && d3 <= 0.0 {
+        let v = d1 / (d1 - d3);
+        return norm(sub(ap, scaled(ab, v)));
+    }
+    let cp = sub(p, c);
+    let d5 = dot(ab, cp);
+    let d6 = dot(ac, cp);
+    if d6 >= 0.0 && d5 <= d6 {
+        return norm(cp);
+    }
+    let vb = d5 * d2 - d1 * d6;
+    if vb <= 0.0 && d2 >= 0.0 && d6 <= 0.0 {
+        let w = d2 / (d2 - d6);
+        return norm(sub(ap, scaled(ac, w)));
+    }
+    let va = d3 * d6 - d5 * d4;
+    if va <= 0.0 && (d4 - d3) >= 0.0 && (d5 - d6) >= 0.0 {
+        let w = (d4 - d3) / ((d4 - d3) + (d5 - d6));
+        return norm(sub(sub(p, b), scaled(sub(c, b), w)));
+    }
+    let denom = va + vb + vc;
+    if !(denom.is_finite() && denom != 0.0) {
+        return norm(ap);
+    }
+    let v = vb / denom;
+    let w = vc / denom;
+    norm(sub(ap, add(scaled(ab, v), scaled(ac, w))))
 }
 
 /// Print-only census of a declined clip, under `KV2_SILHOUETTE_CENSUS`.
@@ -1041,15 +1202,52 @@ fn edge_param(arena: &BrepArena, h: HalfEdgeId, n_seg: u32) -> Result<EdgeParam,
     })
 }
 
-/// `(point, traversal tangent)` at every crossing of the half-edge with the
-/// functional's zero set.
+/// One crossing of a boundary half-edge with a path's functional.
+struct Crossing3 {
+    point: Point3,
+    /// Tangent in the half-edge's own traversal direction.
+    tangent: [f64; 3],
+    /// How far from the path this point may sit and still be ON it, RELATIVE
+    /// to the face's scale.
+    ///
+    /// This is the representation error of the crossing itself, and it is not
+    /// one number. A root on an analytic parameterization lands on the curve
+    /// to float precision, so `1e-6` is six orders of slack it does not need.
+    /// A root on a [`EdgeParam::Poly`] edge — a surface-pair curve, whose
+    /// boundary polyline the whole kernel treats as chord-approximate — sits
+    /// up to the CHORD SAGITTA off the true curve, which at the render band is
+    /// `~1e-3` of its radius: four orders larger. Measured on C0065 (a torus
+    /// cut by a plane, whose only boundary is the spiric surface-pair curve):
+    /// with one shared `1e-6` tolerance every crossing of that boundary was
+    /// rejected as "not on this path" and the torus lost BOTH silhouette
+    /// branches. The paths this tolerance has to tell apart are a cylinder's
+    /// two rulings and a torus's two profile circles, `2R` apart, so the
+    /// chord band discriminates them with four orders to spare.
+    rel_tol: f64,
+}
+
+/// Every crossing of the half-edge with the functional's zero set.
 fn edge_crossings(
     arena: &BrepArena,
     h: HalfEdgeId,
     functional: &Functional,
     n_seg: u32,
-) -> Result<Vec<(Point3, [f64; 3])>, KernelV2Error> {
+) -> Result<Vec<Crossing3>, KernelV2Error> {
     let param = edge_param(arena, h, n_seg)?;
+    let rel_tol = match param {
+        // Chord-approximate. A `Poly` edge IS the render polyline of a
+        // surface-pair curve; a `LineSegment` bounding a CURVED face is a
+        // chord of whatever curve the boolean output approximated (C0065's
+        // torus patch is bounded by 110 of them), and only its endpoints are
+        // on the surface. Both land up to a chord sagitta off the true curve,
+        // so the band is the sagitta of an `n_seg`-gon, times 8 so a boundary
+        // whose own radius exceeds the face's scale still clears it.
+        EdgeParam::Poly { .. } | EdgeParam::Line { .. } => {
+            8.0 * (1.0 - (PI / f64::from(n_seg.max(3))).cos())
+        }
+        // Analytic and exactly on the surface: the root is exact to float.
+        EdgeParam::Conic { .. } | EdgeParam::Hyper { .. } => 1e-9,
+    };
     let roots = match (functional, &param) {
         (Functional::Plane { o, n }, _) => plane_roots(&param, *o, *n),
         (Functional::TorusDot { .. }, _) => None,
@@ -1057,7 +1255,11 @@ fn edge_crossings(
     .unwrap_or_else(|| numeric_roots(&param, functional, n_seg));
     Ok(roots
         .into_iter()
-        .map(|t| (param.eval(t), param.tangent(t)))
+        .map(|t| Crossing3 {
+            point: param.eval(t),
+            tangent: param.tangent(t),
+            rel_tol,
+        })
         .collect())
 }
 

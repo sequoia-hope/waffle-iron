@@ -144,6 +144,23 @@ fn closed_torus(major: f64, minor: f64) -> (BrepArena, SolidId, FaceId) {
     (arena, result.solid, fid)
 }
 
+/// The one face of a solid whose surface is `Torus`.
+fn the_torus_face(arena: &BrepArena, solid: SolidId) -> FaceId {
+    let mut found = None;
+    for &sh in &arena.solid(solid).expect("solid").shells {
+        for &f in &arena.shell(sh).expect("shell").faces {
+            if matches!(
+                arena.face(f).expect("face").surface,
+                Some(Surface::Torus { .. })
+            ) {
+                assert!(found.is_none(), "expected exactly one toroidal face");
+                found = Some(f);
+            }
+        }
+    }
+    found.expect("a toroidal face")
+}
+
 /// The one non-planar face of a solid.
 fn the_curved_face(arena: &BrepArena, solid: SolidId) -> FaceId {
     let mut found = None;
@@ -1180,4 +1197,128 @@ fn a_planar_face_has_no_silhouette() {
         [0.0, 1.0, 0.0]
     )
     .is_empty());
+}
+
+// ---------------------------------------------------------------------------
+// 4. the two things the assay corpus found
+// ---------------------------------------------------------------------------
+
+/// A torus with a hole bored through its tube keeps the silhouette branches
+/// the hole does not touch — the C0065 class, and the reason the "is this
+/// crossing on this path?" tolerance has to be the CHORD BAND on a
+/// chord-polyline boundary and not float precision.
+///
+/// The boolean leaves the torus face bounded by line segments approximating
+/// the bore's intersection curve. Their interior points are off the exact
+/// tube by a chord sagitta, so a `1e-6`-relative on-path test rejected every
+/// crossing of that boundary and the torus reported NO silhouette at all —
+/// measured on corpus case C0065 2026-10-03, where the whole outline of a
+/// 3 m torus went missing from its drawing.
+#[test]
+fn a_bored_torus_keeps_the_silhouette_branches_the_bore_misses() {
+    let (major, minor) = (0.020, 0.006);
+    let (mut arena, torus, _) = closed_torus(major, minor);
+
+    // A 3 mm bore straight down through the tube at θ = 0, well clear of
+    // both equator circles (which sit at ρ = R ∓ r in the plane z = 0).
+    let bore = Profile::circle(
+        Point3::new(0.0, 0.0, -0.030),
+        uv(1.0, 0.0, 0.0),
+        uv(0.0, 1.0, 0.0),
+        P2::new(major, 0.0),
+        0.0015,
+    )
+    .expect("bore profile");
+    let drill = crate::extrude(&mut arena, &bore, uv(0.0, 0.0, 1.0), 0.060)
+        .expect("bore extrudes")
+        .solid;
+    let holed = crate::boolean_op(&mut arena, torus, drill, cad_primitives::BoolOp::Subtract)
+        .expect("torus minus a bore");
+    let fid = the_torus_face(&arena, holed);
+    let face = arena.face(fid).expect("face");
+    // The bore leaves the torus face bounded by a CHORD-APPROXIMATE boundary
+    // — line segments, or the surface-pair curve whose only sampled form is
+    // its render polyline. Either way the crossings of it land off the exact
+    // tube by a chord sagitta, which is the tolerance this test is about.
+    let mut approximate = 0usize;
+    for lid in std::iter::once(face.outer_loop).chain(face.inner_loops.iter().copied()) {
+        for h in arena.loop_half_edges(lid).expect("loop") {
+            if matches!(
+                arena.half_edge(h).expect("he").curve,
+                crate::arena::Curve::LineSegment | crate::arena::Curve::SurfacePair { .. }
+            ) {
+                approximate += 1;
+            }
+        }
+    }
+    assert!(
+        approximate > 2,
+        "the bore's boundary should be chord-approximate, got {approximate} such edges"
+    );
+
+    // Seen along the axis the two equator circles are untouched by the bore,
+    // so both survive — exactly, as circles.
+    let curves = sil(&arena, fid, [0.0, 0.0, 1.0]);
+    let mut radii: Vec<f64> = curves
+        .iter()
+        .filter_map(|c| match c {
+            Curve2::Circle { radius, .. } => Some(*radius),
+            _ => None,
+        })
+        .collect();
+    radii.sort_by(f64::total_cmp);
+    assert_eq!(
+        radii.len(),
+        2,
+        "both equators survive a bore that misses them, got {curves:?}"
+    );
+    assert!(close(radii[0], major - minor, 1e-12), "inner {}", radii[0]);
+    assert!(close(radii[1], major + minor, 1e-12), "outer {}", radii[1]);
+}
+
+/// `distance_to_triangle` against a brute-force sampling of the triangle, over
+/// the vertex, edge and interior regions — the one piece of the membership
+/// test that is pure arithmetic, and the one that decides whether a closed
+/// path with no crossings is on its face.
+#[test]
+fn the_triangle_distance_matches_a_brute_force_sampling() {
+    let (a, b, c) = ([0.0, 0.0, 0.0], [1.0, 0.0, 0.0], [0.0, 2.0, 0.5]);
+    const N: usize = 160;
+    let brute = |p: [f64; 3]| {
+        let mut best = f64::INFINITY;
+        for i in 0..=N {
+            for j in 0..=(N - i) {
+                let (u, v) = (i as f64 / N as f64, j as f64 / N as f64);
+                let q = add(a, add(scaled(sub(b, a), u), scaled(sub(c, a), v)));
+                best = best.min(norm(sub(p, q)));
+            }
+        }
+        best
+    };
+    let mut checked = 0usize;
+    for k in 0..6 {
+        for l in 0..6 {
+            for m in 0..3 {
+                let p = [
+                    -1.0 + 0.6 * k as f64,
+                    -1.0 + 0.8 * l as f64,
+                    -0.5 + 0.7 * m as f64,
+                ];
+                let got = distance_to_triangle(p, a, b, c);
+                let want = brute(p);
+                checked += 1;
+                // The brute force samples the triangle, so it can only
+                // OVERestimate; the exact answer must not exceed it and must
+                // be within one sample step of it.
+                assert!(
+                    got <= want + 1e-12 && got >= want - 0.05,
+                    "{p:?}: exact {got} vs sampled {want}"
+                );
+            }
+        }
+    }
+    assert_eq!(checked, 108);
+    // On the triangle: zero.
+    let mid = add(a, add(scaled(sub(b, a), 0.25), scaled(sub(c, a), 0.25)));
+    assert!(distance_to_triangle(mid, a, b, c) < 1e-15);
 }
