@@ -268,6 +268,13 @@ than sampled: a loop that does not double-cover a curve is not rewritten at
 all. (CPU times run high across the board because the box sat at load 25–42
 on 24 cores; the budget is CPU-based, so the verdicts are load-insensitive.)
 
+`smoke_corpus_boundary_categories` PASSES in **538.9 s** with the P0017 row
+re-pinned to `SupportedCorrect`. `cargo test -p yang-rs --release` is green
+(76 binaries, 1509 passed, 0 failed, 8 ignored) and `cargo test -p kernel-v2
+--release` likewise (65 binaries, 821 passed, 0 failed, 5 ignored); clippy
+`--all-targets -p yang-rs -p kernel-v2 -p test-harness -- -D warnings` and
+`cargo fmt --check` are clean.
+
 **Still open, recorded not fixed.** WHY Stage 5/6 emitted the spur: the
 arrangement at natural rim N = 25 cannot resolve a 5.0010e-7 lens whose own
 rim chord sagitta is `4.3247e-4·(1 − cos(π/25)) = 3.41e-6`, 6.8× the graze —

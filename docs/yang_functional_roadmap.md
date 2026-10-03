@@ -107,7 +107,13 @@
 > locus: R0011 2.5 s, R0016 111.5 s, R0025 33.1 s, R0028 5.1 s, R0049 4.5 s,
 > R0050 30.2 s, R0059 6.1 s, R0074 13.5 s, R0077 2.0 s, C0065 3.1 s,
 > R0004 4.8 s, R0070 53.7 s, R0032 121.5 s and R0020 1.6 s, all
-> SUPPORTED_CORRECT (R0044 still running at write-up time). Next: re-minimize the lineage's `pinch sub-ring is not
+> SUPPORTED_CORRECT (R0044 still running at write-up time).
+> `smoke_corpus_boundary_categories` PASSES in **538.9 s** with the P0017 row
+> re-pinned to `SupportedCorrect`; `cargo test -p yang-rs --release` green (76
+> binaries, 1509 passed, 0 failed, 8 ignored), `cargo test -p kernel-v2
+> --release` green (65 binaries, 821 passed, 0 failed, 5 ignored), clippy
+> `--all-targets -D warnings` and `cargo fmt --check` clean on all three
+> touched crates. Next: re-minimize the lineage's `pinch sub-ring is not
 > CCW`, then P0019 / P0020 / P0021.
 
 > **2026-10-03 (late night, second) refresh — P0021 ANCHORED, remediation
