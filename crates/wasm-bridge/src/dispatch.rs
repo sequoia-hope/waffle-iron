@@ -12,7 +12,10 @@ use crate::messages::{
     AssemblyStatus, ConnectorFrameInfo, ContextInstanceInfo, ContextStatus, DocumentInfo,
     EngineToUi, PartConnectorInfo, SourceStatus, UiToEngine,
 };
-use crate::messages::{ListedFace, MeasureMethod, MeasureOperand, Measured, MeasuredOn};
+use crate::messages::{
+    ContactEvidenceWire, InterferenceRegion, ListedFace, MeasureMethod, MeasureOperand, Measured,
+    MeasuredGap, MeasuredInterference, MeasuredOn,
+};
 use crate::session::DocumentSession;
 
 /// Dispatch a UI message to the engine and return a response.
@@ -949,6 +952,11 @@ fn handle_message(
 
         UiToEngine::MeasureBody { body_id } => measure_body(state, kb, &body_id),
         UiToEngine::MeasureDistance { a, b, along } => measure_distance(state, kb, &a, &b, along),
+        UiToEngine::MeasureInterference { a, b } => measure_interference(state, kb, &a, &b),
+        UiToEngine::MeasureMass {
+            body_id,
+            density_kg_m3,
+        } => measure_mass(state, kb, &body_id, density_kg_m3),
         UiToEngine::ListFaces { body_id, filter } => {
             list_faces(state, kb, &body_id, filter.as_ref())
         }
@@ -1299,6 +1307,158 @@ fn measure_distance(
         chord_bound_m,
         points: d.points,
         on: [on(d.on[0]), on(d.on[1])],
+    })
+}
+
+/// Turn a kernel capability wall into `NotImplemented` and anything else into
+/// a bad request — the Q1 rule, shared by Q2 and Q3: a roadmap item must not
+/// look like something a caller can retry with different numbers.
+fn measure_error(e: waffle_types::kernel::KernelError) -> BridgeError {
+    match e {
+        waffle_types::kernel::KernelError::NotSupported { operation } => {
+            BridgeError::NotImplemented { operation }
+        }
+        other => BridgeError::InvalidRequest {
+            reason: other.to_string(),
+        },
+    }
+}
+
+fn wire_gap(d: &waffle_types::kernel::Distance) -> MeasuredGap {
+    use waffle_types::kernel::Method;
+    let (method, chord_bound_m) = match d.method {
+        Method::Exact => (MeasureMethod::Exact, 0.0),
+        Method::Mesh { chord_bound } => (MeasureMethod::Mesh, chord_bound),
+    };
+    MeasuredGap {
+        value_m: d.value,
+        method,
+        chord_bound_m,
+        points: d.points,
+        on: [0, 1].map(|i| {
+            d.on[i].map(|r| MeasuredOn {
+                kind: r.kind,
+                kernel_id: r.entity.0,
+            })
+        }),
+    }
+}
+
+/// `MeasureInterference` (Q2): whether two bodies collide, touch, or are
+/// apart, from the kernel's own Intersect boolean.
+///
+/// A refused boolean comes back as a refusal. It is NEVER folded into
+/// `disjoint`: "the kernel could not tell" and "they do not touch" are
+/// different answers, and a clearance check that confused them would pass a
+/// collision.
+fn measure_interference(
+    state: &mut EngineState,
+    kb: &mut dyn KernelBundle,
+    a: &str,
+    b: &str,
+) -> Result<EngineToUi, BridgeError> {
+    use waffle_types::kernel::{Interference, Method};
+
+    let handle = |id: &str| -> Result<waffle_types::kernel::KernelSolidHandle, BridgeError> {
+        find_body(state, id)
+            .map(|body| body.handle.clone())
+            .ok_or_else(|| BridgeError::InvalidRequest {
+                reason: format!("no live body {id}"),
+            })
+    };
+    let (ha, hb) = (handle(a)?, handle(b)?);
+    let answer = kb
+        .as_measure()
+        .interference(&ha, &hb)
+        .map_err(measure_error)?;
+
+    let result = match answer {
+        Interference::Interferes {
+            volume,
+            bodies,
+            method,
+        } => {
+            let (method, chord_bound_m) = match method {
+                Method::Exact => (MeasureMethod::Exact, 0.0),
+                Method::Mesh { chord_bound } => (MeasureMethod::Mesh, chord_bound),
+            };
+            MeasuredInterference::Interferes {
+                volume_m3: volume,
+                method,
+                chord_bound_m,
+                regions: bodies
+                    .iter()
+                    .map(|r| InterferenceRegion {
+                        volume_m3: r.volume,
+                        centroid: r.centroid,
+                        aabb_min: r.aabb[0],
+                        aabb_max: r.aabb[1],
+                    })
+                    .collect(),
+            }
+        }
+        Interference::Contact { evidence, closest } => {
+            use waffle_types::kernel::ContactEvidence;
+            let (evidence, sliver_volume_m3) = match evidence {
+                ContactEvidence::EmptyIntersectionAtZeroDistance => {
+                    (ContactEvidenceWire::EmptyIntersectionAtZeroDistance, None)
+                }
+                ContactEvidence::SliverIntersection { volume } => {
+                    (ContactEvidenceWire::SliverIntersection, Some(volume))
+                }
+            };
+            MeasuredInterference::Contact {
+                evidence,
+                sliver_volume_m3,
+                closest: wire_gap(&closest),
+            }
+        }
+        Interference::Disjoint { distance } => MeasuredInterference::Disjoint {
+            distance: wire_gap(&distance),
+        },
+    };
+    Ok(EngineToUi::InterferenceMeasured {
+        a: a.to_string(),
+        b: b.to_string(),
+        result,
+    })
+}
+
+/// `MeasureMass` (Q3): volume, area, centroid and the inertia tensor about the
+/// centroid, at the density the caller named (1 by default — see the message
+/// docs).
+fn measure_mass(
+    state: &mut EngineState,
+    kb: &mut dyn KernelBundle,
+    body_id: &str,
+    density_kg_m3: Option<f64>,
+) -> Result<EngineToUi, BridgeError> {
+    use waffle_types::kernel::Method;
+    let handle = find_body(state, body_id)
+        .map(|body| body.handle.clone())
+        .ok_or_else(|| BridgeError::InvalidRequest {
+            reason: format!("no live body {body_id}"),
+        })?;
+    let m = kb
+        .as_measure()
+        .mass_properties(&handle, density_kg_m3)
+        .map_err(measure_error)?;
+    let (method, chord_bound_m) = match m.method {
+        Method::Exact => (MeasureMethod::Exact, 0.0),
+        Method::Mesh { chord_bound } => (MeasureMethod::Mesh, chord_bound),
+    };
+    Ok(EngineToUi::MassMeasured {
+        body_id: body_id.to_string(),
+        volume_m3: m.volume,
+        surface_area_m2: m.surface_area,
+        centroid: m.centroid,
+        inertia_at_centroid: m.inertia_at_centroid,
+        principal_moments: m.principal_moments,
+        principal_axes: m.principal_axes,
+        density_kg_m3: m.density,
+        mass_kg: m.mass,
+        method,
+        chord_bound_m,
     })
 }
 

@@ -438,6 +438,26 @@ pub enum UiToEngine {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         along: Option<[f64; 3]>,
     },
+    /// Whether two bodies share interior volume, touch, or are apart (Q2 of
+    /// `specs/agent_mechanical_design.md` §4.2). Answered by the kernel's own
+    /// Intersect boolean, run on copies in a scratch arena. Query: no rebuild,
+    /// and no change to the live kernel.
+    MeasureInterference {
+        /// Persistent body ids, as `model_summary` lists them.
+        a: String,
+        b: String,
+    },
+    /// Volume, surface area, centroid and the inertia tensor about the
+    /// centroid of one body (Q3 of `specs/agent_mechanical_design.md` §4.2).
+    ///
+    /// `density_kg_m3` defaults to 1 — the document model carries no material
+    /// table, so the answer reports which density it used rather than
+    /// inventing a material. Query: no rebuild.
+    MeasureMass {
+        body_id: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        density_kg_m3: Option<f64>,
+    },
     /// Every face of a body as the `GeomRef` the viewport's face ranges carry,
     /// with its signature (`specs/waffle_mcp_server.md` ICR-3). `filter` uses
     /// the `TopoQuery` filter rules (`tie_break` is ignored: a listing returns
@@ -671,6 +691,71 @@ pub struct MeasuredOn {
     pub kernel_id: u64,
 }
 
+/// A closest-point witness nested inside a Q2 answer — the same content
+/// [`EngineToUi::DistanceMeasured`] carries, as a struct because here it is a
+/// field rather than a whole message.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct MeasuredGap {
+    pub value_m: f64,
+    pub method: MeasureMethod,
+    /// The tessellation band in meters; the bound on `value_m` when `method`
+    /// is `mesh`.
+    pub chord_bound_m: f64,
+    pub points: [[f64; 3]; 2],
+    pub on: [Option<MeasuredOn>; 2],
+}
+
+/// One lump of an intersection region (Q2).
+///
+/// The region solid itself is not returned: the Intersect runs in a scratch
+/// arena that is dropped with the answer, so it has no id in the live kernel
+/// (the spec's `keep_region` waits for a kernel that can adopt a solid across
+/// arenas). These numbers are what say WHERE the collision is.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct InterferenceRegion {
+    pub volume_m3: f64,
+    pub centroid: [f64; 3],
+    pub aabb_min: [f64; 3],
+    pub aabb_max: [f64; 3],
+}
+
+/// Why a Q2 answer is `contact`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ContactEvidenceWire {
+    /// The regularized Intersect was empty and the measured gap is zero: the
+    /// bodies meet on a shared face, edge or vertex.
+    EmptyIntersectionAtZeroDistance,
+    /// The Intersect produced a body at or under the minimum-feature volume
+    /// floor — a sliver, not shared interior.
+    SliverIntersection,
+}
+
+/// Answer to [`UiToEngine::MeasureInterference`] (Q2). Three outcomes and no
+/// fourth: a boolean the kernel could not run is an ERROR, never `disjoint`.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum MeasuredInterference {
+    /// The bodies share interior volume.
+    Interferes {
+        /// The total, m³ — the sum over `regions`.
+        volume_m3: f64,
+        method: MeasureMethod,
+        chord_bound_m: f64,
+        regions: Vec<InterferenceRegion>,
+    },
+    /// They touch but share no interior.
+    Contact {
+        evidence: ContactEvidenceWire,
+        /// Present when the evidence is a sliver: the sliver's volume.
+        #[serde(skip_serializing_if = "Option::is_none")]
+        sliver_volume_m3: Option<f64>,
+        closest: MeasuredGap,
+    },
+    /// They do not touch. `distance` is Q1's answer, always filled in.
+    Disjoint { distance: MeasuredGap },
+}
+
 /// How a [`Measured`] quantity was obtained.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
@@ -825,6 +910,41 @@ pub enum EngineToUi {
         points: [[f64; 3]; 2],
         /// What each point lies on; `null` for a free-point operand.
         on: [Option<MeasuredOn>; 2],
+    },
+
+    /// Answer to `MeasureInterference` (Q2).
+    InterferenceMeasured {
+        /// The two body ids, echoed in the order they were asked about — the
+        /// witness points in `result` follow that order.
+        a: String,
+        b: String,
+        result: MeasuredInterference,
+    },
+
+    /// Answer to `MeasureMass` (Q3). SI throughout: m³, m², meters, kg/m³,
+    /// kg, kg·m².
+    ///
+    /// `method` covers every number at once — they come out of one
+    /// integration over the same faces, so they cannot be at different tiers.
+    MassMeasured {
+        body_id: String,
+        volume_m3: f64,
+        surface_area_m2: f64,
+        centroid: [f64; 3],
+        /// About the centroid, in the world axes, scaled by `density_kg_m3`.
+        inertia_at_centroid: [[f64; 3]; 3],
+        /// The tensor's eigenvalues, ascending.
+        principal_moments: [f64; 3],
+        /// The unit eigenvector of each, as rows, right-handed.
+        principal_axes: [[f64; 3]; 3],
+        /// The density used — 1 unless the caller passed one, because the
+        /// document model has no material table.
+        density_kg_m3: f64,
+        mass_kg: f64,
+        method: MeasureMethod,
+        /// The tessellation band in meters when `method` is `mesh`; 0 when
+        /// the answer is exact, which carries no band.
+        chord_bound_m: f64,
     },
 
     /// Save project is ready.

@@ -249,6 +249,117 @@ pub(super) fn measure_distance(
     Ok(out)
 }
 
+/// Whether two bodies collide, touch, or are apart (Q2 of
+/// `specs/agent_mechanical_design.md` §4.2/§4.3).
+///
+/// A boolean the kernel cannot run is an ERROR here, never a `disjoint`
+/// answer — the whole point of the tool is to catch a collision, so "could
+/// not tell" must not read as "no collision".
+pub(super) fn measure_interference(
+    state: &mut EngineState,
+    kb: &mut dyn KernelBundle,
+    args: &Value,
+) -> Answer {
+    let body = |name: &str| -> Result<String, ToolFailure> {
+        match args.get(name).and_then(Value::as_str) {
+            Some(id) if !id.is_empty() => Ok(id.to_string()),
+            _ => Err(ToolFailure::new(
+                "InvalidArguments",
+                format!("{name} is required and is a body id from model_summary.bodies."),
+                json!({ "reason": format!("{name} is required.") }),
+            )),
+        }
+    };
+    let (a, b) = (body("a")?, body("b")?);
+    require_body(state, &a)?;
+    require_body(state, &b)?;
+
+    let response = engine_call(
+        state,
+        kb,
+        "MeasureInterference",
+        UiToEngine::MeasureInterference {
+            a: a.clone(),
+            b: b.clone(),
+        },
+    )?;
+    let EngineToUi::InterferenceMeasured { a, b, result } = &response else {
+        return Err(unexpected(
+            "MeasureInterference",
+            "InterferenceMeasured",
+            &response,
+        ));
+    };
+    let mut out = serde_json::to_value(result).unwrap_or(Value::Null);
+    out["a"] = json!(a);
+    out["b"] = json!(b);
+    Ok(out)
+}
+
+/// Volume, surface area, centroid and the inertia tensor about the centroid of
+/// one body (Q3 of `specs/agent_mechanical_design.md` §4.2/§4.3).
+pub(super) fn measure_mass(
+    state: &mut EngineState,
+    kb: &mut dyn KernelBundle,
+    args: &Value,
+) -> Answer {
+    let body_id = args.get("body_id").and_then(Value::as_str).unwrap_or("");
+    require_body(state, body_id)?;
+    let density_kg_m3 = match args.get("density_kg_m3") {
+        None | Some(Value::Null) => None,
+        Some(value) => Some(value.as_f64().ok_or_else(|| {
+            ToolFailure::new(
+                "InvalidArguments",
+                "density_kg_m3 must be a positive number in kg/m³.".to_string(),
+                json!({ "reason": "density_kg_m3 is not a number." }),
+            )
+        })?),
+    };
+
+    let response = engine_call(
+        state,
+        kb,
+        "MeasureMass",
+        UiToEngine::MeasureMass {
+            body_id: body_id.to_string(),
+            density_kg_m3,
+        },
+    )?;
+    let EngineToUi::MassMeasured {
+        body_id,
+        volume_m3,
+        surface_area_m2,
+        centroid,
+        inertia_at_centroid,
+        principal_moments,
+        principal_axes,
+        density_kg_m3,
+        mass_kg,
+        method,
+        chord_bound_m,
+    } = &response
+    else {
+        return Err(unexpected("MeasureMass", "MassMeasured", &response));
+    };
+    let exact = matches!(method, crate::messages::MeasureMethod::Exact);
+    let mut out = json!({
+        "body_id": body_id,
+        "volume_m3": volume_m3,
+        "surface_area_m2": surface_area_m2,
+        "centroid": centroid,
+        "inertia_at_centroid": inertia_at_centroid,
+        "principal_moments": principal_moments,
+        "principal_axes": principal_axes,
+        "density_kg_m3": density_kg_m3,
+        "mass_kg": mass_kg,
+        "method": if exact { "exact" } else { "mesh" },
+    });
+    if !exact {
+        out["chord_bound_m"] = json!(chord_bound_m);
+    }
+    Ok(out)
+}
+
 /// The faces of one body, each with the `GeomRef` that names it (ICR-3).
 pub(super) fn face_list(
     state: &mut EngineState,

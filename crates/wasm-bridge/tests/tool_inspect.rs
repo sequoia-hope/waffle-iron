@@ -361,7 +361,9 @@ fn the_migrated_list_is_exactly_what_this_checkpoint_implements() {
     // (2026-10-03, `specs/drawings_and_mbd.md` §12) joins the export pair
     // with the D1a projection, so the three sit together, and
     // `measure_distance` (Q1 of `specs/agent_mechanical_design.md` §4.3) is
-    // the first body-to-body geometric query the stack has.
+    // the first body-to-body geometric query the stack has; Q2
+    // (`measure_interference`) and Q3 (`measure_mass`) joined it on
+    // 2026-10-03, so the three measurement tools sit together.
     assert_eq!(
         wasm_bridge::tools::MIGRATED,
         &[
@@ -369,6 +371,8 @@ fn the_migrated_list_is_exactly_what_this_checkpoint_implements() {
             "feature_get",
             "body_measure",
             "measure_distance",
+            "measure_interference",
+            "measure_mass",
             "face_list",
             "sketch_regions",
             "expression_evaluate",

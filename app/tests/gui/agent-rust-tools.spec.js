@@ -46,6 +46,14 @@ const READ_ONLY = [
 	// numbers (`crates/wasm-bridge/tests/measure_distance.rs`); the sequence
 	// below calls it so the page's own routing of it is exercised here too.
 	'measure_distance',
+	// Q2 and Q3 of `specs/agent_mechanical_design.md` §4.3. Both need a
+	// SECOND body to be interesting (an interference wants two operands; a
+	// mass answer is only worth asserting against a closed form), and the
+	// sequence below builds one plate — so their numbers are pinned in Rust
+	// (`crates/wasm-bridge/tests/measure_interference_and_mass.rs`) and they
+	// are named here for the routing table.
+	'measure_interference',
+	'measure_mass',
 	'face_list',
 	'sketch_regions',
 	'expression_evaluate',

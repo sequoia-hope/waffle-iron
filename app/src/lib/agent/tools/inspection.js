@@ -188,6 +188,122 @@ export const measureDistanceTool = {
 	annotations: readOnly('Measure distance')
 };
 
+export const measureInterferenceTool = {
+	name: 'measure_interference',
+	description:
+		'Whether two bodies share interior volume, touch, or are apart — computed by running the ' +
+		"kernel's own Intersect boolean on copies of them, so the answer is the same geometry a " +
+		'Subtract would act on. kind is "interferes" (with volume_m3 and, per lump of the overlap, ' +
+		'its volume, centroid and bounding box so you know where to look), "contact" (they touch but ' +
+		'share no interior; evidence says how that was established), or "disjoint" (with the same ' +
+		'closest-point answer measure_distance gives). If the kernel cannot run the boolean for this ' +
+		'pair it is an ERROR naming the wall, never "disjoint": "could not tell" is not "no collision".',
+	inputSchema: {
+		type: 'object',
+		properties: {
+			a: { type: 'string', description: 'Body id from model_summary.bodies.' },
+			b: { type: 'string', description: 'Body id from model_summary.bodies.' }
+		},
+		required: ['a', 'b'],
+		additionalProperties: false
+	},
+	outputSchema: {
+		type: 'object',
+		properties: {
+			a: { type: 'string' },
+			b: { type: 'string' },
+			kind: { type: 'string', enum: ['interferes', 'contact', 'disjoint'] },
+			volume_m3: { type: 'number' },
+			method: { type: 'string', enum: ['exact', 'mesh'] },
+			chord_bound_m: { type: 'number' },
+			regions: {
+				type: 'array',
+				items: {
+					type: 'object',
+					properties: {
+						volume_m3: { type: 'number' },
+						centroid: { type: 'array', items: { type: 'number' } },
+						aabb_min: { type: 'array', items: { type: 'number' } },
+						aabb_max: { type: 'array', items: { type: 'number' } }
+					}
+				}
+			},
+			evidence: {
+				type: 'string',
+				enum: ['empty_intersection_at_zero_distance', 'sliver_intersection']
+			},
+			sliver_volume_m3: { type: 'number' },
+			closest: { type: 'object' },
+			distance: { type: 'object' }
+		},
+		required: ['a', 'b', 'kind']
+	},
+	annotations: readOnly('Measure interference')
+};
+
+export const measureMassTool = {
+	name: 'measure_mass',
+	description:
+		'Volume, surface area, centroid and the inertia tensor about the centroid of one body, in SI ' +
+		'(m³, m², meters, kg·m²). method is "exact" when every face was integrated in closed form ' +
+		'(planar faces, cylinder and cone bands, and the circular caps and bore walls a boolean ' +
+		'leaves behind), else "mesh" and chord_bound_m is the tessellation band — a mesh volume is ' +
+		'LOW by the chord deficit, never high. density_kg_m3 defaults to 1 because the document ' +
+		'carries no material table, so mass_kg is then numerically the volume; pass the density to ' +
+		'scale mass and inertia. The answer always says which density it used.',
+	inputSchema: {
+		type: 'object',
+		properties: {
+			body_id: { type: 'string', description: 'Body id from model_summary.bodies.' },
+			density_kg_m3: {
+				type: ['number', 'null'],
+				description: 'Material density in kg/m³. Defaults to 1.'
+			}
+		},
+		required: ['body_id'],
+		additionalProperties: false
+	},
+	outputSchema: {
+		type: 'object',
+		properties: {
+			body_id: { type: 'string' },
+			volume_m3: { type: 'number' },
+			surface_area_m2: { type: 'number' },
+			centroid: { type: 'array', items: { type: 'number' }, minItems: 3, maxItems: 3 },
+			inertia_at_centroid: {
+				type: 'array',
+				items: { type: 'array', items: { type: 'number' } },
+				minItems: 3,
+				maxItems: 3
+			},
+			principal_moments: { type: 'array', items: { type: 'number' }, minItems: 3, maxItems: 3 },
+			principal_axes: {
+				type: 'array',
+				items: { type: 'array', items: { type: 'number' } },
+				minItems: 3,
+				maxItems: 3
+			},
+			density_kg_m3: { type: 'number' },
+			mass_kg: { type: 'number' },
+			method: { type: 'string', enum: ['exact', 'mesh'] },
+			chord_bound_m: { type: 'number' }
+		},
+		required: [
+			'body_id',
+			'volume_m3',
+			'surface_area_m2',
+			'centroid',
+			'inertia_at_centroid',
+			'principal_moments',
+			'principal_axes',
+			'density_kg_m3',
+			'mass_kg',
+			'method'
+		]
+	},
+	annotations: readOnly('Measure mass')
+};
+
 export const faceListTool = {
 	name: 'face_list',
 	description:

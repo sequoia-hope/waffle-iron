@@ -317,6 +317,8 @@ const ENGINE_QUERIES = new Set([
 	'feature_get',
 	'body_measure',
 	'measure_distance',
+	'measure_interference',
+	'measure_mass',
 	'face_list',
 	'sketch_regions',
 	'sketch3d_get',
