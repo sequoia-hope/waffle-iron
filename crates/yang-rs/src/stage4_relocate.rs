@@ -2066,6 +2066,33 @@ pub(crate) fn edge_pinch_split_enabled() -> bool {
     std::env::var("YANG_EDGE_PINCH_SPLIT").as_deref() != Ok("0")
 }
 
+/// Is the edge-pinch arm restricted to its SPEC'D placement — Stage-4 ENTRY
+/// only (`YANG_EDGE_PINCH_ENTRY_ONLY=1|on`)?
+///
+/// `specs/yang_tangency_pinch_split.md` fixes the placement twice, by
+/// measurement: §0a.3 "**Therefore the split must run at Stage-4 ENTRY, before
+/// the §4.4.1(b) merge**" (the merge destroys the `2 × A + 2 × B` evidence the
+/// certificate needs), and §0b "**The placement.** It must run at Stage-4
+/// ENTRY. Run at the existing (4a2) site it is inert on F0060". The code arms
+/// it at BOTH sites, and the late one is not inert everywhere: P0020's mesh is
+/// MANIFOLD at `s4-entry` and at `after-reloc` (0 over-2 edges, measured
+/// 2026-10-03 with the four-way `YANG_NM_EDGE_PROBE` bisect of this region) —
+/// its two 4-valent edges are MINTED inside Stage 4 by §4.5.3's
+/// reversed-intersection edge collapse, so the §0a certificate is read on a
+/// mesh the arrangement never produced. The certificate's premise ("the exact
+/// mesh boolean hands it over, which is the honest output for a line-pinched
+/// solid" — §0a.1) does not hold there, and splitting anyway cuts a zero-width
+/// SLIT into an output face, which Stage 6 emits and the next boolean's Stage-1
+/// chart refuses (`Stage1SelfTouchingLoop`). Deviation **N78**.
+///
+/// Gated OFF by default: arming it is a corpus-wide placement change.
+pub(crate) fn edge_pinch_entry_only() -> bool {
+    matches!(
+        std::env::var("YANG_EDGE_PINCH_ENTRY_ONLY").as_deref(),
+        Ok("1") | Ok("on")
+    )
+}
+
 /// EDGE-PINCH per-sheet pairing (spec `yang_tangency_pinch_split.md` §0a).
 ///
 /// A face of one operand that is TANGENT to a face of the other along a whole
