@@ -926,10 +926,14 @@ pub fn measurement_sites(tree: &mut FeatureTree) -> Vec<MeasurementSite> {
         .parameters
         .iter()
         .filter_map(|p| {
-            let ast = expr::parse(&p.expression).ok()?;
-            if !ast.measures() {
+            // `expr::measures` first: it answers without parsing for an
+            // expression with no call in it, which is every expression in
+            // every document that does not measure. This walk runs at the
+            // start of every rebuild.
+            if !expr::measures(&p.expression) {
                 return None;
             }
+            let ast = expr::parse(&p.expression).ok()?;
             Some(MeasurementSite {
                 feature: None,
                 field: p.name.clone(),
@@ -939,12 +943,12 @@ pub fn measurement_sites(tree: &mut FeatureTree) -> Vec<MeasurementSite> {
         })
         .collect();
     visit_expressions(tree, |site| {
+        if !expr::measures(site.expression) {
+            return;
+        }
         let Ok(ast) = expr::parse(site.expression) else {
             return;
         };
-        if !ast.measures() {
-            return;
-        }
         out.push(MeasurementSite {
             feature: Some(site.feature),
             field: site.field,

@@ -258,8 +258,15 @@ pub fn entity_references(input: &str) -> Option<std::collections::BTreeSet<Strin
 /// Whether `input` reads the model (D2). `false` for an expression that
 /// does not parse — it reads nothing yet, and its own parse error is where
 /// that is reported.
+///
+/// Asked on EVERY expression on the tree at the start of every rebuild
+/// (`crate::params::measurement_sites`), so the overwhelmingly common
+/// answer is reached without parsing: a measurement is a CALL, and a call
+/// needs a `(`. The shortcut is exact, not a heuristic — `Expr::Measure` is
+/// unreachable from a source with no open parenthesis — so a document whose
+/// expressions are `w / 2` and `25mm` pays one byte scan each.
 pub fn measures(input: &str) -> bool {
-    parse(input).is_ok_and(|ast| ast.measures())
+    input.contains('(') && parse(input).is_ok_and(|ast| ast.measures())
 }
 
 /// Rewrite every measurement reference to the ENTITY `from` as `to`.
