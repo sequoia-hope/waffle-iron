@@ -3388,6 +3388,47 @@ pub(crate) fn tessellate_lateral_holed_cdt(
         } else {
             std::collections::HashMap::new()
         };
+        // DECISIVE census (2026-10-03, P0020 remediation): for each loop, every
+        // group of loop POSITIONS whose world point is bit-identical, with the
+        // sub-loop between consecutive members — its length in edges and its
+        // EXACT chart signed area (doubled, as a sum of cross products). A
+        // zero-area sub-loop is a SLIT (a zero-width excursion out and back); a
+        // non-zero one on BOTH sides is a genuine two-region pinch. This is the
+        // measurement that tells `yang_tangency_pinch_split` §0b's per-SHEET
+        // face split (two regions) from a slit (one region, a hairline cut).
+        if dup_probe {
+            for (li, lp) in std::iter::once(&outer_local)
+                .chain(holes_local.iter())
+                .enumerate()
+            {
+                let n = lp.len();
+                let mut by_pos: std::collections::BTreeMap<[u64; 3], Vec<usize>> =
+                    std::collections::BTreeMap::new();
+                for (k, &l) in lp.iter().enumerate() {
+                    let w = out_verts[global_of_local[l as usize] as usize].as_array();
+                    by_pos
+                        .entry([w[0].to_bits(), w[1].to_bits(), w[2].to_bits()])
+                        .or_default()
+                        .push(k);
+                }
+                for (_, ks) in by_pos.iter().filter(|(_, ks)| ks.len() > 1) {
+                    for w in ks.windows(2) {
+                        let (a, b) = (w[0], w[1]);
+                        eprintln!(
+                            "[holed-dup-census] face {f_idx} loop {li} (n={n}) coincident at \
+                             indices {a} and {b}: inner sub-loop {} edges area2={:e}, outer \
+                             sub-loop {} edges area2={:e}, globals ({}, {})",
+                            b - a,
+                            sub_loop_area2(lp, &local_verts, a, b),
+                            n - (b - a),
+                            sub_loop_area2(lp, &local_verts, b, a),
+                            global_of_local[lp[a] as usize],
+                            global_of_local[lp[b] as usize],
+                        );
+                    }
+                }
+            }
+        }
         let mut seen: std::collections::HashMap<(u64, u64), u32> = std::collections::HashMap::new();
         let mut referenced = vec![false; local_verts.len()];
         for lp in std::iter::once(&outer_local).chain(holes_local.iter()) {
@@ -3453,10 +3494,18 @@ pub(crate) fn tessellate_lateral_holed_cdt(
                 .zip(pb.iter())
                 .all(|(x, y)| x.to_bits() == y.to_bits())
             {
+                // Classify the contact: SLIT (exactly zero inner area — one
+                // region with a hairline cut) vs two-region PINCH. N78.
+                let (inner_edges, inner_area2) = std::iter::once(&outer_local)
+                    .chain(holes_local.iter())
+                    .find_map(|lp| loop_self_contact(lp, &local_verts, first, l))
+                    .unwrap_or((0, f64::NAN));
                 return Err(YangError::Stage1SelfTouchingLoop {
                     face: f_idx,
                     vertices: (ga, gb),
                     point: pa,
+                    inner_edges,
+                    inner_area2,
                 });
             }
         }
@@ -4448,3 +4497,50 @@ mod torus_patch_tests;
 
 mod normals_chord_bounds;
 pub(crate) use normals_chord_bounds::*;
+
+/// EXACT doubled signed chart area (shoelace) of the sub-loop of `lp` that
+/// runs forward from index `from` to index `to` and then closes directly back
+/// to `from`. Pure; no tolerance.
+pub(crate) fn sub_loop_area2(
+    lp: &[u32],
+    local_verts: &[cad_primitives::Point2],
+    from: usize,
+    to: usize,
+) -> f64 {
+    let n = lp.len();
+    let cross = |i: usize, j: usize| {
+        let p = local_verts[lp[i] as usize];
+        let q = local_verts[lp[j] as usize];
+        p.x() * q.y() - q.x() * p.y()
+    };
+    let mut acc = 0.0f64;
+    let mut k = from;
+    while k != to {
+        let nk = (k + 1) % n;
+        acc += cross(k, nk);
+        k = nk;
+    }
+    acc + cross(to, from)
+}
+
+/// Classify a self-contact of one boundary loop at two LOCAL chart vertices.
+///
+/// Returns `(inner_edges, inner_area2)` for the SHORTER of the two sub-loops
+/// the contact cuts the boundary into — or `None` when the loop does not carry
+/// both vertices. `inner_area2 == 0` exactly means the excursion encloses
+/// nothing: a zero-width **SLIT** into one region (`yang_tangency_pinch_split`
+/// §0b has no second sheet to give its own face). A non-zero area means two
+/// closed regions meeting at a point — §0b's actual case. Deviation N78.
+pub(crate) fn loop_self_contact(
+    lp: &[u32],
+    local_verts: &[cad_primitives::Point2],
+    first: u32,
+    second: u32,
+) -> Option<(u32, f64)> {
+    let a = lp.iter().position(|&x| x == first)?;
+    let b = lp.iter().position(|&x| x == second)?;
+    let (a, b) = if a <= b { (a, b) } else { (b, a) };
+    let (fwd, rev) = (b - a, lp.len() - (b - a));
+    let (edges, from, to) = if fwd <= rev { (fwd, a, b) } else { (rev, b, a) };
+    Some((edges as u32, sub_loop_area2(lp, local_verts, from, to)))
+}

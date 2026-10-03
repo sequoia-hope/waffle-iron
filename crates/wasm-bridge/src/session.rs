@@ -720,6 +720,8 @@ mod tests {
                 body_id: "b".into(),
                 old_name: None,
                 new_name: Some("x".into()),
+                old_expressions: Default::default(),
+                new_expressions: Default::default(),
             });
             h
         });
@@ -768,6 +770,8 @@ mod tests {
                 body_id: "b".into(),
                 old_name: None,
                 new_name: Some("x".into()),
+                old_expressions: Default::default(),
+                new_expressions: Default::default(),
             });
             h
         });

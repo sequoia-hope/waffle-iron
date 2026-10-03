@@ -13687,6 +13687,12 @@ fn stage4_relocate_and_correct_inner(
                 collapsed_any = true;
             }
         }
+        // P0020 bisect (2026-10-03, read-only): the four passes between
+        // `after-reloc` and `before-3c-merge` each get their own non-manifold
+        // edge checkpoint, because P0020's over-2 edges are ABSENT at
+        // `after-reloc` and PRESENT at `before-3c-merge` — unlike F0060's,
+        // which the arrangement hands over at `s4-entry`.
+        nonmanifold_edge_census_attrs("after-moved-mint-weld", mesh, &attr_vec);
         // P3b inc-4b: beyond-corner conformal trim, immediately AFTER the
         // moved×minted weld (the weld owns coincidence ≤ TAU_MODEL band; the
         // trim owns band→corridor beyond-corner phantoms — F0082's 2.76e-3).
@@ -13733,6 +13739,7 @@ fn stage4_relocate_and_correct_inner(
         {
             collapsed_any = true;
         }
+        nonmanifold_edge_census_attrs("after-beyond-corner-trim", mesh, &attr_vec);
         // P3b inc-4c: the §4.4.1 triangulation-update half of the merges
         // above — dissolve the fan folds the stacked collapses manufacture
         // (spec `yang_169_p3b_inc4c_fan_retriangulation.md`). Connectivity
@@ -13749,6 +13756,7 @@ fn stage4_relocate_and_correct_inner(
         ) {
             collapsed_any = true;
         }
+        nonmanifold_edge_census_attrs("after-fan-retriangulation", mesh, &attr_vec);
     }
     fold_probe("post", mesh, &attr_vec, &probe_minted_verts);
     let sweep_result =
@@ -14646,11 +14654,18 @@ fn stage4_relocate_and_correct_inner(
     // BEFORE the shell gate reads χ. Splitting appends vertices (a topology
     // change), so it rides the same Phase-A recompute path as a §4.5.3
     // collapse via the returned flag.
+    // The EDGE-pinch arm belongs at Stage-4 ENTRY only (spec §0a.3 / §0b
+    // "The placement"), where the over-2 edges are the ARRANGEMENT's. Armed
+    // here too it reads the §0a certificate on a mesh Stage 4 has already
+    // collapsed — P0020's two 4-valent edges are minted by §4.5.3, not handed
+    // over (deviation N78). `YANG_EDGE_PINCH_ENTRY_ONLY=1` restricts it; the
+    // VERTEX-fan arm (C0058's tangent points) is unaffected either way.
     let pinch_splits = split_pinch_vertices(
         mesh,
         &mut relocations,
         &attribution.attributions,
-        crate::stage4_relocate::edge_pinch_split_enabled(),
+        crate::stage4_relocate::edge_pinch_split_enabled()
+            && !crate::stage4_relocate::edge_pinch_entry_only(),
     );
     if pinch_splits > 0 {
         collapsed_any = true;
@@ -15211,6 +15226,37 @@ pub(crate) fn nonmanifold_edge_census(
     if std::env::var_os("YANG_NM_EDGE_PROBE").is_none() {
         return;
     }
+    nonmanifold_edge_census_with(tag, mesh, &|t| {
+        attribution.lookup(t).map(|a| (a.input, a.face))
+    });
+}
+
+/// Same census over a raw per-triangle attribution slice — the shape the
+/// Stage-4 interior passes carry (`attr_vec`), so the four passes between
+/// `after-reloc` and `before-3c-merge` can each be checkpointed (P0020's
+/// bisect, 2026-10-03). Byte-identical when `YANG_NM_EDGE_PROBE` is unset.
+pub(crate) fn nonmanifold_edge_census_attrs(
+    tag: &str,
+    mesh: &crate::Mesh,
+    attrs: &[Option<TriangleAttribution>],
+) {
+    if std::env::var_os("YANG_NM_EDGE_PROBE").is_none() {
+        return;
+    }
+    nonmanifold_edge_census_with(tag, mesh, &|t| {
+        attrs
+            .get(t as usize)
+            .copied()
+            .flatten()
+            .map(|a| (a.input, a.face))
+    });
+}
+
+fn nonmanifold_edge_census_with(
+    tag: &str,
+    mesh: &crate::Mesh,
+    attr_of: &dyn Fn(u32) -> Option<(crate::InputId, u32)>,
+) {
     let mut inc: std::collections::BTreeMap<(u32, u32), Vec<u32>> =
         std::collections::BTreeMap::new();
     for (ti, tri) in mesh.tris.iter().enumerate() {
@@ -15239,9 +15285,7 @@ pub(crate) fn nonmanifold_edge_census(
             pv.x(),
             pv.y(),
             pv.z(),
-            tris.iter()
-                .map(|&t| attribution.lookup(t).map(|a| (a.input, a.face)))
-                .collect::<Vec<_>>()
+            tris.iter().map(|&t| attr_of(t)).collect::<Vec<_>>()
         );
     }
 }

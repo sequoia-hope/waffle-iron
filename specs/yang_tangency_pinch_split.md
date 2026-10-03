@@ -133,7 +133,33 @@ point split has to close the loops it opens; only then does the χ question even
 arise. The mesh-level operation is done and certified, which is why it is banked
 here rather than abandoned.
 
-> **§0b now has a CORPUS CUSTOMER: P0020 (2026-10-03, deviation N74).** The
+> **WITHDRAWN 2026-10-03 (night, later): P0020 is NOT §0b's customer, and
+> §0b has no corpus customer again.** The blockquote below inferred "two
+> sheets emitted as one face" from the symptom (a loop visiting one position
+> twice) without measuring which of the two structures that symptom means. It
+> is the OTHER one. The new `[holed-dup-census]` line — each coincident pair's
+> two sub-loops with their EXACT doubled shoelace area — reads both of P0020's
+> contacts as `inner sub-loop 2 edges area2=0e0` / `4 edges area2=0e0` against
+> an `outer sub-loop … area2=1.7395573469680094e-2`: a NESTED DOUBLED POLYLINE
+> (`g41 → g583 → g42 → g584 → g43`, `g583 ≡ g584`, `g41 ≡ g43`), i.e. a
+> hairline SLIT two mesh edges deep into ONE region. One region has no second
+> sheet, so there is nothing for per-SHEET faces to split.
+>
+> And the slit is MINTED, not handed over. `YANG_NM_EDGE_PROBE`, bisected
+> across this region with three new checkpoints, reads **0 over-2 edges at
+> `s4-entry` and at `after-reloc`** for P0020 and 2 at `before-3c-merge` —
+> the exact inverse of §0a.1's F0060 measurement (14 at `s4-entry`). So the
+> §0a certificate is being read at the `(4a2)` site on a mesh Stage 4 itself
+> collapsed, in violation of the placement this very spec fixes twice (§0a.3
+> and "The placement" below). Restricting the arm to ENTRY
+> (`YANG_EDGE_PINCH_ENTRY_ONLY=1`) converts P0020 and its un-minimized
+> lineage outright, with the first Intersect's volume unchanged to 2e-12
+> relative. Deviation **N78**; full anchor in `docs/yang_tail_triage.md`
+> §"P0020 — CONVERTED". §0b stands as the remediation for a GENUINE
+> two-region pinch (non-zero inner area), which no corpus case exhibits
+> today. The original claim is kept verbatim below as the record.
+>
+> ~~**§0b now has a CORPUS CUSTOMER: P0020 (2026-10-03, deviation N74).**~~ The
 > B-Rep-side manifestation, found one boolean downstream of the mint. A
 > cylinder boss ∩ a 12-tooth gear prism pinches its cylinder lateral at two
 > tangential contacts; `(4a2)` certifies and splits both

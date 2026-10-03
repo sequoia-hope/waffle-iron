@@ -16,6 +16,11 @@ pub enum Tok {
     LParen,
     RParen,
     Comma,
+    /// The separator of a dotted entity name (`plate.top_face`), D2. Only
+    /// legal inside a measurement function's argument list; anywhere else
+    /// the parser refuses it. A `.` that starts a number (`.5`) is lexed as
+    /// part of the number, not as this.
+    Dot,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -56,6 +61,19 @@ pub fn tokenize(input: &str) -> Result<Vec<Lexeme>, ExprError> {
         if let Some(tok) = single {
             out.push(Lexeme {
                 tok,
+                span: Span::new(i, i + 1),
+            });
+            i += 1;
+            continue;
+        }
+        // A `.` is the start of a number only when a digit follows it
+        // (`.5`); otherwise it is the separator of a dotted entity name
+        // (D2). Decided here, by one character of lookahead, because the
+        // two readings are disjoint and the number arm below would
+        // otherwise consume the dot and fail on "invalid number '.'".
+        if c == '.' && !bytes.get(i + 1).is_some_and(u8::is_ascii_digit) {
+            out.push(Lexeme {
+                tok: Tok::Dot,
                 span: Span::new(i, i + 1),
             });
             i += 1;
@@ -185,6 +203,31 @@ mod tests {
                 message: "invalid number '1.2.3'".into()
             })
         );
+    }
+
+    #[test]
+    fn a_dot_is_a_number_only_when_a_digit_follows_it() {
+        // D2: `plate.top_face` must lex, so a bare `.` is its own token.
+        assert_eq!(
+            toks("plate.top_face"),
+            vec![
+                Tok::Ident("plate".into()),
+                Tok::Dot,
+                Tok::Ident("top_face".into())
+            ]
+        );
+        // A leading-dot literal is unchanged: `.5` is still the number.
+        assert_eq!(toks(".5"), vec![Tok::Num(0.5)]);
+        assert_eq!(
+            toks("1 + .25"),
+            vec![Tok::Num(1.0), Tok::Plus, Tok::Num(0.25)]
+        );
+        // `1.2.3` is still ONE number text, so it is still the same refusal:
+        // the number arm's own loop consumes interior dots.
+        assert!(tokenize("1.2.3").is_err());
+        // A lone dot used to be `invalid number '.'` from the lexer; it is
+        // now a token the PARSER refuses, which is still an error.
+        assert_eq!(toks("."), vec![Tok::Dot]);
     }
 
     #[test]

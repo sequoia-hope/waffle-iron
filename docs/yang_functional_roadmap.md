@@ -9,6 +9,8 @@
 
 ## 0. Honest status (refreshed 2026-06-26; addendum 2026-09-04 below)
 
+> **2026-10-03 (late evening UTC) refresh — MEASURED; P0017 CONVERTED, N69 and N76 live.** Canonical corpus **322C / 0W / 9E / 5EE / 0T + 0 UNSUPPORTED over 336 cases** (release, 8 jobs, 900 s; wall 1437.5 s; R0085 828.8 s, F0072 767.8 s). First run with the N69 graze-aware ray selection (always-on, `CHERCHI_GRAZE_AWARE_RAY=0|off`) and the N76 output-curve backtrack merge: versus the extent-on run (321C/10E), exactly one category move (P0017 → CORRECT) and zero regressions — P0023 CORRECT and P0024 EXPECTED_ERROR now by the honest boolean answer, not the containment net; **deviation N69 RESOLVED**. The 9 ERROR rows are the seven loud-by-design C-series walls + P0019 (component-wise seam anchoring, gated branch in progress) + P0020 (N74 per-sheet faces). The P-series tail is two cases from EMPTY.
+
 > **2026-10-03 (late night, third) refresh — deviation N69 RESOLVED-pending-corpus:
 > graze-aware §5 ray selection is LANDED ALWAYS-ON with a kill switch;
 > corpus NOT re-measured, FLIP OWED.** Cherchi 2022 §5's in/out classification
@@ -219,6 +221,55 @@
 > defect — which reads 0 improper contacts, so the retry never runs. Trap:
 > `YANG_NSEG_FLOOR` is `cfg!(debug_assertions)`-gated, so a `--release` density
 > sweep is a silent no-op.
+
+> **2026-10-03 (night, sixth) refresh — P0020 CONVERTED behind a gate;
+> deviation **N78** opened and **N74's corpus customer WITHDRAWN**; corpus
+> NOT re-measured, **flip owed**.** The session was asked to implement
+> `specs/yang_tangency_pinch_split.md` §0b (per-SHEET faces at Stage 6) with
+> P0020 as its first corpus customer. P0020 is not that case, and measuring
+> instead of inferring is the conversion. (i) The face's contact encloses
+> EXACTLY zero chart area — a new `[holed-dup-census]` line reports each
+> coincident pair's two sub-loops with their exact doubled shoelace area, and
+> all four of P0020's pairs read `inner sub-loop 2 edges area2=0e0` / `4 edges
+> area2=0e0` against an `outer sub-loop … area2=1.7395573469680094e-2`. The
+> loop runs `g41 → g583 → g42 → g584 → g43` with `g583 ≡ g584` and
+> `g41 ≡ g43`: a NESTED DOUBLED POLYLINE, a hairline SLIT two mesh edges deep
+> into ONE region. One region has no second SHEET, so §0b has nothing to
+> split. (ii) The pinch is not the solid's own: `YANG_NM_EDGE_PROBE`, bisected
+> across the previously unexamined `after-reloc` → `before-3c-merge` stretch
+> with three new checkpoints, reads **0 over-2 edges at `s4-entry` AND at
+> `after-reloc`** and 2 at `before-3c-merge` — minted inside Stage 4 by
+> §4.5.3's `sweep_reversed_intersections` edge collapse, the exact inverse of
+> F0060, whose 14 are in the arrangement at `s4-entry` (§0a.1). So the `(4a2)`
+> site reads the §0a certificate at a placement the spec itself fixes twice
+> (§0a.3 and §0b "The placement": Stage-4 ENTRY). Restricting the arm there
+> (`YANG_EDGE_PINCH_ENTRY_ONLY=1|on`, **gated OFF**) gives
+> `P0020: SUPPORTED_CORRECT (12.3s)` from `ERROR (7.9s)`, and converts the
+> un-minimized seed-2 lineage too (`X00000002-00196`: ERROR → SUPPORTED_CORRECT,
+> 1 body, χ 2). Adjudicated by DIFFERENTIAL, because the exact-membership and
+> sidecar oracles do not cover explicit Intersect combines: the first
+> Intersect's own output dumped to OBJ at `S453_KEEP_OPS=3` and integrated
+> outside the kernel reads 2.967214873285e-04 (gate off) vs 2.967214873279e-04
+> (gate on) — **2.0e-12 relative**, i.e. the gate deletes the slit's 16 render
+> vertices and 8 triangles and changes no geometry. `derived_meta: true` stays
+> on P0020's meta. Sharers re-judged by `single_case` (release, 900 s; host
+> load 38–76, so wall times are inflated), **gate ON: 25 cases, ZERO moves** —
+> every CORRECT case stays CORRECT, including C0058 (65.9 s) and F0060
+> (4.4 s), the two cases the pinch split exists FOR, plus F0072 (973.0 s),
+> F0085 (642.2 s),
+> R0053 (476.2 s), F0064, R0070, R0063, R0004, R0026, R0074 and every open
+> P-series row. **Gate OFF (the committed default): 10 spot cases, all
+> unchanged.** `cargo test -p yang-rs --release`: 76 binaries, 1512 passed, 0
+> failed (lib 1073 / 2 ignored). With the gate OFF the default path is
+> unchanged in verdict and better localized: the wall now carries
+> `inner_edges` + the exact `inner_area2` and names "a zero-width SLIT
+> (2-edge sub-loop, exact chart area 0e0) cut into ONE region … deviation
+> N78" instead of blaming §0b. **Not fixed, and next:** §4.5.3's collapse
+> still mints a non-manifold edge on a manifold mesh (P0020's first Intersect
+> keeps two tolerated over-2 edges) — the §4.4.1 mesh-updating half, N78's
+> second remediation. **The corpus was NOT re-measured; the flip is owed.**
+> Full anchor: ledger `docs/yang_tail_triage.md` §"P0020 — CONVERTED
+> 2026-10-03 (night, later)".
 
 > **2026-10-03 (night, fourth) refresh — P0020 ANCHORED and netted loud, NOT
 > converted; deviation **N74**; corpus NOT re-measured this session.** P0020's

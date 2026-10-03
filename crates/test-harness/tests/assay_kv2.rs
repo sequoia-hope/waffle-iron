@@ -1714,20 +1714,32 @@ fn smoke_corpus_boundary_categories() {
         // apart. Remedy = the SI5 spec's own component-wise anchoring; it
         // moves minted seam feet corpus-wide, so it needs its own cycle.
         ("P0019", Category::Error),
-        // P0020 (5 ops, two chained Intersects) ⇒ an INPUT rejection, now
-        // typed: `Stage1SelfTouchingLoop`. ANCHORED 2026-10-03 (night) and
-        // NOT the twin family the row first read as — the FIRST intersect's
-        // cylinder lateral is honestly PINCHED at two tangential contacts of
-        // 2.507e-6 and 6.155e-6 (25× and 62× the paper's d_p = 1e-7), the
-        // Stage-4 `(4a2)` edge-pinch split correctly gives each SHEET its own
-        // vertex, and Stage 6 still emits both sheets into ONE face — so the
-        // emitted loop visits one position twice and the next boolean's chart
-        // CDT has no representation for it. Deviation N74; remediation is
-        // `specs/yang_tangency_pinch_split.md` §0b (per-SHEET faces), a
-        // producer-side flip that needs its own corpus cycle (C0058 and F0060
-        // are CORRECT *because* the pinch is tolerated downstream). Its
-        // smallest authored length is 83 × MIN_FEATURE_SIZE — the tightest of
-        // the seed-2 promotions, still far above the floor.
+        // P0020 (5 ops, two chained Intersects) ⇒ an INPUT rejection, typed
+        // `Stage1SelfTouchingLoop`. **CONVERTED 2026-10-03 (night, later)
+        // BEHIND A GATE — this pin stays `Error` only until the flip.**
+        //
+        // The 2026-10-03 night anchor read the pinch as honest and the wall as
+        // `yang_tangency_pinch_split` §0b (per-SHEET faces, deviation N74).
+        // Both halves are refuted by measurement (deviation **N78**): the
+        // contact encloses EXACTLY zero chart area — a nested doubled
+        // polyline, i.e. a hairline SLIT into ONE region, so there is no
+        // second SHEET for §0b to split (`[holed-dup-census]`: `inner
+        // sub-loop 2 edges area2=0e0` / `4 edges area2=0e0` against `outer
+        // … 1.7395573469680094e-2`); and `YANG_NM_EDGE_PROBE` reads 0 over-2
+        // edges at BOTH `s4-entry` and `after-reloc`, so the 4-valent edges
+        // are minted inside Stage 4 by §4.5.3's edge collapse — the inverse
+        // of F0060, whose 14 are in the arrangement. The `(4a2)` site thus
+        // reads the §0a certificate at a placement the spec forbids twice.
+        // `YANG_EDGE_PINCH_ENTRY_ONLY=1` restricts it and gives
+        // `P0020: SUPPORTED_CORRECT (12.3s)`; the un-minimized seed-2 lineage
+        // converts too; the first Intersect's own volume is unchanged to
+        // 2e-12 relative. Gated OFF pending a `full_corpus_categorized` run,
+        // so the committed default is still this `Error` — with honest text
+        // now naming the SLIT and N78. Full anchor: `docs/yang_tail_triage.md`
+        // §"P0020 — CONVERTED 2026-10-03 (night, later)". Its smallest
+        // authored length is 83 × MIN_FEATURE_SIZE — the tightest of the
+        // seed-2 promotions, still far above the floor; `derived_meta` stays
+        // true (the exact-membership oracle does not cover Intersect).
         ("P0020", Category::Error),
         // P0021 (3 ops: a square and two circle bosses) ⇒ auto-union
         // `SelfIntersectingBooleanOutput { penetrations: 5 }` at kernel-v2's

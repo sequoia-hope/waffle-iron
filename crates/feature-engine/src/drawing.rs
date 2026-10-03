@@ -139,17 +139,30 @@ pub enum DrawingError {
         index: usize,
         value: f64,
     },
-    /// `Measured::Expr` needs D2's measurement functions in the expression
-    /// environment, which do not exist yet. Named rather than silently
-    /// measured from geometry, because those are different numbers.
+    /// A `Measured::Expr` dimension in a rebuild with no expression
+    /// environment to evaluate it against.
+    ///
+    /// Named rather than silently measured from the anchors' geometry,
+    /// because those are different numbers: the whole point of an
+    /// expression dimension is that it is NOT what the anchors measure.
     #[error(
-        "annotation {index} of view {view} measures the expression `{expr}`, which needs the \
-         measurement functions (D2); it is not evaluated yet"
+        "annotation {index} of view {view} measures the expression `{expr}`, and this rebuild \
+         has no expression environment to evaluate it in"
     )]
     ExprNotEvaluated {
         view: Uuid,
         index: usize,
         expr: String,
+    },
+    /// A `Measured::Expr` dimension whose expression failed (D2): a bad
+    /// expression, a vanished entity name, a dimension the kind cannot
+    /// take.
+    #[error("annotation {index} of view {view}: the expression `{expr}` failed: {reason}")]
+    ExprFailed {
+        view: Uuid,
+        index: usize,
+        expr: String,
+        reason: String,
     },
     /// An anchor whose selector is not a persistent id.
     #[error(
@@ -1688,13 +1701,18 @@ pub struct ViewRebuild {
 /// [`ViewSource::includes`]. Keeping both as arguments is what lets this
 /// function be pure with respect to the document: it does not reach into
 /// another tab, and a test can hand it one body.
+/// `exprs` evaluates a `Measured::Expr` dimension (D2). `None` is a caller
+/// with no expression environment — such a dimension then refuses by name
+/// rather than silently falling back to what its anchors measure, which is a
+/// different number.
 pub fn rebuild_view(
     view: &DrawingView,
     frame: &ViewFrame,
     bodies: &[ProjectionBody],
     kernel: &dyn KernelBundle,
+    exprs: Option<&dyn ExprDimensions>,
 ) -> Result<ViewRebuild, DrawingError> {
-    rebuild_view_in(view, frame, bodies, &ViewExtras::default(), kernel)
+    rebuild_view_in(view, frame, bodies, &ViewExtras::default(), kernel, exprs)
 }
 
 /// What a view draws BESIDES its own projection (`specs/drawings_and_mbd.md`
@@ -1720,12 +1738,18 @@ pub struct ViewExtras {
 
 /// [`rebuild_view`] with a section's hatch, a parent's marks and a detail's
 /// crop (D4b).
+///
+/// `exprs` is [`rebuild_view`]'s own (D2): a view carrying a `Measured::Expr`
+/// dimension needs its source tab's expression environment whether or not it
+/// is a section, so the parameter rides through here rather than being
+/// defaulted away for the D4b path.
 pub fn rebuild_view_in(
     view: &DrawingView,
     frame: &ViewFrame,
     bodies: &[ProjectionBody],
     extras: &ViewExtras,
     kernel: &dyn KernelBundle,
+    exprs: Option<&dyn ExprDimensions>,
 ) -> Result<ViewRebuild, DrawingError> {
     if !(view.scale.is_finite() && view.scale > 0.0) {
         return Err(DrawingError::BadScale {
@@ -1826,7 +1850,7 @@ pub fn rebuild_view_in(
     let mut resolved = Vec::with_capacity(view.annotations.len());
     let mut annotation_errors = Vec::new();
     for (index, annotation) in view.annotations.iter().enumerate() {
-        match resolve_annotation(view.id, index, annotation, &anchors, &basis) {
+        match resolve_annotation(view.id, index, annotation, &anchors, &basis, exprs) {
             Ok(laid_out) => resolved.push(laid_out),
             Err(e) => annotation_errors.push((index, e)),
         }
@@ -1982,6 +2006,7 @@ fn resolve_annotation(
     annotation: &Annotation,
     anchors: &AnchorIndex,
     basis: &ViewBasis,
+    exprs: Option<&dyn ExprDimensions>,
 ) -> Result<AnnotationLayout, DrawingError> {
     match annotation {
         Annotation::Dimension {
@@ -1993,16 +2018,52 @@ fn resolve_annotation(
             placement,
         } => {
             check_measured(view, index, value)?;
+            // D2: an EXPRESSION dimension's number comes from the
+            // expression, not from the anchors — that is what it is for — and
+            // it is evaluated FIRST, before the anchors are resolved.
+            //
+            // The order is a choice. The alternative, anchors first, hides a
+            // broken expression behind a missing anchor whenever both are
+            // wrong, and an expression that cannot be evaluated is a defect
+            // in what the dimension SAYS, where the anchors are only where
+            // it is drawn. Reporting the value first names the thing the
+            // author has to decide about. The anchors are still resolved
+            // below and a vanished one is still loud; only one error per
+            // annotation is reported either way.
+            let from_expr = match value {
+                Measured::Expr { expr } => {
+                    let Some(values) = exprs else {
+                        return Err(DrawingError::ExprNotEvaluated {
+                            view,
+                            index,
+                            expr: expr.clone(),
+                        });
+                    };
+                    Some(values.value_of(expr, *kind).map_err(|reason| {
+                        DrawingError::ExprFailed {
+                            view,
+                            index,
+                            expr: expr.clone(),
+                            reason,
+                        }
+                    })?)
+                }
+                _ => None,
+            };
             let resolved = refs
                 .iter()
                 .map(|r| resolve_anchor(view, index, r, anchors, basis))
                 .collect::<Result<Vec<_>, _>>()?;
-            let measured =
-                measure(*kind, &resolved).map_err(|source| DrawingError::NotMeasurable {
-                    view,
-                    index,
-                    source,
-                })?;
+            let measured = match from_expr {
+                Some(value) => value,
+                None => {
+                    measure(*kind, &resolved).map_err(|source| DrawingError::NotMeasurable {
+                        view,
+                        index,
+                        source,
+                    })?
+                }
+            };
             Ok(AnnotationLayout::Dimension {
                 kind: *kind,
                 anchors: resolved,
@@ -2092,21 +2153,35 @@ fn resolve_annotation(
 /// draws it.
 ///
 /// Called by the rebuild AND by the authoring tools, so a literal cannot
-/// enter a document in the first place.
+/// enter a document in the first place. `Measured::Expr` passes: since D2 it
+/// is a legal authored value, and whether it EVALUATES is the rebuild's
+/// question, not the authoring boundary's.
 pub fn check_measured(view: Uuid, index: usize, value: &Measured) -> Result<(), DrawingError> {
     match value {
-        Measured::FromGeometry => Ok(()),
+        Measured::FromGeometry | Measured::Expr { .. } => Ok(()),
         Measured::Value { value } => Err(DrawingError::LiteralValue {
             view,
             index,
             value: *value,
         }),
-        Measured::Expr { expr } => Err(DrawingError::ExprNotEvaluated {
-            view,
-            index,
-            expr: expr.clone(),
-        }),
     }
+}
+
+/// How a `Measured::Expr` dimension's value is obtained (D2).
+///
+/// A trait rather than the environment itself, because the environment a
+/// measuring expression needs is the parameter table AND the live kernel
+/// (`crate::measure::TreeMeasurer`), and `rebuild_view` is deliberately pure
+/// with respect to the document — it does not reach into another tab. The
+/// caller that HAS both builds one of these; a caller that has neither
+/// passes `None` and such a dimension refuses, loudly, as it did before D2.
+pub trait ExprDimensions {
+    /// The value of `expression` for a dimension of `kind`, in the unit the
+    /// layout carries: **meters** for every length kind, **radians** for
+    /// [`DimensionKind::Angle`] — the same units
+    /// `waffle_types::annotation::measure` produces, because the two feed
+    /// one field and a renderer must not have to ask which it got.
+    fn value_of(&self, expression: &str, kind: DimensionKind) -> Result<f64, String>;
 }
 
 /// One anchor's geometry in the view plane, or a typed refusal naming it.
