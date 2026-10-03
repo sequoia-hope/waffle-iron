@@ -1688,6 +1688,38 @@ impl ReferenceRefusal {
     }
 }
 
+/// What the last rebuild learned about ONE reference a feature stores (N2
+/// §5.3 item 4) — the fact `feature_get` reports, rather than an inference
+/// from whether the feature failed.
+///
+/// It has to be recorded, not re-derived: `feature_get` is a read with no
+/// kernel, and the feature's own error says only that something refused. A
+/// sketch can fail on its x-axis with a perfectly good plane face, and before
+/// this a host read that as the reference having died.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ReferenceState {
+    /// Which of the feature's references this is — `sketch_plane_face` is the
+    /// only one so far, being the one the engine re-resolves outside the
+    /// operation.
+    pub role: String,
+    pub resolves: bool,
+    /// The rung that answered ([`crate::resolve::ResolvedVia`]). `None` when
+    /// nothing did.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub via: Option<crate::resolve::ResolvedVia>,
+    /// The answer is not the identity the reference recorded: a `BestEffort`
+    /// rebind, or the authored fallback answering for a lost pid.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub rebound: bool,
+    /// Why the recorded identity stopped answering, when something else did.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub lost_identity: Option<ResolutionReason>,
+    /// Why nothing answered, when `resolves` is false and the ladder
+    /// classified it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub refusal: Option<ResolutionReason>,
+}
+
 /// Errors from the feature engine.
 #[derive(Debug, Clone, thiserror::Error)]
 pub enum EngineError {

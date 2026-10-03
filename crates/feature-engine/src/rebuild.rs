@@ -110,6 +110,13 @@ pub struct RebuildState {
     /// one feature's state. A warning no feature owns (a context pass, an
     /// assembly) is in `warnings` only.
     pub feature_warnings: Vec<(Uuid, String)>,
+    /// What this rebuild learned about each stored reference it re-resolved,
+    /// by owning feature (N2 §5.3 item 4) — which rung answered, whether the
+    /// answer was a rebind, and the typed reason when nothing answered. A
+    /// kernel-less read like `feature_get` cannot work any of that out, and
+    /// guessing it from "did the feature fail?" misreports a sketch that
+    /// failed for some other reason.
+    pub feature_references: Vec<(Uuid, crate::types::ReferenceState)>,
     /// Features that failed to rebuild, with error messages.
     pub errors: Vec<(Uuid, String)>,
     /// The same errors, typed (ICR-2), in the same order.
@@ -188,6 +195,7 @@ pub fn rebuild(
         feature_results: HashMap::new(),
         warnings: Vec::new(),
         feature_warnings: Vec::new(),
+        feature_references: Vec::new(),
         errors: Vec::new(),
         feature_errors: Vec::new(),
         consumed_features: std::collections::HashSet::new(),
@@ -380,6 +388,17 @@ pub fn rebuild(
                     state.warnings.push(format!("{}: {}", feature.name, w));
                     state.feature_warnings.push((feature.id, w.clone()));
                 }
+                // The rung that answered this feature's own stored reference,
+                // for a host to read off `feature_get`. Re-asks the question
+                // `execute_feature` just asked, with the same inputs — the
+                // sketch's result is not in the map yet and a sketch does not
+                // touch the arena — because the answer cannot ride out on an
+                // `OpResult` and must not be guessed from the error list.
+                let recorded =
+                    resolved_plane_face_state(feature, &state.feature_results, kb.as_introspect());
+                if let Some(rs) = recorded {
+                    state.feature_references.push((feature.id, rs));
+                }
                 // If this was a merge/boolean that succeeded (no auto-union fallback warning),
                 // mark the target features as consumed so they don't render.
                 if !consumed_ids.is_empty() {
@@ -402,6 +421,9 @@ pub fn rebuild(
             }
             Err(e) => {
                 let message = e.to_string();
+                if let Some(rs) = refused_plane_face_state(feature, &e) {
+                    state.feature_references.push((feature.id, rs));
+                }
                 state.feature_errors.push(crate::types::FeatureError {
                     feature_id: feature.id,
                     kind: (&e).into(),
@@ -3295,6 +3317,88 @@ fn resolve_sketch_plane_face(
     }
     Ok(warnings)
 }
+
+/// The sketch plane face of `feature`, if it is a sketch that pins one.
+fn pinned_plane_face(feature: &Feature) -> Option<&waffle_types::SketchFaceRef> {
+    match &feature.operation {
+        Operation::Sketch { sketch } => sketch.plane_face.as_ref(),
+        _ => None,
+    }
+}
+
+/// Which rung answered this feature's pinned plane face, for the record a
+/// kernel-less read reports (N2 §5.3 item 4). `None` for a feature with no
+/// pinned face.
+///
+/// Called only after the feature SUCCEEDED, so the resolution cannot fail —
+/// `execute_feature` would have refused the feature. If it somehow does, say so
+/// rather than claiming an answer.
+fn resolved_plane_face_state(
+    feature: &Feature,
+    feature_results: &HashMap<Uuid, OpResult>,
+    introspect: &dyn waffle_types::kernel::KernelIntrospect,
+) -> Option<crate::types::ReferenceState> {
+    let face = pinned_plane_face(feature)?;
+    let outcome = crate::resolve::resolve_pinned(
+        &face.target,
+        face.fallback.as_ref(),
+        feature_results,
+        introspect,
+    );
+    Some(match outcome {
+        Ok((resolved, primary)) => crate::types::ReferenceState {
+            role: SKETCH_PLANE_FACE_ROLE.to_string(),
+            resolves: true,
+            via: Some(resolved.via),
+            rebound: primary.is_some() || resolved.via.rebound(),
+            lost_identity: primary
+                .as_ref()
+                .and_then(|e| e.resolution_reason().cloned()),
+            refusal: None,
+        },
+        Err(e) => crate::types::ReferenceState {
+            role: SKETCH_PLANE_FACE_ROLE.to_string(),
+            resolves: false,
+            via: None,
+            rebound: false,
+            lost_identity: None,
+            refusal: e.resolution_reason().cloned(),
+        },
+    })
+}
+
+/// The same record for a feature that FAILED — but only when the failure was
+/// this reference's own.
+///
+/// A sketch has other ways to fail (an x-axis that cannot orient its plane, a
+/// face that resolved but is no longer planar), and reporting those as the
+/// plane face having died is the misattribution this record exists to stop. The
+/// refusal is recognised by the reference it names: `resolve_pinned` returns the
+/// primary failure of `face.target`, whose digest is that reference's.
+fn refused_plane_face_state(
+    feature: &Feature,
+    e: &EngineError,
+) -> Option<crate::types::ReferenceState> {
+    let face = pinned_plane_face(feature)?;
+    let EngineError::ReferenceUnresolved(refusal) = e else {
+        return None;
+    };
+    if refusal.reference.as_ref()? != &crate::types::RefDigest::of(&face.target) {
+        return None;
+    }
+    Some(crate::types::ReferenceState {
+        role: SKETCH_PLANE_FACE_ROLE.to_string(),
+        resolves: false,
+        via: None,
+        rebound: false,
+        lost_identity: None,
+        refusal: Some(refusal.reason.clone()),
+    })
+}
+
+/// The `role` every sketch-plane-face record carries, so the engine and the
+/// tool layer name it the same thing.
+pub const SKETCH_PLANE_FACE_ROLE: &str = "sketch_plane_face";
 
 fn dist3(a: [f64; 3], b: [f64; 3]) -> f64 {
     ((a[0] - b[0]).powi(2) + (a[1] - b[1]).powi(2) + (a[2] - b[2]).powi(2)).sqrt()

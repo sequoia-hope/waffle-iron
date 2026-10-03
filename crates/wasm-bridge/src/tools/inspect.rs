@@ -90,6 +90,13 @@ pub(super) fn feature_get(state: &EngineState, args: &Value) -> Answer {
 /// on from, so reporting them here would mean re-resolving against DIFFERENT
 /// geometry and calling the answer the feature's — a worse lie than saying
 /// nothing. Their outcome reaches the agent as the feature's error.
+///
+/// `resolves`, `resolved_via`, `rebound` and the typed reasons are the
+/// REBUILD's own record (`Engine::feature_references`), not something inferred
+/// here: `feature_get` has no kernel, and the previous cut of this read
+/// inferred `resolves` from "did the feature fail?" — which reported a
+/// perfectly good plane face as refused whenever the sketch failed for some
+/// other reason (its x-axis, say), and could never say which rung answered.
 fn reference_state(state: &EngineState, feature: &feature_engine::types::Feature) -> Vec<Value> {
     let feature_engine::types::Operation::Sketch { sketch } = &feature.operation else {
         return Vec::new();
@@ -98,24 +105,57 @@ fn reference_state(state: &EngineState, feature: &feature_engine::types::Feature
         return Vec::new();
     };
     let mut entry = json!({
-        "role": "sketch_plane_face",
+        "role": feature_engine::rebuild::SKETCH_PLANE_FACE_ROLE,
         "kind": face.target.kind,
         "geom_ref": face.target,
         "recorded_signature": face.signature,
     });
-    // Resolution needs the live kernel; `feature_get` is a read with no
-    // kernel, so the ANSWER is the rebuild's — reported through the feature's
-    // error and warnings above. What can be said without one is whether the
-    // last rebuild accepted the feature.
-    let refused = state
+    match state
+        .engine
+        .feature_references
+        .iter()
+        .find(|(id, r)| {
+            *id == feature.id && r.role == feature_engine::rebuild::SKETCH_PLANE_FACE_ROLE
+        })
+        .map(|(_, r)| r)
+    {
+        Some(record) => {
+            entry["resolves"] = json!(record.resolves);
+            if let Some(via) = record.via {
+                entry["resolved_via"] = serde_json::to_value(via).unwrap_or(Value::Null);
+            }
+            if record.rebound {
+                entry["rebound"] = json!(true);
+            }
+            if let Some(reason) = &record.lost_identity {
+                entry["lost_identity"] = serde_json::to_value(reason).unwrap_or(Value::Null);
+            }
+            if let Some(reason) = &record.refusal {
+                entry["refusal"] = serde_json::to_value(reason).unwrap_or(Value::Null);
+            }
+        }
+        // The rebuild never reached this reference — the feature failed
+        // earlier, or it has not been rebuilt in this session. Say that
+        // rather than answer for it.
+        None => {
+            if let Some(e) = state
+                .engine
+                .feature_errors
+                .iter()
+                .rev()
+                .find(|e| e.feature_id == feature.id)
+            {
+                entry["blocked_by"] = json!(e.message);
+            }
+        }
+    }
+    if let Some(e) = state
         .engine
         .feature_errors
         .iter()
         .rev()
-        .find(|e| e.feature_id == feature.id);
-    entry["resolves"] = json!(refused.is_none());
-    if let Some(e) = refused {
-        entry["refusal"] = serde_json::to_value(&e.kind).unwrap_or(Value::Null);
+        .find(|e| e.feature_id == feature.id)
+    {
         entry["message"] = json!(e.message);
     }
     vec![entry]

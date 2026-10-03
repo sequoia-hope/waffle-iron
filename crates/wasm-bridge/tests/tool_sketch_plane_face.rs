@@ -795,6 +795,18 @@ fn feature_get_reports_the_sketch_s_reference_state() {
     assert_eq!(refs[0]["role"], "sketch_plane_face");
     assert_eq!(refs[0]["resolves"], true);
     assert_eq!(refs[0]["geom_ref"]["selector"]["type"], "Pid");
+    // The RUNG, as the rebuild recorded it — not inferred from the absence of
+    // an error, and the same vocabulary `names_list` reports.
+    assert_eq!(
+        refs[0]["resolved_via"], "pid",
+        "the recorded id answered: {}",
+        refs[0]
+    );
+    assert!(
+        refs[0].get("rebound").is_none(),
+        "nothing rebound: {}",
+        refs[0]
+    );
     assert_eq!(
         refs[0]["recorded_signature"]["surface_type"], "planar",
         "and what the face WAS, for a refusal to name: {}",
@@ -815,13 +827,17 @@ fn feature_get_reports_the_sketch_s_reference_state() {
         json!({ "feature_id": on_boss }),
     );
     assert_eq!(broken["references"][0]["resolves"], false, "{broken}");
+    // The typed REASON, the same field `names_list` carries — a
+    // `ResolutionReason`, not the whole `ErrorKind` wrapper, so an agent
+    // branches on one vocabulary in both places. Deleting the boss takes its
+    // feature with it, so the anchor itself is gone: `NoMatch`.
     assert_eq!(
-        broken["references"][0]["refusal"]["type"], "ResolutionFailed",
+        broken["references"][0]["refusal"]["type"], "NoMatch",
         "{broken}"
     );
     assert!(
-        broken["references"][0]["refusal"]["reason"].is_object(),
-        "classified, not a bare tag: {broken}"
+        broken["references"][0].get("resolved_via").is_none(),
+        "no rung answered: {broken}"
     );
     assert_eq!(broken["error_kind"]["type"], "ResolutionFailed", "{broken}");
     assert!(
@@ -830,6 +846,78 @@ fn feature_get_reports_the_sketch_s_reference_state() {
             .unwrap_or_default()
             .contains("the face this sketch is drawn on is gone"),
         "{broken}"
+    );
+}
+
+/// A sketch can fail for reasons that have nothing to do with its plane face,
+/// and `feature_get` must not report the face as refused when it does.
+///
+/// Here the sketch's x-axis is parallel to its normal, which `execute_feature`
+/// refuses BEFORE it ever looks at the plane face. The previous cut of this read
+/// inferred `resolves` from "did the feature fail?", so it answered `resolves:
+/// false` with that unrelated error as the reference's refusal — a reference
+/// that is perfectly fine, reported dead. The rebuild's own record says nothing
+/// about a reference it never reached, and the read says so.
+#[test]
+fn a_sketch_that_fails_for_another_reason_does_not_report_its_face_as_refused() {
+    let mut state = EngineState::new();
+    let mut kernel = KernelV2Adapter::new();
+    let (_boss, on_boss, _) = plate_with_boss_and_a_sketch_on_it(&mut state, &mut kernel);
+
+    // Edit the sketch to carry an unusable x_axis, keeping its plane face.
+    let Operation::Sketch { sketch } = &state
+        .engine
+        .tree
+        .features
+        .iter()
+        .find(|f| f.id == on_boss)
+        .expect("the sketch")
+        .operation
+    else {
+        panic!("not a sketch")
+    };
+    let mut sketch = sketch.clone();
+    assert!(sketch.plane_face.is_some(), "the pin is still there");
+    sketch.plane_x_axis = Some(sketch.plane_normal);
+    let response = dispatch(
+        &mut state,
+        UiToEngine::EditFeature {
+            feature_id: on_boss,
+            operation: Operation::Sketch { sketch },
+            provenance: None,
+        },
+        &mut kernel,
+    );
+    let mine: Vec<_> = errors_of(&response)
+        .into_iter()
+        .filter(|(id, _)| *id == on_boss)
+        .collect();
+    assert_eq!(mine.len(), 1, "the sketch fails on its x_axis: {mine:?}");
+    assert!(mine[0].1.contains("x_axis"), "{}", mine[0].1);
+
+    let got = tool_ok(
+        &mut state,
+        &mut kernel,
+        "feature_get",
+        json!({ "feature_id": on_boss }),
+    );
+    let reference = &got["references"][0];
+    assert_eq!(reference["role"], "sketch_plane_face", "{got}");
+    assert!(
+        reference.get("resolves").is_none(),
+        "the rebuild never reached this reference, so nothing is claimed \
+         about it: {reference}"
+    );
+    assert!(
+        reference.get("refusal").is_none(),
+        "and the unrelated failure is NOT reported as the reference's: {reference}"
+    );
+    assert!(
+        reference["blocked_by"]
+            .as_str()
+            .unwrap_or_default()
+            .contains("x_axis"),
+        "what did stop the feature is named instead: {reference}"
     );
 }
 
