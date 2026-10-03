@@ -1,11 +1,12 @@
-//! Orthographic projection of a solid's B-Rep edges into a view plane —
-//! **D1a** of `specs/drawings_and_mbd.md` (§5.2 increment 1).
+//! Orthographic projection of a solid into a view plane — **D1a** of
+//! `specs/drawings_and_mbd.md` (§5.2 increment 1), the EDGES; the curved
+//! faces' silhouettes are D1b and live in [`silhouette`], which
+//! [`project_solid`] appends.
 //!
 //! The contract lives in [`waffle_types::kernel::projection`]; this is the
 //! implementation. One view, one solid, every undirected edge, all tagged
-//! [`Visibility::Visible`]: a wireframe view, which is what a flat-pattern DXF
-//! needs and the floor the later increments build on (D1b silhouettes, D1c
-//! hidden-line classification).
+//! [`Visibility::Visible`]: with the silhouettes, the outline a flat-pattern
+//! DXF needs, and the floor D1c's hidden-line classification builds on.
 //!
 //! ## Analytic survival
 //!
@@ -94,6 +95,26 @@ pub fn project_edges(
         });
     }
     Ok(ViewGeometry::new(curves))
+}
+
+/// One solid's whole view: every edge (D1a) followed by every curved face's
+/// silhouette (D1b, [`silhouette::solid_silhouettes`]).
+///
+/// The EDGE curves come first and in [`project_edges`]'s order, so the
+/// `CurveKind::Edge` prefix of a view still zips with
+/// [`crate::extract_edges`]; the silhouettes follow in shell walk order.
+pub fn project_solid(
+    arena: &BrepArena,
+    solid: SolidId,
+    basis: &ViewBasis,
+    rel_chord_tolerance: f64,
+) -> Result<ViewGeometry, KernelV2Error> {
+    let n_seg = crate::tessellate::circle_segment_count(rel_chord_tolerance);
+    let mut geometry = project_edges(arena, solid, basis, rel_chord_tolerance)?;
+    geometry.extend(ViewGeometry::new(silhouette::solid_silhouettes(
+        arena, solid, basis, n_seg,
+    )?));
+    Ok(geometry)
 }
 
 /// One canonical half-edge's curve, projected. `n_seg` is the angular sample
@@ -314,6 +335,8 @@ fn scaled(v: [f64; 2], s: f64) -> [f64; 2] {
 fn offset(p: Point2, dir: [f64; 2], s: f64) -> Point2 {
     Point2::new(p.x() + dir[0] * s, p.y() + dir[1] * s)
 }
+
+mod silhouette;
 
 #[cfg(test)]
 mod tests;

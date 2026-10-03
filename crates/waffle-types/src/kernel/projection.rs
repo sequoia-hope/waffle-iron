@@ -20,12 +20,27 @@
 //! | everything else (ellipse arc, hyperbola arc, surface-pair/SSI curve) | [`Curve2::Polyline`] at the chord tolerance |
 //!
 //! Every curve is tagged [`Visibility::Visible`] at this increment, which is a
-//! wireframe view. Silhouettes of curved faces (D1b), hidden-line
-//! classification (D1c) and [`KernelProjection::section_with_plane`] (D1d) are
-//! separate increments; their methods and enum arms exist here so the
-//! consumers compile against the finished shape, and the unimplemented ones
-//! answer a typed [`KernelError::NotSupported`] — loud, never a silent empty
-//! result.
+//! wireframe view. Hidden-line classification (D1c) and
+//! [`KernelProjection::section_with_plane`] (D1d) are separate increments;
+//! their methods and enum arms exist here so the consumers compile against the
+//! finished shape, and the unimplemented ones answer a typed
+//! [`KernelError::NotSupported`] — loud, never a silent empty result.
+//!
+//! ## What D1b adds
+//!
+//! Each curved face's **silhouette** — the locus where the surface normal
+//! turns away from the viewer — as [`CurveKind::Silhouette`] curves whose
+//! `source` is the FACE, appended after the edges (spec §5.2 increment 2). A
+//! cylinder's and cone's rulings stay [`Curve2::Line`]; a sphere's great
+//! circle and a torus's coordinate circles come back through the same
+//! reconstruction the rim edges use, so they stay [`Curve2::Circle`],
+//! [`Curve2::Ellipse`] or an edge-on [`Curve2::Line`]; only a torus's oblique
+//! branches are a [`Curve2::Polyline`], chord-refined. They are tagged
+//! [`Visibility::Visible`] too — a silhouette can be hidden, and deciding
+//! that is D1c.
+//!
+//! This is what makes the §5.3 projected-bbox oracle an EQUALITY for a curved
+//! solid: its extreme points lie on a silhouette, not on an edge.
 //!
 //! ## Deviations from the spec's sketch, and why
 //!
@@ -226,8 +241,8 @@ pub struct ProjectOpts {
     pub rel_chord_tolerance: Option<f64>,
 }
 
-/// Whether the viewer can see a curve. D1a tags everything `Visible`;
-/// `Hidden` is produced by D1c.
+/// Whether the viewer can see a curve. D1a and D1b tag everything `Visible` —
+/// a silhouette can be hidden too, and `Hidden` is produced by D1c.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum Visibility {
     Visible,
@@ -240,7 +255,7 @@ pub enum CurveKind {
     /// The projection of a B-Rep edge.
     Edge,
     /// The locus on a curved face where the normal turns away from the viewer
-    /// (D1b).
+    /// (D1b). `source` names the FACE, not an edge.
     Silhouette,
     /// A loop of a section cut's cap (D1d).
     SectionOutline,
@@ -703,7 +718,8 @@ pub struct SectionResult {
 /// them — it has no B-Rep to project, and a trivial answer from a test double
 /// would be indistinguishable from a working projection of an empty solid.
 pub trait KernelProjection {
-    /// Orthographic projection of one solid's B-Rep edges into `view`.
+    /// Orthographic projection of one solid into `view`: its B-Rep edges
+    /// (D1a) followed by its curved faces' silhouettes (D1b).
     fn project(
         &self,
         _solid: &KernelSolidHandle,

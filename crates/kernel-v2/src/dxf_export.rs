@@ -43,8 +43,9 @@
 //! choice [`crate::step_export`] makes); `ViewGeometry` is in the kernel's
 //! meters and is scaled here at the boundary.
 //!
-//! Curves land on the layers §8 names: `VISIBLE` and `HIDDEN`. D1a tags
-//! everything visible, so `HIDDEN` is empty today; its layer record is written
+//! Curves land on the layers §8 names: `VISIBLE` and `HIDDEN`. D1a and D1b
+//! tag everything visible — edges and silhouettes alike — so `HIDDEN` is
+//! empty today; its layer record is written
 //! anyway, so the file's layer table does not change shape when D1c starts
 //! filling it. Both are `CONTINUOUS` — a dashed hidden-line type needs an
 //! `LTYPE` table and belongs with the increment that produces hidden lines.

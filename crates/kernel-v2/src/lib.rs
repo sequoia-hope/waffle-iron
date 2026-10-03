@@ -116,7 +116,7 @@ pub use journal::{descendants, face_lineage, EvoKind, Evolution, FaceLineage, Op
 pub use measure::{distance, distance_along, DistanceResult, On, Target};
 pub use pid::{edge_pid, solid_face_pids, solid_pids, vertex_pid, FacePids, SolidPids};
 pub use profile::{Profile, ProfileEdge, ProfileRegion};
-pub use projection::project_edges;
+pub use projection::{project_edges, project_solid};
 pub use signature::{closest_point_on, face_signature, outward_normal_at, surface_type_str};
 pub use step_export::{write_step, StepSolid};
 pub use tessellate::{

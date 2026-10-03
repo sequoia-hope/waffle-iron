@@ -511,13 +511,31 @@ fn every_projected_curve_contains_its_own_three_dimensional_samples() {
             let view = a
                 .project(&case.handle, &frame, &ProjectOpts::default())
                 .unwrap_or_else(|e| panic!("{} along {name}: {e}", case.name));
+            // D1b appends each curved face's SILHOUETTE after the edges, so
+            // the contract this checks is the EDGE prefix: one curve per
+            // edge, in edge order, followed by silhouettes only.
+            let edge_curves: Vec<_> = view
+                .curves
+                .iter()
+                .filter(|c| c.kind == CurveKind::Edge)
+                .collect();
             assert_eq!(
-                view.curves.len(),
+                edge_curves.len(),
                 edges.len(),
                 "{} along {name}: one curve per edge",
                 case.name
             );
-            for (i, (curve, id)) in view.curves.iter().zip(edges.iter()).enumerate() {
+            assert!(
+                view.curves[..edges.len()]
+                    .iter()
+                    .all(|c| c.kind == CurveKind::Edge)
+                    && view.curves[edges.len()..]
+                        .iter()
+                        .all(|c| c.kind == CurveKind::Silhouette),
+                "{} along {name}: the edges come first, then the silhouettes",
+                case.name
+            );
+            for (i, (curve, id)) in edge_curves.iter().zip(edges.iter()).enumerate() {
                 assert_eq!(curve.source, Some(*id), "{} edge {i}", case.name);
                 for p3 in a.edge_polyline(*id) {
                     let (uv, _) = basis.project(p3);
@@ -825,10 +843,17 @@ fn the_curve_order_is_the_listed_edge_order() {
         .project(&solid, &ViewFrame::TOP, &ProjectOpts::default())
         .expect("projects");
     assert_eq!(
-        view.curves.iter().map(|c| c.source).collect::<Vec<_>>(),
+        view.curves
+            .iter()
+            .filter(|c| c.kind == CurveKind::Edge)
+            .map(|c| c.source)
+            .collect::<Vec<_>>(),
         edges.into_iter().map(Some).collect::<Vec<_>>(),
-        "the nth curve is the nth listed edge"
+        "the nth edge curve is the nth listed edge"
     );
+    // The TOP view of a `z`-axis cylinder looks straight along its axis, so
+    // D1b reports no silhouette for it: the rims ARE the outline.
+    assert!(view.curves.iter().all(|c| c.kind == CurveKind::Edge));
 }
 
 #[test]
