@@ -104,16 +104,73 @@ Presented 2026-07-16; the user's answer (2026-07-17) was **"i have no opinion on
 | N64 | EXTENSION — PERMANENT-proposed (2026-09-27, P0001; paper silent) | §4.5.5 is applied one dimension DOWN: an edge (or vertex) of one operand within the #178 coincidence line of a partner planar face is identified onto the plane and its sub-segments inside the face become identically-sampled shared mesh edges (crossings minted into every copy of both crossed edges, inside endpoints as interior Steiner points, the sub-segment as an interior CDT constraint). The paper's §4.5.5 addresses coplanar FACE pairs only; its stated rationale (discretization does not maintain coplanarity) and remedy (identical sampling on the shared part) are what the arm implements |
 | N65 | RESOLVED (2026-09-27, P0002) | The §4.3.3 Case-IV per-claim verdict judged the EDGE ("any exact root inside the segment" ⇒ valid) instead of the vertex's OWN solution; a line × quadric solve with one in-segment root and one beyond the edge passed the vertex sitting on the far root, the phantom loop stayed MIXED and rode into Stage 6 as `ring rejected by CDT`. Now the vertex's own root (the nearest) is judged, per the paper's "no solution in one of the two parametric domains" — a statement about the solution, not the edge (spec `yang_433_case_iv_corner_phantom.md` §9) |
 | N66 | RESOLVED (2026-09-28, P0003) | Stage-4 relocation of a BOUNDARY point (one operand's model edge crossing the other's face) accepted any exact root of the extended surfaces — a circle × plane root past the plane face's edge, a line × torus root past the torus face's rim — and nothing asked whether the solution lay within the face's domain (§4.5: "cannot converge to a distance of 0 WITHIN THEIR DOMAINS"); the phantom junctions rode into Stage 6 as a stray edge the render tessellator declined. Now `boundary_domain_postcondition` (creases from the operand's B-Rep edges, a divider plane + extent per crease, the §3t sign test) records the fires and the op-level §4.5.2 ladder (`refine_452_domain`) adopts a fire-free rung, else the natural output stands and the fires are inventoried — a hard STOP would convert five CORRECT gear cases the ladder cannot reach (spec `yang_45_boundary_point_domain_certificate.md` §7) |
+| N67 | OPEN (2026-10-03, P0013; remediation tracked in `specs/yang_p0013_tip_land_under_the_chord.md` §4 P3) | The §4.3.3 Case-IV rule-out only fires on a CLOSED component of refuted corners, so a phantom BUMP on a REAL intersection curve is never ruled out — the paper rules out per SOLUTION, not per loop. Two sub-gaps feed it: a claim whose shared edge is CURVED is declined outright (`CURVED-EDGE`, no verdict either way), and the §4.5.2 under-resolution demand is dropped whenever the clearance bound floors at 0 — which the 65-sample Lipschitz slack `len/128` guarantees for a short land on a long edge (P0013: a 9.2807e-6 land on a 5.1769e-3 edge). P1 fixed the clearance exactly (cylinders); the rule-out's loop shape and the guard's default-off state remain |
 | #137 diag | HISTORICAL | #137 (2026-07-15): C0065/R0074 — the torus∩plane solver EXISTS and RUNS; the blocker is mesh RESOLUTION nea… |
 | #137 diag 2 | HISTORICAL | #137 (2026-07-15, follow-up): resolution ALONE is not the fix — it flips the loud STOP into a silent-wrong … |
 
-**OPEN count: 1** (N2 — its remit includes the §4.5.4 removal half transferred from N6 at the 2026-07-17 user-ratified closure; N60 RESOLVED 2026-08-26). Capability gaps that are roadmap milestones, not deviations: M8 coplanar residue (task #130), M5 degree-4 SSI, KV6 revolve tail, #137 grazing-corner epic.
+**OPEN count: 2** (N2 — its remit includes the §4.5.4 removal half transferred from N6 at the 2026-07-17 user-ratified closure; N60 RESOLVED 2026-08-26 — and N67, added 2026-10-03 with its remediation tracked in `specs/yang_p0013_tip_land_under_the_chord.md` §4 P3). Capability gaps that are roadmap milestones, not deviations: M8 coplanar residue (task #130), M5 degree-4 SSI, KV6 revolve tail, #137 grazing-corner epic.
 
 ---
 
 ## OPEN deviations (temporary; remediation tracked; investigation blocked)
 
 The live paper-compliance backlog. N2 is the §4.4.1 mesh-updating + §4.5.2 local-refinement gap (epic #169, `specs/yang_mesh_updating_epic.md`); since the 2026-07-17 N6 closure it also carries the §4.5.4 removal half (the `YANG_SELFX_PROBE` 53-case fire-list is that increment's worklist — spec `specs/yang_173_selfx_detector.md` §7).
+
+### N67 — the §4.3.3 Case-IV rule-out fires only on a CLOSED phantom loop, so a phantom BUMP on a real curve rides through (found 2026-10-03, P0013)
+
+**Paper:** §4.3.3 (`refs/text/yang2025_hybrid_boolean.txt:518-537`): "For both
+methods, **if there is no solution in one of the two parametric domains, we
+regard it as a solving failure and rule out the aforementioned Case IV**
+where the meshes detect intersections that do not exist between the
+surfaces." The clause is about ONE solution. §4.5.2 (`:659-670`) is the
+remedy: "we increase the mesh resolution locally and re-optimize".
+
+**Implementation gap (three layers, all measured on P0013 — full numbers in
+`specs/yang_p0013_tip_land_under_the_chord.md` §2):**
+
+1. `stage4_phantom::certify_phantom_loops` lifts the per-claim verdict to a
+   CLOSED, CYCLIC component of refuted corners before it will STOP. P0013's
+   minted Case-IV wedge (a star tip 9.2807e-6 inside the boss cylinder,
+   pushed through it by a 14-gon whose sagitta is 5.4220e-4) has four
+   corners, and its two z = 0 corners continue into the star outline's
+   GENUINE intersection curve — so the component is open, no certificate is
+   produced, and the phantom rides into Stage 6 and surfaces as kernel-v2's
+   misnamed `ring rejected by CDT` on the output cap. A phantom BUMP on a
+   real curve is structurally invisible to a loop-shaped certificate.
+2. A claim whose shared B-Rep edge is CURVED is declined outright
+   (`ClaimVerdict::CurvedEdge` — "no claim either way"), so the two corners
+   that sit on the boss's bottom cap CIRCLE are never judged at all. Note
+   that judging the circle's own parameter could not refute them either (a
+   full circle has no out-of-domain parameter); the refutation available
+   there is the PIERCED FACE's domain — the "second, independent
+   refutation" `yang_433_case_iv_corner_phantom.md` §2 names and never
+   built.
+3. The §4.5.2 under-resolution demand the certificate would carry is
+   dropped whenever its clearance floors at 0 (`if g <= 0.0 { continue }`),
+   and the clearance was a 65-sample Lipschitz lower bound
+   `min_d − len/(2·64)` whose slack SWAMPS exactly the configuration the
+   certificate exists for. **Fixed for cylinders 2026-10-03**
+   (`segment_cylinder_clearance`: `ρ` convex ⇒
+   `min|ρ−r| = r − max(ρ(0), ρ(1))`, exact in two evaluations); cones keep
+   the sampled bound.
+
+**Architectural consequence:** the Case-IV population the kernel can rule
+out is narrower than the paper's, by the shape of the phantom rather than by
+any property of the solution. The a-priori alternative — the §4.3.3
+derived-density guard (`edge_graze_min_rim_segments`) — now derives the
+right number with layer 3 fixed (N = 152 on P0013, measured) but is gated
+OFF behind `YANG_433_GUARD`: its 2026-08-27 broad-form flip was refused on
+corpus evidence, and the narrowed corner-cluster form in the tree has never
+been measured with a correct clearance behind it.
+
+**Remediation (tracked):** `specs/yang_p0013_tip_land_under_the_chord.md`
+§4 — P3 (re-measure and flip the density guard; the open step), with P2 (an
+exact planar-face loop-simplicity postcondition on yang's output, so the
+break is named where it is produced and the detect-then-refine wrapper can
+gate on it) as the alternative route if the eager flip regresses again.
+
+**State:** OPEN — remediation tracked (spec §4 P3/P2). Layer 3 is fixed for
+cylinders; layers 1 and 2 stand.
 
 ### N2 — Stage-4 mesh-updating / CDT absent (relocation-only)
 
