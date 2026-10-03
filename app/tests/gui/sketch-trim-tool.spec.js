@@ -93,6 +93,60 @@ test.describe('sketch trim tool', () => {
 		expect(entitiesAfter.filter((e) => e.type === 'Line').length).toBe(2);
 	});
 
+	test('undo restores the sketch a trim changed, and redo re-applies it', async ({ waffle }) => {
+		const page = waffle.page;
+
+		// A trim is applied by the engine as one `ApplySketchOps` batch, and a
+		// single `SketchEdit` can add, remove AND change entities at once — which
+		// the store's add-list undo entries cannot express, so `applySketchOps`
+		// records a SNAPSHOT of the sketch on both sides of itself. That snapshot
+		// is the only undo path for every operation S1 moved into Rust, and
+		// nothing pinned it in either direction.
+		await page.evaluate(() => {
+			const p1 = window.__waffle.addSketchEntity({ type: 'Point', x: -5, y: -5, construction: false });
+			const p2 = window.__waffle.addSketchEntity({ type: 'Point', x: 5, y: 5, construction: false });
+			window.__waffle.addSketchEntity({ type: 'Line', start_id: p1, end_id: p2 });
+			const p3 = window.__waffle.addSketchEntity({ type: 'Point', x: -5, y: 5, construction: false });
+			const p4 = window.__waffle.addSketchEntity({ type: 'Point', x: 5, y: -5, construction: false });
+			window.__waffle.addSketchEntity({ type: 'Line', start_id: p3, end_id: p4 });
+		});
+		await page.waitForTimeout(500);
+
+		// Canonical form: kind plus rounded position, so the comparison does not
+		// depend on which ids the trim happened to mint.
+		const shape = async () =>
+			(await getEntities(page))
+				.map((e) =>
+					e.type === 'Point'
+						? `Point(${e.x.toFixed(3)},${e.y.toFixed(3)})`
+						: e.type
+				)
+				.sort()
+				.join('|');
+
+		const before = await shape();
+		expect(before).toContain('Point(5.000,5.000)');
+
+		await clickTool(page, 'trim');
+		await page.waitForFunction(
+			() => window.__waffle?.getState()?.activeTool === 'trim',
+			{ timeout: 3000 }
+		);
+		await clickAt(page, 30, -30);
+		await page.waitForTimeout(500);
+
+		const trimmed = await shape();
+		expect(trimmed).not.toBe(before);
+
+		await page.keyboard.press('Control+z');
+		await page.waitForTimeout(500);
+		expect(await shape()).toBe(before);
+
+		await page.keyboard.press('Control+Shift+z');
+		await page.waitForTimeout(500);
+		expect(await shape()).toBe(trimmed);
+	});
+
 	test('trim tool does not crash on click with no nearby entities', async ({ waffle }) => {
 		const page = waffle.page;
 
