@@ -1963,6 +1963,79 @@ impl KernelIntrospect for KernelV2Adapter {
             root_pid: root.0,
         })
     }
+
+    /// D0 (`specs/drawings_and_mbd.md` §4 item 4). Faces answer through the
+    /// journal (identical to [`Self::face_provenance`]); edges and vertices
+    /// answer with their content-seeded id from [`crate::pid`], which is its
+    /// own root. An entity the derivation refuses (a solid with unstamped
+    /// faces, an ambiguous group) answers `None` — never a guessed id.
+    ///
+    /// Mesh-backed imported bodies have no persistent identity: they are a
+    /// triangle soup with no construction history to seed from, so they
+    /// answer `None` rather than a face-index-derived number that would
+    /// silently change on re-import.
+    fn entity_pid(
+        &self,
+        entity: KernelId,
+        kind: TopoKind,
+    ) -> Option<waffle_types::kernel::EntityPid> {
+        use waffle_types::kernel::EntityPid;
+        let (tag, idx) = decode(entity);
+        match (kind, tag) {
+            (TopoKind::Face, TAG_FACE) => self.face_provenance(entity).map(EntityPid::from),
+            (TopoKind::Edge, TAG_EDGE) => crate::pid::edge_pid(&self.arena, HalfEdgeId(idx))
+                .ok()
+                .map(|p| EntityPid::rooted(p.0)),
+            (TopoKind::Vertex, TAG_VERTEX) => crate::pid::vertex_pid(&self.arena, VertexId(idx))
+                .ok()
+                .map(|p| EntityPid::rooted(p.0)),
+            _ => None,
+        }
+    }
+
+    fn all_entity_pids(
+        &self,
+        solid: &KernelSolidHandle,
+        kind: TopoKind,
+    ) -> Vec<(KernelId, waffle_types::kernel::EntityPid)> {
+        use waffle_types::kernel::EntityPid;
+        if self.imported_slot_of(solid).is_some() {
+            return Vec::new();
+        }
+        let Ok(sid) = self.solid_of(solid) else {
+            return Vec::new();
+        };
+        let Ok(pids) = crate::pid::solid_pids(&self.arena, sid) else {
+            return Vec::new();
+        };
+        match kind {
+            TopoKind::Face => pids
+                .faces
+                .iter()
+                .map(|(&f, &pid)| {
+                    let root = pids.face_roots.get(&f).copied().unwrap_or(pid);
+                    (
+                        encode_face(f),
+                        EntityPid {
+                            pid: pid.0,
+                            root_pid: root.0,
+                        },
+                    )
+                })
+                .collect(),
+            TopoKind::Edge => pids
+                .edges
+                .iter()
+                .map(|(&h, &pid)| (encode_edge(h), EntityPid::rooted(pid.0)))
+                .collect(),
+            TopoKind::Vertex => pids
+                .vertices
+                .iter()
+                .map(|(&v, &pid)| (encode_vertex(v), EntityPid::rooted(pid.0)))
+                .collect(),
+            _ => Vec::new(),
+        }
+    }
 }
 
 #[cfg(test)]

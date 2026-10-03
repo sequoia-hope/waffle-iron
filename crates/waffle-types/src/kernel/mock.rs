@@ -1972,6 +1972,50 @@ impl KernelIntrospect for MockKernel {
         }
         lo[0].is_finite().then_some((lo, hi))
     }
+
+    /// The mock's entity ids are allocated once and never rebuilt, so each
+    /// entity's own `KernelId` IS a persistent identity *within one mock
+    /// session* — enough to exercise a consumer's `Selector::Pid` path
+    /// (resolution, lineage fallback, loud refusal) without a real kernel.
+    ///
+    /// It is NOT content-seeded and makes no claim to survive anything: a
+    /// mock has no construction history to seed from. Never use the mock to
+    /// test whether an id survives a rebuild — that oracle needs kernel-v2
+    /// (`crates/kernel-v2/tests/d0_pid_identity.rs`).
+    fn entity_pid(&self, entity: KernelId, kind: TopoKind) -> Option<EntityPid> {
+        let present = match kind {
+            TopoKind::Face => self
+                .solids
+                .values()
+                .any(|s| s.faces.iter().any(|f| f.id == entity)),
+            TopoKind::Edge => self
+                .solids
+                .values()
+                .any(|s| s.edges.iter().any(|e| e.id == entity)),
+            TopoKind::Vertex => self
+                .solids
+                .values()
+                .any(|s| s.vertices.iter().any(|v| v.id == entity)),
+            _ => false,
+        };
+        present.then(|| EntityPid::rooted(entity.0))
+    }
+
+    fn all_entity_pids(
+        &self,
+        solid: &KernelSolidHandle,
+        kind: TopoKind,
+    ) -> Vec<(KernelId, EntityPid)> {
+        let ids = match kind {
+            TopoKind::Face => self.list_faces(solid),
+            TopoKind::Edge => self.list_edges(solid),
+            TopoKind::Vertex => self.list_vertices(solid),
+            _ => Vec::new(),
+        };
+        ids.into_iter()
+            .map(|id| (id, EntityPid::rooted(id.0)))
+            .collect()
+    }
 }
 
 #[cfg(test)]
@@ -2731,6 +2775,47 @@ mod tests {
         assert_eq!(
             unpaired, 0,
             "Union mesh must be watertight (0 unpaired edges), got {unpaired}"
+        );
+    }
+
+    /// D0: the mock's persistent-identity door. Every entity of a solid has
+    /// an identity, the bulk and per-entity forms agree, each is its own
+    /// root, and an entity that is not in the mock has none — so a consumer
+    /// can exercise both the resolve and the refuse branches of
+    /// `Selector::Pid` against the test double.
+    #[test]
+    fn mock_reports_an_identity_for_every_entity_and_none_for_a_stranger() {
+        let mut kernel = MockKernel::new();
+        let (handle, solid) = kernel.make_box_solid(1.0, 1.0, 1.0);
+        kernel.solids.insert(handle.raw(), solid);
+
+        for kind in [TopoKind::Face, TopoKind::Edge, TopoKind::Vertex] {
+            let bulk = kernel.all_entity_pids(&handle, kind);
+            assert!(!bulk.is_empty(), "{kind:?}: mock reports identities");
+            for (id, pid) in &bulk {
+                assert_eq!(pid.root_pid, pid.pid, "{kind:?}: its own root");
+                assert_eq!(
+                    kernel.entity_pid(*id, kind).as_ref(),
+                    Some(pid),
+                    "{kind:?}: per-entity form agrees with the bulk form"
+                );
+            }
+            let distinct: std::collections::BTreeSet<u64> =
+                bulk.iter().map(|(_, p)| p.pid).collect();
+            assert_eq!(distinct.len(), bulk.len(), "{kind:?}: pids distinct");
+        }
+
+        assert!(
+            kernel
+                .entity_pid(KernelId(u64::MAX), TopoKind::Face)
+                .is_none(),
+            "an id the mock never issued has no identity"
+        );
+        assert!(
+            kernel
+                .all_entity_pids(&KernelSolidHandle::from_raw(u64::MAX), TopoKind::Face)
+                .is_empty(),
+            "an unknown solid handle reports nothing"
         );
     }
 }
