@@ -354,6 +354,19 @@ test.describe('Drawing tab', () => {
 		const paths = (s) => [...s.matchAll(/ d="([^"]+)"/g)].map((m) => m[1]);
 		expect(paths(exported)).toEqual(paths(shown));
 		expect(exported).toContain('class="wi-sheet"');
+
+		// And the file OPENS. The export is consumed as `image/svg+xml`,
+		// which is XML, not HTML: a duplicate attribute on an element is a
+		// fatal well-formedness error there and a silently-dropped one in
+		// the HTML tokenizer, so `outerHTML` above cannot see it. Composing
+		// the sheet by nesting each view's own `<svg>` is exactly where such
+		// a pair comes from, so the parse is the oracle that keeps the
+		// deliverable openable.
+		const parseError = await page.evaluate((text) => {
+			const doc = new DOMParser().parseFromString(text, 'image/svg+xml');
+			return doc.querySelector('parsererror')?.textContent ?? null;
+		}, exported);
+		expect(parseError, `the exported sheet must be well-formed XML: ${parseError}`).toBeNull();
 	});
 
 	test('export_svg is refused on a part tab, by name', async ({ waffle }) => {

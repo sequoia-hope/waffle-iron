@@ -27,6 +27,36 @@ import { esc, n, renderViewSvg } from './svg.js';
 export const SHEET_MARGIN_MM = 10;
 
 /**
+ * One view's standalone SVG, re-sized and positioned as a NESTED `<svg>` on
+ * the sheet: `x`/`y` plus a width and height in the sheet's own user units
+ * (paper mm).
+ *
+ * The view's own `width`/`height` are REMOVED rather than shadowed by the new
+ * ones. Two `width` attributes on one element is a fatal XML
+ * well-formedness error (XML 1.0 "Unique Att Spec"), so an exported `.svg`
+ * built that way does not open in any SVG tool at all — while the browser's
+ * HTML tokenizer silently keeps the first of the pair, which is why the
+ * screen looked right. Measured: `xml.etree` refused the sheet with
+ * "duplicate attribute".
+ *
+ * `null` when there is no element to place.
+ *
+ * @param {string} svg one view's SVG, as `renderViewSvg` returns it
+ * @param {{ x: number, y: number, widthMm: number, heightMm: number }} box
+ * @returns {string | null}
+ */
+export function placedIn(svg, { x, y, widthMm, heightMm }) {
+	const close = String(svg ?? '').indexOf('>');
+	if (close < 0) return null;
+	const openTag = svg.slice(0, close).replace(/\s+(?:width|height)="[^"]*"/g, '');
+	return (
+		`${openTag} x="${n(x)}" y="${n(y)}" ` +
+		`width="${n(widthMm)}" height="${n(heightMm)}"` +
+		svg.slice(close)
+	);
+}
+
+/**
  * Render a sheet.
  *
  * @param {object} input
@@ -77,12 +107,19 @@ export function renderSheetSvg({ sheet, unit = 'mm', documentPrecision = 2, styl
 			warnings.push(`view "${view?.name ?? '?'}" has a placement that is not two numbers`);
 			continue;
 		}
+		const placed = placedIn(rendered.svg, {
+			x,
+			y,
+			widthMm: rendered.widthMm,
+			heightMm: rendered.heightMm
+		});
+		if (placed === null) {
+			warnings.push(`view "${view?.name ?? '?'}" did not render an element to place`);
+			continue;
+		}
 		parts.push(
 			`<g class="wi-sheet-view" data-view-id="${esc(view.id ?? '')}" data-view-name="${esc(view.name ?? '')}">` +
-				rendered.svg.replace(
-					'<svg ',
-					`<svg x="${n(x)}" y="${n(y)}" width="${n(rendered.widthMm)}" height="${n(rendered.heightMm)}" `
-				) +
+				placed +
 				`</g>`
 		);
 		drawn += 1;
