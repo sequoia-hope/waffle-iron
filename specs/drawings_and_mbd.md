@@ -272,7 +272,11 @@ more, moving one member past another renumbers both and their two ids swap,
 even though neither changed its content key. Sign-of-zero counts as a move
 (`-0.0` orders below `+0.0`, as under `f64::total_cmp`). Making a
 multi-member group order-independent needs the content key itself to separate
-its members, which is the F4a face reseed below. Pinned as
+its members, which the F4a face reseed below turned out NOT to do: it
+stabilizes a face's root, but a boolean that splits one operand face into two
+patches still leaves both patches rooted at that face, so their edges still
+share a root pair and still need a rank. Separating them wants a per-patch
+discriminator inside the root. Pinned as
 `rank_groups_renumbers_a_group_when_a_member_moves_past_another`.
 
 **The hash is frozen.** `H` is a chain of SplitMix64 finalizer steps over

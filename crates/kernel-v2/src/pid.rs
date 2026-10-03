@@ -276,9 +276,12 @@ fn stamp<E: Copy + Ord>(
 /// orders below `+0.0` under [`point_key`], as it does under `f64::total_cmp`,
 /// so a coordinate that comes out `-0.0` in one build and `+0.0` in another is
 /// a reorder even though the point did not move.) Making multi-member groups
-/// order-independent needs the content key itself to separate them, which is
-/// the F4a face reseed — see the "Still open" notes in
-/// `specs/drawings_and_mbd.md` §4.
+/// order-independent needs the content key itself to separate them, which the
+/// D0 item 1 face reseed does NOT do: it stabilizes a face's ROOT, but a
+/// boolean that splits one operand face into two patches still leaves both
+/// patches rooted at that face, so their edges still share a root pair and
+/// still need a rank. Separating them wants a per-patch discriminator inside
+/// the root — see the "Still open" notes in `specs/drawings_and_mbd.md` §4.
 fn rank_groups<E: Copy + Ord, C: Ord + Clone, T: Ord + Clone>(
     items: &[(E, C, T)],
     kind: &'static str,
