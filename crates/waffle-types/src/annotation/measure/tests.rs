@@ -338,6 +338,59 @@ fn a_zero_length_line_is_degenerate_rather_than_a_zero_distance() {
     )
     .unwrap_err();
     assert!(matches!(err, MeasureError::Degenerate { .. }), "{err:?}");
+
+    // And as either anchor of an aligned distance. Before this was checked,
+    // the zero-length line had no `direction()`, the parallel branch declined
+    // it, and the fallback measured 10 mm from its midpoint to the other
+    // line's — a plausible number for a malformed anchor.
+    for anchors in [
+        [line([0.0, 0.0], [0.0, 0.0]), line([0.01, 0.0], [0.01, 0.02])],
+        [line([0.01, 0.0], [0.01, 0.02]), line([0.0, 0.0], [0.0, 0.0])],
+    ] {
+        let err = measure(DimensionKind::Distance, &anchors).unwrap_err();
+        assert!(matches!(err, MeasureError::Degenerate { .. }), "{err:?}");
+    }
+}
+
+#[test]
+fn an_obtuse_pair_of_edges_reads_its_acute_supplement() {
+    // Two edges 120° apart. The projection carries no traversal direction, so
+    // 120° and 60° are the same undirected pair and the acute one is the only
+    // answer available — `angle_between`'s documented contract, pinned with a
+    // hand-computed value rather than left to the reversed-30° case to imply.
+    let v = measure(
+        DimensionKind::Angle,
+        &[
+            line([0.0, 0.0], [0.01, 0.0]),
+            line(
+                [0.0, 0.0],
+                [
+                    0.01 * (120.0_f64).to_radians().cos(),
+                    0.01 * (120.0_f64).to_radians().sin(),
+                ],
+            ),
+        ],
+    )
+    .unwrap();
+    assert!((v.to_degrees() - 60.0).abs() < 1e-12, "{v}");
+}
+
+#[test]
+fn two_parallel_edges_measure_a_zero_angle_rather_than_refusing() {
+    // The acute angle between two parallel edges IS zero, so there is nothing
+    // to refuse: this is a true measurement of a dimension no drafter wants.
+    // Pinned because the SVG layout relies on it — with no apex to swing an
+    // arc about it draws nothing and reports the omission, and that contract
+    // would break silently if this ever became an error instead.
+    let v = measure(
+        DimensionKind::Angle,
+        &[
+            line([0.0, 0.0], [0.01, 0.0]),
+            line([0.0, 0.02], [0.03, 0.02]),
+        ],
+    )
+    .unwrap();
+    assert_eq!(v, 0.0);
 }
 
 #[test]

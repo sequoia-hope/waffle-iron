@@ -23,6 +23,10 @@
 //!   ([`MeasureError::NotMeasurable`]).
 //! - **Only a circle or an ellipse has a radius**
 //!   ([`MeasureError::NotMeasurable`]).
+//! - **A zero-length line is not a point.** Either anchor of an aligned
+//!   distance, or the line of a point-to-line distance, refuses as
+//!   [`MeasureError::Degenerate`] rather than falling back to the one point
+//!   it happens to occupy.
 //!
 //! This is the §"Fix It Right or Don't Fix It" posture applied to a number a
 //! machinist will cut to: a loud refusal is recoverable, a plausible wrong
@@ -152,6 +156,22 @@ fn aligned_distance(
     a: &AnchorGeometry,
     b: &AnchorGeometry,
 ) -> Result<f64, MeasureError> {
+    // A zero-length line is a degenerate anchor, and saying so is the whole
+    // point of the `Degenerate` arm. Without this it has no `direction()`, so
+    // the parallel branch below declines it and the fallback quietly measures
+    // from its midpoint — a line 1 nm long would dimension across the gap and
+    // the same line at exactly zero would dimension to a point, which is two
+    // answers to one question.
+    for anchor in [a, b] {
+        if let Some(curve @ LayoutCurve::Line { .. }) = anchor.as_curve() {
+            if curve.direction().is_none() {
+                return Err(MeasureError::Degenerate {
+                    kind,
+                    why: "a zero-length line has no direction",
+                });
+            }
+        }
+    }
     if let (Some(ca), Some(cb)) = (a.as_curve(), b.as_curve()) {
         if let (Some(da), Some(db)) = (ca.direction(), cb.direction()) {
             let cross = (da[0] * db[1] - da[1] * db[0]).abs();
