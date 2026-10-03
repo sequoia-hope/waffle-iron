@@ -44,7 +44,10 @@ export const DRAWING_TOKENS = {
 	hidden: 'var(--drawing-hidden)',
 	section: 'var(--drawing-ink)',
 	annotation: 'var(--drawing-annotation)',
-	text: 'var(--drawing-annotation)'
+	text: 'var(--drawing-annotation)',
+	/** D4b: a section cap's hatching, and the title block's own rules. */
+	hatch: 'var(--drawing-hatch)',
+	frame: 'var(--drawing-ink)'
 };
 
 /**
@@ -68,6 +71,12 @@ export const DRAWING_TOKENS = {
  * @property {number[]} hiddenDash    - ISO 128-2 type 02
  * @property {number[]} centreDash    - ISO 128-2 type 04
  * @property {boolean} architecturalTicks - draw 45° ticks instead of arrowheads (§7's option)
+ * @property {number} hatchSpacing   - D4b: paper mm between section hatch lines
+ * @property {number} hatchAngleDeg  - D4b: hatch direction, from +u counter-clockwise
+ * @property {number} cutLineWidth   - D4b: the cutting-plane line on a parent view
+ * @property {number} titleBlockWidth  - D4b: the title block's paper width
+ * @property {number} titleBlockRowHeight - D4b: one row's height
+ * @property {number} titleBlockLabelWidth - D4b: the label column's width
  * @property {string} fontFamily
  */
 
@@ -90,6 +99,28 @@ export const DEFAULT_STYLE = {
 	hiddenDash: [4, 2],
 	centreDash: [12, 2, 2, 2],
 	architecturalTicks: false,
+	// D4b. ISO 128-50 specifies section hatching as continuous NARROW lines
+	// at a uniform spacing and (for a single material) 45°, and leaves the
+	// spacing to the drawing's scale and size; 3 mm is the middle of the
+	// 2–4 mm range general-purpose practice uses on A4–A2 and is coarse
+	// enough that a 10 mm cap reads as hatched rather than as solid. It is a
+	// PAPER quantity like the line widths, so it does not scale with the
+	// view.
+	hatchSpacing: 3,
+	hatchAngleDeg: 45,
+	// The cutting-plane line (ISO 128-2 type 04, long-dash dotted) is drawn
+	// at the WIDE width at its ends and narrow between; drawn at the hidden
+	// width throughout here, which is the middle one — heavier than a
+	// dimension line, lighter than an outline, so it reads as a construction
+	// of the drawing rather than as an edge of the part.
+	cutLineWidth: 0.35,
+	// The title block. ISO 7200 fixes the data-field block at 180 mm wide,
+	// which fits inside the frame of every sheet from A4 portrait up; it is
+	// clamped to the frame's width for a smaller custom sheet rather than
+	// hanging off the paper.
+	titleBlockWidth: 180,
+	titleBlockRowHeight: 8,
+	titleBlockLabelWidth: 38,
 	fontFamily: 'var(--font-ui)'
 };
 

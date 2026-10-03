@@ -100,6 +100,7 @@ pub const MIGRATED: &[&str] = &[
     "drawing_view_add",
     "drawing_view_edit",
     "drawing_annotation_add",
+    "drawing_sheet_edit",
     "mate_add",
     "mate_edit",
     "mate_delete",
@@ -151,6 +152,7 @@ pub fn mutates(name: &str) -> bool {
             | "drawing_view_add"
             | "drawing_view_edit"
             | "drawing_annotation_add"
+            | "drawing_sheet_edit"
             | "mate_add"
             | "mate_edit"
             | "mate_delete"
@@ -353,6 +355,7 @@ fn run(
         "drawing_view_add" => drawing::drawing_view_add(state, kb, args),
         "drawing_view_edit" => drawing::drawing_view_edit(state, kb, args),
         "drawing_annotation_add" => drawing::drawing_annotation_add(state, kb, args),
+        "drawing_sheet_edit" => drawing::drawing_sheet_edit(state, kb, args),
         "mate_add" => assembly::mate_add(state, kb, args),
         "mate_edit" => assembly::mate_edit(state, kb, args),
         "mate_delete" => assembly::mate_delete(state, kb, args),

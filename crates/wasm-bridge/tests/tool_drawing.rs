@@ -1067,3 +1067,766 @@ fn editing_the_part_regenerates_the_drawing_rather_than_leaving_the_cached_view(
         (0.0, W, 0.0, 2.0 * H)
     );
 }
+
+// ═══════════════════════════════════════════════════════════ D4b: sections,
+// details, the title block.
+
+/// The bore's radius, in meters — comfortably inside the `W × D` footprint so
+/// a horizontal section cuts a rectangle with ONE hole in it.
+const BORE_R: f64 = 0.002;
+
+/// [`box_and_drawing`]'s box with a through bore on its own axis, plus the
+/// Drawing tab. Returns `(state, kernel, part_tab, drawing_tab)`.
+///
+/// The bore is extruded SYMMETRICALLY and three times the box's height, so
+/// neither of its end caps is coplanar with a face of the box: a cut operand
+/// ending exactly on the box's top face would be a §4.5.5 coplanar overlay
+/// case, which is a different thing to be testing than a section.
+fn bored_box_and_drawing() -> (EngineState, kernel_v2::KernelV2Adapter, String, String) {
+    bored_box_and_drawing_at(W / 2.0, D / 2.0)
+}
+
+/// The same plate, bored at an arbitrary `(u, v)` of its sketch plane.
+///
+/// Parameterized for the kept-side pin: with the bore CENTRED, a cut through
+/// the middle leaves two halves that are congruent and project identically, so
+/// no assertion on the drawing can tell which one the kernel kept. The bore has
+/// to be off centre for a mirrored kept half to be a measurable difference.
+fn bored_box_and_drawing_at(
+    bore_u: f64,
+    bore_v: f64,
+) -> (EngineState, kernel_v2::KernelV2Adapter, String, String) {
+    let (mut state, mut kernel, part_tab, drawing_tab) = box_and_drawing();
+    ok(
+        &mut state,
+        &mut kernel,
+        "tab_switch",
+        json!({ "tab_id": part_tab }),
+    );
+    let sketch = Operation::Sketch {
+        sketch: Sketch {
+            id: Uuid::new_v4(),
+            plane_face: None,
+            plane: GeomRef {
+                kind: TopoKind::Face,
+                anchor: Anchor::Datum {
+                    datum_id: Uuid::new_v4(),
+                },
+                selector: Selector::Role {
+                    role: Role::EndCapPositive,
+                    index: 0,
+                },
+                policy: ResolvePolicy::BestEffort,
+                scope: None,
+            },
+            plane_origin: [0.0, 0.0, 0.0],
+            plane_normal: [0.0, 0.0, 1.0],
+            plane_x_axis: Some([1.0, 0.0, 0.0]),
+            entities: Vec::new(),
+            constraints: Vec::new(),
+            solve_status: SolveStatus::FullyConstrained,
+            solved_positions: Default::default(),
+            projected: Vec::new(),
+            solved_profiles: vec![ClosedProfile {
+                entity_ids: vec![20],
+                is_outer: true,
+                vertex_ids: vec![],
+                circle: Some(CircleProfile {
+                    center_u: bore_u,
+                    center_v: bore_v,
+                    radius: BORE_R,
+                }),
+                spline_segments: vec![],
+                arc_segments: vec![],
+            }],
+        },
+    };
+    let added = ok(
+        &mut state,
+        &mut kernel,
+        "feature_add",
+        json!({ "operation": serde_json::to_value(sketch).expect("a sketch operation") }),
+    );
+    let sketch_id = added["feature_id"].clone();
+    ok(
+        &mut state,
+        &mut kernel,
+        "feature_add",
+        json!({ "operation": {
+            "type": "Extrude",
+            "params": {
+                "sketch_id": sketch_id,
+                "profile_index": 0,
+                "profile_entity_ids": [20],
+                "depth": 3.0 * H,
+                "symmetric": true,
+                "cut": true,
+            }
+        } }),
+    );
+    ok(
+        &mut state,
+        &mut kernel,
+        "tab_switch",
+        json!({ "tab_id": drawing_tab }),
+    );
+    (state, kernel, part_tab, drawing_tab)
+}
+
+/// Which hatch loop is the hole.
+fn hole_index(layout: &ViewLayout) -> usize {
+    layout
+        .hatch
+        .iter()
+        .position(|l| l.hole)
+        .expect("a bored cap has a hole")
+}
+
+#[test]
+fn a_horizontal_section_of_a_bored_box_hatches_one_outer_loop_and_one_hole() {
+    // The whole section path, end to end: a cutting line drawn on a front
+    // view, the kernel's own Intersect against the half-space it names (D1d),
+    // the cut half projected with D1a-c, and the cap handed to the sheet as a
+    // region to fill. The assertion is the SHAPE of the cap — one outer
+    // boundary and one hole — because that is what distinguishes a section of
+    // a bored part from a section of a solid one, and it is what a hatch has
+    // to respect.
+    let (mut state, mut kernel, part_tab, drawing_tab) = bored_box_and_drawing();
+    let front = ok(
+        &mut state,
+        &mut kernel,
+        "drawing_view_add",
+        json!({ "tab_id": part_tab, "view": "front", "placement_mm": [100.0, 100.0] }),
+    )["view_id"]
+        .as_str()
+        .expect("the front view's id")
+        .to_string();
+
+    // A horizontal cutting line at mid height, in the front view's own
+    // (u, v) = (world x, world z), MILLIMETRES on the wire. It runs past both
+    // ends of the part, as a drafter draws it.
+    let answer = ok(
+        &mut state,
+        &mut kernel,
+        "drawing_view_add",
+        json!({
+            "tab_id": part_tab,
+            "parent_view_id": front,
+            "section_mm": [-2.0, H * 1000.0 / 2.0, W * 1000.0 + 2.0, H * 1000.0 / 2.0],
+            "label": "A",
+        }),
+    );
+    let section = answer["view_id"]
+        .as_str()
+        .expect("the section's id")
+        .to_string();
+    let laid_out = layout(&state, &drawing_tab, &section);
+
+    let outer = laid_out.hatch.iter().filter(|l| !l.hole).count();
+    let holes = laid_out.hatch.iter().filter(|l| l.hole).count();
+    assert_eq!(
+        (outer, holes),
+        (1, 1),
+        "the cap of a bored box is one rectangle with one hole in it, got {} loop(s): {:?}",
+        laid_out.hatch.len(),
+        laid_out
+            .hatch
+            .iter()
+            .map(|l| (l.hole, l.curves.len()))
+            .collect::<Vec<_>>()
+    );
+    // Every boundary curve stayed analytic, so the hatch boundary IS the cap
+    // and not a chord polygon of it.
+    assert!(
+        laid_out.hatch.iter().all(|l| l.exact),
+        "a box bored by a cylinder has an exact cap: {:?}",
+        laid_out.hatch
+    );
+    // The hole IS the bore, at the bore's own radius, in the SECTION's frame
+    // rather than the cut plane's — the rotation that makes the hatch line up
+    // with the curves it fills.
+    let hole = &laid_out.hatch[hole_index(&laid_out)];
+    let radius = hole
+        .curves
+        .iter()
+        .find_map(|c| match c {
+            LayoutCurve::Circle { radius, .. } => Some(*radius),
+            _ => None,
+        })
+        .unwrap_or_else(|| {
+            panic!(
+                "the bore's cap edge should be a circle, got {:?}",
+                hole.curves
+            )
+        });
+    assert!(
+        (radius - BORE_R).abs() < 1e-9,
+        "the hole's radius should be the bore's {BORE_R}, got {radius}"
+    );
+
+    // And the PARENT carries the cutting line and the letter, so the pair
+    // reads as one drawing.
+    let parent_layout = layout(&state, &drawing_tab, &front);
+    let marks = &parent_layout.marks;
+    assert_eq!(marks.len(), 1, "{marks:?}");
+    match &marks[0] {
+        waffle_types::annotation::layout::ViewMark::Section { sight, label, .. } => {
+            assert_eq!(label, "A");
+            // The line runs +u, so its arrows point at the half the section
+            // keeps — downwards on the parent's paper.
+            assert!(
+                sight[1] < -0.5 && sight[0].abs() < 1e-9,
+                "the arrows should point into the kept half, got {sight:?}"
+            );
+        }
+        other => panic!("expected a section mark, got {other:?}"),
+    }
+
+    // The view is named the way the standard titles it, and the tool reports
+    // the cap it hatched.
+    let reported = answer["sheets"][0]["views"]
+        .as_array()
+        .expect("views")
+        .iter()
+        .find(|v| v["id"] == section.as_str())
+        .expect("the section in the answer")
+        .clone();
+    assert_eq!(reported["name"], "SECTION A-A");
+    assert_eq!(reported["hatch_loops"], 2);
+    assert_eq!(reported["projection"]["type"], "Section");
+}
+
+#[test]
+fn a_section_whose_plane_keeps_nothing_says_so_rather_than_drawing_the_uncut_part() {
+    // A drawing labelled SECTION A-A showing the OUTSIDE of the solid is a
+    // wrong drawing; a missing view is a visible gap. So a cut that keeps no
+    // material is reported and the view draws nothing.
+    let (mut state, mut kernel, part_tab, drawing_tab) = bored_box_and_drawing();
+    let front = ok(
+        &mut state,
+        &mut kernel,
+        "drawing_view_add",
+        json!({ "tab_id": part_tab, "view": "front" }),
+    )["view_id"]
+        .as_str()
+        .expect("an id")
+        .to_string();
+    // A cutting line well BELOW the part, keeping the half below it.
+    let answer = ok(
+        &mut state,
+        &mut kernel,
+        "drawing_view_add",
+        json!({
+            "tab_id": part_tab,
+            "parent_view_id": front,
+            "section_mm": [-2.0, -5.0, W * 1000.0 + 2.0, -5.0],
+        }),
+    );
+    let section = answer["view_id"].as_str().expect("an id").to_string();
+    let errors = answer["errors"].as_array().cloned().unwrap_or_default();
+    assert!(
+        errors
+            .iter()
+            .any(|e| e.as_str().is_some_and(|s| s.contains("keeps no material"))),
+        "the empty cut must be reported, got {errors:?}"
+    );
+    assert!(
+        state
+            .session
+            .drawing(&drawing_tab)
+            .expect("a drawing")
+            .find_view(Uuid::parse_str(&section).expect("a uuid"))
+            .expect("the view")
+            .1
+            .cache
+            .is_none(),
+        "a section that kept nothing must have no layout, not an uncut one"
+    );
+}
+
+#[test]
+fn a_detail_view_at_two_to_one_doubles_the_paper_length_of_the_same_crop() {
+    // A detail is a magnified crop, so the SAME disc at 2:1 must measure
+    // twice what it does at 1:1 on paper — which is the one property that
+    // tells a magnification from a bigger circle.
+    let (mut state, mut kernel, part_tab, _drawing) = bored_box_and_drawing();
+    let top = ok(
+        &mut state,
+        &mut kernel,
+        "drawing_view_add",
+        json!({ "tab_id": part_tab, "view": "top", "placement_mm": [100.0, 100.0] }),
+    )["view_id"]
+        .as_str()
+        .expect("an id")
+        .to_string();
+    // A 4 mm-radius disc around the bore, which is where a drafter would put
+    // one.
+    let disc = json!([W * 1000.0 / 2.0, D * 1000.0 / 2.0, 4.0]);
+    let mut spans = Vec::new();
+    for scale in [1.0, 2.0] {
+        let detail = ok(
+            &mut state,
+            &mut kernel,
+            "drawing_view_add",
+            json!({
+                "tab_id": part_tab,
+                "parent_view_id": top,
+                "detail_mm": disc,
+                "scale": scale,
+            }),
+        )["view_id"]
+            .as_str()
+            .expect("an id")
+            .to_string();
+        let dxf = exported_dxf(&tool(
+            &mut state,
+            &mut kernel,
+            "export_dxf",
+            json!({ "deliver": "agent", "view_id": detail }),
+        ));
+        let (min_x, _, max_x, _) = dxf_extents(&dxf);
+        spans.push(max_x - min_x);
+    }
+    assert!(
+        (spans[1] - 2.0 * spans[0]).abs() < 1e-6 * spans[1].max(1.0),
+        "2:1 must double the paper span of the same crop: {spans:?}"
+    );
+}
+
+#[test]
+fn a_detail_of_the_whole_part_keeps_every_curve_and_one_of_a_corner_keeps_fewer() {
+    // The cull is a bounding-box test against the disc's box: conservative,
+    // so it never drops a curve that reaches the disc, and the renderer then
+    // clips what is left exactly. The property to pin is that it culls at all
+    // — a detail carrying the whole part's curves would be a magnified whole
+    // part.
+    let (mut state, mut kernel, part_tab, drawing_tab) = bored_box_and_drawing();
+    let top = ok(
+        &mut state,
+        &mut kernel,
+        "drawing_view_add",
+        json!({ "tab_id": part_tab, "view": "top" }),
+    )["view_id"]
+        .as_str()
+        .expect("an id")
+        .to_string();
+    let whole = ok(
+        &mut state,
+        &mut kernel,
+        "drawing_view_add",
+        json!({ "tab_id": part_tab, "parent_view_id": top,
+                "detail_mm": [W * 1000.0 / 2.0, D * 1000.0 / 2.0, 100.0] }),
+    )["view_id"]
+        .as_str()
+        .expect("an id")
+        .to_string();
+    let corner = ok(
+        &mut state,
+        &mut kernel,
+        "drawing_view_add",
+        json!({ "tab_id": part_tab, "parent_view_id": top,
+                "detail_mm": [0.0, 0.0, 1.0] }),
+    )["view_id"]
+        .as_str()
+        .expect("an id")
+        .to_string();
+    let parent_curves = layout(&state, &drawing_tab, &top).curves.len();
+    assert_eq!(
+        layout(&state, &drawing_tab, &whole).curves.len(),
+        parent_curves,
+        "a disc containing the whole part crops nothing"
+    );
+    assert!(
+        layout(&state, &drawing_tab, &corner).curves.len() < parent_curves,
+        "a 1 mm disc at one corner must not carry the whole part"
+    );
+    // The crop rides on the layout so the renderer can clip to it exactly.
+    assert!(layout(&state, &drawing_tab, &corner).clip.is_some());
+}
+
+#[test]
+fn the_title_block_prints_what_the_document_knows_and_the_fields_a_person_typed() {
+    let (mut state, mut kernel, part_tab, _drawing) = bored_box_and_drawing();
+    ok(
+        &mut state,
+        &mut kernel,
+        "drawing_view_add",
+        json!({ "tab_id": part_tab, "view": "top", "scale": 0.5 }),
+    );
+    let answer = ok(
+        &mut state,
+        &mut kernel,
+        "drawing_sheet_edit",
+        json!({
+            "projection_angle": "first",
+            "title_block_fields": [
+                { "key": "DocumentName" },
+                { "key": "SheetNumber" },
+                { "key": "Scale" },
+                { "key": "ProjectionAngle" },
+                { "key": "Author", "text": "A. Drafter" },
+                { "key": "Material", "text": "AISI 304" },
+                { "key": "unknown-to-this-build", "label": "Finish", "text": "Ra 1.6" },
+            ],
+        }),
+    );
+    let rows = answer["sheets"][0]["title_block"]["rows"]["rows"]
+        .as_array()
+        .cloned()
+        .unwrap_or_else(|| {
+            panic!(
+                "the filled rows: {}",
+                answer["sheets"][0]["title_block"].clone()
+            )
+        });
+    let pairs: Vec<(String, String)> = rows
+        .iter()
+        .map(|r| {
+            (
+                r["label"].as_str().unwrap_or_default().to_string(),
+                r["value"].as_str().unwrap_or_default().to_string(),
+            )
+        })
+        .collect();
+    let labels: Vec<&str> = pairs.iter().map(|(l, _)| l.as_str()).collect();
+    assert_eq!(
+        labels,
+        vec![
+            "Title",
+            "Sheet",
+            "Scale",
+            "Projection",
+            "Drawn by",
+            "Material",
+            "Finish"
+        ]
+    );
+    // The derived rows, filled from the document rather than from a string
+    // somebody stored.
+    assert_eq!(pairs[1].1, "1 / 1");
+    assert_eq!(pairs[2].1, "1:2");
+    assert_eq!(pairs[3].1, "First angle");
+    // And the typed ones, printed as typed.
+    assert_eq!(pairs[4].1, "A. Drafter");
+    assert_eq!(pairs[5].1, "AISI 304");
+    assert_eq!(pairs[6].1, "Ra 1.6");
+    assert_eq!(answer["projection_angle"]["type"], "First");
+
+    // A derived row that was TYPED is refused by name: an agent that typed a
+    // sheet number must be told the engine fills it, or it will believe the
+    // number it typed is on the paper.
+    let error = refused(
+        &mut state,
+        &mut kernel,
+        "drawing_sheet_edit",
+        json!({ "title_block_fields": [{ "key": "SheetNumber", "text": "7 / 7" }] }),
+    );
+    assert_eq!(error["code"], "InvalidArgument");
+
+    // A second sheet renumbers the first: the row is the sheet's POSITION,
+    // not a stored string.
+    let answer = ok(
+        &mut state,
+        &mut kernel,
+        "drawing_sheet_edit",
+        json!({ "add_sheet": true, "size": "A4", "orientation": "portrait" }),
+    );
+    assert_eq!(answer["sheets"].as_array().map(Vec::len), Some(2));
+    assert_eq!(
+        answer["sheets"][0]["title_block"]["rows"]["rows"][1]["value"],
+        "1 / 2"
+    );
+    assert_eq!(answer["sheets"][1]["extent_mm"], json!([210.0, 297.0]));
+
+    // The second sheet goes; the LAST one cannot, because a drawing with no
+    // sheet shows nothing and refuses every export by name.
+    let second = answer["sheets"][1]["id"]
+        .as_str()
+        .expect("an id")
+        .to_string();
+    let answer = ok(
+        &mut state,
+        &mut kernel,
+        "drawing_sheet_edit",
+        json!({ "delete_sheet": true, "sheet_id": second }),
+    );
+    let first = answer["sheets"][0]["id"]
+        .as_str()
+        .expect("an id")
+        .to_string();
+    let error = refused(
+        &mut state,
+        &mut kernel,
+        "drawing_sheet_edit",
+        json!({ "delete_sheet": true, "sheet_id": first }),
+    );
+    assert_eq!(error["code"], "NotFound");
+}
+
+#[test]
+fn the_projection_standard_flips_where_a_freshly_added_section_is_placed() {
+    // A section follows the same standard as any other projected view: third
+    // angle places it on the side it is viewed FROM, first angle on the side
+    // the arrows point to. So the SAME cutting line, authored under the two
+    // standards, lands on opposite sides of its parent.
+    let (mut state, mut kernel, part_tab, _drawing) = bored_box_and_drawing();
+    let mut placements = Vec::new();
+    for angle in ["third", "first"] {
+        ok(
+            &mut state,
+            &mut kernel,
+            "drawing_sheet_edit",
+            json!({ "projection_angle": angle }),
+        );
+        let front = ok(
+            &mut state,
+            &mut kernel,
+            "drawing_view_add",
+            json!({ "tab_id": part_tab, "view": "front", "placement_mm": [150.0, 150.0] }),
+        )["view_id"]
+            .as_str()
+            .expect("an id")
+            .to_string();
+        let answer = ok(
+            &mut state,
+            &mut kernel,
+            "drawing_view_add",
+            json!({
+                "tab_id": part_tab,
+                "parent_view_id": front,
+                // A VERTICAL cutting line, so the section is placed left or
+                // right of its parent and the flip shows in x.
+                "section_mm": [W * 1000.0 / 2.0, -2.0, W * 1000.0 / 2.0, H * 1000.0 + 2.0],
+            }),
+        );
+        let id = answer["view_id"].as_str().expect("an id").to_string();
+        let view = answer["sheets"][0]["views"]
+            .as_array()
+            .expect("views")
+            .iter()
+            .find(|v| v["id"] == id.as_str())
+            .expect("the section")
+            .clone();
+        placements.push(view["placement_mm"][0].as_f64().expect("an x"));
+    }
+    assert!(
+        (placements[0] - 150.0) * (placements[1] - 150.0) < 0.0,
+        "the two standards must place the section on opposite sides of its parent at x = 150, \
+         got {placements:?}"
+    );
+}
+
+#[test]
+fn a_views_cache_carries_the_key_it_was_built_from_and_the_key_is_a_function_of_the_document() {
+    // The D4a open item this closes: without a key a persisted layout is
+    // indistinguishable from a current one, so a document opened in a build
+    // with no kernel draws last week's sheet with no sign of it.
+    let (mut state, mut kernel, part_tab, _drawing) = bored_box_and_drawing();
+    let answer = ok(
+        &mut state,
+        &mut kernel,
+        "drawing_view_add",
+        json!({ "tab_id": part_tab, "view": "top" }),
+    );
+    let view = answer["view_id"].as_str().expect("an id").to_string();
+    let key_of = |answer: &Value| -> String {
+        answer["sheets"][0]["views"]
+            .as_array()
+            .expect("views")
+            .iter()
+            .find(|v| v["id"] == view.as_str())
+            .expect("the view")["cache_key"]
+            .as_str()
+            .unwrap_or_else(|| panic!("the view has no cache key: {answer}"))
+            .to_string()
+    };
+    let first = key_of(&answer);
+    assert!(first.starts_with("d4b-"), "{first}");
+
+    // The view's NAME is part of its recipe (it is printed over the view), so
+    // renaming moves the key — and renaming to the same name twice gives the
+    // same key, which is the "it is a function of the document" half.
+    let renamed = key_of(&ok(
+        &mut state,
+        &mut kernel,
+        "drawing_view_edit",
+        json!({ "view_id": view, "name": "Plan" }),
+    ));
+    let again = key_of(&ok(
+        &mut state,
+        &mut kernel,
+        "drawing_view_edit",
+        json!({ "view_id": view, "name": "Plan" }),
+    ));
+    assert_ne!(first, renamed, "an edit must move the key");
+    // THE regression this test exists for. The first version of the key
+    // digested the source tab's tree with `serde_json::to_string`, and a
+    // `FeatureTree` holds `HashMap`s (`Sketch::solved_positions`) — so two
+    // rebuilds of the same unedited part produced two strings differing in
+    // key ORDER, the key moved on every rebuild, and a cache that is always
+    // stale is the same as no cache key at all. Both digests now go through
+    // `serde_json::Value`, whose objects are `BTreeMap`s.
+    assert_eq!(
+        renamed, again,
+        "the key must be a function of the document, not of a HashMap's iteration order"
+    );
+    let third = key_of(&ok(
+        &mut state,
+        &mut kernel,
+        "drawing_view_edit",
+        json!({ "view_id": view, "name": "Plan" }),
+    ));
+    assert_eq!(renamed, third, "and stable across any number of rebuilds");
+
+    // And the key goes with the cache, both ways: a view the rebuild could
+    // not produce has neither.
+    let drawing = state.session.drawing(&_drawing).expect("a drawing").clone();
+    for sheet in &drawing.sheets {
+        for v in &sheet.views {
+            assert_eq!(
+                v.cache.is_some(),
+                v.cache_key.is_some(),
+                "view `{}`: a key without a layout says a layout that is not there is current",
+                v.name
+            );
+        }
+    }
+}
+
+/// The half a section KEEPS is the half its arrows point into — measured on a
+/// part that can tell the two apart (D4b review).
+///
+/// ## Why the other section tests cannot catch this
+///
+/// A section view looks ALONG the cut normal, so the kept half's extent in
+/// that direction is edge-on and invisible in the view's 2-D box; and the cap
+/// is the solid's cross-section at the plane, which is the SAME for both
+/// halves whichever one is kept. On a plate bored down the middle, the two
+/// halves are congruent and project identically — `flip` could invert the
+/// kernel's kept side, or the arrows could point the wrong way, and every
+/// assertion in `a_horizontal_section_of_a_bored_box_hatches_one_outer_loop_and_one_hole`
+/// would still pass. That test pins the cap's SHAPE and the arrow's direction
+/// against the algebra; this one pins the algebra against the solid.
+///
+/// ## The measurement
+///
+/// Bore the plate OFF CENTRE in `u` (at `W/4`) and cut vertically at `W/2`, so
+/// the bore lies entirely in one half. The derivation says which:
+/// `cut_line_2d` returns the line's left perpendicular, which points at the
+/// DISCARDED side, and `KernelProjection::section_with_plane` keeps
+/// `(p − origin)·n̂ ≤ 0`. For a line drawn `+v` at `u = W/2` that normal is
+/// `−u`, so the kept half is `u ≥ W/2` — which EXCLUDES a bore at `W/4`. With
+/// `flip` the kept half includes it.
+///
+/// The oracle is frame-independent, because the section's own `(u, v)` depends
+/// on a basis this test is not about: a curve is INTERIOR when all of its
+/// points sit strictly inside the view's own box along one axis. The plain
+/// half is a rectangular prism seen end-on, so every curve lies on the
+/// boundary; the bore contributes its cylinder's silhouette, which runs
+/// through the middle. Zero interior curves against at least one is the whole
+/// difference, and it is exactly the difference a mirrored kept side inverts.
+#[test]
+fn a_sections_kept_half_is_the_one_its_arrows_point_into() {
+    let (mut state, mut kernel, part_tab, drawing_tab) = bored_box_and_drawing_at(W / 4.0, D / 2.0);
+    let front = ok(
+        &mut state,
+        &mut kernel,
+        "drawing_view_add",
+        json!({ "tab_id": part_tab, "view": "front", "placement_mm": [100.0, 100.0] }),
+    )["view_id"]
+        .as_str()
+        .expect("the front view's id")
+        .to_string();
+
+    // A VERTICAL cutting line at x = W/2, drawn upwards, running past both
+    // ends of the part as a drafter draws it. The front view's (u, v) is
+    // (world x, world z), and the wire takes millimetres.
+    let cut_u = W * 1000.0 / 2.0;
+    let mut interiors = Vec::new();
+    for flip in [false, true] {
+        let answer = ok(
+            &mut state,
+            &mut kernel,
+            "drawing_view_add",
+            json!({
+                "tab_id": part_tab,
+                "parent_view_id": front,
+                "section_mm": [cut_u, -2.0, cut_u, H * 1000.0 + 2.0],
+                "flip": flip,
+            }),
+        );
+        let id = answer["view_id"]
+            .as_str()
+            .expect("the section's id")
+            .to_string();
+        let laid_out = layout(&state, &drawing_tab, &id);
+        interiors.push((flip, interior_curve_count(&laid_out), laid_out.curves.len()));
+    }
+
+    let (_, plain_interior, plain_total) = interiors[0];
+    let (_, bored_interior, bored_total) = interiors[1];
+    assert_eq!(
+        plain_interior, 0,
+        "the unflipped cut keeps u >= W/2, which has no bore in it, so every curve should lie on \
+         the view's own boundary — got {plain_interior} interior of {plain_total} curves"
+    );
+    assert!(
+        bored_interior > 0,
+        "the flipped cut keeps u <= W/2, which contains the bore at W/4, so the bore's silhouette \
+         should run through the middle of the view — got {bored_interior} interior of \
+         {bored_total} curves"
+    );
+}
+
+/// How many of `layout`'s curves lie strictly inside its own box along one
+/// axis — see `a_sections_kept_half_is_the_one_its_arrows_point_into`.
+///
+/// One millimetre of inset, in model units: the bore sits `D/2 − BORE_R` = 3 mm
+/// from the nearer wall, so the band is comfortably clear of both the boundary
+/// curves it must exclude and the bore curves it must find.
+fn interior_curve_count(layout: &ViewLayout) -> usize {
+    let Some([[min_u, min_v], [max_u, max_v]]) = layout.bbox else {
+        return 0;
+    };
+    const INSET: f64 = 0.001;
+    layout
+        .curves
+        .iter()
+        .filter(|c| {
+            let pts = curve_extent_points(&c.geometry);
+            if pts.is_empty() {
+                return false;
+            }
+            let inside_u = pts
+                .iter()
+                .all(|p| p[0] > min_u + INSET && p[0] < max_u - INSET);
+            let inside_v = pts
+                .iter()
+                .all(|p| p[1] > min_v + INSET && p[1] < max_v - INSET);
+            inside_u || inside_v
+        })
+        .count()
+}
+
+/// Points that bound a layout curve: its ends for a segment, its box corners
+/// for a conic. Conservative — a conic's box contains the arc, so a curve is
+/// only called interior when it certainly is.
+fn curve_extent_points(curve: &LayoutCurve) -> Vec<[f64; 2]> {
+    match curve {
+        LayoutCurve::Point { at } => vec![*at],
+        LayoutCurve::Line { start, end } => vec![*start, *end],
+        LayoutCurve::Circle { center, radius, .. } => vec![
+            [center[0] - radius, center[1] - radius],
+            [center[0] + radius, center[1] + radius],
+        ],
+        LayoutCurve::Ellipse {
+            center,
+            major_radius,
+            ..
+        } => vec![
+            [center[0] - major_radius, center[1] - major_radius],
+            [center[0] + major_radius, center[1] + major_radius],
+        ],
+        LayoutCurve::Polyline { points, .. } => points.clone(),
+    }
+}

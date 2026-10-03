@@ -1,5 +1,5 @@
 {
-  "manifest_hash": "b186d74e1a9dc0df5b5d342a6d82e5ef909b260a9e2b53f30f5db9baf0998acd",
+  "manifest_hash": "fbb649fd2d3938eac69fe937a014a29eda90436dc29b46684811d675f6a5bf22",
   "protocol": "waffle-agent-link/1",
   "tools": [
     {
@@ -19486,6 +19486,74 @@
     },
     {
       "annotations": {
+        "openWorldHint": false,
+        "readOnlyHint": true,
+        "title": "Export PDF"
+      },
+      "description": "Export the open DRAWING tab's sheet as a one-page PDF at paper size — the printable deliverable. It is written from the same markup export_svg returns, so it is the drawing on the screen rather than a second rendering of it, and it is true to scale: a 1:1 view measures its real size on the printed page. Ink is BLACK ON WHITE whatever the UI theme, because a sheet is paper. Text is Helvetica (a base-14 font, so nothing is embedded) and a diameter sign prints as Ø, which is reported in warnings. Answers with bytes and pages; the file rides back base64 for deliver \"agent\". Refused with TabKindNotSupported off a Drawing tab, NothingToExport when no view of the sheet rebuilt, and PayloadTooLarge above the 16 MiB inline limit. specs/drawings_and_mbd.md §8 D4b.",
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "deliver": {
+            "default": "agent",
+            "description": "\"agent\": the file comes back in this result as an embedded resource. \"download\": the browser downloads it for the user, as the Export menu does, and the result only describes it.",
+            "enum": [
+              "agent",
+              "download"
+            ],
+            "type": "string"
+          },
+          "sheet_id": {
+            "description": "Which sheet. Omit for the first one.",
+            "type": "string"
+          }
+        },
+        "type": "object"
+      },
+      "name": "export_pdf",
+      "outputSchema": {
+        "properties": {
+          "bytes": {
+            "description": "Size of the exported file.",
+            "type": "integer"
+          },
+          "deliver": {
+            "enum": [
+              "agent",
+              "download"
+            ],
+            "type": "string"
+          },
+          "file_name": {
+            "type": "string"
+          },
+          "mime_type": {
+            "type": "string"
+          },
+          "pages": {
+            "description": "Pages written. One sheet is one page.",
+            "type": "integer"
+          },
+          "warnings": {
+            "description": "What the exporter left out, verbatim.",
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "deliver",
+          "file_name",
+          "mime_type",
+          "bytes",
+          "warnings"
+        ],
+        "type": "object"
+      }
+    },
+    {
+      "annotations": {
         "readOnlyHint": true,
         "title": "Get assembly"
       },
@@ -25535,6 +25603,15 @@
             },
             "type": "array"
           },
+          "detail_mm": {
+            "description": "Make this a DETAIL view: [centre_u, centre_v, radius], the crop disc drawn on parent_view_id, in THAT view's own plane in millimetres. The detail shows that disc of the parent's projection at its own scale (pass scale 2 for 2:1). Needs parent_view_id; mutually exclusive with view, direction and section_mm.",
+            "items": {
+              "type": "number"
+            },
+            "maxItems": 3,
+            "minItems": 3,
+            "type": "array"
+          },
           "direction": {
             "description": "Direction of SIGHT as [x, y, z], away from the viewer. Mutually exclusive with view.",
             "items": {
@@ -25555,10 +25632,19 @@
             ],
             "type": "string"
           },
+          "flip": {
+            "default": false,
+            "description": "Section only: keep the other half — the arrows reverse, the line does not move.",
+            "type": "boolean"
+          },
           "include_anchors": {
             "default": false,
             "description": "Also list, per view, the PERSISTENT IDS an annotation can anchor on (anchor_list): every entity the view drew, each with its shape on the drawing (Point, Line, Circle, Ellipse, Polyline), its witness point in view-plane meters and its radius where it has one. The shape is what tells a wall from a corner — picking two anchors by position alone can take two corners and measure the diagonal. Each pid is a decimal STRING, because a persistent id is a 64-bit number and JSON numbers in JavaScript are not exact above 2^53; pass it back verbatim. Omitted by default — a real part's view has thousands of edges — but it is where the anchors for drawing_annotation_add come from.",
             "type": "boolean"
+          },
+          "label": {
+            "description": "Section or detail only: the letter it is known by (SECTION A-A, DETAIL A). Omit for the next free letter on the sheet.",
+            "type": "string"
           },
           "name": {
             "description": "The view's label. Omit for the projection's own name.",
@@ -25582,6 +25668,15 @@
             "description": "Paper length per model length: 1 is 1:1, 0.1 is 1:10.",
             "exclusiveMinimum": 0,
             "type": "number"
+          },
+          "section_mm": {
+            "description": "Make this a SECTION view: [from_u, from_v, to_u, to_v], the cutting line drawn on parent_view_id, in THAT view's own plane in millimetres (u right, v up, from the parent's own origin — the bbox in this answer says where the part is). The cut plane is that line swept back along the parent's line of sight, and the view looks along the plane's normal at the material the cut KEEPS; flip reverses which half. The cap is hatched, and the cutting line with its arrows and letter is drawn on the parent. Needs parent_view_id; mutually exclusive with view, direction and detail_mm.",
+            "items": {
+              "type": "number"
+            },
+            "maxItems": 4,
+            "minItems": 4,
+            "type": "array"
           },
           "sheet_id": {
             "description": "Which sheet. Omit for the first one.",
@@ -25924,6 +26019,158 @@
         },
         "required": [
           "annotation_index",
+          "tab_id",
+          "sheets",
+          "errors",
+          "warnings"
+        ],
+        "type": "object"
+      }
+    },
+    {
+      "annotations": {
+        "destructiveHint": false,
+        "openWorldHint": false,
+        "readOnlyHint": false,
+        "title": "Edit drawing sheet"
+      },
+      "description": "Change one sheet of the open DRAWING tab — its name, its paper size and orientation, and its TITLE BLOCK — add or remove sheets, or set the drawing's PROJECTION STANDARD. The standard is the drawing's rather than one sheet's (sheets that disagreed about which side a projected view shows would be two standards in one document), and it decides both what a projected or section view SHOWS and which side of its parent a freshly added one is placed on. The title block's derived rows — document name, sheet number, scale, projection standard — are filled from the document and take no text; giving one text is refused rather than ignored, because an agent that typed a sheet number would otherwise believe the number it typed is on the paper. Answers with the whole evaluated drawing, the filled title block rows included. Refused with TabKindNotSupported off a Drawing tab, NotFound for a sheet the drawing does not have or for the last sheet, and InvalidArgument for an unknown size or standard. specs/drawings_and_mbd.md §8 D4b.",
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "add_sheet": {
+            "description": "Add a sheet (taking name, size and orientation) instead of editing one.",
+            "type": "boolean"
+          },
+          "delete_sheet": {
+            "description": "Delete the sheet sheet_id names, and the views on it. Refused for the last sheet: a drawing with no sheet shows nothing and refuses every export by name.",
+            "type": "boolean"
+          },
+          "name": {
+            "type": "string"
+          },
+          "orientation": {
+            "enum": [
+              "landscape",
+              "portrait"
+            ],
+            "type": "string"
+          },
+          "projection_angle": {
+            "description": "The DRAWING's projection standard. Third angle (the ISO/ASME default) places a view on the side it is viewed from, so the view to the right of its parent shows the right-hand side; first angle places it on the opposite side.",
+            "enum": [
+              "third",
+              "first"
+            ],
+            "type": "string"
+          },
+          "sheet_id": {
+            "description": "Which sheet. Omit for the first one.",
+            "type": "string"
+          },
+          "size": {
+            "description": "A4 … A0, Letter, Tabloid, or [width_mm, height_mm] for a custom sheet.",
+            "oneOf": [
+              {
+                "enum": [
+                  "A4",
+                  "A3",
+                  "A2",
+                  "A1",
+                  "A0",
+                  "Letter",
+                  "Tabloid"
+                ],
+                "type": "string"
+              },
+              {
+                "items": {
+                  "type": "number"
+                },
+                "maxItems": 2,
+                "minItems": 2,
+                "type": "array"
+              }
+            ]
+          },
+          "title_block": {
+            "description": "Draw the title block at all.",
+            "type": "boolean"
+          },
+          "title_block_fields": {
+            "description": "The title block's rows in print order — the whole list, replaced. A row is {key} for a derived one, {key, text} for one a person types, or {label, text} for a row of your own.",
+            "items": {
+              "additionalProperties": false,
+              "properties": {
+                "key": {
+                  "enum": [
+                    "DocumentName",
+                    "SheetNumber",
+                    "Scale",
+                    "ProjectionAngle",
+                    "Date",
+                    "Author",
+                    "Material",
+                    "Revision"
+                  ],
+                  "type": "string"
+                },
+                "label": {
+                  "description": "For a row this build has no name for.",
+                  "type": "string"
+                },
+                "text": {
+                  "description": "The value. Only for Date, Author, Material, Revision and a labelled row: the first four keys are filled from the document.",
+                  "type": "string"
+                }
+              },
+              "type": "object"
+            },
+            "type": "array"
+          }
+        },
+        "type": "object"
+      },
+      "name": "drawing_sheet_edit",
+      "outputSchema": {
+        "properties": {
+          "declines": {
+            "description": "What the projections declined to decide, by counter name (D1c). Every counter but cross_body means a line the drawing does not carry, so a large count is a degenerate view rather than a clean one.",
+            "type": "object"
+          },
+          "errors": {
+            "description": "Per-view failures, each naming its view.",
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "projection_angle": {
+            "description": "Third or First angle.",
+            "type": "object"
+          },
+          "sheet_id": {
+            "type": "string"
+          },
+          "sheets": {
+            "description": "Each sheet with its size and its views (ids, projections, scales, placements, how many curves each drew and how many anchors it offers — anchor_list with include_anchors).",
+            "items": {
+              "type": "object"
+            },
+            "type": "array"
+          },
+          "tab_id": {
+            "type": "string"
+          },
+          "warnings": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "sheet_id",
           "tab_id",
           "sheets",
           "errors",

@@ -211,6 +211,36 @@ export const exportSvgTool = {
 	annotations: { title: 'Export SVG', readOnlyHint: true, openWorldHint: false }
 };
 
+export const exportPdfTool = {
+	name: 'export_pdf',
+	description:
+		"Export the open DRAWING tab's sheet as a one-page PDF at paper size — the printable deliverable. " +
+		'It is written from the same markup export_svg returns, so it is the drawing on the screen rather ' +
+		'than a second rendering of it, and it is true to scale: a 1:1 view measures its real size on the ' +
+		'printed page. Ink is BLACK ON WHITE whatever the UI theme, because a sheet is paper. Text is ' +
+		'Helvetica (a base-14 font, so nothing is embedded) and a diameter sign prints as Ø, which is ' +
+		'reported in warnings. Answers with bytes and pages; the file rides back base64 for deliver ' +
+		'"agent". Refused with TabKindNotSupported off a Drawing tab, NothingToExport when no view of the ' +
+		'sheet rebuilt, and PayloadTooLarge above the 16 MiB inline limit. specs/drawings_and_mbd.md §8 D4b.',
+	inputSchema: {
+		type: 'object',
+		properties: {
+			sheet_id: { type: 'string', description: 'Which sheet. Omit for the first one.' },
+			deliver
+		},
+		additionalProperties: false
+	},
+	outputSchema: {
+		type: 'object',
+		properties: {
+			...exportResultSchema.properties,
+			pages: { type: 'integer', description: 'Pages written. One sheet is one page.' }
+		},
+		required: exportResultSchema.required
+	},
+	annotations: { title: 'Export PDF', readOnlyHint: true, openWorldHint: false }
+};
+
 export const exportStlTool = {
 	name: 'export_stl',
 	description:

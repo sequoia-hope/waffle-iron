@@ -299,3 +299,75 @@ fn the_layout_record_carries_no_geom_ref_and_no_expression() {
     }
     assert!(json.contains("\"value\":0.04"), "{json}");
 }
+
+// ------------------------------------------------------------- D4b additions
+
+#[test]
+fn a_section_views_hatch_and_a_parents_marks_round_trip_and_stay_model_blind() {
+    // The D4b additions ride on the SAME record, so they inherit its
+    // architectural claim: no model reference reaches the renderer. A mark
+    // carries a label and two points, a hatch loop carries curves — and that
+    // is all either needs to be drawn.
+    let layout = ViewLayout {
+        hatch: vec![
+            HatchLoop {
+                curves: vec![LayoutCurve::Polyline {
+                    points: vec![[0.0, 0.0], [0.01, 0.0], [0.01, 0.01], [0.0, 0.01]],
+                    closed: true,
+                }],
+                hole: false,
+                exact: true,
+            },
+            HatchLoop {
+                curves: vec![LayoutCurve::Circle {
+                    center: [0.005, 0.005],
+                    radius: 0.002,
+                    start_angle: 0.0,
+                    end_angle: std::f64::consts::TAU,
+                }],
+                hole: true,
+                exact: true,
+            },
+        ],
+        marks: vec![
+            ViewMark::Section {
+                from: [0.0, 0.005],
+                to: [0.01, 0.005],
+                sight: [0.0, -1.0],
+                label: "A".to_string(),
+            },
+            ViewMark::Detail {
+                center: [0.005, 0.005],
+                radius: 0.003,
+                label: "B".to_string(),
+            },
+        ],
+        clip: Some(ClipCircle {
+            center: [0.005, 0.005],
+            radius: 0.003,
+        }),
+        ..ViewLayout::default()
+    };
+
+    let json = serde_json::to_string(&layout).unwrap();
+    let back: ViewLayout = serde_json::from_str(&json).unwrap();
+    assert_eq!(back, layout);
+    // One outer loop and one hole, which is what a bored box sections to.
+    assert_eq!(back.hatch.iter().filter(|l| !l.hole).count(), 1);
+    assert_eq!(back.hatch.iter().filter(|l| l.hole).count(), 1);
+    for forbidden in ["selector", "FeatureOutput", "pid"] {
+        assert!(!json.contains(forbidden), "{forbidden} in {json}");
+    }
+}
+
+#[test]
+fn a_view_layout_without_the_d4b_fields_still_loads_and_omits_them_when_empty() {
+    // Additive, both ways: a document written before D4b has no `hatch`,
+    // `marks` or `clip` key, and a view with none writes none — so a plain
+    // view's persisted layout is byte-identical to what D4a wrote.
+    let old = r#"{"curves":[],"annotations":[]}"#;
+    let back: ViewLayout = serde_json::from_str(old).unwrap();
+    assert!(back.hatch.is_empty() && back.marks.is_empty() && back.clip.is_none());
+    let json = serde_json::to_string(&back).unwrap();
+    assert_eq!(json, r#"{"curves":[],"annotations":[]}"#);
+}

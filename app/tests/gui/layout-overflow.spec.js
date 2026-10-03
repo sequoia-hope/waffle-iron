@@ -176,9 +176,28 @@ test.describe('Layout overflow', () => {
 				}),
 			first
 		);
+		// D4b widens the panel again: the sheet row gained a paper size, an
+		// orientation, a projection-angle select and a title-block checkbox,
+		// a derived view's row carries "section A of <parent>", and the add
+		// form grows four numeric inputs plus a checkbox in section mode —
+		// which is its widest state and the one that has to be swept.
+		await page.evaluate(
+			([tab, parent]) =>
+				window.__waffle.addDrawingView(tab, {
+					parent,
+					section: { from: [-0.002, 0.0], to: [0.042, 0.0] }
+				}),
+			[partTab, first]
+		);
 		const toggles = page.locator('[data-testid^="dwg-view-toggle-"]');
-		await expect(toggles).toHaveCount(2);
+		await expect(toggles).toHaveCount(3);
 		for (let i = 0; i < (await toggles.count()); i += 1) await toggles.nth(i).click();
+		// Open the add form on its widest branch: a parent chosen, so the
+		// derived-kind select shows, in `section`, so the cutting-line
+		// numbers show with it.
+		await page.getByTestId('dwg-add-parent').selectOption({ index: 1 });
+		await page.getByTestId('dwg-add-derived').selectOption('section');
+		await expect(page.getByTestId('dwg-add-section')).toBeVisible();
 
 		for (const width of WIDTHS) {
 			await resizeTo(page, { width, height: 720 });

@@ -118,6 +118,12 @@
 	--drawing-ink: var(--text-primary);
 	--drawing-hidden: var(--text-muted);
 	--drawing-annotation: var(--accent);
+	/* D4b. Hatching is a narrow CONTINUOUS line in ISO 128-50 and reads as
+	   material rather than as an annotation, so it follows the ink and not
+	   the accent — lighter than an outline so the cap's boundary still
+	   stands out through its own fill. The title block's rules are the
+	   sheet frame's, which is the annotation colour it already uses. */
+	--drawing-hatch: var(--text-secondary);
 }
 
 /*
