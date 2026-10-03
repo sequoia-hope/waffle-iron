@@ -650,3 +650,52 @@ fn golden(name: &str, actual: &str) {
         );
     }
 }
+
+/// The DXF door hands back what the projection DECLINED along with the file.
+///
+/// A DXF is a deliverable and every decline but `cross_body` is a line the
+/// drawing does not carry, so dropping the counts at the export door would let
+/// a shop drawing be accepted with no sign that it is a degenerate view. The
+/// two fixtures are the two answers: an oblique box declines nothing, and an
+/// axis-aligned view of the same box grazes every face parallel to its line of
+/// sight and says so.
+#[test]
+fn export_dxf_reports_the_projections_declines_with_the_file() {
+    let mut a = KernelV2Adapter::new();
+    let solid = make_box(&mut a, 0.040, 0.030, 0.010);
+    let bodies = [ProjectionBody {
+        handle: solid.clone(),
+        name: "plate".to_string(),
+        placement: None,
+    }];
+    let opts = ProjectOpts::default();
+
+    let oblique = ViewFrame::looking_along([-2.0, -3.0, -5.0]);
+    let (text, declines) = a
+        .export_dxf_with_declines(&bodies, &oblique, &opts)
+        .expect("the oblique box exports");
+    assert_eq!(
+        declines.total(),
+        0,
+        "a generic view of a box decides everything: {declines:?}"
+    );
+    // And it is the same file the declines-less door writes.
+    assert_eq!(
+        text,
+        a.export_dxf(&bodies, &oblique, &opts).expect("exports")
+    );
+
+    let (_, declines) = a
+        .export_dxf_with_declines(&bodies, &ViewFrame::TOP, &opts)
+        .expect("the top view exports");
+    assert!(
+        declines.ray_grazes_face > 0,
+        "a top view grazes the four walls parallel to its line of sight: \
+         {declines:?}"
+    );
+    assert_eq!(
+        declines.total() - declines.ray_grazes_face,
+        0,
+        "and declines nothing else: {declines:?}"
+    );
+}

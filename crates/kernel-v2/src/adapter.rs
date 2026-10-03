@@ -2089,17 +2089,16 @@ impl waffle_types::kernel::KernelProjection for KernelV2Adapter {
         Ok(out)
     }
 
-    fn export_dxf(
+    fn export_dxf_with_declines(
         &self,
         bodies: &[ProjectionBody],
         view: &ViewFrame,
         opts: &ProjectOpts,
-    ) -> Result<String, KernelError> {
+    ) -> Result<(String, waffle_types::kernel::projection::ProjectionDeclines), KernelError> {
         let geometry = self.project_bodies(bodies, view, opts)?;
-        Ok(crate::dxf_export::write_dxf(
-            &geometry,
-            crate::dxf_export::DEFAULT_POLYLINE_SAGITTA,
-        ))
+        let text =
+            crate::dxf_export::write_dxf(&geometry, crate::dxf_export::DEFAULT_POLYLINE_SAGITTA);
+        Ok((text, geometry.declines))
     }
 }
 

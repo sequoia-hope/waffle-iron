@@ -1100,16 +1100,36 @@ pub trait KernelProjection {
     /// One view of `bodies` as a DXF drawing (`specs/drawings_and_mbd.md` §8
     /// export, and §12's early deliverable): the flat-pattern file a laser,
     /// waterjet or plasma table consumes, with no sheet, title block or
-    /// annotation.
-    fn export_dxf(
+    /// annotation — together with what the projection DECLINED to decide.
+    ///
+    /// The declines travel with the file because a DXF is a deliverable and
+    /// the counts are the only thing that tells a decided drawing from a
+    /// quiet one. Every counter but `cross_body` is a MISSING line — a dashed
+    /// arc the drawing does not carry — and a file with tens of thousands of
+    /// `ray_grazes_face` is a degenerate view, not a clean one. Dropping them
+    /// at the export door would mean a shop drawing could be accepted with no
+    /// sign of it.
+    fn export_dxf_with_declines(
         &self,
         _bodies: &[ProjectionBody],
         _view: &ViewFrame,
         _opts: &ProjectOpts,
-    ) -> Result<String, KernelError> {
+    ) -> Result<(String, ProjectionDeclines), KernelError> {
         Err(KernelError::NotSupported {
             operation: "export_dxf".to_string(),
         })
+    }
+
+    /// [`KernelProjection::export_dxf_with_declines`] for a caller with
+    /// nowhere to put the declines.
+    fn export_dxf(
+        &self,
+        bodies: &[ProjectionBody],
+        view: &ViewFrame,
+        opts: &ProjectOpts,
+    ) -> Result<String, KernelError> {
+        self.export_dxf_with_declines(bodies, view, opts)
+            .map(|(text, _)| text)
     }
 }
 
