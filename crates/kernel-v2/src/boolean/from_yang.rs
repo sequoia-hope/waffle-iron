@@ -652,6 +652,89 @@ pub fn from_yang_brep_indexed_with_operands(
                     z: s * stored[2],
                 })
             };
+            // A rim on an AXIS-TYPE lateral band (cylinder or cone) reads its
+            // sense from the band's OTHER rim, which is the rule
+            // `validate_cylinder_face` and `validate_cone_face` both state and
+            // enforce: on an outward (solid) band (`reversed == false`) each
+            // full-circle rim's traversal axis points TOWARD the opposite rim;
+            // on a cavity wall (`reversed == true`) it points AWAY. The same
+            // law the SI5 STEP ingest derives a rim's traversal from
+            // (`specs/step_import_si5_exact_analytic_ingestion.md`, "Which way
+            // a rim circle is traversed is derived, never read"), stated here
+            // once for the boolean-output path.
+            //
+            // The opposite rim is read from the face's WHOLE rim inventory,
+            // not from the loop that owns this use: the canonical band comes
+            // in two topological forms and only one of them keeps both rims in
+            // one loop —
+            //   * the SEAMED form, one loop `rim · seam · rim · seam`, and
+            //   * the ANNULAR form, outer loop = one rim, inner loop = the
+            //     other, each a lone closed edge,
+            // and the annular form has no "edge leaving the anchor" to read at
+            // all (its loop is the single closed circle), which is why the
+            // leaving-edge reading below cannot serve it.
+            let derive_axis_band = |u: &EdgeUse| -> Option<UnitVector3> {
+                let spec = &loops[u.loop_idx];
+                let EdgeKind::Full {
+                    center: rim_c,
+                    normal: rim_n,
+                    ..
+                } = spec.edges[u.pos]
+                else {
+                    return None;
+                };
+                let (axis, reversed) = match surfs[spec.face] {
+                    FaceSurf::Cylinder {
+                        axis_dir, reversed, ..
+                    }
+                    | FaceSurf::Cone {
+                        axis_dir, reversed, ..
+                    } => (axis_dir, reversed),
+                    _ => return None,
+                };
+                // The rim circle's axis must be the face axis up to sign — the
+                // same consistency check the two validators apply to a rim
+                // normal ("rim circle normal must be along the cone axis").
+                if dot3(axis, rim_n).abs() < 1.0 - YANG_NORMAL_AGREEMENT_TOLERANCE {
+                    return None;
+                }
+                // Exactly one other full circle anywhere on this face, or the
+                // face is not a canonical two-rim band and the rule does not
+                // apply (the single-rim APEX cone form carries its own rule —
+                // "toward the apex" — and has no producer here yet).
+                let mut other: Option<Point3> = None;
+                for (li, sp) in loops.iter().enumerate() {
+                    if sp.face != spec.face {
+                        continue;
+                    }
+                    for (k, e) in sp.edges.iter().enumerate() {
+                        if li == u.loop_idx && k == u.pos {
+                            continue;
+                        }
+                        if let EdgeKind::Full { center, .. } = *e {
+                            if other.is_some() {
+                                return None; // three or more rims: not the band
+                            }
+                            other = Some(center);
+                        }
+                    }
+                }
+                let other = other?;
+                // Signed separation of the two rim planes along the STORED
+                // circle axis. Zero means the two rims are coplanar — a
+                // degenerate band with no reading; decline, loudly.
+                let toward = dot3(sub(other, rim_c), rim_n);
+                if !toward.is_finite() || toward == 0.0 {
+                    return None;
+                }
+                let s = if reversed { -1.0 } else { 1.0 };
+                let flip = if toward * s > 0.0 { 1.0 } else { -1.0 };
+                Some(UnitVector3 {
+                    x: flip * rim_n[0],
+                    y: flip * rim_n[1],
+                    z: flip * rim_n[2],
+                })
+            };
             // A rim shared by two CURVED laterals (a pipe's G1 joint —
             // cylinder↔torus or torus↔torus, spec `b2_pipe_sweep.md`) has no
             // planar cap to read the sense from. Derive it from the lateral's
@@ -769,6 +852,18 @@ pub fn from_yang_brep_indexed_with_operands(
                     return Ok(nu);
                 }
                 if let Some(nu) = derive_curved(partner) {
+                    return Ok(neg_unit(nu));
+                }
+                // The two-rim band rule last, so this increment is purely
+                // additive: it fires only where every reading above declined
+                // and the assembler used to STOP. Where both this rule and the
+                // leaving-edge reading apply (a seamed cylinder or cone band)
+                // they derive the same law from the same `reversed` flag, so
+                // the order decides nothing but which one answers first.
+                if let Some(nu) = derive_axis_band(u) {
+                    return Ok(nu);
+                }
+                if let Some(nu) = derive_axis_band(partner) {
                     return Ok(neg_unit(nu));
                 }
                 Err(KernelV2Error::InvalidBooleanOutput(

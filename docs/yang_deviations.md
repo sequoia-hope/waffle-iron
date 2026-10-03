@@ -108,6 +108,7 @@ Presented 2026-07-16; the user's answer (2026-07-17) was **"i have no opinion on
 | N68 | RESOLVED (2026-10-03 late night, P0013: the LOCAL-form §4.3.3 density guard is always-on; corpus 318C/0W/13E/5EE/0T over 336, one move, zero regressions — `specs/yang_p0013_tip_land_under_the_chord.md` §4 P3) | The §4.3.3 Case-IV rule-out only fires on a CLOSED component of refuted corners, so a phantom BUMP on a REAL intersection curve is never ruled out — the paper rules out per SOLUTION, not per loop. Two sub-gaps feed it: a claim whose shared edge is CURVED is declined outright (`CURVED-EDGE`, no verdict either way), and the §4.5.2 under-resolution demand is dropped whenever the clearance bound floors at 0 — which the 65-sample Lipschitz slack `len/128` guarantees for a short land on a long edge (P0013: a 9.2807e-6 land on a 5.1769e-3 edge). P1 fixed the clearance exactly (cylinders); the rule-out's loop shape and the guard's default-off state remain |
 | N69 | OPEN (2026-10-03, P0023/P0024; remediation = graze-aware ray selection, netted meanwhile by `InsideOutError::InnerLabelOutsideInputBounds`) | Cherchi 2022 §5 in/out classification picks the FIRST non-border explicit patch vertex and casts a +X ray, and never checks that the ray crosses the other input TRANSVERSALLY. When the origin sits on a shared edge the ray runs ALONG an edge of the other operand — its line is the intersection of two of that operand's face planes, so it is coplanar with both and crosses neither — and the degenerate vertex/edge ring resolution (`perturbRayAndFindIntersTri`) counts exactly ONE hit where a graze must count 0 or 2. The nearest-hit orientation then reads "entering" and the whole patch is labeled INSIDE the other input. Measured 2026-10-03 on two 10 mm cubes meeting along one edge, flush in the third axis: `Intersect` returns a copy of operand A (volume 1.0000000000000002e-6 m³, A's own) and `Union` returns one operand, dropping the other — a SILENT WRONG, no STOP, in 2 of 3 orientations (the third's ray misses the other operand and is correct). NOT a port divergence: the C++ reference `mesh_booleans` was run on the same two meshes and emitted byte-identical labels (`0 | 1 | 0` for all 12 of A's triangles) and the same operand-copy output, so cherchi-rs is in exact parity and the METHOD has no answer here. The paper's own remedy shape exists one branch over — the rational fallback already retries axes when "all three axis rays graze input geometry exactly" — but the f64 explicit branch, which is what production takes, has no graze test and no retry. Remediation: reject a candidate ray that is coplanar with any candidate triangle of another label it meets, and try the next origin/axis (exact, and byte-neutral on every non-grazing input); it is NOT landed here because ray selection is the single most load-bearing primitive in the stack and the change cannot be corpus-validated in a session that may not run the assay |
 | N71 | RESOLVED (2026-10-03, P0017/P0018) | kernel-v2's developable-patch material-CCW postcondition (`validate_cylinder_patch` / `validate_cone_patch`) measured its chart winding on a VERTICES-ONLY shoelace — every boundary edge replaced by its chart CHORD. A loop's winding is a property of its boundary CURVES: the planar arm has always known this (`geom::planar_loop_signed_area` adds each arc's exact circular-segment area to the chord polygon's), and §4.1's parametric-domain triangulation is defined on the domain bounded by the curves' images, not their chords. A patch whose boundary curve bulges further across the chart than the patch is wide therefore read the OPPOSITE sign and the kernel rejected its OWN correct output. Measured on P0018's `FaceId(27)`: an oblique plane∩cylinder ellipse arc whose chart image `h(θ) = 349.0216 − 221.2497·cos(θ − 0.42957)` dips to 127.77 at θ = 0.4296 while BOTH its endpoints and the whole 7-chord return polyline sit at 143.79–147.87 — chord shoelace −4.575 (a hole) against a canonical-chart +18.305 (material); on P0017's cone sliver, −6.723e-7 against +7.175e-8 (the chord polygon also overstates the area ~9×). Both arms now append each boundary curve's chart image via `tessellate::sampling` (`arc_interior_samples_frac`, `ellipse_interior_samples`, `hyperbola_interior_samples`, `surface_pair_edge_samples`) at the canonical chord density `RENDER_CHORD_TOLERANCE_REL` — the same polygon the render CDT triangulates (crate hard rule 5, one engine). Net winding, the band/apex-cap `mean_h` rules and every other tier are untouched (`mean_h` still reads loop VERTICES only). The quartic `SurfacePair` chart image has no closed form, so unlike the planar arm this is the canonical chart polygon rather than an exact integral — the exact closed forms for the conic arms (`h(θ)` sinusoidal on a cylinder, `τ(θ) = D/(n·â + tanα·B·cos(θ−φ))` on a cone) are the open refinement |
+| N73 | RESOLVED (2026-10-03, P0019) | `from_yang_brep`'s full-circle sense derivation (`n_for`) admitted only two witnesses — a planar cap use, or `derive_curved`'s leaving-edge reading, whose surface match listed `Cylinder` and `Torus` only. A **cone** fell into its `_ => return None` and could never be read at all; and a band in the ANNULAR form (outer loop = one rim, inner loop = the other — how yang emits a surviving untouched lathe band, the seam being representation gauge, not boundary) has no edge leaving the anchor for that reading to use. So a lathe body with no planar cap anywhere — P0019's genus-1 ring of FIVE cone bands, from a non-convex profile revolved about an external axis — STOPped with `InvalidBooleanOutput("full-circle edge sense is underivable …")`, the wall R0004 once hit. §4.4.2 gives each boundary curve its sense from the patch it bounds (`refs/text/yang2025_hybrid_boolean.txt:574-605`, the `d_ε` contract at `:447-451`), with no planar neighbour anywhere in it; and the rule was already stated and ENFORCED twice in-repo — `validate_cone_face` and `validate_cylinder_face`, word for word ("each rim's traversal axis points TOWARD the opposite rim for an outward (solid) band", AWAY on a cavity wall) — and is the same law the SI5 STEP ingest derives a rim's traversal from (`specs/step_import_si5_exact_analytic_ingestion.md`, "Which way a rim circle is traversed is derived, never read"). It needs only the face's own two rim centres, which the annular form supplies as readily as the seamed one. `derive_axis_band` now reads it from the face's WHOLE rim inventory (either loop), appended to `n_for`'s ladder AFTER both existing readings so the increment is purely additive. Declines loudly on ≥3 rims, a rim axis disagreeing with the face axis, coplanar rim planes, and the single-rim APEX cone form (whose rule is "toward the apex" and has no producer here yet); the SPHERE deliberately keeps no arm, since `validate_sphere_face` is topology-agnostic and states no rim rule to propagate. Pins `crates/kernel-v2/tests/p0019_cone_rim_sense.rs`, mutation-checked both ways. P0019 itself is HALF-converted: it now stops one stage later on `CurvedGeometryMismatch { face: FaceId(17), reason: "cone face with inner loops is outside the KV6c vocabulary" }`, because `recover.rs` anchors seam feet greedily per face and these five rims form a CYCLE — faces 0 and 2 reach PASS 2 with both anchors pinned 15° (π/12, one lattice step) apart and keep the annular form. The remedy is the SI5 spec's own: anchor per CONNECTED COMPONENT of rims-joined-by-bands, one azimuth per component. Tracked in the P0019 row of `docs/yang_tail_triage.md`; it moves minted seam feet corpus-wide, so it needs a full-corpus proof in its own cycle |
 | N72 | RESOLVED (2026-10-03, P0016) | Stage 1 sizes every curved chart against ONE operand-level chord budget (`stage1_tessellate`'s `operand_chord_budget` = `curved_chord_bound`, else `ellipse_rim_chord_bound`), whose own comment names it "the operand's chord budget **as Stage 3/4 read it back**". Only the CYLINDER arms read it back (Stage 3 `chord_tol_for_curved_owner`, with the KV14 ellipse/hyperbola and M5 K11 surface-pair rungs; Stage 4 `input_curved_chord_bound`). BOTH CONE arms — Stage-3 `cone_chord_tol_for_owner` and Stage-4 `cone_chord_budget_from_owner` — instead demanded a `Curve::Circle` rim and called its absence a "producer fault", so a cone PATCH re-entering from a prior boolean, bounded by conic chains alone, STOPped on a band the operand demonstrably carried. P0016 measured it: the cone-owning operand's edge census was 2 ellipses + 6 hyperbolas + 10 segments, ZERO circles, and the Stage-3 STOP read `AmbiguousCurve { candidates: 0, matched: 0 }` — not an ambiguity (`ssi_rs::intersect` was never reached) and not §4.3.3's Case IV either, which is a disposition for a solve that RAN ("if there is no solution in one of the two parametric domains …", `refs/text/yang2025_hybrid_boolean.txt:518-537`). Fixing the Stage-3 arm alone moved the STOP one stage down to the Stage-4 twin (`LocalRefinementRequired`, probe site `cone_ellipse_budget`), where the §4.5.2 ladder could not help — `d_ε/2` and `d_ε/4` took the operand 20 → 20 → 22 triangles, because a missing band is not a resolution problem. Both arms now delegate to one single source, `owner_stage1_chord_budget`; the per-band N38 bound still wins wherever a rim Circle exists (every circle-rimmed cone case byte-identical, the multi-band gear revolve included) and the loud producer fault survives for an owner with no curved rim at all. Pins `crates/yang-rs/src/tests_unit/n71_cone_band_readback.rs`; `YANG_S3_AMBIG_PROBE` extended to all four producers of that one error text, without which a `{0,0}` cannot be localized at all |
 | #137 diag | HISTORICAL | #137 (2026-07-15): C0065/R0074 — the torus∩plane solver EXISTS and RUNS; the blocker is mesh RESOLUTION nea… |
 | #137 diag 2 | HISTORICAL | #137 (2026-07-15, follow-up): resolution ALONE is not the fix — it flips the loud STOP into a silent-wrong … |
@@ -5026,6 +5027,77 @@ are in `smoke_corpus_boundary_categories`. Diagnostic probes
 `KV2_CYLPATCH_PROBE` / the new `KV2_CONEPATCH_PROBE` now dump the per-loop
 wrap / `mean_h` / `area2` for EVERY developable patch and at the material-CCW
 wall, not only at the wrapping-count wall.
+## N73 — a cone band's rim traversal was underivable at the output gate, though two validators already state the rule (P0019)
+
+**State: RESOLVED (2026-10-03, P0019) for the sense derivation; the rim-cycle
+anchoring it unmasked is tracked as the open step in the P0019 row of
+`docs/yang_tail_triage.md`.**
+
+**Paper.** §4.4.2 "B-Rep Booleans" says the output is "restored as a collection
+of parameter surfaces and their boundary curves in the parametric domain", the
+boundary curves "collected and mapped back to the parametric surfaces by
+fitting the curve in the parametric domain", and the operation "finalized by
+restoring the corresponding parametric surfaces and boundary curves of them"
+(`refs/text/yang2025_hybrid_boolean.txt:574-605`) — each boundary curve's sense
+comes from the patch it bounds, which the `d_ε` contract keeps authoritative
+throughout (`:447-451`). Nothing there or in §4.5 makes a closed rim's
+traversal readable only beside a PLANAR face, and a lathe body with no planar
+cap anywhere is not a special case in the method.
+
+**Divergence.** `from_yang_brep`'s full-circle sense derivation (`n_for`,
+`crates/kernel-v2/src/boolean/from_yang.rs`) admitted exactly two witnesses:
+`derive_planar`, a planar cap use whose plane normal agrees with the circle
+axis, and `derive_curved`, the leaving-edge reading, whose surface match listed
+only `FaceSurf::Cylinder` and `FaceSurf::Torus`. A **cone** fell into its
+`_ => return None` and so could never be read at all; and a band in its ANNULAR
+form (outer loop = one rim, inner loop = the other — how yang emits a surviving
+untouched lathe band, the seam being representation gauge rather than boundary)
+has no edge leaving the rim's anchor for that reading to use, since the loop IS
+the single closed rim. `n_for`'s own `matches!` list had meanwhile grown to
+`Cylinder | Cone | Torus | Sphere` for the partner-planar route (per
+`specs/kv6d_sphere_revolve.md`), so the cone was already understood to be a
+legitimate curved use — only the no-cap route never got its arm.
+
+The rule was never missing from the repo, only from this site. It is stated and
+ENFORCED twice: `validate_cone_face` ("each rim's traversal axis points TOWARD
+the opposite rim for an outward (solid) frustum (`reversed == false`)") and
+`validate_cylinder_face`, word for word; and it is the same law the SI5 STEP
+ingest derives a rim's traversal from
+(`specs/step_import_si5_exact_analytic_ingestion.md`, "Which way a rim circle
+is traversed is derived, never read" — "on the lateral,
+`validate_cylinder_face`/`validate_cone_face`'s rule … on the face across that
+rim, the negation"). It needs nothing but the face's own two rim centres, which
+the annular form supplies as readily as the seamed one.
+
+P0019 measured it: a 5-vertex non-convex profile revolved about an external
+axis is a genus-1 ring of five cone bands with NO planar cap, and the subtract
+STOPped on the rim at z = 4.947118296366554e-1, r = 4.5827019552722414e-1,
+whose two uses are an annular cone band (`reversed = false`) and a seamed cone
+band (`reversed = true`). Derived by the stated rule the two come out exactly
+opposite — `−ẑ` and `+ẑ`.
+
+**Fix.** `derive_axis_band`, appended to `n_for`'s ladder after both existing
+readings, so the change is purely additive: it answers only where the assembler
+previously raised `InvalidBooleanOutput("full-circle edge sense is underivable
+…")`, leaving every currently-passing output on its existing route (and where
+both routes apply, a seamed cylinder or cone band, they read the same law from
+the same `reversed` flag). It takes the opposite rim from the face's WHOLE rim
+inventory, either loop, and declines loudly on three or more rims, on a rim
+whose circle axis disagrees with the face axis, on coplanar rim planes, and on
+the single-rim APEX cone form — whose rule is different ("toward the apex") and
+which has no producer at this site yet. The SPHERE likewise keeps no arm here,
+deliberately: `validate_sphere_face` is topology-agnostic by design and states
+no rim-traversal rule, so there is none to propagate, and a sphere rim with no
+cap use stays a loud wall rather than a guess.
+
+Pins `crates/kernel-v2/tests/p0019_cone_rim_sense.rs` (a two-frustum "barrel",
+the smallest closed solid whose rim's two uses are both cone bands).
+Mutation-checked both ways: dropping the `FaceSurf::Cone` arm restores the
+`underivable` text verbatim, and flipping the `reversed` sign fails as
+`CurvedGeometryMismatch { face: FaceId(0), reason: "rim traversal axis
+disagrees with the cone's material sense" }` — the validator's own sentence, so
+a wrong derivation at this site cannot pass silently.
+
 ## N72 — the CONE arms never read the operand's Stage-1 chord budget back, at BOTH stages (P0016)
 
 **State: RESOLVED (2026-10-03, P0016).**

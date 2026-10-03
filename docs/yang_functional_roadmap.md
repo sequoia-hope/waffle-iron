@@ -9,6 +9,60 @@
 
 ## 0. Honest status (refreshed 2026-06-26; addendum 2026-09-04 below)
 
+> **2026-10-03 (late night) refresh — P0019's sense wall CONVERTED, the case
+> HALF-converted; corpus NOT re-measured this session (another assay held the
+> box).** Deviation **N73**. P0019's body is a **genus-1 ring of FIVE cone
+> bands** — a 5-vertex non-convex profile revolved about an axis outside it, so
+> every profile edge is oblique and the solid has **no planar cap anywhere**.
+> `from_yang_brep`'s full-circle sense derivation (`n_for`) had exactly two
+> witnesses, and neither can speak for such a body: `derive_planar` needs a
+> planar cap use, and `derive_curved`'s leaving-edge reading matched only
+> `Cylinder` and `Torus`, so a **cone fell into its `_ => return None` and had
+> never been readable at all** — plus the ANNULAR band form (outer loop = one
+> rim, inner loop = the other, how yang emits a surviving untouched lathe band)
+> has no edge leaving the anchor for that reading to use. The cap was not a
+> requirement of the geometry; it was the only route left once the cone arm was
+> missing. The rule was already in the repo, stated and ENFORCED twice —
+> `validate_cone_face` and `validate_cylinder_face`, word for word ("each rim's
+> traversal axis points TOWARD the opposite rim" for an outward band, AWAY on a
+> cavity wall) — and is the same law the SI5 STEP ingest derives a rim's
+> traversal from ("Which way a rim circle is traversed is derived, never
+> read"). It needs only the band's own two rim centres, which the annular form
+> supplies as readily as the seamed one. `derive_axis_band` now reads it from
+> the face's WHOLE rim inventory, appended to `n_for`'s ladder AFTER both
+> existing readings so the increment is **purely additive**: it answers only
+> where the assembler used to STOP, and no currently-passing output changes
+> route. Pins `crates/kernel-v2/tests/p0019_cone_rim_sense.rs` (a two-frustum
+> "barrel", the smallest closed solid whose rim's two uses are both cone
+> bands), mutation-checked both ways — dropping the cone arm restores the
+> `underivable` text verbatim, flipping the `reversed` sign fails as the
+> validator's own "rim traversal axis disagrees with the cone's material
+> sense", so a wrong derivation here cannot pass silently.
+>
+> **The case is still ERROR, on a NEW honest wall one stage later:**
+> `CurvedGeometryMismatch { face: FaceId(17), reason: "cone face with inner
+> loops is outside the KV6c vocabulary" }`. Two of the five bands keep the
+> annular form, which neither curved validator's canonical vocabulary accepts,
+> because `recover.rs` anchors seam feet **greedily per face** and these five
+> rims form a **CYCLE** rather than a chain: measured with
+> `KV2_RECOVER_PROBE=1`, all five faces are valid two-closed-chain candidates,
+> PASS 1 pairs faces 1, 3 and 4 at `daz = 0` (pinning all five rim anchors in
+> the process), and faces 0 and 2 then reach PASS 2 with both anchors already
+> fixed `2.618e-1 rad = π/12 = 15°` apart — one whole lattice step, not noise —
+> where its "both anchors fixed elsewhere and not a ruling … never move an
+> anchor" refusal applies. **The remedy is already written down for the other
+> copy of this rule:** the SI5 ingest anchors per **connected component of
+> rims-joined-by-bands** ("pick one anchor direction per component and
+> re-anchor the rest to it"), admissible because a closed edge's anchor is pure
+> representation gauge — Stroud's fake edge — and none of these five rims is
+> pinned by another edge. That is the open step; it moves minted seam feet, and
+> therefore render phase, for every canonical band in the corpus, so it needs a
+> full-corpus proof in its own cycle (the P0013 precedent), not an additive
+> patch. Noted on the way, because it is why the pin cannot carry the exact
+> P0019 face: `yang_rs::BRep::new` **refuses** the annular band as INPUT ("cone
+> periodic strip (2 encircling rims) not yet supported") while yang's own
+> Stage-5 emits it.
+
 > **2026-10-03 (night, third) refresh — P0016 CONVERTED; corpus NOT
 > re-measured this session.** Deviation **N71**, and it is a MIRRORED PAIR.
 > Stage 1 sizes every curved chart against one operand-level chord budget

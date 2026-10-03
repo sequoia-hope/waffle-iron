@@ -934,6 +934,15 @@ fn try_recover(
                     "[recover-probe] canonicalize face {fi} surface={:?} loop_chains={loop_chains:?}",
                     yfaces[fi].surface
                 );
+                for lc in loop_chains.iter().flatten() {
+                    eprintln!(
+                        "[recover-probe]   chain {lc}: closed={} nverts={} anchor={:?} curve={:?}",
+                        chains[*lc].closed,
+                        chains[*lc].verts.len(),
+                        chains[*lc].anchor,
+                        chains[*lc].curve
+                    );
+                }
             }
             // Cylinder OR cone laterals canonicalize identically: two closed
             // rims joined by one azimuth-aligned seam ruling (axis-parallel for
@@ -1048,7 +1057,34 @@ fn try_recover(
             }
             // The aligned pair's chord must be a true ruling: azimuth-equal
             // within the angular band (length-scaled by radius).
-            let Some((daz, va, vb)) = best else { continue };
+            //
+            // Diagnostic probe (env-gated, same `KV2_RECOVER_PROBE` as above):
+            // PASS 1's per-face verdict with the measured |Δaz|. It is what
+            // localized P0019's open step — in a rim CYCLE (a closed lathe
+            // profile revolved about an external axis) the faces that DO pair
+            // here pin every rim anchor, and the rest then reach PASS 2 with
+            // both anchors already fixed a whole lattice step apart, where its
+            // "never move an anchor" refusal leaves them in the annular form.
+            // Without the number, a canonicalization miss looks like a bug in
+            // PASS 2 rather than a consequence of PASS 1's greedy order.
+            let Some((daz, va, vb)) = best else {
+                if std::env::var_os("KV2_RECOVER_PROBE").is_some() {
+                    eprintln!("[recover-probe] pass1 face {}: no candidate pair", cand.fi);
+                }
+                continue;
+            };
+            if std::env::var_os("KV2_RECOVER_PROBE").is_some() {
+                eprintln!(
+                    "[recover-probe] pass1 face {}: daz={daz:.17e} daz*r={:.17e} band={band:.17e} -> {}",
+                    cand.fi,
+                    daz * cand.radius,
+                    if daz * cand.radius > band {
+                        "UNPAIRED"
+                    } else {
+                        "paired"
+                    }
+                );
+            }
             if daz * cand.radius > band {
                 unpaired.push(ci);
                 continue;

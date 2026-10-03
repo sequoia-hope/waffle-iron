@@ -1117,7 +1117,7 @@ ten give those families customers again, at 2–5 ops.
 | P0016 | `convex4:boss convex4:rev-cut convex3:cut` | 3 | Stage-3 `AmbiguousCurve { candidates: 0, matched: 0 }` — **zero** candidates, so no curve was proposed at all. **CONVERTED 2026-10-03 (night)**: neither an ambiguity nor a producer fault — the CONE arms never read the owner's Stage-1 chord budget back, at BOTH stages (deviation N72, section below). Oracles adjudicated, `derived_meta` cleared | ERROR / ERROR (same class) | 3e4× | 0.4 s → 0.8 s |
 | P0017 | `convex4:boss nonconvex10:rev circle:cut` | 3 | `CurvedGeometryMismatch "bounded cone patch must have exactly one material-CCW loop"`. **HALF-CONVERTED 2026-10-03** (deviation N71, see the dated section below): the postcondition measured its chart winding on a VERTICES-ONLY shoelace and rejected a correct sliver (−6.723e-7 against a canonical-chart +7.175e-8). Both arms fixed; the case now lands one stage later on an UNMASKED LATENT — `TessellationFailed "ring rejected by CDT (degenerate/self-intersecting)"` on the same 7.2e-8-area chart sliver, N68's family | ERROR (a degenerate zero-area input face) / ERROR (a CDT ring reject — **already the class it now reads at its own scale**) | 91× | 1.1 s → 0.5 s |
 | P0018 | `circle:boss circle:sym nonconvex7:cut` | 3 | the cylinder arm of the same postcondition. **CONVERTED 2026-10-03** (N71): chord shoelace −4.575 where the canonical chart polygon reads +18.305. Oracles adjudicated (one body, TWO shells, χ 4, volume 6.738844e6 ± 3e-3), `derived_meta` cleared | ERROR / ERROR (same class) | 8.9e7× | 1.0 s → 3.6 s |
-| P0019 | `convex4:boss nonconvex5:rev convex4:cut` | 3 | `InvalidBooleanOutput "full-circle edge sense is underivable"` (the wall R0004 once hit) | ERROR / ERROR (same class) | 1.34e5× | 0.2 s |
+| P0019 | `convex4:boss nonconvex5:rev convex4:cut` | 3 | `InvalidBooleanOutput "full-circle edge sense is underivable"` (the wall R0004 once hit). **HALF-CONVERTED 2026-10-03 (late night)** (deviation N73, section below): the body is a genus-1 ring of FIVE cone bands with NO planar cap, and the derivation had no `FaceSurf::Cone` arm at all — the rule `validate_cone_face`/`validate_cylinder_face` both ENFORCE ("toward the opposite rim") needs only the band's two rim centres. Sense wall gone; the case now lands one stage later on an UNMASKED LATENT — `CurvedGeometryMismatch "cone face with inner loops is outside the KV6c vocabulary"`, two of the five bands left ANNULAR by `recover.rs`'s greedy per-face seam anchoring in a rim CYCLE (15° = π/12 apart) | ERROR / ERROR (same class) | 1.34e5× | 0.2 s |
 | P0020 | `circle:boss gear12:∩ convex4:∩` | 5 | `malformed B-Rep topology: face 0: holed lateral CDT failed: duplicate (coincident) loop vertex in CDT input` — an INPUT rejection, so the first Intersect's OWN output is malformed | ERROR (a different class: an interior-junction / weld-band ambiguous edge-split) / ERROR (same class) | 83× | 10.6 s |
 | P0021 | `convex4:boss circle:boss circle:boss` | 3 | auto-union `SelfIntersectingBooleanOutput { penetrations: 5 }` — P0007's signature on three plain bosses | ERROR / ERROR (same class) | 710× | 0.4 s |
 | P0022 | `convex5:boss circle:boss circle:cut convex4:boss circle:thru` | 5 | `malformed B-Rep topology: face 2: interior junction … not contained by any lateral triangle — the mint would be silently dropped` | ERROR (same class) / **CORRECT** | 400× | 0.9 s |
@@ -1349,6 +1349,140 @@ this branch at HEAD — two cubes sharing one edge now raise the N69 netting
 `InnerLabelOutsideInputBounds` where that test expects `Ok`. Verified
 pre-existing by reverting both N71 hunks and re-running (still FAILED); no
 cone is involved. It belongs to today's P0023/P0024 landing.
+
+#### P0019 — ANCHORED and HALF-CONVERTED 2026-10-03 (late night): the sense wall is gone; the case now stops on the rim-cycle anchoring behind it
+
+**The body.** `convex4:boss nonconvex5:rev convex4:cut` revolves a 5-vertex
+non-convex profile about an axis OUTSIDE the profile, so the revolve body is a
+**genus-1 ring of five cone bands joined rim to rim** — five profile edges, all
+oblique to the axis, five profile vertices, and **no planar cap anywhere on the
+body**. Measured from the output (probe at the `n_for` STOP, release):
+
+| rim (chain) | centre z | radius | band below | band above |
+|---|---|---|---|---|
+| 0 | 4.947118296366554e-1 | 4.5827019552722414e-1 | face 4 | face 0 |
+| 1 | 3.2213284483034144e-1 | 6.257859458823911e-1 | face 0 | face 1 |
+| 2 | 1.9201578365393923e-1 | 6.560855613540882e-1 | face 1 | face 2 |
+| 3 | 1.4622513356322464e-1 | 5.202503820647403e-1 | face 2 | face 3 |
+| 4 | 2.4463592544986093e-1 | 2.872488150108211e-1 | face 3 | face 4 |
+
+All five faces are `Cone` (axis ẑ through x = −0.18, y = −0.92); every rim
+circle's normal is `[0,0,1]`; every band's `tau`/`cone_radius_at` relation
+checks out, so the output geometry is right.
+
+**Anchor — the STOP.** The failing edge is rim 0. Its two uses are face 0 (a
+cone, apex z = 9.668334357745698e-1, axis `[-0,-0,-1]`, half-angle
+7.705115453504778e-1, `reversed = false`) in the **ANNULAR** form — outer loop
+= rim 0 as a lone closed edge, inner loop = rim 1 as a lone closed edge — and
+face 4 (a cone, apex z = −1.7539347042749598e-1, axis `[0,0,1]`, half-angle
+5.998236058015911e-1, `reversed = true`) in the **SEAMED** form, one loop
+`[rim 0, Seg, rim 4, Seg]`. Neither witness `n_for` had could speak:
+
+- `derive_planar` needs a `FaceSurf::Plane` use, and this body has none;
+- `derive_curved` — the leaving-edge reading — matches only
+  `FaceSurf::Cylinder` and `FaceSurf::Torus`. **A cone falls into its
+  `_ => return None`**, so it has never been able to read a cone band at all,
+  seamed or not. And on face 0 there is nothing to read anyway: the annular
+  form's loop IS the single closed rim, so the `m < 2` guard declines first.
+
+So the cap requirement was never a requirement of the geometry — it was the
+only route left once the cone arm was missing.
+
+**The deviation (N73).** The rule is already stated and ENFORCED twice in this
+repo and was simply not read at this site: `validate_cone_face` ("each rim's
+traversal axis points TOWARD the opposite rim for an outward frustum
+(`reversed == false`)") and `validate_cylinder_face` (the identical sentence) —
+the same law the SI5 STEP ingest derives a rim's traversal from
+(`specs/step_import_si5_exact_analytic_ingestion.md`, "Which way a rim circle
+is traversed is derived, never read"). It needs nothing but the face's own two
+rim centres. Derived that way the two uses of rim 0 come out exactly opposite:
+face 0 → `−ẑ` (its other rim sits BELOW, `!reversed` ⇒ toward it), face 4 →
+`+ẑ` (its other rim also sits below, `reversed` ⇒ away from it).
+
+**Landed.** `derive_axis_band` in `crates/kernel-v2/src/boolean/from_yang.rs`,
+appended to `n_for`'s ladder AFTER both existing readings so the increment is
+purely additive — it fires only where the assembler used to STOP, and no
+currently-passing output changes route. It reads the opposite rim from the
+face's WHOLE rim inventory (either loop), which is what the annular form
+requires; three or more rims, a rim whose axis disagrees with the face axis,
+coplanar rim planes, and the single-rim APEX cone form all decline, loudly.
+Pins: `crates/kernel-v2/tests/p0019_cone_rim_sense.rs` — a "barrel" (two cone
+frustums meeting at a shared rim, a planar disc at each end), the smallest
+closed solid with a rim whose two uses are both cone bands. Mutation-checked:
+dropping the `FaceSurf::Cone` arm restores
+`InvalidBooleanOutput("full-circle edge sense is underivable …")` verbatim, and
+flipping the `reversed` sign fails as `CurvedGeometryMismatch { face:
+FaceId(0), reason: "rim traversal axis disagrees with the cone's material
+sense" }` — the validator's own sentence, so a wrong derivation here cannot
+pass silently.
+
+**Still ERROR — a NEW, honest wall one stage later.** The case now reads
+`CurvedGeometryMismatch { face: FaceId(17), reason: "cone face with inner loops
+is outside the KV6c vocabulary" }`. Faces 0 and 2 arrive ANNULAR and
+`validate_cone_face` (like `validate_cylinder_face`) accepts only the seamed
+band. They arrive annular because `recover.rs`'s canonicalization anchors seam
+feet **greedily per face**, and these five rims form a **CYCLE** rather than a
+chain. Measured (`KV2_RECOVER_PROBE=1`, release) — all five faces are valid
+two-closed-chain candidates, each rim carrying 4 retained vertices, and PASS 1
+decides:
+
+```
+pass1 face 0: daz=2.61799387799148686e-1 daz*r=1.63830377525321175e-1 band=2.57608556135408847e-9 -> UNPAIRED
+pass1 face 1: daz=0.00000000000000000e0  daz*r=0.00000000000000000e0  band=2.57608556135408847e-9 -> paired
+pass1 face 2: daz=2.61799387799149130e-1 daz*r=1.71762798306361403e-1 band=2.57608556135408847e-9 -> UNPAIRED
+pass1 face 3: daz=0.00000000000000000e0  daz*r=0.00000000000000000e0  band=2.57608556135408847e-9 -> paired
+pass1 face 4: daz=0.00000000000000000e0  daz*r=0.00000000000000000e0  band=2.57608556135408847e-9 -> paired
+```
+
+2.618e-1 rad is exactly **π/12 = 15°**, a whole lattice step: the two rims'
+Stage-1 phases differ by one step, not by noise. Faces 1, 3 and 4 pair in
+PASS 1 and in doing so pin all five rim anchors; faces 0 and 2 then reach
+PASS 2 with BOTH anchors already fixed 15° apart, hit its "both anchors fixed
+elsewhere and not a ruling … never move an anchor" refusal, and keep the
+annular form.
+
+The remedy is **already written down for the other copy of this rule**: the SI5
+ingest does not anchor pairwise, it anchors **per connected component of
+rims-joined-by-bands** ("pick one anchor direction per component and re-anchor
+the rest to it. A component containing two *pinned* rims … whose directions
+disagree is a refusal"), justified because a closed edge's anchor is pure
+representation gauge — Stroud's fake edge — so sliding it along its own circle
+changes no boundary point. None of these five rims is pinned by another edge,
+so one azimuth for the whole component is admissible. That is the open step,
+and it is **not** a one-session additive change: it moves minted seam feet, and
+therefore render phase, for every canonical band in the corpus, so it needs a
+full-corpus proof in its own cycle (the P0013 precedent).
+
+One asymmetry worth recording on the way, because it is the reason the pin
+cannot carry the exact P0019 shape: `yang_rs::BRep::new` **refuses** the annular
+band as INPUT — `MalformedTopology("face 0: cone periodic strip (2 encircling
+rims) not yet supported (KV14 Slice E holed frustum band — later sub-slice)")`
+— while yang's own Stage-5 output emits it. The pin therefore feeds the seamed
+form, which exercises the same derivation (the missing cone arm declines either
+way).
+
+**Sharers re-judged (release `single_case`, `ASSAY_CASE_TIMEOUT_SECS=900`; no
+corpus run — another assay held the box).** The named historical customer of
+this exact wall plus the cone/revolve rows and two plain revolve canaries. Zero
+moves; every ERROR row keeps its text verbatim:
+
+| case | verdict | cost | note |
+|---|---|---|---|
+| R0004 | SUPPORTED_CORRECT | 3.9 s | the wall this STOP "once hit" — unchanged |
+| P0004 | SUPPORTED_CORRECT | 1.6 s | the {cone, plane, plane} corner |
+| P0005 | SUPPORTED_CORRECT | 12.5 s | the cone × plane Stage-4 membrane |
+| P0017 | ERROR | 0.4 s | same `TessellationFailed { face: FaceId(28), reason: "ring rejected by CDT (degenerate/self-intersecting)" }` |
+| C0107 | ERROR | 0.1 s | same auto-union `"yang-rs: reassembled output would be non-2-manifold"` |
+| C0108 | ERROR | 0.2 s | same |
+| C0109 | ERROR | 0.2 s | same `AmbiguousCurve { candidates: 0, matched: 0 }` on edge (87, 88) |
+| R0003 | SUPPORTED_CORRECT | 89.8 s | the §4.5.1 corridor customer (×42 relocations) |
+| R0049 | SUPPORTED_CORRECT | 4.1 s | gear revolve |
+
+`cargo test -p kernel-v2 --release` is green (60 binaries, 729 passed, 0
+failed, 5 ignored), which covers the SI5 ingest fixtures, the KV6c/KV6d cone
+and torus recovery suites, and `s434_typed_rim_seam_mint` — the other customer
+of the seam-minting pass this cycle probed. Clippy `--all-targets -D warnings`
+and `cargo fmt --check` clean. **Corpus NOT re-measured.**
 
 ### Four findings RETIRED, with reasons
 
