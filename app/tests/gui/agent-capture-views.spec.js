@@ -19,7 +19,7 @@
  */
 import { test, expect } from '@playwright/test';
 import { collectCrashErrors, expectNoAnyCrash } from './helpers/state.js';
-import { PALETTE } from '../../src/lib/viewport/capture.js';
+import { AGENT_BACKGROUND, AGENT_EDGE_COLOR, PALETTE } from '../../src/lib/viewport/capture.js';
 
 /** A 40 mm square centred on (cx, 0) in the sketch plane. */
 const SQUARE = (cx, s = 0.04) => [
@@ -126,6 +126,39 @@ async function cameraAtRest(page) {
 }
 
 /**
+ * Every colour in a base64 PNG, with its pixel count, decoded in the page (the
+ * browser is the only PNG decoder here). Returned as pairs because a Map does
+ * not survive the bridge.
+ * @param {import('@playwright/test').Page} page
+ * @param {string} base64
+ * @returns {Promise<[string, number][]>}
+ */
+function imageColours(page, base64) {
+	return page.evaluate(async (data) => {
+		const img = new Image();
+		await new Promise((resolve, reject) => {
+			img.onload = resolve;
+			img.onerror = reject;
+			img.src = `data:image/png;base64,${data}`;
+		});
+		const canvas = document.createElement('canvas');
+		canvas.width = img.width;
+		canvas.height = img.height;
+		const ctx = /** @type {CanvasRenderingContext2D} */ (canvas.getContext('2d'));
+		ctx.drawImage(img, 0, 0);
+		const pixels = ctx.getImageData(0, 0, canvas.width, canvas.height).data;
+		/** @type {Map<string, number>} */
+		const counts = new Map();
+		for (let i = 0; i < pixels.length; i += 4) {
+			const hex =
+				'#' + [pixels[i], pixels[i + 1], pixels[i + 2]].map((v) => v.toString(16).padStart(2, '0')).join('');
+			counts.set(hex, (counts.get(hex) ?? 0) + 1);
+		}
+		return [...counts.entries()].sort((a, b) => b[1] - a[1]);
+	}, base64);
+}
+
+/**
  * One `viewport_capture` through the page's executor.
  * @param {import('@playwright/test').Page} page
  * @param {object} args
@@ -220,6 +253,46 @@ test.describe('viewport_capture — agent-legible views (V1)', () => {
 		expect(persp.isError, JSON.stringify(persp.structured)).toBe(false);
 		expect(persp.structured.camera.projection).toBe('perspective');
 		expect(await page.evaluate(() => window.__waffle.getCameraProjection())).toBe(live);
+	});
+
+	test('every pixel of an agent capture is a legend colour, the ground or the ink', async ({ page }) => {
+		const crashes = collectCrashErrors(page);
+		const bodies = await twoBoxes(page);
+
+		// No labels: their leaders and boxes are drawn with canvas2d, which
+		// antialiases, and this assertion is about the RENDER's colour set.
+		const shot = await capture(page, {
+			view: 'top',
+			size: { width: 200, height: 200 },
+			style: 'agent'
+		});
+		expect(shot.isError, JSON.stringify(shot.structured)).toBe(false);
+
+		const ink = '#' + AGENT_EDGE_COLOR.toString(16).padStart(6, '0');
+		const legend = new Map(shot.structured.legend.map((l) => [l.id, l.color]));
+		expect([...legend.keys()].sort()).toEqual(bodies.map((b) => b.id).sort());
+
+		// The closed set §9.1 promises: the legend explains every colour in the
+		// image, beside the fixed ground and the fixed edge/vertex ink. Nothing
+		// of the viewport's own — no datum plane, no origin triad, no sketch
+		// overlay, no theme, no hover — is in here.
+		const colours = await imageColours(page, shot.png);
+		const allowed = new Set([AGENT_BACKGROUND, ink, ...legend.values()]);
+		expect(colours.filter(([hex]) => !allowed.has(hex)).map(([hex]) => hex)).toEqual([]);
+
+		// And the bodies are actually drawn in those colours, exactly: the
+		// readback is byte-exact, so a pixel IS the hex the legend names and an
+		// agent can match one against the other with no tolerance.
+		const byColour = new Map(colours);
+		for (const colour of legend.values()) {
+			expect(byColour.get(colour) ?? 0, colour).toBeGreaterThan(100);
+		}
+		// The ground dominates, and the largest colour that is not the ground is
+		// a body's, never the ink.
+		expect(colours[0][0]).toBe(AGENT_BACKGROUND);
+		expect([...legend.values()]).toContain(colours[1][0]);
+
+		expectNoAnyCrash(crashes);
 	});
 
 	test('a face label names a queryable GeomRef, and only the faces the camera sees are drawn', async ({ page }) => {
