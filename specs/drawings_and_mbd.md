@@ -206,10 +206,40 @@ solid whose faces were never stamped) and `PidCollision` (two distinct keys
 hashing to one id) are the other two refusals; none of the three is ever
 repaired.
 
+A rank is a *position*, which is the scheme's one stability caveat and is
+worth knowing before relying on it: a group of one — the overwhelming
+majority — ranks 0 whatever its geometry does, but inside a group of two or
+more, moving one member past another renumbers both and their two ids swap,
+even though neither changed its content key. Sign-of-zero counts as a move
+(`-0.0` orders below `+0.0`, as under `f64::total_cmp`). Making a
+multi-member group order-independent needs the content key itself to separate
+its members, which is the F4a face reseed below. Pinned as
+`rank_groups_renumbers_a_group_when_a_member_moves_past_another`.
+
 **The hash is frozen.** `H` is a chain of SplitMix64 finalizer steps over
 `u64` words, domain-separated per entity kind, with `Pid(0)` avoided. These
 ids are persisted inside documents, so the function must never drift — treat
 `pid.rs`'s `mix`/`digest` as format, not as an implementation detail.
+`crates/kernel-v2/tests/d0_pid_hash_frozen.rs` is the oracle: it holds the
+literal ids of the unit box. A red result there is a format break needing a
+reader-floor bump and a migration, never new constants. It is also the
+cross-process half of the stability claim — its literals were recorded by a
+different process than the one asserting them, and nothing in the derivation
+reads a `HashMap`, an address or a clock.
+
+**A face's identity does not ride on the edge pass.** `solid_pids` refuses as
+a whole, so `all_entity_pids(solid, Face)` originally lost every FACE id of a
+body whose edge groups were ambiguous — while `entity_pid` kept answering
+those faces through `face_provenance`, so the two doors disagreed. The face
+pass is `pid::solid_face_pids`, and the `Face` arm takes it.
+
+**A pid is unique only WITHIN one body.** Collision detection is per solid,
+and two bodies split out of one operation can carry edges with the same
+adjacent-face roots and so the same id. `resolve_by_pid` therefore requires
+the anchor's `output_key` to still exist and refuses rather than falling back
+to the feature's first body the way `Selector::Position` does: that fallback
+is a rebinding step, and a pid looked up in the wrong body can find a
+different edge under the stored number.
 
 **Ids are derived, never stored.** `solid_pids(arena, solid)` recomputes
 from the arena and the journal. Nothing was added to `BrepArena` (whose
@@ -258,6 +288,14 @@ body". A caller that genuinely wants best-effort rebinding stores a
 - *The corpus-wide oracle (item 5).* Not run: the identity oracle here is
   focused (a box, a cylinder, a plate+boss union through the engine), not the
   assay corpus rebuilt twice.
+- *Every consumer must reach the live resolver first.* A `Selector::Pid` is
+  answerable only by `resolve_geom_ref_live`. Several production paths still
+  call `resolve_with_fallback`, which has no kernel — including the `UpTo`
+  and edge-reference resolutions in `feature-engine`'s `rebuild` and the
+  assembly-context path in `context`. They refuse loudly today (fallback only
+  ever applies to `Selector::Role`, so there is no silent rebinding), but the
+  first feature that stores a Pid in one of those fields must move its call
+  site to the live form in the same PR.
 - *The "done when" GUI clause.* `sketch-on-face`, `UpTo` terminations and
   3D-sketch attachments still store their existing selectors; nothing writes
   a `Selector::Pid` yet. Note for whoever does: `Selector` is a

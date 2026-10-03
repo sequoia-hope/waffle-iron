@@ -78,8 +78,9 @@ pub fn resolve_geom_ref(
         }
         Selector::Pid { pid, root_pid } => Err(EngineError::ResolutionFailed {
             reason: format!(
-                "persistent id {pid} (root {root_pid}) needs the live kernel to resolve; \
-                 use resolve_geom_ref_live"
+                "persistent id {pid} (root {root_pid}) names an entity of the body's current \
+                 geometry, which only the live kernel can read, and this resolution path has \
+                 none (feature-engine: call `resolve_geom_ref_live`)"
             ),
         }),
     }
@@ -106,7 +107,7 @@ pub fn resolve_by_position(
     pos: [f64; 3],
 ) -> Result<ResolvedRef, EngineError> {
     refuse_scoped(geom_ref)?;
-    let handle = anchor_body_handle(geom_ref, feature_results)?;
+    let handle = anchor_body_handle(geom_ref, feature_results, true)?;
 
     let candidates = match geom_ref.kind {
         TopoKind::Vertex => introspect.list_vertices(handle),
@@ -167,12 +168,20 @@ fn key_matches(a: &OutputKey, b: &OutputKey) -> bool {
 
 /// The kernel handle of the body output a `GeomRef`'s anchor names.
 ///
-/// The anchor's `output_key` wins; a feature whose outputs do not carry that
-/// key falls back to its first body (the long-standing behaviour of
-/// [`resolve_by_position`], kept here so both live-kernel selectors agree).
+/// The anchor's `output_key` wins. `allow_first_body` then decides what a
+/// feature whose outputs do not carry that key does: fall back to its first
+/// body (the long-standing behaviour of [`resolve_by_position`]) or refuse.
+///
+/// [`resolve_by_pid`] refuses, and that is not fussiness. A persistent id is
+/// only unique WITHIN one solid — two bodies split out of one operation can
+/// carry edges with the same adjacent-face roots and therefore the same id —
+/// so looking a pid up in the wrong body can find a different edge under the
+/// stored number and report a wrong dimension while looking healthy. The
+/// first-body fallback is a rebinding step, and this selector does not rebind.
 fn anchor_body_handle<'a>(
     geom_ref: &GeomRef,
     feature_results: &'a std::collections::HashMap<Uuid, OpResult>,
+    allow_first_body: bool,
 ) -> Result<&'a waffle_types::kernel::KernelSolidHandle, EngineError> {
     let (feature_id, output_key) = match &geom_ref.anchor {
         Anchor::FeatureOutput {
@@ -190,11 +199,26 @@ fn anchor_body_handle<'a>(
         .ok_or(EngineError::ResolutionFailed {
             reason: format!("Feature {} has no result (not yet rebuilt?)", feature_id),
         })?;
-    op_result
+    if let Some((_, body)) = op_result
         .outputs
         .iter()
         .find(|(k, _)| key_matches(k, &output_key))
-        .or_else(|| op_result.outputs.first())
+    {
+        return Ok(&body.handle);
+    }
+    if !allow_first_body {
+        return Err(EngineError::ResolutionFailed {
+            reason: format!(
+                "feature {} has no output {} any more, and a persistent id is only unique within \
+                 one body, so another of its bodies must not be substituted",
+                feature_id,
+                output_key.tag()
+            ),
+        });
+    }
+    op_result
+        .outputs
+        .first()
         .map(|(_, b)| &b.handle)
         .ok_or(EngineError::ResolutionFailed {
             reason: "feature produced no body output to resolve against".to_string(),
@@ -225,7 +249,7 @@ pub fn resolve_by_pid(
     root_pid: u64,
 ) -> Result<ResolvedRef, EngineError> {
     refuse_scoped(geom_ref)?;
-    let handle = anchor_body_handle(geom_ref, feature_results)?;
+    let handle = anchor_body_handle(geom_ref, feature_results, false)?;
     let known = introspect.all_entity_pids(handle, geom_ref.kind);
     if known.is_empty() {
         return Err(EngineError::ResolutionFailed {
@@ -1353,6 +1377,55 @@ mod tests {
             EngineError::ResolutionFailed { reason } => {
                 assert!(reason.contains("live kernel"), "unexpected reason {reason}")
             }
+            other => panic!("wrong error {other:?}"),
+        }
+    }
+
+    /// A pid is unique only WITHIN one body, so the first-body fallback that
+    /// every other live selector uses would be a silent body substitution
+    /// here — and the same number can name a different edge in a sibling body
+    /// split out of the same operation. Refuse instead.
+    #[test]
+    fn a_pid_whose_output_key_is_gone_refuses_rather_than_taking_another_body() {
+        let (fid, results, k) = pid_fixture(vec![(KernelId(10), 7001, 7001)]);
+        let mut r = pid_ref(fid, 7001, 7001, ResolvePolicy::BestEffort);
+        // The fixture's only output is `Main`; ask for a body that is gone.
+        r.anchor = Anchor::FeatureOutput {
+            feature_id: fid,
+            output_key: OutputKey::Body { index: 2 },
+        };
+        let err = resolve_geom_ref_live(&r, &results, &k)
+            .expect_err("a missing output must not resolve against a sibling body");
+        match err {
+            EngineError::ResolutionFailed { reason } => assert!(
+                reason.contains("unique within one body"),
+                "unexpected reason {reason}"
+            ),
+            other => panic!("wrong error {other:?}"),
+        }
+    }
+
+    /// The same shape through a Position selector KEEPS the fallback: that is
+    /// long-standing viewport-picking behaviour and is not what this change
+    /// is about.
+    #[test]
+    fn a_position_reference_still_falls_back_to_the_first_body() {
+        let fid = Uuid::new_v4();
+        let mut results = HashMap::new();
+        results.insert(fid, op_with_body());
+        let mut r = pos_ref(fid, 0.0, 0.0, 0.0, ResolvePolicy::Strict);
+        r.anchor = Anchor::FeatureOutput {
+            feature_id: fid,
+            output_key: OutputKey::Body { index: 2 },
+        };
+        let kernel = FakeIntrospect { verts: vec![] };
+        let err = resolve_by_position(&r, &results, &kernel, [0.0, 0.0, 0.0])
+            .expect_err("the stub kernel lists no vertices");
+        match err {
+            EngineError::ResolutionFailed { reason } => assert!(
+                reason.contains("no Vertex entities"),
+                "it reached the body and failed on its contents, not on the key: {reason}"
+            ),
             other => panic!("wrong error {other:?}"),
         }
     }
