@@ -34,8 +34,11 @@ use waffle_types::sketch_state::{
 /// **Decision banked: sub-micron precision is acceptable.**
 const SOLVE_TOL: f64 = 1e-6;
 
-/// Rank-revealing QR tolerance: singular values below this are treated as zero.
-/// Scaled relative to the problem size to handle varying parameter magnitudes.
+/// Rank-revealing QR tolerance: a column whose pivoted R diagonal falls below
+/// this FRACTION of the largest one is treated as rank-deficient. Relative to
+/// the matrix, not absolute, so the same sketch authored at 0.001 m and at
+/// 1000 m gets the same rank (measured: rank 8, dof 0 at both, and a dof-1
+/// variant returns a bit-identical free direction at both).
 const RANK_TOL: f64 = 1e-8;
 
 /// Proximal regularization weight (specs/sketch_drag_stability.md §2).
@@ -64,8 +67,16 @@ const PROXIMAL_WEIGHT: f64 = 1e-5;
 
 /// Displacement below which a point counts as NOT moved by the solve
 /// (`report.moved`). One nanometre: three orders below the solve tolerance,
-/// so a satisfied solve's own numerical settling never reads as a move, while
-/// any displacement a user or a dimension could have asked for does.
+/// so at the metre-ish scales sketches are usually authored at, a satisfied
+/// solve's own numerical settling does not read as a move, while any
+/// displacement a user or a dimension could have asked for does.
+///
+/// **It is ABSOLUTE, and the settling it is meant to sit under is not.**
+/// Measured: the same satisfied rectangle authored at 1000 m settles ~4.5e-7
+/// and therefore lists its own PINNED origin in `moved`. The threshold wants
+/// to scale with the parameter magnitude; `SOLVE_TOL` has the same shape of
+/// problem one scale further out (that rectangle at 1e4 m flips to
+/// `SolveFailed`), so the two should be fixed together rather than separately.
 const MOVED_EPS: f64 = 1e-9;
 
 /// Component magnitude below which a free direction does not name a piece of
