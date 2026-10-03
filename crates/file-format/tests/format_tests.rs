@@ -1160,7 +1160,9 @@ fn v3_preview_mesh_serde() {
             assert_eq!(mesh.normals.len(), 9);
             assert_eq!(mesh.indices.len(), 3);
         }
-        TabKind::Assembly { .. } | TabKind::Unknown(_) => panic!("Part tab must load as Part"),
+        TabKind::Assembly { .. } | TabKind::Drawing { .. } | TabKind::Unknown(_) => {
+            panic!("Part tab must load as Part")
+        }
     }
 }
 
@@ -1787,4 +1789,39 @@ fn a_3d_sketch_round_trips() {
 fn the_3d_sketch_operation_did_not_move_the_format_floor() {
     assert_eq!(file_format::FORMAT_VERSION, 8);
     assert_eq!(file_format::MIN_READER_VERSION, 8);
+}
+
+/// Neither did the `Drawing` tab kind (D4a, `specs/drawings_and_mbd.md` §8),
+/// and this is the one place that records why that is a DECISION.
+///
+/// §13.3, and `MIN_READER_VERSION`'s own doc comment: since v4 a new tab kind
+/// needs no bump, because a reader that does not know the tag keeps the whole
+/// tab as `TabKind::Unknown` and re-emits it verbatim. The tempting argument
+/// for a bump is that a drawing's annotation anchors persist a
+/// `Selector::Pid`, and a new selector variant IS a floor bump — that is what
+/// made v7. The difference is WHERE the variant sits: v7's was inside
+/// `FeatureTree.names`, a defaulted field of a kind every reader knows, so an
+/// old reader deserialized it and failed on the unknown variant. Inside an
+/// unknown tab kind nothing is deserialized at all.
+///
+/// And bumping anyway would be actively worse than doing nothing. A reader
+/// refuses a file whose `max(version, min_reader_version)` exceeds its own
+/// `FORMAT_VERSION`, so a bump would make every older build reject the WHOLE
+/// document — losing the part tabs it reads perfectly well — where today it
+/// opens the document and keeps the drawing opaque. The forward-compatibility
+/// mechanism of §5.3 exists for exactly this case.
+#[test]
+fn a_drawing_tab_did_not_move_the_format_floor() {
+    use feature_engine::drawing::Drawing;
+
+    assert_eq!(file_format::FORMAT_VERSION, 8);
+    assert_eq!(file_format::MIN_READER_VERSION, 8);
+
+    // And a document WITH a drawing tab still claims the same floor, which is
+    // the claim an older reader acts on.
+    let mut doc = WaffleDocument::new("Drawn");
+    doc.tabs.push(Tab::drawing("Drawing 1", Drawing::new()));
+    let parsed: serde_json::Value = serde_json::from_str(&save_document(&doc)).unwrap();
+    assert_eq!(parsed["version"], 8);
+    assert_eq!(parsed["min_reader_version"], 8);
 }
