@@ -966,7 +966,14 @@ pub fn fillet_geometry(
     if d.abs() > 0.9999 {
         return Err(not_fitting()); // parallel legs have no corner to round
     }
-    let angle = d.clamp(-1.0, 1.0).abs().acos();
+    // The interior angle of the corner, signed-correct: `acos(dot)`, NOT
+    // `acos(|dot|)`. The JS took the absolute value, which folds every obtuse
+    // corner onto its acute supplement — a 135° corner was solved as 45°, so
+    // the centre landed at `r / sin(22.5°)` instead of `r / sin(67.5°)` and the
+    // arc came out 2.41× the radius the user typed (pinned:
+    // `a_fillet_on_an_obtuse_corner_has_the_radius_it_was_asked_for`). Right
+    // angles and acute corners are unaffected: there `|dot| == dot`.
+    let angle = d.clamp(-1.0, 1.0).acos();
     let sin_half = (angle / 2.0).sin();
     if sin_half < 1e-10 {
         return Err(not_fitting());
@@ -1373,10 +1380,24 @@ pub fn apply_ops(
                 }
             }
             SketchOp::RemoveEntity { ids: remove } => remove_entities(&current, remove),
-            SketchOp::AddConstraint { constraint } => SketchEdit {
-                constraints_added: vec![constraint.clone()],
-                ..Default::default()
-            },
+            SketchOp::AddConstraint { constraint } => {
+                // Every id the constraint names has to exist. The removal
+                // cascade (`remove_entities` + `prune_released_points`) goes to
+                // real trouble to keep a dangling constraint out of the
+                // sketch, and this arm used to be the hole in that floor: a
+                // `Vertical { entity: 999 }` was accepted, persisted, and the
+                // NEXT solve failed WHOLESALE on it (`solve_sketch` refuses the
+                // first constraint that will not compile), so one bad id from
+                // an agent took the whole sketch down with no indication of
+                // which op did it. Refusing here names the id instead.
+                for id in constraint_refs(constraint) {
+                    entity(&current, id)?;
+                }
+                SketchEdit {
+                    constraints_added: vec![constraint.clone()],
+                    ..Default::default()
+                }
+            }
             SketchOp::RemoveConstraint { index } => {
                 if *index as usize >= current.constraints.len() {
                     return Err(SketchOpError::NoSuchConstraint { index: *index });
@@ -1472,6 +1493,7 @@ pub fn apply_ops(
                 project(points, shape, &plane, &mut ids)?
             }
         };
+        reject_non_finite(&edit)?;
         apply_edit(&mut current, &edit);
         total.extend(edit);
     }
@@ -1482,6 +1504,32 @@ pub fn apply_ops(
         edit: total,
         transient_constraints: transient,
     })
+}
+
+/// Refuse an edit that would write a point at a non-finite coordinate.
+///
+/// The ops are double arithmetic on caller-supplied geometry, and at extreme
+/// magnitudes ordinary steps overflow: a difference reaching `inf`, a
+/// normalization dividing by it, `inf * 0.0` landing on NaN. Nothing
+/// downstream can cope — `serde_json` writes `f64::NAN` as `null`, and the
+/// next message carrying that entity fails to deserialize, so the sketch is
+/// wedged around a point the user cannot see, select or delete. Every batch
+/// is checked here so the op refuses by name instead.
+pub fn reject_non_finite(edit: &SketchEdit) -> Result<(), SketchOpError> {
+    for e in edit.added.iter().chain(edit.changed.iter()) {
+        match e {
+            SketchEntity::Point { id, x, y, .. } => {
+                if !x.is_finite() || !y.is_finite() {
+                    return Err(SketchOpError::NonFiniteResult { at: *id });
+                }
+            }
+            SketchEntity::Circle { id, radius, .. } if !radius.is_finite() => {
+                return Err(SketchOpError::NonFiniteResult { at: *id });
+            }
+            _ => {}
+        }
+    }
+    Ok(())
 }
 
 /// The entity with a new id (every referenced id unchanged).

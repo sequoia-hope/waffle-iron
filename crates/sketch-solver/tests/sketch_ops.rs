@@ -686,6 +686,41 @@ fn the_fillet_preview_geometry_is_the_geometry_the_commit_uses() {
     assert!(minted.contains(&(preview.tangent_b.x, preview.tangent_b.y)));
 }
 
+#[test]
+fn a_fillet_on_an_obtuse_corner_has_the_radius_it_was_asked_for() {
+    // A 135° corner: legs leave point 2 along +x and along (-1, 1)/√2, so the
+    // interior angle is 135° and the half-angle is 67.5°. The requested radius
+    // is the radius the arc must actually have — the tangent points are the
+    // perpendicular feet from the centre, so the centre's distance to each leg
+    // IS the arc's radius, and it has to come out at 0.2.
+    let s = make_sketch(
+        vec![
+            point(1, 1.0, 0.0),
+            point(2, 0.0, 0.0),
+            point(3, -1.0, 1.0),
+            line(10, 2, 1),
+            line(11, 2, 3),
+        ],
+        Vec::new(),
+    );
+    let g = fillet_geometry(&s, 2, 0.2).expect("a 135° corner rounds");
+    // Distance from the centre to leg 10, which lies along the x axis: |y|.
+    let to_leg_a = g.center.y.abs();
+    assert!(
+        (to_leg_a - 0.2).abs() < 1e-12,
+        "the arc is 0.2 from the +x leg, got {to_leg_a} (centre {:?})",
+        g.center
+    );
+    // And the tangent points are that same distance out, i.e. genuinely on the
+    // arc of radius 0.2.
+    let ra = g.center.dist(g.tangent_a);
+    let rb = g.center.dist(g.tangent_b);
+    assert!(
+        (ra - 0.2).abs() < 1e-12 && (rb - 0.2).abs() < 1e-12,
+        "both tangent points are 0.2 from the centre, got {ra} and {rb}"
+    );
+}
+
 // ── Mirror ──────────────────────────────────────────────────────────────────
 
 #[test]
@@ -1223,4 +1258,91 @@ fn an_edited_sketch_still_solves() {
         "the two Tangents do not fight: {:?}",
         solved.report.conflicts
     );
+}
+
+#[test]
+fn an_overflowing_mirror_is_refused_rather_than_minting_a_nan_point() {
+    // An axis spanning ±1e308 — ordinary JSON numbers the bridge accepts. The
+    // endpoint difference overflows to infinity, so the axis direction came
+    // back as a NaN "unit vector" and the mirror minted a Point at NaN. That
+    // point serializes as `null` and then fails to deserialize, wedging the
+    // sketch around geometry the user cannot see or delete.
+    let s = make_sketch(
+        vec![
+            point(1, 0.5, 0.5),
+            point(2, -1e308, 0.0),
+            point(3, 1e308, 0.0),
+            line(10, 2, 3),
+        ],
+        Vec::new(),
+    );
+    let err = apply_ops(
+        &s,
+        &[SketchOp::Mirror {
+            entities: vec![1],
+            axis: 10,
+        }],
+        0,
+    )
+    .expect_err("an axis that overflows is refused");
+    assert!(
+        matches!(
+            err,
+            SketchOpError::NonFiniteResult { .. } | SketchOpError::MirrorRefused { .. }
+        ),
+        "refused by name, not with a NaN point: {err:?}"
+    );
+}
+
+#[test]
+fn an_offset_distance_that_overflows_is_refused_rather_than_minting_nan() {
+    // 1e154 squares to ~1e308: the carrier intersection's cross product
+    // overflows and `inf + (-inf)` lands on NaN, which used to be written
+    // straight into the sketch as a joint point.
+    let s = square();
+    let err = apply_ops(
+        &s,
+        &[SketchOp::Offset {
+            chain: vec![10, 11, 12, 13],
+            distance: 1e154,
+            side: Side::Left,
+        }],
+        0,
+    )
+    .expect_err("an overflowing offset is refused");
+    assert!(
+        matches!(
+            err,
+            SketchOpError::NonFiniteResult { .. } | SketchOpError::OffsetRefused { .. }
+        ),
+        "refused by name: {err:?}"
+    );
+}
+
+#[test]
+fn a_constraint_naming_a_missing_entity_is_refused_at_the_op() {
+    // The removal cascade works hard to keep a dangling constraint out of the
+    // sketch; `AddConstraint` used to be the hole in that floor. An accepted
+    // `Vertical { entity: 999 }` made the NEXT solve fail wholesale, with
+    // nothing naming the op that did it.
+    let s = square();
+    let err = apply_ops(
+        &s,
+        &[SketchOp::AddConstraint {
+            constraint: SketchConstraint::Vertical { entity: 999 },
+        }],
+        0,
+    )
+    .expect_err("a constraint on a missing entity is refused");
+    assert_eq!(err, SketchOpError::NoSuchEntity { id: 999 });
+    // And a constraint naming real geometry still goes through.
+    let ok = apply_ops(
+        &s,
+        &[SketchOp::AddConstraint {
+            constraint: SketchConstraint::Vertical { entity: 11 },
+        }],
+        0,
+    )
+    .expect("a constraint on a real line is accepted");
+    assert_eq!(ok.sketch.constraints.len(), 1);
 }
