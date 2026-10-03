@@ -224,12 +224,22 @@ pub enum LengthMethod {
     Exact,
     /// A convergent quadrature of a closed-form speed function.
     ///
-    /// `residual` is the MEASURED difference between the reported value and
-    /// the same quadrature at twice the step count — a convergence witness,
-    /// not a proven error bound. It is reported so a consumer can see when
-    /// the integrand is hard (a very eccentric ellipse: the implementation's
-    /// own accuracy census is on `Curve2::length`) rather than trusting a
-    /// constant.
+    /// `residual` is a MEASURED Richardson estimate of this value's own
+    /// error, derived from the same quadrature run at twice the step count
+    /// (`(16/15)·|I₂ₙ − Iₙ|` for the `O(h⁴)` Simpson rule the implementation
+    /// uses, floored at a few ulp of the value). Reported so a consumer can
+    /// see when the integrand is hard rather than trusting a constant.
+    ///
+    /// **It is an estimate, not a proven bound.** Richardson assumes the step
+    /// is already in the asymptotic regime; a near-kinked integrand is not.
+    /// Measured against a 2 000 000-interval reference, it covers the error on
+    /// every smooth arc and lands about 11 % BELOW it on a hyperbola arc whose
+    /// semi-conjugate is 1e-4 of its semi-transverse. Read it as an order of
+    /// magnitude on the accuracy, never as a tolerance to compute with. (The
+    /// implementation's own accuracy census for the ellipse arm is on
+    /// `Curve2::length`; `kernel_v2::measure`'s
+    /// `the_hyperbola_arms_residual_is_measured_against_a_reference_integral`
+    /// pins the hyperbola arm and the under-statement above.)
     Quadrature { residual: f64 },
     /// The sum of a sampled polyline's chords, which is a LOWER bound on the
     /// true arc length (a chord is never longer than the arc it subtends).
