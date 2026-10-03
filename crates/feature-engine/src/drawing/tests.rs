@@ -687,3 +687,728 @@ fn every_annotation_variant_has_a_tag() {
         assert_eq!(got, want);
     }
 }
+
+// =========================================================== D4b: sections,
+// details, the title block and the cache key.
+
+/// A sheet with one front view, and that view's id.
+fn sheet_with_front() -> (Sheet, Uuid) {
+    let mut sheet = Sheet::new("S");
+    let front = DrawingView::new(
+        "Front",
+        ViewSource::whole_tab("t"),
+        Projection::Named {
+            view: NamedView::Front,
+        },
+    );
+    let id = front.id;
+    sheet.views.push(front);
+    (sheet, id)
+}
+
+#[test]
+fn a_vertical_cutting_line_on_the_front_view_sections_as_the_side_view_of_the_half_it_keeps() {
+    // The whole of the section rule, derived rather than recorded. On the
+    // front view (u = +x, v = +z, sight +y) a VERTICAL cutting line at
+    // x = 0.01 names the plane x = 0.01, and the view of it looks along the
+    // plane's normal from the discarded side — which for the half kept is
+    // exactly `NamedView::Left`'s frame (dir +x, up +z): the left-hand view.
+    let (mut sheet, front) = sheet_with_front();
+    let mut cut = DrawingView::new(
+        "A",
+        ViewSource::whole_tab("t"),
+        Projection::Section {
+            parent: front,
+            from: [0.01, -0.02],
+            to: [0.01, 0.02],
+            flip: false,
+            label: "A".to_string(),
+        },
+    );
+    let cut_id = cut.id;
+    cut.name = "SECTION A-A".to_string();
+    sheet.views.push(cut);
+
+    let frame = sheet
+        .view_frame(cut_id, ProjectionAngle::Third)
+        .expect("a section of a named view has a frame");
+    assert!(
+        same_frame(&frame, &NamedView::Left.frame()),
+        "a vertical cut on the front view is the left view of the kept half, got {frame:?}"
+    );
+    // The plane itself: through the line, normal along the parent's `u`.
+    let parent = ViewFrame::FRONT.basis().unwrap();
+    let plane = section_plane(&parent, [0.01, -0.02], [0.01, 0.02], false).expect("a real line");
+    assert!((plane.origin[0] - 0.01).abs() < 1e-12, "{:?}", plane.origin);
+    // The normal points at the DISCARDED side, which is the convention
+    // `section_with_plane` keeps: every kept point has (p − o)·n̂ ≤ 0.
+    assert!((plane.normal[0] + 1.0).abs() < 1e-12, "{:?}", plane.normal);
+    // So the kept half is x ≥ 0.01, and the view's own origin sits on the
+    // plane — the frame the cap's loops are then rotated into.
+    assert_eq!(frame.origin, plane.origin);
+
+    // `flip` reverses the arrows without redrawing the line: the same line,
+    // the other half, the opposite named view.
+    let flipped = section_plane(&parent, [0.01, -0.02], [0.01, 0.02], true).expect("a real line");
+    assert!(
+        (flipped.normal[0] - 1.0).abs() < 1e-12,
+        "{:?}",
+        flipped.normal
+    );
+    assert!(same_frame(
+        &section_frame(&parent, &flipped),
+        &NamedView::Right.frame()
+    ));
+}
+
+#[test]
+fn a_horizontal_cutting_line_sections_as_the_top_or_bottom_view_rather_than_one_turned_over() {
+    // The case the paper-up fallback exists for. A HORIZONTAL cut line on the
+    // front view puts the plane's normal along the parent's own paper up, so
+    // "the direction in the section's plane closest to the parent's up"
+    // vanishes — and a careless fallback gives a top view with paper up +z,
+    // which is a view of the top drawn upside down. The sign has to follow
+    // `projected_frame`'s own Up/Down rows, and this is the assertion that
+    // pins it.
+    let parent = ViewFrame::FRONT.basis().unwrap();
+    let up_cut = section_plane(&parent, [-0.02, 0.005], [0.02, 0.005], false).expect("a real line");
+    // The line runs +u, so its left normal is +v = world +z: the kept half is
+    // BELOW the plane and the viewer looks down at it.
+    assert!(
+        (up_cut.normal[2] - 1.0).abs() < 1e-12,
+        "{:?}",
+        up_cut.normal
+    );
+    assert!(
+        same_frame(&section_frame(&parent, &up_cut), &NamedView::Top.frame()),
+        "a horizontal cut keeping the lower half is the top view, got {:?}",
+        section_frame(&parent, &up_cut)
+    );
+    let down_cut =
+        section_plane(&parent, [-0.02, 0.005], [0.02, 0.005], true).expect("a real line");
+    assert!(
+        same_frame(
+            &section_frame(&parent, &down_cut),
+            &NamedView::Bottom.frame()
+        ),
+        "flipped it is the bottom view, got {:?}",
+        section_frame(&parent, &down_cut)
+    );
+}
+
+#[test]
+fn the_projection_standard_flips_which_side_of_its_parent_a_section_is_placed_on() {
+    // A section follows the SAME standard as any other projected view: third
+    // angle places it on the side it is viewed FROM (against the arrows),
+    // first angle on the side they point to. Derived from the one rule, so
+    // the two standards cannot drift apart.
+    let parent = ViewFrame::FRONT.basis().unwrap();
+    let cut = section_plane(&parent, [0.01, -0.02], [0.01, 0.02], false).expect("a real line");
+    // Sight is +x (the arrows point right on the paper); the viewer is on the
+    // left.
+    let third = section_paper_step(&cut, ProjectionAngle::Third);
+    let first = section_paper_step(&cut, ProjectionAngle::First);
+    assert!(third[0] < 0.0 && third[1].abs() < 1e-12, "{third:?}");
+    assert_eq!(first, [-third[0], -third[1]]);
+
+    // And the placement itself clears both drawings, as the four-way form
+    // does — through the box's support, which for an axis step is exactly the
+    // half-extent.
+    let axis = auto_placement_step_mm([100.0, 100.0], [40.0, 20.0], [40.0, 20.0], [1.0, 0.0], 15.0);
+    assert_eq!(
+        axis,
+        auto_placement_mm(
+            [100.0, 100.0],
+            [40.0, 20.0],
+            [40.0, 20.0],
+            ProjectedDirection::Right,
+            15.0
+        )
+    );
+    // An oblique step clears the CORNER, which is what the support function
+    // buys: a 45° step past two 40 × 20 boxes reaches
+    // (20 + 10)/√2 × 2 + 15 along the diagonal.
+    let oblique = auto_placement_step_mm([0.0, 0.0], [40.0, 20.0], [40.0, 20.0], [1.0, 1.0], 15.0);
+    let s = 1.0 / 2.0_f64.sqrt();
+    let reach = 2.0 * (20.0 * s + 10.0 * s) + 15.0;
+    assert!((oblique[0] - s * reach).abs() < 1e-9, "{oblique:?}");
+    assert!((oblique[1] - s * reach).abs() < 1e-9, "{oblique:?}");
+    // A step of no length places at the parent rather than at infinity.
+    assert_eq!(
+        auto_placement_step_mm([5.0, 6.0], [1.0, 1.0], [1.0, 1.0], [0.0, 0.0], 15.0),
+        [5.0, 6.0]
+    );
+}
+
+#[test]
+fn a_cutting_line_of_no_length_is_refused_rather_than_cut_at_an_arbitrary_normal() {
+    let (mut sheet, front) = sheet_with_front();
+    let cut = DrawingView::new(
+        "A",
+        ViewSource::whole_tab("t"),
+        Projection::Section {
+            parent: front,
+            from: [0.01, 0.0],
+            to: [0.01, 0.0],
+            flip: false,
+            label: "A".to_string(),
+        },
+    );
+    let id = cut.id;
+    sheet.views.push(cut);
+    let err = sheet
+        .view_frame(id, ProjectionAngle::Third)
+        .expect_err("a line of no length names no plane");
+    assert!(
+        matches!(err, DrawingError::DegenerateCut { view, .. } if view == id),
+        "{err:?}"
+    );
+    // The validator says so too, as a warning rather than a load failure.
+    let drawing = Drawing {
+        sheets: vec![sheet],
+        ..Drawing::default()
+    };
+    assert!(
+        drawing
+            .validate()
+            .iter()
+            .any(|w| w.contains("cutting line of no length")),
+        "{:?}",
+        drawing.validate()
+    );
+}
+
+#[test]
+fn a_detail_view_keeps_its_parents_frame_and_crops_to_the_disc_it_was_given() {
+    // A detail is the SAME projection magnified, so re-deriving its frame
+    // would be the next thing to disagree with the view it crops.
+    let (mut sheet, front) = sheet_with_front();
+    let mut detail = DrawingView::new(
+        "Detail A",
+        ViewSource::whole_tab("t"),
+        Projection::Detail {
+            parent: front,
+            center: [0.01, 0.002],
+            radius: 0.004,
+            label: "A".to_string(),
+        },
+    );
+    detail.scale = 2.0;
+    let id = detail.id;
+    sheet.views.push(detail);
+    let frame = sheet
+        .view_frame(id, ProjectionAngle::Third)
+        .expect("a frame");
+    assert!(same_frame(&frame, &ViewFrame::FRONT));
+
+    // And the crop: the view's BOX is the disc's box, so the detail is laid
+    // out on the crop rather than on whatever curve happened to survive.
+    // 2 × 0.004 m at 2:1 is 16 mm of paper in each direction.
+    let kernel = waffle_types::kernel::MockKernel::new();
+    let view = sheet.view(id).unwrap();
+    let extras = ViewExtras {
+        clip: Some(ClipCircle {
+            center: [0.01, 0.002],
+            radius: 0.004,
+        }),
+        ..ViewExtras::default()
+    };
+    let out = rebuild_view_in(view, &frame, &[], &extras, &kernel).expect("a detail of nothing");
+    assert_eq!(out.extent_mm, [16.0, 16.0]);
+    assert_eq!(
+        out.layout.clip,
+        Some(ClipCircle {
+            center: [0.01, 0.002],
+            radius: 0.004
+        })
+    );
+}
+
+#[test]
+fn a_detail_with_a_crop_that_is_not_a_disc_is_refused() {
+    let kernel = waffle_types::kernel::MockKernel::new();
+    let view = DrawingView::new(
+        "D",
+        ViewSource::whole_tab("t"),
+        Projection::Named {
+            view: NamedView::Top,
+        },
+    );
+    for radius in [0.0, -1.0, f64::NAN] {
+        let extras = ViewExtras {
+            clip: Some(ClipCircle {
+                center: [0.0, 0.0],
+                radius,
+            }),
+            ..ViewExtras::default()
+        };
+        let err = rebuild_view_in(&view, &ViewFrame::TOP, &[], &extras, &kernel)
+            .expect_err("a crop of no area is not a crop");
+        assert!(
+            matches!(err, DrawingError::BadCropRadius { .. }),
+            "{radius}: {err:?}"
+        );
+    }
+}
+
+#[test]
+fn a_parents_marks_are_its_childrens_own_geometry_and_the_arrows_point_into_the_kept_half() {
+    // Marks are derived from the children, not stored on the parent: a stored
+    // mark is a second record of the child's geometry, free to survive the
+    // child's deletion.
+    let (mut sheet, front) = sheet_with_front();
+    sheet.views.push(DrawingView::new(
+        "A",
+        ViewSource::whole_tab("t"),
+        Projection::Section {
+            parent: front,
+            from: [0.01, -0.02],
+            to: [0.01, 0.02],
+            flip: false,
+            label: "A".to_string(),
+        },
+    ));
+    sheet.views.push(DrawingView::new(
+        "B",
+        ViewSource::whole_tab("t"),
+        Projection::Detail {
+            parent: front,
+            center: [0.0, 0.0],
+            radius: 0.003,
+            label: "B".to_string(),
+        },
+    ));
+    let marks = sheet.marks_on(front);
+    assert_eq!(marks.len(), 2);
+    match &marks[0] {
+        ViewMark::Section {
+            from,
+            to,
+            sight,
+            label,
+        } => {
+            assert_eq!((*from, *to), ([0.01, -0.02], [0.01, 0.02]));
+            assert_eq!(label, "A");
+            // The line runs +v, its left normal is −u (the discarded side),
+            // so the arrows point +u — into the half the section keeps.
+            assert!(
+                (sight[0] - 1.0).abs() < 1e-12 && sight[1].abs() < 1e-12,
+                "{sight:?}"
+            );
+        }
+        other => panic!("expected a section mark, got {other:?}"),
+    }
+    assert!(matches!(&marks[1], ViewMark::Detail { label, .. } if label == "B"));
+    // Nothing is marked on a view nothing derives from.
+    assert!(sheet.marks_on(sheet.views[1].id).is_empty());
+
+    // Labels are the next FREE letter, so deleting A and cutting again
+    // re-uses A rather than minting a second B.
+    assert_eq!(sheet.next_label(), "C");
+    sheet.views.retain(|v| v.projection.label() != Some("A"));
+    assert_eq!(sheet.next_label(), "A");
+}
+
+#[test]
+fn the_label_sequence_is_the_drafting_one_and_does_not_run_out_at_z() {
+    assert_eq!(label_at(0), "A");
+    assert_eq!(label_at(25), "Z");
+    assert_eq!(label_at(26), "AA");
+    assert_eq!(label_at(27), "AB");
+    assert_eq!(label_at(51), "AZ");
+    assert_eq!(label_at(52), "BA");
+}
+
+#[test]
+fn a_section_and_a_detail_name_their_parent_through_one_accessor() {
+    // One place, so the cycle check, the delete cascade and the validator
+    // cannot each learn about a new derived kind separately.
+    let p = Uuid::new_v4();
+    assert_eq!(
+        Projection::Named {
+            view: NamedView::Top
+        }
+        .parent(),
+        None
+    );
+    assert_eq!(
+        Projection::Custom {
+            dir: [0.0, 0.0, 1.0],
+            up: None
+        }
+        .parent(),
+        None
+    );
+    for projection in [
+        Projection::ProjectedFrom {
+            parent: p,
+            direction: ProjectedDirection::Right,
+        },
+        Projection::Section {
+            parent: p,
+            from: [0.0, 0.0],
+            to: [1.0, 0.0],
+            flip: false,
+            label: "A".into(),
+        },
+        Projection::Detail {
+            parent: p,
+            center: [0.0, 0.0],
+            radius: 1.0,
+            label: "A".into(),
+        },
+    ] {
+        assert_eq!(projection.parent(), Some(p), "{}", projection.tag());
+    }
+}
+
+#[test]
+fn a_cap_is_rotated_into_the_section_views_own_frame_rather_than_the_cut_planes() {
+    // The cap comes back in the frame the kernel derives from the normal
+    // alone; the view's paper up is chosen to agree with its parent. Without
+    // the rotation the hatch arrives turned against the drawing it fills.
+    // Checked on a square cap: in the view frame its corners must be the ones
+    // the view would project, not the ones the cut plane reported.
+    let view = ViewBasis {
+        origin: [0.0, 0.0, 0.0],
+        u: [0.0, 1.0, 0.0],
+        v: [0.0, 0.0, 1.0],
+        w: [1.0, 0.0, 0.0],
+    };
+    // A cap frame that is the SAME plane with its u/v swapped for a quarter
+    // turn: u = +z, v = −y, same w.
+    let cap_basis = ViewBasis {
+        origin: [0.0, 0.0, 0.0],
+        u: [0.0, 0.0, 1.0],
+        v: [0.0, -1.0, 0.0],
+        w: [1.0, 0.0, 0.0],
+    };
+    let loops = vec![
+        SectionLoop {
+            curves: vec![waffle_types::kernel::projection::Curve2::Line {
+                start: cad_point(1.0, 0.0),
+                end: cad_point(1.0, 2.0),
+            }],
+            signed_area: 4.0,
+            exact: true,
+        },
+        SectionLoop {
+            curves: vec![waffle_types::kernel::projection::Curve2::Circle {
+                center: cad_point(0.0, 0.0),
+                radius: 0.5,
+                start_angle: 0.0,
+                end_angle: std::f64::consts::TAU,
+            }],
+            signed_area: -0.785,
+            exact: true,
+        },
+    ];
+    let (hatch, dropped) = cap_loops_in_view(&loops, &cap_basis, &view);
+    assert_eq!(dropped, 0);
+    assert_eq!(hatch.len(), 2);
+    // Outer first, hole second — the kernel's measured direction, kept.
+    assert!(!hatch[0].hole && hatch[1].hole);
+    // The cap's `u` is the view's `v`, so (1, 0) in the cap lands at (0, 1).
+    let LayoutCurve::Line { start, end } = &hatch[0].curves[0] else {
+        panic!("a line must stay a line");
+    };
+    assert!(
+        start[0].abs() < 1e-12 && (start[1] - 1.0).abs() < 1e-12,
+        "{start:?}"
+    );
+    assert!(
+        (end[0] + 2.0).abs() < 1e-12 && (end[1] - 1.0).abs() < 1e-12,
+        "{end:?}"
+    );
+    // A loop whose every curve maps keeps its exactness flag.
+    assert!(hatch[0].exact && hatch[1].exact);
+}
+
+fn cad_point(x: f64, y: f64) -> waffle_types::kernel::projection::Point2 {
+    waffle_types::kernel::projection::Point2::new(x, y)
+}
+
+// ------------------------------------------------------------- title block
+
+#[test]
+fn the_title_block_fills_the_rows_the_engine_knows_and_leaves_the_rest_to_be_typed() {
+    let (mut sheet, _) = sheet_with_front();
+    sheet.views[0].scale = 0.5;
+    sheet.title_block.fields.push(TitleBlockField::with_text(
+        TitleBlockKey::Material,
+        "AISI 304",
+    ));
+    sheet.title_block.fields.push(TitleBlockField::with_text(
+        TitleBlockKey::Custom {
+            label: "Finish".into(),
+        },
+        "Ra 1.6",
+    ));
+    let layout = title_block_layout(
+        &sheet.title_block,
+        &sheet,
+        &TitleBlockContext {
+            document_name: "Bracket",
+            sheet_number: 2,
+            sheet_count: 3,
+            angle: ProjectionAngle::First,
+        },
+    );
+    let rows: Vec<(&str, &str)> = layout
+        .rows
+        .iter()
+        .map(|r| (r.label.as_str(), r.value.as_str()))
+        .collect();
+    assert_eq!(
+        rows,
+        vec![
+            ("Title", "Bracket"),
+            ("Sheet", "2 / 3"),
+            ("Scale", "1:2"),
+            ("Projection", "First angle"),
+            ("Date", ""),
+            ("Drawn by", ""),
+            ("Material", "AISI 304"),
+            ("Finish", "Ra 1.6"),
+        ]
+    );
+}
+
+#[test]
+fn a_derived_row_ignores_authored_text_rather_than_printing_a_second_truth() {
+    // A title block whose sheet number disagrees with the sheet it is printed
+    // on is worse than one a person cannot overrule.
+    let (sheet, _) = sheet_with_front();
+    let block = TitleBlock {
+        show: true,
+        fields: vec![
+            TitleBlockField::with_text(TitleBlockKey::SheetNumber, "7 / 7"),
+            TitleBlockField::with_text(TitleBlockKey::Scale, "100:1"),
+        ],
+        extra: Map::new(),
+    };
+    let layout = title_block_layout(
+        &block,
+        &sheet,
+        &TitleBlockContext {
+            document_name: "D",
+            sheet_number: 1,
+            sheet_count: 1,
+            angle: ProjectionAngle::Third,
+        },
+    );
+    assert_eq!(layout.rows[0].value, "1 / 1");
+    assert_eq!(layout.rows[1].value, "1:1");
+    assert!(TitleBlockKey::SheetNumber.is_derived());
+    assert!(!TitleBlockKey::Date.is_derived());
+}
+
+#[test]
+fn a_sheet_whose_views_disagree_about_scale_prints_the_standard_note_and_ignores_details() {
+    let (mut sheet, front) = sheet_with_front();
+    assert_eq!(sheet_scale_label(&sheet), "1:1");
+    // A DETAIL is excluded: its scale prints under its own label, and
+    // counting it would make every sheet with a detail read AS SHOWN.
+    let mut detail = DrawingView::new(
+        "Detail A",
+        ViewSource::whole_tab("t"),
+        Projection::Detail {
+            parent: front,
+            center: [0.0, 0.0],
+            radius: 0.001,
+            label: "A".into(),
+        },
+    );
+    detail.scale = 2.0;
+    sheet.views.push(detail);
+    assert_eq!(sheet_scale_label(&sheet), "1:1");
+    // Two ORDINARY views at different scales do say so.
+    let mut other = DrawingView::new(
+        "Top",
+        ViewSource::whole_tab("t"),
+        Projection::Named {
+            view: NamedView::Top,
+        },
+    );
+    other.scale = 0.2;
+    sheet.views.push(other);
+    assert_eq!(sheet_scale_label(&sheet), "AS SHOWN");
+    // And an empty sheet has no scale rather than a made-up one.
+    assert_eq!(sheet_scale_label(&Sheet::new("empty")), "—");
+    assert_eq!(scale_ratio_label(2.0), "2:1");
+    assert_eq!(scale_ratio_label(1.0 / 2.5), "1:2.50");
+    assert_eq!(scale_ratio_label(0.0), "—");
+}
+
+// -------------------------------------------------------------- cache key
+
+#[test]
+fn a_cache_key_is_pinned_stable_and_moves_when_anything_the_layout_depends_on_moves() {
+    // A PERSISTED key, so its value is part of the format: it has to be the
+    // same on every machine and every toolchain, which is why the digest is
+    // FNV-1a and not `DefaultHasher`. This pins the digest itself.
+    assert_eq!(digest_hex(b""), "cbf29ce484222325");
+    assert_eq!(digest_hex(b"a"), "af63dc4c8601ec8c");
+    // The first two are FNV-1a's own published vectors, so they also check
+    // that this IS FNV-1a and not something that merely looks like it; the
+    // third is measured here.
+    assert_eq!(digest_hex(b"waffle"), "f56519974fde1e12");
+
+    // A fixed view id and fixed inputs give a fixed key.
+    let id = Uuid::parse_str("00000000-0000-4000-8000-000000000001").unwrap();
+    let inputs = CacheInputs {
+        sheet_recipe: "aaaa".into(),
+        source_recipe: "bbbb".into(),
+        body_pids: "cccc".into(),
+    };
+    let key = view_cache_key(id, &inputs);
+    assert_eq!(key, "d4b-9ac7b19a20b149ea");
+    assert_eq!(view_cache_key(id, &inputs), key, "the key is a function");
+
+    // Every input moves it, and so does the view it is for.
+    for changed in [
+        CacheInputs {
+            sheet_recipe: "aaab".into(),
+            ..inputs.clone()
+        },
+        CacheInputs {
+            source_recipe: "bbbc".into(),
+            ..inputs.clone()
+        },
+        CacheInputs {
+            body_pids: "cccd".into(),
+            ..inputs.clone()
+        },
+    ] {
+        assert_ne!(view_cache_key(id, &changed), key);
+    }
+    assert_ne!(view_cache_key(Uuid::new_v4(), &inputs), key);
+}
+
+#[test]
+fn editing_any_view_of_a_sheet_moves_the_sheets_cache_keys() {
+    // The sheet-wide half covers EVERY view's recipe, because a projected,
+    // section or detail view's frame is derived from its parent's: a key over
+    // the one view would read as valid after the parent was re-aimed. It
+    // over-covers, which is the safe direction.
+    let (mut sheet, front) = sheet_with_front();
+    sheet.views.push(DrawingView::new(
+        "Right",
+        ViewSource::whole_tab("t"),
+        Projection::ProjectedFrom {
+            parent: front,
+            direction: ProjectedDirection::Right,
+        },
+    ));
+    let child = sheet.views[1].id;
+    let before = CacheInputs::for_sheet(&sheet, ProjectionAngle::Third);
+
+    // Re-aiming the PARENT moves the child's key.
+    sheet.views[0].projection = Projection::Named {
+        view: NamedView::Top,
+    };
+    let after = CacheInputs::for_sheet(&sheet, ProjectionAngle::Third);
+    assert_ne!(
+        view_cache_key(child, &before),
+        view_cache_key(child, &after),
+        "a child's cache must not survive its parent being re-aimed"
+    );
+
+    // So does the projection standard, which decides what a projected view
+    // SHOWS.
+    let first = CacheInputs::for_sheet(&sheet, ProjectionAngle::First);
+    assert_ne!(view_cache_key(child, &after), view_cache_key(child, &first));
+
+    // But writing a cache does NOT: the key is of the recipe, so storing the
+    // answer must not change the question.
+    let mut with_cache = sheet.clone();
+    with_cache.views[0].cache = Some(ViewLayout::default());
+    with_cache.views[0].cache_key = Some("stale".into());
+    assert_eq!(
+        CacheInputs::for_sheet(&with_cache, ProjectionAngle::Third),
+        after,
+        "a stored cache is not part of the recipe it was built from"
+    );
+}
+
+#[test]
+fn a_body_pid_digest_is_order_independent_and_changes_with_the_ids() {
+    // `all_entity_pids` makes no ordering promise, so the digest sorts first:
+    // a key that moved with the kernel's traversal order would report every
+    // cache stale on every rebuild, which is the same as having no key.
+    let kernel = waffle_types::kernel::MockKernel::new();
+    let a = ProjectionBody {
+        handle: KernelSolidHandle::from_raw(1),
+        name: "A".into(),
+        placement: None,
+    };
+    let b = ProjectionBody {
+        handle: KernelSolidHandle::from_raw(2),
+        name: "B".into(),
+        placement: None,
+    };
+    let ab = body_pid_digest(&[a.clone(), b.clone()], &kernel);
+    assert_eq!(ab, body_pid_digest(&[a.clone(), b.clone()], &kernel));
+    // The body NAMES are part of it, so renaming a body is a new drawing.
+    let renamed = ProjectionBody {
+        name: "A2".into(),
+        ..a.clone()
+    };
+    assert_ne!(ab, body_pid_digest(&[renamed, b], &kernel));
+    assert_ne!(ab, body_pid_digest(&[a], &kernel));
+}
+
+#[test]
+fn the_d4b_additions_round_trip_through_serde_and_cost_an_untouched_sheet_nothing() {
+    let (mut sheet, front) = sheet_with_front();
+    sheet.views.push(DrawingView::new(
+        "A",
+        ViewSource::whole_tab("t"),
+        Projection::Section {
+            parent: front,
+            from: [0.0, -0.01],
+            to: [0.0, 0.01],
+            flip: true,
+            label: "A".into(),
+        },
+    ));
+    sheet.views.push(DrawingView::new(
+        "B",
+        ViewSource::whole_tab("t"),
+        Projection::Detail {
+            parent: front,
+            center: [0.002, 0.003],
+            radius: 0.004,
+            label: "B".into(),
+        },
+    ));
+    sheet.views[1].cache_key = Some("d4b-0123456789abcdef".into());
+    sheet.title_block_cache = Some(TitleBlockLayout {
+        rows: vec![TitleBlockRow {
+            label: "Title".into(),
+            value: "Bracket".into(),
+        }],
+    });
+    let drawing = Drawing {
+        sheets: vec![sheet],
+        projection_angle: ProjectionAngle::First,
+        ..Drawing::default()
+    };
+    let json = serde_json::to_string(&drawing).unwrap();
+    let back: Drawing = serde_json::from_str(&json).unwrap();
+    assert_eq!(
+        serde_json::to_string(&back).unwrap(),
+        json,
+        "the D4b fields must survive a round trip byte for byte"
+    );
+    assert!(back.validate().is_empty(), "{:?}", back.validate());
+
+    // A drawing written by D4a — no `title_block`, no `cache_key` — loads with
+    // the defaults, and a title block it never asked for is the ON default,
+    // because a drawing without one is not a controlled document.
+    let old = r#"{"sheets":[{"id":"00000000-0000-4000-8000-000000000002","name":"S"}]}"#;
+    let back: Drawing = serde_json::from_str(old).unwrap();
+    assert!(back.sheets[0].title_block.show);
+    assert_eq!(back.sheets[0].title_block.fields.len(), 6);
+    assert!(back.sheets[0].title_block_cache.is_none());
+}

@@ -90,9 +90,14 @@
 //! - **`section_with_plane` takes an origin/normal pair**, since the kernel
 //!   contract has no shared `Plane` type to borrow.
 
-use cad_primitives::Point2;
-
 use super::types::{KernelError, KernelId, KernelSolidHandle, RigidPlacement};
+
+/// The point type every curve here is built on, re-exported so a consumer can
+/// CONSTRUCT a [`Curve2`] without taking a dependency on `cad_primitives`
+/// itself. Reading one never needed it (`Point2::x`/`y` come out as `f64`);
+/// building one does, and a crate two layers up should not have to name a
+/// crate two layers down for the sake of one constructor.
+pub use cad_primitives::Point2;
 
 /// Where the viewer stands and which way is up on the paper.
 ///
@@ -1057,6 +1062,24 @@ impl Aabb2 {
     /// The degenerate box at one point.
     pub fn point(p: Point2) -> Aabb2 {
         Aabb2 { min: p, max: p }
+    }
+
+    /// A box from plain pairs — for a caller that has `[f64; 2]`s and no
+    /// reason to depend on `cad_primitives` for the one conversion (D4b: a
+    /// detail view's crop box, built from a centre and a radius).
+    pub fn from_pairs(min: [f64; 2], max: [f64; 2]) -> Aabb2 {
+        Aabb2 {
+            min: Point2::new(min[0], min[1]),
+            max: Point2::new(max[0], max[1]),
+        }
+    }
+
+    /// Whether the two boxes overlap, touching included.
+    pub fn intersects(self, other: Aabb2) -> bool {
+        self.max.x() >= other.min.x()
+            && self.min.x() <= other.max.x()
+            && self.max.y() >= other.min.y()
+            && self.min.y() <= other.max.y()
     }
 
     /// This box grown to contain `p`.
