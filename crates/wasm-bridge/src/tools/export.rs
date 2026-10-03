@@ -289,7 +289,18 @@ fn view_arguments(args: &Value) -> Result<ViewArgs, ToolFailure> {
 /// `InvalidArgument` naming the argument, so the check belongs here, asked of
 /// the very frame the bridge will build ([`ViewFrame::from_parts`]) rather
 /// than of a second opinion about what "parallel" means.
+/// It names the argument actually at fault: a direction too short to
+/// normalize at all is `/direction`, not `/up`. `vector3` refuses an exactly
+/// zero vector, but `[1e-300, 0, 0]` is three finite non-zero numbers and
+/// still has no unit direction in it.
 fn check_orientable((dir, up): ViewArgs) -> Result<ViewArgs, ToolFailure> {
+    if ViewFrame::from_parts(dir, None).basis().is_none() {
+        return Err(ToolFailure::new(
+            "InvalidArgument",
+            "/direction is too short to be a direction of sight.",
+            json!({ "path": "/direction" }),
+        ));
+    }
     if ViewFrame::from_parts(dir, up).basis().is_none() {
         return Err(ToolFailure::new(
             "InvalidArgument",
@@ -520,6 +531,8 @@ mod tests {
             // projection failure the bridge reports as a rebuild error.
             json!({ "view": "front", "up": [0.0, -2.0, 0.0] }),
             json!({ "direction": [0.0, 0.0, 1.0], "up": [0.0, 0.0, 5.0] }),
+            // Three finite non-zero numbers, and still no direction in it.
+            json!({ "direction": [1e-300, 0.0, 0.0] }),
         ] {
             match view_arguments(&args) {
                 Ok(v) => panic!("{args} should be refused, got {v:?}"),
