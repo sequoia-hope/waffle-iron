@@ -274,6 +274,10 @@ test.describe('Read-only agent tools run in the engine (S3 C5b)', () => {
 		expect(result.entities.entities.every((e) => typeof e.pid === 'number')).toBe(true);
 		expect(result.entities.entities.every((e) => e.geom_ref.selector.type === 'Pid')).toBe(true);
 		expect(result.entities.body.principal_axes.length).toBe(3);
+		// Nothing was filtered, so nothing was excluded — and the answer says
+		// so rather than leaving an agent to guess what an empty arm means.
+		expect(result.entities.excluded_unevaluable).toBe(0);
+		expect(result.entities.unresolved_names).toEqual([]);
 		expect(result.regions.regions.length).toBeGreaterThan(0);
 		// N1: the name is stored over the face's persistent id, and the
 		// listing has it alongside the body's own display name.

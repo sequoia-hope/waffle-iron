@@ -769,6 +769,17 @@ pub struct ListedEntity {
     /// The N1 name pointing at this entity, when one does.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub name: Option<String>,
+    /// What the name's resolution had to say, verbatim — empty when the name
+    /// reached this entity by its persistent id, which is the normal case.
+    ///
+    /// Non-empty means N1's LOUD FALLBACK fired: the pid the name was stored
+    /// over is gone and the name was rebound through the reference it was
+    /// authored with, which matches by geometry and may well be naming a
+    /// different entity than the user meant. N1 reports that on
+    /// `names_list`; a listing that showed the bare `name` beside it would be
+    /// the one place the warning disappeared, so it travels here too.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub name_warnings: Vec<String>,
     /// The N0 signature: surface type, area, centroid, normal, bbox, and the
     /// rotation-invariant `AxisDescriptor` of a surface of revolution.
     pub signature: waffle_types::TopoSignature,
@@ -801,7 +812,14 @@ pub struct ListedAxis {
     /// A point ON the axis — the cylinder's axis point, the cone's apex, the
     /// sphere's/torus's centre, the circle's centre.
     pub origin: [f64; 3],
-    pub direction: [f64; 3],
+    /// The unit axis direction, and `null` for `spherical`: a sphere has no
+    /// intrinsic axis, so it carries a CENTRE and nothing else. (The kernel's
+    /// own `EntityAxis` fills a canonical pole there to keep its field
+    /// infallible; publishing that as the sphere's direction would make an
+    /// agent believe a frame the geometry does not have, and would contradict
+    /// the `null` that `signature.axis.direction` reports for the same face.)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub direction: Option<[f64; 3]>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub radius: Option<f64>,
 }
@@ -1153,6 +1171,24 @@ pub enum EngineToUi {
         entities: Vec<ListedEntity>,
         /// The body's own frame (Q3's principal axes), or why it has none.
         body: ListedBodyFrame,
+        /// How many entities a filter arm EXCLUDED because their own data
+        /// could not answer it, rather than because they failed it.
+        ///
+        /// Without this an agent cannot tell "no entity is in that box" from
+        /// "no entity could be asked", and those call for opposite next
+        /// moves. Today only the `bbox` arm can contribute: an entity whose
+        /// signature carries no bounding box is not assumed to fit, so it
+        /// drops out of a `bbox`-filtered listing — and that is the fact this
+        /// counts. (An unnamed entity failing a `name` glob is NOT counted:
+        /// "this entity's name does not match" is a real answer when there is
+        /// no name. Zero whenever no filter is given.)
+        excluded_unevaluable: usize,
+        /// This body's N1 names that resolve to nothing, so no entity in the
+        /// listing carries them — in name order. A name the user set and then
+        /// invalidated is a fact about the listing they asked for, and an
+        /// empty `name` on every entity is not a way to learn it.
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        unresolved_names: Vec<String>,
     },
 
     /// Answer to `QueryEntityNames` (N1), in name order.

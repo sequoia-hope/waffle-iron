@@ -516,6 +516,117 @@ fn filters_compose_and_each_arm_narrows() {
 
     // A face has no name, so a name glob on this body excludes all six.
     assert_eq!(count(&mut state, &mut kernel, json!({ "name": "*" })), 0);
+
+    // …and that exclusion is a real ANSWER, not a failure to evaluate, so it
+    // must not show up as unevaluable. Every arm on this box is answerable,
+    // so the counter is 0 throughout — which is what makes a non-zero one
+    // mean something when a degenerate signature does turn up.
+    for filter in [
+        json!({ "name": "*" }),
+        top_slab.clone(),
+        json!({ "bbox": [[9.0, 9.0, 9.0], [10.0, 10.0, 10.0]] }),
+        up.clone(),
+    ] {
+        let answer = ok(
+            &mut state,
+            &mut kernel,
+            "entity_list",
+            json!({ "body_id": body, "kind": "face", "filter": filter }),
+        );
+        assert_eq!(
+            answer["excluded_unevaluable"],
+            json!(0),
+            "every face of a box answers every arm: {answer}"
+        );
+    }
+}
+
+/// §4.3: an empty answer must say WHICH kind of empty it is.
+///
+/// `excluded_unevaluable` is present on every answer, filtered or not, and
+/// counts the entities an arm could not be asked of. Without it an agent that
+/// filters by region and gets nothing cannot tell "no entity is in that box"
+/// from "no entity carried a box to compare", and those call for opposite
+/// next moves. The rule itself is pinned on `passes_entity_filter`
+/// (`dispatch::q6_filter_tests`); what this pins is that the count reaches
+/// the wire and that an UNFILTERED listing never reports one.
+#[test]
+fn an_unfiltered_listing_excludes_nothing_and_says_so() {
+    let mut state = EngineState::new();
+    let mut kernel = KernelV2Adapter::new();
+    let body = block(&mut state, &mut kernel, 0.030, 0.020, 0.010, 1);
+
+    for kind in ["face", "edge", "vertex"] {
+        let answer = listing(&mut state, &mut kernel, &body, kind);
+        assert_eq!(
+            answer["excluded_unevaluable"],
+            json!(0),
+            "nothing is filtered, so nothing is excluded: {answer}"
+        );
+        assert_eq!(
+            answer["unresolved_names"],
+            json!([]),
+            "this body has no names at all, let alone broken ones: {answer}"
+        );
+        for e in entities(&answer) {
+            assert!(
+                e.get("name_warnings").is_none(),
+                "an unnamed entity has nothing to warn about: {e}"
+            );
+        }
+    }
+}
+
+/// A name that resolves by its persistent id — the normal case — carries NO
+/// warnings, so a listing that does carry one is saying something.
+///
+/// The warning is N1's loud fallback: the pid the name was stored over is
+/// gone and the name was rebound through the reference it was authored with,
+/// which matches by geometry and may be naming a different entity. `names_list`
+/// reports that (`tool_names.rs`); a listing that printed the bare name beside
+/// it would be the one place it vanished, which is why `ListedEntity` carries
+/// `name_warnings` at all.
+#[test]
+fn a_pid_resolved_name_comes_with_no_warnings() {
+    let mut state = EngineState::new();
+    let mut kernel = KernelV2Adapter::new();
+    let body = block(&mut state, &mut kernel, 0.030, 0.020, 0.010, 1);
+    let edges = entities(&listing(&mut state, &mut kernel, &body, "edge"));
+    let target = edges[0].clone();
+    let _ = ok(
+        &mut state,
+        &mut kernel,
+        "entity_name",
+        json!({
+            "target": { "type": "entity", "geom_ref": target["geom_ref"] },
+            "name": "front_edge",
+        }),
+    );
+
+    let answer = listing(&mut state, &mut kernel, &body, "edge");
+    let named = entities(&answer)
+        .into_iter()
+        .find(|e| e["name"] == json!("front_edge"))
+        .expect("the name is in the listing");
+    assert!(
+        named.get("name_warnings").is_none(),
+        "a pid-resolved name is silent: {named}"
+    );
+    assert_eq!(
+        answer["unresolved_names"],
+        json!([]),
+        "and it resolves, so it is not in the broken list: {answer}"
+    );
+    // The name's own listing agrees about how it got there, so the two tools
+    // cannot tell an agent different stories about one name.
+    let entry = ok(&mut state, &mut kernel, "names_list", json!({}))["names"]
+        .as_array()
+        .cloned()
+        .unwrap_or_default()
+        .into_iter()
+        .find(|n| n["name"] == json!("front_edge"))
+        .expect("names_list has it too");
+    assert_eq!(entry["resolved_by"], json!("pid"), "{entry}");
 }
 
 /// A bad `kind`, a missing `kind` and an unknown body each refuse with their

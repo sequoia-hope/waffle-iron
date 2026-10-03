@@ -1210,7 +1210,7 @@ fn list_entities(
     use waffle_types::TopoKind;
 
     crate::tessellation_runner::tessellate_engine(&mut state.engine, kb);
-    let named = crate::entity_names::names_by_entity(state, kb, body_id);
+    let (named, unresolved_names) = crate::entity_names::name_bindings(state, kb, body_id);
     let topo = kind.topo();
 
     // Q3's own answer, carried: the body frame is the same integration
@@ -1323,9 +1323,11 @@ fn list_entities(
         scope: None,
     };
 
-    // Which entities to list. For faces that is the mesh's own face ranges
-    // (the set `face_list` reports — every face the body renders); for edges
-    // and vertices the kernel's listing.
+    // Which entities to list: the KERNEL's own listing in every case, never
+    // the render mesh's face ranges. `face_list` iterates the mesh, so a face
+    // that renders no triangles is invisible to it; here such a face is
+    // listed with a null `geom_ref`, which is strictly more informative and
+    // is honest about which half of it is missing.
     let ids: Vec<waffle_types::kernel::KernelId> = match kind {
         EntityListKind::Face => introspect.list_faces(&body.handle),
         EntityListKind::Edge => introspect.list_edges(&body.handle),
@@ -1345,15 +1347,12 @@ fn list_entities(
                     EntityListKind::Face => face_refs.get(&id).cloned(),
                     _ => pid.map(pid_ref),
                 },
-                name: named.get(&(topo, id)).cloned(),
-                axis: introspect
-                    .entity_axis(id, topo)
-                    .map(|a| crate::messages::ListedAxis {
-                        kind: axis_kind_str(a.kind).to_string(),
-                        origin: a.origin,
-                        direction: a.direction,
-                        radius: a.radius,
-                    }),
+                name: named.get(&(topo, id)).map(|b| b.name.clone()),
+                name_warnings: named
+                    .get(&(topo, id))
+                    .map(|b| b.warnings.clone())
+                    .unwrap_or_default(),
+                axis: introspect.entity_axis(id, topo).map(listed_axis),
                 length: length.and_then(|r| r.as_ref().ok()).map(|r| {
                     use waffle_types::kernel::LengthMethod;
                     crate::messages::ListedLength {
@@ -1384,17 +1383,35 @@ fn list_entities(
                 signature,
             }
         })
-        .filter(|e| passes_entity_filter(e, filter))
         .collect();
 
-    // By persistent id; the id-less tail by its own content. `sort_by_cached_key`
-    // so the JSON of a signature is rendered once per entity, not per compare.
+    let mut excluded_unevaluable = 0usize;
+    entities.retain(|e| match passes_entity_filter(e, filter) {
+        FilterVerdict::Pass => true,
+        FilterVerdict::Reject => false,
+        FilterVerdict::Unevaluable => {
+            excluded_unevaluable += 1;
+            false
+        }
+    });
+
+    // By persistent id; the id-less tail by its own content.
+    // `sort_by_cached_key` so a signature is rendered once per entity rather
+    // than once per comparison, and only for the entities that can need it:
+    // the content key breaks ties among the id-LESS tail, so an entity with a
+    // pid never pays for rendering one. (A gear body lists ~1000 edges, every
+    // one of them with an id.) `TopoSignature` is a plain struct of scalars,
+    // so serde emits its fields in declaration order and the string is the
+    // same in every process — which the fresh-process oracle at the bottom of
+    // `tests/tool_entity_list.rs` is what actually proves.
     entities.sort_by_cached_key(|e| {
         (
             e.pid.is_none(),
             e.pid.unwrap_or(0),
             e.root_pid.unwrap_or(0),
-            serde_json::to_string(&e.signature).unwrap_or_default(),
+            e.pid
+                .is_none()
+                .then(|| serde_json::to_string(&e.signature).unwrap_or_default()),
         )
     });
 
@@ -1403,58 +1420,88 @@ fn list_entities(
         kind,
         entities,
         body: body_frame,
+        excluded_unevaluable,
+        unresolved_names,
     })
 }
 
-/// `AxisKind` as the one lowercase token the wire carries.
-fn axis_kind_str(kind: waffle_types::kernel::AxisKind) -> &'static str {
-    use waffle_types::kernel::AxisKind;
-    match kind {
-        AxisKind::Cylindrical => "cylindrical",
-        AxisKind::Conical => "conical",
-        AxisKind::Spherical => "spherical",
-        AxisKind::Toroidal => "toroidal",
-        AxisKind::Circular => "circular",
-        AxisKind::Elliptical => "elliptical",
+/// `KernelIntrospect::entity_axis` on the wire (Q6).
+///
+/// The one judgement here is the SPHERE. `EntityAxis::direction` is an
+/// infallible `[f64; 3]`, and for a sphere the kernel fills it with its own
+/// canonical pole — documented on `AxisKind::Spherical` as "the kernel's
+/// canonical pole axis", not as the sphere's. A sphere is isotropic and has
+/// no axis: publishing that pole would tell an agent a sphere is oriented
+/// along z, and it would contradict `signature.axis.direction`, which N0
+/// already reports as `null` for a sphere. So a spherical axis carries its
+/// CENTRE and its radius, and no direction at all.
+fn listed_axis(a: waffle_types::kernel::EntityAxis) -> crate::messages::ListedAxis {
+    crate::messages::ListedAxis {
+        kind: a.kind.label().to_string(),
+        origin: a.origin,
+        direction: match a.kind {
+            waffle_types::kernel::AxisKind::Spherical => None,
+            _ => Some(a.direction),
+        },
+        radius: a.radius,
     }
+}
+
+/// What a Q6 filter made of one entity.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum FilterVerdict {
+    /// Every present arm was satisfied. List it.
+    Pass,
+    /// An arm was asked and answered no. Drop it.
+    Reject,
+    /// An arm could not be asked of this entity at all, because the entity's
+    /// own data does not carry what the arm is about. Dropped — but COUNTED,
+    /// because "nothing matched" and "nothing could be asked" want opposite
+    /// responses from a caller and an empty list says neither.
+    Unevaluable,
 }
 
 /// Whether one listed entity passes every present arm of a Q6 filter.
 ///
 /// The arms COMPOSE by conjunction, and each one that cannot be evaluated
-/// EXCLUDES rather than admits: an entity with no bbox does not pass a bbox
-/// filter, and an unnamed entity does not pass a name glob. A listing's job
-/// is to answer "which entities satisfy this", and an entity whose data
-/// cannot answer does not satisfy it.
+/// EXCLUDES rather than admits: a listing's job is to answer "which entities
+/// satisfy this", and an entity whose data cannot answer does not satisfy it.
+/// An exclusion for THAT reason is reported separately (see
+/// [`FilterVerdict::Unevaluable`]).
+///
+/// A missing name is a `Reject`, not an `Unevaluable`: "this entity's name
+/// does not match the glob" is a true and complete answer when the entity has
+/// no name. A missing bbox is the real `Unevaluable` — whether the entity lies
+/// inside the box is a question its signature simply cannot answer.
 fn passes_entity_filter(
     entity: &crate::messages::ListedEntity,
     filter: Option<&crate::messages::EntityListFilter>,
-) -> bool {
+) -> FilterVerdict {
     let Some(filter) = filter else {
-        return true;
+        return FilterVerdict::Pass;
     };
     if let Some(query) = &filter.query {
         if !feature_engine::resolve::passes_all_filters(&entity.signature, &query.filters) {
-            return false;
+            return FilterVerdict::Reject;
         }
     }
     if let Some(glob) = &filter.name {
         match &entity.name {
             Some(name) if glob_matches(glob, name) => {}
-            _ => return false,
+            _ => return FilterVerdict::Reject,
         }
     }
     if let Some([min, max]) = &filter.bbox {
         let Some(bb) = entity.signature.bbox else {
-            return false;
+            return FilterVerdict::Unevaluable;
         };
         for k in 0..3 {
             if bb[k] < min[k] || bb[k + 3] > max[k] {
-                return false;
+                return FilterVerdict::Reject;
             }
         }
     }
-    true
+    FilterVerdict::Pass
 }
 
 /// `*` (any run, including empty) and `?` (exactly one character) against a
@@ -2948,5 +2995,177 @@ fn operation_name(op: &Operation) -> String {
         Operation::PatternMirror { .. } => "Mirror".to_string(),
         Operation::Script { .. } => "Script".to_string(),
         Operation::Unknown(_) => op.type_tag().to_string(),
+    }
+}
+
+#[cfg(test)]
+mod q6_filter_tests {
+    use super::*;
+    use crate::messages::{EntityListFilter, ListedEntity};
+
+    fn entity(bbox: Option<[f64; 6]>, name: Option<&str>) -> ListedEntity {
+        ListedEntity {
+            pid: Some(7),
+            root_pid: Some(7),
+            geom_ref: None,
+            name: name.map(str::to_string),
+            name_warnings: Vec::new(),
+            signature: waffle_types::TopoSignature {
+                bbox,
+                ..waffle_types::TopoSignature::empty()
+            },
+            axis: None,
+            length: None,
+            length_unavailable: None,
+            position: None,
+        }
+    }
+
+    fn bbox_filter() -> EntityListFilter {
+        EntityListFilter {
+            bbox: Some([[0.0, 0.0, 0.0], [1.0, 1.0, 1.0]]),
+            ..EntityListFilter::default()
+        }
+    }
+
+    /// Q6 §4.3: the three verdicts, and in particular that a MISSING bbox is
+    /// `Unevaluable` and not a plain reject.
+    ///
+    /// The distinction is the whole reason `excluded_unevaluable` exists on
+    /// the answer: an agent that filters by region and gets nothing back must
+    /// be able to tell "no entity is in that region" from "no entity could be
+    /// asked about it", because the second one means its question was never
+    /// answered.
+    #[test]
+    fn a_bbox_arm_cannot_be_asked_of_an_entity_with_no_bbox() {
+        let f = bbox_filter();
+        assert_eq!(
+            passes_entity_filter(
+                &entity(Some([0.1, 0.1, 0.1, 0.9, 0.9, 0.9]), None),
+                Some(&f)
+            ),
+            FilterVerdict::Pass,
+            "contained"
+        );
+        assert_eq!(
+            passes_entity_filter(
+                &entity(Some([0.1, 0.1, 0.1, 9.0, 0.9, 0.9]), None),
+                Some(&f)
+            ),
+            FilterVerdict::Reject,
+            "reaches out of the box — asked and answered no"
+        );
+        assert_eq!(
+            passes_entity_filter(&entity(None, None), Some(&f)),
+            FilterVerdict::Unevaluable,
+            "no bbox at all — the arm could not be asked"
+        );
+        // No filter at all excludes nothing and counts nothing.
+        assert_eq!(
+            passes_entity_filter(&entity(None, None), None),
+            FilterVerdict::Pass
+        );
+    }
+
+    /// A missing NAME, by contrast, is a real answer: an entity with no name
+    /// genuinely does not match a glob, so it is a `Reject` and must not
+    /// inflate the unevaluable count.
+    #[test]
+    fn an_unnamed_entity_rejects_a_glob_rather_than_being_unevaluable() {
+        let f = EntityListFilter {
+            name: Some("front_*".to_string()),
+            ..EntityListFilter::default()
+        };
+        assert_eq!(
+            passes_entity_filter(&entity(None, Some("front_edge")), Some(&f)),
+            FilterVerdict::Pass,
+            "a name arm needs no bbox"
+        );
+        assert_eq!(
+            passes_entity_filter(&entity(None, Some("back_edge")), Some(&f)),
+            FilterVerdict::Reject
+        );
+        assert_eq!(
+            passes_entity_filter(&entity(None, None), Some(&f)),
+            FilterVerdict::Reject,
+            "unnamed is a no, not an unknown"
+        );
+    }
+
+    /// A sphere's listed axis is a CENTRE with no direction, and every other
+    /// family keeps its direction (Q6 §4.2).
+    ///
+    /// The kernel's `EntityAxis` cannot express "no direction" — its field is
+    /// an infallible `[f64; 3]` holding a canonical pole for a sphere — so
+    /// the mapping to the wire is where the distinction has to be made, and
+    /// this is the pin. `signature.axis.direction` is already `null` for a
+    /// sphere, so the alternative was one payload stating two contradictory
+    /// things about one face.
+    #[test]
+    fn a_sphere_publishes_a_centre_and_no_axis_direction() {
+        use waffle_types::kernel::{AxisKind, EntityAxis};
+        let axis = |kind| {
+            listed_axis(EntityAxis {
+                kind,
+                origin: [1.0, 2.0, 3.0],
+                direction: [0.0, 0.0, 1.0],
+                radius: Some(0.5),
+            })
+        };
+        let sphere = axis(AxisKind::Spherical);
+        assert_eq!(sphere.kind, "spherical");
+        assert_eq!(sphere.origin, [1.0, 2.0, 3.0], "the centre is still there");
+        assert_eq!(sphere.radius, Some(0.5));
+        assert_eq!(
+            sphere.direction, None,
+            "a sphere is isotropic: the kernel's canonical pole is not its orientation"
+        );
+        for kind in [
+            AxisKind::Cylindrical,
+            AxisKind::Conical,
+            AxisKind::Toroidal,
+            AxisKind::Circular,
+            AxisKind::Elliptical,
+        ] {
+            assert_eq!(
+                axis(kind).direction,
+                Some([0.0, 0.0, 1.0]),
+                "{kind:?} has a real axis and keeps it"
+            );
+        }
+        // The token is `AxisKind`'s own label, so the wire and the kernel's
+        // diagnostics cannot drift into two spellings of one family.
+        assert_eq!(axis(AxisKind::Toroidal).kind, AxisKind::Toroidal.label());
+    }
+
+    /// The glob itself: `*` spans any run including empty, `?` exactly one,
+    /// and a pattern matches the WHOLE name.
+    #[test]
+    fn the_glob_matches_whole_names() {
+        for (pattern, name, want) in [
+            ("*", "anything", true),
+            ("*", "", true),
+            ("front_*", "front_edge", true),
+            ("front_*", "front_", true),
+            ("front_*", "a_front_edge", false),
+            ("*edge", "front_edge", true),
+            ("*_*", "front_edge", true),
+            ("b?re", "bore", true),
+            ("b?re", "bre", false),
+            ("b?re", "boore", false),
+            ("bore", "bore", true),
+            ("bore", "bores", false),
+            ("", "", true),
+            ("", "x", false),
+            ("**a**", "a", true),
+            ("*a*b*", "xaybz", true),
+            ("*a*b*", "xbya", false),
+        ] {
+            assert_eq!(
+                glob_matches(pattern, name),
+                want,
+                "glob {pattern:?} against {name:?}"
+            );
+        }
     }
 }

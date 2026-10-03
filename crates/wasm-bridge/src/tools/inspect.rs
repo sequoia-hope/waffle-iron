@@ -470,6 +470,8 @@ pub(super) fn entity_list(
         kind,
         entities,
         body,
+        excluded_unevaluable,
+        unresolved_names,
     } = &response
     else {
         return Err(unexpected("ListEntities", "EntitiesListed", &response));
@@ -480,6 +482,8 @@ pub(super) fn entity_list(
         "count": entities.len(),
         "entities": entities,
         "body": body,
+        "excluded_unevaluable": excluded_unevaluable,
+        "unresolved_names": unresolved_names,
     }))
 }
 

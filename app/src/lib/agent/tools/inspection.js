@@ -359,7 +359,12 @@ export const entityListTool = {
 		'centroid (the same integration measure_mass reports), or says why it has none. Order is by ' +
 		'persistent id, so two listings of the same geometry are comparable. filter arms compose: query ' +
 		'(TopoQuery filters), name (a * / ? glob over the entity name), bbox ([min, max] in meters, keeping ' +
-		'entities whose own bbox is inside it). Lengths in meters.',
+		'entities whose own bbox is inside it). excluded_unevaluable counts entities a filter arm dropped ' +
+		'because their own data could not answer it, so an empty list does not read as "nothing matched" ' +
+		'when it means "nothing could be asked"; unresolved_names lists the body entity names that now ' +
+		'bind to nothing, and name_warnings on an entity means its name was rebound by geometry after its ' +
+		'persistent id went away and may be naming the wrong entity. A spherical axis has a centre and no ' +
+		'direction. Lengths in meters.',
 	inputSchema: {
 		type: 'object',
 		properties: {
@@ -400,6 +405,7 @@ export const entityListTool = {
 						root_pid: { type: 'number' },
 						geom_ref: { type: 'object' },
 						name: { type: 'string' },
+						name_warnings: { type: 'array', items: { type: 'string' } },
 						signature: { type: 'object' },
 						axis: {
 							type: 'object',
@@ -409,7 +415,7 @@ export const entityListTool = {
 								direction: { type: 'array', items: { type: 'number' } },
 								radius: { type: 'number' }
 							},
-							required: ['kind', 'origin', 'direction']
+							required: ['kind', 'origin']
 						},
 						length: {
 							type: 'object',
@@ -438,9 +444,11 @@ export const entityListTool = {
 					method: { type: 'string', enum: ['exact', 'mesh'] },
 					unavailable: { type: 'string' }
 				}
-			}
+			},
+			excluded_unevaluable: { type: 'number' },
+			unresolved_names: { type: 'array', items: { type: 'string' } }
 		},
-		required: ['body_id', 'kind', 'count', 'entities', 'body']
+		required: ['body_id', 'kind', 'count', 'entities', 'body', 'excluded_unevaluable']
 	},
 	annotations: readOnly('List entities')
 };
