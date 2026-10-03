@@ -1,0 +1,181 @@
+//! Tokenizer. Every lexeme carries the byte range it came from, so a
+//! diagnostic downstream can point into the source.
+
+use super::{ExprError, Span};
+
+#[derive(Debug, Clone, PartialEq)]
+pub enum Tok {
+    Num(f64),
+    Ident(String),
+    Plus,
+    Minus,
+    Star,
+    Slash,
+    Percent,
+    Caret,
+    LParen,
+    RParen,
+    Comma,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct Lexeme {
+    pub tok: Tok,
+    pub span: Span,
+}
+
+/// Tokenize `input`. Whitespace separates; anything else is an error at its
+/// own byte offset.
+pub fn tokenize(input: &str) -> Result<Vec<Lexeme>, ExprError> {
+    let bytes = input.as_bytes();
+    let mut out: Vec<Lexeme> = Vec::new();
+    let mut i = 0;
+    while i < bytes.len() {
+        let c = bytes[i] as char;
+        let single = match c {
+            '+' => Some(Tok::Plus),
+            '-' => Some(Tok::Minus),
+            '*' => Some(Tok::Star),
+            '/' => Some(Tok::Slash),
+            '%' => Some(Tok::Percent),
+            '^' => Some(Tok::Caret),
+            '(' => Some(Tok::LParen),
+            ')' => Some(Tok::RParen),
+            ',' => Some(Tok::Comma),
+            _ => None,
+        };
+        if let Some(tok) = single {
+            out.push(Lexeme {
+                tok,
+                span: Span::new(i, i + 1),
+            });
+            i += 1;
+            continue;
+        }
+        match c {
+            ' ' | '\t' | '\n' | '\r' => i += 1,
+            '0'..='9' | '.' => {
+                let start = i;
+                while i < bytes.len() && (bytes[i].is_ascii_digit() || bytes[i] == b'.') {
+                    i += 1;
+                }
+                // Exponent part: 1e-3 / 2.5E+6. Only when digits follow.
+                if i < bytes.len()
+                    && (bytes[i] == b'e' || bytes[i] == b'E')
+                    && i + 1 < bytes.len()
+                    && (bytes[i + 1].is_ascii_digit()
+                        || ((bytes[i + 1] == b'+' || bytes[i + 1] == b'-')
+                            && i + 2 < bytes.len()
+                            && bytes[i + 2].is_ascii_digit()))
+                {
+                    i += 2; // consume 'e' and sign-or-digit
+                    while i < bytes.len() && bytes[i].is_ascii_digit() {
+                        i += 1;
+                    }
+                }
+                let text = &input[start..i];
+                let n: f64 = text.parse().map_err(|_| ExprError::Parse {
+                    pos: start,
+                    message: format!("invalid number '{text}'"),
+                })?;
+                out.push(Lexeme {
+                    tok: Tok::Num(n),
+                    span: Span::new(start, i),
+                });
+            }
+            c if c.is_ascii_alphabetic() || c == '_' => {
+                let start = i;
+                while i < bytes.len()
+                    && ((bytes[i] as char).is_ascii_alphanumeric() || bytes[i] == b'_')
+                {
+                    i += 1;
+                }
+                out.push(Lexeme {
+                    tok: Tok::Ident(input[start..i].to_string()),
+                    span: Span::new(start, i),
+                });
+            }
+            _ => {
+                return Err(ExprError::Parse {
+                    pos: i,
+                    message: format!("unexpected character '{c}'"),
+                })
+            }
+        }
+    }
+    Ok(out)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn toks(s: &str) -> Vec<Tok> {
+        tokenize(s).unwrap().into_iter().map(|l| l.tok).collect()
+    }
+
+    #[test]
+    fn spans_are_byte_ranges_of_the_source() {
+        let lx = tokenize("25mm + width").unwrap();
+        assert_eq!(lx[0].tok, Tok::Num(25.0));
+        assert_eq!(lx[0].span, Span::new(0, 2));
+        assert_eq!(lx[1].tok, Tok::Ident("mm".into()));
+        assert_eq!(lx[1].span, Span::new(2, 4));
+        assert_eq!(lx[2].span, Span::new(5, 6)); // '+'
+        assert_eq!(lx[3].tok, Tok::Ident("width".into()));
+        assert_eq!(lx[3].span, Span::new(7, 12));
+    }
+
+    #[test]
+    fn numbers_take_exponents_only_when_digits_follow() {
+        assert_eq!(toks("1.5e2"), vec![Tok::Num(150.0)]);
+        assert_eq!(toks("1e-3"), vec![Tok::Num(0.001)]);
+        // `2e` is a number then an identifier, not a broken exponent.
+        assert_eq!(toks("2e"), vec![Tok::Num(2.0), Tok::Ident("e".into())]);
+    }
+
+    #[test]
+    fn whitespace_is_skipped_and_operators_are_single_bytes() {
+        assert_eq!(
+            toks(" 1\t+\n2 "),
+            vec![Tok::Num(1.0), Tok::Plus, Tok::Num(2.0)]
+        );
+        assert_eq!(
+            toks("-*/%^(),"),
+            vec![
+                Tok::Minus,
+                Tok::Star,
+                Tok::Slash,
+                Tok::Percent,
+                Tok::Caret,
+                Tok::LParen,
+                Tok::RParen,
+                Tok::Comma
+            ]
+        );
+    }
+
+    #[test]
+    fn an_unexpected_character_names_its_offset() {
+        assert_eq!(
+            tokenize("1 + $"),
+            Err(ExprError::Parse {
+                pos: 4,
+                message: "unexpected character '$'".into()
+            })
+        );
+        assert_eq!(
+            tokenize("1.2.3"),
+            Err(ExprError::Parse {
+                pos: 0,
+                message: "invalid number '1.2.3'".into()
+            })
+        );
+    }
+
+    #[test]
+    fn an_empty_input_yields_no_lexemes() {
+        assert!(tokenize("").unwrap().is_empty());
+        assert!(tokenize("   ").unwrap().is_empty());
+    }
+}
