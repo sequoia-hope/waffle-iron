@@ -354,12 +354,10 @@ fn a_view_style_decides_per_curve_and_defaults_to_the_drafting_default() {
 }
 
 #[test]
-fn a_literal_dimension_value_is_refused_and_so_is_an_unevaluated_expression() {
+fn a_literal_dimension_value_is_refused_and_an_expression_is_authorable() {
     // §7's open item "nothing refuses `Measured::Value`", closed. A drawing
     // whose number was typed in is the exact failure the increment exists to
-    // prevent, and `Measured::Expr` needs D2's measurement functions — which
-    // do not exist, so measuring it from geometry instead would print a
-    // different number than the one authored.
+    // prevent.
     let view = Uuid::new_v4();
     assert_eq!(check_measured(view, 0, &Measured::FromGeometry), Ok(()));
     let err = check_measured(view, 3, &Measured::Value { value: 0.04 }).unwrap_err();
@@ -368,16 +366,61 @@ fn a_literal_dimension_value_is_refused_and_so_is_an_unevaluated_expression() {
         "{err}"
     );
     assert!(err.to_string().contains("never typed in"), "{err}");
-    let err = check_measured(
-        view,
-        1,
-        &Measured::Expr {
-            expr: "width * 2".to_string(),
+    // D2 moved this one: `Measured::Expr` is now a legal AUTHORED value (the
+    // measurement functions exist), so the authoring boundary passes it and
+    // whether it EVALUATES is the rebuild's question — see
+    // `an_expression_dimension_refuses_in_a_rebuild_with_no_environment`
+    // below. Before D2 this was refused here, which was the honest answer
+    // when nothing could evaluate one.
+    assert_eq!(
+        check_measured(
+            view,
+            1,
+            &Measured::Expr {
+                expr: "width * 2".to_string(),
+            },
+        ),
+        Ok(())
+    );
+}
+
+#[test]
+fn an_expression_dimension_refuses_in_a_rebuild_with_no_environment() {
+    // D2: the value of a `Measured::Expr` dimension comes from the
+    // EXPRESSION, so a rebuild with nothing to evaluate it against must say
+    // so by name. Falling back to what the anchors measure would print a
+    // different number than the one authored, silently.
+    let kernel = waffle_types::kernel::MockKernel::new();
+    let mut view = DrawingView::new(
+        "Front",
+        ViewSource::whole_tab("t"),
+        Projection::Named {
+            view: NamedView::Front,
         },
-    )
-    .unwrap_err();
+    );
+    let mut annotation = dimension_with(Selector::Pid {
+        pid: 7,
+        root_pid: 7,
+    });
+    if let Annotation::Dimension { value, .. } = &mut annotation {
+        *value = Measured::Expr {
+            expr: "bore / 2".to_string(),
+        };
+    }
+    view.annotations.push(annotation);
+    let out = rebuild_view(&view, &ViewFrame::TOP, &[], &kernel, None)
+        .expect("the view still builds — one annotation is not the view");
+    let (index, err) = out
+        .annotation_errors
+        .first()
+        .expect("the expression dimension is reported");
+    assert_eq!(*index, 0);
     assert!(
-        matches!(err, DrawingError::ExprNotEvaluated { ref expr, .. } if expr == "width * 2"),
+        matches!(err, DrawingError::ExprNotEvaluated { ref expr, .. } if expr == "bore / 2"),
+        "{err}"
+    );
+    assert!(
+        err.to_string().contains("no expression environment"),
         "{err}"
     );
 }
@@ -417,7 +460,8 @@ fn a_view_whose_scale_cannot_be_drawn_is_refused_before_the_kernel_is_asked() {
         },
     );
     view.scale = 0.0;
-    let err = rebuild_view(&view, &ViewFrame::TOP, &[], &kernel).expect_err("no scale, no view");
+    let err =
+        rebuild_view(&view, &ViewFrame::TOP, &[], &kernel, None).expect_err("no scale, no view");
     assert!(
         matches!(err, DrawingError::BadScale { scale, .. } if scale == 0.0),
         "{err}"
@@ -438,7 +482,8 @@ fn a_kernel_that_cannot_project_is_reported_with_the_view_named() {
         },
     );
     let bodies = vec![ProjectionBody::solo(KernelSolidHandle::from_raw(0))];
-    let err = rebuild_view(&view, &ViewFrame::TOP, &bodies, &kernel).expect_err("mock cannot");
+    let err =
+        rebuild_view(&view, &ViewFrame::TOP, &bodies, &kernel, None).expect_err("mock cannot");
     match err {
         DrawingError::ProjectionFailed { view: id, message } => {
             assert_eq!(id, view.id);
@@ -470,7 +515,8 @@ fn an_anchor_that_is_not_a_persistent_id_is_refused_by_the_selector_it_used() {
     })];
     // No bodies: `project_bodies` is never called, so the layout is empty and
     // the anchor refusal is reached.
-    let out = rebuild_view(&view, &ViewFrame::TOP, &[], &kernel).expect("the view still builds");
+    let out =
+        rebuild_view(&view, &ViewFrame::TOP, &[], &kernel, None).expect("the view still builds");
     // The annotation fails; the VIEW does not. A dimension whose anchor is
     // unusable must not blank the sheet (see `ViewRebuild::annotation_errors`).
     assert!(out.layout.annotations.is_empty());
@@ -504,7 +550,8 @@ fn an_anchor_whose_pid_is_absent_refuses_rather_than_measuring_something_else() 
         pid: 4242,
         root_pid: 4242,
     })];
-    let out = rebuild_view(&view, &ViewFrame::TOP, &[], &kernel).expect("the view still builds");
+    let out =
+        rebuild_view(&view, &ViewFrame::TOP, &[], &kernel, None).expect("the view still builds");
     assert!(out.layout.annotations.is_empty());
     let [(index, err)] = out.annotation_errors.as_slice() else {
         panic!("{:?}", out.annotation_errors);
@@ -537,7 +584,8 @@ fn a_view_of_no_bodies_is_an_empty_sheet_rather_than_an_error() {
             view: NamedView::Top,
         },
     );
-    let out = rebuild_view(&view, &ViewFrame::TOP, &[], &kernel).expect("an empty view is a view");
+    let out =
+        rebuild_view(&view, &ViewFrame::TOP, &[], &kernel, None).expect("an empty view is a view");
     assert!(out.layout.curves.is_empty());
     assert_eq!(out.layout.bbox, None);
     assert_eq!(out.extent_mm, [0.0, 0.0]);
