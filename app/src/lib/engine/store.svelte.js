@@ -7189,12 +7189,18 @@ export function getDrawing() { return drawingStatus?.drawing ?? null; }
 /**
  * The sheet the drawing UI shows: the one whose id is `sheetId`, else the
  * first. A drawing always has at least one sheet (`Drawing::new`).
+ *
+ * `null` for a `sheetId` that NAMES nothing, rather than the first sheet: a
+ * caller asking for one sheet and silently getting another exports the wrong
+ * drawing under the requested name. Only the "give me the default" call —
+ * `sheetId` absent or null — falls back.
  * @param {string | null} [sheetId]
  */
 export function getDrawingSheet(sheetId) {
 	const sheets = drawingStatus?.drawing?.sheets ?? [];
 	if (!sheets.length) return null;
-	return sheets.find((s) => s.id === sheetId) ?? sheets[0];
+	if (sheetId === null || sheetId === undefined) return sheets[0];
+	return sheets.find((s) => s.id === sheetId) ?? null;
 }
 
 /**
@@ -7398,7 +7404,11 @@ export async function editDrawingView(viewId, changes = {}) {
 		type: 'EditView',
 		view_id: viewId,
 		name: changes.name ?? null,
-		scale: Number.isFinite(changes.scale) ? changes.scale : null,
+		// A non-positive scale is not a drawing scale, and `Number('')` is
+		// `0` — so clearing the scale field would otherwise send `0` to the
+		// engine and come back as an error toast. Treated as "no change",
+		// the way a non-numeric entry already is.
+		scale: Number.isFinite(changes.scale) && changes.scale > 0 ? changes.scale : null,
 		placement_mm: Array.isArray(changes.placementMm) ? changes.placementMm.map(Number) : null,
 		bodies: Array.isArray(changes.bodies) ? changes.bodies : null,
 		hidden_lines: typeof changes.hiddenLines === 'boolean' ? changes.hiddenLines : null,
@@ -7433,12 +7443,28 @@ export async function deleteDrawingView(viewId) {
  *           placement?: [number, number] }} spec
  */
 export async function addDrawingAnnotation(viewId, spec = {}) {
-	const anchors = (spec.anchors ?? []).map((a) => {
+	const anchors = [];
+	for (const a of spec.anchors ?? []) {
 		const raw = typeof a === 'object' && a !== null ? a.pid : a;
 		const kind = typeof a === 'object' && a !== null ? (a.kind ?? 'Edge') : 'Edge';
-		// String, always: a number here is this page's own rounding.
-		return { pid: String(raw), kind: { type: kind } };
-	});
+		// A number above 2^53 is REFUSED here rather than stringified. It has
+		// already been rounded by whatever `JSON.parse` produced it, and
+		// `String()` would turn that rounding into a well-formed, wrong,
+		// plausible id that the engine can only report as "resolves to no
+		// geometry" — a corruption named three layers downstream of its
+		// cause. Below 2^53 a number is exact, so it still travels.
+		if (typeof raw === 'number' && !Number.isSafeInteger(raw)) {
+			log('error', 'A drawing anchor arrived as an imprecise number', { pid: raw });
+			showToast('error', 'That anchor id was rounded in transit; pass it as a string.');
+			return false;
+		}
+		if (raw === null || raw === undefined || raw === '') {
+			log('error', 'A drawing anchor has no persistent id', { anchor: a });
+			showToast('error', 'A drawing annotation needs the id of the entity it measures.');
+			return false;
+		}
+		anchors.push({ pid: String(raw), kind: { type: kind } });
+	}
 	return sendDrawingEdit({
 		type: 'AddAnnotation',
 		view_id: viewId,

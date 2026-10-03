@@ -58,7 +58,16 @@ export const DRAWING_QUERIES = {
 			}
 			const sheet = getDrawingSheet(args.sheet_id ?? null);
 			if (!sheet) {
-				throw fail('NotFound', 'This drawing has no sheet to export.', { sheet_id: args.sheet_id ?? null });
+				// Named-but-absent is refused, not quietly answered with the
+				// first sheet: a caller that asked for one sheet and got
+				// another would export the wrong drawing under the right name.
+				throw fail(
+					'NotFound',
+					args.sheet_id
+						? `This drawing has no sheet ${args.sheet_id}.`
+						: 'This drawing has no sheet to export.',
+					{ sheet_id: args.sheet_id ?? null }
+				);
 			}
 			const rendered = renderSheetSvg({
 				sheet,
