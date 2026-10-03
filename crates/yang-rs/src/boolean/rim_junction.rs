@@ -743,26 +743,43 @@ pub(crate) fn point_surface_signed(p: [f64; 3], s: Surface) -> Option<f64> {
 /// loud downstream STOP remains its tripwire; a demand beyond 4096 is
 /// dropped the same way (true near-tangency); Torus targets and curved
 /// B-Rep edges are out of scope this increment.
-pub(crate) fn edge_graze_min_rim_segments(a: &BRep, b: &BRep) -> Option<usize> {
-    if !matches!(
+pub(crate) fn edge_graze_guard_enabled() -> bool {
+    matches!(
         std::env::var("YANG_433_GUARD").as_deref(),
         Ok("1") | Ok("on")
-    ) {
-        return None;
-    }
-    let req = edge_graze_requirement(a, b);
-    let gated = match req {
-        Some(n) if n > natural_rim_n(a) || n > natural_rim_n(b) => Some(n),
-        _ => None,
-    };
-    if std::env::var_os("YANG_SPLIT_PROBE").is_some() {
-        eprintln!(
-            "[edge-graze-guard] req={req:?} natural=({},{}) gated={gated:?}",
-            natural_rim_n(a),
-            natural_rim_n(b),
-        );
-    }
-    gated
+    )
+}
+
+/// The ceiling on one site's inserted sample count — the local twin of the
+/// `n > 4096` demand ceiling in [`segment_face_graze_demand`], and the same
+/// argument: past it the configuration is a true near-tangency with no
+/// practical local refinement, so the site derives NOTHING and the loud
+/// downstream STOP stays its tripwire.
+pub(crate) const LOCAL_REFINE_MAX_SAMPLES: usize = 4096;
+
+/// One firing §4.3.3 Case-IV corner cluster: the wedge corner, the curved
+/// face it is buried under, and the rim density that face's inscribed mesh
+/// needs there. Enumerated so each demand can be applied WHERE it was
+/// derived (`edge_graze_local_rim_overrides`) instead of being collapsed
+/// into one body-wide maximum.
+pub(crate) struct GrazeSite {
+    /// `true` when the curved FACE belongs to `a` (the edge cluster is then
+    /// `b`'s). The demand is the face owner's to pay: boosting the operand
+    /// that merely owns the wedge changes nothing about whether the face's
+    /// mesh clears it.
+    pub face_side_is_a: bool,
+    pub face: usize,
+    pub surface: Surface,
+    /// The rim-N the sagitta demands at this site (`sag(r_max, n) ≤ g/2`).
+    pub n: usize,
+    /// The face's axis, as [`face_station_band`] derives it.
+    pub origin: [f64; 3],
+    pub axis: [f64; 3],
+    /// The face's own natural chord sagitta — the deepest any natural chord
+    /// can cut, hence the threshold below which the wedge is AT RISK.
+    pub thresh: f64,
+    /// The cluster's grazing segments (endpoints), in edge order.
+    pub edges: Vec<([f64; 3], [f64; 3])>,
 }
 
 /// The face's axial station band, derived from its own rim circles (their
@@ -805,10 +822,6 @@ pub(crate) fn face_station_band(
     Some((origin, u, lo, hi))
 }
 
-/// The un-gated requirement (unit-testable): max derived N over both
-/// directions' qualifying (CORNER cluster, curved face) pairs, before the
-/// natural-N self-limiting gate.
-///
 /// **Corner-cluster scope (measured 2026-08-27, spec §7):** the broad
 /// per-segment form was corpus-measured and REJECTED — it boosted 52
 /// cases on real single-edge near-grazes (demands to N=1449), regressing
@@ -819,9 +832,23 @@ pub(crate) fn face_station_band(
 /// with at least TWO incident LineSegment edges that each inside-graze
 /// that face without piercing it in-band. Single-edge grazes derive
 /// nothing and keep their loud downstream tripwires.
-pub(crate) fn edge_graze_requirement(a: &BRep, b: &BRep) -> Option<usize> {
-    let mut req: Option<usize> = None;
+///
+/// Every firing cluster is returned as its own [`GrazeSite`] rather than
+/// collapsed into one maximum.
+///
+/// That collapse was the 2026-10-03 defect (spec
+/// `yang_p0013_tip_land_under_the_chord.md` §4 P5): measured guard-on, the
+/// scan fires **620 clusters over 286 faces** on R0003, **590 / 321** on
+/// R0054 and **121 085 / 559** on R0081, and the single largest demand
+/// (1438 / 946 / 1002) was forced on every rim of BOTH operands — a 10.8× /
+/// 6.7× / 6.8× triangle explosion on bodies that were already CORRECT.
+/// Yang §4.5.2 refines "the parametric surfaces associated with the
+/// erroneous regions": the site, not the model.
+pub(crate) fn edge_graze_sites(a: &BRep, b: &BRep) -> Vec<GrazeSite> {
+    let mut sites: Vec<GrazeSite> = Vec::new();
     for (x, y) in [(a, b), (b, a)] {
+        let face_side_is_a = std::ptr::eq(y, a);
+        let n_nat = natural_rim_n(y);
         // Per-vertex incident LineSegment edges of the edge-side operand.
         let mut incident: std::collections::BTreeMap<u32, Vec<usize>> = Default::default();
         for (ei, e) in x.edges().iter().enumerate() {
@@ -830,7 +857,7 @@ pub(crate) fn edge_graze_requirement(a: &BRep, b: &BRep) -> Option<usize> {
                 incident.entry(e.end).or_default().push(ei);
             }
         }
-        for f in y.faces() {
+        for (f_idx, f) in y.faces().iter().enumerate() {
             if !matches!(f.surface, Surface::Cylinder { .. } | Surface::Cone { .. }) {
                 continue; // Sphere/Torus: no census customers, out of scope
             }
@@ -885,24 +912,289 @@ pub(crate) fn edge_graze_requirement(a: &BRep, b: &BRep) -> Option<usize> {
                 }
                 // Every incident edge's verdict; the cluster fires only
                 // with ≥2 grazing (non-piercing, inside, in-band) edges.
-                let mut demands: Vec<usize> = Vec::new();
+                let mut demands: Vec<(usize, f64)> = Vec::new();
                 for &ei in edges {
                     let e = &x.edges()[ei];
                     let p0 = x.vertices()[e.start as usize].point.as_array();
                     let p1 = x.vertices()[e.end as usize].point.as_array();
-                    if let Some(n) = segment_face_graze_n(p0, p1, f.surface, r_max, band) {
-                        demands.push(n);
+                    if let Some(d) = segment_face_graze_demand(p0, p1, f.surface, r_max, band) {
+                        demands.push(d);
                     }
                 }
                 if demands.len() < 2 {
                     continue;
                 }
-                let n = demands.into_iter().max().unwrap();
-                req = Some(req.map_or(n, |r: usize| r.max(n)));
+                let n = demands.iter().map(|&(n, _)| n).max().unwrap();
+                let thresh = if n_nat == usize::MAX {
+                    f64::INFINITY
+                } else {
+                    r_max * (1.0 - (std::f64::consts::PI / n_nat as f64).cos())
+                };
+                if std::env::var_os("YANG_433_GRAZE_PROBE").is_some() {
+                    let g_min = demands.iter().map(|&(_, g)| g).fold(f64::MAX, f64::min);
+                    // §4.5.2 localization measurement: the at-risk azimuth
+                    // span of this cluster, and the rim closure one local
+                    // refinement of this face would have to move.
+                    let mut sweep_total = 0.0f64;
+                    let mut pieces = 0usize;
+                    let mut whole = 0usize;
+                    for &ei in edges {
+                        let e = &x.edges()[ei];
+                        let q0 = x.vertices()[e.start as usize].point.as_array();
+                        let q1 = x.vertices()[e.end as usize].point.as_array();
+                        match segment_risk_intervals(q0, q1, f.surface, thresh) {
+                            Some(ivs) => {
+                                for (lo, hi) in ivs {
+                                    if let Some((_, sw)) =
+                                        segment_azimuth_interval(q0, q1, origin, u, lo, hi)
+                                    {
+                                        sweep_total += sw;
+                                        pieces += 1;
+                                    }
+                                }
+                            }
+                            None => whole += 1,
+                        }
+                    }
+                    let fine_step = 2.0 * std::f64::consts::PI / n as f64;
+                    let k = (sweep_total / fine_step).ceil() as usize;
+                    let closure = coaxial_rim_closure(y, f_idx, origin, u);
+                    let body_rims = y
+                        .edges()
+                        .iter()
+                        .filter(|e| e.start == e.end && matches!(e.curve, Curve::Circle { .. }))
+                        .count();
+                    eprintln!(
+                        "[s433-local] face={f_idx} n={n} n_nat={n_nat} thresh={thresh:e} \
+                         pieces={pieces} no_span={whole} sweep={sweep_total:e} \
+                         k_samples={k} closure={:?}/{body_rims}",
+                        closure.as_ref().map(Vec::len),
+                    );
+                    let kind = match f.surface {
+                        Surface::Cylinder { .. } => "cylinder",
+                        Surface::Cone { .. } => "cone",
+                        _ => "other",
+                    };
+                    eprintln!(
+                        "[s433-graze] side={} face={} {kind} r_max={r_max:e} edges={} \
+                         g_min={g_min:e} g/r={:e} n={n} v=({:e},{:e},{:e})",
+                        if std::ptr::eq(x, a) { "a" } else { "b" },
+                        f_idx,
+                        demands.len(),
+                        g_min / r_max,
+                        p[0],
+                        p[1],
+                        p[2],
+                    );
+                }
+                sites.push(GrazeSite {
+                    face_side_is_a,
+                    face: f_idx,
+                    surface: f.surface,
+                    n,
+                    origin,
+                    axis: u,
+                    thresh,
+                    edges: edges
+                        .iter()
+                        .map(|&ei| {
+                            let e = &x.edges()[ei];
+                            (
+                                x.vertices()[e.start as usize].point.as_array(),
+                                x.vertices()[e.end as usize].point.as_array(),
+                            )
+                        })
+                        .collect(),
+                });
             }
         }
     }
-    req
+    sites
+}
+
+/// §4.3.3 Case-IV corner-phantom guard, the LOCAL form (spec
+/// `yang_p0013_tip_land_under_the_chord.md` §4 P5 — GATED
+/// `YANG_433_GUARD=1|on`): the extra RIM SAMPLES each firing site's own
+/// arc span demands, per operand, keyed by rim edge.
+///
+/// Three nested localizations, each one measured (§4 P5):
+///
+/// 1. **To the face owner.** The demand keeps the FACE's inscribed mesh
+///    clear of the wedge; the operand that merely owns the wedge corner is
+///    rebuilt for nothing. (The global form boosted both.)
+/// 2. **To the face's own rim closure.** Inserting a rim sample changes that
+///    rim's ring length and every band incident to it pairs rings
+///    positionally, so the unit is [`coaxial_rim_closure`] — not the body.
+///    A face whose closure holds NO full-circle rim (every gear-revolve
+///    cone band in R0003 / R0054 / R0081: `closure=0/0` measured) has no
+///    local form at all and derives NOTHING: the rim-N vocabulary cannot
+///    express a local demand on an arc-bounded band, and spending the
+///    body-wide boost there is precisely what cost those three cases their
+///    verdict. The loud downstream STOP stays their tripwire.
+/// 3. **To the at-risk arc span.** Only the azimuths where the face's
+///    natural chord can actually reach the wedge are refined
+///    ([`segment_risk_intervals`] + [`segment_azimuth_interval`], both
+///    exact). P0013 needs **3 samples per rim**, measured, where the global
+///    form rebuilt the whole boss at N = 152.
+///
+/// Why the span's own ENDPOINTS are inserted and no padding is needed: a
+/// chord from the last natural sample into the span terminates AT the span
+/// boundary, so its deviation peaks strictly outside the span, where the
+/// clearance is ≥ `thresh` = the natural sagitta ≥ that deviation. Inside
+/// the span consecutive samples are `2π/n` apart, so the sagitta is the
+/// `g/2` the site derived. Nothing is widened.
+///
+/// Fail-closed throughout: a site whose span cannot be bounded exactly (a
+/// surface with no closed-form signed distance, or a sub-range on the axis
+/// where azimuth is undefined), one whose demand the natural density
+/// already meets, and one needing more than [`LOCAL_REFINE_MAX_SAMPLES`]
+/// samples all derive nothing.
+pub(crate) fn edge_graze_local_rim_overrides(
+    a: &BRep,
+    b: &BRep,
+) -> (
+    std::collections::BTreeMap<u32, Vec<Point3>>,
+    std::collections::BTreeMap<u32, Vec<Point3>>,
+) {
+    let mut out_a: std::collections::BTreeMap<u32, Vec<Point3>> = Default::default();
+    let mut out_b: std::collections::BTreeMap<u32, Vec<Point3>> = Default::default();
+    if !edge_graze_guard_enabled() {
+        return (out_a, out_b);
+    }
+    let two_pi = 2.0 * std::f64::consts::PI;
+    // Accumulated per (operand, rim closure): the closure is an equivalence
+    // class of rims, so two sites on the same class get the IDENTICAL angle
+    // set and every rim in it keeps an equal ring length.
+    type Closure = (bool, Vec<u32>);
+    struct Acc {
+        angles: Vec<f64>,
+        /// The finest step any site on this closure asked for — the dedup
+        /// scale, so a coarse site never swallows a finer site's sample.
+        min_step: f64,
+        /// ONE canonical azimuth frame for the whole closure: the rims are
+        /// coaxial but may store OPPOSITE axis senses, and
+        /// `ortho_basis(u) != ortho_basis(-u)`, so the sign is canonicalized
+        /// (first non-zero component positive) before any angle is taken.
+        axis: [f64; 3],
+    }
+    let canonical = |u: [f64; 3]| -> [f64; 3] {
+        for c in u {
+            if c > 0.0 {
+                return u;
+            }
+            if c < 0.0 {
+                return [-u[0], -u[1], -u[2]];
+            }
+        }
+        u
+    };
+    let mut per_closure: std::collections::BTreeMap<Closure, Acc> = Default::default();
+    // Both hoisted out of the site loop: the scan fires 121 085 times on
+    // R0081, and `natural_rim_n` walks every edge while `coaxial_rim_closure`
+    // is quadratic in the face count.
+    let (nat_a, nat_b) = (natural_rim_n(a), natural_rim_n(b));
+    let mut closure_memo: std::collections::BTreeMap<(bool, usize), Option<Vec<u32>>> =
+        Default::default();
+    for site in edge_graze_sites(a, b) {
+        let y = if site.face_side_is_a { a } else { b };
+        if site.n <= if site.face_side_is_a { nat_a } else { nat_b } {
+            continue; // self-limiting: the natural density already clears it
+        }
+        let rims = closure_memo
+            .entry((site.face_side_is_a, site.face))
+            .or_insert_with(|| coaxial_rim_closure(y, site.face, site.origin, site.axis));
+        // `None` = not one azimuth set's worth of rims (fail closed); empty =
+        // an ARC-bounded band, where the rim-N vocabulary has no local form.
+        let Some(rims) = rims.clone().filter(|r| !r.is_empty()) else {
+            continue;
+        };
+        let axis_c = canonical(site.axis);
+        let step = two_pi / site.n as f64;
+        let mut angles: Vec<f64> = Vec::new();
+        let mut bounded = true;
+        for &(p0, p1) in &site.edges {
+            let Some(ivs) = segment_risk_intervals(p0, p1, site.surface, site.thresh) else {
+                bounded = false;
+                break;
+            };
+            for (lo, hi) in ivs {
+                let Some((start, sweep)) =
+                    segment_azimuth_interval(p0, p1, site.origin, axis_c, lo, hi)
+                else {
+                    bounded = false;
+                    break;
+                };
+                let m = (sweep / step).ceil() as usize;
+                if m > LOCAL_REFINE_MAX_SAMPLES {
+                    bounded = false;
+                    break;
+                }
+                angles.push(start);
+                for j in 1..m {
+                    angles.push(start + j as f64 * step);
+                }
+                angles.push(start + sweep);
+            }
+            if !bounded {
+                break;
+            }
+        }
+        if !bounded || angles.is_empty() {
+            continue;
+        }
+        let entry = per_closure
+            .entry((site.face_side_is_a, rims))
+            .or_insert_with(|| Acc {
+                angles: Vec::new(),
+                min_step: f64::INFINITY,
+                axis: axis_c,
+            });
+        for t in angles {
+            entry.angles.push(t.rem_euclid(two_pi));
+        }
+        entry.min_step = entry.min_step.min(step);
+    }
+    for ((side_is_a, rims), mut acc) in per_closure {
+        acc.angles.sort_by(f64::total_cmp);
+        let scale = acc.min_step * 1.0e-9;
+        acc.angles.dedup_by(|x, y| (*x - *y).abs() <= scale);
+        if acc.angles.len() > LOCAL_REFINE_MAX_SAMPLES {
+            continue; // near-tangency at scale: no practical local refinement
+        }
+        let y = if side_is_a { a } else { b };
+        let out = if side_is_a { &mut out_a } else { &mut out_b };
+        let (e1, e2) = ortho_basis(Vector3::new(acc.axis[0], acc.axis[1], acc.axis[2]));
+        let (e1, e2) = (e1.as_array(), e2.as_array());
+        for ei in rims {
+            let Curve::Circle { center, radius, .. } = y.edges()[ei as usize].curve else {
+                continue;
+            };
+            let c = center.as_array();
+            let pts: Vec<Point3> = acc
+                .angles
+                .iter()
+                .map(|&t| {
+                    let (s, co) = t.sin_cos();
+                    Point3::new(
+                        c[0] + radius * (co * e1[0] + s * e2[0]),
+                        c[1] + radius * (co * e1[1] + s * e2[1]),
+                        c[2] + radius * (co * e1[2] + s * e2[2]),
+                    )
+                })
+                .collect();
+            out.entry(ei).or_default().extend(pts);
+        }
+    }
+    if std::env::var_os("YANG_SPLIT_PROBE").is_some() {
+        eprintln!(
+            "[edge-graze-guard] LOCAL rims_a={} pts_a={} rims_b={} pts_b={}",
+            out_a.len(),
+            out_a.values().map(Vec::len).sum::<usize>(),
+            out_b.len(),
+            out_b.values().map(Vec::len).sum::<usize>(),
+        );
+    }
+    (out_a, out_b)
 }
 
 /// EXACT minimum distance from the segment `p0→p1` to a CYLINDER surface,
@@ -977,6 +1269,7 @@ pub(crate) fn segment_cylinder_clearance(
 /// — the perpendicular foot lies within distance `d` of the point, so this
 /// superset test is conservative in the fail-closed direction and needs no
 /// tuned margin.
+#[cfg_attr(not(test), allow(dead_code))] // the demand half alone, pinned by unit tests
 pub(crate) fn segment_face_graze_n(
     p0: [f64; 3],
     p1: [f64; 3],
@@ -984,6 +1277,19 @@ pub(crate) fn segment_face_graze_n(
     r_max: f64,
     band: ([f64; 3], [f64; 3], f64, f64),
 ) -> Option<usize> {
+    segment_face_graze_demand(p0, p1, surface, r_max, band).map(|(n, _)| n)
+}
+
+/// [`segment_face_graze_n`] plus the CLEARANCE the demand was derived from
+/// — the measurement half, so the probe and the localization below can
+/// report and re-use `g` without re-deriving it.
+pub(crate) fn segment_face_graze_demand(
+    p0: [f64; 3],
+    p1: [f64; 3],
+    surface: Surface,
+    r_max: f64,
+    band: ([f64; 3], [f64; 3], f64, f64),
+) -> Option<(usize, f64)> {
     let (origin, u, v_lo, v_hi) = band;
     let station = |p: [f64; 3]| {
         (p[0] - origin[0]) * u[0] + (p[1] - origin[1]) * u[1] + (p[2] - origin[2]) * u[2]
@@ -1052,7 +1358,270 @@ pub(crate) fn segment_face_graze_n(
             return None; // near-tangency: no practical demand, stay loud
         }
     }
-    Some(n)
+    Some((n, g))
+}
+
+/// §4.5.2 LOCALIZATION, part 1 — the AT-RISK sub-intervals of a grazing
+/// segment: the parameter range over which the inscribed mesh of the face
+/// can actually reach the segment, i.e. where the exact clearance is below
+/// `thresh` (the caller passes the face's own natural chord sagitta).
+///
+/// `clearance(t)` to a cylinder or cone flank is CONCAVE in `t`: the radial
+/// distance `ρ(t) = ‖(p(t) − axis)⊥‖` is the norm of an affine function of
+/// `t`, hence convex, and
+///
+/// * cylinder: `clearance(t) = radius − ρ(t)`             — concave
+/// * cone:     `clearance(t) = (h(t)·tanα − ρ(t))·cos α`  — concave
+///
+/// so `{t : clearance(t) ≥ thresh}` is CONVEX (one interval) and the at-risk
+/// set is its complement in `[0, 1]` — at most the two ends `[0, lo)` and
+/// `(hi, 1]`. That is the whole reason a local span exists at all: the risk
+/// cannot be scattered over the segment.
+///
+/// Breakpoints come from the exact quadratic `ρ²(t) = L²(t)` (`L` the affine
+/// bound above) and from `L(t) = 0`; every resulting sub-interval is then
+/// CLASSIFIED by the exact predicate [`point_surface_signed`] at its
+/// midpoint, so no root-sign reasoning is trusted and a mis-ordered root
+/// cannot invert a verdict. A point radially OUTSIDE the flank is never at
+/// risk (inscribed chords recede from there — the same rule
+/// [`segment_face_graze_n`] applies to its samples).
+///
+/// `None` for a surface kind with no exact signed distance: the caller must
+/// then treat the WHOLE segment as at risk (fail closed — the widest span).
+pub(crate) fn segment_risk_intervals(
+    p0: [f64; 3],
+    p1: [f64; 3],
+    surface: Surface,
+    thresh: f64,
+) -> Option<Vec<(f64, f64)>> {
+    let (c, axis, l0, l1) = match surface {
+        Surface::Cylinder {
+            axis_point,
+            axis_dir,
+            radius,
+        } => {
+            if radius <= 0.0 || radius.is_nan() || !thresh.is_finite() {
+                return None;
+            }
+            // L(t) = radius − thresh, constant.
+            (
+                axis_point.as_array(),
+                axis_dir.as_array(),
+                radius - thresh,
+                0.0,
+            )
+        }
+        Surface::Cone {
+            apex,
+            axis_dir,
+            half_angle,
+        } => {
+            let (ca, ta) = (half_angle.cos(), half_angle.tan());
+            if ca <= 0.0 || ca.is_nan() || !ta.is_finite() || !thresh.is_finite() {
+                return None;
+            }
+            // L(t) = h(t)·tanα − thresh/cosα, affine in t; the h-dependent
+            // part is folded in below once `h0`/`dh` are known.
+            (apex.as_array(), axis_dir.as_array(), -thresh / ca, ta)
+        }
+        _ => return None,
+    };
+    let u = normalize3(axis);
+    if !(u[0] * u[0] + u[1] * u[1] + u[2] * u[2]).is_finite() {
+        return None;
+    }
+    let w0 = [p0[0] - c[0], p0[1] - c[1], p0[2] - c[2]];
+    let dw = [p1[0] - p0[0], p1[1] - p0[1], p1[2] - p0[2]];
+    let dot = |a: [f64; 3], b: [f64; 3]| a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
+    let h0 = dot(w0, u);
+    let dh = dot(dw, u);
+    // ρ²(t) = |w|² − h² = A t² + B t + C.
+    let aa = dot(dw, dw) - dh * dh;
+    let bb = 2.0 * (dot(w0, dw) - h0 * dh);
+    let cc = dot(w0, w0) - h0 * h0;
+    // L(t) = la + lb t.
+    let (la, lb) = (l0 + h0 * l1, dh * l1);
+    // Q(t) = ρ²(t) − L²(t).
+    let (qa, qb, qc) = (aa - lb * lb, bb - 2.0 * la * lb, cc - la * la);
+    let mut cuts: Vec<f64> = vec![0.0, 1.0];
+    let push = |t: f64, cuts: &mut Vec<f64>| {
+        if t.is_finite() && t > 0.0 && t < 1.0 {
+            cuts.push(t);
+        }
+    };
+    if qa.abs() > 0.0 {
+        let disc = qb * qb - 4.0 * qa * qc;
+        if disc >= 0.0 {
+            let s = disc.sqrt();
+            push((-qb - s) / (2.0 * qa), &mut cuts);
+            push((-qb + s) / (2.0 * qa), &mut cuts);
+        }
+    } else if qb.abs() > 0.0 {
+        push(-qc / qb, &mut cuts);
+    }
+    if lb.abs() > 0.0 {
+        push(-la / lb, &mut cuts);
+    }
+    cuts.sort_by(f64::total_cmp);
+    cuts.dedup();
+    // Classify each sub-interval by the EXACT predicate at its midpoint.
+    let at = |t: f64| [p0[0] + t * dw[0], p0[1] + t * dw[1], p0[2] + t * dw[2]];
+    let mut out: Vec<(f64, f64)> = Vec::new();
+    for win in cuts.windows(2) {
+        let (lo, hi) = (win[0], win[1]);
+        if hi <= lo {
+            continue;
+        }
+        let signed = point_surface_signed(at(0.5 * (lo + hi)), surface)?;
+        // Inside the flank AND nearer than `thresh` ⇒ the mesh can reach it.
+        if signed < 0.0 && -signed < thresh {
+            match out.last_mut() {
+                Some(last) if last.1 >= lo => last.1 = hi,
+                _ => out.push((lo, hi)),
+            }
+        }
+    }
+    Some(out)
+}
+
+/// §4.5.2 LOCALIZATION, part 2 — the AZIMUTH interval a segment
+/// sub-range occupies about an axis, EXACTLY.
+///
+/// The projection of a straight segment into the plane normal to the axis is
+/// a straight 2D segment `q(t) = q0 + t·dq`, and
+/// `dθ/dt = (q × dq) / ‖q‖²` has the sign of `q0 × dq`, a CONSTANT. So `θ(t)`
+/// is strictly monotonic and the azimuth range of `[ta, tb]` is exactly the
+/// arc between its two endpoint azimuths — no sampling, no padding, and the
+/// sweep is always below π (a line missing the axis subtends π over its whole
+/// infinite extent).
+///
+/// Returns `(start, sweep)` — the CCW arc `[start, start + sweep]` in the
+/// frame [`ortho_basis`] derives from `axis`, which every consumer can
+/// reproduce from the axis alone. `None` when the projection degenerates (a
+/// sub-range on the axis itself, where azimuth is undefined).
+pub(crate) fn segment_azimuth_interval(
+    p0: [f64; 3],
+    p1: [f64; 3],
+    axis_point: [f64; 3],
+    axis_dir: [f64; 3],
+    ta: f64,
+    tb: f64,
+) -> Option<(f64, f64)> {
+    let u = normalize3(axis_dir);
+    let (e1, e2) = ortho_basis(Vector3::new(u[0], u[1], u[2]));
+    let (e1, e2) = (e1.as_array(), e2.as_array());
+    let dot = |a: [f64; 3], b: [f64; 3]| a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
+    let two_pi = 2.0 * std::f64::consts::PI;
+    let angle = |t: f64| -> Option<f64> {
+        let p = [
+            p0[0] + t * (p1[0] - p0[0]),
+            p0[1] + t * (p1[1] - p0[1]),
+            p0[2] + t * (p1[2] - p0[2]),
+        ];
+        let w = [
+            p[0] - axis_point[0],
+            p[1] - axis_point[1],
+            p[2] - axis_point[2],
+        ];
+        let (x, y) = (dot(w, e1), dot(w, e2));
+        if x == 0.0 && y == 0.0 {
+            return None; // on the axis: no azimuth
+        }
+        Some(y.atan2(x).rem_euclid(two_pi))
+    };
+    let (a, b) = (angle(ta)?, angle(tb)?);
+    // Monotone direction = sign of (q × dq) in the (e1, e2) frame.
+    let w0 = [
+        p0[0] - axis_point[0],
+        p0[1] - axis_point[1],
+        p0[2] - axis_point[2],
+    ];
+    let dw = [p1[0] - p0[0], p1[1] - p0[1], p1[2] - p0[2]];
+    let cross = dot(w0, e1) * dot(dw, e2) - dot(w0, e2) * dot(dw, e1);
+    let (start, end) = if cross >= 0.0 { (a, b) } else { (b, a) };
+    let sweep = (end - start).rem_euclid(two_pi);
+    Some((start, sweep))
+}
+
+/// §4.5.2 LOCALIZATION, part 3 — the rims a local refinement of one face
+/// must move TOGETHER.
+///
+/// Inserting a rim sample changes that rim's ring length, and every band
+/// face incident to the rim pairs its two rings POSITIONALLY
+/// (`tessellate_band_azimuth_merge` REFUSES unequal rings). So the unit of
+/// refinement is not one face: it is the transitive closure of "faces
+/// sharing a full-circle rim", starting from the demanding face. Returns
+/// that closure's rim edge ids, ascending.
+///
+/// `None` — fail closed, derive nothing — when any rim in the closure is not
+/// COAXIAL with the demanding face's axis (same axis line, parallel
+/// direction), because then one shared azimuth set cannot serve them all and
+/// the positional pairing would twist.
+pub(crate) fn coaxial_rim_closure(
+    brep: &BRep,
+    face: usize,
+    axis_point: [f64; 3],
+    axis_dir: [f64; 3],
+) -> Option<Vec<u32>> {
+    let u = normalize3(axis_dir);
+    let coaxial = |center: [f64; 3], normal: [f64; 3]| -> bool {
+        let n = normalize3(normal);
+        let dot = |a: [f64; 3], b: [f64; 3]| a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
+        // Parallel axes …
+        let cr = [
+            n[1] * u[2] - n[2] * u[1],
+            n[2] * u[0] - n[0] * u[2],
+            n[0] * u[1] - n[1] * u[0],
+        ];
+        if dot(cr, cr).sqrt() > 1e-12 {
+            return false;
+        }
+        // … and the centre ON the axis line.
+        let w = [
+            center[0] - axis_point[0],
+            center[1] - axis_point[1],
+            center[2] - axis_point[2],
+        ];
+        let h = dot(w, u);
+        let perp = [w[0] - h * u[0], w[1] - h * u[1], w[2] - h * u[2]];
+        dot(perp, perp).sqrt() <= 1e-9 * (1.0 + dot(w, w).sqrt())
+    };
+    let full_rims_of = |f: &BRepFace| -> Vec<u32> {
+        f.outer_loop
+            .iter()
+            .chain(f.inner_loops.iter().flatten())
+            .copied()
+            .filter(|&ei| {
+                let e = &brep.edges()[ei as usize];
+                e.start == e.end && matches!(e.curve, Curve::Circle { .. })
+            })
+            .collect()
+    };
+    let mut seen_faces: std::collections::BTreeSet<usize> = Default::default();
+    let mut rims: std::collections::BTreeSet<u32> = Default::default();
+    let mut queue = vec![face];
+    while let Some(fi) = queue.pop() {
+        if !seen_faces.insert(fi) {
+            continue;
+        }
+        let f = brep.faces().get(fi)?;
+        for ei in full_rims_of(f) {
+            let Curve::Circle { center, normal, .. } = brep.edges()[ei as usize].curve else {
+                return None;
+            };
+            if !coaxial(center.as_array(), normal.as_array()) {
+                return None; // fail closed: one azimuth set cannot serve it
+            }
+            if rims.insert(ei) {
+                for (gi, g) in brep.faces().iter().enumerate() {
+                    if gi != fi && full_rims_of(g).contains(&ei) {
+                        queue.push(gi);
+                    }
+                }
+            }
+        }
+    }
+    Some(rims.into_iter().collect())
 }
 
 /// N2/F0059 epic increment 2, BANKED-UNWIRED (spec
@@ -1889,5 +2458,139 @@ mod edge_graze_tests {
         .expect("a non-piercing tip edge inside the band must derive a demand");
         // sag(N) ≤ clearance/2 ⇒ N = 152 at r = 2.16277e-2, g = 9.2807e-6.
         assert_eq!(n, 152);
+    }
+
+    // ---- P0013 §4 P5: the LOCALIZATION primitives ------------------------
+
+    /// P0013's boss at its natural N = 13 rim density: the deepest a natural
+    /// chord can cut, hence the at-risk threshold.
+    const P0013_NAT_SAG: f64 = 6.284606402360735e-4;
+
+    #[test]
+    fn risk_span_is_a_tip_fraction_not_the_whole_edge() {
+        let ivs = segment_risk_intervals(P0013_INNER, P0013_TIP, p0013_cylinder(), P0013_NAT_SAG)
+            .expect("a cylinder has a closed-form signed distance");
+        assert_eq!(
+            ivs.len(),
+            1,
+            "clearance is concave ⇒ ONE at-risk run: {ivs:?}"
+        );
+        let (lo, hi) = ivs[0];
+        // The TIP end is the at-risk end (clearance 9.28e-6 there, rising
+        // inward), so the run closes at t = 1.
+        assert_eq!(hi, 1.0, "the at-risk run must reach the tip");
+        // And it is a fraction of the edge — that fraction IS the saving the
+        // local form buys over refining the whole rim.
+        assert!(
+            lo > 0.5 && lo < 1.0,
+            "the at-risk run must be a tip fraction, got t ∈ [{lo}, {hi}]"
+        );
+    }
+
+    #[test]
+    fn risk_span_is_empty_when_no_chord_can_reach_the_land() {
+        // A threshold BELOW the 9.2807e-6 land: no natural chord reaches the
+        // wedge, so there is nothing to refine anywhere on the edge.
+        let ivs = segment_risk_intervals(P0013_INNER, P0013_TIP, p0013_cylinder(), 9.0e-6)
+            .expect("cylinder arm");
+        assert!(ivs.is_empty(), "nothing is at risk below the land: {ivs:?}");
+        // A non-quadric target has no closed form — fail closed with `None`,
+        // so the caller must treat the whole segment as at risk.
+        assert_eq!(
+            segment_risk_intervals(
+                P0013_INNER,
+                P0013_TIP,
+                Surface::Plane {
+                    normal: Vector3::new(0.0, 0.0, 1.0),
+                    d: 0.0,
+                },
+                P0013_NAT_SAG,
+            ),
+            None
+        );
+    }
+
+    #[test]
+    fn azimuth_interval_is_exact_and_endpoint_order_free() {
+        let axis_p = [0.0, 0.0, 0.0];
+        let axis_d = [0.0, 0.0, 1.0];
+        let (s0, w0) = segment_azimuth_interval(P0013_INNER, P0013_TIP, axis_p, axis_d, 0.0, 1.0)
+            .expect("the tip edge misses the axis");
+        // θ is strictly monotone along a straight segment (q × dq is
+        // constant), so a line that misses the axis can never sweep π.
+        assert!(
+            w0 > 0.0 && w0 < std::f64::consts::PI,
+            "sweep {w0} must be in (0, π)"
+        );
+        // The arc is a property of the segment, not of which end is `p0`.
+        let (s1, w1) = segment_azimuth_interval(P0013_TIP, P0013_INNER, axis_p, axis_d, 0.0, 1.0)
+            .expect("the tip edge misses the axis");
+        assert!((w0 - w1).abs() < 1e-15, "sweep must not depend on order");
+        assert!((s0 - s1).abs() < 1e-15, "start must not depend on order");
+        // A sub-range's arc is contained in the whole segment's arc.
+        let (_, wsub) = segment_azimuth_interval(P0013_INNER, P0013_TIP, axis_p, axis_d, 0.75, 1.0)
+            .expect("sub-range");
+        assert!(wsub < w0, "a sub-range sweeps less: {wsub} vs {w0}");
+    }
+
+    /// The refinement unit: both rims of a band move together, and a rim the
+    /// shared azimuth set cannot serve refuses the whole site.
+    #[test]
+    fn coaxial_rim_closure_is_the_band_and_refuses_a_skew_rim() {
+        let r = 2.0;
+        let rim = |z: f64, normal: Vector3| BRepEdge {
+            start: if z == 0.0 { 0 } else { 1 },
+            end: if z == 0.0 { 0 } else { 1 },
+            curve: Curve::Circle {
+                center: Point3::new(0.0, 0.0, z),
+                normal,
+                radius: r,
+            },
+        };
+        let z_up = Vector3::new(0.0, 0.0, 1.0);
+        let lateral = |loops: Vec<u32>| BRepFace {
+            surface: Surface::Cylinder {
+                axis_point: Point3::new(0.0, 0.0, 0.0),
+                axis_dir: z_up,
+                radius: r,
+            },
+            outer_loop: loops,
+            inner_loops: vec![],
+            reversed: false,
+        };
+        let verts: Vec<BRepVertex> = vec![
+            BRepVertex {
+                point: Point3::new(r, 0.0, 0.0),
+            },
+            BRepVertex {
+                point: Point3::new(r, 0.0, 5.0),
+            },
+        ];
+        let brep = BRep::new(
+            verts.clone(),
+            vec![rim(0.0, z_up), rim(5.0, z_up)],
+            vec![lateral(vec![0, 1])],
+        )
+        .expect("band brep");
+        assert_eq!(
+            coaxial_rim_closure(&brep, 0, [0.0, 0.0, 0.0], [0.0, 0.0, 1.0]),
+            Some(vec![0, 1]),
+            "a tube's refinement unit is BOTH its rims — one alone would \
+             leave the positional ring pairing unequal"
+        );
+        // A rim the queried azimuth frame cannot serve (here: asking about
+        // the +X axis, to which both rims are SKEW) refuses the whole site —
+        // one azimuth set cannot keep such rims' ring lengths in step.
+        assert_eq!(
+            coaxial_rim_closure(&brep, 0, [0.0, 0.0, 0.0], [1.0, 0.0, 0.0]),
+            None,
+            "a non-coaxial rim must fail the site CLOSED"
+        );
+        // So must a rim that is parallel but OFF the axis line.
+        assert_eq!(
+            coaxial_rim_closure(&brep, 0, [1.0, 0.0, 0.0], [0.0, 0.0, 1.0]),
+            None,
+            "a parallel rim off the axis line must fail the site CLOSED"
+        );
     }
 }
