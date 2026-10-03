@@ -2779,6 +2779,16 @@ fn body_face_shares_sketch(
 ) -> bool {
     for face in intro.list_faces(handle) {
         let sig = intro.compute_signature(face, TopoKind::Face);
+        // PLANAR only. Since N0 (`specs/agent_mechanical_design.md` §5.1) a
+        // curved face reports a centroid and the outward normal there too, so
+        // "has a normal and a centroid" no longer means "is a plane": a
+        // cylinder or cone patch whose centroid normal happens to be
+        // (anti)parallel to the sketch normal, with the centroid on the sketch
+        // plane, would pass `plane_coincident` and be taken for a face the
+        // sketch shares. The four role assigners took the same filter.
+        if sig.surface_type.as_deref() != Some("planar") {
+            continue;
+        }
         let (Some(fnorm), Some(fc)) = (sig.normal, sig.centroid) else {
             continue;
         };
