@@ -65,8 +65,8 @@ use waffle_types::kernel::{
     StepExportBody, SweepSection, TopoKind, TopoSignature, ViewFrame, ViewGeometry,
 };
 use waffle_types::kernel::{
-    Distance, DistanceOpts, EntityRef, Kernel, KernelIntrospect, KernelMeasure, MassProperties,
-    MeasureEntity, Method, DEFAULT_DENSITY_KG_M3,
+    ContactEvidence, Distance, DistanceOpts, EntityRef, Interference, InterferenceBody, Kernel,
+    KernelIntrospect, KernelMeasure, MassProperties, MeasureEntity, Method, DEFAULT_DENSITY_KG_M3,
 };
 
 mod profile_convert;
@@ -2255,6 +2255,62 @@ impl KernelMeasure for KernelV2Adapter {
         })
     }
 
+    /// Q2: the Intersect boolean as a query (`crate::interference`).
+    ///
+    /// `&self`: the Intersect runs on copies in a scratch arena, so a query
+    /// leaves neither this arena nor its provenance journal changed.
+    fn interference(
+        &self,
+        a: &KernelSolidHandle,
+        b: &KernelSolidHandle,
+    ) -> Result<Interference, KernelError> {
+        for handle in [a, b] {
+            if self.imported_slot_of(handle).is_some() {
+                return Err(Self::not_supported(
+                    "interference: a mesh-backed imported body operand — the exact Intersect \
+                     needs a B-Rep (STEP-import roadmap SI2)",
+                ));
+            }
+        }
+        let (sa, sb) = (self.solid_of(a)?, self.solid_of(b)?);
+        let answer = crate::interference::interference(&self.arena, sa, sb)
+            .map_err(Self::map_interference_error)?;
+        Ok(match answer {
+            crate::interference::Interference::Interferes {
+                volume,
+                bodies,
+                exact,
+            } => Interference::Interferes {
+                volume,
+                bodies: bodies
+                    .into_iter()
+                    .map(|r| InterferenceBody {
+                        volume: r.volume,
+                        centroid: r.centroid,
+                        aabb: r.aabb,
+                    })
+                    .collect(),
+                method: Self::tier(exact, 0.0),
+            },
+            crate::interference::Interference::Contact { evidence, closest } => {
+                Interference::Contact {
+                    evidence: match evidence {
+                        crate::interference::ContactEvidence::EmptyIntersectionAtZeroDistance => {
+                            ContactEvidence::EmptyIntersectionAtZeroDistance
+                        }
+                        crate::interference::ContactEvidence::SliverIntersection { volume } => {
+                            ContactEvidence::SliverIntersection { volume }
+                        }
+                    },
+                    closest: self.wire_distance(closest),
+                }
+            }
+            crate::interference::Interference::Disjoint { distance } => Interference::Disjoint {
+                distance: self.wire_distance(distance),
+            },
+        })
+    }
+
     /// Q3: volume, area, centroid and the inertia tensor (`crate::mass`).
     fn mass_properties(
         &self,
@@ -2294,6 +2350,37 @@ impl KernelV2Adapter {
             Method::Exact
         } else {
             Method::Mesh { chord_bound }
+        }
+    }
+
+    fn wire_distance(&self, r: crate::measure::DistanceResult) -> Distance {
+        Distance {
+            value: r.value,
+            points: [r.points[0].as_array(), r.points[1].as_array()],
+            on: [Self::encode_on(r.on[0]), Self::encode_on(r.on[1])],
+            method: Self::tier(r.exact, r.chord_bound),
+        }
+    }
+
+    /// A pipeline refusal stays a capability wall, and a STOP stays a
+    /// boolean failure. Neither is ever folded into an answer about the
+    /// geometry — see `crate::interference`'s module docs.
+    fn map_interference_error(e: KernelV2Error) -> KernelError {
+        match e {
+            KernelV2Error::UnsupportedCoplanar => Self::not_supported(
+                "interference: coplanar input face pair (Yang Stage 0 coplanar preprocessing — \
+                 roadmap M8). The kernel cannot tell a touching pair from an overlapping one \
+                 here, so it refuses rather than report either",
+            ),
+            KernelV2Error::UnsupportedCurvedBoolean { face, reason } => {
+                Self::not_supported(&format!(
+                    "interference: curved partial-patch operand face {face:?} [{reason}] (a \
+                     previous curved boolean's result cannot re-enter yang-rs Stage 1)"
+                ))
+            }
+            other => KernelError::BooleanFailed {
+                reason: format!("interference: Intersect failed: {other}"),
+            },
         }
     }
 }

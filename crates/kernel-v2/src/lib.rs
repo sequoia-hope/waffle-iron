@@ -77,6 +77,7 @@ pub(crate) mod exact2d;
 pub mod geom;
 pub mod imported;
 pub mod ingest;
+pub mod interference;
 pub mod introspect;
 pub mod journal;
 pub mod mass;

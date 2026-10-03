@@ -385,15 +385,57 @@ pub enum Handedness {
     Flipped,
 }
 
+/// Deep-copy `solid` out of `src` into a DIFFERENT arena, unmoved.
+///
+/// Q2's interference query (`crate::interference`) needs this: it runs a real
+/// Intersect boolean on copies of the two operands, and a boolean appends
+/// entities AND journal entries. Done in the live arena that would renumber
+/// the pids every later reference resolves through — a QUERY must not do
+/// that. So the copies go into a scratch arena that is dropped with the
+/// answer.
+pub(crate) fn copy_solid_into(
+    src: &BrepArena,
+    solid: SolidId,
+    dst: &mut BrepArena,
+) -> Result<SolidId, KernelV2Error> {
+    let collected = collect_solid(src, solid)?;
+    emit_copy(
+        dst,
+        &collected,
+        &Xform::from(&RigidPlacement::IDENTITY),
+        Handedness::Kept,
+    )
+}
+
 fn copy_solid(
     arena: &mut BrepArena,
     solid: SolidId,
     placement: &Xform,
     handedness: Handedness,
 ) -> Result<SolidId, KernelV2Error> {
-    let flip = handedness == Handedness::Flipped;
+    let collected = collect_solid(arena, solid)?;
+    emit_copy(arena, &collected, placement, handedness)
+}
 
-    // ── Pass 1: collect every reachable entity, keyed by source id ──────
+/// Pass 1 of a copy: every entity reachable from `solid`, cloned OUT of the
+/// source arena and keyed by its source id, with each face's source `Pid`.
+///
+/// Split from [`emit_copy`] so the two passes can address different arenas.
+/// The clone is what makes that possible at all: nothing in the emit pass
+/// reads the source again, so the borrow ends here.
+struct Collected {
+    src_solid: Solid,
+    shells: BTreeMap<ShellId, Shell>,
+    faces: BTreeMap<FaceId, Face>,
+    loops: BTreeMap<LoopId, Loop>,
+    half_edges: BTreeMap<HalfEdgeId, HalfEdge>,
+    vertices: BTreeMap<VertexId, Vertex>,
+    /// The source face's persistent id, where it has one — the lineage root
+    /// the copy's journal edge points back at.
+    src_pids: BTreeMap<FaceId, crate::arena::Pid>,
+}
+
+fn collect_solid(arena: &BrepArena, solid: SolidId) -> Result<Collected, KernelV2Error> {
     let src_solid = arena.solid(solid)?.clone();
     let mut shells: BTreeMap<ShellId, Shell> = BTreeMap::new();
     let mut faces: BTreeMap<FaceId, Face> = BTreeMap::new();
@@ -435,7 +477,41 @@ fn copy_solid(
         }
     }
 
-    // ── Pass 2: allocate new slots in ascending source-id order ─────────
+    let src_pids = faces
+        .keys()
+        .filter_map(|&f| arena.face_pid(f).map(|pid| (f, pid)))
+        .collect();
+    Ok(Collected {
+        src_solid,
+        shells,
+        faces,
+        loops,
+        half_edges,
+        vertices,
+        src_pids,
+    })
+}
+
+/// Pass 2 of a copy: emit the collected entities into `arena`, mapped by
+/// `placement`, allocating new slots in ascending source-id order.
+fn emit_copy(
+    arena: &mut BrepArena,
+    collected: &Collected,
+    placement: &Xform,
+    handedness: Handedness,
+) -> Result<SolidId, KernelV2Error> {
+    let Collected {
+        src_solid,
+        shells,
+        faces,
+        loops,
+        half_edges,
+        vertices,
+        src_pids,
+    } = collected;
+    let flip = handedness == Handedness::Flipped;
+
+    // ── Allocate new slots in ascending source-id order ───────────────
     // Ascending order preserves relative id order, so "canonical = lower-id
     // twin" holds on the copy exactly as it did on the source.
     let base_v = arena.vertices.len() as u32;
@@ -542,8 +618,8 @@ fn copy_solid(
     for (&src, &dst) in &fmap {
         let pid = arena.alloc_pid();
         arena.face_pids.insert(dst, pid);
-        match arena.face_pid(src) {
-            Some(src_pid) => modified.push((src_pid, pid, EvoKind::Same)),
+        match src_pids.get(&src) {
+            Some(&src_pid) => modified.push((src_pid, pid, EvoKind::Same)),
             None => generated.push(pid),
         }
     }

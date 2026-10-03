@@ -742,6 +742,27 @@ fn eigen_symmetric_3(matrix: [[f64; 3]; 3]) -> ([f64; 3], [[f64; 3]; 3]) {
     (values, axes)
 }
 
+/// What Q2 reports per lump of an intersection region.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct Lump {
+    pub volume: f64,
+    pub centroid: [f64; 3],
+    pub aabb: [[f64; 3]; 2],
+    pub exact: bool,
+}
+
+/// The volume, centroid and bounds of a solid, for Q2's per-lump report.
+pub(crate) fn lump_of(arena: &BrepArena, solid: SolidId) -> Result<Lump, KernelV2Error> {
+    let m = mass_properties(arena, solid, 1.0)?;
+    let (lo, hi) = mesh_bounds(arena, solid)?;
+    Ok(Lump {
+        volume: m.volume,
+        centroid: m.centroid,
+        aabb: [lo, hi],
+        exact: m.exact,
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
