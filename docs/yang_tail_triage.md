@@ -185,8 +185,9 @@ That input self-intersection scan is the last step before
 `backend.labeled_arrangement(mesh_a, mesh_b)` (`crates/yang-rs/src/boolean.rs`,
 "(1) Stage 2: full labeled arrangement"), so **the spin is inside the Stage-2
 exact labeled arrangement on a 0.74 M-triangle operand**. It is not merely
-"slow by a constant": index 78 re-run with no CPU budget was still inside that
-call at **1 371 s CPU** (23 min wall, this box, lightly loaded).
+"slow by a constant": index 78 re-run with no CPU budget at all was still inside that
+call at **2 542 s CPU** (43 min wall, this box) when it was stopped by hand —
+2.8x the budget that reported it as a TIMEOUT.
 
 Neither is promoted into the corpus: a case that cannot be judged inside 900 s
 would add that cost to every assay run, and the right first step is the
