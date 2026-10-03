@@ -103,6 +103,104 @@ fn schema_has_the_v4_shape() {
     }
 }
 
+/// **The pid drift oracle.** No `pid` / `root_pid` may be an `integer` in any
+/// committed schema, in the live schema, or in anything generated from one.
+///
+/// A persistent id is a content-seeded `u64` and a JSON number in JavaScript
+/// is an `f64`, so an id above `2^53` reaches the page as a DIFFERENT entity
+/// (`waffle_types::pid_str`; the arithmetic is pinned in that module's
+/// tests). The rule is that every pid crosses as a decimal string — and a
+/// rule nothing checks is a rule that holds until the next field is added.
+/// This is the check: a new `pid: u64` written without
+/// `#[serde(with = "waffle_types::pid_str")]` lands in these schemas as an
+/// `integer` and fails here, naming the path.
+///
+/// It reads the GOLDENS rather than only the live schema on purpose: the
+/// relay manifest and `engineSchemas.generated.js` are generated from
+/// `waffle-v5.schema.json`, so the golden is what the JS side actually gets.
+/// The sibling `schema_is_current` keeps the golden equal to the live schema,
+/// which is what makes scanning the golden a scan of the types.
+#[test]
+fn no_pid_field_crosses_as_a_number() {
+    fn scan(node: &serde_json::Value, path: &str, out: &mut Vec<String>) {
+        match node {
+            serde_json::Value::Object(map) => {
+                if let Some(props) = map.get("properties").and_then(|p| p.as_object()) {
+                    for name in ["pid", "root_pid"] {
+                        let Some(field) = props.get(name) else {
+                            continue;
+                        };
+                        // `type` may be a string or a list (`["string",
+                        // "null"]` for an optional pid).
+                        let types: Vec<&str> = match field.get("type") {
+                            Some(serde_json::Value::String(s)) => vec![s.as_str()],
+                            Some(serde_json::Value::Array(a)) => {
+                                a.iter().filter_map(|t| t.as_str()).collect()
+                            }
+                            _ => Vec::new(),
+                        };
+                        if types.iter().any(|t| *t == "integer" || *t == "number") {
+                            out.push(format!("{path}/properties/{name}: {types:?}"));
+                        }
+                    }
+                }
+                for (k, v) in map {
+                    scan(v, &format!("{path}/{k}"), out);
+                }
+            }
+            serde_json::Value::Array(items) => {
+                for (i, v) in items.iter().enumerate() {
+                    scan(v, &format!("{path}/{i}"), out);
+                }
+            }
+            _ => {}
+        }
+    }
+
+    let dir = repo_root().join("docs/schema");
+    let mut goldens: Vec<PathBuf> = std::fs::read_dir(&dir)
+        .expect("docs/schema")
+        .filter_map(|e| e.ok().map(|e| e.path()))
+        .filter(|p| p.extension().is_some_and(|e| e == "json"))
+        .collect();
+    goldens.sort();
+    assert!(
+        goldens.len() >= 3,
+        "expected the committed schema goldens, found {goldens:?}"
+    );
+
+    let mut offenders = Vec::new();
+    for path in &goldens {
+        let schema: serde_json::Value =
+            serde_json::from_str(&std::fs::read_to_string(path).unwrap())
+                .unwrap_or_else(|e| panic!("{}: {e}", path.display()));
+        let name = path.file_name().unwrap().to_string_lossy().to_string();
+        scan(&schema, &name, &mut offenders);
+    }
+    // The live schema too, so a stale golden cannot hide a new field.
+    scan(&waffle_file_schema(), "<live>", &mut offenders);
+
+    assert!(
+        offenders.is_empty(),
+        "a persistent id crosses as a JSON NUMBER, which JavaScript rounds above 2^53 \
+         (see waffle_types::pid_str): annotate the field with \
+         `#[serde(with = \"waffle_types::pid_str\")]` (or `::option` for an `Option<u64>`) plus \
+         `#[cfg_attr(feature = \"json-schema\", schemars(with = \"String\"))]`, then regenerate \
+         the goldens with UPDATE_SCHEMA=1.\noffenders: {offenders:#?}"
+    );
+
+    // And the rule is really being tested: the scanner finds a planted one.
+    let mut planted = Vec::new();
+    scan(
+        &serde_json::json!({
+            "$defs": { "Thing": { "properties": { "pid": { "type": "integer" } } } }
+        }),
+        "<planted>",
+        &mut planted,
+    );
+    assert_eq!(planted.len(), 1, "the scanner detects a numeric pid");
+}
+
 fn waffle_files_in(dir: &Path) -> Vec<PathBuf> {
     let Ok(entries) = std::fs::read_dir(dir) else {
         return Vec::new();

@@ -183,6 +183,7 @@ they are converted on load (§4).
 | 6 | 2026-09-24 | `Sketch.plane_x_axis` (§9.1): the sketch's own in-plane +x direction, so a caller can orient a sketch instead of reproducing the engine's derivation (`docs/notes/eiffel/FEATURE_NOTES.md` §3). The only change; additive, but a v5 reader would drop it and derive the basis from the normal, drawing the sketch and everything built on it ROTATED, so the reader floor moved with it. | none (a v5 file parses as-is; absent `plane_x_axis` ⇒ derived). |
 | 7 | 2026-10-03 | `FeatureTree.names` (§6.1): entity names — agent/user labels over persistent references (N1, `specs/agent_mechanical_design.md` §5.2). The field itself is additive and defaulted, but each entry stores a `Selector::Pid` (§8, drawings spec D0) and `Selector` is a serde-tagged enum, so a v6 reader given one fails with a raw unknown-variant error. A new selector variant is a floor bump by §13.3, and this is the first version that writes one. | none (a v6 file parses as-is; absent `names` ⇒ the document has no names). |
 | 8 | 2026-10-03 | `DesignParameter.unit` (`Length \| Angle \| Count \| Ratio`) and `.comment` (P1, `specs/agent_mechanical_design.md` §6): the declared KIND of a design parameter, and a free-text note. Both are additive, defaulted and serialized only when present, and `unit` is a bare string an old reader simply drops — it does NOT fail. The floor moves anyway, by the §13.3 "must not silently ignore" clause: `unit` is the author's written statement that a parameter is an angle, and a reader that drops it hands that number to a length field as millimetres, building a solid the declaring reader refuses to build. Measured, one file and two solids, in `crates/feature-engine/tests/param_unit_floor.rs`. | none (a v7 file parses as-is; absent `unit` ⇒ a plain number that adopts its field's dimension, the pre-P1 behaviour). |
+| 9 | 2026-10-03 | **A `Selector::Pid`'s `pid` and `root_pid` are decimal STRINGS, not JSON numbers** (§8, `waffle_types::pid_str`). A persistent id is a content-seeded 64-bit hash, so it routinely exceeds `2^53`; a JSON number in JavaScript is an `f64`, and `JSON.parse("2216071694111992607")` yields `2216071694111992600` — not a rounder id but a **different entity**. Every pid crossing the WASM↔JS boundary therefore crosses as a string, and the representation is ONE rather than one per boundary: a type that serializes two ways is a per-site decision, and `Selector::Pid` reaches the page inside a dozen message fields (`ModelUpdated.drawing`, `feature_get`, `names_list`, `assembly_get`, `face_list`, `entity_list`, …), each of which would have to remember. The file follows the wire for that reason alone — **no JS path parses a `.waffle` deeply enough to round one today** (measured: `initDocumentState` reads only `document.id`/`created`; `SaveDocument` carries no payload) — and a v8 reader given a string pid fails with a raw serde type error, so the floor moves. | none: **reading accepts a bare number too** (`waffle_types::pid_str::deserialize`), so every pre-v9 file loads unchanged — pinned by `format_tests.rs::a_pre_v9_numeric_pid_still_loads`. |
 
 Migrations run **sequentially** (v1→v2→v3→v4). They live only in the Rust loader;
 the JS `initDocumentState` applies the same tab-id rewrite so its tab list agrees
@@ -731,6 +732,21 @@ an `AssemblyTree` (§5.6) predates this field and stays where it is.
   (`resolve_geom_ref_live`), and unique only WITHIN one body, so the anchor's
   `output_key` must still exist. Written by `FeatureTree.names` (§6.1); its
   arrival is what moved the reader floor to 7.
+
+  **Both ids are decimal STRINGS on the wire (v9)** — `{"type": "Pid", "pid":
+  "2216071694111992607", "root_pid": "2216071694111992607"}` — never JSON
+  numbers. A persistent id is a content-seeded 64-bit hash and a JSON number
+  in JavaScript is an `f64`, so an id above `2^53` arrives in the page as a
+  *different entity*. One rule, one implementation:
+  `waffle_types::pid_str`, applied to the type itself rather than per
+  message, so no site chooses. Reading accepts a bare number as well, which
+  is what makes every pre-v9 file load unchanged. The same rule governs every
+  bare `u64` pid in an `EngineToUi`/`UiToEngine` message and every MCP tool
+  argument and result (`ListedEntity.pid`/`root_pid`,
+  `DrawingAnchorSpec.pid`, `ViewAnchor.pid`); the drift oracle is
+  `file-format/tests/schema_golden.rs::no_pid_field_crosses_as_a_number`,
+  which fails if a new `integer`-typed `pid`/`root_pid` appears in a schema
+  golden.
 
 **Reality note:** files in the wild overwhelmingly use `Role` selectors, and a
 sketch-on-face is persisted with a *random* `Datum` UUID anchor plus a

@@ -142,12 +142,27 @@ pub enum Selector {
     /// pointed at. For edges and vertices the two are equal — their ids are
     /// content-seeded through the faces' roots already.
     ///
+    /// Both are `u64` in Rust and **decimal STRINGS on the wire** — in a
+    /// `.waffle` file (format v9) and in every message and tool payload
+    /// alike. A content-seeded id routinely exceeds `2^53`, where a JSON
+    /// number stops being exact in JavaScript; see [`crate::pid_str`] for
+    /// the measurement and for why there is one representation rather than
+    /// one per boundary. Reading accepts a bare number too, so every file
+    /// written before the flip still loads.
+    ///
     /// Unlike every other selector this one NEVER rebinds: an entity whose
     /// id and root are both gone is a loud `ResolutionFailed`, under either
     /// `ResolvePolicy`. A nearest-match fallback is exactly how an
     /// annotation ends up dimensioning the wrong edge, and the whole point
     /// of a persistent id is that its absence is information.
-    Pid { pid: u64, root_pid: u64 },
+    Pid {
+        #[serde(with = "crate::pid_str")]
+        #[cfg_attr(feature = "json-schema", schemars(with = "String"))]
+        pid: u64,
+        #[serde(with = "crate::pid_str")]
+        #[cfg_attr(feature = "json-schema", schemars(with = "String"))]
+        root_pid: u64,
+    },
 }
 
 /// What to do when GeomRef resolution is ambiguous or fails.

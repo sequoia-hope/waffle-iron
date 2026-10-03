@@ -5,6 +5,7 @@ pub mod gear_planetary;
 pub mod geom_ref;
 pub mod kernel;
 pub mod path;
+pub mod pid_str;
 pub mod profiles;
 pub mod regions;
 pub mod roles;

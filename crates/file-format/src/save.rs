@@ -38,7 +38,19 @@ use crate::sources::SourceEntry;
 ///     reader that drops it builds a DIFFERENT solid from the same file,
 ///     which is the v5/v6 rationale (`docs/FILE_FORMAT.md` §4, §13.3), and
 ///     `crates/feature-engine/tests/param_unit_floor.rs` measures it.
-pub const FORMAT_VERSION: u32 = 8;
+///   - **v9** (2026-10-03): a `Selector::Pid`'s `pid` and `root_pid` are
+///     written as decimal **STRINGS** rather than JSON numbers
+///     (`waffle_types::pid_str`). A persistent id is a content-seeded 64-bit
+///     hash and a JSON number in JavaScript is an `f64`, so every id above
+///     `2^53` is silently rounded to a DIFFERENT entity when it crosses the
+///     WASM↔JS boundary. The fix is one representation everywhere rather
+///     than one per boundary — a type that serializes two ways is a
+///     per-site decision, and `Selector::Pid` reaches the page inside a
+///     dozen message fields. A v8 reader given a string pid fails with a
+///     raw serde type error, so the floor moves. READING still accepts a
+///     bare number, so every pre-v9 file loads unchanged
+///     (`tests/format_tests.rs::a_pre_v9_numeric_pid_still_loads`).
+pub const FORMAT_VERSION: u32 = 9;
 
 /// Oldest reader (by its `FORMAT_VERSION`) that can parse files we write.
 ///
@@ -53,7 +65,7 @@ pub const FORMAT_VERSION: u32 = 8;
 /// opaquely. Purely additive defaulted fields never require a bump. Files
 /// without the field (all pre-2026-08-28 files, including the assay corpus)
 /// default to 0 and always pass. See `docs/FILE_FORMAT.md` §13.
-pub const MIN_READER_VERSION: u32 = 8;
+pub const MIN_READER_VERSION: u32 = 9;
 
 // Keep the constants coherent: we can never require a reader newer than the
 // version we claim to write.
