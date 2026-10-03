@@ -57,6 +57,17 @@
 //! SITE'S OWN face, and only out to a few times the snap distance `|p − c|`,
 //! which IS that local sagitta.
 //!
+//! **Where the factor 4 comes from.** [`closest_point_on`] moves the facet
+//! centroid `c` to the surface along the surface normal at the result, and the
+//! ray leaves along the NEGATED normal at that same point — so the ray passes
+//! back through `c` at `t = |p − c|` exactly, and the facet `c` came from is
+//! crossed there and nowhere else (a plane is met once). The band therefore
+//! only has to cover `1 ×` the snap; 4 is the margin for the surfaces where
+//! the projection direction and the normal are not exactly antiparallel after
+//! rounding (a torus or sphere pole fan), plus `8 ε · scale` for a site the
+//! projection did not move at all. Nothing beyond the band is skipped, which
+//! is why the far side of the same face stays measurable.
+//!
 //! A global band would have been wrong in both directions: on a 1 mm plate
 //! 100 mm across, the body's own chord band is larger than the wall being
 //! measured and every site would have been thrown away; and on a face sampled
@@ -220,9 +231,13 @@ fn ray_tri(origin: Point3, dir: [f64; 3], tri: &[Point3; 3]) -> Option<f64> {
     let e2 = sub(tri[2], tri[0]);
     let p = cross(dir, e2);
     let det = dot(e1, p);
-    // Parallel, or a degenerate triangle: no crossing to report. This is also
-    // what keeps a PLANAR face's own facets out of the way, since the inward
-    // normal is perpendicular to them.
+    // `det = −dir·n_tri`, so this rejects a ray running IN the triangle's own
+    // plane (and a degenerate triangle): there is no crossing to report. It is
+    // NOT what keeps a planar face's own facets out of the way — a face's
+    // inward normal is parallel to `n_tri` there, which is where `det` is
+    // largest. What keeps those out is `t > 0.0` together with the self band:
+    // the ray starts ON the facet, so its own crossing is at `t = 0` to
+    // rounding (see `first_hit`).
     if det == 0.0 {
         return None;
     }
