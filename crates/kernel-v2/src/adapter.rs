@@ -1966,8 +1966,9 @@ impl KernelIntrospect for KernelV2Adapter {
 }
 
 /// Drawing projection (`specs/drawings_and_mbd.md` §5, increment D1a):
-/// `project` / `project_bodies` over [`crate::projection`].
-/// `section_with_plane` keeps its typed `NotSupported` default — that is D1d.
+/// `project` / `project_bodies` over [`crate::projection`] and `export_dxf`
+/// over [`crate::dxf_export`]. `section_with_plane` keeps its typed
+/// `NotSupported` default — that is D1d.
 ///
 /// A mesh-backed imported body is refused by name, for the same reason
 /// `export_step_bodies` refuses it: it never entered the exact arena, so there
@@ -2031,6 +2032,19 @@ impl waffle_types::kernel::KernelProjection for KernelV2Adapter {
             );
         }
         Ok(out)
+    }
+
+    fn export_dxf(
+        &self,
+        bodies: &[ProjectionBody],
+        view: &ViewFrame,
+        opts: &ProjectOpts,
+    ) -> Result<String, KernelError> {
+        let geometry = self.project_bodies(bodies, view, opts)?;
+        Ok(crate::dxf_export::write_dxf(
+            &geometry,
+            crate::dxf_export::DEFAULT_POLYLINE_SAGITTA,
+        ))
     }
 }
 

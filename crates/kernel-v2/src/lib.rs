@@ -70,6 +70,7 @@ mod cone_boolean_test;
 #[cfg(test)]
 pub(crate) mod cone_fixtures;
 pub mod construct;
+pub mod dxf_export;
 pub mod error;
 pub mod euler;
 pub(crate) mod exact2d;
@@ -99,6 +100,7 @@ pub use construct::{
     PipeResult, RevolveResult, SweepFrame, SweepPath, SweepResult, SweepSegment, SweepSegmentKind,
     SweepStation,
 };
+pub use dxf_export::{write_dxf, DEFAULT_POLYLINE_SAGITTA, LAYER_HIDDEN, LAYER_VISIBLE};
 pub use error::KernelV2Error;
 pub use euler::{
     kemr, kfmrh, mef, mev, mev_lone, mvfs, KemrResult, MefResult, MevResult, MvfsResult,
