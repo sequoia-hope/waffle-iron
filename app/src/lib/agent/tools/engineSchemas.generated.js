@@ -2936,17 +2936,13 @@ export const ENGINE_DEFS = {
         "type": "object"
       },
       {
-        "description": "Select by **persistent id** — the preferred selector for anything\nthat must stay attached to one specific entity across rebuilds: a\ndrawing dimension's anchor, a PMI item, an `UpTo` termination, a\n3D-sketch attachment (drawings spec D0,\n`specs/drawings_and_mbd.md` §4 item 4).\n\nBoth ids come from `waffle_types::kernel::EntityPid`. `pid` names the\nentity; `root_pid` names where its geometry was introduced, so the\nreference still resolves when a later boolean rebuilt the face it\npointed at. For edges and vertices the two are equal — their ids are\ncontent-seeded through the faces' roots already.\n\nUnlike every other selector this one NEVER rebinds: an entity whose\nid and root are both gone is a loud `ResolutionFailed`, under either\n`ResolvePolicy`. A nearest-match fallback is exactly how an\nannotation ends up dimensioning the wrong edge, and the whole point\nof a persistent id is that its absence is information.",
+        "description": "Select by **persistent id** — the preferred selector for anything\nthat must stay attached to one specific entity across rebuilds: a\ndrawing dimension's anchor, a PMI item, an `UpTo` termination, a\n3D-sketch attachment (drawings spec D0,\n`specs/drawings_and_mbd.md` §4 item 4).\n\nBoth ids come from `waffle_types::kernel::EntityPid`. `pid` names the\nentity; `root_pid` names where its geometry was introduced, so the\nreference still resolves when a later boolean rebuilt the face it\npointed at. For edges and vertices the two are equal — their ids are\ncontent-seeded through the faces' roots already.\n\nBoth are `u64` in Rust and **decimal STRINGS on the wire** — in a\n`.waffle` file (format v10) and in every message and tool payload\nalike. A content-seeded id routinely exceeds `2^53`, where a JSON\nnumber stops being exact in JavaScript; see [`crate::pid_str`] for\nthe measurement and for why there is one representation rather than\none per boundary. Reading accepts a bare number too, so every file\nwritten before the flip still loads.\n\nUnlike every other selector this one NEVER rebinds: an entity whose\nid and root are both gone is a loud `ResolutionFailed`, under either\n`ResolvePolicy`. A nearest-match fallback is exactly how an\nannotation ends up dimensioning the wrong edge, and the whole point\nof a persistent id is that its absence is information.",
         "properties": {
           "pid": {
-            "format": "uint64",
-            "minimum": 0,
-            "type": "integer"
+            "type": "string"
           },
           "root_pid": {
-            "format": "uint64",
-            "minimum": 0,
-            "type": "integer"
+            "type": "string"
           },
           "type": {
             "const": "Pid",

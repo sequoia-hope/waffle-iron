@@ -349,7 +349,7 @@ export const entityListTool = {
 	name: 'entity_list',
 	description:
 		'Every face, edge or vertex of one body, with its geometric content (Q6). Each entity carries its ' +
-		'persistent id (pid/root_pid — content-derived, so it survives rebuilds and booleans), the GeomRef ' +
+		'persistent id (pid/root_pid — content-derived, so it survives rebuilds and booleans; DECIMAL STRINGS, because an id above 2^53 is not exact as a JSON number — treat them as opaque, never as arithmetic), the GeomRef ' +
 		'that names it, its entity_name if it has one, its signature (surface type, area, centroid, normal, ' +
 		'bbox, and the axis descriptor of a cylinder/cone/sphere/torus), and its axis LINE (origin + ' +
 		'direction) where it has one. An EDGE also carries length.arc_length_m — the length ALONG the curve, ' +
@@ -401,8 +401,15 @@ export const entityListTool = {
 				items: {
 					type: 'object',
 					properties: {
-						pid: { type: 'number' },
-						root_pid: { type: 'number' },
+						// Decimal STRINGS, not numbers: a persistent id is a
+						// content-seeded u64 and a JSON number here is an f64,
+						// so an id above 2^53 would reach a caller as a
+						// different entity (`waffle_types::pid_str`). Pinned
+						// by `file-format/tests/schema_golden.rs::
+						// no_pid_field_crosses_as_a_number`, which scans the
+						// generated relay manifest and so sees this file.
+						pid: { type: 'string', pattern: '^[0-9]+$' },
+						root_pid: { type: 'string', pattern: '^[0-9]+$' },
 						geom_ref: { type: 'object' },
 						name: { type: 'string' },
 						name_warnings: { type: 'array', items: { type: 'string' } },

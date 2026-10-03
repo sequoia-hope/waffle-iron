@@ -169,6 +169,14 @@ fn no_pid_field_crosses_as_a_number() {
         "expected the committed schema goldens, found {goldens:?}"
     );
 
+    // The relay's bundled tool manifest too. It is generated from the golden
+    // above AND from the hand-written JS tool schemas
+    // (`app/src/lib/agent/tools/*.js`), which nothing in Rust can see — so
+    // this is the one place a JS-side `pid: { type: 'number' }` is caught.
+    // `entity_list`'s was exactly that, and it is what an MCP client reads to
+    // decide what a pid is.
+    goldens.push(repo_root().join("relay/src/waffle_mcp_relay/agent-tools.manifest.json"));
+
     let mut offenders = Vec::new();
     for path in &goldens {
         let schema: serde_json::Value =

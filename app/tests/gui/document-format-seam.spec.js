@@ -16,6 +16,7 @@ const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/
 import { test, expect } from './helpers/waffle-test.js';
 import { seedDocument, getDocumentFromDB } from './helpers/waffle-test.js';
 import { test as rawTest } from '@playwright/test';
+import { FORMAT_VERSION, MIN_READER_VERSION } from '../../src/lib/engine/format.js';
 
 const T0 = '2020-01-02T03:04:05.000Z';
 
@@ -72,8 +73,8 @@ rawTest.describe('Document format seam', () => {
 		// modified fresh, unit kept, identity + sources present, both tabs intact.
 		const written = JSON.parse(await page.evaluate(() => window.__waffle.buildDocumentJson()));
 		expect(written.format).toBe('waffle-iron');
-		expect(written.version).toBe(9);
-		expect(written.min_reader_version).toBe(9);
+		expect(written.version).toBe(FORMAT_VERSION);
+		expect(written.min_reader_version).toBe(MIN_READER_VERSION);
 		expect(written.document.id).toBe(state.documentId);
 		expect(written.document.created).toBe(T0);
 		expect(written.document.modified).not.toBe(T0);
@@ -91,7 +92,7 @@ rawTest.describe('Document format seam', () => {
 		const storedJson = JSON.parse(stored.json);
 		expect(storedJson.document.created).toBe(T0);
 		expect(storedJson.document.id).toBe(state.documentId);
-		expect(storedJson.min_reader_version).toBe(9);
+		expect(storedJson.min_reader_version).toBe(MIN_READER_VERSION);
 		expect(storedJson.tabs.length).toBe(2);
 	});
 
@@ -181,8 +182,8 @@ rawTest.describe('Document format seam', () => {
 		expect(written.tabs[0].id).toMatch(UUID_RE);
 		expect(written.active_tab).toBe(written.tabs[0].id);
 		expect(written.tabs[0].kind.features.features.length).toBe(1);
-		expect(written.version).toBe(9);
-		expect(written.min_reader_version).toBe(9);
+		expect(written.version).toBe(FORMAT_VERSION);
+		expect(written.min_reader_version).toBe(MIN_READER_VERSION);
 		expect(written.document.id).toMatch(UUID_RE);
 		expect(written.document.created).toBeTruthy();
 		expect(written.sources).toEqual([]);
