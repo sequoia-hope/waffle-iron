@@ -1,5 +1,6 @@
 pub mod assembly_view;
 pub mod dispatch;
+pub mod drawing_view;
 pub mod engine_state;
 pub(crate) mod entity_names;
 pub mod face_refs;

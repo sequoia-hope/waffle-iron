@@ -376,6 +376,27 @@ pub enum UiToEngine {
         /// engine's source store.
         tab_id: String,
     },
+    /// Open (or re-evaluate) a `Drawing` tab (D4a,
+    /// `specs/drawings_and_mbd.md` §8): every view's source tab is built,
+    /// projected and annotated, and the resulting layouts are written back
+    /// onto the views as their caches and returned as
+    /// `ModelUpdated.drawing`.
+    ///
+    /// The drawing sibling of [`UiToEngine::OpenAssembly`], on the same
+    /// terms: the tab's content and every tree it references come from the
+    /// session, so the message carries only the tab id, and the session is
+    /// made to agree about which tab is active (without that the next switch
+    /// would stash the live tree onto the wrong tab).
+    OpenDrawing {
+        tab_id: String,
+    },
+    /// Replace a `Drawing` tab's content — what every drawing tool's edit
+    /// becomes. Re-evaluates the tab when it is the open one; an edit to a
+    /// background drawing tab is recorded and shown when that tab opens.
+    EditDrawing {
+        tab_id: String,
+        drawing: feature_engine::drawing::Drawing,
+    },
     /// Replace an `Assembly` tab's tree — the assembly panel's edits
     /// (instances, connectors, mates), which used to live only in the JS tab
     /// copy (S2 C3b). Re-evaluates when it is the tab on screen; an edit to a
@@ -485,19 +506,38 @@ pub enum UiToEngine {
         filter: Option<waffle_types::TopoQuery>,
     },
     ExportStep,
-    /// One orthographic view of every live body as an R12 DXF drawing
-    /// (`specs/drawings_and_mbd.md` §8 / §12, increment D1a — wireframe, no
-    /// hidden lines yet). Query: no rebuild.
+    /// An R12 DXF drawing. Query: no rebuild.
     ///
-    /// `view_dir` is the direction of SIGHT, away from the viewer; absent
-    /// means the top view (`[0, 0, -1]`), which is the flat-pattern default.
-    /// `up` is which world direction points up on the paper; absent lets the
-    /// kernel pick one that is not parallel to `view_dir`.
+    /// Two shapes, by what is open (`specs/drawings_and_mbd.md` §8 / §12):
+    ///
+    /// - **A Part or Assembly tab**: one orthographic view of every live
+    ///   body — §12's flat pattern, increment D1a. `view_dir` is the
+    ///   direction of SIGHT, away from the viewer; absent means the top view
+    ///   (`[0, 0, -1]`). `up` is which world direction points up on the
+    ///   paper; absent lets the kernel pick one that is not parallel to
+    ///   `view_dir`.
+    /// - **A Drawing tab** (D4a): the SHEET — every view of it, each placed
+    ///   at its own scale and position, in one file in sheet millimetres. A
+    ///   `view_id` narrows it to one view, still at the view's own scale but
+    ///   alone and at the paper origin, which is what a cutting table wants
+    ///   from a sheet it should not read the rest of.
+    ///
+    /// `view_dir` / `up` on a Drawing tab, or `sheet_id` / `view_id` on a
+    /// Part tab, are refused rather than ignored: each pair names a
+    /// projection the other shape does not have, so honouring one and
+    /// dropping the other would silently export a different drawing than the
+    /// caller asked for.
     ExportDxf {
         #[serde(default)]
         view_dir: Option<[f64; 3]>,
         #[serde(default)]
         up: Option<[f64; 3]>,
+        /// Which sheet of the open Drawing tab; absent means its first.
+        #[serde(default)]
+        sheet_id: Option<Uuid>,
+        /// One view of that sheet, alone.
+        #[serde(default)]
+        view_id: Option<Uuid>,
     },
     ExportStl,
     /// Export a single body to STL. `body_id` is the persistent body identity
@@ -910,6 +950,10 @@ pub enum EngineToUi {
         /// the evaluation's problems (Phase 3b).
         #[serde(default, skip_serializing_if = "Option::is_none")]
         assembly: Option<AssemblyStatus>,
+        /// Present while a `Drawing` tab is open: its evaluated sheets
+        /// (D4a).
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        drawing: Option<DrawingStatus>,
         /// Present while a Part is open in the context of an assembly
         /// (`OpenPartInContext`, Phase 3d-4).
         #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -1221,6 +1265,32 @@ pub struct AssemblyStatus {
     /// assembly connector can be made from (`part_connector`).
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub part_connectors: Vec<PartConnectorInfo>,
+}
+
+/// The evaluated drawing as the UI needs it (D4a,
+/// `specs/drawings_and_mbd.md` §8).
+///
+/// Carries the whole drawing, caches included, because that is what the sheet
+/// draws: a `ViewLayout` per view, curves and already-measured annotations,
+/// with no `GeomRef` and no kernel handle in it. The app therefore has no
+/// path back to the model and no way to draw a value other than the measured
+/// one, which is the D3 argument this is the producer for.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DrawingStatus {
+    pub tab_id: String,
+    /// The tab's drawing, with every view that rebuilt carrying its layout.
+    pub drawing: feature_engine::drawing::Drawing,
+    /// What the projections declined to decide, by counter name, non-zero
+    /// ones only (D1c `ProjectionDeclines`). Present for the same reason the
+    /// DXF export carries them: they are what tells a decided drawing from a
+    /// quiet one, and a sheet that silently dropped a hundred hidden arcs
+    /// looks finished.
+    #[serde(default, skip_serializing_if = "std::collections::BTreeMap::is_empty")]
+    pub declines: std::collections::BTreeMap<String, u32>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub errors: Vec<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub warnings: Vec<String>,
 }
 
 /// One named mate connector of a part (`specs/part_mate_connectors.md`), as

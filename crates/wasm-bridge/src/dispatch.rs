@@ -537,6 +537,10 @@ fn handle_message(
                 // The assembly itself is evaluated by `OpenAssembly` (the UI
                 // sends it with the part trees); the live tree stays empty.
                 TabKind::Assembly { .. } => feature_engine::types::FeatureTree::new(),
+                // Same for a drawing: it is rebuilt by `OpenDrawing`, which
+                // projects the SOURCE tabs' bodies. A drawing tab holds no
+                // tree of its own.
+                TabKind::Drawing { .. } => feature_engine::types::FeatureTree::new(),
                 TabKind::Unknown(_) => {
                     return Err(BridgeError::NotImplemented {
                         operation: format!(
@@ -564,6 +568,7 @@ fn handle_message(
             state.engine.tree = tree;
             // Another document's parts are of no use to this one.
             state.assembly = None;
+            state.drawing = None;
             state.clear_context();
             state.part_cache.clear();
             state.engine.rebuild_from_scratch(kb);
@@ -759,6 +764,22 @@ fn handle_message(
             Ok(model_updated_response(state))
         }
 
+        UiToEngine::OpenDrawing { tab_id } => {
+            open_drawing(state, &tab_id, kb)?;
+            Ok(model_updated_response(state))
+        }
+
+        UiToEngine::EditDrawing { tab_id, drawing } => {
+            state.session.set_drawing(&tab_id, drawing)?;
+            // Re-evaluate only what is on screen, exactly as `EditAssembly`
+            // does: an edit to a background drawing tab is recorded, and
+            // opening that tab shows it.
+            if state.session.active_tab_id() == tab_id {
+                open_drawing(state, &tab_id, kb)?;
+            }
+            Ok(model_updated_response(state))
+        }
+
         UiToEngine::EditAssembly { tab_id, assembly } => {
             state.session.set_assembly(&tab_id, assembly)?;
             // Re-evaluate only what is on screen: editing a background
@@ -881,7 +902,34 @@ fn handle_message(
             })
         }
 
-        UiToEngine::ExportDxf { view_dir, up } => {
+        UiToEngine::ExportDxf {
+            view_dir,
+            up,
+            sheet_id,
+            view_id,
+        } => {
+            // A Drawing tab exports its SHEET; anything else exports one view
+            // of the whole model (§12's flat pattern). The arguments of each
+            // shape are refused on the other rather than ignored, because
+            // each names a projection the other does not have.
+            if state.drawing.is_some() {
+                if view_dir.is_some() || up.is_some() {
+                    return Err(BridgeError::InvalidRequest {
+                        reason: "a Drawing tab exports the views on its sheet; `direction` and \
+                                 `up` describe a view of the model and have no meaning here \
+                                 (switch to the Part tab for a flat pattern)"
+                            .to_string(),
+                    });
+                }
+                return export_sheet_dxf(state, kb, sheet_id, view_id);
+            }
+            if sheet_id.is_some() || view_id.is_some() {
+                return Err(BridgeError::InvalidRequest {
+                    reason: "`sheet_id` and `view_id` name views of a Drawing tab; the open tab \
+                             is not one"
+                        .to_string(),
+                });
+            }
             // The same body collection STEP export uses — every live body of
             // the part, or every rendered assembly instance's bodies at their
             // world placements — so one view of an assembly is the whole
@@ -912,26 +960,8 @@ fn handle_message(
                         reason: format!("{}", e),
                     })
                 })?;
-            // What the projection declined to decide, named and counted, on
-            // the same channel as the dropped-body warnings. Every counter but
-            // `cross_body` is a line the drawing does NOT carry, so a file
-            // with a large count is a degenerate view rather than a clean one
-            // — and without this the caller had no way to tell.
             let mut warnings = warnings;
-            let declined: Vec<String> = declines
-                .counts()
-                .iter()
-                .filter(|(_, n)| *n > 0)
-                .map(|(k, n)| format!("{k} {n}"))
-                .collect();
-            if !declined.is_empty() {
-                warnings.push(format!(
-                    "the projection declined to decide some of this view ({}); \
-                     every one but cross_body means a line the drawing does not \
-                     carry — see specs/drawings_and_mbd.md D1c",
-                    declined.join(", ")
-                ));
-            }
+            warnings.extend(decline_warning(&declines));
             Ok(EngineToUi::DxfExportReady { dxf_data, warnings })
         }
 
@@ -1111,6 +1141,177 @@ fn open_assembly(
         .session
         .set_assembly_placements(tab_id, view.placements.clone());
     state.assembly = Some(view);
+    Ok(())
+}
+
+/// What the projection declined to decide, named and counted, as a warning
+/// to travel with an exported file.
+///
+/// Every counter but `cross_body` is a line the drawing does NOT carry, so a
+/// file with a large count is a degenerate view rather than a clean one — and
+/// without this the caller has no way to tell. One function, two exports
+/// (the model's view and the sheet), so the two cannot word it differently.
+fn decline_warning(
+    declines: &waffle_types::kernel::projection::ProjectionDeclines,
+) -> Option<String> {
+    let declined: Vec<String> = declines
+        .counts()
+        .iter()
+        .filter(|(_, n)| *n > 0)
+        .map(|(k, n)| format!("{k} {n}"))
+        .collect();
+    if declined.is_empty() {
+        return None;
+    }
+    Some(format!(
+        "the projection declined to decide some of this drawing ({}); every one but \
+         cross_body means a line the drawing does not carry — see \
+         specs/drawings_and_mbd.md D1c",
+        declined.join(", ")
+    ))
+}
+
+/// `ExportDxf` on a `Drawing` tab (D4a): the sheet, or one of its views.
+///
+/// Each view is projected in its OWN frame and then placed in paper space —
+/// scaled by the view's scale and moved to its position — and the placed
+/// views are composed into one `ViewGeometry` that the D1a writer writes. The
+/// composition is in paper METERS, not millimetres, because `write_dxf`
+/// converts meters to millimetres itself; handing it millimetres would write
+/// a sheet a thousand times too large.
+fn export_sheet_dxf(
+    state: &mut EngineState,
+    kb: &mut dyn KernelBundle,
+    sheet_id: Option<uuid::Uuid>,
+    view_id: Option<uuid::Uuid>,
+) -> Result<EngineToUi, BridgeError> {
+    use waffle_types::kernel::projection::ViewGeometry;
+
+    let open = state
+        .drawing
+        .as_ref()
+        .ok_or_else(|| BridgeError::InvalidRequest {
+            reason: "no drawing is open".to_string(),
+        })?;
+    let tab_id = open.tab_id.clone();
+    let drawing = state.session.drawing(&tab_id)?.clone();
+    let sheet = match sheet_id {
+        Some(id) => drawing
+            .sheet(id)
+            .ok_or_else(|| BridgeError::InvalidRequest {
+                reason: format!("this drawing has no sheet {id}"),
+            })?,
+        None => drawing
+            .sheets
+            .first()
+            .ok_or_else(|| BridgeError::InvalidRequest {
+                reason: "this drawing has no sheets".to_string(),
+            })?,
+    };
+    let wanted: Vec<&feature_engine::drawing::DrawingView> = match view_id {
+        Some(id) => vec![sheet.view(id).ok_or_else(|| BridgeError::InvalidRequest {
+            reason: format!("sheet `{}` has no view {id}", sheet.name),
+        })?],
+        None => sheet.views.iter().collect(),
+    };
+
+    let part_trees = state.session.part_trees(&state.engine);
+    let assembly_trees = state.session.assembly_trees();
+    let mut reuse = state.take_part_engines();
+    let eval = crate::drawing_view::evaluate(
+        &drawing,
+        &part_trees,
+        &assembly_trees,
+        &state.engine.sources,
+        kb,
+        &mut reuse,
+    );
+    state.park_unused_part_engines(reuse, &eval.parts);
+
+    let mut composed = ViewGeometry::default();
+    let mut warnings = eval.warnings.clone();
+    warnings.extend(eval.errors.iter().cloned());
+    let mut drawn = 0usize;
+    for view in &wanted {
+        let Some(geometry) = eval.geometry.get(&view.id) else {
+            continue;
+        };
+        // One view alone goes at the paper origin: a cutting table given a
+        // single part should not have to find it at the sheet coordinates of
+        // a drawing it is not reading.
+        let offset = if view_id.is_some() {
+            [0.0, 0.0]
+        } else {
+            // `placement_mm` is the view's CENTRE, and the curves are in
+            // view-plane coordinates, so the offset is the placement less
+            // the scaled centre of the view's own box.
+            let centre = geometry
+                .bbox
+                .map(|b| [0.5 * (b.min.x() + b.max.x()), 0.5 * (b.min.y() + b.max.y())])
+                .unwrap_or([0.0, 0.0]);
+            [
+                view.placement_mm[0] / 1000.0 - centre[0] * view.scale,
+                view.placement_mm[1] / 1000.0 - centre[1] * view.scale,
+            ]
+        };
+        let Some(placed) = geometry.transformed(view.scale, offset) else {
+            warnings.push(format!(
+                "view `{}` has scale {} and could not be placed on the sheet",
+                view.name, view.scale
+            ));
+            continue;
+        };
+        composed.extend(placed);
+        drawn += 1;
+    }
+    if drawn == 0 {
+        return Err(BridgeError::NoMeshData);
+    }
+    let dxf_data = kernel_v2::dxf_export::write_dxf(
+        &composed,
+        kernel_v2::dxf_export::DEFAULT_POLYLINE_SAGITTA,
+    );
+    warnings.extend(decline_warning(&composed.declines));
+    Ok(EngineToUi::DxfExportReady { dxf_data, warnings })
+}
+
+/// Open (or re-evaluate) a `Drawing` tab (D4a): build and project every
+/// view's source tab, write the layouts back onto the views.
+///
+/// The drawing twin of [`open_assembly`], in the same order and for the same
+/// reasons: refuse a tab that holds no drawing BEFORE switching to it, hand
+/// the part engines of whatever is being left to this pass, and park what
+/// this pass did not take.
+fn open_drawing(
+    state: &mut EngineState,
+    tab_id: &str,
+    kb: &mut dyn KernelBundle,
+) -> Result<(), BridgeError> {
+    state.active_sketch = None;
+    state.selection.clear();
+    state.hover = None;
+    let drawing = state.session.drawing(tab_id)?.clone();
+    let mut reuse = state.take_part_engines();
+    state.session.switch_tab(tab_id, &mut state.engine)?;
+    // A Drawing tab holds no tree; keep the renderer off the live one.
+    state.engine.tree = feature_engine::types::FeatureTree::new();
+    state.engine.rebuild_from_scratch(kb);
+    let part_trees = state.session.part_trees(&state.engine);
+    let assembly_trees = state.session.assembly_trees();
+    let eval = crate::drawing_view::evaluate(
+        &drawing,
+        &part_trees,
+        &assembly_trees,
+        &state.engine.sources,
+        kb,
+        &mut reuse,
+    );
+    state.park_unused_part_engines(reuse, &eval.parts);
+    // The layouts are derived, and they are saved with the tab (§5.7) — so
+    // they go back into the tab that was just evaluated, which is also where
+    // the status reads them from.
+    state.session.set_drawing_caches(tab_id, &eval.layouts);
+    state.drawing = Some(eval.open(tab_id));
     Ok(())
 }
 
@@ -2333,6 +2534,25 @@ pub fn assembly_status(state: &EngineState) -> Option<AssemblyStatus> {
     })
 }
 
+/// The open `Drawing` tab's evaluated state, or `None` when no drawing is
+/// open.
+///
+/// The drawing itself is read from the SESSION, not from the stored
+/// evaluation: the evaluation wrote the view caches into the tab, so the tab
+/// is the one copy of the sheets, and a second one here would be the next
+/// thing to go stale.
+fn drawing_status(state: &EngineState) -> Option<crate::messages::DrawingStatus> {
+    let open = state.drawing.as_ref()?;
+    let drawing = state.session.drawing(&open.tab_id).ok()?.clone();
+    Some(crate::messages::DrawingStatus {
+        tab_id: open.tab_id.clone(),
+        drawing,
+        declines: open.declines.clone(),
+        errors: open.errors.clone(),
+        warnings: open.warnings.clone(),
+    })
+}
+
 fn model_updated_response(state: &EngineState) -> EngineToUi {
     let preview_mesh = preview_mesh(state);
 
@@ -2352,6 +2572,7 @@ fn model_updated_response(state: &EngineState) -> EngineToUi {
         preview_mesh,
         sources: source_statuses(state),
         assembly: assembly_status(state),
+        drawing: drawing_status(state),
         context: state.context_view.as_ref().map(|cv| ContextStatus {
             assembly_tab_id: cv.assembly_tab_id.clone(),
             instance_path: cv.instance_path.clone(),
@@ -2480,9 +2701,47 @@ fn collect_step_bodies(
     }
 }
 
+/// Every live body of `engine` as a projection body, named the way the STEP
+/// export names them (`collect_step_bodies`), so a drawing view and an
+/// exported file agree about which body is which.
+///
+/// One collection, two consumers: `StepExportBody` and `ProjectionBody` carry
+/// the same three fields, and the mapping here is the one the `ExportDxf` arm
+/// already did inline. A mesh-backed imported body is left out with the same
+/// named warning as in STEP export — the projection needs B-Rep edges, and a
+/// mesh body's triangle edges are not the part's edges.
+pub(crate) fn projection_bodies(
+    engine: &feature_engine::Engine,
+    kernel: &dyn KernelIntrospect,
+    prefix: &str,
+    placement: Option<RigidPlacement>,
+) -> (Vec<waffle_types::kernel::ProjectionBody>, Vec<String>) {
+    let mut bodies = Vec::new();
+    let mut warnings = Vec::new();
+    collect_step_bodies(
+        engine,
+        kernel,
+        prefix,
+        placement,
+        &mut bodies,
+        &mut warnings,
+    );
+    (
+        bodies
+            .into_iter()
+            .map(|b| waffle_types::kernel::ProjectionBody {
+                handle: b.handle,
+                name: b.name,
+                placement: b.placement,
+            })
+            .collect(),
+        warnings,
+    )
+}
+
 /// An assembly placement as the kernel's rigid motion (rotation columns =
 /// the transformed basis vectors).
-fn rigid_placement_of(t: &feature_engine::assembly::Transform) -> RigidPlacement {
+pub(crate) fn rigid_placement_of(t: &feature_engine::assembly::Transform) -> RigidPlacement {
     let x = t.apply_dir([1.0, 0.0, 0.0]);
     let y = t.apply_dir([0.0, 1.0, 0.0]);
     let z = t.apply_dir([0.0, 0.0, 1.0]);

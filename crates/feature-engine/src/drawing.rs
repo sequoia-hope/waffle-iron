@@ -830,6 +830,28 @@ pub struct ViewRebuild {
     /// the view scale — what the auto-layout places and what a sheet-bounds
     /// check measures. `[0, 0]` when the view drew nothing.
     pub extent_mm: [f64; 2],
+    /// The same curves `layout` carries, kernel-side: analytic
+    /// [`Curve2`](waffle_types::kernel::projection::Curve2)s in view-plane
+    /// coordinates, style filter already applied.
+    ///
+    /// Not a second source of truth but the same one in the other
+    /// representation: the DXF writer takes `Curve2` (so an arc reaches the
+    /// file as an `ARC` rather than as a chord polyline) while the renderer
+    /// takes the serde-able twin. Both come from this one filtered set, so a
+    /// sheet and a screen cannot disagree about which lines are on it.
+    pub geometry: ViewGeometry,
+    /// The annotations that could NOT be resolved or measured, by their index
+    /// in the view, each with the reason.
+    ///
+    /// An annotation's failure is not the VIEW's failure, which is why these
+    /// come back beside a layout rather than instead of one. A dimension
+    /// whose entity the model no longer has is exactly the case D0's
+    /// never-rebinding pid exists to make loud — and blanking the whole view
+    /// over it would take the other seven dimensions and every curve down
+    /// with it, leaving a sheet of eight views with one missing and no
+    /// drawing where the information was. The view draws, the annotations
+    /// that resolved are on it, and the ones that did not are named.
+    pub annotation_errors: Vec<(usize, DrawingError)>,
 }
 
 /// Project `bodies` into `frame` and resolve `view`'s annotations against the
@@ -875,94 +897,55 @@ pub fn rebuild_view(
             })?
     };
 
-    let drawn: Vec<usize> = (0..geometry.curves.len())
-        .filter(|i| {
-            let c = &geometry.curves[*i];
-            view.style.draws(c.kind, c.visibility)
-        })
-        .collect();
-
-    // The pid → geometry index, over the curves this view actually DRAWS: an
-    // annotation must not measure a curve the style suppressed, because the
-    // dimension would then point at nothing on the sheet.
-    let anchors = AnchorIndex::build(&geometry, &drawn, bodies, kernel);
-
-    let mut layout = ViewLayout {
-        curves: drawn
+    // The curves this view DRAWS, as a view of their own. One filtered
+    // `ViewGeometry` rather than an index list, because it is also what the
+    // sheet's DXF export places in paper space — the layout record carries
+    // the serde-able twins of these curves and the writer needs the analytic
+    // originals, so the two must come from the same filtered set or the
+    // sheet and the screen disagree about which lines are on it. Its box is
+    // recomputed by `with_declines`, exactly (`Curve2::bbox` is exact for an
+    // arc, where a corner-of-the-whole-conic estimate is not).
+    let drawn = ViewGeometry::with_declines(
+        geometry
+            .curves
             .iter()
-            .map(|i| {
-                waffle_types::annotation::layout::LayoutCurveEntry::from_projected(
-                    &geometry.curves[*i],
-                )
-            })
+            .filter(|c| view.style.draws(c.kind, c.visibility))
+            .cloned()
             .collect(),
-        bbox: None,
-        annotations: Vec::new(),
-    };
-    layout.bbox = bbox_of(&layout);
+        geometry.declines,
+    );
 
+    // The pid → geometry index, over the drawn curves only: an annotation
+    // must not measure a curve the style suppressed, because the dimension
+    // would then point at nothing on the sheet.
+    let anchors = AnchorIndex::build(&drawn, bodies, kernel);
+
+    let mut layout = ViewLayout::from_view(&drawn);
     let mut resolved = Vec::with_capacity(view.annotations.len());
+    let mut annotation_errors = Vec::new();
     for (index, annotation) in view.annotations.iter().enumerate() {
-        resolved.push(resolve_annotation(
-            view.id, index, annotation, &anchors, &basis, bodies, kernel,
-        )?);
+        match resolve_annotation(view.id, index, annotation, &anchors, &basis) {
+            Ok(laid_out) => resolved.push(laid_out),
+            Err(e) => annotation_errors.push((index, e)),
+        }
     }
     layout.annotations = resolved;
 
-    let extent_mm = match layout.bbox {
-        Some([min, max]) => [
-            (max[0] - min[0]) * 1000.0 * view.scale,
-            (max[1] - min[1]) * 1000.0 * view.scale,
+    let extent_mm = match drawn.bbox {
+        Some(b) => [
+            (b.max.x() - b.min.x()) * 1000.0 * view.scale,
+            (b.max.y() - b.min.y()) * 1000.0 * view.scale,
         ],
         None => [0.0, 0.0],
     };
 
     Ok(ViewRebuild {
         layout,
-        declines: geometry.declines,
+        declines: drawn.declines,
         extent_mm,
+        geometry: drawn,
+        annotation_errors,
     })
-}
-
-/// The bounding box of a layout's curves, in view-plane meters.
-fn bbox_of(layout: &ViewLayout) -> Option<[[f64; 2]; 2]> {
-    let mut out: Option<[[f64; 2]; 2]> = None;
-    for entry in &layout.curves {
-        for p in curve_extremes(&entry.geometry) {
-            out = Some(match out {
-                None => [p, p],
-                Some([min, max]) => [
-                    [min[0].min(p[0]), min[1].min(p[1])],
-                    [max[0].max(p[0]), max[1].max(p[1])],
-                ],
-            });
-        }
-    }
-    out
-}
-
-/// The corners of a layout curve's own box. Conic arms report the whole
-/// conic's box rather than the arc's — an over-estimate by at most the
-/// arc's own sagitta, and the alternative is re-deriving
-/// `Curve2::bbox`'s exact arc arithmetic on the serde-able twin.
-fn curve_extremes(curve: &LayoutCurve) -> Vec<[f64; 2]> {
-    match curve {
-        LayoutCurve::Point { at } => vec![*at],
-        LayoutCurve::Line { start, end } => vec![*start, *end],
-        LayoutCurve::Circle { center, radius, .. } => vec![
-            [center[0] - radius, center[1] - radius],
-            [center[0] + radius, center[1] + radius],
-        ],
-        LayoutCurve::Ellipse {
-            center,
-            major_radius,
-            ..
-        } => vec![
-            [center[0] - major_radius, center[1] - major_radius],
-            [center[0] + major_radius, center[1] + major_radius],
-        ],
-        LayoutCurve::Polyline { points, .. } => points.clone(),
-    }
 }
 
 /// Every drawn curve of a view, indexed by the persistent id of the entity it
@@ -980,7 +963,6 @@ struct AnchorIndex {
 impl AnchorIndex {
     fn build(
         geometry: &ViewGeometry,
-        drawn: &[usize],
         bodies: &[ProjectionBody],
         kernel: &dyn KernelBundle,
     ) -> AnchorIndex {
@@ -1004,8 +986,7 @@ impl AnchorIndex {
         }
 
         let mut curves: HashMap<(TopoKind, u64), Vec<LayoutCurve>> = HashMap::new();
-        for i in drawn {
-            let curve = &geometry.curves[*i];
+        for curve in &geometry.curves {
             let Some(source) = curve.source else { continue };
             let kind = match curve.kind {
                 CurveKind::Edge => TopoKind::Edge,
@@ -1045,8 +1026,6 @@ fn resolve_annotation(
     annotation: &Annotation,
     anchors: &AnchorIndex,
     basis: &ViewBasis,
-    _bodies: &[ProjectionBody],
-    _kernel: &dyn KernelBundle,
 ) -> Result<AnnotationLayout, DrawingError> {
     match annotation {
         Annotation::Dimension {

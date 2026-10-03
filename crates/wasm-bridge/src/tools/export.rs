@@ -26,6 +26,7 @@
 use modeling_ops::KernelBundle;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
+use uuid::Uuid;
 use waffle_types::kernel::ViewFrame;
 
 use crate::engine_state::EngineState;
@@ -107,6 +108,34 @@ fn require_bodies(state: &EngineState) -> Result<(), ToolFailure> {
         ));
     }
     Ok(())
+}
+
+/// The active tab's kind (`"Part"`, `"Assembly"`, `"Drawing"`, …), which is
+/// what decides whether `export_dxf` draws the model or a sheet.
+fn active_kind(state: &EngineState) -> String {
+    let active = state.session.active_tab_id().to_string();
+    state
+        .session
+        .tabs()
+        .into_iter()
+        .find(|t| t.id == active)
+        .map(|t| t.kind)
+        .unwrap_or_else(|| "Part".to_string())
+}
+
+/// An optional UUID argument, refused by name when it is not one.
+fn uuid_arg(args: &Value, name: &str) -> Result<Option<Uuid>, ToolFailure> {
+    let Some(value) = args.get(name).filter(|v| !v.is_null()) else {
+        return Ok(None);
+    };
+    let text = value.as_str().unwrap_or_default();
+    Uuid::parse_str(text).map(Some).map_err(|_| {
+        ToolFailure::new(
+            "InvalidArgument",
+            format!("{name} must be a UUID, not `{text}`."),
+            json!({ "path": format!("/{name}") }),
+        )
+    })
 }
 
 /// Q6: an inline result may not exceed the cap; a download may be any size.
@@ -341,21 +370,66 @@ fn vector3(v: &Value, path: &str) -> Result<[f64; 3], ToolFailure> {
     Ok(out)
 }
 
-/// One orthographic view of the whole model as an R12 DXF drawing
-/// (`specs/drawings_and_mbd.md` §12's early deliverable).
+/// An R12 DXF drawing: one orthographic view of the whole model
+/// (`specs/drawings_and_mbd.md` §12's early deliverable), or — on a `Drawing`
+/// tab — the sheet, or one view of it (D4a).
 pub(super) fn export_dxf(
     state: &mut EngineState,
     kb: &mut dyn KernelBundle,
     args: &Value,
 ) -> Result<ToolResult, ToolFailure> {
     let deliver = deliver(args)?;
-    let (view_dir, up) = view_arguments(args)?;
-    require_bodies(state)?;
+    // On a Drawing tab the document decides the projections, so the
+    // direction arguments are not read at all — and `view_arguments` would
+    // default them to the top view, which the dispatch then refuses as
+    // meaningless here. The sheet arguments are parsed instead.
+    let drawing_tab = active_kind(state) == "Drawing";
+    let (view_dir, up) = if drawing_tab {
+        for named in ["view", "direction", "up"] {
+            if args.get(named).is_some_and(|v| !v.is_null()) {
+                return Err(ToolFailure::new(
+                    "InvalidArgument",
+                    format!(
+                        "`{named}` describes a view of the model; a Drawing tab's views carry \
+                         their own projections. Use sheet_id / view_id, or tab_switch to the \
+                         Part tab for a flat pattern."
+                    ),
+                    json!({ "path": format!("/{named}") }),
+                ));
+            }
+        }
+        (None, None)
+    } else {
+        view_arguments(args)?
+    };
+    let (sheet_id, view_id) = if drawing_tab {
+        (uuid_arg(args, "sheet_id")?, uuid_arg(args, "view_id")?)
+    } else {
+        for named in ["sheet_id", "view_id"] {
+            if args.get(named).is_some_and(|v| !v.is_null()) {
+                return Err(ToolFailure::new(
+                    "TabKindNotSupported",
+                    format!("`{named}` names a view of a Drawing tab; the open tab is not one."),
+                    json!({ "kind": active_kind(state) }),
+                ));
+            }
+        }
+        // A Part or Assembly tab with no bodies has nothing to project. A
+        // Drawing tab is checked per view instead, by the rebuild: an empty
+        // view of a tab with nothing built is a blank sheet, not a refusal.
+        require_bodies(state)?;
+        (None, None)
+    };
     let response = engine_call(
         state,
         kb,
         "ExportDxf",
-        UiToEngine::ExportDxf { view_dir, up },
+        UiToEngine::ExportDxf {
+            view_dir,
+            up,
+            sheet_id,
+            view_id,
+        },
     )?;
     let EngineToUi::DxfExportReady { dxf_data, warnings } = response else {
         return Err(unexpected("ExportDxf", "DxfExportReady", &response));

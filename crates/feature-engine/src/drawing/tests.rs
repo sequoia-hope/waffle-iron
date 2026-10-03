@@ -470,16 +470,23 @@ fn an_anchor_that_is_not_a_persistent_id_is_refused_by_the_selector_it_used() {
     })];
     // No bodies: `project_bodies` is never called, so the layout is empty and
     // the anchor refusal is reached.
-    let err = rebuild_view(&view, &ViewFrame::TOP, &[], &kernel).expect_err("not a pid");
+    let out = rebuild_view(&view, &ViewFrame::TOP, &[], &kernel).expect("the view still builds");
+    // The annotation fails; the VIEW does not. A dimension whose anchor is
+    // unusable must not blank the sheet (see `ViewRebuild::annotation_errors`).
+    assert!(out.layout.annotations.is_empty());
     assert!(
         matches!(
-            err,
-            DrawingError::AnchorNotPid {
-                selector: "Selector::Position",
-                ..
-            }
+            out.annotation_errors.as_slice(),
+            [(
+                0,
+                DrawingError::AnchorNotPid {
+                    selector: "Selector::Position",
+                    ..
+                }
+            )]
         ),
-        "{err}"
+        "{:?}",
+        out.annotation_errors
     );
 }
 
@@ -497,7 +504,12 @@ fn an_anchor_whose_pid_is_absent_refuses_rather_than_measuring_something_else() 
         pid: 4242,
         root_pid: 4242,
     })];
-    let err = rebuild_view(&view, &ViewFrame::TOP, &[], &kernel).expect_err("nothing to measure");
+    let out = rebuild_view(&view, &ViewFrame::TOP, &[], &kernel).expect("the view still builds");
+    assert!(out.layout.annotations.is_empty());
+    let [(index, err)] = out.annotation_errors.as_slice() else {
+        panic!("{:?}", out.annotation_errors);
+    };
+    assert_eq!(*index, 0);
     assert!(
         matches!(
             err,

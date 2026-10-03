@@ -505,6 +505,15 @@ fn the_migrated_list_is_exactly_what_this_checkpoint_implements() {
             "connector_add",
             "connector_edit",
             "connector_delete",
+            // The drawing tools (2026-10-03, `specs/drawings_and_mbd.md` §8
+            // D4a). Placed after the assembly edits and before the mates for
+            // one reason: they are the third tab-kind family, and the list
+            // groups by the tab a tool needs — Part tools, then the tab
+            // tools, then Assembly, then Drawing. A reader who wants the
+            // whole of one family reads a run of adjacent lines.
+            "drawing_view_add",
+            "drawing_view_edit",
+            "drawing_annotation_add",
             "mate_add",
             "mate_edit",
             "mate_delete",

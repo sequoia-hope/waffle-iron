@@ -52,6 +52,10 @@ pub struct EngineState {
     /// edited. Its OTHER leaves render as ghosts in the part's frame; the
     /// engine's `context` (the resolution snapshot) is derived from it.
     pub context_view: Option<crate::assembly_view::ContextView>,
+    /// The open `Drawing` tab's last evaluation (D4a): which tab, what its
+    /// projections declined, what failed. The sheets themselves live in the
+    /// tab — see [`crate::drawing_view::OpenDrawing`].
+    pub drawing: Option<crate::drawing_view::OpenDrawing>,
     /// Part engines of assembly views this state has LEFT (a tab switch away
     /// from an assembly, out of an edit context), kept for the next
     /// evaluation to reuse (`assembly_view::evaluate`'s `reuse`): a part whose
@@ -108,6 +112,7 @@ impl EngineState {
             save_verifier: file_format::SaveVerifier::default(),
             assembly: None,
             context_view: None,
+            drawing: None,
             part_cache: Vec::new(),
             kicad_boards: Vec::new(),
         }
@@ -117,7 +122,15 @@ impl EngineState {
     /// engines for the next evaluation. Every site that used to drop the
     /// views goes through here, so a switch away from an assembly tab and
     /// back does not rebuild parts that did not change.
+    ///
+    /// The open DRAWING is dropped here too (D4a), and here rather than at
+    /// each call site because this is the one place every "leave the tab's
+    /// evaluated view" path already passes through — a switch to a part tab
+    /// that forgot to clear it would keep reporting a drawing status for a
+    /// tab that is no longer open, which is a sheet drawn from a stale
+    /// evaluation. Its part engines, like the assembly's, stay in the pool.
     pub fn stash_assembly_views(&mut self) {
+        self.drawing = None;
         let mut engines = Vec::new();
         if let Some(view) = self.assembly.take() {
             engines.extend(view.parts);
@@ -322,6 +335,7 @@ impl EngineState {
     pub fn reset(&mut self) {
         self.assembly = None;
         self.context_view = None;
+        self.drawing = None;
         self.part_cache.clear();
         self.engine = Engine::new();
         self.active_sketch = None;

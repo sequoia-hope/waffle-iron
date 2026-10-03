@@ -27,6 +27,7 @@ use crate::messages::{EngineToUi, UiToEngine};
 
 mod assembly;
 mod author;
+mod drawing;
 mod export;
 mod inspect;
 mod names;
@@ -37,6 +38,7 @@ mod summary;
 mod tabs;
 
 pub use assembly::ASSEMBLY_TOOLS;
+pub use drawing::DRAWING_TOOLS;
 pub use export::{ExportFile, MAX_AGENT_PAYLOAD_BYTES};
 pub use tabs::{document_core, TAB_TOOLS};
 
@@ -91,6 +93,9 @@ pub const MIGRATED: &[&str] = &[
     "connector_add",
     "connector_edit",
     "connector_delete",
+    "drawing_view_add",
+    "drawing_view_edit",
+    "drawing_annotation_add",
     "mate_add",
     "mate_edit",
     "mate_delete",
@@ -139,6 +144,9 @@ pub fn mutates(name: &str) -> bool {
             | "connector_add"
             | "connector_edit"
             | "connector_delete"
+            | "drawing_view_add"
+            | "drawing_view_edit"
+            | "drawing_annotation_add"
             | "mate_add"
             | "mate_edit"
             | "mate_delete"
@@ -193,6 +201,7 @@ impl ToolResult {
 }
 
 /// A refusal on the way to a [`ToolResult`] (JS `ToolFailure`).
+#[derive(Debug)]
 pub(crate) struct ToolFailure {
     code: &'static str,
     message: String,
@@ -290,6 +299,9 @@ fn run(
         "connector_add" => assembly::connector_add(state, kb, args),
         "connector_edit" => assembly::connector_edit(state, kb, args),
         "connector_delete" => assembly::connector_delete(state, kb, args),
+        "drawing_view_add" => drawing::drawing_view_add(state, kb, args),
+        "drawing_view_edit" => drawing::drawing_view_edit(state, kb, args),
+        "drawing_annotation_add" => drawing::drawing_annotation_add(state, kb, args),
         "mate_add" => assembly::mate_add(state, kb, args),
         "mate_edit" => assembly::mate_edit(state, kb, args),
         "mate_delete" => assembly::mate_delete(state, kb, args),
