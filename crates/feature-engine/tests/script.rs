@@ -363,6 +363,32 @@ fn missing_source_is_source_unavailable() {
 }
 
 #[test]
+fn an_angle_expression_driving_a_length_param_is_refused_not_read_as_mm() {
+    // P1 (`specs/agent_mechanical_design.md` §6): the `@param … length`
+    // declaration IS the dimension the argument asks for. Before P1 `25deg`
+    // cached the plain number 25 and the script saw 0.025 m.
+    let (mut engine, mut kernel, src) = with_source(BOX_SCRIPT);
+    let mut op = script_op(src, json!({ "plane": plane_json() }));
+    if let Operation::Script { params } = &mut op {
+        params.arg_exprs.insert("depth".into(), "25deg".into());
+    }
+    let id = engine.add_feature("Box".into(), op, &mut kernel).unwrap();
+    let error = error_of(&engine, id).expect("a loud error");
+    assert!(
+        error.1.contains("expected a length, got an angle"),
+        "error was {error:?}"
+    );
+
+    // The same expression as an explicit length builds.
+    let mut op = script_op(src, json!({ "plane": plane_json() }));
+    if let Operation::Script { params } = &mut op {
+        params.arg_exprs.insert("depth".into(), "25mm".into());
+    }
+    let id = engine.add_feature("Box2".into(), op, &mut kernel).unwrap();
+    assert_eq!(error_of(&engine, id), None);
+}
+
+#[test]
 fn expression_driven_arguments_regenerate_on_parameter_change() {
     let (mut engine, mut kernel, src) = with_source(BOX_SCRIPT);
     let mut op = script_op(src, json!({ "plane": plane_json() }));
