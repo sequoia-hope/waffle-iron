@@ -423,6 +423,73 @@ fn an_expression_dimension_refuses_in_a_rebuild_with_no_environment() {
         err.to_string().contains("no expression environment"),
         "{err}"
     );
+    // The loud half: the annotation is NOT laid out. A dimension whose number
+    // could not be produced must leave nothing on the sheet for a renderer to
+    // draw a blank or a stale value into — the error IS the output.
+    assert!(
+        out.layout.annotations.is_empty(),
+        "{:?}",
+        out.layout.annotations
+    );
+}
+
+#[test]
+fn an_expression_dimension_whose_expression_fails_is_loud_and_draws_nothing() {
+    // The other half of D2's expression dimension, and the one that happens
+    // in a real document: the environment IS there, and the expression is
+    // broken — a vanished entity name, a parameter that is gone, an angle
+    // where a length belongs. The authoring tool refuses such an annotation
+    // outright, so this is the case where it WORKED and the model moved
+    // underneath it.
+    //
+    // What must not happen is a number: not a blank, not the value from the
+    // last rebuild, and not what the anchors happen to measure. The
+    // annotation is dropped from the layout and the reason is reported
+    // against its index.
+    struct Broken;
+    impl ExprDimensions for Broken {
+        fn value_of(&self, expression: &str, _kind: DimensionKind) -> Result<f64, String> {
+            Err(format!("radius(\"rim\"): the name does not resolve ({expression})"))
+        }
+    }
+    let kernel = waffle_types::kernel::MockKernel::new();
+    let mut view = DrawingView::new(
+        "Front",
+        ViewSource::whole_tab("t"),
+        Projection::Named {
+            view: NamedView::Front,
+        },
+    );
+    let mut annotation = dimension_with(Selector::Pid {
+        pid: 7,
+        root_pid: 7,
+    });
+    if let Annotation::Dimension { value, .. } = &mut annotation {
+        *value = Measured::Expr {
+            expr: "radius(rim) * 2".to_string(),
+        };
+    }
+    view.annotations.push(annotation);
+    let out = rebuild_view(&view, &ViewFrame::TOP, &[], &kernel, Some(&Broken))
+        .expect("the view still builds — one annotation is not the view");
+    let [(index, err)] = out.annotation_errors.as_slice() else {
+        panic!("{:?}", out.annotation_errors);
+    };
+    assert_eq!(*index, 0);
+    assert!(
+        matches!(err, DrawingError::ExprFailed { ref expr, .. } if expr == "radius(rim) * 2"),
+        "{err}"
+    );
+    // The message carries BOTH halves an author needs: the expression, and
+    // why it failed.
+    let message = err.to_string();
+    assert!(message.contains("radius(rim) * 2"), "{message}");
+    assert!(message.contains("does not resolve"), "{message}");
+    assert!(
+        out.layout.annotations.is_empty(),
+        "a failed expression dimension draws nothing: {:?}",
+        out.layout.annotations
+    );
 }
 
 /// An annotation anchored on `selector`, for the refusal tests.
