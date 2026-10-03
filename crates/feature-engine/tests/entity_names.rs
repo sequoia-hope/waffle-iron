@@ -175,13 +175,16 @@ fn a_name_stores_the_entity_s_persistent_id_not_its_index() {
     };
     assert_ne!(pid, 0, "a pid is never 0");
     assert_eq!(named.kind, TopoKind::Face);
-    // Strict whatever the caller authored: an agent sees no warning, so a
-    // near-miss rebind would be a silently wrong name.
+    // The pid target is Strict: it names one entity or none, so there is
+    // nothing for a policy to relax.
     assert_eq!(named.target.policy, ResolvePolicy::Strict);
-    // The authored reference is kept as the fallback, also Strict.
+    // The authored reference is kept as the fallback, with the policy it was
+    // AUTHORED with — that is what decides whether it may answer once the pid
+    // is gone (N2 §5.3 item 1, settled 2026-10-03). See
+    // `the_fallback_keeps_the_authored_policy_because_that_decides_the_rebind`.
     let fallback = named.fallback.as_ref().expect("the authored ref is kept");
     assert!(matches!(fallback.selector, Selector::Role { .. }));
-    assert_eq!(fallback.policy, ResolvePolicy::Strict);
+    assert_eq!(fallback.policy, ResolvePolicy::BestEffort);
     // And it names the entity the authored reference named.
     let direct = feature_engine::resolve::resolve_geom_ref_live(
         &top_face_ref(block),
@@ -194,6 +197,44 @@ fn a_name_stores_the_entity_s_persistent_id_not_its_index() {
     assert_eq!(through_name.kernel_id, direct.kernel_id);
     assert_eq!(through_name.resolved_by, ResolvedBy::Pid);
     assert_eq!(root_pid, pid, "a face's own root is its pid on the mock");
+}
+
+/// N2 §5.3 item 1, settled 2026-10-03: a stored reference's POLICY is what
+/// decides whether its fallback may answer after the persistent id is gone, so
+/// `pin_identity` must carry the authored policy into the fallback rather than
+/// overwrite it. An agent's reference arrives `Strict` (`execute_tool` stamps
+/// it), and a `Strict` reference refuses instead of rebinding by geometry; a
+/// user's viewport pick arrives `BestEffort` and keeps the warned rebind.
+///
+/// The pinning RESOLVE is still Strict either way — a reference that does not
+/// identify one entity is a thing to fix while the author is looking at it.
+#[test]
+fn the_fallback_keeps_the_authored_policy_because_that_decides_the_rebind() {
+    let (engine, kernel, block) = one_block();
+
+    let mut strict = top_face_ref(block);
+    strict.policy = ResolvePolicy::Strict;
+    let named = mint(&engine, &kernel, &strict);
+    assert_eq!(
+        named
+            .fallback
+            .as_ref()
+            .expect("the authored ref is kept")
+            .policy,
+        ResolvePolicy::Strict,
+        "an agent's reference stays Strict, so a lost identity refuses"
+    );
+
+    let named = mint(&engine, &kernel, &top_face_ref(block));
+    assert_eq!(
+        named
+            .fallback
+            .as_ref()
+            .expect("the authored ref is kept")
+            .policy,
+        ResolvePolicy::BestEffort,
+        "a user's pick stays BestEffort, so a lost identity rebinds and warns"
+    );
 }
 
 #[test]

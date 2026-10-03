@@ -479,6 +479,28 @@ pub(super) fn face_list(
     let EngineToUi::FacesListed { body_id, faces } = &response else {
         return Err(unexpected("ListFaces", "FacesListed", &response));
     };
+    // N2 §5.3 item 1: the references this tool hands out are what an agent
+    // authors with, so they are `Strict` HERE, in the JSON the agent reads.
+    //
+    // `face_refs::face_geom_refs` is shared with the viewport's own face-range
+    // accessors, deliberately — a ref a user picks and a ref an agent lists are
+    // the same ref by construction — and so it builds them `BestEffort`, which
+    // is what a user's pick needs. That default travelled into every agent
+    // reference: `execute_tool`'s stamp only fills a policy a caller OMITS, and
+    // an agent does not omit it, it echoes back the one this tool printed. So
+    // the loudness item 1 asks for never reached the one path that sources
+    // almost every agent reference (measured 2026-10-03: the N1 and N2 oracles
+    // built their references from `face_list` and resolved `BestEffort`
+    // throughout). An agent that wants a rebind still spells `BestEffort` for
+    // itself, and then it is genuinely in the transcript.
+    let mut faces = serde_json::to_value(faces).unwrap_or(Value::Null);
+    if let Some(list) = faces.as_array_mut() {
+        for face in list {
+            if let Some(policy) = face.pointer_mut("/geom_ref/policy") {
+                *policy = json!({ "type": "Strict" });
+            }
+        }
+    }
     Ok(json!({ "body_id": body_id, "faces": faces }))
 }
 

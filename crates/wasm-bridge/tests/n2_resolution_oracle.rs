@@ -312,27 +312,21 @@ fn a_parameter_edit_that_keeps_topology_keeps_the_name_resolving() {
     assert!(row.get("refusal").is_none(), "{row}");
 }
 
-/// Clause 3, the one the increment is for, and the one that found something.
+/// Clause 3, the one the increment is for: "`resolves: false` and the feature
+/// that referenced it reports `PidGone`, never a different face".
 ///
-/// §5.3 writes the oracle as "`resolves: false` and the feature that referenced
-/// it reports `PidGone`, never a different face". What this measures instead:
-/// the pid IS reported gone, as `lost_identity: PidGone` with the numbers, and
-/// `rebound: true` — but `resolves` stays `true`, because N1's fallback did
-/// answer and bound a DIFFERENT face (measured here: `resolved_by: query`,
-/// `resolved_via: role`).
-///
-/// That is a real conflict between two merged increments, not a bug in either:
-/// §5.2 deliberately keeps the fallback (its own test
-/// `a_name_whose_reference_is_gone_still_measures_through_its_fallback` pins
-/// it green), and §5.3's oracle asks for a refusal. N2 takes the softer
-/// reading — report, do not refuse — and makes the rebind machine-visible, so
-/// an agent branching on `rebound` or `lost_identity` learns everything the
-/// refusal would have told it. See the spec's "Implementation notes (N2)".
+/// It holds literally, for an AGENT's reference. The name here is minted from a
+/// `face_list` reference through `entity_name`, which is every reference an
+/// agent has, and those are `Strict` — so when the pid and its lineage root are
+/// both gone the ladder REFUSES rather than letting the authored selector
+/// rebind by geometry. A `BestEffort` reference (a user's pick, a legacy
+/// document) still rebinds and says so; that is
+/// `a_best_effort_name_whose_face_is_gone_rebinds_and_says_so_instead`.
 ///
 /// The plate is still there with every other face intact, which is what makes
-/// this a real test: the fallback had plenty to bind to, and did.
+/// this a real test: the fallback had plenty to bind to, and was not allowed to.
 #[test]
-fn an_edit_that_deletes_the_named_face_reports_the_lost_identity_and_the_rebind() {
+fn an_edit_that_deletes_the_named_face_refuses_with_pid_gone() {
     let mut state = EngineState::new();
     let mut kernel = KernelV2Adapter::new();
     let (cut, sketch, loop_ids, body) = plate_with_a_named_pocket_floor(&mut state, &mut kernel);
@@ -379,18 +373,82 @@ fn an_edit_that_deletes_the_named_face_reports_the_lost_identity_and_the_rebind(
     );
 
     let row = listed(&mut state, &mut kernel, "floor");
-    // The recorded identity is gone, and the listing says so with the numbers
-    // — this is the oracle's `PidGone`.
+    // Nothing answered: the oracle's `resolves: false`.
+    assert_eq!(row["resolves"], false, "never a different face: {row}");
+    assert!(
+        row.get("rebound").is_none(),
+        "and nothing rebound: {row}" // `false` is skipped on the wire
+    );
+    // Typed, with both numbers, so an agent re-authors instead of reading prose.
     assert_eq!(
-        row["lost_identity"]["type"], "PidGone",
+        row["refusal"]["type"], "PidGone",
         "the reason an agent branches on: {row}"
     );
+    assert_eq!(row["refusal"]["pid"], floor_pid.0, "{row}");
+    assert_eq!(row["refusal"]["root_pid"], floor_pid.1, "{row}");
+    assert_eq!(
+        row["refusal"]["last_seen_feature"],
+        json!(cut),
+        "the feature whose output the face was last seen in: {row}"
+    );
+    assert!(
+        row["geom_ref"].is_object(),
+        "and the name KEEPS its record — §5.2, the hole is the information: {row}"
+    );
+}
+
+/// The other half of the rule (§5.3 item 1): a `BestEffort` reference — a
+/// user's pick in the viewport, or a document written before the policy
+/// mattered — still rebinds through its authored selector when the identity is
+/// gone, and the rebind is reported rather than hidden. The person can see the
+/// geometry and the warnings; an agent cannot, which is why its own references
+/// refuse instead.
+#[test]
+fn a_best_effort_name_whose_face_is_gone_rebinds_and_says_so_instead() {
+    let mut state = EngineState::new();
+    let mut kernel = KernelV2Adapter::new();
+    square_feature(&mut state, &mut kernel, 100, 0.0, 0.0, 0.020, 0.006, false);
+    let (sketch, cut, loop_ids) = square_feature(
+        &mut state,
+        &mut kernel,
+        200,
+        0.006,
+        0.006,
+        0.008,
+        0.003,
+        true,
+    );
+    let body = FeatureTree::body_id(cut, &OutputKey::Main);
+    let mut floor = pocket_floor_ref(&mut state, &mut kernel, &body);
+    // What a viewport pick carries, in place of what `face_list` hands an agent.
+    floor["policy"] = json!({ "type": "BestEffort" });
+    tool(
+        &mut state,
+        &mut kernel,
+        "entity_name",
+        json!({ "target": { "type": "entity", "geom_ref": floor }, "name": "floor" }),
+    );
+    let floor_pid = stored_pid(&state, "floor");
+
+    dispatch(
+        &mut state,
+        UiToEngine::EditFeature {
+            feature_id: cut,
+            operation: extrude_op(sketch, &loop_ids, 0.009, true),
+            provenance: None,
+        },
+        &mut kernel,
+    );
+    wasm_bridge::tessellation_runner::tessellate_missing_meshes(&mut state, &mut kernel);
+
+    let row = listed(&mut state, &mut kernel, "floor");
+    assert_eq!(row["resolves"], true, "the fallback answered: {row}");
+    assert_eq!(row["rebound"], true, "and it is flagged as a rebind: {row}");
+    assert_eq!(
+        row["lost_identity"]["type"], "PidGone",
+        "with the identity it lost: {row}"
+    );
     assert_eq!(row["lost_identity"]["pid"], floor_pid.0, "{row}");
-    assert_eq!(row["lost_identity"]["root_pid"], floor_pid.1, "{row}");
-    // And the answer it DID get is flagged as not the recorded entity, which
-    // is the oracle's "never a different face" made legible rather than
-    // enforced. `resolves: true` alone must never be read as "still fine".
-    assert_eq!(row["rebound"], true, "{row}");
     assert_eq!(
         row["resolved_by"], "query",
         "the authored selector answered, not the id: {row}"
@@ -401,9 +459,5 @@ fn an_edit_that_deletes_the_named_face_reports_the_lost_identity_and_the_rebind(
             .unwrap_or_default()
             .contains("may name a different entity")),
         "in words too: {row}"
-    );
-    assert!(
-        row["geom_ref"].is_object(),
-        "and the name KEEPS its record — §5.2, the hole is the information: {row}"
     );
 }

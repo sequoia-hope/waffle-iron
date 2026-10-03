@@ -582,8 +582,18 @@ hand-made document can still hold both; `names_list` lists both entries.)
   the file stay green. The two tests that pinned the OLD loud-fallback
   behaviour were re-pointed, not deleted — the fallback is still reachable,
   just only where an identity is genuinely gone (a pocket floor named and
-  then turned into a through hole costs both the pid and its lineage root:
-  `a_name_whose_reference_is_gone_still_measures_through_its_fallback`).
+  then turned into a through hole costs both the pid and its lineage root).
+
+  **Amended 2026-10-03 during N2's review: the fallback is reachable only for
+  a `BestEffort` reference.** A name an agent minted is `Strict`, and a
+  `Strict` reference whose identity is gone REFUSES rather than answering with
+  whatever its authored selector finds — see §5.3's note "A `Strict` reference
+  never rebinds". The pin above moved accordingly:
+  `a_name_whose_reference_is_gone_refuses_rather_than_measuring_another_face`
+  (the listing says `resolves: false`, `refusal: PidGone` with the last-seen
+  feature, and `measure_distance` on the same name refuses with the same
+  account), and the warned rebind keeps its own pin on a `BestEffort` name,
+  `a_best_effort_name_whose_reference_is_gone_still_measures_through_its_fallback`.
 - *A name on a BOOLEAN's own output face loses its NUMBER on reopen, loudly
   — D0 item 1b.* `boolean/from_yang.rs` withdraws the construct seed around
   its `finalize_solid`, so boolean output faces keep counter pids and only
@@ -752,24 +762,50 @@ own path is untouched — `face_list` still hands out `BestEffort` refs, which i
 what a user's pick needs. A reference that spells `BestEffort` keeps it: an
 agent may ask to rebind, and then the asking is in the transcript.
 
-**The oracle's third clause does not hold literally, and that is a conflict
-between two merged increments rather than a defect in either.** Measured on a
-named pocket floor turned into a through hole: the pid and its lineage root are
-both gone, N1's authored fallback answers through its role selector, and
-`names_list` reported `resolves: true` with a warning — the name reporting a
-DIFFERENT face as though nothing had happened to it. §5.3 asks for `resolves:
-false`; §5.2 keeps the fallback deliberately and pins it green
-(`a_name_whose_reference_is_gone_still_measures_through_its_fallback`).
-Refusing would revert N1. So N2 takes the softer reading — report, do not
-refuse — and makes the rebind machine-visible: `ListedName::lost_identity`
-carries the primary's classification (`PidGone` with both numbers) even though
-something answered, and `rebound` is true whenever the FALLBACK supplied the
-answer, not only when the rung itself was a `BestEffort` rebind. An agent
-branching on either learns everything the refusal would have told it, and
-`resolves: true` alone is no longer readable as "still fine". Pinned as
-`an_edit_that_deletes_the_named_face_reports_the_lost_identity_and_the_rebind`.
-Whether that is enough, or the fallback should go, is the one design call this
-increment leaves open.
+**A `Strict` reference never rebinds, so the oracle's third clause holds
+literally** (settled 2026-10-03, in review; this replaces the "softer reading"
+N2 first shipped).
+
+The conflict looked like one between two merged increments. Measured on a named
+pocket floor turned into a through hole: the pid and its lineage root are both
+gone, N1's authored fallback answers through its role selector, and `names_list`
+reported `resolves: true` — the name reporting a DIFFERENT face as though
+nothing had happened to it. §5.3 asks for `resolves: false`; §5.2 kept the
+fallback deliberately and pinned it green. N2 first took the softer reading
+(report, do not refuse) and made the rebind machine-visible.
+
+The POLICY settles it instead, which is what item 1 was for all along:
+
+- **`Strict`** — every reference an agent authors — the refusal stands. The
+  fallback rebinds by GEOMETRY, and an agent handed a different face with a
+  warning it cannot see has been told nothing. It gets
+  `ReferenceUnresolved`/`PidGone` naming the last-seen feature, and re-authors.
+- **`BestEffort`** — a user's viewport pick, a document written before the
+  policy mattered — the fallback answers, `rebound: true` and `lost_identity`
+  say so, and the UI shows the warning to someone who can see the geometry.
+
+`resolve_pinned` reads that policy off the stored fallback, which is why
+`pin_identity` now carries the AUTHORED policy into it rather than overwriting
+it with `Strict` (the pinning RESOLVE is still `Strict` either way: a reference
+that does not identify one entity is a thing to fix while the author is looking
+at it). The pid `target` stays `Strict` — it names one entity or none.
+
+**And the stamp had to reach the references an agent actually holds.**
+`execute_tool`'s `strict_by_default` only fills a policy a caller OMITS, and an
+agent does not omit one: it echoes back the reference `face_list` printed, which
+`face_refs::face_geom_refs` builds `BestEffort` because the viewport shares that
+constructor. Measured 2026-10-03: the N1 and N2 oracles resolved `BestEffort`
+throughout, so item 1's loudness never reached the path that sources almost
+every agent reference. `face_list` now hands out `Strict` references in the JSON
+an agent reads — visible, rather than relying on a later stamp — while the
+viewport's own path keeps `BestEffort`. An agent that wants a rebind still
+spells `BestEffort` itself, and then the asking really is in the transcript.
+
+Pinned as `an_edit_that_deletes_the_named_face_refuses_with_pid_gone` and
+`a_best_effort_name_whose_face_is_gone_rebinds_and_says_so_instead`
+(`n2_resolution_oracle.rs`), with the measure-by-name pair in `tool_names.rs`
+and the authored-policy rule in
+`entity_names.rs::the_fallback_keeps_the_authored_policy_because_that_decides_the_rebind`.
 
 **The reader floor moved to v9.** `Sketch::plane_face` is additive, defaulted
 and omitted when absent, and an old reader does not FAIL on it — but by

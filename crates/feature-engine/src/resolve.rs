@@ -708,21 +708,30 @@ pub struct PinnedRef {
 
 /// Pin `authored` to the identity the kernel has for it right now.
 ///
-/// `Strict` whatever the caller sent: this runs at AUTHORING time, with the
-/// entity in front of the author, so a reference that does not identify one
-/// entity is a thing to fix now rather than to rebind silently on every
-/// rebuild forever (§5.3 item 1).
+/// The pinning RESOLVE is `Strict` whatever the caller sent: this runs at
+/// AUTHORING time, with the entity in front of the author, so a reference that
+/// does not identify one entity is a thing to fix now rather than to rebind
+/// silently on every rebuild forever (§5.3 item 1).
+///
+/// What is STORED keeps the caller's policy on the fallback, because that is
+/// the question [`resolve_pinned`] asks later: a `Strict` reference — every
+/// reference an agent authors through a tool, which `execute_tool` stamps —
+/// refuses when its identity is gone, and a `BestEffort` one (a user's pick in
+/// the viewport, a legacy document) rebinds by geometry and says so. The
+/// `target` is always `Strict`: it is a `Selector::Pid`, which names one entity
+/// or none, and has nothing to rebind to.
 pub fn pin_identity(
     authored: &GeomRef,
     feature_results: &std::collections::HashMap<Uuid, OpResult>,
     introspect: &dyn KernelIntrospect,
 ) -> Result<PinnedRef, EngineError> {
-    let mut authored = authored.clone();
-    authored.policy = ResolvePolicy::Strict;
-    let resolved = resolve_geom_ref_live(&authored, feature_results, introspect)?;
+    let authored = authored.clone();
+    let mut probe = authored.clone();
+    probe.policy = ResolvePolicy::Strict;
+    let resolved = resolve_geom_ref_live(&probe, feature_results, introspect)?;
     match introspect.entity_pid(resolved.kernel_id, authored.kind) {
         Some(pid) if !matches!(authored.selector, Selector::Pid { .. }) => {
-            let mut by_pid = authored.clone();
+            let mut by_pid = probe;
             by_pid.selector = Selector::Pid {
                 pid: pid.pid,
                 root_pid: pid.root_pid,
@@ -733,6 +742,9 @@ pub fn pin_identity(
                 kernel_id: resolved.kernel_id,
             })
         }
+        // No pid to pin to (a mesh-backed import): the authored reference IS
+        // the target, and it keeps the caller's policy for the same reason the
+        // fallback does — it is the thing that would rebind.
         _ => Ok(PinnedRef {
             target: authored,
             fallback: None,
@@ -750,10 +762,19 @@ pub fn pin_identity(
 /// and this answer came from geometry instead — so it is handed back rather
 /// than only written into a warning string.
 ///
-/// **This path rebinds, deliberately** (N1 §5.2: a name whose entity is gone
-/// still measures through its fallback). §5.3's oracle asks for a refusal
-/// instead; what N2 does is make the rebind machine-visible — see the spec's
-/// "Implementation notes (N2)" for why the softer reading won.
+/// **Whether the fallback is allowed to answer is the reference's own policy**
+/// (§5.3 item 1, settled 2026-10-03):
+///
+/// - `Strict` — every reference an agent authors through a tool, which
+///   `execute_tool` stamps, and so every name N1 mints — the refusal stands.
+///   The fallback rebinds by GEOMETRY, which is exactly the silent wrong answer
+///   §5.3 exists to remove: an agent handed a different face as though nothing
+///   had happened cannot tell that its reference died. A `PidGone` reaches it as
+///   a typed refusal naming the last-seen feature, and it re-authors.
+/// - `BestEffort` — a user's pick in the viewport, a legacy document — the
+///   fallback answers, the primary failure comes back beside it, and the warning
+///   says the answer may be a different entity. The UI shows those; a person can
+///   see the geometry and judge.
 pub fn resolve_pinned(
     target: &GeomRef,
     fallback: Option<&GeomRef>,
@@ -763,7 +784,7 @@ pub fn resolve_pinned(
     match resolve_geom_ref_live(target, feature_results, introspect) {
         Ok(resolved) => Ok((resolved, None)),
         Err(primary) => {
-            let Some(fallback) = fallback else {
+            let Some(fallback) = fallback.filter(|f| f.policy == ResolvePolicy::BestEffort) else {
                 return Err(primary);
             };
             let mut resolved = resolve_geom_ref_live(fallback, feature_results, introspect)
