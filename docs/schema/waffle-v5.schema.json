@@ -1301,7 +1301,7 @@
           "type": "string"
         },
         "parameters": {
-          "description": "The DOCUMENT's design-parameter table (v11, P2,\n`specs/agent_mechanical_design.md` §6).\n\nAbove the tabs: every tab's expressions resolve through it after\ntheir own table, so one variable can drive two Parts — which is what\n`spring_od = tube_id - 1.5mm` needs when the tube and the spring are\nseparate Parts. Same row type as `FeatureTree.parameters`\n(`feature_engine::types::DesignParameter`), because it is the same\nkind of thing and a second row type would be a second evaluator.\n\nOmitted when empty, so no document without one changes bytes.",
+          "description": "The DOCUMENT's design-parameter table (v12, P2,\n`specs/agent_mechanical_design.md` §6).\n\nAbove the tabs: every tab's expressions resolve through it after\ntheir own table, so one variable can drive two Parts — which is what\n`spring_od = tube_id - 1.5mm` needs when the tube and the spring are\nseparate Parts. Same row type as `FeatureTree.parameters`\n(`feature_engine::types::DesignParameter`), because it is the same\nkind of thing and a second row type would be a second evaluator.\n\nOmitted when empty, so no document without one changes bytes.",
           "items": {
             "$ref": "#/$defs/DesignParameter"
           },

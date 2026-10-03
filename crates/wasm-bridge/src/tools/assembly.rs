@@ -651,7 +651,7 @@ pub(crate) fn instance_edit(
                 }
             }
             // An empty map is no overrides at all, so the instance is the
-            // part's own build and the file carries no key (format v11).
+            // part's own build and the file carries no key (format v12).
             inst.parameter_overrides = (!next.is_empty()).then_some(next);
         }
         Some(other) => {

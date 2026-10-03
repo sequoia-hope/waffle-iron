@@ -289,7 +289,10 @@ export const parametersSetTool = {
 		'Write the design-parameter table and rebuild (one undo step). By default parameters REPLACES the ' +
 		'table, so an omitted parameter is removed; with merge:true the rows are applied over the current ' +
 		'table and delete removes parameters by name or id, so you can set one value without re-sending the ' +
-		'rest. Expressions are mm-space and may reference other parameters by name. Keep a parameter\'s id ' +
+		'rest. Expressions are mm-space and may reference other parameters by name, and may MEASURE the model ' +
+		'by entity name (distance, angle, length, radius, area, volume — see expression_evaluate); a parameter ' +
+		'that measures acquires a rebuild dependency on the feature that owns the measured entity, and may only ' +
+		'measure geometry earlier in the tree than the first feature that reads it. Keep a parameter\'s id ' +
 		'to preserve it; omit id for a new one. A row whose id names an existing parameter with a DIFFERENT ' +
 		'name is a rename: every expression that reads it — other parameters and feature fields alike — is ' +
 		'rewritten, so use this rather than deleting and re-adding. A failing expression is reported per ' +

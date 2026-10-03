@@ -1136,6 +1136,20 @@ fn parameter_row(
         "used_by": used_by,
         "used_by_fields": used_by_fields,
     });
+    // D2: a measuring parameter depends on GEOMETRY as well as on other
+    // parameters, and the two are different namespaces — an entity name is
+    // not a parameter name and `depends_on` must not claim it is. Reported as
+    // its own list rather than folded in, because an agent that reads
+    // `depends_on: []` off a parameter spelled `volume(plate) / 1000` would
+    // conclude the row is a constant and reorder the tree under it. Absent
+    // when the expression measures nothing, so a document that does not
+    // measure answers exactly as it did before D2.
+    let measures: Vec<String> = feature_engine::expr::entity_references(&p.expression)
+        .map(|names| names.into_iter().collect())
+        .unwrap_or_default();
+    if !measures.is_empty() {
+        row["measures"] = json!(measures);
+    }
     // The dimension the expression PRODUCED (P1), not the declared one:
     // `width = "2cm"` is a length whether or not anyone said so, and a depth
     // reading an undeclared `angle_expr` is refused on this basis.

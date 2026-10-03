@@ -1,5 +1,5 @@
 {
-  "manifest_hash": "860511274858df18d62d5ff81b5aae4f57abd8b4c8456fc42b81d287935c11be",
+  "manifest_hash": "7e6012ac51317c6f15bf2634666e1523a8b7326d42f7060a9d3c8c1088f99a61",
   "protocol": "waffle-agent-link/1",
   "tools": [
     {
@@ -2919,7 +2919,7 @@
         "readOnlyHint": true,
         "title": "Evaluate expression"
       },
-      "description": "Evaluate an expression against the design parameters, as a dimension field would. mm-space: a bare number means millimeters for lengths (degrees for angles); unit suffixes (mm, cm, m, in, ft, deg, rad) and parameter names are allowed. Returns value_mm plus the dimension the expression produced, or value_mm null with the evaluation error. Pass dimension to have it judged as that kind of field would judge it: \"25deg\" asked for as a Length is an error, not 25 mm.",
+      "description": "Evaluate an expression against the design parameters AND the live model, as a dimension field would. mm-space: a bare number means millimeters for lengths (degrees for angles); unit suffixes (mm, cm, m, in, ft, deg, rad) and parameter names are allowed. Measurement functions read the model by ENTITY NAME (entity_name / body_rename): distance(a, b), angle(a, b), length(edge), radius(entity), area(face), volume(body) — mm, degrees, mm^2 and mm^3 respectively, so sqrt(area(top)) is a length a depth takes and area(top) is not. mass(body) is reserved and refuses until a material table exists. Returns value_mm plus the dimension the expression produced, or value_mm null with the evaluation error. Pass dimension to have it judged as that kind of field would judge it: \"25deg\" asked for as a Length is an error, not 25 mm.",
       "inputSchema": {
         "additionalProperties": false,
         "properties": {
@@ -2934,7 +2934,7 @@
             "type": "string"
           },
           "expression": {
-            "description": "e.g. \"width / 2\" or \"1.5in\".",
+            "description": "e.g. \"width / 2\", \"1.5in\", or \"distance(wall_a, wall_b) / 2\".",
             "type": "string"
           }
         },
@@ -2975,7 +2975,7 @@
         "readOnlyHint": true,
         "title": "Read parameters"
       },
-      "description": "Read the design-parameter table. Each parameter carries its expression, the value and dimension the last rebuild evaluated, what it reads (depends_on), which parameters read it (used_by) and which FEATURE FIELDS read it (used_by_fields) — so you can see what a change will move before making it. An expression that does not evaluate reports its own error with value_mm null; the rest of the table still answers. Dependency cycles are listed in cycles, each as the names around the loop. scope chooses which table: tab (the default) answers the open Part tab's rows PLUS every DOCUMENT row it inherits, each marked with its own scope and shadowed:true on a document row the tab redeclares — one answer to what an expression here can read. document answers the document-wide table alone (the only scope an Assembly or Drawing tab has). instance, with instance_id, answers a part's table as that placed instance builds it: an overridden row carries override and its value_mm is the pinned magnitude.",
+      "description": "Read the design-parameter table. Each parameter carries its expression, the value and dimension the last rebuild evaluated, which PARAMETERS it reads (depends_on), which ENTITIES it measures (measures), which parameters read it (used_by) and which FEATURE FIELDS read it (used_by_fields) — so you can see what a change will move before making it. An expression that does not evaluate reports its own error with value_mm null; the rest of the table still answers. Dependency cycles are listed in cycles, each as the names around the loop. scope chooses which table: tab (the default) answers the open Part tab's rows PLUS every DOCUMENT row it inherits, each marked with its own scope and shadowed:true on a document row the tab redeclares — one answer to what an expression here can read. document answers the document-wide table alone (the only scope an Assembly or Drawing tab has). instance, with instance_id, answers a part's table as that placed instance builds it: an overridden row carries override and its value_mm is the pinned magnitude.",
       "inputSchema": {
         "additionalProperties": false,
         "properties": {
@@ -3027,7 +3027,7 @@
                   "type": "string"
                 },
                 "depends_on": {
-                  "description": "Parameter names this expression reads directly. Empty if it does not parse.",
+                  "description": "PARAMETER names this expression reads directly. Empty if it does not parse, and empty for an expression that only measures the model — see `measures`.",
                   "items": {
                     "type": "string"
                   },
@@ -3068,6 +3068,13 @@
                 },
                 "id": {
                   "type": "string"
+                },
+                "measures": {
+                  "description": "Entity names this expression MEASURES (D2), e.g. the `plate` of `volume(plate) / 1000`. A separate namespace from depends_on: this parameter depends on that geometry being built, so its value moves when the feature that owns the entity changes. Absent when the expression measures nothing.",
+                  "items": {
+                    "type": "string"
+                  },
+                  "type": "array"
                 },
                 "name": {
                   "type": "string"
@@ -17374,7 +17381,7 @@
         "readOnlyHint": false,
         "title": "Set parameters"
       },
-      "description": "Write the design-parameter table and rebuild (one undo step). By default parameters REPLACES the table, so an omitted parameter is removed; with merge:true the rows are applied over the current table and delete removes parameters by name or id, so you can set one value without re-sending the rest. Expressions are mm-space and may reference other parameters by name. Keep a parameter's id to preserve it; omit id for a new one. A row whose id names an existing parameter with a DIFFERENT name is a rename: every expression that reads it — other parameters and feature fields alike — is rewritten, so use this rather than deleting and re-adding. A failing expression is reported per parameter, not rolled back; a delete of a parameter something still reads is refused naming the dependents (read them first with parameters_get). scope chooses which table: tab (the default) the open Part tab's, document the document-wide one that every tab resolves through after its own (NOT an undo step, and a RENAME there is refused — the rewrite would have to reach every tab and this call can only reach the open one), or instance, which with instance_id and overrides pins magnitudes on one placed instance of a part so it builds its own solid.",
+      "description": "Write the design-parameter table and rebuild (one undo step). By default parameters REPLACES the table, so an omitted parameter is removed; with merge:true the rows are applied over the current table and delete removes parameters by name or id, so you can set one value without re-sending the rest. Expressions are mm-space and may reference other parameters by name, and may MEASURE the model by entity name (distance, angle, length, radius, area, volume — see expression_evaluate); a parameter that measures acquires a rebuild dependency on the feature that owns the measured entity, and may only measure geometry earlier in the tree than the first feature that reads it. Keep a parameter's id to preserve it; omit id for a new one. A row whose id names an existing parameter with a DIFFERENT name is a rename: every expression that reads it — other parameters and feature fields alike — is rewritten, so use this rather than deleting and re-adding. A failing expression is reported per parameter, not rolled back; a delete of a parameter something still reads is refused naming the dependents (read them first with parameters_get). scope chooses which table: tab (the default) the open Part tab's, document the document-wide one that every tab resolves through after its own (NOT an undo step, and a RENAME there is refused — the rewrite would have to reach every tab and this call can only reach the open one), or instance, which with instance_id and overrides pins magnitudes on one placed instance of a part so it builds its own solid.",
       "inputSchema": {
         "additionalProperties": false,
         "properties": {

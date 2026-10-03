@@ -1,8 +1,8 @@
 {
-  "errored": 10,
+  "errored": 9,
   "failed": 0,
   "generated": "kernel-v2 (assay_kv2 categorized run)",
-  "passed": 321,
+  "passed": 322,
   "results": [
     {
       "category": "SUPPORTED_CORRECT",
@@ -1973,10 +1973,10 @@
       "status": "pass"
     },
     {
-      "category": "ERROR",
-      "detail": "1 engine error(s): f2b681be-1c19-4ce7-8e82-a5f4800479f7: operation error: kernel error: boolean operation failed: kernel-v2 boolean_subtract failed: TessellationFailed { face: FaceId(28), reason: \"ring rejected by CDT (degenerate/self-intersecting)\" }",
+      "category": "SUPPORTED_CORRECT",
+      "detail": "all checks passed",
       "id": "P0017",
-      "status": "error"
+      "status": "pass"
     },
     {
       "category": "SUPPORTED_CORRECT",

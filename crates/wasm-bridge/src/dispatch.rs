@@ -658,7 +658,7 @@ fn handle_message(
             // first message (S2 C2).
             state.session = DocumentSession::from_document(doc);
             state.engine.tree = tree;
-            // The document's parameter table (P2, v11) reaches the engine the
+            // The document's parameter table (P2, v12) reaches the engine the
             // same way `sources` does — pushed in, not held in the tree.
             // Here as well as in `switch_tab`, because a load does not switch
             // tabs: the active tab's tree was taken above.
@@ -1002,16 +1002,30 @@ fn handle_message(
                 &state.engine.tree.parameters,
                 &state.engine.document_parameters,
             );
+            // D2: a measurement function reads the LIVE model, through the
+            // same measurer the rebuild uses, so a preview and the rebuilt
+            // geometry cannot disagree about what `distance(a, b)` is.
+            //
+            // No ordering floor: a preview drives no field, so it has no
+            // position in the tree and nothing to be circular with respect
+            // to. It answers "what does this measure right now", which is
+            // the question asked. The rule applies when the expression is
+            // STORED on a field, where the rebuild positions it.
+            let measurer = feature_engine::measure::TreeMeasurer::new(
+                &state.engine.tree,
+                &state.engine.feature_results,
+                kb.as_introspect(),
+                kb.as_measure(),
+                &state.engine.pid_to_feature,
+            );
             // The preview reports the WORKING-SPACE magnitude (mm for a
             // length, degrees for an angle) — what the field's own boundary
             // will convert — plus the dimension the expression produced. A
             // caller that named a dimension gets the field's refusal here.
-            let evaluated =
-                feature_engine::expr::evaluate_quantity(&expression, &env).and_then(|q| {
-                    match dimension {
-                        Some(want) => q.check(want).map(|()| q),
-                        None => Ok(q),
-                    }
+            let evaluated = feature_engine::expr::evaluate_measured(&expression, &env, &measurer)
+                .and_then(|q| match dimension {
+                    Some(want) => q.check(want).map(|()| q),
+                    None => Ok(q),
                 });
             match evaluated {
                 Ok(q) => Ok(EngineToUi::ExpressionEvaluated {

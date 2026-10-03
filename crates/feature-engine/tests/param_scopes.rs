@@ -361,7 +361,7 @@ fn the_preview_env_agrees_with_the_rebuild_across_both_scopes() {
     let mut local = vec![DesignParameter::new("w", "7")];
     let mut tree = FeatureTree::new();
     tree.parameters = local.clone();
-    let rebuild = params::apply_parameters_scoped(&mut tree, &mut document, None);
+    let rebuild = params::apply_parameters_scoped(&mut tree, &mut document, None, None);
     assert!(rebuild.errors.is_empty(), "{:?}", rebuild.errors);
     local = tree.parameters.clone();
 

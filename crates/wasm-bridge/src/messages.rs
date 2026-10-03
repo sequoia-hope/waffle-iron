@@ -768,7 +768,7 @@ pub struct DocumentInfo {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub assembly_tree: Option<feature_engine::assembly::AssemblyTree>,
     /// The DOCUMENT's design-parameter table, as the last rebuild evaluated
-    /// it (P2, format v11): rows with their `value` and `error` filled.
+    /// it (P2, format v12): rows with their `value` and `error` filled.
     ///
     /// Carried here and not only on `feature_tree.parameters` because it is
     /// not the tab's: it is the same table whichever tab is open, including

@@ -1,4 +1,4 @@
-//! Why P2 moved the format floor to v11.
+//! Why P2 moved the format floor to v12.
 //!
 //! `docs/FILE_FORMAT.md` §13.3 bumps `MIN_READER_VERSION` for "a defaulted
 //! field whose ABSENCE changes what gets built". `DocumentMetadata.parameters`
@@ -11,8 +11,8 @@
 //! `parameter_overrides` is the sharper of the two, and it is the reason the
 //! bump is not arguable. The field has been WRITTEN since Phase 3 ("reserved;
 //! not applied") and P2 makes it load-bearing, so the very same bytes now
-//! mean "this instance is 25 mm tall" to a v11 reader and nothing at all to
-//! a v10 one — which builds the part's own 10 mm instead. A reader cannot be
+//! mean "this instance is 25 mm tall" to a v12 reader and nothing at all to
+//! a v11 one — which builds the part's own 10 mm instead. A reader cannot be
 //! allowed to silently disagree about an instance's size.
 //!
 //! Both halves are measured below against the kernel, not against the field
@@ -132,13 +132,13 @@ fn a_reader_that_drops_the_document_table_builds_a_different_solid() {
         "value": 25.0
     }]);
 
-    // A v11 reader knows `document.parameters` and builds 25 mm.
+    // A v12 reader knows `document.parameters` and builds 25 mm.
     let document: Vec<DesignParameter> =
         serde_json::from_value(document_json.clone()).expect("document table");
     let with = built_thickness_m(tree_of(&tree), document, None);
     assert!((with - 0.025).abs() < 1e-7, "with the table: {with} m");
 
-    // A v10 reader has no field for it: serde drops the key, the table is
+    // A v11 reader has no field for it: serde drops the key, the table is
     // empty, `stock` is an unknown variable, and the depth keeps the 10 mm
     // the file happened to have cached.
     let without = built_thickness_m(tree_of(&tree), Vec::new(), None);
@@ -295,14 +295,14 @@ fn the_document_table_round_trips_with_every_sidecar() {
 }
 
 #[test]
-fn a_pre_v11_document_still_loads_with_an_empty_document_table() {
+fn a_pre_v12_document_still_loads_with_an_empty_document_table() {
     let meta: file_format::DocumentMetadata = serde_json::from_value(json!({
         "id": "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
         "name": "Legacy",
         "created": "2026-01-01T00:00:00.000Z",
         "modified": "2026-01-01T00:00:00.000Z"
     }))
-    .expect("a v10 document must still load");
+    .expect("a v11 document must still load");
     assert!(meta.parameters.is_empty());
     assert!(
         meta.extra.is_empty(),

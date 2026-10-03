@@ -8,14 +8,14 @@
  */
 
 /** Format version this app writes. */
-export const FORMAT_VERSION = 11;
+export const FORMAT_VERSION = 12;
 
 /**
  * Oldest reader (by its FORMAT_VERSION) that can parse files this app writes.
  * Bump together with the Rust constant whenever a change lands that older
  * readers cannot parse (new enum variants included).
  */
-export const MIN_READER_VERSION = 11;
+export const MIN_READER_VERSION = 12;
 
 /**
  * True if a parsed document declares it needs a newer reader than this build.

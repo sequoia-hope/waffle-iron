@@ -104,7 +104,7 @@ impl DocumentSession {
         &self.document
     }
 
-    /// The DOCUMENT's design-parameter table (P2, format v11). The session is
+    /// The DOCUMENT's design-parameter table (P2, format v12). The session is
     /// the STORE; `Engine::document_parameters` is the working copy, pushed
     /// in by [`Self::switch_tab`] and written back after an edit.
     pub fn document_parameters(&self) -> &[feature_engine::types::DesignParameter] {
@@ -735,6 +735,8 @@ mod tests {
                 body_id: "b".into(),
                 old_name: None,
                 new_name: Some("x".into()),
+                old_expressions: Default::default(),
+                new_expressions: Default::default(),
             });
             h
         });
@@ -783,6 +785,8 @@ mod tests {
                 body_id: "b".into(),
                 old_name: None,
                 new_name: Some("x".into()),
+                old_expressions: Default::default(),
+                new_expressions: Default::default(),
             });
             h
         });

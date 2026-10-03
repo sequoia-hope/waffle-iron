@@ -110,7 +110,7 @@ pub struct DocumentMetadata {
     pub modified: DateTime<Utc>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub display_unit: Option<String>,
-    /// The DOCUMENT's design-parameter table (v11, P2,
+    /// The DOCUMENT's design-parameter table (v12, P2,
     /// `specs/agent_mechanical_design.md` §6).
     ///
     /// Above the tabs: every tab's expressions resolve through it after

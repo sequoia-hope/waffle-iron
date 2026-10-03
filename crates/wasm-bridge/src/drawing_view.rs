@@ -22,7 +22,7 @@ use std::collections::HashMap;
 use feature_engine::assembly::{AssemblyTree, PartBuild, PartRef};
 use feature_engine::drawing::{
     auto_placement_mm, dimension_kind_from_tag, rebuild_view, Drawing, DrawingError, DrawingView,
-    Projection, Sheet, ViewAnchor, ViewSource, DEFAULT_VIEW_GAP_MM,
+    ExprDimensions, Projection, Sheet, ViewAnchor, ViewSource, DEFAULT_VIEW_GAP_MM,
 };
 use feature_engine::types::FeatureTree;
 use feature_engine::Engine;
@@ -387,6 +387,59 @@ fn default_placement(sheet: &Sheet, projection: &Projection) -> [f64; 2] {
     )
 }
 
+/// One view's expression environment (D2): the source tab's parameter table
+/// plus a measurer over its built geometry.
+///
+/// Both halves come from the SAME engine, so a dimension reading
+/// `plate_w * 2` and one reading `distance(wall_a, wall_b)` are answered
+/// from one document — the one the view draws.
+struct ViewExprs<'a> {
+    env: feature_engine::expr::Env,
+    measurer: feature_engine::measure::TreeMeasurer<'a>,
+}
+
+impl<'a> ViewExprs<'a> {
+    fn new(engine: &'a Engine, kernel: &'a dyn KernelBundle) -> Self {
+        Self {
+            env: feature_engine::params::cached_env(&engine.tree.parameters),
+            measurer: feature_engine::measure::TreeMeasurer::new(
+                &engine.tree,
+                &engine.feature_results,
+                kernel.as_introspect(),
+                kernel.as_measure(),
+                &engine.pid_to_feature,
+            ),
+        }
+    }
+}
+
+impl ExprDimensions for ViewExprs<'_> {
+    fn value_of(
+        &self,
+        expression: &str,
+        kind: waffle_types::annotation::DimensionKind,
+    ) -> Result<f64, String> {
+        use waffle_types::annotation::DimensionKind;
+        let q = feature_engine::expr::evaluate_measured(expression, &self.env, &self.measurer)
+            .map_err(|e| e.to_string())?;
+        // The unit the layout carries, which is the unit
+        // `annotation::measure` produces for the same field: METERS for
+        // every length kind, RADIANS for an angle. Accepted at the typed
+        // boundary, so an angle expression in a length dimension is refused
+        // by name rather than read as millimetres.
+        //
+        // No ordering floor is set: a drawing annotation has no position in
+        // the source tab's feature tree, so there is nothing for it to be
+        // circular with respect to — it reads geometry that is already
+        // built, and it drives none of it.
+        match kind {
+            DimensionKind::Angle => q.as_angle_radians(),
+            _ => q.as_length_meters(),
+        }
+        .map_err(|e| e.to_string())
+    }
+}
+
 /// Rebuild every view of `drawing`.
 ///
 /// The document-level inputs a drawing evaluation reads, bundled.
@@ -466,7 +519,32 @@ pub fn evaluate(
                     ));
                 }
             }
-            match rebuild_view(view, &frame, &chosen, kb) {
+            // D2: a `Measured::Expr` dimension is evaluated against the
+            // SOURCE TAB's expression environment — its parameter table and
+            // its own built geometry — which `bodies_of_tab` has just put in
+            // `out.parts`. The alternative, the drawing tab's own
+            // environment, would measure a different document than the one
+            // the view draws.
+            //
+            // The borrows are kept inside this block so the `match` below
+            // can push into `out` again.
+            let built = {
+                let kernel: &dyn KernelBundle = &*kb;
+                let engine = out
+                    .parts
+                    .iter()
+                    .find(|(p, _)| p.part.tab_id == view.source.tab_id)
+                    .map(|(_, e)| e);
+                let exprs = engine.map(|e| ViewExprs::new(e, kernel));
+                rebuild_view(
+                    view,
+                    &frame,
+                    &chosen,
+                    kernel,
+                    exprs.as_ref().map(|x| x as &dyn ExprDimensions),
+                )
+            };
+            match built {
                 Ok(built) => {
                     out.declines.merge(&built.declines);
                     for (index, e) in &built.annotation_errors {
