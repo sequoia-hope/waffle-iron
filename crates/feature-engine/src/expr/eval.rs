@@ -119,6 +119,23 @@ fn measure(
             span,
         });
     };
+    // A measurer reads its operands POSITIONALLY (`MeasureCall::name(1)`),
+    // trusting the arity the parser enforced. `Expr` is a public type with
+    // public fields, so a caller that hand-builds a tree can reach here with
+    // the wrong count — and a library must not panic on it, least of all in
+    // WASM where a panic aborts the session. Checked here rather than in
+    // every measurer, for the same reason `call` checks it once.
+    if args.len() != m.arity {
+        return Err(ExprError::WrongArity {
+            function: function.to_string(),
+            expected: match m.arity {
+                1 => "1",
+                2 => "2",
+                _ => "a fixed number of",
+            },
+            got: args.len(),
+        });
+    }
     let call = MeasureCall {
         function,
         args,

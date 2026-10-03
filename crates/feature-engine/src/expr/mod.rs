@@ -621,6 +621,42 @@ mod tests {
     }
 
     #[test]
+    fn a_hand_built_measurement_with_the_wrong_arity_is_an_error_not_a_panic() {
+        // A measurer reads its operands positionally, so an `Expr::Measure`
+        // the PARSER did not build — `Expr`'s fields are public — could hand
+        // one `args[1]` that is not there. Typed, like the same guard on
+        // `Expr::Call`: a library must not panic, and in WASM a panic aborts
+        // the session rather than raising a toast.
+        struct Positional;
+        impl Measurer for Positional {
+            fn measure(&self, call: &MeasureCall<'_>) -> Result<f64, MeasureRefusal> {
+                let _ = call.name(1);
+                Ok(1.0)
+            }
+        }
+        for (args, got) in [(0usize, 0usize), (1, 1), (3, 3)] {
+            let ast = Expr::Measure {
+                function: "distance",
+                args: (0..args)
+                    .map(|i| EntityArg {
+                        name: format!("e{i}"),
+                        span: Span::new(0, 1),
+                    })
+                    .collect(),
+                span: Span::new(0, 1),
+            };
+            assert_eq!(
+                eval_with(&ast, &Env::new(), Some(&Positional)),
+                Err(ExprError::WrongArity {
+                    function: "distance".to_string(),
+                    expected: "2",
+                    got,
+                })
+            );
+        }
+    }
+
+    #[test]
     fn mass_is_parsed_and_refused_by_name_until_m1() {
         // Its name and arity are checked at parse time, so the spelling
         // cannot drift before M1 fills in a density.
