@@ -126,12 +126,14 @@ const measureOperand = {
 	type: 'object',
 	description:
 		'A measurement operand: {"type":"body","body_id":…} (from model_summary.bodies), ' +
-		'{"type":"entity","geom_ref":…} (a face/edge/vertex GeomRef from face_list), or ' +
+		'{"type":"entity","geom_ref":…} (a face/edge/vertex GeomRef from face_list), ' +
+		'{"type":"name","name":…} (an entity or body name from entity_name / names_list), or ' +
 		'{"type":"point","point":[x,y,z]} (meters).',
 	properties: {
-		type: { type: 'string', enum: ['body', 'entity', 'point'] },
+		type: { type: 'string', enum: ['body', 'entity', 'name', 'point'] },
 		body_id: { type: 'string' },
 		geom_ref: { type: 'object' },
+		name: { type: 'string' },
 		point: { type: 'array', items: { type: 'number' }, minItems: 3, maxItems: 3 }
 	},
 	required: ['type']
@@ -309,7 +311,8 @@ export const faceListTool = {
 	description:
 		'Every face of a body as the GeomRef the viewport hands out when the user picks it (usable as a ' +
 		'sketch_create plane), with its topological signature, in a deterministic order. filter narrows ' +
-		'the list with TopoQuery filters (tie_break is ignored).',
+		'the list with TopoQuery filters (tie_break is ignored). A face that has been given a name ' +
+		'(entity_name) also carries it as name.',
 	inputSchema: {
 		type: 'object',
 		properties: {
@@ -328,7 +331,11 @@ export const faceListTool = {
 				type: 'array',
 				items: {
 					type: 'object',
-					properties: { geom_ref: { type: 'object' }, signature: { type: 'object' } },
+					properties: {
+						geom_ref: { type: 'object' },
+						signature: { type: 'object' },
+						name: { type: 'string', description: 'The entity name pointing at this face, if any.' }
+					},
 					required: ['geom_ref', 'signature']
 				}
 			}
