@@ -132,10 +132,9 @@ Listed in dependency order; each later item needs the earlier ones.
    re-executed — and almost every dimension and every geometric tolerance
    anchors to an edge or vertex. Edge and vertex ids landed as D0 items 2–3
    (`kernel_v2::pid`); the content-seeded face Pid (item 1, the F4a reseed)
-   landed the same day — see "Implementation notes (D0)" and
-   "Implementation notes (D0 item 1)" in §4. One residue, recorded there: a
-   boolean's OWN output pids are still counter-allocated (their roots are
-   not).
+   and the content-seeded BOOLEAN output face Pid (item 1b) landed the same
+   day — see "Implementation notes (D0)", "(D0 item 1)" and "(D0 item 1b)"
+   in §4. No face pid is allocation-order dependent any more.
 2. **Silhouette, hidden-line classification, and planar section.** Edge
    projection LANDED as D1a (`kernel_v2::projection`, 2026-10-03); the rest of
    D1 has not. The viewport's section view is still a three.js stencil cap
@@ -275,8 +274,10 @@ multi-member group order-independent needs the content key itself to separate
 its members, which the F4a face reseed below turned out NOT to do: it
 stabilizes a face's root, but a boolean that splits one operand face into two
 patches still leaves both patches rooted at that face, so their edges still
-share a root pair and still need a rank. Separating them wants a per-patch
-discriminator inside the root. Pinned as
+share a root pair and still need a rank. Item 1b *does* separate those
+patches — it is the per-patch discriminator this asked for — but as a FACE
+pid, and the edge derivation is seeded from roots rather than from face pids,
+so edges do not yet benefit. Pinned as
 `rank_groups_renumbers_a_group_when_a_member_moves_past_another`.
 
 **The hash is frozen.** `H` is a chain of SplitMix64 finalizer steps over
@@ -414,15 +415,16 @@ Their faces share every role index, so the seed alone cannot separate them;
 each stamping pass consumes the next `output` ordinal of the installed scope.
 A pass that stamps nothing does not burn one.
 
-**The seed is withdrawn for a boolean.** Boolean output faces keep the
-pre-D0 scheme — a counter pid plus a journal lineage whose root is the
-operand face's root — because that lineage *is* their identity, and
-`pid::solid_pids` reads the root. `boolean/from_yang.rs` therefore clears the
-scope around its `finalize_solid` and restores it: a feature that extrudes
-and then auto-unions would otherwise hand the union's faces role indices
-under the same seed as the extrude's, and the two sets would compete for the
-same ids. `transform_solid`/`mirror_solid` stay on the counter for the same
-reason (`Same` lineage back to the source face).
+**The seed is withdrawn for a boolean.** Boolean output faces have no ROLE
+in the step, so the role-indexing pass is withdrawn for them:
+`boolean/from_yang.rs` clears the scope around its `finalize_solid` and
+restores it, because a feature that extrudes and then auto-unions would
+otherwise hand the union's faces role indices under the same seed as the
+extrude's, and the two sets would compete for the same ids. At the time
+this left them counter-allocated, with a journal lineage whose root is the
+operand face's root; item 1b (below) gives them content ids from that root
+instead. `transform_solid`/`mirror_solid` stay on the counter (`Same`
+lineage back to the source face).
 
 **A seeded pid is unique within one BODY, and a re-execution deliberately
 re-mints it.** A rebuild re-executes features into the same arena, leaving
@@ -466,14 +468,10 @@ merges. All four were mutation-checked by withdrawing the seed in
 
 **Still open after this increment:**
 
-- *A boolean's own output pids remain history-dependent.* Only their ROOTS
-  are content-seeded. An incremental edit upstream of a boolean re-runs it,
-  and its output faces take new counter numbers. Nothing stores a face's own
-  pid across a session today (the resolver matches `pid` then `root_pid`, and
-  a boolean output's root is stable), but a consumer that wants a stable name
-  for a boolean-born face — a PMI anchor on a cut wall, say — needs those
-  seeded too: `H(root, rank within the root's split group)`, which has to
-  move the stamping pass after `boolean_op` records the journal.
+- ~~*A boolean's own output pids remain history-dependent.*~~ **LANDED
+  2026-10-03** as item 1b — see "Implementation notes (D0 item 1b)" below.
+  Was: only their ROOTS were content-seeded, so an incremental edit upstream
+  of a boolean re-ran it and its output faces took new counter numbers.
 - *Nothing has been measured over the assay corpus* (item 5's oracle is still
   unrun). The reseed changes face pid VALUES everywhere, so the corpus
   verdicts are the thing to confirm it did not disturb — not attempted here,
@@ -492,6 +490,148 @@ merges. All four were mutation-checked by withdrawing the seed in
   script child gets a durable identity only once the host mints its ids
   deterministically (e.g. hashed from the script source position), and that
   is the prerequisite for any annotation anchored inside a script.
+
+### Implementation notes (D0 item 1b)
+
+Landed 2026-10-03. Item 1 content-seeded a CONSTRUCT face's pid and left a
+boolean's own output faces on the arena counter, so only each output face's
+lineage ROOT was stable. The counter is allocation order, and allocation
+order is a function of the editing session — so a face's number depended on
+how you got to the model, not on the model.
+
+**The measured hazard.** A 40×40×10 plate with two blind pockets, the body
+being the SECOND cut's output. Pocket 2's floor is pid 22 when authored.
+Deepen the FIRST pocket into a through hole and the floor becomes pid 47
+(the counter has advanced). Save and reopen — a reopen replays the features
+from scratch, with none of the editing history — and pid 22 names pocket 2's
+SIDE WALL at `[35, −30, 8]` while the floor is pid 20. A stored name
+resolves by pid, with no warning, to a different face. Measured on
+`crates/test-harness/tests/d0_pid_selector.rs`'s own fixture by withdrawing
+the reseed, which is also the mutation check for the two pins there.
+
+**The derivation.** `H("FBOOL_V1", op seed, lineage root, rank)` —
+`kernel_v2::pid::seeded_boolean_face_pid`, applied in bulk by
+`boolean_output_face_pids`. The `op seed` is the boolean feature's own seed,
+already installed by `feature_engine::rebuild` around the whole feature
+execution (so an extrude's auto-union is covered too). The `root` is the
+output face's lineage root, stable since item 1. Its own hash domain, so a
+construct-born and a boolean-born face cannot alias on equal key words; top
+bit set, so hash ids stay disjoint from counter ids.
+
+**The disambiguator is a rank over the face's OWN boundary geometry.**
+Several output faces share a root exactly when the boolean split one operand
+face into patches. They are ordered by `pid::face_boundary_key` — the
+sorted, deduped list of the face's boundary-vertex positions under the
+f64-bit total order `point_key` already uses. Sorted rather than just the
+lowest vertex because comparing two sorted lists compares their minima
+first, so the primary discriminator is the same ("the face's lowest-ordered
+boundary vertex", the D0 edge-rank idea) and equal minima get free
+tie-breaking instead of becoming an ambiguity. A group of one — the
+overwhelming majority — ranks 0 whatever its geometry does, and nothing
+outside the patch can renumber it.
+
+**Ties refuse, they do not get ordered.** The rank is the count of DISTINCT
+keys ordering below a face's own, not its index in the sorted order, so two
+faces whose keys compare equal take the same rank and the same id, and the
+existing stamp refuses `PidCollision { kind: "face" }`. There is no third
+thing to break that tie which is not an arena number, and an arena number is
+what item 1b removes. Pinned on a lamina, whose front and back really are
+two faces over one boundary
+(`pid::tests::two_indistinguishable_patches_of_one_root_are_refused`).
+
+**Where the re-stamp happens, and why not in `from_yang`.** `from_yang.rs`
+cannot do it: the root is `face_lineage(operand pid)` and `from_yang` never
+sees the operand solids — it has a yang BRep and nothing to attribute it to.
+So `boolean_op` re-stamps (`reseed_boolean_output_pids`) after the output is
+assembled and validated, overwriting the provisional counter ids
+`finalize_solid` handed out. And *before* `record_boolean_evolution`, not
+after: the root wanted is the operand's history as it stands before this
+boolean appends to it, so re-stamping first makes the journal edge point at
+the content id and the walk back from it reach the same root the derivation
+used. The attribution lookup both passes need is one shared
+`output_face_sources`, so the lineage the journal records and the lineage the
+pid is derived from cannot drift apart. (The item-1 note predicted this would
+have to "move the stamping pass after `boolean_op` records the journal" —
+before, not after, is the correction.)
+
+**A chained boolean records NO lineage edge for a carry-through, and that is
+forced.** An output face's id is independent of WHICH boolean of a chain
+produced it, so two booleans under one step seed — a cut against several
+bodies, a multi-tool combine, the two-pocket plate — hand the face at an
+untouched site the same id in the intermediate body and in the final one.
+That is correct (same feature, same root, same rank: it is the same
+conceptual face), but the second boolean's edge would then be `(P → P)`, and
+`journal::face_lineage` walking a self-loop spins to its corruption budget
+and reports `P` as its OWN root — which would silently detach every edge pid
+seeded from that root (items 2–3). So an edge whose input and output pid are
+equal is not recorded: the face already carries the name the earlier
+operation gave it, and its ancestry is already in the journal from that
+operation. The operand still counts as `sourced` and still consumes its
+`Same` claim, so a second output face from the same operand is still a
+`Split` with a real edge. Found by measurement while pinning the chain, not
+by reading.
+
+**What a boolean output pid is unique WITHIN.** One solid, exactly as for
+item 1, and for the same reason — the collision check is per output solid.
+Deliberately NOT disambiguated by a per-boolean ordinal within the feature:
+an ordinal is positional, so deleting one target body of a multi-target cut
+would renumber the others' outputs, which is the class of instability item 1b
+exists to remove. The cost is that one feature cutting two bodies with the
+same tool gives both outputs the same id at the tool-rooted faces — genuinely
+the same tool face in both, and already covered by "a pid is unique only
+within one body".
+
+**The frozen hash gained a fourth domain, and the existing literals did not
+move.** The edge, vertex and construct-face literals in
+`crates/kernel-v2/tests/d0_pid_hash_frozen.rs` are read off geometry with no
+boolean in it, so they were untouched; the new domain has its own literals in
+the same file, recorded by a different process than the one asserting them.
+Re-grepped: the 343-file `.waffle` corpus persists no `Selector::Pid` (only
+the v5 schema and the MCP tool manifest name the variant), so no migration
+was needed.
+
+**The pins.** `crates/kernel-v2/tests/d0_boolean_face_seed.rs` — the
+derivation, the same cut in a busier arena, the split-patch rank, the
+chained-boolean roots, the unseeded fallback, and a FRESH-PROCESS check that
+re-executes the test binary and compares its child's ids (a literal pin at
+that layer would also pin which operand face the kernel happens to split, and
+would go red for a kernel improvement that is not a format break).
+`crates/test-harness/tests/d0_pid_selector.rs` — the measured two-pocket
+case end to end through a save and a reopen, and the untouched-set claim over
+an upstream edit. Mutation-checked both ways: withdrawing the reseed reds the
+two harness pins and nothing else in that file; ranking by arena id instead
+of content reds the three rank-specific pins and nothing else.
+`d0_face_seed.rs`'s `a_boolean_under_an_installed_seed_does_not_seed_its_output`
+pinned the behaviour this replaces, so it was rewritten rather than removed:
+as `…_does_not_role_index_its_output` it pins what still holds — an output
+face never takes a role index under a step seed, and the boolean does not
+consume one of the step's output ordinals.
+
+**Still open after this increment:**
+
+- *The multi-member rank caveat survives for EDGES.* Item 1b separates the
+  split patches of one root as FACES, which is the per-patch discriminator
+  the D0 note asked for — but `pid.rs`'s edge derivation is seeded from
+  ROOTS, not from face pids, so two edges of two patches of one root still
+  share a root pair and still need the positional `rank_groups`. Giving edges
+  the benefit means seeding them from the output faces' own pids, which is a
+  different (and breaking) change to items 2–3.
+- *Nothing has been measured over the assay corpus.* Item 1b changes every
+  boolean output face pid VALUE, so the corpus verdicts are the thing that
+  would confirm it disturbed nothing — not attempted here (no full tiers or
+  assay in this increment's scope). The cross-crate suites that do exercise
+  booleans are green: `boolean_chains`, `boolean_determinism`,
+  `boolean_combine_custody_kv2`, `face_provenance`, `pattern_kv2`,
+  `rebuild_stability`, `incremental_rebuild_kv2`, `multi_body_workflows`.
+- *An output face with no attributable operand ancestor keeps a counter id.*
+  Yang attributes every patch, so this is normally empty — but it is a real
+  branch, and such a face has no content to seed from. The two halves of the
+  number space are disjoint, so a mixed solid cannot alias; what a consumer
+  gets is an id that is stable only under a full in-order rebuild.
+- *`transform_solid` / `mirror_solid` are still counter-allocated.* Their
+  output faces are `Same` back to the source, so the same treatment would
+  apply, and the pattern features that drive them are exactly where a PMI
+  anchor on a patterned body would land.
 
 ## 5. D1 — Kernel projection and section
 
