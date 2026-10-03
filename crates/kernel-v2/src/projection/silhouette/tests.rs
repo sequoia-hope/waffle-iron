@@ -1426,6 +1426,97 @@ fn the_closed_path_verdict_is_the_same_at_every_chord_density() {
     }
 }
 
+/// A face in the CAVITY sense — the wall of a through bore, whose outward
+/// normal points at the axis rather than away from it — reports both rulings,
+/// spanning the full thickness.
+///
+/// `reversed` does not enter the locus (`n·w = 0` is blind to the normal's
+/// sign) but it does enter the CLIP, through the outward normal that the
+/// enter/exit sign is taken against. A bore's loop walk reverses with its
+/// normal, so the two cancel and the crossings classify the same way — but
+/// only if the normal is actually flipped. `outward_normal_at` reads the
+/// `reversed` flag off the `Surface` to do that, and nothing else in this file
+/// builds a reversed face.
+#[test]
+fn a_bores_cavity_sense_wall_reports_both_rulings() {
+    let (half, thickness, bore_r) = (0.020, 0.012, 0.006);
+    let plate = Profile::new(
+        Point3::new(0.0, 0.0, 0.0),
+        uv(1.0, 0.0, 0.0),
+        uv(0.0, 1.0, 0.0),
+        vec![
+            P2::new(-half, -half),
+            P2::new(half, -half),
+            P2::new(half, half),
+            P2::new(-half, half),
+        ],
+        Vec::new(),
+    )
+    .expect("plate profile");
+    let mut arena = BrepArena::new();
+    let block = crate::extrude(&mut arena, &plate, uv(0.0, 0.0, 1.0), thickness)
+        .expect("plate extrudes")
+        .solid;
+    let drill_profile = Profile::circle(
+        Point3::new(0.0, 0.0, -0.010),
+        uv(1.0, 0.0, 0.0),
+        uv(0.0, 1.0, 0.0),
+        P2::new(0.0, 0.0),
+        bore_r,
+    )
+    .expect("drill profile");
+    let drill = crate::extrude(&mut arena, &drill_profile, uv(0.0, 0.0, 1.0), 0.040)
+        .expect("drill extrudes")
+        .solid;
+    let bored = crate::boolean_op(&mut arena, block, drill, cad_primitives::BoolOp::Subtract)
+        .expect("plate minus a through bore");
+
+    // The bore's wall, and it must really be in the cavity sense — otherwise
+    // this test is about an ordinary cylinder.
+    let mut fid = None;
+    for &sh in &arena.solid(bored).expect("solid").shells {
+        for &f in &arena.shell(sh).expect("shell").faces {
+            if let Some(Surface::Cylinder {
+                radius: r,
+                reversed,
+                ..
+            }) = arena.face(f).expect("face").surface
+            {
+                assert!(close(r, bore_r, 1e-12), "the only cylinder is the bore");
+                assert!(reversed, "a through bore's wall is the cavity sense");
+                assert!(fid.is_none(), "one bore wall");
+                fid = Some(f);
+            }
+        }
+    }
+    let fid = fid.expect("the bore's wall");
+
+    // Looking along +y: u = +x̂, v = +ẑ. Both rulings, at u = ±bore_r, each
+    // running the plate's whole thickness.
+    let curves = sil(&arena, fid, [0.0, 1.0, 0.0]);
+    let mut us: Vec<f64> = Vec::new();
+    for c in &curves {
+        match c {
+            Curve2::Line { start, end } => {
+                assert!(close(start.x(), end.x(), 1e-9), "a vertical ruling: {c:?}");
+                let (lo, hi) = (start.y().min(end.y()), start.y().max(end.y()));
+                assert!(
+                    close(lo, 0.0, 1e-9) && close(hi, thickness, 1e-9),
+                    "a through bore's ruling spans the thickness, got [{lo}, {hi}]"
+                );
+                us.push(start.x());
+            }
+            other => panic!("a bore's silhouette is two rulings, got {other:?}"),
+        }
+    }
+    us.sort_by(f64::total_cmp);
+    assert_eq!(us.len(), 2, "both rulings, got {curves:?}");
+    assert!(
+        close(us[0], -bore_r, 1e-12) && close(us[1], bore_r, 1e-12),
+        "rulings at u = {us:?}, want ±{bore_r}"
+    );
+}
+
 /// A HOLE in the middle of a cylindrical face, with one silhouette ruling
 /// running straight through it: that ruling must come back SPLIT, with the
 /// hole's span removed, and the opposite ruling must come back whole.
