@@ -1426,6 +1426,155 @@ fn the_closed_path_verdict_is_the_same_at_every_chord_density() {
     }
 }
 
+/// A HOLE in the middle of a cylindrical face, with one silhouette ruling
+/// running straight through it: that ruling must come back SPLIT, with the
+/// hole's span removed, and the opposite ruling must come back whole.
+///
+/// This is the test for the clip's orientation convention on an INNER loop.
+/// The enter/exit sign is `S·(N×T)` with `T` the half-edge's tangent in the
+/// face's own traversal direction, and an inner loop runs the OPPOSITE way
+/// round from the outer one — which is exactly what keeps `N × T` pointing
+/// into the material on both. Get that backwards and the answer is not
+/// slightly wrong, it is the complement: the ruling would survive only INSIDE
+/// the hole and vanish everywhere else. Nothing else in this file exercises an
+/// inner loop at all; the bored torus's bore cuts its face's outer boundary.
+#[test]
+fn a_ruling_through_a_hole_in_a_cylinder_face_is_split_around_it() {
+    let (radius, height) = (0.010, 0.030);
+    let (mut arena, cyl, _) = full_cylinder(
+        radius,
+        height,
+        Point3::new(0.0, 0.0, 0.0),
+        [0.0, 0.0, 1.0],
+        [1.0, 0.0, 0.0],
+    );
+
+    // A blind radial pocket on the +x side, centred at z = h/2: a 2 mm-radius
+    // drill along +x from x = 0.020 (outside) down to x = 0.004 (inside), so
+    // its mouth is a closed curve in the INTERIOR of the cylindrical face —
+    // clear of both rims, and not breaking through the far wall.
+    let (bore_r, mid) = (0.002, 0.5 * height);
+    let drill_profile = Profile::circle(
+        Point3::new(0.020, 0.0, mid),
+        uv(0.0, 1.0, 0.0),
+        uv(0.0, 0.0, 1.0),
+        P2::new(0.0, 0.0),
+        bore_r,
+    )
+    .expect("drill profile");
+    let drill = crate::extrude(&mut arena, &drill_profile, uv(-1.0, 0.0, 0.0), 0.016)
+        .expect("drill extrudes")
+        .solid;
+    let holed = crate::boolean_op(&mut arena, cyl, drill, cad_primitives::BoolOp::Subtract)
+        .expect("cylinder minus a blind radial pocket");
+
+    // The pocket's mouth must be an INNER loop of the cylindrical face, not a
+    // notch in its outer boundary — otherwise this test is about something
+    // else.
+    let fid = {
+        let mut found = None;
+        for &sh in &arena.solid(holed).expect("solid").shells {
+            for &f in &arena.shell(sh).expect("shell").faces {
+                if matches!(
+                    arena.face(f).expect("face").surface,
+                    Some(Surface::Cylinder { radius: r, .. }) if close(r, radius, 1e-12)
+                ) {
+                    assert!(found.is_none(), "one face on the OUTER cylinder");
+                    found = Some(f);
+                }
+            }
+        }
+        found.expect("the outer cylindrical face")
+    };
+    // Three loops: the two rims and the pocket's mouth, which is a loop
+    // entirely in the face's interior (its `z` extent clears both rims).
+    //
+    // WHICH of the three the boolean calls `outer_loop` is not a fact about
+    // the geometry — a cylindrical face is not simply connected, so it has no
+    // intrinsic outer loop, and this one in fact comes back with the POCKET
+    // MOUTH as `outer_loop` and both rims as `inner_loops`. That is the
+    // stronger statement for the clip: it reads only each half-edge's own
+    // traversal direction and the surface's outward normal, never the
+    // outer/inner role, so the role assignment cannot change the answer.
+    let face = arena.face(fid).expect("face");
+    let all_loops: Vec<_> = std::iter::once(face.outer_loop)
+        .chain(face.inner_loops.iter().copied())
+        .collect();
+    assert_eq!(all_loops.len(), 3, "two rims and the pocket's mouth");
+    let interior = all_loops
+        .iter()
+        .filter(|&&lid| {
+            arena
+                .loop_points(lid)
+                .expect("loop")
+                .iter()
+                .all(|p| p.z() > 1e-9 && p.z() < height - 1e-9)
+        })
+        .count();
+    assert_eq!(interior, 1, "exactly one loop is the pocket's mouth");
+
+    // Looking along +y: u = +x̂, v = +ẑ. The two rulings are at x = ±R, and
+    // the pocket sits on the +x one, spanning z = mid ± bore_r at y = 0.
+    let curves = sil(&arena, fid, [0.0, 1.0, 0.0]);
+    let mut spans: Vec<(f64, f64, f64)> = curves
+        .iter()
+        .map(|c| match c {
+            Curve2::Line { start, end } => {
+                assert!(
+                    close(start.x(), end.x(), 1e-9),
+                    "a ruling of a z-axis cylinder is vertical in this view: {c:?}"
+                );
+                (start.x(), start.y().min(end.y()), start.y().max(end.y()))
+            }
+            other => panic!("a cylinder's silhouette is two rulings, got {other:?}"),
+        })
+        .collect();
+    spans.sort_by(|a, b| a.0.total_cmp(&b.0).then(a.1.total_cmp(&b.1)));
+    assert_eq!(
+        spans.len(),
+        3,
+        "the far ruling whole plus the near one in two pieces, got {curves:?}"
+    );
+
+    // The ruling the pocket MISSES survives end to end.
+    let (far_u, far_lo, far_hi) = spans[0];
+    assert!(close(far_u, -radius, 1e-12), "far ruling at u = {far_u}");
+    assert!(
+        close(far_lo, 0.0, 1e-9) && close(far_hi, height, 1e-9),
+        "the far ruling should be whole, got v ∈ [{far_lo}, {far_hi}]"
+    );
+
+    // And the one it crosses comes back as the rim-to-hole and hole-to-rim
+    // pieces, with the hole's own span missing — not the complement of that.
+    let tol = 1e-5;
+    for (u, _, _) in &spans[1..] {
+        assert!(close(*u, radius, 1e-12), "near ruling at u = {u}");
+    }
+    assert!(
+        close(spans[1].1, 0.0, 1e-9) && close(spans[1].2, mid - bore_r, tol),
+        "lower piece v ∈ [{}, {}], want [0, {}]",
+        spans[1].1,
+        spans[1].2,
+        mid - bore_r
+    );
+    assert!(
+        close(spans[2].1, mid + bore_r, tol) && close(spans[2].2, height, 1e-9),
+        "upper piece v ∈ [{}, {}], want [{}, {}]",
+        spans[2].1,
+        spans[2].2,
+        mid + bore_r,
+        height
+    );
+    // The removed span IS the hole, to the chord band of its own boundary —
+    // the complement failure would report this as `height − 2·bore_r`.
+    let removed = spans[2].1 - spans[1].2;
+    assert!(
+        close(removed, 2.0 * bore_r, tol),
+        "the gap is {removed}, not the hole's {}",
+        2.0 * bore_r
+    );
+}
+
 /// `distance_to_triangle` against a brute-force sampling of the triangle, over
 /// the vertex, edge and interior regions — the one piece of the membership
 /// test that is pure arithmetic, and the one that decides whether a closed
