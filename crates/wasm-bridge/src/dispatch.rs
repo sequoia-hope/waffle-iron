@@ -1006,6 +1006,11 @@ fn handle_message(
         UiToEngine::ListFaces { body_id, filter } => {
             list_faces(state, kb, &body_id, filter.as_ref())
         }
+        UiToEngine::ListEntities {
+            body_id,
+            kind,
+            filter,
+        } => list_entities(state, kb, &body_id, kind, filter.as_ref()),
 
         UiToEngine::ExportBodyStl { body_id } => {
             // Single body, identified by its persistent (feature_id, OutputKey).
@@ -1175,6 +1180,313 @@ fn list_faces(
         body_id: body_id.to_string(),
         faces,
     })
+}
+
+/// `ListEntities` (Q6 of `specs/agent_mechanical_design.md` §4.2): every
+/// face, edge or vertex of one body with its full geometric content.
+///
+/// Assembled from doors that already exist rather than from a new kernel
+/// listing: the persistent ids from `all_entity_pids` (D0), the signature from
+/// `compute_signature` (N0), the axis line from `entity_axis`, the name from
+/// the N1 table, the arc length from `KernelMeasure::edge_length` (the one new
+/// kernel capability in this increment), and the body frame from Q3's
+/// `mass_properties`. The FACE arm hands out the very reference `face_list`
+/// does (the shared `face_refs` builder), so the two tools cannot drift.
+///
+/// **Order is by persistent id.** Those ids are content-seeded, so the order
+/// survives a rebuild and a fresh process — which is what makes a pinned
+/// listing a pin rather than a snapshot of one run's arena counters. An
+/// entity with no id (a mesh-backed import) sorts after the ones that have
+/// them, by its canonical signature JSON, because *some* total order has to
+/// exist and it must not be insertion order.
+fn list_entities(
+    state: &mut EngineState,
+    kb: &mut dyn KernelBundle,
+    body_id: &str,
+    kind: crate::messages::EntityListKind,
+    filter: Option<&crate::messages::EntityListFilter>,
+) -> Result<EngineToUi, BridgeError> {
+    use crate::messages::{EntityListKind, ListedEntity};
+    use waffle_types::TopoKind;
+
+    crate::tessellation_runner::tessellate_engine(&mut state.engine, kb);
+    let named = crate::entity_names::names_by_entity(state, kb, body_id);
+    let topo = kind.topo();
+
+    // Q3's own answer, carried: the body frame is the same integration
+    // `measure_mass` reports, at the default density, so the axes an agent
+    // reads here and there cannot disagree. A kernel refusal is reported as
+    // the reason there are no axes, never as a failed listing.
+    let body_frame = {
+        let handle = find_body(state, body_id)
+            .map(|b| b.handle.clone())
+            .ok_or_else(|| BridgeError::InvalidRequest {
+                reason: format!("no live body {body_id}"),
+            })?;
+        match kb.as_measure().mass_properties(&handle, None) {
+            Ok(m) => crate::messages::ListedBodyFrame {
+                centroid: Some(m.centroid),
+                principal_moments: Some(m.principal_moments),
+                principal_axes: Some(m.principal_axes),
+                method: Some(match m.method {
+                    waffle_types::kernel::Method::Exact => MeasureMethod::Exact,
+                    waffle_types::kernel::Method::Mesh { .. } => MeasureMethod::Mesh,
+                }),
+                unavailable: None,
+            },
+            Err(e) => crate::messages::ListedBodyFrame {
+                centroid: None,
+                principal_moments: None,
+                principal_axes: None,
+                method: None,
+                unavailable: Some(e.to_string()),
+            },
+        }
+    };
+
+    // The arc length of every edge, before the immutable borrow below: it
+    // goes through `KernelBundle`, which the listing's borrow of the engine
+    // would otherwise lock out.
+    let lengths: std::collections::HashMap<waffle_types::kernel::KernelId, _> =
+        if topo == TopoKind::Edge {
+            let handle = find_body(state, body_id)
+                .map(|b| b.handle.clone())
+                .ok_or_else(|| BridgeError::InvalidRequest {
+                    reason: format!("no live body {body_id}"),
+                })?;
+            let edges = kb.as_introspect().list_edges(&handle);
+            edges
+                .into_iter()
+                .map(|e| (e, kb.as_measure().edge_length(e)))
+                .collect()
+        } else {
+            std::collections::HashMap::new()
+        };
+
+    let engine = &state.engine;
+    let (feature_id, key, result, body) = engine
+        .tree
+        .features
+        .iter()
+        .find_map(|f| {
+            let result = engine.feature_results.get(&f.id)?;
+            result
+                .outputs
+                .iter()
+                .find(|(key, _)| feature_engine::types::FeatureTree::body_id(f.id, key) == body_id)
+                .map(|(key, body)| (f.id, key, result, body))
+        })
+        .ok_or_else(|| BridgeError::InvalidRequest {
+            reason: format!("no live body {body_id}"),
+        })?;
+    let introspect = kb.as_introspect();
+
+    let pids: std::collections::HashMap<_, _> = introspect
+        .all_entity_pids(&body.handle, topo)
+        .into_iter()
+        .collect();
+
+    // The reference per entity. A face's is the shared builder's, so it is
+    // byte-identical to `face_list`'s; an edge's or a vertex's is the
+    // persistent-id selector D0 landed, minted `Strict` exactly as N1 mints a
+    // name's (a pid never rebinds, so a `BestEffort` pid ref would be a
+    // policy that cannot apply).
+    let face_refs: std::collections::HashMap<_, _> = match kind {
+        EntityListKind::Face => body
+            .mesh
+            .as_ref()
+            .map(|mesh| {
+                crate::face_refs::face_geom_refs(
+                    feature_id,
+                    key,
+                    mesh,
+                    &result.provenance.role_assignments,
+                    introspect,
+                )
+                .into_iter()
+                .collect()
+            })
+            .ok_or(BridgeError::NoMeshData)?,
+        _ => std::collections::HashMap::new(),
+    };
+    let pid_ref = |pid: &waffle_types::kernel::EntityPid| waffle_types::GeomRef {
+        kind: topo,
+        anchor: waffle_types::Anchor::FeatureOutput {
+            feature_id,
+            output_key: key.clone(),
+        },
+        selector: waffle_types::Selector::Pid {
+            pid: pid.pid,
+            root_pid: pid.root_pid,
+        },
+        policy: waffle_types::ResolvePolicy::Strict,
+        scope: None,
+    };
+
+    // Which entities to list. For faces that is the mesh's own face ranges
+    // (the set `face_list` reports — every face the body renders); for edges
+    // and vertices the kernel's listing.
+    let ids: Vec<waffle_types::kernel::KernelId> = match kind {
+        EntityListKind::Face => introspect.list_faces(&body.handle),
+        EntityListKind::Edge => introspect.list_edges(&body.handle),
+        EntityListKind::Vertex => introspect.list_vertices(&body.handle),
+    };
+
+    let mut entities: Vec<ListedEntity> = ids
+        .into_iter()
+        .map(|id| {
+            let signature = introspect.compute_signature(id, topo);
+            let pid = pids.get(&id);
+            let length = lengths.get(&id);
+            ListedEntity {
+                pid: pid.map(|p| p.pid),
+                root_pid: pid.map(|p| p.root_pid),
+                geom_ref: match kind {
+                    EntityListKind::Face => face_refs.get(&id).cloned(),
+                    _ => pid.map(pid_ref),
+                },
+                name: named.get(&(topo, id)).cloned(),
+                axis: introspect
+                    .entity_axis(id, topo)
+                    .map(|a| crate::messages::ListedAxis {
+                        kind: axis_kind_str(a.kind).to_string(),
+                        origin: a.origin,
+                        direction: a.direction,
+                        radius: a.radius,
+                    }),
+                length: length.and_then(|r| r.as_ref().ok()).map(|r| {
+                    use waffle_types::kernel::LengthMethod;
+                    crate::messages::ListedLength {
+                        arc_length_m: r.value,
+                        curve_type: r.curve_type.to_string(),
+                        closed: r.closed,
+                        method: match r.method {
+                            LengthMethod::Exact => crate::messages::LengthTierWire::Exact,
+                            LengthMethod::Quadrature { .. } => {
+                                crate::messages::LengthTierWire::Quadrature
+                            }
+                            LengthMethod::Chords { .. } => crate::messages::LengthTierWire::Chords,
+                        },
+                        residual_m: match r.method {
+                            LengthMethod::Quadrature { residual } => Some(residual),
+                            _ => None,
+                        },
+                        chord_bound_m: match r.method {
+                            LengthMethod::Chords { chord_bound } => chord_bound,
+                            _ => None,
+                        },
+                    }
+                }),
+                length_unavailable: length.and_then(|r| r.as_ref().err()).map(|e| e.to_string()),
+                position: (topo == TopoKind::Vertex)
+                    .then_some(signature.centroid)
+                    .flatten(),
+                signature,
+            }
+        })
+        .filter(|e| passes_entity_filter(e, filter))
+        .collect();
+
+    // By persistent id; the id-less tail by its own content. `sort_by_cached_key`
+    // so the JSON of a signature is rendered once per entity, not per compare.
+    entities.sort_by_cached_key(|e| {
+        (
+            e.pid.is_none(),
+            e.pid.unwrap_or(0),
+            e.root_pid.unwrap_or(0),
+            serde_json::to_string(&e.signature).unwrap_or_default(),
+        )
+    });
+
+    Ok(EngineToUi::EntitiesListed {
+        body_id: body_id.to_string(),
+        kind,
+        entities,
+        body: body_frame,
+    })
+}
+
+/// `AxisKind` as the one lowercase token the wire carries.
+fn axis_kind_str(kind: waffle_types::kernel::AxisKind) -> &'static str {
+    use waffle_types::kernel::AxisKind;
+    match kind {
+        AxisKind::Cylindrical => "cylindrical",
+        AxisKind::Conical => "conical",
+        AxisKind::Spherical => "spherical",
+        AxisKind::Toroidal => "toroidal",
+        AxisKind::Circular => "circular",
+        AxisKind::Elliptical => "elliptical",
+    }
+}
+
+/// Whether one listed entity passes every present arm of a Q6 filter.
+///
+/// The arms COMPOSE by conjunction, and each one that cannot be evaluated
+/// EXCLUDES rather than admits: an entity with no bbox does not pass a bbox
+/// filter, and an unnamed entity does not pass a name glob. A listing's job
+/// is to answer "which entities satisfy this", and an entity whose data
+/// cannot answer does not satisfy it.
+fn passes_entity_filter(
+    entity: &crate::messages::ListedEntity,
+    filter: Option<&crate::messages::EntityListFilter>,
+) -> bool {
+    let Some(filter) = filter else {
+        return true;
+    };
+    if let Some(query) = &filter.query {
+        if !feature_engine::resolve::passes_all_filters(&entity.signature, &query.filters) {
+            return false;
+        }
+    }
+    if let Some(glob) = &filter.name {
+        match &entity.name {
+            Some(name) if glob_matches(glob, name) => {}
+            _ => return false,
+        }
+    }
+    if let Some([min, max]) = &filter.bbox {
+        let Some(bb) = entity.signature.bbox else {
+            return false;
+        };
+        for k in 0..3 {
+            if bb[k] < min[k] || bb[k + 3] > max[k] {
+                return false;
+            }
+        }
+    }
+    true
+}
+
+/// `*` (any run, including empty) and `?` (exactly one character) against a
+/// whole name. Dynamic-programming match, so a pattern with several `*` is
+/// linear in the product of the lengths rather than exponential.
+fn glob_matches(pattern: &str, name: &str) -> bool {
+    let p: Vec<char> = pattern.chars().collect();
+    let n: Vec<char> = name.chars().collect();
+    // `reach[j]`: the pattern's first `j` characters match the first `i`
+    // characters of the name, for the `i` of the current row.
+    let mut reach = vec![false; p.len() + 1];
+    reach[0] = true; // the empty pattern matches the empty prefix
+    for j in 0..p.len() {
+        // …and a leading run of stars matches it too.
+        reach[j + 1] = reach[j] && p[j] == '*';
+    }
+    for &c in &n {
+        let mut next = vec![false; p.len() + 1];
+        // The empty pattern cannot match a non-empty prefix, so `next[0]`
+        // stays false.
+        for j in 0..p.len() {
+            next[j + 1] = match p[j] {
+                // Either the star matched nothing (`next[j]`, this row) or it
+                // swallowed `c` too (`reach[j + 1]`, the previous row).
+                '*' => next[j] || reach[j + 1],
+                '?' => reach[j],
+                lit => reach[j] && lit == c,
+            };
+        }
+        reach = next;
+    }
+    reach[p.len()]
 }
 
 /// A live body output by its persistent id (`FeatureTree::body_id`).

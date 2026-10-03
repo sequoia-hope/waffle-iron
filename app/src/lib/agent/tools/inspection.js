@@ -345,6 +345,106 @@ export const faceListTool = {
 	annotations: readOnly('List faces')
 };
 
+export const entityListTool = {
+	name: 'entity_list',
+	description:
+		'Every face, edge or vertex of one body, with its geometric content (Q6). Each entity carries its ' +
+		'persistent id (pid/root_pid — content-derived, so it survives rebuilds and booleans), the GeomRef ' +
+		'that names it, its entity_name if it has one, its signature (surface type, area, centroid, normal, ' +
+		'bbox, and the axis descriptor of a cylinder/cone/sphere/torus), and its axis LINE (origin + ' +
+		'direction) where it has one. An EDGE also carries length.arc_length_m — the length ALONG the curve, ' +
+		'with curve_type and method: exact for lines, circles and circular arcs; quadrature (plus residual_m) ' +
+		'for ellipse and hyperbola arcs, which have no closed form; chords (a lower bound) for SSI curves and ' +
+		'imported polylines. A VERTEX carries position. body carries the whole body principal axes and ' +
+		'centroid (the same integration measure_mass reports), or says why it has none. Order is by ' +
+		'persistent id, so two listings of the same geometry are comparable. filter arms compose: query ' +
+		'(TopoQuery filters), name (a * / ? glob over the entity name), bbox ([min, max] in meters, keeping ' +
+		'entities whose own bbox is inside it). Lengths in meters.',
+	inputSchema: {
+		type: 'object',
+		properties: {
+			body_id: { type: 'string', description: 'Body id or body name from model_summary.bodies.' },
+			kind: { type: 'string', enum: ['face', 'edge', 'vertex'] },
+			filter: {
+				type: 'object',
+				properties: {
+					query: engineRef('TopoQuery'),
+					name: { type: 'string', description: 'Glob over the entity name: * and ?.' },
+					bbox: {
+						type: 'array',
+						items: { type: 'array', items: { type: 'number' }, minItems: 3, maxItems: 3 },
+						minItems: 2,
+						maxItems: 2,
+						description: '[min, max] corners in meters; keeps entities contained in the box.'
+					}
+				},
+				additionalProperties: false
+			}
+		},
+		required: ['body_id', 'kind'],
+		additionalProperties: false,
+		$defs: defsFor('TopoQuery')
+	},
+	outputSchema: {
+		type: 'object',
+		properties: {
+			body_id: { type: 'string' },
+			kind: { type: 'string', enum: ['face', 'edge', 'vertex'] },
+			count: { type: 'number' },
+			entities: {
+				type: 'array',
+				items: {
+					type: 'object',
+					properties: {
+						pid: { type: 'number' },
+						root_pid: { type: 'number' },
+						geom_ref: { type: 'object' },
+						name: { type: 'string' },
+						signature: { type: 'object' },
+						axis: {
+							type: 'object',
+							properties: {
+								kind: { type: 'string' },
+								origin: { type: 'array', items: { type: 'number' } },
+								direction: { type: 'array', items: { type: 'number' } },
+								radius: { type: 'number' }
+							},
+							required: ['kind', 'origin', 'direction']
+						},
+						length: {
+							type: 'object',
+							properties: {
+								arc_length_m: { type: 'number' },
+								curve_type: { type: 'string' },
+								closed: { type: 'boolean' },
+								method: { type: 'string', enum: ['exact', 'quadrature', 'chords'] },
+								residual_m: { type: 'number' },
+								chord_bound_m: { type: 'number' }
+							},
+							required: ['arc_length_m', 'curve_type', 'closed', 'method']
+						},
+						length_unavailable: { type: 'string' },
+						position: { type: 'array', items: { type: 'number' } }
+					},
+					required: ['signature']
+				}
+			},
+			body: {
+				type: 'object',
+				properties: {
+					centroid: { type: 'array', items: { type: 'number' } },
+					principal_moments: { type: 'array', items: { type: 'number' } },
+					principal_axes: { type: 'array', items: { type: 'array', items: { type: 'number' } } },
+					method: { type: 'string', enum: ['exact', 'mesh'] },
+					unavailable: { type: 'string' }
+				}
+			}
+		},
+		required: ['body_id', 'kind', 'count', 'entities', 'body']
+	},
+	annotations: readOnly('List entities')
+};
+
 export const sketchRegionsTool = {
 	name: 'sketch_regions',
 	description:

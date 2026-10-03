@@ -55,6 +55,11 @@ const READ_ONLY = [
 	'measure_interference',
 	'measure_mass',
 	'face_list',
+	// Q6 of `specs/agent_mechanical_design.md` §4.2/§4.3 (2026-10-03). Called
+	// by the sequence below on the plate's edges, so the page's own routing of
+	// it is exercised here; the numbers are pinned in
+	// `crates/wasm-bridge/tests/tool_entity_list.rs`.
+	'entity_list',
 	'sketch_regions',
 	// N1 of `specs/agent_mechanical_design.md` §5.2 (2026-10-03). Called by
 	// the sequence below after a face has been named, so the page's routing of
@@ -145,6 +150,10 @@ test.describe('Read-only agent tools run in the engine (S3 C5b)', () => {
 					b: { type: 'point', point: probe }
 				});
 				const faces = await call('face_list', { body_id: bodyId });
+				// Q6: the same body's EDGES, with their arc lengths. A plate
+				// extruded from a rectangle has only straight edges, so every
+				// one of them must come back `exact`.
+				const entities = await call('entity_list', { body_id: bodyId, kind: 'edge' });
 				const regions = await call('sketch_regions', { feature_id: sketch.structuredContent.feature_id });
 				// N1: name one of the faces just listed, then read the name
 				// table back. `entity_name` is a mutating tool, so the
@@ -163,6 +172,7 @@ test.describe('Read-only agent tools run in the engine (S3 C5b)', () => {
 					['body_measure', measured],
 					['measure_distance', distance],
 					['face_list', faces],
+					['entity_list', entities],
 					['sketch_regions', regions],
 					['entity_name', entityName],
 					['names_list', names],
@@ -189,6 +199,7 @@ test.describe('Read-only agent tools run in the engine (S3 C5b)', () => {
 					measured: measured.structuredContent,
 					distance: distance.structuredContent,
 					faces: faces.structuredContent,
+					entities: entities.structuredContent,
 					regions: regions.structuredContent,
 					entityName: entityName.structuredContent,
 					names: names.structuredContent,
@@ -220,6 +231,7 @@ test.describe('Read-only agent tools run in the engine (S3 C5b)', () => {
 			'body_measure',
 			'measure_distance',
 			'face_list',
+			'entity_list',
 			'sketch_regions',
 			'entity_name',
 			'names_list',
@@ -253,6 +265,15 @@ test.describe('Read-only agent tools run in the engine (S3 C5b)', () => {
 		expect(result.distance.on[1]).toBeNull();
 		expect(result.distance.on[0].kind).toEqual({ type: 'Face' });
 		expect(result.faces.faces.length).toBeGreaterThan(0);
+		// Q6: twelve edges of a box-shaped plate, every one an exact straight
+		// line, each with a persistent id and the arc length that goes with it.
+		expect(result.entities.kind).toBe('edge');
+		expect(result.entities.count).toBe(12);
+		expect(result.entities.entities.every((e) => e.length.method === 'exact')).toBe(true);
+		expect(result.entities.entities.every((e) => e.length.curve_type === 'line')).toBe(true);
+		expect(result.entities.entities.every((e) => typeof e.pid === 'number')).toBe(true);
+		expect(result.entities.entities.every((e) => e.geom_ref.selector.type === 'Pid')).toBe(true);
+		expect(result.entities.body.principal_axes.length).toBe(3);
 		expect(result.regions.regions.length).toBeGreaterThan(0);
 		// N1: the name is stored over the face's persistent id, and the
 		// listing has it alongside the body's own display name.
