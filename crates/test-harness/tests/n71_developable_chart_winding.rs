@@ -24,8 +24,11 @@
 //! verbatim `CurvedGeometryMismatch { … "bounded cylinder patch must have
 //! exactly one material-CCW loop" }`; reverting the cone arm makes
 //! `p0017_cone_patch_sliver_is_material` fail the same way with the cone
-//! wording, because P0017 would stop at the postcondition instead of reaching
-//! its own (separate, N68-family) render-CDT wall.
+//! wording, because P0017 would stop at the postcondition instead of
+//! rebuilding clean.
+//!
+//! P0017's SECOND wall (`ring rejected by CDT`) was its own finding and is
+//! converted — deviation N76, `n76_output_curve_backtrack.rs`.
 //!
 //! Run: `cargo test -p test-harness --release --test n71_developable_chart_winding`
 
@@ -105,9 +108,18 @@ fn p0018_cylinder_patch_sliver_is_material() {
     );
 }
 
-/// The CONE arm: P0017's postcondition now PASSES, and the case stops on its
-/// own, later wall instead. This is the mutation detector for the cone half —
-/// with the chord measure back, the error text reverts to the postcondition.
+/// The CONE arm: P0017's postcondition now PASSES. This is the mutation
+/// detector for the cone half — with the chord measure back, the error text
+/// reverts to the postcondition.
+///
+/// P0017 was HALF converted when this file was written: the same sliver
+/// reached the render tessellator, which declined it
+/// (`ring rejected by CDT (degenerate/self-intersecting)`). That wall was its
+/// own finding — deviation **N76**, the output loop double-covering one
+/// `SurfacePair` curve — and it landed 2026-10-03 (night), so the
+/// `CDT_REJECT_WALL` assertion this test used to carry is UN-QUARANTINED here
+/// in the same spirit: the case must now emit NO engine error at all.
+/// `n76_output_curve_backtrack.rs` is that fix's own pin.
 #[test]
 fn p0017_cone_patch_sliver_is_material() {
     let builder = load("P0017");
@@ -119,15 +131,15 @@ fn p0017_cone_patch_sliver_is_material() {
          −6.722980363191853e-7); got:\n  {}",
         failures.join("\n  ")
     );
-    // P0017 is HALF converted: the same sliver reaches the render
-    // tessellator, which declines it (N68's family, P0013). An UNMASKED
-    // LATENT, not a regression — validation used to STOP first, and P0017's
-    // ×1e3 scale judgement already read a CDT ring reject. When that family
-    // lands this assertion is what must be un-quarantined, in the same PR.
     assert!(
-        failures.iter().any(|f| f.contains(CDT_REJECT_WALL)),
-        "P0017 is expected to stop on the render-CDT sliver wall \
-         ({CDT_REJECT_WALL}) once the cone postcondition passes; got:\n  {}",
+        !failures.iter().any(|f| f.contains(CDT_REJECT_WALL)),
+        "P0017's render-CDT sliver wall ({CDT_REJECT_WALL}) was converted by \
+         N76 and must not return; got:\n  {}",
+        failures.join("\n  ")
+    );
+    assert!(
+        failures.is_empty(),
+        "P0017 rebuilds clean since N76; got:\n  {}",
         failures.join("\n  ")
     );
 }

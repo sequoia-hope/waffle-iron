@@ -605,8 +605,17 @@ fn tessellate_developable_patch(
     };
     for &lid in &all_loops {
         let hes = arena.loop_half_edges(lid)?;
-        if hes.len() < 3 {
-            return Err(fail("patch loop with fewer than 3 edges"));
+        // N76: a developable patch bounded by exactly TWO edges on DISTINCT
+        // curves, meeting at two vertices, is a genuine LENS and bounds a real
+        // area — P0017's cone sliver (rim `Arc` + cyl×cone `SurfacePair`) after
+        // the output spur normalization. `from_yang_brep`'s `lens_bigon` arm is
+        // the gate that admits it, and it still refuses a SAME-curve bigon (and
+        // anything with a `Seg`), which is the zero-area form this guard was
+        // written for. The ring itself is not two points: N71's canonical chart
+        // polygon carries both curves' interior samples. One edge (or none)
+        // still cannot bound an area and stays loud.
+        if hes.len() < 2 {
+            return Err(fail("patch loop with fewer than 2 edges"));
         }
         let mut entries: Vec<(usize, PatchEdgeKind)> = Vec::new();
         let mut u_cur = f64::NAN;
@@ -649,6 +658,27 @@ fn tessellate_developable_patch(
                 if let Curve::SurfacePair { a, b } = &he.curve {
                     eprintln!("[chain-probe]   spair a={a:?}");
                     eprintln!("[chain-probe]   spair b={b:?}");
+                }
+                // The twin's owner: which face sits across this boundary edge
+                // (N76 — a loop that double-covers one curve has the SAME
+                // twin owner on both of its uses).
+                if let Ok(tw) = arena.half_edge(he.twin) {
+                    let tf = arena.loop_(tw.loop_id).map(|l| l.face).ok();
+                    let ts = tf
+                        .and_then(|f| arena.face(f).ok())
+                        .map(|f| match f.surface {
+                            Some(Surface::Plane(_)) => "Plane",
+                            Some(Surface::Cylinder { .. }) => "Cylinder",
+                            Some(Surface::Cone { .. }) => "Cone",
+                            Some(Surface::Sphere { .. }) => "Sphere",
+                            Some(Surface::Torus { .. }) => "Torus",
+                            _ => "other/none",
+                        });
+                    eprintln!(
+                        "[chain-probe]   twin={:?} twin_loop={:?} twin_face={tf:?} \
+                         twin_surface={ts:?}",
+                        he.twin, tw.loop_id,
+                    );
                 }
                 if let Curve::HyperbolaArc { .. } = &he.curve {
                     eprintln!("[chain-probe]   hyp {:?}", he.curve);

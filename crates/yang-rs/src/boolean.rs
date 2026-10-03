@@ -3292,7 +3292,7 @@ fn boolean_once(
 
     let tessellation = TessellationMap { sources };
 
-    Ok(BRep {
+    let mut out = BRep {
         vertices,
         edges,
         faces,
@@ -3308,7 +3308,19 @@ fn boolean_once(
         standing_rim: std::collections::BTreeMap::new(),
         standing_face: std::collections::BTreeMap::new(),
         standing_face_constraints: crate::stage1_tessellate::FaceConstraints::new(),
-    })
+    };
+    // N76 (P0017): an output loop that traverses ONE `SurfacePair` curve twice
+    // carries a zero-width spur pointing out of the material — the curved twin
+    // of the straight backtrack spike `BRep::normalized_without_backtrack_spikes`
+    // already removes on the INPUT side (task #146). Merge it here, on every
+    // path (pass 1 and every §4.5.2 / §4.5.4 rung), so the emitted B-Rep is the
+    // region it actually bounds. A valid loop never double-covers a curve, so
+    // the fire count is 0 and the output byte-identical for everything else.
+    let n76 = out.normalize_output_curve_backtracks();
+    if n76 > 0 && std::env::var_os("YANG_N76_PROBE").is_some() {
+        eprintln!("[n76] op={op:?} merged {n76} curved backtrack spike(s) in the output loops");
+    }
+    Ok(out)
 }
 
 /// P3a #146 increment 0 (spec `yang_146_conformal_junction_sampling.md` §4):

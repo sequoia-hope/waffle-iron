@@ -1095,8 +1095,12 @@ fn validate_cylinder_patch(
     let mut measures: Vec<LoopMeasure> = Vec::with_capacity(all_loops.len());
     for &lid in &all_loops {
         let hes = arena.loop_half_edges(lid)?;
-        if hes.len() < 3 {
-            return Err(mismatch("cylinder patch loop with fewer than 3 edges"));
+        // N76: a two-edge LENS on DISTINCT curves bounds a real area — see the
+        // identical relaxation in `tessellate/developable.rs` and in the cone
+        // arm (the mirrored triple moves together, or the twin is silenced).
+        // A same-curve bigon is refused upstream in `from_yang_brep`.
+        if hes.len() < 2 {
+            return Err(mismatch("cylinder patch loop with fewer than 2 edges"));
         }
         let mut us: Vec<f64> = Vec::with_capacity(hes.len());
         let mut hs: Vec<f64> = Vec::with_capacity(hes.len());
