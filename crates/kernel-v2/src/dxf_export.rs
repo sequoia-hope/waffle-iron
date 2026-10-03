@@ -153,10 +153,11 @@ fn entity(out: &mut String, curve: &Curve2, layer: &str, sagitta: f64) {
                 point(out, center.x() * SCALE, center.y() * SCALE);
                 out.push_str(" 40\n");
                 out.push_str(&real(radius * SCALE));
+                let (a0, a1) = arc_degrees(start_angle, end_angle);
                 out.push_str(" 50\n");
-                out.push_str(&real(start_angle.to_degrees()));
+                out.push_str(&real(a0));
                 out.push_str(" 51\n");
-                out.push_str(&real(end_angle.to_degrees()));
+                out.push_str(&real(a1));
             }
         }
         // R12 has no ELLIPSE; the flattening is the entity (see module docs).
@@ -165,6 +166,27 @@ fn entity(out: &mut String, curve: &Curve2, layer: &str, sagitta: f64) {
         }
         Curve2::Polyline { ref points, closed } => polyline(out, points, closed, layer),
     }
+}
+
+/// An `ARC`'s groups 50 and 51 as DXF angles: degrees counter-clockwise from
+/// the entity's `+x`, each in `[0, 360)`, sweeping from the first to the
+/// second and wrapping through zero.
+///
+/// [`Curve2::Circle`] carries the radian interval the projection produced, and
+/// that interval is only normalized to be INCREASING — it is anchored wherever
+/// the circle's own frame put it. A projection that reverses the circle's
+/// sense yields `[angle0 − sweep, angle0]` with `angle0 ∈ (−π, π]`, so a
+/// negative start is the ordinary case and a start below `−360°` is reachable
+/// for a wide arc. R12 readers are not obliged to normalize an out-of-range
+/// angle and a CAM front end that clamps instead would cut the wrong arc, so
+/// the wrapping happens here, where the file's own convention applies.
+fn arc_degrees(start_angle: f64, end_angle: f64) -> (f64, f64) {
+    let sweep = (end_angle - start_angle).to_degrees();
+    let a0 = start_angle.to_degrees().rem_euclid(360.0);
+    // `rem_euclid` can answer exactly 360.0 for a tiny negative input; the
+    // range is half-open, so fold that back to 0.
+    let wrap = |a: f64| if a >= 360.0 || !a.is_finite() { 0.0 } else { a };
+    (wrap(a0), wrap((a0 + sweep).rem_euclid(360.0)))
 }
 
 fn polyline(out: &mut String, points: &[cad_primitives::Point2], closed: bool, layer: &str) {

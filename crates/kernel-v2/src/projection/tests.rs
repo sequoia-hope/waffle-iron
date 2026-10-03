@@ -129,6 +129,55 @@ fn make_cylinder_on(
     a.extrude_face(faces[0], normal, height).expect("cylinder")
 }
 
+/// A D-shaped plate: a diameter chord and a semicircular arc, `height` tall.
+///
+/// The corpus's other curved cases carry FULL circles, so this is the only
+/// fixture whose edges are partial `Curve::Arc`s — the arm whose projected
+/// parameter range is derived rather than a full turn. (The arena splits the
+/// 180° arc into two sub-arcs under its minor-arc limit, so the solid carries
+/// four arc edges, two per rim.)
+fn make_d_shape(a: &mut KernelV2Adapter, radius: f64, height: f64) -> KernelSolidHandle {
+    let mut positions: HashMap<u32, (f64, f64)> = HashMap::new();
+    positions.insert(0, (-radius, 0.0));
+    positions.insert(1, (radius, 0.0));
+    for (k, deg) in [
+        (2u32, 30.0f64),
+        (3, 60.0),
+        (4, 90.0),
+        (5, 120.0),
+        (6, 150.0),
+    ] {
+        let t = deg.to_radians();
+        positions.insert(k, (radius * t.cos(), radius * t.sin()));
+    }
+    let profile = ClosedProfile {
+        entity_ids: vec![],
+        is_outer: true,
+        vertex_ids: vec![0, 1, 2, 3, 4, 5, 6],
+        circle: None,
+        spline_segments: vec![],
+        // The arc covers vertices 1 → 0, over the top; end < start wraps.
+        arc_segments: vec![waffle_types::ArcSegment {
+            start_vertex_index: 1,
+            end_vertex_index: 0,
+            center_u: 0.0,
+            center_v: 0.0,
+            radius,
+        }],
+    };
+    let faces = a
+        .make_faces_from_profiles(
+            &[profile],
+            [0.0, 0.0, 0.0],
+            [0.0, 0.0, 1.0],
+            [1.0, 0.0, 0.0],
+            &positions,
+        )
+        .expect("D-shape stages");
+    a.extrude_face(faces[0], [0.0, 0.0, 1.0], height)
+        .expect("D-shape extrudes")
+}
+
 /// The solids the oracle sweeps: a name, the handle, and whether the solid is
 /// PRISMATIC (planar faces and straight edges only).
 ///
@@ -157,6 +206,13 @@ fn corpus(a: &mut KernelV2Adapter) -> Vec<Case> {
     cases.push(Case {
         name: "cylinder",
         handle: make_cylinder(a, (0.0, 0.0), 0.008, 0.0, 0.020),
+        prismatic: false,
+    });
+    // The only fixture with PARTIAL arc edges, so the only one that exercises
+    // the arc's derived parameter range through the whole stack.
+    cases.push(Case {
+        name: "D-shaped plate",
+        handle: make_d_shape(a, 0.012, 0.004),
         prismatic: false,
     });
 
@@ -476,6 +532,142 @@ fn every_projected_curve_contains_its_own_three_dimensional_samples() {
             }
         }
     }
+}
+
+/// A PARTIAL arc, projected, against a brute-force sampling of the same arc —
+/// in BOTH directions.
+///
+/// The corpus's circles are all FULL turns, so nothing else here exercises the
+/// arc's parameter range: `ccw_sweep` → [`ccw_range`] → the ellipse's
+/// `start_param`/`end_param`. Containment of the 3-D samples cannot see that
+/// range being too WIDE (a quarter arc reported as its whole ellipse still
+/// contains every sample), so this pins all three of the arc's endpoints, its
+/// length and its samples, over a sweep of orientations and angles.
+#[test]
+fn a_partial_arcs_projection_agrees_with_a_brute_force_sampling_both_ways() {
+    use std::f64::consts::FRAC_PI_2;
+
+    let center = Point3::new(0.013, -0.007, 0.004);
+    let radius = 0.008;
+    // Each a circle plane normal, spanning face-on, oblique and edge-on to
+    // every view the sweep below looks from.
+    let normals: [[f64; 3]; 6] = [
+        [0.0, 0.0, 1.0],
+        [1.0, 0.0, 0.0],
+        [0.0, 1.0, 0.0],
+        [0.6, 0.0, 0.8],
+        [0.3, -0.5, 0.8],
+        [1.0, 1.0, 1.0],
+    ];
+    let sweeps = [0.2, FRAC_PI_2, 2.5, PI, 4.0, 6.0];
+    let mut checked = 0usize;
+
+    for n in normals {
+        let len = (n[0] * n[0] + n[1] * n[1] + n[2] * n[2]).sqrt();
+        let nu = UnitVector3 {
+            x: n[0] / len,
+            y: n[1] / len,
+            z: n[2] / len,
+        };
+        // An in-plane frame for the circle, right-handed with `nu`, so a
+        // growing parameter sweeps counter-clockwise about it — the same
+        // convention `circle_frame` and `geom::ccw_sweep` use.
+        let seed = if nu.x.abs() < 0.9 {
+            [1.0, 0.0, 0.0]
+        } else {
+            [0.0, 1.0, 0.0]
+        };
+        let t = seed[0] * nu.x + seed[1] * nu.y + seed[2] * nu.z;
+        let f1raw = [seed[0] - t * nu.x, seed[1] - t * nu.y, seed[2] - t * nu.z];
+        let l1 = (f1raw[0] * f1raw[0] + f1raw[1] * f1raw[1] + f1raw[2] * f1raw[2]).sqrt();
+        let f1 = [f1raw[0] / l1, f1raw[1] / l1, f1raw[2] / l1];
+        let f2 = [
+            nu.y * f1[2] - nu.z * f1[1],
+            nu.z * f1[0] - nu.x * f1[2],
+            nu.x * f1[1] - nu.y * f1[0],
+        ];
+        let at = |theta: f64| -> Point3 {
+            let (s, c) = theta.sin_cos();
+            Point3::new(
+                center.x() + radius * (c * f1[0] + s * f2[0]),
+                center.y() + radius * (c * f1[1] + s * f2[1]),
+                center.z() + radius * (c * f1[2] + s * f2[2]),
+            )
+        };
+
+        for sweep in sweeps {
+            let (start, end) = (at(0.0), at(sweep));
+            for (name, frame) in axis_views() {
+                let basis = basis_of(frame);
+                let got = project_circle(&basis, center, nu, radius, start, Some(end))
+                    .unwrap_or_else(|| panic!("{name}, n {n:?}, sweep {sweep}: no analytic arm"));
+                checked += 1;
+
+                // Brute force: the arc's own points, projected.
+                const N: usize = 2048;
+                let samples: Vec<Point2> = (0..=N)
+                    .map(|i| project_point(&basis, at(sweep * i as f64 / N as f64)))
+                    .collect();
+
+                // 1. Every sampled point lands on the reported curve.
+                //    Measured against ONE 1e-9 flattening of it, so 1e-9 is
+                //    this check's own floor; the sharp checks are 2 and 3.
+                let flat = got.flatten(1e-9);
+                for p in &samples {
+                    let mut d = f64::INFINITY;
+                    for w in flat.windows(2) {
+                        d = d.min(dist_point_segment(*p, w[0], w[1]));
+                    }
+                    assert!(
+                        d < 2e-9,
+                        "{name}, n {n:?}, sweep {sweep}: a sample is {d} off {got:?}"
+                    );
+                }
+
+                // 2. The reported curve is no LONGER than the arc. An
+                //    edge-on arc is excluded: its segment legitimately runs
+                //    to the `cos` extremes of the range, which lie off the
+                //    arc's endpoints, and `cos_range` is tested directly.
+                let brute: f64 = samples
+                    .windows(2)
+                    .map(|w| (w[1].x() - w[0].x()).hypot(w[1].y() - w[0].y()))
+                    .sum();
+                if matches!(got, Curve2::Ellipse { .. } | Curve2::Circle { .. }) {
+                    // The chord sum has its own O(Δ²) deficit — 1.6e-7
+                    // relative at `N` over a 4-radian sweep — so this is a
+                    // 1e-5 check. It is still four orders sharper than any
+                    // wrong range, which changes the length by a FACTOR; the
+                    // exact check on the range is the endpoints below.
+                    assert!(
+                        (got.length() - brute).abs() <= 1e-5 * brute.max(1e-9),
+                        "{name}, n {n:?}, sweep {sweep}: length {} vs {brute} — the \
+                         parameter range is wrong",
+                        got.length()
+                    );
+                    // 3. And it starts and ends where the arc does.
+                    let (a, b) = got.endpoints().unwrap_or_else(|| {
+                        panic!("{name}, n {n:?}, sweep {sweep}: a partial arc has endpoints")
+                    });
+                    let (s, e) = (samples[0], samples[N]);
+                    let near = |p: Point2, q: Point2| (p.x() - q.x()).hypot(p.y() - q.y()) < 1e-11;
+                    assert!(
+                        (near(a, s) && near(b, e)) || (near(a, e) && near(b, s)),
+                        "{name}, n {n:?}, sweep {sweep}: endpoints {a:?},{b:?} are not \
+                         the arc's {s:?},{e:?}"
+                    );
+                } else {
+                    // The edge-on segment must still CONTAIN the arc's span.
+                    assert!(
+                        got.length() >= brute * 0.5 - 1e-12,
+                        "{name}, n {n:?}, sweep {sweep}: the edge-on segment {} is \
+                         shorter than half the arc's projected length {brute}",
+                        got.length()
+                    );
+                }
+            }
+        }
+    }
+    assert_eq!(checked, normals.len() * sweeps.len() * 6);
 }
 
 // ---------------------------------------------------------------------------

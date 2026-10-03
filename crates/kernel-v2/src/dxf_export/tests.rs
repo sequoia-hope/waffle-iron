@@ -312,6 +312,152 @@ fn an_oblique_rim_is_flattened_within_its_sagitta() {
     );
 }
 
+/// A real part with partial arc edges writes real `ARC` entities, with the
+/// angles the DXF convention wants.
+///
+/// The fixtures above are a box and a cylinder, whose rims are full turns, so
+/// without this the writer's `ARC` branch is never reached from geometry.
+#[test]
+fn a_d_shaped_plate_writes_arcs_from_its_rounded_rims() {
+    let mut a = KernelV2Adapter::new();
+    let radius = 0.012;
+    // A diameter chord plus a semicircle, extruded: each rim's arc is split
+    // by the arena into sub-arcs under its minor-arc limit.
+    let mut positions = HashMap::new();
+    positions.insert(0, (-radius, 0.0));
+    positions.insert(1, (radius, 0.0));
+    for (k, deg) in [
+        (2u32, 30.0f64),
+        (3, 60.0),
+        (4, 90.0),
+        (5, 120.0),
+        (6, 150.0),
+    ] {
+        let t = deg.to_radians();
+        positions.insert(k, (radius * t.cos(), radius * t.sin()));
+    }
+    let profile = ClosedProfile {
+        entity_ids: vec![],
+        is_outer: true,
+        vertex_ids: vec![0, 1, 2, 3, 4, 5, 6],
+        circle: None,
+        spline_segments: vec![],
+        arc_segments: vec![waffle_types::ArcSegment {
+            start_vertex_index: 1,
+            end_vertex_index: 0,
+            center_u: 0.0,
+            center_v: 0.0,
+            radius,
+        }],
+    };
+    let faces = a
+        .make_faces_from_profiles(
+            &[profile],
+            [0.0, 0.0, 0.0],
+            [0.0, 0.0, 1.0],
+            [1.0, 0.0, 0.0],
+            &positions,
+        )
+        .expect("D-shape stages");
+    let solid = a
+        .extrude_face(faces[0], [0.0, 0.0, 1.0], 0.004)
+        .expect("D-shape extrudes");
+
+    let text = a
+        .export_dxf(
+            &[ProjectionBody::solo(solid)],
+            &ViewFrame::TOP,
+            &ProjectOpts::default(),
+        )
+        .expect("export_dxf");
+    let arcs: Vec<Vec<(i32, String)>> = entities(&text)
+        .into_iter()
+        .filter(|(k, _)| k == "ARC")
+        .map(|(_, e)| e)
+        .collect();
+    assert!(!arcs.is_empty(), "a rounded rim writes ARCs");
+    assert_eq!(
+        count_of(&text, "POLYLINE"),
+        0,
+        "a rim seen face-on is exact"
+    );
+    let mut total = 0.0;
+    for e in &arcs {
+        assert!(
+            (group(e, 40) - radius * 1000.0).abs() < 1e-9,
+            "radius {e:?}"
+        );
+        for which in [50, 51] {
+            let angle = group(e, which);
+            assert!(
+                (0.0..360.0).contains(&angle),
+                "group {which} is {angle}, outside the DXF range"
+            );
+        }
+        let (a0, a1) = (group(e, 50), group(e, 51));
+        total += if a1 >= a0 { a1 - a0 } else { a1 + 360.0 - a0 };
+    }
+    // The sub-arcs of BOTH rims: two semicircles, 360° of sweep in all.
+    assert!(
+        (total - 360.0).abs() < 1e-6,
+        "the arcs sweep {total}°, two semicircles are 360°"
+    );
+}
+
+/// An `ARC`'s group 50/51 must be a DXF angle: degrees counter-clockwise from
+/// the entity's `+x`, in `[0, 360)`.
+///
+/// `Curve2::Circle` carries whatever radian interval the projection produced —
+/// `[angle0 − sweep, angle0]` for a projection that reverses the circle's
+/// sense, so a negative start and, for a near-full arc, a start below −360 —
+/// and R12 readers are not required to normalize. Nothing else in the suite
+/// writes an `ARC` at all (the corpus's rims are full turns), so this is the
+/// writer's only cover for the arc path.
+#[test]
+fn an_arc_is_written_with_degrees_in_the_dxf_range() {
+    let cases = [
+        // (start, end) in radians, as the projection normalizes them:
+        // increasing, but anchored anywhere on the real line.
+        (0.0, std::f64::consts::FRAC_PI_2),
+        (-std::f64::consts::FRAC_PI_2, 0.0),
+        (-6.0, -0.5),
+        (2.9, 3.1),
+        (-9.0, -3.0),
+        (7.0, 9.0),
+    ];
+    for (s, e) in cases {
+        let view = ViewGeometry::new(vec![waffle_types::kernel::projection::ProjectedCurve {
+            geometry: Curve2::Circle {
+                center: cad_primitives::Point2::new(0.001, -0.002),
+                radius: 0.004,
+                start_angle: s,
+                end_angle: e,
+            },
+            visibility: waffle_types::kernel::projection::Visibility::Visible,
+            kind: waffle_types::kernel::projection::CurveKind::Edge,
+            source: None,
+        }]);
+        let text = write_dxf(&view, DEFAULT_POLYLINE_SAGITTA);
+        assert_eq!(count_of(&text, "ARC"), 1, "({s}, {e}) is a partial arc");
+        let arc = entities(&text).remove(0).1;
+        let (a0, a1) = (group(&arc, 50), group(&arc, 51));
+        for (which, a) in [("50", a0), ("51", a1)] {
+            assert!(
+                (0.0..360.0).contains(&a),
+                "({s}, {e}): group {which} is {a}, outside [0, 360)"
+            );
+        }
+        // And the arc still sweeps the same way: CCW from 50 to 51, wrapping
+        // through 0, covers exactly the original interval.
+        let want = (e - s).to_degrees();
+        let got = if a1 >= a0 { a1 - a0 } else { a1 + 360.0 - a0 };
+        assert!(
+            (got - want).abs() < 1e-6,
+            "({s}, {e}): the written arc sweeps {got}°, the curve sweeps {want}°"
+        );
+    }
+}
+
 #[test]
 fn an_empty_view_is_still_a_valid_file() {
     let text = write_dxf(&ViewGeometry::default(), DEFAULT_POLYLINE_SAGITTA);
