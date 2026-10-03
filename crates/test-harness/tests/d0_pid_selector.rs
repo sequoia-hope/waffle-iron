@@ -411,3 +411,214 @@ fn an_edit_to_one_feature_leaves_another_features_face_roots_alone() {
         );
     }
 }
+
+// ---------------------------------------------------------------------------
+// D0 item 1b — a BOOLEAN output face's OWN pid
+// ---------------------------------------------------------------------------
+
+/// A 40×40×10 plate with two blind 10×10 pockets cut into its top face,
+/// both well inside the footprint and well apart. The body is the SECOND
+/// cut's output, so every face of it is a boolean output face — the shape of
+/// the measured hazard.
+///
+/// `first_depth` is pocket 1's depth: 3 leaves it blind, 10 takes it through
+/// the plate, which is the edit the hazard was measured under.
+fn plate_with_two_pockets(first_depth: f64) -> ModelBuilder {
+    let mut m = ModelBuilder::kernel_v2();
+    m.rect_sketch("plate_sk", [0., 0., 0.], [0., 0., 1.], 0., 0., 40., 40.)
+        .expect("plate sketch");
+    m.extrude("plate", "plate_sk", 10.0).expect("plate");
+    m.rect_sketch("p1_sk", [0., 0., 10.], [0., 0., 1.], 5., 5., 10., 10.)
+        .expect("pocket 1 sketch");
+    m.extrude_cut("p1", "p1_sk", first_depth).expect("pocket 1");
+    m.rect_sketch("p2_sk", [0., 0., 10.], [0., 0., 1.], 25., 25., 10., 10.)
+        .expect("pocket 2 sketch");
+    m.extrude_cut("p2", "p2_sk", 4.0).expect("pocket 2");
+    m
+}
+
+/// Pocket 2's floor: the face the hazard was measured on. `rect_sketch`
+/// takes `(x, y, w, h)` and the sketch basis puts v along −y, so pocket 2
+/// spans x 25..35, y −25..−35, and its floor sits 4 below the plate's top.
+const P2_FLOOR: [f64; 3] = [30.0, -30.0, 6.0];
+
+/// How far apart two face sites may be and still be the same site.
+const SITE_EPS: f64 = 1e-9;
+
+fn near(a: [f64; 3], b: [f64; 3]) -> bool {
+    (0..3).all(|k| (a[k] - b[k]).abs() < SITE_EPS)
+}
+
+/// The pid of the face whose centre is `site`, refusing if no face is there
+/// — so a fixture change that moves the geometry fails loudly instead of
+/// quietly testing a different face.
+fn face_pid_at(m: &ModelBuilder, feature: uuid::Uuid, site: [f64; 3]) -> u64 {
+    let found: Vec<u64> = face_ids_at(m, feature, false)
+        .into_iter()
+        .filter(|(_, c)| near(*c, site))
+        .map(|(pid, _)| pid)
+        .collect();
+    assert_eq!(
+        found.len(),
+        1,
+        "expected exactly one face centred at {site:?}, found {found:?}"
+    );
+    found[0]
+}
+
+/// A face `Selector::Pid` reference, anchored by FEATURE UUID rather than by
+/// the harness's alias — the alias map is rebuilt from the loaded tree's
+/// auto-generated names, so a reopened document does not answer to it.
+fn pid_face_ref(feature: uuid::Uuid, pid: u64, root_pid: u64) -> GeomRef {
+    GeomRef {
+        kind: TopoKind::Face,
+        anchor: Anchor::FeatureOutput {
+            feature_id: feature,
+            output_key: OutputKey::Main,
+        },
+        selector: Selector::Pid { pid, root_pid },
+        policy: ResolvePolicy::Strict,
+        scope: None,
+    }
+}
+
+/// [`results_for`] keyed by uuid, for the same reason.
+fn results_for_uuid(
+    m: &ModelBuilder,
+    feature: uuid::Uuid,
+) -> HashMap<uuid::Uuid, modeling_ops::OpResult> {
+    let result = m
+        .state
+        .engine
+        .get_result(feature)
+        .unwrap_or_else(|| panic!("feature {feature} has no result"));
+    let mut map = HashMap::new();
+    map.insert(feature, result.clone());
+    map
+}
+
+/// THE MEASURED HAZARD (D0 item 1b). One plate, two pockets, the body being
+/// the second cut's output. Name the second pocket's FLOOR; deepen the FIRST
+/// pocket into a through hole; save; reopen in a fresh engine and kernel.
+///
+/// Under the counter the floor's number was handed out by allocation order,
+/// which depends on the editing history — so the reopened document, which
+/// replays the features from scratch, re-minted that number onto the second
+/// pocket's SIDE WALL, and the stored name resolved there by pid with no
+/// warning. Content cannot do that: the floor's id is
+/// `H(cut feature, the tool's bottom-cap root, rank)` and a wall's root is a
+/// different tool face.
+///
+/// Measured on this exact fixture by withdrawing the item-1b reseed
+/// (2026-10-03): the floor is pid **22** when authored; the edit alone moves
+/// it to **47** (the counter has advanced), and after save + reopen pid 22
+/// names the side wall at `[35, −30, 8]` while the floor is pid 20. Every
+/// step of that is a silent rebind, and all of it is what this test fails
+/// on if the reseed is withdrawn — the other eight tests in this file stay
+/// green, so the pin is this change's and not item 1's.
+#[test]
+fn a_boolean_output_face_pid_names_the_same_face_after_an_upstream_edit_and_a_reopen() {
+    let mut authored = plate_with_two_pockets(3.0);
+    let p2 = authored.feature_id("p2").expect("feature id");
+    let floor_pid = face_pid_at(&authored, p2, P2_FLOOR);
+
+    // The edit the hazard was measured under: pocket 1 becomes a through
+    // hole, which rebuilds both cuts and every face of the body.
+    authored.edit_extrude_depth("p1", 10.0).expect("deepen p1");
+    assert_eq!(
+        face_pid_at(&authored, p2, P2_FLOOR),
+        floor_pid,
+        "an edit to the OTHER pocket renamed pocket 2's floor"
+    );
+    let json = authored.save().expect("save");
+
+    let mut reopened = ModelBuilder::kernel_v2();
+    reopened.load(&json).expect("reopen");
+    let after = face_ids_at(&reopened, p2, false);
+
+    // 1. The floor still carries the same number, at the same site.
+    let site = after
+        .get(&floor_pid)
+        .unwrap_or_else(|| panic!("pid {floor_pid} is gone after the reopen"));
+    assert!(
+        near(*site, P2_FLOOR),
+        "pid {floor_pid} named pocket 2's floor at {P2_FLOOR:?} in the \
+         authoring session and {site:?} after the reopen"
+    );
+
+    // 2. ...which is the same as saying no OTHER face took it. Stated
+    //    separately because the side wall is the face it actually landed on.
+    let walls: Vec<[f64; 3]> = after
+        .iter()
+        .filter(|(_, c)| (c[2] - 6.0).abs() > SITE_EPS && c[0] > 20.0 && c[1] < -20.0)
+        .map(|(_, c)| *c)
+        .collect();
+    assert_eq!(
+        walls.len(),
+        4,
+        "pocket 2 has four side walls, got {walls:?}"
+    );
+    for (pid, c) in &after {
+        if !near(*c, P2_FLOOR) {
+            assert_ne!(
+                *pid, floor_pid,
+                "the floor's pid landed on the face at {c:?}"
+            );
+        }
+    }
+
+    // 3. And it resolves, by pid, with no warning.
+    let resolved = resolve_geom_ref_live(
+        &pid_face_ref(p2, floor_pid, floor_pid),
+        &results_for_uuid(&reopened, p2),
+        reopened.kernel_ref().as_introspect(),
+    )
+    .expect("the stored pid must resolve after a reopen");
+    assert!(
+        resolved.warnings.is_empty(),
+        "an exact hit warns about nothing, got {:?}",
+        resolved.warnings
+    );
+    assert!(
+        near(
+            face_centre(reopened.kernel_ref().as_introspect(), resolved.kernel_id),
+            P2_FLOOR
+        ),
+        "the stored pid resolved to a face somewhere else"
+    );
+}
+
+/// Pin (b): an edit to an UNRELATED earlier feature leaves every output face
+/// pid of the later boolean alone — not just the one face a test picked.
+///
+/// "Unrelated" is geometric: pocket 1 is upstream of pocket 2's boolean, so
+/// the edit re-runs it, but nothing it moves touches pocket 2 or the plate's
+/// sides. Those sites' pids must be bit-identical across the edit. (Pocket
+/// 1's own faces legitimately change: its floor disappears and its walls
+/// lengthen.)
+#[test]
+fn an_upstream_edit_leaves_every_untouched_output_face_pid_of_a_later_boolean_alone() {
+    let mut m = plate_with_two_pockets(3.0);
+    let p2 = m.feature_id("p2").expect("feature id");
+
+    // Everything outside pocket 1's 5..15 footprint in x: pocket 2's five
+    // faces, the plate's top, and three of its four sides.
+    let untouched = |m: &ModelBuilder| -> std::collections::BTreeMap<u64, [f64; 3]> {
+        face_ids_at(m, p2, false)
+            .into_iter()
+            .filter(|(_, c)| c[0] > 20.0)
+            .collect()
+    };
+    let before = untouched(&m);
+    assert!(
+        before.len() >= 6,
+        "expected at least six untouched faces, got {before:?}"
+    );
+    m.edit_extrude_depth("p1", 10.0).expect("deepen p1");
+
+    let after = untouched(&m);
+    assert_eq!(
+        before, after,
+        "an edit to pocket 1 renamed output faces nowhere near it"
+    );
+}
