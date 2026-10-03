@@ -79,6 +79,7 @@ pub mod ingest;
 pub mod introspect;
 pub mod journal;
 pub mod profile;
+pub mod projection;
 pub(crate) mod recover;
 pub mod step_export;
 pub mod tessellate;
@@ -106,6 +107,7 @@ pub use ingest::ingest_analytic;
 pub use introspect::{extract_edges, extract_edges_with_chord_tolerance, face_plane, surface_area};
 pub use journal::{descendants, face_lineage, EvoKind, Evolution, FaceLineage, OpTag};
 pub use profile::{Profile, ProfileEdge, ProfileRegion};
+pub use projection::project_edges;
 pub use step_export::{write_step, StepSolid};
 pub use tessellate::{
     circle_segment_count, surface_pair_interior_samples, surface_pair_project, tessellate,

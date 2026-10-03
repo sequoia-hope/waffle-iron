@@ -61,8 +61,8 @@ use crate::{BrepArena, FaceId, HalfEdgeId, KernelV2Error, SolidId, Surface, Vert
 use cad_primitives::{BoolOp, Point2, Point3, Vector3};
 use waffle_types::kernel::{
     AxisKind, ClosedProfile, EdgeRange, EdgeRenderData, EntityAxis, FaceRange, KernelError,
-    KernelId, KernelSolidHandle, PipePathSegment, RenderMesh, StepExportBody, SweepSection,
-    TopoKind, TopoSignature,
+    KernelId, KernelSolidHandle, PipePathSegment, ProjectOpts, ProjectionBody, RenderMesh,
+    StepExportBody, SweepSection, TopoKind, TopoSignature, ViewFrame, ViewGeometry,
 };
 use waffle_types::kernel::{Kernel, KernelIntrospect};
 
@@ -83,7 +83,7 @@ fn encode_vertex(v: VertexId) -> KernelId {
     KernelId(TAG_VERTEX | v.0 as u64)
 }
 
-fn encode_edge(canonical: HalfEdgeId) -> KernelId {
+pub(crate) fn encode_edge(canonical: HalfEdgeId) -> KernelId {
     KernelId(TAG_EDGE | canonical.0 as u64)
 }
 
@@ -1962,6 +1962,75 @@ impl KernelIntrospect for KernelV2Adapter {
             pid: pid.0,
             root_pid: root.0,
         })
+    }
+}
+
+/// Drawing projection (`specs/drawings_and_mbd.md` §5, increment D1a):
+/// `project` / `project_bodies` over [`crate::projection`].
+/// `section_with_plane` keeps its typed `NotSupported` default — that is D1d.
+///
+/// A mesh-backed imported body is refused by name, for the same reason
+/// `export_step_bodies` refuses it: it never entered the exact arena, so there
+/// are no analytic edges to project, and a silhouette of its triangles would
+/// be a faceted stand-in for a drawing — exactly the degradation Invariant
+/// A15 forbids.
+impl waffle_types::kernel::KernelProjection for KernelV2Adapter {
+    fn project(
+        &self,
+        solid: &KernelSolidHandle,
+        view: &ViewFrame,
+        opts: &ProjectOpts,
+    ) -> Result<ViewGeometry, KernelError> {
+        self.project_bodies(
+            &[waffle_types::kernel::ProjectionBody::solo(solid.clone())],
+            view,
+            opts,
+        )
+    }
+
+    fn project_bodies(
+        &self,
+        bodies: &[ProjectionBody],
+        view: &ViewFrame,
+        opts: &ProjectOpts,
+    ) -> Result<ViewGeometry, KernelError> {
+        let basis = view.basis().ok_or_else(|| KernelError::Other {
+            message: format!(
+                "degenerate view frame: dir {:?}, up {:?} (up must not be parallel to dir)",
+                view.dir, view.up
+            ),
+        })?;
+        let rel_tol = opts
+            .rel_chord_tolerance
+            .unwrap_or(crate::tessellate::RENDER_CHORD_TOLERANCE_REL);
+        if !(rel_tol.is_finite() && rel_tol > 0.0) {
+            return Err(KernelError::Other {
+                message: format!("projection chord tolerance must be positive, got {rel_tol}"),
+            });
+        }
+        let mut out = ViewGeometry::default();
+        for body in bodies {
+            if self.imported_slot_of(&body.handle).is_some() {
+                return Err(KernelError::NotSupported {
+                    operation: format!("project of the imported mesh-backed body `{}`", body.name),
+                });
+            }
+            let sid = self.solid_of(&body.handle)?;
+            // A placed body is projected through the view expressed in its own
+            // coordinates, so no geometry is copied or transformed.
+            let body_basis = match &body.placement {
+                Some(p) => basis.in_body_frame(p),
+                None => basis,
+            };
+            out.extend(
+                crate::projection::project_edges(&self.arena, sid, &body_basis, rel_tol).map_err(
+                    |e| KernelError::Other {
+                        message: format!("projection of `{}`: {e}", body.name),
+                    },
+                )?,
+            );
+        }
+        Ok(out)
     }
 }
 
