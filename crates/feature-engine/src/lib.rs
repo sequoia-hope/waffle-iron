@@ -5,6 +5,7 @@ pub mod context;
 pub mod expr;
 pub mod import_tiers;
 pub mod kicad;
+pub mod names;
 pub mod opaque;
 pub mod params;
 pub mod pattern;
@@ -332,6 +333,80 @@ impl Engine {
         self.recompute_body_name_inheritance();
     }
 
+    /// Give one entity a name (N1, `specs/agent_mechanical_design.md` §5.2).
+    /// One undo step; no rebuild — a name affects no geometry.
+    ///
+    /// `body_display_name` answers "what is this body called right now" for
+    /// the body the target lives in, so a dotted name's first segment can be
+    /// checked against it. The engine cannot derive that itself: a body with
+    /// no override is named after its producing feature plus an ordinal among
+    /// that feature's RENDERED bodies, which only the render layer knows.
+    /// `None` ⇒ the caller could not name the body, and a dotted name is
+    /// refused rather than accepted unchecked.
+    pub fn set_entity_name(
+        &mut self,
+        name: &str,
+        named: crate::names::NamedRef,
+        body_display_name: Option<&str>,
+    ) -> Result<(), EngineError> {
+        let path = crate::names::parse_name(name).map_err(|reason| EngineError::InvalidName {
+            name: name.to_string(),
+            reason,
+        })?;
+        let key = path.key();
+        if self.tree.names.contains_key(&key) {
+            return Err(EngineError::NameTaken { name: key });
+        }
+        if let Some(body) = &path.body {
+            let actual = body_display_name.ok_or_else(|| EngineError::InvalidName {
+                name: key.clone(),
+                reason: format!(
+                    "the body segment \"{body}\" cannot be checked: the target's body has no \
+                     display name (it is not a rendered body of the open Part)"
+                ),
+            })?;
+            if actual != body {
+                return Err(EngineError::InvalidName {
+                    name: key.clone(),
+                    reason: format!(
+                        "the body segment \"{body}\" is not this entity's body, which is called \
+                         \"{actual}\" — name it \"{body_name}.{leaf}\", or rename the body first \
+                         (a body whose display name is not an identifier cannot be a name segment)",
+                        body_name = if crate::names::is_identifier(actual) {
+                            actual.to_string()
+                        } else {
+                            format!("<{actual}>")
+                        },
+                        leaf = path.leaf
+                    ),
+                });
+            }
+        }
+        self.tree.set_name(key.clone(), named.clone());
+        self.undo_stack.push(Command::SetEntityName {
+            name: key,
+            old: None,
+            new: Some(Box::new(named)),
+        });
+        Ok(())
+    }
+
+    /// Remove one entity name. One undo step; no rebuild.
+    pub fn clear_entity_name(&mut self, name: &str) -> Result<(), EngineError> {
+        let old = self
+            .tree
+            .take_name(name)
+            .ok_or_else(|| EngineError::NameNotFound {
+                name: name.to_string(),
+            })?;
+        self.undo_stack.push(Command::SetEntityName {
+            name: name.to_string(),
+            old: Some(Box::new(old)),
+            new: None,
+        });
+        Ok(())
+    }
+
     /// Resolved name override for a body: the explicit user override if set,
     /// else a name inherited from a consumed target body. `None` ⇒ the caller
     /// should derive a name from the producing feature. This is the single
@@ -616,6 +691,13 @@ impl Engine {
                 self.tree.set_body_name(body_id, old_name.clone());
                 0 // No rebuild needed for rename
             }
+            Command::SetEntityName { name, old, .. } => {
+                match old {
+                    Some(named) => self.tree.set_name(name.clone(), (**named).clone()),
+                    None => self.tree.take_name(name),
+                };
+                0 // A name affects no geometry.
+            }
             Command::SetParameters { old, .. } => {
                 self.tree.parameters = old.clone();
                 0 // Any feature may consume any parameter.
@@ -696,6 +778,13 @@ impl Engine {
             } => {
                 self.tree.set_body_name(body_id, new_name.clone());
                 0 // No rebuild needed for rename
+            }
+            Command::SetEntityName { name, new, .. } => {
+                match new {
+                    Some(named) => self.tree.set_name(name.clone(), (**named).clone()),
+                    None => self.tree.take_name(name),
+                };
+                0 // A name affects no geometry.
             }
             Command::SetParameters { new, .. } => {
                 self.tree.parameters = new.clone();
@@ -882,6 +971,7 @@ fn changed_by(cmd: &Command) -> rebuild::Changed {
         Command::ReorderFeature { .. } => rebuild::Changed::All,
         Command::RenameFeature { .. }
         | Command::RenameBody { .. }
+        | Command::SetEntityName { .. }
         | Command::SetParameters { .. } => nothing_changed(),
     }
 }

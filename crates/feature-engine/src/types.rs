@@ -4,6 +4,8 @@ use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 use waffle_types::{GeomRef, OutputKey, Sketch};
 
+use crate::names::{NameTable, NamedRef};
+
 /// User-assigned body display names, keyed by a body's persistent identity
 /// (`"{feature_id}/{output_key.tag()}"`). Absent ⇒ the body uses a derived
 /// name (its producing feature's name). Stored on the tree so it persists with
@@ -97,6 +99,14 @@ pub struct FeatureTree {
     /// `body_names`. Absent ⇒ `User`.
     #[serde(default, skip_serializing_if = "HashMap::is_empty")]
     pub provenance: ProvenanceTable,
+    /// Entity names (N1, `specs/agent_mechanical_design.md` §5.2): labels an
+    /// agent or user assigned to faces, edges and vertices, each keyed by the
+    /// name and pointing at a `Selector::Pid` reference. NOT GC'd on feature
+    /// delete — a name whose entity is gone is information (`resolves:
+    /// false`), not litter. Its references persist a `Selector::Pid`, which
+    /// an older reader cannot parse, so this field arrived with format v7.
+    #[serde(default, skip_serializing_if = "NameTable::is_empty")]
+    pub names: NameTable,
     /// Unknown keys preserved across load → save (v4 §2.6). Tool-added
     /// metadata should use an `x-` prefix so a future official field cannot
     /// collide.
@@ -112,8 +122,25 @@ impl FeatureTree {
             body_names: HashMap::new(),
             parameters: Vec::new(),
             provenance: HashMap::new(),
+            names: NameTable::new(),
             extra: serde_json::Map::new(),
         }
+    }
+
+    /// Record a name, returning the entry it replaced (there should be none;
+    /// the engine refuses a taken name with `EngineError::NameTaken`).
+    pub fn set_name(&mut self, name: impl Into<String>, named: NamedRef) -> Option<NamedRef> {
+        self.names.insert(name.into(), named)
+    }
+
+    /// Remove a name, returning what it pointed at (captured for undo).
+    pub fn take_name(&mut self, name: &str) -> Option<NamedRef> {
+        self.names.remove(name)
+    }
+
+    /// What a name points at, if the document has it.
+    pub fn named_ref(&self, name: &str) -> Option<&NamedRef> {
+        self.names.get(name)
     }
 
     /// Persistent identity string for a body: its producing feature plus which
@@ -1545,6 +1572,21 @@ pub enum EngineError {
     )]
     ReferenceAmbiguous { candidates: Vec<u64>, score: f64 },
 
+    /// N1 (`specs/agent_mechanical_design.md` §5.2): the document already has
+    /// this entity name. Refused rather than rebound, because the second
+    /// caller would otherwise silently take over the first one's label.
+    #[error("the name \"{name}\" is already taken")]
+    NameTaken { name: String },
+
+    /// N1: the name is not a name — bad grammar, too many segments, or a body
+    /// segment that is not the display name of the body the target lives in.
+    #[error("\"{name}\" is not a usable entity name: {reason}")]
+    InvalidName { name: String, reason: String },
+
+    /// N1: no such entity name in this document.
+    #[error("this document has no entity named \"{name}\"")]
+    NameNotFound { name: String },
+
     #[error("kernel error: {0}")]
     KernelError(#[from] waffle_types::kernel::KernelError),
 
@@ -1648,6 +1690,11 @@ pub enum ErrorKind {
     Script {
         stage: String,
     },
+    /// An entity name was refused (N1): the name is taken, is not a name, or
+    /// names nothing. A host must re-author the name, not retry it.
+    NameRefused {
+        name: String,
+    },
 }
 
 impl From<&waffle_types::kernel::KernelError> for ErrorKind {
@@ -1713,6 +1760,9 @@ impl From<&EngineError> for ErrorKind {
             EngineError::Script { stage, .. } => ErrorKind::Script {
                 stage: stage.clone(),
             },
+            EngineError::NameTaken { name }
+            | EngineError::InvalidName { name, .. }
+            | EngineError::NameNotFound { name } => ErrorKind::NameRefused { name: name.clone() },
             EngineError::SketchGenerator { .. } => ErrorKind::InvalidParameter,
         }
     }
