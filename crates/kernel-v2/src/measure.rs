@@ -1312,6 +1312,10 @@ pub fn edge_length(arena: &BrepArena, h: HalfEdgeId) -> Result<ArcLength, Kernel
     })
 }
 
+/// Q5: sampled wall thickness, over the same primitives and the same AABB
+/// tree this module's distance seeds on.
+pub mod thickness;
+
 #[cfg(test)]
 mod tests {
     use super::*;

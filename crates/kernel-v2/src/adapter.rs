@@ -67,6 +67,7 @@ use waffle_types::kernel::{
 use waffle_types::kernel::{
     ContactEvidence, Distance, DistanceOpts, EdgeLength, EntityRef, Interference, InterferenceBody,
     Kernel, KernelIntrospect, KernelMeasure, LengthMethod, MassProperties, MeasureEntity, Method,
+    Thickness, ThicknessBin, ThicknessDeclines, ThicknessMethod, ThicknessOpts, ThicknessSite,
     DEFAULT_DENSITY_KG_M3,
 };
 
@@ -2507,6 +2508,79 @@ impl KernelMeasure for KernelV2Adapter {
             }
             _ => Err(KernelError::EntityNotFound { id: edge }),
         }
+    }
+
+    /// Q5: sampled wall thickness (`crate::measure::thickness`).
+    ///
+    /// A site that produced no thickness is COUNTED, not dropped, and a body
+    /// where no site produced one at all is an error rather than a `min` of
+    /// zero — see the module docs. The `method` the caller receives is
+    /// `Sampled` and there is no other arm: a wall found by casting from a
+    /// finite set of sites is an upper bound on the body's true minimum, and
+    /// nothing downstream may present it as more than that.
+    fn thickness(
+        &self,
+        solid: &KernelSolidHandle,
+        opts: &ThicknessOpts,
+    ) -> Result<Thickness, KernelError> {
+        if self.imported_slot_of(solid).is_some() {
+            return Err(Self::not_supported(
+                "wall thickness: a mesh-backed imported body — the sampler needs the arena's own \
+                 faces to take an inward normal from and to refine a hit on (STEP-import roadmap \
+                 SI2)",
+            ));
+        }
+        let sid = self.solid_of(solid)?;
+        let r =
+            crate::measure::thickness::thickness(&self.arena, sid, opts.spacing).map_err(|e| {
+                match e {
+                    // A bad `spacing`, or a body no cast could measure: the
+                    // caller's request or the caller's geometry, not a capability
+                    // wall it must stop asking about.
+                    KernelV2Error::MeasureInvalidRequest { reason } => KernelError::Other {
+                        message: reason.to_string(),
+                    },
+                    other => KernelError::Other {
+                        message: format!("wall thickness: {other}"),
+                    },
+                }
+            })?;
+        let face = |f: crate::arena::FaceId| EntityRef {
+            entity: encode_face(f),
+            kind: TopoKind::Face,
+        };
+        Ok(Thickness {
+            min: r.min,
+            mean: r.mean,
+            max: r.max,
+            thinnest: ThicknessSite {
+                thickness: r.thinnest.thickness,
+                point: r.thinnest.point.as_array(),
+                opposite: r.thinnest.opposite.as_array(),
+                from: face(r.thinnest.from),
+                to: face(r.thinnest.to),
+            },
+            histogram: r
+                .histogram
+                .iter()
+                .map(|b| ThicknessBin {
+                    lo: b.lo,
+                    hi: b.hi,
+                    count: b.count,
+                })
+                .collect(),
+            chord_bound: r.chord_bound,
+            refined: r.refined,
+            declines: ThicknessDeclines {
+                no_hit: r.declines.no_hit,
+                below_self_band: r.declines.below_self_band,
+                no_surface: r.declines.no_surface,
+            },
+            method: ThicknessMethod::Sampled {
+                samples: r.samples,
+                spacing: r.spacing,
+            },
+        })
     }
 }
 
