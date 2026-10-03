@@ -27,6 +27,72 @@ import { esc, n, renderViewSvg } from './svg.js';
 export const SHEET_MARGIN_MM = 10;
 
 /**
+ * `1:1`, `1:2`, `2:1` — the ratio a drafter reads, from the number.
+ *
+ * Mirrors `feature_engine::drawing::scale_ratio_label`, which fills the title
+ * block's `Scale` row. The two must agree: a sheet whose title block says
+ * `1:2` and whose detail caption says something else is a drawing that
+ * contradicts itself. Kept in step by being the only copy on this side —
+ * `DrawingPanel` imports this rather than carrying its own, which it did until
+ * the detail caption needed a third.
+ *
+ * @param {number} scale paper length per model length
+ * @returns {string}
+ */
+export function scaleRatioLabel(scale) {
+	const s = Number(scale);
+	if (!Number.isFinite(s) || s <= 0) return '—';
+	if (Math.abs(s - 1) < 1e-9) return '1:1';
+	const round = (x) => (Math.abs(x - Math.round(x)) < 1e-6 ? String(Math.round(x)) : x.toFixed(2));
+	return s < 1 ? `1:${round(1 / s)}` : `${round(s)}:1`;
+}
+
+/**
+ * The designation drawn under a view, or `null` for a view that carries none
+ * (D4b review).
+ *
+ * Only the DERIVED kinds are captioned, which is what the standard asks and
+ * what a drafter draws. A section and a detail must be identified ON the view
+ * — ISO 128-30 puts the letters at the cutting line AND under the view it
+ * produced, and a detail has to print its own scale because it is the one view
+ * that does not share the sheet's. An orthographic view in a projection group
+ * needs no label: its POSITION says which side it shows, and captioning six
+ * views FRONT/TOP/RIGHT is clutter that makes the two labels that matter
+ * harder to find.
+ *
+ * The text is the view's own `name` — the engine sets `SECTION A-A` and
+ * `DETAIL A` — so this adds no second source of truth for what a view is
+ * called, only the decision of whether to draw it. A view the engine named and
+ * a person then renamed prints the person's name, which is the point of the
+ * field being editable.
+ *
+ * A DETAIL also gets its ratio appended, and that is not decoration. A detail
+ * is the one view that does not share the sheet's scale — the title block's
+ * `Scale` row excludes details for exactly that reason, and prints `AS SHOWN`
+ * only when the non-detail views disagree — so the enlargement appears nowhere
+ * else on the paper. Appended at RENDER time rather than baked into the name,
+ * because the name is editable and a stored `(2:1)` would survive a change of
+ * scale and then lie. A detail drawn at the sheet's own 1:1 still prints it:
+ * `DETAIL A (1:1)` tells a reader it was checked, where a bare `DETAIL A`
+ * leaves them to assume.
+ *
+ * @param {any} view
+ * @returns {string|null}
+ */
+export function viewCaption(view) {
+	const kind = view?.projection?.type;
+	if (kind !== 'Section' && kind !== 'Detail') return null;
+	const name = String(view?.name ?? '').trim();
+	if (name.length === 0) return null;
+	if (kind !== 'Detail') return name;
+	const ratio = scaleRatioLabel(view?.scale ?? 1);
+	// An unusable scale prints the name alone rather than `DETAIL A (—)`: the
+	// view is already refused by the engine for a non-positive scale, and a
+	// caption is not the place to report it.
+	return ratio === '—' || name.includes(ratio) ? name : `${name} (${ratio})`;
+}
+
+/**
  * One view's standalone SVG, re-sized and positioned as a NESTED `<svg>` on
  * the sheet: `x`/`y` plus a width and height in the sheet's own user units
  * (paper mm).
@@ -92,6 +158,7 @@ export function renderSheetSvg({ sheet, unit = 'mm', documentPrecision = 2, styl
 			unit,
 			documentPrecision,
 			title: view.name ?? null,
+			caption: viewCaption(view),
 			paper: false,
 			// A sheet nests several views in ONE document, so a detail's
 			// clipPath id has to be the view's own: two details declaring

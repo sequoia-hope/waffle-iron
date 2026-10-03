@@ -471,6 +471,23 @@ test.describe('the drawing tab, D4b', () => {
 			(window.__waffle.getDrawingStatus()?.drawing?.sheets?.[0]?.views ?? []).map((v) => v.name)
 		);
 		expect(names).toContain('SECTION A-A');
+
+		// And that title is DRAWN on the paper, not only carried as data
+		// (D4b review). It used to reach the markup as an SVG `<title>`, which
+		// no painter renders, the PDF writer skips by name and the DXF has
+		// nowhere to put — so the sheet showed a hatched view with the letters
+		// on its cutting line and nothing on the view they produced. ISO
+		// 128-30 wants both.
+		const captions = page.locator('[data-testid="drawing-sheet"] text.wi-view-caption');
+		await expect(captions).toHaveCount(1);
+		await expect(captions.first()).toHaveText('SECTION A-A');
+		// The parent is NOT captioned: an orthographic view is identified by
+		// where it sits, and labelling it too would bury the one label that
+		// carries information.
+		expect(
+			await captions.count(),
+			'only the derived view is captioned, not its parent'
+		).toBe(1);
 	});
 
 	test('a detail view crops its parent to the disc and says so in the markup', async ({
@@ -519,6 +536,26 @@ test.describe('the drawing tab, D4b', () => {
 		await expect(
 			page.locator('[data-testid="drawing-sheet"] circle.wi-mark-detail').first()
 		).toBeAttached();
+
+		// The detail prints its own designation AND its own scale (D4b
+		// review). A detail is the one view that does not share the sheet's
+		// ratio — the title block's `Scale` row excludes it for exactly that
+		// reason — so a detail whose scale is nowhere on the paper is a view a
+		// reader cannot measure off.
+		const caption = page.locator('[data-testid="drawing-sheet"] text.wi-view-caption');
+		await expect(caption).toHaveCount(1);
+		const captionText = await caption.first().textContent();
+		expect(captionText).toContain('DETAIL');
+		expect(captionText, 'the enlargement is printed where it is read').toContain('2:1');
+		// Drawn OUTSIDE the crop clip, or the caption describing the crop
+		// would be the first thing the crop removed.
+		const clipped = await page.evaluate(
+			() =>
+				document
+					.querySelector('[data-testid="drawing-sheet"] text.wi-view-caption')
+					?.closest('[clip-path]') !== null
+		);
+		expect(clipped, 'the caption is not inside the crop it names').toBe(false);
 	});
 
 	test('the title block prints the document, the sheet number, the scale and the standard', async ({

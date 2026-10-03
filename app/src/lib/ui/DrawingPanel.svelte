@@ -29,6 +29,9 @@
 		getDrawingStatus,
 		setActiveDrawingSheetId
 	} from '$lib/engine/store.svelte.js';
+	// The one copy on this side (D4b review): the panel, the detail caption and
+	// the title block's `Scale` row must all read a scale the same way.
+	import { scaleRatioLabel } from '$lib/drawings/sheet.js';
 
 	let status = $derived(getDrawingStatus());
 	let drawing = $derived(getDrawing());
@@ -92,18 +95,6 @@
 		if (p?.type === 'Section') return `section ${p.label ?? '?'} of ${parentName()}`;
 		if (p?.type === 'Detail') return `detail ${p.label ?? '?'} of ${parentName()}`;
 		return '?';
-	}
-
-	/** `1:2`, `2:1`, `1:1` — the ratio a drafter reads, from the number. */
-	function scaleLabel(scale) {
-		const s = Number(scale);
-		if (!Number.isFinite(s) || s <= 0) return '—';
-		if (Math.abs(s - 1) < 1e-9) return '1:1';
-		return s < 1 ? `1:${round(1 / s)}` : `${round(s)}:1`;
-	}
-
-	function round(x) {
-		return Math.abs(x - Math.round(x)) < 1e-6 ? String(Math.round(x)) : x.toFixed(2);
 	}
 
 	/** The panel's millimetres as the store's meters. */
@@ -256,7 +247,7 @@
 							onchange={(e) => run(() => editDrawingView(view.id, { name: e.currentTarget.value }))}
 						/>
 						<span class="meta" data-testid="dwg-view-projection-{i}">{projectionLabel(view)}</span>
-						<span class="meta" data-testid="dwg-view-scale-{i}">{scaleLabel(view.scale)}</span>
+						<span class="meta" data-testid="dwg-view-scale-{i}">{scaleRatioLabel(view.scale)}</span>
 						<button
 							class="act"
 							title={open.has(view.id) ? 'Hide details' : 'Show scale, placement and style'}

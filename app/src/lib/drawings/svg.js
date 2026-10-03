@@ -503,6 +503,22 @@ function viewBounds(layout) {
  *   view needs. A sheet nests several views in one document, so two details
  *   would otherwise declare the same id and the browser would clip both to
  *   whichever came first. The sheet passes the view's uuid.
+ * @param {string|null} [input.caption] The designation DRAWN under the view —
+ *   `SECTION A-A`, `DETAIL B (2:1)`.
+ *
+ *   Distinct from `title`, which is the accessibility `<title>` and reaches no
+ *   printed output: a `<title>` is not rendered by any SVG painter, the PDF
+ *   writer skips it by name, and the DXF has nowhere to put it. A section view
+ *   with no visible designation is an unidentified view — ISO 128-30 requires
+ *   the letters on the view as well as on its cutting line, and a detail has
+ *   to print its own scale because it is the one view that does not share the
+ *   sheet's.
+ *
+ *   Supplied per view rather than taken from `title`, because only the DERIVED
+ *   kinds are captioned. An orthographic view in a projection group is
+ *   identified by where it sits, and labelling six views FRONT/TOP/RIGHT is
+ *   clutter the standard does not ask for — so `sheet.js` decides, and this
+ *   function only draws what it is given.
  * @returns {{ svg: string, widthMm: number, heightMm: number, warnings: string[] }}
  */
 export function renderViewSvg({
@@ -514,7 +530,8 @@ export function renderViewSvg({
 	margin = 20,
 	title = null,
 	paper = true,
-	idPrefix = 'v'
+	idPrefix = 'v',
+	caption = null
 }) {
 	const style = drawingStyle(styleOverrides);
 	const warnings = [];
@@ -634,6 +651,26 @@ export function renderViewSvg({
 	const heightMm = round4(drawnH + 2 * pad);
 	const titleEl = title ? `<title>${esc(title)}</title>` : '';
 
+	// The designation DRAWN under the view (D4b review): centred on the
+	// drawing's own width and below its bottom edge, inside the margin the
+	// view already reserves — `pad` is at least `dimensionOffset + 2 ×
+	// textHeight`, which is 17 mm at the defaults against the 1.4 × 3.5 mm
+	// the caption needs, so it cannot push the view off its own sheet.
+	//
+	// Larger than dimension text by the ISO 3098 step, because it names the
+	// view rather than measuring it, and by SIZE rather than by weight: a
+	// bolder stroke is a line-width group on a plotter, where a bigger
+	// character is just geometry.
+	const captionText = String(caption ?? '').trim();
+	const captionSize = style.textHeight * 1.4;
+	const captionEl = captionText
+		? `<text class="wi-view-caption" x="${n(drawnW / 2)}" ` +
+			`y="${n(drawnH + style.dimensionOffset + captionSize)}" ` +
+			`font-size="${n(captionSize)}" font-family="${esc(style.fontFamily)}" ` +
+			`fill="${DRAWING_TOKENS.text}" text-anchor="middle" dominant-baseline="auto">` +
+			`${esc(captionText)}</text>`
+		: '';
+
 	const svg =
 		`<svg xmlns="http://www.w3.org/2000/svg" class="wi-drawing" ` +
 		`width="${n(widthMm)}mm" height="${n(heightMm)}mm" ` +
@@ -649,6 +686,9 @@ export function renderViewSvg({
 		cropEdge +
 		`<g class="wi-annotations">${annEls.join('')}</g>` +
 		`<g class="wi-marks">${marks.svg}</g>` +
+		// Last, and OUTSIDE the clip: a detail's caption is the one piece of
+		// its markup that must survive the crop it describes.
+		captionEl +
 		`</svg>`;
 
 	return { svg, widthMm, heightMm, warnings };
