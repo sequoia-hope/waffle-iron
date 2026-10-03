@@ -352,3 +352,13 @@ depend on them are `#[ignore]`-tagged with reason `refs-fixture`.
   `ingest::FaceSurface::residual` is now total (distance to the apex at
   τ ≤ 0 — a point of the nappe, hence strictly conservative), and every
   rounding gives the capability row. Gate: 0 regression, 1 class moved.
+- 2026-10-03 (c) — **C7 finding 2: a FILE defect, and the gate hiding it.**
+  `00009298_…_step_002` shell 0 writes an arc's `CIRCLE` centre at 12
+  significant digits (the file carries 15 elsewhere), **1.364e-9 m** off the
+  plane its face declares, band 1.033e-9 — truck is faithful, the endpoints
+  are exact to 1e-16, nothing upstream to fix. But that claim was checked
+  only by a `strict-validation` tripwire, which compiles OUT of the app: the
+  test tier refused the file while the app ingested it as exact, accepting an
+  offset of 1e-6 m. The curve half of the on-surface gate is now a production
+  gate in ingest pass 1 (`AnalyticCurveOffSurface`), identically banded, so
+  the verdict holds in every build. Gate: 0 regression, 1 class moved.

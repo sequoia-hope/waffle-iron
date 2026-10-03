@@ -403,6 +403,27 @@ pub enum KernelV2Error {
     /// is already closed to better than this.
     AnalyticVertexOffSurface { face: usize },
 
+    /// The CENTRE of a circle or ellipse bounding an imported analytic PLANAR
+    /// face lies further off that face's own plane than the import band —
+    /// the curve half of the on-surface gate, of which
+    /// [`KernelV2Error::AnalyticVertexOffSurface`] is the vertex half.
+    /// `face` indexes the shell's face table; `KV2_INGEST_PROBE` dumps the
+    /// residual and the band.
+    ///
+    /// A loop vertex and its curve are two separate claims the file makes, and
+    /// passing the vertex gate says nothing about the curve: ABC
+    /// `00009298_f8dbe7d6802d4f918bc23332_step_002` writes an arc whose two
+    /// endpoints are on the face plane to 1e-16 and whose `CIRCLE` centre is
+    /// **1.364e-9 m off it** (the centre's x is written at 12 significant
+    /// digits where the rest of the file carries 15). Until this gate existed
+    /// that claim was only checked by the strict-tier tripwire in
+    /// [`crate::validate`], which compiles out of a release build without
+    /// `strict-validation` — so the shipping app ingested the face as *exact*
+    /// while the test tier refused the same file, and an arc centre a full
+    /// MICRON off its plane was accepted (measured 2026-10-03). A production
+    /// gate here makes the verdict the same in every build.
+    AnalyticCurveOffSurface { face: usize },
+
     // ----- render tessellation (PR-KV3, `tessellate`) ----------------------
     /// Planar-face tessellation failed: the exact ear-clipping pass could
     /// not find a valid hole bridge or a clippable ear. Unreachable for the

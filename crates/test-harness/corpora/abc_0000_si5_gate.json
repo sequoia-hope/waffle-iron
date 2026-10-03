@@ -13512,7 +13512,7 @@
       "shells": [
         {
           "tier": "mesh",
-          "why": "kernel: validation — NonPlanarFace { face: FaceId(#) }"
+          "why": "kernel: curve centre off the face plane"
         }
       ]
     },

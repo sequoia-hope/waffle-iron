@@ -381,6 +381,7 @@ fn kernel_class(e: &kernel_v2::KernelV2Error) -> String {
         E::AnalyticIngestUnsupported(r) => format!("kernel: unsupported — {r}"),
         E::InvalidAnalyticShell(r) => format!("kernel: invalid shell — {r}"),
         E::AnalyticVertexOffSurface { .. } => "kernel: vertex off surface".to_string(),
+        E::AnalyticCurveOffSurface { .. } => "kernel: curve centre off the face plane".to_string(),
         // Named, not bucketed: the curved orientation/consistency walls carry
         // the violated condition in their payload, and a C7 corpus finding
         // lands on one (the apex-cone patch of `00005451_…_step_005`, whose

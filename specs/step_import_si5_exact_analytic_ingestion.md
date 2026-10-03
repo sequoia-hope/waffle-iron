@@ -1270,3 +1270,41 @@ subset a reader would need — and `si5_census.py` already measures it.
   gate's `kernel_class` names `CurvedGeometryMismatch`'s reason instead of
   bucketing it under `{other:?}`. Gate: 0 regression, 0 progress, 1 class
   moved; reach unchanged at 193/400 (48.2 %).
+- 2026-10-03 (c) — **C7 finding 2 anchored: a FILE defect, and the gate it was
+  hiding behind compiles out of the app.**
+  `00009298_f8dbe7d6802d4f918bc23332_step_002` shell 0 face 4 holds the arc
+  `EDGE_CURVE #323`, whose `CIRCLE #389` has centre `CARTESIAN_POINT #536` at
+  x = −0.0325920247031 — **12 significant digits where the rest of the file
+  carries 15** (the arc's own endpoints read −0.0325920269763299 and
+  −0.0325920262943609) — while the face's `PLANE` anchors at
+  x = −0.0325920260670379 with normal (1, 0, 0). The centre is **1.364e-9 m**
+  off the plane it is claimed to lie in, against an import band of 1.033e-9;
+  the file's declared `UNCERTAINTY_MEASURE_WITH_UNIT` is 1e-6. truck parses
+  the numbers faithfully and the endpoints are on the plane to 1e-16, so
+  there is nothing to fix on our side of the reader and the vertex half of
+  the on-surface gate sees nothing.
+  What WAS ours: that claim was checked **only** by the strict-tier tripwire
+  in `validate::faces` (`#[cfg(any(debug_assertions, feature =
+  "strict-validation"))]`), which compiles out of a release build without the
+  feature — `test-harness` enables it, `wasm-bridge`/`feature-engine` do not.
+  So the test tier refused this file while the shipping app ingested it as
+  *exact*, and an arc centre a full **micron** off its plane was accepted
+  (measured with `cargo test -p kernel-v2 --release`, which is the app's
+  configuration: no `strict-validation`, no `debug_assertions`). Note also
+  that cargo FEATURE UNIFICATION hides the disagreement in any single
+  invocation that builds test-harness too.
+  FIXED structurally: the curve half of the on-surface gate is now a
+  PRODUCTION gate in ingest pass 1 — `KernelV2Error::AnalyticCurveOffSurface`
+  checks every circle/ellipse centre of a PLANAR face's loops against that
+  face's plane, banded by `ingest::curve_band`, which is deliberately
+  identical to `validate::import_band` (a production gate stricter than the
+  tripwire it promotes would be a new wall, not a promotion). The verdict is
+  now the same in every build configuration. Pinned by
+  `a_planar_faces_arc_centre_off_its_plane_is_a_production_refusal_in_every_build`
+  at the corpus face's own radius scale (3e-3 — the band is
+  `max(radius, ‖centre‖∞)`-relative, so a radius-2 fixture would accept the
+  same 1.364e-9 defect). Gate: 0 regression, 0 progress, 1 class moved
+  (`NonPlanarFace` → the named refusal), reach unchanged at 193/400 (48.2 %).
+  **The C7 refusal tail is now: the 540 s CPU model, the 411-of-709 missing
+  `surface_area` closed forms, and `00000062_…_step_003` face 35's CDT ring
+  rejection.**

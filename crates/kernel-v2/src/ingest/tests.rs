@@ -226,14 +226,18 @@ fn a_sphere_bounded_by_straight_edges_is_an_impossible_boundary_not_a_patch() {
 }
 
 #[test]
-fn an_arc_that_does_not_bound_its_face_is_refused_by_the_winding() {
+fn an_arc_that_does_not_bound_its_face_is_refused_by_its_centre() {
     // C4b admits an OPEN circle edge, so this box-with-an-arc — an arc of a
-    // radius-1 circle about the origin pasted onto a unit box's edge, which
-    // bounds none of the faces it is claimed by — no longer stops at the
-    // vocabulary. It stops one step later, at the measurement that cannot be
-    // argued with: with the circular segment's exact area included, no loop of
-    // that face winds as an outer boundary. The refusal moved, it did not
-    // weaken (spec §5.4 — never a flip to taste).
+    // radius-1 circle about the ORIGIN pasted onto a unit box's edge 5, which
+    // bounds none of the two faces it is claimed by — no longer stops at the
+    // vocabulary. It stops at the measurement that cannot be argued with, and
+    // since the curve half of the on-surface gate exists that measurement is
+    // the first and most specific one: edge 5 is claimed by the z = 1 top
+    // face, and the circle's centre is a full metre off that plane. (Before
+    // the gate the same input walled at the loop-winding determination, one
+    // step later — which `a_face_sense_contradicting_its_boundary_is_refused_
+    // not_flipped` pins on its own. The refusal moved earlier and got more
+    // specific; it did not weaken — spec §5.4, never a flip to taste.)
     let mut shell = unit_box();
     shell.edges[5].curve = AnalyticCurve::Circle {
         center: v(0.0, 0.0, 0.0),
@@ -244,10 +248,7 @@ fn an_arc_that_does_not_bound_its_face_is_refused_by_the_winding() {
     let mut arena = BrepArena::new();
     assert_eq!(
         ingest_analytic(&mut arena, &shell),
-        Err(KernelV2Error::InvalidAnalyticShell(
-            "a face has no loop winding as its outer boundary (its declared sense contradicts \
-             its own boundary)"
-        ))
+        Err(KernelV2Error::AnalyticCurveOffSurface { face: 1 })
     );
 }
 
@@ -1854,5 +1855,48 @@ fn an_apex_cone_patch_is_refused_by_name_whichever_way_the_file_rounded_its_apex
             Err(KernelV2Error::AnalyticVertexOffSurface { face: 0 }),
             "dz = {dz:e}"
         );
+    }
+}
+
+#[test]
+fn a_planar_faces_arc_centre_off_its_plane_is_a_production_refusal_in_every_build() {
+    // ABC `00009298_f8dbe7d6802d4f918bc23332_step_002` shell 0 face 4: the
+    // arc `EDGE_CURVE #323`'s `CIRCLE #389` has centre `CARTESIAN_POINT #536`
+    // at x = −0.0325920247031 — written at 12 significant digits where the
+    // rest of the file carries 15 — while the face's own `PLANE` anchors at
+    // x = −0.0325920260670379. That is 1.364e-9 m off a plane whose normal is
+    // (1, 0, 0), against a band of 1.033e-9; the arc's two ENDPOINTS are on
+    // that plane to 1e-16, so the vertex half of the on-surface gate sees
+    // nothing. Until the curve half existed the claim was checked only by the
+    // strict-tier tripwire, which compiles out of a release build without
+    // `strict-validation`: the shipping app accepted an arc centre a MICRON
+    // off its plane (measured 2026-10-03), while the test tier refused the
+    // real file. Same radius scale as the corpus face, so the band is too.
+    let (radius, h) = (3e-3, 3e-3);
+    for (dz, want_ok) in [
+        (0.0, true),
+        (1e-13, true),
+        (1.364e-9, false), // the corpus file's own measured residual
+        (1e-6, false),
+    ] {
+        let mut shell = half_round(radius, h);
+        shell.edges[0].curve = AnalyticCurve::Circle {
+            center: v(0.0, 0.0, dz),
+            normal: Z,
+            radius,
+            interior: v(0.0, radius, 0.0),
+        };
+        let mut arena = BrepArena::new();
+        let got = ingest_analytic(&mut arena, &shell);
+        assert_eq!(
+            got.is_ok(),
+            want_ok,
+            "dz = {dz:e} should {} — got {got:?}",
+            if want_ok { "ingest" } else { "be refused" }
+        );
+        if !want_ok {
+            // Face 1 is the bottom half-disc, the planar face the arc bounds.
+            assert_eq!(got, Err(KernelV2Error::AnalyticCurveOffSurface { face: 1 }));
+        }
     }
 }
