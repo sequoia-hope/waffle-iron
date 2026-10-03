@@ -59,30 +59,20 @@ import {
 	projectEdgeChain,
 	faceBoundaryPreview,
 	setToolHint,
-	getActiveTool
+	getActiveTool,
+	applySketchOps,
+	querySketch
 } from '$lib/engine/store.svelte.js';
-import {
-	findLineLineIntersection,
-	findLineCircleIntersections,
-	findArcLineIntersections,
-	distanceToLineSegment,
-	angleBisector,
-	perpendicularFoot,
-	parameterOnSegment
-} from './geometry-utils.js';
 import { log } from '$lib/engine/logger.js';
 import { detectSnaps, collectSnapCandidates } from './snap.js';
 import { computeConstraintBadges } from './constraintBadges.js';
 import { profileToPolygon, pointInPolygon } from './profiles.js';
-import { findConnectedChain, orderChain } from './chain.js';
 import { findBodyEdgeChain, bodyChainPolylines2D } from './bodyChain.js';
-import {
-	resolveChainSegments,
-	offsetChainSegments,
-	signedDistanceToChain,
-	segmentsToPolylines,
-	RADIUS_EPS
-} from './offset.js';
+// Offset/trim/fillet geometry lives in `sketch_solver::ops` (S1,
+// `specs/agent_mechanical_design.md` §10.1): this file asks the engine
+// through `applySketchOps` / `querySketch` and keeps pointer handling.
+/** Signed distances below this are no offset at all (ops `RADIUS_EPS`). */
+const RADIUS_EPS = 1e-9;
 import { showToast } from '$lib/ui/toast.svelte.js';
 import { setPreview, setSnapIndicator, setSnapCandidates, getPreview as _getPreview, getSnapIndicator as _getSnapIndicator, getSnapCandidates as _getSnapCandidates } from './sketchToolState.svelte.js';
 import { buildSketchPlane } from './sketchCoords.js';
@@ -93,6 +83,28 @@ import { DRAG_THRESHOLD_PX, DRAG_MIN_DURATION_MS, DRAG_COMMIT_PX, CANDIDATE_DEDU
 
 /** @type {string} */
 let toolState = 'idle';
+
+/**
+ * Sequence for the engine's geometry queries (S1). A pointermove fires a
+ * round trip; a later move must win whatever order the answers come back in,
+ * so an answer whose sequence is no longer the newest is dropped rather than
+ * drawn over a fresher preview.
+ */
+let sketchQuerySeq = 0;
+
+/**
+ * Ask the engine a geometry question for a preview, and apply the answer
+ * only if nothing newer was asked meanwhile.
+ * @param {object} query - a `SketchQuery`
+ * @param {(result: object | null) => void} apply
+ */
+function previewQuery(query, apply) {
+	const seq = ++sketchQuerySeq;
+	querySketch(query).then((result) => {
+		if (seq !== sketchQuerySeq) return;
+		apply(result);
+	});
+}
 
 // -- Click-and-drag state --
 let isDragging = false;
@@ -1312,11 +1324,15 @@ function handleSelectTool(eventType, x, y, screenPixelSize, shiftKey) {
 		// (shift: union into the existing selection). Branch table rows 1-3 in
 		// specs/sketch_chain_offset.md; gears keep their edit-dialog gesture.
 		if (gearId == null && lastSelectClickEntity === hitId && lastSelectClickTime && (now - lastSelectClickTime) < 400) {
-			const chain = findConnectedChain(hitId, getSketchEntities(), getSketchPositions());
-			const next = shiftKey ? new Set(selection) : new Set();
-			for (const id of chain) next.add(id);
-			setSketchSelection(next);
-			log('sketch', 'Chain select', { seed: hitId, size: chain.length });
+			// Connectivity is engine geometry (S1): the same weld tolerance and
+			// union-find the offset tool and `sketch_edit` use, asked once.
+			const base = shiftKey ? new Set(selection) : new Set();
+			connectedChain(hitId).then((chain) => {
+				const next = new Set(base);
+				for (const id of chain) next.add(id);
+				setSketchSelection(next);
+				log('sketch', 'Chain select', { seed: hitId, size: chain.length });
+			});
 			lastSelectClickTime = null;
 			lastSelectClickEntity = null;
 			return;
@@ -1833,6 +1849,11 @@ function projectBodyTarget(target) {
 	return getSketchEntities().filter((e) => !before.has(e.id) && entityChainable(e));
 }
 
+/** True for entity types that can participate in an offset chain. */
+function entityChainable(e) {
+	return e.type === 'Line' || e.type === 'Arc' || e.type === 'Circle';
+}
+
 /**
  * Tool-first FACE click, called by CadModel.handleClick — the only place a
  * face ref resolves reliably at click time (the Threlte face hover only
@@ -1855,7 +1876,7 @@ export function handleBodyFaceClick(ref) {
 	if (tool === 'offset' && !offsetArmed) {
 		const created = projectBodyTarget({ kind: 'face', ref, mesh: null, indices: [] });
 		if (created.length) {
-			armOffset(findConnectedChain(created[0].id, getSketchEntities(), getSketchPositions()));
+			armChainThrough(created[0].id, false);
 		} else {
 			showToast('info', 'Nothing offsettable was projected from that face');
 		}
@@ -1971,82 +1992,61 @@ export function projectRef(ref) {
 // See specs/sketch_chain_offset.md.
 
 /**
- * Build traversal segments for a set of entity ids. A lone Circle becomes a
- * single {type:'circle'} segment; anything else must order into a simple
- * open/closed chain of lines and arcs.
- * @param {number[]} ids
- * @returns {{ segments: Array<object>, closed: boolean, circleId: number | null } | null} null after toasting the reason.
- */
-function buildOffsetChain(ids) {
-	const entities = getSketchEntities();
-	const positions = getSketchPositions();
-
-	if (ids.length === 1) {
-		const e = entities.find((en) => en.id === ids[0]);
-		if (e?.type === 'Circle') {
-			const c = positions.get(e.center_id);
-			if (!c) return null;
-			return {
-				segments: [{ type: 'circle', center: { ...c }, r: e.radius }],
-				closed: true,
-				circleId: e.id,
-			};
-		}
-	}
-
-	const ordered = orderChain(ids, entities, positions);
-	if (ordered.error) {
-		if (ordered.error === 'branching') {
-			showToast('info', 'Offset needs a simple chain (no branches)');
-		} else if (ordered.error === 'unsupported') {
-			showToast('info', 'Offset supports lines, arcs, and circles');
-		} else {
-			showToast('info', 'Selection is not a connected chain');
-		}
-		return null;
-	}
-	const resolved = resolveChainSegments(ordered.items, entities, positions);
-	if (resolved.error) {
-		showToast('info', resolved.error === 'unsupported-entity'
-			? 'Offset supports lines, arcs, and circles (not splines)'
-			: 'Offset could not resolve the chain geometry');
-		return null;
-	}
-	return { segments: resolved.segments, closed: ordered.closed, circleId: null };
-}
-
-/**
- * Arm the offset tool with the chain containing `seedId` (or an explicit
- * multi-entity selection). Returns true when armed.
+ * Arm the offset tool on a set of entity ids: ask the engine whether they are
+ * an offsettable chain, and remember what it said.
+ *
+ * `buildOffsetChain` used to resolve the traversal segments here in JS and
+ * keep them in module state; the segments are the engine's business now (S1),
+ * so the armed state is just the ids plus what the last preview reported.
  * @param {number[]} ids
  */
-function armOffset(ids) {
-	const chain = buildOffsetChain(ids);
-	if (!chain) return false;
-	offsetArmed = { ...chain, currentD: 0 };
+async function armOffset(ids) {
+	const result = await querySketch({ type: 'OffsetPreview', chain: ids });
+	if (result?.type !== 'OffsetPreview') {
+		showToast('info', offsetRefusalText(result?.reason));
+		return false;
+	}
+	offsetArmed = { ids: [...ids], closed: result.closed, size: result.size, currentD: 0 };
 	offsetHoverCache = null;
 	setToolHint('Offset armed: move to choose the side, click, then type the exact distance');
-	log('sketch', 'Offset armed', { entities: ids.length, closed: chain.closed });
+	log('sketch', 'Offset armed', { entities: ids.length, closed: result.closed });
 	return true;
+}
+
+/** A refusal tag from the ops vocabulary, as a sentence for the user. */
+function offsetRefusalText(reason) {
+	switch (reason) {
+		case 'branching':
+			return 'Offset needs a simple chain (no branches)';
+		case 'unsupported':
+		case 'unsupported-entity':
+			return 'Offset supports lines, arcs, and circles (not splines)';
+		case 'disconnected':
+			return 'Selection is not a connected chain';
+		case 'radius-collapse':
+			return 'Offset too large: an arc radius would collapse';
+		case 'empty':
+			return 'Nothing to offset';
+		default:
+			return 'Offset could not resolve the chain geometry';
+	}
 }
 
 /**
  * Select-first entry (Toolbar `o` / Offset button with a live selection):
  * seed from the current sketch selection — a single chainable entity expands
  * to its whole chain, an explicit multi-selection is offset as-is.
- * @returns {boolean} true when the tool armed from the selection.
+ * @returns {Promise<boolean>} true when the tool armed from the selection.
  */
-export function seedOffsetFromSelection() {
+export async function seedOffsetFromSelection() {
 	const sel = [...getSketchSelection()];
 	if (!sel.length) return false;
 	const entities = getSketchEntities();
 	// Points in the selection are chain endpoints, not offset subjects.
 	const ids = sel.filter((id) => entities.find((e) => e.id === id)?.type !== 'Point');
 	if (!ids.length) return false;
-	const expanded = ids.length === 1
-		? findConnectedChain(ids[0], entities, getSketchPositions())
-		: ids;
-	return armOffset(expanded);
+	const expanded = ids.length === 1 ? await connectedChain(ids[0]) : ids;
+	return armOffset(expanded.length ? expanded : ids);
 }
 
 /**
@@ -2055,79 +2055,79 @@ export function seedOffsetFromSelection() {
  */
 export function getOffsetToolState() {
 	return offsetArmed
-		? { armed: true, closed: offsetArmed.closed, segmentCount: offsetArmed.segments.length, currentD: offsetArmed.currentD }
+		? { armed: true, closed: offsetArmed.closed, segmentCount: offsetArmed.size, currentD: offsetArmed.currentD }
 		: { armed: false, closed: null, segmentCount: 0, currentD: null };
 }
 
-/** Signed cursor distance for the armed chain (circle: + grows outward). */
-function offsetCursorDistance(x, y) {
-	const seg = offsetArmed.segments[0];
-	if (seg.type === 'circle') {
-		return Math.hypot(x - seg.center.x, y - seg.center.y) - seg.r;
-	}
-	return signedDistanceToChain(offsetArmed.segments, { x, y });
-}
-
 /**
- * Offset result segments for the armed chain at signed distance d, or null
- * (radius collapse / degenerate).
+ * Offset tool. Hover ghosts the chain under the cursor; a click arms it; a
+ * move picks the side and magnitude; a second click opens the exact-value
+ * popup, which commits.
+ *
+ * Every piece of geometry here — the chain, its signed distance from the
+ * cursor, the parallel outline, the committed entities — comes from
+ * `sketch_solver::ops` (S1). What stays is the gesture.
  */
-function computeArmedOffset(d) {
-	const seg = offsetArmed.segments[0];
-	if (seg.type === 'circle') {
-		const r = seg.r + d;
-		if (r <= RADIUS_EPS) return null;
-		return { segments: [{ type: 'circle', center: seg.center, r }], closed: true };
-	}
-	const result = offsetChainSegments(offsetArmed.segments, offsetArmed.closed, d);
-	return result.error ? null : result;
-}
-
 function handleOffsetTool(eventType, x, y, screenPixelSize, altKey) {
 	setSnapIndicator(null);
 
 	if (eventType === 'pointermove') {
 		if (offsetArmed) {
-			const d = offsetCursorDistance(x, y);
-			offsetArmed.currentD = d;
-			const result = Math.abs(d) > RADIUS_EPS ? computeArmedOffset(d) : null;
-			setPreview(result
-				? { type: 'offset-preview', data: { polylines: segmentsToPolylines(result.segments, result.closed) } }
-				: null);
+			previewQuery(
+				{ type: 'OffsetPreview', chain: offsetArmed.ids, cursor: [x, y] },
+				(result) => {
+					if (result?.type !== 'OffsetPreview') {
+						setPreview(null);
+						return;
+					}
+					offsetArmed.currentD = result.signed_distance ?? 0;
+					setPreview(
+						result.polyline.length >= 2
+							? { type: 'offset-preview', data: { polylines: [result.polyline] } }
+							: null
+					);
+				}
+			);
 			return;
 		}
 		// Unarmed: ghost the SKETCH chain under the cursor (cached per hovered
-		// entity — recomputing connectivity on every pointermove is wasted
-		// work on big projected outlines)…
+		// entity — a round trip on every pointermove over a big projected
+		// outline is wasted work)...
 		const hitId = hitTest(x, y, screenPixelSize);
 		setSketchHover(hitId);
 		if (hitId != null) {
 			setHoveredRef(null);
 			if (offsetHoverCache?.seed !== hitId || offsetHoverCache?.alt !== !!altKey) {
-				const chainIds = altKey
-					? [hitId]
-					: findConnectedChain(hitId, getSketchEntities(), getSketchPositions());
-				const ordered = orderChain(chainIds, getSketchEntities(), getSketchPositions());
-				const resolved = ordered.error ? null : resolveChainSegments(ordered.items, getSketchEntities(), getSketchPositions());
-				offsetHoverCache = {
-					seed: hitId,
-					alt: !!altKey,
-					size: chainIds.length,
-					closed: !ordered.error && ordered.closed,
-					polylines: resolved && !resolved.error
-						? segmentsToPolylines(resolved.segments, ordered.closed)
-						: null,
-				};
+				offsetHoverCache = { seed: hitId, alt: !!altKey, size: 0, closed: false, polyline: null };
+				previewQuery({ type: 'Chain', seed: hitId, only_seed: !!altKey }, async (chain) => {
+					if (chain?.type !== 'Chain') return;
+					const preview = await querySketch({ type: 'OffsetPreview', chain: chain.ids });
+					if (offsetHoverCache?.seed !== hitId) return;
+					offsetHoverCache = {
+						seed: hitId,
+						alt: !!altKey,
+						ids: chain.ids,
+						size: chain.ids.length,
+						closed: preview?.type === 'OffsetPreview' ? preview.closed : false,
+						polyline: preview?.type === 'OffsetPreview' ? preview.polyline : null
+					};
+					if (offsetHoverCache.polyline?.length >= 2) {
+						setPreview({ type: 'offset-preview', data: { polylines: [offsetHoverCache.polyline] } });
+						const altHint = !altKey && offsetHoverCache.size > 1 ? ' · Alt-click: this entity only' : '';
+						setToolHint(`Offset: click to pick this ${offsetHoverCache.closed ? 'closed loop' : 'chain'} (${offsetHoverCache.size} entities)${altHint}`);
+					}
+				});
+				return;
 			}
-			if (offsetHoverCache.polylines) {
-				setPreview({ type: 'offset-preview', data: { polylines: offsetHoverCache.polylines } });
+			if (offsetHoverCache.polyline?.length >= 2) {
+				setPreview({ type: 'offset-preview', data: { polylines: [offsetHoverCache.polyline] } });
 				const altHint = !altKey && offsetHoverCache.size > 1 ? ' · Alt-click: this entity only' : '';
 				setToolHint(`Offset: click to pick this ${offsetHoverCache.closed ? 'closed loop' : 'chain'} (${offsetHoverCache.size} entities)${altHint}`);
 				return;
 			}
 		} else {
 			offsetHoverCache = null;
-			// …or the BODY chain/face boundary (projects on click, then offsets).
+			// ...or the BODY chain/face boundary (projects on click, then offsets).
 			const target = bodyChainTarget(altKey);
 			if (showBodyTargetPreview(target, 'Offset: click to project + offset this')) return;
 		}
@@ -2141,20 +2141,18 @@ function handleOffsetTool(eventType, x, y, screenPixelSize, altKey) {
 	if (!offsetArmed) {
 		const hitId = hitTest(x, y, screenPixelSize);
 		if (hitId != null) {
-			armOffset(altKey
-				? [hitId]
-				: findConnectedChain(hitId, getSketchEntities(), getSketchPositions()));
+			armChainThrough(hitId, altKey);
 			return;
 		}
-		// No sketch entity — a hovered body EDGE chain projects first, then
+		// No sketch entity - a hovered body EDGE chain projects first, then
 		// the projected chain arms the offset (project-with-offset). Faces
-		// arm via CadModel.handleClick → handleBodyFaceClick (the face ref
+		// arm via CadModel.handleClick -> handleBodyFaceClick (the face ref
 		// only resolves reliably there).
 		const target = bodyChainTarget(altKey);
 		if (target && target.kind === 'edge') {
 			const created = projectBodyTarget(target);
 			if (created.length) {
-				armOffset(findConnectedChain(created[0].id, getSketchEntities(), getSketchPositions()));
+				armChainThrough(created[0].id, false);
 			} else {
 				showToast('info', 'Nothing offsettable was projected from that edge');
 			}
@@ -2165,9 +2163,28 @@ function handleOffsetTool(eventType, x, y, screenPixelSize, altKey) {
 
 	// Armed + click: freeze side/magnitude from the cursor and open the exact
 	// value popup. Enter commits via customApply; Escape/blur just dismisses.
-	const d = offsetArmed.currentD;
+	openOffsetPopup(x, y);
+}
+
+/**
+ * Open the exact-distance popup for the armed chain. The signed distance
+ * comes from the last preview when there is one, and is asked for here when
+ * the click beat the hover's round trip.
+ */
+async function openOffsetPopup(x, y) {
+	let d = offsetArmed?.currentD ?? 0;
+	if (Math.abs(d) < RADIUS_EPS) {
+		const result = await querySketch({
+			type: 'OffsetPreview',
+			chain: offsetArmed?.ids ?? [],
+			cursor: [x, y]
+		});
+		if (result?.type !== 'OffsetPreview' || !offsetArmed) return;
+		d = result.signed_distance ?? 0;
+		offsetArmed.currentD = d;
+	}
 	if (Math.abs(d) < RADIUS_EPS) return;
-	const side = Math.sign(d);
+	const side = d < 0 ? 'Right' : 'Left';
 	showDimensionPopup({
 		entityA: null,
 		entityB: null,
@@ -2175,42 +2192,37 @@ function handleOffsetTool(eventType, x, y, screenPixelSize, altKey) {
 		sketchY: y,
 		dimType: 'distance',
 		defaultValue: parseFloat(Math.abs(d).toPrecision(6)),
-		customApply: (value) => commitOffset(side * value),
+		customApply: (value) => commitOffset(value, side)
 	});
 }
 
-/** True for entity types that can participate in an offset chain. */
-function entityChainable(e) {
-	return e.type === 'Line' || e.type === 'Arc' || e.type === 'Circle';
+/** The connected chain through an entity, from the engine (S1). */
+async function connectedChain(seedId, onlySeed = false) {
+	const result = await querySketch({ type: 'Chain', seed: seedId, only_seed: onlySeed });
+	return result?.type === 'Chain' ? result.ids : [seedId];
+}
+
+/** Arm the offset tool on the chain through `seedId`. */
+async function armChainThrough(seedId, onlySeed) {
+	await armOffset(await connectedChain(seedId, onlySeed));
 }
 
 /**
- * Create real sketch entities for the armed chain offset at signed distance
- * d, as one undo action. Keeps the tool armed on typed radius collapse so
+ * Commit the armed chain's offset at an exact distance, as one undo step.
+ * Keeps the tool armed when the engine refuses (a typed radius collapse), so
  * the user can retry with a smaller value.
- * @param {number} d
+ * @param {number} value - magnitude, always positive
+ * @param {'Left' | 'Right'} side
  */
-function commitOffset(d) {
+async function commitOffset(value, side) {
 	if (!offsetArmed) return;
-	const result = computeArmedOffset(d);
-	if (!result) {
-		showToast('warning', 'Offset too large: an arc radius would collapse');
-		return;
-	}
+	const armed = offsetArmed;
+	const applied = await applySketchOps([
+		{ type: 'Offset', chain: armed.ids, distance: Math.abs(value), side }
+	]);
+	if (!applied) return; // the engine's typed refusal was already surfaced
 
-	beginSketchAction();
-	const seg0 = result.segments[0];
-	if (seg0.type === 'circle') {
-		const centerId = allocEntityId();
-		addLocalEntity({ type: 'Point', id: centerId, x: seg0.center.x, y: seg0.center.y, construction: false });
-		addLocalEntity({ type: 'Circle', id: allocEntityId(), center_id: centerId, radius: seg0.r, construction: false });
-	} else {
-		createEntitiesFromSegments(result.segments, result.closed);
-	}
-	endSketchAction();
-
-	const n = result.segments.length;
-	log('sketch', 'Offset committed', { d, segments: n });
+	log('sketch', 'Offset committed', { value, side, added: applied.edit?.added?.length ?? 0 });
 	setPreview(null);
 	setToolHint(null);
 	offsetArmed = null;
@@ -2218,52 +2230,6 @@ function commitOffset(d) {
 	bodyHoverCache = null;
 }
 
-/**
- * Materialize offset segments as Points + Lines/Arcs. Consecutive segments
- * share their joint Point; a closed chain also shares last→first. Arc
- * entities are CCW start→end (O2), so CW-traversal segments swap endpoints.
- * @param {Array<object>} segments
- * @param {boolean} closed
- */
-function createEntitiesFromSegments(segments, closed) {
-	const newPoint = (p) => {
-		const id = allocEntityId();
-		addLocalEntity({ type: 'Point', id, x: p.x, y: p.y, construction: false });
-		return id;
-	};
-	const startOf = (seg) => (seg.type === 'line'
-		? seg.p0
-		: { x: seg.center.x + seg.r * Math.cos(seg.a0), y: seg.center.y + seg.r * Math.sin(seg.a0) });
-	const endOf = (seg) => (seg.type === 'line'
-		? seg.p1
-		: { x: seg.center.x + seg.r * Math.cos(seg.a1), y: seg.center.y + seg.r * Math.sin(seg.a1) });
-
-	const jointIds = [];
-	jointIds.push(newPoint(startOf(segments[0])));
-	for (let i = 0; i < segments.length; i++) {
-		const isLast = i === segments.length - 1;
-		const endId = isLast && closed ? jointIds[0] : newPoint(endOf(segments[i]));
-		jointIds.push(endId);
-	}
-
-	segments.forEach((seg, i) => {
-		const sId = jointIds[i];
-		const eId = jointIds[i + 1];
-		if (seg.type === 'line') {
-			addLocalEntity({ type: 'Line', id: allocEntityId(), start_id: sId, end_id: eId, construction: false });
-		} else {
-			const centerId = newPoint(seg.center);
-			addLocalEntity({
-				type: 'Arc',
-				id: allocEntityId(),
-				center_id: centerId,
-				start_id: seg.ccw ? sId : eId,
-				end_id: seg.ccw ? eId : sId,
-				construction: false,
-			});
-		}
-	});
-}
 
 // ---- Slot Tool ----
 
@@ -2596,460 +2562,155 @@ function handlePlanetaryTool(eventType, x, y, screenPixelSize) {
 
 // ---- Trim Tool ----
 
+/**
+ * Trim tool: hover highlights the piece of a line under the cursor, a click
+ * commits it.
+ *
+ * Both the highlight and the commit are `sketch_solver::ops::trim` (S1): the
+ * bracketing that decides WHICH piece the cursor is in used to be duplicated
+ * here in JS, and a highlight that disagreed with the click was a bug nobody
+ * could see. The query is asynchronous, so a stale answer is dropped by
+ * sequence (`previewQuery`).
+ */
 function handleTrimTool(eventType, x, y, screenPixelSize) {
 	setSnapIndicator(null);
 
 	if (eventType === 'pointermove') {
 		const hitId = hitTest(x, y, screenPixelSize);
 		setSketchHover(hitId);
-
-		if (hitId == null) {
-			trimHighlight = null;
-			setPreview(null);
-			return;
-		}
-
-		const entities = getSketchEntities();
-		const positions = getSketchPositions();
-		const entity = entities.find(e => e.id === hitId);
+		const entity = hitId == null ? null : getSketchEntities().find((e) => e.id === hitId);
 		if (!entity || entity.type === 'Point') {
 			trimHighlight = null;
 			setPreview(null);
 			return;
 		}
-
-		// Compute intersections between this entity and all others
-		const intersections = findEntityIntersections(entity, entities, positions);
-
-		if (entity.type === 'Line') {
-			const p1 = positions.get(entity.start_id);
-			const p2 = positions.get(entity.end_id);
-			if (!p1 || !p2) return;
-
-			// Project intersection points onto the line parameter [0, 1]
-			const params = intersections.map(pt => parameterOnSegment(pt, p1, p2));
-			// Add endpoints at t=0 and t=1
-			params.push(0, 1);
-			params.sort((a, b) => a - b);
-
-			// Find the cursor's parameter
-			const cursorT = parameterOnSegment({ x, y }, p1, p2);
-
-			// Find bracketing parameters
-			let segStartT = 0, segEndT = 1;
-			for (let i = 0; i < params.length - 1; i++) {
-				if (params[i] <= cursorT + 1e-8 && params[i + 1] >= cursorT - 1e-8) {
-					segStartT = params[i];
-					segEndT = params[i + 1];
-					break;
+		previewQuery({ type: 'TrimPreview', entity: hitId, at: [x, y] }, (result) => {
+			if (result?.type !== 'TrimPreview') {
+				trimHighlight = null;
+				setPreview(null);
+				return;
+			}
+			trimHighlight = { entityId: hitId, at: [x, y], cuts: result.cuts };
+			// A curve previews as its own start point (no piece-wise trim for
+			// one yet — a click removes it whole), so there is nothing to draw.
+			if (entity.type !== 'Line') {
+				setPreview(null);
+				return;
+			}
+			setPreview({
+				type: 'trim-highlight',
+				data: {
+					points: [
+						{ x: result.start[0], y: result.start[1] },
+						{ x: result.end[0], y: result.end[1] }
+					]
 				}
-			}
-
-			const segStart = { x: p1.x + segStartT * (p2.x - p1.x), y: p1.y + segStartT * (p2.y - p1.y) };
-			const segEnd = { x: p1.x + segEndT * (p2.x - p1.x), y: p1.y + segEndT * (p2.y - p1.y) };
-
-			// Only highlight if there are actual intersection points to split at
-			if (intersections.length > 0) {
-				trimHighlight = {
-					entityId: hitId,
-					segStart, segEnd,
-					segStartT, segEndT,
-					splitPoints: intersections
-				};
-				setPreview({
-					type: 'trim-highlight',
-					data: { points: [segStart, segEnd] }
-				});
-			} else {
-				// No intersections — highlight entire entity for deletion
-				trimHighlight = {
-					entityId: hitId,
-					segStart: p1, segEnd: p2,
-					segStartT: 0, segEndT: 1,
-					splitPoints: []
-				};
-				setPreview({
-					type: 'trim-highlight',
-					data: { points: [{ x: p1.x, y: p1.y }, { x: p2.x, y: p2.y }] }
-				});
-			}
-		} else {
-			// For circles/arcs, just highlight for deletion when no intersections
-			trimHighlight = { entityId: hitId, segStart: null, segEnd: null, splitPoints: intersections };
-			setPreview(null);
-		}
+			});
+		});
 		return;
 	}
 
 	if (eventType === 'pointerdown') {
-		if (!trimHighlight) return;
-
-		const entities = getSketchEntities();
-		const positions = getSketchPositions();
-		const entity = entities.find(e => e.id === trimHighlight.entityId);
-		if (!entity) { trimHighlight = null; return; }
-
-		beginSketchAction();
-
-		if (entity.type === 'Line' && trimHighlight.splitPoints.length > 0) {
-			executeTrimLine(entity, trimHighlight, screenPixelSize);
-		} else {
-			// No intersections or non-line: delete the whole entity
-			removeSketchEntities(new Set([trimHighlight.entityId]));
-		}
-
-		endSketchAction();
+		// A click is self-sufficient: the hover query is asynchronous now, so
+		// a fast click (every synthetic one) can arrive before its answer. The
+		// trim op takes the entity and the cursor and does its own bracketing,
+		// so the highlight is a convenience, never a precondition.
+		const entityId = trimHighlight?.entityId ?? hitTest(x, y, screenPixelSize);
+		if (entityId == null) return;
+		const entity = getSketchEntities().find((e) => e.id === entityId);
+		if (!entity || entity.type === 'Point') return;
+		const at = trimHighlight?.entityId === entityId ? trimHighlight.at : [x, y];
 		trimHighlight = null;
 		setPreview(null);
+		applySketchOps([{ type: 'Trim', entity: entityId, at }]);
 	}
-}
-
-/**
- * Execute trim on a line entity: split at intersection points, remove middle segment.
- */
-function executeTrimLine(entity, highlight, screenPixelSize) {
-	const positions = getSketchPositions();
-	const p1 = positions.get(entity.start_id);
-	const p2 = positions.get(entity.end_id);
-	if (!p1 || !p2) return;
-
-	const { segStartT, segEndT } = highlight;
-
-	// Determine which segments survive (those outside the trimmed range)
-	// If trimming from start to an interior point, we keep [segEndT, 1]
-	// If trimming from interior to end, we keep [0, segStartT]
-	// If trimming interior segment, we keep [0, segStartT] and [segEndT, 1]
-
-	const survivors = [];
-	if (segStartT > 0.001) {
-		survivors.push({ t0: 0, t1: segStartT });
-	}
-	if (segEndT < 0.999) {
-		survivors.push({ t0: segEndT, t1: 1 });
-	}
-
-	if (survivors.length === 0) {
-		// Remove entire entity
-		removeSketchEntities(new Set([entity.id]));
-		return;
-	}
-
-	// Remove the original entity (and its orphaned points will be handled)
-	removeSketchEntities(new Set([entity.id]));
-
-	// Create replacement segments
-	for (const seg of survivors) {
-		const sx = p1.x + seg.t0 * (p2.x - p1.x);
-		const sy = p1.y + seg.t0 * (p2.y - p1.y);
-		const ex = p1.x + seg.t1 * (p2.x - p1.x);
-		const ey = p1.y + seg.t1 * (p2.y - p1.y);
-
-		const startPt = findOrCreatePoint(sx, sy, screenPixelSize);
-		const endPt = findOrCreatePoint(ex, ey, screenPixelSize);
-		if (startPt.id === endPt.id) continue;
-
-		const lineId = allocEntityId();
-		addLocalEntity({
-			type: 'Line', id: lineId,
-			start_id: startPt.id, end_id: endPt.id,
-			construction: false
-		});
-	}
-}
-
-/**
- * Find all intersection points between one entity and all other entities.
- * @param {object} entity - The entity to find intersections for
- * @param {Array} allEntities - All sketch entities
- * @param {Map} positions - Position map
- * @returns {Array<{x:number,y:number}>}
- */
-function findEntityIntersections(entity, allEntities, positions) {
-	const results = [];
-
-	if (entity.type === 'Line') {
-		const p1 = positions.get(entity.start_id);
-		const p2 = positions.get(entity.end_id);
-		if (!p1 || !p2) return results;
-
-		for (const other of allEntities) {
-			if (other.id === entity.id) continue;
-
-			if (other.type === 'Line') {
-				const p3 = positions.get(other.start_id);
-				const p4 = positions.get(other.end_id);
-				if (!p3 || !p4) continue;
-
-				const pt = findLineLineIntersection(p1, p2, p3, p4);
-				if (pt) {
-					// Check if intersection is on BOTH segments
-					const t1 = parameterOnSegment(pt, p1, p2);
-					const t2 = parameterOnSegment(pt, p3, p4);
-					if (t1 > 0.001 && t1 < 0.999 && t2 > -0.001 && t2 < 1.001) {
-						results.push(pt);
-					}
-				}
-			} else if (other.type === 'Circle') {
-				const center = positions.get(other.center_id);
-				if (!center) continue;
-				const pts = findLineCircleIntersections(p1, p2, center, other.radius);
-				for (const pt of pts) {
-					const t = parameterOnSegment(pt, p1, p2);
-					if (t > 0.001 && t < 0.999) results.push(pt);
-				}
-			} else if (other.type === 'Arc') {
-				const center = positions.get(other.center_id);
-				const startPt = positions.get(other.start_id);
-				const endPt = positions.get(other.end_id);
-				if (!center || !startPt || !endPt) continue;
-				const radius = Math.sqrt((startPt.x - center.x) ** 2 + (startPt.y - center.y) ** 2);
-				const startAngle = Math.atan2(startPt.y - center.y, startPt.x - center.x);
-				let endAngle = Math.atan2(endPt.y - center.y, endPt.x - center.x);
-				if (endAngle <= startAngle) endAngle += Math.PI * 2;
-
-				const pts = findArcLineIntersections(center, radius, startAngle, endAngle, p1, p2);
-				for (const pt of pts) {
-					const t = parameterOnSegment(pt, p1, p2);
-					if (t > 0.001 && t < 0.999) results.push(pt);
-				}
-			}
-		}
-	}
-
-	return results;
 }
 
 // ---- Sketch Fillet Tool ----
 
+/**
+ * Sketch fillet: hover a corner to see the arc, click to type its radius.
+ *
+ * The arc geometry, the default radius and the "does it fit" refusal are
+ * `sketch_solver::ops::fillet_geometry` / `fillet` (S1). The JS twin computed
+ * the preview with its own trigonometry and then committed with a second
+ * copy of it.
+ */
 function handleSketchFilletTool(eventType, x, y, screenPixelSize) {
 	setSnapIndicator(null);
 
 	if (eventType === 'pointermove') {
 		const hitId = hitTest(x, y, screenPixelSize);
 		setSketchHover(hitId);
-
-		if (hitId == null) {
-			filletCorner = null;
-			setPreview(null);
-			return;
-		}
-
-		// Check if the hovered entity is a point at a corner (shared by exactly 2 lines)
-		const entities = getSketchEntities();
-		const entity = entities.find(e => e.id === hitId);
+		const entity = hitId == null ? null : getSketchEntities().find((e) => e.id === hitId);
 		if (!entity || entity.type !== 'Point') {
 			filletCorner = null;
 			setPreview(null);
 			return;
 		}
-
-		const corner = findCornerAtPoint(hitId);
-		if (!corner) {
-			filletCorner = null;
-			setPreview(null);
-			return;
-		}
-
-		filletCorner = corner;
-
-		// Compute preview arc
-		const positions = getSketchPositions();
-		const pos = positions.get(hitId);
-		if (!pos) return;
-
-		const previewData = computeFilletPreview(corner, positions, null);
-		if (previewData) {
+		previewQuery({ type: 'FilletPreview', corner: hitId }, (result) => {
+			if (result?.type !== 'FilletPreview') {
+				// Not a corner, or a radius that cannot fit: no preview, and
+				// a click does nothing rather than failing silently later.
+				filletCorner = null;
+				setPreview(null);
+				return;
+			}
+			filletCorner = { pointId: hitId, defaultRadius: result.default_radius };
+			const [cx, cy] = result.center;
 			setPreview({
 				type: 'fillet-preview',
-				data: previewData
+				data: {
+					cx,
+					cy,
+					radius: result.radius,
+					startAngle: Math.atan2(result.tangent_a[1] - cy, result.tangent_a[0] - cx),
+					endAngle: Math.atan2(result.tangent_b[1] - cy, result.tangent_b[0] - cx),
+					tp1: { x: result.tangent_a[0], y: result.tangent_a[1] },
+					tp2: { x: result.tangent_b[0], y: result.tangent_b[1] }
+				}
 			});
-		}
+		});
 		return;
 	}
 
 	if (eventType === 'pointerdown') {
-		if (!filletCorner) return;
-
-		const positions = getSketchPositions();
-		const pos = positions.get(filletCorner.pointId);
-		if (!pos) return;
-
-		// Compute default radius from shorter line / 3
-		const line1 = filletCorner.lines[0];
-		const line2 = filletCorner.lines[1];
-		const len1 = lineLength(line1, positions);
-		const len2 = lineLength(line2, positions);
-		const defaultRadius = Math.min(len1, len2) / 3;
-
-		showDimensionPopup({
-			entityA: filletCorner.pointId,
-			entityB: null,
-			sketchX: pos.x,
-			sketchY: pos.y,
-			dimType: 'radius',
-			defaultValue: parseFloat(defaultRadius.toFixed(4)),
-			customApply: (radius) => executeSketchFillet(filletCorner, radius)
-		});
+		// Self-sufficient, like the trim click: the hover query is a round trip
+		// and a fast click can beat it, so the corner is resolved here when the
+		// preview has not landed yet.
+		const pointId = filletCorner?.pointId ?? hitTest(x, y, screenPixelSize);
+		if (pointId == null) return;
+		openFilletPopup(pointId);
 	}
 }
 
 /**
- * Find a corner at a point: the point must be shared by exactly 2 lines.
+ * Open the radius popup for a corner, asking the engine for its default
+ * radius when the hover preview has not already reported one. Refuses
+ * quietly (no popup) when the point is not a corner a fillet can round —
+ * which is what the engine's typed `NotACorner` / `FilletDoesNotFit` says.
  * @param {number} pointId
- * @returns {{ pointId: number, lines: Array<any> } | null}
  */
-function findCornerAtPoint(pointId) {
-	const entities = getSketchEntities();
-	const lines = entities.filter(e =>
-		e.type === 'Line' && (e.start_id === pointId || e.end_id === pointId)
-	);
-	if (lines.length !== 2) return null;
-	return { pointId, lines };
-}
-
-/**
- * Compute the length of a line entity.
- */
-function lineLength(lineEntity, positions) {
-	const p1 = positions.get(lineEntity.start_id);
-	const p2 = positions.get(lineEntity.end_id);
-	if (!p1 || !p2) return 0;
-	return Math.sqrt((p2.x - p1.x) ** 2 + (p2.y - p1.y) ** 2);
-}
-
-/**
- * Compute fillet preview data (arc center, tangent points, radius).
- */
-function computeFilletPreview(corner, positions, overrideRadius) {
-	const pos = positions.get(corner.pointId);
-	if (!pos) return null;
-
-	const line1 = corner.lines[0];
-	const line2 = corner.lines[1];
-
-	// Get the "other" endpoint of each line (the one NOT at the corner)
-	const other1Id = line1.start_id === corner.pointId ? line1.end_id : line1.start_id;
-	const other2Id = line2.start_id === corner.pointId ? line2.end_id : line2.start_id;
-	const other1 = positions.get(other1Id);
-	const other2 = positions.get(other2Id);
-	if (!other1 || !other2) return null;
-
-	// Direction vectors from corner toward each line's other end
-	const dir1 = { x: other1.x - pos.x, y: other1.y - pos.y };
-	const dir2 = { x: other2.x - pos.x, y: other2.y - pos.y };
-	const len1 = Math.sqrt(dir1.x ** 2 + dir1.y ** 2);
-	const len2 = Math.sqrt(dir2.x ** 2 + dir2.y ** 2);
-	if (len1 < 1e-10 || len2 < 1e-10) return null;
-
-	// Normalize
-	dir1.x /= len1; dir1.y /= len1;
-	dir2.x /= len2; dir2.y /= len2;
-
-	// Angle between lines
-	const dot = dir1.x * dir2.x + dir1.y * dir2.y;
-	if (Math.abs(dot) > 0.9999) return null; // lines are parallel
-
-	const halfAngle = Math.acos(Math.min(1, Math.abs(dot))) / 2;
-	// For the fillet, the half-angle between the bisector and a line direction
-	// is (PI - angle_between) / 2
-	const angleB = Math.acos(Math.min(1, Math.abs(dot)));
-	const sinHalf = Math.sin(angleB / 2);
-	if (sinHalf < 1e-10) return null;
-
-	const radius = overrideRadius ?? Math.min(len1, len2) / 3;
-	const distToCenter = radius / sinHalf;
-
-	// Tangent points: project fillet center onto each line
-	const tangentDist = radius / Math.tan(angleB / 2);
-	if (tangentDist > Math.min(len1, len2) - 0.001) return null; // radius too large
-
-	const bisector = angleBisector(dir1, dir2);
-	const center = {
-		x: pos.x + bisector.x * distToCenter,
-		y: pos.y + bisector.y * distToCenter
-	};
-
-	// Tangent points on each line
-	const tp1 = perpendicularFoot(center, pos, other1);
-	const tp2 = perpendicularFoot(center, pos, other2);
-
-	// Arc angles
-	const startAngle = Math.atan2(tp1.y - center.y, tp1.x - center.x);
-	const endAngle = Math.atan2(tp2.y - center.y, tp2.x - center.x);
-
-	return { cx: center.x, cy: center.y, radius, startAngle, endAngle, tp1, tp2 };
-}
-
-/**
- * Execute sketch fillet: modify existing lines and create arc.
- */
-function executeSketchFillet(corner, radius) {
-	if (!corner) return;
-
-	const positions = getSketchPositions();
-	const preview = computeFilletPreview(corner, positions, radius);
-	if (!preview) {
-		log('sketch', 'Cannot apply fillet — radius too large or lines are parallel');
-		return;
+async function openFilletPopup(pointId) {
+	let corner = filletCorner?.pointId === pointId ? filletCorner : null;
+	if (!corner) {
+		const result = await querySketch({ type: 'FilletPreview', corner: pointId });
+		if (result?.type !== 'FilletPreview') return;
+		corner = { pointId, defaultRadius: result.default_radius };
 	}
-
-	beginSketchAction();
-
-	const { tp1, tp2 } = preview;
-
-	// Create tangent point entities
-	const tp1Pt = findOrCreatePoint(tp1.x, tp1.y, 0.001);
-	const tp2Pt = findOrCreatePoint(tp2.x, tp2.y, 0.001);
-
-	// Create arc center (reuse the corner point as it gets freed)
-	// Actually, the arc center must be at preview.cx, preview.cy
-	const arcCenterId = allocEntityId();
-	addLocalEntity({ type: 'Point', id: arcCenterId, x: preview.cx, y: preview.cy, construction: false });
-
-	// Create fillet arc
-	const arcId = allocEntityId();
-	addLocalEntity({
-		type: 'Arc', id: arcId,
-		center_id: arcCenterId,
-		start_id: tp1Pt.id, end_id: tp2Pt.id,
-		construction: false
+	const pos = getSketchPositions().get(pointId);
+	if (!pos) return;
+	showDimensionPopup({
+		entityA: pointId,
+		entityB: null,
+		sketchX: pos.x,
+		sketchY: pos.y,
+		dimType: 'radius',
+		defaultValue: parseFloat(corner.defaultRadius.toFixed(4)),
+		customApply: (radius) => {
+			applySketchOps([{ type: 'Fillet', corner: pointId, radius }]);
+			filletCorner = null;
+			setPreview(null);
+		}
 	});
-
-	// Modify existing line endpoints: move them to tangent points
-	// Line 1: the endpoint at the corner should become tp1
-	const line1 = corner.lines[0];
-	const line2 = corner.lines[1];
-
-	// Recreate the lines with tangent-point endpoints BEFORE removing the old
-	// ones: removeSketchEntities cascade-deletes points that no surviving
-	// entity references, so removing first orphaned the far endpoints and left
-	// the new lines dangling on deleted point ids.
-	const l1OtherId = line1.start_id === corner.pointId ? line1.end_id : line1.start_id;
-	const l2OtherId = line2.start_id === corner.pointId ? line2.end_id : line2.start_id;
-
-	const newLine1Id = allocEntityId();
-	addLocalEntity({
-		type: 'Line', id: newLine1Id,
-		start_id: l1OtherId, end_id: tp1Pt.id,
-		construction: false
-	});
-
-	const newLine2Id = allocEntityId();
-	addLocalEntity({
-		type: 'Line', id: newLine2Id,
-		start_id: l2OtherId, end_id: tp2Pt.id,
-		construction: false
-	});
-
-	removeSketchEntities(new Set([line1.id, line2.id]));
-
-	// Add tangent constraints
-	addLocalConstraint({ type: 'Tangent', line: newLine1Id, curve: arcId });
-	addLocalConstraint({ type: 'Tangent', line: newLine2Id, curve: arcId });
-
-	log('sketch', 'Sketch fillet applied', { radius, arcId });
-
-	endSketchAction();
-	filletCorner = null;
-	setPreview(null);
 }

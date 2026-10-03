@@ -13,7 +13,11 @@ import { log } from './logger.js';
  * stay live during an agent call); the request id on every send is what keeps
  * them safe, since they overtake nothing and answer only themselves.
  */
-const UNGATED_TYPES = new Set(['HoverEntity', 'SelectEntity']);
+// `QuerySketch` is a read-only geometry preview fired on every pointermove
+// (S1): gating it behind the engine lock would stall hover feedback whenever
+// an agent holds the lock, and queue a move's worth of stale answers behind
+// it.
+const UNGATED_TYPES = new Set(['HoverEntity', 'SelectEntity', 'QuerySketch']);
 
 export class EngineBridge {
 	constructor() {

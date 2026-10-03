@@ -40,6 +40,143 @@ mod u32_key_map {
     }
 }
 
+/// The sketch state the UI is holding, as it travels with a sketch-operation
+/// request (S1).
+///
+/// It is a `Sketch` minus the identity and the plane reference, which an
+/// in-progress sketch does not have yet and no operation reads. Positions
+/// come along because the operations run on the geometry the user is LOOKING
+/// at — the solved positions — and not on the entities' declared
+/// coordinates.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct LiveSketch {
+    pub entities: Vec<SketchEntity>,
+    #[serde(default)]
+    pub constraints: Vec<SketchConstraint>,
+    #[serde(default, with = "u32_key_map")]
+    pub solved_positions: HashMap<u32, (f64, f64)>,
+    #[serde(default)]
+    pub projected: Vec<ProjectedEntity>,
+    #[serde(default = "default_origin")]
+    pub plane_origin: [f64; 3],
+    #[serde(default = "default_normal")]
+    pub plane_normal: [f64; 3],
+    #[serde(default)]
+    pub plane_x_axis: Option<[f64; 3]>,
+}
+
+impl LiveSketch {
+    /// This state as a `Sketch` the solver and the operations accept. The id
+    /// and plane reference are placeholders: nothing in `sketch_solver::ops`
+    /// reads either, and an in-progress sketch has no committed identity.
+    pub fn to_sketch(&self) -> waffle_types::Sketch {
+        waffle_types::Sketch {
+            id: Uuid::nil(),
+            plane: GeomRef {
+                kind: waffle_types::TopoKind::Face,
+                anchor: waffle_types::Anchor::Datum {
+                    datum_id: Uuid::nil(),
+                },
+                selector: waffle_types::Selector::Role {
+                    role: waffle_types::Role::ProfileFace,
+                    index: 0,
+                },
+                policy: waffle_types::ResolvePolicy::BestEffort,
+                scope: None,
+            },
+            plane_face: None,
+            plane_origin: self.plane_origin,
+            plane_normal: self.plane_normal,
+            plane_x_axis: self.plane_x_axis,
+            entities: self.entities.clone(),
+            constraints: self.constraints.clone(),
+            solve_status: waffle_types::SolveStatus::Unsolved,
+            solved_positions: self.solved_positions.clone(),
+            solved_profiles: Vec::new(),
+            projected: self.projected.clone(),
+        }
+    }
+}
+
+/// A read-only question about sketch geometry (S1 previews).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(tag = "type")]
+pub enum SketchQuery {
+    /// The connected run of curves through `seed`. `only_seed` is the
+    /// Alt-click case: this entity alone.
+    Chain {
+        seed: u32,
+        #[serde(default)]
+        only_seed: bool,
+    },
+    /// The piece of a line a trim would take, and whether it has any cut at
+    /// all (no intersection ⇒ the whole entity goes).
+    TrimPreview { entity: u32, at: [f64; 2] },
+    /// Where a fillet of `radius` would land; `radius` absent ⇒ the tool's
+    /// default for that corner.
+    FilletPreview {
+        corner: u32,
+        #[serde(default)]
+        radius: Option<f64>,
+    },
+    /// The offset of a chain, as a polyline to draw. `cursor` derives the
+    /// signed distance from a pointer position (the hover case); `distance`
+    /// and `side` give it exactly (the typed-value case). Neither ⇒ the
+    /// chain's own polyline, which is the unarmed hover ghost.
+    OffsetPreview {
+        chain: Vec<u32>,
+        #[serde(default)]
+        cursor: Option<[f64; 2]>,
+        #[serde(default)]
+        distance: Option<f64>,
+        #[serde(default)]
+        side: Option<waffle_types::Side>,
+    },
+}
+
+/// The answer to a [`SketchQuery`]. `Refused` carries the typed reason's tag
+/// (`"branching"`, `"radius-collapse"`, …) — the same vocabulary the
+/// operations refuse with, so a caller never has to map two sets of strings.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(tag = "type")]
+pub enum SketchQueryResult {
+    Chain {
+        ids: Vec<u32>,
+        /// Whether the run closes on itself; `None` when it does not order
+        /// at all (a branch), which is still a valid selection.
+        closed: Option<bool>,
+    },
+    TrimPreview {
+        /// Endpoints of the piece under the cursor.
+        start: [f64; 2],
+        end: [f64; 2],
+        /// Cuts found on the entity. Zero ⇒ a trim removes it whole.
+        cuts: u32,
+    },
+    FilletPreview {
+        center: [f64; 2],
+        radius: f64,
+        tangent_a: [f64; 2],
+        tangent_b: [f64; 2],
+        /// The default radius for this corner, so the tool's popup can
+        /// pre-fill it without a second round trip.
+        default_radius: f64,
+    },
+    OffsetPreview {
+        polyline: Vec<[f64; 2]>,
+        closed: bool,
+        /// Signed distance from `cursor` to the chain, when one was given:
+        /// magnitude is the distance, sign is the side.
+        #[serde(default)]
+        signed_distance: Option<f64>,
+        /// Entities in the chain — the hover hint's count.
+        size: u32,
+    },
+    Refused {
+        reason: String,
+    },
+}
+
 fn default_origin() -> [f64; 3] {
     [0.0, 0.0, 0.0]
 }
@@ -708,6 +845,35 @@ pub enum UiToEngine {
         /// Relative chord tolerance for tessellating curved boundaries.
         #[serde(default)]
         chord_tolerance: Option<f64>,
+    },
+
+    /// Apply sketch operations (S1, `specs/agent_mechanical_design.md` §10.1)
+    /// to the sketch state the UI is holding, and answer with the result.
+    ///
+    /// The live state travels WITH the request, exactly as `SolveSketch`'s
+    /// does, because the UI is the owner of the in-progress sketch and the
+    /// engine's `active_sketch` lags it by a round trip. The engine is the
+    /// owner of the GEOMETRY: what the operations decide, not where the
+    /// pointer was.
+    ApplySketchOps {
+        live: LiveSketch,
+        ops: Vec<waffle_types::SketchOp>,
+        /// The UI's own entity-id counter, so minted ids cannot collide with
+        /// one it has already handed out. `0` ⇒ derive the floor from the
+        /// sketch.
+        #[serde(default)]
+        next_id: u32,
+    },
+
+    /// Ask about sketch geometry without changing anything: the connected
+    /// chain through an entity, and the trim / fillet / offset previews.
+    ///
+    /// A preview computed by different code from the commit is a preview that
+    /// can lie, so the hover feedback and the operation answer come from one
+    /// implementation (§10.1).
+    QuerySketch {
+        live: LiveSketch,
+        query: SketchQuery,
     },
 
     // -- Agent tools --
@@ -1493,6 +1659,31 @@ pub enum EngineToUi {
 
     /// Minimal closed faces of a sketch, in selection order.
     RegionsComputed { regions: Vec<Region> },
+
+    /// Result of `ApplySketchOps`: the sketch AFTER the batch, plus what
+    /// changed and the pins the following solve should see.
+    ///
+    /// The full entity and constraint lists come back rather than only the
+    /// edit, because adopting a whole state is one assignment in the UI while
+    /// replaying an edit is three loops that can disagree with the engine's
+    /// idea of the result. The `edit` is still here: it is what an undo entry
+    /// and a tool's answer are made of.
+    SketchOpsApplied {
+        entities: Vec<SketchEntity>,
+        constraints: Vec<SketchConstraint>,
+        #[serde(default)]
+        projected: Vec<ProjectedEntity>,
+        edit: waffle_types::SketchEdit,
+        /// Constraints for the NEXT solve only — a `MovePoint`'s pin. Never
+        /// persisted (`waffle_types::SketchOp::MovePoint`).
+        #[serde(default)]
+        transient_constraints: Vec<SketchConstraint>,
+        /// The next free entity id: the UI advances its counter to this.
+        next_id: u32,
+    },
+
+    /// Answer to `QuerySketch`.
+    SketchQueried { result: SketchQueryResult },
 
     /// Result of `EvaluateExpression`: exactly one of `value` (mm-space
     /// number) or `error` (user-facing message) is set. `dimension` names

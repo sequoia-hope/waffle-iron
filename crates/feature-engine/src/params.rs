@@ -624,11 +624,12 @@ fn apply_sketch(
         return false;
     }
 
-    // (Re-)solve with DRIVING constraints only (reference dims display, never
-    // constrain — same filter the sketch UI applies before solving).
-    let mut solve_input = sketch.clone();
-    solve_input.constraints.retain(|c| !c.is_reference());
-    let solved = sketch_solver::solve_sketch(&solve_input);
+    // (Re-)solve. Reference dimensions display and never constrain — the
+    // solver drops them from the driving set itself since S2
+    // (`specs/agent_mechanical_design.md` §10.2), so the sketch goes in whole
+    // and every index the result reports is an index into THIS constraint
+    // array. Filtering here as well would silently shift that index space.
+    let solved = sketch_solver::solve_sketch(sketch);
 
     match solved.status {
         SolveStatus::FullyConstrained | SolveStatus::UnderConstrained { .. } => {
