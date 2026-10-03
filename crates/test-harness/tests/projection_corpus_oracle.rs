@@ -309,8 +309,8 @@ fn the_projection_oracle_holds_over_the_whole_assay_corpus() {
     // And so would a sweep where nothing could be BOUNDED: the containment
     // half runs only on a case `solid_aabb` answers for, and it records no
     // problem for one it skips, so a regression that made every solid
-    // unboundable would silence check 1 without failing anything. Measured
-    // 2026-10-03 at stride 8: 210 of 246 pairs bounded, 36 not.
+    // unboundable would silence check 1 without failing anything. At stride 8
+    // the sweep's own measurement is 36 of 246 pairs unbounded, so 210 bounded.
     assert!(
         tally.bounded > tally.unbounded,
         "only {} of {} (case, direction) pairs could be bounded — the \

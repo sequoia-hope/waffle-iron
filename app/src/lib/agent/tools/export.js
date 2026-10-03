@@ -133,7 +133,9 @@ export const exportDxfTool = {
 		'flat-pattern file a laser, waterjet or plasma table consumes. Wireframe: every edge of the model is ' +
 		'drawn on the VISIBLE layer, hidden-line removal and curved-face silhouettes are not implemented yet, ' +
 		'so a view with depth shows the far edges too. Lines, circles and arcs are written as true DXF ' +
-		'entities; anything else is a polyline within 0.01 mm of the curve. Refused with NothingToExport when ' +
+		'entities and a projected ellipse as a polyline within 0.01 mm of it; an intersection or spline ' +
+		'curve is a polyline at the render chord density instead, which is about 0.1% of its own radius, so ' +
+		'on a large part it is looser than 0.01 mm. Refused with NothingToExport when ' +
 		'there are no bodies, InvalidArgument for a view it cannot name, and PayloadTooLarge above 16 MiB for ' +
 		'deliver "agent". specs/drawings_and_mbd.md D1a.',
 	inputSchema: {

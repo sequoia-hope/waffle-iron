@@ -442,9 +442,21 @@ impl Curve2 {
     ///
     /// Exact for a point, a line and a circular arc. An ellipse has no
     /// closed form, so its length is a composite Simpson quadrature of
-    /// `|dP/dt|` over [`ELLIPSE_QUADRATURE_STEPS`] intervals — deterministic,
-    /// and ~1e-12 relative on the aspect ratios a projection produces. A
-    /// polyline's length is the length of the polyline, which is what the
+    /// `|dP/dt|` over [`ELLIPSE_QUADRATURE_STEPS`] intervals.
+    ///
+    /// That quadrature is **deterministic**, which is the property the
+    /// invariance oracles rest on, but its accuracy falls off with the
+    /// ellipse's ASPECT RATIO: `|dP/dt|` approaches `|sin t|` as the minor
+    /// radius vanishes, and Simpson converges slowly near that cusp. Measured
+    /// against a 2,000,000-interval reference: ≤ 1e-13 relative up to aspect
+    /// 20, 9e-11 at 100, and ~2e-7 at 1000 and beyond. A projection reaches
+    /// those ratios — `kernel_v2::projection` reports an ellipse until the
+    /// minor radius falls under `TAU_MODEL`, which is aspect 8e4 on an 8 mm
+    /// rim — so a caller needing a tight length on a nearly edge-on ellipse
+    /// must integrate it itself. Determinism is NOT accuracy, and the two are
+    /// separately load-bearing here.
+    ///
+    /// A polyline's length is the length of the polyline, which is what the
     /// drawing shows.
     pub fn length(&self) -> f64 {
         match *self {
@@ -981,6 +993,65 @@ mod tests {
             end_param: TAU,
         };
         assert!((circle_as_ellipse.length() - 2.0 * TAU).abs() < 1e-10);
+    }
+
+    /// What the ellipse quadrature actually delivers, against a far finer
+    /// reference, so the doc comment's numbers are anchored and a change that
+    /// silently worsens them is caught.
+    ///
+    /// The pairs are `(minor radius, the relative error to allow)` for a unit
+    /// major radius. The point is the SHAPE of the curve: accuracy falls off
+    /// as the ellipse flattens, because `|dP/dt|` tends to `|sin t|` and
+    /// Simpson converges slowly near that cusp.
+    #[test]
+    fn the_ellipse_quadratures_accuracy_falls_off_with_the_aspect_ratio() {
+        // A reference integral of the same speed function, far finer.
+        let reference = |minor: f64| -> f64 {
+            let speed = |t: f64| (t.sin() * t.sin() + minor * minor * t.cos() * t.cos()).sqrt();
+            let n = 2_000_000usize;
+            let h = TAU / n as f64;
+            let mut acc = speed(0.0) + speed(TAU);
+            for i in 1..n {
+                acc += if i % 2 == 1 { 4.0 } else { 2.0 } * speed(h * i as f64);
+            }
+            acc * h / 3.0
+        };
+        for (minor, allow) in [(1.0, 1e-15), (0.05, 1e-13), (1e-2, 1e-10), (1e-3, 1e-6)] {
+            let e = Curve2::Ellipse {
+                center: Point2::new(0.0, 0.0),
+                major_axis: [1.0, 0.0],
+                major_radius: 1.0,
+                minor_radius: minor,
+                start_param: 0.0,
+                end_param: TAU,
+            };
+            let want = reference(minor);
+            let rel = (e.length() - want).abs() / want;
+            assert!(
+                rel <= allow,
+                "aspect {}: relative error {rel} over the allowed {allow}",
+                1.0 / minor
+            );
+        }
+
+        // DETERMINISM is the separate property the invariance oracles rest
+        // on, and it survives the inaccuracy: the speed function is
+        // π-periodic, so the same ellipse parameterized half a turn along —
+        // which is what a 180° view rotation produces — integrates to the
+        // SAME number, not merely a close one.
+        let flat = |start: f64, axis: [f64; 2]| Curve2::Ellipse {
+            center: Point2::new(0.0, 0.0),
+            major_axis: axis,
+            major_radius: 1.0,
+            minor_radius: 1e-3,
+            start_param: start,
+            end_param: start + TAU,
+        };
+        assert_eq!(
+            flat(0.0, [1.0, 0.0]).length(),
+            flat(PI, [-1.0, 0.0]).length(),
+            "a half turn must give the same number, bit for bit"
+        );
     }
 
     #[test]

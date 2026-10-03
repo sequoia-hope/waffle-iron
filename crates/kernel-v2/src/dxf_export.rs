@@ -54,10 +54,25 @@ use waffle_types::kernel::projection::{Aabb2, Curve2, ViewGeometry, Visibility};
 /// Meters → millimetres, as [`crate::step_export`] does.
 const SCALE: f64 = 1000.0;
 
-/// Default chord deviation for a flattened curve, in MODEL units (meters):
-/// 10 µm, i.e. 0.01 mm in the written file — below the kerf and positioning
-/// accuracy of the cutting processes this export serves, so the polyline is
-/// not the limiting error anywhere.
+/// Default chord deviation for a curve this writer FLATTENS, in MODEL units
+/// (meters): 10 µm, i.e. 0.01 mm in the written file — below the kerf and
+/// positioning accuracy of the cutting processes this export serves.
+///
+/// It bounds the [`Curve2::Ellipse`] arm and nothing else. A
+/// [`Curve2::Polyline`] arrives ALREADY sampled, by the projection, at the
+/// render chord density (`tessellate::RENDER_CHORD_TOLERANCE_REL`, a RELATIVE
+/// 1e-3 ⇒ 71 segments per turn), and this writer cannot tighten what it is
+/// handed — the analytic curve is gone by then. That density is 0.0039 mm on
+/// a 4 mm radius but 0.049 mm on a 50 mm one and 0.49 mm on a 500 mm one, so
+/// on a large part a sampled curve is 50× looser than this constant. A caller
+/// who needs a stated bound on those must ask the PROJECTION for it, through
+/// `ProjectOpts::rel_chord_tolerance`.
+///
+/// Which curves those are is the §5.2 increment-1 table: SSI/surface-pair,
+/// hyperbola and 3-D ellipse-arc edges. Lines, circles and circular arcs are
+/// exact entities and the projected ellipse is flattened here, so a part built
+/// from planes and cylinders — the flat-pattern case §12 names — has no
+/// sampled curve in it at all.
 pub const DEFAULT_POLYLINE_SAGITTA: f64 = 1.0e-5;
 
 /// Layer for [`Visibility::Visible`] curves (`specs/drawings_and_mbd.md` §8).
