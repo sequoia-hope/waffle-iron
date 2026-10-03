@@ -735,6 +735,76 @@ regression check, and the legend and labels are asserted exactly. The same
 test asserts the user's camera, selection and visibility are unchanged after
 the call.
 
+### 9.4 V1 as landed
+
+Not `AgentRender.svelte`: the capture stayed on the window event
+`AgentCapture.svelte` already answered, because the viewer page answers the
+same event (§4.12 of `specs/waffle_server_mode.md`) and a second component
+would have given host mode a second implementation. The component only
+gathers renderer, scene, live camera, live orbit target and the store's render
+list; the pass itself is `app/src/lib/viewport/capture.js`.
+
+- **Framing is shared code, not a second copy.** `app/src/lib/viewport/framing.js`
+  holds the standard-view table, the Fit All box, the named-bodies box and the
+  fit distance; `CameraControls` moves the user's camera with it and the
+  capture builds its throwaway camera with it, so a captured `view` + `fit`
+  frames what the View Cube and the F key frame.
+- **Arguments:** `view`, `camera {position, target, up?}`, `projection`,
+  `fit`, `frame`, `size {width, height}`, `max_edge_px` (the pre-V1 spelling,
+  still honoured), `style`, `color_by`, `labels`, `isolate`, `hide`. `fit`
+  defaults to true when `view` or `frame` is given and false otherwise, so a
+  call with no arguments is still a picture of the live view. `isolate`/`hide`
+  are applied BEFORE the fit — "isolate this body and frame it" frames the
+  body. Contradictions are refused, not resolved by precedence: `view` with
+  `camera`, `color_by` with `style: "shaded"`, the same id in `isolate` and
+  `hide`, and `BodyNotFound` for any id the view does not draw.
+- **The pass** renders into a `WebGLRenderTarget` of exactly `size` (so
+  neither the canvas size nor the device pixel ratio is in the result), with
+  every override restored in one `finally` — a refusal cannot leave the user's
+  scene recoloured or a body hidden. `agent` style replaces each body's
+  material with a flat `MeshBasicMaterial` in its legend colour, which is also
+  what keeps hover and selection out of the image; edges go black (rebuilt
+  with `withEdgeDepthBias`, since `Material.copy` does not carry
+  `onBeforeCompile` and a clone would silently lose the bias), vertices are
+  enlarged, the orbit-pivot helper is hidden, and the background is a fixed
+  white. `shaded` re-aims the two directional lights from the capture camera's
+  quaternion, because `Lighting.svelte` aims them in the LIVE camera's frame
+  every frame and a `view: "back"` picture was otherwise lit from the user's
+  shoulder. The edge depth bias is set to the capture height for the pass
+  (`edgeDepthBias.js`), or a capture smaller than the canvas gets the z-fight
+  dashing back.
+- **Antialiasing:** `agent` renders 1:1 — none, by design. `shaded`
+  supersamples ×2 and box-filters down, rather than using a multisampled
+  render target, whose resolve is not deterministic and whose
+  `readRenderTargetPixels` is not portable.
+- **Labels** are placed from the capture camera: project the anchor (face
+  area-weighted centroid, or the top of a body's box), drop what is
+  back-facing or off-frame, drop what fails a first-hit ray against the drawn
+  meshes, then sweep nearest-first and drop any box that would overlap one
+  already placed. A label dropped is in NEITHER the image nor the array, so
+  the two always agree. Each entry is `{kind, text, x, y, body_id, ref}` with
+  `ref` the engine's own `GeomRef` for a face — the text is only the key into
+  the array, never something to parse.
+- **Oracle:** `app/tests/gui/agent-capture-views.spec.js` (5 cases) through the
+  page's own executor: the size on `structuredContent` AND on the PNG's IHDR,
+  the legend's ids and palette colours, both bodies labelled, exactly one face
+  label on a box seen from `top` (the sides are edge-on, the bottom fails the
+  first-hit test), `isolate` driving both the legend and the fit, the live
+  camera unmoved and two calls agreeing, the pre-V1 call unchanged, and each
+  refusal by code.
+- **Host mode** gets all of it: the relay forwards the whole `arguments`
+  object in `capture_request` and returns the page's own structured answer
+  (`viewer.py`), and `link.js` runs the same `VIEWPORT_QUERIES.viewport_capture`.
+
+Left for V2/V3 and recorded here so nothing is silently missing: `section`,
+`sketch: feature_id`, `color_by: "constraint_state"` and `highlight` (V2, they
+need S2's solver state); the `edge_ids`, `dimensions`, `constraints` and
+`connectors` label kinds (the schema's enum refuses them loudly rather than
+drawing nothing); the §9.3 byte oracle (V3). And the "2 px" of §9.1's edge
+style is NOT achieved — WebGL ignores `linewidth`, so GL lines are one device
+pixel; real thickness needs fat lines (`Line2`), which is its own change to
+`EdgeOverlay`.
+
 ## 10. S — Sketcher parity
 
 Owner: `sketch-solver` (S1, S2), `waffle-types` (ops types), `feature-engine`
