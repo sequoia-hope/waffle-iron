@@ -243,14 +243,23 @@ pub struct ProjectOpts {
 
 /// Whether the viewer can see a curve. D1a and D1b tag everything `Visible` —
 /// a silhouette can be hidden too, and `Hidden` is produced by D1c.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+///
+/// Serde-able (unlike [`Curve2`], which is built on the serde-less
+/// `cad_primitives::Point2`) so the app's layout record
+/// ([`crate::annotation::layout`]) can carry the tag straight across the
+/// WASM boundary instead of mirroring it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
+#[cfg_attr(feature = "json-schema", derive(schemars::JsonSchema))]
 pub enum Visibility {
     Visible,
     Hidden,
 }
 
 /// What the curve is in the drawing.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+///
+/// Serde-able for the same reason as [`Visibility`].
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
+#[cfg_attr(feature = "json-schema", derive(schemars::JsonSchema))]
 pub enum CurveKind {
     /// The projection of a B-Rep edge.
     Edge,

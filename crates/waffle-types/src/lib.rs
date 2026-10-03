@@ -1,3 +1,4 @@
+pub mod annotation;
 pub mod bspline;
 pub mod gear;
 pub mod gear_planetary;

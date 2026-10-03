@@ -1,0 +1,1359 @@
+{
+  "$defs": {
+    "Anchor": {
+      "description": "Identifies which feature output contains the target entity.",
+      "oneOf": [
+        {
+          "description": "References an output of a specific feature in the tree.",
+          "properties": {
+            "feature_id": {
+              "format": "uuid",
+              "type": "string"
+            },
+            "output_key": {
+              "$ref": "#/$defs/OutputKey"
+            },
+            "type": {
+              "const": "FeatureOutput",
+              "type": "string"
+            }
+          },
+          "required": [
+            "type",
+            "feature_id",
+            "output_key"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "References a datum (construction plane, axis, or point).",
+          "properties": {
+            "datum_id": {
+              "format": "uuid",
+              "type": "string"
+            },
+            "type": {
+              "const": "Datum",
+              "type": "string"
+            }
+          },
+          "required": [
+            "type",
+            "datum_id"
+          ],
+          "type": "object"
+        }
+      ]
+    },
+    "AxisDescriptor": {
+      "description": "The rotation-invariant content of a face on a surface of revolution: what\nidentifies that face no matter where around the axis you look at it.\n\n**Why a fingerprint needs this** (N0 of `specs/agent_mechanical_design.md`\n§5.1). A face that goes all the way round its axis has no distinguished\npoint: its area-weighted centroid lies ON the axis, where the surface\nnormal is not defined and the direction from the axis to \"the centroid\" is\nwhatever f64 summation rounding left behind — measured at 3.1e-17 m off a\ncylinder's axis, so changing that cylinder's height from 2 to 2.0001 swung\nthe reported centroid 58° round the axis and flipped the reported normal.\nA fingerprint exists to be STABLE, so such a face reports no point normal\nat all and carries this instead: the axis, the on-axis centroid (in\n[`TopoSignature::centroid`], which is a feature — it pins the axial\nposition), and the surface's own radii.\n\nEvery cylinder, cone, sphere and torus face carries one, full turn or not;\nit is read straight off the analytic surface, so it is exact either way.\nWhether the face ALSO has a point normal is what says where its centroid\nis: a face with a normal has its centroid projected onto the surface, a\nface without has it on the axis.",
+      "properties": {
+        "direction": {
+          "description": "Unit axis direction, canonicalised into one half-space so the value\ndoes not depend on which way round the constructor ran the axis.\n`None` for a sphere, which has no distinguished axis.",
+          "items": {
+            "format": "double",
+            "type": "number"
+          },
+          "maxItems": 3,
+          "minItems": 3,
+          "type": [
+            "array",
+            "null"
+          ]
+        },
+        "extent": {
+          "description": "How far this FACE reaches along the axis, in meters — the one field\nhere that is about the trim rather than the surface, so a short band\nand a long one on the same cylinder are told apart. `None` for a\nsphere (no axis to measure along).",
+          "format": "double",
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "half_angle": {
+          "description": "A cone's half-angle, in radians.",
+          "format": "double",
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "minor_radius": {
+          "description": "A torus's tube radius.",
+          "format": "double",
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "radius": {
+          "description": "Distance from the axis: a cylinder's radius, a torus's MAJOR radius, a\nsphere's radius. `None` for a cone, whose radius varies along the axis.",
+          "format": "double",
+          "type": [
+            "number",
+            "null"
+          ]
+        }
+      },
+      "type": "object"
+    },
+    "DimensionKind": {
+      "description": "How a dimension measures its anchors.\n\n§7: \"`DimensionKind` reuses the seven sketch dimension kinds, with\n`Ordinate` added.\" The seven are the value-bearing arms of\n[`crate::sketch::SketchConstraint`] and the names here are deliberately\ntheirs, so the correspondence is checkable by grep rather than by belief.\nThe drafting vocabulary a user sees differs: `Distance` is an **aligned**\ndimension, `HDistance`/`VDistance` are **linear** horizontal/vertical, and\n`Angle` is **angular**. That translation is the UI's.",
+      "oneOf": [
+        {
+          "description": "Aligned linear: the distance between two anchors, measured along the\nline joining them — or, for two parallel lines, between them.\n(`SketchConstraint::Distance`.)",
+          "properties": {
+            "type": {
+              "const": "Distance",
+              "type": "string"
+            }
+          },
+          "required": [
+            "type"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "Perpendicular distance from a point to a line.\n(`SketchConstraint::PointLineDistance`.)",
+          "properties": {
+            "type": {
+              "const": "PointLineDistance",
+              "type": "string"
+            }
+          },
+          "required": [
+            "type"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "`|Δu|` only: the horizontal component, leaving the vertical free.\n(`SketchConstraint::HDistance`.)",
+          "properties": {
+            "type": {
+              "const": "HDistance",
+              "type": "string"
+            }
+          },
+          "required": [
+            "type"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "`|Δv|` only. (`SketchConstraint::VDistance`.)",
+          "properties": {
+            "type": {
+              "const": "VDistance",
+              "type": "string"
+            }
+          },
+          "required": [
+            "type"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "Angle between two lines, in RADIANS. (`SketchConstraint::Angle`;\nnote that constraint's *expression* evaluates in degrees — the\nconversion is the UI's, as everywhere else here.)",
+          "properties": {
+            "type": {
+              "const": "Angle",
+              "type": "string"
+            }
+          },
+          "required": [
+            "type"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "Radius of a circle, arc or ellipse. (`SketchConstraint::Radius`.)",
+          "properties": {
+            "type": {
+              "const": "Radius",
+              "type": "string"
+            }
+          },
+          "required": [
+            "type"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "Diameter — twice the radius, drawn through the centre.\n(`SketchConstraint::Diameter`.)",
+          "properties": {
+            "type": {
+              "const": "Diameter",
+              "type": "string"
+            }
+          },
+          "required": [
+            "type"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "One coordinate of a single anchor, measured from the view's ordinate\norigin along `axis`. Added by §7; it has no sketch counterpart.",
+          "properties": {
+            "axis": {
+              "$ref": "#/$defs/OrdinateAxis"
+            },
+            "type": {
+              "const": "Ordinate",
+              "type": "string"
+            }
+          },
+          "required": [
+            "type",
+            "axis"
+          ],
+          "type": "object"
+        }
+      ]
+    },
+    "Filter": {
+      "description": "Filter predicate for TopoQuery.",
+      "oneOf": [
+        {
+          "description": "Entity's surface/curve type must match.",
+          "properties": {
+            "surface_type": {
+              "type": "string"
+            },
+            "type": {
+              "const": "SurfaceType",
+              "type": "string"
+            }
+          },
+          "required": [
+            "type",
+            "surface_type"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "Entity's normal must be within `tolerance` radians of `direction`.",
+          "properties": {
+            "direction": {
+              "items": {
+                "format": "double",
+                "type": "number"
+              },
+              "maxItems": 3,
+              "minItems": 3,
+              "type": "array"
+            },
+            "tolerance": {
+              "format": "double",
+              "type": "number"
+            },
+            "type": {
+              "const": "NormalDirection",
+              "type": "string"
+            }
+          },
+          "required": [
+            "type",
+            "direction",
+            "tolerance"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "Entity must be within `distance` of `point`.",
+          "properties": {
+            "distance": {
+              "format": "double",
+              "type": "number"
+            },
+            "point": {
+              "items": {
+                "format": "double",
+                "type": "number"
+              },
+              "maxItems": 3,
+              "minItems": 3,
+              "type": "array"
+            },
+            "type": {
+              "const": "NearPoint",
+              "type": "string"
+            }
+          },
+          "required": [
+            "type",
+            "point",
+            "distance"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "Entity's area must be in range [min, max].",
+          "properties": {
+            "max": {
+              "format": "double",
+              "type": "number"
+            },
+            "min": {
+              "format": "double",
+              "type": "number"
+            },
+            "type": {
+              "const": "AreaRange",
+              "type": "string"
+            }
+          },
+          "required": [
+            "type",
+            "min",
+            "max"
+          ],
+          "type": "object"
+        }
+      ]
+    },
+    "GeomRef": {
+      "description": "Persistent geometry reference. The core of the persistent naming system.\nA GeomRef identifies a specific topological entity across parametric rebuilds.",
+      "properties": {
+        "anchor": {
+          "$ref": "#/$defs/Anchor",
+          "description": "Which feature's output contains this entity."
+        },
+        "kind": {
+          "$ref": "#/$defs/TopoKind",
+          "description": "What kind of topological entity this references."
+        },
+        "policy": {
+          "$ref": "#/$defs/ResolvePolicy",
+          "default": {
+            "type": "BestEffort"
+          },
+          "description": "What to do when resolution is ambiguous or fails."
+        },
+        "scope": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/RefScope"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Where the anchor lives when it is NOT in the current tab (v4 §2.8,\nin-context editing): the assembly whose instance owns the geometry\nand the chain of instance ids down to it. Absent ⇒ local (the current\ntab). A reader that does not know this field would silently resolve\nthe anchor locally, so its arrival bumped the reader floor (format v5)."
+        },
+        "selector": {
+          "$ref": "#/$defs/Selector",
+          "description": "How to find the specific entity within the anchor's output."
+        }
+      },
+      "required": [
+        "kind",
+        "anchor",
+        "selector"
+      ],
+      "type": "object"
+    },
+    "Measured": {
+      "description": "What determines a dimension's value.\n\nNever a number a user typed. See the module docs for why this has three\narms where §7 sketched two.",
+      "oneOf": [
+        {
+          "description": "The default: the value is whatever [`measure::measure`] reads off the\nanchors' geometry, recomputed every rebuild. Nothing is stored, so\nnothing can go stale.",
+          "properties": {
+            "type": {
+              "const": "FromGeometry",
+              "type": "string"
+            }
+          },
+          "required": [
+            "type"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "Re-measured every rebuild by evaluating this expression in the\ndocument's parameter environment — which, from D2, includes the\nmeasurement functions (`distance(…)`, `radius(…)`, `mass(…)`). For a\ndimension whose number is a *derived* quantity rather than the plain\nmeasurement of its own anchors.\n\nA struct variant, not §7's `Expr(String)` newtype: serde's\ninternally-tagged representation (`#[serde(tag = \"type\")]`, which every\npersisted enum in this tree uses) cannot serialize a newtype variant\nwrapping a primitive — there is nowhere to put the tag. Same for\n[`Measured::Value`].",
+          "properties": {
+            "expr": {
+              "type": "string"
+            },
+            "type": {
+              "const": "Expr",
+              "type": "string"
+            }
+          },
+          "required": [
+            "type",
+            "expr"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "A literal, in meters (radians for an angular dimension).\n\n**Not authorable.** This arm exists for two readers: a nominal\nimported from a PMI-bearing file, and a cache written by a build that\nwants the last known number available without a kernel. A UI must not\noffer it — a typed dimension is how a drawing comes to disagree with\nits part.",
+          "properties": {
+            "type": {
+              "const": "Value",
+              "type": "string"
+            },
+            "value": {
+              "format": "double",
+              "type": "number"
+            }
+          },
+          "required": [
+            "type",
+            "value"
+          ],
+          "type": "object"
+        }
+      ]
+    },
+    "OrdinateAxis": {
+      "description": "Which view-plane axis an [`DimensionKind::Ordinate`] dimension reads.",
+      "oneOf": [
+        {
+          "description": "The view's horizontal axis.",
+          "properties": {
+            "type": {
+              "const": "U",
+              "type": "string"
+            }
+          },
+          "required": [
+            "type"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "The view's vertical axis.",
+          "properties": {
+            "type": {
+              "const": "V",
+              "type": "string"
+            }
+          },
+          "required": [
+            "type"
+          ],
+          "type": "object"
+        }
+      ]
+    },
+    "OutputKey": {
+      "description": "Identifies which output of a feature to look in.",
+      "oneOf": [
+        {
+          "description": "The primary solid body output.",
+          "properties": {
+            "type": {
+              "const": "Main",
+              "type": "string"
+            }
+          },
+          "required": [
+            "type"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "A secondary body (e.g., from boolean split).",
+          "properties": {
+            "index": {
+              "format": "uint",
+              "minimum": 0,
+              "type": "integer"
+            },
+            "type": {
+              "const": "Body",
+              "type": "string"
+            }
+          },
+          "required": [
+            "type",
+            "index"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "A sketch profile (closed loop suitable for extrusion).",
+          "properties": {
+            "index": {
+              "format": "uint",
+              "minimum": 0,
+              "type": "integer"
+            },
+            "type": {
+              "const": "Profile",
+              "type": "string"
+            }
+          },
+          "required": [
+            "type",
+            "index"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "A datum plane/axis/point output.",
+          "properties": {
+            "name": {
+              "type": "string"
+            },
+            "type": {
+              "const": "Datum",
+              "type": "string"
+            }
+          },
+          "required": [
+            "type",
+            "name"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "A body a custom feature script named in its return value\n(`specs/custom_features_and_modeling_roadmap.md` §A6: `#{ hub: … }`\n⇒ `Named { name: \"hub\" }`). The script's `main` body stays `Main`.",
+          "properties": {
+            "name": {
+              "type": "string"
+            },
+            "type": {
+              "const": "Named",
+              "type": "string"
+            }
+          },
+          "required": [
+            "type",
+            "name"
+          ],
+          "type": "object"
+        }
+      ]
+    },
+    "Placement2": {
+      "description": "The cosmetic offset of a label from its computed position, in view-plane\nunits (meters, like [`crate::kernel::projection::Curve2`]).\n\nThe same idea the sketch dimension labels already have, where the app\nkeeps it per constraint in `dimensionLabelOffsets`. Zero means \"wherever\nthe layout puts it\", which is the only value a freshly authored\nannotation has.",
+      "properties": {
+        "dx": {
+          "default": 0.0,
+          "format": "double",
+          "type": "number"
+        },
+        "dy": {
+          "default": 0.0,
+          "format": "double",
+          "type": "number"
+        }
+      },
+      "type": "object"
+    },
+    "RefScope": {
+      "description": "Scope of a geometry reference into another tab's instance (v4 §2.8).\n\n`source_id` absent ⇒ this document; `tab_id` absent ⇒ the current tab;\n`instance_path` = the chain of assembly-instance ids from the referencing\nassembly (`tab_id`) down to the part instance whose feature output the\nanchor names. A Part feature edited in the context of an assembly\nreferences the OTHER instances this way; the engine resolves such a\nreference through its edit context (the `feature_engine::context`\nmodule) and reports it loudly when the context is not open.",
+      "properties": {
+        "instance_path": {
+          "description": "Chain of assembly-instance ids down to the owning part instance.",
+          "items": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "source_id": {
+          "description": "The document the assembly lives in; absent ⇒ this document.",
+          "format": "uuid",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "tab_id": {
+          "description": "The assembly tab the instance path starts from; absent ⇒ the current tab.",
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "type": "object"
+    },
+    "ResolvePolicy": {
+      "description": "What to do when GeomRef resolution is ambiguous or fails.",
+      "oneOf": [
+        {
+          "description": "Fail the rebuild if the reference cannot be uniquely resolved.",
+          "properties": {
+            "type": {
+              "const": "Strict",
+              "type": "string"
+            }
+          },
+          "required": [
+            "type"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "Use the closest match and emit a warning.",
+          "properties": {
+            "type": {
+              "const": "BestEffort",
+              "type": "string"
+            }
+          },
+          "required": [
+            "type"
+          ],
+          "type": "object"
+        }
+      ]
+    },
+    "Role": {
+      "description": "Semantic role assigned to topological entities by modeling operations.\nRoles provide stable, meaningful names for geometry that survive topology changes.",
+      "oneOf": [
+        {
+          "description": "The face on the positive extrusion direction end.",
+          "properties": {
+            "type": {
+              "const": "EndCapPositive",
+              "type": "string"
+            }
+          },
+          "required": [
+            "type"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "The face on the negative extrusion direction end (original sketch plane face).",
+          "properties": {
+            "type": {
+              "const": "EndCapNegative",
+              "type": "string"
+            }
+          },
+          "required": [
+            "type"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "A lateral face created by sweeping a profile edge.",
+          "properties": {
+            "index": {
+              "format": "uint",
+              "minimum": 0,
+              "type": "integer"
+            },
+            "type": {
+              "const": "SideFace",
+              "type": "string"
+            }
+          },
+          "required": [
+            "type",
+            "index"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "The face at the start of a revolution.",
+          "properties": {
+            "type": {
+              "const": "RevStartFace",
+              "type": "string"
+            }
+          },
+          "required": [
+            "type"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "The face at the end of a revolution (if not full 360).",
+          "properties": {
+            "type": {
+              "const": "RevEndFace",
+              "type": "string"
+            }
+          },
+          "required": [
+            "type"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "A face created by a fillet operation.",
+          "properties": {
+            "index": {
+              "format": "uint",
+              "minimum": 0,
+              "type": "integer"
+            },
+            "type": {
+              "const": "FilletFace",
+              "type": "string"
+            }
+          },
+          "required": [
+            "type",
+            "index"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "A face created by a chamfer operation.",
+          "properties": {
+            "index": {
+              "format": "uint",
+              "minimum": 0,
+              "type": "integer"
+            },
+            "type": {
+              "const": "ChamferFace",
+              "type": "string"
+            }
+          },
+          "required": [
+            "type",
+            "index"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "An inner face created by a shell operation.",
+          "properties": {
+            "index": {
+              "format": "uint",
+              "minimum": 0,
+              "type": "integer"
+            },
+            "type": {
+              "const": "ShellInnerFace",
+              "type": "string"
+            }
+          },
+          "required": [
+            "type",
+            "index"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "The original profile face (sketch plane) of an extrude/revolve.",
+          "properties": {
+            "type": {
+              "const": "ProfileFace",
+              "type": "string"
+            }
+          },
+          "required": [
+            "type"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "An instance in a pattern operation.",
+          "properties": {
+            "index": {
+              "format": "uint",
+              "minimum": 0,
+              "type": "integer"
+            },
+            "type": {
+              "const": "PatternInstance",
+              "type": "string"
+            }
+          },
+          "required": [
+            "type",
+            "index"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "A face from the first body in a boolean operation.",
+          "properties": {
+            "index": {
+              "format": "uint",
+              "minimum": 0,
+              "type": "integer"
+            },
+            "type": {
+              "const": "BooleanBodyAFace",
+              "type": "string"
+            }
+          },
+          "required": [
+            "type",
+            "index"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "A face from the second body in a boolean operation.",
+          "properties": {
+            "index": {
+              "format": "uint",
+              "minimum": 0,
+              "type": "integer"
+            },
+            "type": {
+              "const": "BooleanBodyBFace",
+              "type": "string"
+            }
+          },
+          "required": [
+            "type",
+            "index"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "A face or edge a custom feature script named in its return value\n(`#{ hub_face: query }` ⇒ `Named { name: \"hub_face\" }` on the entity\nthe query resolved to). Later features select it by name without\nknowing the script's private sub-tree.",
+          "properties": {
+            "name": {
+              "type": "string"
+            },
+            "type": {
+              "const": "Named",
+              "type": "string"
+            }
+          },
+          "required": [
+            "type",
+            "name"
+          ],
+          "type": "object"
+        }
+      ]
+    },
+    "Selector": {
+      "description": "How to find a specific entity within a feature's output.",
+      "oneOf": [
+        {
+          "description": "Select by semantic role assigned during the operation.",
+          "properties": {
+            "index": {
+              "format": "uint",
+              "minimum": 0,
+              "type": "integer"
+            },
+            "role": {
+              "$ref": "#/$defs/Role"
+            },
+            "type": {
+              "const": "Role",
+              "type": "string"
+            }
+          },
+          "required": [
+            "type",
+            "role",
+            "index"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "Select by geometric signature matching.",
+          "properties": {
+            "signature": {
+              "$ref": "#/$defs/TopoSignature"
+            },
+            "type": {
+              "const": "Signature",
+              "type": "string"
+            }
+          },
+          "required": [
+            "type",
+            "signature"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "Select by user-specified geometric query.",
+          "properties": {
+            "query": {
+              "$ref": "#/$defs/TopoQuery"
+            },
+            "type": {
+              "const": "Query",
+              "type": "string"
+            }
+          },
+          "required": [
+            "type",
+            "query"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "Select by 3D position (nearest entity within tolerance).",
+          "properties": {
+            "type": {
+              "const": "Position",
+              "type": "string"
+            },
+            "x": {
+              "format": "double",
+              "type": "number"
+            },
+            "y": {
+              "format": "double",
+              "type": "number"
+            },
+            "z": {
+              "format": "double",
+              "type": "number"
+            }
+          },
+          "required": [
+            "type",
+            "x",
+            "y",
+            "z"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "Select by **persistent id** — the preferred selector for anything\nthat must stay attached to one specific entity across rebuilds: a\ndrawing dimension's anchor, a PMI item, an `UpTo` termination, a\n3D-sketch attachment (drawings spec D0,\n`specs/drawings_and_mbd.md` §4 item 4).\n\nBoth ids come from `waffle_types::kernel::EntityPid`. `pid` names the\nentity; `root_pid` names where its geometry was introduced, so the\nreference still resolves when a later boolean rebuilt the face it\npointed at. For edges and vertices the two are equal — their ids are\ncontent-seeded through the faces' roots already.\n\nUnlike every other selector this one NEVER rebinds: an entity whose\nid and root are both gone is a loud `ResolutionFailed`, under either\n`ResolvePolicy`. A nearest-match fallback is exactly how an\nannotation ends up dimensioning the wrong edge, and the whole point\nof a persistent id is that its absence is information.",
+          "properties": {
+            "pid": {
+              "format": "uint64",
+              "minimum": 0,
+              "type": "integer"
+            },
+            "root_pid": {
+              "format": "uint64",
+              "minimum": 0,
+              "type": "integer"
+            },
+            "type": {
+              "const": "Pid",
+              "type": "string"
+            }
+          },
+          "required": [
+            "type",
+            "pid",
+            "root_pid"
+          ],
+          "type": "object"
+        }
+      ]
+    },
+    "TieBreak": {
+      "description": "Tie-breaking strategy when multiple entities match a query.",
+      "oneOf": [
+        {
+          "description": "Pick the entity with the largest area.",
+          "properties": {
+            "type": {
+              "const": "LargestArea",
+              "type": "string"
+            }
+          },
+          "required": [
+            "type"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "Pick the entity nearest to the given point.",
+          "properties": {
+            "point": {
+              "items": {
+                "format": "double",
+                "type": "number"
+              },
+              "maxItems": 3,
+              "minItems": 3,
+              "type": "array"
+            },
+            "type": {
+              "const": "NearestTo",
+              "type": "string"
+            }
+          },
+          "required": [
+            "type",
+            "point"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "Pick the entity whose centroid lies farthest along `direction`\n(the top face of a boss: `[0, 0, 1]`). Ties keep the first.",
+          "properties": {
+            "direction": {
+              "items": {
+                "format": "double",
+                "type": "number"
+              },
+              "maxItems": 3,
+              "minItems": 3,
+              "type": "array"
+            },
+            "type": {
+              "const": "FarthestAlong",
+              "type": "string"
+            }
+          },
+          "required": [
+            "type",
+            "direction"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "Pick the entity with the smallest index (arbitrary but deterministic).",
+          "properties": {
+            "type": {
+              "const": "SmallestIndex",
+              "type": "string"
+            }
+          },
+          "required": [
+            "type"
+          ],
+          "type": "object"
+        }
+      ]
+    },
+    "TopoKind": {
+      "description": "The kind of topological entity.",
+      "oneOf": [
+        {
+          "properties": {
+            "type": {
+              "const": "Vertex",
+              "type": "string"
+            }
+          },
+          "required": [
+            "type"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "type": {
+              "const": "Edge",
+              "type": "string"
+            }
+          },
+          "required": [
+            "type"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "type": {
+              "const": "Face",
+              "type": "string"
+            }
+          },
+          "required": [
+            "type"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "type": {
+              "const": "Shell",
+              "type": "string"
+            }
+          },
+          "required": [
+            "type"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "type": {
+              "const": "Solid",
+              "type": "string"
+            }
+          },
+          "required": [
+            "type"
+          ],
+          "type": "object"
+        }
+      ]
+    },
+    "TopoQuery": {
+      "description": "User-specified geometric query for selecting entities.",
+      "properties": {
+        "filters": {
+          "description": "Filters to narrow down candidate entities.",
+          "items": {
+            "$ref": "#/$defs/Filter"
+          },
+          "type": "array"
+        },
+        "tie_break": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/TieBreak"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "How to break ties if multiple entities match."
+        }
+      },
+      "required": [
+        "filters"
+      ],
+      "type": "object"
+    },
+    "TopoSignature": {
+      "description": "Geometric signature of a topological entity.\nUsed for signature-based matching when role-based resolution fails.",
+      "properties": {
+        "adjacency_hash": {
+          "description": "Hash of the adjacency structure.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "area": {
+          "description": "Surface area (for faces).",
+          "format": "double",
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "axis": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/AxisDescriptor"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "The rotation-invariant content of a surface of revolution. Serde-\ndefaulted: a document written before N0 simply has no key here."
+        },
+        "bbox": {
+          "description": "Axis-aligned bounding box [min_x, min_y, min_z, max_x, max_y, max_z].",
+          "items": {
+            "format": "double",
+            "type": "number"
+          },
+          "maxItems": 6,
+          "minItems": 6,
+          "type": [
+            "array",
+            "null"
+          ]
+        },
+        "centroid": {
+          "description": "Centroid position [x, y, z]. For a face on a surface of revolution\nthat goes all the way round, this is the area centroid ON THE AXIS and\n`normal` is `None`; a consumer that needs a point on the face itself\nmust require `normal` alongside it (see [`AxisDescriptor`]).",
+          "items": {
+            "format": "double",
+            "type": "number"
+          },
+          "maxItems": 3,
+          "minItems": 3,
+          "type": [
+            "array",
+            "null"
+          ]
+        },
+        "length": {
+          "description": "Edge length (for edges).",
+          "format": "double",
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "normal": {
+          "description": "Outward-pointing normal at centroid (for faces). `None` where there is\nno single one: a full-turn surface of revolution, whose centroid lies\non its axis (see [`AxisDescriptor`]).",
+          "items": {
+            "format": "double",
+            "type": "number"
+          },
+          "maxItems": 3,
+          "minItems": 3,
+          "type": [
+            "array",
+            "null"
+          ]
+        },
+        "surface_type": {
+          "description": "Surface type (planar, cylindrical, conical, spherical, toroidal, nurbs).",
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "type": "object"
+    }
+  },
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "description": "One annotation on a drawing sheet or in a part's PMI.\n\n`GeomRef` is large (it carries a `TopoSignature`), so every variant that\nholds one is large. Same call as [`crate::geom_ref::Selector`] and\nfeature-engine's `Operation`: a serialized document type, one per\nannotation rather than one per vertex, matched and constructed at a\nhandful of sites. Boxing would ripple through the file format to buy a\nsmaller discriminant.\n`Annotation` is deliberately NOT `PartialEq`: [`GeomRef`] is not, and\nmaking it so means deriving `PartialEq` down through `TopoSignature` and\n`TopoQuery` — a change to the reference types several other consumers\nshare, for the sake of a convenience here. Two annotations are compared by\ntheir serialized form, which is also the form that is persisted and the\nonly one equality would need to agree with.",
+  "oneOf": [
+    {
+      "description": "A dimension: how to measure, what to measure, and where the label sits.",
+      "properties": {
+        "anchors": {
+          "description": "The entities measured, in the order [`DimensionKind`] expects.",
+          "items": {
+            "$ref": "#/$defs/GeomRef"
+          },
+          "type": "array"
+        },
+        "dual_unit": {
+          "description": "A second unit shown in brackets beneath the primary one (a unit key\nof `app/src/lib/units.js`: `\"mm\"`, `\"in\"`, …). `None` ⇒ the\ndocument setting, which may itself be none.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "kind": {
+          "$ref": "#/$defs/DimensionKind"
+        },
+        "placement": {
+          "$ref": "#/$defs/Placement2",
+          "default": {
+            "dx": 0.0,
+            "dy": 0.0
+          }
+        },
+        "precision": {
+          "description": "Decimal places to show. `None` ⇒ the document setting.",
+          "format": "uint8",
+          "maximum": 255,
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "type": {
+          "const": "Dimension",
+          "type": "string"
+        },
+        "value": {
+          "$ref": "#/$defs/Measured",
+          "default": {
+            "type": "FromGeometry"
+          }
+        }
+      },
+      "required": [
+        "type",
+        "kind",
+        "anchors"
+      ],
+      "type": "object"
+    },
+    {
+      "description": "Free text, optionally with a leader to an entity.",
+      "properties": {
+        "leader": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/GeomRef"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "placement": {
+          "$ref": "#/$defs/Placement2",
+          "default": {
+            "dx": 0.0,
+            "dy": 0.0
+          }
+        },
+        "text": {
+          "type": "string"
+        },
+        "type": {
+          "const": "Note",
+          "type": "string"
+        }
+      },
+      "required": [
+        "type",
+        "text"
+      ],
+      "type": "object"
+    },
+    {
+      "description": "The centre cross of a circular entity.",
+      "properties": {
+        "anchor": {
+          "$ref": "#/$defs/GeomRef"
+        },
+        "type": {
+          "const": "CentreMark",
+          "type": "string"
+        }
+      },
+      "required": [
+        "type",
+        "anchor"
+      ],
+      "type": "object"
+    },
+    {
+      "description": "A centre line between two entities (two parallel walls, two holes).",
+      "properties": {
+        "anchors": {
+          "items": {
+            "$ref": "#/$defs/GeomRef"
+          },
+          "maxItems": 2,
+          "minItems": 2,
+          "type": "array"
+        },
+        "type": {
+          "const": "CentreLine",
+          "type": "string"
+        }
+      },
+      "required": [
+        "type",
+        "anchors"
+      ],
+      "type": "object"
+    },
+    {
+      "description": "A datum feature label (`A`, `B`, …) for M1/M2's tolerance frames.",
+      "properties": {
+        "anchor": {
+          "$ref": "#/$defs/GeomRef"
+        },
+        "label": {
+          "type": "string"
+        },
+        "placement": {
+          "$ref": "#/$defs/Placement2",
+          "default": {
+            "dx": 0.0,
+            "dy": 0.0
+          }
+        },
+        "type": {
+          "const": "Datum",
+          "type": "string"
+        }
+      },
+      "required": [
+        "type",
+        "label",
+        "anchor"
+      ],
+      "type": "object"
+    }
+  ],
+  "title": "Annotation"
+}
