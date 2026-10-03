@@ -2054,6 +2054,42 @@ removes it WHOLE (piece-wise curve trimming needs an angular bracket and is not
 implemented), and `mirror` adds independent geometry rather than a
 `Symmetric`-constrained pattern.
 
+Three further divergences from the deleted JS, found in review and recorded
+here because a port's divergences have to be decisions:
+
+1. **The fillet no longer folds obtuse corners onto their acute supplement.**
+   The JS computed the corner's interior angle as `acos(|dot|)`, which maps a
+   135° corner onto 45°, so the arc centre landed at `r / sin(22.5°)` instead
+   of `r / sin(67.5°)` and the committed arc came out **2.41× the radius the
+   user typed** — tangent to both legs, so nothing looked broken, but not the
+   radius asked for. The shallower the corner the worse it got (a 170° corner
+   overshot by 11×), and the same folded angle drove the fit check, so shallow
+   fillets that fit were refused. `ops::fillet_geometry` uses `acos(dot)`.
+   Right angles and acute corners are bit-identical: there `|dot| == dot`.
+   Pinned: `a_fillet_on_an_obtuse_corner_has_the_radius_it_was_asked_for`.
+   This is the one place the port deliberately does NOT reproduce the shipped
+   behaviour, because the shipped behaviour was arithmetically wrong.
+2. **A trim's cut point is never welded onto an existing vertex.** The JS put
+   its cut points through `findOrCreatePoint(x, y, screenPixelSize)`, which
+   snapped to any existing vertex within **8 screen pixels**. At a T-junction —
+   where the crossing entity's own endpoint sits exactly on the intersection —
+   that produced ONE shared vertex and a closed region. `ops::trim` mints a
+   fresh point unconditionally, so the same trim now leaves two coincident but
+   distinct vertices. Note this is narrower than decision 3 above claims: the
+   cut position is computed inside the op from the intersection, not passed by
+   the caller, so the UI has no opportunity to snap it, and `POINT_WELD_TOL` is
+   not applied here either. Whether downstream profile extraction welds by
+   position or by id decides whether a user sees this; it is unmeasured.
+3. **Degenerate directions are an absence, not `(1, 0)`.** `Point2::unit`
+   returns `None` where the JS fell back to a unit x-axis via `|| 1`, so ops
+   refuse by name instead of proceeding on a fabricated direction. It also
+   rejects a non-finite length: at coordinates near ±1e308 the endpoint
+   difference overflows and `inf * 0.0` is NaN, which the JS would have written
+   into the sketch as a point at NaN. `ops::reject_non_finite` is the batch-level
+   net behind that, returning `SketchOpError::NonFiniteResult`
+   (pinned: `an_overflowing_mirror_is_refused_rather_than_minting_a_nan_point`,
+   `an_offset_distance_that_overflows_is_refused_rather_than_minting_nan`).
+
 **The UI keeps pointer handling and rendering only.** `tools.js` lost
 `buildOffsetChain`, `armOffset`'s segment resolution, `offsetCursorDistance`,
 `computeArmedOffset`, `createEntitiesFromSegments`, `findEntityIntersections`,
@@ -2106,6 +2142,47 @@ the whole list.
 V2's half of §10.2 is NOT done: the UI's over-constrained badge is still the
 constraint-COUNT heuristic and the under-constrained marker still flags
 unreferenced points. The report they need is now on `sketchSolveStatus.report`.
+
+**NaN propagates into the verdict.** Found in review: three reductions dropped
+it, so a sketch carrying a non-finite residual came back GREEN. `f64::max`
+returns the non-NaN operand, so the per-constraint `worst` fold reported a NaN
+row as `Some(0.0)` with `satisfied: true` — the fabricated zero this field's
+`Option` exists to avoid; nalgebra's `max` behind `residual_inf` drops a NaN
+followed by any finite row, so an otherwise over-constrained sketch read as
+`UnderConstrained` purely on declaration ORDER; and `v.abs() > tol` is false
+for NaN, so `find_conflict_constraints` returned an EMPTY conflict set under an
+`OverConstrained` verdict, which is the one outcome `conflicts` exists to rule
+out. All three now treat a non-finite row as unsatisfied and as an offender.
+Reachable without hostility: a zero-length line under an `OnEntity` divides by
+its own length, and both the bridge and the MCP accept caller-supplied
+geometry. Pinned: `a_non_finite_residual_is_never_reported_as_satisfied`.
+
+Still open, measured in the same review and NOT fixed here:
+
+- **`MOVED_EPS` is absolute (1e-9).** A satisfied rectangle authored at 1000 m
+  settles ~4e-7 and lists its own PINNED origin as `moved`, which the constant's
+  comment says cannot happen. The threshold has to scale with the parameter
+  magnitude. `SOLVE_TOL` is absolute for the same reason and already flips the
+  same rectangle to `SolveFailed` at 1e4 m — pre-existing, but `satisfied` and
+  `conflicts` now inherit it.
+- **The redundancy rank walk is super-cubic and runs on the interactive solve.**
+  `solver.rs` recomputes a full column-pivoted QR on a growing matrix once per
+  constraint whenever `satisfied && rank < rows` — true for any sketch carrying
+  both rails and dimensions. Measured native release: 6.1 ms at 25 points,
+  79.8 ms at 50, **669 ms at 100** (~180× the no-walk path, still climbing).
+  In WASM that is on every `pointermove` of a drag. It needs an incremental
+  rank or a row ceiling.
+- **`conflicts` is computed on WEIGHTED rows while `residuals` are unweighted**,
+  so an ordinary drag names the transient pin PLUS two innocent stored
+  constraints that LM split the error across. The UI is shielded by an index
+  filter; MCP consumers are not.
+- **Duplicate point ids break `free.len() == dof`.** `ParamLayout::build` pushes
+  two params per `Point` declaration but keeps only the last id, so the orphaned
+  parameters count toward `dof` and name nothing. `sketch_create` rejects
+  duplicates; `set_sketch_entities` and the `.waffle` rebuild path do not.
+- **`failed_result` returns an EMPTY `residuals`**, against the field's "one
+  entry per constraint" contract, so on the one path that most needs it the
+  offending constraint is named only in a prose string.
 
 ### The 1,172 corpus sketches with zero constraints (§2.2 item 11)
 
