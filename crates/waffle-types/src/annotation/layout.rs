@@ -284,6 +284,89 @@ impl LayoutCurveEntry {
     }
 }
 
+/// One closed boundary loop of a section cap, ready to fill
+/// (`specs/drawings_and_mbd.md` §8, D4b): the serde-able twin of
+/// [`SectionLoop`](crate::kernel::projection::SectionLoop), expressed in the
+/// SECTION VIEW's `(u, v)` rather than the cut plane's own.
+///
+/// The curves are the loop's walk order and consecutive curves share an
+/// endpoint, so a renderer can chain them into one subpath. `hole` is the
+/// kernel's measured traversal direction, which a curve list cannot carry
+/// (`SectionLoop`'s own argument): negative signed area is a hole. A renderer
+/// filling with an even-odd rule does not need it; one filling each loop
+/// separately does, and a test asserting "one outer loop and one hole" needs
+/// it most of all.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "json-schema", derive(schemars::JsonSchema))]
+pub struct HatchLoop {
+    pub curves: Vec<LayoutCurve>,
+    /// `true` when the kernel measured this loop clockwise — a hole in the
+    /// cap, not an outer boundary.
+    #[serde(default)]
+    pub hole: bool,
+    /// Whether every curve of the loop stayed analytic, so the region's area
+    /// is exact. A sampled loop is hatched the same way; the flag says the
+    /// boundary is a chord polygon.
+    #[serde(default = "crate::annotation::layout::yes")]
+    pub exact: bool,
+}
+
+pub(crate) fn yes() -> bool {
+    true
+}
+
+/// A mark drawn ON a view because ANOTHER view was derived from it
+/// (`specs/drawings_and_mbd.md` §8, D4b): a section's cutting line, a detail's
+/// crop circle.
+///
+/// It lives on the PARENT's layout rather than on the child's, because that is
+/// where it is drawn — a section view's cutting line belongs to the view it
+/// cuts. The engine puts a child's mark on its parent during the rebuild, so a
+/// renderer never walks the sheet to find out what is marked on the view it
+/// holds.
+///
+/// Coordinates are the parent view's own `(u, v)` in meters, like every other
+/// geometry in a [`ViewLayout`]. The `label` is the letter the child view
+/// carries ("A"), so the parent prints `A` at each end of its cutting line and
+/// the child is titled `SECTION A-A`.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(tag = "type")]
+#[cfg_attr(feature = "json-schema", derive(schemars::JsonSchema))]
+pub enum ViewMark {
+    /// A cutting line with an arrow at each end pointing the way the section
+    /// is viewed — which is INTO the material the section keeps.
+    Section {
+        from: [f64; 2],
+        to: [f64; 2],
+        /// Unit direction of sight, in the parent's `(u, v)`: where the
+        /// arrowheads point. Perpendicular to `to − from`.
+        sight: [f64; 2],
+        label: String,
+    },
+    /// A detail view's crop boundary.
+    Detail {
+        center: [f64; 2],
+        radius: f64,
+        label: String,
+    },
+}
+
+/// A detail view's crop (`specs/drawings_and_mbd.md` §8, D4b): the disc of its
+/// parent's projection that the detail shows.
+///
+/// A detail view carries every curve of its parent that REACHES this disc and
+/// leaves the clipping to the renderer, which can do it exactly with a clip
+/// path. Clipping the curves themselves in the engine would mean trimming an
+/// analytic arc against a circle — a new intersection problem whose answer
+/// would be a polyline, so the detail (the view that exists to be looked at
+/// closely) would be the one view drawn from sampled geometry.
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "json-schema", derive(schemars::JsonSchema))]
+pub struct ClipCircle {
+    pub center: [f64; 2],
+    pub radius: f64,
+}
+
 /// Everything the app needs to draw one annotated view: the projected curves
 /// and the resolved annotations, in one view frame, in meters.
 ///
@@ -301,6 +384,18 @@ pub struct ViewLayout {
     pub bbox: Option<[[f64; 2]; 2]>,
     #[serde(default)]
     pub annotations: Vec<AnnotationLayout>,
+    /// The cap regions to hatch — a section view's, empty for every other
+    /// kind (D4b).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub hatch: Vec<HatchLoop>,
+    /// What is marked on THIS view because another view was derived from it: a
+    /// child section's cutting line, a child detail's circle (D4b).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub marks: Vec<ViewMark>,
+    /// A detail view's crop disc (D4b). The curves are the parent's, culled
+    /// to the ones that reach this disc; the renderer clips to it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub clip: Option<ClipCircle>,
 }
 
 impl ViewLayout {
@@ -314,6 +409,7 @@ impl ViewLayout {
                 .collect(),
             bbox: view.bbox.map(aabb_pair),
             annotations: Vec::new(),
+            ..ViewLayout::default()
         }
     }
 

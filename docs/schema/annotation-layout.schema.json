@@ -222,6 +222,29 @@
         }
       ]
     },
+    "ClipCircle": {
+      "description": "A detail view's crop (`specs/drawings_and_mbd.md` §8, D4b): the disc of its\nparent's projection that the detail shows.\n\nA detail view carries every curve of its parent that REACHES this disc and\nleaves the clipping to the renderer, which can do it exactly with a clip\npath. Clipping the curves themselves in the engine would mean trimming an\nanalytic arc against a circle — a new intersection problem whose answer\nwould be a polyline, so the detail (the view that exists to be looked at\nclosely) would be the one view drawn from sampled geometry.",
+      "properties": {
+        "center": {
+          "items": {
+            "format": "double",
+            "type": "number"
+          },
+          "maxItems": 2,
+          "minItems": 2,
+          "type": "array"
+        },
+        "radius": {
+          "format": "double",
+          "type": "number"
+        }
+      },
+      "required": [
+        "center",
+        "radius"
+      ],
+      "type": "object"
+    },
     "CurveKind": {
       "description": "What the curve is in the drawing.\n\nSerde-able for the same reason as [`Visibility`].",
       "oneOf": [
@@ -354,6 +377,31 @@
           "type": "object"
         }
       ]
+    },
+    "HatchLoop": {
+      "description": "One closed boundary loop of a section cap, ready to fill\n(`specs/drawings_and_mbd.md` §8, D4b): the serde-able twin of\n[`SectionLoop`](crate::kernel::projection::SectionLoop), expressed in the\nSECTION VIEW's `(u, v)` rather than the cut plane's own.\n\nThe curves are the loop's walk order and consecutive curves share an\nendpoint, so a renderer can chain them into one subpath. `hole` is the\nkernel's measured traversal direction, which a curve list cannot carry\n(`SectionLoop`'s own argument): negative signed area is a hole. A renderer\nfilling with an even-odd rule does not need it; one filling each loop\nseparately does, and a test asserting \"one outer loop and one hole\" needs\nit most of all.",
+      "properties": {
+        "curves": {
+          "items": {
+            "$ref": "#/$defs/LayoutCurve"
+          },
+          "type": "array"
+        },
+        "exact": {
+          "default": true,
+          "description": "Whether every curve of the loop stayed analytic, so the region's area\nis exact. A sampled loop is hatched the same way; the flag says the\nboundary is a chord polygon.",
+          "type": "boolean"
+        },
+        "hole": {
+          "default": false,
+          "description": "`true` when the kernel measured this loop clockwise — a hole in the\ncap, not an outer boundary.",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "curves"
+      ],
+      "type": "object"
     },
     "LayoutCurve": {
       "description": "A 2-D curve in the view plane, in view `(u, v)` and model units (meters).\n\nArm for arm the serde-able twin of [`Curve2`]; see the module docs. Angles\nrun counter-clockwise from `+u` and `start < end`, exactly as there.",
@@ -603,6 +651,91 @@
       },
       "type": "object"
     },
+    "ViewMark": {
+      "description": "A mark drawn ON a view because ANOTHER view was derived from it\n(`specs/drawings_and_mbd.md` §8, D4b): a section's cutting line, a detail's\ncrop circle.\n\nIt lives on the PARENT's layout rather than on the child's, because that is\nwhere it is drawn — a section view's cutting line belongs to the view it\ncuts. The engine puts a child's mark on its parent during the rebuild, so a\nrenderer never walks the sheet to find out what is marked on the view it\nholds.\n\nCoordinates are the parent view's own `(u, v)` in meters, like every other\ngeometry in a [`ViewLayout`]. The `label` is the letter the child view\ncarries (\"A\"), so the parent prints `A` at each end of its cutting line and\nthe child is titled `SECTION A-A`.",
+      "oneOf": [
+        {
+          "description": "A cutting line with an arrow at each end pointing the way the section\nis viewed — which is INTO the material the section keeps.",
+          "properties": {
+            "from": {
+              "items": {
+                "format": "double",
+                "type": "number"
+              },
+              "maxItems": 2,
+              "minItems": 2,
+              "type": "array"
+            },
+            "label": {
+              "type": "string"
+            },
+            "sight": {
+              "description": "Unit direction of sight, in the parent's `(u, v)`: where the\narrowheads point. Perpendicular to `to − from`.",
+              "items": {
+                "format": "double",
+                "type": "number"
+              },
+              "maxItems": 2,
+              "minItems": 2,
+              "type": "array"
+            },
+            "to": {
+              "items": {
+                "format": "double",
+                "type": "number"
+              },
+              "maxItems": 2,
+              "minItems": 2,
+              "type": "array"
+            },
+            "type": {
+              "const": "Section",
+              "type": "string"
+            }
+          },
+          "required": [
+            "type",
+            "from",
+            "to",
+            "sight",
+            "label"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "A detail view's crop boundary.",
+          "properties": {
+            "center": {
+              "items": {
+                "format": "double",
+                "type": "number"
+              },
+              "maxItems": 2,
+              "minItems": 2,
+              "type": "array"
+            },
+            "label": {
+              "type": "string"
+            },
+            "radius": {
+              "format": "double",
+              "type": "number"
+            },
+            "type": {
+              "const": "Detail",
+              "type": "string"
+            }
+          },
+          "required": [
+            "type",
+            "center",
+            "radius",
+            "label"
+          ],
+          "type": "object"
+        }
+      ]
+    },
     "Visibility": {
       "description": "Whether the viewer can see a curve.\n\nD1a and D1b tagged everything `Visible`; since D1c the kernel splits each\nprojected curve at its crossings and classifies each piece, so `Hidden` is\na produced answer and a drawing's HIDDEN layer is populated.\n\nSerde-able (unlike [`Curve2`], which is built on the serde-less\n`cad_primitives::Point2`) so the app's layout record\n([`crate::annotation::layout`]) can carry the tag straight across the\nWASM boundary instead of mirroring it.",
       "enum": [
@@ -640,9 +773,34 @@
         "null"
       ]
     },
+    "clip": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/ClipCircle"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "description": "A detail view's crop disc (D4b). The curves are the parent's, culled\nto the ones that reach this disc; the renderer clips to it."
+    },
     "curves": {
       "items": {
         "$ref": "#/$defs/LayoutCurveEntry"
+      },
+      "type": "array"
+    },
+    "hatch": {
+      "description": "The cap regions to hatch — a section view's, empty for every other\nkind (D4b).",
+      "items": {
+        "$ref": "#/$defs/HatchLoop"
+      },
+      "type": "array"
+    },
+    "marks": {
+      "description": "What is marked on THIS view because another view was derived from it: a\nchild section's cutting line, a child detail's circle (D4b).",
+      "items": {
+        "$ref": "#/$defs/ViewMark"
       },
       "type": "array"
     }

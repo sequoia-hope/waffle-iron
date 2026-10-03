@@ -912,10 +912,56 @@ impl Curve2 {
     /// into one with a different major direction, which is a different curve
     /// family and a different arm.
     pub fn transformed(&self, scale: f64, offset: [f64; 2]) -> Option<Curve2> {
+        self.transformed_by(scale, [1.0, 0.0], offset)
+    }
+
+    /// This curve scaled by `scale`, ROTATED about the view-plane origin by
+    /// `rotation = [cos θ, sin θ]`, then moved by `offset`
+    /// (`specs/drawings_and_mbd.md` §8, D4b).
+    ///
+    /// What needs the rotation: a section cap comes back from
+    /// [`KernelProjection::section_with_plane`] in the cut plane's OWN
+    /// `(u, v)` — a frame the kernel derives from the normal alone
+    /// ([`SectionResult::plane_basis`]) — while the section VIEW's paper up is
+    /// chosen to agree with the parent view it was cut on. Both frames share
+    /// the line of sight and the handedness, so they differ by exactly one
+    /// planar rotation, and the cap's hatch boundary has to be expressed in
+    /// the view's frame or the hatch arrives rotated against the drawing it
+    /// fills.
+    ///
+    /// A rotation is a similarity like the scale, so the same argument carries:
+    /// a circle stays a circle and an ellipse keeps its axis LENGTHS, with the
+    /// major direction rotated and the angle parameters shifted — the analytic
+    /// arms survive, which is what keeps the DXF's `CIRCLE` a circle. The
+    /// rotation must be a unit `[cos, sin]` pair; `None` otherwise, since a
+    /// non-unit pair would scale the curve a second time by a factor the
+    /// caller did not name.
+    ///
+    /// A `Circle`'s angles are measured from `+u`, so both shift by θ; an
+    /// `Ellipse`'s parameters are measured from its own `major_axis`, so they
+    /// are UNCHANGED and only the axis turns. Getting that backwards rotates
+    /// an elliptical cap twice.
+    pub fn transformed_by(
+        &self,
+        scale: f64,
+        rotation: [f64; 2],
+        offset: [f64; 2],
+    ) -> Option<Curve2> {
         if !(scale.is_finite() && scale > 0.0 && offset[0].is_finite() && offset[1].is_finite()) {
             return None;
         }
-        let map = |p: Point2| Point2::new(p.x() * scale + offset[0], p.y() * scale + offset[1]);
+        let (c, s) = (rotation[0], rotation[1]);
+        if !(c.is_finite() && s.is_finite()) || (c * c + s * s - 1.0).abs() > 1e-9 {
+            return None;
+        }
+        let theta = s.atan2(c);
+        let map = |p: Point2| {
+            Point2::new(
+                (p.x() * c - p.y() * s) * scale + offset[0],
+                (p.x() * s + p.y() * c) * scale + offset[1],
+            )
+        };
+        let turn = |d: [f64; 2]| [d[0] * c - d[1] * s, d[0] * s + d[1] * c];
         Some(match *self {
             Curve2::Point(p) => Curve2::Point(map(p)),
             Curve2::Line { start, end } => Curve2::Line {
@@ -927,12 +973,23 @@ impl Curve2 {
                 radius,
                 start_angle,
                 end_angle,
-            } => Curve2::Circle {
-                center: map(center),
-                radius: radius * scale,
-                start_angle,
-                end_angle,
-            },
+            } => {
+                // Both angles shift by θ, and the pair is then slid back by
+                // whole turns so `start_angle` lands in `[0, 2π)`. The slide
+                // keeps the span and so keeps the arc: without it a rotated
+                // arc can carry a start of, say, 7.1 rad, which the DXF
+                // writer turns into 407° — a number a reader is free to
+                // reject. The span itself is NOT wrapped: a full circle's
+                // `end − start == 2π` is what tells it from a zero arc.
+                let turns = (start_angle + theta).div_euclid(std::f64::consts::TAU);
+                let shift = theta - turns * std::f64::consts::TAU;
+                Curve2::Circle {
+                    center: map(center),
+                    radius: radius * scale,
+                    start_angle: start_angle + shift,
+                    end_angle: end_angle + shift,
+                }
+            }
             Curve2::Ellipse {
                 center,
                 major_axis,
@@ -942,7 +999,7 @@ impl Curve2 {
                 end_param,
             } => Curve2::Ellipse {
                 center: map(center),
-                major_axis,
+                major_axis: turn(major_axis),
                 major_radius: major_radius * scale,
                 minor_radius: minor_radius * scale,
                 start_param,
@@ -2259,5 +2316,150 @@ mod tests {
             .export_dxf(&[], &ViewFrame::TOP, &ProjectOpts::default())
             .is_err());
         assert!(n.section_with_plane(&h, [0.0; 3], [0.0, 0.0, 1.0]).is_err());
+    }
+
+    // ---------------------------------------------------------- D4b rotation
+
+    #[test]
+    fn a_quarter_turn_rotates_a_curve_without_rescaling_it() {
+        // The map a section cap needs: the cut plane's frame into the section
+        // view's. A quarter turn is the one case whose answer can be written
+        // down exactly.
+        let rot = [0.0, 1.0]; // cos 90°, sin 90°
+        let line = Curve2::Line {
+            start: Point2::new(1.0, 0.0),
+            end: Point2::new(3.0, 0.0),
+        };
+        let Some(Curve2::Line { start, end }) = line.transformed_by(1.0, rot, [0.0, 0.0]) else {
+            panic!("a line must stay a line");
+        };
+        assert!((start.x() - 0.0).abs() < 1e-12 && (start.y() - 1.0).abs() < 1e-12);
+        assert!((end.x() - 0.0).abs() < 1e-12 && (end.y() - 3.0).abs() < 1e-12);
+
+        // A circle's angles are measured from +u, so they shift with the
+        // frame; its radius does not move.
+        let circle = Curve2::Circle {
+            center: Point2::new(1.0, 0.0),
+            radius: 2.0,
+            start_angle: 0.0,
+            end_angle: std::f64::consts::FRAC_PI_2,
+        };
+        let Some(Curve2::Circle {
+            center,
+            radius,
+            start_angle,
+            end_angle,
+        }) = circle.transformed_by(1.0, rot, [0.0, 0.0])
+        else {
+            panic!("a circle must stay a circle");
+        };
+        assert!((center.x()).abs() < 1e-12 && (center.y() - 1.0).abs() < 1e-12);
+        assert_eq!(radius, 2.0);
+        assert!((start_angle - std::f64::consts::FRAC_PI_2).abs() < 1e-12);
+        assert!((end_angle - std::f64::consts::PI).abs() < 1e-12);
+
+        // An ellipse's parameters are measured from its OWN major axis, so
+        // the axis turns and the parameters do not. Rotating both would turn
+        // the ellipse twice.
+        let ellipse = Curve2::Ellipse {
+            center: Point2::new(0.0, 0.0),
+            major_axis: [1.0, 0.0],
+            major_radius: 3.0,
+            minor_radius: 1.0,
+            start_param: 0.25,
+            end_param: 1.25,
+        };
+        let Some(Curve2::Ellipse {
+            major_axis,
+            major_radius,
+            minor_radius,
+            start_param,
+            end_param,
+            ..
+        }) = ellipse.transformed_by(1.0, rot, [0.0, 0.0])
+        else {
+            panic!("an ellipse must stay an ellipse");
+        };
+        assert!((major_axis[0]).abs() < 1e-12 && (major_axis[1] - 1.0).abs() < 1e-12);
+        assert_eq!((major_radius, minor_radius), (3.0, 1.0));
+        assert_eq!((start_param, end_param), (0.25, 1.25));
+
+        // Rotation preserves every point's distance from the origin — the
+        // property that makes it a similarity of ratio 1.
+        let before = ellipse.eval(0.7).unwrap();
+        let after = ellipse
+            .transformed_by(1.0, rot, [0.0, 0.0])
+            .unwrap()
+            .eval(0.7)
+            .unwrap();
+        assert!((before.x().hypot(before.y()) - after.x().hypot(after.y())).abs() < 1e-12);
+    }
+
+    #[test]
+    fn a_rotation_that_is_not_a_unit_pair_is_refused_rather_than_normalized() {
+        // A non-unit pair scales the curve a second time by a factor the
+        // caller never named — exactly the silent mis-scaling the positive
+        // finite `scale` check exists to refuse.
+        let line = Curve2::Line {
+            start: Point2::new(0.0, 0.0),
+            end: Point2::new(1.0, 0.0),
+        };
+        assert!(line.transformed_by(1.0, [2.0, 0.0], [0.0, 0.0]).is_none());
+        assert!(line
+            .transformed_by(1.0, [f64::NAN, 0.0], [0.0, 0.0])
+            .is_none());
+        // And `transformed` is `transformed_by` at the identity rotation, so
+        // D4a's placement is unchanged.
+        assert_eq!(
+            line.transformed(2.0, [1.0, 1.0]),
+            line.transformed_by(2.0, [1.0, 0.0], [1.0, 1.0])
+        );
+    }
+
+    #[test]
+    fn a_rotated_arc_keeps_its_span_and_starts_inside_one_turn() {
+        // Shifting by θ alone can leave a start angle outside [0, 2π), which
+        // the DXF writer turns into a degree value past 360 — a number a
+        // reader is free to reject. The pair slides back by whole turns, and
+        // the SPAN is what must survive.
+        let arc = Curve2::Circle {
+            center: Point2::new(0.0, 0.0),
+            radius: 1.0,
+            start_angle: 6.0,
+            end_angle: 6.5,
+        };
+        let turn = 2.0_f64; // radians
+        let rot = [turn.cos(), turn.sin()];
+        let Some(Curve2::Circle {
+            start_angle,
+            end_angle,
+            ..
+        }) = arc.transformed_by(1.0, rot, [0.0, 0.0])
+        else {
+            panic!("a circle must stay a circle");
+        };
+        assert!(
+            (0.0..std::f64::consts::TAU).contains(&start_angle),
+            "start {start_angle} outside one turn"
+        );
+        assert!((end_angle - start_angle - 0.5).abs() < 1e-12);
+
+        // A FULL circle keeps its 2π span, which is what tells it from a
+        // zero-length arc.
+        let full = Curve2::Circle {
+            center: Point2::new(0.0, 0.0),
+            radius: 1.0,
+            start_angle: 0.0,
+            end_angle: std::f64::consts::TAU,
+        };
+        let Some(Curve2::Circle {
+            start_angle,
+            end_angle,
+            ..
+        }) = full.transformed_by(1.0, rot, [0.0, 0.0])
+        else {
+            panic!("a circle must stay a circle");
+        };
+        assert!((end_angle - start_angle - std::f64::consts::TAU).abs() < 1e-12);
     }
 }
