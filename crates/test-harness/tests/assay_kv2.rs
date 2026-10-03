@@ -1628,9 +1628,31 @@ fn smoke_corpus_boundary_categories() {
         // cleared. The third row carrying this text (seed 2 index 169) reaches
         // it through the AUTO-UNION path and is ledgered, not promoted.
         ("P0015", Category::SupportedCorrect),
-        // P0016 (3 ops) ⇒ Stage-3 `AmbiguousCurve { candidates: 0, matched: 0 }`
-        // — candidates ZERO, so no analytical curve was proposed at all.
-        ("P0016", Category::Error),
+        // P0016 (3 ops) was promoted as Stage-3
+        // `AmbiguousCurve { candidates: 0, matched: 0 }` — candidates ZERO, so
+        // no analytical curve was proposed at all. **CONVERTED 2026-10-03
+        // (night)**: that text was neither an ambiguity nor the producer fault
+        // it claimed. Stage 1 sizes every curved chart against ONE
+        // operand-level budget (`curved_chord_bound`, else
+        // `ellipse_rim_chord_bound`) and its own comment calls that value "the
+        // operand's chord budget as Stage 3/4 read it back" — but only the
+        // CYLINDER arms read it back. Both CONE arms demanded a
+        // `Curve::Circle` rim on the band's own face, and a cone patch
+        // re-entering from a prior boolean has none (measured here: 2
+        // ellipses + 6 hyperbolas + 10 segments, zero circles), so Stage 3
+        // STOPped before `ssi_rs::intersect` was ever called. Fixing that arm
+        // alone moved the STOP to the Stage-4 twin
+        // (`cone_chord_budget_from_owner` → `LocalRefinementRequired`): one
+        // defect, two error texts. Both now delegate to
+        // `owner_stage1_chord_budget`, the single source (deviation N71; pins
+        // `yang-rs/src/tests_unit/n71_cone_band_readback.rs`). The per-band
+        // N38 bound still wins wherever a rim Circle exists, so every
+        // circle-rimmed cone case is byte-identical. Oracles adjudicated at
+        // the conversion by the exact-membership lattice (two components,
+        // boundary_chi 4 on all fourteen rungs, one body, volume 4.86e-5 ±
+        // 1e-2 — the lattice's own finest-rung spread is ±0.5 %, so the tol is
+        // what the oracle resolves) and `derived_meta` cleared.
+        ("P0016", Category::SupportedCorrect),
         // P0017 / P0018: the two arms of kernel-v2's curved-patch
         // postcondition — "bounded cone patch must have exactly one
         // material-CCW loop" and its cylinder twin. **CONVERTED 2026-10-03

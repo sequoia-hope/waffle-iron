@@ -1114,7 +1114,7 @@ ten give those families customers again, at 2–5 ops.
 | P0013 | `circle:boss star7(0.70):cut` | 2 | `TessellationFailed "ring rejected by CDT (degenerate/self-intersecting)"` — **NOT P0002's shape** (anchored 2026-10-03, see below); half-converted, the open step is the §4.3.3 guard flip | ERROR / ERROR (same class) | 5 180× | 0.6 s — **CONVERTED 2026-10-03 (late night)**: §4.3.3 LOCAL-form guard flipped ON after the full-corpus proof (318C/13E/0T over 336, one move, zero regressions) |
 | P0014 | `convex5:boss gear10:rev-cut` | 2 | Stage-4 `LocalRefinementRequired` around vertex **4294967295** (u32::MAX — a sentinel, not a vertex): the §4.4.1(a) unzip at `stage4_correct.rs:14388`, rooted in a 2.73e-13 (2-ULP) un-relocated ARRANGEMENT twin pair — a DIFFERENT locus from P0015. **CONVERTED 2026-10-03 (night)**: the twin is an LPI PENCIL the Stage-2 arrangement mints when a gear tessellation vertex lies 2 ULP off the boss plane (one LPI per incident mesh edge + the vertex itself; exactly distinct, so no exact dedup can fuse them); `cherchi-rs` now records the generator incidence and the I6 weld fuses the pencil inside its own KV10 band (spec `yang_p0014_arrangement_lpi_pencil_weld.md`). Oracles adjudicated, `derived_meta` cleared | **CORRECT** / ERROR (same class) | 3.09e6× | 77.6 s → 7.9 s |
 | P0015 | `convex4:boss gear27:boss convex5:rev-cut` | 3 | Stage-4 `RelocationCrossedCarrierVertex` (the R0085 family). **CONVERTED 2026-10-03 (evening)**: the §4.5.2 certificate's demand (159.37) sat past the ladder's ceiling and was read as a PROOF of futility ⇒ zero rungs; the op converges at `d_ε/32`. Oracles adjudicated, `derived_meta` cleared | ERROR / ERROR (same class) | 648× | 13.9 s |
-| P0016 | `convex4:boss convex4:rev-cut convex3:cut` | 3 | Stage-3 `AmbiguousCurve { candidates: 0, matched: 0 }` — **zero** candidates, so no curve was proposed at all | ERROR / ERROR (same class) | 3e4× | 0.4 s |
+| P0016 | `convex4:boss convex4:rev-cut convex3:cut` | 3 | Stage-3 `AmbiguousCurve { candidates: 0, matched: 0 }` — **zero** candidates, so no curve was proposed at all. **CONVERTED 2026-10-03 (night)**: neither an ambiguity nor a producer fault — the CONE arms never read the owner's Stage-1 chord budget back, at BOTH stages (deviation N72, section below). Oracles adjudicated, `derived_meta` cleared | ERROR / ERROR (same class) | 3e4× | 0.4 s → 0.8 s |
 | P0017 | `convex4:boss nonconvex10:rev circle:cut` | 3 | `CurvedGeometryMismatch "bounded cone patch must have exactly one material-CCW loop"`. **HALF-CONVERTED 2026-10-03** (deviation N71, see the dated section below): the postcondition measured its chart winding on a VERTICES-ONLY shoelace and rejected a correct sliver (−6.723e-7 against a canonical-chart +7.175e-8). Both arms fixed; the case now lands one stage later on an UNMASKED LATENT — `TessellationFailed "ring rejected by CDT (degenerate/self-intersecting)"` on the same 7.2e-8-area chart sliver, N68's family | ERROR (a degenerate zero-area input face) / ERROR (a CDT ring reject — **already the class it now reads at its own scale**) | 91× | 1.1 s → 0.5 s |
 | P0018 | `circle:boss circle:sym nonconvex7:cut` | 3 | the cylinder arm of the same postcondition. **CONVERTED 2026-10-03** (N71): chord shoelace −4.575 where the canonical chart polygon reads +18.305. Oracles adjudicated (one body, TWO shells, χ 4, volume 6.738844e6 ± 3e-3), `derived_meta` cleared | ERROR / ERROR (same class) | 8.9e7× | 1.0 s → 3.6 s |
 | P0019 | `convex4:boss nonconvex5:rev convex4:cut` | 3 | `InvalidBooleanOutput "full-circle edge sense is underivable"` (the wall R0004 once hit) | ERROR / ERROR (same class) | 1.34e5× | 0.2 s |
@@ -1222,6 +1222,133 @@ flipping that guard ON, which needs the full-corpus proof its 2026-08-27
 broad-form flip was refused on (P1 changes what it derives, so neither
 direction of that measurement transfers).** No full-corpus run was taken
 this session (another assay held the box).
+
+#### P0016 — CONVERTED 2026-10-03 (night): the CONE arms never read the operand's Stage-1 chord budget back, at BOTH stages
+
+**Anchor, written before any code changed.** `AmbiguousCurve { candidates: 0,
+matched: 0 }` has FOUR producers and one error text, and `Display` labels all
+of them "Stage-3" (`errors.rs`): the selector itself (when `ssi_rs::intersect`
+returns an empty candidate list), the cylinder-owner producer fault
+(`chord_tol_for_curved_owner`), the cone-owner producer fault
+(`cone_chord_tol_for_owner`), and the Stage-4 LineSegment relocation arm. Only
+two of the four were covered by `YANG_S3_AMBIG_PROBE`, and the first run of
+P0016 under the probe printed **nothing** — which was itself the measurement
+that localized it to one of the two unprobed sites. With the probe extended to
+all four (committed; the text alone cannot distinguish them):
+
+```
+[s3-ambig-probe] CONE BAND-LESS edge (6, 13): cone-owning input A has no own-band rim;
+  cone faces=1 exact-surface matches=1 owner edges {"ellipse": 2, "hyperbola": 6, "seg": 10}
+  band=Cone { apex: [0.065, -0.085, 0.9092057188818904], axis_dir: [-0, -0, -1],
+              half_angle: 0.17300918301275803 }
+```
+
+The failing op is the THIRD (the triangle cut, feature `2b867e1e`), and its
+operand A is the OUTPUT of the second (the square revolve-cut about an axis
+0.115 away, which sweeps four cone bands). So A carries one `Surface::Cone`
+face that is a cone PATCH trimmed by the first boolean: its rims are the
+`cone ∩ plane` conics, **zero circles anywhere in the body**.
+`cone_band_chord_bound` — the N38 per-band source — scans the band face's loop
+for a `Curve::Circle` to take a height from, finds none, and returns `None`;
+`cone_chord_tol_for_owner` called that a producer fault. It is not one:
+`stage1_tessellate`'s `operand_chord_budget` (`curved_chord_bound`, else
+`ellipse_rim_chord_bound`) HAD given that patch's chart a budget, and its own
+comment there names the value "the operand's chord budget **as Stage 3/4 read
+it back**". Two arms read it back — Stage 3's `chord_tol_for_curved_owner`
+(with the KV14 ellipse/hyperbola and M5 K11 surface-pair rungs) and Stage 4's
+`input_curved_chord_bound`. Neither cone arm did.
+
+**The paper.** Yang §4.3.3 (`refs/text/yang2025_hybrid_boolean.txt:518-537`)
+has exactly one disposition for a surface pair with no solution: "if there is
+no solution in one of the two parametric domains, we regard it as a solving
+failure and rule out the aforementioned Case IV where the meshes detect
+intersections that do not exist between the surfaces." That is a statement
+about a SOLVE that ran. Here no solve ran — `ssi_rs::intersect` was never
+called — so the STOP was not Case IV, not an ambiguity, and not a capability
+gap: it was a band the code declined to read from the source that holds it.
+Nothing in §4.1–§4.5 makes a curved patch's chord guarantee conditional on the
+patch retaining a full circular rim; §4.5's refinement contract is stated over
+`d_ε`, the discretization bound itself.
+
+**The twin.** Fixing the Stage-3 arm alone moved the STOP exactly one stage
+down, to `LocalRefinementRequired` at vertex 6 — and `YANG_LRR_PROBE` named
+the site `cone_ellipse_budget` (`stage4_correct.rs`'s cone+plane relocation
+arm), whose `cone_chord_budget_from_owner` is the same rule written a second
+time, with the same "a cone owner with no rim Circle is a producer fault"
+comment. The §4.5.2 ladder could not help: its `[2, 4]` rungs re-ran the op at
+`d_ε/2` and `d_ε/4` and the operand went 20 → 20 → 22 triangles, because the
+missing band is not a resolution problem. One defect, two error texts; fixing
+one arm alone only silences the twin (the mirrored-pair lesson).
+
+**The fix** is one single source, `owner_stage1_chord_budget`
+(`stage1_tessellate/normals_chord_bounds.rs`): Stage 1's own ladder plus the
+K11 pair rung, which Stage 3's cylinder arm was already reading. Both cone
+arms delegate to it when the band has no rim Circle of its own. The per-band
+N38 bound still WINS wherever it resolves, so every circle-rimmed cone case —
+including the multi-band gear revolve N38 was written for — is byte-identical;
+and `chord_tol_for_curved_owner`'s loud producer fault survives for an owner
+with no curved rim of any kind (an all-planar body carries no chord error, so
+inventing a band for it would be the `TAU_WORK` default P9/P10 forbid).
+Deviation **N71**.
+
+**Verdict: `P0016: SUPPORTED_CORRECT (0.8s) — all checks passed`.**
+
+**Meta adjudicated, `derived_meta` cleared.** Exact-membership lattice,
+fourteen rungs (192/256/384/512 at phases 0.5 and 0.25; 768/1024 at 0.5, 0.25
+and 0.75): `chi_solid=2`, `boundary_chi=4`, **two components** on every rung
+(the stray size-1 speck at two rungs is lattice noise), one body. So the
+composed solid is genuinely two disjoint pieces, each a sphere — authored as
+`euler_target: 4` with `expected_shell_count: 2`, which makes the oracle
+demand χ exactly 4 AND two shells instead of crediting extra shells. The
+kernel's mesh reads `V(53) − E(141) + F(92) = 4` over 2 shells. Volume: the
+six finest lattice readings are 4.884882e-5, 4.849210e-5, 4.869539e-5,
+4.870851e-5, 4.838560e-5, 4.846998e-5 — mean **4.860e-5**, spread ±0.5 %,
+which is what this oracle resolves on a thin slab with oblique conic faces, so
+`expected_volume_tol_rel: 0.01`. The kernel's tessellated volume is
+4.876074e-5, +0.33 % of the pinned mean. `expected_solid_count: 1`. All four
+new pins mutation-checked: `euler_target: 2` ⇒ `V(53) − E(141) + F(92) = 4
+(expected 2 for 2 shell(s))`; `expected_shell_count: 1` ⇒ `2 shell(s) !=
+authored expected_shell_count 1`; `expected_volume: 4.95e-5` ⇒
+`4.876073500e-5 vs expected 4.950000000e-5 (rel tol 1.0e-2)`;
+`expected_solid_count: 2` ⇒ `solid count: 1 bodies (meta expects 2)`.
+
+**Pins.** `yang-rs/src/tests_unit/n71_cone_band_readback.rs` — five tests on a
+conic-bounded cone patch (two oblique section ellipses + two rulings, built
+topology-only, because a boolean-output cone patch cannot be re-tessellated
+from hand-authored topology: Stage 1 refuses a single encircling conic rim
+outright and two is the deferred "KV14 Slice E holed frustum band"
+sub-slice). Mutation-checked one arm at a time: reverting the Stage-4
+delegation fails `n71_stage4_…` alone (4 passed / 1 failed), reverting the
+Stage-3 delegation fails `n71_stage3_…` alone. The corpus pin flips to
+`SupportedCorrect` in `smoke_corpus_boundary_categories` (0.8 s — well inside
+the "a pin must be CHEAP" bar).
+
+**C0109 does NOT share the locus** — the other open row carrying this exact
+text. Probed: `candidates=0 matched=0 tol=1.732e-2`, `surf0=Sphere{[0,0,0.5],
+0.5}`, `surf1=Sphere{[0.2,0,0.5], 0.3}`. Centre distance 0.2 = 0.5 − 0.3, so
+the spheres are INTERNALLY TANGENT and `ssi_rs::intersect` correctly returns
+nothing (the intersection is a single point, not a curve) — the
+degenerate-tangency SSI vocabulary gap, the selector site, loud by design. It
+stays ERROR, unchanged. The extended probe is what separates the two; before
+it, the two rows looked like one family in the ledger.
+
+**Sharers re-judged** (no corpus run; release `single_case`,
+`ASSAY_CASE_TIMEOUT_SECS=900`). 29 cases: every cone / revolve / M5-degree-4
+customer and every open C- and P-series ERROR row. **Zero moves besides
+P0016** — the twelve CORRECT cone customers stay CORRECT (C0043 0.6 s, C0056
+0.5 s, C0063 0.5 s, C0065 2.8 s, R0003 89.4 s, R0004 4.3 s, R0008 0.6 s,
+R0026 5.3 s, R0032 121.8 s, R0049 4.4 s, R0070 35.6 s, R0038 1.1 s, R0100
+1.6 s, P0014 8.1 s, P0015 17.2 s, P0022 1.7 s) and every ERROR row keeps its
+own text verbatim (C0109, C0046, C0107, C0108, C0111, C0113, C0118, P0013,
+P0017, P0018, P0019, P0020, P0021). `cargo test -p yang-rs --release` is green
+(1055 lib + 76 binaries, 0 failed). Corpus NOT re-measured.
+
+**Pre-existing, NOT this change:** `kernel-v2 --test q2_interference ::
+an_intersect_region_outside_the_operands_stops_instead_of_answering` fails on
+this branch at HEAD — two cubes sharing one edge now raise the N69 netting
+`InnerLabelOutsideInputBounds` where that test expects `Ok`. Verified
+pre-existing by reverting both N71 hunks and re-running (still FAILED); no
+cone is involved. It belongs to today's P0023/P0024 landing.
 
 ### Four findings RETIRED, with reasons
 

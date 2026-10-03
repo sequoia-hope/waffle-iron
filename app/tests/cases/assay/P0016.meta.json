@@ -1,6 +1,6 @@
 {
   "id": "P0016",
-  "description": "3 ops, scale=1.00e-1, extrude(polygon,boss)+revolve(polygon,cut)+extrude(polygon,cut) — prospector seed 2 index 12 minimized 2026-10-03 (8 ops -> 3, 19 verdicts): a square boss, a square REVOLVE-CUT, a triangle cut. boolean_subtract BooleanFailed(\"yang-rs: Stage-3 SSI refinement failed for intersection edge (1, 9): AmbiguousCurve { candidates: 0, matched: 0 }\") — candidates ZERO, so no analytical curve was proposed at all for that surface pair, not a choice between several. CLAUDE.md records the Stage-3 AmbiguousCurve class as having NO corpus customer left (C0043 and C0056 converted; C0109 is a designed degenerate-tangency wall); this is a generic-geometry customer at three ops. Smallest authored length 3.0e-2 = 3e4 x MIN_FEATURE_SIZE; ERROR at both x1e-3 and x1e3. ERROR-class pin, derived_meta: expectations unadjudicated until conversion.",
+  "description": "3 ops, scale=1.00e-1, extrude(polygon,boss)+revolve(polygon,cut)+extrude(polygon,cut) \u2014 prospector seed 2 index 12 minimized 2026-10-03 (8 ops -> 3, 19 verdicts): a square boss, a square REVOLVE-CUT, a triangle cut. Promoted as boolean_subtract BooleanFailed(\"yang-rs: Stage-3 SSI refinement failed for intersection edge (1, 9): AmbiguousCurve { candidates: 0, matched: 0 }\"). CONVERTED 2026-10-03 (night), deviation N71: the text was neither an ambiguity (ssi_rs::intersect was never reached) nor the producer fault it claimed \u2014 the cone-owning operand is a cone PATCH re-entering from the revolve-cut, bounded by conic chains alone (2 ellipses + 6 hyperbolas + 10 segments, ZERO circles), and both cone arms (Stage-3 cone_chord_tol_for_owner, Stage-4 cone_chord_budget_from_owner) demanded a Curve::Circle rim instead of reading the owner's Stage-1 chord budget back the way the cylinder arms do. Oracles adjudicated by the exact-membership lattice at the conversion: two components / boundary_chi 4 on all fourteen rungs (euler_target 4 with expected_shell_count 2), one body, volume 4.86e-5 with tol 1e-2 (the lattice's own finest-rung spread is +-0.5%). Smallest authored length 3.0e-2 = 3e4 x MIN_FEATURE_SIZE; was ERROR at both x1e-3 and x1e3.",
   "master_seed": 0,
   "test_seed": 0,
   "scale": 0.1,
@@ -39,13 +39,17 @@
     }
   ],
   "oracles": {
-    "euler_target": 2,
+    "euler_target": 4,
     "expect_watertight": true,
     "max_bbox_extent": 10.0,
     "expect_positive_volume": true,
     "volume_monotonicity": [],
     "expect_rebuild_error": false,
-    "derived_meta": true
+    "derived_meta": false,
+    "expected_volume": 4.86e-05,
+    "expected_volume_tol_rel": 0.01,
+    "expected_solid_count": 1,
+    "expected_shell_count": 2
   },
   "generator_version": 100,
   "featured": true

@@ -1783,9 +1783,20 @@ pub(crate) fn project_onto_cone_section(
 /// PR-YR21 (spec §3.3): derive a cone's Stage-1 chord budget
 /// `cone_chord_bound(height, half_angle)` from the cone OWNER's rim
 /// `Curve::Circle`, using the SAME height derivation as `cone_chord_tol_for_owner`
-/// / `tol_for`: `height = |(rim_center − apex)·â|`. A cone owner with no rim
-/// Circle is a producer fault → `None` (the caller raises a loud STOP; NEVER a
-/// `TAU_WORK` default for a curved relocation — P10).
+/// / `tol_for`: `height = |(rim_center − apex)·â|`.
+///
+/// **N72 (P0016).** A cone owner with no rim `Curve::Circle` is NOT a producer
+/// fault — it is a cone patch re-entering from a prior boolean, bounded by
+/// conic chains alone, and Stage 1 gave it a chord budget all the same
+/// ([`owner_stage1_chord_budget`]). This is the exact MIRROR of Stage 3's
+/// `cone_chord_tol_for_owner`: P0016 STOPped first there
+/// (`AmbiguousCurve { candidates: 0, matched: 0 }`) and then, with that arm
+/// fixed, HERE (`LocalRefinementRequired` at `stage4_correct.rs`'s cone-ellipse
+/// budget site) — one defect wearing two error texts, and fixing one arm alone
+/// only silences the twin. Both now read the same single source back. `None`
+/// survives only for an owner with no curved rim of any kind, where the
+/// caller's loud STOP stands (P10 — never a `TAU_WORK` default for a curved
+/// relocation).
 pub(crate) fn cone_chord_budget_from_owner(
     apex: Point3,
     axis_dir: Vector3,
@@ -1807,7 +1818,9 @@ pub(crate) fn cone_chord_budget_from_owner(
             }
         }
     }
-    None
+    // N72: no cone face carries a rim Circle — read back the owner's Stage-1
+    // chord budget, the single source Stage 1 sized its charts against.
+    owner_stage1_chord_budget(owner)
 }
 
 /// PR-YR21 (spec §3.1/§4): the on-both-surfaces residual `max(cone radial,
