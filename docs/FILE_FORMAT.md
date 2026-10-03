@@ -175,6 +175,7 @@ they are converted on load (§4).
 | 4 | 2026-09-07 | `document.id`; `sources` table (git-aware locators, content hash, optional embed); opaque unknown tab/source/locator kinds; unknown-key preservation; `FeatureTree.provenance`; `ImportedBody.source_id` replaces the in-feature blob; JS-form timestamps; exact float parsing | `migrate_v3_to_v4`: mint `document.id` (serde default), rewrite non-UUID tab ids to fresh UUIDs (`active_tab` follows, warning emitted), lift every `ImportedBody.blob` into a `sources` entry (`Embedded`, `pack: true`, `content_hash: git-blob-sha1(text)`, byte-identical payloads share one entry) and set `source_id`. |
 | 5 | 2026-09-08 | `GeomRef.scope` (§8): a reference into another tab's instance — the assembly tab and the instance path that owns the anchor feature — for in-context editing (v4 spec §2.8, Phase 3d-4). The only change; additive, but a v4 reader would drop the field and resolve the anchor locally, so the reader floor moved with it. | none (a v4 file parses as-is; absent `scope` ⇒ local). |
 | 6 | 2026-09-24 | `Sketch.plane_x_axis` (§9.1): the sketch's own in-plane +x direction, so a caller can orient a sketch instead of reproducing the engine's derivation (`docs/notes/eiffel/FEATURE_NOTES.md` §3). The only change; additive, but a v5 reader would drop it and derive the basis from the normal, drawing the sketch and everything built on it ROTATED, so the reader floor moved with it. | none (a v5 file parses as-is; absent `plane_x_axis` ⇒ derived). |
+| 7 | 2026-10-03 | `FeatureTree.names` (§6.1): entity names — agent/user labels over persistent references (N1, `specs/agent_mechanical_design.md` §5.2). The field itself is additive and defaulted, but each entry stores a `Selector::Pid` (§8, drawings spec D0) and `Selector` is a serde-tagged enum, so a v6 reader given one fails with a raw unknown-variant error. A new selector variant is a floor bump by §13.3, and this is the first version that writes one. | none (a v6 file parses as-is; absent `names` ⇒ the document has no names). |
 
 Migrations run **sequentially** (v1→v2→v3→v4). They live only in the Rust loader;
 the JS `initDocumentState` applies the same tab-id rewrite so its tab list agrees
@@ -325,6 +326,7 @@ bridge actually sends and JS actually stores into the file) — a drift hazard
 | `features` | Feature[] | ✔ | Ordered; index 0 rebuilds first. |
 | `active_index` | usize \| null | ✔ (nullable) | Rollback bar: features **after** this index are skipped during rebuild. `null` = all active. |
 | `body_names` | object {string: string} | opt (omitted when empty) | User body-name overrides. Key is the persistent body identity `"{feature_uuid}/{output_tag}"` where the tag is `Main`, `Body:N`, `Profile:N`, or `Datum:name` (`OutputKey::tag()`). Value is the display name. |
+| `names` | object {string: NamedRef} | opt (omitted when empty) | **v7.** Entity names (N1): key is the name — one or two dot-separated identifier segments (`top_face`, `plate.top_face`), the first segment being the display name of the body the entity lives in. Value is `{target: GeomRef, kind: TopoKind, fallback?: GeomRef, created: Provenance}`: `target` carries `Selector::Pid` (§8) wherever the kernel had an identity for the entity, with `fallback` holding the reference as authored for when the pid is gone. `policy` is always `Strict`. **Never GC'd** — a name whose entity was deleted stays in the table and resolves to nothing, which is what the agent needs to see. |
 
 ### 6.2 `Feature`
 
@@ -681,6 +683,15 @@ an `AssemblyTree` (§5.6) predates this field and stays where it is.
   NearPoint{point, distance} | AreaRange{min,max}]` plus optional `tie_break:
   LargestArea | NearestTo{point} | SmallestIndex`.
 - `Position { x, y, z }` — nearest entity to a 3D point.
+- `Pid { pid, root_pid }` (**v7**) — the entity's **persistent id** and the id
+  where its geometry was introduced (drawings spec D0, `kernel_v2::pid`). The
+  only selector that NEVER rebinds: an entity whose id and root are both gone
+  is a loud `ResolutionFailed` under either `policy`, because a nearest-match
+  fallback is how an annotation ends up dimensioning the wrong edge. For edges
+  and vertices `root_pid == pid`. Resolvable only with a live kernel
+  (`resolve_geom_ref_live`), and unique only WITHIN one body, so the anchor's
+  `output_key` must still exist. Written by `FeatureTree.names` (§6.1); its
+  arrival is what moved the reader floor to 7.
 
 **Reality note:** files in the wild overwhelmingly use `Role` selectors, and a
 sketch-on-face is persisted with a *random* `Datum` UUID anchor plus a
@@ -838,7 +849,7 @@ Anyone changing the format must touch all of them:
 | sessionStorage handoff | keys `waffle-active-doc` / `waffle-active-json` / `waffle-active-link` | Route → editor transfer of the full JSON (and, for a linked record, its `DocumentLink`). |
 | Open-from-link | `app/src/routes/open/+page.svelte`, `app/src/lib/storage/open-link.js`, `app/src/lib/storage/git/*` | `/open?remote=&path=&ref=` (also `?url=`; the legacy `/?src=<raw url>` redirects here) is the share link — a **locator**, not a copy (spec §7.4). Host adapters (`git/hosts.js`: GitHub, GitLab, Gitea/Forgejo, generic) resolve the ref to a commit and fetch the file **at that commit**; the git blob sha becomes `content_hash`; a private repository prompts for a per-host token (`git/tokens.js`, localStorage `waffle-host-tokens`; the legacy GitHub token still honored). The document opens linked and read-only; the GitHub provider's `getShareUrl` emits this link. Pinned by `app/tests/gui/git-links.spec.js` and `open-from-link.spec.js` against mocked APIs. |
 | Assay corpus | `app/tests/cases/assay/*.waffle` (312 v3 files) + `crates/test-harness/src/assay/gen.rs:4874` | De-facto backward-compat pin: every kernel assay run loads the corpus through `file_format::load_project`. A change that breaks old files breaks the assay loudly. |
-| JSON Schema | `docs/schema/waffle-v5.schema.json` (draft 2020-12, 55 `$defs`), generated by `crates/file-format/src/schema.rs` behind the `json-schema` cargo feature (schemars derives on every persisted type in waffle-types/feature-engine/file-format; hand-written schemas for the three opaque enums `TabKind`/`SourceKind`/`Locator`). Pinned by `tests/schema_golden.rs`: the committed file must equal the generated one (regenerate with `UPDATE_SCHEMA=1 cargo test -p file-format --features json-schema --test schema_golden`), every repo `.waffle` file must validate after migration, a malformed Part tab and a locator-less source must NOT validate, an unknown tab kind MUST. CI runs it as its own step (`rust-test.yml`). Tooling that writes `.waffle` files should validate against it before submitting. |
+| JSON Schema | `docs/schema/waffle-v5.schema.json` (draft 2020-12, 86 `$defs`), generated by `crates/file-format/src/schema.rs` behind the `json-schema` cargo feature (schemars derives on every persisted type in waffle-types/feature-engine/file-format; hand-written schemas for the three opaque enums `TabKind`/`SourceKind`/`Locator`). Pinned by `tests/schema_golden.rs`: the committed file must equal the generated one (regenerate with `UPDATE_SCHEMA=1 cargo test -p file-format --features json-schema --test schema_golden`), every repo `.waffle` file must validate after migration, a malformed Part tab and a locator-less source must NOT validate, an unknown tab kind MUST. CI runs it as its own step (`rust-test.yml`). Tooling that writes `.waffle` files should validate against it before submitting. |
 | file-format tests | `crates/file-format/tests/format_tests.rs` (43 tests) | Round-trips (incl. rebuild + topology compare), v1→v3 chains, tab validity, non-UUID tab ids, constraint round-trips, back-compat for pre-`combine`/pre-`body_names`/pre-`min_reader_version` files, `FutureVersion` refusal, verified-save NaN rejection. |
 | JS-writer regression spec | `app/tests/gui/document-format-seam.spec.js` | Pins the production (JS) writer's envelope: `created` preservation, `display_unit` round-trip, `min_reader_version`, multi-tab File→Open adoption + storage-doc re-homing, clean refusal of too-new files. |
 
@@ -869,7 +880,10 @@ Anyone changing the format must touch all of them:
    `version`) for **any** change old readers cannot parse — which includes new
    constraint/selector/`PlaneDefinition` *variants*, not just structural
    changes, and a new field that a reader must not silently ignore (v5:
-   `GeomRef.scope`). Purely additive defaulted fields need no bump. **Since v4, new tab
+   `GeomRef.scope`). Purely additive defaulted fields need no bump — but a
+   defaulted field whose CONTENT uses a new variant does (v7:
+   `FeatureTree.names` is additive, and every entry in it carries a
+   `Selector::Pid`). **Since v4, new tab
    kinds, source kinds and locator kinds need no bump, and since Phase 1b
    neither do new operation kinds**: v4 readers preserve unknown ones opaquely
    (§5.3, §5.5, §7).
