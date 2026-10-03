@@ -38,9 +38,10 @@ const READ_ONLY = [
 	'model_summary',
 	'feature_get',
 	'body_measure',
-	// Q1 of `specs/agent_mechanical_design.md` §4.3; the Rust side pins its
-	// answers (`crates/wasm-bridge/tests/measure_distance.rs`), this list only
-	// pins that the page routes it to the engine.
+	// Q1 of `specs/agent_mechanical_design.md` §4.3. The Rust side pins the
+	// numbers (`crates/wasm-bridge/tests/measure_distance.rs`); the sequence
+	// below calls it so this file keeps its own invariant — READ_ONLY is the
+	// tools the sequence calls, in order.
 	'measure_distance',
 	'face_list',
 	'sketch_regions',
@@ -111,6 +112,18 @@ test.describe('Read-only agent tools run in the engine (S3 C5b)', () => {
 				const bodyId = built.structuredContent.bodies[0]?.body_id;
 				const feature = await call('feature_get', { feature_id: solid.structuredContent.feature_id });
 				const measured = await call('body_measure', { body_id: bodyId });
+				// A body against a free point 100 mm straight above the middle
+				// of its own bounding box, so the closest point is on the top
+				// FACE whichever way the sketch plane's in-plane axes fall
+				// (they are not world x and y). A planar face against a point
+				// is the `exact` tier, and the answer must be the 0.1 m the
+				// probe was placed at.
+				const bb = [measured.structuredContent.bbox_min, measured.structuredContent.bbox_max];
+				const probe = [(bb[0][0] + bb[1][0]) / 2, (bb[0][1] + bb[1][1]) / 2, bb[1][2] + 0.1];
+				const distance = await call('measure_distance', {
+					a: { type: 'body', body_id: bodyId },
+					b: { type: 'point', point: probe }
+				});
 				const faces = await call('face_list', { body_id: bodyId });
 				const regions = await call('sketch_regions', { feature_id: sketch.structuredContent.feature_id });
 				const expression = await call('expression_evaluate', { expression: 'width * 2' });
@@ -119,6 +132,7 @@ test.describe('Read-only agent tools run in the engine (S3 C5b)', () => {
 				for (const [name, r] of [
 					['feature_get', feature],
 					['body_measure', measured],
+					['measure_distance', distance],
 					['face_list', faces],
 					['sketch_regions', regions],
 					['expression_evaluate', expression],
@@ -142,6 +156,7 @@ test.describe('Read-only agent tools run in the engine (S3 C5b)', () => {
 					suppressed: suppressed.structuredContent,
 					feature: feature.structuredContent,
 					measured: measured.structuredContent,
+					distance: distance.structuredContent,
 					faces: faces.structuredContent,
 					regions: regions.structuredContent,
 					expression: expression.structuredContent,
@@ -170,6 +185,7 @@ test.describe('Read-only agent tools run in the engine (S3 C5b)', () => {
 			'model_summary',
 			'feature_get',
 			'body_measure',
+			'measure_distance',
 			'face_list',
 			'sketch_regions',
 			'expression_evaluate',
@@ -193,6 +209,14 @@ test.describe('Read-only agent tools run in the engine (S3 C5b)', () => {
 		// …and each read-only tool answered about that model.
 		expect(result.feature.operation.type).toBe('Extrude');
 		expect(result.measured.volume_m3).toBeGreaterThan(0);
+		// Precision 8, not more: the probe was placed off `body_measure`'s
+		// bbox, which is derived from the f32 render mesh, so the REFERENCE
+		// carries ~1e-9 of its own. The measurement itself is f64 and exact.
+		expect(result.distance.distance_m).toBeCloseTo(0.1, 8);
+		expect(result.distance.method).toBe('exact');
+		// The point lies on nothing; the body's point lies on a face.
+		expect(result.distance.on[1]).toBeNull();
+		expect(result.distance.on[0].kind).toEqual({ type: 'Face' });
 		expect(result.faces.faces.length).toBeGreaterThan(0);
 		expect(result.regions.regions.length).toBeGreaterThan(0);
 		expect(result.expression.value_mm).toBe(40);
