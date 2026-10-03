@@ -106,7 +106,7 @@ Presented 2026-07-16; the user's answer (2026-07-17) was **"i have no opinion on
 | N66 | RESOLVED (2026-09-28, P0003) | Stage-4 relocation of a BOUNDARY point (one operand's model edge crossing the other's face) accepted any exact root of the extended surfaces — a circle × plane root past the plane face's edge, a line × torus root past the torus face's rim — and nothing asked whether the solution lay within the face's domain (§4.5: "cannot converge to a distance of 0 WITHIN THEIR DOMAINS"); the phantom junctions rode into Stage 6 as a stray edge the render tessellator declined. Now `boundary_domain_postcondition` (creases from the operand's B-Rep edges, a divider plane + extent per crease, the §3t sign test) records the fires and the op-level §4.5.2 ladder (`refine_452_domain`) adopts a fire-free rung, else the natural output stands and the fires are inventoried — a hard STOP would convert five CORRECT gear cases the ladder cannot reach (spec `yang_45_boundary_point_domain_certificate.md` §7) |
 | N67 | RESOLVED (2026-10-03, P0015) | The §4.5.2 op-level ladder treated its UNDER-RESOLUTION certificate as a futility PROOF: a demand past `REFINE_452_MAX_FACTOR` yielded an EMPTY rung list, so the op ran no refinement at all and its Stage-4 STOP stood by construction. The paper's loop skips no rung on a prediction — "The above procedures are repeated if optimization failure persists. The algorithm is guaranteed to terminate since the mesh intersections converge to the spline surface intersections under refinement" (`refs/text/yang2025_hybrid_boolean.txt:665-670`, §4.5). Measured on P0015: demand 159.37, and the op CONVERGES at `d_ε/32` (0 unpaired, 0 improper) while the certificate still read 9.96 — the inequality `d_ε/f < |d_far(q)|` is SUFFICIENT for placing that corner, never NECESSARY for a watertight output, and the re-measured demand is exactly `demand / f` (the corner clearance is refinement-invariant), so it carries no new information per rung. The ceiling now BOUNDS the ladder instead of vetoing it: a demand outside the budget runs the whole budget `[2, 4, 8, 16, 32, 64]` under the unchanged Q3 guard shell (spec `specs/yang_452_local_refinement.md` §10). The skip of rungs below an IN-budget demand is untouched and recorded as open in §10.5 |
 | N68 | RESOLVED (2026-10-03 late night, P0013: the LOCAL-form §4.3.3 density guard is always-on; corpus 318C/0W/13E/5EE/0T over 336, one move, zero regressions — `specs/yang_p0013_tip_land_under_the_chord.md` §4 P3) | The §4.3.3 Case-IV rule-out only fires on a CLOSED component of refuted corners, so a phantom BUMP on a REAL intersection curve is never ruled out — the paper rules out per SOLUTION, not per loop. Two sub-gaps feed it: a claim whose shared edge is CURVED is declined outright (`CURVED-EDGE`, no verdict either way), and the §4.5.2 under-resolution demand is dropped whenever the clearance bound floors at 0 — which the 65-sample Lipschitz slack `len/128` guarantees for a short land on a long edge (P0013: a 9.2807e-6 land on a 5.1769e-3 edge). P1 fixed the clearance exactly (cylinders); the rule-out's loop shape and the guard's default-off state remain |
-| N69 | OPEN (2026-10-03, P0023/P0024; remediation = graze-aware ray selection, netted meanwhile by `InsideOutError::InnerLabelOutsideInputBounds`) | Cherchi 2022 §5 in/out classification picks the FIRST non-border explicit patch vertex and casts a +X ray, and never checks that the ray crosses the other input TRANSVERSALLY. When the origin sits on a shared edge the ray runs ALONG an edge of the other operand — its line is the intersection of two of that operand's face planes, so it is coplanar with both and crosses neither — and the degenerate vertex/edge ring resolution (`perturbRayAndFindIntersTri`) counts exactly ONE hit where a graze must count 0 or 2. The nearest-hit orientation then reads "entering" and the whole patch is labeled INSIDE the other input. Measured 2026-10-03 on two 10 mm cubes meeting along one edge, flush in the third axis: `Intersect` returns a copy of operand A (volume 1.0000000000000002e-6 m³, A's own) and `Union` returns one operand, dropping the other — a SILENT WRONG, no STOP, in 2 of 3 orientations (the third's ray misses the other operand and is correct). NOT a port divergence: the C++ reference `mesh_booleans` was run on the same two meshes and emitted byte-identical labels (`0 | 1 | 0` for all 12 of A's triangles) and the same operand-copy output, so cherchi-rs is in exact parity and the METHOD has no answer here. The paper's own remedy shape exists one branch over — the rational fallback already retries axes when "all three axis rays graze input geometry exactly" — but the f64 explicit branch, which is what production takes, has no graze test and no retry. Remediation: reject a candidate ray that is coplanar with any candidate triangle of another label it meets, and try the next origin/axis (exact, and byte-neutral on every non-grazing input); it is NOT landed here because ray selection is the single most load-bearing primitive in the stack and the change cannot be corpus-validated in a session that may not run the assay |
+| N69 | **RESOLVED-pending-corpus** (2026-10-03 late, P0023/P0024: graze-aware §5 ray selection LANDED always-on with the kill switch `CHERCHI_GRAZE_AWARE_RAY=0`; corpus NOT re-measured — the `full_corpus_categorized` flip proof is OWED, see the dated section below) | Cherchi 2022 §5 in/out classification picks the FIRST non-border explicit patch vertex and casts a +X ray, and never checks that the ray crosses the other input TRANSVERSALLY. When the origin sits on a shared edge the ray runs ALONG an edge of the other operand — its line is the intersection of two of that operand's face planes, so it is coplanar with both and crosses neither — and the degenerate vertex/edge ring resolution (`perturbRayAndFindIntersTri`) counts exactly ONE hit where a graze must count 0 or 2. The nearest-hit orientation then reads "entering" and the whole patch is labeled INSIDE the other input. Measured 2026-10-03 on two 10 mm cubes meeting along one edge, flush in the third axis: `Intersect` returns a copy of operand A (volume 1.0000000000000002e-6 m³, A's own) and `Union` returns one operand, dropping the other — a SILENT WRONG, no STOP, in 2 of 3 orientations (the third's ray misses the other operand and is correct). NOT a port divergence: the C++ reference `mesh_booleans` was run on the same two meshes and emitted byte-identical labels (`0 | 1 | 0` for all 12 of A's triangles) and the same operand-copy output, so cherchi-rs is in exact parity and the METHOD has no answer here. The paper's own remedy shape exists one branch over — the rational fallback already retries axes when "all three axis rays graze input geometry exactly" — but the f64 explicit branch, which is what production takes, has no graze test and no retry. Remediation: reject a candidate ray that is coplanar with any candidate triangle of another label it meets, and try the next origin/axis (exact, and byte-neutral on every non-grazing input). **LANDED 2026-10-03 late** as an always-on rule with the `CHERCHI_GRAZE_AWARE_RAY=0` kill switch: all three orientations of the fixture now return the HONEST answers (`Intersect` ⇒ `EmptyBooleanResult`, `Union` ⇒ `InvalidBooleanOutput("an undirected output edge is not used by exactly two directed edges")`) and the containment net stays silent. The corpus was NOT re-measured in the landing session (a `full_corpus_categorized` run was already in flight) — the flip proof is OWED |
 | N71 | RESOLVED (2026-10-03, P0017/P0018) | kernel-v2's developable-patch material-CCW postcondition (`validate_cylinder_patch` / `validate_cone_patch`) measured its chart winding on a VERTICES-ONLY shoelace — every boundary edge replaced by its chart CHORD. A loop's winding is a property of its boundary CURVES: the planar arm has always known this (`geom::planar_loop_signed_area` adds each arc's exact circular-segment area to the chord polygon's), and §4.1's parametric-domain triangulation is defined on the domain bounded by the curves' images, not their chords. A patch whose boundary curve bulges further across the chart than the patch is wide therefore read the OPPOSITE sign and the kernel rejected its OWN correct output. Measured on P0018's `FaceId(27)`: an oblique plane∩cylinder ellipse arc whose chart image `h(θ) = 349.0216 − 221.2497·cos(θ − 0.42957)` dips to 127.77 at θ = 0.4296 while BOTH its endpoints and the whole 7-chord return polyline sit at 143.79–147.87 — chord shoelace −4.575 (a hole) against a canonical-chart +18.305 (material); on P0017's cone sliver, −6.723e-7 against +7.175e-8 (the chord polygon also overstates the area ~9×). Both arms now append each boundary curve's chart image via `tessellate::sampling` (`arc_interior_samples_frac`, `ellipse_interior_samples`, `hyperbola_interior_samples`, `surface_pair_edge_samples`) at the canonical chord density `RENDER_CHORD_TOLERANCE_REL` — the same polygon the render CDT triangulates (crate hard rule 5, one engine). Net winding, the band/apex-cap `mean_h` rules and every other tier are untouched (`mean_h` still reads loop VERTICES only). The quartic `SurfacePair` chart image has no closed form, so unlike the planar arm this is the canonical chart polygon rather than an exact integral — the exact closed forms for the conic arms (`h(θ)` sinusoidal on a cylinder, `τ(θ) = D/(n·â + tanα·B·cos(θ−φ))` on a cone) are the open refinement |
 | N73 | RESOLVED (2026-10-03, P0019) | `from_yang_brep`'s full-circle sense derivation (`n_for`) admitted only two witnesses — a planar cap use, or `derive_curved`'s leaving-edge reading, whose surface match listed `Cylinder` and `Torus` only. A **cone** fell into its `_ => return None` and could never be read at all; and a band in the ANNULAR form (outer loop = one rim, inner loop = the other — how yang emits a surviving untouched lathe band, the seam being representation gauge, not boundary) has no edge leaving the anchor for that reading to use. So a lathe body with no planar cap anywhere — P0019's genus-1 ring of FIVE cone bands, from a non-convex profile revolved about an external axis — STOPped with `InvalidBooleanOutput("full-circle edge sense is underivable …")`, the wall R0004 once hit. §4.4.2 gives each boundary curve its sense from the patch it bounds (`refs/text/yang2025_hybrid_boolean.txt:574-605`, the `d_ε` contract at `:447-451`), with no planar neighbour anywhere in it; and the rule was already stated and ENFORCED twice in-repo — `validate_cone_face` and `validate_cylinder_face`, word for word ("each rim's traversal axis points TOWARD the opposite rim for an outward (solid) band", AWAY on a cavity wall) — and is the same law the SI5 STEP ingest derives a rim's traversal from (`specs/step_import_si5_exact_analytic_ingestion.md`, "Which way a rim circle is traversed is derived, never read"). It needs only the face's own two rim centres, which the annular form supplies as readily as the seamed one. `derive_axis_band` now reads it from the face's WHOLE rim inventory (either loop), appended to `n_for`'s ladder AFTER both existing readings so the increment is purely additive. Declines loudly on ≥3 rims, a rim axis disagreeing with the face axis, coplanar rim planes, and the single-rim APEX cone form (whose rule is "toward the apex" and has no producer here yet); the SPHERE deliberately keeps no arm, since `validate_sphere_face` is topology-agnostic and states no rim rule to propagate. Pins `crates/kernel-v2/tests/p0019_cone_rim_sense.rs`, mutation-checked both ways. P0019 itself is HALF-converted: it now stops one stage later on `CurvedGeometryMismatch { face: FaceId(17), reason: "cone face with inner loops is outside the KV6c vocabulary" }`, because `recover.rs` anchors seam feet greedily per face and these five rims form a CYCLE — faces 0 and 2 reach PASS 2 with both anchors pinned 15° (π/12, one lattice step) apart and keep the annular form. The remedy is the SI5 spec's own: anchor per CONNECTED COMPONENT of rims-joined-by-bands, one azimuth per component. Tracked in the P0019 row of `docs/yang_tail_triage.md`; it moves minted seam feet corpus-wide, so it needs a full-corpus proof in its own cycle |
 | N72 | RESOLVED (2026-10-03, P0016) | Stage 1 sizes every curved chart against ONE operand-level chord budget (`stage1_tessellate`'s `operand_chord_budget` = `curved_chord_bound`, else `ellipse_rim_chord_bound`), whose own comment names it "the operand's chord budget **as Stage 3/4 read it back**". Only the CYLINDER arms read it back (Stage 3 `chord_tol_for_curved_owner`, with the KV14 ellipse/hyperbola and M5 K11 surface-pair rungs; Stage 4 `input_curved_chord_bound`). BOTH CONE arms — Stage-3 `cone_chord_tol_for_owner` and Stage-4 `cone_chord_budget_from_owner` — instead demanded a `Curve::Circle` rim and called its absence a "producer fault", so a cone PATCH re-entering from a prior boolean, bounded by conic chains alone, STOPped on a band the operand demonstrably carried. P0016 measured it: the cone-owning operand's edge census was 2 ellipses + 6 hyperbolas + 10 segments, ZERO circles, and the Stage-3 STOP read `AmbiguousCurve { candidates: 0, matched: 0 }` — not an ambiguity (`ssi_rs::intersect` was never reached) and not §4.3.3's Case IV either, which is a disposition for a solve that RAN ("if there is no solution in one of the two parametric domains …", `refs/text/yang2025_hybrid_boolean.txt:518-537`). Fixing the Stage-3 arm alone moved the STOP one stage down to the Stage-4 twin (`LocalRefinementRequired`, probe site `cone_ellipse_budget`), where the §4.5.2 ladder could not help — `d_ε/2` and `d_ε/4` took the operand 20 → 20 → 22 triangles, because a missing band is not a resolution problem. Both arms now delegate to one single source, `owner_stage1_chord_budget`; the per-band N38 bound still wins wherever a rim Circle exists (every circle-rimmed cone case byte-identical, the multi-band gear revolve included) and the loud producer fault survives for an owner with no curved rim at all. Pins `crates/yang-rs/src/tests_unit/n71_cone_band_readback.rs`; `YANG_S3_AMBIG_PROBE` extended to all four producers of that one error text, without which a `{0,0}` cannot be localized at all |
@@ -116,7 +116,7 @@ Presented 2026-07-16; the user's answer (2026-07-17) was **"i have no opinion on
 | #137 diag | HISTORICAL | #137 (2026-07-15): C0065/R0074 — the torus∩plane solver EXISTS and RUNS; the blocker is mesh RESOLUTION nea… |
 | #137 diag 2 | HISTORICAL | #137 (2026-07-15, follow-up): resolution ALONE is not the fix — it flips the loud STOP into a silent-wrong … |
 
-**OPEN count: 3** (N76 is TAKEN and RESOLVED 2026-10-03 night — the next free number is **N77**; N74, added 2026-10-03 night — the Stage-6 pinch-sheet emission gap, netted loud at the consumer; N68 RESOLVED 2026-10-03 late night; N2 — its remit includes the §4.5.4 removal half transferred from N6 at the 2026-07-17 user-ratified closure; N60 RESOLVED 2026-08-26 — and N67, added 2026-10-03 with its remediation tracked in `specs/yang_p0013_tip_land_under_the_chord.md` §4 P3; and N69, added 2026-10-03 — the §5 ray-graze gap, netted loud meanwhile). Capability gaps that are roadmap milestones, not deviations: M8 coplanar residue (task #130), M5 degree-4 SSI, KV6 revolve tail, #137 grazing-corner epic.
+**OPEN count: 2** (N76 is TAKEN and RESOLVED 2026-10-03 night — the next free number is **N77**; N69 RESOLVED-pending-corpus; N74, added 2026-10-03 night — the Stage-6 pinch-sheet emission gap, netted loud at the consumer; N68 RESOLVED 2026-10-03 late night; N2 — its remit includes the §4.5.4 removal half transferred from N6 at the 2026-07-17 user-ratified closure; N60 RESOLVED 2026-08-26 — and N67, added 2026-10-03 with its remediation tracked in `specs/yang_p0013_tip_land_under_the_chord.md` §4 P3). **N69 moved OPEN → RESOLVED-pending-corpus 2026-10-03 late** — the §5 ray-graze remediation is landed always-on; what is outstanding is its `full_corpus_categorized` proof, not the capability. Capability gaps that are roadmap milestones, not deviations: M8 coplanar residue (task #130), M5 degree-4 SSI, KV6 revolve tail, #137 grazing-corner epic.
 
 ---
 
@@ -185,7 +185,94 @@ input geometry exactly", and it retries X then Y then Z. The f64 explicit
 branch — which is what production takes for every well-conditioned patch —
 has neither the graze test nor the retry.
 
-**Remediation (NOT landed, deliberately).** Reject a candidate ray whose line
+### N69 remediation — LANDED 2026-10-03 (late), always-on with a kill switch
+
+`find_ray_endpoints` (`crates/cherchi-rs/src/labeling/inside_out.rs`) is now a
+LADDER rather than a single choice. Walk order is **axis-major,
+origin-minor** — X, then Y, then Z, and within each axis the patch's
+non-border EXPLICIT vertices in triangle order — so the FIRST candidate is
+exactly the C++ choice (`+X` from the first non-border explicit vertex). A
+candidate is rejected iff `ray_grazes_foreign_input` holds:
+
+> there is a candidate triangle of a DIFFERENT input label — "different" by
+> the prune's own rule (a triangle sharing an input with the patch's surface
+> label is the patch's own shell), "candidate" by the prune's own exact
+> `in_ray_aabb` filter, now the shared `tri_in_ray_aabb` so the two cannot
+> drift — for which `orient3d(tri, ray.v0)` and `orient3d(tri, ray.v1)` are
+> BOTH `Zero`.
+
+Both-Zero means the triangle's plane contains the ray's whole supporting
+line, so the ray cannot cross that triangle; it can only run in its plane.
+That is a PROOF, not a tolerance: exact `orient3d`, no band, no epsilon. A
+transversal ray can never satisfy it, which is the byte-neutrality argument
+— every input whose first ray already crosses selects the identical ray.
+
+The paper names the gap itself and leaves it open:
+`refs/text/cherchi2022_interactive_robust_mesh_booleans.txt:470` — "Note that
+the pathological cases depicted in the figure are not exhaustive. In fact,
+rays may also be tangent at a (coplanar) triangle" — and again at `:481`
+("there are also others (e.g. when a tangent ray is also coplanar to a
+triangle)"). §5.3's classification rests on the ray CROSSING (`:473-476`),
+and the `nextafter` perturbation (`:484-491`) only reconducts a vertex/edge
+hit to an interior one; on a ray running along the boundary it mints exactly
+one winner. The ladder's axis retry is the same shape the rational fallback
+already carried for "all three axis rays graze input geometry exactly". The
+generated-ray branch (cpp:525) and the rational path below it are UNCHANGED —
+the ladder sits entirely inside the explicit branch, and exhausting it
+produces the same `NoExplicitRayOrigin` fall-through those two already
+consume.
+
+**Gating.** `CHERCHI_GRAZE_AWARE_RAY=0|off` is a kill switch;
+`=1|on` forces it on; the default (`GRAZE_AWARE_RAY_DEFAULT`) is ON. The flag
+is read ONCE per `compute_inside_out` call and threaded as a parameter, so a
+labeling run cannot change rule mid-flight and the suites pin BOTH settings
+without touching the process environment.
+
+**Measured on the fixture (2026-10-03 late, release).** All three
+orientations, which previously split 2 wrong / 1 right, now agree:
+
+| orientation | `Intersect` | `Union` |
+|---|---|---|
+| shared edge along z | `EmptyBooleanResult` | `InvalidBooleanOutput("an undirected output edge is not used by exactly two directed edges")` |
+| shared edge along y | `EmptyBooleanResult` | same |
+| shared edge along x | `EmptyBooleanResult` | same |
+
+The rejected ray is named by `CHERCHI_GRAZE_PROBE`: `ray X from
+(0,0.01,0.01) is coplanar with in_tri 12 label [InputId(1)] — rejected` (the
++X ray from A's corner `(0, s, s)` runs along B's `y = s ∩ z = s` edge).
+
+**Pins.** `cherchi-rs` unit oracle #8 in `inside_out.rs`:
+`n69_ray_along_a_foreign_edge_is_rejected_and_the_next_origin_is_taken`
+(a fixture whose legacy +X ray grazes — asserted as a precondition — and
+whose graze-aware ray does not, with the origins required to DIFFER),
+`n69_all_three_axes_grazing_falls_through_to_the_rational_path` (nine
+rejections ⇒ `NoExplicitRayOrigin`, then the rational path owns the verdict),
+`n69_a_transversal_first_ray_is_untouched` (identical ray AND identical
+labels on three generic-position fixtures), and
+`octree_candidates_yield_identical_labels` now runs under both settings and
+asserts the ladder is byte-neutral there.
+`crates/kernel-v2/tests/p0023_edge_contact_boolean.rs` asserts the honest
+answer per op and that the containment net stayed SILENT — mutation-checked
+2026-10-03: under `CHERCHI_GRAZE_AWARE_RAY=0` both tests fail with "the
+P0023 containment net fired".
+
+**Sharers.** 28 release `single_case` re-runs — the two edge-contact rows,
+every M8 / Stage-0 coplanar customer (F0064, F0072, R0070, R0025, R0053,
+R0081, C0044, C0056, C0065, C0067, R0015, R0100, F0086), the three C-series
+non-manifold ERROR walls (C0046, C0107, C0108, each detail byte-identical)
+and ten deterministically sampled CORRECT cases — **ZERO category moves and
+ZERO detail moves**, with costs inside the recorded spread (F0072 747.3 s,
+R0053 323.8 s, R0081 329.5 s, F0064 54.4 s). Full table:
+`docs/yang_tail_triage.md`, "Sharers re-judged (N69)". The 18-cell C++
+reference-parity oracle `parity_native_vs_sidecar` is green, as are the
+cherchi-rs, yang-rs and kernel-v2 suites.
+
+**What is still owed.** The corpus was not re-measured in the landing session
+(a `full_corpus_categorized` run was already in flight), so the flip's
+corpus proof is OWED — see the dated paragraph in
+`docs/yang_functional_roadmap.md`.
+
+**Remediation as originally scoped (now landed; kept verbatim).** Reject a candidate ray whose line
 is coplanar with any candidate triangle of a DIFFERENT label that the ray's
 own exact `in_ray_aabb` filter admits (both `orient3d(tri, v0)` and
 `orient3d(tri, v1)` Zero — exact, no tolerance), and advance to the next
@@ -195,14 +282,18 @@ rays at `y = 0` that miss B's `y ∈ [0.01, 0.02]` cleanly. It is byte-neutral
 on any input whose first ray already crosses transversally, which is every
 corpus case that passes today.
 
-It is not landed in this checkpoint because ray selection is the single most
-load-bearing primitive in the stack — every boolean in the corpus goes
-through it — and the change could not be corpus-validated in a session barred
-from running the assay. Landing it belongs with a full
-`full_corpus_categorized` run in the same cycle.
+It was not landed in the anchoring checkpoint because ray selection is the
+single most load-bearing primitive in the stack — every boolean in the corpus
+goes through it — and the change could not be corpus-validated in a session
+barred from running the assay. **It landed later the same day** (the
+remediation section above); the `full_corpus_categorized` run it asks for is
+what remains owed.
 
-**The P10 net that IS landed.** Until then the wrong answer is LOUD, not
-silent: `InsideOutError::InnerLabelOutsideInputBounds`
+**The P10 net that landed FIRST — and stays as the fallback.** Before the
+remediation the wrong answer was LOUD, not silent; it remains armed behind
+the correct labels, for any unsound inner label the §5 walk might still
+produce on geometry nobody has measured yet:
+`InsideOutError::InnerLabelOutsideInputBounds`
 (`cherchi-rs/src/labeling/inside_out.rs`) refutes any inner label with a
 containment PROOF — a patch labeled "inside input k" lies inside input k's
 closed region, hence inside its bounding box, so an EXPLICIT patch vertex
@@ -220,7 +311,9 @@ exclusion mechanical rather than conventional.
 
 **Pins.** `crates/kernel-v2/tests/p0023_edge_contact_boolean.rs` (all three
 orientations × `Intersect`/`Union`, RED→GREEN, mutation-checked 2026-10-03:
-with the net disabled both tests fail on the measured operand-copy volumes).
+with the net disabled both tests fail on the measured operand-copy volumes;
+since the remediation they assert the HONEST answer per op plus "the net
+stayed silent", and the mutation check is now `CHERCHI_GRAZE_AWARE_RAY=0`).
 Corpus: P0023 (Intersect ⇒ `expected_solid_count: 0`) and P0024 (Union ⇒
 `expect_rebuild_error: true`, the loud non-manifold refusal). Note the
 document-level cases pin the HONEST answers only — Stage 1's vertex order

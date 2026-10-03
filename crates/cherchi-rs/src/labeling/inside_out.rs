@@ -153,20 +153,31 @@ pub fn compute_inside_out(
     // `octree.rs` module docs; the brute path survives as the test-only
     // `compute_inside_out_brute` diff target).
     let octree = TriOctree::build(soup);
-    compute_inside_out_with(soup, patches, |ray| {
-        let (lo, hi) = ray_aabb(ray);
-        octree.query_aabb(lo, hi)
-    })
+    compute_inside_out_with(
+        soup,
+        patches,
+        |ray| {
+            let (lo, hi) = ray_aabb(ray);
+            octree.query_aabb(lo, hi)
+        },
+        // N69: read the gate ONCE per call, never per patch — a labeling run
+        // must not be able to change rule mid-flight.
+        graze_aware_ray_enabled(),
+    )
 }
 
 /// `compute_inside_out` parameterized over the per-ray candidate producer
 /// (`candidates_for(ray)` must return ids ASCENDING — visit order is part
-/// of the prune's duplicate-sort-key semantics). Production uses the
-/// octree; the `#[cfg(test)]` brute path diffs against it structurally.
+/// of the prune's duplicate-sort-key semantics) and over the N69
+/// graze-aware ray ladder (`graze_aware`; production reads
+/// [`graze_aware_ray_enabled`], the suites pin BOTH settings without
+/// touching the process environment). Production uses the octree; the
+/// `#[cfg(test)]` brute path diffs against it structurally.
 fn compute_inside_out_with<F>(
     soup: &ArrangementSoup,
     patches: &Patches,
     candidates_for: F,
+    graze_aware: bool,
 ) -> Result<Vec<Label>, InsideOutError>
 where
     F: Fn(&Ray) -> Vec<u32>,
@@ -198,6 +209,14 @@ where
     // `InsideOutError::InnerLabelOutsideInputBounds`.
     let input_bounds = input_label_bounds(soup);
 
+    let search = RaySearch {
+        soup,
+        border: &border,
+        max_coords,
+        candidates_for: &candidates_for,
+        graze_aware,
+    };
+
     let mut inner_labels: Vec<Label> = Vec::with_capacity(patches.patches.len());
     for (pi, patch) in patches.patches.iter().enumerate() {
         let pi = pi as u32;
@@ -206,7 +225,7 @@ where
         }
         let patch_surface_label = &soup.labels[patch[0] as usize];
 
-        match find_ray_endpoints(soup, patch, &border, max_coords, pi) {
+        match find_ray_endpoints(&search, patch, patch_surface_label, pi) {
             Ok(ray) => {
                 let candidates = candidates_for(&ray);
                 let sorted = prune_intersections_and_sort_along_ray(
@@ -267,9 +286,10 @@ where
 pub(crate) fn compute_inside_out_brute(
     soup: &ArrangementSoup,
     patches: &Patches,
+    graze_aware: bool,
 ) -> Result<Vec<Label>, InsideOutError> {
     let n = soup.in_tris.len() as u32;
-    compute_inside_out_with(soup, patches, |_| (0..n).collect())
+    compute_inside_out_with(soup, patches, |_| (0..n).collect(), graze_aware)
 }
 
 /// Per-input axis-aligned bounds over the prepped INPUT shells, keyed by
@@ -378,6 +398,30 @@ pub(crate) fn ray_aabb(ray: &Ray) -> ([f64; 3], [f64; 3]) {
     )
 }
 
+/// The exact per-triangle ray-AABB filter (the per-item check inside the
+/// C++ `intersects_box(octree, rayAABB, ..)`): does this triangle's AABB
+/// touch the ray segment's AABB?
+///
+/// This is semantically LOAD-BEARING, not just acceleration — it excludes
+/// behind-the-origin triangles, whose vertex/edge events would otherwise
+/// demand perturbation winners that the sort then (correctly) discards. It
+/// is applied to EVERY candidate unconditionally, which is what makes the
+/// octree's parameters correctness-neutral (any superset producer yields the
+/// same result). Shared by the prune and by the N69 graze test so the two
+/// can never disagree about which triangles a ray "meets".
+fn tri_in_ray_aabb(tv: &[Point3; 3], ray_lo: [f64; 3], ray_hi: [f64; 3]) -> bool {
+    (0..3).all(|k| {
+        let c = |p: &Point3| match k {
+            0 => p.x(),
+            1 => p.y(),
+            _ => p.z(),
+        };
+        let lo = c(&tv[0]).min(c(&tv[1])).min(c(&tv[2]));
+        let hi = c(&tv[0]).max(c(&tv[1])).max(c(&tv[2]));
+        lo <= ray_hi[k] && hi >= ray_lo[k]
+    })
+}
+
 /// Input-triangle vertices are always explicit (the welded input corners
 /// seed the global vertex array before any implicit point is interned).
 fn explicit_or_unreachable(c: &VertexCoords) -> Point3 {
@@ -385,6 +429,139 @@ fn explicit_or_unreachable(c: &VertexCoords) -> Point3 {
         VertexCoords::Explicit(p) => *p,
         other => unreachable!("in_tris vertex is implicit: {other:?}"),
     }
+}
+
+/// Whether the N69 graze-aware explicit-ray ladder is enabled (deviation
+/// **N69**, P0023/P0024).
+///
+/// `CHERCHI_GRAZE_AWARE_RAY=0|off` is the kill switch; `=1|on` forces it on.
+/// The DEFAULT is [`GRAZE_AWARE_RAY_DEFAULT`] — see its doc for the gating
+/// evidence.
+pub(crate) fn graze_aware_ray_enabled() -> bool {
+    match std::env::var("CHERCHI_GRAZE_AWARE_RAY").as_deref() {
+        Ok("0") | Ok("off") => false,
+        Ok("1") | Ok("on") => true,
+        _ => GRAZE_AWARE_RAY_DEFAULT,
+    }
+}
+
+/// N69 default: the graze-aware ladder is an **always-on rule with a kill
+/// switch**. Evidence for the flip is recorded in `docs/yang_deviations.md`
+/// (N69) and in the dated paragraph of `docs/yang_functional_roadmap.md`:
+/// the rule can only reject a ray whose supporting line is EXACTLY coplanar
+/// with a foreign candidate triangle, which no transversal first ray is, so
+/// every input the §5 walk already classified through a crossing ray keeps
+/// byte-identical labels. The full `full_corpus_categorized` proof of that
+/// claim is owed by the flip's own cycle.
+const GRAZE_AWARE_RAY_DEFAULT: bool = true;
+
+/// The three major axes, in the order the N69 ladder walks them. X first is
+/// what makes the ladder byte-neutral: its first candidate — the first
+/// non-border explicit patch vertex, +X — is exactly the C++ choice.
+const RAY_AXES: [Axis; 3] = [Axis::X, Axis::Y, Axis::Z];
+
+/// The axis-aligned ray from `p` towards `max_coords` along `dir` — Cherchi
+/// 2022 §5.1 (`refs/text/cherchi2022_interactive_robust_mesh_booleans.txt:
+/// 421-427`): "the infinite point `p∞` can be easily defined by translating
+/// `p` along one of the major axes by a quantity that is bigger than the
+/// extent of the bounding box of the input scene along the same axis".
+fn axis_ray(p: Point3, dir: Axis, max_coords: [f64; 3]) -> Ray {
+    let v1 = match dir {
+        Axis::X => Point3::new(max_coords[0], p.y(), p.z()),
+        Axis::Y => Point3::new(p.x(), max_coords[1], p.z()),
+        Axis::Z => Point3::new(p.x(), p.y(), max_coords[2]),
+    };
+    Ray {
+        v0: p,
+        v1,
+        dir,
+        seed_tri: None,
+    }
+}
+
+/// Deviation **N69** (P0023/P0024, 2026-10-03): does this candidate ray
+/// GRAZE a foreign input instead of crossing it?
+///
+/// Cherchi 2022 §5.3 names the gap itself and leaves it open: "Note that the
+/// pathological cases depicted in the figure are not exhaustive. In fact,
+/// rays may also be tangent at a (coplanar) triangle."
+/// (`refs/text/cherchi2022_interactive_robust_mesh_booleans.txt:470`; again
+/// at `:481` — "there are also others (e.g. when a tangent ray is also
+/// coplanar to a triangle)"). §5.3's whole classification rests on the ray
+/// CROSSING the other input (`:473-476`: the nearest hit's winding says
+/// inside/outside), and the `nextafter` perturbation (`:484-491`) is
+/// designed only to reconduct a vertex/edge hit to an interior one — on a
+/// ray that runs ALONG the other input's boundary it mints exactly ONE
+/// winner where a graze must contribute 0 or 2, and the patch is labeled
+/// inside an input it only touches.
+///
+/// The test is a PROOF, not a tolerance: a foreign candidate triangle whose
+/// plane contains BOTH ray endpoints (`orient3d(tri, v0)` and
+/// `orient3d(tri, v1)` both `Zero`, exact) contains the ray's entire
+/// supporting line, so the ray cannot cross that triangle — it can only run
+/// in its plane. "Foreign" is the prune's own rule (a triangle sharing an
+/// input with the patch's surface label is the patch's own shell and is
+/// skipped), and "candidate" is the prune's own exact `in_ray_aabb` filter,
+/// applied to the same superset the prune consumes — so the rejected set is
+/// decided by exactly the triangles the walk would have gone on to classify.
+fn ray_grazes_foreign_input<F>(
+    soup: &ArrangementSoup,
+    ray: &Ray,
+    patch_surface_label: &Label,
+    candidates_for: &F,
+) -> bool
+where
+    F: Fn(&Ray) -> Vec<u32>,
+{
+    let (ray_lo, ray_hi) = ray_aabb(ray);
+    for t in candidates_for(ray) {
+        let tested_label = &soup.in_labels[t as usize];
+        if tested_label
+            .iter()
+            .any(|id| patch_surface_label.contains(id))
+        {
+            continue;
+        }
+        let tv = in_tri_verts(soup, t);
+        if !tri_in_ray_aabb(&tv, ray_lo, ray_hi) {
+            continue;
+        }
+        if orient3d(tv[0], tv[1], tv[2], ray.v0) == Sign::Zero
+            && orient3d(tv[0], tv[1], tv[2], ray.v1) == Sign::Zero
+        {
+            if std::env::var_os("CHERCHI_GRAZE_PROBE").is_some() {
+                eprintln!(
+                    "[graze] ray {:?} from ({},{},{}) is coplanar with in_tri {t} \
+                     label {tested_label:?} — rejected",
+                    ray.dir,
+                    ray.v0.x(),
+                    ray.v0.y(),
+                    ray.v0.z()
+                );
+            }
+            return true;
+        }
+    }
+    false
+}
+
+/// Everything [`find_ray_endpoints`] needs that is constant across the
+/// patches of one labeling run: the soup, the patch-border vertex set, the
+/// far-endpoint coordinates, the per-ray candidate producer and the N69
+/// ladder's setting. Bundled so the ladder's two extra inputs do not push
+/// the function past clippy's argument budget — every field is still an
+/// explicit, named input, nothing is defaulted or inferred.
+struct RaySearch<'a, F>
+where
+    F: Fn(&Ray) -> Vec<u32>,
+{
+    soup: &'a ArrangementSoup,
+    border: &'a BTreeSet<u32>,
+    max_coords: [f64; 3],
+    candidates_for: &'a F,
+    /// N69: whether the graze-aware ladder is active (production reads
+    /// [`graze_aware_ray_enabled`] once per call).
+    graze_aware: bool,
 }
 
 /// Port of `findRayEndpoints` (booleans.cpp:504): prefer an EXPLICIT,
@@ -396,26 +573,56 @@ fn explicit_or_unreachable(c: &VertexCoords) -> Point3 {
 /// triangle's plane and passes strictly inside it; the triangle becomes
 /// `seed_tri` for the sort's discard test. If no triangle qualifies the
 /// C++ exits ("requires rationals"); here a loud typed error.
-fn find_ray_endpoints(
-    soup: &ArrangementSoup,
+///
+/// **N69 (2026-10-03).** The explicit branch is a LADDER, not a single
+/// choice: a candidate ray that only GRAZES a foreign input (see
+/// [`ray_grazes_foreign_input`]) is rejected, and the search advances to the
+/// next non-border origin, then — once the origins are exhausted — to the Y
+/// and then the Z axis, before the generated-ray branch and the rational
+/// path below. The walk order (axis-major, origin-minor, X first) makes the
+/// FIRST candidate identical to the C++ choice, so any input whose first ray
+/// already crosses transversally selects the same ray it always did.
+fn find_ray_endpoints<F>(
+    s: &RaySearch<F>,
     patch: &[u32],
-    border: &BTreeSet<u32>,
-    max_coords: [f64; 3],
+    patch_surface_label: &Label,
     pi: u32,
-) -> Result<Ray, InsideOutError> {
-    for &t in patch {
-        for &v in &soup.tris[t as usize] {
-            if border.contains(&v) {
-                continue;
+) -> Result<Ray, InsideOutError>
+where
+    F: Fn(&Ray) -> Vec<u32>,
+{
+    let RaySearch {
+        soup,
+        border,
+        max_coords,
+        candidates_for,
+        graze_aware,
+    } = *s;
+    for dir in RAY_AXES {
+        for &t in patch {
+            for &v in &soup.tris[t as usize] {
+                if border.contains(&v) {
+                    continue;
+                }
+                if let VertexCoords::Explicit(p) = &soup.verts[v as usize] {
+                    let ray = axis_ray(*p, dir, max_coords);
+                    if !graze_aware {
+                        // Gated off: the unconditional C++ choice — the
+                        // first non-border explicit vertex, +X, unchecked.
+                        return Ok(ray);
+                    }
+                    if !ray_grazes_foreign_input(soup, &ray, patch_surface_label, candidates_for) {
+                        return Ok(ray);
+                    }
+                }
             }
-            if let VertexCoords::Explicit(p) = &soup.verts[v as usize] {
-                return Ok(Ray {
-                    v0: *p,
-                    v1: Point3::new(max_coords[0], p.y(), p.z()),
-                    dir: Axis::X,
-                    seed_tri: None,
-                });
-            }
+        }
+        if !graze_aware {
+            // Unreachable with the gate off (the X pass either returns or
+            // finds no candidate vertex at all, and Y/Z would find none
+            // either) — kept explicit so the off path can never walk an
+            // axis the C++ does not.
+            break;
         }
     }
 
@@ -1078,28 +1285,10 @@ fn prune_intersections_and_sort_along_ray(
     let mut visited = vec![false; n as usize];
     let mut inters: Vec<u32> = Vec::new();
 
-    // Exact ray-AABB filter (the per-item check inside the C++
-    // `intersects_box(octree, rayAABB, ..)`): triangles whose AABB does
-    // not touch the segment v0→v1's AABB are not candidates. This is
-    // semantically LOAD-BEARING, not just acceleration — it excludes
-    // behind-the-origin triangles, whose vertex/edge events would
-    // otherwise demand perturbation winners that the sort then
-    // (correctly) discards. It is applied to EVERY candidate
-    // unconditionally, which is what makes the octree's parameters
-    // correctness-neutral (any superset producer yields the same result).
+    // Exact ray-AABB filter — see [`tri_in_ray_aabb`] for why it is
+    // semantically load-bearing and not merely acceleration.
     let (ray_lo, ray_hi) = ray_aabb(ray);
-    let in_ray_aabb = |tv: &[Point3; 3]| -> bool {
-        (0..3).all(|k| {
-            let c = |p: &Point3| match k {
-                0 => p.x(),
-                1 => p.y(),
-                _ => p.z(),
-            };
-            let lo = c(&tv[0]).min(c(&tv[1])).min(c(&tv[2]));
-            let hi = c(&tv[0]).max(c(&tv[1])).max(c(&tv[2]));
-            lo <= ray_hi[k] && hi >= ray_lo[k]
-        })
-    };
+    let in_ray_aabb = |tv: &[Point3; 3]| -> bool { tri_in_ray_aabb(tv, ray_lo, ray_hi) };
 
     for &t in candidates {
         if visited[t as usize] {
@@ -1681,8 +1870,20 @@ mod tests {
             }
             let max_coords = [max_c[0] + 0.5, max_c[1] + 0.5, max_c[2] + 0.5];
             for (pi, patch) in patches.patches.iter().enumerate() {
-                let ray = find_ray_endpoints(&soup, patch, &border, max_coords, pi as u32)
-                    .expect("ray endpoints");
+                let candidates_for = |ray: &Ray| {
+                    let (lo, hi) = ray_aabb(ray);
+                    octree.query_aabb(lo, hi)
+                };
+                let search = RaySearch {
+                    soup: &soup,
+                    border: &border,
+                    max_coords,
+                    candidates_for: &candidates_for,
+                    graze_aware: graze_aware_ray_enabled(),
+                };
+                let ray =
+                    find_ray_endpoints(&search, patch, &soup.labels[patch[0] as usize], pi as u32)
+                        .expect("ray endpoints");
                 let (lo, hi) = ray_aabb(&ray);
                 let exact_filter = |t: &u32| {
                     let tv = in_tri_verts(&soup, *t);
@@ -1709,20 +1910,41 @@ mod tests {
                 );
             }
 
-            // (b) + (c) end-to-end label identity.
-            let brute = compute_inside_out_brute(&soup, &patches).expect("brute path");
-            let via_octree = compute_inside_out_with(&soup, &patches, |ray| {
-                let (lo, hi) = ray_aabb(ray);
-                octree.query_aabb(lo, hi)
-            })
-            .expect("octree path");
+            // (b) + (c) end-to-end label identity, under BOTH settings of
+            // the N69 graze ladder, plus (d) the ladder's byte-neutrality:
+            // these fixtures are all in generic position, so every patch's
+            // first (+X, first non-border explicit vertex) ray crosses
+            // transversally and the ladder must select exactly that ray.
+            let mut both: Vec<Vec<Label>> = Vec::new();
+            for graze_aware in [false, true] {
+                let brute =
+                    compute_inside_out_brute(&soup, &patches, graze_aware).expect("brute path");
+                let via_octree = compute_inside_out_with(
+                    &soup,
+                    &patches,
+                    |ray| {
+                        let (lo, hi) = ray_aabb(ray);
+                        octree.query_aabb(lo, hi)
+                    },
+                    graze_aware,
+                )
+                .expect("octree path");
+                assert_eq!(
+                    via_octree, brute,
+                    "{name}: octree candidate path changed labels vs brute \
+                     (graze_aware = {graze_aware})"
+                );
+                both.push(brute);
+            }
             assert_eq!(
-                via_octree, brute,
-                "{name}: octree candidate path changed labels vs brute"
+                both[0], both[1],
+                "{name}: the N69 graze ladder must be byte-neutral on a \
+                 generic-position fixture"
             );
             let production = compute_inside_out(&soup, &patches).expect("production");
             assert_eq!(
-                production, brute,
+                production,
+                both[usize::from(graze_aware_ray_enabled())],
                 "{name}: production path changed labels vs brute"
             );
         }
@@ -1825,6 +2047,265 @@ mod tests {
         let inner = compute_inside_out(&soup, &patches)
             .expect("rational-ray fallback must classify the needle patch");
         assert_eq!(inner, vec![vec![]], "needle outside the cube → inner {{}}");
+    }
+
+    // ════════════════════════════════════════════════════════════════
+    // Oracle #8 — deviation N69: the graze-aware explicit-ray ladder.
+    //
+    // Cherchi 2022 §5.3 names the gap and leaves it open ("rays may also
+    // be tangent at a (coplanar) triangle",
+    // refs/text/cherchi2022_interactive_robust_mesh_booleans.txt:470).
+    // These four pins are the rule's contract:
+    //   1. a ray whose supporting line lies along a foreign input's EDGE
+    //      is rejected;
+    //   2. the next non-border origin is taken instead;
+    //   3. with every origin × every axis grazing, the ladder declines and
+    //      the caller falls through to the rational path;
+    //   4. a transversal first ray is untouched (byte-identical labels) —
+    //      pinned in `octree_candidates_yield_identical_labels` above and
+    //      once more directly here.
+    // ════════════════════════════════════════════════════════════════
+
+    /// The graze fixture: A = the unit cube at the origin, B = a unit cube
+    /// at `(1.5, 0, 0)` — DISJOINT (no coplanar face pair, so the
+    /// arrangement does not defer), yet the +X ray from A's first corner
+    /// `(0, 0, 0)` runs exactly along B's `y = 0 ∩ z = 0` edge: its
+    /// supporting line is the intersection of two of B's face planes, so it
+    /// is coplanar with both and crosses neither. That is the N69
+    /// configuration in its smallest form.
+    fn graze_soup() -> (ArrangementSoup, Patches) {
+        let soup = arrange(cube(0.0, 0.0, 0.0, 1.0, A), cube(1.5, 0.0, 0.0, 1.0, B));
+        let patches = compute_all_patches(&soup).expect("patches");
+        (soup, patches)
+    }
+
+    /// Helpers: the production ray selection for one patch, at either
+    /// setting of the ladder.
+    fn ray_for_patch(
+        soup: &ArrangementSoup,
+        patches: &Patches,
+        pi: usize,
+        graze_aware: bool,
+    ) -> Result<Ray, InsideOutError> {
+        let border: BTreeSet<u32> = patches.border_verts.iter().copied().collect();
+        let mut max_c = [f64::NEG_INFINITY; 3];
+        for tri in &soup.in_tris {
+            for &v in tri {
+                let p = approx_coords(&soup.verts[v as usize]);
+                for k in 0..3 {
+                    max_c[k] = max_c[k].max(p[k]);
+                }
+            }
+        }
+        let max_coords = [max_c[0] + 0.5, max_c[1] + 0.5, max_c[2] + 0.5];
+        let octree = TriOctree::build(soup);
+        let patch = &patches.patches[pi];
+        let candidates_for = |ray: &Ray| {
+            let (lo, hi) = ray_aabb(ray);
+            octree.query_aabb(lo, hi)
+        };
+        let search = RaySearch {
+            soup,
+            border: &border,
+            max_coords,
+            candidates_for: &candidates_for,
+            graze_aware,
+        };
+        find_ray_endpoints(&search, patch, &soup.labels[patch[0] as usize], pi as u32)
+    }
+
+    fn grazes(soup: &ArrangementSoup, patches: &Patches, pi: usize, ray: &Ray) -> bool {
+        let octree = TriOctree::build(soup);
+        let patch = &patches.patches[pi];
+        ray_grazes_foreign_input(soup, ray, &soup.labels[patch[0] as usize], &|ray: &Ray| {
+            let (lo, hi) = ray_aabb(ray);
+            octree.query_aabb(lo, hi)
+        })
+    }
+
+    /// N69 pins 1 + 2: the gated-OFF selection grazes B (that is the defect,
+    /// stated as a positive measurement), and the gated-ON ladder rejects it
+    /// and advances to a DIFFERENT, non-grazing origin.
+    #[test]
+    fn n69_ray_along_a_foreign_edge_is_rejected_and_the_next_origin_is_taken() {
+        let (soup, patches) = graze_soup();
+        // Patch 0 is A's shell (the fixture is disjoint, so each input is
+        // one patch); locate it by surface label rather than by index.
+        let pi = (0..patches.patches.len())
+            .find(|&i| soup.labels[patches.patches[i][0] as usize] == vec![A])
+            .expect("A's patch");
+
+        let legacy = ray_for_patch(&soup, &patches, pi, false).expect("legacy ray");
+        assert_eq!(legacy.dir, Axis::X, "the legacy choice is always +X");
+        assert!(
+            grazes(&soup, &patches, pi, &legacy),
+            "fixture precondition: the legacy +X ray from ({},{},{}) must GRAZE B — \
+             if this fails the fixture no longer exercises N69",
+            legacy.v0.x(),
+            legacy.v0.y(),
+            legacy.v0.z()
+        );
+
+        let picked = ray_for_patch(&soup, &patches, pi, true).expect("graze-aware ray");
+        assert!(
+            !grazes(&soup, &patches, pi, &picked),
+            "the graze-aware ladder must return a ray that crosses B transversally, \
+             got the grazing ray from ({},{},{}) along {:?}",
+            picked.v0.x(),
+            picked.v0.y(),
+            picked.v0.z(),
+            picked.dir
+        );
+        assert_ne!(
+            (
+                legacy.v0.x(),
+                legacy.v0.y(),
+                legacy.v0.z(),
+                legacy.dir as u8
+            ),
+            (
+                picked.v0.x(),
+                picked.v0.y(),
+                picked.v0.z(),
+                picked.dir as u8
+            ),
+            "the ladder must ADVANCE — a rejected ray may not be returned"
+        );
+        // Both inputs are disjoint, so the honest inner label is empty under
+        // either setting here; what the ladder changes is WHICH ray proves it.
+        assert_eq!(
+            compute_inside_out(&soup, &patches).expect("labels"),
+            vec![vec![], vec![]],
+            "two disjoint cubes: neither patch is inside the other"
+        );
+    }
+
+    /// N69 pin 3: every origin × every axis grazes ⇒ the ladder declines
+    /// with [`InsideOutError::NoExplicitRayOrigin`], which is the signal
+    /// `compute_inside_out_with` routes to the rational path.
+    ///
+    /// Hand-built: B = the unit cube at the origin (the only `in_tris`
+    /// shell); A's single patch triangle is the DEGENERATE segment
+    /// `(0,0,0) → (0.5,0,0) → (1,0,0)` on B's `y = 0 ∩ z = 0` edge line.
+    /// Every one of its three explicit, non-border vertices lies in both
+    /// `y = 0` and `z = 0` — B's own face planes — so the +X ray is
+    /// coplanar with both, the +Y ray is coplanar with `z = 0`, and the +Z
+    /// ray is coplanar with `y = 0`: nine rejections, no survivor. The
+    /// generated-ray branch declines too (the approximated triangle is
+    /// exactly collinear, the C++ `misaligned` gate).
+    fn all_axes_graze_soup() -> (ArrangementSoup, Patches) {
+        let (coords, cube_tris, cube_labels) = cube(0.0, 0.0, 0.0, 1.0, B);
+        let mut verts: Vec<VertexCoords> = coords
+            .chunks_exact(3)
+            .map(|c| VertexCoords::Explicit(Point3::new(c[0], c[1], c[2])))
+            .collect();
+        let e0 = verts.len() as u32;
+        verts.push(VertexCoords::Explicit(Point3::new(0.0, 0.0, 0.0)));
+        let e1 = verts.len() as u32;
+        verts.push(VertexCoords::Explicit(Point3::new(0.5, 0.0, 0.0)));
+        let e2 = verts.len() as u32;
+        verts.push(VertexCoords::Explicit(Point3::new(1.0, 0.0, 0.0)));
+        let soup = ArrangementSoup {
+            verts,
+            tris: vec![[e0, e1, e2]],
+            labels: vec![vec![A]],
+            source: Vec::new(), // BL2 test fixture; provenance not exercised
+            intersection_edges: Default::default(),
+            jolly_count: 0,
+            in_tris: cube_tris,
+            in_labels: cube_labels,
+            multiplier: 1.0,
+        };
+        let patches = Patches {
+            patches: vec![vec![0]],
+            tri_to_patch: vec![0],
+            border_verts: Vec::new(),
+        };
+        (soup, patches)
+    }
+
+    #[test]
+    fn n69_all_three_axes_grazing_falls_through_to_the_rational_path() {
+        let (soup, patches) = all_axes_graze_soup();
+        // Gated off, the legacy rule returns a ray regardless (the defect).
+        let legacy = ray_for_patch(&soup, &patches, 0, false).expect("legacy ray");
+        assert!(
+            grazes(&soup, &patches, 0, &legacy),
+            "fixture precondition: the legacy ray must graze"
+        );
+        // Gated on, every origin × axis is rejected and the explicit branch
+        // declines — the fall-through the rational path consumes.
+        let declined = ray_for_patch(&soup, &patches, 0, true);
+        assert_eq!(
+            declined.err(),
+            Some(InsideOutError::NoExplicitRayOrigin { patch: 0 }),
+            "with every candidate grazing, the ladder must decline"
+        );
+        // And the caller does route it onward: the rational path owns the
+        // verdict (whatever it is), never the grazing f64 ray.
+        let routed = compute_inside_out(&soup, &patches);
+        assert!(
+            matches!(
+                routed,
+                Ok(_) | Err(InsideOutError::RationalRayDegenerate { patch: 0 })
+            ),
+            "the declined ladder must reach the rational path, got {routed:?}"
+        );
+    }
+
+    /// N69 pin 4, stated directly: on a generic-position transversal
+    /// fixture the ladder returns the IDENTICAL ray (same origin, same
+    /// axis) and the IDENTICAL labels as the legacy rule.
+    #[test]
+    fn n69_a_transversal_first_ray_is_untouched() {
+        let fixtures: Vec<(&str, ArrangementSoup)> = vec![
+            (
+                "corner-overlap cubes",
+                arrange(cube(0.0, 0.0, 0.0, 2.0, A), cube(1.0, 1.0, 1.0, 2.0, B)),
+            ),
+            (
+                "enclosed cube",
+                arrange(cube(0.0, 0.0, 0.0, 2.0, A), cube(0.5, 0.5, 0.5, 1.0, B)),
+            ),
+            (
+                "through-cut peg",
+                arrange(
+                    cube(0.0, 0.0, 0.0, 2.0, A),
+                    boxx(0.5, 0.5, -1.0, 1.0, 1.0, 4.0, B),
+                ),
+            ),
+        ];
+        for (name, soup) in fixtures {
+            let patches = compute_all_patches(&soup).expect("patches");
+            for pi in 0..patches.patches.len() {
+                let legacy = ray_for_patch(&soup, &patches, pi, false).expect("legacy ray");
+                let picked = ray_for_patch(&soup, &patches, pi, true).expect("graze-aware ray");
+                assert_eq!(
+                    (
+                        legacy.v0.x(),
+                        legacy.v0.y(),
+                        legacy.v0.z(),
+                        legacy.v1.x(),
+                        legacy.v1.y(),
+                        legacy.v1.z(),
+                        legacy.dir as u8
+                    ),
+                    (
+                        picked.v0.x(),
+                        picked.v0.y(),
+                        picked.v0.z(),
+                        picked.v1.x(),
+                        picked.v1.y(),
+                        picked.v1.z(),
+                        picked.dir as u8
+                    ),
+                    "{name}: patch {pi}: the ladder moved a TRANSVERSAL ray"
+                );
+            }
+            let off = compute_inside_out_brute(&soup, &patches, false).expect("legacy labels");
+            let on = compute_inside_out_brute(&soup, &patches, true).expect("ladder labels");
+            assert_eq!(off, on, "{name}: the ladder changed labels");
+        }
     }
 
     /// Axis-graze retry: a B-shell vertex placed EXACTLY at the needle

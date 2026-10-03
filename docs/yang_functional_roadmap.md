@@ -9,6 +9,57 @@
 
 ## 0. Honest status (refreshed 2026-06-26; addendum 2026-09-04 below)
 
+> **2026-10-03 (late night, third) refresh — deviation N69 RESOLVED-pending-corpus:
+> graze-aware §5 ray selection is LANDED ALWAYS-ON with a kill switch;
+> corpus NOT re-measured, FLIP OWED.** Cherchi 2022 §5's in/out classification
+> took the first non-border explicit patch vertex, cast `+X`, and never asked
+> whether the ray CROSSES the other input. P0023/P0024 measured the
+> consequence: on two 10 mm cubes meeting along one edge the ray ran straight
+> along an edge of the other operand, the degenerate ring resolution minted
+> exactly ONE hit where a graze must contribute 0 or 2, and all of operand A
+> was labeled inside B — `Intersect` returning a copy of A and `Union`
+> dropping an operand, in 2 of 3 orientations. The paper names the case and
+> leaves it open
+> (`refs/text/cherchi2022_interactive_robust_mesh_booleans.txt:470`, `:481` —
+> "rays may also be tangent at a (coplanar) triangle"), and the C++ reference
+> emits byte-identical labels, so parity was never the oracle here; the exact
+> classification was.
+>
+> `find_ray_endpoints` is now a LADDER: reject a candidate ray iff some
+> candidate triangle of a DIFFERENT input label (the prune's own exact
+> `in_ray_aabb` filter and its own same-input skip, now sharing one
+> `tri_in_ray_aabb`) has `orient3d(tri, v0)` and `orient3d(tri, v1)` BOTH
+> `Zero` — its plane then contains the ray's whole supporting line, so the ray
+> cannot cross it. Advance to the next non-border origin, then the Y and Z
+> axes; the generated-ray branch and the rational fallback below are
+> UNCHANGED. Exact predicate, no band, no tolerance. The walk is axis-major /
+> origin-minor with X first, so the FIRST candidate is exactly the C++ choice
+> and any input whose first ray crosses transversally selects the identical
+> ray. Gate `CHERCHI_GRAZE_AWARE_RAY` (`0|off` kills, `1|on` forces, default
+> ON), read once per `compute_inside_out` call.
+>
+> All three orientations of the fixture now answer honestly — `Intersect` ⇒
+> `EmptyBooleanResult`, `Union` ⇒ `InvalidBooleanOutput("an undirected output
+> edge is not used by exactly two directed edges")` — and the P0023
+> containment net (`InnerLabelOutsideInputBounds`), which had made the wrong
+> answer loud, stays armed but SILENT, which the kernel-v2 pin asserts.
+>
+> **Corpus not re-measured; the flip is owed.** The landing session was barred
+> from a corpus run (one was already in flight), so the
+> `full_corpus_categorized` proof of byte-neutrality belongs to the next
+> cycle. What IS measured: **28 release `single_case` sharers — the two
+> edge-contact rows, every M8 / Stage-0 coplanar customer, the three C-series
+> non-manifold ERROR walls and ten deterministically sampled CORRECT cases —
+> with ZERO category moves and ZERO detail moves** (F0072 747.3 s, R0053
+> 323.8 s, R0081 329.5 s, F0064 54.4 s, all inside the recorded spread, so
+> the extra per-patch octree query costs nothing measurable); the cherchi-rs
+> suite including the 18-cell C++ reference-parity oracle
+> `parity_native_vs_sidecar`; `cargo test -p yang-rs --release` (76 targets)
+> and `-p kernel-v2 --release` (65 targets), all 0 failed; clippy
+> `--all-targets -D warnings` and `cargo fmt --check` clean on all three.
+> Table: `docs/yang_tail_triage.md`, "Sharers re-judged (N69)". Ray selection
+> is the single most load-bearing primitive in the stack — treat a surprise in
+> that corpus run as this change's until proven otherwise.
 > **2026-10-03 (night, fifth) refresh — P0017 CONVERTED; corpus NOT
 > re-measured this session (another assay held the box).** Deviation **N76**;
 > ledger `docs/yang_tail_triage.md` 2026-10-03 (night). P0017's second wall
