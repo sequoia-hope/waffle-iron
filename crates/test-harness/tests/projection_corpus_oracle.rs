@@ -70,8 +70,10 @@ fn corpus_dir() -> PathBuf {
 /// Measured 2026-10-03 at the default stride 8, in `--release`: 41 of 321
 /// cases, **381 s single-threaded** (6 m 21 s wall), 40 projected in all six
 /// directions with 0 failures; 1 not built (C0113, one of the corpus's seven
-/// loud-by-design C-series walls) and 36 of the 246 (case, direction) pairs
-/// not boundable, which is 6 cases carrying a surface-pair curve.
+/// loud-by-design C-series walls) and 36 of the 240 (case, direction) pairs
+/// not boundable, which is 6 cases carrying a surface-pair curve. (240, not
+/// 246: the case that did not build contributes no pair. Re-measured
+/// 2026-10-03 at 433 s with the bounded tally below — 204 of 240 bounded.)
 fn stride() -> usize {
     std::env::var("PROJECTION_ORACLE_STRIDE")
         .ok()
@@ -310,7 +312,7 @@ fn the_projection_oracle_holds_over_the_whole_assay_corpus() {
     // half runs only on a case `solid_aabb` answers for, and it records no
     // problem for one it skips, so a regression that made every solid
     // unboundable would silence check 1 without failing anything. At stride 8
-    // the sweep's own measurement is 36 of 246 pairs unbounded, so 210 bounded.
+    // measured 2026-10-03 at stride 8: 204 of 240 pairs bounded, 36 not.
     assert!(
         tally.bounded > tally.unbounded,
         "only {} of {} (case, direction) pairs could be bounded — the \
