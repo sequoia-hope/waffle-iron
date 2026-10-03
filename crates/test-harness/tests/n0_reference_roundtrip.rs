@@ -129,3 +129,96 @@ fn every_face_of_a_cylinder_union_box_resolves_to_itself() {
     m.assert_has_solid("u").unwrap();
     assert_every_face_resolves_to_itself(&mut m, "u");
 }
+
+/// A fingerprint is only worth saving if the same body computes the same one,
+/// and if the drift a chord-tolerance change would cause still scores the same
+/// face. Both are properties of the CURVED arm, which N0 introduced: a curved
+/// face's area and centroid come from its render tessellation.
+///
+/// 1. **Reproducible.** Building the body again gives a bit-identical
+///    fingerprint for every face. (The tessellator is deterministic and
+///    `face_signature` sums its triangles in mesh order, so anything else
+///    would be a nondeterminism bug, not rounding.)
+/// 2. **The scoring covers a tolerance change.** `tessellate_face` is pinned
+///    to `RENDER_CHORD_TOLERANCE_REL`, so a stored fingerprint cannot drift
+///    today — but if that constant moved, a curved face's inscribed area would
+///    move by the chord deficit, ≈3.3e-4 relative at the canonical band. This
+///    arm perturbs every stored area by ten times that and asserts the
+///    reference still binds the same face, with no low-confidence warning: the
+///    scorer's area term is relative and the margin to the next candidate is
+///    orders of magnitude wider than the deficit.
+#[test]
+fn a_curved_fingerprint_is_reproducible_and_survives_a_chord_tolerance_change() {
+    // `TopoSignature` is not `PartialEq`; `{:?}` on an f64 is the shortest
+    // round-tripping decimal, so the Debug rendering is injective and a
+    // string comparison IS a bit comparison.
+    let fingerprints = |()| -> Vec<String> {
+        let mut m = ModelBuilder::kernel_v2();
+        m.true_circle_sketch("sk", [0., 0., 0.], [0., 0., 1.], 0., 0., 5.)
+            .unwrap();
+        m.extrude("cyl", "sk", 10.0).unwrap();
+        let result = m.op_result("cyl").expect("result").clone();
+        let handle = &result.outputs.first().expect("body").1.handle;
+        let introspect = m.kernel_ref().as_introspect();
+        introspect
+            .list_faces(handle)
+            .into_iter()
+            .map(|f| format!("{:?}", introspect.compute_signature(f, TopoKind::Face)))
+            .collect()
+    };
+    let first = fingerprints(());
+    let again = fingerprints(());
+    assert_eq!(
+        first.len(),
+        again.len(),
+        "the same construction lists the same faces"
+    );
+    for (i, (a, b)) in first.iter().zip(again.iter()).enumerate() {
+        assert_eq!(a, b, "face {i}'s fingerprint is not reproducible");
+    }
+    assert!(
+        first.iter().any(|s| s.contains("cylindrical")),
+        "the fixture must carry a curved face: {first:?}"
+    );
+
+    // Arm 2: the same round trip as above, with every stored area moved by
+    // ten chord deficits before it is resolved.
+    let mut m = ModelBuilder::kernel_v2();
+    m.true_circle_sketch("sk", [0., 0., 0.], [0., 0., 1.], 0., 0., 5.)
+        .unwrap();
+    m.extrude("cyl", "sk", 10.0).unwrap();
+    let feature_id = m.feature_id("cyl").expect("feature");
+    let result = m.op_result("cyl").expect("result").clone();
+    let mut results = HashMap::new();
+    results.insert(feature_id, result.clone());
+    let (key, body) = result.outputs.first().expect("body").clone();
+    let mesh = m
+        .kernel_mut()
+        .tessellate(&body.handle, 0.001)
+        .expect("tessellates");
+    let introspect = m.kernel_ref().as_introspect();
+    let refs = wasm_bridge::face_refs::face_geom_refs(feature_id, &key, &mesh, &[], introspect);
+    assert!(!refs.is_empty(), "no faces listed");
+    for (face, geom_ref) in refs {
+        let mut drifted = geom_ref.clone();
+        drifted.policy = ResolvePolicy::Strict;
+        if let Selector::Signature { signature } = &mut drifted.selector {
+            if let Some(area) = signature.area.as_mut() {
+                *area *= 1.0 - 3.3e-3;
+            }
+        } else {
+            panic!("with no roles every selector is a fingerprint: {drifted:?}");
+        }
+        let resolved = resolve_geom_ref_live(&drifted, &results, introspect)
+            .unwrap_or_else(|e| panic!("face {face:?} lost to a chord-band area drift: {e}"));
+        assert_eq!(
+            resolved.kernel_id, face,
+            "face {face:?} bound elsewhere after an area drift"
+        );
+        assert!(
+            resolved.warnings.is_empty(),
+            "face {face:?}: {:?}",
+            resolved.warnings
+        );
+    }
+}
