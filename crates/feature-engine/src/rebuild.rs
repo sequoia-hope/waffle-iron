@@ -102,6 +102,14 @@ pub struct RebuildState {
     pub feature_results: HashMap<Uuid, OpResult>,
     /// Warnings accumulated during rebuild.
     pub warnings: Vec<String>,
+    /// The same warnings ATTRIBUTED to the feature that raised them, in the
+    /// same order (N2 §5.3): `warnings[i]` is the message of
+    /// `feature_warnings[j]` prefixed with the feature's name, for the subset
+    /// a feature raised. A host needs the id, not the name — the feature tree
+    /// shows a warning glyph on the row, and an agent asks `feature_get` for
+    /// one feature's state. A warning no feature owns (a context pass, an
+    /// assembly) is in `warnings` only.
+    pub feature_warnings: Vec<(Uuid, String)>,
     /// Features that failed to rebuild, with error messages.
     pub errors: Vec<(Uuid, String)>,
     /// The same errors, typed (ICR-2), in the same order.
@@ -179,6 +187,7 @@ pub fn rebuild(
     let mut state = RebuildState {
         feature_results: HashMap::new(),
         warnings: Vec::new(),
+        feature_warnings: Vec::new(),
         errors: Vec::new(),
         feature_errors: Vec::new(),
         consumed_features: std::collections::HashSet::new(),
@@ -369,6 +378,7 @@ pub fn rebuild(
             Ok(result) => {
                 for w in &result.diagnostics.warnings {
                     state.warnings.push(format!("{}: {}", feature.name, w));
+                    state.feature_warnings.push((feature.id, w.clone()));
                 }
                 // If this was a merge/boolean that succeeded (no auto-union fallback warning),
                 // mark the target features as consumed so they don't render.

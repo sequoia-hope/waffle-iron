@@ -137,6 +137,9 @@ pub(crate) fn list(
             body: Some(name.clone()),
             resolves: true,
             resolved_by: None,
+            resolved_via: None,
+            rebound: false,
+            refusal: None,
             warnings: Vec::new(),
             created: None,
         });
@@ -149,11 +152,28 @@ pub(crate) fn list(
                 continue;
             }
         }
-        let (resolves, resolved_by, warnings) =
-            match names::resolve(named, &state.engine.feature_results, kb.as_introspect()) {
-                Ok(r) => (true, Some(r.resolved_by), r.warnings),
-                Err(e) => (false, None, vec![e.to_string()]),
-            };
+        // N2 §5.3 items 2 and 4: the rung that answered and, on a refusal, its
+        // classification — so an agent reads the state of each reference off
+        // fields instead of out of the warning prose.
+        let resolution = names::resolve(named, &state.engine.feature_results, kb.as_introspect());
+        let (resolves, resolved_by, resolved_via, rebound, refusal, warnings) = match resolution {
+            Ok(r) => (
+                true,
+                Some(r.resolved_by),
+                Some(r.via),
+                r.via.rebound(),
+                None,
+                r.warnings,
+            ),
+            Err(e) => (
+                false,
+                None,
+                None,
+                false,
+                e.resolution_reason().cloned(),
+                vec![e.to_string()],
+            ),
+        };
         out.push(ListedName {
             name: name.clone(),
             kind: named.kind,
@@ -162,6 +182,9 @@ pub(crate) fn list(
             body_id: owner,
             resolves,
             resolved_by,
+            resolved_via,
+            rebound,
+            refusal,
             warnings,
             created: Some(named.created.clone()),
         });

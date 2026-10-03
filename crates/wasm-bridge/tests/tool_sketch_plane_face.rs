@@ -14,11 +14,16 @@
 //!
 //! The model is the one §5.3 names: a plate, a boss on it, a sketch on the
 //! boss's top face, then the boss taken away.
+//!
+//! The last three tests cover §5.3 items 1 and 4 at the same layer: the tool
+//! layer's `Strict` default for an agent-authored reference, and the state
+//! `feature_get` / `names_list` report per reference.
 
 use std::collections::HashMap;
 
 use feature_engine::types::*;
 use kernel_v2::KernelV2Adapter;
+use serde_json::{json, Value};
 use uuid::Uuid;
 use waffle_types::*;
 use wasm_bridge::messages::*;
@@ -88,6 +93,15 @@ fn warnings_of(response: &EngineToUi) -> Vec<String> {
 fn feature_errors_of(response: &EngineToUi) -> Vec<FeatureError> {
     match response {
         EngineToUi::ModelUpdated { feature_errors, .. } => feature_errors.clone(),
+        other => panic!("expected ModelUpdated, got {other:?}"),
+    }
+}
+
+fn feature_warnings_of(response: &EngineToUi) -> Vec<(Uuid, String)> {
+    match response {
+        EngineToUi::ModelUpdated {
+            feature_warnings, ..
+        } => feature_warnings.clone(),
         other => panic!("expected ModelUpdated, got {other:?}"),
     }
 }
@@ -457,4 +471,208 @@ fn an_edit_to_the_boss_keeps_the_pin_and_reports_the_face_moving() {
             .any(|w| w.contains("keeps the frame it was solved in")),
         "with what the engine did about it: {warnings:?}"
     );
+    // And the move is attributed to the SKETCH, which is what lets the feature
+    // tree put a warning glyph on that row (N2 §5.3 item 4).
+    let per_feature = feature_warnings_of(&response);
+    assert!(
+        per_feature
+            .iter()
+            .any(|(id, w)| *id == on_boss && w.contains("has moved")),
+        "the warning names its feature: {per_feature:?}"
+    );
+}
+
+// ── §5.3 items 1 and 4: the tool surface ─────────────────────────────────────
+
+fn tool(
+    state: &mut EngineState,
+    kernel: &mut KernelV2Adapter,
+    name: &str,
+    args: Value,
+) -> wasm_bridge::ToolResult {
+    execute_tool(
+        state,
+        kernel,
+        name,
+        &args,
+        Some(&json!({ "agent_name": "n2-test" })),
+    )
+}
+
+fn tool_ok(
+    state: &mut EngineState,
+    kernel: &mut KernelV2Adapter,
+    name: &str,
+    args: Value,
+) -> Value {
+    let r = tool(state, kernel, name, args);
+    assert!(!r.is_error, "{name} failed: {r:?}");
+    r.structured_content
+}
+
+/// §5.3 item 1: a reference an agent authors through a tool is stored
+/// `Strict`, because an agent cannot see the warning a `BestEffort` rebind
+/// raises. A reference that spells its own policy keeps it — asking for a
+/// rebind is allowed, it just has to be asked for.
+#[test]
+fn an_agent_authored_reference_is_stored_strict_unless_it_says_otherwise() {
+    let mut state = EngineState::new();
+    let mut kernel = KernelV2Adapter::new();
+    let (_, _, body) = plate_with_boss_and_a_sketch_on_it(&mut state, &mut kernel);
+    let face = top_face(&faces(&mut state, &mut kernel, &body)).clone();
+
+    // The reference as `face_list` hands it out carries `BestEffort` — that is
+    // the form the VIEWPORT needs, and it is unchanged.
+    assert_eq!(face.geom_ref.policy, ResolvePolicy::BestEffort);
+
+    // Authored through a tool with no policy stated: stored Strict.
+    let mut without = serde_json::to_value(&face.geom_ref).expect("serializes");
+    without.as_object_mut().unwrap().remove("policy");
+    tool_ok(
+        &mut state,
+        &mut kernel,
+        "entity_name",
+        json!({ "target": { "type": "entity", "geom_ref": without }, "name": "silent" }),
+    );
+    let stored = state.engine.tree.named_ref("silent").expect("named");
+    assert_eq!(stored.target.policy, ResolvePolicy::Strict);
+
+    // Authored with BestEffort SPELLED OUT: respected rather than overridden.
+    // A reference that asks to rebind may, and the asking is in the transcript.
+    let mut spelled = serde_json::to_value(&face.geom_ref).expect("serializes");
+    spelled
+        .as_object_mut()
+        .unwrap()
+        .insert("policy".to_string(), json!({ "type": "BestEffort" }));
+    let r = tool(
+        &mut state,
+        &mut kernel,
+        "measure_distance",
+        json!({
+            "a": { "type": "entity", "geom_ref": spelled },
+            "b": { "type": "point", "point": [0.0, 0.0, 0.0] }
+        }),
+    );
+    assert!(!r.is_error, "{r:?}");
+}
+
+/// §5.3 item 4: `feature_get` reports the sketch's reference state — that it
+/// has a pinned plane face, the signature it recorded, and, once the face is
+/// gone, the typed refusal. Before N2 a tool result said only "error".
+#[test]
+fn feature_get_reports_the_sketch_s_reference_state() {
+    let mut state = EngineState::new();
+    let mut kernel = KernelV2Adapter::new();
+    let (boss, on_boss, _) = plate_with_boss_and_a_sketch_on_it(&mut state, &mut kernel);
+
+    let healthy = tool_ok(
+        &mut state,
+        &mut kernel,
+        "feature_get",
+        json!({ "feature_id": on_boss }),
+    );
+    let refs = healthy["references"]
+        .as_array()
+        .expect("the sketch reports its references");
+    assert_eq!(refs.len(), 1, "{healthy}");
+    assert_eq!(refs[0]["role"], "sketch_plane_face");
+    assert_eq!(refs[0]["resolves"], true);
+    assert_eq!(refs[0]["geom_ref"]["selector"]["type"], "Pid");
+    assert_eq!(
+        refs[0]["recorded_signature"]["surface_type"], "planar",
+        "and what the face WAS, for a refusal to name: {}",
+        refs[0]
+    );
+    assert!(healthy.get("error").is_none(), "{healthy}");
+
+    dispatch(
+        &mut state,
+        UiToEngine::DeleteFeature { feature_id: boss },
+        &mut kernel,
+    );
+
+    let broken = tool_ok(
+        &mut state,
+        &mut kernel,
+        "feature_get",
+        json!({ "feature_id": on_boss }),
+    );
+    assert_eq!(broken["references"][0]["resolves"], false, "{broken}");
+    assert_eq!(
+        broken["references"][0]["refusal"]["type"], "ResolutionFailed",
+        "{broken}"
+    );
+    assert!(
+        broken["references"][0]["refusal"]["reason"].is_object(),
+        "classified, not a bare tag: {broken}"
+    );
+    assert_eq!(broken["error_kind"]["type"], "ResolutionFailed", "{broken}");
+    assert!(
+        broken["error"]
+            .as_str()
+            .unwrap_or_default()
+            .contains("the face this sketch is drawn on is gone"),
+        "{broken}"
+    );
+}
+
+/// §5.3 item 4 for names: `names_list` reports WHICH RUNG answered, whether
+/// that rung was a rebind, and the typed refusal when it did not answer at
+/// all. The rung is what closes N1's own open item — `resolved_by: "pid"`
+/// could not say whether the id answered directly or through its lineage root.
+#[test]
+fn names_list_reports_the_rung_and_the_refusal() {
+    let mut state = EngineState::new();
+    let mut kernel = KernelV2Adapter::new();
+    let (boss, _, body) = plate_with_boss_and_a_sketch_on_it(&mut state, &mut kernel);
+    let face = top_face(&faces(&mut state, &mut kernel, &body)).clone();
+    tool_ok(
+        &mut state,
+        &mut kernel,
+        "entity_name",
+        json!({
+            "target": { "type": "entity", "geom_ref": face.geom_ref },
+            "name": "boss_top"
+        }),
+    );
+
+    let listed = tool_ok(&mut state, &mut kernel, "names_list", json!({}));
+    let entry = listed["names"]
+        .as_array()
+        .expect("names")
+        .iter()
+        .find(|n| n["name"] == "boss_top")
+        .expect("the name is listed")
+        .clone();
+    assert_eq!(entry["resolves"], true);
+    assert_eq!(entry["resolved_by"], "pid");
+    assert_eq!(
+        entry["resolved_via"], "pid",
+        "the id answered DIRECTLY, not through its root: {entry}"
+    );
+    assert!(
+        entry.get("rebound").is_none(),
+        "omitted when false: {entry}"
+    );
+    assert!(entry.get("refusal").is_none(), "{entry}");
+
+    // Take the boss away: the name's entity is gone, and the listing says so
+    // with the reason rather than only with prose.
+    dispatch(
+        &mut state,
+        UiToEngine::DeleteFeature { feature_id: boss },
+        &mut kernel,
+    );
+    let listed = tool_ok(&mut state, &mut kernel, "names_list", json!({}));
+    let entry = listed["names"]
+        .as_array()
+        .expect("names")
+        .iter()
+        .find(|n| n["name"] == "boss_top")
+        .expect("the name OUTLIVES its entity — §5.2, the hole is the record")
+        .clone();
+    assert_eq!(entry["resolves"], false, "{entry}");
+    assert!(entry["refusal"]["type"].is_string(), "classified: {entry}");
+    assert!(entry.get("resolved_via").is_none(), "{entry}");
+    assert!(!entry["warnings"].as_array().unwrap().is_empty(), "{entry}");
 }

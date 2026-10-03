@@ -2408,6 +2408,7 @@ fn model_updated_response(state: &EngineState) -> EngineToUi {
         errors: state.engine.errors.clone(),
         feature_errors: state.engine.feature_errors.clone(),
         warnings: state.engine.warnings.clone(),
+        feature_warnings: state.engine.feature_warnings.clone(),
         consumed_features: {
             let mut v: Vec<uuid::Uuid> = state.engine.consumed_features.iter().copied().collect();
             v.sort();
