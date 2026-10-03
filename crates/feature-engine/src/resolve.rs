@@ -7,7 +7,7 @@ use waffle_types::{
     TopoQuery, TopoSignature,
 };
 
-use crate::types::EngineError;
+use crate::types::{EngineError, ReferenceRefusal, ResolutionReason};
 
 /// A reference scoped to another tab's instance (v4 §2.8, in-context editing)
 /// must be resolved through the edit context (`crate::context`), never against
@@ -16,12 +16,117 @@ use crate::types::EngineError;
 fn refuse_scoped(geom_ref: &GeomRef) -> Result<(), EngineError> {
     match &geom_ref.scope {
         None => Ok(()),
-        Some(scope) => Err(EngineError::ResolutionFailed {
-            reason: format!(
-                "reference is scoped to {}; it resolves only through the open assembly context",
-                crate::context::describe_scope(scope, None)
-            ),
-        }),
+        Some(scope) => {
+            let scope_text = crate::context::describe_scope(scope, None);
+            Err(refuse(
+                geom_ref,
+                ResolutionReason::ScopeMissing {
+                    scope: scope_text.clone(),
+                },
+                format!(
+                    "reference is scoped to {scope_text}; it resolves only through the open \
+                     assembly context"
+                ),
+            ))
+        }
+    }
+}
+
+/// A classified refusal of `geom_ref` (N2 §5.3 item 2). Every refusal the
+/// ladder itself reaches goes through here, so none of them reaches a host as
+/// an unclassified string.
+fn refuse(geom_ref: &GeomRef, reason: ResolutionReason, text: String) -> EngineError {
+    EngineError::ReferenceUnresolved(Box::new(ReferenceRefusal::of(geom_ref, reason, text)))
+}
+
+/// A refusal with no reference to attribute it to — the two shared scorers
+/// ([`resolve_signature_over`], [`resolve_query_over`]) see candidates and a
+/// fingerprint, not the `GeomRef` they came from. The caller that owns the
+/// reference attaches the digest on the way out
+/// ([`attribute`]).
+fn refuse_bare(reason: ResolutionReason, text: String) -> EngineError {
+    EngineError::ReferenceUnresolved(Box::new(ReferenceRefusal {
+        reason_text: text,
+        reason,
+        reference: None,
+        name: None,
+    }))
+}
+
+/// Fill in the reference digest of a refusal raised by a scorer that did not
+/// have the `GeomRef` (see [`refuse_bare`]). A refusal that already names one,
+/// and every other error, passes through untouched.
+fn attribute(err: EngineError, geom_ref: &GeomRef) -> EngineError {
+    match err {
+        EngineError::ReferenceUnresolved(mut r) if r.reference.is_none() => {
+            r.reference = Some(crate::types::RefDigest::of(geom_ref));
+            EngineError::ReferenceUnresolved(r)
+        }
+        other => other,
+    }
+}
+
+/// Which rung of the ladder answered a reference (N2 §5.3).
+///
+/// A `BestEffort` reference that cannot be answered on its own terms rebinds by
+/// geometry instead of refusing. Before N2 the only trace of that was a warning
+/// string in [`ResolvedRef::warnings`] — which the app toasts and an agent never
+/// sees. The rung is now reported beside the answer, and [`ResolvedVia::rebound`]
+/// is the one question a caller has to ask: did this bind to the identity I
+/// recorded, or to whatever was nearest?
+///
+/// This also closes N1's last open item: `resolved_by: "pid"` no longer hides
+/// whether the pid answered directly or through its lineage root. The resolver
+/// knows which rung it used, so nothing has to be inferred from the presence of
+/// a warning.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ResolvedVia {
+    /// The recorded persistent id AND its recorded lineage root matched.
+    Pid,
+    /// The pid is gone; the entity still descending from its recorded lineage
+    /// root answered ([`resolve_by_pid`] rung 2). Not a rebind — it is the
+    /// recorded lineage — but not the recorded id either, which is why it is
+    /// its own rung.
+    PidRoot,
+    /// The recorded role and index answered.
+    Role,
+    /// The recorded fingerprint answered, above the confidence floor.
+    Signature,
+    /// The recorded query's filters answered.
+    Query,
+    /// The picked position matched an entity within the pick grid.
+    Position,
+    /// `BestEffort` rebind: the role index was out of range and was clamped.
+    RoleClamped,
+    /// `BestEffort` rebind: the fingerprint's best score was below the floor.
+    SignatureLowConfidence,
+    /// `BestEffort` rebind: the query matched nothing, so the first entity of
+    /// the right kind was taken.
+    QueryFirstOfKind,
+    /// `BestEffort` rebind: the role did not resolve, so the first created
+    /// entity of the right kind was taken ([`resolve_with_fallback`]).
+    KindFallback,
+    /// `BestEffort` rebind: nothing was within the pick grid of the position,
+    /// so the nearest entity was taken.
+    PositionNearest,
+}
+
+impl ResolvedVia {
+    /// True when the answer is NOT the identity the reference recorded: the
+    /// resolver rebound by geometry because `BestEffort` allowed it. Each of
+    /// these also carries a warning naming what it bound and why; this is the
+    /// same fact as a flag, so a tool result can report it without a host
+    /// having to read prose.
+    pub fn rebound(self) -> bool {
+        matches!(
+            self,
+            Self::RoleClamped
+                | Self::SignatureLowConfidence
+                | Self::QueryFirstOfKind
+                | Self::KindFallback
+                | Self::PositionNearest
+        )
     }
 }
 
@@ -30,6 +135,9 @@ fn refuse_scoped(geom_ref: &GeomRef) -> Result<(), EngineError> {
 pub struct ResolvedRef {
     pub kernel_id: KernelId,
     pub warnings: Vec<String>,
+    /// Which rung answered (N2). [`ResolvedVia::rebound`] says whether the
+    /// answer is the recorded identity or a `BestEffort` rebind.
+    pub via: ResolvedVia,
 }
 
 /// Resolve a GeomRef to a KernelId using the feature results map.
@@ -45,44 +153,55 @@ pub fn resolve_geom_ref(
             output_key: _,
         } => *feature_id,
         waffle_types::Anchor::Datum { datum_id } => {
-            return Err(EngineError::ResolutionFailed {
-                reason: format!("Datum references not yet supported (datum {})", datum_id),
-            });
+            return Err(refuse(
+                geom_ref,
+                ResolutionReason::NoMatch,
+                format!("Datum references not yet supported (datum {})", datum_id),
+            ));
         }
     };
 
     // Find the feature's OpResult
-    let op_result = feature_results
-        .get(&feature_id)
-        .ok_or(EngineError::ResolutionFailed {
-            reason: format!("Feature {} has no result (not yet rebuilt?)", feature_id),
-        })?;
+    let op_result = feature_results.get(&feature_id).ok_or_else(|| {
+        refuse(
+            geom_ref,
+            ResolutionReason::NoMatch,
+            format!("Feature {} has no result (not yet rebuilt?)", feature_id),
+        )
+    })?;
 
     // Apply the selector
     match &geom_ref.selector {
         Selector::Role { ref role, index } => {
             resolve_by_role(op_result, role, *index, geom_ref.policy)
+                .map_err(|e| attribute(e, geom_ref))
         }
         Selector::Signature { ref signature } => {
             resolve_by_signature(op_result, signature, geom_ref.kind, geom_ref.policy)
+                .map_err(|e| attribute(e, geom_ref))
         }
         Selector::Query { ref query } => {
             resolve_by_query(op_result, query, geom_ref.kind, geom_ref.policy)
+                .map_err(|e| attribute(e, geom_ref))
         }
         Selector::Position { .. } => {
             // Position selectors are used for viewport picking (vertex overlay).
             // They don't resolve to kernel entities — return an error.
-            Err(EngineError::ResolutionFailed {
-                reason: "Position selectors are not resolvable to kernel entities".to_string(),
-            })
+            Err(refuse(
+                geom_ref,
+                ResolutionReason::NoMatch,
+                "Position selectors are not resolvable to kernel entities".to_string(),
+            ))
         }
-        Selector::Pid { pid, root_pid } => Err(EngineError::ResolutionFailed {
-            reason: format!(
+        Selector::Pid { pid, root_pid } => Err(refuse(
+            geom_ref,
+            ResolutionReason::NoMatch,
+            format!(
                 "persistent id {pid} (root {root_pid}) names an entity of the body's current \
                  geometry, which only the live kernel can read, and this resolution path has \
                  none (feature-engine: call `resolve_geom_ref_live`)"
             ),
-        }),
+        )),
     }
 }
 
@@ -114,9 +233,11 @@ pub fn resolve_by_position(
         TopoKind::Edge => introspect.list_edges(handle),
         TopoKind::Face => introspect.list_faces(handle),
         other => {
-            return Err(EngineError::ResolutionFailed {
-                reason: format!("Position selector unsupported for {:?}", other),
-            });
+            return Err(refuse(
+                geom_ref,
+                ResolutionReason::NoMatch,
+                format!("Position selector unsupported for {:?}", other),
+            ));
         }
     };
 
@@ -136,28 +257,36 @@ pub fn resolve_by_position(
         Some((id, d)) if d <= POSITION_MATCH_TOL => Ok(ResolvedRef {
             kernel_id: id,
             warnings: Vec::new(),
+            via: ResolvedVia::Position,
         }),
         Some((id, d)) => match geom_ref.policy {
             ResolvePolicy::BestEffort => Ok(ResolvedRef {
                 kernel_id: id,
                 warnings: vec![format!(
-                    "Position matched nearest {:?} at distance {:.2e} (> {:.0e}) — geometry may have moved",
-                    geom_ref.kind, d, POSITION_MATCH_TOL
+                    "the picked position matches no {:?} within {:.0e}; bound the NEAREST one \
+                     instead, {:.2e} away (BestEffort) — the geometry moved, and this is a \
+                     rebind, not the entity that was picked",
+                    geom_ref.kind, POSITION_MATCH_TOL, d
                 )],
+                via: ResolvedVia::PositionNearest,
             }),
-            ResolvePolicy::Strict => Err(EngineError::ResolutionFailed {
-                reason: format!(
+            ResolvePolicy::Strict => Err(refuse(
+                geom_ref,
+                ResolutionReason::NoMatch,
+                format!(
                     "No {:?} within {:.0e} of picked position (nearest {:.2e})",
                     geom_ref.kind, POSITION_MATCH_TOL, d
                 ),
-            }),
+            )),
         },
-        None => Err(EngineError::ResolutionFailed {
-            reason: format!(
+        None => Err(refuse(
+            geom_ref,
+            ResolutionReason::NoMatch,
+            format!(
                 "Feature output has no {:?} entities to match position",
                 geom_ref.kind
             ),
-        }),
+        )),
     }
 }
 
@@ -189,16 +318,20 @@ fn anchor_body_handle<'a>(
             output_key,
         } => (*feature_id, output_key.clone()),
         Anchor::Datum { datum_id } => {
-            return Err(EngineError::ResolutionFailed {
-                reason: format!("selector on datum {} not supported", datum_id),
-            });
+            return Err(refuse(
+                geom_ref,
+                ResolutionReason::NoMatch,
+                format!("selector on datum {} not supported", datum_id),
+            ));
         }
     };
-    let op_result = feature_results
-        .get(&feature_id)
-        .ok_or(EngineError::ResolutionFailed {
-            reason: format!("Feature {} has no result (not yet rebuilt?)", feature_id),
-        })?;
+    let op_result = feature_results.get(&feature_id).ok_or_else(|| {
+        refuse(
+            geom_ref,
+            ResolutionReason::NoMatch,
+            format!("Feature {} has no result (not yet rebuilt?)", feature_id),
+        )
+    })?;
     if let Some((_, body)) = op_result
         .outputs
         .iter()
@@ -207,21 +340,27 @@ fn anchor_body_handle<'a>(
         return Ok(&body.handle);
     }
     if !allow_first_body {
-        return Err(EngineError::ResolutionFailed {
-            reason: format!(
+        return Err(refuse(
+            geom_ref,
+            ResolutionReason::NoMatch,
+            format!(
                 "feature {} has no output {} any more, and a persistent id is only unique within \
                  one body, so another of its bodies must not be substituted",
                 feature_id,
                 output_key.tag()
             ),
-        });
+        ));
     }
     op_result
         .outputs
         .first()
         .map(|(_, b)| &b.handle)
-        .ok_or(EngineError::ResolutionFailed {
-            reason: "feature produced no body output to resolve against".to_string(),
+        .ok_or_else(|| {
+            refuse(
+                geom_ref,
+                ResolutionReason::NoMatch,
+                "feature produced no body output to resolve against".to_string(),
+            )
         })
 }
 
@@ -278,14 +417,29 @@ pub fn resolve_by_pid(
     refuse_scoped(geom_ref)?;
     let handle = anchor_body_handle(geom_ref, feature_results, false)?;
     let known = introspect.all_entity_pids(handle, geom_ref.kind);
+    let gone = |geom_ref: &GeomRef, text: String| {
+        refuse(
+            geom_ref,
+            ResolutionReason::PidGone {
+                pid,
+                root_pid,
+                last_seen_feature: match &geom_ref.anchor {
+                    Anchor::FeatureOutput { feature_id, .. } => Some(*feature_id),
+                    Anchor::Datum { .. } => None,
+                },
+            },
+            text,
+        )
+    };
     if known.is_empty() {
-        return Err(EngineError::ResolutionFailed {
-            reason: format!(
+        return Err(gone(
+            geom_ref,
+            format!(
                 "kernel reports no persistent ids for {:?} on this body, so pid {} cannot be \
                  resolved (a mesh-backed imported body, or a kernel without persistent identity)",
                 geom_ref.kind, pid
             ),
-        });
+        ));
     }
 
     // The number AND the lineage it was recorded with. A face that answers
@@ -299,18 +453,23 @@ pub fn resolve_by_pid(
         return Ok(ResolvedRef {
             kernel_id: exact[0],
             warnings: Vec::new(),
+            via: ResolvedVia::Pid,
         });
     }
     if exact.len() > 1 {
-        return Err(EngineError::ResolutionFailed {
-            reason: format!(
+        return Err(refuse(
+            geom_ref,
+            ResolutionReason::Ambiguous {
+                candidates: exact.iter().map(|id| id.0).collect(),
+            },
+            format!(
                 "persistent id {} names {} different {:?} entities on this body — the kernel's \
                  identity map is not injective, which is a kernel defect, not a stale reference",
                 pid,
                 exact.len(),
                 geom_ref.kind
             ),
-        });
+        ));
     }
 
     // The number is on the body but on OTHER geometry: a recycled
@@ -356,10 +515,12 @@ pub fn resolve_by_pid(
             Ok(ResolvedRef {
                 kernel_id: by_root[0],
                 warnings,
+                via: ResolvedVia::PidRoot,
             })
         }
-        0 => Err(EngineError::ResolutionFailed {
-            reason: match reuse_note {
+        0 => Err(gone(
+            geom_ref,
+            match reuse_note {
                 Some(note) => format!(
                     "no {:?} on this body carries persistent id {} with root {} — {}, and nothing \
                      descends from that root any more",
@@ -371,14 +532,18 @@ pub fn resolve_by_pid(
                     geom_ref.kind, pid, root_pid
                 ),
             },
-        }),
-        n => Err(EngineError::ResolutionFailed {
-            reason: format!(
+        )),
+        n => Err(refuse(
+            geom_ref,
+            ResolutionReason::Ambiguous {
+                candidates: by_root.iter().map(|id| id.0).collect(),
+            },
+            format!(
                 "{:?} pid {} is gone and its lineage root {} now names {} entities — the geometry \
                  was split and the reference cannot say which part it meant",
                 geom_ref.kind, pid, root_pid, n
             ),
-        }),
+        )),
     }
 }
 
@@ -421,9 +586,14 @@ pub fn resolve_with_fallback(
                             Ok(ResolvedRef {
                                 kernel_id,
                                 warnings: vec![format!(
-                                    "Role resolution failed, fell back to kind-match (BestEffort): {}",
-                                    primary_err
+                                    "the recorded role did not resolve ({primary_err}); bound the \
+                                     FIRST {:?} this feature created instead, of {} (BestEffort) \
+                                     — a rebind by position in the provenance list, not the \
+                                     entity the reference recorded",
+                                    geom_ref.kind,
+                                    matching.len()
                                 )],
+                                via: ResolvedVia::KindFallback,
                             })
                         } else {
                             Err(primary_err)
@@ -493,7 +663,8 @@ pub fn resolve_geom_ref_live(
                                 query,
                                 geom_ref.kind,
                                 geom_ref.policy,
-                            );
+                            )
+                            .map_err(|e| attribute(e, geom_ref));
                         }
                         Selector::Signature { signature } => {
                             return resolve_signature_over(
@@ -501,7 +672,8 @@ pub fn resolve_geom_ref_live(
                                 signature,
                                 geom_ref.kind,
                                 geom_ref.policy,
-                            );
+                            )
+                            .map_err(|e| attribute(e, geom_ref));
                         }
                         _ => unreachable!("guarded by the matches! above"),
                     }
@@ -546,27 +718,34 @@ fn resolve_query_over(
 
     if matches.is_empty() {
         return match policy {
-            ResolvePolicy::Strict => Err(EngineError::ResolutionFailed {
-                reason: format!(
+            ResolvePolicy::Strict => Err(refuse_bare(
+                ResolutionReason::NoMatch,
+                format!(
                     "Query matched no {:?} entities ({} candidates, {} filters)",
                     kind,
                     candidates.len(),
                     query.filters.len()
                 ),
-            }),
+            )),
             ResolvePolicy::BestEffort => {
                 // Fall back to first entity of matching kind
                 let fallback = candidates.first().map(|(id, _)| *id);
                 match fallback {
                     Some(id) => Ok(ResolvedRef {
                         kernel_id: id,
-                        warnings: vec![
-                            "Query matched no entities, fell back to first of matching kind (BestEffort)".to_string(),
-                        ],
+                        warnings: vec![format!(
+                            "the query's {} filter(s) matched none of the {} {kind:?} entities; \
+                             bound the FIRST of them instead (BestEffort) — a rebind by listing \
+                             order, not an entity the reference described",
+                            query.filters.len(),
+                            candidates.len()
+                        )],
+                        via: ResolvedVia::QueryFirstOfKind,
                     }),
-                    None => Err(EngineError::ResolutionFailed {
-                        reason: format!("No {:?} entities available for query fallback", kind),
-                    }),
+                    None => Err(refuse_bare(
+                        ResolutionReason::NoMatch,
+                        format!("No {:?} entities available for query fallback", kind),
+                    )),
                 }
             }
         };
@@ -585,6 +764,7 @@ fn resolve_query_over(
         } else {
             Vec::new()
         },
+        via: ResolvedVia::Query,
     })
 }
 
@@ -730,36 +910,43 @@ fn resolve_by_role(
         .collect();
 
     if matching.is_empty() {
-        return Err(EngineError::ResolutionFailed {
-            reason: format!("No entity with role {:?}", role),
-        });
+        return Err(refuse_bare(
+            ResolutionReason::NoMatch,
+            format!("No entity with role {:?}", role),
+        ));
     }
 
     if index < matching.len() {
         Ok(ResolvedRef {
             kernel_id: matching[index],
             warnings: Vec::new(),
+            via: ResolvedVia::Role,
         })
     } else {
         match policy {
-            ResolvePolicy::Strict => Err(EngineError::ResolutionFailed {
-                reason: format!(
+            ResolvePolicy::Strict => Err(refuse_bare(
+                ResolutionReason::NoMatch,
+                format!(
                     "Role {:?} index {} out of range (found {})",
                     role,
                     index,
                     matching.len()
                 ),
-            }),
+            )),
             ResolvePolicy::BestEffort => {
                 let kernel_id = *matching.last().unwrap();
                 Ok(ResolvedRef {
                     kernel_id,
                     warnings: vec![format!(
-                        "Role {:?} index {} clamped to {} (BestEffort)",
+                        "role {:?} index {} is out of range; CLAMPED to index {} (BestEffort) — \
+                         the feature now has {} entities with that role, so this is the last of \
+                         them, not the one the reference recorded",
                         role,
                         index,
-                        matching.len() - 1
+                        matching.len() - 1,
+                        matching.len()
                     )],
+                    via: ResolvedVia::RoleClamped,
                 })
             }
         }
@@ -825,8 +1012,9 @@ fn resolve_signature_over(
         .collect();
 
     if scored.is_empty() {
-        return Err(EngineError::ResolutionFailed {
-            reason: if candidates.is_empty() {
+        return Err(refuse_bare(
+            ResolutionReason::NoMatch,
+            if candidates.is_empty() {
                 format!("No entities of kind {kind:?} to match signature against")
             } else {
                 format!(
@@ -836,7 +1024,7 @@ fn resolve_signature_over(
                     candidates.len()
                 )
             },
-        });
+        ));
     }
 
     let best_sim = scored
@@ -868,23 +1056,30 @@ fn resolve_signature_over(
             Ok(ResolvedRef {
                 kernel_id: id,
                 warnings,
+                via: ResolvedVia::Signature,
             })
         }
         Some((id, sim)) => match policy {
             ResolvePolicy::BestEffort => Ok(ResolvedRef {
                 kernel_id: id,
                 warnings: vec![format!(
-                    "Low-confidence signature match: {:.1}%",
+                    "no {kind:?} fits the reference's fingerprint: the best of {} scored only \
+                     {:.1}%, below the 50% floor, and was bound anyway (BestEffort) — a rebind \
+                     to the closest geometry, not the entity the reference recorded",
+                    scored.len(),
                     sim * 100.0
                 )],
+                via: ResolvedVia::SignatureLowConfidence,
             }),
-            ResolvePolicy::Strict => Err(EngineError::ResolutionFailed {
-                reason: format!("Best signature match too low: {:.1}%", sim * 100.0),
-            }),
+            ResolvePolicy::Strict => Err(refuse_bare(
+                ResolutionReason::NoMatch,
+                format!("Best signature match too low: {:.1}%", sim * 100.0),
+            )),
         },
-        None => Err(EngineError::ResolutionFailed {
-            reason: "No entities to match signature against".to_string(),
-        }),
+        None => Err(refuse_bare(
+            ResolutionReason::NoMatch,
+            "No entities to match signature against".to_string(),
+        )),
     }
 }
 
@@ -1373,8 +1568,8 @@ mod tests {
             let err = resolve_by_signature(&op, &index_only, TopoKind::Face, policy)
                 .expect_err("a geometry-free signature must not bind");
             assert!(
-                matches!(&err, EngineError::ResolutionFailed { reason }
-                         if reason.contains("carries no geometry")),
+                err.resolution_text()
+                    .is_some_and(|r| r.contains("carries no geometry")),
                 "{policy:?}: want a typed geometry-free refusal, got {err:?}"
             );
         }
@@ -1572,15 +1767,27 @@ mod tests {
             let (fid, results, k) = pid_fixture(vec![(KernelId(10), 22, 8800)]);
             let err = resolve_geom_ref_live(&pid_ref(fid, 22, 7001, policy), &results, &k)
                 .expect_err("a recycled number is not a match");
-            match &err {
-                EngineError::ResolutionFailed { reason } => {
-                    assert!(
-                        reason.contains("re-minted onto something else"),
-                        "{policy:?}: the refusal says why, got {reason}"
-                    );
-                }
-                other => panic!("{policy:?}: want ResolutionFailed, got {other:?}"),
-            }
+            let reason = err
+                .resolution_text()
+                .unwrap_or_else(|| panic!("{policy:?}: want a resolution refusal, got {err:?}"));
+            assert!(
+                reason.contains("re-minted onto something else"),
+                "{policy:?}: the refusal says why, got {reason}"
+            );
+            // N2: and it is CLASSIFIED — a host branches on `PidGone` with the
+            // numbers, rather than reading the sentence above.
+            assert!(
+                matches!(
+                    err.resolution_reason(),
+                    Some(ResolutionReason::PidGone {
+                        pid: 22,
+                        root_pid: 7001,
+                        last_seen_feature: Some(f),
+                    }) if *f == fid
+                ),
+                "{policy:?}: want PidGone{{22, 7001, {fid}}}, got {:?}",
+                err.resolution_reason()
+            );
         }
     }
 
@@ -1594,13 +1801,25 @@ mod tests {
                 pid_fixture(vec![(KernelId(10), 7001, 7001), (KernelId(11), 7002, 7002)]);
             let err = resolve_geom_ref_live(&pid_ref(fid, 4242, 4242, policy), &results, &k)
                 .expect_err("a vanished pid must not rebind");
-            match err {
-                EngineError::ResolutionFailed { reason } => assert!(
-                    reason.contains("no longer exists"),
-                    "{policy:?}: unexpected reason {reason}"
+            let reason = err
+                .resolution_text()
+                .unwrap_or_else(|| panic!("{policy:?}: wrong error {err:?}"));
+            assert!(
+                reason.contains("no longer exists"),
+                "{policy:?}: unexpected reason {reason}"
+            );
+            assert!(
+                matches!(
+                    err.resolution_reason(),
+                    Some(ResolutionReason::PidGone {
+                        pid: 4242,
+                        root_pid: 4242,
+                        ..
+                    })
                 ),
-                other => panic!("{policy:?}: wrong error {other:?}"),
-            }
+                "{policy:?}: want PidGone, got {:?}",
+                err.resolution_reason()
+            );
         }
     }
 
@@ -1636,11 +1855,17 @@ mod tests {
             &k,
         )
         .expect_err("an ambiguous root must not be guessed");
-        match err {
-            EngineError::ResolutionFailed { reason } => {
-                assert!(reason.contains("split"), "unexpected reason {reason}")
+        let reason = err
+            .resolution_text()
+            .unwrap_or_else(|| panic!("wrong error {err:?}"));
+        assert!(reason.contains("split"), "unexpected reason {reason}");
+        // N2: a split root is an AMBIGUITY, not an absence — and the refusal
+        // names both halves, which is what an agent needs to pick one.
+        match err.resolution_reason() {
+            Some(ResolutionReason::Ambiguous { candidates }) => {
+                assert_eq!(candidates, &vec![10, 11], "both halves are named");
             }
-            other => panic!("wrong error {other:?}"),
+            other => panic!("want Ambiguous, got {other:?}"),
         }
     }
 
@@ -1660,13 +1885,13 @@ mod tests {
             &k,
         )
         .expect_err("no identity map");
-        match err {
-            EngineError::ResolutionFailed { reason } => assert!(
-                reason.contains("no persistent ids"),
-                "unexpected reason {reason}"
-            ),
-            other => panic!("wrong error {other:?}"),
-        }
+        let reason = err
+            .resolution_text()
+            .unwrap_or_else(|| panic!("wrong error {err:?}"));
+        assert!(
+            reason.contains("no persistent ids"),
+            "unexpected reason {reason}"
+        );
     }
 
     #[test]
@@ -1677,12 +1902,10 @@ mod tests {
         let (fid, results, _) = pid_fixture(vec![]);
         let err = resolve_geom_ref(&pid_ref(fid, 7001, 7001, ResolvePolicy::Strict), &results)
             .expect_err("needs the live kernel");
-        match err {
-            EngineError::ResolutionFailed { reason } => {
-                assert!(reason.contains("live kernel"), "unexpected reason {reason}")
-            }
-            other => panic!("wrong error {other:?}"),
-        }
+        let reason = err
+            .resolution_text()
+            .unwrap_or_else(|| panic!("wrong error {err:?}"));
+        assert!(reason.contains("live kernel"), "unexpected reason {reason}");
     }
 
     /// A pid is unique only WITHIN one body, so the first-body fallback that
@@ -1700,13 +1923,13 @@ mod tests {
         };
         let err = resolve_geom_ref_live(&r, &results, &k)
             .expect_err("a missing output must not resolve against a sibling body");
-        match err {
-            EngineError::ResolutionFailed { reason } => assert!(
-                reason.contains("unique within one body"),
-                "unexpected reason {reason}"
-            ),
-            other => panic!("wrong error {other:?}"),
-        }
+        let reason = err
+            .resolution_text()
+            .unwrap_or_else(|| panic!("wrong error {err:?}"));
+        assert!(
+            reason.contains("unique within one body"),
+            "unexpected reason {reason}"
+        );
     }
 
     /// The same shape through a Position selector KEEPS the fallback: that is
@@ -1725,13 +1948,13 @@ mod tests {
         let kernel = FakeIntrospect { verts: vec![] };
         let err = resolve_by_position(&r, &results, &kernel, [0.0, 0.0, 0.0])
             .expect_err("the stub kernel lists no vertices");
-        match err {
-            EngineError::ResolutionFailed { reason } => assert!(
-                reason.contains("no Vertex entities"),
-                "it reached the body and failed on its contents, not on the key: {reason}"
-            ),
-            other => panic!("wrong error {other:?}"),
-        }
+        let reason = err
+            .resolution_text()
+            .unwrap_or_else(|| panic!("wrong error {err:?}"));
+        assert!(
+            reason.contains("no Vertex entities"),
+            "it reached the body and failed on its contents, not on the key: {reason}"
+        );
     }
 
     #[test]

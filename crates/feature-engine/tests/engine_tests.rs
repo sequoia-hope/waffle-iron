@@ -2804,10 +2804,17 @@ fn resolve_role_index_out_of_range_best_effort_clamps() {
         "BestEffort clamping should produce a warning"
     );
     assert!(
-        resolved.warnings[0].contains("clamped"),
+        resolved.warnings[0].contains("CLAMPED"),
         "Warning should mention clamping: {}",
         resolved.warnings[0]
     );
+    // N2 §5.3: the same fact as a flag, so an agent reading the tool result
+    // learns this is a rebind without parsing the sentence.
+    assert_eq!(
+        resolved.via,
+        feature_engine::resolve::ResolvedVia::RoleClamped
+    );
+    assert!(resolved.via.rebound(), "a clamp is not the recorded index");
 }
 
 #[test]
@@ -3012,9 +3019,19 @@ fn resolve_signature_low_match_best_effort_succeeds() {
         "Low match BestEffort should produce warning"
     );
     assert!(
-        resolved.warnings[0].contains("Low-confidence"),
+        resolved.warnings[0].contains("below the 50% floor"),
         "Warning should mention low-confidence: {}",
         resolved.warnings[0]
+    );
+    // N2 §5.3: a sub-floor fingerprint match is a rebind to the closest
+    // geometry, and the result says so as a flag.
+    assert_eq!(
+        resolved.via,
+        feature_engine::resolve::ResolvedVia::SignatureLowConfidence
+    );
+    assert!(
+        resolved.via.rebound(),
+        "a sub-floor score is not the recorded entity"
     );
 }
 

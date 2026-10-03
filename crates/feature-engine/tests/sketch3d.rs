@@ -578,7 +578,7 @@ fn a_best_effort_point_follows_the_vertex_when_the_model_moves_and_says_so() {
     assert!(
         ev.warnings
             .iter()
-            .any(|w| w.starts_with("point 1:") && w.contains("geometry may have moved")),
+            .any(|w| w.starts_with("point 1:") && w.contains("this is a rebind")),
         "the re-bind is reported against its point: {:?}",
         ev.warnings
     );
@@ -586,7 +586,7 @@ fn a_best_effort_point_follows_the_vertex_when_the_model_moves_and_says_so() {
         engine
             .warnings
             .iter()
-            .any(|w| w.contains("geometry may have moved")),
+            .any(|w| w.contains("this is a rebind")),
         "the warning reaches the engine: {:?}",
         engine.warnings
     );

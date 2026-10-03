@@ -365,8 +365,17 @@ fn a_name_whose_feature_is_deleted_stays_and_stops_resolving() {
     let err = names::resolve(stored, &engine.feature_results, &kernel)
         .expect_err("a deleted entity must not resolve");
     assert!(
-        matches!(err, EngineError::ResolutionFailed { .. }),
-        "want ResolutionFailed, got {err:?}"
+        err.resolution_text().is_some(),
+        "want a resolution refusal, got {err:?}"
+    );
+    // N2 §5.3 item 2: and it is classified, so an agent branches on the
+    // reason instead of reading the sentence. The feature is gone, so is its
+    // result, so there is nothing of the anchor left to look a pid up in —
+    // `NoMatch`, not `PidGone`.
+    assert_eq!(
+        err.resolution_reason(),
+        Some(&feature_engine::types::ResolutionReason::NoMatch),
+        "got {err:?}"
     );
 }
 

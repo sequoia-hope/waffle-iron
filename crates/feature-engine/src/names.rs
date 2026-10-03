@@ -155,6 +155,12 @@ pub enum ResolvedBy {
 pub struct NameResolution {
     pub kernel_id: KernelId,
     pub resolved_by: ResolvedBy,
+    /// Which rung of the ladder actually answered (N2). This is what closes
+    /// N1's last open item: `resolved_by: "pid"` could not say whether the pid
+    /// answered directly or through its lineage root, and the honest signal was
+    /// the presence of a warning. The resolver reports its own rung now, so
+    /// `via` says `pid` or `pid_root` as a fact rather than an inference.
+    pub via: crate::resolve::ResolvedVia,
     /// The resolver's own warnings, verbatim (a pid answered through its
     /// lineage root says so here), plus the primary failure when the fallback
     /// was used.
@@ -227,6 +233,7 @@ pub fn resolve(
             } else {
                 ResolvedBy::Selector
             },
+            via: resolved.via,
             warnings: resolved.warnings,
         }),
         Err(primary) => {
@@ -244,6 +251,7 @@ pub fn resolve(
             Ok(NameResolution {
                 kernel_id: resolved.kernel_id,
                 resolved_by: ResolvedBy::Query,
+                via: resolved.via,
                 warnings,
             })
         }
