@@ -758,7 +758,8 @@ pub struct SectionResult {
    taking a touch for occlusion is wrong, the one tangency this plan names is
    on a polyline fold rather than on the analytic arms, and the declines are
    now typed and counted on the result.
-4. **D1d — section.** `section_with_plane` runs the yang pipeline with a
+4. **D1d — section. LANDED 2026-10-03.** `section_with_plane` runs the yang
+   pipeline with a
    half-space operand built as a box that encloses the solid's AABB with a
    margin, then collects the cap face (the face whose plane equals the cut
    plane, found through `face_provenance` as the only face descended from the
@@ -766,7 +767,12 @@ pub struct SectionResult {
    D1a–c for the section view and hatches the cap loops. The cut plane is
    generic with respect to the solid in the common case; a cut plane coplanar
    with a model face hits the Stage-0 coplanar overlay, which is the correct
-   outcome (the section passes through a face) and is handled there.
+   outcome (the section passes through a face) and is handled there. See
+   "Implementation notes (D1d)" below: the boolean runs on a SCRATCH arena and
+   the result is copied back, the geometry CHECKS the lineage attribution
+   rather than merely supplementing it, a cut that keeps nothing has no solid
+   to name, and a loop's traversal direction does not survive `Curve2` — so
+   the kernel reports the area it measured.
 
 ### 5.3 Oracles
 
@@ -1485,6 +1491,174 @@ read as a drawing change.
   and R0047's "a sample sits in front of the whole solid" row is probably where
   to start, since that is a projection-level complaint and not a visibility
   one.
+
+### Implementation notes (D1d)
+
+Landed 2026-10-03, in `kernel_v2::projection::section` with the contract
+additions in `waffle_types::kernel::projection`. Where §5.2's increment 4 left
+a choice open, this is the choice made and why.
+
+**The cut is the kernel's own Intersect, on a SCRATCH arena, and the result is
+copied back.** §5.2's "runs the yang pipeline with a half-space operand" is
+taken literally, for Q2's reason (`kernel_v2::interference`): a second
+implementation of "which side of this plane is the material on" would be a
+second source of truth, free to disagree with the Subtract the user runs
+against the same plane a moment later. A section view showing a cap the model
+does not have is worse than no section view.
+
+But a boolean in the live arena appends its own entities AND journal entries,
+and the box is scaffolding that must not survive the call. So both operands go
+into a scratch `BrepArena` the way Q2's does — and then, UNLIKE Q2, the result
+is copied back, because a section is not a pure query: the cut body is the
+thing the caller projects. The live arena gains one solid and one `Transform`
+journal entry, not a boolean's worth of entities and not the box.
+
+That copy forces one piece of hygiene the plan does not mention and the cap's
+attribution depends on. `copy_solid_into` records `(source pid → copy pid)` in
+the DESTINATION arena's journal, so a fresh scratch arena's allocator would
+hand out numbers equal to the live pids sitting there as sources, and
+`journal::face_lineage` — which walks backwards by matching an output pid —
+would follow a chain straight through the collision. The scratch arena's
+allocator therefore starts at the live arena's `next_pid`, and the live
+arena's is advanced past the scratch's afterwards: one monotonic sequence
+across both arenas, so a lineage walk cannot cross wires. Without it the cap
+attribution below would be right by luck.
+
+**The geometry CHECKS the lineage; it does not merely supplement it.** §5.2
+describes the cap twice over — "the face whose plane equals the cut plane"
+and "the only face descended from the box operand" — and both halves are used,
+against each other:
+
+- A face whose lineage root is a box face pid must ALSO lie in the cut plane
+  with outward normal along the cut normal, or the two disagree and the section
+  STOPs (`SectionCapNotOnCutPlane`).
+- A face attributed to a box WALL or to the box's far face is the margin
+  derivation failing: the box did not enclose the solid. Same loud STOP. This
+  is the margin's own test, and it is the reason the margin can be derived
+  rather than tuned.
+
+Geometry is also what covers the case lineage CANNOT. A cut plane coplanar with
+a model face goes through the §4.5.5 Stage-0 overlay, which replaces the
+overlapping region with ONE shared trimmed surface — and that surface may be
+attributed to the MODEL operand, not to the box. The cap is then found by its
+plane, and `SectionResult::cap_shared_with_model` says so. Measured on a
+10-cube with its `x > 4, z > 5` corner removed, cut at `z = 5`: the flag is
+set, the cap is the full `10 × 10` square, every curve exact. Reporting it is
+the difference between a section known to have gone through Stage 0 and one
+that silently came back with no cap at all — which is what a lineage-only
+implementation would have produced here.
+
+**The margin is the solid's own AABB and nothing else.** Half-extent
+`R + diag` in the plane and depth `−dmin + diag`, with `R = diag/2` the
+radius of the AABB about its centre. A half-diagonal bounds the solid's
+projection onto the cut plane at ANY plane orientation, so the base rectangle
+covers the section whatever the normal, and `−dmin` is the solid's deepest
+reach below the plane. No absolute pad: P0012 removed a 1 m pad from a sweep
+for exactly this reason — a literal is simultaneously too small for a bridge
+and a numerical insult to a bearing.
+
+**Two outcomes are typed answers, not errors, and both are decided on a
+CONSERVATIVE bound.** A plane entirely on the kept side returns the input
+solid with an empty cap; one entirely on the discarded side returns no solid at
+all. `introspect::conservative_aabb` never under-covers, so `dmax ≤ 0` and
+`dmin ≥ 0` are proofs rather than tolerance tests — and they also keep a plane
+TANGENT to the solid from reaching the boolean as a grazing operand, which
+matters because of deviation N69: a box meeting a solid along one edge comes
+back from `Intersect` as a bit-for-bit copy of an operand. Whatever the
+Intersect does return is checked against the half-space it was asked for
+(`SectionCutOutsideHalfSpace`); a copy of the SOLID straddles the plane, so
+that net is the one for this class. An `EmptyBooleanResult` — the conservative
+box straddled the plane but the solid does not reach across it — is the same
+typed "nothing kept" answer. A solid the kernel cannot bound at all (a
+surface-pair or hyperbola edge) declines by name rather than being sectioned
+with a box that might clip it: a box clipping the solid at its own lateral face
+yields a cap that is a SUB-REGION of the true section, which is a silently
+wrong drawing.
+
+**Three deviations from §5.1's `SectionResult`, all forced by the types.**
+
+- `cut_solid` is an `Option`. A cut that removes all the material has no solid
+  to name and kernel-v2 has no empty solid; a present-but-empty handle would be
+  a lie, the argument that already made `ViewGeometry::bbox` an `Option` at
+  D1a. In the "nothing was cut" arm the handle that comes back is the INPUT's,
+  because nothing was copied.
+- The loops are `SectionLoop`s, carrying the signed area the kernel measured.
+  A `Curve2` conic is normalized counter-clockwise with `start < end`, so it
+  CANNOT represent a clockwise traversal: a hole's loop and an outer loop with
+  the same point set are the same curve list. The loop's direction survives
+  only in the B-Rep walk, inside the kernel. A consumer asked to tell an outer
+  loop from a hole would have to infer it from nesting — at exactly the
+  configuration (several outer loops, each holed) where nesting is what it
+  wanted to learn. So the area is computed where the direction is still known,
+  in closed form by Green's theorem, and reported: positive outer, negative
+  hole, with an `exact` flag for whether any curve had to be sampled.
+- `plane_basis` is reported. "The cut plane's own `(u, v)`" does not say which
+  `(u, v)`, and a consumer free to re-derive a frame is free to rotate the
+  hatch against the view. The line of sight is the NEGATED cut normal, so the
+  viewer stands on the discarded side and looks at the cap with the kept
+  material behind it — the drafting convention, and the frame in which an outer
+  loop comes out positive, since `(u, v, n̂)` is then right-handed.
+
+**The cap's curves are exact, and that needed its own conversion.** The cap
+lies IN the cut plane, so the map into the plane's frame is an ISOMETRY rather
+than a general orthographic projection: a line stays a line, a circle stays a
+circle of the same radius, and an ellipse arc stays an ellipse arc with its
+semi-axes unchanged. `project_edge` samples `Curve::EllipseArc` into a
+polyline, which is the right answer for a general view (D1a sets the analytic
+bar at line and circle) and throws away an exactness that is free here — and an
+oblique plane cut of a cylinder IS an ellipse, the canonical section a drawing
+needs. So the section has a `cap_curve` that handles the in-plane ellipse arm
+analytically and delegates the rest.
+
+Measured, on a radius-2 cylinder cut at 45°: four `Curve2::Ellipse` arcs,
+semi-axes `2` and `2√2 = r/cos θ` to within 1e-12, parameter spans summing to
+exactly one turn, area `π·a·b` to within 1e-12. A `10 × 6 × 4` box cut at mid
+height: four exact lines, area exactly `60`. A `10 × 10 × 6` box with a
+radius-2 through bore, cut through the bore: two loops, `+100` and `−4π` to
+1e-12, net `100 − 4π`. Flipping the normal gives the same cap in the mirrored
+frame, same area and sign, with the two halves' volumes summing to the box's.
+A `HyperbolaArc` or `SurfacePair` cap edge is still a polyline and its loop
+reports `exact = false`, so its area is known to be low by that polyline's
+sagitta deficit rather than quietly wrong.
+
+**What §5.3's section oracle can honestly be measured against.** §5.3 asks the
+cap area to equal "the area of the stencil-cap polygon the app computes today
+for the same plane". That comparison is not available from a Rust test and
+should not be the oracle anyway: the stencil cap is a screen-space pass over
+the tessellation, in the Svelte/three.js half of the tree, with no numeric area
+to read — and the stencil APPROXIMATES the cap, so measuring the kernel against
+it is the wrong direction of trust.
+
+`test-harness/tests/section_corpus_oracle.rs` asserts the properties instead,
+each independent of what produced the cap: the area is bounded by the AABB's
+cross-section (a containment proof, since the solid is inside its own
+conservative box — and the check that would have caught the N69 class had the
+in-kernel net not caught it first); every loop is closed and crosses no other
+curve of its own loop, measured with `section::loop_defects` on D1c's own
+crossing search so the oracle and the visibility split cannot disagree about
+whether two curves meet; an outer loop is positive, a hole negative, the net
+positive; and the cut solid projects, since handing it back is the whole point.
+The sharp, closed-form statements live in the per-primitive half above.
+
+Measured 2026-10-03 in `--release` at the default stride 64 (C0001, C0065,
+F0011, F0075, R0021, R0085): **6 cases, 305 s and 340 s over two runs**, 21
+`(body, axis)` cuts — 16 capped and asserted, 3 not boundable, 1 pipeline STOP
+(C0065 along `z`, the standing torus patch UV-CDT family), 1 empty cap, 1
+through the Stage-0 shared cap, 0 sampled loops, 0 cases not built, 0 failures.
+The fullest cap fills **1.000000** of its AABB cross-section (C0001 along `x`),
+which is what makes the containment bound a check rather than a formality: on a
+prismatic body it is TIGHT. The stride default is coarser than the projection
+oracle's 8 because the cost differs in kind — that sweep does six projections
+per case, this one three real booleans per live body.
+
+**The MCP side.** `section_with_plane` is exposed through `KernelV2Adapter`'s
+`KernelProjection` impl, so Q4's `measure_section` and D4b consume it without a
+second entry point. `MockKernel` keeps the trait's typed `NotSupported`
+defaults: it has no B-Rep to cut, and a trivial cap from a test double would be
+indistinguishable from a working section of an empty solid. The adapter samples
+a non-analytic cap edge at the RENDER chord band, since the trait method takes
+no `ProjectOpts` and a cap is a hatch boundary rather than a dimensioned
+outline; a caller needing another density calls the module function.
 
 ## 6. D2 — Measurement bridge
 
