@@ -1433,8 +1433,15 @@ mod tests {
     #[test]
     fn a_residual_is_never_exactly_zero() {
         let r = quadrature_residual(1.0e-2, 7.0, 7.0);
-        assert!(r > 0.0 && r < 1e-16, "an ulp-scale floor, not a made-up band: {r}");
-        assert_eq!(quadrature_residual(0.0, 3.0, 3.0), 0.0, "a zero length has no error to report");
+        assert!(
+            r > 0.0 && r < 1e-16,
+            "an ulp-scale floor, not a made-up band: {r}"
+        );
+        assert_eq!(
+            quadrature_residual(0.0, 3.0, 3.0),
+            0.0,
+            "a zero length has no error to report"
+        );
     }
 
     #[test]
