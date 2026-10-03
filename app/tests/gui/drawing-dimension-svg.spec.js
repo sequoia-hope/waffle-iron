@@ -781,6 +781,114 @@ test.describe('D3 SVG dimension renderer', () => {
 		expect(r.warnings[0]).toContain('FeatureControlFrame');
 	});
 
+	test("a section cap's hole is not hatched, which is what even-odd buys", async ({
+		page,
+		waffle
+	}) => {
+		await waffle.waitForReady();
+		// D4b. The Rust side pins that the kernel reports one outer loop and
+		// one `hole: true` loop; this is the half it cannot reach — that the
+		// SCANLINE then leaves the hole empty. A count of `line.wi-hatch`
+		// cannot answer it: a renderer that ignored `hole` entirely would draw
+		// hatch lines straight across the bore and still produce a plausible
+		// count.
+		//
+		// The measurement is a clearance, which is exact and scale-free: no
+		// point of any hatch line may fall inside the hole. The hole's
+		// boundary reaches the markup as a chord polygon inscribed in the
+		// circle, so the lines clear the TRUE circle by up to one sagitta —
+		// measured at 6.5 µm on this 6 mm hole, hence a pin at 0.9 r with
+		// 0.59 mm of margin rather than a tight one that the chord density
+		// would move.
+		const R = 0.006;
+		const cap = (holed) => ({
+			layout: {
+				curves: [
+					edge(line([-0.015, -0.02], [0.015, -0.02])),
+					edge(line([0.015, -0.02], [0.015, 0.02])),
+					edge(line([0.015, 0.02], [-0.015, 0.02])),
+					edge(line([-0.015, 0.02], [-0.015, -0.02]))
+				],
+				annotations: [],
+				hatch: [
+					{
+						curves: [
+							line([-0.015, -0.02], [0.015, -0.02]),
+							line([0.015, -0.02], [0.015, 0.02]),
+							line([0.015, 0.02], [-0.015, 0.02]),
+							line([-0.015, 0.02], [-0.015, -0.02])
+						],
+						hole: false
+					},
+					...(holed
+						? [
+								{
+									curves: [
+										{
+											type: 'Circle',
+											center: [0, 0],
+											radius: R,
+											start_angle: 0,
+											end_angle: 2 * Math.PI
+										}
+									],
+									hole: true
+								}
+							]
+						: [])
+				]
+			}
+		});
+
+		const measure = (input) =>
+			page.evaluate((i) => {
+				const out = window.__waffle.renderDrawingSvg(i);
+				const doc = new DOMParser().parseFromString(out.svg, 'image/svg+xml');
+				const lines = Array.from(doc.querySelectorAll('line.wi-hatch')).map((el) =>
+					['x1', 'y1', 'x2', 'y2'].map((a) => Number(el.getAttribute(a)))
+				);
+				// The cap is centred on the drawing, so the hole's centre is
+				// the centre of the drawn box in paper space — derived from
+				// the hatch's own extent rather than assumed, so the check
+				// does not depend on the margin the renderer chose.
+				const xs = lines.flatMap(([a, , c]) => [a, c]);
+				const ys = lines.flatMap(([, b, , d]) => [b, d]);
+				const cx = (Math.min(...xs) + Math.max(...xs)) / 2;
+				const cy = (Math.min(...ys) + Math.max(...ys)) / 2;
+				let closest = Infinity;
+				let total = 0;
+				for (const [x1, y1, x2, y2] of lines) {
+					total += Math.hypot(x2 - x1, y2 - y1);
+					for (let t = 0; t <= 1; t += 0.02) {
+						const d = Math.hypot(x1 + (x2 - x1) * t - cx, y1 + (y2 - y1) * t - cy);
+						if (d < closest) closest = d;
+					}
+				}
+				return { count: lines.length, total, closest, warnings: out.warnings };
+			}, input);
+
+		const solid = await measure(cap(false));
+		const holed = await measure(cap(true));
+		expect(solid.warnings).toEqual([]);
+		expect(holed.warnings).toEqual([]);
+		expect(solid.count, 'a solid cap is hatched').toBeGreaterThan(5);
+
+		// The hole removes ink and SPLITS the scanlines that cross it, so the
+		// holed cap draws more lines of less total length. Either alone could
+		// be met by accident; together they cannot.
+		expect(holed.total).toBeLessThan(solid.total);
+		expect(holed.count).toBeGreaterThan(solid.count);
+
+		// And the hole itself is empty. This is the assertion that fails if
+		// `hole` is ignored, if the even-odd pairing is off by one, or if the
+		// half-open crossing test double-counts a vertex at the hole's
+		// extremes — the classic bug the half-open test exists to prevent.
+		expect(
+			holed.closest,
+			`a hatch line reached ${holed.closest} mm from the hole centre; the hole is 6 mm`
+		).toBeGreaterThan(0.9 * R * 1000);
+	});
+
 	test('an empty layout still renders a valid, finite sheet', async ({ page, waffle }) => {
 		await waffle.waitForReady();
 		const r = await renderAndQuery(
