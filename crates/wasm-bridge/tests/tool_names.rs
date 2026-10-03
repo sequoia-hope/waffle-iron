@@ -628,12 +628,19 @@ fn a_name_on_a_boolean_output_face_answers_through_its_root_and_says_so() {
     let entry = listed(&mut state, &mut kernel, "far_wall");
     assert_eq!(entry["resolves"], true, "{entry}");
     assert_eq!(entry["resolved_by"], "pid", "{entry}");
+    // D0 item 1b (merged 2026-10-03, after this pin was written): a boolean
+    // output face's own pid is now seeded from (op seed, lineage root, rank),
+    // so an edit to the cut's depth leaves the wall's number intact and there
+    // is nothing to recover through the root and nothing to warn about. The
+    // loud fallback this pin used to hold is exercised directly by the
+    // `a_recycled_pid_*` pins, which construct the recycling by hand.
+    let warnings = entry["warnings"].as_array().cloned().unwrap_or_default();
     assert!(
-        entry["warnings"][0]
+        !warnings.iter().any(|w| w
             .as_str()
             .unwrap_or_default()
-            .contains("resolved through its lineage root"),
-        "the agent is told the face's own id was re-minted: {entry}"
+            .contains("resolved through its lineage root")),
+        "with seeded boolean output pids the number itself survives the edit: {entry}"
     );
 }
 
@@ -1196,13 +1203,17 @@ fn a_name_on_a_boolean_output_face_does_not_move_after_a_reload() {
         "the name must still be on the face it was given to: {entry}"
     );
     assert_eq!(entry["resolves"], true, "{entry}");
+    // D0 item 1b (merged 2026-10-03): the number itself now survives the
+    // reopen, so there is no re-mint to warn about. The root cross-check
+    // stays as the net for a pid that is NOT seeded (an unattributable
+    // output face keeps a counter id) — the `a_recycled_pid_*` pins hold it.
     let warnings = entry["warnings"].as_array().cloned().unwrap_or_default();
     assert!(
-        warnings.iter().any(|w| w
+        !warnings.iter().any(|w| w
             .as_str()
             .unwrap_or_default()
             .contains("re-minted onto something else")),
-        "the agent is told the recorded id now belongs to other geometry: {entry}"
+        "the recorded id still names the floor, no re-mint: {entry}"
     );
 }
 
@@ -1212,7 +1223,6 @@ fn a_name_on_a_boolean_output_face_does_not_move_after_a_reload() {
 /// journal (`H(root, rank within the root's split group)`), because only then
 /// is a boolean output's own pid content-derived rather than counter-allocated.
 #[test]
-#[ignore = "D0 item 1b: stamp boolean outputs after the journal — a boolean's OWN output pids are still counter-allocated, so a reopen re-mints them and the name can only be recovered through its lineage root, with a warning"]
 fn a_boolean_output_face_keeps_its_own_pid_across_a_reload() {
     let (entry, authored, reloaded) = boolean_output_name_across_a_reload();
     assert_eq!(

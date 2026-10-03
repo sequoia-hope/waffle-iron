@@ -528,9 +528,103 @@ pub fn boolean_op(
         eprintln!("[out-curve] {op:?} plane×curved chords: {chords}; half-edge kinds {kinds:?}");
     }
     crate::validate::validate_boolean_output_self_intersection(arena, out_solid)?;
+    // D0 item 1b: re-stamp the output faces from CONTENT before the journal
+    // records them, so the edge the journal writes is `(operand pid → the
+    // content id)` and the two agree.
+    reseed_boolean_output_pids(arena, &out, &out_face_ids, &a_faces, &b_faces)?;
     // KV13 F2: record the boolean's per-face lineage in the journal.
     record_boolean_evolution(arena, op, &out, &out_face_ids, &a_faces, &b_faces);
     Ok(out_solid)
+}
+
+/// Each output face paired with the pid of the operand face it descends
+/// from, via yang's per-output-face attribution. `None` where the operand
+/// cannot be resolved — yang attributes every patch, so that is a genuinely
+/// new surface (or a face the operand never stamped), and both the journal
+/// and the D0 item 1b reseed treat it as having no ancestor rather than
+/// guessing one.
+///
+/// Shared by [`record_boolean_evolution`] and [`reseed_boolean_output_pids`]
+/// precisely so the lineage the journal records and the lineage the pid is
+/// derived from cannot drift apart.
+fn output_face_sources(
+    arena: &BrepArena,
+    out: &yang_rs::BRep,
+    out_face_ids: &[Option<FaceId>],
+    a_faces: &[FaceId],
+    b_faces: &[FaceId],
+) -> Vec<(FaceId, Option<crate::arena::Pid>)> {
+    let attr = out.face_attribution();
+    let mut sources = Vec::with_capacity(out_face_ids.len());
+    for (yidx, out_fid) in out_face_ids.iter().enumerate() {
+        let Some(out_fid) = out_fid else { continue };
+        let operand_pid = attr
+            .get(yidx)
+            .and_then(|a| {
+                let faces = match a.input {
+                    yang_rs::InputId::A => a_faces,
+                    yang_rs::InputId::B => b_faces,
+                };
+                faces.get(a.face as usize).copied()
+            })
+            .and_then(|fid| arena.face_pid(fid));
+        sources.push((*out_fid, operand_pid));
+    }
+    sources
+}
+
+/// D0 item 1b: give the boolean's own output faces content-seeded pids.
+///
+/// `from_yang.rs` has already stamped them from the arena counter (it
+/// withdraws the construct seed around its `finalize_solid`, so a feature
+/// that extrudes and then auto-unions does not hand the union's faces role
+/// indices under the extrude's seed). A counter id is allocation order,
+/// which is a function of editing history: `specs/drawings_and_mbd.md` §4
+/// "Implementation notes (D0 item 1b)" has the measured two-pocket case
+/// where a reopen re-mints one face's number onto another. So the ids are
+/// replaced here, from `(this feature's seed, the face's lineage root, a
+/// rank among the patches sharing that root)` — see
+/// [`crate::pid::boolean_output_face_pids`].
+///
+/// # Why here, and why before the journal
+///
+/// The root is `face_lineage(operand pid)`, which needs the journal as it
+/// stands BEFORE this boolean appends to it — the operand's own history —
+/// so this runs after the output is assembled and validated but before
+/// [`record_boolean_evolution`]. The journal edge then points at the
+/// content id, and `pid::solid_face_pids` walking back from it reaches the
+/// same root this derivation used.
+///
+/// # When it does nothing
+///
+/// With no construct seed installed (a raw kernel-v2 test, or any caller
+/// that never calls `Kernel::set_construct_seed`) there is no step identity
+/// to seed from and the counter ids stand — the pre-item-1b behaviour,
+/// unchanged. An output face with no attributable operand ancestor keeps
+/// its counter id too; the two halves of the number space are disjoint, so
+/// a mixed solid cannot alias.
+fn reseed_boolean_output_pids(
+    arena: &mut BrepArena,
+    out: &yang_rs::BRep,
+    out_face_ids: &[Option<FaceId>],
+    a_faces: &[FaceId],
+    b_faces: &[FaceId],
+) -> Result<(), KernelV2Error> {
+    let Some(scope) = arena.face_seed else {
+        return Ok(());
+    };
+    let rooted: Vec<(FaceId, crate::arena::Pid)> =
+        output_face_sources(arena, out, out_face_ids, a_faces, b_faces)
+            .into_iter()
+            .filter_map(|(face, operand)| {
+                operand.map(|p| (face, crate::journal::face_lineage(&arena.journal, p).root))
+            })
+            .collect();
+    let ids = crate::pid::boolean_output_face_pids(arena, scope.seed, &rooted)?;
+    for (face, pid) in ids {
+        arena.face_pids.insert(face, pid);
+    }
+    Ok(())
 }
 
 /// KV13 F2: append the boolean's [`Evolution`] to the arena journal. Each
@@ -541,6 +635,25 @@ pub fn boolean_op(
 /// resolvable operand lineage is `generated` (defensive — yang attributes
 /// every patch, so this is normally empty). Infallible: a missing Pid simply
 /// drops that edge (no false lineage).
+///
+/// # A carry-through under D0 item 1b records NO edge
+///
+/// Since item 1b an output face's pid is `H(op seed, root, rank)`, which is
+/// independent of WHICH boolean of a chain produced it: two booleans of one
+/// feature — a cut against several bodies, a multi-tool combine — hand the
+/// face at one site the same id in the intermediate body and in the final
+/// one. That is correct (it is the same conceptual face: same feature, same
+/// root, same rank), but the lineage edge would then be `(P → P)`, and
+/// [`crate::journal::face_lineage`] walking a self-loop spins until its
+/// corruption budget runs out and reports `P` as its OWN root — which would
+/// silently detach every edge pid seeded from that root (D0 items 2–3).
+///
+/// So an edge whose input and output pid are equal is simply not recorded:
+/// the face already carries the name the earlier operation gave it, and its
+/// ancestry is already in the journal from that operation. The operand still
+/// counts as `sourced` (it was not deleted) and still consumes its `Same`
+/// claim, so a SECOND output face from the same operand is still a `Split`
+/// with a real edge.
 fn record_boolean_evolution(
     arena: &mut BrepArena,
     op: BoolOp,
@@ -553,26 +666,14 @@ fn record_boolean_evolution(
     use crate::journal::{EvoKind, Evolution, OpTag};
     use std::collections::BTreeSet;
 
-    let attr = out.face_attribution();
     let mut generated: Vec<Pid> = Vec::new();
     let mut modified: Vec<(Pid, Pid, EvoKind)> = Vec::new();
     let mut claimed: BTreeSet<Pid> = BTreeSet::new();
     let mut sourced: BTreeSet<Pid> = BTreeSet::new();
-    for (yidx, out_fid) in out_face_ids.iter().enumerate() {
-        let Some(out_fid) = out_fid else { continue };
-        let Some(out_pid) = arena.face_pid(*out_fid) else {
+    for (out_fid, operand_pid) in output_face_sources(arena, out, out_face_ids, a_faces, b_faces) {
+        let Some(out_pid) = arena.face_pid(out_fid) else {
             continue;
         };
-        let operand_pid = attr
-            .get(yidx)
-            .and_then(|a| {
-                let faces = match a.input {
-                    yang_rs::InputId::A => a_faces,
-                    yang_rs::InputId::B => b_faces,
-                };
-                faces.get(a.face as usize).copied()
-            })
-            .and_then(|fid| arena.face_pid(fid));
         match operand_pid {
             Some(opid) => {
                 sourced.insert(opid);
@@ -581,7 +682,9 @@ fn record_boolean_evolution(
                 } else {
                     EvoKind::Split
                 };
-                modified.push((opid, out_pid, kind));
+                if opid != out_pid {
+                    modified.push((opid, out_pid, kind));
+                }
             }
             None => generated.push(out_pid),
         }

@@ -364,13 +364,19 @@ fn re_executing_a_step_in_the_same_arena_re_mints_its_ids() {
 // The seed does not leak into a boolean
 // ---------------------------------------------------------------------------
 
-/// A boolean's output faces are named by their journal LINEAGE, not by their
-/// own number, so the step's seed is withdrawn for their stamping pass. If it
-/// were not, a feature that extrudes and then auto-unions would hand the
-/// union's faces role indices under the same seed as the extrude's, and the
-/// two sets would compete for the same ids.
+/// A boolean's output faces have no ROLE in the step — their name is their
+/// lineage root plus a rank (D0 item 1b, `d0_boolean_face_seed.rs`) — so the
+/// role-indexing pass is withdrawn for them. If it were not, a feature that
+/// extrudes and then auto-unions would hand the union's faces role indices
+/// under the same seed as the extrude's, and the two sets would compete for
+/// the same ids.
+///
+/// Updated for item 1b: an output face is still CONTENT-seeded, just from
+/// the other derivation. What this pins is that it is never
+/// `seeded_face_pid(step seed, output, role)`, and that the boolean does not
+/// consume one of the step's output ordinals.
 #[test]
-fn a_boolean_under_an_installed_seed_does_not_seed_its_output() {
+fn a_boolean_under_an_installed_seed_does_not_role_index_its_output() {
     use cad_primitives::BoolOp;
 
     let mut arena = BrepArena::new();
@@ -408,10 +414,23 @@ fn a_boolean_under_an_installed_seed_does_not_seed_its_output() {
         "the boolean must not consume one of the step's output ordinals"
     );
     let outputs = face_pids(&arena, out);
-    assert!(
-        outputs.iter().all(|p| p.0 < PID_CONTENT_BASE),
-        "a boolean output face must stay on the counter: {outputs:?}"
-    );
+    // No output face may carry a ROLE-indexed id under either operand's
+    // seed. The role space is small and enumerable, so this is exhaustive
+    // for any plausible output/role of a four-face-plus plate and block.
+    let role_ids: std::collections::BTreeSet<Pid> = [SEED_A, SEED_B]
+        .into_iter()
+        .flat_map(|s| {
+            (0..4).flat_map(move |output| {
+                (0..32).map(move |role| kernel_v2::seeded_face_pid(s, output, role))
+            })
+        })
+        .collect();
+    for p in &outputs {
+        assert!(
+            !role_ids.contains(p),
+            "boolean output face {p:?} took a role index under a step seed"
+        );
+    }
     // And every output still roots in one of the two seeded operands.
     let roots: std::collections::BTreeSet<Pid> = kernel_v2::solid_face_pids(&arena, out)
         .expect("pids")
