@@ -9,6 +9,8 @@
 
 ## 0. Honest status (refreshed 2026-06-26; addendum 2026-09-04 below)
 
+> **2026-10-03 (night UTC) refresh — MEASURED; P0019 and P0020 CONVERTED, the seed-2 P-series tail is EMPTY.** Canonical corpus **324C / 0W / 22E / 5EE / 0T + 0 UNSUPPORTED over 351 cases** (release, 8 jobs, 900 s; wall 1129.6 s; R0085 662.5 s, F0072 567.2 s). The two-gate run (N77 component-wise seam anchoring + N78 entry-only pinch split): versus the 322C/9E run over 336, exactly two category moves (P0019, P0020 → CORRECT) plus the fifteen seed-3 promotions (P0025–P0039, all ERROR at promotion) and zero regressions, so both gates are default-on (`YANG_SEAM_COMPONENT=0|off`, `YANG_EDGE_PINCH_ENTRY_ONLY=0|off`); N77 and N78 RESOLVED. The 22 ERROR rows are the seven loud-by-design C-series walls + P0025–P0039 (seed 3; P0025 is the 14-row locus — `stage4_correct.rs:12318`, the PR-KV9 ellipse×ellipse junction with PARALLEL cutting planes — the obvious first conversion). Also open: seed-3 index 48 (a 3-of-12 440 degenerate-triangle WRONG that costs more than the budget — a cost, not a hang; the two seed-2 "Stage-2 hangs" owe the same no-budget re-read), the two oracle holes (cut auto-reversal proxy; the exact chain cutting a dead body), P0021's χ meta via the sidecar.
+
 > **2026-10-03 (late night, seventh) refresh — prospector seed 3 adjudicated;
 > the P-series ERROR tail goes from two cases to seventeen. CORPUS NOT
 > RE-MEASURED THIS SESSION.** `PROSPECT_SEED=3 PROSPECT_COUNT=200` returned

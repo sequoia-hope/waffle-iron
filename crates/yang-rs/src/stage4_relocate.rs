@@ -2085,11 +2085,15 @@ pub(crate) fn edge_pinch_split_enabled() -> bool {
 /// SLIT into an output face, which Stage 6 emits and the next boolean's Stage-1
 /// chart refuses (`Stage1SelfTouchingLoop`). Deviation **N78**.
 ///
-/// Gated OFF by default: arming it is a corpus-wide placement change.
+/// **ALWAYS-ON since 2026-10-03 (night UTC).** The full release categorized
+/// assay with this and the N77 gate on measured **324C / 0W / 22E / 5EE /
+/// 0T over 351** (8 jobs, 900 s; wall 1129.6 s): exactly two category moves
+/// (P0019, P0020 → SUPPORTED_CORRECT), zero regressions. Opt out with
+/// `YANG_EDGE_PINCH_ENTRY_ONLY=0|off` (re-enables the second, in-Stage-4 site).
 pub(crate) fn edge_pinch_entry_only() -> bool {
-    matches!(
+    !matches!(
         std::env::var("YANG_EDGE_PINCH_ENTRY_ONLY").as_deref(),
-        Ok("1") | Ok("on")
+        Ok("0") | Ok("off")
     )
 }
 

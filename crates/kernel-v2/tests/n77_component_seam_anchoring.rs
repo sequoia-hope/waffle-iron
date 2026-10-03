@@ -2,9 +2,10 @@
 //! rims-joined-by-bands, not greedily per face.
 //!
 //! Deviation `docs/yang_deviations.md` N77; ledger `docs/yang_tail_triage.md`
-//! (P0019 row). GATED on `YANG_SEAM_COMPONENT=1|on` while the full-corpus
-//! proof is owed; with the gate off `recover.rs` decides exactly as PASS 1 /
-//! PASS 2 always have.
+//! (P0019 row). ALWAYS-ON since 2026-10-03 (corpus 324C/0W/22E/5EE/0T over
+//! 351, two moves, zero regressions); `YANG_SEAM_COMPONENT=0|off` is the kill
+//! switch, under which `recover.rs` decides exactly as PASS 1 / PASS 2
+//! always have — the RED half of every pin below runs under it.
 //!
 //! `recover.rs` canonicalizes a cylinder/cone face whose two loops are both
 //! closed circle rims into the 4-edge `[rim, seam, rim, seam]` lateral — the
@@ -82,20 +83,21 @@ static GATE_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
 
 fn serialize() -> std::sync::MutexGuard<'static, ()> {
     let g = GATE_LOCK.lock().unwrap_or_else(|e| e.into_inner());
-    std::env::remove_var("YANG_SEAM_COMPONENT");
+    // The rule is on by default; the RED half needs the kill switch.
+    std::env::set_var("YANG_SEAM_COMPONENT", "0");
     g
 }
 
 struct Gate;
 impl Gate {
     fn on() -> Self {
-        std::env::set_var("YANG_SEAM_COMPONENT", "1");
+        std::env::remove_var("YANG_SEAM_COMPONENT");
         Gate
     }
 }
 impl Drop for Gate {
     fn drop(&mut self) {
-        std::env::remove_var("YANG_SEAM_COMPONENT");
+        std::env::set_var("YANG_SEAM_COMPONENT", "0");
     }
 }
 

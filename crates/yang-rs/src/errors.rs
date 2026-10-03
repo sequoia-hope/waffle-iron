@@ -455,7 +455,7 @@ impl fmt::Display for YangError {
                         "a zero-width SLIT ({inner_edges}-edge sub-loop, exact chart area \
                          {inner_area2:e}) cut into ONE region — the Stage-4 edge-pinch split \
                          ran on a pinch Stage 4 itself minted, not one the arrangement handed \
-                         over (deviation N78; YANG_EDGE_PINCH_ENTRY_ONLY=1 restricts the arm \
+                         over (deviation N78; YANG_EDGE_PINCH_ENTRY_ONLY=0 re-enables the second site of the arm \
                          to its spec'd Stage-4-ENTRY placement)"
                     )
                 } else {

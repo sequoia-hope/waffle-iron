@@ -14658,7 +14658,7 @@ fn stage4_relocate_and_correct_inner(
     // "The placement"), where the over-2 edges are the ARRANGEMENT's. Armed
     // here too it reads the §0a certificate on a mesh Stage 4 has already
     // collapsed — P0020's two 4-valent edges are minted by §4.5.3, not handed
-    // over (deviation N78). `YANG_EDGE_PINCH_ENTRY_ONLY=1` restricts it; the
+    // over (deviation N78). `YANG_EDGE_PINCH_ENTRY_ONLY=0|off` re-enables it (always-on since 2026-10-03); the
     // VERTEX-fan arm (C0058's tangent points) is unaffected either way.
     let pinch_splits = split_pinch_vertices(
         mesh,

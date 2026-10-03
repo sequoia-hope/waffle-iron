@@ -61,11 +61,16 @@ const BAND: f64 = cad_primitives::TAU_EVAL;
 /// ruling by the same standard `validate_solid` applies to it.
 const SEAM_RULING_TOLERANCE: f64 = crate::validate::CURVED_SURFACE_DEBUG_TOLERANCE;
 
-/// Deviation N77 — component-wise seam anchoring (PASS 1C below). GATED: with
-/// the flag off, canonicalization decides exactly as PASS 1 / PASS 2 always
-/// have, so every existing output is byte-identical.
+/// Deviation N77 — component-wise seam anchoring (PASS 1C below).
+///
+/// **ALWAYS-ON since 2026-10-03 (night UTC).** The full release categorized
+/// assay with this and the N78 gate on measured **324C / 0W / 22E / 5EE /
+/// 0T over 351** (8 jobs, 900 s; wall 1129.6 s): exactly two category
+/// moves — P0019 and P0020 → SUPPORTED_CORRECT — and zero regressions. With
+/// `YANG_SEAM_COMPONENT=0|off` canonicalization decides exactly as PASS 1 /
+/// PASS 2 always have (the kill switch every always-on rule keeps).
 fn seam_component_mode() -> bool {
-    matches!(std::env::var("YANG_SEAM_COMPONENT"), Ok(v) if v == "1" || v == "on")
+    !matches!(std::env::var("YANG_SEAM_COMPONENT"), Ok(v) if v == "0" || v == "off")
 }
 
 /// Union-find root with path halving (component = rims joined by a band).

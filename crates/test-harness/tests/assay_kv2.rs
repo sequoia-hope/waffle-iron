@@ -1734,7 +1734,7 @@ fn smoke_corpus_boundary_categories() {
         // flip to always-on-with-a-kill-switch are OWED, so this pin stays
         // `Error` — which is what the default build measures. The flip moves
         // it to `SupportedCorrect`.
-        ("P0019", Category::Error),
+        ("P0019", Category::SupportedCorrect), // CONVERTED 2026-10-03: N77 component seam anchoring always-on (324C/22E over 351)
         // P0020 (5 ops, two chained Intersects) ⇒ an INPUT rejection, typed
         // `Stage1SelfTouchingLoop`. **CONVERTED 2026-10-03 (night, later)
         // BEHIND A GATE — this pin stays `Error` only until the flip.**
@@ -1761,7 +1761,7 @@ fn smoke_corpus_boundary_categories() {
         // authored length is 83 × MIN_FEATURE_SIZE — the tightest of the
         // seed-2 promotions, still far above the floor; `derived_meta` stays
         // true (the exact-membership oracle does not cover Intersect).
-        ("P0020", Category::Error),
+        ("P0020", Category::SupportedCorrect), // CONVERTED 2026-10-03: N78 entry-only pinch split always-on (324C/22E over 351)
         // P0021 (3 ops: a square and two circle bosses) ⇒ auto-union
         // `SelfIntersectingBooleanOutput { penetrations: 5 }` at kernel-v2's
         // render-level output gate — P0007's signature, converted 2026-09-29,
