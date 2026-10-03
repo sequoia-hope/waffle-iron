@@ -391,6 +391,72 @@ fn a_section_does_not_disturb_the_body_it_sectioned() {
     assert!(!view.curves.is_empty());
 }
 
+/// The cut solid's face identities are its OWN, and each one's lineage root is
+/// either a face of the body it was cut from or itself.
+///
+/// This is the test for the pid hygiene the module docs describe, and nothing
+/// softer would catch a failure of it. `copy_solid_into` writes
+/// `(source pid → copy pid)` into the DESTINATION journal, so if the scratch
+/// arena's allocator and the live arena's ever hand out the same number, a
+/// lineage walk off a cut face steps onto a scratch pid that also names a live
+/// face and keeps going — a root that belongs to neither body, silently. The
+/// claim asserted here is therefore the exact claim the ordering buys: every
+/// root is accounted for.
+#[test]
+fn the_cut_solid_carries_its_own_identity_and_an_accounted_lineage() {
+    use std::collections::BTreeSet;
+    use waffle_types::kernel::TopoKind;
+
+    let mut a = KernelV2Adapter::new();
+    let h = make_box(&mut a, 10.0, 6.0, 4.0);
+    let before: Vec<_> = a.all_entity_pids(&h, TopoKind::Face);
+    let origin_pids: BTreeSet<u64> = before.iter().map(|(_, p)| p.pid).collect();
+    assert_eq!(origin_pids.len(), 6, "a box has six stamped faces");
+
+    let cut = a
+        .section_with_plane(&h, [0.0, 0.0, 2.0], [0.0, 0.0, 1.0])
+        .expect("section");
+    let body = cut.cut_solid.expect("the cut keeps material");
+    let after: Vec<_> = a.all_entity_pids(&body, TopoKind::Face);
+    assert_eq!(after.len(), 6, "the kept half is also a six-faced box");
+
+    let cut_pids: BTreeSet<u64> = after.iter().map(|(_, p)| p.pid).collect();
+    assert!(
+        cut_pids.is_disjoint(&origin_pids),
+        "the cut body's faces are new faces and must not reuse the \
+         sectioned body's ids: {cut_pids:?} vs {origin_pids:?}"
+    );
+    let mut inherited = 0;
+    let mut fresh = 0;
+    for (_, p) in &after {
+        if origin_pids.contains(&p.root_pid) {
+            inherited += 1;
+        } else if p.root_pid == p.pid {
+            fresh += 1;
+        } else {
+            panic!(
+                "cut face pid {} has lineage root {}, which is neither a face of \
+                 the body it was cut from nor itself — the lineage names a face \
+                 of an arena nobody can resolve",
+                p.pid, p.root_pid
+            );
+        }
+    }
+    // The four walls and the bottom survive the cut, so they root onto the
+    // sectioned body's own faces; the CAP is new material the cutting
+    // half-space introduced, so it is its own root. The split is the whole
+    // claim: it is what makes `face_provenance` on a section view answer
+    // something a drawing annotation can anchor to.
+    assert_eq!(inherited, 5, "four walls and the bottom survive the cut");
+    assert_eq!(fresh, 1, "and the cap is new");
+    // And the body it was cut from still answers with exactly the ids it had.
+    let again: Vec<_> = a.all_entity_pids(&h, TopoKind::Face);
+    assert_eq!(
+        before.iter().map(|(_, p)| p.pid).collect::<Vec<_>>(),
+        again.iter().map(|(_, p)| p.pid).collect::<Vec<_>>(),
+    );
+}
+
 /// `loop_defects` finds what it claims to: an open chain and a crossing.
 #[test]
 fn loop_defects_reports_an_open_chain_and_a_crossing() {

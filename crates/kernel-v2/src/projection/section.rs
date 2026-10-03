@@ -127,6 +127,7 @@ pub struct SectionCut {
 /// See the module docs for the construction, the attribution of the cap and
 /// the containment net. The error contract is
 /// [`KernelV2Error::SectionDegeneratePlane`],
+/// [`KernelV2Error::SectionChordToleranceInvalid`],
 /// [`KernelV2Error::SectionSolidUnbounded`],
 /// [`KernelV2Error::SectionCutOutsideHalfSpace`],
 /// [`KernelV2Error::SectionCapNotOnCutPlane`], plus every error
@@ -147,6 +148,12 @@ pub fn section_with_plane(
     let nlen = (normal[0] * normal[0] + normal[1] * normal[1] + normal[2] * normal[2]).sqrt();
     if !(nlen.is_finite() && nlen > 0.0) {
         return Err(KernelV2Error::SectionDegeneratePlane);
+    }
+    if !(rel_chord_tolerance.is_finite() && rel_chord_tolerance > 0.0) {
+        // Same bar `project_bodies` holds its own tolerance to: a sampled cap
+        // edge at a nonsense density is a nonsense loop, and this module
+        // function is public.
+        return Err(KernelV2Error::SectionChordToleranceInvalid);
     }
     let n = [normal[0] / nlen, normal[1] / nlen, normal[2] / nlen];
     // The viewer stands on the DISCARDED side and looks along `−n̂`, so the
@@ -248,6 +255,19 @@ pub fn section_with_plane(
     let mut scratch = BrepArena::new();
     // One monotonic pid sequence across both arenas — see the module docs.
     scratch.next_pid = arena.next_pid;
+    // The sectioned body's own face pids, so the cut body's lineage can be
+    // RE-ROOTED onto them below.
+    let source_pids: std::collections::BTreeSet<Pid> = {
+        let mut out = std::collections::BTreeSet::new();
+        for &sh in &arena.solid(solid)?.shells {
+            for &f in &arena.shell(sh)?.faces {
+                if let Some(p) = arena.face_pid(f) {
+                    out.insert(p);
+                }
+            }
+        }
+        out
+    };
     let copied = crate::transform::copy_solid_into(arena, solid, &mut scratch)?;
     let boxed = crate::construct::extrude(
         &mut scratch,
@@ -358,14 +378,76 @@ pub fn section_with_plane(
     }
 
     // ---- the cut solid, back in the live arena ---------------------------
-    let live = crate::transform::copy_solid_into(&scratch, cut, arena)?;
+    // The bump comes BEFORE the copy, and the order is load-bearing. The
+    // copy writes `(scratch pid → live pid)` into the LIVE journal, and the
+    // live allocator still sits where it did when the scratch arena borrowed
+    // its position — so copying first would hand out live pids from exactly
+    // the range the scratch arena has been using, and a lineage walk off one
+    // copied face would step onto a scratch pid that ALSO names a live face
+    // and keep going. One monotonic sequence means advancing past the
+    // scratch's high-water mark first.
     arena.next_pid = arena.next_pid.max(scratch.next_pid);
+    let live = crate::transform::copy_solid_into(&scratch, cut, arena)?;
+    reroot_cut_lineage(arena, &scratch, &source_pids);
     Ok(SectionCut {
         cap_loops,
         cut_solid: Some(live),
         plane_basis,
         cap_shared_with_model,
     })
+}
+
+/// Re-root the lineage `copy_solid_into` just wrote for the cut body, from the
+/// SCRATCH face it copied to the face of the sectioned body that scratch face
+/// descends from.
+///
+/// Without this the cut body's faces have lineage roots that name faces of an
+/// arena nobody can resolve: the copy records `(scratch pid → live pid)`, and
+/// the scratch pid is gone the moment this function's caller returns. A
+/// `face_provenance` on the section view would then answer a root belonging to
+/// neither body — not WRONG exactly, but unusable, and the kind of unusable
+/// that looks fine until a drawing annotation tries to anchor to it.
+///
+/// The composition is available because both journals are in hand and share one
+/// pid sequence: the scratch journal already carries
+/// `(original live face → scratch copy)` from the inbound copy and
+/// `(scratch operand face → scratch output face)` from the boolean, so walking
+/// the scratch lineage of each copied face lands either on a face of the
+/// sectioned body — the cut body's real ancestor — or on a face of the cutting
+/// BOX, which has no live ancestor at all and makes the cap a `generated`
+/// surface. Which is exactly what the cap is.
+///
+/// The op tag becomes the Intersect it was, not the `Transform` the copy wrote:
+/// a reader asking what produced this face deserves the operation and not the
+/// bookkeeping.
+fn reroot_cut_lineage(
+    arena: &mut BrepArena,
+    scratch: &BrepArena,
+    source_pids: &std::collections::BTreeSet<Pid>,
+) {
+    use crate::journal::OpTag;
+    let Some(ev) = arena.journal.last_mut() else {
+        return;
+    };
+    // Guard the coupling: this rewrites the entry `copy_solid_into` appends,
+    // and nothing else. If that ever stops being the last entry, leave the
+    // journal exactly as it is rather than rewriting someone else's.
+    if ev.op != OpTag::Transform {
+        return;
+    }
+    ev.op = OpTag::Boolean(BoolOp::Intersect);
+    let mut generated = std::mem::take(&mut ev.generated);
+    let mut modified = Vec::with_capacity(ev.modified.len());
+    for (inp, outp, kind) in std::mem::take(&mut ev.modified) {
+        let root = crate::journal::face_lineage(&scratch.journal, inp).root;
+        if source_pids.contains(&root) {
+            modified.push((root, outp, kind));
+        } else {
+            generated.push(outp);
+        }
+    }
+    ev.modified = modified;
+    ev.generated = generated;
 }
 
 /// Whether `face` is a plane whose outward normal is `n` and which contains

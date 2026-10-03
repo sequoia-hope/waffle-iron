@@ -1520,9 +1520,29 @@ hand out numbers equal to the live pids sitting there as sources, and
 `journal::face_lineage` — which walks backwards by matching an output pid —
 would follow a chain straight through the collision. The scratch arena's
 allocator therefore starts at the live arena's `next_pid`, and the live
-arena's is advanced past the scratch's afterwards: one monotonic sequence
-across both arenas, so a lineage walk cannot cross wires. Without it the cap
-attribution below would be right by luck.
+arena's is advanced past the scratch's BEFORE the copy back: one monotonic
+sequence across both arenas, so a lineage walk cannot cross wires. Without it
+the cap attribution below would be right by luck. (The order matters as much
+as the bump. Copying first would hand out live pids from exactly the range the
+scratch arena had been using, and a walk off one copied face would step onto a
+scratch pid that also names a live face and keep going.)
+
+**And the cut body's lineage is RE-ROOTED, because the plan's `cut_solid` has
+to be anchorable.** The copy writes `(scratch face → live face)`, and that
+scratch face is gone when the call returns — so a `face_provenance` on the
+section view would answer a root belonging to neither body. Not wrong exactly,
+but unusable, and the kind of unusable that looks fine until a D4b annotation
+tries to anchor to it. Both journals are in hand and share one pid sequence, so
+the composition is available: the scratch journal already carries
+`(original face → scratch copy)` from the inbound copy and
+`(scratch operand → scratch output)` from the boolean, and walking it lands
+either on a face of the SECTIONED body — the real ancestor — or on a face of
+the cutting BOX, which has no live ancestor and makes the cap a `generated`
+surface. Which is what the cap is. Measured on the `10 × 6 × 4` box cut at mid
+height: of the kept half's six faces, five root onto the sectioned body's own
+(four walls and the bottom) and one is its own root (the cap), with the cut
+body's pids disjoint from the original's and the original's unchanged. The op
+tag records the Intersect rather than the copy's `Transform`.
 
 **The geometry CHECKS the lineage; it does not merely supplement it.** §5.2
 describes the cap twice over — "the face whose plane equals the cut plane"

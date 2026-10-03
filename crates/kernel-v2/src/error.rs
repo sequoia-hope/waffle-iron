@@ -567,6 +567,12 @@ pub enum KernelV2Error {
     /// before any arena work.
     SectionDegeneratePlane,
 
+    /// D1d: the relative chord tolerance a cap's sampled edges would be
+    /// written at is zero, negative or non-finite. The density only reaches a
+    /// `HyperbolaArc` or `SurfacePair` cap edge, but the module function is
+    /// public and a nonsense density there is a nonsense loop.
+    SectionChordToleranceInvalid,
+
     /// D1d: the solid cannot be BOUNDED, so there is no scale to derive the
     /// half-space box's margin from.
     ///
