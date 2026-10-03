@@ -884,7 +884,10 @@ pub(super) fn parameters_set(
     let step = apply_step(
         state,
         kb,
-        UiToEngine::SetParameters { parameters },
+        UiToEngine::SetParameters {
+            parameters,
+            renames: Vec::new(),
+        },
         OnError::Report,
         "Internal",
     )?;

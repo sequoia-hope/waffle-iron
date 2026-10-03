@@ -561,16 +561,36 @@ impl Engine {
     }
 
     /// Replace the design-parameter table and rebuild everything that
-    /// consumes it (undoable). The UI always sends the complete list.
+    /// consumes it (undoable). The caller always sends the complete list.
+    ///
+    /// `renames` are `(old name, new name)` pairs whose DEPENDENTS must
+    /// follow: every other parameter's expression and every expression field
+    /// on the tree is rewritten through the AST
+    /// (`params::rename_parameter`), so renaming `w` does not leave a dozen
+    /// features reading a name that no longer exists — and does not touch
+    /// `w2`. The incoming table already carries the new name on the renamed
+    /// row; the rewrite is what the rest of the document needs. One undo
+    /// step covers both the table and the rewritten fields.
     pub fn set_parameters(
         &mut self,
         parameters: Vec<types::DesignParameter>,
+        renames: &[(String, String)],
         kb: &mut dyn KernelBundle,
     ) {
         let old = std::mem::replace(&mut self.tree.parameters, parameters);
+        let mut old_expressions: Vec<params::ExprEdit> = Vec::new();
+        for (from, to) in renames {
+            if from == to || from.is_empty() || to.is_empty() {
+                continue;
+            }
+            old_expressions.extend(params::rename_parameter(&mut self.tree, from, to));
+        }
+        let new_expressions = params::read_expressions(&mut self.tree, &old_expressions);
         self.undo_stack.push(Command::SetParameters {
             old,
             new: self.tree.parameters.clone(),
+            old_expressions,
+            new_expressions,
         });
         // Rebuild from 0: any feature may consume any parameter. The apply
         // pass inside rebuild() refreshes every expression and reports the
@@ -698,8 +718,15 @@ impl Engine {
                 };
                 0 // A name affects no geometry.
             }
-            Command::SetParameters { old, .. } => {
+            Command::SetParameters {
+                old,
+                old_expressions,
+                ..
+            } => {
                 self.tree.parameters = old.clone();
+                // A rename rewrote expressions OUTSIDE the table; restoring
+                // the table alone would leave them reading the new name.
+                params::restore_expressions(&mut self.tree, old_expressions);
                 0 // Any feature may consume any parameter.
             }
         }
@@ -786,8 +813,13 @@ impl Engine {
                 };
                 0 // A name affects no geometry.
             }
-            Command::SetParameters { new, .. } => {
+            Command::SetParameters {
+                new,
+                new_expressions,
+                ..
+            } => {
                 self.tree.parameters = new.clone();
+                params::restore_expressions(&mut self.tree, new_expressions);
                 0 // Any feature may consume any parameter.
             }
         }

@@ -82,6 +82,47 @@ impl Expr {
         out
     }
 
+    /// The byte spans of every reference to `name`, in source order.
+    ///
+    /// This is what makes a parameter rename exact (P5): the AST says which
+    /// byte ranges of the source ARE references to `name`, so a rename
+    /// splices precisely those. A textual search cannot do it — `w2` contains
+    /// `w`, `"w"` inside a longer identifier is not a reference, and a unit
+    /// suffix (`in`, `mm`) lexes as part of its literal and is not an
+    /// identifier node at all.
+    pub fn reference_spans(&self, name: &str) -> Vec<Span> {
+        let mut out = Vec::new();
+        self.collect_reference_spans(name, &mut out);
+        out.sort_by_key(|s| s.start);
+        out
+    }
+
+    fn collect_reference_spans(&self, name: &str, out: &mut Vec<Span>) {
+        match self {
+            Expr::Number { .. } => {}
+            Expr::Ident {
+                name: ident, span, ..
+            } => {
+                if ident == name {
+                    out.push(*span);
+                }
+            }
+            Expr::Unary { operand, .. } => operand.collect_reference_spans(name, out),
+            Expr::Binary { lhs, rhs, .. } => {
+                lhs.collect_reference_spans(name, out);
+                rhs.collect_reference_spans(name, out);
+            }
+            // A call's CALLEE is not an identifier node: every function name
+            // is a reserved word (`expr::is_reserved_word`), so no parameter
+            // can be named one and `sqrt` is never a reference to rename.
+            Expr::Call { args, .. } => {
+                for a in args {
+                    a.collect_reference_spans(name, out);
+                }
+            }
+        }
+    }
+
     fn collect_identifiers(&self, out: &mut BTreeSet<String>) {
         match self {
             Expr::Number { .. } => {}

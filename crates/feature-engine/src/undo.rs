@@ -66,6 +66,14 @@ pub enum Command {
     SetParameters {
         old: Vec<DesignParameter>,
         new: Vec<DesignParameter>,
+        /// Feature expression fields a RENAME rewrote, as they read before
+        /// (`specs/agent_mechanical_design.md` §6 P5). Empty for every edit
+        /// that renamed nothing — which is every edit the UI made before P5.
+        /// Without these, undoing a rename would restore the old parameter
+        /// name while leaving every feature reading the new one.
+        old_expressions: Vec<crate::params::ExprEdit>,
+        /// The same fields as they read after, for redo.
+        new_expressions: Vec<crate::params::ExprEdit>,
     },
 }
 

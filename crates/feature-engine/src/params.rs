@@ -59,6 +59,12 @@ pub struct ParamOutcome {
 pub fn evaluate_parameters(params: &mut [DesignParameter]) -> Env {
     let mut env: Env = Env::new();
 
+    // The dependency cycles, read off the graph BEFORE any evaluation: the
+    // fixpoint below can only report that a parameter never resolved, which
+    // looks identical to a typo'd name. Naming the loop is P5's requirement
+    // and it is cheap (one parse per parameter, no evaluation).
+    let loops = cycles(params);
+
     // Pre-validate names; mark duplicates (first occurrence wins).
     let mut pending: Vec<usize> = Vec::new();
     let mut seen: HashMap<String, usize> = HashMap::new();
@@ -109,9 +115,30 @@ pub fn evaluate_parameters(params: &mut [DesignParameter]) -> Env {
     // Whatever is left is stuck on an unknown name — either a genuine
     // unknown or a cycle. Re-evaluate once for the specific message.
     for &i in &pending {
+        // A parameter stuck on a DECLARED name is in a cycle, or reads one
+        // that is. Report the loop itself when the graph has it.
+        let in_cycle = loops
+            .iter()
+            .find(|c| c.iter().any(|n| *n == params[i].name))
+            .map(|c| c.join(" → "));
         let msg = match evaluate_declared(&params[i], &env) {
             Err(ExprError::UnknownIdentifier(name)) if seen.contains_key(&name) => {
-                format!("circular reference involving '{name}'")
+                match &in_cycle {
+                    Some(path) => format!("circular reference: {path}"),
+                    // Not in a cycle itself: it reads a parameter that is, so it
+                    // can never resolve either. Name the one it waits on.
+                    None => format!(
+                        "depends on '{name}', which does not resolve{}",
+                        match loops
+                            .iter()
+                            .find(|c| c.contains(&name))
+                            .map(|c| c.join(" → "))
+                        {
+                            Some(path) => format!(" (circular reference: {path})"),
+                            None => String::new(),
+                        }
+                    ),
+                }
             }
             Err(e) => e.to_string(),
             Ok(_) => unreachable!("pending parameter evaluated cleanly"),
@@ -531,10 +558,381 @@ fn apply_sketch(sketch: &mut waffle_types::Sketch, env: &Env, errs: &mut Vec<Str
     }
 }
 
+// ── P5: the parameter table as data ──────────────────────────────────────
+//
+// `specs/agent_mechanical_design.md` §6 P5. Two questions an agent (and the
+// panel) must be able to ask without evaluating anything itself: what does
+// this parameter depend on, and who depends on it. Both are answered from
+// the AST P1 introduced — `Expr::identifiers` for a dependency, and the
+// reverse of it for a dependent.
+//
+// Everything below shares ONE enumeration of where an expression can live
+// ([`expression_sites`]). The apply pass above keeps its own traversal
+// because it also needs each field's VALUE slot and the sketch re-solve, so
+// the two lists could drift; `every_expression_field_is_enumerated` in the
+// tests below is the oracle that says they have not.
+
+/// One place an expression lives on the feature tree.
+pub struct ExprSite<'a> {
+    /// The feature that owns it.
+    pub feature: Uuid,
+    /// That feature's display name — what a person reads in the answer.
+    pub feature_name: String,
+    /// Which field, named the way the apply pass names it in an error:
+    /// `depth`, `angle`, `inner_radius`, `point 7 x`, `dimension #3`,
+    /// `arg teeth`.
+    pub field: String,
+    /// The expression source. Writable, because a parameter rename splices
+    /// it (see [`rename_parameter`]).
+    pub expression: &'a mut String,
+}
+
+/// Every expression field of one operation, in a stable order.
+///
+/// THE enumeration: the reverse index and the rename rewrite both walk this,
+/// so neither can learn about a field the other does not know. Only fields
+/// that actually CARRY an expression are yielded — an absent sidecar is not
+/// a site, and a rewrite must never invent one.
+fn expression_sites(op: &mut Operation) -> Vec<(String, &mut String)> {
+    use waffle_types::sketch3d::Sketch3dEntity;
+    let mut out: Vec<(String, &mut String)> = Vec::new();
+    match op {
+        Operation::Extrude { params } => {
+            if let Some(e) = params.depth_expr.as_mut() {
+                out.push(("depth".to_string(), e));
+            }
+        }
+        Operation::Revolve { params } => {
+            if let Some(e) = params.angle_expr.as_mut() {
+                out.push(("angle".to_string(), e));
+            }
+        }
+        Operation::Pipe { params } => {
+            if let Some(e) = params.radius_expr.as_mut() {
+                out.push(("radius".to_string(), e));
+            }
+            if let Some(e) = params.inner_radius_expr.as_mut() {
+                out.push(("inner_radius".to_string(), e));
+            }
+        }
+        Operation::DatumPlane { params } => match &mut params.definition {
+            PlaneDefinition::Offset { distance_expr, .. }
+            | PlaneDefinition::OffsetFromFace { distance_expr, .. } => {
+                if let Some(e) = distance_expr.as_mut() {
+                    out.push(("distance".to_string(), e));
+                }
+            }
+            PlaneDefinition::PointNormal { .. } => {}
+        },
+        Operation::Sketch { sketch } => {
+            for (i, c) in sketch.constraints.iter_mut().enumerate() {
+                // A constraint with no `dimension_unit` drives nothing, so
+                // its expression (if any) is not a site either — the apply
+                // pass skips it for the same reason.
+                if c.dimension_unit().is_none() {
+                    continue;
+                }
+                if let Some(e) = c.expression_mut() {
+                    out.push((format!("dimension #{i}"), e));
+                }
+            }
+        }
+        Operation::Sketch3d { sketch } => {
+            for entity in &mut sketch.entities {
+                match entity {
+                    Sketch3dEntity::Point { id, xyz_expr, .. } => {
+                        let id = *id;
+                        if let Some(exprs) = xyz_expr.as_mut() {
+                            for (axis, expression) in exprs.iter_mut().enumerate() {
+                                if let Some(e) = expression.as_mut() {
+                                    out.push((format!("point {id} {}", ["x", "y", "z"][axis]), e));
+                                }
+                            }
+                        }
+                    }
+                    Sketch3dEntity::Fillet {
+                        id, radius_expr, ..
+                    } => {
+                        let id = *id;
+                        if let Some(e) = radius_expr.as_mut() {
+                            out.push((format!("fillet {id} radius"), e));
+                        }
+                    }
+                    Sketch3dEntity::Line { .. } | Sketch3dEntity::Arc { .. } => {}
+                }
+            }
+        }
+        Operation::PatternCircular { params } => {
+            if let Some(e) = params.angle_expr.as_mut() {
+                out.push(("angle".to_string(), e));
+            }
+        }
+        Operation::PatternLinear { params } => {
+            if let Some(e) = params.spacing_expr.as_mut() {
+                out.push(("spacing".to_string(), e));
+            }
+            if let Some(second) = params.second.as_mut() {
+                if let Some(e) = second.spacing_expr.as_mut() {
+                    out.push(("second spacing".to_string(), e));
+                }
+            }
+        }
+        Operation::Script { params } => {
+            // `arg_exprs` is a BTreeMap, so this order is deterministic.
+            for (name, expression) in params.arg_exprs.iter_mut() {
+                out.push((format!("arg {name}"), expression));
+            }
+        }
+        // Fillet/chamfer/shell are deferred; booleans, imports and the
+        // remaining operations carry no expression-driven measurement.
+        // A field added to the apply pass above MUST be added here too —
+        // `every_expression_field_is_enumerated` fails if it is not.
+        _ => {}
+    }
+    out
+}
+
+/// Visit every expression on the tree, in feature order.
+///
+/// Takes `&mut` because the rename rewrite needs it; a read-only caller
+/// (the reverse index) simply does not write through the site.
+pub fn visit_expressions(tree: &mut FeatureTree, mut visit: impl FnMut(ExprSite<'_>)) {
+    for feature in &mut tree.features {
+        let feature = &mut *feature;
+        let id = feature.id;
+        let name = feature.name.clone();
+        for (field, expression) in expression_sites(&mut feature.operation) {
+            visit(ExprSite {
+                feature: id,
+                feature_name: name.clone(),
+                field,
+                expression,
+            });
+        }
+    }
+}
+
+/// One feature field that reads design parameters.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct FieldUse {
+    /// The owning feature.
+    pub feature: Uuid,
+    /// Its display name.
+    pub feature_name: String,
+    /// The field, as [`ExprSite::field`] names it.
+    pub field: String,
+    /// The expression, verbatim.
+    pub expression: String,
+    /// The parameter names it reads, sorted. EMPTY when the expression does
+    /// not parse — an unparseable expression has no dependency list, and the
+    /// field's own error (from the apply pass) is where that is reported.
+    pub reads: Vec<String>,
+}
+
+/// Every expression field on the tree with the parameter names it reads —
+/// the reverse index behind P5's `used_by`.
+///
+/// Computed on demand rather than cached on the engine: the answer is a pure
+/// function of the tree, and a cache refreshed "every rebuild" is a cache
+/// that is wrong whenever something reaches this without one.
+pub fn field_uses(tree: &mut FeatureTree) -> Vec<FieldUse> {
+    let mut out = Vec::new();
+    visit_expressions(tree, |site| {
+        let reads = expr::dependencies(site.expression)
+            .map(|ids| ids.into_iter().collect())
+            .unwrap_or_default();
+        out.push(FieldUse {
+            feature: site.feature,
+            feature_name: site.feature_name,
+            field: site.field,
+            expression: site.expression.clone(),
+            reads,
+        });
+    });
+    out
+}
+
+/// One expression field's text, addressed by feature and field.
+///
+/// The field labels [`visit_expressions`] produces are a pure function of the
+/// tree's shape, so an edit recorded this way can be replayed onto the same
+/// tree — which is how a rename that rewrote feature expressions is undone
+/// and redone.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ExprEdit {
+    pub feature: Uuid,
+    pub field: String,
+    pub text: String,
+}
+
+/// Rewrite every reference to `from` as `to`, in the parameter table AND in
+/// every expression field on the tree. Returns the PREVIOUS text of each
+/// field it changed, so the edit can be undone.
+///
+/// The rewrite goes through the AST ([`expr::rename_identifier`]): `w2` is
+/// not a reference to `w`, a `mm` suffix is not an identifier, and spacing
+/// is preserved byte-for-byte. A string replace would corrupt all three.
+///
+/// An expression that does not parse is left ALONE. It has no references to
+/// rewrite, and editing text nobody has made sense of yet is how a rename
+/// turns a typo into a different typo.
+pub fn rename_parameter(tree: &mut FeatureTree, from: &str, to: &str) -> Vec<ExprEdit> {
+    for p in &mut tree.parameters {
+        if p.name == from {
+            p.name = to.to_string();
+        }
+        if let Some(rewritten) = expr::rename_identifier(&p.expression, from, to) {
+            p.expression = rewritten;
+        }
+    }
+    let mut undo = Vec::new();
+    visit_expressions(tree, |site| {
+        if let Some(rewritten) = expr::rename_identifier(site.expression, from, to) {
+            undo.push(ExprEdit {
+                feature: site.feature,
+                field: site.field,
+                text: site.expression.clone(),
+            });
+            *site.expression = rewritten;
+        }
+    });
+    undo
+}
+
+/// Read the CURRENT text at each addressed site — the other half of an undo
+/// record: `rename_parameter` returns what the fields held before, this
+/// returns what they hold after, and redo replays the second.
+pub fn read_expressions(tree: &mut FeatureTree, at: &[ExprEdit]) -> Vec<ExprEdit> {
+    if at.is_empty() {
+        return Vec::new();
+    }
+    let mut out = Vec::new();
+    visit_expressions(tree, |site| {
+        if at
+            .iter()
+            .any(|e| e.feature == site.feature && e.field == site.field)
+        {
+            out.push(ExprEdit {
+                feature: site.feature,
+                field: site.field,
+                text: site.expression.clone(),
+            });
+        }
+    });
+    out
+}
+
+/// Replay recorded expression texts onto the tree (undo/redo of a rename).
+/// A site the tree no longer has is skipped — the feature it named is gone,
+/// and there is nothing to restore.
+pub fn restore_expressions(tree: &mut FeatureTree, edits: &[ExprEdit]) {
+    if edits.is_empty() {
+        return;
+    }
+    visit_expressions(tree, |site| {
+        if let Some(edit) = edits
+            .iter()
+            .find(|e| e.feature == site.feature && e.field == site.field)
+        {
+            *site.expression = edit.text.clone();
+        }
+    });
+}
+
+/// Every dependency cycle in the parameter table, each as the names around
+/// the loop with the entry name repeated at the end (`["a", "b", "a"]`).
+///
+/// A cycle is a property of the GRAPH, not of one evaluation: the fixpoint in
+/// [`evaluate_parameters`] can only report that a parameter never resolved,
+/// which is the same symptom as a typo'd name. This names the loop instead,
+/// which is what P5 asks for.
+///
+/// Each cycle is reported once, canonicalised to start at its
+/// lexicographically smallest member, and the list is sorted — the answer
+/// does not depend on table order.
+pub fn cycles(params: &[DesignParameter]) -> Vec<Vec<String>> {
+    // Adjacency over DECLARED names only: a reference to a name the table
+    // does not have is an unknown identifier, not an edge.
+    let mut edges: HashMap<&str, Vec<String>> = HashMap::new();
+    for p in params {
+        if edges.contains_key(p.name.as_str()) {
+            continue; // A duplicate name is its own error; first wins.
+        }
+        let deps = expr::dependencies(&p.expression).unwrap_or_default();
+        edges.insert(p.name.as_str(), deps.into_iter().collect());
+    }
+    let declared: Vec<&str> = {
+        let mut v: Vec<&str> = edges.keys().copied().collect();
+        v.sort_unstable();
+        v
+    };
+
+    let mut found: Vec<Vec<String>> = Vec::new();
+    let mut done: std::collections::HashSet<&str> = std::collections::HashSet::new();
+    // Iterative DFS keeping the current path, so a cycle is read off the
+    // path rather than inferred. Bounded by the table: every node is
+    // explored once.
+    for start in declared {
+        if done.contains(start) {
+            continue;
+        }
+        let mut path: Vec<&str> = Vec::new();
+        let mut on_path: std::collections::HashSet<&str> = std::collections::HashSet::new();
+        // (node, next child index)
+        let mut stack: Vec<(&str, usize)> = vec![(start, 0)];
+        path.push(start);
+        on_path.insert(start);
+        while let Some((node, child)) = stack.pop() {
+            let children = edges.get(node).map(Vec::as_slice).unwrap_or(&[]);
+            if child >= children.len() {
+                path.pop();
+                on_path.remove(node);
+                done.insert(node);
+                continue;
+            }
+            stack.push((node, child + 1));
+            let next = children[child].as_str();
+            let Some((next, _)) = edges.get_key_value(next).map(|(k, v)| (*k, v)) else {
+                continue; // Not a declared parameter: no edge.
+            };
+            if on_path.contains(next) {
+                // The loop is the tail of the path from `next` onward.
+                let at = path.iter().position(|n| *n == next).unwrap_or(0);
+                let mut loop_names: Vec<String> =
+                    path[at..].iter().map(|n| (*n).to_string()).collect();
+                // Rotate to start at the smallest member so the same cycle
+                // reported from two entry points is one answer.
+                if let Some(min) = loop_names
+                    .iter()
+                    .enumerate()
+                    .min_by(|a, b| a.1.cmp(b.1))
+                    .map(|(i, _)| i)
+                {
+                    loop_names.rotate_left(min);
+                }
+                loop_names.push(loop_names[0].clone());
+                if !found.contains(&loop_names) {
+                    found.push(loop_names);
+                }
+                continue;
+            }
+            if done.contains(next) {
+                continue;
+            }
+            path.push(next);
+            on_path.insert(next);
+            stack.push((next, 0));
+        }
+    }
+    found.sort();
+    found
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::types::{DepthMode, ExtrudeParams, Feature, RevolveParams};
+    use serde_json::{json, Value};
     use waffle_types::SketchConstraint;
 
     fn param(name: &str, expression: &str) -> DesignParameter {
@@ -1248,5 +1646,292 @@ mod tests {
         let p3 = sketch.solved_positions.get(&3).copied().unwrap();
         let angle = p3.1.atan2(p3.0).to_degrees();
         assert!((angle - 30.0).abs() < 1e-6, "solved angle = {angle}");
+    }
+
+    // -- P5: the table as data (§6 P5) --
+
+    /// One feature per expression-carrying operation kind, every sidecar
+    /// filled. Built through serde so the test cannot quietly skip a field
+    /// the struct gained.
+    fn every_expression_feature() -> Vec<Feature> {
+        let sketch_id = Uuid::new_v4();
+        let ops: Vec<Value> = vec![
+            json!({ "type": "Extrude", "params": {
+                "sketch_id": sketch_id, "profile_index": 0, "depth": 0.004,
+                "depth_expr": "a", "symmetric": false, "cut": false }}),
+            json!({ "type": "Revolve", "params": {
+                "sketch_id": sketch_id, "profile_index": 0,
+                "axis_origin": [0.0, 0.0, 0.0], "axis_direction": [0.0, 0.0, 1.0],
+                "angle": 90.0, "angle_expr": "a", "cut": false }}),
+            json!({ "type": "Pipe", "params": {
+                "sketch_id": sketch_id, "entity_ids": [1, 2], "radius": 0.005,
+                "radius_expr": "a", "inner_radius": 0.002, "inner_radius_expr": "a" }}),
+            json!({ "type": "DatumPlane", "params": { "name": "Datum", "definition": {
+                "method": "offset", "basePlaneId": Uuid::new_v4(),
+                "distance": 0.01, "distance_expr": "a" }}}),
+            json!({ "type": "PatternCircular", "params": {
+                "axis": { "method": "explicit", "origin": [0.0, 0.0, 0.0],
+                          "direction": [0.0, 0.0, 1.0] },
+                "count": 4, "angle_deg": 360.0, "angle_expr": "a" }}),
+            json!({ "type": "PatternLinear", "params": {
+                "direction": { "method": "explicit", "origin": [0.0, 0.0, 0.0],
+                               "direction": [1.0, 0.0, 0.0] },
+                "count": 3, "spacing": 0.01, "spacing_expr": "a",
+                "second": { "direction": { "method": "explicit",
+                                           "origin": [0.0, 0.0, 0.0],
+                                           "direction": [0.0, 1.0, 0.0] },
+                            "count": 2, "spacing": 0.02, "spacing_expr": "a" }}}),
+            json!({ "type": "Script", "params": {
+                "source_id": Uuid::new_v4(), "args": {},
+                "arg_exprs": { "teeth": "a" }}}),
+            json!({ "type": "Sketch3d", "sketch": { "id": Uuid::new_v4(), "entities": [
+                { "type": "Point", "id": 1, "xyz": [0.0, 0.0, 0.0],
+                  "xyz_expr": ["a", "a", "a"] },
+                { "type": "Point", "id": 2, "xyz": [0.01, 0.0, 0.0] },
+                { "type": "Line", "id": 3, "start_id": 1, "end_id": 2 },
+                { "type": "Fillet", "id": 4, "at_point_id": 1, "radius": 0.001,
+                  "radius_expr": "a" }
+            ]}}),
+        ];
+        let mut features: Vec<Feature> = ops
+            .into_iter()
+            .map(|op| Feature {
+                id: Uuid::new_v4(),
+                name: op["type"].as_str().unwrap().to_string(),
+                operation: serde_json::from_value(op.clone())
+                    .unwrap_or_else(|e| panic!("{}: {e}", op["type"])),
+                suppressed: false,
+                references: Vec::new(),
+            })
+            .collect();
+        // A sketch with two expression-driven dimensions.
+        features.push(sketch_feature(rectangle_sketch(Some("a"), Some("a"))));
+        features
+    }
+
+    /// The drift oracle. `expression_sites` is a SECOND traversal beside the
+    /// apply pass, so the two could learn about different fields. Give every
+    /// site the same unresolvable expression: the apply pass must report
+    /// exactly as many errors as the enumeration finds sites, which is false
+    /// the moment either one knows a field the other does not.
+    #[test]
+    fn every_expression_field_is_enumerated() {
+        let mut tree = tree_with(Vec::new(), every_expression_feature());
+        let sites = field_uses(&mut tree);
+        // Extrude depth, revolve angle, pipe radius + inner_radius, datum
+        // distance, circular angle, linear spacing + second spacing, one
+        // script arg, three 3D-point coordinates, a 3D fillet radius, and
+        // the rectangle sketch's two dimensions.
+        assert_eq!(sites.len(), 15, "{sites:#?}");
+        for site in &sites {
+            assert_eq!(site.expression, "a", "{} {}", site.feature_name, site.field);
+            assert_eq!(site.reads, vec!["a".to_string()]);
+        }
+
+        // `a` is not declared, so every one of those fields fails loudly.
+        let outcome = apply_parameters(&mut tree);
+        let per_field = outcome
+            .errors
+            .iter()
+            .filter(|(id, _)| *id != Uuid::nil())
+            .count();
+        assert_eq!(
+            per_field,
+            sites.len(),
+            "the apply pass reported {per_field} field errors for {} enumerated sites: {:#?}",
+            sites.len(),
+            outcome.errors
+        );
+    }
+
+    #[test]
+    fn field_uses_names_the_feature_and_field_that_consume_a_parameter() {
+        let extrude = extrude_feature(0.004, Some("height * 2"));
+        let revolve = revolve_feature(90.0, Some("sweep"));
+        let mut tree = tree_with(
+            vec![param("height", "25"), param("sweep", "180")],
+            vec![extrude, revolve],
+        );
+        let uses = field_uses(&mut tree);
+        assert_eq!(uses.len(), 2);
+        assert_eq!(uses[0].field, "depth");
+        assert_eq!(uses[0].feature_name, "Extrude");
+        assert_eq!(uses[0].reads, vec!["height".to_string()]);
+        assert_eq!(uses[1].field, "angle");
+        assert_eq!(uses[1].reads, vec!["sweep".to_string()]);
+    }
+
+    #[test]
+    fn an_unparseable_field_is_a_site_with_no_dependency_list() {
+        let mut tree = tree_with(Vec::new(), vec![extrude_feature(0.004, Some("h +"))]);
+        let uses = field_uses(&mut tree);
+        assert_eq!(uses.len(), 1);
+        assert_eq!(uses[0].expression, "h +");
+        assert!(
+            uses[0].reads.is_empty(),
+            "an expression that does not parse has no dependency list"
+        );
+    }
+
+    // -- cycles --
+
+    #[test]
+    fn cycles_names_the_loop_not_just_a_member() {
+        let params = vec![
+            param("a", "b + 1"),
+            param("b", "c + 1"),
+            param("c", "a + 1"),
+            param("d", "5"),
+        ];
+        assert_eq!(
+            cycles(&params),
+            vec![vec![
+                "a".to_string(),
+                "b".to_string(),
+                "c".to_string(),
+                "a".to_string()
+            ]]
+        );
+    }
+
+    #[test]
+    fn a_self_reference_is_a_one_name_cycle() {
+        assert_eq!(
+            cycles(&[param("a", "a + 1")]),
+            vec![vec!["a".to_string(), "a".to_string()]]
+        );
+    }
+
+    #[test]
+    fn two_independent_cycles_are_two_answers_and_order_free() {
+        let forward = vec![
+            param("a", "b"),
+            param("b", "a"),
+            param("x", "y"),
+            param("y", "x"),
+        ];
+        let reversed: Vec<DesignParameter> = forward.iter().rev().cloned().collect();
+        let expected = vec![
+            vec!["a".to_string(), "b".to_string(), "a".to_string()],
+            vec!["x".to_string(), "y".to_string(), "x".to_string()],
+        ];
+        assert_eq!(cycles(&forward), expected);
+        assert_eq!(
+            cycles(&reversed),
+            expected,
+            "the answer must not depend on table order"
+        );
+    }
+
+    #[test]
+    fn a_diamond_is_not_a_cycle() {
+        let params = vec![
+            param("a", "1"),
+            param("b", "a * 2"),
+            param("c", "a * 3"),
+            param("d", "b + c"),
+        ];
+        assert!(cycles(&params).is_empty());
+    }
+
+    #[test]
+    fn the_cycle_error_names_the_loop_and_a_downstream_reader_says_so() {
+        let mut params = vec![param("a", "b"), param("b", "a"), param("reads_a", "a + 1")];
+        evaluate_parameters(&mut params);
+        assert_eq!(
+            params[0].error.as_deref(),
+            Some("circular reference: a → b → a")
+        );
+        assert_eq!(
+            params[1].error.as_deref(),
+            Some("circular reference: a → b → a")
+        );
+        // Not in the loop itself, but it can never resolve either, and the
+        // message says which name it is waiting on and why.
+        let downstream = params[2].error.as_deref().unwrap();
+        assert!(
+            downstream.contains("depends on 'a'")
+                && downstream.contains("circular reference: a → b → a"),
+            "{downstream}"
+        );
+    }
+
+    // -- rename through the AST --
+
+    #[test]
+    fn a_rename_rewrites_dependents_and_leaves_a_longer_name_alone() {
+        let extrude = extrude_feature(0.004, Some("w * 2 + w2"));
+        let revolve = revolve_feature(90.0, Some("w2"));
+        let mut tree = tree_with(
+            vec![
+                param("w", "10"),
+                param("w2", "20"),
+                // Spacing, parentheses and a unit suffix must survive.
+                param("area", "w*(w  + 3mm)"),
+            ],
+            vec![extrude, revolve],
+        );
+        let undo = rename_parameter(&mut tree, "w", "width");
+
+        assert_eq!(tree.parameters[0].name, "width");
+        assert_eq!(
+            tree.parameters[1].name, "w2",
+            "a name that merely STARTS with the renamed one is not a reference"
+        );
+        assert_eq!(tree.parameters[2].expression, "width*(width  + 3mm)");
+        let uses = field_uses(&mut tree);
+        assert_eq!(uses[0].expression, "width * 2 + w2");
+        assert_eq!(uses[1].expression, "w2", "untouched");
+
+        // One field changed, and its previous text is recorded for undo.
+        assert_eq!(undo.len(), 1);
+        assert_eq!(undo[0].field, "depth");
+        assert_eq!(undo[0].text, "w * 2 + w2");
+        restore_expressions(&mut tree, &undo);
+        assert_eq!(field_uses(&mut tree)[0].expression, "w * 2 + w2");
+    }
+
+    #[test]
+    fn a_rename_does_not_touch_a_unit_suffix_or_a_function_name() {
+        // `in` and `min` are reserved, so neither can BE a parameter — but a
+        // string replace of `i` → `q` would still corrupt both. The rename
+        // goes through the AST, which has no node for either.
+        let mut tree = tree_with(
+            vec![param("i", "1"), param("len", "min(i, 2in)")],
+            Vec::new(),
+        );
+        rename_parameter(&mut tree, "i", "q");
+        assert_eq!(tree.parameters[0].name, "q");
+        assert_eq!(tree.parameters[1].expression, "min(q, 2in)");
+    }
+
+    #[test]
+    fn a_rename_leaves_an_unparseable_expression_alone() {
+        let mut tree = tree_with(
+            vec![param("w", "10"), param("broken", "w +")],
+            vec![extrude_feature(0.004, Some("w *"))],
+        );
+        let undo = rename_parameter(&mut tree, "w", "width");
+        assert_eq!(
+            tree.parameters[1].expression, "w +",
+            "an expression nobody has parsed is not text to rewrite"
+        );
+        assert_eq!(field_uses(&mut tree)[0].expression, "w *");
+        assert!(undo.is_empty());
+    }
+
+    #[test]
+    fn a_renamed_parameter_still_drives_its_field() {
+        let mut tree = tree_with(
+            vec![param("h", "25")],
+            vec![extrude_feature(0.004, Some("h"))],
+        );
+        apply_parameters(&mut tree);
+        assert!((extrude_depth(&tree, 0) - 0.025).abs() < 1e-15);
+
+        rename_parameter(&mut tree, "h", "height");
+        let outcome = apply_parameters(&mut tree);
+        assert!(outcome.errors.is_empty(), "{:?}", outcome.errors);
+        assert!((extrude_depth(&tree, 0) - 0.025).abs() < 1e-15);
     }
 }

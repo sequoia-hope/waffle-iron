@@ -291,14 +291,20 @@ fn a_parameter_change_reruns_only_the_features_that_use_it() {
     if let Operation::Extrude { params } = &mut op {
         params.depth_expr = Some("depth_a".into());
     }
-    f.engine
-        .set_parameters(vec![DesignParameter::new("depth_a", "5")], &mut f.kernel);
+    f.engine.set_parameters(
+        vec![DesignParameter::new("depth_a", "5")],
+        &[],
+        &mut f.kernel,
+    );
     f.engine.edit_feature(f.body_a, op, &mut f.kernel).unwrap();
     assert!(f.engine.errors.is_empty(), "{:?}", f.engine.errors);
     let body_a_before = handles(&f.engine, f.body_a);
 
-    f.engine
-        .set_parameters(vec![DesignParameter::new("depth_a", "7")], &mut f.kernel);
+    f.engine.set_parameters(
+        vec![DesignParameter::new("depth_a", "7")],
+        &[],
+        &mut f.kernel,
+    );
 
     assert!(f.engine.errors.is_empty(), "{:?}", f.engine.errors);
     assert_ne!(handles(&f.engine, f.body_a), body_a_before);
