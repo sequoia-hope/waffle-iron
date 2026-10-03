@@ -12,9 +12,10 @@
  *   F key use — while the user's camera stays exactly where it was;
  * - into an offscreen `WebGLRenderTarget` of exactly `size`, so neither the
  *   canvas size nor the device pixel ratio is in the result;
- * - with per-object overrides (flat legend colours, black edges, enlarged
- *   vertices, no antialiasing, `isolate`/`hide`) applied for the duration and
- *   restored after, so hover and selection cannot reach the image;
+ * - with per-object overrides (flat legend colours, black edges, enlarged flat
+ *   vertices, everything that is not a body hidden, no antialiasing,
+ *   `isolate`/`hide`) applied for the duration and restored after, so neither
+ *   hover, selection, the theme nor a datum plane can reach the image;
  * - then a 2D pass that composites the frame over a fixed background and draws
  *   the labels and their leaders.
  *
@@ -216,6 +217,13 @@ export function describeCamera(camera) {
 
 /**
  * Walk the scene once and bucket what the pass needs to touch.
+ *
+ * `others` is everything else that DRAWS — the datum planes, the origin triad,
+ * the sketch overlays, the orbit pivot, anything a future component adds. The
+ * `agent` style hides all of it, so the bucket is deliberately a catch-all:
+ * whatever is added to the viewport next lands here and stays out of an agent
+ * image until someone names it. Only leaves are collected, never the groups
+ * above them, or hiding a group would take a body's mesh with it.
  * @param {THREE.Object3D} scene
  */
 function collectScene(scene) {
@@ -223,21 +231,22 @@ function collectScene(scene) {
 	const models = [];
 	/** @type {THREE.Object3D[]} */
 	const edges = [];
-	/** @type {THREE.Object3D[]} */
-	const helpers = [];
 	/** @type {THREE.Points[]} */
-	const points = [];
+	const vertices = [];
+	/** @type {THREE.Object3D[]} */
+	const others = [];
 	/** @type {THREE.DirectionalLight[]} */
 	const lights = [];
 	scene.traverse((obj) => {
-		const ud = /** @type {any} */ (obj).userData ?? {};
-		if (ud.waffleType === 'model') models.push(/** @type {THREE.Mesh} */ (obj));
-		else if (ud.waffleType === 'edges') edges.push(obj);
-		else if (ud.waffleType === 'helper') helpers.push(obj);
-		if (/** @type {any} */ (obj).isPoints) points.push(/** @type {THREE.Points} */ (obj));
-		if (/** @type {any} */ (obj).isDirectionalLight) lights.push(/** @type {any} */ (obj));
+		const any = /** @type {any} */ (obj);
+		const type = any.userData?.waffleType;
+		if (type === 'model') models.push(/** @type {THREE.Mesh} */ (obj));
+		else if (type === 'edges') edges.push(obj);
+		else if (type === 'vertices') vertices.push(/** @type {THREE.Points} */ (obj));
+		else if (any.isMesh || any.isLine || any.isPoints || any.isSprite) others.push(obj);
+		if (any.isDirectionalLight) lights.push(any);
 	});
-	return { models, edges, helpers, points, lights };
+	return { models, edges, vertices, others, lights };
 }
 
 /**
@@ -505,18 +514,46 @@ export function renderCapture({ renderer, scene, liveCamera, liveTarget, bodies,
 				disposable.push(edgeMat);
 				for (const obj of parts.edges) setMaterial(obj, edgeMat);
 			}
-			for (const pts of parts.points) {
+			// Vertices: enlarged, and drawn FLAT in the edge colour. The overlay
+			// bakes the theme's vertex colour and the user's hover and selection
+			// into a per-vertex `color` attribute (VertexOverlay.svelte), so
+			// leaving `vertexColors` on is the one way hover still reached an
+			// agent image. Opaque too: a 0.9 alpha blends the point with whatever
+			// is behind it and puts a colour in the picture that the legend
+			// cannot explain.
+			for (const pts of parts.vertices) {
 				const mat = /** @type {any} */ (pts).material;
-				if (mat && typeof mat.size === 'number') {
-					const was = mat.size;
-					mat.size = AGENT_VERTEX_SIZE;
-					restore.push(() => {
-						mat.size = was;
-					});
-				}
+				if (!mat) continue;
+				const was = {
+					size: mat.size,
+					vertexColors: mat.vertexColors,
+					color: mat.color?.clone(),
+					transparent: mat.transparent,
+					opacity: mat.opacity
+				};
+				if (typeof mat.size === 'number') mat.size = AGENT_VERTEX_SIZE;
+				mat.vertexColors = false;
+				mat.color?.set(AGENT_EDGE_COLOR);
+				mat.transparent = false;
+				mat.opacity = 1;
+				mat.needsUpdate = true;
+				restore.push(() => {
+					mat.size = was.size;
+					mat.vertexColors = was.vertexColors;
+					if (was.color) mat.color.copy(was.color);
+					mat.transparent = was.transparent;
+					mat.opacity = was.opacity;
+					mat.needsUpdate = true;
+				});
 			}
-			// The orbit pivot marker is an artefact of the user's gesture.
-			for (const h of parts.helpers) setVisible(h, false);
+			// Everything that is not a body, its edges or its vertices leaves the
+			// image: the datum planes and the origin triad (theme colours, and the
+			// triad's opaque Z arrow pierces a part standing on the XY plane and
+			// paints over its top face), the inactive-sketch overlay, the orbit
+			// pivot. §9.1's contract is that the legend explains every colour in
+			// an agent capture, which it cannot do for decoration — and the
+			// sketches have their own argument coming in V2.
+			for (const obj of parts.others) setVisible(obj, false);
 		} else {
 			// Shaded: the lights are aimed in CAMERA space every frame from the LIVE
 			// camera (Lighting.svelte). A capture through another camera must re-aim
@@ -566,6 +603,7 @@ export function renderCapture({ renderer, scene, liveCamera, liveTarget, bodies,
 			renderer.render(scene, camera);
 			pixels = new Uint8Array(rw * rh * 4);
 			renderer.readRenderTargetPixels(target, 0, 0, rw, rh, pixels);
+			window.__captureProbe = { scene, captureCamera: camera, renderer, visibleDuring: (() => { const r = []; scene.traverse((o) => { if (o.isMesh || o.isLine || o.isPoints || o.isSprite) { const m = Array.isArray(o.material) ? o.material[0] : o.material; r.push({ t: o.type, wt: o.userData?.waffleType ?? null, v: o.visible, c: m?.color?.getHexString?.() ?? null }); } }); return r; })() };
 	} finally {
 		renderer.setRenderTarget(wasTarget);
 		target.dispose();
