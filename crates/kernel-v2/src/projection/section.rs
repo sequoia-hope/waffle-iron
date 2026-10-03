@@ -533,15 +533,17 @@ fn project_in_plane_ellipse(
     };
     let t0 = t_of(start);
     let t1raw = t_of(end);
-    // CCW sweep from `t0` to `t1` about `normal`; a closed arc (start == end)
-    // is the full turn.
-    let mut sweep = t1raw - t0;
-    while sweep <= 0.0 {
-        sweep += std::f64::consts::TAU;
-    }
-    if !sweep.is_finite() {
+    if !(t0.is_finite() && t1raw.is_finite()) {
         return None;
     }
+    // CCW sweep from `t0` to `t1` about `normal`, lifted into `(0, 2π]`; a
+    // CLOSED arc (`start == end`, difference 0) is the full turn. `rem_euclid`
+    // rather than a `while` that adds `2π`: the correction is arithmetic, not a
+    // search, and a loop driven by float data is one bad input from spinning.
+    let sweep = match (t1raw - t0).rem_euclid(std::f64::consts::TAU) {
+        s if s > 0.0 => s,
+        _ => std::f64::consts::TAU,
+    };
     let (s0, s1) = {
         let (a, b) = (sense * t0, sense * (t0 + sweep));
         if a <= b {
@@ -647,6 +649,13 @@ pub struct LoopDefects {
     /// contract D1c's [`waffle_types::kernel::projection::ProjectionDeclines`]
     /// carries).
     pub tangency_declines: u32,
+    /// Whether the crossing search ran out of its work budget before finishing
+    /// — which makes `self_crossings` an UNDER-report rather than a count.
+    ///
+    /// Reported for the same reason the tangencies are: a loop of thousands of
+    /// polyline pieces (a surface-pair cap edge on a gear) could otherwise
+    /// exhaust the budget and come back looking clean.
+    pub budget_exhausted: bool,
 }
 
 /// Measure [`LoopDefects`] of one cap loop, `band` in the loop's own units.
@@ -725,6 +734,7 @@ pub fn loop_defects(curves: &[Curve2], band: f64) -> LoopDefects {
             }
         }
     }
+    out.budget_exhausted = budget == 0;
     out
 }
 

@@ -320,6 +320,13 @@ fn the_section_oracle_holds_over_the_whole_assay_corpus() {
                             d.unmatched_ends
                         ));
                     }
+                    if d.budget_exhausted {
+                        problems.push(format!(
+                            "{name}: cap loop {li} ({} curve(s)) exhausted the crossing \
+                             search's budget — its simplicity was not measured",
+                            l.curves.len()
+                        ));
+                    }
                     if d.self_crossings > 0 {
                         problems.push(format!(
                             "{name}: cap loop {li} ({} curve(s), exact={}) crosses itself {} \
