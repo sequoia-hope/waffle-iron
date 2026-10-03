@@ -766,24 +766,20 @@ guessing one from the expression would reintroduce the coercion P1 removes.
 Both `unit` and `comment` serialize only when present, so no document's
 bytes change.
 
-**The reader floor was NOT moved, and that is a call worth re-examining.**
-`FORMAT_VERSION` and `MIN_READER_VERSION` stay at 7. Unlike N1's `names`,
-nothing here is a new enum variant inside a field an old reader must parse,
-so a v7 reader does not fail — it ignores `unit` and `comment` (serde drops
-unknown fields; `DesignParameter` has no unknown-key preservation). But
-`docs/FILE_FORMAT.md` §4's practiced rule is stricter than that: v5
-(`GeomRef.scope`) and v6 (`Sketch.plane_x_axis`) both moved the floor for
-purely additive optional fields, precisely because an old reader would DROP
-them and build something different. The reason P1 is not obviously the same
-case is the DIRECTION of the difference: dropping `plane_x_axis` rotates a
-correct document, whereas dropping `unit` can only turn a P1 refusal back
-into the pre-P1 silent coercion — a document that builds cleanly under P1
-builds identically without the field, because `unit` never changes a
-magnitude, only what is allowed. A document saved mid-error is the case
-that differs. The call was left at 7 rather than bumped here because the
-version constants are global and `specs/agent_mechanical_design.md` §14
-scopes P1 to `feature-engine`; the file-format owner should settle it, and
-`docs/FILE_FORMAT.md` §4 and §6 want a row either way.
+**The reader floor MOVED to 8** (settled in review, 2026-10-03).
+`DesignParameter.unit` is additive and defaulted, and serde drops an
+unknown key, so a v7 reader does not FAIL on it — but
+`docs/FILE_FORMAT.md` §13.3 also bumps for "a new field that a reader
+must not silently ignore", and this is one.
+`crates/feature-engine/tests/param_unit_floor.rs` measures why: ONE
+document with `unit: "Angle"` on a parameter a depth reads builds a 4 mm
+extrude under a reader that knows the field (the depth is refused and
+left alone) and a 90 mm extrude under one that drops it. One file, two
+solids — the same harm shape as v5's `GeomRef.scope` and v6's
+`Sketch.plane_x_axis`. The half of the original argument that holds is
+pinned alongside it: a document that builds cleanly builds
+bit-identically without the field, because `unit` never changes a
+magnitude. §4 has a v8 row and §13.3 records the reasoning.
 
 **Compatibility, measured.** A census of all 342 tracked `.waffle` files
 (assay corpus, GUI fixtures, harness fixture, shipped examples, root
@@ -813,10 +809,9 @@ suffixes, `25deg` already took that route. Both files say so now.
 
 Still open:
 
-- *The shipped WASM bundle predates this.* `app/static/pkg` was not rebuilt,
-  so the page keeps the pre-P1 preview until it is. The new
-  `ExpressionEvaluated.dimension` is optional in the schema, so the page
-  degrades rather than breaks.
+- ~~*The shipped WASM bundle predates this.*~~ Rebuilt in review
+  (fingerprint `ab0f4097…`), because the v8 floor made it load-bearing for
+  the two GUI specs that assert `min_reader_version`.
 - *No dialog asks for a dimension yet.* `EvaluateExpression` takes an
   optional `dimension` and `expression_evaluate` exposes it, but
   `ExtrudeDialog`, `RevolveDialog` and `DimensionInput` still call it
@@ -825,6 +820,34 @@ Still open:
 - *`expr::evaluate` still discards the dimension.* It is kept for callers
   that genuinely want a number, and is documented as such; every
   meaningful field uses `evaluate_quantity` plus an `as_*` boundary.
+
+Found and fixed in review (2026-10-03):
+
+- *An oversized expression overflowed the stack.* Parser and evaluator are
+  both recursive and nothing bounded either: a 3 000-deep parenthesis nest,
+  a 4 000-term `1+1+…` chain and a 4 000-long unary run each aborted the
+  process (in WASM, a trap that kills the engine). Now
+  `ExprError::TooComplex`, bounded by `MAX_LEXEMES` (1024) and `MAX_DEPTH`
+  (64). Pre-existing, not a P1 regression.
+- *An overflowing dimension exponent was clamped.* A clamped exponent is a
+  wrong dimension a field can still accept. `Dim::compose`/`scaled` now
+  return `None` and the evaluator makes it a typed error.
+- *The preview could accept what the rebuild refuses.* `cached_env`
+  reconstructed a dimension from the declared `unit`, so an undeclared
+  parameter whose expression commits one (`width = "2cm"`) came back
+  uncommitted. The evaluated dimension is cached on the parameter now
+  (`DesignParameter::tag`, `serde(skip)`).
+- *The rules table.* `expr::dim`'s module docs now state every dimension
+  rule, including the judgement call: `25deg / 1deg` is a committed ratio
+  and a depth refuses it.
+- *No differential oracle existed.* The corpus has zero expressions, so
+  nothing measured the "grammar unchanged" claim.
+  `crates/feature-engine/tests/expr_differential.rs` carries the pre-P1
+  evaluator verbatim and compares over 200 generated expressions: 107 agree
+  bit-for-bit, 54 refused by both, 39 newly a dimension error, zero
+  divergences. A BARE trig argument still means degrees.
+- *`rad` newly reserves a plausible parameter name* (`rad` for a radius was
+  legal before P1). No repo file is affected; pinned as a rule.
 - *`Dim` carries only length and angle exponents.* Mass, time and
   temperature are not modelled; P4's `mass(…)` will need the vector
   widened.
