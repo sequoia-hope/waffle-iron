@@ -203,7 +203,7 @@ closed region, hence inside its bounding box, so an EXPLICIT patch vertex
 strictly outside that box refutes the label outright. No tolerance, no band,
 and it cannot false-positive on a true label, so every soundly-classified
 input is byte-identical (verified: cherchi-rs, yang-rs and kernel-v2 suites
-all green; F0064 and R0070 hold SUPPORTED_CORRECT). It fires on both broken
+all green; F0064 (60.2 s), R0070 (47.9 s) and F0072 (724.9 s) hold SUPPORTED_CORRECT). It fires on both broken
 orientations of the fixture, and it fired on one further input — the
 `tpi_xcrossing` reference-parity fixture, whose inputs the suite's own
 `EXCLUDED_FIXTURES` already documents as violating the labeling stage's
