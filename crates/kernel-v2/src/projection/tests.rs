@@ -464,6 +464,15 @@ fn a_rims_circle_collapses_to_a_segment_seen_edge_on() {
     }
 }
 
+/// The ELLIPSE reconstruction, at the unclassified edge pass: an obliquely
+/// seen rim is one full ellipse of the right axes.
+///
+/// Through `project` this would be a test of D1c's split instead — an oblique
+/// cylinder's far rim is tangent to both its silhouette rulings and is cut at
+/// each, so the classified view carries the rim as two arcs. It passed at
+/// D1c's landing only because one of the two contacts was not split, which
+/// `an_oblique_cylinders_far_rim_is_hidden_over_exactly_half_its_length` is
+/// now the pin for.
 #[test]
 fn a_rims_circle_becomes_an_ellipse_seen_obliquely() {
     let mut a = KernelV2Adapter::new();
@@ -476,9 +485,7 @@ fn a_rims_circle_becomes_an_ellipse_seen_obliquely() {
         dir: [0.0, theta.sin(), -theta.cos()],
         up: [0.0, 0.0, 1.0],
     };
-    let view = a
-        .project(&solid, &frame, &ProjectOpts::default())
-        .expect("cylinder projects");
+    let view = edge_view(&a, &solid, frame);
 
     let ellipses: Vec<&Curve2> = view
         .curves

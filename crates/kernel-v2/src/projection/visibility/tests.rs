@@ -854,3 +854,180 @@ fn a_degenerate_point_curve_survives_classification() {
     }
     assert_eq!(v.declines.depth_unliftable, 0);
 }
+
+// ---------------------------------------------------------------------------
+// the piece whose visibility is NOT constant along it
+// ---------------------------------------------------------------------------
+
+/// `RECAST_FRACTIONS` rests on "visibility is constant along a piece", which
+/// is true only where the split cut the piece at EVERY crossing — and the
+/// split declines some of them (`split_tangency`, `silhouette_off_face`, the
+/// fold an edge-on conic discards). Where the premise fails the re-cast could
+/// quietly pick the other side's answer, so the premise is CHECKED rather than
+/// trusted: a second and third decisive cast elsewhere on the piece have to
+/// agree with the first, and a disagreement is counted as
+/// `piece_spans_change`.
+///
+/// The configuration is the premise's own failure, built directly rather than
+/// waited for: one curve handed to `classify` with nothing to cross, so
+/// nothing is split, running from outside a box's footprint to well under it.
+/// Its midpoint is behind the box and its `0.2` probe is not.
+#[test]
+fn a_piece_spanning_a_visibility_change_is_counted_and_never_voted_on() {
+    let mut a = KernelV2Adapter::new();
+    let side = 0.020;
+    let solid = make_box_at(&mut a, (0.0, 0.0, 0.0), (side, side, side));
+    let (arena, sid) = a.arena_of(&solid).expect("a live solid");
+    let frame = ViewFrame::looking_along([0.0, 0.0, -1.0]);
+    let basis = frame.basis().expect("an axis view has a basis");
+
+    // Behind the box (the top view's depth is −z, so below it is farther),
+    // from `x = −0.005` (clear of the footprint) to `x = +0.015` (under it).
+    let ends = [
+        Point3::new(-0.005, 0.010, -0.005),
+        Point3::new(0.015, 0.010, -0.005),
+    ];
+    let (p0, _) = basis.project(ends[0].as_array());
+    let (p1, _) = basis.project(ends[1].as_array());
+    let lifted = vec![super::LiftedCurve {
+        curve: ProjectedCurve {
+            geometry: Curve2::Line { start: p0, end: p1 },
+            visibility: Visibility::Visible,
+            kind: CurveKind::Edge,
+            source: None,
+            depth: None,
+        },
+        lift: ends.to_vec(),
+    }];
+
+    let mut declines = ProjectionDeclines::default();
+    let out = super::classify(arena, sid, &basis, lifted, 64, &mut declines).expect("classify");
+
+    assert_eq!(out.len(), 1, "nothing to cross, so nothing to split");
+    assert_eq!(
+        declines.piece_spans_change, 1,
+        "the piece covers both states and must say so: {declines:?}"
+    );
+    // And the verdict is the one the classification DECIDED at — the midpoint,
+    // which is under the box — not a majority over the probes.
+    assert_eq!(out[0].visibility, Visibility::Hidden);
+    assert!(
+        out[0].depth.and_then(|d| d.occluder).is_some(),
+        "a hidden piece names the occluder it was decided against"
+    );
+    assert_eq!(
+        declines.total() - declines.piece_spans_change,
+        0,
+        "nothing else is declined here: {declines:?}"
+    );
+}
+
+/// The counter is not free to fire whenever it likes: a view whose split lost
+/// nothing spans nothing, on every solid and every direction.
+///
+/// The condition is the invariant rather than a bare zero, and it is the whole
+/// claim `RECAST_FRACTIONS` needs: a piece's visibility can only fail to be
+/// constant if some mechanism lost the crossing where it changes, and every
+/// such mechanism is itself counted.
+#[test]
+fn a_view_that_declines_nothing_else_spans_no_change() {
+    let mut a = KernelV2Adapter::new();
+    let box_ = make_box(&mut a, 0.040, 0.030, 0.010);
+    let cyl = make_cylinder(&mut a, (0.0, 0.0), 0.008, 0.0, 0.020);
+    let frustum = {
+        let (profile, positions) = crate::projection::tests::rect_profile(0.030, 0.020);
+        let faces = a
+            .make_faces_from_profiles(
+                &[profile],
+                [0.0, 0.0, 0.0],
+                [0.0, 0.0, 1.0],
+                [1.0, 0.0, 0.0],
+                &positions,
+            )
+            .expect("rectangle stages");
+        a.extrude_face(faces[0], [0.0, 0.0, 1.0], 0.012)
+            .expect("plate")
+    };
+    for (name, solid) in [("box", &box_), ("cylinder", &cyl), ("plate", &frustum)] {
+        for dir in [
+            [0.0, 0.0, -1.0],
+            [2.0, 3.0, 5.0],
+            [1.0, 0.0, 0.0],
+            [0.0, -1.0, -0.4],
+            [-2.0, -3.0, -5.0],
+        ] {
+            let v = view(&a, solid, dir);
+            if v.declines.total() - v.declines.piece_spans_change == 0 {
+                assert_eq!(
+                    v.declines.piece_spans_change, 0,
+                    "{name} along {dir:?} lost no crossing, so no piece can \
+                     span a change: {:?}",
+                    v.declines
+                );
+            }
+        }
+    }
+}
+
+/// An oblique cylinder's far rim is hidden over EXACTLY half its length, for
+/// every non-axial direction, and the reason is closed form: a point of that
+/// rim lies on the lateral surface, so the ray toward the viewer enters the
+/// solid exactly when the sight direction's radial component at that point
+/// points inward — true on exactly half the circle, whatever the height or the
+/// obliquity. An ellipse's arc over any half turn is half its perimeter, so
+/// half the arc is half the length.
+///
+/// `a_cylinder_seen_obliquely_splits_its_far_rim_into_two_equal_halves` checks
+/// the same solid along `[0, −1, −0.4]`, where the two halves are symmetric
+/// about the `v` axis. This one is the generic direction, and it is what the
+/// `piece_spans_change` counter found: the far rim is tangent to BOTH of its
+/// silhouette rulings, and the split only cut it at the one whose quadratic
+/// discriminant happened to come out positive, so a third of the hidden arc
+/// was drawn solid (0.0150 against 0.0228 along `[2, 3, 5]`).
+#[test]
+fn an_oblique_cylinders_far_rim_is_hidden_over_exactly_half_its_length() {
+    let mut a = KernelV2Adapter::new();
+    let (radius, height) = (0.008, 0.020);
+    let solid = make_cylinder(&mut a, (0.0, 0.0), radius, 0.0, height);
+    for dir in [
+        [2.0, 3.0, 5.0],
+        [0.0, -1.0, -0.4],
+        [-1.0, 0.4, -2.0],
+        [3.0, -1.0, 1.0],
+    ] {
+        let v = view(&a, &solid, dir);
+        let rims: Vec<KernelId> = sources(&v, CurveKind::Edge)
+            .into_iter()
+            .filter(|s| {
+                v.curves.iter().any(|c| {
+                    c.source == Some(*s)
+                        && matches!(c.geometry, Curve2::Circle { .. } | Curve2::Ellipse { .. })
+                })
+            })
+            .collect();
+        assert_eq!(rims.len(), 2, "two rims along {dir:?}, got {rims:?}");
+        let halves: Vec<(f64, f64)> = rims
+            .iter()
+            .map(|&s| {
+                (
+                    length_of(&v, s, Visibility::Visible),
+                    length_of(&v, s, Visibility::Hidden),
+                )
+            })
+            .collect();
+        // One rim whole and visible (the near one: its ray leaves the solid
+        // through the end it sits on, whichever way it turns), the other
+        // hidden over half of itself.
+        let whole = halves.iter().filter(|(_, h)| *h == 0.0).count();
+        assert_eq!(whole, 1, "along {dir:?}: {halves:?}");
+        let (vis, hid) = *halves
+            .iter()
+            .find(|(_, h)| *h > 0.0)
+            .expect("one rim is split");
+        assert!(
+            close(vis, hid, 1e-6),
+            "along {dir:?} the far rim's visible {vis} and hidden {hid} are \
+             not halves of each other"
+        );
+    }
+}

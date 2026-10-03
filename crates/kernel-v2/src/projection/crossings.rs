@@ -493,6 +493,34 @@ fn segment_conic(
     let q_min = qc - qb * qb / (4.0 * qa);
     let grazes = q_min.abs() <= 2.0 * n.band_scale && s_min >= -ms && s_min <= 1.0 + ms;
     if disc < 0.0 {
+        // A contact the quadratic says the segment misses — but by less than
+        // the band, so the two really touch and the sign of `disc` is a float
+        // residual rather than a geometric fact. SPLIT at the contact anyway,
+        // at the quadratic's own exact minimizer, and still count the decline.
+        //
+        // Not doing so made the split depend on which way that residual fell,
+        // and the asymmetry is visible on the plainest fixture there is: an
+        // oblique cylinder's far rim is tangent to BOTH of its silhouette
+        // rulings, `disc` came out a hair positive at one and a hair negative
+        // at the other, so only one contact was split and the rim's hidden arc
+        // came back 0.0150 against the exact 0.0228 — a third of it drawn
+        // solid. The module docs already give the rule this follows: splitting
+        // at a true tangency makes two pieces of the same visibility that the
+        // MERGE rejoins, which costs nothing, while not splitting at a contact
+        // that was really a crossing leaves one piece spanning two
+        // visibilities, which is a wrong drawing.
+        if grazes {
+            let s_in = s_min.clamp(0.0, 1.0);
+            let pt = [p[0] + s_in * d[0], p[1] + s_in * d[1]];
+            if let Some(tc) = n.param_of(pt) {
+                let ts = t0 + dt * s_in;
+                out.push(if swapped {
+                    Crossing2 { a: tc, b: ts }
+                } else {
+                    Crossing2 { a: ts, b: tc }
+                });
+            }
+        }
         return u32::from(grazes);
     }
     let root = disc.sqrt();
