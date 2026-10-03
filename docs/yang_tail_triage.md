@@ -571,7 +571,7 @@ ten give those families customers again, at 2–5 ops.
 
 | id | minimal recipe | ops | error text | ×1e-3 / ×1e3 | floor | cost |
 |---|---|---|---|---|---|---|
-| P0013 | `circle:boss star7(0.70):cut` | 2 | `TessellationFailed "ring rejected by CDT (degenerate/self-intersecting)"` — P0002's own shape, different needle ratio | ERROR / ERROR (same class) | 5 180× | 0.6 s |
+| P0013 | `circle:boss star7(0.70):cut` | 2 | `TessellationFailed "ring rejected by CDT (degenerate/self-intersecting)"` — **NOT P0002's shape** (anchored 2026-10-03, see below); half-converted, the open step is the §4.3.3 guard flip | ERROR / ERROR (same class) | 5 180× | 0.6 s |
 | P0014 | `convex5:boss gear10:rev-cut` | 2 | Stage-4 `LocalRefinementRequired` around vertex **4294967295** (u32::MAX — a sentinel, not a vertex). **ANCHORED 2026-10-03 (evening), still ERROR**: the §4.4.1(a) unzip at `stage4_correct.rs:14388`, rooted in a 2.73e-13 (2-ULP) un-relocated ARRANGEMENT twin pair — a DIFFERENT locus from P0015; owner = the producer-side weld | **CORRECT** / ERROR (same class) | 3.09e6× | 77.6 s |
 | P0015 | `convex4:boss gear27:boss convex5:rev-cut` | 3 | Stage-4 `RelocationCrossedCarrierVertex` (the R0085 family). **CONVERTED 2026-10-03 (evening)**: the §4.5.2 certificate's demand (159.37) sat past the ladder's ceiling and was read as a PROOF of futility ⇒ zero rungs; the op converges at `d_ε/32`. Oracles adjudicated, `derived_meta` cleared | ERROR / ERROR (same class) | 648× | 13.9 s |
 | P0016 | `convex4:boss convex4:rev-cut convex3:cut` | 3 | Stage-3 `AmbiguousCurve { candidates: 0, matched: 0 }` — **zero** candidates, so no curve was proposed at all | ERROR / ERROR (same class) | 3e4× | 0.4 s |
@@ -590,6 +590,66 @@ on this box. **P0014 is the only one NOT pinned in
 build that gate also runs in) it is beyond the "a pin must be CHEAP" policy,
 the same disposition as R0044 and F0082; `full_corpus_categorized` and the
 committed `results.json` carry its verdict.
+
+#### P0013 — ANCHORED 2026-10-03; HALF-LANDED, open step = the §4.3.3 guard flip
+
+Full write-up: `specs/yang_p0013_tip_land_under_the_chord.md`. The headline
+is that the triage line above was WRONG about the family: P0013 is **not**
+P0002's shape, and nothing about the §4.3.3 own-root verdict touches it.
+
+**Anchor.** The exact 7-point star is ENTIRELY INSIDE the exact boss
+cylinder; the closest tip,
+`T = (1.6307152271934494e-2, 1.4192650361907672e-2)`, clears the wall
+`r = 2.1627665069443046e-2` by a **land of 9.280774694829519e-6**. The
+correct output is the cylinder with a star through-hole and that 9.28 µm
+land — no intersection curve at the tip at all. Two independent chord bands
+each destroy it, and each has to be fixed on its own (measured: natural×128
+and 128×71 both still ERROR; d_eps/128 × N=128 is **SUPPORTED_CORRECT,
+1.5 s, all checks passed**):
+
+- **Stage 1.** `YANG_FACE_CENSUS=1`: the boss mesh is 52 tris / 3 faces
+  = `4N−4` ⇒ **N = 14**, sagitta 5.4220e-4 — 58× the land — so the 14-gon
+  has the tip poking THROUGH the boss and Stage 2 mints the crossing. A
+  Yang §4.3.3 Case IV. `YANG_433_PHANTOM=1` judges only half the minted
+  wedge's four corners (`phantom=2 curved_edge=2`), and both refuted ones
+  report `clearance=Some(0.0)`: the clearance is a 65-sample Lipschitz
+  bound `min_d − len/128`, and `len/128 = 4.045e-5` SWAMPS a 9.28e-6 land
+  on a 5.18e-3 edge. That is also why the §4.3.3 density guard
+  under-derived (`req=Some(34)`, a demand from a different cluster
+  entirely). Worse, the loop certificate is structurally blind here: the
+  wedge's z = 0 corners continue into the star outline's REAL intersection
+  curve, so `certify_phantom_loops`' CLOSED-component requirement never
+  holds — **a phantom BUMP on a real curve, not an isolated loop.**
+  Forcing `CURVED-EDGE → Phantom` as a diagnostic does not change it.
+  Output: FaceId(19) carries one merged 88-point loop (75 circle + 13 star;
+  the tip vertex is gone) and the relocation lands the two minted vertices
+  1.57e-5 apart in INVERTED angular order, so the ring is a bow-tie
+  (`KV2_RING_REJECT_PROBE=1`: four proper crossings, edges 0/13, 0/14,
+  13/87, 14/87).
+- **Render.** Refine the operands (`YANG_452_ROUNDS=128`/`256`, both
+  ADOPTED with `unpaired=0 improper=0 fires=0`) and the B-Rep becomes
+  CORRECT (`outer_len=71 holes=1`) — and the CDT still refuses it, because
+  the render tessellation samples the boundary as the inscribed 71-gon
+  whose sagitta 2.1169e-5 also exceeds the land, so the chord polygon cuts
+  inside the hole and the rings cross.
+
+**Landed.** (P1) `segment_cylinder_clearance` — the exact closed-form
+segment↔cylinder distance (`ρ` convex ⇒ `min|ρ−r| = r − max(ρ(0), ρ(1))`),
+wired into `segment_face_graze_n`; the guard now derives **N = 152**
+(`[edge-graze-guard] req=Some(152)`), cones keep the sampled bound
+byte-identically. (P4) `kernel_v2::tessellate::loop_conformity_segment_count`
+— the render chord density derived from each planar face's own loop
+clearance, `N = ⌊π/arccos(1 − clearance/r)⌋ + 1`, global (watertightness
+needs a shared rim `N`), self-limiting, fail-closed at 4096
+(`KV2_LOOP_CONFORMITY face=FaceId(19) clearance=9.280774694829519e-6
+needed N=108`).
+
+**Verdict now.** `YANG_433_GUARD=1` ⇒ **`P0013: SUPPORTED_CORRECT (1.6s) —
+all checks passed`**; default path still the same loud ERROR. **Open step:
+flipping that guard ON, which needs the full-corpus proof its 2026-08-27
+broad-form flip was refused on (P1 changes what it derives, so neither
+direction of that measurement transfers).** No full-corpus run was taken
+this session (another assay held the box).
 
 ### Four findings RETIRED, with reasons
 

@@ -1570,8 +1570,22 @@ fn smoke_corpus_boundary_categories() {
         // `derived_meta`; a conversion moves the pin.
         //
         // P0013 `ring rejected by CDT` (2 ops: circle boss, 7-point star cut
-        // at needle ratio 0.70) — P0002's own recipe shape on a different
-        // point count, so it is the residue of P0002's conversion.
+        // at needle ratio 0.70). ANCHORED 2026-10-03 and HALF-LANDED — spec
+        // `specs/yang_p0013_tip_land_under_the_chord.md`, deviation N67. It
+        // is NOT P0002's shape: the exact star is ENTIRELY INSIDE the exact
+        // cylinder (closest tip clears the wall by a 9.280774694829519e-6
+        // LAND) and two independent chord bands each destroy it — the
+        // Stage-1 14-gon (sagitta 5.4220e-4) pushes the tip through the boss
+        // (a §4.3.3 Case IV whose phantom is a BUMP on a REAL intersection
+        // curve, so the closed-loop rule-out cannot see it), and the render
+        // 71-gon (sagitta 2.1169e-5) cuts inside the output cap's hole. The
+        // render half is fixed (`loop_conformity_segment_count`, N = 108
+        // here) and the Stage-1 guard now derives the right N = 152
+        // (`segment_cylinder_clearance`) — but that guard is still gated
+        // (`YANG_433_GUARD=1`, where this case IS SUPPORTED_CORRECT) pending
+        // the full-corpus proof its 2026-08-27 flip was refused on. The
+        // end-to-end pin for the landed halves is
+        // `tests/p0013_tip_land_conformity.rs`.
         ("P0013", Category::Error),
         // P0014 (2 ops: pentagon boss, 10-tooth gear REVOLVE-CUT) ⇒ Stage-4
         // `LocalRefinementRequired` around vertex 4294967295 (u32::MAX — a
