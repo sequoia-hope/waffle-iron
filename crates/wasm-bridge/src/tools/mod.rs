@@ -29,6 +29,7 @@ mod assembly;
 mod author;
 mod export;
 mod inspect;
+mod names;
 mod script;
 mod sketch;
 mod sketch3d;
@@ -64,6 +65,9 @@ pub const MIGRATED: &[&str] = &[
     "feature_reorder",
     "feature_rename",
     "body_rename",
+    "entity_name",
+    "entity_unname",
+    "names_list",
     "rollback_set",
     "parameters_set",
     "import_step",
@@ -114,6 +118,8 @@ pub fn mutates(name: &str) -> bool {
             | "feature_reorder"
             | "feature_rename"
             | "body_rename"
+            | "entity_name"
+            | "entity_unname"
             | "rollback_set"
             | "parameters_set"
             | "import_step"
@@ -256,6 +262,9 @@ fn run(
         "feature_reorder" => author::feature_reorder(state, kb, args),
         "feature_rename" => author::feature_rename(state, kb, args),
         "body_rename" => author::body_rename(state, kb, args),
+        "entity_name" => names::entity_name(state, kb, args, context),
+        "entity_unname" => names::entity_unname(state, kb, args),
+        "names_list" => names::names_list(state, kb, args),
         "rollback_set" => author::rollback_set(state, kb, args),
         "parameters_set" => author::parameters_set(state, kb, args),
         "import_step" => author::import_step(state, kb, args),

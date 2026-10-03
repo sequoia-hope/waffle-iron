@@ -171,6 +171,23 @@ pub enum UiToEngine {
         body_id: String,
         new_name: String,
     },
+    /// Give one entity a name (N1, `specs/agent_mechanical_design.md` §5.2).
+    /// One undo step, no rebuild. The engine re-validates the name and the
+    /// dotted body segment, so a host cannot store an unchecked one.
+    SetEntityName {
+        name: String,
+        named: Box<feature_engine::names::NamedRef>,
+    },
+    /// Remove one entity name (N1).
+    ClearEntityName {
+        name: String,
+    },
+    /// The document's entity names, each with whether it still resolves (N1).
+    /// `body_id` limits the answer to the names of one body.
+    QueryEntityNames {
+        #[serde(default)]
+        body_id: Option<String>,
+    },
     /// Set the rollback index.
     SetRollbackIndex {
         index: Option<usize>,
@@ -659,11 +676,16 @@ pub struct DocumentInfo {
 pub struct ListedFace {
     pub geom_ref: waffle_types::GeomRef,
     pub signature: waffle_types::TopoSignature,
+    /// The N1 entity name pointing at this face, when one does
+    /// (`specs/agent_mechanical_design.md` §5.2: every result carrying a
+    /// `GeomRef` also carries `name`). Absent when the face is unnamed.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub name: Option<String>,
 }
 
 /// One operand of [`UiToEngine::MeasureDistance`] (Q1 §4.3): a whole body, a
-/// face / edge / vertex named by the `GeomRef` `face_list` hands out, or a
-/// free point in space (meters).
+/// face / edge / vertex named by the `GeomRef` `face_list` hands out, an N1
+/// entity name, or a free point in space (meters).
 ///
 /// An axis operand is not in Q1 — the kernel refuses it, typed, rather than
 /// approximating it as a long segment.
@@ -674,9 +696,70 @@ pub struct ListedFace {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum MeasureOperand {
-    Body { body_id: String },
+    Body {
+        body_id: String,
+    },
+    Entity {
+        geom_ref: waffle_types::GeomRef,
+    },
+    Point {
+        point: [f64; 3],
+    },
+    /// An entity or body by its N1 name (`specs/agent_mechanical_design.md`
+    /// §5.2): the name is resolved to the reference it labels, so a measure
+    /// reads whatever the name points at today.
+    Name {
+        name: String,
+    },
+}
+
+/// What an N1 name can be assigned to, or looked up through — the `EntityRef`
+/// of `specs/agent_mechanical_design.md` §5.2.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(tag = "type", rename_all = "snake_case")]
+#[allow(clippy::large_enum_variant)]
+pub enum EntityTarget {
+    /// A face, edge or vertex, by the `GeomRef` `face_list` hands out.
     Entity { geom_ref: waffle_types::GeomRef },
-    Point { point: [f64; 3] },
+    /// A whole body, by the id `model_summary` reports. Naming one sets its
+    /// DISPLAY name (the mechanism `body_rename` already owns), because that
+    /// name is what a dotted entity name's first segment has to match.
+    Body { body_id: String },
+    /// An entity that already has a name — re-labelling, in one step.
+    Name { name: String },
+}
+
+/// One entry of an `EntityNamesListed` answer (N1).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ListedName {
+    pub name: String,
+    pub kind: waffle_types::TopoKind,
+    /// The reference the name points at. `null` for a BODY name, which is a
+    /// display name rather than an entry in the name table (`kind` is
+    /// `Solid` and `body_id` names it).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub geom_ref: Option<waffle_types::GeomRef>,
+    /// The body the name lives in, by persistent body id, when it is known.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub body_id: Option<String>,
+    /// That body's CURRENT display name. A dotted name whose first segment no
+    /// longer equals this has drifted (the body was renamed after the name was
+    /// assigned); the name still resolves, because its identity was never in
+    /// the label.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub body: Option<String>,
+    /// Whether the reference resolves against the geometry as it stands.
+    pub resolves: bool,
+    /// Which reference answered: `pid`, `selector`, or `query` (the authored
+    /// fallback, meaning the persistent id is gone). `null` when the name does
+    /// not resolve, and for a body name.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub resolved_by: Option<feature_engine::names::ResolvedBy>,
+    /// Why it does not resolve, or what the resolver warned about — verbatim.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub warnings: Vec<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub created: Option<feature_engine::types::Provenance>,
 }
 
 /// What a measured closest point lies on (Q1).
@@ -877,6 +960,9 @@ pub enum EngineToUi {
         body_id: String,
         faces: Vec<ListedFace>,
     },
+
+    /// Answer to `QueryEntityNames` (N1), in name order.
+    EntityNamesListed { names: Vec<ListedName> },
 
     /// Answer to `MeasureBody` (ICR-1). Lengths in meters. The bounding box
     /// is taken from the render mesh (chord-inscribed on curved faces).
