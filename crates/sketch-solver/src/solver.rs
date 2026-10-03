@@ -615,9 +615,22 @@ fn reference_residuals(
 /// every one whose rows add no rank to the rows before it.
 ///
 /// Declaration order makes the answer stable and names the LATER duplicate,
-/// which is the one the author just added. The scan costs one rank
-/// computation per constraint and runs only when the system is already known
-/// to be over-determined.
+/// which is the one the author just added.
+///
+/// **COST: this is super-cubic and it is on the interactive solve path.** The
+/// loop rebuilds a `DMatrix` from scratch and runs a full column-pivoted QR
+/// once per constraint, so it is O(rows² · params²). Measured, native release,
+/// pinned-point sketches: 6.1 ms at 25 points, 79.8 ms at 50, **669 ms at
+/// 100** — ~180× the no-walk path and still climbing. Its gate
+/// (`satisfied && rank < rows`) is not the rare case the wording above might
+/// suggest: `rows > rank` holds for any consistent sketch carrying one more
+/// constraint row than it has independent ones, which is ordinary once rails
+/// and dimensions coexist. In WASM this runs on every `pointermove` of a drag.
+///
+/// The fix is algorithmic, not a tolerance or a cap: row dependence falls out
+/// of ONE rank-revealing factorization of the stacked Jacobian's transpose,
+/// and a cap would silently stop reporting redundancy on exactly the large
+/// sketches that need it. Left as-is deliberately rather than band-aided.
 fn redundant_constraints(
     compiled: &[CompiledConstraint],
     driving_index: &[u32],
