@@ -90,7 +90,7 @@ pub(crate) fn encode_edge(canonical: HalfEdgeId) -> KernelId {
     KernelId(TAG_EDGE | canonical.0 as u64)
 }
 
-fn encode_face(f: FaceId) -> KernelId {
+pub(crate) fn encode_face(f: FaceId) -> KernelId {
     KernelId(TAG_FACE | f.0 as u64)
 }
 
@@ -2054,7 +2054,7 @@ impl waffle_types::kernel::KernelProjection for KernelV2Adapter {
                 None => basis,
             };
             out.extend(
-                crate::projection::project_edges(&self.arena, sid, &body_basis, rel_tol).map_err(
+                crate::projection::project_solid(&self.arena, sid, &body_basis, rel_tol).map_err(
                     |e| KernelError::Other {
                         message: format!("projection of `{}`: {e}", body.name),
                     },

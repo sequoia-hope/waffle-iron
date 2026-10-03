@@ -96,6 +96,26 @@ pub fn project_edges(
     Ok(ViewGeometry::new(curves))
 }
 
+/// One solid's whole view: every edge (D1a) followed by every curved face's
+/// silhouette (D1b, [`silhouette::solid_silhouettes`]).
+///
+/// The EDGE curves come first and in [`project_edges`]'s order, so the
+/// `CurveKind::Edge` prefix of a view still zips with
+/// [`crate::extract_edges`]; the silhouettes follow in shell walk order.
+pub fn project_solid(
+    arena: &BrepArena,
+    solid: SolidId,
+    basis: &ViewBasis,
+    rel_chord_tolerance: f64,
+) -> Result<ViewGeometry, KernelV2Error> {
+    let n_seg = crate::tessellate::circle_segment_count(rel_chord_tolerance);
+    let mut geometry = project_edges(arena, solid, basis, rel_chord_tolerance)?;
+    geometry.extend(ViewGeometry::new(silhouette::solid_silhouettes(
+        arena, solid, basis, n_seg,
+    )?));
+    Ok(geometry)
+}
+
 /// One canonical half-edge's curve, projected. `n_seg` is the angular sample
 /// density for the arms that cannot stay analytic.
 pub(crate) fn project_edge(
@@ -314,6 +334,8 @@ fn scaled(v: [f64; 2], s: f64) -> [f64; 2] {
 fn offset(p: Point2, dir: [f64; 2], s: f64) -> Point2 {
     Point2::new(p.x() + dir[0] * s, p.y() + dir[1] * s)
 }
+
+mod silhouette;
 
 #[cfg(test)]
 mod tests;
