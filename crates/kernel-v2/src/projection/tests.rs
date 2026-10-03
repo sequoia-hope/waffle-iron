@@ -860,6 +860,60 @@ fn a_degenerate_view_frame_is_refused_loudly() {
     assert!(format!("{err}").contains("chord tolerance"), "{err}");
 }
 
+/// A mesh-backed imported body is refused BY NAME, the sibling of
+/// `export_step_bodies`' refusal: it never entered the exact arena, so there
+/// are no analytic edges to project, and a wireframe of its triangles would be
+/// a faceted stand-in for a drawing (Invariant A15).
+///
+/// Both callers screen those bodies out before they reach here, so this branch
+/// is the kernel's own floor rather than a path the app takes — which is
+/// exactly why it needs a test of its own.
+#[test]
+fn a_mesh_backed_imported_body_is_refused_by_name() {
+    let mut a = KernelV2Adapter::new();
+    let data = waffle_types::kernel::ImportedBodyData {
+        source_name: "imported.step".to_string(),
+        shells: vec![waffle_types::kernel::ImportedShellData {
+            faces: vec![waffle_types::kernel::ImportedFaceData {
+                surface: waffle_types::kernel::ImportedSurface::Plane {
+                    origin: [0.0, 0.0, 0.0],
+                    normal: [0.0, 0.0, 1.0],
+                },
+                positions: vec![0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0, 0.0],
+                normals: vec![0.0, 0.0, 1.0, 0.0, 0.0, 1.0, 0.0, 0.0, 1.0],
+                indices: vec![0, 1, 2],
+                edge_indices: vec![],
+            }],
+            edges: vec![],
+        }],
+        warnings: vec![],
+    };
+    let imported = a.import_body(&data).expect("mesh-backed import");
+    for err in [
+        a.project(&imported, &ViewFrame::TOP, &ProjectOpts::default())
+            .expect_err("no analytic edges to project"),
+        a.export_dxf(
+            &[ProjectionBody {
+                handle: imported.clone(),
+                name: "board".to_string(),
+                placement: None,
+            }],
+            &ViewFrame::TOP,
+            &ProjectOpts::default(),
+        )
+        .expect_err("and no DXF of it either"),
+    ] {
+        assert!(
+            matches!(
+                &err,
+                waffle_types::kernel::KernelError::NotSupported { operation }
+                    if operation.contains("imported mesh-backed body")
+            ),
+            "{err:?}"
+        );
+    }
+}
+
 #[test]
 fn an_unknown_handle_is_refused() {
     let a = KernelV2Adapter::new();
