@@ -338,7 +338,17 @@ pub fn solve_sketch(sketch: &Sketch) -> SolvedSketch {
     // Solver state as data (§10.2 S2). Computed from the SAME final Jacobian
     // and rank the verdict is made on, so `report.dof` and `report.free`
     // cannot disagree with `status`.
-    let residual_inf = final_residuals.abs().max();
+    // nalgebra's `max` folds with `if a >= b { a } else { b }`, which DROPS a
+    // NaN followed by any finite row — so a sketch whose first residual is NaN
+    // reported `inf = 0` and came back green (`UnderConstrained`, every row
+    // satisfied). A non-finite residual means the system was not solved, and
+    // the verdict has to say so, so NaN propagates into `residual_inf` and
+    // `satisfied` goes false.
+    let residual_inf = if final_residuals.iter().any(|v| v.is_nan()) {
+        f64::NAN
+    } else {
+        final_residuals.abs().max()
+    };
     let satisfied = residual_inf < SOLVE_TOL;
     let dof = n_params.saturating_sub(rank);
     let state_report = SketchSolveReport {
@@ -468,7 +478,11 @@ fn find_conflict_constraints(residuals: &DVector<f64>, row_owner: &[u32]) -> Vec
     // Aggregate the worst offending residual per owning constraint.
     let mut worst: std::collections::HashMap<u32, f64> = std::collections::HashMap::new();
     for (row, &v) in residuals.iter().enumerate() {
-        if v.abs() > SOLVE_TOL {
+        // `NaN > tol` is false, so a non-finite row used to name NOBODY: the
+        // verdict said `OverConstrained` and handed the UI an EMPTY conflict
+        // set, which is the one thing this list exists to rule out. A row that
+        // is not provably within tolerance is an offender.
+        if v.is_nan() || v.abs() > SOLVE_TOL {
             let owner = row_owner[row];
             let entry = worst.entry(owner).or_insert(0.0);
             if v.abs() > *entry {
@@ -541,6 +555,16 @@ fn constraint_residual_rows(
 ) -> Vec<ConstraintResidual> {
     let worst = |cc: &CompiledConstraint| -> f64 {
         let r = cc.residuals(params);
+        // NaN must PROPAGATE. `f64::max` returns the non-NaN operand, so a
+        // plain `acc.max(v.abs())` fold reports a NaN row as `0.0` — and
+        // `0.0` then reads as `satisfied: true`, which is the fabricated zero
+        // the `Option<f64>` on this field exists to avoid. A NaN residual
+        // (a zero-length line under an `OnEntity`, a dimension whose
+        // expression evaluated to NaN) is a real, computed non-finite value:
+        // reporting it keeps `satisfied` false, because `NaN < tol` is false.
+        if r.iter().any(|v| v.is_nan()) {
+            return f64::NAN;
+        }
         r.iter().fold(0.0f64, |acc, v| acc.max(v.abs()))
     };
     sketch

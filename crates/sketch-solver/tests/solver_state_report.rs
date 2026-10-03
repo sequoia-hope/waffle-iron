@@ -634,3 +634,49 @@ fn the_report_round_trips_through_json() {
     let old: SolvedSketch = serde_json::from_value(legacy).expect("a pre-S2 payload still parses");
     assert_eq!(old.report, SketchSolveReport::default());
 }
+
+#[test]
+fn a_non_finite_residual_is_never_reported_as_satisfied() {
+    // A zero-length line (both endpoints on the origin) under an `OnEntity`
+    // divides by its own length, so the constraint's residual is NaN. Three
+    // places used to launder that NaN into a green verdict: the per-constraint
+    // `worst` fold, the `residual_inf` reduction behind `satisfied`, and the
+    // `v.abs() > tol` test in the conflict search. The sketch is authorable
+    // (the bridge and the MCP both accept caller-supplied geometry), so the
+    // report has to stay honest about it rather than fabricate a zero.
+    let entities = vec![
+        point(1, 0.0, 0.0),
+        point(2, 0.0, 0.0),
+        point(3, 0.5, 0.5),
+        line(10, 1, 2),
+    ];
+    let constraints = vec![SketchConstraint::OnEntity {
+        point: 3,
+        entity: 10,
+    }];
+    let solved = solve_sketch(&make_sketch(entities, constraints));
+    let row = &solved.report.residuals[0];
+    assert_eq!(row.kind, "OnEntity");
+    assert!(
+        !row.satisfied,
+        "a NaN residual is not a satisfied constraint: {row:?}"
+    );
+    assert!(
+        row.residual.is_none_or(|r| !r.is_finite()),
+        "the reported residual is either absent or visibly non-finite, not 0.0: {row:?}"
+    );
+    // And whatever verdict the solver reaches, it does not get to claim the
+    // system is solved while naming nobody.
+    assert!(
+        !matches!(solved.status, SolveStatus::FullyConstrained)
+            && !matches!(solved.status, SolveStatus::UnderConstrained { .. }),
+        "a sketch with a NaN residual came back green: {:?}",
+        solved.status
+    );
+    assert!(
+        !solved.report.conflicts.is_empty(),
+        "an unsatisfied verdict names the offending constraint: {:?} {:?}",
+        solved.status,
+        solved.report
+    );
+}
