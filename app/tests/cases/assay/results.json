@@ -1,8 +1,8 @@
 {
-  "errored": 7,
+  "errored": 16,
   "failed": 0,
   "generated": "kernel-v2 (assay_kv2 categorized run)",
-  "passed": 310,
+  "passed": 314,
   "results": [
     {
       "category": "SUPPORTED_CORRECT",
@@ -1929,7 +1929,85 @@
       "detail": "all checks passed",
       "id": "P0009",
       "status": "pass"
+    },
+    {
+      "category": "SUPPORTED_CORRECT",
+      "detail": "all checks passed",
+      "id": "P0010",
+      "status": "pass"
+    },
+    {
+      "category": "SUPPORTED_CORRECT",
+      "detail": "all checks passed",
+      "id": "P0011",
+      "status": "pass"
+    },
+    {
+      "category": "SUPPORTED_CORRECT",
+      "detail": "all checks passed",
+      "id": "P0012",
+      "status": "pass"
+    },
+    {
+      "category": "ERROR",
+      "detail": "1 engine error(s): d33e592c-02cc-436f-bd93-4966866a63d5: operation error: kernel error: boolean operation failed: kernel-v2 boolean_subtract failed: TessellationFailed { face: FaceId(19), reason: \"ring rejected by CDT (degenerate/self-intersecting)\" }",
+      "id": "P0013",
+      "status": "error"
+    },
+    {
+      "category": "ERROR",
+      "detail": "1 engine error(s): b28e8879-bf87-4fdc-adea-4e8f9c48bff9: operation error: kernel error: boolean operation failed: kernel-v2 boolean_subtract failed: BooleanFailed(\"yang-rs: Stage-4 relocation region around vertex 4294967295 is invalid: LocalRefinementRequired\")",
+      "id": "P0014",
+      "status": "error"
+    },
+    {
+      "category": "ERROR",
+      "detail": "1 engine error(s): d848d213-03e1-4265-b19b-b44eccc60b9c: operation error: kernel error: boolean operation failed: kernel-v2 boolean_subtract failed: BooleanFailed(\"yang-rs: Stage-4 relocation region around vertex 149 is invalid: RelocationCrossedCarrierVertex\")",
+      "id": "P0015",
+      "status": "error"
+    },
+    {
+      "category": "ERROR",
+      "detail": "1 engine error(s): 2b867e1e-56f2-42c0-9be3-b7494d5532f2: operation error: kernel error: boolean operation failed: kernel-v2 boolean_subtract failed: BooleanFailed(\"yang-rs: Stage-3 SSI refinement failed for intersection edge (6, 13): AmbiguousCurve { candidates: 0, matched: 0 }\")",
+      "id": "P0016",
+      "status": "error"
+    },
+    {
+      "category": "ERROR",
+      "detail": "1 engine error(s): f2b681be-1c19-4ce7-8e82-a5f4800479f7: operation error: kernel error: boolean operation failed: kernel-v2 boolean_subtract failed: CurvedGeometryMismatch { face: FaceId(28), reason: \"bounded cone patch must have exactly one material-CCW loop\" }",
+      "id": "P0017",
+      "status": "error"
+    },
+    {
+      "category": "ERROR",
+      "detail": "1 engine error(s): 1355b817-bb44-445f-ac6f-02738c6a4694: operation error: kernel error: boolean operation failed: kernel-v2 boolean_subtract failed: CurvedGeometryMismatch { face: FaceId(27), reason: \"bounded cylinder patch must have exactly one material-CCW loop\" }",
+      "id": "P0018",
+      "status": "error"
+    },
+    {
+      "category": "ERROR",
+      "detail": "1 engine error(s): f7e48d14-5a87-4797-aa12-f4e513054acd: operation error: kernel error: boolean operation failed: kernel-v2 boolean_subtract failed: InvalidBooleanOutput(\"full-circle edge sense is underivable (no planar cap use with an aligned plane, no curved use with a readable material sense)\")",
+      "id": "P0019",
+      "status": "error"
+    },
+    {
+      "category": "ERROR",
+      "detail": "1 engine error(s): 08bce8a9-133b-4de5-aafe-ab4f76bae438: operation error: kernel error: boolean operation failed: kernel-v2 boolean_intersect failed: BooleanFailed(\"yang-rs rejected the converted input B-Rep: yang-rs: malformed B-Rep topology: face 0: holed lateral CDT failed: duplicate (coincident) loop vertex in CDT input\")",
+      "id": "P0020",
+      "status": "error"
+    },
+    {
+      "category": "ERROR",
+      "detail": "1 auto-union failure(s): Extrude: Auto-union failed: kernel error: boolean operation failed: kernel-v2 boolean_union failed: SelfIntersectingBooleanOutput { face_a: FaceId(28), face_b: FaceId(32), penetrations: 3 }. Body created as standalone.",
+      "id": "P0021",
+      "status": "error"
+    },
+    {
+      "category": "SUPPORTED_CORRECT",
+      "detail": "all checks passed",
+      "id": "P0022",
+      "status": "pass"
     }
   ],
-  "total": 321
+  "total": 334
 }
