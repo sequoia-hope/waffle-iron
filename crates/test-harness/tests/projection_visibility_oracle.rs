@@ -197,7 +197,106 @@ const INSIDE_REL: f64 = 1e-6;
 /// any reason fails here. A case that stops disagreeing must be removed in the
 /// commit that fixes it — a stale entry is itself a defect, which the second
 /// assertion below enforces.
-const KNOWN_DISAGREEMENTS: [&str; 5] = ["F0059", "F0083", "P0005", "R0047", "R0087"];
+///
+/// And each entry names the KINDS it excuses, so the pin is a signature rather
+/// than a case id. A pinned case that starts failing a different way — its
+/// classification fixed but its projection broken, or a build that stopped
+/// working — fails here like any other case: the quarantine excuses the family
+/// it was opened for and nothing else. `ProblemKind::Build` is never
+/// excusable, which is why no entry lists it.
+const KNOWN_DISAGREEMENTS: [KnownDisagreement; 5] = [
+    KnownDisagreement {
+        case: "F0059",
+        kinds: &[ProblemKind::VisibleWithOccluder],
+        // Un-quarantines when the kernel's ray stops missing a real occluder:
+        // the face in front is not near-parallel to the line of sight, so
+        // there is no band argument available and no tolerance to widen.
+        why: "a visible curve with a face plainly in front of it",
+    },
+    KnownDisagreement {
+        case: "F0083",
+        kinds: &[ProblemKind::HiddenWithNothingInFront],
+        // Un-quarantines when the oracle can resolve the thin feature — a
+        // finer mesh for the buffer, or an exact query — or when the kernel
+        // stops naming that occluder.
+        why: "a hidden curve whose occluder is inside the band this mesh resolves",
+    },
+    KnownDisagreement {
+        case: "P0005",
+        kinds: &[
+            ProblemKind::HiddenWithNothingInFront,
+            ProblemKind::VisibleWithOccluder,
+        ],
+        why: "both families at once",
+    },
+    KnownDisagreement {
+        case: "R0047",
+        kinds: &[
+            ProblemKind::VisibleWithOccluder,
+            ProblemKind::SampleInFrontOfSolid,
+        ],
+        // The projection-level complaint is the one to work first: a sample of
+        // a projected edge cannot sit in front of the solid it belongs to, and
+        // that is wrong before visibility is reached.
+        why: "a visible curve with a face in front, and a sample in front of the whole solid",
+    },
+    KnownDisagreement {
+        case: "R0087",
+        kinds: &[ProblemKind::HiddenWithNothingInFront],
+        why: "a hidden curve whose occluder is inside the band this mesh resolves",
+    },
+];
+
+/// One pinned case, with the families of complaint it is allowed to make.
+struct KnownDisagreement {
+    case: &'static str,
+    kinds: &'static [ProblemKind],
+    why: &'static str,
+}
+
+/// What kind of complaint a problem is.
+///
+/// The sweep records several quite different things in one list, and a
+/// quarantine that excuses a case id excuses all of them — so a pinned case
+/// whose classification got fixed while its tessellation broke would keep the
+/// list satisfied for the wrong reason. Tagging the kind is what makes the pin
+/// a signature.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum ProblemKind {
+    /// The case or the view could not be produced at all: a tessellation, a
+    /// depth buffer, a `project` call, or a view with no curves. Never
+    /// excusable by a quarantine — it is not a disagreement, it is a failure
+    /// to ask the question.
+    Build,
+    /// A sample of a projected edge sits in FRONT of the whole solid, which is
+    /// a projection-level complaint: it is wrong before visibility is reached.
+    SampleInFrontOfSolid,
+    /// A curve tagged `Hidden` that every decided sample says has nothing in
+    /// front of it.
+    HiddenWithNothingInFront,
+    /// A curve tagged `Visible` that every decided sample says has a face in
+    /// front of it.
+    VisibleWithOccluder,
+}
+
+impl ProblemKind {
+    fn label(self) -> &'static str {
+        match self {
+            ProblemKind::Build => "build",
+            ProblemKind::SampleInFrontOfSolid => "sample-in-front-of-solid",
+            ProblemKind::HiddenWithNothingInFront => "hidden-with-nothing-in-front",
+            ProblemKind::VisibleWithOccluder => "visible-with-occluder",
+        }
+    }
+}
+
+/// The kinds a case is pinned for, or `None` if it is not pinned.
+fn pinned_kinds(case: &str) -> Option<&'static [ProblemKind]> {
+    KNOWN_DISAGREEMENTS
+        .iter()
+        .find(|k| k.case == case)
+        .map(|k| k.kinds)
+}
 
 /// Depth-buffer resolution per side. 512 puts a cell at ~0.2 % of the view's
 /// size, and the per-cell slope band below is what makes the comparison sound
@@ -751,7 +850,7 @@ struct Tally {
     declines: ProjectionDeclines,
     /// Cases with at least one span-a-change curve, and how many.
     spanning_cases: BTreeMap<String, usize>,
-    failures: BTreeMap<String, Vec<String>>,
+    failures: BTreeMap<String, Vec<(ProblemKind, String)>>,
 }
 
 #[test]
@@ -767,7 +866,16 @@ fn every_classified_curve_agrees_with_a_software_depth_buffer() {
     let stride = stride();
     // One case by id, for diagnosing a single disagreement.
     let ids: Vec<String> = match std::env::var("VISIBILITY_ORACLE_CASE") {
-        Ok(one) => all.iter().filter(|id| **id == one).cloned().collect(),
+        Ok(one) => {
+            let picked: Vec<String> = all.iter().filter(|id| **id == one).cloned().collect();
+            // A mistyped id would otherwise sweep nothing, fail nothing and
+            // report a green run.
+            assert!(
+                !picked.is_empty(),
+                "VISIBILITY_ORACLE_CASE={one} names no corpus case"
+            );
+            picked
+        }
         Err(_) => all.iter().step_by(stride).cloned().collect(),
     };
     println!(
@@ -801,14 +909,17 @@ fn every_classified_curve_agrees_with_a_software_depth_buffer() {
             tally.multi_body_cases += 1;
         }
 
-        let mut problems = Vec::new();
+        let mut problems: Vec<(ProblemKind, String)> = Vec::new();
         let mut spanning: std::collections::BTreeSet<u64> = Default::default();
         // One body at a time: D1c classifies each body against its OWN
         // tessellation and says so (`ProjectionDeclines::cross_body`), so a
         // multi-body view's curves are not claims this oracle could check.
         for (bi, handle) in handles.iter().enumerate() {
             let Ok(mesh) = builder.kernel_mut().tessellate(handle, CHORD_REL) else {
-                problems.push(format!("body {bi}: tessellation failed"));
+                problems.push((
+                    ProblemKind::Build,
+                    format!("body {bi}: tessellation failed"),
+                ));
                 continue;
             };
             // Every edge's 3-D polyline, once per body, so a sample's own
@@ -821,7 +932,10 @@ fn every_classified_curve_agrees_with_a_software_depth_buffer() {
             for (name, frame) in axis_views() {
                 let basis = frame.basis().expect("an axis view has a basis");
                 let Some(buffer) = DepthBuffer::rasterize(&mesh, &basis) else {
-                    problems.push(format!("body {bi} along {name}: no depth buffer"));
+                    problems.push((
+                        ProblemKind::Build,
+                        format!("body {bi} along {name}: no depth buffer"),
+                    ));
                     continue;
                 };
                 let view =
@@ -831,14 +945,20 @@ fn every_classified_curve_agrees_with_a_software_depth_buffer() {
                     {
                         Ok(v) => v,
                         Err(e) => {
-                            problems.push(format!("body {bi} along {name}: project failed: {e}"));
+                            problems.push((
+                                ProblemKind::Build,
+                                format!("body {bi} along {name}: project failed: {e}"),
+                            ));
                             continue;
                         }
                     };
                 tally.views += 1;
                 tally.declines.merge(&view.declines);
                 let Some(bb) = view.bbox else {
-                    problems.push(format!("body {bi} along {name}: no curves"));
+                    problems.push((
+                        ProblemKind::Build,
+                        format!("body {bi} along {name}: no curves"),
+                    ));
                     continue;
                 };
                 let size = (bb.max.x() - bb.min.x())
@@ -928,11 +1048,14 @@ fn every_classified_curve_agrees_with_a_software_depth_buffer() {
                         // PROJECTION would be wrong before visibility ever
                         // came up.
                         if own < loose.0 - loose_band {
-                            problems.push(format!(
-                                "body {bi} along {name}: a sample of edge {src} at \
-                                 ({u:.6e}, {v:.6e}) sits {:.3e} IN FRONT of the whole \
-                                 solid (band {loose_band:.3e})",
-                                loose.0 - own
+                            problems.push((
+                                ProblemKind::SampleInFrontOfSolid,
+                                format!(
+                                    "body {bi} along {name}: a sample of edge {src} at \
+                                     ({u:.6e}, {v:.6e}) sits {:.3e} IN FRONT of the whole \
+                                     solid (band {loose_band:.3e})",
+                                    loose.0 - own
+                                ),
                             ));
                             continue;
                         }
@@ -1004,12 +1127,19 @@ fn every_classified_curve_agrees_with_a_software_depth_buffer() {
                         (_, false, false) => {}
                         // Decided, and the kernel's tag contradicts it along
                         // the WHOLE piece. The real failure.
-                        (vis, _, _) => problems.push(format!(
-                            "body {bi} along {name}: edge {src} is tagged {vis:?} but every \
-                             decided sample says otherwise — {}; kernel {:?} geom {:?}",
-                            detail.unwrap_or_else(|| "nothing in front anywhere".to_string()),
-                            curve.depth,
-                            curve.geometry
+                        (vis, _, _) => problems.push((
+                            match vis {
+                                Visibility::Hidden => ProblemKind::HiddenWithNothingInFront,
+                                Visibility::Visible => ProblemKind::VisibleWithOccluder,
+                            },
+                            format!(
+                                "body {bi} along {name}: edge {src} is tagged {vis:?} but \
+                                 every decided sample says otherwise — {}; kernel {:?} geom \
+                                 {:?}",
+                                detail.unwrap_or_else(|| "nothing in front anywhere".to_string()),
+                                curve.depth,
+                                curve.geometry
+                            ),
                         )),
                     }
                 }
@@ -1064,8 +1194,8 @@ fn every_classified_curve_agrees_with_a_software_depth_buffer() {
     }
     for (id, problems) in &tally.failures {
         println!("FAIL {id}:");
-        for p in problems {
-            println!("    {p}");
+        for (kind, p) in problems {
+            println!("    [{}] {p}", kind.label());
         }
     }
 
@@ -1073,20 +1203,29 @@ fn every_classified_curve_agrees_with_a_software_depth_buffer() {
     // that found no HIDDEN segment at all: the second check of §5.3 is the
     // whole point of D1c, and a kernel that regressed to D1b's
     // everything-is-visible would satisfy the first check perfectly.
+    // Every complaint that the quarantine does not cover, by its own kind: a
+    // case nobody pinned, or a pinned case failing a way its entry does not
+    // name. That second half is what makes the pin a signature rather than a
+    // blanket excuse for an id.
+    let unexcused: Vec<String> = tally
+        .failures
+        .iter()
+        .flat_map(|(id, problems)| {
+            let pinned = pinned_kinds(id);
+            problems
+                .iter()
+                .filter(move |(kind, _)| !pinned.is_some_and(|ks| ks.contains(kind)))
+                .map(move |(kind, msg)| format!("{id} [{}]: {msg}", kind.label()))
+        })
+        .collect();
+
     if std::env::var_os("VISIBILITY_ORACLE_CASE").is_some() {
         // A single-case run is a diagnostic, not the sweep: the coverage
         // floors below describe the corpus sample and would be meaningless
         // over one document.
-        let unexpected: Vec<&str> = tally
-            .failures
-            .keys()
-            .map(String::as_str)
-            .filter(|id| !KNOWN_DISAGREEMENTS.contains(id))
-            .collect();
         assert!(
-            unexpected.is_empty(),
-            "case(s) the depth buffer contradicts that are not in \
-             KNOWN_DISAGREEMENTS: {unexpected:?}"
+            unexcused.is_empty(),
+            "complaint(s) KNOWN_DISAGREEMENTS does not cover: {unexcused:#?}"
         );
         return;
     }
@@ -1126,28 +1265,38 @@ fn every_classified_curve_agrees_with_a_software_depth_buffer() {
         tally.declines.depth_unliftable, 0,
         "a classified curve could not be lifted to its own depth"
     );
-    let unexpected: Vec<&str> = tally
-        .failures
-        .keys()
-        .map(String::as_str)
-        .filter(|id| !KNOWN_DISAGREEMENTS.contains(id))
-        .collect();
     assert!(
-        unexpected.is_empty(),
-        "case(s) the depth buffer contradicts that are not in \
-         KNOWN_DISAGREEMENTS: {unexpected:?} (their messages are listed above)"
+        unexcused.is_empty(),
+        "complaint(s) KNOWN_DISAGREEMENTS does not cover — either a case nobody \
+         pinned, or a pinned case failing a way its entry does not name: \
+         {unexcused:#?}"
     );
-    // And the ratchet: a pinned case that no longer disagrees must come off the
-    // list in the commit that fixed it, or the list stops meaning anything.
-    // Only cases this run actually SAMPLED can be judged.
-    let fixed: Vec<&str> = KNOWN_DISAGREEMENTS
+    // And the ratchet, both ways: a pinned case that no longer disagrees must
+    // come off the list in the commit that fixed it, and so must a KIND it no
+    // longer exhibits, or the list stops meaning anything. Only cases this run
+    // actually SAMPLED can be judged.
+    let stale: Vec<String> = KNOWN_DISAGREEMENTS
         .iter()
-        .copied()
-        .filter(|id| ids.iter().any(|s| s == id) && !tally.failures.contains_key(*id))
+        .filter(|k| ids.iter().any(|s| s == k.case))
+        .flat_map(|k| {
+            let seen: Vec<ProblemKind> = tally
+                .failures
+                .get(k.case)
+                .map(|ps| ps.iter().map(|(kind, _)| *kind).collect())
+                .unwrap_or_default();
+            k.kinds
+                .iter()
+                .filter(move |want| !seen.contains(want))
+                .map(move |want| {
+                    format!(
+                        "{} no longer shows [{}] ({}) — drop that kind, and the entry \
+                         if it has no kinds left",
+                        k.case,
+                        want.label(),
+                        k.why
+                    )
+                })
+        })
         .collect();
-    assert!(
-        fixed.is_empty(),
-        "these cases no longer disagree with the depth buffer — remove them \
-         from KNOWN_DISAGREEMENTS: {fixed:?}"
-    );
+    assert!(stale.is_empty(), "{stale:#?}");
 }

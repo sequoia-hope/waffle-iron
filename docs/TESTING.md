@@ -614,7 +614,16 @@ visibility sweep also sums the kernel's typed `ProjectionDeclines` over the
 run and prints them by kind; `split_budget`, `cross_body` and
 `depth_unliftable` must be zero, while `ray_grazes_face` and `split_tangency`
 are configurations the corpus genuinely contains and are reported, not
-asserted. A per-primitive half of each oracle runs in the inner loop
+asserted.
+
+The cases the visibility sweep still contradicts are pinned in
+`KNOWN_DISAGREEMENTS`, and each entry names the KINDS of complaint it covers
+along with what un-quarantines it. That makes the pin a signature rather than a
+blanket excuse for a case id: a pinned case failing a way its entry does not
+name — a `project` that started refusing, a tessellation that broke — fails the
+sweep like any other, `ProblemKind::Build` is never excusable, and a KIND a
+case no longer exhibits must come off its entry in the commit that fixed it.
+A per-primitive half of each oracle runs in the inner loop
 (`cargo test -p kernel-v2 --release --lib projection`), where the answers are
 known in closed form.
 
