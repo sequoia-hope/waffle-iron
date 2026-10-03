@@ -78,6 +78,7 @@ pub mod imported;
 pub mod ingest;
 pub mod introspect;
 pub mod journal;
+pub mod measure;
 pub mod profile;
 pub(crate) mod recover;
 pub mod signature;
@@ -106,6 +107,7 @@ pub use euler::{
 pub use ingest::ingest_analytic;
 pub use introspect::{extract_edges, extract_edges_with_chord_tolerance, face_plane, surface_area};
 pub use journal::{descendants, face_lineage, EvoKind, Evolution, FaceLineage, OpTag};
+pub use measure::{distance, distance_along, DistanceResult, On, Target};
 pub use profile::{Profile, ProfileEdge, ProfileRegion};
 pub use signature::{closest_point_on, face_signature, outward_normal_at, surface_type_str};
 pub use step_export::{write_step, StepSolid};

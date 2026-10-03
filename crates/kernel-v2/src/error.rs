@@ -493,6 +493,13 @@ pub enum KernelV2Error {
         face_b: FaceId,
         penetrations: usize,
     },
+
+    /// Q1 of `specs/agent_mechanical_design.md` §4.2
+    /// ([`crate::measure::distance`]): the query cannot be answered as
+    /// asked — an operand with no geometry to measure, or a degenerate
+    /// `along` direction. The payload names the condition. A REQUEST
+    /// error, not a geometry one: nothing about the model is wrong.
+    MeasureInvalidRequest { reason: &'static str },
 }
 
 impl core::fmt::Display for KernelV2Error {
