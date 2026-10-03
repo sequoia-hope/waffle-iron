@@ -43,6 +43,246 @@ after the reconciliation run (release, 8 jobs, 360 s; wall 577 s, F0085
 regression since 2026-08-01 is outstanding (checked over every commit of
 `results.json`).
 
+## 2026-10-03 (late night) — prospector seed 3 (200 candidates) adjudicated: the 32 ERROR rows are **twelve** families at **fifteen distinct STOP sites**; all **three** `wrong[exact_volume]` rows are ORACLE defects (one of them NEW); promoted P0025–P0039; **corpus not re-measured this session**
+
+`PROSPECT_SEED=3 PROSPECT_COUNT=200 PROSPECT_JOBS=8 PROSPECT_BUDGET_SECS=900`
+(spec `specs/assay_prospector.md`) returned **164 SUPPORTED_CORRECT, 32 ERROR,
+3 SUPPORTED_WRONG, 1 TIMEOUT** in 1291 s at 8 jobs — 17 report signatures, 0
+UNSUPPORTED. Every verdict in this section was measured with test binaries
+built at **HEAD `cd2f067f`** (another session's yang-rs edits reached the
+working tree at 20:54, after the 19:55 build, so none of them is in these
+numbers); the fifteen promoted cases were then re-measured on the tree that
+included that session's committed P0020 / N78 work and all fifteen are still
+ERROR, so nothing here depends on which of the two kernels you read it against.
+
+**The one TIMEOUT is not a timeout** — see the last section: run with no CPU
+budget it completes and reads SUPPORTED_WRONG, so the seed's honest histogram
+is **164 C / 32 E / 4 W / 0 T**.
+
+Grouped by error TEXT with the boolean VERB and the "Body created as
+standalone" suffix stripped, the 32 ERROR rows are **twelve** families — the
+seed-2 lesson again, and this time the signature string also split one family
+three ways purely by where it was TRUNCATED. But the families are not the unit
+of promotion: probing each row for its raising SITE (`YANG_LRR_PROBE`, which
+prints `loc=<file>:<line> reason=… v=<vertex>` at every Stage-4
+region-invalid return; `NONMANIFOLD_SITE_PROBE`; `KV2_SELFX_SITE_PROBE`) split
+the twelve families into **fifteen distinct sites**, and that is what was
+promoted — one case per site.
+
+### The three SUPPORTED_WRONG rows are all ORACLE defects — the kernel is right in every one
+
+This is the opposite of seed 2, where all three were real engine defects
+(P0010–P0012). The lesson stands either way: `wrong[exact_volume]` is a bucket
+to open, not a finding, and the oracle invalidates in both directions.
+
+| candidate | kernel | exact | rel | verdict |
+|---|---|---|---|---|
+| index 29 (3 ops, `star4(0.71):boss convex6:boss circle:cut`) | 4.880578e-9 | 4.584818e-9 | +6.451e-2 (band 5.825e-2) | **ORACLE** — the ledgered cut-auto-reversal hole |
+| index 146 (5 ops, `gear17:boss gear26:boss nonconvex8:cut nonconvex8:boss convex7:cut`) | 5.709784e-6 | 7.246707e-6 | −2.121e-1 (band 8.830e-2) | **ORACLE** — the same hole, on the second of two cuts |
+| index 76 (8 ops, `circle:sym convex4:solo convex8:cut circle:thru nonconvex9:thru convex7:boss circle:cut circle:cut`) | 3.336931e-6 | 3.959683e-6 | −1.573e-1 (band 5.121e-2) | **ORACLE** — a NEW harness defect, reduced to 4 ops |
+
+**Indices 29 and 146 — the cut auto-reversal hole, caught by the chain's own
+note.** Both documents make `ExactChain::from_waffle` emit
+`Extrude: cut auto-reversal decided on the merged body (reverse=false); if the
+previous merge's solids never met, the engine measures the tool body alone and
+decides reverse=true`, which is the harness defect seed 2 ledgered (the chain's
+bbox proxy for a B-Rep-vertex decision, `exact_membership.rs`, "cut
+auto-reversal decided on the merged body"). `FE_CUT_TRACE=1` shows the engine
+traced `reverse=true` on index 29's only cut and on the SECOND of index 146's
+two cuts, i.e. the opposite of the chain's choice in both. Authoring that cut's
+`direction` explicitly — the engine's own traced direction, so neither side
+auto-reverses — leaves the kernel's volume **byte-identical** (4.8805777621034e-9
+and 5.70978370927196e-6) and flips both documents to **SUPPORTED_CORRECT**.
+Authoring the opposite direction on index 29 gives 4.596457e-9, which is the
+chain's own reading to five digits (4.5962e-9 at 512 cells): the two sides were
+modelling different solids, and the chain was modelling the one the engine did
+not build.
+
+**Index 76 — a NEW oracle defect: after a cut ANNIHILATES a body, the exact
+chain applies the next cut to the dead body.** Localized by judging every
+prefix of the document on its own (kernel) against the exact prefix ladder at
+256 and 384 cells:
+
+| prefix | kernel | exact | |
+|---|---|---|---|
+| 0..4 | 1.536624e-6 (1 body) | 1.535010e-6 | agree |
+| 0..5 | 1.442368e-6 | 1.535010e-6 | **first divergence**, −6.0 % |
+
+The op-5 cut is a ThroughAll, so the obvious suspect was depth resolution —
+refuted: re-authoring op 5 as a **Blind** cut with an explicit direction and
+the oracle's own resolved depth (0.010775) keeps the disagreement exactly
+(kernel 1.442026e-6 vs exact 1.535010e-6, the exact reading bit-identical to
+prefix 4 at two resolutions, so its cut removes literally zero cells).
+
+Who is right was then settled **independently of both**, because the geometry
+is closed-form: the prefix-4 body is op 1 alone (a circle r = 7.807911916073907e-3
+on z = 0 extruded symmetrically to |z| ≤ 4.016843214343727e-3 — kernel 1.536624e-6
+= πr²·2d to six digits, and ops 3 and 4 leave it untouched), and the op-5 tool
+is a nonconvex-9 prism whose kernel mesh and oracle reading AGREE on placement
+(volume 3.060112e-7 vs lattice 3.067886e-7; centroid (−3.525e-3, −5.021e-3,
+−3.711e-3) vs (−3.525949e-3, −5.025476e-3, −3.712651e-3)). Ray-cast
+integration of that prism against the analytic cylinder (one ray per (y, z)
+sample on a 400 × 400 grid, exact x-intervals) gives the overlap as
+**9.463250e-8**, against the kernel's removal of **9.4598e-8** — 0.04 % apart,
+the residual being the mesh's chord deficit on the cylinder. The oracle's zero
+is wrong.
+
+The mechanism, reduced to **4 ops** (each judged on the current kernel):
+
+| document | verdict |
+|---|---|
+| cylinder + the same explicit blind cut (2 ops) | **SUPPORTED_CORRECT** — the oracle removes the 9.46e-8 |
+| cylinder + standalone box + that cut (3 ops) | **SUPPORTED_CORRECT**, 2 bodies |
+| cylinder + standalone box + the ThroughAll cut that ANNIHILATES the box + that cut (4 ops) | **SUPPORTED_WRONG** — the oracle removes nothing |
+
+The chain's body list keeps the annihilated body (its prefix-4 readout is
+`bodies=2 body_volumes=["1.5350e-6","0.0000e0"]`) and the next cut lands on it.
+This is the same shape as the already-ledgered "a disjoint Intersect leaves no
+solid and reads CORRECT" hole: a dead body left in the chain's list. Not
+promoted — it is harness, not kernel. The reproducer documents are in the
+session scratchpad (`X76A/B/C.waffle`); re-create them by truncating
+`target/prospect/seed-3/candidates/X00000003-00076.waffle` to features
+[0,1,2,3,6,7,8,9] and authoring feature 9's `direction` and a Blind depth.
+
+### Fifteen promotions, one per distinct STOP site
+
+All fifteen are ERROR-class pins with `derived_meta: true` — the categorizer
+returns before any oracle runs, so **the pin IS the expectation** and a
+conversion moves it. Every one was re-judged under the corpus runner
+(`ASSAY_CASE=<id> single_case`) and is CHEAP: 0.1 s to 10.2 s.
+
+| case | source | ops | error text | SITE (the thing that distinguishes it) | single_case |
+|---|---|---|---|---|---|
+| **P0025** | #126, min 5→4 `convex4:boss circle:boss circle:boss convex3:∩` | 4 | Stage-4 `LocalRefinementRequired` | `stage4_correct.rs:12318` — the PR-KV9 ellipse×ellipse junction relocation, whose two cutting planes are PARALLEL, so `|n₁ × n₂| < MIN_FEATURE_SIZE` and the plane-pair line is underivable. **14 of the 32 ERROR rows raise here** | ERROR 4.5 s |
+| **P0026** | #54, min 5→3 `circle:boss circle:cut convex4:cut` | 3 | Stage-4 `LocalRefinementRequired` | `stage4_correct.rs:13065` — the `surface_pair_endpoint_mix` decline | ERROR 0.8 s |
+| **P0027** | #54 **UN-MINIMIZED** `circle:boss circle:cut convex5:thru circle:cut convex8:thru` | 5 | Stage-4 `LocalRefinementRequired` | `stage4_correct.rs:10805` — `line_line_junction`, a vertex claimed by two DIFFERENT plane-pair line relocations, which the comment there calls out of scope | ERROR 5.2 s |
+| **P0028** | #109, min 5→2 `convex4:boss circle:cut` | 2 | `reassembled output would be non-2-manifold` | `s6-planar-loop-nonplanar` — face 5 vertex 0 sits **3.604e-1** off its own plane against a **3.500e-6** band | ERROR 0.2 s |
+| **P0029** | #109 **UN-MINIMIZED** `convex4:sym convex8:cut convex3:∪ circle:cut nonconvex6:rev-cut` | 5 | the same text | `s4-dc-attr` — a doubled directed edge (17,18) **fwd=2 rev=2** between an A plane and a B plane | ERROR 1.4 s |
+| **P0030** | #72, min 7→3 `convex4:boss circle:rev convex4:boss` | 3 | the same text, auto-union | `s6-curved-empty-cycles: face 0` — a curved face whose reassembly cycle set is EMPTY. A third site for one text | ERROR 0.3 s |
+| **P0031** | #57, min 3→3 `circle:boss nonconvex6:boss star3(0.15):cut` | 3 | `SelfIntersectingBooleanOutput { penetrations: 3 }` | `FaceId(32)` **CYLINDER** × `FaceId(55)` **PLANE**. Not P0021's family (cylinder × cylinder) and not P0007's (the cylinder's rim here IS an `EllipseArc`, so §4.4.2 carried it) | ERROR 1.6 s |
+| **P0032** | #80, min 6→2 `convex5:boss circle:rev-cut` | 2 | `SelfIntersectingBooleanOutput { penetrations: 9 }` | `FaceId(10)` **PLANE** × `FaceId(13)` **TORUS** — the torus arm of the output gate | ERROR 0.3 s |
+| **P0033** | #166, min 5→4 `convex4:boss convex8:rev circle:boss convex4:cut` | 4 | `TessellationFailed "patch triangulation folded (inverted triangle) — KV9-F2"`, `FaceId(45)` | kernel-v2's render tessellator. **This is the signature the un-minimized P0004 lineage was left STOPping on (2026-09-28) with no corpus customer since** | ERROR 2.0 s |
+| **P0034** | #71, min 7→4 `convex4:boss convex6:rev circle:boss circle:thru` | 4 | `TessellationFailed "surface-pair projection left the chord neighborhood"`, `FaceId(29)` | — | ERROR 1.1 s |
+| **P0035** | #90, min 6→2 `convex4:sym circle:boss` | 2 | auto-union `TessellationFailed "patch triangle collapsed at render precision"` | P0001's error text (CONVERTED 2026-09-27 by the §4.5.5 edge-in-plane rule) at a new locus — **two plain bosses** | ERROR 0.1 s |
+| **P0036** | #102, min 7→3 `convex4:boss circle:rev circle:cut` | 3 | `TessellationFailed "ring rejected by CDT (degenerate/self-intersecting)"`, `FaceId(51)` | the text of P0002 AND P0013, both CONVERTED — a third locus | ERROR 0.4 s |
+| **P0037** | #189, min 5→3 `circle:boss circle:cut convex4:boss` | 3 | input rejection `Stage-1 mesh of one operand self-intersects: 17 improper triangle contact(s) (0 unresolved; first between faces 0 and 2) after 4 refinement round(s)` | a face's chord band reaches another face of the SAME solid | ERROR 1.1 s |
+| **P0038** | #129, min 8→4 `convex4:boss convex4:boss circle:boss convex4:cut` | 4 | `malformed B-Rep topology: face 328: bounded lateral patch spans 6.9927 rad of azimuth unwrapped (≥ 2π): no seam wedge for a single-sheet unroll` | a cylinder patch whose own boundary wraps past a full turn | ERROR 7.8 s |
+| **P0039** | #42, min 7→3 `nonconvex9:boss circle:boss gear23:boss` | 3 | `RelocationCrossedCarrierVertex` | `stage4_correct.rs:8605` — P0015's error text (CONVERTED 2026-10-03 evening by letting the §4.5.2 ladder run past its ceiling) with a residual customer on the AUTO-UNION path | ERROR 10.2 s |
+
+**Adjudication, per case** (spec §8): each minimum re-judged on the current
+kernel; its smallest authored 2D segment measured against `MIN_FEATURE_SIZE`;
+the recipe re-judged at ×1e-3 and ×1e3; and the minimum's SITE compared against
+the un-minimized lineage's.
+
+Feature floor — **every promotion is above it**, the tightest being P0039 at
+23.9 × `MIN_FEATURE_SIZE` (2.3862e-5): P0025 2.83e7×, P0026 4.24e6×, P0027
+4.24e6×, P0028 2.97e7×, P0029 2.97e7×, P0030 424×, P0031 4e6×, P0032 2.35e4×,
+P0033 153×, P0034 100×, P0035 1.28e3×, P0036 141×, P0037 2.83e7×, P0038 9.9e5×,
+P0039 23.9×. No seed-3 finding is an A14.2 input-floor artifact.
+
+Scale — **×1e3 keeps the class on all fifteen**. ×1e-3 keeps it on P0025,
+P0026, P0027, P0028, P0029, P0031, P0032, P0033, P0038 and P0039; it changes
+class on four, and on three of those four the change is explained by the input
+itself dropping through the floor (P0030 4.2e-7 ⇒ `face 0 is degenerate
+(zero-area / collinear)`, the A14.2 wall by contract; P0034 1.0e-7 ⇒ `OnAxis`;
+P0036 1.41e-7 ⇒ Stage-3 `AmbiguousCurve`). The fourth is **P0035 at 1.28e-6,
+1.3× the floor** ⇒ `malformed B-Rep topology: interior junction`, a genuine
+near-floor sensitivity. **P0037 reads SUPPORTED_CORRECT at ×1e-3** with its
+smallest segment at 2.83e-2, far above the floor — a scale-SENSITIVE contact,
+recorded, not explained.
+
+**Two minima changed SITE, so both halves are promoted.** The minimizer keeps a
+reduction when the signature string is byte-identical, and a signature string
+does not see the raising site:
+
+- #54's un-minimized lineage STOPs at `10805` (`line_line_junction`); its
+  3-op minimum STOPs at `13065` (`surface_pair_endpoint_mix`). Promoted as
+  **P0027** (un-minimized, 5 ops / 5.2 s) and **P0026** (minimum) respectively.
+- #109's un-minimized lineage STOPs at `s4-dc-attr` (fwd=2 rev=2); its 2-op
+  minimum STOPs at `s6-planar-loop-nonplanar`. Promoted as **P0029** and
+  **P0028**. (#98's own minimum also lands on the `s6-planar-loop` site —
+  face 15 vertex 44, 7.482e-3 off plane against a 1.129e-7 band — so #98 is a
+  duplicate of P0028, not a sixteenth site.)
+
+This is the minimizer hazard from a new direction: seed 1's lesson was that
+ROUNDING can mint a contact that keeps a number-stripped signature; here
+DROPPING STEPS kept the signature and moved the site. **Probe the minimum's
+site, not just its text, before calling it the same finding.**
+
+### Duplicates and retirements, with reasons
+
+| rows | why not promoted |
+|---|---|
+| Stage-4 `LocalRefinementRequired` ×13 (indices 0, 3, 36, 56, 66, 86, 87, 100, 103, 112, 153, 156, 159) | every one raises at `stage4_correct.rs:12318`, P0025's site, measured per row. Three report signatures (subtract ×7, union ×7, intersect ×1) and one site. Index 112 is also the run's most expensive honest ERROR at 861 s CPU — a second reason not to promote it |
+| `patch triangulation folded — KV9-F2` ×1 (index 85) | P0033's site; 621 s CPU, so the 4-op minimum is the representative |
+| `cone periodic strip (2 encircling rims) not yet supported (KV14 Slice E holed frustum band)` ×2 (indices 84, 130; minimum `convex4:boss convex4:rev convex4:cut convex4:cut`, same class at ×1e-3 and ×1e3) | a DOCUMENTED deferred sub-slice — retired for the same reason on seeds 1 and 2 |
+| `Stage-1 boundary loop of face N touches itself … (a PINCHED face …)` ×2 (indices 53, 197; minimum 4→3 `gear11:boss circle:∩ convex4:cut`, same class at ×1e-3 and ×1e3) | **P0020's family** — N74's new typed net reaching generic geometry. P0020 is an open corpus ERROR with a conversion session in flight (N78), so this is a duplicate, not a new finding. Worth re-judging when that lands: a 3-op reproducer is much cheaper than P0020's five |
+| reassembly non-2-manifold ×1 (index 98; minimum 7→6, budget exhausted) | its minimum lands on P0028's `s6-planar-loop-nonplanar` site |
+| `wrong[exact_volume]` ×3 | all three ORACLE defects (above) |
+| TIMEOUT ×1 (index 48) | **not a retirement** — it is a fourth SILENT WRONG whose cost exceeded the budget (below) |
+
+### The TIMEOUT is NOT a hang — it is a FOURTH silent wrong, clipped by the budget
+
+Index 48 burned the whole 900 s CPU budget, and the first reading looked like
+seed 2's pair: unlike them it left a full lineage AND document (the tooling fix
+from that session — `judge_generated` writes the lineage BEFORE the build) and
+the lineage records `steps_applied: 5, stopped_by: null`, so the build
+completed; `YANG_FACE_CENSUS=1` shows a **250-cone-face** gear revolve operand
+tessellated twice (156 tris/face = 39,812 triangles, then 1,026 tris/face =
+**259,052 triangles**) against a **12-triangle**, 6-plane body, and
+`YANG_INPUT_SELFX_PROBE=1` completes (`A: tris=259052 improper=0 unresolved=0`,
+`B: tris=12`) with nothing printing after it — and that scan is the last step
+before `backend.labeled_arrangement(mesh_a, mesh_b)`
+(`crates/yang-rs/src/boolean.rs`, "(1) Stage 2: full labeled arrangement"). At
+705 s CPU it was still in there.
+
+**Then it finished.** Run without a CPU budget it completes twice over, in
+1255.4 s and 1276.0 s wall on this loaded box, with a verdict:
+
+```
+SUPPORTED_WRONG — no_degenerate_triangles: 3 of 12440 triangles are degenerate
+(3 bodies, χ 4, volume 6.555629199576313e-4)
+```
+
+So Stage 2 is merely EXPENSIVE on a gear revolve's conical bands, not stuck,
+and seed 3's `timeout` row was a budget artifact over an honest **fourth silent
+wrong** — three degenerate triangles in a 12,440-triangle render mesh, which no
+loud check caught. This is the F0072 / R0085 rule arriving from a new
+direction: **re-run a lone TIMEOUT with NO budget before recording it as a
+TIMEOUT**, not merely as `single_case`. The seed-2 pair deserves the same
+re-reading; its "still inside that call at 2 542 s CPU" may likewise have been
+a cost, not a hang.
+
+The row is therefore a WRONG, not a TIMEOUT, and the seed's honest histogram is
+**164 CORRECT / 32 ERROR / 4 WRONG / 0 TIMEOUT**.
+
+**NOT promoted, and what is owed.** Its judging cost sits between the 705 s CPU
+observed mid-flight and the ~1276 s the two complete runs took in wall time on
+a box at load 40–66 (no `/usr/bin/time` on this box, so the exact CPU total was
+not captured) — above the 900 s assay budget and far above the smoke gate's
+300 s, so the un-minimized document is not a corpus case. Bisecting it by
+prefix got as far as **ops 1, 2 and 3 all SUPPORTED_CORRECT** — including the
+250-cone-face 248° gear revolve, whose body reads 3 bodies / χ 4 / volume
+3.4400650555974064e-5 — so the degeneracy enters at **op 4 or op 5**, the two
+plain extrude bosses onto that body. Prefixes 4 and 5 were still running when
+the box reached load 84 and were stopped; finishing that bisection and
+minimizing is the first thing the next session should do. The minimizer needs
+one trick to work on it: the report row's signature is the literal string
+`timeout`, which no verdict can reproduce once the budget is lifted, so rewrite
+the one-row `report.jsonl` to `{"category":"SUPPORTED_WRONG","signature":
+"wrong[no_degenerate_triangles]"}` (keeping the id, so the lineage still
+resolves) and run `prospect_minimize` against that with
+`PROSPECT_BUDGET_SECS=3000`.
+
+### One instrument added
+
+`assay_exact_membership::one_case_ladder` now takes `EXACT_STEM=<absolute
+stem>` (reads `<stem>.waffle` + `<stem>.meta.json` from anywhere instead of the
+corpus, so a prospector candidate can be laddered without being copied into the
+count-pinned corpus directory) and `EXACT_PREFIX=all` (every prefix in one run,
+which is how a chain's first divergent op is NAMED rather than guessed). Both
+are read-only and the default behaviour is unchanged.
+
 ## 2026-10-03 (night) — **P0017 CONVERTED**: the output loop of a cone sliver traversed ONE intersection curve TWICE — a zero-width outward spur the straight-edge backtrack normalizer could not see, because its collinearity test is written for `LineSegment` (deviation **N76**) — **corpus not re-measured this session**
 
 ### The anchor — written before any code changed

@@ -9,6 +9,43 @@
 
 ## 0. Honest status (refreshed 2026-06-26; addendum 2026-09-04 below)
 
+> **2026-10-03 (late night, seventh) refresh — prospector seed 3 adjudicated;
+> the P-series ERROR tail goes from two cases to seventeen. CORPUS NOT
+> RE-MEASURED THIS SESSION.** `PROSPECT_SEED=3 PROSPECT_COUNT=200` returned
+> 164 SUPPORTED_CORRECT, 32 ERROR, 3 SUPPORTED_WRONG, 1 TIMEOUT and 0
+> UNSUPPORTED (1291 s at 8 jobs). Triage promoted **P0025–P0039** — corpus
+> **336 → 351 cases** — and the committed pins say ERROR for all fifteen, so
+> the next measured run should read **nine ERROR rows plus these fifteen**
+> (the seven loud-by-design C-series walls + P0019 + P0020 + P0025–P0039),
+> with 322C unchanged. Seed 3's lesson is that a FAMILY is not a finding: the
+> 32 ERROR rows are twelve families by error text but **fifteen distinct
+> raising sites**, and promotion is now one case per SITE (`YANG_LRR_PROBE`
+> prints `loc=<file>:<line> reason=… v=<vertex>` at every Stage-4
+> region-invalid return; `NONMANIFOLD_SITE_PROBE` and `KV2_SELFX_SITE_PROBE`
+> do the same for reassembly and the output gate). The largest single site is
+> **P0025** — 14 of the 32 rows raise at `stage4_correct.rs:12318`, the PR-KV9
+> ellipse×ellipse junction relocation whose two cutting planes are PARALLEL,
+> so the plane-pair line it derives the junction from does not exist. Three
+> texts whose families CLAUDE.md records as having no customer left have one
+> again at a NEW site: `ring rejected by CDT` (P0036, after P0002 and P0013),
+> `patch triangle collapsed at render precision` (P0035, after P0001) and
+> `RelocationCrossedCarrierVertex` (P0039, after P0015, on the auto-union
+> path). All three `wrong[exact_volume]` rows are **ORACLE** defects, not
+> kernel ones — the reverse of seed 2 — two of them the ledgered cut
+> auto-reversal hole and one a NEW harness defect (after a cut annihilates a
+> body, the exact chain applies the next cut to the dead body), so none of
+> those three was promoted and the corpus keeps **0 W** from them. The seed's
+> one TIMEOUT, however, is **not a hang**: run with no CPU budget index 48
+> completes (1255 s wall on a loaded box) and reads **SUPPORTED_WRONG —
+> `no_degenerate_triangles: 3 of 12440 triangles are degenerate`**, so Stage 2
+> is merely expensive on a gear revolve's conical bands and the seed's honest
+> histogram is 164 C / 32 E / **4 W** / 0 T. That is a FOURTH silent wrong, and
+> the rule it teaches is to re-run a lone TIMEOUT with NO budget before
+> recording it (the two seed-2 "Stage-2 hangs" owe the same re-reading). Full
+> narrative, per-case evidence and the duplicates table:
+> `docs/yang_tail_triage.md` §"2026-10-03 (late night)". Next: `prospect_run`
+> seed 4, and a conversion session per site starting with P0025.
+
 > **2026-10-03 (late evening UTC) refresh — MEASURED; P0017 CONVERTED, N69 and N76 live.** Canonical corpus **322C / 0W / 9E / 5EE / 0T + 0 UNSUPPORTED over 336 cases** (release, 8 jobs, 900 s; wall 1437.5 s; R0085 828.8 s, F0072 767.8 s). First run with the N69 graze-aware ray selection (always-on, `CHERCHI_GRAZE_AWARE_RAY=0|off`) and the N76 output-curve backtrack merge: versus the extent-on run (321C/10E), exactly one category move (P0017 → CORRECT) and zero regressions — P0023 CORRECT and P0024 EXPECTED_ERROR now by the honest boolean answer, not the containment net; **deviation N69 RESOLVED**. The 9 ERROR rows are the seven loud-by-design C-series walls + P0019 (component-wise seam anchoring, gated branch in progress) + P0020 (N74 per-sheet faces). The P-series tail is two cases from EMPTY.
 
 > **2026-10-03 (late night, third) refresh — deviation N69 RESOLVED-pending-corpus:
