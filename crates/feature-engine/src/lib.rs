@@ -47,6 +47,15 @@ pub struct Engine {
     pub feature_results: HashMap<Uuid, OpResult>,
     /// Warnings from the last rebuild.
     pub warnings: Vec<String>,
+    /// The same warnings attributed to the feature that raised them (N2 §5.3
+    /// item 4) — what a feature tree puts a warning glyph on and what
+    /// `feature_get` reports for one feature. A warning no feature owns is in
+    /// [`Engine::warnings`] only.
+    pub feature_warnings: Vec<(Uuid, String)>,
+    /// What the last rebuild learned about each reference it re-resolved, by
+    /// owning feature (N2 §5.3 item 4) — the fact `feature_get` reports
+    /// instead of inferring it from the error list.
+    pub feature_references: Vec<(Uuid, crate::types::ReferenceState)>,
     /// Errors from the last rebuild.
     pub errors: Vec<(Uuid, String)>,
     /// The same errors, typed (`specs/waffle_mcp_server.md` ICR-2):
@@ -104,6 +113,8 @@ impl Engine {
             tree: FeatureTree::new(),
             feature_results: HashMap::new(),
             warnings: Vec::new(),
+            feature_warnings: Vec::new(),
+            feature_references: Vec::new(),
             errors: Vec::new(),
             feature_errors: Vec::new(),
             consumed_features: std::collections::HashSet::new(),
@@ -1061,6 +1072,8 @@ impl Engine {
         self.sketch3d = state.sketch3d;
         self.rebuild_errors = state.feature_errors.clone();
         self.warnings = state.warnings;
+        self.feature_warnings = state.feature_warnings;
+        self.feature_references = state.feature_references;
         self.warnings.extend(context_outcome.warnings);
         // Parameter/expression errors surface ahead of rebuild errors — a bad
         // expression is usually the CAUSE of the downstream failures.

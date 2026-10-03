@@ -28,6 +28,7 @@
 		hideAllAxes,
 		enterSketchEditMode,
 		getFeatureErrors,
+		getFeatureWarnings,
 		getSelectedRefFeatureId,
 		showEditFeatureDialog,
 		getBodies,
@@ -61,6 +62,7 @@
 	// Face→feature (Tier 1): the feature whose geometry is currently picked.
 	let faceFeatureId = $derived(getSelectedRefFeatureId());
 	let featureErrors = $derived(getFeatureErrors());
+	let featureWarnings = $derived(getFeatureWarnings());
 	let bodies = $derived(getBodies());
 	let selectedBodyId = $derived(getSelectedBodyId());
 	// An agent-link call is running: tree edits are refused, not queued (spec G8).
@@ -766,6 +768,23 @@
 								e.stopPropagation();
 							}}
 						>⚠</button>
+					{:else if featureWarnings.get(feature.id)}
+						<!--
+							N2 (`specs/agent_mechanical_design.md` §5.3 item 4): a
+							reference that rebound by geometry, or a sketch whose face
+							has moved, is persistent state about THIS feature — a toast
+							scrolls away, so it goes on the row. The same affordance as
+							the error glyph, in the warning colour; an error wins,
+							because a feature that failed has nothing to warn about.
+						-->
+						<button
+							class="error-indicator-btn warning-indicator-btn"
+							title={featureWarnings.get(feature.id).join('\n')}
+							data-testid="feature-warning-{i}"
+							onclick={(e) => {
+								e.stopPropagation();
+							}}
+						>⚠</button>
 					{/if}
 				</div>
 				{#if tree.active_index !== null && i === tree.active_index && tree.active_index < tree.features.length - 1}
@@ -1428,6 +1447,14 @@
 
 	.error-indicator-btn:hover {
 		background: rgba(255, 107, 107, 0.15);
+	}
+
+	.warning-indicator-btn {
+		color: var(--warning, #e0a040);
+	}
+
+	.warning-indicator-btn:hover {
+		background: rgba(224, 160, 64, 0.15);
 	}
 
 	.rename-input {

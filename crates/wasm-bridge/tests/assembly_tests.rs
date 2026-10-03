@@ -550,6 +550,7 @@ fn sketch_on(plane: GeomRef) -> Operation {
                 arc_segments: vec![],
             }],
             projected: vec![],
+            plane_face: None,
         },
     }
 }

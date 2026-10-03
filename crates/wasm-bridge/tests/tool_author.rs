@@ -84,6 +84,7 @@ fn rectangle_sketch() -> Operation {
             solve_status: SolveStatus::FullyConstrained,
             solved_positions,
             projected: Vec::new(),
+            plane_face: None,
             solved_profiles: vec![ClosedProfile {
                 entity_ids: vec![1, 2, 3, 4],
                 is_outer: true,
@@ -614,6 +615,7 @@ fn a_mutating_tools_answer_carries_the_model_update_and_its_preview() {
             solve_status: SolveStatus::FullyConstrained,
             solved_positions: corners.iter().map(|&(id, x, y)| (id, (x, y))).collect(),
             projected: Vec::new(),
+            plane_face: None,
             solved_profiles: vec![ClosedProfile {
                 entity_ids: vec![10, 11, 12, 13],
                 is_outer: true,

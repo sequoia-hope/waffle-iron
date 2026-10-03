@@ -3,6 +3,7 @@
 	import { base } from '$app/paths';
 	import { getActiveProvider, migrateLocalStorage, getStore, registerProvider, unregisterProvider, setActiveProvider } from '$lib/storage/index.js';
 	import { newDocumentRecord } from '$lib/storage/newDocument.js';
+	import { editDocumentMeta } from '$lib/engine/format.js';
 	import { onMount } from 'svelte';
 	import HomeHeader from '$lib/ui/HomeHeader.svelte';
 	import DocumentGrid from '$lib/ui/DocumentGrid.svelte';
@@ -60,17 +61,22 @@
 		const stored = await provider.get(doc.id);
 		if (!stored) return;
 		try {
-			const parsed = JSON.parse(stored.json);
-			if (parsed.document) {
-				parsed.document.name = newName;
-			} else if (parsed.project) {
-				parsed.project.name = newName;
-			}
-			stored.json = JSON.stringify(parsed);
+			// A TARGETED edit of the metadata object, not a parse/stringify of
+			// the whole file: a stored document carries persistent entity ids,
+			// and a pre-v10 file carries them as JSON numbers, which a
+			// JavaScript round trip rounds above 2^53 into different entities
+			// (`editDocumentMeta`, `waffle_types::pid_str`). Renaming a
+			// document used to silently unanchor every drawing dimension and
+			// entity name in it.
+			stored.json = editDocumentMeta(stored.json, (meta) => {
+				meta.name = newName;
+			});
 			stored.modified = Date.now();
 			await provider.put(stored);
 			documents = await provider.list();
-		} catch { /* ignore */ }
+		} catch (err) {
+			console.warn('Failed to rename document:', err);
+		}
 	}
 
 	/**

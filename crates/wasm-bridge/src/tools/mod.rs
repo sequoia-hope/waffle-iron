@@ -234,6 +234,12 @@ pub fn execute_tool(
     arguments: &Value,
     context: Option<&Value>,
 ) -> ToolResult {
+    // N2 §5.3 item 1: every reference an AGENT authors is Strict unless the
+    // agent said otherwise. One stamp here covers every tool, because an
+    // argument is the only way a reference reaches one.
+    let mut arguments = arguments.clone();
+    strict_by_default(&mut arguments);
+    let arguments = &arguments;
     // The export pair shapes its own result: an embedded resource in
     // `content`, or the file for the host in `download`, neither of which
     // `structuredContent` alone can carry.
@@ -246,6 +252,43 @@ pub fn execute_tool(
     match outcome {
         Ok(result) => result,
         Err(failure) => ToolResult::error(failure.code, &failure.message, failure.details),
+    }
+}
+
+/// Stamp `policy: Strict` into every `GeomRef` in a tool's arguments that does
+/// not state one (N2 of `specs/agent_mechanical_design.md` §5.3 item 1).
+///
+/// An agent cannot see a warning. `BestEffort` — the serde default, and what a
+/// user's viewport pick keeps — means a reference whose entity is gone rebinds
+/// to whatever scored closest and reports it in a toast the agent never
+/// receives. Under `Strict` the same reference is a typed refusal the agent
+/// gets back and can re-author. So the default INVERTS for a reference that
+/// arrives through a tool, while a pick in the UI is untouched: this runs only
+/// on the tool path.
+///
+/// Recognised by shape — an object carrying `kind`, `anchor` and `selector` is
+/// a `GeomRef` and nothing else in these payloads is. A ref that spells its
+/// own `policy` keeps it, including an explicit `BestEffort`: an agent that
+/// asks for a rebind has asked for one, and it is then in the transcript.
+fn strict_by_default(value: &mut Value) {
+    match value {
+        Value::Object(map) => {
+            let is_geom_ref = map.contains_key("kind")
+                && map.contains_key("anchor")
+                && map.contains_key("selector");
+            if is_geom_ref && !map.contains_key("policy") {
+                map.insert("policy".to_string(), json!({ "type": "Strict" }));
+            }
+            for v in map.values_mut() {
+                strict_by_default(v);
+            }
+        }
+        Value::Array(items) => {
+            for v in items {
+                strict_by_default(v);
+            }
+        }
+        _ => {}
     }
 }
 

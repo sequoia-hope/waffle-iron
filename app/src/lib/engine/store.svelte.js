@@ -26,7 +26,7 @@ import { findConnectedChain, orderChain } from '$lib/sketch/chain.js';
 import { resolveChainSegments, offsetChainSegments } from '$lib/sketch/offset.js';
 import { isDatumPlaneRef, getPlaneIdFromRef, getPlaneById, resolvePlane, BUILTIN_PLANES } from './planes.js';
 import { renderViewSvg } from '$lib/drawings/svg.js';
-import { FORMAT_VERSION, MIN_READER_VERSION, fileTooNew } from './format.js';
+import { FORMAT_VERSION, MIN_READER_VERSION, fileTooNew, editDocumentMeta } from './format.js';
 import { fetchTestCases, fetchTestCase, createTestCase as apiCreateTestCase, deleteTestCase as apiDeleteTestCase } from './testCaseApi.js';
 
 /**
@@ -104,6 +104,15 @@ let lastError = $state(null);
 
 /** @type {Map<string, string>} featureId -> error message */
 let featureErrors = $state(new Map());
+/**
+ * Per-feature non-fatal warnings from the last rebuild, feature id → the
+ * messages it raised (N2, `specs/agent_mechanical_design.md` §5.3 item 4).
+ * Separate from `lastRebuildWarnings`, which is the flat toast list: a
+ * reference that rebound by geometry, or a sketch whose face moved, is
+ * persistent state about one feature and belongs on its tree row, not in a
+ * toast that scrolls away.
+ */
+let featureWarnings = $state(new Map());
 // Warnings carried by the previous modelUpdated — used to toast only warnings
 // that are NEW on this rebuild (persisted diagnostics replay on every rebuild).
 let lastRebuildWarnings = new Set();
@@ -896,6 +905,15 @@ export function applyViewerSnapshot(snapshot, viewerMeshes) {
 		if (e && typeof e === 'object') errors.set(e.feature_id, e.message);
 	}
 	featureErrors = errors;
+	const viewerWarnings = new Map();
+	for (const entry of snapshot.feature_warnings ?? []) {
+		const [featureId, message] = entry;
+		if (!featureId || !message) continue;
+		const existing = viewerWarnings.get(featureId);
+		if (existing) existing.push(message);
+		else viewerWarnings.set(featureId, [message]);
+	}
+	featureWarnings = viewerWarnings;
 	lastRebuildWarnings = new Set(snapshot.warnings ?? []);
 }
 
@@ -997,6 +1015,19 @@ export async function initEngine() {
 		// when new relative to the previous rebuild, so a warning baked into a
 		// persisted feature (e.g. "body created as standalone") toasts once
 		// when it first appears, not on every rebuild thereafter.
+		// Per-feature warnings are the tree's badge state (N2 §5.3 item 4):
+		// unlike the toast list below they persist, because "this sketch's
+		// face moved" stays true until someone fixes it.
+		const byFeature = new Map();
+		for (const entry of msg.feature_warnings ?? []) {
+			const [featureId, message] = entry;
+			if (!featureId || !message) continue;
+			const existing = byFeature.get(featureId);
+			if (existing) existing.push(message);
+			else byFeature.set(featureId, [message]);
+		}
+		featureWarnings = byFeature;
+
 		const warnings = new Set(msg.warnings ?? []);
 		for (const warning of warnings) {
 			if (!lastRebuildWarnings.has(warning)) {
@@ -1536,6 +1567,7 @@ export async function initEngine() {
 			getUnderConstrained: () => [...getUnderConstrainedEntities()],
 			getFailedConstraintIndices: () => [...failedConstraintIndices],
 			getFeatureErrors: () => new Map(featureErrors),
+			getFeatureWarnings: () => new Map(featureWarnings),
 			projectFaceCentroids: () => {
 				const cam = cameraObject;
 				const canvas = document.querySelector('canvas');
@@ -1947,6 +1979,11 @@ export function getFeatureErrors() {
 	return featureErrors;
 }
 
+/** Per-feature rebuild warnings, feature id → messages (N2 §5.3 item 4). */
+export function getFeatureWarnings() {
+	return featureWarnings;
+}
+
 /** Non-fatal warnings carried by the latest rebuild, verbatim, in engine order. */
 export function getRebuildWarnings() {
 	return [...lastRebuildWarnings];
@@ -2345,15 +2382,24 @@ function collectSamePlaneSketchPoints(origin, normal, excludeFeatureId) {
 
 /**
  * The `BeginSketch` plane reference for a sketch started on `faceGeomRef`.
- * A face of ANOTHER instance (in-context editing, v4 §2.8) is recorded as the
- * sketch's plane reference so the engine re-derives the plane from that
- * instance on rebuild. A local face, a datum or no face keeps the historical
- * placeholder anchor (the sketch's origin/normal snapshot is authoritative).
- * Shared by Sketch mode and the agent link's `sketch_create`.
+ *
+ * Every MODEL-face reference is passed through — a face of another instance
+ * (in-context editing, v4 §2.8), which the engine re-derives the plane from on
+ * every rebuild, and since N2 (`specs/agent_mechanical_design.md` §5.3 item 3)
+ * a LOCAL face too: the engine pins it to the face's persistent identity and
+ * re-resolves it every rebuild, so a sketch whose face is deleted refuses
+ * loudly instead of staying where it was drawn. Before N2 a local face ref was
+ * dropped here, and the sketch had no record of what it was drawn on.
+ *
+ * A datum plane, or no face at all, still gets the placeholder anchor (the
+ * sketch's origin/normal snapshot is authoritative). Shared by Sketch mode and
+ * the agent link's `sketch_create`.
  * @param {any} [faceGeomRef]
  */
 export function beginSketchPlaneRef(faceGeomRef = null) {
-	if (faceGeomRef?.scope) return JSON.parse(JSON.stringify(faceGeomRef));
+	if (faceGeomRef?.scope || faceGeomRef?.anchor?.type === 'FeatureOutput') {
+		return JSON.parse(JSON.stringify(faceGeomRef));
+	}
 	return {
 		kind: { type: 'Face' },
 		anchor: { type: 'Datum', datum_id: generateUUID() },
@@ -8896,8 +8942,21 @@ export async function loadExample(id) {
 		}
 		const docId = generateUUID();
 		const now = new Date().toISOString();
-		parsed.document = { ...(parsed.document || {}), id: docId, name: entry.name, created: now, modified: now };
-		await openDocumentRecord(docId, JSON.stringify(parsed));
+		// A TARGETED edit of the metadata object, not a parse/stringify of the
+		// whole example: the file carries persistent entity ids, and a
+		// pre-v10 example carries them as JSON numbers, which a JavaScript
+		// round trip rounds above 2^53 into different entities
+		// (`editDocumentMeta`, `waffle_types::pid_str`). Opening the shipped
+		// pendant example used to unanchor its drawing dimensions on the way
+		// in. Everything outside `document` now reaches the engine
+		// byte-identical to the shipped bytes.
+		const opening = editDocumentMeta(text, (meta) => {
+			meta.id = docId;
+			meta.name = entry.name;
+			meta.created = now;
+			meta.modified = now;
+		});
+		await openDocumentRecord(docId, opening);
 		examplesBrowserState.active = id;
 		showToast('info', `Example "${entry.name}" opened as a new document`);
 		return true;

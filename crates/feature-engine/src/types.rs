@@ -1576,6 +1576,158 @@ pub struct MateConnectorParams {
     pub offset_m: [f64; 3],
 }
 
+/// Why the reference ladder refused a `GeomRef` — the machine-readable half of
+/// a refusal (N2 of `specs/agent_mechanical_design.md` §5.3 item 2).
+///
+/// An agent cannot see a warning toast, so a reference it authored either binds
+/// to the entity it recorded or comes back refused with enough structure to
+/// re-author it. Parsing the message text is not that structure (ICR-2), so the
+/// four ways a reference can fail to name one entity are variants here.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(tag = "type")]
+pub enum ResolutionReason {
+    /// Nothing the reference could name is on the body any more.
+    NoMatch,
+    /// Several entities answer the reference equally well, so the reference
+    /// does not identify one. `candidates` are transient `KernelId`s — for
+    /// diagnosis, never for persistence.
+    Ambiguous { candidates: Vec<u64> },
+    /// The recorded persistent id is gone AND nothing descends from its
+    /// lineage root (the second rung of the pid ladder, `resolve_by_pid`).
+    PidGone {
+        /// Decimal STRINGS, like every pid that crosses to a caller
+        /// (`waffle_types::pid_str`). This refusal exists so an agent can
+        /// re-author the reference, and an id rounded by `JSON.parse` would
+        /// hand it the identity of a different entity to re-author against —
+        /// turning N2's loud refusal back into a quiet wrong answer one
+        /// layer along.
+        #[serde(with = "waffle_types::pid_str")]
+        pid: u64,
+        #[serde(with = "waffle_types::pid_str")]
+        root_pid: u64,
+        /// The feature whose output the reference is anchored to — where the
+        /// entity was last seen by this reference. NOT the feature that
+        /// introduced the lineage root: that lives in
+        /// [`crate::rebuild::RebuildState::pid_to_feature`], which a resolver
+        /// called mid-rebuild does not have, and reporting the anchor is the
+        /// honest answer rather than a guess. `None` for a datum anchor.
+        last_seen_feature: Option<Uuid>,
+    },
+    /// The reference is scoped into another tab's instance and no assembly
+    /// context is open, so it resolves nowhere (v4 §2.8).
+    ScopeMissing { scope: String },
+}
+
+/// The identity of the reference that refused, flattened to the three things
+/// that name it (N2).
+///
+/// A whole [`GeomRef`] would be better, and is what §5.3 item 2 writes. It
+/// cannot go in [`ErrorKind`]: `ErrorKind` is `PartialEq` (hosts and tests
+/// compare kinds) and `GeomRef` is not, because its `Selector::Signature` arm
+/// carries `f64` fingerprints whose equality is not a thing this codebase
+/// defines. Deriving `PartialEq` down that whole tree to carry a diagnostic
+/// would be a wide change to a lower crate for no other caller, so the digest
+/// carries what a host actually branches on — which entity kind, whose output,
+/// and which rung was recorded.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct RefDigest {
+    pub kind: waffle_types::TopoKind,
+    /// The anchor's feature, or `None` for a datum anchor.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub anchor_feature: Option<Uuid>,
+    /// The selector's tag: `Pid`, `Role`, `Signature`, `Query` or `Position`.
+    pub selector: String,
+}
+
+impl RefDigest {
+    /// The digest of `geom_ref`.
+    pub fn of(geom_ref: &GeomRef) -> Self {
+        Self {
+            kind: geom_ref.kind,
+            anchor_feature: match &geom_ref.anchor {
+                waffle_types::Anchor::FeatureOutput { feature_id, .. } => Some(*feature_id),
+                waffle_types::Anchor::Datum { .. } => None,
+            },
+            selector: match &geom_ref.selector {
+                waffle_types::Selector::Pid { .. } => "Pid",
+                waffle_types::Selector::Role { .. } => "Role",
+                waffle_types::Selector::Signature { .. } => "Signature",
+                waffle_types::Selector::Query { .. } => "Query",
+                waffle_types::Selector::Position { .. } => "Position",
+            }
+            .to_string(),
+        }
+    }
+}
+
+/// A reference the resolution ladder refused, with the structure a host
+/// branches on and the sentence a person reads (N2 §5.3 item 2).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ReferenceRefusal {
+    /// The refusal in words — the same sentence the untyped
+    /// [`EngineError::ResolutionFailed`] carried before this increment, so no
+    /// message a user or a test reads changed.
+    pub reason_text: String,
+    pub reason: ResolutionReason,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub reference: Option<RefDigest>,
+    /// The entity name this reference belongs to, when it has one (N1), so an
+    /// agent is told WHICH of its names went stale rather than only which
+    /// feature broke.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub name: Option<String>,
+}
+
+impl ReferenceRefusal {
+    /// A refusal of `geom_ref`, with no name attached.
+    pub fn of(geom_ref: &GeomRef, reason: ResolutionReason, reason_text: String) -> Self {
+        Self {
+            reason_text,
+            reason,
+            reference: Some(RefDigest::of(geom_ref)),
+            name: None,
+        }
+    }
+
+    /// The same refusal, attributed to an entity name.
+    pub fn named(mut self, name: impl Into<String>) -> Self {
+        self.name = Some(name.into());
+        self
+    }
+}
+
+/// What the last rebuild learned about ONE reference a feature stores (N2
+/// §5.3 item 4) — the fact `feature_get` reports, rather than an inference
+/// from whether the feature failed.
+///
+/// It has to be recorded, not re-derived: `feature_get` is a read with no
+/// kernel, and the feature's own error says only that something refused. A
+/// sketch can fail on its x-axis with a perfectly good plane face, and before
+/// this a host read that as the reference having died.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ReferenceState {
+    /// Which of the feature's references this is — `sketch_plane_face` is the
+    /// only one so far, being the one the engine re-resolves outside the
+    /// operation.
+    pub role: String,
+    pub resolves: bool,
+    /// The rung that answered ([`crate::resolve::ResolvedVia`]). `None` when
+    /// nothing did.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub via: Option<crate::resolve::ResolvedVia>,
+    /// The answer is not the identity the reference recorded: a `BestEffort`
+    /// rebind, or the authored fallback answering for a lost pid.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub rebound: bool,
+    /// Why the recorded identity stopped answering, when something else did.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub lost_identity: Option<ResolutionReason>,
+    /// Why nothing answered, when `resolves` is false and the ladder
+    /// classified it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub refusal: Option<ResolutionReason>,
+}
+
 /// Errors from the feature engine.
 #[derive(Debug, Clone, thiserror::Error)]
 pub enum EngineError {
@@ -1607,8 +1759,23 @@ pub enum EngineError {
         matches: usize,
     },
 
+    /// A resolution step failed: a datum plane that is not in the tree, a
+    /// boolean whose target list came out empty, a non-planar base face, a
+    /// pattern axis that is not an axis. Everything, in short, that is not one
+    /// reference the ladder in [`crate::resolve`] looked up and refused — that
+    /// is [`EngineError::ReferenceUnresolved`], which carries the classification
+    /// as well as the sentence. Both map to `ErrorKind::ResolutionFailed`, so a
+    /// host sees one kind and reads `reason` to learn whether it was classified.
     #[error("GeomRef resolution failed: {reason}")]
     ResolutionFailed { reason: String },
+
+    /// N2 (`specs/agent_mechanical_design.md` §5.3 item 2): the reference
+    /// ladder refused a `GeomRef`, classified. `Display` is byte-identical to
+    /// the [`EngineError::ResolutionFailed`] this replaces on the resolver's
+    /// own paths, so every message a user or a test reads is unchanged — the
+    /// addition is the payload beside it.
+    #[error("GeomRef resolution failed: {}", .0.reason_text)]
+    ReferenceUnresolved(Box<ReferenceRefusal>),
 
     /// N0 of `specs/agent_mechanical_design.md` §5.1: a `Selector::Signature`
     /// whose fingerprint fits several entities EQUALLY well. Nothing in the
@@ -1707,7 +1874,22 @@ pub enum ErrorKind {
         entity_ids: Vec<u32>,
         matches: usize,
     },
-    ResolutionFailed,
+    /// A reference, or a resolution step, that did not name an entity.
+    ///
+    /// All three fields are absent for a step that is not one reference
+    /// lookup (a missing datum plane, an empty boolean target list): those
+    /// carry no reference to describe. A refusal from the ladder in
+    /// [`crate::resolve`] fills them, which is N2 §5.3 item 2 — the agent
+    /// branches on `reason` and re-authors the reference `reference` names,
+    /// instead of parsing the message.
+    ResolutionFailed {
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        reason: Option<ResolutionReason>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        reference: Option<RefDigest>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        name: Option<String>,
+    },
     /// A `Selector::Signature` that fits several entities equally well (N0).
     /// A host must re-author the reference, not retry it.
     ReferenceAmbiguous {
@@ -1747,6 +1929,30 @@ pub enum ErrorKind {
     NameRefused {
         name: String,
     },
+}
+
+impl EngineError {
+    /// The refusal text of either resolution variant — the untyped
+    /// [`EngineError::ResolutionFailed`] or the classified
+    /// [`EngineError::ReferenceUnresolved`] — so a caller that only wants to
+    /// read WHY does not have to know which one it got. `None` for every other
+    /// error.
+    pub fn resolution_text(&self) -> Option<&str> {
+        match self {
+            EngineError::ResolutionFailed { reason } => Some(reason),
+            EngineError::ReferenceUnresolved(r) => Some(&r.reason_text),
+            _ => None,
+        }
+    }
+
+    /// The classification of a refusal from the reference ladder, when this is
+    /// one ([`EngineError::ReferenceUnresolved`]).
+    pub fn resolution_reason(&self) -> Option<&ResolutionReason> {
+        match self {
+            EngineError::ReferenceUnresolved(r) => Some(&r.reason),
+            _ => None,
+        }
+    }
 }
 
 impl From<&waffle_types::kernel::KernelError> for ErrorKind {
@@ -1793,7 +1999,16 @@ impl From<&EngineError> for ErrorKind {
                 entity_ids: entity_ids.clone(),
                 matches: *matches,
             },
-            EngineError::ResolutionFailed { .. } => ErrorKind::ResolutionFailed,
+            EngineError::ResolutionFailed { .. } => ErrorKind::ResolutionFailed {
+                reason: None,
+                reference: None,
+                name: None,
+            },
+            EngineError::ReferenceUnresolved(r) => ErrorKind::ResolutionFailed {
+                reason: Some(r.reason.clone()),
+                reference: r.reference.clone(),
+                name: r.name.clone(),
+            },
             EngineError::ReferenceAmbiguous { candidates, .. } => ErrorKind::ReferenceAmbiguous {
                 candidates: candidates.clone(),
             },

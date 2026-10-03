@@ -1723,7 +1723,7 @@ fn smoke_corpus_boundary_categories() {
         // `SelfIntersectingBooleanOutput { penetrations: 5 }` at kernel-v2's
         // render-level output gate — P0007's signature, converted 2026-09-29,
         // residue on three plain bosses.
-        ("P0021", Category::Error),
+        ("P0021", Category::SupportedCorrect), // CONVERTED 2026-10-03: N75 finite-extent ladder always-on (321C/10E corpus proof)
         // P0022 (5 ops) was promoted for the junction-mint postcondition
         // catching itself ("interior junction … not contained by any lateral
         // triangle — the mint would be silently dropped"; ×1e-3 kept it, ×1e3

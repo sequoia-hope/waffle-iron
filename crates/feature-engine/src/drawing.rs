@@ -830,43 +830,6 @@ pub const DEFAULT_VIEW_GAP_MM: f64 = 15.0;
 
 // ----------------------------------------------------------------- rebuild
 
-/// A `u64` as a decimal STRING on the wire.
-///
-/// A persistent id is a 64-bit hash and a JSON number in JavaScript is an
-/// `f64`: every pid above `2^53` is silently ROUNDED by `JSON.parse`, and the
-/// rounded value resolves to nothing. Measured — a plate's edge pid
-/// `2216071694111992607` came back as `2216071694111992000`, and the
-/// dimension anchored on it refused as "resolves to no geometry", which is
-/// the loud failure doing its job about a corruption three layers upstream.
-///
-/// So every pid that crosses a boundary JavaScript touches crosses as a
-/// string. `u64` stays the type in Rust and in the FILE (a `Selector::Pid`
-/// is written as a number and read back by serde_json's own u64 path, which
-/// is exact).
-pub mod pid_string {
-    use serde::{Deserialize, Deserializer, Serializer};
-
-    pub fn serialize<S: Serializer>(pid: &u64, s: S) -> Result<S::Ok, S::Error> {
-        s.serialize_str(&pid.to_string())
-    }
-
-    /// Accepts a string (the written form) or a number (a small pid, and any
-    /// hand-written argument), so a caller is not made to quote an id that
-    /// would have been exact anyway.
-    pub fn deserialize<'de, D: Deserializer<'de>>(d: D) -> Result<u64, D::Error> {
-        #[derive(Deserialize)]
-        #[serde(untagged)]
-        enum Either {
-            Text(String),
-            Number(u64),
-        }
-        match Either::deserialize(d)? {
-            Either::Text(s) => s.parse().map_err(serde::de::Error::custom),
-            Either::Number(n) => Ok(n),
-        }
-    }
-}
-
 /// What an anchor looks like on the drawing — the arms of
 /// [`LayoutCurve`](waffle_types::annotation::layout::LayoutCurve), which is
 /// what the projection made of the entity.
@@ -895,9 +858,11 @@ pub enum AnchorShape {
 pub struct ViewAnchor {
     /// The persistent id (D0) — what `Selector::Pid` stores.
     ///
-    /// A decimal STRING on the wire; see [`pid_string`] for the measurement
-    /// that forced it.
-    #[serde(with = "pid_string")]
+    /// A decimal STRING on the wire; see [`waffle_types::pid_str`] for the
+    /// measurement that forced it and for why it is one rule rather than one
+    /// per boundary. (This field and `DrawingAnchorSpec::pid` were D4a's
+    /// local `pid_string` module; that module is now the shared one.)
+    #[serde(with = "waffle_types::pid_str")]
     #[cfg_attr(feature = "json-schema", schemars(with = "String"))]
     pub pid: u64,
     /// What the anchor IS on the drawing — a corner, a straight edge, a rim.

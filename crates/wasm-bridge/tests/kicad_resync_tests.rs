@@ -162,6 +162,7 @@ fn sketch_on_top_face(board_extrude: Uuid, thickness_m: f64) -> Operation {
             solve_status: SolveStatus::FullyConstrained,
             solved_positions,
             projected: Vec::new(),
+            plane_face: None,
             solved_profiles: vec![ClosedProfile {
                 entity_ids: vec![10, 11, 12, 13],
                 is_outer: true,

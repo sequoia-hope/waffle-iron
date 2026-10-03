@@ -77,6 +77,7 @@ fn box_20_10_5(state: &mut EngineState, kernel: &mut KernelV2Adapter) -> Uuid {
         solve_status: SolveStatus::FullyConstrained,
         solved_positions,
         projected: Vec::new(),
+        plane_face: None,
         solved_profiles: vec![ClosedProfile {
             entity_ids: vec![10, 11, 12, 13],
             is_outer: true,

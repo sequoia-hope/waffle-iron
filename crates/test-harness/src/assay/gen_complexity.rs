@@ -238,6 +238,7 @@ impl CCase {
                     solved_positions: positions,
                     solved_profiles: profiles,
                     projected: Vec::new(),
+                    plane_face: None,
                 },
             },
             suppressed: false,
