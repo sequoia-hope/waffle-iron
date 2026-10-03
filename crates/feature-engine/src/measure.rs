@@ -98,6 +98,10 @@ pub struct TreeMeasurer<'a> {
     /// Feature id → its index in `FeatureTree::features`. The ordering rule
     /// below is stated in these indexes.
     index_of: HashMap<Uuid, usize>,
+    /// Each feature's display name, by the same index — so a refused
+    /// measurement names the two features an author has to look at rather
+    /// than only their positions.
+    labels: Vec<String>,
     results: &'a HashMap<Uuid, OpResult>,
     introspect: &'a dyn KernelIntrospect,
     kernel: &'a dyn KernelMeasure,
@@ -173,6 +177,7 @@ impl<'a> TreeMeasurer<'a> {
             names: tree.names.clone(),
             bodies,
             index_of,
+            labels: tree.features.iter().map(|f| f.name.clone()).collect(),
             results,
             introspect,
             kernel,
@@ -341,19 +346,33 @@ impl<'a> TreeMeasurer<'a> {
         Err(MeasureRefusal::Entity {
             name: name.to_string(),
             reason: if at == floor {
-                "circular measurement: it belongs to the very feature this \
-                 expression drives, so the feature's own output would decide \
-                 its own input"
-                    .to_string()
+                format!(
+                    "circular measurement: it belongs to {}, the very feature this \
+                     expression drives, so the feature's own output would decide its own \
+                     input",
+                    self.describe(at)
+                )
             } else {
                 format!(
-                    "circular measurement: it belongs to feature #{} of the tree, which is \
-                     built AFTER the one this expression drives (#{floor}); a measurement \
-                     can only read geometry earlier in the tree",
-                    at + 1
+                    "circular measurement: it belongs to {}, which is built AFTER {} — the \
+                     feature this expression drives; a measurement can only read geometry \
+                     earlier in the tree",
+                    self.describe(at),
+                    self.describe(floor)
                 )
             },
         })
+    }
+
+    /// One feature, as an author recognises it: its name and its ONE-BASED
+    /// position. Both numbers in a refusal are counted the same way — a
+    /// message that mixed a 1-based position with a 0-based one is a message
+    /// that cannot be acted on.
+    fn describe(&self, index: usize) -> String {
+        match self.labels.get(index) {
+            Some(name) => format!("\"{name}\" (#{} of the tree)", index + 1),
+            None => format!("#{} of the tree", index + 1),
+        }
     }
 
     /// `area(face)` — from the face's own signature, which N0 fills exactly

@@ -216,6 +216,12 @@ fn measuring_the_feature_s_own_output_is_a_typed_cycle_not_a_hang() {
         msg.contains("the very feature this expression drives"),
         "the message must say which cycle it is: {msg}"
     );
+    // And it must NAME the feature, at its one-based position: "Block 0" is
+    // the second feature of the fixture (its sketch is the first).
+    assert!(
+        msg.contains("\"Block 0\" (#2 of the tree)"),
+        "the message must name the feature an author has to look at: {msg}"
+    );
     assert!(
         msg.contains("area") && msg.contains("top"),
         "the error names the function and the name: {msg}"
@@ -252,6 +258,13 @@ fn measuring_a_later_feature_is_the_same_typed_cycle() {
     assert!(
         msg.contains("can only read geometry earlier in the tree"),
         "the message must state the rule: {msg}"
+    );
+    // Both features named, both positions counted the SAME way. A message
+    // that mixed a one-based position with a zero-based one would send an
+    // author to the wrong feature.
+    assert!(
+        msg.contains("\"Block 1\" (#4 of the tree)") && msg.contains("\"Block 0\" (#2 of the tree)"),
+        "the refusal must name BOTH features at consistent positions: {msg}"
     );
 }
 
