@@ -1276,6 +1276,94 @@ fn a_bored_torus_keeps_the_silhouette_branches_the_bore_misses() {
     assert!(close(radii[1], major + minor, 1e-12), "outer {}", radii[1]);
 }
 
+/// The on-path tolerance is the CHORD SAGITTA of the boundary the crossing was
+/// found on, not a widened constant: asking for a finer chord tolerance
+/// tightens it, quadratically, and it is independent of the chord density on
+/// the arms that have no chord at all.
+///
+/// This is the property the C0065 fix turns on. A band that merely *happened*
+/// to be wide enough would pass `a_bored_torus_keeps_the_silhouette_branches…`
+/// just as well, and would then be a tolerance knob — which this crate's
+/// posture forbids. So both halves are pinned here: the formula, against the
+/// sagitta computed independently, and the monotonicity.
+#[test]
+fn the_on_path_band_is_the_chord_sagitta_and_tightens_with_it() {
+    let chord = EdgeParam::Line {
+        a: [0.0, 0.0, 0.0],
+        b: [1.0, 0.0, 0.0],
+    };
+    let poly = EdgeParam::Poly {
+        points: vec![Point3::new(0.0, 0.0, 0.0), Point3::new(1.0, 0.0, 0.0)],
+    };
+    let analytic = EdgeParam::Conic {
+        center: [0.0; 3],
+        f1: [1.0, 0.0, 0.0],
+        f2: [0.0, 1.0, 0.0],
+        r1: 1.0,
+        r2: 1.0,
+        t0: 0.0,
+        sweep: TAU,
+    };
+
+    // 1. The formula IS the sagitta of an inscribed n_seg-gon, times the
+    //    documented factor 8 — computed here from the geometry rather than
+    //    read off the implementation's own helper.
+    for n in [8u32, 16, 32, 64, 180, 512] {
+        let sagitta = 1.0 - (PI / f64::from(n)).cos();
+        for param in [&chord, &poly] {
+            assert!(
+                close(on_path_rel_tol(param, n), 8.0 * sagitta, 1e-18),
+                "n_seg {n}: {} vs 8·{sagitta}",
+                on_path_rel_tol(param, n)
+            );
+        }
+        // 2. And the analytic arms carry no chord, so no chord density.
+        assert_eq!(on_path_rel_tol(&analytic, n), 1e-9);
+    }
+
+    // 3. A FINER chord tolerance tightens the band — strictly, at every step,
+    //    and quadratically in the segment count (the sagitta of an n-gon is
+    //    `~π²/2n²`), which is what makes it a derived bound rather than a
+    //    number that was raised until the corpus passed.
+    let mut prev = f64::INFINITY;
+    for k in 2..=9u32 {
+        let n = 1u32 << k;
+        let got = on_path_rel_tol(&chord, n);
+        assert!(got < prev, "n_seg {n}: {got} is not tighter than {prev}");
+        if prev.is_finite() {
+            // Doubling `n_seg` quarters the sagitta. The convergence is from
+            // BELOW and is itself quadratic — `1 − cos(π/n) = π²/2n² · (1 −
+            // π²/12n² + …)`, so the ratio is 3.85 at `n = 8` and 3.999 by
+            // `n = 64`. Both ends are pinned rather than only the limit.
+            let ratio = prev / got;
+            assert!(
+                ratio > 3.8 && ratio <= 4.0,
+                "n_seg {n}: the band fell by {ratio}×, not ~4×"
+            );
+            if n >= 64 {
+                assert!(close(ratio, 4.0, 0.01), "n_seg {n}: ratio {ratio}");
+            }
+        }
+        prev = got;
+    }
+
+    // 4. At the render density the band is far under the separation it has to
+    //    discriminate — a cylinder's two rulings and a torus's two profile
+    //    circles are `2R` apart, i.e. 2.0 relative to the face's scale.
+    let at_render = on_path_rel_tol(&chord, n_seg());
+    assert!(
+        at_render < 2.0 / 100.0,
+        "the band {at_render} leaves under two orders of margin on a 2R separation"
+    );
+    // And it is genuinely looser than float precision on the analytic arms —
+    // the four orders C0065 needed, which is the whole point of it being
+    // per-arm rather than one shared number.
+    assert!(
+        at_render > 1e4 * on_path_rel_tol(&analytic, n_seg()),
+        "the chord band {at_render} is not meaningfully looser than the analytic one"
+    );
+}
+
 /// `distance_to_triangle` against a brute-force sampling of the triangle, over
 /// the vertex, edge and interior regions — the one piece of the membership
 /// test that is pure arithmetic, and the one that decides whether a closed

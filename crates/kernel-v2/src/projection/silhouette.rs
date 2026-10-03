@@ -852,7 +852,7 @@ fn closed_path_is_on_face(
         census(fid, "closed path on a face with no triangles");
         return Ok(false);
     }
-    let band = 8.0 * scale * (1.0 - (PI / f64::from(n_seg.max(3))).cos()) + TAU_MODEL;
+    let band = 8.0 * scale * chord_sagitta_rel(n_seg) + TAU_MODEL;
     for k in 0..SAMPLES {
         let p = path.eval(TAU * (k as f64) / (SAMPLES as f64)).as_array();
         if distance_to_mesh(&mesh, p) > band {
@@ -1244,6 +1244,41 @@ struct Crossing3 {
     rel_tol: f64,
 }
 
+/// How far a crossing found on this kind of edge may sit from a path and still
+/// count as ON it, relative to the face's scale — the crossing's own
+/// representation error and nothing else.
+///
+/// It is DERIVED from the chord density, not chosen: the band for a
+/// chord-approximate arm is the sagitta of an inscribed `n_seg`-gon,
+/// `1 − cos(π/n_seg)`, so asking for a finer chord tolerance tightens it
+/// quadratically (`the_on_path_band_is_the_chord_sagitta_and_tightens_with_it`
+/// pins both the formula and the monotonicity). The factor 8 is the only
+/// slack: the sagitta is relative to the BOUNDARY's own radius of curvature
+/// while the test can only scale by the FACE's, and a boundary curving tighter
+/// than the face it bounds — a small bore through a large tube — has the
+/// larger sagitta of the two. Eight covers that ratio for the corpus's
+/// geometry and still leaves the band two orders under the `2R` separation it
+/// has to discriminate (see [`Crossing3::rel_tol`]).
+fn on_path_rel_tol(param: &EdgeParam, n_seg: u32) -> f64 {
+    match param {
+        // Chord-approximate. A `Poly` edge IS the render polyline of a
+        // surface-pair curve; a `LineSegment` bounding a CURVED face is a
+        // chord of whatever curve the boolean output approximated (C0065's
+        // torus patch is bounded by 110 of them), and only its endpoints are
+        // on the surface. Both land up to a chord sagitta off the true curve.
+        EdgeParam::Poly { .. } | EdgeParam::Line { .. } => 8.0 * chord_sagitta_rel(n_seg),
+        // Analytic and exactly on the surface: the root is exact to float.
+        EdgeParam::Conic { .. } | EdgeParam::Hyper { .. } => 1e-9,
+    }
+}
+
+/// The sagitta of an `n_seg`-gon inscribed in a unit circle, `1 − cos(π/n)` —
+/// the render band's own deviation, and the unit every chord-derived tolerance
+/// in this module is expressed in.
+fn chord_sagitta_rel(n_seg: u32) -> f64 {
+    1.0 - (PI / f64::from(n_seg.max(3))).cos()
+}
+
 /// Every crossing of the half-edge with the functional's zero set.
 fn edge_crossings(
     arena: &BrepArena,
@@ -1252,20 +1287,7 @@ fn edge_crossings(
     n_seg: u32,
 ) -> Result<Vec<Crossing3>, KernelV2Error> {
     let param = edge_param(arena, h, n_seg)?;
-    let rel_tol = match param {
-        // Chord-approximate. A `Poly` edge IS the render polyline of a
-        // surface-pair curve; a `LineSegment` bounding a CURVED face is a
-        // chord of whatever curve the boolean output approximated (C0065's
-        // torus patch is bounded by 110 of them), and only its endpoints are
-        // on the surface. Both land up to a chord sagitta off the true curve,
-        // so the band is the sagitta of an `n_seg`-gon, times 8 so a boundary
-        // whose own radius exceeds the face's scale still clears it.
-        EdgeParam::Poly { .. } | EdgeParam::Line { .. } => {
-            8.0 * (1.0 - (PI / f64::from(n_seg.max(3))).cos())
-        }
-        // Analytic and exactly on the surface: the root is exact to float.
-        EdgeParam::Conic { .. } | EdgeParam::Hyper { .. } => 1e-9,
-    };
+    let rel_tol = on_path_rel_tol(&param, n_seg);
     let roots = match (functional, &param) {
         (Functional::Plane { o, n }, _) => plane_roots(&param, *o, *n),
         (Functional::TorusDot { .. }, _) => None,
@@ -1490,7 +1512,7 @@ fn sampled(
 ) -> Option<Curve2> {
     const SEED: usize = 24;
     const MAX_DEPTH: u32 = 22;
-    let sag = scale * (1.0 - (PI / f64::from(n_seg.max(3))).cos());
+    let sag = scale * chord_sagitta_rel(n_seg);
     let sag = if sag > 0.0 { sag } else { TAU_MODEL };
 
     let mut params: Vec<f64> = (0..=SEED)
