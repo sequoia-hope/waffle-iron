@@ -981,6 +981,30 @@ Found and fixed along the way:
   (see the commit); the only P5 change in the diff is the `expression`
   echo.
 
+Found in review (2026-10-03), after the above:
+
+- *The rewrite needs its guard at the ENGINE, not only in the tool.*
+  `parameters_set` refuses a rename onto a taken name because the rewrite
+  would SUCCEED — every dependent splices onto a different parameter, which
+  resolves, so the geometry moves and no feature reports anything. The
+  panel reaches `Engine::set_parameters` directly, where there was no such
+  check: renaming `w` onto a name another variable held moved an extrude
+  from 20 mm to 198 mm, the only complaint a `duplicate parameter name` on
+  the shadowed row. The engine now rewrites only when the incoming table
+  carries the new name on exactly one row and the old name on none, and the
+  new name is valid; otherwise the dependents keep reading a name that no
+  longer resolves — loud, undoable, recoverable. The same hole was reachable
+  through the tool by renaming TWO rows onto one name in a single call,
+  which the per-row check cannot see because it compares against the table
+  as it was; every rename's target must now name exactly one parameter in
+  the table the call produces.
+- *`unit` and `comment` disagreed about what omitting them means.* A
+  full-table send kept a `unit` it never mentioned and dropped the `comment`
+  beside it, while the schema documented the keep as a merge-mode feature.
+  One rule now governs both sidecars in both modes — omitting keeps, `null`
+  clears — the side that cannot silently discard an author's dimension
+  contract. `comment` accepts `null` to clear.
+
 Still open:
 
 - *No tool reads the table's dependency graph transitively.* `depends_on`
