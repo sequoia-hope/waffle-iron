@@ -14,6 +14,9 @@
 //! | wedge | a taper's thinnest place is its ACUTE CORNER, where the true minimum is 0 — the measured correction to §4.4's "the thin edge", and the clearest case of why `min` is an upper bound |
 //! | rigid motion | the same body moved and turned reports the same minimum and maximum; its SITE SET does not survive, because the render CDT is frame-dependent |
 //! | solid cylinder | the far side of the site's OWN face is measurable (the self band is local, not global) |
+//! | two spacings | a finer spacing finds a THINNER corner — `min` moving with `spacing` is what makes it an upper bound, measured rather than argued |
+//! | tube under a turn | a CURVED wall's value survives a rigid motion to 1e-9 while its site count changes (166 140 → 93 152) |
+//! | slot in a tube | the acute corner where a flat cut meets a cylinder dominates `min` (0.043 mm against a 3 mm wall) — the wedge's lesson on a part someone would draw |
 
 use std::f64::consts::PI;
 
@@ -408,6 +411,221 @@ fn a_requested_spacing_adds_sites_without_moving_a_flat_wall() {
     );
     close(fine.min, coarse.min, 1e-15, "a flat wall does not move");
     close(fine.min, 0.005, 1e-15, "and it is the plate thickness");
+}
+
+/// The same wedge at two spacings reports two different minima, and the finer
+/// one is SMALLER — the operational meaning of "`min` is an upper bound".
+///
+/// A body with an acute corner has no minimum wall (see the wedge above), so
+/// the number a sampler reports is set by how close its closest site got to
+/// the corner. Halving the spacing halves that distance and the reported
+/// minimum follows it down. Measured 2026-10-03: 2.111 mm at a 4 mm spacing,
+/// 0.952 mm at 1 mm, 0.625 mm at 0.25 mm — each one exactly the corner's own
+/// `(t0 − y)/slope` at the site it was measured at, so none of them is wrong;
+/// they are answers to three different questions about the same body.
+///
+/// This is why a consumer must read `spacing` with `min`, and why a rule that
+/// needs to catch a thin web asks for a spacing under its width.
+#[test]
+fn a_finer_spacing_finds_a_thinner_corner_because_min_is_an_upper_bound() {
+    let (l, t0, t1, w) = (0.040, 0.006, 0.002, 0.020);
+    let mut arena = BrepArena::new();
+    let s = prism(
+        &mut arena,
+        vec![
+            Point2::new(0.0, 0.0),
+            Point2::new(l, 0.0),
+            Point2::new(l, t1),
+            Point2::new(0.0, t0),
+        ],
+        w,
+    );
+    let slope = (t0 - t1) / l;
+    let coarse = thickness(&arena, s, Some(0.004)).expect("walls");
+    let fine = thickness(&arena, s, Some(0.001)).expect("walls");
+    let finer = thickness(&arena, s, Some(0.00025)).expect("walls");
+
+    assert!(
+        coarse.min > fine.min && fine.min > finer.min,
+        "a finer sample finds a thinner corner: {:e} > {:e} > {:e}",
+        coarse.min,
+        fine.min,
+        finer.min
+    );
+    // At 4 mm the sampler has not reached the corner at all. Its thinnest site
+    // is out on the flat BASE, casting straight up to the slant — the taper's
+    // own `t0 − slope·x` there — and that number is ABOVE the thin end's
+    // perpendicular wall `t1·cos α`. A coarse sample OVERSTATES the wall,
+    // which is the same fact as `min` being an upper bound.
+    let cos_a = 1.0 / (1.0 + slope * slope).sqrt();
+    assert!(
+        coarse.min > t1 * cos_a,
+        "a 4 mm sample has not even reached the thin end's wall {:e}: got {:e}",
+        t1 * cos_a,
+        coarse.min
+    );
+    assert!(
+        coarse.thinnest.point.y().abs() < 1e-12,
+        "the coarse minimum is cast from the base (y = 0), got y = {:e}",
+        coarse.thinnest.point.y()
+    );
+    close(
+        coarse.min,
+        t0 - slope * coarse.thinnest.point.x(),
+        1e-12,
+        "from the base the wall is the taper's own t0 − slope·x",
+    );
+    // At 1 mm and below the thinnest site IS the corner, and each number is
+    // the corner's own closed form at its own site — so each is exact AS A
+    // MEASUREMENT. It is the SET of sites that is sampled.
+    for r in [&fine, &finer] {
+        close(
+            r.min,
+            (t0 - r.thinnest.point.y()) / slope,
+            1e-9,
+            "at the corner the wall is (t0 − y)/slope at the site measured",
+        );
+        assert!(r.min > 0.0, "a measured wall is positive: {:e}", r.min);
+    }
+    // And the reported spacing follows the request until the subdivision cap
+    // binds: at 0.25 mm it comes back LOOSER than asked (the largest facet can
+    // only be split 32 ways), which is the honest direction — a consumer sees
+    // the gap it got, not the one it asked for.
+    assert!(
+        coarse.spacing > fine.spacing,
+        "{:e} vs {:e}",
+        coarse.spacing,
+        fine.spacing
+    );
+    assert!(
+        finer.spacing > 0.00025,
+        "the subdivision cap could not meet 0.25 mm, and the answer says so: {:e}",
+        finer.spacing
+    );
+}
+
+/// A TUBE — a curved wall, whose minimum site is not everywhere on the body —
+/// reports the same wall after a rigid motion, while its site SET does not
+/// survive.
+///
+/// The plate case above can be satisfied by a wall that happens to be the same
+/// everywhere; a tube's thinnest site is a particular place on a particular
+/// cylinder pair, and the refinement onto the analytic surfaces is what makes
+/// the value survive the CDT changing underneath it. Measured 2026-10-03:
+/// 166 140 sites before, 93 152 after a 37° turn about `x`, with `min` and
+/// `max` agreeing to 1.3e-14 relative.
+#[test]
+fn a_tube_reports_the_same_wall_after_a_rigid_motion() {
+    let (r_out, r_in, h) = (0.010, 0.007, 0.030);
+    let mut arena = BrepArena::new();
+    let outer = cylinder(&mut arena, 0.0, r_out, h);
+    let bore = cylinder(&mut arena, -0.001, r_in, h + 0.002);
+    let tube = boolean_op(&mut arena, outer, bore, BoolOp::Subtract).expect("a bore");
+    let here = thickness(&arena, tube, None).expect("a tube has walls");
+
+    let (c, sn) = (37.0f64.to_radians()).cos_sin_pair();
+    let placement = RigidPlacement {
+        rotation: [[1.0, 0.0, 0.0], [0.0, c, -sn], [0.0, sn, c]],
+        translation: [0.13, -0.07, 0.23],
+    };
+    let moved = transform_solid(&mut arena, tube, &placement).expect("a rigid copy");
+    let there = thickness(&arena, moved, None).expect("the copy has walls");
+
+    close(
+        there.min,
+        r_out - r_in,
+        1e-9,
+        "the turned wall is still r_out − r_in",
+    );
+    close(there.min, here.min, 1e-9, "the minimum wall is invariant");
+    close(there.max, here.max, 1e-9, "so is the maximum");
+    assert_ne!(
+        here.samples, there.samples,
+        "the site set is NOT invariant — the render CDT is computed from the \
+         body's own coordinates, and this is the measurement that says the \
+         invariance is in the VALUE (got {} sites both times, which would mean \
+         the CDT no longer turns with the body)",
+        here.samples
+    );
+}
+
+/// A radial slot through a tube — a C — is reported as 0.043 mm thick, not as
+/// its 3 mm wall, because a flat cut meeting a cylinder makes an ACUTE corner
+/// and `min` is the thinnest cast anywhere on the body.
+///
+/// This is the wedge's lesson on a part someone would actually draw. The
+/// dihedral where the slot's face meets the outer cylinder is 78°, so the
+/// material there is a sliver, and the thinnest inward cast lands in it —
+/// 0.043 mm against a 3 mm wall, measured 2026-10-03. Pinned because the
+/// number is CORRECT for the question §4.2 defines (the first hit along the
+/// inward normal) and MISLEADING as "the wall thickness of this part": a
+/// consumer that reads `min` alone on any part with an acute edge — a keyway,
+/// a flat on a shaft, a slot in a tube — is reading a corner, not a wall. The
+/// wall itself is in the answer: it is where the sites actually are, which is
+/// what the histogram and `mean` report.
+#[test]
+fn a_slot_in_a_tube_is_thinnest_at_the_acute_corner_not_at_the_wall() {
+    let (r_out, r_in, h) = (0.010, 0.007, 0.030);
+    let (half_slot, wall) = (0.002, 0.010 - 0.007);
+    let mut arena = BrepArena::new();
+    let outer = cylinder(&mut arena, 0.0, r_out, h);
+    let bore = cylinder(&mut arena, -0.001, r_in, h + 0.002);
+    let tube = boolean_op(&mut arena, outer, bore, BoolOp::Subtract).expect("a bore");
+    // A 4 mm wide radial slot from the bore out through the +x side, cut
+    // through the full height.
+    let slot = prism(
+        &mut arena,
+        vec![
+            Point2::new(0.0, -half_slot),
+            Point2::new(0.012, -half_slot),
+            Point2::new(0.012, half_slot),
+            Point2::new(0.0, half_slot),
+        ],
+        h + 0.002,
+    );
+    let slot = transform_solid(
+        &mut arena,
+        slot,
+        &RigidPlacement {
+            rotation: [[1.0, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, 1.0]],
+            translation: [0.0, 0.0, -0.001],
+        },
+    )
+    .expect("the slot, dropped below the tube");
+    let c = boolean_op(&mut arena, tube, slot, BoolOp::Subtract).expect("a C");
+
+    let r = thickness(&arena, c, None).expect("a C has walls");
+    assert!(
+        r.min < wall / 10.0,
+        "the minimum is the corner sliver, an order under the 3 mm wall: got {:e}",
+        r.min
+    );
+    // And it IS at a slot-face / outer-cylinder corner: the site is on the
+    // outer radius and within one spacing of the slot's own plane.
+    let radius = (r.thinnest.point.x().powi(2) + r.thinnest.point.y().powi(2)).sqrt();
+    close(
+        radius,
+        r_out,
+        1e-6,
+        "the thinnest site is on the outer cylinder",
+    );
+    assert!(
+        (r.thinnest.point.y().abs() - half_slot).abs() <= r.spacing,
+        "the site sits at the slot's own plane: y = {:e}, slot at ±{:e}, spacing {:e}",
+        r.thinnest.point.y(),
+        half_slot,
+        r.spacing
+    );
+    // The wall is still the body's own thickest-to-thinnest story: the tube's
+    // height is the widest wall, and the overwhelming majority of sites are
+    // nowhere near the sliver (the first histogram bin holds the corner).
+    close(r.max, h, 1e-9, "the widest wall is the tube's height");
+    assert!(
+        r.declines.no_hit + r.declines.below_self_band < r.samples / 100,
+        "a C is a closed body: {:?} declines against {} sites",
+        r.declines,
+        r.samples
+    );
 }
 
 /// A spacing that is not a positive length is refused, typed — never silently
