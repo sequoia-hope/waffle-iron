@@ -60,6 +60,7 @@ fn make_sketch(entities: Vec<SketchEntity>, constraints: Vec<SketchConstraint>) 
             policy: ResolvePolicy::Strict,
             scope: None,
         },
+        plane_face: None,
         plane_origin: [0.0, 0.0, 0.0],
         plane_normal: [0.0, 0.0, 1.0],
         plane_x_axis: None,

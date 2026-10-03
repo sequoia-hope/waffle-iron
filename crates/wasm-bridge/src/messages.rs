@@ -84,6 +84,7 @@ impl LiveSketch {
                 policy: waffle_types::ResolvePolicy::BestEffort,
                 scope: None,
             },
+            plane_face: None,
             plane_origin: self.plane_origin,
             plane_normal: self.plane_normal,
             plane_x_axis: self.plane_x_axis,
