@@ -89,8 +89,8 @@ fn corpus_dir() -> PathBuf {
 /// why: that sweep does one rebuild and six projections per case and ran 42
 /// cases in 263 s, while this one does a rebuild and three real BOOLEANS per
 /// live body. Measured 2026-10-03 in `--release` at stride 64 (the sample is
-/// C0001, C0065, F0011, F0075, R0021, R0085): **6 cases, 305 s and 340 s over
-/// two runs**, 21
+/// C0001, C0065, F0011, F0075, R0021, R0085): **6 cases, 305 s / 340 s / 352 s
+/// over three runs** (the spread is the box's other load, not the sweep), 21
 /// `(body, axis)` cuts — 16 capped and asserted, 3 not boundable (a body
 /// carrying a surface-pair or hyperbola edge, which `solid_aabb` declines to
 /// bound), 1 other pipeline STOP (C0065's torus patch UV-CDT, the standing

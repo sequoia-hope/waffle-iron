@@ -1661,7 +1661,8 @@ positive; and the cut solid projects, since handing it back is the whole point.
 The sharp, closed-form statements live in the per-primitive half above.
 
 Measured 2026-10-03 in `--release` at the default stride 64 (C0001, C0065,
-F0011, F0075, R0021, R0085): **6 cases, 305 s and 340 s over two runs**, 21
+F0011, F0075, R0021, R0085): **6 cases, 305 s / 340 s / 352 s over three
+runs** (the spread is the box's other load), 21
 `(body, axis)` cuts — 16 capped and asserted, 3 not boundable, 1 pipeline STOP
 (C0065 along `z`, the standing torus patch UV-CDT family), 1 empty cap, 1
 through the Stage-0 shared cap, 0 sampled loops, 0 cases not built, 0 failures.
