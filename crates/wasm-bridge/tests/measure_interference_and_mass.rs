@@ -154,6 +154,80 @@ fn cube(
     FeatureTree::body_id(extrude, &OutputKey::Main)
 }
 
+/// A cylinder of radius `r` and height `h` centred at `(cx, 0)` in the sketch
+/// frame, as its own body. Curved: an arc-bounded region puts a Q2 answer at
+/// the MESH tier, which is the only place the band on the wire is non-zero.
+fn cylinder_body(
+    state: &mut EngineState,
+    kernel: &mut KernelV2Adapter,
+    cx: f64,
+    r: f64,
+    h: f64,
+    base: u32,
+) -> String {
+    let sketch = Sketch {
+        id: Uuid::new_v4(),
+        plane: datum_xy(),
+        plane_origin: [0.0, 0.0, 0.0],
+        plane_normal: [0.0, 0.0, 1.0],
+        plane_x_axis: None,
+        entities: Vec::new(),
+        constraints: Vec::new(),
+        solve_status: SolveStatus::FullyConstrained,
+        solved_positions: HashMap::new(),
+        projected: Vec::new(),
+        solved_profiles: vec![ClosedProfile {
+            entity_ids: vec![base],
+            is_outer: true,
+            vertex_ids: vec![],
+            circle: Some(CircleProfile {
+                center_u: cx,
+                center_v: 0.0,
+                radius: r,
+            }),
+            spline_segments: vec![],
+            arc_segments: vec![],
+        }],
+    };
+    let sketch_feature = added_id(dispatch(
+        state,
+        UiToEngine::AddFeature {
+            operation: Operation::Sketch { sketch },
+            provenance: None,
+        },
+        kernel,
+    ));
+    let extrude = added_id(dispatch(
+        state,
+        UiToEngine::AddFeature {
+            operation: Operation::Extrude {
+                params: ExtrudeParams {
+                    sketch_id: sketch_feature,
+                    profile_index: 0,
+                    profile_entity_ids: Some(vec![base]),
+                    depth: h,
+                    depth_expr: None,
+                    direction: None,
+                    symmetric: false,
+                    cut: false,
+                    merge: false,
+                    target_body: None,
+                    depth_mode: DepthMode::Blind,
+                    second_direction: None,
+                    region: None,
+                    regions: Vec::new(),
+                    combine: Some(CombineMode::NewBody),
+                    targets: None,
+                },
+            },
+            provenance: None,
+        },
+        kernel,
+    ));
+    wasm_bridge::tessellation_runner::tessellate_missing_meshes(state, kernel);
+    FeatureTree::body_id(extrude, &OutputKey::Main)
+}
+
 fn interference(
     state: &mut EngineState,
     kernel: &mut KernelV2Adapter,
@@ -335,4 +409,34 @@ fn mass_reports_the_density_it_used_and_the_tier_it_is() {
     let r = mass(&mut state, &mut kernel, json!({ "body_id": "nope/Main" }));
     assert!(r.is_error, "{r:?}");
     assert_eq!(r.structured_content["error"]["code"], "BodyNotFound");
+}
+
+/// A mesh-tier `interferes` must carry the band its volume sits in. A zero
+/// band on a mesh answer is indistinguishable from an exact one to a consumer
+/// doing error arithmetic, and a mesh volume is LOW by the chord deficit.
+#[test]
+fn a_mesh_tier_interference_carries_its_band_on_the_wire() {
+    let mut state = EngineState::new();
+    let mut kernel = KernelV2Adapter::new();
+    // A 10 mm cube at the origin and a cylinder whose axis sits on its +u
+    // face, so the overlap region is bounded by cylinder ARCS: the mesh tier.
+    let box_body = cube(&mut state, &mut kernel, 0.0, 0.01, 1);
+    let cyl = cylinder_body(&mut state, &mut kernel, 0.01, 0.004, 0.01, 501);
+
+    let out = ok(interference(&mut state, &mut kernel, &box_body, &cyl));
+    assert_eq!(out["kind"], "interferes", "{out}");
+    assert_eq!(
+        out["method"], "mesh",
+        "an arc-bounded region is chordal: {out}"
+    );
+    let band = out["chord_bound_m"].as_f64().expect("a band on the wire");
+    assert!(
+        band > 0.0,
+        "a mesh answer must report its band, not a zero: {out}"
+    );
+    // And an exact answer still reports the zero band, so the two are told
+    // apart by `method` and not by a missing field.
+    let exact = ok(interference(&mut state, &mut kernel, &box_body, &box_body));
+    assert_eq!(exact["method"], "exact", "{exact}");
+    assert_eq!(exact["chord_bound_m"], json!(0.0), "{exact}");
 }

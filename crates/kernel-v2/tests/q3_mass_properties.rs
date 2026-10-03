@@ -448,3 +448,180 @@ fn density_must_be_positive_and_finite() {
         );
     }
 }
+
+// -------------------------------------------------------------------------
+// Review additions (2026-10-03)
+// -------------------------------------------------------------------------
+
+/// The cone's OTHER arm: a frustum, with two full-circle rims and no apex.
+/// `add_cone_band`'s `τ₀ = 0` apex convention is already covered; this is the
+/// `τ₀ > 0` path, where a wrong `lo` would scale the volume and move the
+/// centroid without touching the area.
+#[test]
+fn a_cone_frustum_is_exact_in_every_quantity() {
+    // A trapezoid revolved about x: radius 4 mm at x = 0, 2 mm at x = 10 mm.
+    let (r0, r1, h) = (0.004, 0.002, 0.01);
+    let mut arena = BrepArena::new();
+    let p = Profile::new(
+        Point3::new(0.0, 0.0, 0.0),
+        Vector3::new(1.0, 0.0, 0.0),
+        Vector3::new(0.0, 1.0, 0.0),
+        vec![
+            Point2::new(0.0, 0.0),
+            Point2::new(h, 0.0),
+            Point2::new(h, r1),
+            Point2::new(0.0, r0),
+        ],
+        vec![],
+    )
+    .expect("trapezoid profile");
+    let s = revolve(
+        &mut arena,
+        &p,
+        Point3::new(0.0, 0.0, 0.0),
+        Vector3::new(1.0, 0.0, 0.0),
+        2.0 * PI,
+    )
+    .expect("frustum revolve")
+    .solid;
+    let m = mass_properties(&arena, s, 1.0).expect("a frustum integrates");
+
+    assert!(m.exact, "a two-rim cone band is an exact arm");
+    assert_eq!(m.chord_bound, 0.0, "an exact answer carries no band");
+    // V = πh(r₀² + r₀r₁ + r₁²)/3.
+    close(
+        m.volume,
+        PI * h * (r0 * r0 + r0 * r1 + r1 * r1) / 3.0,
+        1e-13,
+        "volume",
+    );
+    // Both caps plus the slant: π(r₀² + r₁² + (r₀+r₁)·slant).
+    let slant = ((r0 - r1) * (r0 - r1) + h * h).sqrt();
+    close(
+        m.surface_area,
+        PI * (r0 * r0 + r1 * r1 + (r0 + r1) * slant),
+        1e-13,
+        "area",
+    );
+    // Centroid along the axis from the wide end:
+    // h(r₀² + 2r₀r₁ + 3r₁²) / (4(r₀² + r₀r₁ + r₁²)).
+    close(
+        m.centroid[0],
+        h * (r0 * r0 + 2.0 * r0 * r1 + 3.0 * r1 * r1) / (4.0 * (r0 * r0 + r0 * r1 + r1 * r1)),
+        1e-12,
+        "centroid along the axis",
+    );
+}
+
+/// The complement of every exactness claim above: a PARTIAL band must NOT be
+/// claimed exact. A half cylinder's lateral is bounded by two semicircular
+/// ARCS, so the rim count is short and the face falls to the mesh tier — and
+/// the volume is then LOW by the chord deficit, never high.
+#[test]
+fn a_partial_cylinder_band_is_the_mesh_tier_not_a_false_exact() {
+    let (r, h) = (0.005, 0.01);
+    let mut arena = BrepArena::new();
+    let c = cylinder(&mut arena, 0.0, 0.0, 0.0, r, h);
+    // A knife that takes x > 0 and shares no plane with either cap.
+    let knife = {
+        let p = Profile::new(
+            Point3::new(0.0, 0.0, -0.005),
+            Vector3::new(1.0, 0.0, 0.0),
+            Vector3::new(0.0, 1.0, 0.0),
+            vec![
+                Point2::new(0.0, -0.02),
+                Point2::new(0.02, -0.02),
+                Point2::new(0.02, 0.02),
+                Point2::new(0.0, 0.02),
+            ],
+            vec![],
+        )
+        .expect("knife profile");
+        extrude(&mut arena, &p, Vector3::new(0.0, 0.0, 1.0), 0.02)
+            .expect("knife extrude")
+            .solid
+    };
+    let half = boolean_op(&mut arena, c, knife, BoolOp::Subtract).expect("half cut");
+    let m = mass_properties(&arena, half, 1.0).expect("the half cylinder integrates");
+
+    assert!(
+        !m.exact,
+        "an arc-bounded lateral has no closed-form arm: it must not claim Exact"
+    );
+    assert!(m.chord_bound > 0.0, "the mesh tier carries a band");
+    let truth = PI * r * r * h / 2.0;
+    assert!(
+        m.volume <= truth,
+        "an inscribed tessellation is LOW, never high: {:e} vs {truth:e}",
+        m.volume
+    );
+    // …and low by no more than the band over the curved wall's own area.
+    assert!(
+        truth - m.volume <= m.chord_bound * PI * r * h,
+        "deficit {:e} exceeds band × lateral area {:e}",
+        truth - m.volume,
+        m.chord_bound * PI * r * h
+    );
+}
+
+/// The products of inertia carry a SIGN convention — `I[i][j] = −ρ∫xᵢxⱼ dV` —
+/// and no axis-aligned fixture can tell it from `+ρ∫xᵢxⱼ dV`. A box rotated
+/// about z has a closed-form off-diagonal, so this pins the convention and
+/// the parallel-axis shift at once.
+#[test]
+fn the_products_of_inertia_match_the_closed_form_of_a_rotated_box() {
+    let (sx, sy, sz) = (0.02, 0.01, 0.005);
+    let mut arena = BrepArena::new();
+    let s = block(&mut arena, sx, sy, sz);
+    let theta = 35f64.to_radians();
+    let (sn, cs) = theta.sin_cos();
+    let m = placed(
+        &mut arena,
+        s,
+        &RigidPlacement {
+            translation: [0.0; 3],
+            rotation: [[cs, -sn, 0.0], [sn, cs, 0.0], [0.0, 0.0, 1.0]],
+        },
+    );
+
+    // Body frame: Iₓ = V(sy² + sz²)/12, I_y = V(sz² + sx²)/12. Rotating the
+    // body by R turns the tensor into R I Rᵀ, whose xy term is
+    // sinθcosθ(Iₓ − I_y) — NEGATIVE here, since Iₓ < I_y.
+    let v = sx * sy * sz;
+    let ix = v * (sy * sy + sz * sz) / 12.0;
+    let iy = v * (sz * sz + sx * sx) / 12.0;
+    let want_xy = sn * cs * (ix - iy);
+    assert!(
+        want_xy < 0.0,
+        "the reference term is negative by construction"
+    );
+    close(m.inertia_at_centroid[0][1], want_xy, 1e-9, "I[0][1]");
+    close(
+        m.inertia_at_centroid[1][0],
+        want_xy,
+        1e-9,
+        "I[1][0] (symmetry)",
+    );
+    // A rotation about z leaves z uncoupled, so those two products vanish.
+    for (i, j) in [(0usize, 2usize), (1, 2)] {
+        assert!(
+            m.inertia_at_centroid[i][j].abs() <= 1e-9 * iy,
+            "I[{i}][{j}] = {:e} must vanish for a rotation about z",
+            m.inertia_at_centroid[i][j]
+        );
+    }
+    // The diagonal of the rotated tensor, as the same similarity transform
+    // gives it — the other half of the parallel-axis check.
+    close(
+        m.inertia_at_centroid[0][0],
+        ix * cs * cs + iy * sn * sn,
+        1e-9,
+        "I[0][0]",
+    );
+    close(
+        m.inertia_at_centroid[1][1],
+        ix * sn * sn + iy * cs * cs,
+        1e-9,
+        "I[1][1]",
+    );
+}
