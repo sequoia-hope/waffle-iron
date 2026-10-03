@@ -104,6 +104,15 @@ let lastError = $state(null);
 
 /** @type {Map<string, string>} featureId -> error message */
 let featureErrors = $state(new Map());
+/**
+ * Per-feature non-fatal warnings from the last rebuild, feature id → the
+ * messages it raised (N2, `specs/agent_mechanical_design.md` §5.3 item 4).
+ * Separate from `lastRebuildWarnings`, which is the flat toast list: a
+ * reference that rebound by geometry, or a sketch whose face moved, is
+ * persistent state about one feature and belongs on its tree row, not in a
+ * toast that scrolls away.
+ */
+let featureWarnings = $state(new Map());
 // Warnings carried by the previous modelUpdated — used to toast only warnings
 // that are NEW on this rebuild (persisted diagnostics replay on every rebuild).
 let lastRebuildWarnings = new Set();
@@ -895,6 +904,15 @@ export function applyViewerSnapshot(snapshot, viewerMeshes) {
 		if (e && typeof e === 'object') errors.set(e.feature_id, e.message);
 	}
 	featureErrors = errors;
+	const viewerWarnings = new Map();
+	for (const entry of snapshot.feature_warnings ?? []) {
+		const [featureId, message] = entry;
+		if (!featureId || !message) continue;
+		const existing = viewerWarnings.get(featureId);
+		if (existing) existing.push(message);
+		else viewerWarnings.set(featureId, [message]);
+	}
+	featureWarnings = viewerWarnings;
 	lastRebuildWarnings = new Set(snapshot.warnings ?? []);
 }
 
@@ -991,6 +1009,19 @@ export async function initEngine() {
 		// when new relative to the previous rebuild, so a warning baked into a
 		// persisted feature (e.g. "body created as standalone") toasts once
 		// when it first appears, not on every rebuild thereafter.
+		// Per-feature warnings are the tree's badge state (N2 §5.3 item 4):
+		// unlike the toast list below they persist, because "this sketch's
+		// face moved" stays true until someone fixes it.
+		const byFeature = new Map();
+		for (const entry of msg.feature_warnings ?? []) {
+			const [featureId, message] = entry;
+			if (!featureId || !message) continue;
+			const existing = byFeature.get(featureId);
+			if (existing) existing.push(message);
+			else byFeature.set(featureId, [message]);
+		}
+		featureWarnings = byFeature;
+
 		const warnings = new Set(msg.warnings ?? []);
 		for (const warning of warnings) {
 			if (!lastRebuildWarnings.has(warning)) {
@@ -1518,6 +1549,7 @@ export async function initEngine() {
 			getUnderConstrained: () => [...getUnderConstrainedEntities()],
 			getFailedConstraintIndices: () => [...failedConstraintIndices],
 			getFeatureErrors: () => new Map(featureErrors),
+			getFeatureWarnings: () => new Map(featureWarnings),
 			projectFaceCentroids: () => {
 				const cam = cameraObject;
 				const canvas = document.querySelector('canvas');
@@ -1927,6 +1959,11 @@ export function getLastError() {
 
 export function getFeatureErrors() {
 	return featureErrors;
+}
+
+/** Per-feature rebuild warnings, feature id → messages (N2 §5.3 item 4). */
+export function getFeatureWarnings() {
+	return featureWarnings;
 }
 
 /** Non-fatal warnings carried by the latest rebuild, verbatim, in engine order. */

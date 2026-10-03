@@ -144,10 +144,11 @@ test.describe('In-context editing', () => {
 		await page.waitForFunction(() => (window.__waffle.getToasts() || []).some((t) => /open the part in that assembly/.test(t.message)), { timeout: 10000 });
 
 		// The document writes the scoped reference and demands the current
-		// reader floor (v5 for `scope`, raised to v6 by `plane_x_axis`).
+		// reader floor (v5 for `scope`, raised to v6 by `plane_x_axis`, v7 by
+		// `names`, v8 by `DesignParameter.unit`, v9 by `Sketch.plane_face`).
 		const json = JSON.parse(await page.evaluate(() => window.__waffle.buildDocumentJson()));
-		expect(json.version).toBe(8);
-		expect(json.min_reader_version).toBe(8);
+		expect(json.version).toBe(9);
+		expect(json.min_reader_version).toBe(9);
 		const part = json.tabs.find((t) => t.id === partTab);
 		expect(part.kind.features.features[1].operation.sketch.plane.scope).toEqual({ tab_id: asmTab, instance_path: [a] });
 	});
