@@ -39,8 +39,18 @@ export async function createExtrudedBox(page) {
 	});
 	await page.waitForTimeout(200);
 
-	// Finish sketch — sends solved positions + profiles to engine
-	await page.evaluate(() => window.__waffle.finishSketch());
+	// Finish sketch — sends solved positions + profiles to engine.
+	// STARTED, not awaited across the CDP boundary: `void` makes the evaluate
+	// return undefined, so no in-page promise is handed to the protocol. The
+	// waitForFunction below is the synchronisation AND the oracle; it still
+	// throws on timeout, so a finishSketch that does not commit still fails.
+	// Awaiting the promise instead made the whole test fail whenever the
+	// protocol round trip that carries back the DISCARDED result broke, even
+	// though the page had finished the work — the gui-relay CI flake of
+	// 2026-10-01..03 (5 runs in 100), whose traces show the sketch feature
+	// committed and the document never replaced. waitForFunction polls and
+	// re-acquires the context; evaluate cannot.
+	await page.evaluate(() => void window.__waffle.finishSketch());
 	await page.waitForFunction(
 		() => (window.__waffle?.getFeatureTree()?.features?.length ?? 0) >= 1,
 		{ timeout: 10000 }
@@ -50,7 +60,8 @@ export async function createExtrudedBox(page) {
 	// Show extrude dialog and apply (depth 60 → 60×60×60 cube)
 	await page.evaluate(() => window.__waffle.showExtrudeDialog());
 	await page.waitForTimeout(100);
-	await page.evaluate(() => window.__waffle.applyExtrude(60, 0, false));
+	// Same reason as finishSketch above: started, not awaited over the protocol.
+	await page.evaluate(() => void window.__waffle.applyExtrude(60, 0, false));
 
 	// Wait for extrude feature and mesh
 	await page.waitForFunction(
