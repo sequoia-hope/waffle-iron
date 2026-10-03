@@ -1797,3 +1797,128 @@ with the FDM set**: the pass/fail loop exists.
   estimate can be a K4 script when someone wants it.
 - Not a fillet, chamfer or shell dependency. The machining rule and the
   sketch fillet op are written for a kernel without them.
+
+## Implementation notes (S1/S2)
+
+Landed 2026-10-03. What the tree does now, where it differs from §10.1/§10.2
+above, and why.
+
+### S1 — the operations
+
+`sketch_solver::ops` (`crates/sketch-solver/src/ops/`) holds `trim`, `extend`,
+`offset`, `fillet`, `mirror` and `project` as pure functions on a `Sketch`,
+each returning a `SketchEdit`, plus `remove_entities` (the cascade rule, which
+was browser-only) and `apply_ops`, which applies a batch in order against the
+running state. `geom.rs`, `chain.rs` and `offset.rs` are ports of the three
+deleted JS modules — `geometry-utils.js` (204 lines), `chain.js` (199),
+`offset.js` (380) — tolerance for tolerance.
+
+The wire types are `waffle_types::sketch_ops`: `SketchOp` (the §10.3 enum, all
+thirteen variants, implemented now so S3 is a tool definition and a dispatch
+arm), `SketchEdit`, `End`, `Side`, `ProjectedPoint`, `ProjectShape` and a typed
+`SketchOpError`. Two bridge messages carry them: `ApplySketchOps { live, ops,
+next_id }` → `SketchOpsApplied { entities, constraints, projected, edit,
+transient_constraints, next_id }`, and `QuerySketch { live, query }` →
+`SketchQueried { result }` for the previews (`Chain`, `TrimPreview`,
+`FilletPreview`, `OffsetPreview`). The live sketch travels with the request,
+exactly as `SolveSketch`'s does, because the UI owns the in-progress sketch and
+the engine's `active_sketch` lags it by a round trip.
+
+Four decisions that are not in §10.1:
+
+1. **The previews come from the same functions as the commits.**
+   `fillet_geometry`, `trim_preview` and `resolve_offset_chain` are public for
+   that reason. A hover highlight computed by different code from the click is
+   a highlight that can lie, which is what the JS had.
+2. **Operations keep ids where the geometry survives.** The JS deleted and
+   re-created, which dropped every constraint on the affected entities
+   (`removeSketchEntities` cascades). A trim now keeps the surviving half's far
+   endpoint and the line's own id; a fillet repoints the two lines rather than
+   re-creating them, so a `Vertical` on a filleted leg outlives the fillet
+   (pinned: `a_fillet_keeps_the_dimension_on_the_line_it_shortens`). Points the
+   operation releases are pruned, so a trim leaves no invisible free vertex.
+3. **Snapping stays in the UI.** The ops weld only on exact coincidence
+   (`POINT_WELD_TOL = 1e-9`); which nearby vertex a cursor meant is an
+   interaction decision and the caller passes the position it decided on.
+4. **Undo is a snapshot for engine-applied edits.** One `SketchEdit` can add,
+   remove AND change entities at once, which the store's add-list undo entries
+   cannot express, so `applySketchOps` records the sketch on both sides of
+   itself (`_isSnapshot`).
+
+Two inherited limitations, named rather than hidden: a trim on a circle or arc
+removes it WHOLE (piece-wise curve trimming needs an angular bracket and is not
+implemented), and `mirror` adds independent geometry rather than a
+`Symmetric`-constrained pattern.
+
+**The UI keeps pointer handling and rendering only.** `tools.js` lost
+`buildOffsetChain`, `armOffset`'s segment resolution, `offsetCursorDistance`,
+`computeArmedOffset`, `createEntitiesFromSegments`, `findEntityIntersections`,
+`executeTrimLine`, `findCornerAtPoint`, `lineLength`, `computeFilletPreview`
+and `executeSketchFillet`; `store.svelte.js` lost its `computeChainOffset` and
+`findConnectedChain` JS implementations (both now engine queries) and its
+driving→local conflict remap. Every geometry query is asynchronous, so each
+tool's POINTERDOWN path is self-sufficient: a click never depends on a hover
+answer having arrived (`clickAt` in the GUI specs moves and clicks in the same
+tick, and that is the real interaction too).
+
+One behaviour pinned while porting: a lone circle's offset is
+OUTWARD-positive, unlike a chain's left-of-traversal convention, because that
+is what the shipped tool did and what a user reads off the screen
+(`a_circles_signed_distance_is_positive_outside_it`).
+
+### S2 — solver state
+
+`SolvedSketch.report: SketchSolveReport` (`waffle_types::sketch_state`) carries
+`dof`, `params`, `rank`, `rows`, per-constraint `residuals` (unweighted,
+`Option<f64>` so an unevaluable reference dimension is an absence rather than a
+fabricated zero), `conflicts` (always populated, not only on
+`OverConstrained`), `redundant`, `moved`, `free` and a typed `convergence`.
+It is kept on `ActiveSketch.solve_report` and reaches the UI on `SketchSolved`.
+
+Deviation from §10.2: **`Redundant` is a field, not a `SolveStatus` variant.**
+Every consumer of `SolveStatus` treats "satisfied, zero dof" as the green
+state; a new variant would silently un-green every fully constrained sketch
+that happens to carry a duplicate constraint. The verdict is
+`report.redundant`, non-empty exactly when the system is satisfied with
+`rank < rows`, naming the dependent constraints by a greedy declaration-order
+rank walk (the later duplicate is the one the author just added).
+
+`free` is the `dof` smallest eigenvectors of `JᵗJ`, not an SVD of `J`: with
+fewer constraint rows than parameters — every under-constrained sketch —
+nalgebra's thin `v_t` cannot span the null space. The COUNT comes from the
+same column-pivoted QR rank the verdict uses, which is what keeps
+`free.len() == dof` instead of two rank decisions disagreeing at the
+tolerance.
+
+**Reference dimensions are filtered inside `solve_sketch`.** The filter used to
+live in three places (the sketch UI, `sketch_create`, `feature_engine::params`)
+and conflict indices came back in the FILTERED space, so each consumer undid a
+mapping it had applied itself — and the UI's remap shifted badge highlighting
+onto the wrong constraint whenever a reference dimension preceded a conflict.
+Now every index the solver reports indexes the caller's own full constraint
+array, `feature_engine::params` has dropped its copy, and `triggerSolve` sends
+the whole list.
+
+V2's half of §10.2 is NOT done: the UI's over-constrained badge is still the
+constraint-COUNT heuristic and the under-constrained marker still flags
+unreferenced points. The report they need is now on `sketchSolveStatus.report`.
+
+### The 1,172 corpus sketches with zero constraints (§2.2 item 11)
+
+Measured, not assumed: `crates/wasm-bridge/tests/sketch_constraint_persistence.rs`
+drives a fully constrained rectangle (reference dimension included) through
+`sketch_create` AND through the UI's `BeginSketch`/`SolveSketch`/`FinishSketch`
+path, saves the document and loads it back. Both keep every constraint, and so
+does a fillet's pair of `Tangent`s. **The cause is authoring**: the corpus
+generator's own case records (`app/tests/cases/assay/*.meta.json`,
+`generator_version` 4) describe operations by profile type and size and carry
+no constraint field at all, and `docs/notes/planetary_gearbox/Planetary
+gearbox.waffle.json` — 26 sketches, 0 constraints — was authored the same way.
+Nothing drops them; none were ever written. Constrained sketches come from S4's
+corpus.
+
+One real bug fell out of that measurement and is fixed:
+`window.__waffle.addSketchEntity` did not allocate an id when the caller
+omitted one, so a GUI test's setup fixture was added locally, REFUSED by the
+engine ("missing field `id`", logged and swallowed) and then invisible to
+anything addressing geometry by id.
