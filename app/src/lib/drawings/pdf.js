@@ -160,6 +160,23 @@ function num(x) {
 	return String(r === 0 ? 0 : r);
 }
 
+/**
+ * A number for the page's own `cm`, at six decimals rather than three.
+ *
+ * `num`'s micron of rounding is invisible on a coordinate and MULTIPLICATIVE on
+ * the scale factor: `72/25.4` rounded to `2.835` is 12.5 ppm high, which draws
+ * a 100 mm dimension at 100.0125 mm, pushes an A3 sheet 52 µm past its own
+ * `MediaBox` (which is written at full precision) and makes the PDF measurably
+ * not the SVG it was scanned from. Measured with three readers (pypdf,
+ * pdfminer.six, PyMuPDF) on an A3 sheet: the border frame came back at
+ * 10.00 → 410.05 mm instead of 10 → 410.
+ */
+function numCtm(x) {
+	if (!Number.isFinite(x)) return '0';
+	const r = Number(x.toFixed(6));
+	return String(r === 0 ? 0 : r);
+}
+
 /** Parse `name="value"` pairs out of a tag's attribute text. */
 function parseAttrs(text) {
 	/** @type {Record<string, string>} */
@@ -219,7 +236,7 @@ export function renderSheetPdf({ svg, widthMm, heightMm, palette = PRINT_PALETTE
 
 	// User space becomes paper millimetres with y DOWN, which is the SVG's own
 	// frame — so every coordinate below is written as the markup had it.
-	ops.push(`q ${num(PT_PER_MM)} 0 0 ${num(-PT_PER_MM)} 0 ${num(h * PT_PER_MM)} cm`);
+	ops.push(`q ${numCtm(PT_PER_MM)} 0 0 ${numCtm(-PT_PER_MM)} 0 ${numCtm(h * PT_PER_MM)} cm`);
 
 	/** Transform stack: user = (x * sx + tx, y * sy + ty), in paper mm. */
 	const stack = [{ sx: 1, sy: 1, tx: 0, ty: 0 }];
@@ -566,7 +583,10 @@ function assemble(content, widthPt, heightPt) {
 	const objects = [
 		'<< /Type /Catalog /Pages 2 0 R >>',
 		'<< /Type /Pages /Kids [3 0 R] /Count 1 >>',
-		`<< /Type /Page /Parent 2 0 R /MediaBox [0 0 ${num(widthPt)} ${num(heightPt)}] ` +
+		// The page edge at the same precision as the `cm` that draws on it, so
+		// the paper rectangle lands exactly on the MediaBox rather than a
+		// rounding away from it.
+		`<< /Type /Page /Parent 2 0 R /MediaBox [0 0 ${numCtm(widthPt)} ${numCtm(heightPt)}] ` +
 			`/Resources << /Font << /F1 5 0 R >> >> /Contents 4 0 R >>`,
 		null, // the stream, built below
 		'<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica /Encoding /WinAnsiEncoding >>'
