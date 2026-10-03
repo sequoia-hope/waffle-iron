@@ -64,13 +64,33 @@ test.describe('sketch trim tool', () => {
 		await clickAt(page, 30, -30);
 		await page.waitForTimeout(500);
 
-		// After trim, entity count should have changed (either split or removed segment)
+		// Trimming the upper-right piece of line 1 cuts it at the (0, 0)
+		// crossing and drops that piece: the lower-left half survives, so the
+		// (5, 5) endpoint goes and a new vertex appears on the crossing. The
+		// entity COUNT is unchanged by that (one point out, one point in),
+		// which is why this asserts the geometry instead.
+		//
+		// This assertion used to be `expect(totalCountAfter)
+		// .toBeGreaterThanOrEqual(0)` — tautologically true. It passed while
+		// the fixture was not reaching the engine at all (`addSketchEntity`
+		// returned no id, so every line here was built on `undefined`
+		// endpoints and the engine refused it), so the trim tool had never
+		// actually been exercised by this spec.
 		const entitiesAfter = await getEntities(page);
-		const totalCountAfter = entitiesAfter.length;
+		const pointsAfter = entitiesAfter.filter((e) => e.type === 'Point');
+		const near = (e, x, y) => Math.hypot(e.x - x, e.y - y) < 0.3;
 
-		// We don't assert a specific count because trim behavior depends on
-		// whether the click hit the entity. Just verify the tool didn't crash.
-		expect(totalCountAfter).toBeGreaterThanOrEqual(0);
+		expect(
+			pointsAfter.some((e) => near(e, 0, 0)),
+			`a vertex lands on the crossing: ${JSON.stringify(pointsAfter)}`
+		).toBe(true);
+		expect(
+			pointsAfter.some((e) => near(e, 5, 5)),
+			`the trimmed-away (5, 5) endpoint is gone: ${JSON.stringify(pointsAfter)}`
+		).toBe(false);
+		// Both lines are still lines: the crossing line is untouched and the
+		// trimmed one was shortened, not deleted.
+		expect(entitiesAfter.filter((e) => e.type === 'Line').length).toBe(2);
 	});
 
 	test('trim tool does not crash on click with no nearby entities', async ({ waffle }) => {
