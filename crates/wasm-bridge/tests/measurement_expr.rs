@@ -556,6 +556,158 @@ fn an_area_and_an_edge_length_measure_the_real_geometry() {
 }
 
 #[test]
+fn mixed_operands_and_the_two_angle_families_answer_or_refuse_by_name() {
+    // §6's table leaves two things open that only the real kernel can
+    // settle, so they are pinned here rather than asserted from the spec.
+    //
+    //   1. `distance(a, b)` across KINDS — a body and a face. Q1's
+    //      `MeasureEntity` admits the pair, so either the kernel answers it
+    //      or it refuses by name; what must not happen is a number from a
+    //      different question.
+    //   2. `angle(a, b)` for the two families §6 names, "two planar faces or
+    //      two lines".
+    let mut state = EngineState::new();
+    let mut kernel = KernelV2Adapter::new();
+    let s = 0.01;
+    let (_, body) = block(&mut state, &mut kernel, 0.0, s, s, None, 1);
+    let c = centre(&mut state, &mut kernel, &body);
+    let px = facing_face(&mut state, &mut kernel, &body, [c[0] + 1.0, c[1], c[2]]);
+    let py = facing_face(&mut state, &mut kernel, &body, [c[0], c[1] + 1.0, c[2]]);
+    name_it(&mut state, &mut kernel, px, "x_face");
+    name_it(&mut state, &mut kernel, py, "y_face");
+    ok(
+        &mut state,
+        &mut kernel,
+        "body_rename",
+        json!({ "body_id": body, "new_name": "cube" }),
+    );
+
+    // Two perpendicular planar faces of a cube: 90 degrees, in the
+    // evaluator's angle working space.
+    let out = ok(
+        &mut state,
+        &mut kernel,
+        "expression_evaluate",
+        json!({ "expression": "angle(x_face, y_face)" }),
+    );
+    assert!(out["error"].is_null(), "{out}");
+    assert!(
+        (out["value_mm"].as_f64().expect("a value") - 90.0).abs() < 1e-9,
+        "two perpendicular faces are 90 degrees: {out}"
+    );
+    assert_eq!(out["dimension"], "angle", "{out}");
+    // A face against ITSELF is zero, not a refusal — the same two
+    // directions.
+    let out = ok(
+        &mut state,
+        &mut kernel,
+        "expression_evaluate",
+        json!({ "expression": "angle(x_face, x_face)" }),
+    );
+    assert!(out["error"].is_null(), "{out}");
+    assert!(out["value_mm"].as_f64().expect("a value").abs() < 1e-9, "{out}");
+
+    // §6's other angle family, "two LINES": two straight edges of the cube.
+    // A straight edge carries no axis descriptor, so its direction is the
+    // segment itself — which the kernel contract hands over as a two-point
+    // polyline. Two edges of one face meet at a right angle; an edge against
+    // itself is zero.
+    let listed = ok(
+        &mut state,
+        &mut kernel,
+        "entity_list",
+        json!({ "body_id": body, "kind": "edge" }),
+    );
+    let edges = listed["entities"].as_array().expect("edges").clone();
+    assert!(edges.len() >= 2, "{listed}");
+    name_it(&mut state, &mut kernel, edges[0]["geom_ref"].clone(), "e0");
+    name_it(&mut state, &mut kernel, edges[1]["geom_ref"].clone(), "e1");
+    let out = ok(
+        &mut state,
+        &mut kernel,
+        "expression_evaluate",
+        json!({ "expression": "angle(e0, e0)" }),
+    );
+    assert!(out["error"].is_null(), "a straight edge has a direction: {out}");
+    assert!(out["value_mm"].as_f64().expect("a value").abs() < 1e-9, "{out}");
+    let out = ok(
+        &mut state,
+        &mut kernel,
+        "expression_evaluate",
+        json!({ "expression": "angle(e0, e1)" }),
+    );
+    assert!(out["error"].is_null(), "{out}");
+    let between = out["value_mm"].as_f64().expect("a value");
+    assert!(
+        (0.0..=180.0).contains(&between),
+        "an unoriented angle lies in [0, 180]: {out}"
+    );
+    assert_eq!(out["dimension"], "angle", "{out}");
+
+    // The mixed pair: a BODY and a FACE. Q1's `MeasureEntity` admits it and
+    // the kernel measures it — so what is pinned is that it answers with the
+    // LENGTH dimension, and that the answer is the honest one for the
+    // question asked: a face OF that body is zero away from it. A caller who
+    // wanted the opposite wall must name both faces.
+    let out = ok(
+        &mut state,
+        &mut kernel,
+        "expression_evaluate",
+        json!({ "expression": "distance(cube, x_face)" }),
+    );
+    assert!(out["error"].is_null(), "a mixed pair measures: {out}");
+    assert_eq!(out["dimension"], "length", "{out}");
+    assert!(
+        out["value_mm"].as_f64().expect("a value").abs() < 1e-9,
+        "a body's own face is zero away from it: {out}"
+    );
+}
+
+#[test]
+fn clearing_an_entity_name_leaves_a_typed_error_naming_the_name_that_is_gone() {
+    // N1 gives assign and unname, not rename, so the way a measured name
+    // disappears is that someone unnames it. The expression that spelled it
+    // must then fail LOUDLY and by name: a stale number, or a blank, would
+    // be the silent-wrong this increment exists to remove.
+    let mut state = EngineState::new();
+    let mut kernel = KernelV2Adapter::new();
+    let s = 0.01;
+    let (_, body) = block(&mut state, &mut kernel, 0.0, s, s, None, 1);
+    let c = centre(&mut state, &mut kernel, &body);
+    let face = facing_face(&mut state, &mut kernel, &body, [c[0] + 1.0, c[1], c[2]]);
+    name_it(&mut state, &mut kernel, face, "top");
+
+    let out = ok(
+        &mut state,
+        &mut kernel,
+        "expression_evaluate",
+        json!({ "expression": "area(top)" }),
+    );
+    assert!(out["error"].is_null(), "{out}");
+
+    state
+        .engine
+        .clear_entity_name("top")
+        .expect("the name was there");
+
+    let out = ok(
+        &mut state,
+        &mut kernel,
+        "expression_evaluate",
+        json!({ "expression": "area(top)" }),
+    );
+    let error = out["error"].as_str().expect("the measurement now fails");
+    assert!(
+        error.contains("top") && error.contains("area"),
+        "the refusal names the function AND the name that is gone: {error}"
+    );
+    assert!(
+        out["value_mm"].is_null(),
+        "no number survives the name: {out}"
+    );
+}
+
+#[test]
 fn a_feature_measuring_its_own_output_is_a_typed_cycle_against_the_real_kernel() {
     let mut state = EngineState::new();
     let mut kernel = KernelV2Adapter::new();
@@ -601,3 +753,4 @@ fn a_feature_measuring_its_own_output_is_a_typed_cycle_against_the_real_kernel()
     // The depth is untouched, so the body is still the one it was.
     assert_eq!(depth_of(&state, feature), s);
 }
+

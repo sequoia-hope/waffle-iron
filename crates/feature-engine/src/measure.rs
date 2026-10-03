@@ -495,18 +495,36 @@ impl<'a> TreeMeasurer<'a> {
                     return Ok(normal);
                 }
             }
-            // An edge (or a curved face) contributes its axis direction.
-            self.introspect
-                .entity_axis(id, kind)
-                .map(|axis| axis.direction)
-                .ok_or_else(|| MeasureRefusal::Entity {
-                    name: name.to_string(),
-                    reason: format!(
-                        "{} has neither a normal nor an axis, so it has no direction to \
-                         measure an angle from",
-                        r.what
-                    ),
-                })
+            // An edge (or a curved face) contributes its axis direction: a
+            // circular edge's axis, a cylinder's axis.
+            if let Some(axis) = self.introspect.entity_axis(id, kind) {
+                return Ok(axis.direction);
+            }
+            // A STRAIGHT edge is §6's other angle family ("two planar faces
+            // or two LINES") and has no axis descriptor, so its direction is
+            // the segment itself. The kernel contract for `edge_polyline` is
+            // "two points for a straight edge; for a curved edge, its chord
+            // samples at the kernel's render density" — so exactly two
+            // points IS the kernel saying this edge is a segment. A curved
+            // edge still refuses rather than being handed its chord, which
+            // points somewhere else entirely (and is zero for a closed
+            // circle).
+            if kind == TopoKind::Edge {
+                if let [a, b] = self.introspect.edge_polyline(id).as_slice() {
+                    let d = [b[0] - a[0], b[1] - a[1], b[2] - a[2]];
+                    if d.iter().any(|c| *c != 0.0) {
+                        return Ok(d);
+                    }
+                }
+            }
+            Err(MeasureRefusal::Entity {
+                name: name.to_string(),
+                reason: format!(
+                    "{} has no direction to measure an angle from: no normal, no axis, and \
+                     it is not a straight segment",
+                    r.what
+                ),
+            })
         };
         let u = direction(call.name(0), &a)?;
         let v = direction(call.name(1), &b)?;

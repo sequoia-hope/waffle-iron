@@ -1840,6 +1840,30 @@ normal is `None` — a full-turn surface of revolution — is refused for
 `angle` rather than handed its axis, because those are different
 quantities.
 
+**`angle`'s two families, and what `distance` does across KINDS.** §6's
+table promises an angle "between two planar faces or two lines". The
+first family is the face normal. The second has no axis descriptor to
+read — a straight edge is not a surface of revolution — so its direction
+is the segment itself, taken from `edge_polyline`, whose contract is "two
+points for a straight edge; for a curved edge, its chord samples at the
+kernel's render density". Exactly two points IS the kernel saying the
+edge is a segment, and a CURVED edge is still refused rather than handed
+its chord: the chord points somewhere else entirely, and for a closed
+circle it is zero. `distance(a, b)` accepts MIXED kinds — a body and a
+face — because Q1's `MeasureEntity` admits the pair and the kernel
+measures it; the answer is the honest one for the question asked, so
+`distance(plate, plate.top_face)` is zero (a face of a body is on it),
+and a caller who wanted the opposite wall must name both faces. Both
+pinned in `crates/wasm-bridge/tests/measurement_expr.rs`
+(`mixed_operands_and_the_two_angle_families_answer_or_refuse_by_name`).
+
+**A name that is UNNAMED takes its expressions down loudly.** N1 gives
+assign and unname, not rename, so the way a measured name disappears is
+that someone clears it. The expression that spelled it then fails by name
+(`MeasurementFailed` naming the function and the name) and reports no
+number at all — never the value from the last rebuild. Pinned in
+`clearing_an_entity_name_leaves_a_typed_error_naming_the_name_that_is_gone`.
+
 **D3's `Measured::Expr` is evaluated through this path.** `check_measured`
 no longer refuses it (it is a legal authored value now), and `rebuild_view`
 evaluates it through a new `ExprDimensions` trait — a trait rather than the
@@ -1898,7 +1922,19 @@ Still open:
 - *The settle budget's error names the features that were still moving, not
   the cycle.* The ordinal rule names the loop precisely for every case it
   can see; the budget is the backstop for the unattributable ones, where
-  there is no owning feature to name.
+  there is no owning feature to name. It does report how many passes it
+  spent (`Engine::measure_passes`), which is the number a reader of that
+  error needs.
+
+**The pass count, measured.** The sites+1 bound is not loose: a COLD
+two-link chain (one depth measuring block 0, the next measuring block 1,
+whose side-face area is width × that very depth) takes exactly three
+passes for two sites. What makes the bound harmless is that a chain is
+rare: fifteen INDEPENDENT measuring sites over a twenty-feature tree take
+TWO passes, not sixteen, because every one of them reads geometry the
+first build already produced. An incremental rebuild of the same chain
+takes two, the first link having settled already. All four numbers are
+pinned in `crates/feature-engine/tests/measurement.rs`.
 
 ## 7. D3 — Annotation model (LANDED 2026-10-03)
 
