@@ -220,6 +220,17 @@ impl SketchEdit {
     }
 
     /// Fold another edit into this one, in order.
+    ///
+    /// **The folded `constraints_removed` is NOT replayable.** Those indices
+    /// are relative to the constraint array as it stood when their own op ran
+    /// (see the field's own docs), and each op in a batch runs against the
+    /// state the previous one left — so concatenating them mixes two index
+    /// spaces, and applying the total to the ORIGINAL sketch removes the wrong
+    /// constraints. Read a folded total for its entity lists and its
+    /// `constraints_added`; for the constraints a batch dropped, read
+    /// `AppliedOps::sketch`, which is the state the ops actually produced.
+    /// `ops::apply_ops` is correct because it applies each op's own edit to the
+    /// state that op was computed against, and folds only for reporting.
     pub fn extend(&mut self, other: SketchEdit) {
         self.added.extend(other.added);
         self.removed.extend(other.removed);
