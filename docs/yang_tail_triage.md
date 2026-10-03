@@ -43,6 +43,167 @@ after the reconciliation run (release, 8 jobs, 360 s; wall 577 s, F0085
 regression since 2026-08-01 is outstanding (checked over every commit of
 `results.json`).
 
+## 2026-10-03 (night, later) — the §4.3.3 guard-ON corpus run was TAKEN and REFUSED the flip; the refusal is the guard's APPLICATION, not its derivation: a per-site density demand was collapsed into one body-wide rim-N floor forced on BOTH operands. The demand is now spent LOCALLY — the demanding face's own rim closure, over the at-risk arc span. **Corpus not re-measured this session**; the canonical score stands at the 2026-10-03 (night) **314C / 0W / 16E / 4EE / 0T + 0 UNSUPPORTED over 334 cases**
+
+**The measurement the previous session asked for** (release, 8 jobs, 900 s;
+wall 1489.4 s), verbatim: **312C / 0W / 15E / 4EE / 3T**. P0013 and P0015 read
+CORRECT, and then:
+
+* **R0085 REGRESSED CORRECT → ERROR** — `ERROR (515.9s) — 1 auto-union
+  failure(s): Revolve 3: Auto-union failed: … kernel-v2 boolean_union failed:
+  TessellationFailed { face: FaceId(1761), reason: "ring rejected by CDT
+  (degenerate/self-intersecting)" }. Body created as standalone.`
+* **R0003 / R0054 / R0081 TIMED OUT at 900 s CPU** — all three CORRECT in
+  ≤ 385 s with the guard off.
+
+So the flip was refused on corpus evidence a second time (its 2026-08-27
+broad form was refused the first).
+
+### The anchor: one root cause, not three
+
+`YANG_433_GUARD=1 YANG_433_GRAZE_PROBE=1 YANG_SPLIT_PROBE=1
+YANG_FACE_CENSUS=1`, release `single_case`:
+
+| case | clusters that fire | distinct faces | max demand, and where | operand triangles natural → boosted |
+|---|---|---|---|---|
+| P0013 | 14 | **1** (face 2, the boss cylinder) | 152 — `g = 9.280774694829519e-6`, `g/r = 4.2912e-4` | 52 → 604 (N = 152) |
+| R0003 | **620** | **286** | 1438, face 415 (cone) — `g = 9.500940338353914e-4`, `g/r = 4.7744e-6` | 42 836 → **464 516** (10.8×) |
+| R0054 | **590** | **321** | 946, face 23 — `g = 5.996420817348525e-4`, `g/r = 1.1043e-5` | 87 244 → **587 324** (6.7×) |
+| R0081 | **121 085** | **559** | 1002, face 579 — `g = 1.6626112637706508e-6` | 98 780 → **673 844** (6.8×) |
+| R0085 | 1 | 1 | 559, `natural=(14,13)` | 7 328 → 9 312, **and the innocent partner 124 → 2 732 (22×)** |
+
+Hypotheses (b) "R0085's knife-edge chain decimation" and (c) "the gear facet
+fan in Stage 2" are **not independent causes** — (c) is the symptom of the one
+cause and (b) is the same cause on a different victim:
+
+* **The demand is a MAX over hundreds of independent sites, forced on every
+  rim of BOTH operands.** `edge_graze_min_rim_segments` returned one `usize`
+  that `boolean_once` folded into the global `req` and spent through
+  `rebuilt_with_min_rim_segments`. In a gear every tooth corner of one operand
+  is "buried under the flank" of a few hundred cone faces of the other, so the
+  scan fires 620 / 590 / 121 085 times and the single largest demand is paid
+  by the whole model. Yang §4.5.2 refines "the mesh resolution of the
+  parametric surfaces associated with the **erroneous regions**"
+  (`refs/text/yang2025_hybrid_boolean.txt:665-670`) — the region, not the
+  model.
+* **R0085's regression is that same spend on an operand the demand was never
+  about**: `[stage1-nseg] n_seg=559 min_n_seg=Some(559) max_r=1.0481976311549068`
+  and `… max_r=3.8637594814222456` — a 22× refinement of a 124-triangle body,
+  after which the union dies in the render CDT.
+
+### The local form (landed)
+
+`edge_graze_sites` enumerates the clusters; `edge_graze_local_rim_overrides`
+spends each demand as extra RIM SAMPLES where it was derived. Three nested
+localizations, each measured:
+
+1. **To the face owner** — the demand keeps the FACE's inscribed mesh clear of
+   the wedge; the operand that merely owns the corner is rebuilt for nothing.
+2. **To the face's own rim closure** (`coaxial_rim_closure`) — a rim sample
+   changes that rim's ring length and every incident band pairs its two rings
+   POSITIONALLY (`tessellate_band_azimuth_merge` refuses unequal rings), so
+   the unit is the transitive closure of "faces sharing a full-circle rim",
+   and it must be coaxial or the site fails closed. **Measured: P0013's
+   closure is `2/2` rims — exactly the boss's own band. Every firing face in
+   R0003 / R0054 / R0081 / R0085 has closure `0/0`: those gear-revolve bands
+   are bounded by ARCS and the body owns no full-circle rim at all**, so the
+   rim-N vocabulary has no local form there and the site derives NOTHING. A
+   body-wide boost was the only thing it could ever have spent, and spending
+   it is exactly what cost those cases their verdict; their loud downstream
+   STOPs stay their tripwire.
+3. **To the at-risk arc span** — `segment_risk_intervals` +
+   `segment_azimuth_interval`, both exact and both resting on structure, not
+   sampling: clearance along a segment is CONCAVE for a cylinder
+   (`radius − ρ(t)`) and a cone (`(h(t)·tanα − ρ(t))·cos α`) because `ρ` is
+   the norm of an affine function of `t`, so the at-risk set is the complement
+   of one interval — at most the segment's two ends, never scattered; and
+   azimuth is strictly monotone along the segment (`dθ/dt` has the sign of the
+   constant `q0 × dq`), so the arc is exactly the endpoints' arc. **P0013:
+   `sweep = 1.0127e-1 rad`, `k_samples = 3`.**
+
+No band is widened. A chord running from the last natural sample into the span
+terminates AT the span boundary, so its deviation peaks strictly outside the
+span, where the clearance is ≥ the face's natural sagitta ≥ that deviation;
+inside the span consecutive samples are `2π/n` apart, so the sagitta is the
+`g/2` the site derived. Fail-closed edges: an unboundable span, a demand the
+natural density already meets, a closure with no full rim or a non-coaxial
+one, and a site needing more than `LOCAL_REFINE_MAX_SAMPLES = 4096` samples
+all derive nothing.
+
+### Verdicts, guard-ON local form vs guard-OFF
+
+Both columns measured in the SAME session on the same box load (the ledger's
+earlier guard-off figures were taken under a different one), release
+`single_case`, `ASSAY_CASE_TIMEOUT_SECS=900`:
+
+| case | guard-ON, LOCAL | guard-ON, GLOBAL (the refused form) | guard-OFF | ratio |
+|---|---|---|---|---|
+| P0013 | `P0013: SUPPORTED_CORRECT (0.9s) — all checks passed`, `[edge-graze-guard] LOCAL rims_a=2 pts_a=12 rims_b=0 pts_b=0` | SUPPORTED_CORRECT (1.6 s) | ERROR (CDT reject, FaceId(19)) | — |
+| R0003 | `R0003: SUPPORTED_CORRECT (95.3s) — all checks passed` (operands byte-identical, census 42 836) | TIMEOUT 900 s CPU | `R0003: SUPPORTED_CORRECT (115.6s) — all checks passed` | 0.82× |
+| R0054 | `R0054: SUPPORTED_CORRECT (219.2s) — all checks passed` | TIMEOUT 900 s CPU | `R0054: SUPPORTED_CORRECT (262.7s) — all checks passed` | 0.83× |
+| R0081 | `R0081: SUPPORTED_CORRECT (348.3s) — all checks passed` | TIMEOUT 900 s CPU | `R0081: SUPPORTED_CORRECT (384.3s) — all checks passed` | 0.91× |
+| R0085 | `R0085: SUPPORTED_CORRECT (762.8s) — all checks passed` | `ERROR (515.9s)`, FaceId(1761) | `R0085: SUPPORTED_CORRECT (749.0s) — all checks passed` | 1.02× |
+
+All four regressions are closed and every one is inside 1.5× its guard-off
+CPU — the three gear cases are FASTER guard-on than guard-off (their operands
+are byte-identical and the scan's own cost is under the run-to-run spread).
+
+**Pins.** `yang-rs` `edge_graze_tests` (11, four new):
+`risk_span_is_a_tip_fraction_not_the_whole_edge`,
+`risk_span_is_empty_when_no_chord_can_reach_the_land`,
+`azimuth_interval_is_exact_and_endpoint_order_free`,
+`coaxial_rim_closure_is_the_band_and_refuses_a_skew_rim`; the three P1 pins and
+the four R0100 cone pins are unmoved. `cargo test -p yang-rs --release --lib`
+1049 passed, `kernel-v2` `loop_conformity` 6 passed, and the end-to-end
+`test-harness/tests/p0013_tip_land_conformity.rs` green unchanged.
+
+### The sharer set re-judged with the guard ON and the LOCAL form — zero moves
+
+The same thirteen cases the P0014 session listed (every §4.5.1 corridor
+customer, every case in the boundary-point certificate's fire inventory, the
+§4.5.2 ladder's own customers and the sentinel-STOP case), plus R0054 / R0081
+and the P-series rows, each `YANG_433_GUARD=1` release `single_case` at 900 s:
+
+| case | guard-ON, local form | reference |
+|---|---|---|
+| R0003 | SUPPORTED_CORRECT 95.3 s | CORRECT (115.6 s guard-off, same session) |
+| R0004 | SUPPORTED_CORRECT 5.3 s | CORRECT |
+| R0011 | SUPPORTED_CORRECT 2.7 s | CORRECT |
+| R0019 | SUPPORTED_CORRECT 388.8 s | CORRECT |
+| R0032 | SUPPORTED_CORRECT 93.4 s | CORRECT |
+| R0038 | SUPPORTED_CORRECT 1.7 s | CORRECT |
+| R0044 | SUPPORTED_CORRECT 394.6 s | CORRECT |
+| R0049 | SUPPORTED_CORRECT 5.2 s | CORRECT |
+| R0050 | SUPPORTED_CORRECT 24.2 s | CORRECT |
+| R0054 | SUPPORTED_CORRECT 219.2 s | CORRECT (262.7 s guard-off, same session) |
+| R0070 | SUPPORTED_CORRECT 43.4 s | CORRECT |
+| R0074 | SUPPORTED_CORRECT 12.4 s | CORRECT |
+| R0081 | SUPPORTED_CORRECT 348.3 s | CORRECT (384.3 s guard-off, same session) |
+| R0085 | SUPPORTED_CORRECT 654.3 s | CORRECT (749.0 s guard-off, same session) |
+| C0065 | SUPPORTED_CORRECT 2.6 s | CORRECT |
+| P0013 | **SUPPORTED_CORRECT 0.9 s** | ERROR guard-off — **the conversion** |
+| P0015 | SUPPORTED_CORRECT 17.4 s | CORRECT |
+| P0014 | ERROR 27.9 s — `LocalRefinementRequired`, vertex 4294967295 | its own ledgered wall, detail identical |
+| P0016 | ERROR 0.2 s — `AmbiguousCurve { candidates: 0, matched: 0 }` on edge (6, 13) | its own ledgered wall, detail identical |
+
+Seventeen CORRECT, two unchanged loud walls, **zero moves and one
+conversion**. R0085's row is the re-run on the FINAL binary (the
+post-refactor one), so no verdict here rests on an intermediate build.
+
+**READY TO FLIP — but it needs a full-corpus run, and this session did not
+take one.** The local form is proven on P0013, on the four cases the global
+form broke, and on the thirteen sharers; the other ~317 cases are unmeasured
+against it. The flip is the orchestrator's call: run guard-off first (it must
+come back byte-identical — with the gate closed the overrides are empty before
+any work is done and the guard no longer appears in `boolean_once`'s `req`
+fold), then guard-on.
+
+**Still open: P3, the flip itself.** The guard remains `YANG_433_GUARD`-gated
+off. What the local form has NOT yet been measured against is the other 329
+corpus cases — this session re-judged only P0013 and the sharer set. The flip
+needs its own full-corpus run, guard-off (byte-identical by construction: with
+the gate closed `edge_graze_local_rim_overrides` returns empty maps and the
+`req` fold no longer carries the guard at all) then guard-on.
 ## 2026-10-03 (night) — **P0014 CONVERTED**: the Stage-2 arrangement minted an LPI PENCIL at a gear tessellation vertex 2 ULP off the boss plane, and no existing weld could see it — the producer now records the generator incidence and the I6 weld fuses the pencil inside its own band — **corpus not re-measured this session**
 
 `ASSAY_CASE=P0014 … single_case --release`: **ERROR 28.4 s →

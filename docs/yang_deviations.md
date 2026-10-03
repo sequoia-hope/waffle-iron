@@ -221,7 +221,7 @@ document-level cases pin the HONEST answers only — Stage 1's vertex order
 gives them a clean ray — so the silent wrong itself lives in the kernel-v2
 pin, where the test owns the ordering.
 
-### N67 — the §4.3.3 Case-IV rule-out fires only on a CLOSED phantom loop, so a phantom BUMP on a real curve rides through (found 2026-10-03, P0013)
+### N68 — the §4.3.3 Case-IV rule-out fires only on a CLOSED phantom loop, so a phantom BUMP on a real curve rides through (found 2026-10-03, P0013)
 
 **Paper:** §4.3.3 (`refs/text/yang2025_hybrid_boolean.txt:518-537`): "For both
 methods, **if there is no solution in one of the two parametric domains, we
