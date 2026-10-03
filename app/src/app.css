@@ -105,6 +105,19 @@
 	--sketch-overconstrained: #ff4444;
 	--sketch-profile-hover: #55cc88;
 	--sketch-profile-select: #44ff88;
+
+	/* Drawing sheet (drawings spec D3, `app/src/lib/drawings/`). DERIVED from
+	   the theme's own tokens rather than given literals, so every theme
+	   block below — and every theme added later — gets a drawing palette
+	   without a drawing block of its own. A custom property's value is
+	   substituted where it is USED, not where it is declared, so these four
+	   follow whatever `--text-primary` and friends resolve to on the element
+	   that paints. A theme that wants a white-paper sheet under a dark UI
+	   overrides `--drawing-paper` and `--drawing-ink` directly. */
+	--drawing-paper: var(--bg-primary);
+	--drawing-ink: var(--text-primary);
+	--drawing-hidden: var(--text-muted);
+	--drawing-annotation: var(--accent);
 }
 
 /*
