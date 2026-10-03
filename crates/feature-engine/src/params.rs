@@ -86,6 +86,11 @@ pub fn evaluate_parameters(params: &mut [DesignParameter]) -> Env {
                 Ok(q) => {
                     env.insert(params[i].name.clone(), q);
                     params[i].value = q.value;
+                    // The DIMENSION is cached alongside the magnitude, so
+                    // `cached_env` can rebuild this exact environment for
+                    // the bridge's preview instead of guessing it from
+                    // `unit` (see `DesignParameter::tag`).
+                    params[i].tag = Some(q.tag);
                     params[i].error = None;
                     progressed = true;
                 }
@@ -137,12 +142,26 @@ pub fn cached_env(params: &[DesignParameter]) -> Env {
         if p.error.is_some() {
             continue;
         }
-        // The cached magnitude plus the declared dimension, which is what
-        // the next rebuild will put in the environment.
-        let q = Quantity::untagged(p.value);
-        let q = match p.unit {
-            Some(want) => q.retag(want, Span::new(0, p.expression.len())).unwrap_or(q),
-            None => q,
+        // The cached magnitude plus the dimension the last evaluation
+        // actually produced. `unit` is NOT enough on its own: an undeclared
+        // parameter whose expression commits a dimension (`width = "2cm"`)
+        // is a length in the rebuild's environment, and reading it here as
+        // a plain number would make the preview accept what the rebuild
+        // refuses. `tag` is unset only before the first pass of a freshly
+        // deserialized tree, where falling back to the declared unit is the
+        // best available answer.
+        let q = match p.tag {
+            Some(tag) => Quantity {
+                value: p.value,
+                tag,
+            },
+            None => {
+                let q = Quantity::untagged(p.value);
+                match p.unit {
+                    Some(want) => q.retag(want, Span::new(0, p.expression.len())).unwrap_or(q),
+                    None => q,
+                }
+            }
         };
         env.entry(p.name.clone()).or_insert(q);
     }
@@ -805,6 +824,55 @@ mod tests {
         evaluate_parameters(&mut params);
         let err = params[0].error.as_deref().unwrap();
         assert!(err.contains("whole non-negative count"), "{err}");
+    }
+
+    #[test]
+    fn one_radian_in_a_revolve_angle_is_degrees_at_the_boundary() {
+        // `rad` is P1's only new suffix, and the working space is degrees,
+        // so the conversion happens in the literal: 1 rad = 57.29577…°.
+        let mut tree = tree_with(vec![], vec![revolve_feature(0.0, Some("1rad"))]);
+        let outcome = apply_parameters(&mut tree);
+        assert!(outcome.errors.is_empty(), "{:?}", outcome.errors);
+        let got = revolve_angle(&tree, 0);
+        assert!(
+            (got - 180.0 / std::f64::consts::PI).abs() < 1e-12,
+            "expected 57.29577951308232 degrees, got {got}"
+        );
+        // And `pi rad` is the half turn it should be.
+        let mut tree = tree_with(vec![], vec![revolve_feature(0.0, Some("pi * 1rad"))]);
+        assert!(apply_parameters(&mut tree).errors.is_empty());
+        assert!((revolve_angle(&tree, 0) - 180.0).abs() < 1e-12);
+        // A radian is an ANGLE, so a depth refuses it like any other.
+        let mut tree = tree_with(vec![], vec![extrude_feature(0.010, Some("1rad"))]);
+        let outcome = apply_parameters(&mut tree);
+        assert_eq!(extrude_depth(&tree, 0), 0.010);
+        assert!(outcome.errors[0]
+            .1
+            .contains("expected a length, got an angle"));
+    }
+
+    #[test]
+    fn cached_env_reproduces_a_dimension_the_expression_committed_itself() {
+        // The preview must refuse exactly what the rebuild refuses. A
+        // parameter with NO declared unit whose expression commits one is
+        // the case `unit` alone cannot reconstruct.
+        let mut params = vec![param("width", "2cm"), param("turn", "90deg")];
+        let rebuild = evaluate_parameters(&mut params);
+        let preview = cached_env(&params);
+        for name in ["width", "turn"] {
+            let r = rebuild.get(name).copied().unwrap();
+            let p = preview.get(name).copied().unwrap();
+            assert_eq!(p.value, r.value, "{name}");
+            assert_eq!(p.tag, r.tag, "{name}: the preview must agree on the kind");
+        }
+        assert_eq!(preview["width"].dimension(), Some(Dimension::Length));
+        assert!(preview["width"].as_angle_degrees().is_err());
+        assert_eq!(preview["turn"].as_angle_degrees().unwrap(), 90.0);
+        assert!(preview["turn"].as_length_meters().is_err());
+        // A bare expression stays uncommitted on both sides.
+        let mut params = vec![param("plain", "25")];
+        evaluate_parameters(&mut params);
+        assert_eq!(cached_env(&params)["plain"].dimension(), None);
     }
 
     #[test]

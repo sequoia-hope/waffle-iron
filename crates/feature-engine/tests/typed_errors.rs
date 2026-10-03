@@ -271,6 +271,7 @@ fn expression_errors_are_typed_for_features_and_parameters() {
             error: None,
             unit: None,
             comment: None,
+            tag: None,
         }],
         &mut kernel,
     );

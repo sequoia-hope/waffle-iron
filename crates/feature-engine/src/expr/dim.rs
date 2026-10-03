@@ -7,6 +7,46 @@
 //! leaves the working space until a typed boundary (`as_length_meters` and
 //! friends) accepts it for a specific [`Dimension`]; that acceptance is
 //! where a wrong unit is refused instead of coerced.
+//!
+//! ## The rules, in full
+//!
+//! [`Tag::Untagged`] unifying with anything is the backward-compatibility
+//! hinge, so what it does and does NOT do is stated here rather than left
+//! to be inferred. Every rule below is pinned by a test in
+//! `super::eval::tests`.
+//!
+//! | Expression | Dimension | A `Length` field |
+//! |---|---|---|
+//! | `25` | uncommitted | accepts, 25 mm — the pre-P1 meaning |
+//! | `25mm`, `1in`, `10mm + 1in` | length | accepts |
+//! | `25deg`, `1rad` | angle | refuses |
+//! | `25 * 1deg` | angle — one committed operand taints the product | refuses |
+//! | `10mm * 10mm` | length² | refuses, "got length^2" |
+//! | `sqrt(10mm * 10mm)` | length | accepts |
+//! | `sqrt(4mm)` | — | refused IN the expression: an odd exponent halves to no nameable dimension |
+//! | `25deg / 1deg` | ratio — **committed** dimensionless | **refuses** |
+//! | `10mm % 3mm` | length — `%` unifies like `+` | accepts |
+//! | `10 % 3mm` | length — the uncommitted operand adopts | accepts |
+//! | `10mm % 1deg` | — | refused in the expression |
+//! | `2mm ^ 3` | length³ | refuses |
+//! | `2mm ^ 0` | ratio | refuses (see `25deg / 1deg`) |
+//! | `4mm ^ 0.5` | — | refused: a fractional power of a length names no dimension |
+//! | `2 ^ 3mm` | — | refused: an exponent carries no unit |
+//! | `min(1mm, 1deg)` | — | refused: `min`/`max` unify like `+` |
+//! | `sin(30)`, `sin(30deg)` | uncommitted | accepts (trig returns a plain number) |
+//! | `sin(30mm)` | — | refused: trig takes an angle |
+//!
+//! The one that is a genuine choice is `25deg / 1deg`, and the choice is to
+//! REFUSE it as a length. A value that never committed to a dimension
+//! (`25`) adopts the field's; a value that committed to being
+//! *dimensionless* has said what it is, and a bare number of millimetres is
+//! not what it said. Writing `25deg / 1deg` where a depth is wanted is
+//! almost always a units slip; `25` or `25mm` says the intended thing.
+//! `Count` and `Ratio` are the same exponent vector and differ only in what
+//! the boundary demands of the magnitude, so this rule covers both.
+//!
+//! There are no comparison or boolean operators in the grammar, so there is
+//! no comparison rule to state.
 
 use serde::{Deserialize, Serialize};
 
@@ -88,24 +128,28 @@ impl Dim {
         angle: 1,
     };
 
-    /// Compose: `self · other^sign`. Saturating, so an absurd power cannot
-    /// panic on exponent overflow.
-    pub fn compose(self, other: Dim, sign: i8) -> Dim {
-        Dim {
-            length: self
-                .length
-                .saturating_add(other.length.saturating_mul(sign)),
-            angle: self.angle.saturating_add(other.angle.saturating_mul(sign)),
-        }
+    /// Compose: `self · other^sign`, or `None` when an exponent leaves the
+    /// representable range.
+    ///
+    /// `None` rather than a saturating clamp, because a clamped exponent is
+    /// a *wrong* dimension that can still be accepted: clamp `length^128`
+    /// and `length^127` and their quotient reports `ratio` where the truth
+    /// is `length`. Overflow is loud (P10) instead.
+    pub fn compose(self, other: Dim, sign: i8) -> Option<Dim> {
+        let axis = |a: i8, b: i8| -> Option<i8> { a.checked_add(b.checked_mul(sign)?) };
+        Some(Dim {
+            length: axis(self.length, other.length)?,
+            angle: axis(self.angle, other.angle)?,
+        })
     }
 
-    /// `self^n`, saturating.
-    pub fn scaled(self, n: i32) -> Dim {
-        let scale = |e: i8| -> i8 { (e as i32).saturating_mul(n).clamp(-127, 127) as i8 };
-        Dim {
-            length: scale(self.length),
-            angle: scale(self.angle),
-        }
+    /// `self^n`, or `None` on exponent overflow (see [`Dim::compose`]).
+    pub fn scaled(self, n: i32) -> Option<Dim> {
+        let scale = |e: i8| -> Option<i8> { i8::try_from((e as i32).checked_mul(n)?).ok() };
+        Some(Dim {
+            length: scale(self.length)?,
+            angle: scale(self.angle)?,
+        })
     }
 
     /// Halve every exponent, or `None` when one of them is odd (`sqrt` of a
@@ -406,39 +450,45 @@ mod tests {
         let l = Dim::LENGTH;
         assert_eq!(
             l.compose(l, 1),
-            Dim {
+            Some(Dim {
                 length: 2,
                 angle: 0
-            }
+            })
         );
-        assert_eq!(l.compose(l, -1), Dim::NONE);
+        assert_eq!(l.compose(l, -1), Some(Dim::NONE));
         assert_eq!(
             Dim::NONE.compose(l, -1),
-            Dim {
+            Some(Dim {
                 length: -1,
                 angle: 0
-            }
+            })
         );
         assert_eq!(
             l.scaled(3),
-            Dim {
+            Some(Dim {
                 length: 3,
                 angle: 0
-            }
+            })
         );
-        assert_eq!(l.scaled(0), Dim::NONE);
+        assert_eq!(l.scaled(0), Some(Dim::NONE));
     }
 
     #[test]
-    fn exponent_arithmetic_saturates_instead_of_panicking() {
-        let huge = Dim::LENGTH.scaled(10_000);
-        assert_eq!(huge.length, 127);
-        assert_eq!(huge.compose(huge, 1).length, 127);
+    fn exponent_overflow_is_none_not_a_clamp() {
+        // A clamp would be a WRONG dimension a field could still accept:
+        // clamp length^128 and length^127 and their quotient reports
+        // `ratio` where the truth is `length`.
+        assert_eq!(Dim::LENGTH.scaled(10_000), None);
+        assert_eq!(Dim::LENGTH.scaled(128), None);
+        assert_eq!(Dim::LENGTH.scaled(127).unwrap().length, 127);
+        let big = Dim::LENGTH.scaled(100).unwrap();
+        assert_eq!(big.compose(big, 1), None);
+        assert_eq!(big.compose(big, -1), Some(Dim::NONE));
     }
 
     #[test]
     fn sqrt_halves_only_even_exponents() {
-        assert_eq!(Dim::LENGTH.scaled(2).halved(), Some(Dim::LENGTH));
+        assert_eq!(Dim::LENGTH.scaled(2).unwrap().halved(), Some(Dim::LENGTH));
         assert_eq!(Dim::LENGTH.halved(), None);
         assert_eq!(Dim::NONE.halved(), Some(Dim::NONE));
     }
@@ -448,9 +498,9 @@ mod tests {
         assert_eq!(Dim::NONE.label(), "a plain number");
         assert_eq!(Dim::LENGTH.label(), "a length");
         assert_eq!(Dim::ANGLE.label(), "an angle");
-        assert_eq!(Dim::LENGTH.scaled(2).label(), "length^2");
+        assert_eq!(Dim::LENGTH.scaled(2).unwrap().label(), "length^2");
         assert_eq!(
-            Dim::LENGTH.compose(Dim::ANGLE, -1).label(),
+            Dim::LENGTH.compose(Dim::ANGLE, -1).unwrap().label(),
             "length^1·angle^-1"
         );
     }
@@ -538,7 +588,7 @@ mod tests {
 
     #[test]
     fn composite_dimensions_have_no_named_dimension() {
-        let area = Quantity::tagged(100.0, Dim::LENGTH.scaled(2), at());
+        let area = Quantity::tagged(100.0, Dim::LENGTH.scaled(2).unwrap(), at());
         assert_eq!(area.dimension(), None);
         assert_eq!(area.dimension_label(), "length^2");
         assert!(matches!(

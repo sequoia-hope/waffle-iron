@@ -85,6 +85,17 @@ pub struct DesignParameter {
     /// Free-text note: what this parameter is for.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub comment: Option<String>,
+    /// The dimension the last successful evaluation produced, alongside
+    /// `value`. Derived state, never persisted — the same pattern as
+    /// [`ScriptParams::arg_dimensions`], refilled by every parameter pass.
+    ///
+    /// `unit` alone cannot stand in for it: a parameter with no declared
+    /// unit whose expression commits one (`width = "2cm"`) is a length in
+    /// the rebuild's environment, and without this the bridge's stateless
+    /// preview ([`crate::params::cached_env`]) would read it as a plain
+    /// number and accept what the rebuild refuses.
+    #[serde(skip)]
+    pub tag: Option<crate::expr::Tag>,
 }
 
 impl DesignParameter {
@@ -97,6 +108,7 @@ impl DesignParameter {
             error: None,
             unit: None,
             comment: None,
+            tag: None,
         }
     }
 

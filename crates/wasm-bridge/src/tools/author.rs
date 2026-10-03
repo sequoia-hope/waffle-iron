@@ -875,6 +875,9 @@ pub(super) fn parameters_set(
                 .get("comment")
                 .and_then(Value::as_str)
                 .map(str::to_string),
+            // Derived state: the rebuild this step triggers refills every
+            // parameter's evaluated dimension.
+            tag: None,
         });
     }
 

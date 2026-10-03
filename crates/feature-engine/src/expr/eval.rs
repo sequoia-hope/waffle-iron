@@ -49,8 +49,8 @@ pub fn eval(ast: &Expr, env: &Env) -> Result<Quantity, ExprError> {
             let r = eval(rhs, env)?;
             let tag = match op {
                 BinOp::Add | BinOp::Sub | BinOp::Rem => unify(l.tag, r.tag)?,
-                BinOp::Mul => compose(l.tag, r.tag, 1),
-                BinOp::Div => compose(l.tag, r.tag, -1),
+                BinOp::Mul => compose(l.tag, r.tag, 1, *span)?,
+                BinOp::Div => compose(l.tag, r.tag, -1, *span)?,
                 BinOp::Pow => pow_tag(l.tag, r, *span)?,
             };
             let value = match op {
@@ -97,18 +97,26 @@ fn unify(a: Tag, b: Tag) -> Result<Tag, ExprError> {
 
 /// Dimensions that compose (`*` with `sign = 1`, `/` with `sign = -1`).
 /// Two plain numbers stay plain; otherwise the exponents add.
-fn compose(a: Tag, b: Tag, sign: i8) -> Tag {
-    match (a, b) {
-        (Tag::Untagged, Tag::Untagged) => Tag::Untagged,
-        (Tag::Tagged { dim, at }, Tag::Untagged) => Tag::Tagged { dim, at },
-        (Tag::Untagged, Tag::Tagged { dim, at }) => Tag::Tagged {
-            dim: Dim::NONE.compose(dim, sign),
-            at,
-        },
-        (Tag::Tagged { dim: d1, at }, Tag::Tagged { dim: d2, .. }) => Tag::Tagged {
-            dim: d1.compose(d2, sign),
-            at,
-        },
+fn compose(a: Tag, b: Tag, sign: i8, span: Span) -> Result<Tag, ExprError> {
+    let (dim, at) = match (a, b) {
+        (Tag::Untagged, Tag::Untagged) => return Ok(Tag::Untagged),
+        (Tag::Tagged { dim, at }, Tag::Untagged) => return Ok(Tag::Tagged { dim, at }),
+        (Tag::Untagged, Tag::Tagged { dim, at }) => (Dim::NONE.compose(dim, sign), at),
+        (Tag::Tagged { dim: d1, at }, Tag::Tagged { dim: d2, .. }) => (d1.compose(d2, sign), at),
+    };
+    Ok(Tag::Tagged {
+        dim: dim.ok_or_else(|| overflowed(span))?,
+        at,
+    })
+}
+
+/// An exponent past what [`Dim`] can hold. Loud rather than clamped: a
+/// clamped exponent is a wrong dimension a field could still accept.
+fn overflowed(span: Span) -> ExprError {
+    ExprError::DimensionMismatch {
+        expected: "a dimension with exponents within ±127".to_string(),
+        found: "an exponent that overflowed".to_string(),
+        span,
     }
 }
 
@@ -139,7 +147,9 @@ fn pow_tag(base: Tag, exponent: Quantity, span: Span) -> Result<Tag, ExprError> 
                 });
             }
             Ok(Tag::Tagged {
-                dim: dim.scaled(exponent.value as i32),
+                dim: dim
+                    .scaled(exponent.value as i32)
+                    .ok_or_else(|| overflowed(span))?,
                 at,
             })
         }
@@ -228,6 +238,12 @@ mod tests {
 
     fn v(s: &str) -> f64 {
         q(s).unwrap().value
+    }
+
+    /// The span of the whole expression, which is where an overflow is
+    /// blamed (the operator that composed it, not any one suffix).
+    fn q_span(s: &str) -> Span {
+        super::super::parse(s).unwrap().span()
     }
 
     fn with(s: &str, vars: &[(&str, f64)]) -> Result<Quantity, ExprError> {
@@ -416,7 +432,10 @@ mod tests {
 
     #[test]
     fn multiplication_and_division_compose_exponents() {
-        assert_eq!(q("10mm * 10mm").unwrap().dim(), Dim::LENGTH.scaled(2));
+        assert_eq!(
+            q("10mm * 10mm").unwrap().dim(),
+            Dim::LENGTH.scaled(2).unwrap()
+        );
         assert_eq!(q("10mm * 10mm / 2mm").unwrap().dim(), Dim::LENGTH);
         assert_eq!(q("10mm / 2mm").unwrap().dim(), Dim::NONE);
         assert_eq!(
@@ -440,7 +459,7 @@ mod tests {
 
     #[test]
     fn powers_scale_exponents_and_need_a_plain_exponent() {
-        assert_eq!(q("2mm ^ 3").unwrap().dim(), Dim::LENGTH.scaled(3));
+        assert_eq!(q("2mm ^ 3").unwrap().dim(), Dim::LENGTH.scaled(3).unwrap());
         assert_eq!(q("2mm ^ 0").unwrap().dim(), Dim::NONE);
         assert!(matches!(
             q("2 ^ 3mm"),
@@ -501,6 +520,130 @@ mod tests {
             evaluate_quantity("wall", &env).unwrap().as_angle_degrees(),
             Err(ExprError::DimensionMismatch { .. })
         ));
+    }
+
+    // -- the rules table in `super::dim`'s module docs, case by case --
+
+    #[test]
+    fn a_committed_dimensionless_value_is_not_a_bare_millimetre() {
+        // The one genuine choice in the rules table: `25deg / 1deg` is a
+        // ratio that SAID it is dimensionless, so it is not a length —
+        // unlike a bare `25`, which never said anything.
+        let ratio = q("25deg / 1deg").unwrap();
+        assert_eq!(ratio.value, 25.0);
+        assert_eq!(ratio.dimension(), Some(Dimension::Ratio));
+        assert!(matches!(
+            ratio.as_length_meters(),
+            Err(ExprError::DimensionMismatch { .. })
+        ));
+        assert!(matches!(
+            ratio.as_angle_degrees(),
+            Err(ExprError::DimensionMismatch { .. })
+        ));
+        assert_eq!(ratio.as_ratio().unwrap(), 25.0);
+        assert_eq!(ratio.as_count().unwrap(), 25.0);
+        // Same for the other ways to reach a committed dimensionless value.
+        for s in ["10mm / 2mm", "2mm ^ 0", "90deg / 90deg"] {
+            assert_eq!(
+                q(s).unwrap().dimension(),
+                Some(Dimension::Ratio),
+                "{s} must be a committed ratio"
+            );
+            assert!(
+                q(s).unwrap().as_length_meters().is_err(),
+                "{s} must not be a length"
+            );
+        }
+        // And a bare number still is one, which is the compatibility half.
+        assert_eq!(q("25").unwrap().as_length_meters().unwrap(), 0.025);
+    }
+
+    #[test]
+    fn remainder_unifies_its_operands_like_addition_does() {
+        assert_eq!(q("10mm % 3mm").unwrap().dim(), Dim::LENGTH);
+        assert_eq!(q("10mm % 3mm").unwrap().value, 1.0);
+        // An uncommitted operand adopts the other's dimension, either side.
+        assert_eq!(q("10mm % 3").unwrap().dim(), Dim::LENGTH);
+        assert_eq!(q("10 % 3mm").unwrap().dim(), Dim::LENGTH);
+        assert_eq!(q("10 % 3").unwrap().tag, Tag::Untagged);
+        // Mixed dimensions are refused, not silently taken as numbers.
+        assert!(matches!(
+            q("10mm % 1deg"),
+            Err(ExprError::DimensionMismatch { .. })
+        ));
+    }
+
+    #[test]
+    fn one_committed_operand_taints_a_product() {
+        // `25 * 1deg` is an angle, so a depth refuses it.
+        for s in ["25 * 1deg", "1deg * 25", "25 / 1 * 1deg"] {
+            let got = q(s).unwrap();
+            assert_eq!(got.dimension(), Some(Dimension::Angle), "{s}");
+            assert_eq!(got.value, 25.0, "{s}");
+            assert!(got.as_length_meters().is_err(), "{s}");
+        }
+        // `25 / 1deg` is angle^-1 — no field's dimension at all.
+        let inverse = q("25 / 1deg").unwrap();
+        assert_eq!(inverse.dimension(), None);
+        assert_eq!(inverse.dimension_label(), "angle^-1");
+    }
+
+    #[test]
+    fn an_absurd_exponent_is_refused_rather_than_clamped() {
+        // A clamped exponent is a wrong dimension a field could accept;
+        // `Dim::compose`/`scaled` return None and this is the error.
+        for s in ["2mm ^ 200", "2mm ^ -200", "(2mm ^ 100) * (2mm ^ 100)"] {
+            let err = q(s).unwrap_err();
+            assert_eq!(
+                err,
+                ExprError::DimensionMismatch {
+                    expected: "a dimension with exponents within ±127".to_string(),
+                    found: "an exponent that overflowed".to_string(),
+                    span: q_span(s),
+                },
+                "{s}"
+            );
+        }
+        // Inside the range it still composes.
+        assert_eq!(q("2mm ^ 127").unwrap().dim().length, 127);
+        assert_eq!(q("(2mm ^ 100) / (2mm ^ 100)").unwrap().dim(), Dim::NONE);
+    }
+
+    #[test]
+    fn shape_preserving_functions_keep_the_dimension() {
+        for s in [
+            "abs(-25deg)",
+            "floor(25.5deg)",
+            "ceil(24.5deg)",
+            "round(25deg)",
+        ] {
+            assert_eq!(
+                q(s).unwrap().dimension(),
+                Some(Dimension::Angle),
+                "{s} must still be an angle"
+            );
+        }
+        assert_eq!(
+            q("abs(0mm - 5mm)").unwrap().as_length_meters().unwrap(),
+            0.005
+        );
+    }
+
+    #[test]
+    fn an_exponent_with_a_unit_is_refused_whatever_the_base() {
+        for s in ["2 ^ 3mm", "2mm ^ 3mm", "2 ^ 1deg", "2 ^ (10mm / 2mm)"] {
+            // The last one is a committed RATIO exponent: dimensionless, so
+            // it is allowed. The rest are not.
+            let got = q(s);
+            if s == "2 ^ (10mm / 2mm)" {
+                assert_eq!(got.unwrap().value, 32.0, "{s}");
+            } else {
+                assert!(
+                    matches!(got, Err(ExprError::DimensionMismatch { .. })),
+                    "{s}: {got:?}"
+                );
+            }
+        }
     }
 
     #[test]
