@@ -905,6 +905,63 @@ pub(crate) fn edge_graze_requirement(a: &BRep, b: &BRep) -> Option<usize> {
     req
 }
 
+/// EXACT minimum distance from the segment `p0→p1` to a CYLINDER surface,
+/// closed form — no sampling, no Lipschitz slack. `None` for any other
+/// surface kind, for a degenerate axis/radius, and when an endpoint is not
+/// STRICTLY inside the cylinder (the segment then touches or crosses the
+/// surface and this form does not apply — fail closed, the caller keeps its
+/// sampled bound).
+///
+/// The radial distance `ρ(t) = ‖(p(t) − axis_point)⊥‖` is the norm of an
+/// affine function of `t`, hence CONVEX, so its maximum over `[0, 1]` is
+/// attained at an endpoint. With both endpoints strictly inside,
+/// `ρ(t) ≤ max(ρ(0), ρ(1)) < radius` for every `t`, so the segment never
+/// reaches the surface and
+///
+/// ```text
+/// min  |ρ(t) − radius|  =  radius − max(ρ(0), ρ(1)) .
+///  t
+/// ```
+///
+/// Two values, no quadrature. (The quantity is taken over the WHOLE segment,
+/// never over a band-clipped part: a smaller clearance is the fail-closed
+/// direction for a guard whose job is to keep the inscribed mesh clear.)
+pub(crate) fn segment_cylinder_clearance(
+    p0: [f64; 3],
+    p1: [f64; 3],
+    surface: Surface,
+) -> Option<f64> {
+    let Surface::Cylinder {
+        axis_point,
+        axis_dir,
+        radius,
+    } = surface
+    else {
+        return None;
+    };
+    if radius.is_nan() || radius <= 0.0 {
+        return None;
+    }
+    let a = axis_dir.as_array();
+    let an = (a[0] * a[0] + a[1] * a[1] + a[2] * a[2]).sqrt();
+    if an.is_nan() || an <= 0.0 {
+        return None;
+    }
+    let u = [a[0] / an, a[1] / an, a[2] / an];
+    let c = axis_point.as_array();
+    let rho = |p: [f64; 3]| -> f64 {
+        let w = [p[0] - c[0], p[1] - c[1], p[2] - c[2]];
+        let h = w[0] * u[0] + w[1] * u[1] + w[2] * u[2];
+        let r = [w[0] - h * u[0], w[1] - h * u[1], w[2] - h * u[2]];
+        (r[0] * r[0] + r[1] * r[1] + r[2] * r[2]).sqrt()
+    };
+    let far = rho(p0).max(rho(p1));
+    if far.is_nan() || far >= radius {
+        return None; // touches / crosses: not this form's case
+    }
+    Some(radius - far)
+}
+
 /// One (segment, curved surface) pair's demand: `None` when the segment
 /// genuinely pierces the FACE (a root inside `[0,1]` whose station lies in
 /// the face's band — the Case-III direction, out of scope), when no sample
@@ -967,10 +1024,23 @@ pub(crate) fn segment_face_graze_n(
     if !min_d.is_finite() {
         return None; // never inside-near the face's own band
     }
-    // Certified lower bound: the distance is 1-Lipschitz in space, so along
-    // the segment |d'| ≤ len; the sampled min overestimates the true min by
-    // at most len/(2(S−1)).
-    let g = min_d - len / (2.0 * (S - 1) as f64);
+    // The clearance. For a CYLINDER it is EXACT in closed form
+    // ([`segment_cylinder_clearance`]); every other surface kind keeps the
+    // sampled certified lower bound (the distance is 1-Lipschitz in space, so
+    // along the segment |d'| ≤ len and the sampled min overestimates the true
+    // min by at most len/(2(S−1))).
+    //
+    // Why the cylinder arm is exact (P0013, 2026-10-03): the Lipschitz slack
+    // is `len/128`, which SWAMPS exactly the configuration this guard exists
+    // for — a short clearance on a long edge. P0013's star-tip edge
+    // (len 5.177e-3) clears the boss cylinder by 9.281e-6, and
+    // 9.281e-6 − 5.177e-3/128 < 0, so the bound collapsed to "touching" and
+    // the cluster derived NOTHING. No band widens that away; the quantity
+    // itself has to be computed.
+    let g = match segment_cylinder_clearance(p0, p1, surface) {
+        Some(exact) => exact,
+        None => min_d - len / (2.0 * (S - 1) as f64),
+    };
     if g <= 0.0 || g.is_nan() {
         return None; // touching / authoring noise — fail closed, stay loud
     }
@@ -1726,5 +1796,98 @@ mod edge_graze_tests {
             segment_face_graze_n(on, p1, s, R0100_RMAX, r0100_band()),
             None
         );
+    }
+
+    // ---- P0013: the exact cylinder clearance (spec
+    // `yang_p0013_tip_land_under_the_chord.md` §4 P1) ----------------------
+
+    /// P0013's boss cylinder, verbatim: the `circle:boss` operand's lateral.
+    fn p0013_cylinder() -> Surface {
+        Surface::Cylinder {
+            axis_point: Point3::new(0.0, 0.0, 0.0),
+            axis_dir: Vector3::new(0.0, 0.0, 1.0),
+            radius: 2.1627665069443046e-2,
+        }
+    }
+    /// The whole boss height, the lateral face's own station band.
+    fn p0013_band() -> ([f64; 3], [f64; 3], f64, f64) {
+        ([0.0, 0.0, 0.0], [0.0, 0.0, 1.0], 0.0, 3.833917548816847e-2)
+    }
+    /// The star cut's top-cap edge at z = 2.103074485312741e-2: from the
+    /// inner vertex out to the 7th tip, the tip that the 14-gon Stage-1 mesh
+    /// pushes THROUGH the cylinder although the exact tip clears it by
+    /// 9.2807e-6 (measured — `KV2_LOOP_CONFORMITY_PROBE` prints the same
+    /// number from the output cap's hole).
+    const P0013_INNER: [f64; 3] = [
+        1.117_339_330_841_475e-2,
+        1.4864264344680732e-2,
+        2.103074485312741e-2,
+    ];
+    const P0013_TIP: [f64; 3] = [
+        1.6307152271934494e-2,
+        1.4192650361907672e-2,
+        2.103074485312741e-2,
+    ];
+
+    #[test]
+    fn cylinder_clearance_is_exact_not_sampled() {
+        let g = segment_cylinder_clearance(P0013_INNER, P0013_TIP, p0013_cylinder())
+            .expect("both endpoints are strictly inside the cylinder");
+        // radius − max(ρ(p0), ρ(p1)) to the last bit: the tip is the far end.
+        let r = 2.1627665069443046e-2;
+        let rho_tip = (P0013_TIP[0] * P0013_TIP[0] + P0013_TIP[1] * P0013_TIP[1]).sqrt();
+        assert_eq!(g, r - rho_tip);
+        // The measured land, to five figures. A 65-sample Lipschitz bound
+        // would read `g − len/128 < 0` here (len = 5.1769e-3) and call this
+        // "touching": that is the whole defect.
+        assert!(
+            (g - 9.280774694829519e-6).abs() < 1e-11,
+            "clearance {g:e} must be the measured 9.2808e-6 land"
+        );
+        let len = {
+            let d = [
+                P0013_TIP[0] - P0013_INNER[0],
+                P0013_TIP[1] - P0013_INNER[1],
+                P0013_TIP[2] - P0013_INNER[2],
+            ];
+            (d[0] * d[0] + d[1] * d[1] + d[2] * d[2]).sqrt()
+        };
+        assert!(
+            g - len / 128.0 < 0.0,
+            "premise: the sampled Lipschitz bound must collapse here (len={len:e})"
+        );
+    }
+
+    #[test]
+    fn cylinder_clearance_declines_outside_and_non_cylinder() {
+        // An endpoint ON/OUTSIDE the cylinder: not this form's case.
+        let out = [2.2e-2, 0.0, 1.0e-2];
+        assert_eq!(
+            segment_cylinder_clearance(P0013_INNER, out, p0013_cylinder()),
+            None
+        );
+        // A cone target keeps the sampled bound (byte-identical arm).
+        assert_eq!(
+            segment_cylinder_clearance(R0100_CORNER, R0100_V0, r0100_cone()),
+            None
+        );
+    }
+
+    /// RED before the exact clearance landed: `segment_face_graze_n` returned
+    /// `None` for this cluster (the slack ate the land), so the §4.3.3
+    /// Case-IV density guard derived NOTHING and P0013's 14-gon boss kept
+    /// pushing the tip through its own lateral.
+    #[test]
+    fn p0013_tip_edge_derives_the_density_the_land_demands() {
+        let n = segment_face_graze_n(
+            P0013_INNER,
+            P0013_TIP,
+            p0013_cylinder(),
+            2.1627665069443046e-2,
+            p0013_band(),
+        )
+        .expect("a non-piercing tip edge inside the band must derive a demand");
+        // sag(N) ≤ clearance/2 ⇒ N = 152 at r = 2.16277e-2, g = 9.2807e-6.
+        assert_eq!(n, 152);
     }
 }
