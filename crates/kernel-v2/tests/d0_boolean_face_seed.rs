@@ -184,6 +184,72 @@ fn two_patches_of_one_split_face_rank_by_content_not_by_arena_order() {
     );
 }
 
+/// Requirement (3): a from-scratch rebuild in a FRESH PROCESS yields
+/// byte-identical output face pids.
+///
+/// Two in-process arenas cannot see a dependence on anything per-process —
+/// an address, a `HashMap` seed, a clock — because they share it. So this
+/// re-executes the test binary and compares the child's ids to the
+/// parent's. It is the cross-process half of the stability claim without
+/// recorded literals, which at this layer would also pin which operand
+/// faces the kernel happens to split and go red for reasons that are not a
+/// format break. (The literal pin belongs to the hash alone, and lives in
+/// `d0_pid_hash_frozen.rs`.)
+const DUMP_ENV: &str = "D0_1B_DUMP_PIDS";
+const DUMP_TEST: &str = "prints_the_grooved_plate_pids_for_its_own_child";
+
+fn grooved_plate_pid_line() -> String {
+    let mut arena = BrepArena::new();
+    let prev = arena.set_face_seed(Some(SEED));
+    let out = grooved_plate(&mut arena);
+    arena.restore_face_seed(prev);
+    let mut ids: Vec<u64> = pids(&arena, out).into_values().map(|(p, _)| p.0).collect();
+    ids.sort_unstable();
+    ids.iter()
+        .map(|p| p.to_string())
+        .collect::<Vec<_>>()
+        .join(",")
+}
+
+/// The child half of [`a_fresh_process_mints_the_same_output_face_pids`].
+/// Inert unless the parent asks for it, so a plain run of this suite
+/// asserts the same thing twice rather than nothing.
+#[test]
+fn prints_the_grooved_plate_pids_for_its_own_child() {
+    let line = grooved_plate_pid_line();
+    if std::env::var_os(DUMP_ENV).is_some() {
+        println!("PIDS {line}");
+    } else {
+        assert!(!line.is_empty(), "the plate must have faces");
+    }
+}
+
+#[test]
+fn a_fresh_process_mints_the_same_output_face_pids() {
+    let mine = grooved_plate_pid_line();
+    let exe = std::env::current_exe().expect("this test binary's path");
+    let out = std::process::Command::new(exe)
+        .args(["--exact", DUMP_TEST, "--nocapture"])
+        .env(DUMP_ENV, "1")
+        .output()
+        .expect("re-run this test binary as a child process");
+    assert!(
+        out.status.success(),
+        "the child run failed: {}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    let theirs = stdout
+        .lines()
+        .find_map(|l| l.strip_prefix("PIDS "))
+        .unwrap_or_else(|| panic!("the child printed no pid line, got:\n{stdout}"));
+    assert_eq!(
+        mine, theirs,
+        "a fresh process minted different output face pids — the derivation \
+         is reading something per-process"
+    );
+}
+
 /// With no step seed installed there is no identity to seed from, and the
 /// pre-item-1b counter behaviour stands — unchanged, so every raw-arena test
 /// and every caller that never sets a seed is unaffected.
