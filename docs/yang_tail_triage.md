@@ -1136,10 +1136,16 @@ resolution counts ONE hit where a graze must count 0 or 2 — so A's whole patch
 is labeled inside B. The C++ reference `mesh_booleans` emits byte-identical
 labels and the same operand-copy output on the same meshes, so the port is in
 parity and the method has no answer there: deviation **N69**, remediation =
-graze-aware ray selection (not landed — ray selection is corpus-wide and needs
-a full assay in its cycle). NETTED LOUD meanwhile by
-`InsideOutError::InnerLabelOutsideInputBounds`, a containment proof on the
-inner labels that cannot false-positive.
+graze-aware ray selection. **LANDED 2026-10-03 (late), always-on with the
+kill switch `CHERCHI_GRAZE_AWARE_RAY=0` — see the dated section below; the
+corpus was NOT re-measured and the `full_corpus_categorized` flip proof is
+OWED.** All three orientations now produce the honest answers
+(`Intersect` ⇒ `EmptyBooleanResult`, `Union` ⇒ `InvalidBooleanOutput("an
+undirected output edge is not used by exactly two directed edges")`).
+`InsideOutError::InnerLabelOutsideInputBounds`, the containment proof that
+netted the wrong answer LOUD meanwhile, stays armed as the fallback — it is
+silent on all three orientations now, which is what the kernel-v2 pin
+asserts.
 
 The two corpus cases pin the HONEST answers; the silent wrong itself is pinned
 at `crates/kernel-v2/tests/p0023_edge_contact_boolean.rs`, where the test owns
@@ -1149,8 +1155,8 @@ dependent, hence measure-zero and fuzz-invisible).
 
 | id | shape | ops | adjudicated answer | measured verdict | cost |
 |---|---|---|---|---|---|
-| P0023 | two edge-touching 10 mm cubes, explicit BooleanCombine **Intersect** | 3 | ZERO live bodies — two solids meeting in a SEGMENT share no volume (`expected_solid_count: 0`, mutation-checked: set to 1 it reads `solid count: 0 bodies (meta expects 1)`) | SUPPORTED_CORRECT — labeling keeps 0 of 24 arrangement triangles, the Intersect leaves no solid | 0.0 s |
-| P0024 | the same pair, explicit BooleanCombine **Union** | 3 | a LOUD refusal — `A ∪ B` is non-manifold at the shared segment, four faces along one edge, and kernel-v2 represents only 2-manifold solids (`expect_rebuild_error: true`); two bodies would also be honest, an operand drop never is | EXPECTED_ERROR — `InvalidBooleanOutput("an undirected output edge is not used by exactly two directed edges")`, the non-manifold edge said out loud | 0.0 s |
+| P0023 | two edge-touching 10 mm cubes, explicit BooleanCombine **Intersect** | 3 | ZERO live bodies — two solids meeting in a SEGMENT share no volume (`expected_solid_count: 0`, mutation-checked: set to 1 it reads `solid count: 0 bodies (meta expects 1)`) | SUPPORTED_CORRECT — labeling keeps 0 of 24 arrangement triangles, the Intersect leaves no solid (verdict UNCHANGED by the N69 flip, re-run 2026-10-03 late) | 0.0 s |
+| P0024 | the same pair, explicit BooleanCombine **Union** | 3 | a LOUD refusal — `A ∪ B` is non-manifold at the shared segment, four faces along one edge, and kernel-v2 represents only 2-manifold solids (`expect_rebuild_error: true`); two bodies would also be honest, an operand drop never is | EXPECTED_ERROR — `InvalidBooleanOutput("an undirected output edge is not used by exactly two directed edges")`, the non-manifold edge said out loud (verdict UNCHANGED by the N69 flip, re-run 2026-10-03 late) | 0.0 s |
 
 "floor" is the smallest authored length as a multiple of `MIN_FEATURE_SIZE`
 (1e-6 m) — every promotion is at least 83× above it, so none is the A14.2
@@ -1162,6 +1168,99 @@ the same disposition as R0044 and F0082; `full_corpus_categorized` and the
 committed `results.json` carried its verdict. **Superseded 2026-10-03
 (night):** its conversion dropped it to 7.9 s release, so it is now pinned
 there as `SupportedCorrect` like every other converted P-row.
+
+#### N69 RESOLVED-pending-corpus 2026-10-03 (late) — graze-aware §5 ray selection, always-on with a kill switch
+
+Full write-up: `docs/yang_deviations.md` N69 (the "LANDED" section). The
+explicit branch of `find_ray_endpoints` became a LADDER: a candidate ray is
+rejected iff some candidate triangle of a DIFFERENT input label — "candidate"
+by the prune's own exact `in_ray_aabb` filter, "different" by the prune's own
+same-input skip — has `orient3d(tri, v0)` and `orient3d(tri, v1)` BOTH `Zero`,
+i.e. its plane contains the ray's whole supporting line, so the ray cannot
+cross it. The search then advances to the next non-border origin, then to the
+Y and the Z axis, before the generated-ray branch and the rational path
+(both UNCHANGED). Exact `orient3d`, no band — a transversal ray can never
+satisfy it, and the walk order (axis-major, origin-minor, X first) makes the
+first candidate the C++ choice, so a transversal first ray selects the
+identical ray it always did.
+
+Cherchi 2022 names the gap and leaves it open:
+`refs/text/cherchi2022_interactive_robust_mesh_booleans.txt:470` ("rays may
+also be tangent at a (coplanar) triangle") and `:481`; §5.3's classification
+rests on the ray CROSSING (`:473-476`) and the `nextafter` perturbation
+(`:484-491`) only reconducts a vertex/edge hit to an interior one.
+
+Gate `CHERCHI_GRAZE_AWARE_RAY` — `0|off` kills it, `1|on` forces it, default
+ON — read ONCE per `compute_inside_out` call and threaded as a parameter.
+
+**Pins.** cherchi-rs unit oracle #8 (three N69 tests: the shared-edge ray is
+rejected and the next origin taken; all three axes exhausted ⇒
+`NoExplicitRayOrigin` ⇒ the rational path; a transversal first ray is
+untouched — identical ray AND identical labels), plus
+`octree_candidates_yield_identical_labels` now running both settings and
+asserting byte-neutrality. `crates/kernel-v2/tests/p0023_edge_contact_boolean.rs`
+asserts the honest answer per op and that the containment net stayed SILENT,
+mutation-checked with `CHERCHI_GRAZE_AWARE_RAY=0` (both tests then fail with
+"the P0023 containment net fired").
+
+**Corpus NOT re-measured; the flip proof is OWED.**
+
+##### Sharers re-judged (N69) — 28 cases, ZERO category moves, ZERO detail moves
+
+No corpus run (another `full_corpus_categorized` held the box); release
+`single_case`, `ASSAY_CASE_TIMEOUT_SECS=900`, host load ≈ 21–55 on 24 cores,
+so wall times are inflated. The set: the two edge-contact rows themselves,
+every M8 / Stage-0 coplanar customer, the three C-series non-manifold ERROR
+walls the flip could plausibly disturb, and ten CORRECT cases sampled
+deterministically from the committed `results.json`
+(`random.seed(69)`). "after" is the assay's own per-case time.
+
+| case | before | after |
+|---|---|---|
+| P0023 | SUPPORTED_CORRECT | SUPPORTED_CORRECT 0.0 s |
+| P0024 | EXPECTED_ERROR | EXPECTED_ERROR 0.0 s (detail byte-identical) |
+| F0064 | CORRECT | SUPPORTED_CORRECT 54.4 s |
+| F0072 | CORRECT | SUPPORTED_CORRECT 747.3 s |
+| R0070 | CORRECT | SUPPORTED_CORRECT 43.1 s |
+| R0025 | CORRECT | SUPPORTED_CORRECT 26.8 s |
+| R0053 | CORRECT | SUPPORTED_CORRECT 323.8 s |
+| R0081 | CORRECT | SUPPORTED_CORRECT 329.5 s |
+| C0044 | CORRECT | SUPPORTED_CORRECT 1.9 s |
+| C0056 | CORRECT | SUPPORTED_CORRECT 1.3 s |
+| C0065 | CORRECT | SUPPORTED_CORRECT 4.6 s |
+| C0067 | CORRECT | SUPPORTED_CORRECT 1.9 s |
+| R0015 | CORRECT | SUPPORTED_CORRECT 18.2 s |
+| R0100 | CORRECT | SUPPORTED_CORRECT 1.7 s |
+| F0086 | CORRECT | SUPPORTED_CORRECT 1.6 s |
+| C0046 | ERROR | ERROR 0.0 s — `NonManifoldVertex { vertex: VertexId(17) }`, detail byte-identical |
+| C0107 | ERROR | ERROR 0.1 s — `BooleanFailed("yang-rs: reassembled output would be non-2-manifold")`, byte-identical |
+| C0108 | ERROR | ERROR 0.2 s — same text, byte-identical |
+| C0020 | CORRECT | SUPPORTED_CORRECT 1.5 s |
+| C0035 | CORRECT | SUPPORTED_CORRECT 0.7 s |
+| C0051 | CORRECT | SUPPORTED_CORRECT 0.0 s |
+| C0087 | CORRECT | SUPPORTED_CORRECT 0.4 s |
+| F0057 | CORRECT | SUPPORTED_CORRECT 6.3 s |
+| F0066 | CORRECT | SUPPORTED_CORRECT 1.8 s |
+| P0009 | CORRECT | SUPPORTED_CORRECT 4.5 s |
+| R0016 | CORRECT | SUPPORTED_CORRECT 102.4 s |
+| R0061 | CORRECT | SUPPORTED_CORRECT 3.2 s |
+| R0090 | CORRECT | SUPPORTED_CORRECT 1.6 s |
+
+Cost is the other thing a ray-selection change can break — the ladder adds
+one octree query plus a handful of `orient3d` calls per patch — and the
+heaviest rows say it did not: F0072 747.3 s against a recorded 724.9 s run
+alone (608.9 s at 8 jobs), R0053 323.8 s against 349.5 s, R0081 329.5 s
+against 319.2 s, F0064 54.4 s against 48.8–60.2 s. All within the spread of
+the recorded figures at this load.
+
+Also green after the flip: `cargo test -p cherchi-rs --release` (581 lib +
+17 integration targets, 0 failed) **including the 18-cell C++ reference
+parity oracle** `parity_native_vs_sidecar` and `r0046_patch_label_parity` /
+`stage0_operand_inputcheck` / `single_coplanar_edge_parity` with
+`--include-ignored`; `cargo test -p yang-rs --release` (76 targets, lib 1065
+passed / 0 failed); `cargo test -p kernel-v2 --release` (65 targets, lib 304
+passed / 0 failed); clippy `--all-targets -D warnings` and `cargo fmt
+--check` clean on all three crates.
 
 #### P0021 — ANCHORED 2026-10-03; remediation BUILT and GATED (deviation **N75**)
 

@@ -28,9 +28,31 @@
 //! `Union` returns a copy of ONE OPERAND, dropping the other. No STOP, no
 //! warning. Two of the three orientations fail.
 //!
-//! This test is the pin. Each assertion is on a POSITIVE quantity (the
-//! returned volume, or the type of the refusal), never on the absence of a
-//! panic.
+//! ## 2026-10-03 (late): deviation N69 RESOLVED — the HONEST answer is pinned
+//!
+//! Graze-aware §5 ray selection (`cherchi_rs::labeling::inside_out`, the N69
+//! remediation) rejects a candidate ray whose supporting line is exactly
+//! coplanar with a foreign candidate triangle and advances to the next
+//! non-border origin, then to Y and Z. On this configuration the first +X
+//! ray from A's corner `(0, s, s)` ran straight along B's `y = s ∩ z = s`
+//! EDGE; the ladder rejects it and finds an origin whose ray crosses, so all
+//! three orientations now produce the labels the one lucky orientation
+//! always had — and with them the honest answers, measured identical across
+//! all three:
+//!
+//! - `Intersect` ⇒ `KernelV2Error::EmptyBooleanResult`
+//! - `Union` ⇒ `InvalidBooleanOutput("an undirected output edge is not used
+//!   by exactly two directed edges")` — the non-manifold edge said out loud
+//!
+//! So this file pins the honest refusal, not merely "a loud refusal": each
+//! test asserts the named answer AND that the P0023 containment net
+//! (`InnerLabelOutsideInputBounds`) stayed SILENT — the net is the fallback
+//! for an unsound label, and a sound label must not need it. Running with
+//! `CHERCHI_GRAZE_AWARE_RAY=0` (the N69 kill switch) puts the net back in
+//! the firing line, which is the mutation check for this pin.
+//!
+//! Each assertion is on a POSITIVE quantity (the returned volume, or the
+//! named content of the refusal), never on the absence of a panic.
 
 use cad_primitives::{BoolOp, Point2, Point3, Vector3};
 use kernel_v2::{boolean_op, extrude, geom::signed_volume, BrepArena, Profile, SolidId};
@@ -96,6 +118,22 @@ fn assert_refusal_is_loud(e: &kernel_v2::KernelV2Error, label: &str) {
     );
 }
 
+/// N69: with graze-aware ray selection the §5 labels on this configuration
+/// are SOUND, so the P0023 containment net must stay silent. The net firing
+/// means a patch is still being labeled inside an input it does not meet —
+/// the defect, caught one layer late. (Mutation check: with
+/// `CHERCHI_GRAZE_AWARE_RAY=0` this assertion fails on two of the three
+/// orientations, which is exactly the pre-N69 state.)
+fn assert_the_net_stayed_silent(e: &kernel_v2::KernelV2Error, label: &str) {
+    let text = e.to_string();
+    assert!(
+        !text.contains("InnerLabelOutsideInputBounds"),
+        "{label}: the P0023 containment net fired — the §5 labels are still \
+         unsound, so graze-aware ray selection (N69) is not doing its job. \
+         Got {text:?}"
+    );
+}
+
 /// The three orientations of the same configuration: the offset is a full
 /// side in two axes and zero (flush) in the third, so the named axis is the
 /// direction of the shared edge.
@@ -119,7 +157,18 @@ fn edge_contact_intersect_is_empty_never_an_operand() {
         let va = signed_volume(&arena, a).expect("operand A integrates");
 
         match boolean_op(&mut arena, a, b, BoolOp::Intersect) {
-            Err(e) => assert_refusal_is_loud(&e, label),
+            Err(e) => {
+                assert_refusal_is_loud(&e, label);
+                assert_the_net_stayed_silent(&e, label);
+                // N69: the honest answer, identical on all three
+                // orientations — the regularized intersection is empty.
+                assert!(
+                    matches!(e, kernel_v2::KernelV2Error::EmptyBooleanResult),
+                    "{label}: Intersect of two edge-touching cubes must refuse with \
+                     EmptyBooleanResult (no solid in a one-dimensional contact set), \
+                     got {e}"
+                );
+            }
             Ok(out) => {
                 let v = signed_volume(&arena, out).expect("the result integrates");
                 panic!(
@@ -150,7 +199,22 @@ fn edge_contact_union_never_drops_an_operand() {
         let want = va + vb;
 
         match boolean_op(&mut arena, a, b, BoolOp::Union) {
-            Err(e) => assert_refusal_is_loud(&e, label),
+            Err(e) => {
+                assert_refusal_is_loud(&e, label);
+                assert_the_net_stayed_silent(&e, label);
+                // N69: the honest answer, identical on all three
+                // orientations — four faces meet along the shared segment,
+                // and kernel-v2 represents only 2-manifold solids, so the
+                // reassembly refuses by NAMING the non-manifold edge.
+                // (Two bodies would also be honest; this kernel's data
+                // model says refuse, and that is what it does.)
+                let text = e.to_string();
+                assert!(
+                    text.contains("not used by exactly two directed edges"),
+                    "{label}: Union of two edge-touching cubes must refuse by naming \
+                     the non-manifold edge, got {text:?}"
+                );
+            }
             Ok(out) => {
                 let v = signed_volume(&arena, out).expect("the result integrates");
                 // Exact arithmetic on axis-aligned boxes: the sum is exact,
