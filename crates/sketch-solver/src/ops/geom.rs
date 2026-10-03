@@ -48,7 +48,17 @@ impl Point2 {
     /// silently `(1, 0)`).
     pub fn unit(self) -> Option<Point2> {
         let l = self.len();
-        (l > 1e-12).then(|| self.scale(1.0 / l))
+        // The upper bound matters as much as the lower one: an overflowed
+        // difference has `l == inf`, and `inf * 0.0` is NaN, so the guard
+        // `l > 1e-12` alone hands back a NaN "unit vector" that then flows
+        // into minted geometry (a mirror about a line spanning ±1e308 wrote a
+        // Point at NaN, which serializes as `null` and wedges every later
+        // round trip). A direction nobody can compute must be an absence.
+        (l > 1e-12 && l.is_finite()).then(|| self.scale(1.0 / l))
+    }
+    /// Both components finite — the precondition for minting this as geometry.
+    pub fn is_finite(self) -> bool {
+        self.x.is_finite() && self.y.is_finite()
     }
     /// Left-hand perpendicular (+90°).
     pub fn perp(self) -> Point2 {

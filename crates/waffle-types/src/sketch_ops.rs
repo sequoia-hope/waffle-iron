@@ -133,8 +133,16 @@ pub enum SketchOp {
         construction: bool,
     },
     /// Move a point to a position. A drag: the solve that follows sees a
-    /// `Dragged` hint on the point, which is dropped afterwards, so the move
-    /// is a nudge the constraints may overrule — not a pin.
+    /// `Pinned` constraint on the point at `to`, which is dropped afterwards,
+    /// so the move lasts exactly one solve and leaves nothing behind.
+    ///
+    /// `Pinned`, not `Dragged`: a full-weight lock, so the point lands where
+    /// the caller asked and the rest of the sketch gives way around it. That
+    /// is what `specs/agent_mechanical_design.md` §10.3 specifies and what
+    /// `ops::apply_ops` emits (pinned:
+    /// `a_move_point_is_a_transient_pin_and_not_a_stored_constraint`).
+    /// `Dragged`'s 1/20 weight is the interaction hint the UI's own pointer
+    /// drag uses, and it is a different thing.
     MovePoint {
         id: u32,
         to: [f64; 2],
@@ -259,6 +267,14 @@ pub enum SketchOpError {
     MirrorRefused { reason: String },
     /// A projection with nothing to project, or a plane it cannot map onto.
     ProjectRefused { reason: String },
+    /// The op computed a point that is not a finite number, so it refused to
+    /// mint it. Reachable from ordinary double arithmetic on extreme input (a
+    /// mirror about an axis spanning ±1e308, an offset distance near 1e154):
+    /// the difference overflows, the normalization divides by infinity, and
+    /// NaN comes out. A NaN point serializes as `null` and then fails to
+    /// deserialize, so it wedges the sketch invisibly — a loud refusal is the
+    /// only honest answer. `at` names the id the op was about to give it.
+    NonFiniteResult { at: u32 },
 }
 
 impl std::fmt::Display for SketchOpError {
@@ -296,6 +312,10 @@ impl std::fmt::Display for SketchOpError {
             SketchOpError::OffsetRefused { reason } => write!(f, "offset refused: {reason}"),
             SketchOpError::MirrorRefused { reason } => write!(f, "mirror refused: {reason}"),
             SketchOpError::ProjectRefused { reason } => write!(f, "projection refused: {reason}"),
+            SketchOpError::NonFiniteResult { at } => write!(
+                f,
+                "the result for point {at} is not a finite number; refusing to mint it"
+            ),
         }
     }
 }
