@@ -211,13 +211,14 @@ const tabId = { type: 'string', description: 'Tab id from document_info.tabs.' }
 export const tabAddTool = {
 	name: 'tab_add',
 	description:
-		'Add a tab to the open document, as the tab bar\'s + buttons do: an empty Part (default) or Assembly, named ' +
-		'"Part N" / "Assembly N" unless name is given. activate (default true) makes it the active tab: the feature ' +
-		'tools work on a Part tab, the assembly tools on an Assembly tab. Returns the new tab_id with the document info.',
+		'Add a tab to the open document, as the tab bar\'s + buttons do: an empty Part (default), Assembly or ' +
+		'Drawing, named "Part N" / "Assembly N" / "Drawing N" unless name is given. activate (default true) makes ' +
+		'it the active tab: the feature tools work on a Part tab, the assembly tools on an Assembly tab, the ' +
+		'drawing tools on a Drawing tab. Returns the new tab_id with the document info.',
 	inputSchema: {
 		type: 'object',
 		properties: {
-			kind: { type: 'string', enum: ['Part', 'Assembly'], default: 'Part' },
+			kind: { type: 'string', enum: ['Part', 'Assembly', 'Drawing'], default: 'Part' },
 			name: { type: 'string', minLength: 1 },
 			activate: { type: 'boolean', default: true }
 		},

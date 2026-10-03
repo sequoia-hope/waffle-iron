@@ -1,5 +1,5 @@
 {
-  "manifest_hash": "30312a63d915e465e401b42eb205e17dc7489cf7a8e1ea309c9a9e12019e175b",
+  "manifest_hash": "4afadf5ab9b4d47e4ad1fa5a9c053faa8511f3c586ca9271afb5f983e1597b0a",
   "protocol": "waffle-agent-link/1",
   "tools": [
     {
@@ -766,7 +766,7 @@
         "readOnlyHint": false,
         "title": "Add tab"
       },
-      "description": "Add a tab to the open document, as the tab bar's + buttons do: an empty Part (default) or Assembly, named \"Part N\" / \"Assembly N\" unless name is given. activate (default true) makes it the active tab: the feature tools work on a Part tab, the assembly tools on an Assembly tab. Returns the new tab_id with the document info.",
+      "description": "Add a tab to the open document, as the tab bar's + buttons do: an empty Part (default), Assembly or Drawing, named \"Part N\" / \"Assembly N\" / \"Drawing N\" unless name is given. activate (default true) makes it the active tab: the feature tools work on a Part tab, the assembly tools on an Assembly tab, the drawing tools on a Drawing tab. Returns the new tab_id with the document info.",
       "inputSchema": {
         "additionalProperties": false,
         "properties": {
@@ -778,7 +778,8 @@
             "default": "Part",
             "enum": [
               "Part",
-              "Assembly"
+              "Assembly",
+              "Drawing"
             ],
             "type": "string"
           },
