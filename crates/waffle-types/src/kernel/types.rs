@@ -50,6 +50,50 @@ pub struct FaceProvenance {
     pub root_pid: u64,
 }
 
+/// The persistent identity of ONE topological entity — a face, an edge or a
+/// vertex (drawings spec D0, `specs/drawings_and_mbd.md` §4 item 4).
+///
+/// This is the identity a persisted reference carries
+/// ([`crate::Selector::Pid`]), as opposed to the per-session [`KernelId`]
+/// handle. `pid` names the entity; `root_pid` names where its geometry was
+/// introduced, so a reference still resolves after a later boolean split the
+/// entity it pointed at.
+///
+/// For a FACE the pair is exactly [`FaceProvenance`] — the pid the
+/// constructor stamped, plus its journal lineage root — and the face pid
+/// churns on every boolean while the root does not.
+///
+/// For an EDGE or VERTEX the id is **content-seeded** (derived from the
+/// adjacent faces' lineage roots, respectively the incident edges' ids), so
+/// it already survives a boolean and there is no separate lineage to walk:
+/// `root_pid == pid`. A consumer therefore never needs to know which kind it
+/// is holding — matching `pid`, then `root_pid`, is correct for all three.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct EntityPid {
+    /// The entity's own persistent id.
+    pub pid: u64,
+    /// Where the geometry was introduced. Equal to `pid` for edges and
+    /// vertices (see the type docs).
+    pub root_pid: u64,
+}
+
+impl EntityPid {
+    /// An identity that is its own root (an edge, a vertex, or a face that
+    /// no boolean has touched).
+    pub fn rooted(pid: u64) -> Self {
+        Self { pid, root_pid: pid }
+    }
+}
+
+impl From<FaceProvenance> for EntityPid {
+    fn from(p: FaceProvenance) -> Self {
+        Self {
+            pid: p.pid,
+            root_pid: p.root_pid,
+        }
+    }
+}
+
 /// Structured error types for boolean operation failures.
 /// Distinguishes failure stages (intersection, classification, stitching, topology validation)
 /// so that callers can diagnose and potentially retry with adjusted parameters.

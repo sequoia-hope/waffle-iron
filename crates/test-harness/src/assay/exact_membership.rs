@@ -33,15 +33,19 @@
 //!   polar offset `inv(t) = t − atan t`, `t = √((r/r_b)² − 1)`, tip arc at
 //!   `r_p + m`, root arc at `max(r_p − 1.25 m, r_b/2)`).
 //! - **Extrude**: `direction = params.direction ∨ plane_normal`; Blind depth;
-//!   `ThroughAll` = the body's extent past the plane + 1 (floored at
-//!   `max(depth, 1)`); `symmetric` / `second_direction: Blind` shift the face
-//!   origin back by the second depth and extrude the sum; a CUT with no
-//!   explicit direction auto-reverses when the target body's mid-extent along
-//!   the direction lies behind the sketch plane (the engine measures the
-//!   B-Rep's vertices; this module measures the exact chain's bounding box —
-//!   the same sign except when the plane sits at the body's mid-extent, which
-//!   the readout reports). A sheared prism (direction ∦ normal) is handled
-//!   exactly: the solid is `{face_origin + (u, v) + t·d}`.
+//!   a CUT with no explicit direction auto-reverses when the measured
+//!   material's mid-extent along the direction lies behind the sketch plane
+//!   (the engine measures the B-Rep's vertices; this module measures the exact
+//!   chain's bounding box — the same sign except when the plane sits at the
+//!   body's mid-extent, which the readout reports), and `ThroughAll` is then
+//!   measured along the direction the extrude ACTUALLY sweeps: the far end of
+//!   the material past the plane plus `THROUGH_ALL_OVERSHOOT` (1e-2) of its
+//!   extent along that axis — a RELATIVE overshoot, so this module's outer
+//!   (bbox) reading and the engine's vertex reading both clear the body and
+//!   sweep the same volume. `symmetric` / `second_direction: Blind` shift the
+//!   face origin back by the second depth and extrude the sum. A sheared prism
+//!   (direction ∦ normal) is handled exactly: the solid is
+//!   `{face_origin + (u, v) + t·d}`.
 //! - **Revolve**: axis origin/direction in the plane, `ŵ` toward the profile,
 //!   sweep velocity `m̂ = â × ŵ` at θ = 0 (kernel-v2 `construct/revolve.rs`),
 //!   angle in degrees, full turn at 360.
@@ -57,8 +61,9 @@
 //!   re-emits targets whose bounding box misses the tool's as this
 //!   feature's LEFTOVER bodies (the engine's disjoint-merge rule); `Cut` /
 //!   `Intersect` act on each target independently. A cut's auto-reversal
-//!   and a through-all depth are measured on the FIRST target body, as the
-//!   engine does (`combine_targets.first()`). The readout is per body,
+//!   and a through-all depth are measured on the PRIMARY (first) target body,
+//!   as the engine does (`solids_projection_range` over
+//!   `combine_targets.first()`). The readout is per body,
 //!   summed: overlapping independent bodies count their volume twice and
 //!   their components separately — the kernel's own output semantics.
 //!
@@ -897,9 +902,10 @@ impl ExactChain {
                     let (combine, targets) =
                         parse_combine(params).map_err(|w| nc(index, &name, &w))?;
                     let is_cut = combine == Combine::Cut;
-                    // The body this feature measures for auto-reversal and
-                    // through-all: its FIRST combine target.
-                    let extent = chain.first_target_extent(combine, &targets);
+                    // The material this feature measures for its sweep
+                    // direction and its through-all depth: its PRIMARY
+                    // (first) combine target.
+                    let extent = chain.target_extent(combine, &targets);
                     let target_box = extent.bbox;
                     if target_box.is_none() && matches!(combine, Combine::Cut | Combine::Intersect)
                     {
@@ -919,53 +925,11 @@ impl ExactChain {
                         .pointer("/depth_mode/type")
                         .and_then(Value::as_str)
                         .unwrap_or("Blind");
-                    let primary = match mode {
-                        "Blind" => blind,
-                        "ThroughAll" => {
-                            let extent = target_box
-                                .map(|(lo, hi)| {
-                                    extent_past_plane(lo, hi, sk.basis.origin, dir_unit)
-                                })
-                                .unwrap_or(0.0);
-                            let d = if target_box.is_some() {
-                                (extent + 1.0).max(blind.max(1.0))
-                            } else {
-                                blind.max(100.0)
-                            };
-                            chain
-                                .notes
-                                .push(format!("{name}: ThroughAll depth resolved to {d:.6}"));
-                            d
-                        }
-                        other => return Err(nc(index, &name, &format!("depth_mode {other}"))),
-                    };
-                    // Second direction: explicit field, else the symmetric flag.
-                    let second = match params.get("second_direction") {
-                        Some(sd) if !sd.is_null() => {
-                            match sd.get("type").and_then(Value::as_str).unwrap_or("") {
-                                "Blind" => {
-                                    Some(sd.get("depth").and_then(Value::as_f64).unwrap_or(0.0))
-                                }
-                                "Symmetric" => Some(primary),
-                                other => {
-                                    return Err(nc(
-                                        index,
-                                        &name,
-                                        &format!("second_direction {other}"),
-                                    ))
-                                }
-                            }
-                        }
-                        _ => {
-                            if params.get("symmetric").and_then(Value::as_bool) == Some(true) {
-                                Some(primary)
-                            } else {
-                                None
-                            }
-                        }
-                    };
-                    // Cut auto-reversal (engine: target body's vertex mid-extent
-                    // along `direction` behind the sketch plane ⇒ reverse).
+                    // Cut auto-reversal (engine: target material's vertex
+                    // mid-extent along `direction` behind the sketch plane ⇒
+                    // reverse). It is decided BEFORE the depth, because a
+                    // through-all depth is measured along the direction the
+                    // extrude actually sweeps (`rebuild.rs` `swept_primary`).
                     let reverse = if is_cut && explicit_dir.is_none() {
                         match target_box {
                             Some((lo, hi)) => {
@@ -1007,6 +971,81 @@ impl ExactChain {
                         }
                     } else {
                         false
+                    };
+                    // The direction the primary sweep actually runs along.
+                    let sweep = if reverse {
+                        scale(dir_unit, -1.0)
+                    } else {
+                        dir_unit
+                    };
+                    let primary = match mode {
+                        "Blind" => blind,
+                        "ThroughAll" => {
+                            // Through-all is the far end of the measured
+                            // material along the SWEEP direction plus a
+                            // RELATIVE overshoot (engine:
+                            // `THROUGH_ALL_OVERSHOOT`, 1e-2 of the material's
+                            // own extent along the axis — never an absolute
+                            // margin; assay P0012). This module reads the
+                            // exact chain's bounding box where the engine
+                            // reads B-Rep vertices, so its depth is an OUTER
+                            // bound: both cutters clear the body entirely, so
+                            // the swept volumes agree.
+                            let d = match target_box {
+                                Some((lo, hi)) => {
+                                    let (pmin, pmax) = projection_range(lo, hi, sweep);
+                                    let plane = dot(sk.basis.origin, sweep);
+                                    let (blo, bhi) = (pmin - plane, pmax - plane);
+                                    if bhi <= 0.0 {
+                                        return Err(nc(
+                                            index,
+                                            &name,
+                                            "ThroughAll with the measured material entirely \
+                                             behind the sweep — the engine reports \
+                                             ResolutionFailed",
+                                        ));
+                                    }
+                                    bhi + (bhi - blo).max(bhi.abs()) * THROUGH_ALL_OVERSHOOT
+                                }
+                                None if blind > 0.0 => blind,
+                                None => return Err(nc(
+                                    index,
+                                    &name,
+                                    "ThroughAll with no measured body and no positive authored \
+                                         depth — the engine reports ResolutionFailed",
+                                )),
+                            };
+                            chain
+                                .notes
+                                .push(format!("{name}: ThroughAll depth resolved to {d:.6}"));
+                            d
+                        }
+                        other => return Err(nc(index, &name, &format!("depth_mode {other}"))),
+                    };
+                    // Second direction: explicit field, else the symmetric flag.
+                    let second = match params.get("second_direction") {
+                        Some(sd) if !sd.is_null() => {
+                            match sd.get("type").and_then(Value::as_str).unwrap_or("") {
+                                "Blind" => {
+                                    Some(sd.get("depth").and_then(Value::as_f64).unwrap_or(0.0))
+                                }
+                                "Symmetric" => Some(primary),
+                                other => {
+                                    return Err(nc(
+                                        index,
+                                        &name,
+                                        &format!("second_direction {other}"),
+                                    ))
+                                }
+                            }
+                        }
+                        _ => {
+                            if params.get("symmetric").and_then(Value::as_bool) == Some(true) {
+                                Some(primary)
+                            } else {
+                                None
+                            }
+                        }
                     };
                     let (dir_final, depth, face_origin) = match (is_cut, second) {
                         (true, Some(sd)) => {
@@ -1068,7 +1107,7 @@ impl ExactChain {
                     let (combine, targets) =
                         parse_combine(params).map_err(|w| nc(index, &name, &w))?;
                     let is_cut = combine == Combine::Cut;
-                    if chain.first_target_extent(combine, &targets).bbox.is_none()
+                    if chain.target_extent(combine, &targets).bbox.is_none()
                         && matches!(combine, Combine::Cut | Combine::Intersect)
                     {
                         chain.notes.push(format!(
@@ -1189,15 +1228,16 @@ fn nc(index: usize, name: &str, why: &str) -> NotCovered {
     }
 }
 
-/// The extent a feature measures for its cut auto-reversal and through-all
-/// depth: the engine reads the vertices of its FIRST combine target
-/// (`rebuild.rs`: `combine_targets.first()` / `find_most_recent_solid`) —
-/// with a legacy target set that is the most recent feature's outputs, the
-/// merged body (or the tool body, when the merge left its targets disjoint)
-/// comes first.
+/// The extent a feature measures for its sweep direction and its through-all
+/// depth: the engine reads the vertices of its PRIMARY target — its first
+/// combine target, falling back to the most recent solid when it has none
+/// (`rebuild.rs`: `solids_projection_range` over `combine_targets.first()` /
+/// `find_most_recent_solid`). With a legacy target set that is the most recent
+/// feature's outputs, the merged body (or the tool body, when the merge left
+/// its targets disjoint) comes first.
 #[derive(Debug, Clone, Copy)]
 struct TargetExtent {
-    /// The first target body's box (`None`: no target).
+    /// The primary target body's box (`None`: no target).
     bbox: Option<([f64; 3], [f64; 3])>,
     /// When the first target is a fold, the box of the fold's TOOL part
     /// alone — what the engine measures if that fold's solids never met.
@@ -1205,7 +1245,7 @@ struct TargetExtent {
 }
 
 impl ExactChain {
-    fn first_target_extent(&self, combine: Combine, targets: &Targets) -> TargetExtent {
+    fn target_extent(&self, combine: Combine, targets: &Targets) -> TargetExtent {
         let bodies = self.bodies_after(self.ops.len());
         let idx = self.target_indices(&bodies, combine, targets);
         let Some(&first) = idx.first() else {
@@ -1214,9 +1254,8 @@ impl ExactChain {
                 tool_alone: None,
             };
         };
-        let body = &bodies[first];
-        let bbox = self.expr_bbox(&body.expr);
-        let tool_alone = match &body.expr {
+        let bbox = self.expr_bbox(&bodies[first].expr);
+        let tool_alone = match &bodies[first].expr {
             Expr::Union(parts) => parts.first().and_then(|p| self.expr_bbox(p)),
             _ => None,
         };
@@ -1349,10 +1388,10 @@ fn projection_range(lo: [f64; 3], hi: [f64; 3], dir: [f64; 3]) -> (f64, f64) {
 }
 
 /// How far the box reaches past the plane through `origin` along unit `dir`.
-fn extent_past_plane(lo: [f64; 3], hi: [f64; 3], origin: [f64; 3], dir: [f64; 3]) -> f64 {
-    let (_, pmax) = projection_range(lo, hi, dir);
-    (pmax - dot(origin, dir)).max(0.0)
-}
+/// The engine's `THROUGH_ALL_OVERSHOOT` (`feature-engine` `rebuild.rs`): how
+/// far past the measured material a through-all cutter runs, as a FRACTION of
+/// that material's extent along the sweep axis.
+const THROUGH_ALL_OVERSHOOT: f64 = 1e-2;
 
 struct ParsedSketch {
     basis: Basis,

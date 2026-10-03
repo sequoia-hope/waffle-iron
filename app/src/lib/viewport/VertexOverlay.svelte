@@ -261,7 +261,11 @@
 </script>
 
 {#if pointsGeometry}
-	<T.Points geometry={pointsGeometry} renderOrder={10}>
+	<!-- `waffleType` names this for the agent capture, which keeps the body's
+	     vertices and hides every other overlay (specs/agent_mechanical_design.md
+	     §9.4). Without a name it could only be found by type, which would also
+	     match a sketch's points. -->
+	<T.Points geometry={pointsGeometry} renderOrder={10} userData={{ waffleType: 'vertices' }}>
 		<T.PointsMaterial
 			bind:ref={pointsMaterial}
 			size={4}

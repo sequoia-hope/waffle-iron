@@ -2426,6 +2426,9 @@ fn ingestion_over_the_corpus() {
                         kernel_v2::KernelV2Error::AnalyticVertexOffSurface { .. } => {
                             "vertex off surface".into()
                         }
+                        kernel_v2::KernelV2Error::AnalyticCurveOffSurface { .. } => {
+                            "curve centre off the face plane".into()
+                        }
                         other => format!("validation: {other:?}"),
                     };
                     break;
@@ -2803,7 +2806,8 @@ fn si5_face_probe() {
                     | kernel_v2::KernelV2Error::CurvedGeometryMismatch { face, .. } => {
                         Some(face.0 as usize)
                     }
-                    kernel_v2::KernelV2Error::AnalyticVertexOffSurface { face } => Some(*face),
+                    kernel_v2::KernelV2Error::AnalyticVertexOffSurface { face }
+                    | kernel_v2::KernelV2Error::AnalyticCurveOffSurface { face } => Some(*face),
                     _ => None,
                 };
                 if let Some(fi) = named.filter(|&fi| fi < shell.faces.len()) {

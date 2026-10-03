@@ -1,6 +1,6 @@
 {
   "master_seed": 42,
-  "count": 321,
+  "count": 334,
   "generator_version": 4,
   "cases": [
     {
@@ -2248,6 +2248,97 @@
       "filename": "P0009.waffle",
       "meta_filename": "P0009.meta.json",
       "description": "4 ops, scale=9.00e2, extrude(polygon,boss)+revolve(polygon,boss)+extrude(gear,symmetric)+extrude(polygon,boss) — prospector seed 1 index 19 RE-minimized 2026-09-30 (P0008 + a square boss unioned onto the chain; 6→4): the loud twin of P0008. Was auto-union boolean_union BooleanFailed \"reassembled output would be non-2-manifold\" — site i6-edge-overuse fwd=2 rev=1 on INPUT A (16 edges, the chained body's cone face × the gear flank planes; identical on the un-minimized lineage): yang Stage 1's boundary-only cone chart CDT emitted the same planar-neighbor ears/chords as kernel-v2's render, and Stage 0's input conformality check caught the doubled triangles one boolean later. CONVERTED 2026-09-30: stage1_tessellate/planar_neighbor_chords.rs applies the same combinatorial rule on the holed-lateral CDT's output (both kinds) — an interior triangle edge whose ends lie on the same planar neighbor is split at its midpoint lifted onto the surface (radius linear in the axial coordinate). Meta adjudicated from the kernel readout under the in-line exact-membership oracle: two bodies, χ 4, volume 1.97727e9 (tol 2e-3).",
+      "featured": true
+    },
+    {
+      "id": "P0010",
+      "filename": "P0010.waffle",
+      "meta_filename": "P0010.meta.json",
+      "description": "4 ops, scale=1.19e-2, extrude(polygon,boss)+extrude(polygon,boss)+extrude(circle,boss)+boolean-union — prospector seed 2 index 159, hand-reduced 2026-10-03 (8 ops -> 4 by dropping three cuts and re-pointing body_a; the kept features are the generated document's own, UNROUNDED, so no minted contact). Two square bosses that never meet (merge:true, so the engine keeps TWO bodies: 1.273494e-6 and 7.830e-8), a standalone circle boss (6.4706e-7), then an explicit BooleanCombine Union of the SECOND boss's Main with the standalone. SILENT WRONG: the live set goes from 3 non-empty bodies totalling 1.998854e-6 to 2 totalling 7.253601e-7 — exactly the union's own two operands (7.830e-8 + 6.4706e-7) — and the UNINVOLVED first body's 1.273494e-6 (64 % of the model) is gone. A union cannot reduce total volume, so the refutation is arithmetic and needs no oracle; the exact-membership lattice agrees independently (1.922222e-6, stable over 192/256/384/512 cells x phases 0.5/0.25). rel -6.226e-1; byte-identical rel at x1e-3 and x1e3; smallest authored length 1.24e-3 = 1240x MIN_FEATURE_SIZE. Same family as P0011 (a chained Union keeping one body of a two-body operand). SUPPORTED_WRONG-class pin, derived_meta: the in-line exact-membership oracle supplies the expectation; the conversion adjudicates chi and volume and moves the pin.",
+      "featured": true
+    },
+    {
+      "id": "P0011",
+      "filename": "P0011.waffle",
+      "meta_filename": "P0011.meta.json",
+      "description": "5 ops, scale=3.04e1, extrude(polygon,boss)+extrude(polygon,boss)+boolean-union+extrude(polygon,boss)+boolean-union — prospector seed 2 index 89, hand-reduced 2026-10-03 (8 ops -> 5; features of the generated document, UNROUNDED). A box boss (1114.81), a standalone box boss (3468.21), an explicit BooleanCombine Union of the two — they are DISJOINT, so the engine's output is still two bodies and the total is unchanged (4583.02, CORRECT) — then a third standalone box boss (9563.76; 3 bodies, 14146.78, CORRECT) and a second BooleanCombine Union anchored on the FIRST union's Main. SILENT WRONG: the result is 2 bodies totalling 10678.57 = 1114.81 + 9563.76 exactly, i.e. boss 1 union boss 3; the second body of the first union's multi-body output (3468.21, 25 % of the model) is silently dropped. The step-by-step live totals (1114.81 / 4583.02 / 4583.02 / 14146.78 / 10678.57) refute it arithmetically — a union cannot reduce total volume — and the exact-membership lattice agrees (14215.29). rel -2.488e-1; byte-identical rel at x1e-3 and x1e3; smallest authored length 3.74 = 3.7e6 x MIN_FEATURE_SIZE. Same family as P0010: a BooleanCombine whose operand resolves to a MULTI-BODY output emits only one body's worth of material. SUPPORTED_WRONG-class pin, derived_meta; the conversion adjudicates chi and volume and moves the pin.",
+      "featured": true
+    },
+    {
+      "id": "P0012",
+      "filename": "P0012.waffle",
+      "meta_filename": "P0012.meta.json",
+      "description": "3 ops, scale=5.30e1, extrude(polygon,boss)+extrude(polygon,boss)+extrude(polygon,through-all cut) — prospector seed 2 index 129 minimized 2026-10-03 (7 ops -> 3, 23 verdicts). A 2x2 box boss at the origin (16), a 42.4-side box boss at [10,20,30] depth 40 (72000, disjoint from the first), then a ThroughAll CUT with a 69-side square on a plane at [25,49,53] normal [0.67,0.72,-0.16]. SILENT WRONG: the result is 72016 = 72000 + 16 exactly — the cut removes NOTHING — while the exact-membership lattice says the cutter sweeps 9870 (13.7 %) out of the big box (62146, rel +1.588e-1). CONFIRMED BY CODE READING, not inference: the target's projections on the cut normal are [-11.74, 38.04] and the sketch plane sits at 43.71, so the body lies ENTIRELY behind the plane; feature-engine's resolve_depth(DepthMode::ThroughAll) (crates/feature-engine/src/rebuild.rs:1410) measures compute_solid_extent along the UNREVERSED sketch normal, gets ~0, and returns extent + 1.0 floored at an ABSOLUTE 1.0 m, and only afterwards does should_reverse_for_cut (same file, ~line 881) flip the sweep to -n. The 1 m cutter then spans projection [42.71, 43.71] and never reaches 38.04. Scale behaviour matches exactly: x1e3 keeps the WRONG (rel +1.280e-1), x1e-3 reads CORRECT because the absolute 1 m margin then dwarfs the model. Smallest authored length 2.0 = 2e6 x MIN_FEATURE_SIZE. SUPPORTED_WRONG-class pin, derived_meta; the conversion adjudicates chi and volume and moves the pin.",
+      "featured": true
+    },
+    {
+      "id": "P0013",
+      "filename": "P0013.waffle",
+      "meta_filename": "P0013.meta.json",
+      "description": "2 ops, scale=5.20e-2, extrude(circle,boss)+extrude(star,cut) — prospector seed 2 index 29 minimized 2026-10-03 (4 ops -> 2, 11 verdicts): a circle boss, then a 7-point star cut with needle ratio 0.70. boolean_subtract TessellationFailed { face: FaceId(19), reason: \"ring rejected by CDT (degenerate/self-intersecting)\" }. This is P0002's OWN recipe shape (circle:boss star8(0.42):cut) on a different point count and needle ratio, so it is the residue of P0002's 2026-09-27 conversion (the Yang 4.3.3 Case-IV verdict on the vertex's own root), not a new family. Smallest authored length 5.18e-3 = 5180x MIN_FEATURE_SIZE; ERROR at both x1e-3 and x1e3. ERROR-class pin, derived_meta: expectations unadjudicated until conversion.",
+      "featured": true
+    },
+    {
+      "id": "P0014",
+      "filename": "P0014.waffle",
+      "meta_filename": "P0014.meta.json",
+      "description": "2 ops, scale=1.80e3, extrude(polygon,boss)+revolve(gear,cut) — prospector seed 2 index 13 minimized 2026-10-03 (5 ops -> 2, 16 verdicts; the x1 candidate cost 362 s CPU, the minimum is cheap): a pentagon box boss, then a 10-tooth gear profile REVOLVE-CUT. boolean_subtract BooleanFailed(\"yang-rs: Stage-4 relocation region around vertex 4294967295 is invalid: LocalRefinementRequired\") — note the vertex id is u32::MAX, a sentinel rather than a real vertex, which is itself worth reading in the conversion. CLAUDE.md records the Stage-4 relocation walls (LocalRefinementRequired / OffCurveBeyondChordBand) as having NO corpus customer left; this is the family's customer again, at TWO ops. Four of the 21 seed-2 ERROR rows carry this text. Smallest authored length 3.09 = 3.09e6 x MIN_FEATURE_SIZE; x1e3 keeps the ERROR, x1e-3 reads SUPPORTED_CORRECT (the wall is scale-sensitive downward). ERROR-class pin, derived_meta: expectations unadjudicated until conversion.",
+      "featured": true
+    },
+    {
+      "id": "P0015",
+      "filename": "P0015.waffle",
+      "meta_filename": "P0015.meta.json",
+      "description": "3 ops, scale=1.22e0, extrude(polygon,boss)+extrude(gear,boss)+revolve(polygon,cut) — prospector seed 2 index 54 minimized 2026-10-03 (3 ops, profiles simplified, 16 verdicts): a square boss, a 27-tooth gear boss, then a pentagon REVOLVE-CUT. boolean_subtract BooleanFailed(\"yang-rs: Stage-4 relocation region around vertex 85 is invalid: RelocationCrossedCarrierVertex\") — the R0085 family, which has no corpus customer left. Three of the 21 seed-2 ERROR rows carry this text; the third (index 169, minimum convex4:boss nonconvex9:rev circle:boss) reaches it through the AUTO-UNION path and is recorded in docs/yang_tail_triage.md rather than promoted. Smallest authored length 6.48e-4 = 648x MIN_FEATURE_SIZE; ERROR at both x1e-3 and x1e3. ERROR-class pin, derived_meta: expectations unadjudicated until conversion.",
+      "featured": true
+    },
+    {
+      "id": "P0016",
+      "filename": "P0016.waffle",
+      "meta_filename": "P0016.meta.json",
+      "description": "3 ops, scale=1.00e-1, extrude(polygon,boss)+revolve(polygon,cut)+extrude(polygon,cut) — prospector seed 2 index 12 minimized 2026-10-03 (8 ops -> 3, 19 verdicts): a square boss, a square REVOLVE-CUT, a triangle cut. boolean_subtract BooleanFailed(\"yang-rs: Stage-3 SSI refinement failed for intersection edge (1, 9): AmbiguousCurve { candidates: 0, matched: 0 }\") — candidates ZERO, so no analytical curve was proposed at all for that surface pair, not a choice between several. CLAUDE.md records the Stage-3 AmbiguousCurve class as having NO corpus customer left (C0043 and C0056 converted; C0109 is a designed degenerate-tangency wall); this is a generic-geometry customer at three ops. Smallest authored length 3.0e-2 = 3e4 x MIN_FEATURE_SIZE; ERROR at both x1e-3 and x1e3. ERROR-class pin, derived_meta: expectations unadjudicated until conversion.",
+      "featured": true
+    },
+    {
+      "id": "P0017",
+      "filename": "P0017.waffle",
+      "meta_filename": "P0017.meta.json",
+      "description": "3 ops, scale=1.66e-3, extrude(polygon,boss)+revolve(polygon,boss)+extrude(circle,cut) — prospector seed 2 index 27 minimized 2026-10-03 (3 ops, profiles simplified, 17 verdicts): a square boss, a 10-vertex non-convex polygon REVOLVE boss (whose lateral is a fan of cone bands), then a circle cut. boolean_subtract CurvedGeometryMismatch { face: FaceId(25), reason: \"bounded cone patch must have exactly one material-CCW loop\" } — kernel-v2's curved-patch postcondition rejects its own output face: a bounded cone patch came back with zero or several material-CCW loops. Smallest authored length 9.14e-5 = 91x MIN_FEATURE_SIZE; ERROR at both x1e-3 and x1e3. The cylinder twin of this postcondition is P0018. ERROR-class pin, derived_meta: expectations unadjudicated until conversion.",
+      "featured": true
+    },
+    {
+      "id": "P0018",
+      "filename": "P0018.waffle",
+      "meta_filename": "P0018.meta.json",
+      "description": "3 ops, scale=3.70e2, extrude(circle,boss)+extrude(circle,symmetric)+extrude(polygon,cut) — prospector seed 2 index 76 minimized 2026-10-03 (7 ops -> 3, 24 verdicts): a circle boss, a SYMMETRIC circle boss, then a 7-vertex non-convex polygon cut. boolean_subtract CurvedGeometryMismatch { face: FaceId(51), reason: \"bounded cylinder patch must have exactly one material-CCW loop\" } — the cylinder arm of the same kernel-v2 curved-patch postcondition P0017 trips on a cone. Smallest authored length 89.0 = 8.9e7 x MIN_FEATURE_SIZE; ERROR at both x1e-3 and x1e3. ERROR-class pin, derived_meta: expectations unadjudicated until conversion.",
+      "featured": true
+    },
+    {
+      "id": "P0019",
+      "filename": "P0019.waffle",
+      "meta_filename": "P0019.meta.json",
+      "description": "3 ops, scale=1.00e0, extrude(polygon,boss)+revolve(polygon,boss)+extrude(polygon,cut) — prospector seed 2 index 180 minimized 2026-10-03 (8 ops -> 3, 25 verdicts): a square boss, a 5-vertex non-convex polygon revolve boss, a square cut. boolean_subtract InvalidBooleanOutput(\"full-circle edge sense is underivable (no planar cap use with an aligned plane, no curved use with a readable material sense)\") — the output carries a CLOSED (full-circle) edge whose traversal sense the assembler cannot derive from either of its two allowed witnesses. Same wall R0004 once hit; no current corpus customer. Smallest authored length 1.34e-1 = 1.34e5 x MIN_FEATURE_SIZE; ERROR at both x1e-3 and x1e3. ERROR-class pin, derived_meta: expectations unadjudicated until conversion.",
+      "featured": true
+    },
+    {
+      "id": "P0020",
+      "filename": "P0020.waffle",
+      "meta_filename": "P0020.meta.json",
+      "description": "5 ops, scale=2.00e-1, extrude(circle,boss)+extrude(gear,boss)+boolean-intersect+extrude(polygon,boss)+boolean-intersect — prospector seed 2 index 196 minimized 2026-10-03 (3 recipe steps, profiles simplified and coordinates rounded, 17 verdicts): a circle boss INTERSECTED with a 12-tooth gear prism, then intersected with a square prism. boolean_intersect BooleanFailed(\"yang-rs rejected the converted input B-Rep: yang-rs: malformed B-Rep topology: face 0: holed lateral CDT failed: duplicate (coincident) loop vertex in CDT input\") — an INPUT rejection, so the defect is in the FIRST intersect's own output B-Rep, which the second intersect refuses: a holed cylinder-lateral chart whose loop carries two coincident vertices. Smallest authored length 8.28e-5 = 83x MIN_FEATURE_SIZE (the tightest of the seed-2 promotions, still 83 times the floor). ERROR at both x1e-3 and x1e3, but x1e-3 lands on a DIFFERENT class (a weld-band ambiguous edge-split), so the conversion should judge this case at its own scale. ERROR-class pin, derived_meta: expectations unadjudicated until conversion.",
+      "featured": true
+    },
+    {
+      "id": "P0021",
+      "filename": "P0021.waffle",
+      "meta_filename": "P0021.meta.json",
+      "description": "3 ops, scale=2.80e-3, extrude(polygon,boss)+extrude(circle,boss)+extrude(circle,boss) — prospector seed 2 index 184 minimized 2026-10-03 (8 ops -> 3, 18 verdicts): THREE bosses, a square and two circles, the last two auto-unioning. Auto-union failed: boolean_union SelfIntersectingBooleanOutput { face_a: FaceId(56), face_b: FaceId(62), penetrations: 5 }, body created as standalone — kernel-v2's render-level output self-intersection gate (validate::selfx) rejects the union. P0007's signature, CONVERTED 2026-09-29 by admitting Ellipse candidates to the 4.4.2 carried-edge restoration; this is its residue on three plain bosses, so the conversion should start by asking which boundaries left as chords here. Smallest authored length 7.10e-4 = 710x MIN_FEATURE_SIZE; ERROR at both x1e-3 and x1e3. ERROR-class pin, derived_meta: expectations unadjudicated until conversion.",
+      "featured": true
+    },
+    {
+      "id": "P0022",
+      "filename": "P0022.waffle",
+      "meta_filename": "P0022.meta.json",
+      "description": "5 ops, scale=2.30e-3, extrude(polygon,boss)+extrude(circle,boss)+extrude(circle,cut)+extrude(polygon,boss)+extrude(circle,through-all cut) — prospector seed 2 index 92 minimized 2026-10-03 (5 ops, one op simplified, 28 verdicts): a pentagon boss, a circle boss, a circle cut, a square boss, then a ThroughAll circle cut. boolean_subtract BooleanFailed(\"yang-rs: malformed B-Rep topology: face 2: interior junction (1.67e-4, -4.59e-4, 0) not contained by any lateral triangle — the mint would be silently dropped (consumed postcondition)\") — the junction-mint postcondition catching itself: a junction point the pipeline must insert has no host lateral triangle, and the STOP exists so the mint is not dropped silently. Smallest authored length 4.0e-4 = 400x MIN_FEATURE_SIZE; x1e-3 keeps the ERROR, x1e3 reads SUPPORTED_CORRECT (scale-sensitive upward). ERROR-class pin, derived_meta: expectations unadjudicated until conversion.",
       "featured": true
     }
   ]

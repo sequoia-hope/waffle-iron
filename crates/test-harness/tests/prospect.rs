@@ -613,6 +613,36 @@ fn prospect_promote() {
     );
 }
 
+/// Re-derive `PROSPECT_CANDIDATE=<stem>`'s `.meta.json` FROM its
+/// `.waffle` (spec §3.2: a candidate's meta is derived from its document,
+/// never copied). Needed whenever a finding's document is edited by hand —
+/// a chain PREFIX, say, whose inherited meta still lists the full op list
+/// and the full envelope. Writes the stem's `.meta.json` in place.
+#[test]
+#[ignore = "manual instrument: rewrites <stem>.meta.json from <stem>.waffle — spec §3.2"]
+fn prospect_derive_meta() {
+    let stem = PathBuf::from(std::env::var("PROSPECT_CANDIDATE").expect("PROSPECT_CANDIDATE"));
+    let id = stem
+        .file_name()
+        .and_then(|s| s.to_str())
+        .expect("stem name")
+        .to_string();
+    let waffle = std::fs::read_to_string(stem.with_extension("waffle")).expect("waffle");
+    let doc: serde_json::Value = serde_json::from_str(&waffle).expect("waffle json");
+    let meta = derive_meta(&id, &doc).expect("derivable meta");
+    std::fs::write(
+        stem.with_extension("meta.json"),
+        serde_json::to_string_pretty(&meta).expect("meta json"),
+    )
+    .expect("write meta");
+    eprintln!(
+        "[derive-meta] {id}: {} op(s), scale {:.6e}, max_bbox_extent {:.6e}",
+        meta.operations.len(),
+        meta.scale,
+        meta.oracles.max_bbox_extent
+    );
+}
+
 /// Promote the needle star (the first loud generative finding, spec §8) as
 /// a `P` case from the acceptance document.
 #[test]

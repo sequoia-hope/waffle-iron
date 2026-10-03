@@ -76,6 +76,13 @@ pub fn resolve_geom_ref(
                 reason: "Position selectors are not resolvable to kernel entities".to_string(),
             })
         }
+        Selector::Pid { pid, root_pid } => Err(EngineError::ResolutionFailed {
+            reason: format!(
+                "persistent id {pid} (root {root_pid}) names an entity of the body's current \
+                 geometry, which only the live kernel can read, and this resolution path has \
+                 none (feature-engine: call `resolve_geom_ref_live`)"
+            ),
+        }),
     }
 }
 
@@ -100,34 +107,7 @@ pub fn resolve_by_position(
     pos: [f64; 3],
 ) -> Result<ResolvedRef, EngineError> {
     refuse_scoped(geom_ref)?;
-    let (feature_id, output_key) = match &geom_ref.anchor {
-        Anchor::FeatureOutput {
-            feature_id,
-            output_key,
-        } => (*feature_id, output_key.clone()),
-        Anchor::Datum { datum_id } => {
-            return Err(EngineError::ResolutionFailed {
-                reason: format!("Position selector on datum {} not supported", datum_id),
-            });
-        }
-    };
-
-    let op_result = feature_results
-        .get(&feature_id)
-        .ok_or(EngineError::ResolutionFailed {
-            reason: format!("Feature {} has no result (not yet rebuilt?)", feature_id),
-        })?;
-
-    // The body output whose key matches the anchor (fallback: the first body).
-    let handle = op_result
-        .outputs
-        .iter()
-        .find(|(k, _)| key_matches(k, &output_key))
-        .or_else(|| op_result.outputs.first())
-        .map(|(_, b)| &b.handle)
-        .ok_or(EngineError::ResolutionFailed {
-            reason: "feature produced no body output for position resolution".to_string(),
-        })?;
+    let handle = anchor_body_handle(geom_ref, feature_results, true)?;
 
     let candidates = match geom_ref.kind {
         TopoKind::Vertex => introspect.list_vertices(handle),
@@ -184,6 +164,155 @@ pub fn resolve_by_position(
 /// Whether two output keys denote the same body output.
 fn key_matches(a: &OutputKey, b: &OutputKey) -> bool {
     a.tag() == b.tag()
+}
+
+/// The kernel handle of the body output a `GeomRef`'s anchor names.
+///
+/// The anchor's `output_key` wins. `allow_first_body` then decides what a
+/// feature whose outputs do not carry that key does: fall back to its first
+/// body (the long-standing behaviour of [`resolve_by_position`]) or refuse.
+///
+/// [`resolve_by_pid`] refuses, and that is not fussiness. A persistent id is
+/// only unique WITHIN one solid — two bodies split out of one operation can
+/// carry edges with the same adjacent-face roots and therefore the same id —
+/// so looking a pid up in the wrong body can find a different edge under the
+/// stored number and report a wrong dimension while looking healthy. The
+/// first-body fallback is a rebinding step, and this selector does not rebind.
+fn anchor_body_handle<'a>(
+    geom_ref: &GeomRef,
+    feature_results: &'a std::collections::HashMap<Uuid, OpResult>,
+    allow_first_body: bool,
+) -> Result<&'a waffle_types::kernel::KernelSolidHandle, EngineError> {
+    let (feature_id, output_key) = match &geom_ref.anchor {
+        Anchor::FeatureOutput {
+            feature_id,
+            output_key,
+        } => (*feature_id, output_key.clone()),
+        Anchor::Datum { datum_id } => {
+            return Err(EngineError::ResolutionFailed {
+                reason: format!("selector on datum {} not supported", datum_id),
+            });
+        }
+    };
+    let op_result = feature_results
+        .get(&feature_id)
+        .ok_or(EngineError::ResolutionFailed {
+            reason: format!("Feature {} has no result (not yet rebuilt?)", feature_id),
+        })?;
+    if let Some((_, body)) = op_result
+        .outputs
+        .iter()
+        .find(|(k, _)| key_matches(k, &output_key))
+    {
+        return Ok(&body.handle);
+    }
+    if !allow_first_body {
+        return Err(EngineError::ResolutionFailed {
+            reason: format!(
+                "feature {} has no output {} any more, and a persistent id is only unique within \
+                 one body, so another of its bodies must not be substituted",
+                feature_id,
+                output_key.tag()
+            ),
+        });
+    }
+    op_result
+        .outputs
+        .first()
+        .map(|(_, b)| &b.handle)
+        .ok_or(EngineError::ResolutionFailed {
+            reason: "feature produced no body output to resolve against".to_string(),
+        })
+}
+
+/// Resolve a `Selector::Pid` against the live kernel (drawings spec D0 §4
+/// item 4).
+///
+/// 1. An entity of the anchor body whose `pid` matches wins.
+/// 2. Otherwise, an entity whose `root_pid` matches the stored `root_pid`
+///    wins — this is the face that a later boolean rebuilt, carrying a fresh
+///    pid but the same lineage root. The warning says so.
+/// 3. Anything else is a loud failure, under BOTH policies: an ambiguous
+///    match (two entities share the root, i.e. the face was split and the
+///    reference cannot say which half it meant) and an absent one (the
+///    entity is gone) alike.
+///
+/// Step 3 is the whole contract. Every other selector may fall back to a
+/// nearest or first match under `BestEffort`; this one must not, because
+/// silently rebinding a dimension to a different edge produces a drawing
+/// that is wrong rather than one that is visibly broken (P9/P10).
+pub fn resolve_by_pid(
+    geom_ref: &GeomRef,
+    feature_results: &std::collections::HashMap<Uuid, OpResult>,
+    introspect: &dyn KernelIntrospect,
+    pid: u64,
+    root_pid: u64,
+) -> Result<ResolvedRef, EngineError> {
+    refuse_scoped(geom_ref)?;
+    let handle = anchor_body_handle(geom_ref, feature_results, false)?;
+    let known = introspect.all_entity_pids(handle, geom_ref.kind);
+    if known.is_empty() {
+        return Err(EngineError::ResolutionFailed {
+            reason: format!(
+                "kernel reports no persistent ids for {:?} on this body, so pid {} cannot be \
+                 resolved (a mesh-backed imported body, or a kernel without persistent identity)",
+                geom_ref.kind, pid
+            ),
+        });
+    }
+
+    let exact: Vec<KernelId> = known
+        .iter()
+        .filter(|(_, p)| p.pid == pid)
+        .map(|(id, _)| *id)
+        .collect();
+    if exact.len() == 1 {
+        return Ok(ResolvedRef {
+            kernel_id: exact[0],
+            warnings: Vec::new(),
+        });
+    }
+    if exact.len() > 1 {
+        return Err(EngineError::ResolutionFailed {
+            reason: format!(
+                "persistent id {} names {} different {:?} entities on this body — the kernel's \
+                 identity map is not injective, which is a kernel defect, not a stale reference",
+                pid,
+                exact.len(),
+                geom_ref.kind
+            ),
+        });
+    }
+
+    let by_root: Vec<KernelId> = known
+        .iter()
+        .filter(|(_, p)| p.root_pid == root_pid)
+        .map(|(id, _)| *id)
+        .collect();
+    match by_root.len() {
+        1 => Ok(ResolvedRef {
+            kernel_id: by_root[0],
+            warnings: vec![format!(
+                "{:?} pid {} is gone; resolved through its lineage root {} (geometry was rebuilt \
+                 by a later operation)",
+                geom_ref.kind, pid, root_pid
+            )],
+        }),
+        0 => Err(EngineError::ResolutionFailed {
+            reason: format!(
+                "no {:?} with persistent id {} (root {}) on this body — the referenced entity no \
+                 longer exists",
+                geom_ref.kind, pid, root_pid
+            ),
+        }),
+        n => Err(EngineError::ResolutionFailed {
+            reason: format!(
+                "{:?} pid {} is gone and its lineage root {} now names {} entities — the geometry \
+                 was split and the reference cannot say which part it meant",
+                geom_ref.kind, pid, root_pid, n
+            ),
+        }),
+    }
 }
 
 /// Resolve a GeomRef with automatic fallback from role to signature.
@@ -264,6 +393,12 @@ pub fn resolve_geom_ref_live(
     feature_results: &std::collections::HashMap<Uuid, OpResult>,
     introspect: &dyn KernelIntrospect,
 ) -> Result<ResolvedRef, EngineError> {
+    // A persistent id is answered HERE and nowhere else: it is a question
+    // about the body's current entities, which only the kernel can answer,
+    // and it must never silently fall through to a rebinding selector.
+    if let Selector::Pid { pid, root_pid } = &geom_ref.selector {
+        return resolve_by_pid(geom_ref, feature_results, introspect, *pid, *root_pid);
+    }
     if let Anchor::FeatureOutput {
         feature_id,
         output_key,
@@ -1202,6 +1337,147 @@ mod tests {
         }
     }
 
+    // --- Pid-selector resolution (drawings spec D0 §4 item 4) ------------
+
+    /// A kernel that reports exactly the identity map the test hands it.
+    struct PidIntrospect {
+        /// `(kernel id, pid, root pid)` for entities of kind `kind`.
+        entities: Vec<(KernelId, u64, u64)>,
+        kind: TopoKind,
+    }
+    impl KernelIntrospect for PidIntrospect {
+        fn all_entity_pids(
+            &self,
+            _: &KernelSolidHandle,
+            kind: TopoKind,
+        ) -> Vec<(KernelId, waffle_types::kernel::EntityPid)> {
+            if kind != self.kind {
+                return Vec::new();
+            }
+            self.entities
+                .iter()
+                .map(|&(id, pid, root_pid)| (id, waffle_types::kernel::EntityPid { pid, root_pid }))
+                .collect()
+        }
+        fn list_faces(&self, _: &KernelSolidHandle) -> Vec<KernelId> {
+            vec![]
+        }
+        fn list_edges(&self, _: &KernelSolidHandle) -> Vec<KernelId> {
+            vec![]
+        }
+        fn list_vertices(&self, _: &KernelSolidHandle) -> Vec<KernelId> {
+            vec![]
+        }
+        fn face_edges(&self, _: KernelId) -> Vec<KernelId> {
+            vec![]
+        }
+        fn edge_faces(&self, _: KernelId) -> Vec<KernelId> {
+            vec![]
+        }
+        fn edge_vertices(&self, _: KernelId) -> (KernelId, KernelId) {
+            (KernelId(0), KernelId(0))
+        }
+        fn face_neighbors(&self, _: KernelId) -> Vec<KernelId> {
+            vec![]
+        }
+        fn compute_signature(&self, _: KernelId, _: TopoKind) -> TopoSignature {
+            TopoSignature::empty()
+        }
+        fn compute_all_signatures(
+            &self,
+            _: &KernelSolidHandle,
+            _: TopoKind,
+        ) -> Vec<(KernelId, TopoSignature)> {
+            vec![]
+        }
+    }
+
+    fn pid_ref(feature_id: Uuid, pid: u64, root_pid: u64, policy: ResolvePolicy) -> GeomRef {
+        GeomRef {
+            kind: TopoKind::Edge,
+            anchor: Anchor::FeatureOutput {
+                feature_id,
+                output_key: OutputKey::Main,
+            },
+            selector: Selector::Pid { pid, root_pid },
+            policy,
+            scope: None,
+        }
+    }
+
+    fn pid_fixture(
+        entities: Vec<(KernelId, u64, u64)>,
+    ) -> (Uuid, HashMap<Uuid, OpResult>, PidIntrospect) {
+        let fid = Uuid::new_v4();
+        let mut results = HashMap::new();
+        results.insert(fid, op_with_body());
+        (
+            fid,
+            results,
+            PidIntrospect {
+                entities,
+                kind: TopoKind::Edge,
+            },
+        )
+    }
+
+    #[test]
+    fn pid_resolves_to_its_own_entity() {
+        let (fid, results, k) =
+            pid_fixture(vec![(KernelId(10), 7001, 7001), (KernelId(11), 7002, 7002)]);
+        let got = resolve_geom_ref_live(
+            &pid_ref(fid, 7002, 7002, ResolvePolicy::Strict),
+            &results,
+            &k,
+        )
+        .expect("pid resolves");
+        assert_eq!(got.kernel_id, KernelId(11));
+        assert!(
+            got.warnings.is_empty(),
+            "an exact match warns about nothing"
+        );
+    }
+
+    #[test]
+    fn a_rebuilt_entity_resolves_through_its_lineage_root_and_says_so() {
+        // The stored pid is gone; one entity still carries its root (the
+        // face a later boolean rebuilt).
+        let (fid, results, k) =
+            pid_fixture(vec![(KernelId(10), 9100, 7001), (KernelId(11), 9200, 7002)]);
+        let got = resolve_geom_ref_live(
+            &pid_ref(fid, 7001, 7001, ResolvePolicy::Strict),
+            &results,
+            &k,
+        )
+        .expect("resolves through the root");
+        assert_eq!(got.kernel_id, KernelId(10));
+        assert!(
+            got.warnings.iter().any(|w| w.contains("lineage root")),
+            "the root fallback must be reported, got {:?}",
+            got.warnings
+        );
+    }
+
+    /// The property the whole selector exists for: a reference whose entity
+    /// is gone FAILS, under BestEffort as well as Strict. Every other
+    /// selector rebinds here; this one must not.
+    #[test]
+    fn a_vanished_pid_is_refused_under_both_policies() {
+        for policy in [ResolvePolicy::Strict, ResolvePolicy::BestEffort] {
+            let (fid, results, k) =
+                pid_fixture(vec![(KernelId(10), 7001, 7001), (KernelId(11), 7002, 7002)]);
+            let err = resolve_geom_ref_live(&pid_ref(fid, 4242, 4242, policy), &results, &k)
+                .expect_err("a vanished pid must not rebind");
+            match err {
+                EngineError::ResolutionFailed { reason } => assert!(
+                    reason.contains("no longer exists"),
+                    "{policy:?}: unexpected reason {reason}"
+                ),
+                other => panic!("{policy:?}: wrong error {other:?}"),
+            }
+        }
+    }
+
     /// The far side of the same rule: a fingerprint that fits ONE candidate
     /// best still resolves, and a near-miss still resolves with a warning.
     #[test]
@@ -1220,5 +1496,126 @@ mod tests {
         let hit = resolve_by_signature(&op, &perturbed, TopoKind::Face, ResolvePolicy::Strict)
             .expect("near match");
         assert_eq!(hit.kernel_id, KernelId(2));
+    }
+
+    #[test]
+    fn a_split_root_is_refused_rather_than_guessed() {
+        // The pid is gone and TWO entities now share its root: the geometry
+        // was split, and nothing in the reference says which half it meant.
+        let (fid, results, k) =
+            pid_fixture(vec![(KernelId(10), 9100, 7001), (KernelId(11), 9101, 7001)]);
+        let err = resolve_geom_ref_live(
+            &pid_ref(fid, 7001, 7001, ResolvePolicy::BestEffort),
+            &results,
+            &k,
+        )
+        .expect_err("an ambiguous root must not be guessed");
+        match err {
+            EngineError::ResolutionFailed { reason } => {
+                assert!(reason.contains("split"), "unexpected reason {reason}")
+            }
+            other => panic!("wrong error {other:?}"),
+        }
+    }
+
+    #[test]
+    fn a_kernel_without_identity_says_so_instead_of_reporting_absence() {
+        // An empty identity map means "no identity available here", which is
+        // a different finding from "your entity is gone" — a caller that
+        // confused them would blame the document for a kernel limitation.
+        let (fid, results, _) = pid_fixture(vec![]);
+        let k = PidIntrospect {
+            entities: vec![],
+            kind: TopoKind::Edge,
+        };
+        let err = resolve_geom_ref_live(
+            &pid_ref(fid, 7001, 7001, ResolvePolicy::Strict),
+            &results,
+            &k,
+        )
+        .expect_err("no identity map");
+        match err {
+            EngineError::ResolutionFailed { reason } => assert!(
+                reason.contains("no persistent ids"),
+                "unexpected reason {reason}"
+            ),
+            other => panic!("wrong error {other:?}"),
+        }
+    }
+
+    #[test]
+    fn a_pid_selector_without_the_kernel_refuses_loudly() {
+        // `resolve_geom_ref` has no introspection, so it cannot answer a
+        // question about the body's current entities. It must say that, not
+        // fall through to a different selector.
+        let (fid, results, _) = pid_fixture(vec![]);
+        let err = resolve_geom_ref(&pid_ref(fid, 7001, 7001, ResolvePolicy::Strict), &results)
+            .expect_err("needs the live kernel");
+        match err {
+            EngineError::ResolutionFailed { reason } => {
+                assert!(reason.contains("live kernel"), "unexpected reason {reason}")
+            }
+            other => panic!("wrong error {other:?}"),
+        }
+    }
+
+    /// A pid is unique only WITHIN one body, so the first-body fallback that
+    /// every other live selector uses would be a silent body substitution
+    /// here — and the same number can name a different edge in a sibling body
+    /// split out of the same operation. Refuse instead.
+    #[test]
+    fn a_pid_whose_output_key_is_gone_refuses_rather_than_taking_another_body() {
+        let (fid, results, k) = pid_fixture(vec![(KernelId(10), 7001, 7001)]);
+        let mut r = pid_ref(fid, 7001, 7001, ResolvePolicy::BestEffort);
+        // The fixture's only output is `Main`; ask for a body that is gone.
+        r.anchor = Anchor::FeatureOutput {
+            feature_id: fid,
+            output_key: OutputKey::Body { index: 2 },
+        };
+        let err = resolve_geom_ref_live(&r, &results, &k)
+            .expect_err("a missing output must not resolve against a sibling body");
+        match err {
+            EngineError::ResolutionFailed { reason } => assert!(
+                reason.contains("unique within one body"),
+                "unexpected reason {reason}"
+            ),
+            other => panic!("wrong error {other:?}"),
+        }
+    }
+
+    /// The same shape through a Position selector KEEPS the fallback: that is
+    /// long-standing viewport-picking behaviour and is not what this change
+    /// is about.
+    #[test]
+    fn a_position_reference_still_falls_back_to_the_first_body() {
+        let fid = Uuid::new_v4();
+        let mut results = HashMap::new();
+        results.insert(fid, op_with_body());
+        let mut r = pos_ref(fid, 0.0, 0.0, 0.0, ResolvePolicy::Strict);
+        r.anchor = Anchor::FeatureOutput {
+            feature_id: fid,
+            output_key: OutputKey::Body { index: 2 },
+        };
+        let kernel = FakeIntrospect { verts: vec![] };
+        let err = resolve_by_position(&r, &results, &kernel, [0.0, 0.0, 0.0])
+            .expect_err("the stub kernel lists no vertices");
+        match err {
+            EngineError::ResolutionFailed { reason } => assert!(
+                reason.contains("no Vertex entities"),
+                "it reached the body and failed on its contents, not on the key: {reason}"
+            ),
+            other => panic!("wrong error {other:?}"),
+        }
+    }
+
+    #[test]
+    fn a_pid_reference_scoped_into_another_tab_is_refused() {
+        let (fid, results, k) = pid_fixture(vec![(KernelId(10), 7001, 7001)]);
+        let mut r = pid_ref(fid, 7001, 7001, ResolvePolicy::Strict);
+        r.scope = Some(waffle_types::RefScope::in_assembly("tab-1", vec![]));
+        assert!(
+            resolve_geom_ref_live(&r, &results, &k).is_err(),
+            "a scoped reference resolves only through the open assembly context"
+        );
     }
 }

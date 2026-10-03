@@ -366,6 +366,57 @@ F0010 ⇒ the sub-resolution wall.
 Re-creatable with `PROSPECT_SEED=<1|2|3> PROSPECT_COUNT=120 prospect_mutate`
 (the mutant documents are under `target/prospect/mutate-<seed>/candidates/`).
 
+**Seed 2 (`prospect_run`, 200 candidates, 991 s at 8 jobs, 2026-10-03):** 172
+SUPPORTED_CORRECT, 21 ERROR, 3 SUPPORTED_WRONG, 2 TIMEOUT, 2
+UNSUPPORTED(coplanar-boolean) over 17 signatures; `prospect_minimize`
+(1572 s) reduced 16 of them to 2–5 steps. Adjudicated and promoted the same
+day as **P0010–P0022** (corpus 321 → 334); the full narrative, the per-case
+adjudication evidence and the retirements live in
+`docs/yang_tail_triage.md` §"2026-10-03". Four lessons for this spec:
+
+1. **Dedupe by error TEXT, not by signature.** The signature keys on the
+   boolean VERB too, so the 21 ERROR rows presented as 15 signatures but are
+   **twelve** families; four of those fifteen were the same text reached
+   through a different verb or the auto-union path.
+2. **A SUPPORTED_WRONG signature (`wrong[exact_volume]`) is far too coarse to
+   dedupe on.** Seed 2's three WRONG rows share it and are three unrelated
+   defects at three different ops. The minimizer only ever shrinks ONE example
+   per signature, so the other two had to be localized by hand — by judging
+   every chain PREFIX on its own and reading the exact-membership lattice at
+   192/256/384/512 cells on two phases, which names the op where kernel and
+   oracle part instead of guessing it. Future runs should treat
+   `wrong[exact_volume]` as a bucket to be opened, not a finding.
+3. **A chain PREFIX is a better minimum than a rounded one when it works.**
+   P0010 and P0011 are prefixes-plus-dropped-ops of the generated documents
+   with the original coordinates intact, so step 1's minted-contact hazard
+   does not apply to them at all.
+4. **A build-phase TIMEOUT used to name nothing.** Both seed-2 TIMEOUTs
+   (indices 16 and 78) spent the whole budget inside `gen3::build`, so
+   `judge_generated` never reached its lineage write and the report line
+   carried `steps: 0` with an empty summary. `judge_generated` now writes
+   `<id>.lineage.json` BEFORE the build (the build report is appended after),
+   so such a candidate is re-playable through `PROSPECT_RECIPE` and
+   minimizable like any other. `prospect_derive_meta`
+   (`PROSPECT_CANDIDATE=<stem>`) re-derives a hand-edited finding's meta from
+   its document, which §3.2 requires and hand-editing breaks.
+
+**Two oracle holes seed 2 exposed** (both harness, neither promoted):
+
+- **An empty document reads SUPPORTED_CORRECT.** A census of the live body
+  count of all 172 CORRECT candidates found **4 with ZERO non-empty bodies**
+  (indices 53, 84, 111, 199), and every one of them ends in an `∩` whose
+  operands are disjoint. 2.3 % of the CORRECT column is "the chain
+  annihilated itself". `categorize` should decline or flag a result with no
+  solid, never call it correct — and the engine should STOP typed at the
+  empty Intersect rather than leave the next op's `GeomRef` to fail.
+- **The exact chain's cut auto-reversal is a bbox proxy for the engine's
+  B-Rep-vertex decision**, and when its own `tool_alone` reading would flip
+  the verdict it emits a note and picks one anyway. On index 159 the engine
+  traced `reverse=true` and the chain had chosen `false`; authoring that
+  cut's `direction` explicitly (so neither side auto-reverses) left the
+  kernel's volume bit-identical and moved the ORACLE by 5 %. It should push
+  an `indeterminate` entry in that case, not a volume verdict.
+
 The FIRST promotion candidate exists already: the needle star (4 points,
 r_in = 2, r_out = 22) on the X plane unioned with an octagon prism on the Y
 plane, `TessellationFailed{FaceId, "planar triangle collapsed at render

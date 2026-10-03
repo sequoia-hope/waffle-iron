@@ -1,0 +1,66 @@
+{
+  "id": "P0020",
+  "description": "5 ops, scale=2.00e-1, extrude(circle,boss)+extrude(gear,boss)+boolean-intersect+extrude(polygon,boss)+boolean-intersect — prospector seed 2 index 196 minimized 2026-10-03 (3 recipe steps, profiles simplified and coordinates rounded, 17 verdicts): a circle boss INTERSECTED with a 12-tooth gear prism, then intersected with a square prism. boolean_intersect BooleanFailed(\"yang-rs rejected the converted input B-Rep: yang-rs: malformed B-Rep topology: face 0: holed lateral CDT failed: duplicate (coincident) loop vertex in CDT input\") — an INPUT rejection, so the defect is in the FIRST intersect's own output B-Rep, which the second intersect refuses: a holed cylinder-lateral chart whose loop carries two coincident vertices. Smallest authored length 8.28e-5 = 83x MIN_FEATURE_SIZE (the tightest of the seed-2 promotions, still 83 times the floor). ERROR at both x1e-3 and x1e3, but x1e-3 lands on a DIFFERENT class (a weld-band ambiguous edge-split), so the conversion should judge this case at its own scale. ERROR-class pin, derived_meta: expectations unadjudicated until conversion.",
+  "master_seed": 0,
+  "test_seed": 0,
+  "scale": 0.2,
+  "log_scale": -0.6989700043360187,
+  "plane_origin": [
+    0.0,
+    0.0,
+    0.0
+  ],
+  "plane_normal": [
+    0.0,
+    1.0,
+    0.0
+  ],
+  "operations": [
+    {
+      "kind": "extrude",
+      "profile_type": "unknown",
+      "profile_size": 0.0,
+      "depth_or_angle": 0.10675957223577448,
+      "is_cut": false
+    },
+    {
+      "kind": "extrude",
+      "profile_type": "unknown",
+      "profile_size": 0.0,
+      "depth_or_angle": 0.165,
+      "is_cut": false
+    },
+    {
+      "kind": "boolean-intersect",
+      "profile_type": "none",
+      "profile_size": 0.0,
+      "depth_or_angle": 0.0,
+      "is_cut": true
+    },
+    {
+      "kind": "extrude",
+      "profile_type": "unknown",
+      "profile_size": 0.0,
+      "depth_or_angle": 0.2,
+      "is_cut": false
+    },
+    {
+      "kind": "boolean-intersect",
+      "profile_type": "none",
+      "profile_size": 0.0,
+      "depth_or_angle": 0.0,
+      "is_cut": true
+    }
+  ],
+  "oracles": {
+    "euler_target": 2,
+    "expect_watertight": true,
+    "max_bbox_extent": 20.0,
+    "expect_positive_volume": true,
+    "volume_monotonicity": [],
+    "expect_rebuild_error": false,
+    "derived_meta": true
+  },
+  "generator_version": 100,
+  "featured": true
+}

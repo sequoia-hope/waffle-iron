@@ -11,10 +11,43 @@ Owner crates: `kernel-v2` (D1, D2), `waffle-types` (D0, D3, M1), `file-format`
 (D4), `feature-engine` (D0, D3, M1, M2), `wasm-bridge` (D5), `app` (D3, D4, D5,
 M2), `step-export` work in `kernel-v2::step_export` (M3).
 
-Status: **design, nothing landed.** Written 2026-10-03 from a survey of the
-tree. The v4 document model (`specs/waffle_v4_document_model.md` §Phase 4,
-line 503) reserved the `Drawing` tab kind and named the kernel projection debt
-(line 489) that this spec carries as D1.
+Status: **D1a landed 2026-10-03, with the one-view DXF export of §12.**
+Everything else is still design. Written 2026-10-03 from a survey of the tree.
+The v4 document model (`specs/waffle_v4_document_model.md` §Phase 4, line 503)
+reserved the `Drawing` tab kind and named the kernel projection debt (line
+489) that this spec carries as D1.
+
+What D1a put in the tree:
+
+- `waffle_types::kernel::projection` — the §5.1 contract: `KernelProjection`,
+  `ViewFrame`/`ViewBasis`, `Curve2` (with exact `bbox`, `length`, `flatten`),
+  `ProjectedCurve`, `ViewGeometry`, `ProjectOpts`, `ProjectionBody`,
+  `SectionResult`. Every trait method defaults to a typed `NotSupported`, so
+  D1b–D1d extend this shape rather than renegotiating it, and an
+  unimplemented increment is loud. `MockKernel` implements none of them.
+- `kernel_v2::projection` — orthographic projection of every B-Rep edge, line
+  and circle/arc surviving analytically (ellipse, circular and edge-on
+  degenerate branches all exact), everything else as the render-identical
+  sample polyline. Implemented on `KernelV2Adapter` as `project` /
+  `project_bodies` (assembly placements composed into the view basis).
+- `kernel_v2::dxf_export` — R12/`AC1009`, millimetres, layers `VISIBLE` and
+  `HIDDEN`, with a golden file. R12 has no `ELLIPSE` entity, so an obliquely
+  seen rim is a `POLYLINE` at a proved sagitta bound; the analytic ellipse
+  stays in `ViewGeometry` for the SVG renderer and a later R13+ writer.
+- `wasm-bridge` — `UiToEngine::ExportDxf` and the MCP tool `export_dxf`
+  (named views plus a free direction, `deliver` agent/download), beside
+  `export_step` and `export_stl`.
+- Oracles — the §5.3 checks per primitive in `kernel_v2::projection::tests`
+  and corpus-wide in `test-harness/tests/projection_corpus_oracle.rs`
+  (`#[ignore]`, stride-sampled).
+
+Two things §5.3 as written cannot assert at D1a, and both are now recorded in
+those tests rather than worked around: the projected bbox can only EQUAL the
+AABB's projection for a solid whose extremes lie on edges (a curved solid's
+lie on a silhouette, which is D1b), and the kernel's own `solid_aabb` is
+conservative on circle edges and declines a solid carrying a surface-pair
+curve, so the equality is asserted for prismatic cases and containment for the
+rest.
 
 Fillet, chamfer and shell remain deferred and nothing here depends on them.
 
@@ -81,10 +114,14 @@ Listed in dependency order; each later item needs the earlier ones.
    `arena.rs:135` is unimplemented). Almost every dimension and every geometric
    tolerance anchors to an edge or vertex, so without this an annotation
    detaches whenever its feature is re-executed.
-2. **Kernel projection, silhouette, hidden-line classification, and planar
-   section.** Nothing exists. The viewport's section view is a three.js
-   stencil cap (`app/src/lib/viewport/SectionCap.svelte`), not geometry. Edge
-   extraction exists only as render polylines (`kernel_v2::extract_edges`).
+2. **Silhouette, hidden-line classification, and planar section.** Edge
+   projection LANDED as D1a (`kernel_v2::projection`, 2026-10-03); the rest of
+   D1 has not. The viewport's section view is still a three.js stencil cap
+   (`app/src/lib/viewport/SectionCap.svelte`), not geometry, and
+   `KernelProjection::section_with_plane` is a typed `NotSupported`. Before
+   D1a, edge extraction existed only as render polylines
+   (`kernel_v2::extract_edges`), which is still what the polyline arm of the
+   projection samples.
 3. **A 2D paper-space renderer.** The sketch editor is the threlte 3D viewport
    locked to a plane. Dimension rendering is an HTML label and a bare leader
    line (`app/src/lib/sketch/DimensionLabels.svelte`); there are no
@@ -171,6 +208,138 @@ Done when the corpus passes the identity oracle and `sketch-on-face`,
 `UpTo` terminations and 3D-sketch attachments resolve through `Selector::Pid`
 in the GUI suite.
 
+### Implementation notes (D0)
+
+Landed 2026-10-03. Where the plan above left a choice open, this is the
+choice made and why.
+
+**Edge and vertex ids are seeded from face lineage ROOTS, not face pids.**
+Item 2 says an edge is derived from "its two adjacent face Pids". Taken
+literally that is unusable: `boolean_op` constructs new faces, so every face
+of a body receives a fresh `Pid` the moment anything on the body is unioned
+or cut, and an edge id built on those would churn with them. The journal
+(KV13 F2) already recovers the pid where each face's geometry was
+*introduced*, so:
+
+```
+edge_pid   = H("edge",   root(face₁), root(face₂), rank)    // roots sorted
+vertex_pid = H("vertex", sorted incident edge pids…, rank)
+```
+
+Item 2's separate rule for intersection edges ("take the pair of operand
+face Pids they lie on") then needs no special case: such an edge's two
+output faces descend from exactly those operands, so their roots *are* that
+pair. `crates/kernel-v2/src/pid.rs` holds the derivation;
+`crates/kernel-v2/tests/d0_pid_identity.rs` is the kernel-level oracle.
+
+**The disambiguator is a rank inside the content group.** For edges: order
+the group's members by the edge's *unordered* endpoint pair under an exact
+total order on coordinate bits (no quantization, so the order is a function
+of the bits and cannot flip between runs); the rank is the position. For
+vertices: the same, ordered by position. A group whose members compare equal
+is `KernelV2Error::PidAmbiguous` — a loud refusal, because choosing one
+would silently rebind an annotation on the next rebuild. `PidMissing` (a
+solid whose faces were never stamped) and `PidCollision` (two distinct keys
+hashing to one id) are the other two refusals; none of the three is ever
+repaired.
+
+A rank is a *position*, which is the scheme's one stability caveat and is
+worth knowing before relying on it: a group of one — the overwhelming
+majority — ranks 0 whatever its geometry does, but inside a group of two or
+more, moving one member past another renumbers both and their two ids swap,
+even though neither changed its content key. Sign-of-zero counts as a move
+(`-0.0` orders below `+0.0`, as under `f64::total_cmp`). Making a
+multi-member group order-independent needs the content key itself to separate
+its members, which is the F4a face reseed below. Pinned as
+`rank_groups_renumbers_a_group_when_a_member_moves_past_another`.
+
+**The hash is frozen.** `H` is a chain of SplitMix64 finalizer steps over
+`u64` words, domain-separated per entity kind, with `Pid(0)` avoided. These
+ids are persisted inside documents, so the function must never drift — treat
+`pid.rs`'s `mix`/`digest` as format, not as an implementation detail.
+`crates/kernel-v2/tests/d0_pid_hash_frozen.rs` is the oracle: it holds the
+literal ids of the unit box. A red result there is a format break needing a
+reader-floor bump and a migration, never new constants. It is also the
+cross-process half of the stability claim — its literals were recorded by a
+different process than the one asserting them, and nothing in the derivation
+reads a `HashMap`, an address or a clock.
+
+**A face's identity does not ride on the edge pass.** `solid_pids` refuses as
+a whole, so `all_entity_pids(solid, Face)` originally lost every FACE id of a
+body whose edge groups were ambiguous — while `entity_pid` kept answering
+those faces through `face_provenance`, so the two doors disagreed. The face
+pass is `pid::solid_face_pids`, and the `Face` arm takes it.
+
+**A pid is unique only WITHIN one body.** Collision detection is per solid,
+and two bodies split out of one operation can carry edges with the same
+adjacent-face roots and so the same id. `resolve_by_pid` therefore requires
+the anchor's `output_key` to still exist and refuses rather than falling back
+to the feature's first body the way `Selector::Position` does: that fallback
+is a rebinding step, and a pid looked up in the wrong body can find a
+different edge under the stored number.
+
+**Ids are derived, never stored.** `solid_pids(arena, solid)` recomputes
+from the arena and the journal. Nothing was added to `BrepArena` (whose
+`Debug` string the determinism oracle compares), so there is no second
+source of truth to invalidate and no way for a stale id to outlive its
+geometry. The cost is one `O(E log E)` pass; `all_entity_pids` is the bulk
+door so a resolver never pays it per entity.
+
+**One contract door for all three kinds.** Item 4 asked for "edge and vertex
+siblings" of `face_provenance`. Instead there is one pair of
+`KernelIntrospect` methods over every kind — `entity_pid(entity, kind)` and
+`all_entity_pids(solid, kind)` — returning `EntityPid { pid, root_pid }`.
+`face_provenance` stays as it is for its KV13 F5/F6 callers. For an edge or
+vertex `root_pid == pid` (the id is already content-seeded through the
+roots), so a consumer matches `pid` then `root_pid` without ever branching
+on kind. Both methods default to `None`/empty, so the addition is additive
+for every implementor; mesh-backed imported bodies report nothing, since a
+face-index-derived number would change silently on re-import.
+
+**`Selector::Pid` never falls back to `Signature`.** This is a deliberate
+deviation from item 4's "`resolve_with_fallback` falling to `Signature` when
+the Pid is gone". A Signature fallback is a nearest-match, and a drawing
+dimension that quietly moves to a geometrically similar edge reports a wrong
+number while looking entirely healthy — the P9/P10 case. So a Pid whose id
+and root are both absent fails loudly under `BestEffort` exactly as under
+`Strict`, with separate messages for "gone", "the root now names several
+entities" (split geometry) and "this kernel reports no identity map for this
+body". A caller that genuinely wants best-effort rebinding stores a
+`Signature` selector, which already does that and says so in its warnings.
+
+**Still open after this increment:**
+
+- *Content-seeded FACE pids (item 1, the F4a reseed).* Face pids remain
+  monotonic. They are reproduced exactly by a full rebuild of an unchanged
+  document, but an INCREMENTAL rebuild re-runs only the edited feature in an
+  arena whose allocator has advanced, so that feature's faces are stamped
+  fresh — measured on a plate+boss on 2026-10-03: a boss depth edit moved its
+  face roots `{6,8,9,10,11} → {23,25,26,27,28}` while the plate's `{0..5}`
+  were untouched. Consequence: the four edges where the boss meets the plate
+  are renamed by an edit that does not move them. Pinned as the `#[ignore]`d
+  `edges_at_the_junction_with_an_edited_feature_keep_their_ids_too` in
+  `crates/test-harness/tests/d0_pid_selector.rs` — un-ignore it in the PR
+  that lands the reseed. The reseed is cross-crate (the kernel does not know
+  feature ids today; it needs the creating feature's id, the role, and for
+  side faces the sketch entity's id to reach the constructor).
+- *The corpus-wide oracle (item 5).* Not run: the identity oracle here is
+  focused (a box, a cylinder, a plate+boss union through the engine), not the
+  assay corpus rebuilt twice.
+- *Every consumer must reach the live resolver first.* A `Selector::Pid` is
+  answerable only by `resolve_geom_ref_live`. Several production paths still
+  call `resolve_with_fallback`, which has no kernel — including the `UpTo`
+  and edge-reference resolutions in `feature-engine`'s `rebuild` and the
+  assembly-context path in `context`. They refuse loudly today (fallback only
+  ever applies to `Selector::Role`, so there is no silent rebinding), but the
+  first feature that stores a Pid in one of those fields must move its call
+  site to the live form in the same PR.
+- *The "done when" GUI clause.* `sketch-on-face`, `UpTo` terminations and
+  3D-sketch attachments still store their existing selectors; nothing writes
+  a `Selector::Pid` yet. Note for whoever does: `Selector` is a
+  serde-tagged enum, so the first document that persists a `Pid` selector
+  cannot be read by an older reader — that lands with a format reader-floor
+  bump, which this increment did not need.
+
 ## 5. D1 — Kernel projection and section
 
 Owner: `kernel-v2`, new module `projection`; trait extension in `waffle-types`.
@@ -207,12 +376,19 @@ pub struct SectionResult {
 
 ### 5.2 Increments
 
-1. **D1a — edge projection.** Orthographic projection of every B-Rep edge.
-   Analytic curve types survive where they can: a line projects to a line or a
-   point; a circle projects to an ellipse, a circle, or a line segment; other
-   curves (ellipse, hyperbola, SSI curves) project as polylines sampled at
-   the chord tolerance. All edges are tagged `Visible` at this increment, which
-   gives a wireframe view.
+1. **D1a — edge projection. LANDED 2026-10-03.** Orthographic projection of
+   every B-Rep edge. Analytic curve types survive where they can: a line
+   projects to a line or a point; a circle projects to an ellipse, a circle, or
+   a line segment; other curves (ellipse, hyperbola, SSI curves) project as
+   polylines sampled at the chord tolerance. All edges are tagged `Visible` at
+   this increment, which gives a wireframe view. Three deviations from §5.1's
+   sketch, argued in `waffle_types::kernel::projection`'s module docs:
+   `ProjectedCurve::source` is a `KernelId`, not a `GeomRef` (the kernel cannot
+   mint one — a `GeomRef` needs the feature anchor); `Curve2` has a `Point` arm,
+   since this increment says a line may project to one; and
+   `ViewGeometry::bbox` is an `Option`, because a view with no curves has no
+   box. Handles are `KernelSolidHandle` and `section_with_plane` takes an
+   origin/normal pair, the kernel contract's own vocabulary.
 2. **D1b — silhouettes.** For each curved face, the locus where the surface
    normal is perpendicular to the view direction, clipped to the face's
    trimming loops. Cylinder: two lines. Cone: two lines through the apex.
@@ -447,7 +623,7 @@ under both schema settings.
 | id | increment | depends on | lands |
 |---|---|---|---|
 | D0 | content-seeded Pids; edge + vertex Pids; `Selector::Pid`; identity oracle | — | kernel-v2, waffle-types, feature-engine |
-| D1a | edge projection, wireframe views | — | kernel-v2 |
+| D1a | edge projection, wireframe views + the §12 one-view DXF export | — | kernel-v2, waffle-types, wasm-bridge — **LANDED 2026-10-03** |
 | D1b | analytic silhouettes | D1a | kernel-v2 |
 | D1c | visibility classification + oracle | D1b | kernel-v2 |
 | D1d | `section_with_plane` | D1a | kernel-v2 |
@@ -468,7 +644,11 @@ land.
 
 An early deliverable with real value is **D1a + a one-view DXF export**, which
 covers laser, waterjet and plasma flat-pattern workflows before any sheet UI
-exists.
+exists. **Both landed 2026-10-03** (see the status note at the top): the MCP
+tool `export_dxf` writes one named or free-direction view of the whole model as
+R12 DXF in millimetres. It is a WIREFRAME until D1b/D1c, and the tool's own
+description says so, because a caller who is not told would ship a drawing with
+the far edges in it and never know.
 
 ## 13. What this is not
 

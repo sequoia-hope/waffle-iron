@@ -8596,7 +8596,7 @@
         },
         {
           "tier": "mesh",
-          "why": "kernel: vertex off surface"
+          "why": "kernel: curved geometry — cone patch vertex lies on the axis"
         }
       ]
     },
@@ -13512,7 +13512,7 @@
       "shells": [
         {
           "tier": "mesh",
-          "why": "kernel: validation — NonPlanarFace { face: FaceId(#) }"
+          "why": "kernel: curve centre off the face plane"
         }
       ]
     },

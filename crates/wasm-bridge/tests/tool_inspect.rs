@@ -357,9 +357,11 @@ fn the_migrated_list_is_exactly_what_this_checkpoint_implements() {
     // (2026-09-23) the tab tools and the assembly tools, which is why this
     // list grew rather than a second one appearing. `sketch3d_get`
     // (2026-09-25, `specs/sketch3d.md` S3) is the only tool a 3D sketch
-    // needed: authoring one goes through `feature_add`. `measure_distance`
-    // (Q1 of `specs/agent_mechanical_design.md` §4.3) is the first
-    // body-to-body geometric query the stack has.
+    // needed: authoring one goes through `feature_add`. `export_dxf`
+    // (2026-10-03, `specs/drawings_and_mbd.md` §12) joins the export pair
+    // with the D1a projection, so the three sit together, and
+    // `measure_distance` (Q1 of `specs/agent_mechanical_design.md` §4.3) is
+    // the first body-to-body geometric query the stack has.
     assert_eq!(
         wasm_bridge::tools::MIGRATED,
         &[
@@ -372,6 +374,7 @@ fn the_migrated_list_is_exactly_what_this_checkpoint_implements() {
             "expression_evaluate",
             "export_step",
             "export_stl",
+            "export_dxf",
             "feature_add",
             "feature_edit",
             "feature_delete",

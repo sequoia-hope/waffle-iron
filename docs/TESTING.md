@@ -42,7 +42,10 @@ Rewrite tier + consumer crates:
 - **kicad-pcb** — `.kicad_pcb` reader + outline chaining (`specs/kicad_board_link.md`
   C1): unit tests plus the authored-fixture goldens in `tests/golden.rs`
   (`UPDATE_GOLDEN=1` regenerates; read the diff)
-- **test-harness** — Fast binaries: `scenarios_mock`, `workflow_tests`, `oracle_tests`, `report_tests`, `scenarios_advanced`, `stl_tests`
+- **test-harness** — Fast binaries: `scenarios_mock`, `workflow_tests`,
+  `oracle_tests`, `report_tests`, `scenarios_advanced`, `stl_tests`,
+  `assay_euler_consistency`, `through_all_depth_kv2` (the P0012 depth pins —
+  real kernel-v2 geometry, but 0.47 s in debug)
 
 ### Rust Full (`full`, ~27min)
 

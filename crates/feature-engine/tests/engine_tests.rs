@@ -72,6 +72,19 @@ fn make_sketch_op() -> Operation {
     Operation::Sketch { sketch }
 }
 
+/// `make_sketch_op` with its plane moved along z — so a test can put a sketch
+/// in FRONT of or BEHIND the body MockKernel stages (z ∈ [0, 5] for
+/// `make_extrude_op`), which is what every depth mode measures against.
+fn make_sketch_op_at_z(z: f64) -> Operation {
+    match make_sketch_op() {
+        Operation::Sketch { mut sketch } => {
+            sketch.plane_origin = [0.0, 0.0, z];
+            Operation::Sketch { sketch }
+        }
+        other => other,
+    }
+}
+
 /// Create an extrude operation referencing a sketch.
 fn make_extrude_op(sketch_id: Uuid) -> Operation {
     Operation::Extrude {
@@ -1779,6 +1792,65 @@ fn extrude_through_all_no_prior_body_uses_large_fallback() {
     assert_eq!(result.unwrap().outputs.len(), 1);
 }
 
+/// A ThroughAll BOSS aimed away from the body has nothing to go through, and
+/// says so. It used to resolve to an absolute 1 m slab — the same hidden scale
+/// assumption that made assay P0012's cut remove nothing, here producing a
+/// metre-long boss on a 5 mm part.
+#[test]
+fn through_all_aimed_away_from_the_body_is_loud() {
+    let mut engine = Engine::new();
+    let mut kernel = MockKernel::new();
+
+    let s1 = engine
+        .add_feature("Sketch 1".to_string(), make_sketch_op(), &mut kernel)
+        .unwrap();
+    engine
+        .add_feature("Extrude 1".to_string(), make_extrude_op(s1), &mut kernel)
+        .unwrap();
+
+    // Sketch above the body (z ∈ [0, 5]), normal +z: the sweep points AWAY.
+    let s2 = engine
+        .add_feature(
+            "Sketch 2".to_string(),
+            make_sketch_op_at_z(10.0),
+            &mut kernel,
+        )
+        .unwrap();
+    let away = Operation::Extrude {
+        params: ExtrudeParams {
+            combine: None,
+            targets: None,
+            sketch_id: s2,
+            profile_index: 0,
+            profile_entity_ids: None,
+            depth: 5.0,
+            direction: None,
+            symmetric: false,
+            cut: false,
+            merge: true,
+            target_body: None,
+            depth_mode: DepthMode::ThroughAll,
+            second_direction: None,
+            region: None,
+            regions: Vec::new(),
+            depth_expr: None,
+        },
+    };
+    let e2 = engine
+        .add_feature("Extrude away".to_string(), away, &mut kernel)
+        .unwrap();
+
+    assert!(
+        engine.get_result(e2).is_none(),
+        "a ThroughAll with nothing ahead of it must not produce a solid"
+    );
+    let reported = format!("{:?}", engine.errors);
+    assert!(
+        reported.contains("ThroughAll") && reported.contains("entirely behind"),
+        "expected a loud ThroughAll refusal, got {reported}"
+    );
+}
+
 // ── CRITICAL P4: Cut Extrude (cut=true) ─────────────────────────────────
 
 #[test]
@@ -2504,8 +2576,18 @@ fn second_direction_through_all_produces_solid() {
         .add_feature("Extrude 1".to_string(), make_extrude_op(s1), &mut kernel)
         .unwrap();
 
+    // The second direction's ThroughAll is measured along the direction it
+    // actually sweeps (−normal), so the material must lie BEHIND this sketch
+    // plane: put the plane above the base body (MockKernel stages it at
+    // z ∈ [0, 5]). With the plane at the origin the backward sweep has nothing
+    // to pass through, and the engine now says so instead of inventing an
+    // absolute 1 m extension (the P0012 family).
     let s2 = engine
-        .add_feature("Sketch 2".to_string(), make_sketch_op(), &mut kernel)
+        .add_feature(
+            "Sketch 2".to_string(),
+            make_sketch_op_at_z(10.0),
+            &mut kernel,
+        )
         .unwrap();
     let bidir_through_op = Operation::Extrude {
         params: ExtrudeParams {

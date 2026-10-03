@@ -1,16 +1,38 @@
 <script>
 	/**
-	 * Agent `viewport_capture` (specs/waffle_mcp_server.md §2.5, Q4): answers the
-	 * synchronous 'waffle-agent-capture' window event with a PNG of the current
-	 * view. It renders one frame and reads the canvas in the same task, so the
-	 * drawing buffer is still intact without `preserveDrawingBuffer`. The WebGL
-	 * canvas is transparent (the viewport's CSS paints the ground), so the frame
-	 * is composited over --viewport-bg. The camera is not moved.
+	 * Agent `viewport_capture` (specs/waffle_mcp_server.md §2.5 Q4, extended by
+	 * specs/agent_mechanical_design.md §9, increment V1): answers the synchronous
+	 * 'waffle-agent-capture' window event with a PNG plus the legend and the
+	 * labels drawn into it.
+	 *
+	 * This component only gathers what the pass needs from Threlte and the store
+	 * and hands it to `capture.js`; the render pass, the overrides and the label
+	 * placement are there, so a viewer page or a test can exercise them without a
+	 * Svelte tree. The user's camera, selection and body visibility are not
+	 * touched — the pass builds its own camera and restores every override it
+	 * applies (§9.2).
 	 */
 	import { useThrelte } from '@threlte/core';
 	import { onMount } from 'svelte';
+	import * as THREE from 'three';
+	import { getCameraRefs, getMeshes, getBodies, isBodyVisible } from '$lib/engine/store.svelte.js';
+	import { CaptureError, renderCapture } from './capture.js';
 
 	const { renderer, scene, camera } = useThrelte();
+
+	/** The render list as the capture needs it: names beside face ranges. */
+	function captureBodies() {
+		const names = new Map();
+		for (const b of getBodies()) names.set(b.bodyId, b.name ?? null);
+		return getMeshes()
+			.filter((m) => isBodyVisible(m.bodyId))
+			.map((m) => ({
+				bodyId: m.bodyId ?? null,
+				featureId: m.featureId ?? null,
+				name: (m.bodyId ? names.get(m.bodyId) : null) ?? m.name ?? null,
+				faceRanges: m.faceRanges ?? []
+			}));
+	}
 
 	/** @param {CustomEvent} e */
 	function onCapture(e) {
@@ -21,20 +43,27 @@
 			e.detail.unavailable = 'The viewport has no visible area in this tab.';
 			return;
 		}
-		const scale = Math.min(1, e.detail.maxEdge / Math.max(canvas.width, canvas.height));
-		const width = Math.max(1, Math.round(canvas.width * scale));
-		const height = Math.max(1, Math.round(canvas.height * scale));
-		const out = document.createElement('canvas');
-		out.width = width;
-		out.height = height;
-		const ctx = /** @type {CanvasRenderingContext2D} */ (out.getContext('2d'));
-		ctx.fillStyle = getComputedStyle(document.documentElement).getPropertyValue('--viewport-bg').trim() || '#000000';
-		ctx.fillRect(0, 0, width, height);
-		renderer.render(scene, cam);
-		ctx.imageSmoothingQuality = 'high';
-		ctx.drawImage(canvas, 0, 0, width, height);
-		const url = out.toDataURL('image/png');
-		e.detail.image = { png: url.slice(url.indexOf(',') + 1), width, height };
+		const { controls } = getCameraRefs();
+		const liveTarget = controls?.target ? controls.target.clone() : new THREE.Vector3();
+		const background =
+			getComputedStyle(document.documentElement).getPropertyValue('--viewport-bg').trim() || '#000000';
+		try {
+			e.detail.result = renderCapture({
+				renderer,
+				scene,
+				liveCamera: cam,
+				liveTarget,
+				bodies: captureBodies(),
+				background,
+				args: e.detail.args ?? {}
+			});
+		} catch (err) {
+			if (err instanceof CaptureError) {
+				e.detail.refused = { code: err.code, detail: err.detail, details: err.details };
+				return;
+			}
+			throw err;
+		}
 	}
 
 	onMount(() => {

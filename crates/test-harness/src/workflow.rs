@@ -24,7 +24,7 @@ use crate::stl;
 /// ranges). The signed volume of the merged mesh equals the sum of the parts,
 /// and its bbox is their union — so oracles see the aggregate geometry of a
 /// multi-body result.
-fn merge_meshes(parts: Vec<RenderMesh>) -> RenderMesh {
+pub(crate) fn merge_meshes(parts: Vec<RenderMesh>) -> RenderMesh {
     let mut out = RenderMesh {
         vertices: Vec::new(),
         normals: Vec::new(),
@@ -1540,12 +1540,14 @@ impl ModelBuilder {
         count
     }
 
-    /// Tessellate every LIVE body in the model (the same walk as
+    /// Every LIVE body's kernel handle (the same walk as
     /// [`Self::distinct_solid_count`]: unsuppressed, unconsumed, solid-bearing
-    /// features), one mesh per output body. Deliberate multi-body cases sum
-    /// volumes over this set — `tessellate_last_with_tol` only covers the
-    /// LAST feature's bodies.
-    pub fn tessellate_live_with_tol(&mut self, tol: f64) -> Result<Vec<RenderMesh>, HarnessError> {
+    /// features), one per output body, in feature order.
+    ///
+    /// This is what an oracle that is not about meshes needs — the projection
+    /// sweep asks the kernel for curves, not triangles — so the walk lives
+    /// here once instead of being copied per oracle.
+    pub fn live_solid_handles(&self) -> Vec<KernelSolidHandle> {
         let tree = &self.state.engine.tree;
         let limit = tree.active_index.unwrap_or(tree.features.len());
         let mut handles = Vec::new();
@@ -1566,6 +1568,15 @@ impl ModelBuilder {
                 handles.extend(result.outputs.iter().map(|(_, b)| b.handle.clone()));
             }
         }
+        handles
+    }
+
+    /// Tessellate every LIVE body in the model ([`Self::live_solid_handles`]),
+    /// one mesh per output body. Deliberate multi-body cases sum volumes over
+    /// this set — `tessellate_last_with_tol` only covers the LAST feature's
+    /// bodies.
+    pub fn tessellate_live_with_tol(&mut self, tol: f64) -> Result<Vec<RenderMesh>, HarnessError> {
+        let handles = self.live_solid_handles();
         let mut meshes = Vec::with_capacity(handles.len());
         for handle in handles {
             meshes.push(
@@ -1636,6 +1647,20 @@ impl ModelBuilder {
     ///
     /// Use this for scale-adaptive tessellation (e.g., `scale * 0.01`).
     pub fn tessellate_last_with_tol(&mut self, tol: f64) -> Result<RenderMesh, HarnessError> {
+        Ok(merge_meshes(self.tessellate_last_bodies_with_tol(tol)?))
+    }
+
+    /// [`Self::tessellate_last_with_tol`] WITHOUT the merge: one `RenderMesh`
+    /// per output body of the last solid-bearing feature, in output order.
+    ///
+    /// A per-SOLID oracle (`check_no_self_intersection`, whose question is
+    /// whether one solid penetrates itself) must judge these, not the merge —
+    /// on the merge, two separate live bodies that legitimately overlap read
+    /// as one solid penetrating itself (P0010, 2026-10-03).
+    pub fn tessellate_last_bodies_with_tol(
+        &mut self,
+        tol: f64,
+    ) -> Result<Vec<RenderMesh>, HarnessError> {
         let tree = &self.state.engine.tree;
         let limit = tree.active_index.unwrap_or(tree.features.len());
         // Find the last active solid-bearing feature, then tessellate ALL its
@@ -1671,7 +1696,7 @@ impl ModelBuilder {
                     .map_err(|e| HarnessError::Engine(e.to_string()))?,
             );
         }
-        Ok(merge_meshes(parts))
+        Ok(parts)
     }
 
     /// Export a named feature's solid as binary STL.

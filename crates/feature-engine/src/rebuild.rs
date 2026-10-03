@@ -799,16 +799,110 @@ pub(crate) fn execute_feature(
                 },
             };
 
+            // ── The extrude axis, measured ONCE ────────────────────────────
+            // Both the cut-direction reversal and a ThroughAll / UpTo depth
+            // read the same quantity: where the material this feature acts on
+            // sits along the extrude axis. Measure it here, decide the sweep
+            // direction, and only THEN resolve the depth — a depth measured
+            // along the unreversed normal and then swept the other way is how
+            // a ThroughAll cut came to miss its body entirely (assay P0012).
+            //
+            // The measured body is this feature's PRIMARY target — its first
+            // combine target, falling back to the most recent solid when it
+            // has none (a NewBody boss asking to go "through all"). Measuring
+            // the UNION of a multi-target cut's bodies was tried and reverted:
+            // with DISJOINT targets the union's mid-extent is a compromise
+            // that belongs to neither body, and it flipped assay R0091's cut
+            // (a revolve sausage standing beside a box) from CORRECT to a
+            // kernel STOP. A multi-target cutter that does not reach its
+            // SECOND target is a real (pre-existing) gap — ledgered in
+            // `docs/yang_tail_triage.md`, not papered over here.
+            //
+            // Only the features that actually consume the reading pay for it:
+            // it walks every vertex of the body, which on a large one is not
+            // free, and a plain blind boss has no use for it.
+            let needs_axis_measurement = (is_cut && params.direction.is_none())
+                || matches!(params.depth_mode, DepthMode::ThroughAll)
+                || matches!(params.second_direction, Some(SecondDirection::ThroughAll));
+            let measured_solids: Vec<waffle_types::kernel::KernelSolidHandle> =
+                if !needs_axis_measurement {
+                    Vec::new()
+                } else if let Some((_, handle)) = combine_targets.first() {
+                    vec![handle.clone()]
+                } else {
+                    find_most_recent_solid(feature, feature_results, tree, already_consumed)
+                        .into_iter()
+                        .collect()
+                };
+            let measured_range =
+                solids_projection_range(kb.as_introspect(), &measured_solids, direction);
+            let sketch_proj = unit_or_none(direction)
+                .map(|d| {
+                    sketch.plane_origin[0] * d[0]
+                        + sketch.plane_origin[1] * d[1]
+                        + sketch.plane_origin[2] * d[2]
+                })
+                .unwrap_or(0.0);
+
+            // For cuts with no authored direction: sweep toward the material.
+            // The decision is the measured body's mid-extent along the axis —
+            // a bulk property, so it is insensitive to which vertex happens to
+            // be extreme. It only ever flips a cut; a boss and an authored
+            // direction sweep exactly as written.
+            let should_reverse_for_cut = if is_cut && params.direction.is_none() {
+                let decision = match measured_range {
+                    Some((lo, hi)) => {
+                        // Reverse only when the body's midpoint is behind the plane.
+                        (lo + hi) * 0.5 < sketch_proj
+                    }
+                    // Nothing measurable: legacy reverse behaviour.
+                    None => true,
+                };
+                if std::env::var_os("FE_CUT_TRACE").is_some() {
+                    match measured_range {
+                        Some((lo, hi)) => eprintln!(
+                            "[fe-cut] {}: targets={} proj=[{lo:.6e}, {hi:.6e}] \
+                             sketch_proj={sketch_proj:.6e} reverse={decision}",
+                            feature.name,
+                            measured_solids.len()
+                        ),
+                        None => eprintln!(
+                            "[fe-cut] {}: nothing measurable — legacy reverse",
+                            feature.name
+                        ),
+                    }
+                }
+                decision
+            } else {
+                false // explicit direction or non-cut: never auto-reverse
+            };
+
+            // The directions this extrude actually sweeps, and the measured
+            // material's interval relative to the sketch plane along each.
+            let primary_sweep = if should_reverse_for_cut {
+                [-direction[0], -direction[1], -direction[2]]
+            } else {
+                direction
+            };
+            let second_sweep = [-primary_sweep[0], -primary_sweep[1], -primary_sweep[2]];
+            let swept_primary = measured_range.map(|(lo, hi)| {
+                if should_reverse_for_cut {
+                    (sketch_proj - hi, sketch_proj - lo)
+                } else {
+                    (lo - sketch_proj, hi - sketch_proj)
+                }
+            });
+            let swept_second = swept_primary.map(|(lo, hi)| (-hi, -lo));
+
             // Resolve primary depth from depth mode
             let primary_depth = resolve_depth(
                 &params.depth_mode,
                 params.depth,
                 sketch.plane_origin,
-                direction,
-                feature,
+                primary_sweep,
+                swept_primary,
                 feature_results,
                 tree,
-                already_consumed,
                 kb,
                 context,
             )?;
@@ -824,38 +918,30 @@ pub(crate) fn execute_feature(
             let second_depth = match &effective_second {
                 Some(SecondDirection::Symmetric) => Some(primary_depth),
                 Some(SecondDirection::Blind { depth: d }) => Some(*d),
-                Some(SecondDirection::ThroughAll) => {
-                    let neg_dir = [-direction[0], -direction[1], -direction[2]];
-                    Some(resolve_depth(
-                        &DepthMode::ThroughAll,
-                        params.depth,
-                        sketch.plane_origin,
-                        neg_dir,
-                        feature,
-                        feature_results,
-                        tree,
-                        already_consumed,
-                        kb,
-                        context,
-                    )?)
-                }
-                Some(SecondDirection::UpTo { reference }) => {
-                    let neg_dir = [-direction[0], -direction[1], -direction[2]];
-                    Some(resolve_depth(
-                        &DepthMode::UpTo {
-                            reference: reference.clone(),
-                        },
-                        params.depth,
-                        sketch.plane_origin,
-                        neg_dir,
-                        feature,
-                        feature_results,
-                        tree,
-                        already_consumed,
-                        kb,
-                        context,
-                    )?)
-                }
+                Some(SecondDirection::ThroughAll) => Some(resolve_depth(
+                    &DepthMode::ThroughAll,
+                    params.depth,
+                    sketch.plane_origin,
+                    second_sweep,
+                    swept_second,
+                    feature_results,
+                    tree,
+                    kb,
+                    context,
+                )?),
+                Some(SecondDirection::UpTo { reference }) => Some(resolve_depth(
+                    &DepthMode::UpTo {
+                        reference: reference.clone(),
+                    },
+                    params.depth,
+                    sketch.plane_origin,
+                    second_sweep,
+                    swept_second,
+                    feature_results,
+                    tree,
+                    kb,
+                    context,
+                )?),
                 None => None,
             };
 
@@ -870,58 +956,6 @@ pub(crate) fn execute_feature(
             // underlying coplanar boolean failures. Verified: BNC1-7, CPC1-4, CPB1-2,
             // CPE1-2, CPU1-2, all boolean_properties/workflows/recovery tests pass.
             let cut_eps = 0.0;
-            // For cuts: determine direction based on where the target body is
-            // relative to the sketch plane. Project all target body vertices
-            // onto the extrude axis to find the body's extent midpoint, then
-            // check which side of the sketch plane it falls on.
-            //
-            // Using vertex positions (not face centroids) gives the true
-            // geometric bounding box along the extrude axis, robust against
-            // asymmetric face counts or face centroid weighting.
-            let should_reverse_for_cut = if is_cut && params.direction.is_none() {
-                if let Some((_, target_handle)) = combine_targets.first() {
-                    let verts = kb.list_vertices(target_handle);
-                    let sketch_proj = sketch.plane_origin[0] * direction[0]
-                        + sketch.plane_origin[1] * direction[1]
-                        + sketch.plane_origin[2] * direction[2];
-                    let mut proj_min = f64::INFINITY;
-                    let mut proj_max = f64::NEG_INFINITY;
-                    for &vid in &verts {
-                        let sig = kb.compute_signature(vid, TopoKind::Vertex);
-                        if let Some(p) = sig.centroid {
-                            let proj =
-                                p[0] * direction[0] + p[1] * direction[1] + p[2] * direction[2];
-                            proj_min = proj_min.min(proj);
-                            proj_max = proj_max.max(proj);
-                        }
-                    }
-                    let decision = if proj_min.is_finite() && proj_max.is_finite() {
-                        let body_mid = (proj_min + proj_max) * 0.5;
-                        // Reverse only when body midpoint is behind sketch plane
-                        body_mid < sketch_proj
-                    } else {
-                        true // fallback: legacy reverse behavior
-                    };
-                    if std::env::var_os("FE_CUT_TRACE").is_some() {
-                        eprintln!(
-                            "[fe-cut] {}: target verts={} proj=[{proj_min:.6e}, {proj_max:.6e}] sketch_proj={sketch_proj:.6e} reverse={decision}",
-                            feature.name,
-                            verts.len()
-                        );
-                    }
-                    decision
-                } else {
-                    if std::env::var_os("FE_CUT_TRACE").is_some() {
-                        eprintln!(
-                            "[fe-cut] {}: NO combine target — legacy reverse",
-                            feature.name
-                        );
-                    }
-                    true // no target body: legacy reverse behavior
-                }
-            } else {
-                false // explicit direction or non-cut: never auto-reverse
-            };
             let (extrude_direction, extrude_depth, face_origin) = match (is_cut, second_depth) {
                 (true, Some(sd)) => {
                     if should_reverse_for_cut {
@@ -1063,7 +1097,7 @@ pub(crate) fn execute_feature(
             // targets. See specs/optional_booleans_multibody_extrude.md §4.
             let mut result =
                 dispatch_combine(kb, &eff, &combine_targets, extrude_result, "extrude")?;
-            carry_untargeted_siblings(&mut result, &eff, feature_results);
+            carry_untargeted_siblings(&mut result, feature, feature_results);
             result.diagnostics.warnings.extend(combine_warnings);
             Ok(result)
         }
@@ -1155,7 +1189,7 @@ pub(crate) fn execute_feature(
             };
             let mut result =
                 dispatch_combine(kb, &eff, &combine_targets, revolve_result, "revolve")?;
-            carry_untargeted_siblings(&mut result, &eff, feature_results);
+            carry_untargeted_siblings(&mut result, feature, feature_results);
             result.diagnostics.warnings.extend(combine_warnings);
             Ok(result)
         }
@@ -1216,7 +1250,7 @@ pub(crate) fn execute_feature(
                 )?,
             };
             let mut result = dispatch_combine(kb, &eff, &combine_targets, pipe_result, "pipe")?;
-            carry_untargeted_siblings(&mut result, &eff, feature_results);
+            carry_untargeted_siblings(&mut result, feature, feature_results);
             result.diagnostics.warnings.extend(combine_warnings);
             Ok(result)
         }
@@ -1251,7 +1285,7 @@ pub(crate) fn execute_feature(
                 )?,
             };
             let mut result = dispatch_combine(kb, &eff, &combine_targets, sweep_result, "sweep")?;
-            carry_untargeted_siblings(&mut result, &eff, feature_results);
+            carry_untargeted_siblings(&mut result, feature, feature_results);
             result.diagnostics.warnings.extend(combine_warnings);
             Ok(result)
         }
@@ -1324,7 +1358,11 @@ pub(crate) fn execute_feature(
                 BooleanOp::Intersect => BooleanKind::Intersect,
             };
 
-            let result = execute_boolean(kb, &handle_a, &handle_b, kind)?;
+            let mut result = execute_boolean(kb, &handle_a, &handle_b, kind)?;
+            // Custody: the op names ONE output per operand but consumes both
+            // operand features whole, so every other live body of either
+            // feature must be carried, not hidden (P0010/P0011).
+            carry_untargeted_siblings(&mut result, feature, feature_results);
             Ok(result)
         }
 
@@ -1383,13 +1421,31 @@ pub(crate) fn execute_feature(
     }
 }
 
+/// How far past the measured material a `ThroughAll` cutter runs, as a
+/// FRACTION of that material's own extent along the sweep axis.
+///
+/// The overshoot exists so the cutter's exit face is never coplanar with the
+/// body's far side. It must be relative: the engine's unit is the metre and a
+/// document may be authored at any scale, so an absolute margin is a hidden
+/// scale assumption. The previous absolute 1 m margin is exactly what assay
+/// **P0012** caught — the same model read CORRECT at ×1e-3 (where 1 m dwarfed
+/// the whole part) and silently cut NOTHING at ×1.
+const THROUGH_ALL_OVERSHOOT: f64 = 1e-2;
+
 /// Resolve depth based on the depth mode.
 ///
+/// Every mode is measured along `direction`, which is the direction this
+/// extrude ACTUALLY sweeps — the reversal a cut with no authored direction
+/// applies has already been folded in by the caller, and `swept` is the
+/// material's interval along that same direction, relative to the sketch
+/// plane. Measuring a depth along one direction and then sweeping along
+/// another is how a `ThroughAll` cut came to miss its body entirely (P0012).
+///
 /// - `Blind`: returns `blind_depth` directly
-/// - `ThroughAll`: projects target body vertices onto direction, returns max extent + margin
-/// - `UpTo`: resolves reference position and computes distance along direction
-// Eight inputs, one past clippy's default threshold. They are the independent
-// axes of a depth resolution (mode, magnitude, sketch frame, target geometry);
+/// - `ThroughAll`: the far end of `swept` plus a RELATIVE overshoot
+/// - `UpTo`: resolves the reference position and its distance along `direction`
+// Nine inputs, past clippy's default threshold. They are the independent axes
+// of a depth resolution (mode, magnitude, sketch frame, measured material);
 // bundling them into a struct would only move the argument list, not shorten it.
 #[allow(clippy::too_many_arguments)]
 fn resolve_depth(
@@ -1397,111 +1453,135 @@ fn resolve_depth(
     blind_depth: f64,
     sketch_origin: [f64; 3],
     direction: [f64; 3],
-    feature: &Feature,
+    swept: Option<(f64, f64)>,
     feature_results: &HashMap<Uuid, OpResult>,
     tree: &FeatureTree,
-    already_consumed: &std::collections::HashSet<Uuid>,
     kb: &mut dyn KernelBundle,
     context: Option<&EditContext>,
 ) -> Result<f64, EngineError> {
     match mode {
         DepthMode::Blind => Ok(blind_depth),
 
-        DepthMode::ThroughAll => {
-            // Find the target body to measure extent against
-            let target = find_most_recent_solid(feature, feature_results, tree, already_consumed);
-            match target {
-                Some(handle) => {
-                    let extent =
-                        compute_solid_extent(kb.as_introspect(), &handle, sketch_origin, direction);
-                    // Add margin and use safety floor
-                    let depth = extent + 1.0;
-                    Ok(depth.max(blind_depth.max(1.0)))
-                }
-                None => {
-                    // No target body — use blind depth as fallback with a generous default
-                    Ok(blind_depth.max(100.0))
-                }
-            }
-        }
+        // `swept` is the measured material's interval along the direction this
+        // extrude ACTUALLY sweeps, relative to the sketch plane
+        // (`swept_primary`, computed AFTER the cut reversal). Through-all is
+        // "past the far side of that material", plus a relative overshoot so
+        // the exit face is never coplanar with the far side.
+        DepthMode::ThroughAll => through_all_depth(swept, blind_depth),
 
         DepthMode::UpTo { reference } => {
             // Resolve the reference to a 3D position
             let ref_position =
                 resolve_reference_position(reference, feature_results, tree, kb, context)?;
-
-            // Project reference position and sketch origin onto direction
-            let dir_len = (direction[0] * direction[0]
-                + direction[1] * direction[1]
-                + direction[2] * direction[2])
-                .sqrt();
-            if dir_len < TAU_WORK {
-                return Err(EngineError::ResolutionFailed {
-                    reason: "Extrude direction is zero-length".into(),
-                });
-            }
-            let dir_norm = [
-                direction[0] / dir_len,
-                direction[1] / dir_len,
-                direction[2] / dir_len,
-            ];
-
-            let ref_proj = ref_position[0] * dir_norm[0]
-                + ref_position[1] * dir_norm[1]
-                + ref_position[2] * dir_norm[2];
-            let origin_proj = sketch_origin[0] * dir_norm[0]
-                + sketch_origin[1] * dir_norm[1]
-                + sketch_origin[2] * dir_norm[2];
-
-            let depth = ref_proj - origin_proj;
-            if depth <= 0.0 {
-                return Err(EngineError::ResolutionFailed {
-                    reason: format!(
-                        "UpTo reference is behind sketch plane (depth = {:.3})",
-                        depth
-                    ),
-                });
-            }
-            Ok(depth)
+            up_to_depth(sketch_origin, direction, ref_position)
         }
     }
 }
 
-/// Project all vertices of a solid onto a direction vector relative to an origin.
-/// Returns the maximum signed projection distance.
-fn compute_solid_extent(
-    introspect: &dyn waffle_types::kernel::KernelIntrospect,
-    solid: &waffle_types::kernel::KernelSolidHandle,
-    origin: [f64; 3],
-    direction: [f64; 3],
-) -> f64 {
-    let dir_len =
-        (direction[0] * direction[0] + direction[1] * direction[1] + direction[2] * direction[2])
-            .sqrt();
-    if dir_len < TAU_WORK {
-        return 0.0;
-    }
-    let dir_norm = [
-        direction[0] / dir_len,
-        direction[1] / dir_len,
-        direction[2] / dir_len,
-    ];
-
-    let vertices = introspect.list_vertices(solid);
-    let mut max_proj = 0.0f64;
-
-    for vid in &vertices {
-        let sig = introspect.compute_signature(*vid, TopoKind::Vertex);
-        if let Some(centroid) = sig.centroid {
-            let dx = centroid[0] - origin[0];
-            let dy = centroid[1] - origin[1];
-            let dz = centroid[2] - origin[2];
-            let proj = dx * dir_norm[0] + dy * dir_norm[1] + dz * dir_norm[2];
-            max_proj = max_proj.max(proj);
+/// `ThroughAll`: how far to sweep so the cutter clears the measured material.
+///
+/// `swept` is that material's interval along the direction the extrude
+/// ACTUALLY sweeps, relative to the sketch plane (see `resolve_depth`). Split
+/// out as a pure function so the arithmetic — which is what assay P0012 got
+/// wrong — is pinned directly.
+fn through_all_depth(swept: Option<(f64, f64)>, blind_depth: f64) -> Result<f64, EngineError> {
+    match swept {
+        Some((lo, hi)) => {
+            if hi <= 0.0 {
+                // Nothing lies ahead of the sketch plane along the sweep: no
+                // depth whatsoever reaches the body. Loud, never a cutter that
+                // silently misses (assay P0012).
+                return Err(EngineError::ResolutionFailed {
+                    reason: format!(
+                        "ThroughAll: the measured body lies entirely behind the sketch plane \
+                         along the sweep direction (its interval is [{lo:.6e}, {hi:.6e}] \
+                         relative to the plane) — flip the direction or use a blind depth"
+                    ),
+                });
+            }
+            // The overshoot is a FRACTION of the material's own extent along
+            // the sweep axis — never an absolute length.
+            let reach = (hi - lo).max(hi.abs());
+            Ok(hi + reach * THROUGH_ALL_OVERSHOOT)
+        }
+        None => {
+            // No measured body — nothing to go "through". Fall back to the
+            // authored depth, which is at least at the model's own scale; an
+            // absolute default is a hidden scale assumption.
+            if blind_depth > 0.0 {
+                Ok(blind_depth)
+            } else {
+                Err(EngineError::ResolutionFailed {
+                    reason: "ThroughAll: no body to measure and no positive depth authored".into(),
+                })
+            }
         }
     }
+}
 
-    max_proj
+/// `UpTo`: the distance from the sketch plane to `ref_position`, measured
+/// along `direction` — the direction the extrude ACTUALLY sweeps, so a
+/// reference the reversal put in front resolves instead of being refused.
+fn up_to_depth(
+    sketch_origin: [f64; 3],
+    direction: [f64; 3],
+    ref_position: [f64; 3],
+) -> Result<f64, EngineError> {
+    let Some(dir) = unit_or_none(direction) else {
+        return Err(EngineError::ResolutionFailed {
+            reason: "Extrude direction is zero-length".into(),
+        });
+    };
+    let ref_proj = ref_position[0] * dir[0] + ref_position[1] * dir[1] + ref_position[2] * dir[2];
+    let origin_proj =
+        sketch_origin[0] * dir[0] + sketch_origin[1] * dir[1] + sketch_origin[2] * dir[2];
+    let depth = ref_proj - origin_proj;
+    if depth <= 0.0 {
+        return Err(EngineError::ResolutionFailed {
+            reason: format!("UpTo reference is behind the sweep direction (depth = {depth:.3})"),
+        });
+    }
+    Ok(depth)
+}
+
+/// Unit-length `direction`, or `None` when it is degenerate.
+fn unit_or_none(direction: [f64; 3]) -> Option<[f64; 3]> {
+    let len =
+        (direction[0] * direction[0] + direction[1] * direction[1] + direction[2] * direction[2])
+            .sqrt();
+    (len >= TAU_WORK).then(|| [direction[0] / len, direction[1] / len, direction[2] / len])
+}
+
+/// The interval the given solids' vertices occupy along `direction`, as
+/// absolute projections (`v · d̂`), or `None` when nothing could be measured.
+///
+/// ONE measurement feeds BOTH gates that ask "where is the material this
+/// feature acts on, along the extrude axis?" — the cut-direction reversal and
+/// a `ThroughAll` depth (CLAUDE.md: fix all gates sharing a metric).
+/// It reads vertex positions, not face centroids, so it is the true extent
+/// along the axis regardless of face counts or centroid weighting. Note the
+/// FULL interval: the old `compute_solid_extent` returned the far end alone,
+/// clamped at `0.0`, which read "extent 0" for a body lying entirely behind
+/// the plane — indistinguishable from a body touching it (assay P0012).
+fn solids_projection_range(
+    introspect: &dyn waffle_types::kernel::KernelIntrospect,
+    solids: &[waffle_types::kernel::KernelSolidHandle],
+    direction: [f64; 3],
+) -> Option<(f64, f64)> {
+    let dir = unit_or_none(direction)?;
+    let mut lo = f64::INFINITY;
+    let mut hi = f64::NEG_INFINITY;
+    for solid in solids {
+        for vid in &introspect.list_vertices(solid) {
+            let sig = introspect.compute_signature(*vid, TopoKind::Vertex);
+            if let Some(c) = sig.centroid {
+                let proj = c[0] * dir[0] + c[1] * dir[1] + c[2] * dir[2];
+                lo = lo.min(proj);
+                hi = hi.max(proj);
+            }
+        }
+    }
+    (lo.is_finite() && hi.is_finite()).then_some((lo, hi))
 }
 
 /// Resolve a GeomRef to a 3D position for UpTo depth mode.
@@ -2229,34 +2309,11 @@ fn resolved_explicit_targets(
         .collect()
 }
 
-/// The first resolved explicit target (what an explicit combine's `Main`
-/// output descends from, for name inheritance — failure log F9b).
-pub(crate) fn first_resolved_explicit_target(
-    eff: &crate::types::EffectiveCombine,
-    feature_results: &HashMap<Uuid, OpResult>,
-) -> Option<(Uuid, OutputKey)> {
-    resolved_explicit_targets(eff, feature_results)
-        .into_iter()
-        .next()
-}
-
-/// The outputs an explicit combine carries unchanged, as `(feature_id,
-/// output_key)` in the order `carry_untargeted_siblings` appends them: for each
-/// targeted feature (first-target order), its Main/Body outputs that no resolved
-/// target names. The single source for both the carried bodies and their
-/// inherited names.
-pub(crate) fn untargeted_sibling_sources(
-    eff: &crate::types::EffectiveCombine,
-    feature_results: &HashMap<Uuid, OpResult>,
-) -> Vec<(Uuid, OutputKey)> {
-    untargeted_sibling_sources_named(
-        &resolved_explicit_targets(eff, feature_results),
-        feature_results,
-    )
-}
-
-/// [`untargeted_sibling_sources`] for an explicit list of the outputs a
-/// feature takes custody of (a pattern's seeds and targets).
+/// The outputs a name-based custody feature carries unchanged, as `(feature_id,
+/// output_key)` in the order [`carry_untargeted_named`] appends them: for each
+/// named feature (first-mention order), its Main/Body outputs that no named
+/// output claims. The single source for both the carried bodies and their
+/// inherited names (`Engine::inherit_source_body_id`).
 pub(crate) fn untargeted_sibling_sources_named(
     targeted: &[(Uuid, OutputKey)],
     feature_results: &HashMap<Uuid, OpResult>,
@@ -2305,30 +2362,84 @@ pub(crate) fn carry_untargeted_named(
     }
 }
 
-/// Explicit targets that name only SOME outputs of a multi-output feature consume
-/// that whole feature (consumption is tracked per feature), which silently
-/// dropped the untargeted outputs (docs/notes/agent_bicycle_session_failures_2026_09_14.md F9).
-/// Carry them unchanged as extra outputs of the consuming feature, with a
-/// warning — the custody rule the legacy most-recent path already follows.
-fn carry_untargeted_siblings(
+/// The outputs `feature` takes custody of **by name**, as `(feature_id,
+/// output_key)` — the operands/targets it names in its own params. `None` when
+/// the feature's custody is not name-based (a legacy most-recent combine takes
+/// ALL of its target feature's live bodies; a pattern builds its own list; a
+/// non-solid op names nothing).
+///
+/// Naming SOME outputs of a multi-output feature while consumption is tracked
+/// per FEATURE is the shape of the custody defect: the unnamed siblings are
+/// hidden with no boolean ever touching them. Every caller that consumes whole
+/// features off a named list must therefore carry those siblings
+/// ([`carry_untargeted_named`]) and let them inherit their names
+/// (`Engine::inherit_source_body_id`). One list, so the two can never disagree.
+pub(crate) fn named_custody_outputs(
+    feature: &Feature,
+    feature_results: &HashMap<Uuid, OpResult>,
+) -> Option<Vec<(Uuid, OutputKey)>> {
+    match &feature.operation {
+        Operation::Extrude { .. }
+        | Operation::Revolve { .. }
+        | Operation::Pipe { .. }
+        | Operation::Sweep { .. } => {
+            let eff = match &feature.operation {
+                Operation::Extrude { params } => crate::types::normalize_extrude_combine(params),
+                Operation::Revolve { params } => crate::types::normalize_revolve_combine(params),
+                Operation::Pipe { params } => crate::types::normalize_pipe_combine(params),
+                Operation::Sweep { params } => crate::types::normalize_sweep_combine(params),
+                _ => unreachable!("outer match restricts the operation"),
+            };
+            if matches!(eff.mode, crate::types::CombineMode::NewBody)
+                || !matches!(eff.targets, TargetStrategy::Explicit(_))
+            {
+                return None;
+            }
+            Some(resolved_explicit_targets(&eff, feature_results))
+        }
+        // A pair boolean names exactly one output per operand, yet consumes
+        // both operand FEATURES whole (`find_consumed_feature_ids`): every
+        // other live body of either feature is in its custody. P0010/P0011
+        // (2026-10-03) lost 64 % and 25 % of the model this way, silently.
+        Operation::BooleanCombine { params } => Some(
+            [&params.body_a, &params.body_b]
+                .into_iter()
+                .filter(|gr| find_solid_handle(gr, feature_results).is_ok())
+                .filter_map(|gr| match &gr.anchor {
+                    waffle_types::Anchor::FeatureOutput {
+                        feature_id,
+                        output_key,
+                    } => Some((*feature_id, output_key.clone())),
+                    _ => None,
+                })
+                .collect(),
+        ),
+        // `All` folds every live body of every live feature, so it names
+        // nothing it does not already hold; `Selected` names a body list.
+        Operation::UnionAll { params } => {
+            crate::union_all::named_custody_outputs(params, feature_results)
+        }
+        _ => None,
+    }
+}
+
+/// Carry the outputs a feature consumes but never names — the custody rule.
+///
+/// Consumption is tracked per FEATURE, so naming only SOME outputs of a
+/// multi-output feature consumed the whole feature and silently dropped the
+/// rest (docs/notes/agent_bicycle_session_failures_2026_09_14.md F9 for an
+/// explicit-target cut; P0010/P0011 for a `BooleanCombine`). Re-emit them
+/// unchanged as extra outputs of the consuming feature, with a warning — the
+/// custody rule the legacy most-recent path already follows.
+pub(crate) fn carry_untargeted_siblings(
     result: &mut OpResult,
-    eff: &crate::types::EffectiveCombine,
+    feature: &Feature,
     feature_results: &HashMap<Uuid, OpResult>,
 ) {
-    for (fid, key) in untargeted_sibling_sources(eff, feature_results) {
-        let Some(body) = feature_results
-            .get(&fid)
-            .and_then(|r| r.outputs.iter().find(|(k, _)| *k == key))
-            .map(|(_, b)| b.clone())
-        else {
-            continue;
-        };
-        let index = result.outputs.len();
-        result.outputs.push((OutputKey::Body { index }, body));
-        result.diagnostics.warnings.push(format!(
-            "output {key:?} of feature {fid} was not targeted; kept unchanged as a separate body"
-        ));
-    }
+    let Some(named) = named_custody_outputs(feature, feature_results) else {
+        return;
+    };
+    carry_untargeted_named(result, &named, feature_results);
 }
 
 /// The sketch `sketch_id` as it is NOW: projected points re-derived from
@@ -3171,6 +3282,90 @@ fn resolve_feature_refs(
                 ));
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod depth_mode_tests {
+    use super::*;
+
+    /// The P0012 shape, as arithmetic: a body lying ENTIRELY behind the sketch
+    /// plane, whose cut therefore sweeps the other way. Through-all must clear
+    /// the body at every authoring scale — the old `extent + 1.0` floored at an
+    /// absolute 1 m cleared it at ×1e-3 and missed it by 44 m at ×1e3.
+    #[test]
+    fn through_all_clears_a_body_behind_the_plane_at_every_scale() {
+        for scale in [1e-3, 1.0, 1e3] {
+            // Along the sketch normal the body sits at [-50 s, -5 s]; the cut
+            // reverses, so along the SWEEP it sits at [5 s, 50 s].
+            let swept = Some((5.0 * scale, 50.0 * scale));
+            let depth = through_all_depth(swept, scale).expect("a reachable body resolves");
+            assert!(
+                depth > 50.0 * scale,
+                "scale {scale}: depth {depth} must pass the body's far side at {}",
+                50.0 * scale
+            );
+            // The overshoot is RELATIVE: 1e-2 of the sweep's own reach
+            // (max(span, far) = 50 s here), so depth/scale is identical at
+            // every scale. An absolute margin could not be.
+            assert!(
+                (depth / scale - 50.5).abs() < 1e-9,
+                "scale {scale}: depth/scale {} is not the scale-invariant 50.5",
+                depth / scale
+            );
+        }
+    }
+
+    /// Measured along the UNREVERSED normal the same body is behind the plane
+    /// and NO depth reaches it. That is a loud stop, never a cutter that
+    /// silently removes nothing (P0012's silent wrong).
+    #[test]
+    fn through_all_refuses_a_body_it_cannot_reach() {
+        let err = through_all_depth(Some((-50.0, -5.0)), 1.0)
+            .expect_err("a body entirely behind the sweep has no through-all depth");
+        let text = format!("{err:?}");
+        assert!(
+            text.contains("ThroughAll") && text.contains("entirely behind"),
+            "expected a loud ThroughAll refusal, got {text}"
+        );
+    }
+
+    /// A body that straddles the plane is swept from the plane past its far
+    /// side only — through-all is one-directional, and the near side is not
+    /// counted into the depth.
+    #[test]
+    fn through_all_measures_the_far_side_not_the_span() {
+        let depth = through_all_depth(Some((-4.0, 6.0)), 0.0).unwrap();
+        assert!((depth - (6.0 + 10.0 * 1e-2)).abs() < 1e-12, "got {depth}");
+    }
+
+    /// Nothing to go through: the authored depth, which is at the model's own
+    /// scale — never an absolute 100 m default.
+    #[test]
+    fn through_all_without_a_body_falls_back_to_the_authored_depth() {
+        assert_eq!(through_all_depth(None, 7.5).unwrap(), 7.5);
+        assert!(through_all_depth(None, 0.0).is_err());
+    }
+
+    /// `UpTo` is measured along the direction the extrude actually sweeps, so
+    /// a reference BEHIND the sketch plane resolves for a cut the reversal
+    /// turned around (and is still refused when it is behind the sweep).
+    #[test]
+    fn up_to_is_measured_along_the_sweep() {
+        let origin = [0.0, 0.0, 10.0];
+        let reference = [0.0, 0.0, 2.0]; // behind the plane along +z
+        assert!(up_to_depth(origin, [0.0, 0.0, 1.0], reference).is_err());
+        let depth = up_to_depth(origin, [0.0, 0.0, -1.0], reference).unwrap();
+        assert!((depth - 8.0).abs() < 1e-12, "got {depth}");
+    }
+
+    /// A direction that cannot be normalized is refused, not silently treated
+    /// as +z.
+    #[test]
+    fn a_degenerate_direction_has_no_unit() {
+        assert!(unit_or_none([0.0, 0.0, 0.0]).is_none());
+        let u = unit_or_none([0.0, 0.0, -4.0]).unwrap();
+        assert_eq!(u, [0.0, 0.0, -1.0]);
     }
 }
 

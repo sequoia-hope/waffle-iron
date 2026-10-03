@@ -323,6 +323,7 @@ const ENGINE_QUERIES = new Set([
 	'expression_evaluate',
 	'export_step',
 	'export_stl',
+	'export_dxf',
 	'script_run_check',
 	'script_source_get',
 	'assembly_get',

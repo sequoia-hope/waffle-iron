@@ -75,6 +75,9 @@ TEST_HARNESS_FAST_BINS=(
   scenarios_advanced
   stl_tests
   assay_euler_consistency
+  # ThroughAll depth at ×1e-3 / ×1 / ×1e3 on kernel-v2 (assay P0012). Cheap
+  # enough for this tier: 0.47 s in DEBUG, measured 2026-10-03.
+  through_all_depth_kv2
 )
 
 # ---------------------------------------------------------------------------

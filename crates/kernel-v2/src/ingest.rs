@@ -71,7 +71,11 @@
 //! - A boundary vertex off its own face's surface by more than the import band
 //!   is [`KernelV2Error::AnalyticVertexOffSurface`] — the measurement of spec
 //!   §2.2 (residuals ~1e-13 against a 1e-9 band over 6.18 M incidences)
-//!   promoted from a probe to a production gate. Not a snap.
+//!   promoted from a probe to a production gate. Not a snap. Its CURVE half
+//!   is [`KernelV2Error::AnalyticCurveOffSurface`]: a circle or ellipse
+//!   bounding a PLANAR face states a centre the loop's vertices do not pin,
+//!   and a corpus file writes one 1.364e-9 m off its own face plane while
+//!   both endpoints sit on it to 1e-16.
 //! - Which loop of a face is its outer boundary is MEASURED, not read: STEP
 //!   marks it with a subtype and the reader loses the marker, so the
 //!   determination is the exact signed area about the face's outward normal
@@ -155,6 +159,19 @@ const INGEST_NORMAL_TOLERANCE: f64 = TAU_EVAL;
 /// actual residual and a trip is a finding about the file, not noise.
 fn on_surface_band(p: Point3) -> f64 {
     TAU_EVAL * (1.0 + p.x().abs().max(p.y().abs()).max(p.z().abs()))
+}
+
+/// [`on_surface_band`] for a claim about a whole CURVE rather than a point:
+/// the scale is the larger of the curve's radius and its centre's coordinate
+/// magnitude, because a circle of radius `R` about the origin has its points
+/// out at `R` whatever its centre reads.
+///
+/// Identical to `validate::import_band`, deliberately: this is the band of
+/// the strict-tier tripwire that the curve-centre gate promotes to production
+/// (`AnalyticCurveOffSurface`), and a production gate that refused what the
+/// strict validator accepts would be a new wall rather than a promotion.
+fn curve_band(radius: f64, p: Point3) -> f64 {
+    TAU_EVAL * (1.0 + radius.max(p.x().abs().max(p.y().abs()).max(p.z().abs())))
 }
 
 type V3 = [f64; 3];
@@ -263,17 +280,32 @@ impl FaceSurface {
     }
 
     /// Distance from `p` to this surface, the quantity the import-tier
-    /// on-surface gate bands. `None` when `p` is somewhere the surface has no
-    /// defined residual (behind a cone's apex).
-    fn residual(&self, p: Point3) -> Option<f64> {
+    /// on-surface gate bands. Defined everywhere: every surface in the
+    /// vocabulary is a closed set, so every point of space has a distance to
+    /// it, and the gate's verdict is a measurement in every case.
+    ///
+    /// The one place that was not always true is a cone's APEX PLANE. The
+    /// single-nappe residual `|ρ − τ·tan α|` needs `τ > 0`, and at `τ ≤ 0`
+    /// this used to return `None`, which the caller then reported as "vertex
+    /// off surface" — a refusal NAME that depends on which side of the apex
+    /// the exchange file's own rounding of the apex coordinate fell on. ABC
+    /// `00005451_…_step_005` face #227 is a conical patch whose boundary runs
+    /// THROUGH its apex, written at `τ = −9.8e-14`: the same geometry rounded
+    /// the other way passes this gate and walls one check later, by its
+    /// correct name (`validate_cone_face`'s "cone patch vertex lies on the
+    /// axis"). So at `τ ≤ 0` the residual is the distance to the APEX,
+    /// which is on the nappe — an UPPER bound on the true distance to it, so
+    /// the gate can only stay stricter here, never looser (the apex itself
+    /// measures 0, exactly as it should).
+    fn residual(&self, p: Point3) -> f64 {
         match *self {
-            FaceSurface::Plane { origin, normal } => Some(dot3(sub(p, origin), normal).abs()),
+            FaceSurface::Plane { origin, normal } => dot3(sub(p, origin), normal).abs(),
             FaceSurface::Cylinder {
                 axis_point,
                 axis_dir,
                 radius,
                 ..
-            } => Some((len3(radial(sub(p, axis_point), axis_dir)) - radius).abs()),
+            } => (len3(radial(sub(p, axis_point), axis_dir)) - radius).abs(),
             FaceSurface::Cone {
                 apex,
                 axis_dir,
@@ -283,9 +315,9 @@ impl FaceSurface {
                 let d = sub(p, apex);
                 let tau = dot3(d, axis_dir);
                 if !(tau.is_finite() && tau > 0.0) {
-                    return None;
+                    return len3(d);
                 }
-                Some((len3(radial(d, axis_dir)) - geom::cone_radius_at(tau, half_angle)).abs())
+                (len3(radial(d, axis_dir)) - geom::cone_radius_at(tau, half_angle)).abs()
             }
             FaceSurface::Torus {
                 center,
@@ -299,11 +331,9 @@ impl FaceSurface {
                 let d = sub(p, center);
                 let tau = dot3(d, axis_dir);
                 let rho = len3(radial(d, axis_dir));
-                Some(((rho - major).hypot(tau) - minor).abs())
+                ((rho - major).hypot(tau) - minor).abs()
             }
-            FaceSurface::Sphere { center, radius, .. } => {
-                Some((len3(sub(p, center)) - radius).abs())
-            }
+            FaceSurface::Sphere { center, radius, .. } => (len3(sub(p, center)) - radius).abs(),
         }
     }
 
@@ -1607,12 +1637,13 @@ pub fn ingest_analytic(
     //     exactness in. A trip is a measurement about the file — recorded by
     //     the probe, refused loudly, never snapped.
     //
-    //     This is one of the three PRODUCTION gates that between them bracket
+    //     This is one of the four PRODUCTION gates that between them bracket
     //     the file's on-curve claim too, which is what lets the debug-tier
     //     construction tripwire be banded by provenance rather than by curve
     //     form (spec `si5_geometry_provenance_tier.md` §4, where the bracket
-    //     is measured as a sweep): the other two are the rim-radius agreement
-    //     in `validate_cylinder_face`/`validate_cone_face` (1e-9 · r) and 1e's
+    //     is measured as a sweep): the others are the curve half below
+    //     (`AnalyticCurveOffSurface`), the rim-radius agreement in
+    //     `validate_cylinder_face`/`validate_cone_face` (1e-9 · r), and 1e's
     //     seam-anchor reconciliation, which refuses a rim whose anchor cannot
     //     be placed on its own circle.
     for plan in &plans {
@@ -1620,9 +1651,7 @@ pub fn ingest_analytic(
         for &v in &plan.cycle {
             let p = vpos[v as usize];
             let band = on_surface_band(p);
-            let Some(d) = surfs[fi].residual(p) else {
-                return Err(KernelV2Error::AnalyticVertexOffSurface { face: fi });
-            };
+            let d = surfs[fi].residual(p);
             if d > band {
                 if probe {
                     eprintln!(
@@ -1634,6 +1663,52 @@ pub fn ingest_analytic(
                     );
                 }
                 return Err(KernelV2Error::AnalyticVertexOffSurface { face: fi });
+            }
+        }
+        // The CURVE half of the same gate, for a PLANAR face: a circle or
+        // ellipse bounding a plane claims its whole point set lies in that
+        // plane, and its centre is the one point of the curve the file states
+        // independently of the loop's vertices — so the vertex sweep above
+        // does not cover it (`AnalyticCurveOffSurface`: measured at 1.364e-9 m
+        // on a corpus file whose endpoints are exact to 1e-16). The curve's
+        // AXIS being parallel to the face normal is already a production rule
+        // in `validate::faces::validate_planar_face`; centre-on-plane was
+        // only ever a strict-tier tripwire, which compiles out of a release
+        // build — the verdict now holds in every configuration.
+        let FaceSurface::Plane { origin, normal } = surfs[fi] else {
+            continue;
+        };
+        for c in &plan.curves {
+            // `HyperbolaArc` and `SurfacePair` are boolean-output curve forms
+            // with no member of the `AnalyticCurve` vocabulary that produces
+            // them, so no ingested plan can carry one — the strict tier bands
+            // the hyperbola's centre the same way for solids that do.
+            let (center, scale) = match *c {
+                Curve::Circle { center, radius, .. } | Curve::Arc { center, radius, .. } => {
+                    (center, radius)
+                }
+                Curve::EllipseArc {
+                    center,
+                    major_radius,
+                    ..
+                } => (center, major_radius),
+                Curve::LineSegment | Curve::HyperbolaArc { .. } | Curve::SurfacePair { .. } => {
+                    continue
+                }
+            };
+            let band = curve_band(scale, center);
+            let d = dot3(sub(center, origin), normal).abs();
+            if d > band {
+                if probe {
+                    eprintln!(
+                        "[ingest-probe] face {fi} curve centre off the face plane: \
+                         c=({:.17e},{:.17e},{:.17e}) d={d:.3e} band={band:.3e}",
+                        center.x(),
+                        center.y(),
+                        center.z()
+                    );
+                }
+                return Err(KernelV2Error::AnalyticCurveOffSurface { face: fi });
             }
         }
     }

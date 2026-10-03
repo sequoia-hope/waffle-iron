@@ -405,9 +405,11 @@ impl Engine {
     /// The body one output of `feature` inherits its custom name from, as
     /// `(source_feature_id, source_body_id)`.
     ///
-    /// For an explicit-target combine: siblings it carries unchanged (its
+    /// For a feature whose custody is name-based (an explicit-target combine, a
+    /// `BooleanCombine`, a `Selected` `UnionAll` —
+    /// `rebuild::named_custody_outputs`): siblings it carries unchanged (its
     /// trailing outputs, `rebuild::untargeted_sibling_sources`) inherit from the
-    /// body they carry, and `Main` from the first resolved target's OWN output —
+    /// body they carry, and `Main` from the first named output's OWN output —
     /// not that feature's `Main`, which gave the result of cutting a down tube
     /// the top tube's name (docs/notes/agent_bicycle_session_failures_2026_09_14.md F9b).
     /// Otherwise only `Main` inherits, from `consume_target_body_id`.
@@ -417,18 +419,7 @@ impl Engine {
         result: &OpResult,
         key: &OutputKey,
     ) -> Option<(Uuid, String)> {
-        let explicit = match &feature.operation {
-            Operation::Extrude { params } => Some(types::normalize_extrude_combine(params)),
-            Operation::Revolve { params } => Some(types::normalize_revolve_combine(params)),
-            Operation::Pipe { params } => Some(types::normalize_pipe_combine(params)),
-            Operation::Sweep { params } => Some(types::normalize_sweep_combine(params)),
-            _ => None,
-        }
-        .filter(|eff| {
-            !matches!(eff.mode, types::CombineMode::NewBody)
-                && matches!(eff.targets, types::TargetStrategy::Explicit(_))
-        });
-        let Some(eff) = explicit else {
+        let Some(named) = rebuild::named_custody_outputs(feature, &self.feature_results) else {
             return if *key == OutputKey::Main {
                 self.consume_target_body_id(feature)
             } else {
@@ -436,7 +427,7 @@ impl Engine {
             };
         };
 
-        let siblings = rebuild::untargeted_sibling_sources(&eff, &self.feature_results);
+        let siblings = rebuild::untargeted_sibling_sources_named(&named, &self.feature_results);
         let n = result.outputs.len();
         if let Some(pos) = result.outputs.iter().position(|(k, _)| k == key) {
             let first_carried = n.saturating_sub(siblings.len());
@@ -446,8 +437,9 @@ impl Engine {
             }
         }
         if *key == OutputKey::Main {
-            return rebuild::first_resolved_explicit_target(&eff, &self.feature_results)
-                .map(|(fid, target_key)| (fid, FeatureTree::body_id(fid, &target_key)));
+            return named
+                .first()
+                .map(|(fid, target_key)| (*fid, FeatureTree::body_id(*fid, target_key)));
         }
         None
     }

@@ -1,0 +1,52 @@
+{
+  "id": "P0015",
+  "description": "3 ops, scale=1.22e0, extrude(polygon,boss)+extrude(gear,boss)+revolve(polygon,cut) — prospector seed 2 index 54 minimized 2026-10-03 (3 ops, profiles simplified, 16 verdicts): a square boss, a 27-tooth gear boss, then a pentagon REVOLVE-CUT. boolean_subtract BooleanFailed(\"yang-rs: Stage-4 relocation region around vertex 85 is invalid: RelocationCrossedCarrierVertex\") — the R0085 family, which has no corpus customer left. Three of the 21 seed-2 ERROR rows carry this text; the third (index 169, minimum convex4:boss nonconvex9:rev circle:boss) reaches it through the AUTO-UNION path and is recorded in docs/yang_tail_triage.md rather than promoted. Smallest authored length 6.48e-4 = 648x MIN_FEATURE_SIZE; ERROR at both x1e-3 and x1e3. ERROR-class pin, derived_meta: expectations unadjudicated until conversion.",
+  "master_seed": 0,
+  "test_seed": 0,
+  "scale": 1.216799685597012,
+  "log_scale": 0.08521908882970497,
+  "plane_origin": [
+    0.0,
+    0.0,
+    0.0
+  ],
+  "plane_normal": [
+    1.0,
+    0.0,
+    0.0
+  ],
+  "operations": [
+    {
+      "kind": "extrude",
+      "profile_type": "unknown",
+      "profile_size": 0.0,
+      "depth_or_angle": 0.9,
+      "is_cut": false
+    },
+    {
+      "kind": "extrude",
+      "profile_type": "unknown",
+      "profile_size": 0.0,
+      "depth_or_angle": 0.53,
+      "is_cut": false
+    },
+    {
+      "kind": "revolve",
+      "profile_type": "unknown",
+      "profile_size": 0.0,
+      "depth_or_angle": 166.0,
+      "is_cut": true
+    }
+  ],
+  "oracles": {
+    "euler_target": 2,
+    "expect_watertight": true,
+    "max_bbox_extent": 121.6799685597012,
+    "expect_positive_volume": true,
+    "volume_monotonicity": [],
+    "expect_rebuild_error": false,
+    "derived_meta": true
+  },
+  "generator_version": 100,
+  "featured": true
+}

@@ -1,0 +1,52 @@
+{
+  "id": "P0018",
+  "description": "3 ops, scale=3.70e2, extrude(circle,boss)+extrude(circle,symmetric)+extrude(polygon,cut) — prospector seed 2 index 76 minimized 2026-10-03 (7 ops -> 3, 24 verdicts): a circle boss, a SYMMETRIC circle boss, then a 7-vertex non-convex polygon cut. boolean_subtract CurvedGeometryMismatch { face: FaceId(51), reason: \"bounded cylinder patch must have exactly one material-CCW loop\" } — the cylinder arm of the same kernel-v2 curved-patch postcondition P0017 trips on a cone. Smallest authored length 89.0 = 8.9e7 x MIN_FEATURE_SIZE; ERROR at both x1e-3 and x1e3. ERROR-class pin, derived_meta: expectations unadjudicated until conversion.",
+  "master_seed": 0,
+  "test_seed": 0,
+  "scale": 370.0,
+  "log_scale": 2.568201724066995,
+  "plane_origin": [
+    0.0,
+    0.0,
+    0.0
+  ],
+  "plane_normal": [
+    0.0,
+    0.0,
+    1.0
+  ],
+  "operations": [
+    {
+      "kind": "extrude",
+      "profile_type": "unknown",
+      "profile_size": 0.0,
+      "depth_or_angle": 200.0,
+      "is_cut": false
+    },
+    {
+      "kind": "extrude",
+      "profile_type": "unknown",
+      "profile_size": 0.0,
+      "depth_or_angle": 125.0,
+      "is_cut": false
+    },
+    {
+      "kind": "extrude",
+      "profile_type": "unknown",
+      "profile_size": 0.0,
+      "depth_or_angle": 370.0,
+      "is_cut": true
+    }
+  ],
+  "oracles": {
+    "euler_target": 2,
+    "expect_watertight": true,
+    "max_bbox_extent": 37000.0,
+    "expect_positive_volume": true,
+    "volume_monotonicity": [],
+    "expect_rebuild_error": false,
+    "derived_meta": true
+  },
+  "generator_version": 100,
+  "featured": true
+}

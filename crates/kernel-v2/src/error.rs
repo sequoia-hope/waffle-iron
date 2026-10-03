@@ -403,6 +403,27 @@ pub enum KernelV2Error {
     /// is already closed to better than this.
     AnalyticVertexOffSurface { face: usize },
 
+    /// The CENTRE of a circle or ellipse bounding an imported analytic PLANAR
+    /// face lies further off that face's own plane than the import band —
+    /// the curve half of the on-surface gate, of which
+    /// [`KernelV2Error::AnalyticVertexOffSurface`] is the vertex half.
+    /// `face` indexes the shell's face table; `KV2_INGEST_PROBE` dumps the
+    /// residual and the band.
+    ///
+    /// A loop vertex and its curve are two separate claims the file makes, and
+    /// passing the vertex gate says nothing about the curve: ABC
+    /// `00009298_f8dbe7d6802d4f918bc23332_step_002` writes an arc whose two
+    /// endpoints are on the face plane to 1e-16 and whose `CIRCLE` centre is
+    /// **1.364e-9 m off it** (the centre's x is written at 12 significant
+    /// digits where the rest of the file carries 15). Until this gate existed
+    /// that claim was only checked by the strict-tier tripwire in
+    /// [`crate::validate`], which compiles out of a release build without
+    /// `strict-validation` — so the shipping app ingested the face as *exact*
+    /// while the test tier refused the same file, and an arc centre a full
+    /// MICRON off its plane was accepted (measured 2026-10-03). A production
+    /// gate here makes the verdict the same in every build.
+    AnalyticCurveOffSurface { face: usize },
+
     // ----- render tessellation (PR-KV3, `tessellate`) ----------------------
     /// Planar-face tessellation failed: the exact ear-clipping pass could
     /// not find a valid hole bridge or a clippable ear. Unreachable for the
@@ -500,6 +521,28 @@ pub enum KernelV2Error {
     /// `along` direction. The payload names the condition. A REQUEST
     /// error, not a geometry one: nothing about the model is wrong.
     MeasureInvalidRequest { reason: &'static str },
+
+    // ----- persistent identity (`crate::pid`, D0) -------------------------
+    /// A face of the solid whose persistent ids were requested carries no
+    /// stamped `Pid`, so there is nothing to seed its edges and vertices
+    /// from. Produced only by a raw Euler-operator arena that never reached
+    /// a constructor's `finalize_solid` (every public constructor stamps).
+    PidMissing { face: FaceId },
+
+    /// Two edges (or two vertices) of one solid agree on BOTH their content
+    /// key — the adjacent faces' lineage roots, respectively the incident
+    /// edge pids — and the geometric key that breaks that tie. Their
+    /// persistent names cannot be told apart, so the kernel refuses instead
+    /// of picking one (P9/P10): a silent choice would rebind an annotation
+    /// to the wrong edge on the next rebuild. `kind` is `"edge"` or
+    /// `"vertex"`.
+    PidAmbiguous { kind: &'static str },
+
+    /// Two DISTINCT content keys hashed to the same 64-bit persistent id.
+    /// Astronomically unlikely and never repaired by re-salting (a salt that
+    /// depends on the colliding set is not stable across edits, which is the
+    /// one property these ids exist for). `kind` is `"edge"` or `"vertex"`.
+    PidCollision { kind: &'static str },
 }
 
 impl core::fmt::Display for KernelV2Error {

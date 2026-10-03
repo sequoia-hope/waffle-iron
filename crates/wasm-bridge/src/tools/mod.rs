@@ -54,6 +54,7 @@ pub const MIGRATED: &[&str] = &[
     "expression_evaluate",
     "export_step",
     "export_stl",
+    "export_dxf",
     "feature_add",
     "feature_edit",
     "feature_delete",
@@ -219,6 +220,7 @@ pub fn execute_tool(
     // `structuredContent` alone can carry.
     let outcome = match name {
         "export_step" => export::export_step(state, kb, arguments),
+        "export_dxf" => export::export_dxf(state, kb, arguments),
         "export_stl" => export::export_stl(state, kb, arguments),
         _ => run(state, kb, name, arguments, context).map(ToolResult::ok),
     };

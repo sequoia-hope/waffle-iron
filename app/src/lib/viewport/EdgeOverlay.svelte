@@ -23,6 +23,7 @@
 	import { getColorVersion } from '$lib/ui/settings.svelte.js';
 	import { worldPerPixel, faceOccludes, OCCLUSION_DEPTH_EPS_PX } from './picking.js';
 	import { placementProps } from './placement.js';
+	import { edgeViewportHeight, withEdgeDepthBias } from './edgeDepthBias.js';
 
 	const { renderer } = useThrelte();
 
@@ -57,52 +58,9 @@
 		depthTest: true
 	};
 
-	// Edges lie exactly ON the faces they bound, so an unbiased depth test is a
-	// coin flip per pixel: the line and the triangle interpolate depth
-	// differently, and the edge renders as a dashed line that alternates with the
-	// solid. `polygonOffset` cannot fix it — WebGL applies polygon offset to
-	// filled triangles only, never to GL_LINES. Instead each edge vertex is
-	// pulled toward the camera ALONG ITS VIEW RAY (so its screen position is
-	// unchanged) by a screen-constant EDGE_DEPTH_BIAS_PX. Edges on visible faces
-	// then always win; edges genuinely behind the part are hidden by far more
-	// than a couple of pixels and stay hidden.
-	const EDGE_DEPTH_BIAS_PX = 2;
-	// CSS-pixel height of the canvas, shared by every edge material's shader and
-	// refreshed each frame (the bias is measured in screen pixels).
-	const viewportHeightUniform = { value: 1 };
-
-	/** @param {THREE.LineBasicMaterial} mat */
-	function withEdgeDepthBias(mat) {
-		mat.onBeforeCompile = (shader) => {
-			shader.uniforms.edgeViewportHeight = viewportHeightUniform;
-			shader.vertexShader = shader.vertexShader
-				.replace('void main() {', 'uniform float edgeViewportHeight;\nvoid main() {')
-				.replace(
-					'#include <project_vertex>',
-					`#include <project_vertex>
-					{
-						// World units per pixel at this vertex's depth.
-						float edgeWpp = 2.0 / ( projectionMatrix[ 1 ][ 1 ] * edgeViewportHeight );
-						vec4 edgeMv = mvPosition;
-						// Orthographic iff the projection has no perspective divide
-						// (the built-in isOrthographic uniform is not uploaded for
-						// LineBasicMaterial, so it cannot be trusted here).
-						if ( projectionMatrix[ 3 ][ 3 ] == 1.0 ) {
-							edgeMv.z += ${EDGE_DEPTH_BIAS_PX.toFixed(1)} * edgeWpp;
-						} else {
-							float edgeDist = -mvPosition.z;
-							float edgePull = min( ${EDGE_DEPTH_BIAS_PX.toFixed(1)} * edgeWpp * edgeDist, 0.5 * edgeDist );
-							edgeMv.xyz += normalize( -mvPosition.xyz ) * edgePull;
-						}
-						// mvPosition itself is left untouched so section clipping
-						// (vClipPosition) still cuts at the true edge position.
-						gl_Position = projectionMatrix * edgeMv;
-					}`
-				);
-		};
-		mat.customProgramCacheKey = () => 'waffle-edge-depth-bias';
-		return mat;
-	}
+	// `edgeDepthBias.js` holds the depth bias and the shader patch: the offscreen agent
+	// capture renders at a size the canvas does not have and must set the same
+	// uniform for its pass (specs/agent_mechanical_design.md §9.2).
 
 	// Shared material for edge data that carries no per-edge ranges. Its color is
 	// kept on the theme by the $effect below (it is mutated, not rebuilt, because
@@ -332,7 +290,7 @@
 	// Keep the depth-bias pixel scale in step with the canvas size.
 	useTask(() => {
 		const h = renderer?.domElement?.clientHeight;
-		if (h) viewportHeightUniform.value = h;
+		if (h) edgeViewportHeight.value = h;
 	});
 
 	// Derive edge geometries from mesh state

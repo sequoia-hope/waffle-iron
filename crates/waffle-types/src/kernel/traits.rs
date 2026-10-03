@@ -456,4 +456,36 @@ pub trait KernelIntrospect {
     fn face_provenance(&self, _face: KernelId) -> Option<FaceProvenance> {
         None
     }
+
+    /// Persistent identity of ANY entity — face, edge or vertex (drawings
+    /// spec D0, `specs/drawings_and_mbd.md` §4 item 4). The door
+    /// `crate::Selector::Pid` resolves through, and the one a drawing
+    /// annotation or an `UpTo` termination stores.
+    ///
+    /// `None` when the kernel does not track persistent identity for that
+    /// entity kind, **and** when it cannot derive one for this particular
+    /// entity: a kernel REFUSES rather than inventing an id, because a made
+    /// up identity is exactly how an annotation silently rebinds to the
+    /// wrong edge. The default is `None`, so this is additive for every
+    /// implementor.
+    fn entity_pid(&self, _entity: KernelId, _kind: TopoKind) -> Option<EntityPid> {
+        None
+    }
+
+    /// Every entity of `kind` in `solid` with its persistent identity — the
+    /// bulk form of [`Self::entity_pid`], and the form a resolver should use
+    /// (deriving edge and vertex ids is a whole-body computation, so asking
+    /// per entity is quadratic).
+    ///
+    /// Empty when the kernel tracks no persistent identity, and empty — not
+    /// partial — when it cannot derive the solid's ids at all. A caller must
+    /// treat an empty answer as "no identity available here", never as "the
+    /// entity is gone".
+    fn all_entity_pids(
+        &self,
+        _solid: &KernelSolidHandle,
+        _kind: TopoKind,
+    ) -> Vec<(KernelId, EntityPid)> {
+        Vec::new()
+    }
 }

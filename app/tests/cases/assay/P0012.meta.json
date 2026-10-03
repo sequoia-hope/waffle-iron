@@ -1,0 +1,52 @@
+{
+  "id": "P0012",
+  "description": "3 ops, scale=5.30e1, extrude(polygon,boss)+extrude(polygon,boss)+extrude(polygon,through-all cut) — prospector seed 2 index 129 minimized 2026-10-03 (7 ops -> 3, 23 verdicts). A 2x2 box boss at the origin (16), a 42.4-side box boss at [10,20,30] depth 40 (72000, disjoint from the first), then a ThroughAll CUT with a 69-side square on a plane at [25,49,53] normal [0.67,0.72,-0.16]. SILENT WRONG: the result is 72016 = 72000 + 16 exactly — the cut removes NOTHING — while the exact-membership lattice says the cutter sweeps 9870 (13.7 %) out of the big box (62146, rel +1.588e-1). CONFIRMED BY CODE READING, not inference: the target's projections on the cut normal are [-11.74, 38.04] and the sketch plane sits at 43.71, so the body lies ENTIRELY behind the plane; feature-engine's resolve_depth(DepthMode::ThroughAll) (crates/feature-engine/src/rebuild.rs:1410) measures compute_solid_extent along the UNREVERSED sketch normal, gets ~0, and returns extent + 1.0 floored at an ABSOLUTE 1.0 m, and only afterwards does should_reverse_for_cut (same file, ~line 881) flip the sweep to -n. The 1 m cutter then spans projection [42.71, 43.71] and never reaches 38.04. Scale behaviour matches exactly: x1e3 keeps the WRONG (rel +1.280e-1), x1e-3 reads CORRECT because the absolute 1 m margin then dwarfs the model. Smallest authored length 2.0 = 2e6 x MIN_FEATURE_SIZE. SUPPORTED_WRONG-class pin, derived_meta; the conversion adjudicates chi and volume and moves the pin.",
+  "master_seed": 0,
+  "test_seed": 0,
+  "scale": 53.0,
+  "log_scale": 1.7242758696007892,
+  "plane_origin": [
+    0.0,
+    0.0,
+    0.0
+  ],
+  "plane_normal": [
+    0.0,
+    1.0,
+    0.0
+  ],
+  "operations": [
+    {
+      "kind": "extrude",
+      "profile_type": "unknown",
+      "profile_size": 0.0,
+      "depth_or_angle": 2.0,
+      "is_cut": false
+    },
+    {
+      "kind": "extrude",
+      "profile_type": "unknown",
+      "profile_size": 0.0,
+      "depth_or_angle": 40.0,
+      "is_cut": false
+    },
+    {
+      "kind": "extrude",
+      "profile_type": "unknown",
+      "profile_size": 0.0,
+      "depth_or_angle": 1.0,
+      "is_cut": true
+    }
+  ],
+  "oracles": {
+    "euler_target": 2,
+    "expect_watertight": true,
+    "max_bbox_extent": 5300.0,
+    "expect_positive_volume": true,
+    "volume_monotonicity": [],
+    "expect_rebuild_error": false,
+    "derived_meta": true
+  },
+  "generator_version": 100,
+  "featured": true
+}

@@ -43,6 +43,399 @@ after the reconciliation run (release, 8 jobs, 360 s; wall 577 s, F0085
 regression since 2026-08-01 is outstanding (checked over every commit of
 `results.json`).
 
+## 2026-10-03 (later) — P0012 CONVERTED: a `ThroughAll` depth was measured along the UNREVERSED sketch normal and padded by an ABSOLUTE 1 m, so a cut whose body lay behind its plane swept a 1 m cutter into empty space; the depth is now measured along the direction the extrude ACTUALLY sweeps, with a RELATIVE overshoot — **corpus not re-measured this session** (178 ThroughAll / direction-less-cut cases re-judged singly: 2 moves, both conversions, 0 regressions)
+
+**Anchor (written before any code changed).** `ASSAY_CASE=P0012 … single_case
+--release`, verbatim:
+
+```
+[fe-cut] Extrude: target verts=8 proj=[-1.174176e1, 3.803527e1] sketch_proj=4.370543e1 reverse=true
+P0012: SUPPORTED_WRONG (0.4s) — exact_volume: kernel 7.201600e4 vs exact 6.214623e4 (rel +1.588e-1 outside band 3.979e-2)
+```
+
+The mechanism is the one the seed-2 adjudication read off the code, confirmed
+here at the call site:
+
+1. `resolve_depth(DepthMode::ThroughAll, …)` measured `compute_solid_extent`
+   along the **unreversed** sketch normal. That function returned the far end
+   of the body's projection **clamped at `0.0`**, so a body lying entirely
+   behind the plane and a body touching it both read "extent 0" — the
+   information the depth needed had been thrown away before the depth was
+   computed.
+2. The depth was then `extent + 1.0`, floored at `max(blind, 1.0)` — an
+   **absolute 1 m** in a kernel whose unit is the metre.
+3. `should_reverse_for_cut` ran AFTERWARDS and flipped the sweep to `−n̂`. The
+   1 m cutter spanned projection [42.71, 43.71]; the body's far side is at
+   38.04. It removed nothing, watertight, no error, no warning.
+
+**A second defect found at the anchor: the "exact" 62 146 was wrong too.** The
+oracle (`exact_membership`) mirrored the engine's formula but measured the
+exact chain's **bounding box** instead of its vertices, so its
+`extent_past_plane` read 14.5 where the engine read 0, its cutter was 15.5
+long instead of 1.0, and it clipped a 9 870 slab off the box. Both sides were
+wrong; the case surfaced because they were wrong by different amounts. The
+true swept volume, computed independently of both (pure-Python slice
+integration of the two convex prisms at 4e3 / 2e4 / 1e5 slices, converged to
+70 276.3477): the cutter removes **70 276.35 — 97.6 % of the big box**, leaving
+1 723.65 + the untouched 16. So neither the ledger's 13.7 % nor the kernel's
+0 % was the answer.
+
+**Fix (structural, one metric).** `solids_projection_range` measures the FULL
+interval the material occupies along the extrude axis — on the feature's
+PRIMARY target (its first combine target; the most recent solid when it has
+none) — and feeds BOTH gates that ask that question:
+
+- the cut-direction reversal (unchanged rule, unchanged body: reverse when the
+  primary target's mid-extent lies behind the plane) is decided FIRST, and
+- `ThroughAll` / `UpTo` are then resolved along the direction the extrude
+  ACTUALLY sweeps (`swept_primary` / `swept_second`, the interval re-expressed
+  in the sweep frame), never along the authored normal.
+- The through-all overshoot is `THROUGH_ALL_OVERSHOOT = 1e-2` of the
+  material's own reach along that axis. No absolute margin anywhere: the old
+  `+1.0` and the no-target `max(blind, 100.0)` are both gone (no target body
+  now falls back to the authored depth, which is at least at the model's
+  scale, and refuses when that is non-positive).
+- A `ThroughAll` whose material lies entirely behind the sweep is a LOUD
+  `ResolutionFailed` ("…entirely behind the sketch plane along the sweep
+  direction…"), not a cutter that silently misses — P10.
+
+The oracle was corrected in the same commit and the same way (it still reads
+the bbox, but a bbox depth is now an OUTER bound of the vertex depth, and both
+clear the body entirely, so the swept volumes agree by construction).
+
+**One gate was NOT widened, because the corpus refused it.** Measuring the
+UNION of a multi-target cut's bodies — the cutter does have to clear every
+target it acts on — was implemented first, and it flipped **R0091**
+(`revolve(circle) + box boss + circle cut`, a disjoint revolve sausage
+standing beside the box) from `SUPPORTED_CORRECT` to
+`CurvedGeometryMismatch { face: FaceId(16), reason: "bounded cylinder patch
+must have exactly one material-CCW loop" }`: with DISJOINT targets the union's
+mid-extent belongs to neither body, so the cut aimed between them. Reverted to
+the primary target, R0091 reads `SUPPORTED_CORRECT (1.4s) — all checks passed`
+again and P0012's own numbers are unchanged (its first target is the big box,
+which dominates both readings). **Open, ledgered, not fixed here:** a
+multi-target `ThroughAll` cut is measured on its primary target only, so its
+cutter may stop short of a second, farther target — a silent partial cut with
+no corpus customer today. Fixing it needs a per-target depth (one cutter per
+target) or a loud refusal, not a longer shared cutter.
+
+**After:**
+
+```
+[fe-cut] Extrude: targets=2 proj=[-1.174176e1, 3.803527e1] sketch_proj=4.370543e1 reverse=true
+P0012: SUPPORTED_CORRECT (0.4s) — all checks passed
+```
+
+with the kernel's live volume `1.739652e3` against the independent
+`1739.6523` — six digits, from a model of the geometry that shares no code
+with either side.
+
+**The reversal rule was NOT changed, and here is why** (the ledger asked
+whether the bbox mid-extent proxy is wrong in general). With the depth fixed,
+the mid-extent rule can no longer produce a no-op: `mid < plane` implies
+material behind, `mid ≥ plane` implies material ahead, and the depth now
+clears whichever side was chosen. The alternative rule — "follow the authored
+normal unless it provably removes nothing" — is arguably better CAD (it is
+what would fix the documented ring trap, `memory`
+`session_2026_09_30c_pendant_faithful_rebuild`: a blind cut from inside a bore
+outward reverses on the ring's centre and removes nothing), but it is a
+*one-sided* predicate, and the harness oracle measures a BOUNDING BOX: its
+`hi` exceeds the body's true `hi` on every tilted plane, so engine and oracle
+would disagree on the reversal itself (on P0012's own geometry the bbox says
+"material ahead", the vertices say "none") and the corpus would fill with
+spurious WRONGs. Changing that rule therefore needs an exact support function
+in the oracle first — a separate, ledgered piece of work, not a side effect of
+this conversion. The blind-cut ring trap stands until then.
+
+**Pins.** `crates/test-harness/tests/through_all_depth_kv2.rs` (kernel-v2, at
+×1e-3 / ×1 / ×1e3 each — RED on the pre-fix engine, verified by reverting
+`rebuild.rs` and re-running):
+
+| pin | pre-fix reading | post-fix |
+|---|---|---|
+| `through_all_cut_reaches_a_body_entirely_behind_its_sketch_plane` | left `1.000000e3` of 1000 s³ — removed NOTHING (P0012's own shape) | 640 s³ |
+| `through_all_cut_from_the_top_face_pierces_the_body` | left `9.640000e2` at ×1 — the everyday top-face hole was cut **1 m deep**, not through | 640 s³ |
+| `through_all_boss_overshoots_by_a_relative_margin` | column ended at `1009.9999904632568 s` at ×1e-3 (the absolute 1 m) | the scale-invariant 10.15 s |
+
+plus `feature-engine` unit pins on the extracted arithmetic
+(`depth_mode_tests`: scale invariance, the loud refusal, far-side-not-span,
+the authored-depth fallback, `UpTo` along the sweep) and
+`through_all_aimed_away_from_the_body_is_loud` in `engine_tests.rs`.
+
+**Moves.** All 178 corpus cases whose document carries a `ThroughAll` depth or
+a cut with no explicit direction were re-judged singly (release, `single_case`,
+900 s budget, 6 at a time; the whole sweep was run twice — once on the union
+measurement, which is how R0091 was caught, and once on the landed fix)
+against the committed `results.json`: of the 169 cases the baseline covers,
+**169 unchanged and 0 regressions**; of the 9 promoted after that baseline, 7
+match their just-committed pins and two moved, both conversions — P0012
+`SUPPORTED_WRONG → SUPPORTED_CORRECT`
+and **P0022 `ERROR → SUPPORTED_CORRECT`**. P0022 (`convex5:boss circle:boss
+circle:cut convex4:boss circle:thru`) was promoted hours earlier as the
+smallest example of `malformed B-Rep topology: face 2: interior junction …
+not contained by any lateral triangle`; its last op is a through-all cut, so
+with the depth corrected the document's real geometry no longer reaches that
+wall (its own ×1e3 row already read CORRECT). That loud family has **no
+corpus customer again** — the next document that reaches it must re-promote
+one.
+
+## 2026-10-03 — prospector seed 2 (200 candidates) adjudicated: **three SILENT WRONGs** (two of them refuted by arithmetic alone), ten loud families with no corpus customer, two Stage-2 arrangement hangs; promoted P0010–P0022; **corpus not re-measured this session**
+
+`PROSPECT_SEED=2 PROSPECT_COUNT=200` (spec `specs/assay_prospector.md`) returned
+172 SUPPORTED_CORRECT, 21 ERROR, 3 SUPPORTED_WRONG, 2 TIMEOUT and 2
+UNSUPPORTED(coplanar-boolean) in 991 s at 8 jobs — 17 finding signatures.
+`prospect_minimize` (1572 s, 16 of 17 signatures; the `timeout` row had no
+lineage to minimize — see "The two TIMEOUTs" below) reduced them to 2–5 steps
+each. Grouped by error TEXT with the boolean VERB stripped, the 21 ERROR rows
+are **twelve** families, not fifteen — and ten of those twelve have no
+current corpus customer.
+
+### The three SUPPORTED_WRONG rows are three different silent wrongs
+
+All three were localized by bisecting the chain: each prefix of the document
+was judged on its own and the exact-membership lattice read at 192/256/384/512
+cells on two lattice phases, so the first op at which kernel and oracle part
+is named, not guessed. The lattice is stable to < 1 % across all eight rungs
+in every case, so the 10–29 % gaps are not its noise.
+
+| candidate | first divergent op | kernel | exact (stable) | rel | promoted |
+|---|---|---|---|---|---|
+| seed 2 index 159 (8 ops) | op 6, an explicit `BooleanCombine` Union | 6.664371e-7 | 1.490760e-6 | −55.3 % | **P0010** (hand-reduced to 4 ops) — **CONVERTED 2026-10-03** |
+| seed 2 index 89 (8 ops) | op 7, the THIRD chained `BooleanCombine` Union | 3.798833e4 | 4.421668e4 | −14.1 % | **P0011** (hand-reduced to 5 ops) — **CONVERTED 2026-10-03** |
+| seed 2 index 129 (7 ops) | op 6, a `ThroughAll` cut | 9.721746e4 | 7.580963e4 | +28.2 % | **P0012** (minimized to 3 ops) — **CONVERTED 2026-10-03** |
+
+**P0010 / P0011 — a `BooleanCombine` whose operand is a MULTI-BODY output
+emits only one body's worth of material.** Neither needs an oracle: the
+live-volume total DROPS across a union, which is arithmetically impossible.
+
+- P0010 (4 ops): two square bosses that never meet (`merge: true`, so the
+  engine keeps two bodies — 1.273494e-6 and 7.830e-8), a standalone circle
+  boss (6.4706e-7), then a Union of the SECOND boss's `Main` with the
+  standalone. Live set: **3 non-empty bodies totalling 1.998854e-6 → 2
+  totalling 7.253601e-7**, which is exactly the union's own two operands
+  (7.830e-8 + 6.4706e-7). The UNINVOLVED first body — 64 % of the model — is
+  gone, watertight, χ 4, no error and no warning.
+- P0011 (5 ops): box boss (1114.81), standalone box boss (3468.21), Union of
+  the two (they are DISJOINT, so the output is still two bodies and the total
+  is unchanged at 4583.02 — CORRECT), standalone box boss (9563.76; 3 bodies,
+  14146.78 — CORRECT), then a second Union anchored on the FIRST union's
+  `Main`. Result: **2 bodies, 10678.57 = 1114.81 + 9563.76 exactly** — boss 1
+  ∪ boss 3. The second body of the first union's output (3468.21, 25 %) is
+  silently dropped.
+- Both are byte-identical in `rel` at ×1e-3 AND ×1e3, and their smallest
+  authored lengths are 1.24e-3 (1 240× `MIN_FEATURE_SIZE`) and 3.74
+  (3.7e6×) — pure combinatorics, no tolerance in sight.
+
+#### P0010 / P0011 **CONVERTED 2026-10-03** — ONE cause, in the engine's body bookkeeping, not the kernel
+
+ANCHOR (measured, both cases, by dumping each feature's output keys and its
+`consumed` flag): `Operation::BooleanCombine` names exactly ONE output per
+operand — `body_a` / `body_b` are `GeomRef`s carrying an `OutputKey` — while
+`find_consumed_feature_ids` (`crates/feature-engine/src/rebuild.rs`) marks both
+operand FEATURES consumed WHOLE. Consumption is tracked per feature, so every
+other live output of either operand feature was hidden with no boolean ever
+touching it. The two rows differ only in how the operand came to hold two
+bodies:
+
+- P0010: the operand feature is the second extrude, `merge: true` but disjoint
+  from its target, so the Add fold re-emitted the target as its `Body{1}`
+  (`outputs = [Main, Body{1}]`, `Body{1}` = the first boss, 1.273494e-6). The
+  Union named only `Main` ⇒ `Body{1}` dropped. Live total went
+  7.253601e-7 → **1.998854e-6 over 3 bodies** after the fix.
+- P0011: the operand feature is the FIRST `BooleanCombine`, whose two operands
+  were disjoint, so the kernel's own boolean returned two shells
+  (`outputs = [Main, Body{1}]`, `Body{1}` = 3468.21). The second Union named
+  only `Main` ⇒ `Body{1}` dropped. Live total 10678.57 → **14146.78 over 3
+  bodies** (14146.779977 measured).
+
+This is the SAME custody rule the legacy most-recent path has followed since
+the 2026-08-08 R0090/R0030 base-drop (`find_most_recent_solid_outputs`) and the
+explicit-target combines since F9
+(`docs/notes/agent_bicycle_session_failures_2026_09_14.md`,
+`feature-engine/tests/combine_sibling_outputs.rs`) — it had simply never been
+applied to the pair-boolean op. `UnionAll{Selected}` had the identical hole
+(it names a body list and consumes those features whole) and was fixed in the
+same change; `UnionAll{All}` folds every live body, so it names nothing it does
+not already hold.
+
+FIX (structural, one place): `rebuild::named_custody_outputs(feature,
+feature_results)` is now the single answer to "which outputs does this feature
+take custody of BY NAME" — explicit-target extrude/revolve/pipe/sweep,
+`BooleanCombine`, `UnionAll{Selected}`. Both the sibling CARRY
+(`carry_untargeted_named`, with its existing "not targeted; kept unchanged as a
+separate body" warning, so the survival is LOUD) and the body-NAME inheritance
+(`Engine::inherit_source_body_id`, F9b) read that one list, so they can no
+longer disagree. Pins: `feature-engine/tests/boolean_combine_custody.rs`
+(5 tests, all five RED before the fix — including the invariant itself,
+`boolean_output_set_is_inputs_minus_operands_plus_result`, over 1–4 extra
+bodies) and `test-harness/tests/boolean_combine_custody_kv2.rs` (3 tests on
+real kernel-v2 geometry; the two P0010/P0011 shapes RED before, the
+single-output invariance pin green both ways).
+
+ORACLE finding on the way, needed to reach CORRECT on P0010 and worth keeping:
+the assay fed `check_no_self_intersection` the MERGE of every body of the last
+feature. P0010's restored first boss legitimately OVERLAPS the union result —
+kernel-measured intersect volume **8.237708e-8 m³, one shell**, while each of
+the three bodies is individually watertight and penetration-free (two live
+bodies the document never unioned may overlap; that is legal multi-body CAD).
+On the merge that reads as one solid penetrating itself. The check now runs per
+BODY (`ModelBuilder::tessellate_last_bodies_with_tol`), which is identical for
+a single-body result. STILL OPEN (recorded, not fixed): the exact-volume oracle
+compares a per-body volume SUM against exact MEMBERSHIP, so on an overlapping
+multi-body model it is off by exactly the overlap — here 1.998854e-6 summed vs
+1.922222e-6 membership, +3.99e-2, inside the case's 5.277e-2 band only by luck.
+
+VERDICTS after the fix (`ASSAY_CASE=<id> … single_case --release`):
+`P0010: SUPPORTED_CORRECT (0.5s) — all checks passed`;
+`P0011: SUPPORTED_CORRECT (0.3s) — all checks passed`. Every other corpus case
+whose recipe contains a `BooleanCombine` was re-run and none moved category:
+`C0084: SUPPORTED_CORRECT`, `P0001: SUPPORTED_CORRECT`,
+`P0007: SUPPORTED_CORRECT`, `P0020: ERROR` (its own ledger row's text,
+unchanged: `holed lateral CDT failed: duplicate (coincident) loop vertex`). No
+corpus case uses `UnionAll`. `smoke_corpus_boundary_categories` (release,
+472.6 s) is green with both rows moved to `SupportedCorrect`.
+**Corpus not re-measured this session.**
+
+METAS: P0011's is HARDENED and adjudicated independently of the kernel — its
+three live bodies are polygonal prisms, so `shoelace(profile) × depth` gives
+1114.8138596839553 + 3468.2063661270504 + 9563.76033938299 =
+**14146.780565193996**, which the kernel meets to rel 4.2e-8 (pinned at
+`expected_volume_tol_rel` 1e-6, `expected_shell_count` 3, `euler_target` 6,
+`expected_solid_count` 1, `derived_meta: false`). P0010's KEEPS `derived_meta`
+deliberately: there is no kernel-independent volume SUM for it — the restored
+boss overlaps the union result by a term only the kernel can supply, and its
+third body is a TRUE circle whose tessellated prism sits 1.1e-3 below πr²h by
+the chord deficit. Its expectation stays the in-line exact-membership lattice,
+which is kernel-independent and now passes.
+
+**P0012 — a `ThroughAll` cut whose target lies entirely behind its sketch
+plane removes nothing. Root cause CONFIRMED BY CODE READING, not inferred.
+CONVERTED 2026-10-03 (see the dated section below) — and the "9 870" figure
+in the next paragraph was itself an artifact: the true swept volume is
+70 276.35, 97.6 % of the box, which NEITHER side computed.**
+The 3-op minimum is a 2×2 box boss at the origin (16), a 42.4-side box boss at
+[10, 20, 30] depth 40 (72 000, disjoint from the first), and a ThroughAll cut
+with a 69-side square on a plane at [25, 49, 53], normal [0.67, 0.72, −0.16].
+The kernel reads **72 016 = 72 000 + 16 exactly**; the lattice says the cutter
+should sweep 9 870 (13.7 %) out of the big box.
+
+- The target's projections on the cut normal are [−11.74, 38.04] and the
+  sketch plane sits at 43.71 (`FE_CUT_TRACE=1`), so the body is ENTIRELY
+  behind the plane and `should_reverse_for_cut` correctly decides
+  `reverse = true`.
+- But `resolve_depth(DepthMode::ThroughAll, …)`
+  (`crates/feature-engine/src/rebuild.rs:1410`) measures
+  `compute_solid_extent` along the **UNREVERSED** sketch normal — where the
+  extent past the plane is ~0 — and returns `extent + 1.0` floored at an
+  **ABSOLUTE 1.0 m**. The reversal is only computed afterwards
+  (same file, ≈ line 881). The 1 m cutter therefore spans projection
+  [42.71, 43.71] and never reaches 38.04.
+- The scale behaviour matches the diagnosis exactly: ×1e3 keeps the WRONG
+  (rel +1.280e-1), ×1e-3 reads **CORRECT** because the absolute 1 m margin
+  then dwarfs the whole model. Smallest authored length 2.0 = 2e6×
+  `MIN_FEATURE_SIZE`.
+
+An oracle-side defect was found and excluded on the way: on index 159 the
+exact chain's cut auto-reversal — a bbox mid-extent proxy for the engine's
+B-Rep-vertex reading — disagreed with the engine on op 7 and SAID SO in a
+note ("cut auto-reversal decided on the merged body … verify with
+`FE_CUT_TRACE=1`"). Authoring that cut's `direction` explicitly, so neither
+side auto-reverses, left the kernel's volume bit-identical and moved the
+ORACLE from 3.479847e-6 to 3.657886e-6 — the gap WIDENED to −32.2 %. The
+auto-reversal proxy is a real harness weakness (it should DECLINE, not flag,
+when its own note says the two readings differ), but it is not the cause of
+any of the three rows; the promoted prefixes all sit upstream of it.
+
+### Ten loud families with no current corpus customer — P0013–P0022
+
+Each is the smallest example of its error text, re-judged on the current
+kernel at promotion, feature-floor checked, and judged again at ×1e-3 and
+×1e3 (a rescaled `.recipe.json` through `PROSPECT_RECIPE`). CLAUDE.md records
+the Stage-4 relocation walls, the Stage-3 `AmbiguousCurve` class and the
+`ring rejected by CDT` family as having **no corpus customer left** — these
+ten give those families customers again, at 2–5 ops.
+
+| id | minimal recipe | ops | error text | ×1e-3 / ×1e3 | floor | cost |
+|---|---|---|---|---|---|---|
+| P0013 | `circle:boss star7(0.70):cut` | 2 | `TessellationFailed "ring rejected by CDT (degenerate/self-intersecting)"` — P0002's own shape, different needle ratio | ERROR / ERROR (same class) | 5 180× | 0.6 s |
+| P0014 | `convex5:boss gear10:rev-cut` | 2 | Stage-4 `LocalRefinementRequired` around vertex **4294967295** (u32::MAX — a sentinel, not a vertex) | **CORRECT** / ERROR (same class) | 3.09e6× | 77.6 s |
+| P0015 | `convex4:boss gear27:boss convex5:rev-cut` | 3 | Stage-4 `RelocationCrossedCarrierVertex` (the R0085 family) | ERROR / ERROR (same class) | 648× | 13.9 s |
+| P0016 | `convex4:boss convex4:rev-cut convex3:cut` | 3 | Stage-3 `AmbiguousCurve { candidates: 0, matched: 0 }` — **zero** candidates, so no curve was proposed at all | ERROR / ERROR (same class) | 3e4× | 0.4 s |
+| P0017 | `convex4:boss nonconvex10:rev circle:cut` | 3 | `CurvedGeometryMismatch "bounded cone patch must have exactly one material-CCW loop"` | ERROR (a degenerate zero-area input face) / ERROR (a CDT ring reject) — the class MOVES, so judge at its own scale | 91× | 1.1 s |
+| P0018 | `circle:boss circle:sym nonconvex7:cut` | 3 | the cylinder arm of the same postcondition | ERROR / ERROR (same class) | 8.9e7× | 1.0 s |
+| P0019 | `convex4:boss nonconvex5:rev convex4:cut` | 3 | `InvalidBooleanOutput "full-circle edge sense is underivable"` (the wall R0004 once hit) | ERROR / ERROR (same class) | 1.34e5× | 0.2 s |
+| P0020 | `circle:boss gear12:∩ convex4:∩` | 5 | `malformed B-Rep topology: face 0: holed lateral CDT failed: duplicate (coincident) loop vertex in CDT input` — an INPUT rejection, so the first Intersect's OWN output is malformed | ERROR (a different class: an interior-junction / weld-band ambiguous edge-split) / ERROR (same class) | 83× | 10.6 s |
+| P0021 | `convex4:boss circle:boss circle:boss` | 3 | auto-union `SelfIntersectingBooleanOutput { penetrations: 5 }` — P0007's signature on three plain bosses | ERROR / ERROR (same class) | 710× | 0.4 s |
+| P0022 | `convex5:boss circle:boss circle:cut convex4:boss circle:thru` | 5 | `malformed B-Rep topology: face 2: interior junction … not contained by any lateral triangle — the mint would be silently dropped` | ERROR (same class) / **CORRECT** | 400× | 0.9 s |
+
+"floor" is the smallest authored length as a multiple of `MIN_FEATURE_SIZE`
+(1e-6 m) — every promotion is at least 83× above it, so none is the A14.2
+sub-floor wall that retired a seed-1 finding. "cost" is wall time in release
+on this box. **P0014 is the only one NOT pinned in
+`smoke_corpus_boundary_categories`**: at 77.6 s release (≈ 350 s in the debug
+build that gate also runs in) it is beyond the "a pin must be CHEAP" policy,
+the same disposition as R0044 and F0082; `full_corpus_categorized` and the
+committed `results.json` carry its verdict.
+
+### Four findings RETIRED, with reasons
+
+| finding | why it is not promoted |
+|---|---|
+| `cone periodic strip (2 encircling rims) not yet supported (KV14 Slice E holed frustum band)` ×3 (indices 61, 85, 105; minima `convex4:boss convex4:rev convex6:boss convex4:cut` and `convex4:boss convex4:rev-cut convex4:boss`) | a DOCUMENTED deferred sub-slice, retired for the same reason on seed 1 |
+| `GeomRef resolution failed: Output key Main not found` ×1 (index 9; minimum `convex4:boss convex4:boss convex4:∩ convex4:∪`) | not kernel geometry. Its 3-op prefix (the two bosses and the Intersect) judges **SUPPORTED_CORRECT with ZERO bodies**: the Intersect's operands are disjoint, it annihilates the model, and the only loud symptom is the NEXT op's GeomRef failure. See the harness note below |
+| `boolean_union … RelocationCrossedCarrierVertex` ×1 (index 169; minimum `convex4:boss nonconvex9:rev circle:boss`, 3 ops) | same error TEXT as P0015, reached through the auto-union path instead of an explicit subtract. Recorded here so a later session can promote it if P0015's conversion misses it |
+| `boolean_union … TessellationFailed "ring rejected by CDT"` ×2 (indices 86, 140; minimum `circle:boss convex7:cut convex6:boss`, 3 ops) | same error TEXT as P0013, reached through the auto-union path. Recorded for the same reason |
+
+### The two TIMEOUTs are one shape: a 0.74 M-triangle operand in Stage 2
+
+Indices 16 and 78 both burned the whole 900 s CPU budget and left **no
+candidate files at all** — not even a lineage — so the report line carried
+`steps: 0` and an empty summary and named nothing re-runnable. Re-running each
+child by hand under `YANG_FACE_CENSUS=1` (so each tessellation prints) shows
+the identical shape:
+
+- a GEAR REVOLVE operand with **530 (index 16) / 586 (index 78) cone faces**
+  is tessellated twice — once at ≈ 192 tris/face (≈ 0.10 / 0.16 M triangles),
+  then again at ≈ 1 340 / 1 260 tris/face, giving **710 200 / 740 880
+  triangles**;
+- the other operand is a 9- or 6-face plane body of 24 / 12 triangles;
+- `YANG_INPUT_SELFX_PROBE=1` completes on both (`A: tris=740880 improper=0
+  unresolved=0`, `B: tris=12 improper=0 unresolved=0`), and then NOTHING else
+  prints — no coplanar probe, no chart probe, no B-Rep probe.
+
+That input self-intersection scan is the last step before
+`backend.labeled_arrangement(mesh_a, mesh_b)` (`crates/yang-rs/src/boolean.rs`,
+"(1) Stage 2: full labeled arrangement"), so **the spin is inside the Stage-2
+exact labeled arrangement on a 0.74 M-triangle operand**. It is not merely
+"slow by a constant": index 78 re-run with no CPU budget at all was still inside that
+call at **2 542 s CPU** (43 min wall, this box) when it was stopped by hand —
+2.8x the budget that reported it as a TIMEOUT.
+
+Neither is promoted into the corpus: a case that cannot be judged inside 900 s
+would add that cost to every assay run, and the right first step is the
+cost of the arrangement on a gear revolve's conical bands, not a pinned
+verdict. The TOOLING gap is fixed in the same commit:
+`judge_generated` now writes `<id>.lineage.json` BEFORE the build, so a
+build-phase timeout is re-playable through `PROSPECT_RECIPE` and minimizable
+like any other finding.
+
+### Two harness defects the run exposed (not kernel findings)
+
+1. **An empty document reads SUPPORTED_CORRECT.** Censusing the live body
+   count of all 172 CORRECT candidates (one `prospect_judge` measurement per
+   candidate) found **4 with ZERO non-empty bodies**: indices 53, 84, 111 and
+   199 — and every one of them ends in an `∩` (Intersect combine) whose
+   operands are disjoint. 2.3 % of the CORRECT column is "the chain
+   annihilated itself", which the categorizer cannot currently distinguish
+   from a correct result. (Index 133 could not be measured inside 120 s.)
+2. **The exact chain's cut auto-reversal is a bbox proxy for a B-Rep-vertex
+   decision**, and when its own `tool_alone` reading would flip the verdict it
+   emits a note and picks one anyway (`crates/test-harness/src/assay/
+   exact_membership.rs`, "cut auto-reversal decided on the merged body").
+   On seed 2 index 159 the engine's `FE_CUT_TRACE` said `reverse=true` and the
+   chain had chosen `false`. It should DECLINE (`indeterminate`) in that case
+   rather than flag a volume verdict it cannot stand behind.
+
 ## 2026-09-30 — P0008 / P0009 CONVERT: a curved face's boundary-only CDT may not carry an interior chord whose two ends lie on the same PLANAR neighbor (kernel-v2 render patch AND yang Stage 1); the seed-1 index-19 lineage re-minimized after P0005 was a SILENT WRONG plus its loud Stage-0 twin; canonical **310C / 0W / 7E / 4EE / 0T + 0 UNSUPPORTED** over 321 cases (release, 8 jobs, 900 s; wall 958.9 s; R0085 595.8 s, F0072 558.5 s, F0085 392.5 s; exactly two category moves — the new P0008 and P0009 rows — and zero detail moves; the first run's R0085 regression is closed by the visible-lift gate)
 
 **The lineage.** P0005 was seed-1 index 19 minimized with a SQUARE revolve.

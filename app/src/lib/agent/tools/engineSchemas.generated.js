@@ -2891,6 +2891,31 @@ export const ENGINE_DEFS = {
           "z"
         ],
         "type": "object"
+      },
+      {
+        "description": "Select by **persistent id** — the preferred selector for anything\nthat must stay attached to one specific entity across rebuilds: a\ndrawing dimension's anchor, a PMI item, an `UpTo` termination, a\n3D-sketch attachment (drawings spec D0,\n`specs/drawings_and_mbd.md` §4 item 4).\n\nBoth ids come from `waffle_types::kernel::EntityPid`. `pid` names the\nentity; `root_pid` names where its geometry was introduced, so the\nreference still resolves when a later boolean rebuilt the face it\npointed at. For edges and vertices the two are equal — their ids are\ncontent-seeded through the faces' roots already.\n\nUnlike every other selector this one NEVER rebinds: an entity whose\nid and root are both gone is a loud `ResolutionFailed`, under either\n`ResolvePolicy`. A nearest-match fallback is exactly how an\nannotation ends up dimensioning the wrong edge, and the whole point\nof a persistent id is that its absence is information.",
+        "properties": {
+          "pid": {
+            "format": "uint64",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "root_pid": {
+            "format": "uint64",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "type": {
+            "const": "Pid",
+            "type": "string"
+          }
+        },
+        "required": [
+          "type",
+          "pid",
+          "root_pid"
+        ],
+        "type": "object"
       }
     ]
   },

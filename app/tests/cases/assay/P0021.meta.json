@@ -1,0 +1,52 @@
+{
+  "id": "P0021",
+  "description": "3 ops, scale=2.80e-3, extrude(polygon,boss)+extrude(circle,boss)+extrude(circle,boss) — prospector seed 2 index 184 minimized 2026-10-03 (8 ops -> 3, 18 verdicts): THREE bosses, a square and two circles, the last two auto-unioning. Auto-union failed: boolean_union SelfIntersectingBooleanOutput { face_a: FaceId(56), face_b: FaceId(62), penetrations: 5 }, body created as standalone — kernel-v2's render-level output self-intersection gate (validate::selfx) rejects the union. P0007's signature, CONVERTED 2026-09-29 by admitting Ellipse candidates to the 4.4.2 carried-edge restoration; this is its residue on three plain bosses, so the conversion should start by asking which boundaries left as chords here. Smallest authored length 7.10e-4 = 710x MIN_FEATURE_SIZE; ERROR at both x1e-3 and x1e3. ERROR-class pin, derived_meta: expectations unadjudicated until conversion.",
+  "master_seed": 0,
+  "test_seed": 0,
+  "scale": 0.0028,
+  "log_scale": -2.5528419686577806,
+  "plane_origin": [
+    0.0,
+    0.0,
+    0.0
+  ],
+  "plane_normal": [
+    1.0,
+    0.0,
+    0.0
+  ],
+  "operations": [
+    {
+      "kind": "extrude",
+      "profile_type": "unknown",
+      "profile_size": 0.0,
+      "depth_or_angle": 0.001,
+      "is_cut": false
+    },
+    {
+      "kind": "extrude",
+      "profile_type": "unknown",
+      "profile_size": 0.0,
+      "depth_or_angle": 0.00168,
+      "is_cut": false
+    },
+    {
+      "kind": "extrude",
+      "profile_type": "unknown",
+      "profile_size": 0.0,
+      "depth_or_angle": 0.0028,
+      "is_cut": false
+    }
+  ],
+  "oracles": {
+    "euler_target": 2,
+    "expect_watertight": true,
+    "max_bbox_extent": 0.27999999999999997,
+    "expect_positive_volume": true,
+    "volume_monotonicity": [],
+    "expect_rebuild_error": false,
+    "derived_meta": true
+  },
+  "generator_version": 100,
+  "featured": true
+}

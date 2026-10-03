@@ -61,8 +61,8 @@ use crate::{BrepArena, FaceId, HalfEdgeId, KernelV2Error, SolidId, Surface, Vert
 use cad_primitives::{BoolOp, Point2, Point3, Vector3};
 use waffle_types::kernel::{
     AxisKind, ClosedProfile, EdgeRange, EdgeRenderData, EntityAxis, FaceRange, KernelError,
-    KernelId, KernelSolidHandle, PipePathSegment, RenderMesh, StepExportBody, SweepSection,
-    TopoKind, TopoSignature,
+    KernelId, KernelSolidHandle, PipePathSegment, ProjectOpts, ProjectionBody, RenderMesh,
+    StepExportBody, SweepSection, TopoKind, TopoSignature, ViewFrame, ViewGeometry,
 };
 use waffle_types::kernel::{
     Distance, DistanceOpts, EntityRef, Kernel, KernelIntrospect, KernelMeasure, MeasureEntity,
@@ -86,7 +86,7 @@ fn encode_vertex(v: VertexId) -> KernelId {
     KernelId(TAG_VERTEX | v.0 as u64)
 }
 
-fn encode_edge(canonical: HalfEdgeId) -> KernelId {
+pub(crate) fn encode_edge(canonical: HalfEdgeId) -> KernelId {
     KernelId(TAG_EDGE | canonical.0 as u64)
 }
 
@@ -1912,6 +1912,169 @@ impl KernelIntrospect for KernelV2Adapter {
             pid: pid.0,
             root_pid: root.0,
         })
+    }
+
+    /// D0 (`specs/drawings_and_mbd.md` §4 item 4). Faces answer through the
+    /// journal (identical to [`Self::face_provenance`]); edges and vertices
+    /// answer with their content-seeded id from [`crate::pid`], which is its
+    /// own root. An entity the derivation refuses (a solid with unstamped
+    /// faces, an ambiguous group) answers `None` — never a guessed id.
+    ///
+    /// Mesh-backed imported bodies have no persistent identity: they are a
+    /// triangle soup with no construction history to seed from, so they
+    /// answer `None` rather than a face-index-derived number that would
+    /// silently change on re-import.
+    fn entity_pid(
+        &self,
+        entity: KernelId,
+        kind: TopoKind,
+    ) -> Option<waffle_types::kernel::EntityPid> {
+        use waffle_types::kernel::EntityPid;
+        let (tag, idx) = decode(entity);
+        match (kind, tag) {
+            (TopoKind::Face, TAG_FACE) => self.face_provenance(entity).map(EntityPid::from),
+            (TopoKind::Edge, TAG_EDGE) => crate::pid::edge_pid(&self.arena, HalfEdgeId(idx))
+                .ok()
+                .map(|p| EntityPid::rooted(p.0)),
+            (TopoKind::Vertex, TAG_VERTEX) => crate::pid::vertex_pid(&self.arena, VertexId(idx))
+                .ok()
+                .map(|p| EntityPid::rooted(p.0)),
+            _ => None,
+        }
+    }
+
+    fn all_entity_pids(
+        &self,
+        solid: &KernelSolidHandle,
+        kind: TopoKind,
+    ) -> Vec<(KernelId, waffle_types::kernel::EntityPid)> {
+        use waffle_types::kernel::EntityPid;
+        if self.imported_slot_of(solid).is_some() {
+            return Vec::new();
+        }
+        let Ok(sid) = self.solid_of(solid) else {
+            return Vec::new();
+        };
+        // Faces answer from the face pass alone: their identity has been the
+        // kernel's since KV13 F5 and must not be withdrawn because an EDGE
+        // group two kinds away is ambiguous.
+        if kind == TopoKind::Face {
+            let Ok((faces, roots)) = crate::pid::solid_face_pids(&self.arena, sid) else {
+                return Vec::new();
+            };
+            return faces
+                .iter()
+                .filter_map(|(&f, &pid)| {
+                    let root = roots.get(&f)?;
+                    Some((
+                        encode_face(f),
+                        EntityPid {
+                            pid: pid.0,
+                            root_pid: root.0,
+                        },
+                    ))
+                })
+                .collect();
+        }
+        let Ok(pids) = crate::pid::solid_pids(&self.arena, sid) else {
+            return Vec::new();
+        };
+        match kind {
+            TopoKind::Edge => pids
+                .edges
+                .iter()
+                .map(|(&h, &pid)| (encode_edge(h), EntityPid::rooted(pid.0)))
+                .collect(),
+            TopoKind::Vertex => pids
+                .vertices
+                .iter()
+                .map(|(&v, &pid)| (encode_vertex(v), EntityPid::rooted(pid.0)))
+                .collect(),
+            _ => Vec::new(),
+        }
+    }
+}
+
+/// Drawing projection (`specs/drawings_and_mbd.md` §5, increment D1a):
+/// `project` / `project_bodies` over [`crate::projection`] and `export_dxf`
+/// over [`crate::dxf_export`]. `section_with_plane` keeps its typed
+/// `NotSupported` default — that is D1d.
+///
+/// A mesh-backed imported body is refused by name, for the same reason
+/// `export_step_bodies` refuses it: it never entered the exact arena, so there
+/// are no analytic edges to project, and a silhouette of its triangles would
+/// be a faceted stand-in for a drawing — exactly the degradation Invariant
+/// A15 forbids.
+impl waffle_types::kernel::KernelProjection for KernelV2Adapter {
+    fn project(
+        &self,
+        solid: &KernelSolidHandle,
+        view: &ViewFrame,
+        opts: &ProjectOpts,
+    ) -> Result<ViewGeometry, KernelError> {
+        self.project_bodies(
+            &[waffle_types::kernel::ProjectionBody::solo(solid.clone())],
+            view,
+            opts,
+        )
+    }
+
+    fn project_bodies(
+        &self,
+        bodies: &[ProjectionBody],
+        view: &ViewFrame,
+        opts: &ProjectOpts,
+    ) -> Result<ViewGeometry, KernelError> {
+        let basis = view.basis().ok_or_else(|| KernelError::Other {
+            message: format!(
+                "degenerate view frame: dir {:?}, up {:?} (up must not be parallel to dir)",
+                view.dir, view.up
+            ),
+        })?;
+        let rel_tol = opts
+            .rel_chord_tolerance
+            .unwrap_or(crate::tessellate::RENDER_CHORD_TOLERANCE_REL);
+        if !(rel_tol.is_finite() && rel_tol > 0.0) {
+            return Err(KernelError::Other {
+                message: format!("projection chord tolerance must be positive, got {rel_tol}"),
+            });
+        }
+        let mut out = ViewGeometry::default();
+        for body in bodies {
+            if self.imported_slot_of(&body.handle).is_some() {
+                return Err(KernelError::NotSupported {
+                    operation: format!("project of the imported mesh-backed body `{}`", body.name),
+                });
+            }
+            let sid = self.solid_of(&body.handle)?;
+            // A placed body is projected through the view expressed in its own
+            // coordinates, so no geometry is copied or transformed.
+            let body_basis = match &body.placement {
+                Some(p) => basis.in_body_frame(p),
+                None => basis,
+            };
+            out.extend(
+                crate::projection::project_edges(&self.arena, sid, &body_basis, rel_tol).map_err(
+                    |e| KernelError::Other {
+                        message: format!("projection of `{}`: {e}", body.name),
+                    },
+                )?,
+            );
+        }
+        Ok(out)
+    }
+
+    fn export_dxf(
+        &self,
+        bodies: &[ProjectionBody],
+        view: &ViewFrame,
+        opts: &ProjectOpts,
+    ) -> Result<String, KernelError> {
+        let geometry = self.project_bodies(bodies, view, opts)?;
+        Ok(crate::dxf_export::write_dxf(
+            &geometry,
+            crate::dxf_export::DEFAULT_POLYLINE_SAGITTA,
+        ))
     }
 }
 
