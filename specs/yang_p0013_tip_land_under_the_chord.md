@@ -191,7 +191,10 @@ would name it where it is produced and give the detect-then-refine wrapper
 a gate it currently lacks. Deferred: it re-classifies failures corpus-wide
 and needs the full-corpus proof.
 
-### P3 — flip the §4.3.3 density guard ON (NOT LANDED, the open step)
+### P3 — flip the §4.3.3 density guard ON — **LANDED 2026-10-03 (late night)**
+
+> **Measured and flipped.** Full corpus with the LOCAL form guard-on (release, 8 jobs, 900 s; wall 1147.0 s): **318C / 0W / 13E / 5EE / 0T over 336** — exactly one category move (P0013 → SUPPORTED_CORRECT), zero regressions; R0003 92.6 s, R0054 221.8 s, R0081 319.2 s, R0085 706.3 s, all inside their guard-off CPU. `edge_graze_guard_enabled` is now default-on with the `YANG_433_GUARD=0|off` kill switch. The paragraphs below describe the gated state before the flip.
+
 
 `edge_graze_min_rim_segments` is gated behind `YANG_433_GUARD=1|on` and is
 applied EAGERLY on every pass of `boolean_once`, so flipping it changes

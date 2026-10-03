@@ -743,10 +743,20 @@ pub(crate) fn point_surface_signed(p: [f64; 3], s: Surface) -> Option<f64> {
 /// loud downstream STOP remains its tripwire; a demand beyond 4096 is
 /// dropped the same way (true near-tangency); Torus targets and curved
 /// B-Rep edges are out of scope this increment.
+///
+/// **ALWAYS-ON since 2026-10-03 (P0013, local form).** The global form was
+/// refused twice by the corpus (2026-08-27; 2026-10-03: 312C / 15E / 3T —
+/// R0085 regressed, R0003 / R0054 / R0081 timed out, because one site's
+/// demand was spent on every rim of both operands). The LOCAL form — the
+/// demand paid on its own face, coaxial rim closure and at-risk arc span —
+/// measured **318C / 0W / 13E / 5EE / 0T over 336** (release, 8 jobs,
+/// 900 s; wall 1147.0 s): exactly one category move, P0013 → CORRECT, zero
+/// regressions, every former victim inside its guard-off CPU. Opt out with
+/// `YANG_433_GUARD=0|off` (the kill switch every always-on rule keeps).
 pub(crate) fn edge_graze_guard_enabled() -> bool {
-    matches!(
+    !matches!(
         std::env::var("YANG_433_GUARD").as_deref(),
-        Ok("1") | Ok("on")
+        Ok("0") | Ok("off")
     )
 }
 
