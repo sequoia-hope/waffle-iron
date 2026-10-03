@@ -1,6 +1,7 @@
 # The `.waffle` File Format — Specification
 
-**Format version: 4** (`FORMAT_VERSION`, `crates/file-format/src/save.rs`)
+**Format version: 8** (`FORMAT_VERSION`, `crates/file-format/src/save.rs`; the
+version history is §4)
 **Spec written:** 2026-08-28 (v3), from the code as it exists on `main`; **v4
 section added 2026-09-07.** This document is *descriptive of the current
 implementation*, not aspirational: every claim below was verified against the
@@ -55,7 +56,12 @@ accidental exceptions that this spec documents honestly:
   last evaluated value, so pre-parameters readers still see correct geometry).
   Expressions evaluate in mm-space: bare numbers are millimeters for lengths and
   degrees for angles, independent of the display unit
-  (`specs/parameterized_designs.md`).
+  (`specs/parameterized_designs.md`). Since v8 a parameter may also declare a
+  `unit` (`Length | Angle | Count | Ratio`) and carry a `comment`; a unit
+  suffix inside an expression (`25deg`, `1rad`) COMMITS its dimension, and a
+  committed dimension reaching the wrong field is a loud per-feature error
+  rather than a coerced millimetre (`specs/agent_mechanical_design.md` §6 P1,
+  `crates/feature-engine/src/expr/dim.rs` for the full rule table).
 - **Also stored (derived data — see §10):** sketch `solve_status`,
   `solved_positions`, `solved_profiles`, region boundary tessellations inside
   extrude params, and optional per-tab preview meshes. These are performance/
@@ -176,6 +182,7 @@ they are converted on load (§4).
 | 5 | 2026-09-08 | `GeomRef.scope` (§8): a reference into another tab's instance — the assembly tab and the instance path that owns the anchor feature — for in-context editing (v4 spec §2.8, Phase 3d-4). The only change; additive, but a v4 reader would drop the field and resolve the anchor locally, so the reader floor moved with it. | none (a v4 file parses as-is; absent `scope` ⇒ local). |
 | 6 | 2026-09-24 | `Sketch.plane_x_axis` (§9.1): the sketch's own in-plane +x direction, so a caller can orient a sketch instead of reproducing the engine's derivation (`docs/notes/eiffel/FEATURE_NOTES.md` §3). The only change; additive, but a v5 reader would drop it and derive the basis from the normal, drawing the sketch and everything built on it ROTATED, so the reader floor moved with it. | none (a v5 file parses as-is; absent `plane_x_axis` ⇒ derived). |
 | 7 | 2026-10-03 | `FeatureTree.names` (§6.1): entity names — agent/user labels over persistent references (N1, `specs/agent_mechanical_design.md` §5.2). The field itself is additive and defaulted, but each entry stores a `Selector::Pid` (§8, drawings spec D0) and `Selector` is a serde-tagged enum, so a v6 reader given one fails with a raw unknown-variant error. A new selector variant is a floor bump by §13.3, and this is the first version that writes one. | none (a v6 file parses as-is; absent `names` ⇒ the document has no names). |
+| 8 | 2026-10-03 | `DesignParameter.unit` (`Length \| Angle \| Count \| Ratio`) and `.comment` (P1, `specs/agent_mechanical_design.md` §6): the declared KIND of a design parameter, and a free-text note. Both are additive, defaulted and serialized only when present, and `unit` is a bare string an old reader simply drops — it does NOT fail. The floor moves anyway, by the §13.3 "must not silently ignore" clause: `unit` is the author's written statement that a parameter is an angle, and a reader that drops it hands that number to a length field as millimetres, building a solid the declaring reader refuses to build. Measured, one file and two solids, in `crates/feature-engine/tests/param_unit_floor.rs`. | none (a v7 file parses as-is; absent `unit` ⇒ a plain number that adopts its field's dimension, the pre-P1 behaviour). |
 
 Migrations run **sequentially** (v1→v2→v3→v4). They live only in the Rust loader;
 the JS `initDocumentState` applies the same tab-id rewrite so its tab list agrees
@@ -883,7 +890,11 @@ Anyone changing the format must touch all of them:
    `GeomRef.scope`). Purely additive defaulted fields need no bump — but a
    defaulted field whose CONTENT uses a new variant does (v7:
    `FeatureTree.names` is additive, and every entry in it carries a
-   `Selector::Pid`). **Since v4, new tab
+   `Selector::Pid`) — as does a defaulted field whose ABSENCE changes what
+   gets built (v8: `DesignParameter.unit`; dropping it turns a loud
+   dimension refusal into the pre-P1 silent coercion, so the same file
+   builds a different solid in an old reader —
+   `crates/feature-engine/tests/param_unit_floor.rs`). **Since v4, new tab
    kinds, source kinds and locator kinds need no bump, and since Phase 1b
    neither do new operation kinds**: v4 readers preserve unknown ones opaquely
    (§5.3, §5.5, §7).

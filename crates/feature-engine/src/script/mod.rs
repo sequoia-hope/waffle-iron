@@ -48,6 +48,7 @@ use uuid::Uuid;
 use waffle_types::{Anchor, GeomRef, OutputKey, Role, TopoKind};
 
 use crate::connector::PartConnector;
+use crate::expr;
 use crate::sources::SourceStore;
 use crate::types::{EngineError, Feature, FeatureTree, Operation, ScriptParams};
 use header::{Literal, OutputKind, ParamType, ScriptInterface};
@@ -85,6 +86,18 @@ pub struct ScriptOutcome {
     pub connectors: Vec<PartConnector>,
 }
 
+/// The dimension a `@param` type asks of an expression, or `None` for a
+/// type no expression can drive (bool, string, plane, body).
+fn declared_dimension(ty: ParamType) -> Option<expr::Dimension> {
+    match ty {
+        ParamType::Length => Some(expr::Dimension::Length),
+        ParamType::Angle => Some(expr::Dimension::Angle),
+        ParamType::Int => Some(expr::Dimension::Count),
+        ParamType::Number => Some(expr::Dimension::Ratio),
+        _ => None,
+    }
+}
+
 /// Resolve the node's arguments against the header: every declared
 /// parameter gets a typed value (from `args`, an expression's cached value,
 /// or the header default); unknown arguments are refused.
@@ -119,6 +132,21 @@ fn resolve_args(iface: &ScriptInterface, params: &ScriptParams) -> Result<Map, E
                     ),
                 ));
             };
+            // The declared type IS the dimension this argument asks for
+            // (P1). The expression's own dimension travelled here in
+            // `arg_dimensions`; a committed unit that does not fit is
+            // refused instead of read as a plain number — `25deg` into a
+            // `length` param was 25 mm before P1.
+            if let Some(want) = declared_dimension(decl.ty) {
+                let tag = params
+                    .arg_dimensions
+                    .get(name)
+                    .copied()
+                    .unwrap_or(expr::Tag::Untagged);
+                if let Err(e) = (expr::Quantity { value: *raw, tag }).check(want) {
+                    return Err(err("args", format!("`{name}`: {e}")));
+                }
+            }
             match decl.ty {
                 ParamType::Length => Dynamic::from(raw * MM_TO_METERS),
                 ParamType::Angle | ParamType::Number => Dynamic::from(*raw),

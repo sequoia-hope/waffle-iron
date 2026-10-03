@@ -413,6 +413,7 @@ pub(super) fn script_feature_add(
             args: script_args,
             arg_exprs,
             arg_values: BTreeMap::new(),
+            arg_dimensions: Default::default(),
         },
     };
     let step = apply_step(

@@ -522,6 +522,7 @@ fn feature(ctx, p) {
                     args,
                     arg_exprs: BTreeMap::new(),
                     arg_values: BTreeMap::new(),
+                    arg_dimensions: Default::default(),
                 },
             },
             &mut kernel,

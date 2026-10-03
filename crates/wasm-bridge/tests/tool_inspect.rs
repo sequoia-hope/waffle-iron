@@ -324,7 +324,97 @@ fn expression_evaluate_returns_the_mm_value() {
 
     assert_eq!(out["expression"], "20");
     assert_eq!(out["value_mm"], 20.0);
+    assert_eq!(
+        out["dimension"], "unitless",
+        "a bare number commits to nothing and any field accepts it: {out}"
+    );
     assert!(out.get("error").is_none());
+}
+
+#[test]
+fn expression_evaluate_reports_the_dimension_the_expression_produced() {
+    let mut state = EngineState::new();
+    for (expression, value_mm, dimension) in [
+        ("25mm", 25.0, "length"),
+        ("1in", 25.4, "length"),
+        ("90deg", 90.0, "angle"),
+        ("1rad", 180.0 / std::f64::consts::PI, "angle"),
+        ("10mm / 2mm", 5.0, "ratio"),
+        ("5mm * 5mm", 25.0, "length^2"),
+    ] {
+        let out = ok(
+            &mut state,
+            "expression_evaluate",
+            json!({ "expression": expression }),
+        );
+        assert_eq!(out["dimension"], dimension, "{expression}: {out}");
+        let got = out["value_mm"].as_f64().unwrap();
+        assert!(
+            (got - value_mm).abs() < 1e-12,
+            "{expression}: expected {value_mm}, got {got}"
+        );
+    }
+}
+
+#[test]
+fn a_requested_dimension_the_expression_cannot_be_is_refused() {
+    let mut state = EngineState::new();
+    // The P1 defect, at the tool: a dialog that says it wants a length gets
+    // the refusal, not 25 mm.
+    let out = ok(
+        &mut state,
+        "expression_evaluate",
+        json!({ "expression": "25deg", "dimension": "Length" }),
+    );
+    assert_eq!(out["value_mm"], Value::Null);
+    let error = out["error"].as_str().unwrap();
+    assert!(
+        error.contains("expected a length, got an angle"),
+        "error was {error:?}"
+    );
+    assert!(error.contains("at bytes 0..5"), "error was {error:?}");
+
+    // The same expression without a requested dimension still evaluates —
+    // the tool reports what it IS and leaves the judgement to the field.
+    let out = ok(
+        &mut state,
+        "expression_evaluate",
+        json!({ "expression": "25deg" }),
+    );
+    assert_eq!(out["value_mm"], 25.0);
+    assert_eq!(out["dimension"], "angle");
+
+    // A length asked for as an angle is refused the same way.
+    let out = ok(
+        &mut state,
+        "expression_evaluate",
+        json!({ "expression": "1in", "dimension": "Angle" }),
+    );
+    assert!(out["error"]
+        .as_str()
+        .unwrap()
+        .contains("expected an angle, got a length"));
+
+    // A bare number fits whatever is asked for.
+    for want in ["Length", "Angle", "Count", "Ratio"] {
+        let out = ok(
+            &mut state,
+            "expression_evaluate",
+            json!({ "expression": "4", "dimension": want }),
+        );
+        assert_eq!(out["value_mm"], 4.0, "{want}: {out}");
+    }
+}
+
+#[test]
+fn an_unknown_requested_dimension_is_a_bad_request() {
+    let mut state = EngineState::new();
+    let error = refused(
+        &mut state,
+        "expression_evaluate",
+        json!({ "expression": "20", "dimension": "Furlongs" }),
+    );
+    assert_eq!(error["code"], "InvalidArguments");
 }
 
 #[test]

@@ -11,6 +11,8 @@ use modeling_ops::KernelBundle;
 use serde_json::{json, Map, Value};
 use waffle_types::{generated_entity_id_base, GearParams, SketchEntity, SprocketParams};
 
+use feature_engine::expr::Dimension;
+
 use crate::engine_state::EngineState;
 use crate::messages::{EngineToUi, UiToEngine};
 use crate::tools::{engine_call, require_body, require_feature, unexpected, Answer, ToolFailure};
@@ -608,7 +610,12 @@ fn remap(entity: &SketchEntity, base: u32) -> SketchEntity {
     entity.with_ids_offset(base)
 }
 
-/// Evaluate one mm-space expression against the document's parameters.
+/// Evaluate one mm-space expression against the document's parameters,
+/// reporting the value AND the dimension it produced (P1).
+///
+/// `dimension` in the arguments is optional: naming the kind of field the
+/// expression is meant for makes this the same refusal the rebuild would
+/// make there (`25deg` for a `Length` is an error, not 25 mm).
 pub(super) fn expression_evaluate(
     state: &mut EngineState,
     kb: &mut dyn KernelBundle,
@@ -619,6 +626,19 @@ pub(super) fn expression_evaluate(
         .and_then(Value::as_str)
         .unwrap_or("")
         .to_string();
+    let wanted = match args.get("dimension") {
+        None | Some(Value::Null) => None,
+        Some(v) => match serde_json::from_value::<Dimension>(v.clone()) {
+            Ok(d) => Some(d),
+            Err(_) => {
+                return Err(ToolFailure::new(
+                    "InvalidArguments",
+                    format!("`dimension` must be one of Length, Angle, Count, Ratio (got {v})"),
+                    json!({ "schema_path": "/dimension" }),
+                ))
+            }
+        },
+    };
 
     let response = engine_call(
         state,
@@ -626,9 +646,15 @@ pub(super) fn expression_evaluate(
         "EvaluateExpression",
         UiToEngine::EvaluateExpression {
             expression: expression.clone(),
+            dimension: wanted,
         },
     )?;
-    let EngineToUi::ExpressionEvaluated { value, error } = &response else {
+    let EngineToUi::ExpressionEvaluated {
+        value,
+        dimension,
+        error,
+    } = &response
+    else {
         return Err(unexpected(
             "EvaluateExpression",
             "ExpressionEvaluated",
@@ -637,6 +663,9 @@ pub(super) fn expression_evaluate(
     };
 
     let mut out = json!({ "expression": expression, "value_mm": value });
+    if let Some(dimension) = dimension {
+        out["dimension"] = json!(dimension);
+    }
     if let Some(error) = error {
         out["error"] = json!(error);
     }
