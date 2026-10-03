@@ -9,6 +9,58 @@
 
 ## 0. Honest status (refreshed 2026-06-26; addendum 2026-09-04 below)
 
+> **2026-10-03 (night, fourth) refresh — P0020 ANCHORED and netted loud, NOT
+> converted; deviation **N74**; corpus NOT re-measured this session.** P0020's
+> `holed lateral CDT failed: duplicate (coincident) loop vertex in CDT input`
+> is **not** the twin / mirrored-split-point family the ledger row read it as
+> (and the sprocket `sprocket_bore_with_coplanar_caps` pin does NOT share the
+> mechanism — that was rim-override PROVENANCE, fixed and un-quarantined
+> 2026-09-21). The first Intersect's cylinder lateral is honestly **PINCHED**.
+> Anchored by bisecting a new per-checkpoint census
+> (`YANG_COINCIDENT_PROBE`: distinct mesh vertices at bit-identical positions,
+> plus sub-`d_p` mesh edges): **0** coincident output-vertex groups at
+> `s4-entry`, `after-reloc`, `after-453-sweep`, `after-3c-merge` and
+> `before-validate`, **2** immediately after Stage-4 `(4a2)`
+> `split_pinch_vertices`, with `YANG_EDGE_PINCH_PROBE` naming
+> `edge (1012,1015) CERTIFIED (len=2.507e-6)` and
+> `edge (1033,1036) CERTIFIED (len=6.155e-6)`. Those contacts are **25x and
+> 62x the paper's single distance tolerance** `d_p = 1e-7`
+> (`refs/text/yang2025_hybrid_boolean.txt:745-748`), so the §0a edge-pinch
+> split is RIGHT to split them — a sub-resolution refusal was written,
+> measured and reverted (it never fires; the emitted mesh carries ZERO sub-
+> `d_p` edges and KV15b's shortest §4.3 candidate is 2.115e-7, above its own
+> band). The gap is one layer up: Stage 6 emits output vertices 1:1 with
+> `mesh.verts` and walks patch boundaries, so BOTH sheets of the pinch land in
+> the SAME output face, whose loop then visits one position twice (`g41 → g42
+> → g43` with `g43` bit-identical to `g41`, the two spur edges carrying the
+> same `Ellipse` with opposite `normal` sign). **P0020 is therefore the first
+> corpus customer of `specs/yang_tangency_pinch_split.md` §0b** — "the split
+> sheets have to become separate FACES with their own edges and loops" — which
+> that spec already named as its next increment and whose render-side twin §0c
+> recorded as a known fragility with no corpus case. What LANDED is a P10 net,
+> not a conversion: `tessellate_lateral_holed_cdt` now refuses a self-touching
+> chart with the typed, localizing `YangError::Stage1SelfTouchingLoop { face,
+> vertices, point }`, raised only on BIT-EXACT world coincidence of two
+> distinct boundary vertices (a chart-only collision keeps the pre-existing CDT
+> path), so the wall names the pinch and its producer instead of surfacing
+> `cherchi-rs`'s locus-free message — which is exactly why the row had been
+> misfiled for a day. **Verdict `P0020: ERROR (5.9s)`**, same category, honest
+> text; it stays an ERROR row until §0b lands. The cheap interim alternative —
+> a producer-side Stage-6 refusal of any face loop that visits one position
+> twice, moving the failure to the op that mints it — is a corpus-wide flip
+> (C0058 and F0060 are SUPPORTED_CORRECT *because* the pinch is tolerated
+> downstream) and needs its own assay cycle, the same disposition N69 took.
+> Pins `crates/yang-rs/src/tests_unit/s1_self_touching_loop.rs` (2,
+> mutation-checked both ways). `cargo test -p yang-rs --release` green (1061
+> lib + 29 binaries, 0 failed), `cargo test -p kernel-v2 --release
+> --no-fail-fast` green, and `sprocket_kv2` 4/4 including
+> `sprocket_bore_with_coplanar_caps`; clippy `--all-targets -D warnings` clean
+> on yang-rs and kernel-v2. **28 likely sharers re-judged by `single_case`,
+> ZERO moves** —
+> the KV14 holed-lateral customers, the pinch-split customers
+> (C0058/F0058/F0060/R0038), the M8 coplanar rows and every open P/C ERROR row
+> — see `docs/yang_tail_triage.md`. **Corpus not re-measured.**
+
 > **2026-10-03 (night, third) refresh — P0016 CONVERTED; corpus NOT
 > re-measured this session.** Deviation **N71**, and it is a MIRRORED PAIR.
 > Stage 1 sizes every curved chart against one operand-level chord budget

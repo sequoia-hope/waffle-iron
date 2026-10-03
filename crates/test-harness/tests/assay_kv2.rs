@@ -1689,11 +1689,20 @@ fn smoke_corpus_boundary_categories() {
         // underivable …")`: a closed output edge whose traversal sense neither
         // allowed witness can supply. The wall R0004 once hit.
         ("P0019", Category::Error),
-        // P0020 (5 ops, two chained Intersects) ⇒ an INPUT rejection: the
-        // FIRST intersect's own output B-Rep carries a holed cylinder-lateral
-        // chart with two coincident loop vertices, and the second intersect
-        // refuses it. Its smallest authored length is 83 × MIN_FEATURE_SIZE —
-        // the tightest of the seed-2 promotions, still far above the floor.
+        // P0020 (5 ops, two chained Intersects) ⇒ an INPUT rejection, now
+        // typed: `Stage1SelfTouchingLoop`. ANCHORED 2026-10-03 (night) and
+        // NOT the twin family the row first read as — the FIRST intersect's
+        // cylinder lateral is honestly PINCHED at two tangential contacts of
+        // 2.507e-6 and 6.155e-6 (25× and 62× the paper's d_p = 1e-7), the
+        // Stage-4 `(4a2)` edge-pinch split correctly gives each SHEET its own
+        // vertex, and Stage 6 still emits both sheets into ONE face — so the
+        // emitted loop visits one position twice and the next boolean's chart
+        // CDT has no representation for it. Deviation N74; remediation is
+        // `specs/yang_tangency_pinch_split.md` §0b (per-SHEET faces), a
+        // producer-side flip that needs its own corpus cycle (C0058 and F0060
+        // are CORRECT *because* the pinch is tolerated downstream). Its
+        // smallest authored length is 83 × MIN_FEATURE_SIZE — the tightest of
+        // the seed-2 promotions, still far above the floor.
         ("P0020", Category::Error),
         // P0021 (3 ops: a square and two circle bosses) ⇒ auto-union
         // `SelfIntersectingBooleanOutput { penetrations: 5 }` at kernel-v2's

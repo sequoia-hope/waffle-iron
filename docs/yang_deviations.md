@@ -109,10 +109,11 @@ Presented 2026-07-16; the user's answer (2026-07-17) was **"i have no opinion on
 | N69 | OPEN (2026-10-03, P0023/P0024; remediation = graze-aware ray selection, netted meanwhile by `InsideOutError::InnerLabelOutsideInputBounds`) | Cherchi 2022 §5 in/out classification picks the FIRST non-border explicit patch vertex and casts a +X ray, and never checks that the ray crosses the other input TRANSVERSALLY. When the origin sits on a shared edge the ray runs ALONG an edge of the other operand — its line is the intersection of two of that operand's face planes, so it is coplanar with both and crosses neither — and the degenerate vertex/edge ring resolution (`perturbRayAndFindIntersTri`) counts exactly ONE hit where a graze must count 0 or 2. The nearest-hit orientation then reads "entering" and the whole patch is labeled INSIDE the other input. Measured 2026-10-03 on two 10 mm cubes meeting along one edge, flush in the third axis: `Intersect` returns a copy of operand A (volume 1.0000000000000002e-6 m³, A's own) and `Union` returns one operand, dropping the other — a SILENT WRONG, no STOP, in 2 of 3 orientations (the third's ray misses the other operand and is correct). NOT a port divergence: the C++ reference `mesh_booleans` was run on the same two meshes and emitted byte-identical labels (`0 | 1 | 0` for all 12 of A's triangles) and the same operand-copy output, so cherchi-rs is in exact parity and the METHOD has no answer here. The paper's own remedy shape exists one branch over — the rational fallback already retries axes when "all three axis rays graze input geometry exactly" — but the f64 explicit branch, which is what production takes, has no graze test and no retry. Remediation: reject a candidate ray that is coplanar with any candidate triangle of another label it meets, and try the next origin/axis (exact, and byte-neutral on every non-grazing input); it is NOT landed here because ray selection is the single most load-bearing primitive in the stack and the change cannot be corpus-validated in a session that may not run the assay |
 | N71 | RESOLVED (2026-10-03, P0017/P0018) | kernel-v2's developable-patch material-CCW postcondition (`validate_cylinder_patch` / `validate_cone_patch`) measured its chart winding on a VERTICES-ONLY shoelace — every boundary edge replaced by its chart CHORD. A loop's winding is a property of its boundary CURVES: the planar arm has always known this (`geom::planar_loop_signed_area` adds each arc's exact circular-segment area to the chord polygon's), and §4.1's parametric-domain triangulation is defined on the domain bounded by the curves' images, not their chords. A patch whose boundary curve bulges further across the chart than the patch is wide therefore read the OPPOSITE sign and the kernel rejected its OWN correct output. Measured on P0018's `FaceId(27)`: an oblique plane∩cylinder ellipse arc whose chart image `h(θ) = 349.0216 − 221.2497·cos(θ − 0.42957)` dips to 127.77 at θ = 0.4296 while BOTH its endpoints and the whole 7-chord return polyline sit at 143.79–147.87 — chord shoelace −4.575 (a hole) against a canonical-chart +18.305 (material); on P0017's cone sliver, −6.723e-7 against +7.175e-8 (the chord polygon also overstates the area ~9×). Both arms now append each boundary curve's chart image via `tessellate::sampling` (`arc_interior_samples_frac`, `ellipse_interior_samples`, `hyperbola_interior_samples`, `surface_pair_edge_samples`) at the canonical chord density `RENDER_CHORD_TOLERANCE_REL` — the same polygon the render CDT triangulates (crate hard rule 5, one engine). Net winding, the band/apex-cap `mean_h` rules and every other tier are untouched (`mean_h` still reads loop VERTICES only). The quartic `SurfacePair` chart image has no closed form, so unlike the planar arm this is the canonical chart polygon rather than an exact integral — the exact closed forms for the conic arms (`h(θ)` sinusoidal on a cylinder, `τ(θ) = D/(n·â + tanα·B·cos(θ−φ))` on a cone) are the open refinement |
 | N72 | RESOLVED (2026-10-03, P0016) | Stage 1 sizes every curved chart against ONE operand-level chord budget (`stage1_tessellate`'s `operand_chord_budget` = `curved_chord_bound`, else `ellipse_rim_chord_bound`), whose own comment names it "the operand's chord budget **as Stage 3/4 read it back**". Only the CYLINDER arms read it back (Stage 3 `chord_tol_for_curved_owner`, with the KV14 ellipse/hyperbola and M5 K11 surface-pair rungs; Stage 4 `input_curved_chord_bound`). BOTH CONE arms — Stage-3 `cone_chord_tol_for_owner` and Stage-4 `cone_chord_budget_from_owner` — instead demanded a `Curve::Circle` rim and called its absence a "producer fault", so a cone PATCH re-entering from a prior boolean, bounded by conic chains alone, STOPped on a band the operand demonstrably carried. P0016 measured it: the cone-owning operand's edge census was 2 ellipses + 6 hyperbolas + 10 segments, ZERO circles, and the Stage-3 STOP read `AmbiguousCurve { candidates: 0, matched: 0 }` — not an ambiguity (`ssi_rs::intersect` was never reached) and not §4.3.3's Case IV either, which is a disposition for a solve that RAN ("if there is no solution in one of the two parametric domains …", `refs/text/yang2025_hybrid_boolean.txt:518-537`). Fixing the Stage-3 arm alone moved the STOP one stage down to the Stage-4 twin (`LocalRefinementRequired`, probe site `cone_ellipse_budget`), where the §4.5.2 ladder could not help — `d_ε/2` and `d_ε/4` took the operand 20 → 20 → 22 triangles, because a missing band is not a resolution problem. Both arms now delegate to one single source, `owner_stage1_chord_budget`; the per-band N38 bound still wins wherever a rim Circle exists (every circle-rimmed cone case byte-identical, the multi-band gear revolve included) and the loud producer fault survives for an owner with no curved rim at all. Pins `crates/yang-rs/src/tests_unit/n71_cone_band_readback.rs`; `YANG_S3_AMBIG_PROBE` extended to all four producers of that one error text, without which a `{0,0}` cannot be localized at all |
+| N74 | OPEN (2026-10-03, P0020; remediation = `specs/yang_tangency_pinch_split.md` §0b, per-SHEET faces at Stage-6 emission; netted loud meanwhile by the typed `YangError::Stage1SelfTouchingLoop` at the consumer) | The Stage-4 `(4a2)` pass `split_pinch_vertices` correctly gives each SHEET of a self-touching boundary its own mesh vertex at the shared position (spec §0a, the 4-valent edge pinch certified by the `2 x (A, face) + 2 x (B, face)` attribution-plus-orientation signature, no tolerance involved), but Stage 6 emits output vertices 1:1 with `mesh.verts` and walks patch boundaries, so BOTH sheets land in the SAME output face: the emitted B-Rep face loop visits one position twice through two distinct vertices. kernel-v2's 2-manifold face model cannot carry that, and the next boolean's Stage-1 chart cannot triangulate it (the domain is two closed regions meeting at a point, and the zero-width slit between them carries boundary chains the neighbouring faces also use). Spec §0b already named this as the next increment ("the split sheets have to become separate FACES with their own edges and loops") and §0c recorded the render-side twin as a known fragility with no corpus case; **P0020 is the B-Rep-side corpus case**. Measured there: a cylinder lateral pinched at two contacts of 2.507e-6 and 6.155e-6, i.e. 25x and 62x the paper's single distance tolerance d_p = 1e-7 (`refs/text/yang2025_hybrid_boolean.txt:745-748`), so this is capability and NOT tolerance: a sub-resolution refusal in the edge-pinch arm was written, measured and reverted (it does not fire), the emitted mesh carries ZERO sub-d_p edges at every checkpoint, and KV15b's shortest Sec-4.3 candidate segment is 2.115e-7, above its own band. New instruments kept: `YANG_COINCIDENT_PROBE` (per-checkpoint census of distinct mesh vertices at bit-identical positions and of sub-d_p edges), `YANG_HOLED_DUP_PROBE`, `YANG_KV9_TWIN_PROBE`, `YANG_KV15B_PROBE`, plus pinch-edge LENGTHS on `YANG_EDGE_PINCH_PROBE` and Stage-4 ENTRY positions on `YANG_I1D_RELOC_PROBE` |
 | #137 diag | HISTORICAL | #137 (2026-07-15): C0065/R0074 — the torus∩plane solver EXISTS and RUNS; the blocker is mesh RESOLUTION nea… |
 | #137 diag 2 | HISTORICAL | #137 (2026-07-15, follow-up): resolution ALONE is not the fix — it flips the loud STOP into a silent-wrong … |
 
-**OPEN count: 2** (N68 RESOLVED 2026-10-03 late night; N2 — its remit includes the §4.5.4 removal half transferred from N6 at the 2026-07-17 user-ratified closure; N60 RESOLVED 2026-08-26 — and N67, added 2026-10-03 with its remediation tracked in `specs/yang_p0013_tip_land_under_the_chord.md` §4 P3; and N69, added 2026-10-03 — the §5 ray-graze gap, netted loud meanwhile). Capability gaps that are roadmap milestones, not deviations: M8 coplanar residue (task #130), M5 degree-4 SSI, KV6 revolve tail, #137 grazing-corner epic.
+**OPEN count: 3** (N74, added 2026-10-03 night — the Stage-6 pinch-sheet emission gap, netted loud at the consumer; N68 RESOLVED 2026-10-03 late night; N2 — its remit includes the §4.5.4 removal half transferred from N6 at the 2026-07-17 user-ratified closure; N60 RESOLVED 2026-08-26 — and N67, added 2026-10-03 with its remediation tracked in `specs/yang_p0013_tip_land_under_the_chord.md` §4 P3; and N69, added 2026-10-03 — the §5 ray-graze gap, netted loud meanwhile). Capability gaps that are roadmap milestones, not deviations: M8 coplanar residue (task #130), M5 degree-4 SSI, KV6 revolve tail, #137 grazing-corner epic.
 
 ---
 
@@ -5100,3 +5101,78 @@ C0109, the other open row carrying this error text, was probed and does NOT
 share the locus (internally tangent spheres, centre distance 0.2 = 0.5 − 0.3,
 where `ssi_rs::intersect` correctly returns nothing — the degenerate-tangency
 vocabulary gap at the selector site, loud by design).
+
+
+---
+
+## N74 — Stage 6 emits a pinch's two SHEETS into ONE face, so the emitted B-Rep loop touches itself (P0020)
+
+**State: OPEN (2026-10-03, P0020; remediation = `specs/yang_tangency_pinch_split.md`
+§0b, per-SHEET faces at Stage-6 emission. Netted loud meanwhile by the typed
+`YangError::Stage1SelfTouchingLoop` at the consumer.)**
+
+**Paper.** Yang's pipeline reassembles a B-Rep whose faces are trimmed regions
+of analytic surfaces, each triangulated through its own parametric domain
+(§4.1: the u-v domain is triangulated and the boundary CDT'd into it). A
+domain is a region bounded by its loops' images; a loop that returns to one
+point bounds two closed regions meeting at a point, which is not one domain.
+The paper never addresses a self-touching face because its reassembly (§4.5)
+takes the mesh's own per-sheet structure as given — and the method's single
+distance tolerance d_p = 1e-7 (§5, `refs/text/yang2025_hybrid_boolean.txt:
+745-748`) is what decides whether a contact is a feature at all. Here it
+plainly is: the measured contacts are 2.507e-6 and 6.155e-6, 25× and 62× d_p.
+
+**Mechanism.** kernel-v2's Stage-4 `(4a2)` pass `split_pinch_vertices`
+(`crates/yang-rs/src/stage4_relocate.rs`; spec `yang_tangency_pinch_split`
+§0a, flipped always-on 2026-09-13 for F0060) correctly gives each SHEET of a
+self-touching boundary its own mesh vertex at the shared position — the
+4-valent edge pinch, certified by the `2 × (A, face) + 2 × (B, face)`
+attribution-plus-orientation signature, no tolerance involved. Stage 6 then
+emits output vertices 1:1 with `mesh.verts` and walks patch boundaries, so
+both sheets land in the SAME output face: its loop visits one position twice,
+through two distinct B-Rep vertices. The spec's own §0b already named this as
+the next increment ("the split sheets have to become separate FACES with their
+own edges and loops"), and §0c recorded the render-side twin as a known
+fragility with no corpus case. P0020 is the B-Rep-side corpus case.
+
+**Measured (P0020, 2026-10-03; full anchor in `docs/yang_tail_triage.md`).**
+A cylinder boss intersected with a 12-tooth gear prism, then intersected with
+a square prism. The first Intersect's cylinder lateral (radius
+0.05545100572570601, axis +Y) is pinched at two points; `YANG_COINCIDENT_PROBE`
+reads 0 coincident output-vertex groups through `before-validate` and 2
+immediately after `(4a2)`, with `YANG_EDGE_PINCH_PROBE` naming
+`edge (1012,1015) CERTIFIED (len=2.507e-6)` and
+`edge (1033,1036) CERTIFIED (len=6.155e-6)`. The emitted face loop then runs
+`g41 → g42 → g43` with `g43` bit-identical to `g41` in world space (|Δ| =
+0e0), the two spur edges carrying the SAME `Ellipse` with opposite `normal`
+sign. The SECOND Intersect's Stage 1 cannot chart it.
+
+**Why this is not a tolerance.** A sub-resolution refusal in the edge-pinch
+arm was written, measured and reverted in the same session: both contacts are
+far above d_p, the gate did not fire, and the case was unchanged. The emitted
+mesh carries ZERO sub-d_p edges at every checkpoint, and KV15b's shortest §4.3
+candidate segment is 2.115e-7, above its own band. There is no collapse to
+make and no band to widen: the solid genuinely pinches, and the gap is the
+B-Rep's ability to say so.
+
+**Remediation.** Spec `yang_tangency_pinch_split.md` §0b — Stage-6 per-SHEET
+face emission, with the point split closing the loops it opens. The cheap
+interim alternative, a producer-side Stage-6 refusal of any face loop that
+visits one position twice, would move P0020's failure to the op that mints it
+(more honest than failing one boolean later) but is a corpus-wide flip: C0058
+and F0060 are SUPPORTED_CORRECT *because* the pinch is tolerated downstream.
+It therefore needs a full categorized assay in its own cycle, the same
+disposition N69 took.
+
+**Netted loud meanwhile.** `tessellate_lateral_holed_cdt` now refuses a
+self-touching chart with `YangError::Stage1SelfTouchingLoop { face, vertices,
+point }` — raised only on BIT-EXACT world coincidence of two distinct boundary
+vertices, so a chart-only collision keeps the pre-existing CDT path. Before,
+the same input surfaced `cherchi-rs`'s `duplicate (coincident) loop vertex in
+CDT input` inside `MalformedTopology`: equally loud, but naming neither the
+pair, nor the pinch, nor the producer — which is why the ledger row had been
+read as a ULP-twin family. Pins
+`crates/yang-rs/src/tests_unit/s1_self_touching_loop.rs` (mutation-checked
+both ways: gate off ⇒ the fixture reproduces the original text verbatim; a
+thin notch 5e-4 rad wide still tessellates with every boundary vertex
+present).
