@@ -1,0 +1,73 @@
+{
+  "id": "P0029",
+  "description": "prospector seed 3 index 109 UN-MINIMIZED (5 ops, convex4:sym convex8:cut convex3:union circle:cut nonconvex6:rev-cut): the same 'reassembled output would be non-2-manifold' text at a DIFFERENT site — s4-dc-attr, a doubled directed edge (17,18) fwd=2 rev=2 between an A plane and a B plane. Its minimum collapsed onto the s6-planar-loop site (promoted separately), so this lineage keeps the Stage-4 locus. derived_meta; the pin IS the expectation.",
+  "master_seed": 0,
+  "test_seed": 0,
+  "scale": 116.72397570247709,
+  "log_scale": 2.067160071519409,
+  "plane_origin": [
+    0.0,
+    0.0,
+    0.0
+  ],
+  "plane_normal": [
+    0.0,
+    0.0,
+    1.0
+  ],
+  "operations": [
+    {
+      "kind": "extrude",
+      "profile_type": "unknown",
+      "profile_size": 0.0,
+      "depth_or_angle": 17.155745093009863,
+      "is_cut": false
+    },
+    {
+      "kind": "extrude",
+      "profile_type": "unknown",
+      "profile_size": 0.0,
+      "depth_or_angle": 22.531628892196178,
+      "is_cut": true
+    },
+    {
+      "kind": "extrude",
+      "profile_type": "unknown",
+      "profile_size": 0.0,
+      "depth_or_angle": 55.97415036975958,
+      "is_cut": false
+    },
+    {
+      "kind": "boolean-union",
+      "profile_type": "none",
+      "profile_size": 0.0,
+      "depth_or_angle": 0.0,
+      "is_cut": false
+    },
+    {
+      "kind": "extrude",
+      "profile_type": "unknown",
+      "profile_size": 0.0,
+      "depth_or_angle": 116.72397570247709,
+      "is_cut": true
+    },
+    {
+      "kind": "revolve",
+      "profile_type": "unknown",
+      "profile_size": 0.0,
+      "depth_or_angle": 193.78187032754602,
+      "is_cut": true
+    }
+  ],
+  "oracles": {
+    "euler_target": 2,
+    "expect_watertight": true,
+    "max_bbox_extent": 11672.39757024771,
+    "expect_positive_volume": true,
+    "volume_monotonicity": [],
+    "expect_rebuild_error": false,
+    "derived_meta": true
+  },
+  "generator_version": 100,
+  "featured": true
+}

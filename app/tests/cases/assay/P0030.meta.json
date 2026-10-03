@@ -1,0 +1,52 @@
+{
+  "id": "P0030",
+  "description": "prospector seed 3 index 72, minimized 7->3 ops (convex4:boss circle:rev convex4:boss): auto-union 'reassembled output would be non-2-manifold', site s6-curved-empty-cycles face 0 — a curved face whose reassembly cycle set is EMPTY. A third site for this text (not s6-planar-loop, not s4-dc-attr). x1e3 identical; x1e-3 drops the 4.2e-4 input segment below MIN_FEATURE_SIZE and hits the A14.2 degenerate-face wall instead. derived_meta; the pin IS the expectation.",
+  "master_seed": 0,
+  "test_seed": 0,
+  "scale": 0.002,
+  "log_scale": -2.6989700043360187,
+  "plane_origin": [
+    0.0,
+    0.0,
+    0.0
+  ],
+  "plane_normal": [
+    1.0,
+    0.0,
+    0.0
+  ],
+  "operations": [
+    {
+      "kind": "extrude",
+      "profile_type": "unknown",
+      "profile_size": 0.0,
+      "depth_or_angle": 0.0003,
+      "is_cut": false
+    },
+    {
+      "kind": "revolve",
+      "profile_type": "unknown",
+      "profile_size": 0.0,
+      "depth_or_angle": 360.0,
+      "is_cut": false
+    },
+    {
+      "kind": "extrude",
+      "profile_type": "unknown",
+      "profile_size": 0.0,
+      "depth_or_angle": 0.002,
+      "is_cut": false
+    }
+  ],
+  "oracles": {
+    "euler_target": 2,
+    "expect_watertight": true,
+    "max_bbox_extent": 0.2,
+    "expect_positive_volume": true,
+    "volume_monotonicity": [],
+    "expect_rebuild_error": false,
+    "derived_meta": true
+  },
+  "generator_version": 100,
+  "featured": true
+}

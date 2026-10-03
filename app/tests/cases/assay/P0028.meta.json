@@ -1,0 +1,45 @@
+{
+  "id": "P0028",
+  "description": "prospector seed 3 index 109, minimized 5->2 ops (convex4:boss circle:cut): yang-rs 'reassembled output would be non-2-manifold', site s6-planar-loop-nonplanar (NONMANIFOLD_SITE_PROBE: face 5 vertex 0 sits 3.604e-1 off its own plane against a 3.500e-6 band) — a relocation left its planar face. Same class at x1e-3 and x1e3. derived_meta; the pin IS the expectation.",
+  "master_seed": 0,
+  "test_seed": 0,
+  "scale": 120.0,
+  "log_scale": 2.0791812460476247,
+  "plane_origin": [
+    0.0,
+    0.0,
+    0.0
+  ],
+  "plane_normal": [
+    0.0,
+    0.0,
+    1.0
+  ],
+  "operations": [
+    {
+      "kind": "extrude",
+      "profile_type": "unknown",
+      "profile_size": 0.0,
+      "depth_or_angle": 34.0,
+      "is_cut": false
+    },
+    {
+      "kind": "extrude",
+      "profile_type": "unknown",
+      "profile_size": 0.0,
+      "depth_or_angle": 120.0,
+      "is_cut": true
+    }
+  ],
+  "oracles": {
+    "euler_target": 2,
+    "expect_watertight": true,
+    "max_bbox_extent": 12000.0,
+    "expect_positive_volume": true,
+    "volume_monotonicity": [],
+    "expect_rebuild_error": false,
+    "derived_meta": true
+  },
+  "generator_version": 100,
+  "featured": true
+}

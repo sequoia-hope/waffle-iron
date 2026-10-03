@@ -1,6 +1,6 @@
 {
   "master_seed": 42,
-  "count": 336,
+  "count": 351,
   "generator_version": 4,
   "cases": [
     {
@@ -2353,6 +2353,111 @@
       "filename": "P0024.waffle",
       "meta_filename": "P0024.meta.json",
       "description": "3 ops, scale=2.00e-2, extrude(rectangle,boss)+extrude(rectangle,boss)+boolean-union — Two 10 mm cubes meeting along ONE EDGE, flush in the third axis, authored 2026-10-03 as the document-level companions of the kernel-v2 pin crates/kernel-v2/tests/p0023_edge_contact_boolean.rs. Both rectangles are profiles of ONE sketch offset a full side in BOTH in-plane axes, so the two prisms share exactly one edge (along the plane normal) and their cap faces are coplanar (4 Stage-0 cross pairs, each with ZERO-area overlap: a point for the two cap pairs, the shared segment for the two side pairs). Measured operands: A = x[0,0.01] y[-0.01,0] z[0,0.01], B = x[0.01,0.02] y[-0.02,-0.01] z[0,0.01]. WHY THE SILENT WRONG IS NOT PINNED HERE: the defect is RAY-ORIGIN dependent. Cherchi 2022 §5 picks the first non-border explicit patch vertex and casts +X; when that vertex sits on the shared edge the ray runs ALONG an edge of the other operand, never crosses it transversally, and the degenerate ring resolution counts exactly ONE hit, so the nearest-hit orientation labels all of A inside B (Intersect then returns a copy of A, Union drops an operand - the measured silent wrong, reproduced deterministically in the kernel-v2 pin, where the operand vertex order is the test's to choose). Through the document path Stage 1 emits an order whose chosen origin is A's FAR corner (0.01, 0, 0.01), whose +X ray at y = 0 misses B's y[-0.02,-0.01] entirely - a clean ray and correct labels (inside [false,false] on both patches, CHERCHI_INOUT_PROBE). So these two cases pin the HONEST answers for the configuration; the wrong answer is pinned one crate down. The C++ reference mesh_booleans was measured producing byte-identical wrong labels and the same operand-copy output on the unlucky ordering, so the port is in parity and the method - not the port - has no answer there (deviation N69; the structural fix is graze-aware ray selection). The P10 containment net InsideOutError::InnerLabelOutsideInputBounds makes the unlucky ordering LOUD in the meantime. THIS CASE: the explicit BooleanCombine Union. A ∪ B is NON-MANIFOLD at the shared segment - four faces meet along it and the solid pinches to a line - and kernel-v2 represents only 2-manifold solids, so the adjudicated answer is a LOUD REFUSAL (or two bodies, if the product's data model later says so), never a silent operand drop. Measured: the labeling keeps all 24 triangles (correct) and reassembly refuses with InvalidBooleanOutput(\"an undirected output edge is not used by exactly two directed edges\") - the non-manifold edge said out loud. Hand-adjudicated meta: expect_rebuild_error true. The pin is that this refusal stays LOUD; if a future slice returns two bodies instead, re-adjudicate to expected_solid_count 2 - what it must never do is return one operand.",
+      "featured": true
+    },
+    {
+      "id": "P0025",
+      "filename": "P0025.waffle",
+      "meta_filename": "P0025.meta.json",
+      "description": "prospector seed 3 index 126, minimized 5->4 ops (convex4:boss circle:boss circle:boss convex3:intersect): Stage-4 LocalRefinementRequired at stage4_correct.rs:12318 — the KV9 ellipse x ellipse junction relocation, whose two cutting planes' normals are parallel so the plane-pair line is underivable (|n1 x n2| < MIN_FEATURE_SIZE). 13 of the 32 seed-3 ERROR rows raise at this exact site. derived_meta; the pin IS the expectation.",
+      "featured": true
+    },
+    {
+      "id": "P0026",
+      "filename": "P0026.waffle",
+      "meta_filename": "P0026.meta.json",
+      "description": "prospector seed 3 index 54, minimized 5->3 ops (circle:boss circle:cut convex4:cut): Stage-4 LocalRefinementRequired at stage4_correct.rs:13065 — the surface_pair_endpoint_mix decline. A DIFFERENT site from the un-minimized lineage (10805, promoted separately). derived_meta; the pin IS the expectation.",
+      "featured": true
+    },
+    {
+      "id": "P0027",
+      "filename": "P0027.waffle",
+      "meta_filename": "P0027.meta.json",
+      "description": "prospector seed 3 index 54 UN-MINIMIZED (5 ops, circle:boss circle:cut convex5:thru circle:cut convex8:thru): Stage-4 LocalRefinementRequired at stage4_correct.rs:10805 — the line x line junction the comment there calls out of scope (a vertex claimed by two DIFFERENT plane-pair line relocations). Its minimum moved to a different site (13065), so this lineage is promoted un-minimized to keep the locus. derived_meta; the pin IS the expectation.",
+      "featured": true
+    },
+    {
+      "id": "P0028",
+      "filename": "P0028.waffle",
+      "meta_filename": "P0028.meta.json",
+      "description": "prospector seed 3 index 109, minimized 5->2 ops (convex4:boss circle:cut): yang-rs 'reassembled output would be non-2-manifold', site s6-planar-loop-nonplanar (NONMANIFOLD_SITE_PROBE: face 5 vertex 0 sits 3.604e-1 off its own plane against a 3.500e-6 band) — a relocation left its planar face. Same class at x1e-3 and x1e3. derived_meta; the pin IS the expectation.",
+      "featured": true
+    },
+    {
+      "id": "P0029",
+      "filename": "P0029.waffle",
+      "meta_filename": "P0029.meta.json",
+      "description": "prospector seed 3 index 109 UN-MINIMIZED (5 ops, convex4:sym convex8:cut convex3:union circle:cut nonconvex6:rev-cut): the same 'reassembled output would be non-2-manifold' text at a DIFFERENT site — s4-dc-attr, a doubled directed edge (17,18) fwd=2 rev=2 between an A plane and a B plane. Its minimum collapsed onto the s6-planar-loop site (promoted separately), so this lineage keeps the Stage-4 locus. derived_meta; the pin IS the expectation.",
+      "featured": true
+    },
+    {
+      "id": "P0030",
+      "filename": "P0030.waffle",
+      "meta_filename": "P0030.meta.json",
+      "description": "prospector seed 3 index 72, minimized 7->3 ops (convex4:boss circle:rev convex4:boss): auto-union 'reassembled output would be non-2-manifold', site s6-curved-empty-cycles face 0 — a curved face whose reassembly cycle set is EMPTY. A third site for this text (not s6-planar-loop, not s4-dc-attr). x1e3 identical; x1e-3 drops the 4.2e-4 input segment below MIN_FEATURE_SIZE and hits the A14.2 degenerate-face wall instead. derived_meta; the pin IS the expectation.",
+      "featured": true
+    },
+    {
+      "id": "P0031",
+      "filename": "P0031.waffle",
+      "meta_filename": "P0031.meta.json",
+      "description": "prospector seed 3 index 57, minimized 3->3 ops (circle:boss nonconvex6:boss star3(0.15):cut): kernel-v2 SelfIntersectingBooleanOutput, faces FaceId(32) CYLINDER x FaceId(55) PLANE, 3 penetrations (KV2_SELFX_SITE_PROBE). Not P0021's family (that one is cylinder x cylinder) and not P0007's (its cylinder rim IS an EllipseArc here). Same class at x1e-3 and x1e3. derived_meta; the pin IS the expectation.",
+      "featured": true
+    },
+    {
+      "id": "P0032",
+      "filename": "P0032.waffle",
+      "meta_filename": "P0032.meta.json",
+      "description": "prospector seed 3 index 80, minimized 6->2 ops (convex5:boss circle:rev-cut): kernel-v2 SelfIntersectingBooleanOutput, faces FaceId(10) PLANE x FaceId(13) TORUS, 9 penetrations — the torus arm of the output self-intersection gate, distinct from the cylinder x plane pair. Identical face ids and class at x1e-3 AND x1e3. derived_meta; the pin IS the expectation.",
+      "featured": true
+    },
+    {
+      "id": "P0033",
+      "filename": "P0033.waffle",
+      "meta_filename": "P0033.meta.json",
+      "description": "prospector seed 3 index 166, minimized 5->4 ops (convex4:boss convex8:rev circle:boss convex4:cut): kernel-v2 TessellationFailed 'patch triangulation folded (inverted triangle) — KV9-F2' on FaceId(45) — the render tessellator's unrolled ear-clip produced inward-facing geometry. This is the signature the un-minimized P0004 lineage was left STOPping on (2026-09-28), with no corpus customer since. Same class at x1e-3 and x1e3. derived_meta; the pin IS the expectation.",
+      "featured": true
+    },
+    {
+      "id": "P0034",
+      "filename": "P0034.waffle",
+      "meta_filename": "P0034.meta.json",
+      "description": "prospector seed 3 index 71, minimized 7->4 ops (convex4:boss convex6:rev circle:boss circle:thru): kernel-v2 TessellationFailed 'surface-pair projection left the chord neighborhood' on FaceId(29). x1e3 identical; x1e-3 drops the 1.0e-4 input segment to 1.0e-7, below MIN_FEATURE_SIZE, and reads the OnAxis wall instead. derived_meta; the pin IS the expectation.",
+      "featured": true
+    },
+    {
+      "id": "P0035",
+      "filename": "P0035.waffle",
+      "meta_filename": "P0035.meta.json",
+      "description": "prospector seed 3 index 90, minimized 6->2 ops (convex4:sym circle:boss): auto-union TessellationFailed 'patch triangle collapsed at render precision' on FaceId(12) — P0001's error text at a new locus (P0001 CONVERTED 2026-09-27 via the 4.5.5 edge-in-plane rule). x1e3 identical; x1e-3 (segment 1.28e-6, 1.3x the feature floor) reads 'malformed B-Rep topology: interior junction'. derived_meta; the pin IS the expectation.",
+      "featured": true
+    },
+    {
+      "id": "P0036",
+      "filename": "P0036.waffle",
+      "meta_filename": "P0036.meta.json",
+      "description": "prospector seed 3 index 102, minimized 7->3 ops (convex4:boss circle:rev circle:cut): kernel-v2 TessellationFailed 'ring rejected by CDT (degenerate/self-intersecting)' on FaceId(51) — the text of P0002 and P0013, both CONVERTED, so a third locus. x1e3 identical; x1e-3 drops the 1.41e-4 segment below MIN_FEATURE_SIZE and reads a Stage-3 AmbiguousCurve. derived_meta; the pin IS the expectation.",
+      "featured": true
+    },
+    {
+      "id": "P0037",
+      "filename": "P0037.waffle",
+      "meta_filename": "P0037.meta.json",
+      "description": "prospector seed 3 index 189, minimized 5->3 ops (circle:boss circle:cut convex4:boss): auto-union input rejection 'Stage-1 mesh of one operand self-intersects: 17 improper triangle contact(s) (0 unresolved; first between faces 0 and 2) after 4 refinement round(s): a face's chord band reaches another face of the same solid'. x1e3 same class; x1e-3 reads SUPPORTED_CORRECT — a scale-SENSITIVE contact (recorded, not explained). derived_meta; the pin IS the expectation.",
+      "featured": true
+    },
+    {
+      "id": "P0038",
+      "filename": "P0038.waffle",
+      "meta_filename": "P0038.meta.json",
+      "description": "prospector seed 3 index 129, minimized 8->4 ops (convex4:boss convex4:boss circle:boss convex4:cut): yang-rs input rejection 'malformed B-Rep topology: face 328: bounded lateral patch spans 6.9927 rad of azimuth unwrapped (>= 2pi): no seam wedge for a single-sheet unroll' — a cylinder patch whose own boundary wraps past a full turn, so Stage 1 has no wedge to cut the single-sheet unroll at. Same class at x1e-3 and x1e3. derived_meta; the pin IS the expectation.",
+      "featured": true
+    },
+    {
+      "id": "P0039",
+      "filename": "P0039.waffle",
+      "meta_filename": "P0039.meta.json",
+      "description": "prospector seed 3 index 42, minimized 7->3 ops (nonconvex9:boss circle:boss gear23:boss): auto-union Stage-4 'relocation region around vertex 197 is invalid: RelocationCrossedCarrierVertex' raised at stage4_correct.rs:8605 — P0015's error text (CONVERTED 2026-10-03 by letting the 4.5.2 ladder run past its ceiling) with a residual customer on the auto-union path. Same class at x1e-3 and x1e3. Smallest authored segment 2.3862e-5 = 23.9 x MIN_FEATURE_SIZE, the tightest of the seed-3 promotions. derived_meta; the pin IS the expectation.",
       "featured": true
     }
   ]

@@ -1754,6 +1754,130 @@ fn smoke_corpus_boundary_categories() {
         // no longer reaches that wall, and the case is CORRECT end to end.
         // That loud family has NO corpus customer again.
         ("P0022", Category::SupportedCorrect),
+        // P0025–P0039 PROMOTED 2026-10-03 (late night) — prospector seed 3 ×
+        // 200 candidates (164 CORRECT / 32 ERROR / 3 WRONG / 1 TIMEOUT),
+        // adjudicated per `specs/assay_prospector.md` §8. Full narrative,
+        // per-case evidence and the duplicates table:
+        // `docs/yang_tail_triage.md` §"2026-10-03 (late night)".
+        //
+        // Seed 3 promoted by SITE, not by error text. The 32 ERROR rows are
+        // twelve families by text but **fifteen** distinct raising sites once
+        // each row is probed (`YANG_LRR_PROBE` prints `loc=<file>:<line>
+        // reason=… v=<vertex>` at every Stage-4 region-invalid return;
+        // `NONMANIFOLD_SITE_PROBE`; `KV2_SELFX_SITE_PROBE`), and a site is
+        // what a conversion session can act on. All fifteen are ERROR-class
+        // pins with `derived_meta` — the categorizer returns before any oracle
+        // runs, so the pin IS the expectation and a conversion moves it. Each
+        // is 0.1–10.2 s under `single_case`, and each is above the input
+        // feature floor (tightest: P0039 at 23.9 × MIN_FEATURE_SIZE).
+        //
+        // None of seed 3's three `wrong[exact_volume]` rows is promoted: all
+        // three are ORACLE defects, the opposite of seed 2. Two are the
+        // ledgered cut-auto-reversal hole (authoring the engine's own traced
+        // `direction` leaves the kernel volume byte-identical and flips the
+        // document to CORRECT); the third is a NEW harness defect reduced to
+        // 4 ops — once a cut ANNIHILATES a body, the exact chain applies the
+        // NEXT cut to the dead body and removes nothing, while ray-cast
+        // integration of the authored prism against the analytic cylinder
+        // gives the overlap as 9.463250e-8 against the kernel's 9.4598e-8.
+        //
+        // P0025 (4 ops) ⇒ Stage-4 `LocalRefinementRequired` at
+        // `stage4_correct.rs:12318`, the PR-KV9 ellipse×ellipse junction
+        // relocation: its two cutting planes are PARALLEL, so |n₁ × n₂| falls
+        // below MIN_FEATURE_SIZE and the plane-pair line the junction is
+        // derived from does not exist. **14 of the 32 ERROR rows raise at this
+        // one line** (three report signatures — subtract, union, intersect —
+        // measured row by row), so this is the seed's largest single site.
+        ("P0025", Category::Error),
+        // P0026 / P0027 are the SAME document family at two DIFFERENT sites,
+        // which is why both are here. Index 54's un-minimized lineage STOPs at
+        // `stage4_correct.rs:10805` (`line_line_junction` — a vertex claimed by
+        // two different plane-pair line relocations, which the comment there
+        // calls out of scope); its 3-op minimum STOPs at `13065`
+        // (`surface_pair_endpoint_mix`). The minimizer keeps a reduction when
+        // the signature STRING is byte-identical, and the string does not see
+        // the site — seed 1's hazard (rounding mints a contact) from a new
+        // direction. P0027 is therefore pinned UN-MINIMIZED to keep its locus.
+        ("P0026", Category::Error),
+        ("P0027", Category::Error),
+        // P0028 / P0029 / P0030: one error text, `reassembled output would be
+        // non-2-manifold`, at THREE sites. P0028 (2 ops — a square boss and a
+        // circle cut, the smallest finding of the seed) is
+        // `s6-planar-loop-nonplanar`: face 5 vertex 0 sits 3.604e-1 off its own
+        // plane against a 3.500e-6 band, so a relocation left its planar face.
+        // P0029 is index 109 UN-MINIMIZED, because its minimum collapsed onto
+        // P0028's site while the lineage STOPs at `s4-dc-attr` — a doubled
+        // directed edge (17,18) fwd=2 rev=2 between an A plane and a B plane,
+        // the Stage-4 membrane shape. P0030 is `s6-curved-empty-cycles: face
+        // 0`, a curved face whose reassembly cycle set is EMPTY. (Index 98 is
+        // a duplicate of P0028, not a fourth site: its own minimum reads face
+        // 15 vertex 44, 7.482e-3 off plane against a 1.129e-7 band.)
+        ("P0028", Category::Error),
+        ("P0029", Category::Error),
+        ("P0030", Category::Error),
+        // P0031 / P0032: `SelfIntersectingBooleanOutput` at kernel-v2's output
+        // gate, on two different SURFACE PAIRS. P0031 is FaceId(32) CYLINDER ×
+        // FaceId(55) PLANE with 3 penetrations — neither P0021's family
+        // (cylinder × cylinder, converted 2026-10-03 by the N75 finite-extent
+        // ladder) nor P0007's (the cylinder's rim here IS an `EllipseArc`, so
+        // the §4.4.2 carried-edge restoration did its job). P0032 is FaceId(10)
+        // PLANE × FaceId(13) TORUS with 9 penetrations, the torus arm — 2 ops,
+        // and identical face ids AND penetration count at ×1e-3 and ×1e3.
+        ("P0031", Category::Error),
+        ("P0032", Category::Error),
+        // P0033 (4 ops) ⇒ `TessellationFailed "patch triangulation folded
+        // (inverted triangle) — KV9-F2"` on FaceId(45), kernel-v2's render
+        // tessellator. This is the signature the UN-MINIMIZED P0004 lineage
+        // was left STOPping on when P0004 converted (2026-09-28) and which has
+        // had no corpus customer since; the ledger called it "a NEW signature
+        // to re-minimize", and this is it. (Index 85 carries the same site at
+        // 621 s CPU, so the 4-op minimum is the representative.)
+        ("P0033", Category::Error),
+        // P0034 (4 ops) ⇒ `TessellationFailed "surface-pair projection left
+        // the chord neighborhood"` on FaceId(29). Its ×1e-3 class change is
+        // the input floor, not a second finding: the smallest authored segment
+        // is 1.0e-4 (100 × MIN_FEATURE_SIZE), which ×1e-3 puts at 1.0e-7.
+        ("P0034", Category::Error),
+        // P0035 (2 ops — a symmetric square boss and a circle boss) ⇒
+        // auto-union `TessellationFailed "patch triangle collapsed at render
+        // precision"`. P0001's error text, CONVERTED 2026-09-27 by the §4.5.5
+        // edge-in-plane conformity rule, now reached by two plain bosses. At
+        // ×1e-3 its smallest segment is 1.28e-6 — 1.3 × the floor — and the
+        // class becomes `malformed B-Rep topology: interior junction`: a
+        // genuine near-floor sensitivity, recorded rather than explained.
+        ("P0035", Category::Error),
+        // P0036 (3 ops) ⇒ `TessellationFailed "ring rejected by CDT
+        // (degenerate/self-intersecting)"` on FaceId(51) — the text of P0002
+        // (converted 2026-09-27) AND P0013 (converted 2026-10-03, the §4.3.3
+        // local-form guard), so a third locus for the family CLAUDE.md records
+        // as having no customer left. ×1e-3 drops its 1.41e-4 segment below
+        // the floor and reads Stage-3 `AmbiguousCurve` instead.
+        ("P0036", Category::Error),
+        // P0037 (3 ops) ⇒ an INPUT rejection: `Stage-1 mesh of one operand
+        // self-intersects: 17 improper triangle contact(s) (0 unresolved;
+        // first between faces 0 and 2) after 4 refinement round(s)` — a face's
+        // chord band reaching another face of the SAME solid, after four
+        // rounds of refinement failed to separate them. Note the asymmetry
+        // worth reading at the conversion: 17 improper contacts and ZERO
+        // unresolved. **At ×1e-3 this case reads SUPPORTED_CORRECT** with its
+        // smallest segment at 2.83e-2, far above the floor — a scale-SENSITIVE
+        // contact, so the finding is the band's absolute behaviour, not the
+        // geometry alone.
+        ("P0037", Category::Error),
+        // P0038 (4 ops) ⇒ `malformed B-Rep topology: face 328: bounded lateral
+        // patch spans 6.9927 rad of azimuth unwrapped (≥ 2π): no seam wedge
+        // for a single-sheet unroll` — a cylinder patch whose own boundary
+        // wraps past a full turn, so Stage 1 has nowhere to cut the
+        // single-sheet unroll. Same class at ×1e-3 and ×1e3.
+        ("P0038", Category::Error),
+        // P0039 (3 ops) ⇒ auto-union Stage-4 `RelocationCrossedCarrierVertex`
+        // at `stage4_correct.rs:8605` — P0015's error text (CONVERTED
+        // 2026-10-03 evening, when the §4.5.2 under-resolution certificate
+        // stopped vetoing its own ladder) with a residual customer on the
+        // AUTO-UNION path. Its smallest authored segment is 2.3862e-5 =
+        // 23.9 × MIN_FEATURE_SIZE, the tightest of the seed-3 promotions and
+        // still clear of the floor; same class at ×1e-3 and ×1e3.
+        ("P0039", Category::Error),
     ];
     // Per-case CPU budget, expressed in RELEASE-equivalent seconds and scaled
     // for debug. `scripts/test.sh` runs test-harness WITHOUT `--release`, and
@@ -1859,8 +1983,8 @@ fn full_corpus_categorized() {
     let cases = discover_cases(&dir);
     assert_eq!(
         cases.len(),
-        336,
-        "expected the 336-case assay corpus (194 legacy + 118 C-series + 24 P-series)"
+        351,
+        "expected the 351-case assay corpus (194 legacy + 118 C-series + 39 P-series)"
     );
 
     // Per-case timeout (default 30s, env-overridable) so no single case can
