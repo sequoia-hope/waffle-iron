@@ -388,6 +388,7 @@ fn cap_vs_curved_tie_resolves_to_cap() {
         patch,
         source: Vec::new(),
         intersection_edges: Default::default(),
+        lpi_through_vertex: Vec::new(),
         num_inputs: 2,
     };
     let backend = LabelMock { arrangement };
@@ -573,6 +574,7 @@ fn all_planar_coplanar_tie_still_fails_resolution() {
         patch: vec![0],
         source: Vec::new(),
         intersection_edges: Default::default(),
+        lpi_through_vertex: Vec::new(),
         num_inputs: 2,
     };
     let backend = LabelMock { arrangement };
@@ -762,6 +764,7 @@ fn curved_band_tie_two_cylinders_still_fails_resolution() {
         patch: vec![0],
         source: Vec::new(),
         intersection_edges: Default::default(),
+        lpi_through_vertex: Vec::new(),
         num_inputs: 2,
     };
     let backend = LabelMock { arrangement };

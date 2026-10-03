@@ -445,6 +445,7 @@ fn misclassified_arrangement() -> LabeledArrangement {
         patch,
         source: Vec::new(),
         intersection_edges: Default::default(),
+        lpi_through_vertex: Vec::new(),
         num_inputs: 2,
     }
 }
@@ -656,6 +657,7 @@ fn provenance_arrangement_closed() -> LabeledArrangement {
         patch,
         source: Vec::new(),
         intersection_edges,
+        lpi_through_vertex: Vec::new(),
         num_inputs: 2,
     }
 }

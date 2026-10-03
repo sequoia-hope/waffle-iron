@@ -666,6 +666,7 @@ fn build_hyperbola_cap_arrangement(delta: f64) -> LabeledArrangement {
         patch: vec![0u32; n],
         source: Vec::new(),
         intersection_edges: Default::default(),
+        lpi_through_vertex: Vec::new(),
         num_inputs: 2,
     }
 }
@@ -955,6 +956,7 @@ fn adversary_regression_cone_ellipse_still_curve_ellipse() {
         patch: vec![0u32; n],
         source: Vec::new(),
         intersection_edges: Default::default(),
+        lpi_through_vertex: Vec::new(),
         num_inputs: 2,
     };
     let bx = oblique_halfspace_box_for(ellipse_plane_surface(), [0.0, 0.0, 2.5]);
@@ -1076,6 +1078,7 @@ fn adversary_regression_cone_parabola_still_curve_parabola() {
         patch: vec![0u32; n],
         source: Vec::new(),
         intersection_edges: Default::default(),
+        lpi_through_vertex: Vec::new(),
         num_inputs: 2,
     };
     let bx = oblique_halfspace_box_for(parabola_plane_surface(), [0.0, 0.0, 1.8]);

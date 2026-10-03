@@ -181,6 +181,8 @@ pub fn native_labeled_arrangement(
         }
     }
 
+    let lpi_through_vertex = lpi_through_vertex_record(&soup, &remap);
+
     Ok(LabeledArrangement {
         mesh: Mesh::new(out_verts, out_tris),
         surface,
@@ -188,8 +190,61 @@ pub fn native_labeled_arrangement(
         patch,
         source,
         intersection_edges,
+        lpi_through_vertex,
         num_inputs: 2,
     })
+}
+
+/// Per-VERTEX generator provenance for [`LabeledArrangement::lpi_through_vertex`]:
+/// every emitted LPI paired with each endpoint of its generating LINE that is
+/// itself emitted as an explicit vertex.
+///
+/// Exact and tolerance-free. The generators inside `VertexCoords` are the SAME
+/// `Point3` values the soup holds for its explicit vertices (scaled soup
+/// space; the multiplier is a power of two, so the scaling introduced no
+/// rounding), so matching an endpoint to an explicit vertex is a bit-exact
+/// coordinate lookup — no geometric predicate and no band. A vertex coincident
+/// in position but distinct in soup index is matched too: the key is the
+/// point, which is what the identity means.
+///
+/// Both members must survive the first-reference compaction — an unreferenced
+/// generator has no output vertex to name. Spec
+/// `specs/yang_p0014_arrangement_lpi_pencil_weld.md` §3(a).
+fn lpi_through_vertex_record(soup: &ArrangementSoup, remap: &[Option<u32>]) -> Vec<(u32, u32)> {
+    use crate::arrangements::fast_trimesh::VertexCoords;
+    use std::collections::HashMap;
+
+    let key = |p: &Point3| -> [u64; 3] { [p.x().to_bits(), p.y().to_bits(), p.z().to_bits()] };
+    // Emitted EXPLICIT vertices, by bit-exact scaled position. Lowest output
+    // index wins a positional tie (deterministic; a tie means two soup
+    // vertices at one point, which the consumer's weld fuses anyway).
+    let mut explicit: HashMap<[u64; 3], u32> = HashMap::new();
+    for (sv, slot) in remap.iter().enumerate() {
+        let Some(out) = *slot else { continue };
+        if let VertexCoords::Explicit(p) = &soup.verts[sv] {
+            explicit
+                .entry(key(p))
+                .and_modify(|e| *e = (*e).min(out))
+                .or_insert(out);
+        }
+    }
+    let mut pairs: Vec<(u32, u32)> = Vec::new();
+    for (sv, slot) in remap.iter().enumerate() {
+        let Some(out) = *slot else { continue };
+        let VertexCoords::Lpi { line, .. } = &soup.verts[sv] else {
+            continue;
+        };
+        for end in line {
+            if let Some(&expl) = explicit.get(&key(end)) {
+                if expl != out {
+                    pairs.push((out, expl));
+                }
+            }
+        }
+    }
+    pairs.sort_unstable();
+    pairs.dedup();
+    pairs
 }
 
 /// #146 P3a increment-3 crossing-provenance probe (env
@@ -964,5 +1019,113 @@ mod tests {
         );
         let la2 = native_labeled_arrangement(&a, &b).expect("re-run");
         assert_eq!(la1, la2, "coplanar arrangement must be deterministic");
+    }
+
+    // ════════════════════════════════════════════════════════════════
+    // P0014: the per-VERTEX generator record (`lpi_through_vertex`)
+    // Spec `specs/yang_p0014_arrangement_lpi_pencil_weld.md` §3(a).
+    // ════════════════════════════════════════════════════════════════
+
+    /// A tetrahedron whose APEX sits 2 ULP below the box's top plane and whose
+    /// three other corners are above it: each of the three apex edges pierces
+    /// the plane within ~1e-15 of the apex, so the arrangement mints a PENCIL
+    /// — the P0014 geometry in miniature. The record must name every one of
+    /// those LPIs against the apex's own output vertex.
+    #[test]
+    fn lpi_pencil_through_a_near_plane_vertex_is_recorded() {
+        let a = cube_mesh(0.0, 0.0, -1.0, 2.0); // top face at z = 1
+        let eps = f64::from_bits(1.0f64.to_bits() - 2); // 2 ULP below 1.0
+        let apex = Point3::new(0.9, 0.9, eps);
+        let b = Mesh::new(
+            vec![
+                apex,
+                Point3::new(0.4, 0.4, 2.0),
+                Point3::new(1.6, 0.4, 2.0),
+                Point3::new(0.9, 1.7, 2.0),
+            ],
+            vec![[0, 2, 1], [0, 3, 2], [0, 1, 3], [1, 2, 3]],
+        );
+        let la = native_labeled_arrangement(&a, &b).expect("arrangement");
+        let rec = &la.lpi_through_vertex;
+        assert!(
+            !rec.is_empty(),
+            "a transversal pair must record LPI pencils"
+        );
+
+        // The apex's output vertex, by position (it is emitted explicitly).
+        let apex_out = la
+            .mesh
+            .verts
+            .iter()
+            .position(|p| p.as_array() == apex.as_array())
+            .expect("the apex is emitted as an explicit vertex") as u32;
+        let pencil: Vec<(u32, u32)> = rec
+            .iter()
+            .copied()
+            .filter(|&(_, e)| e == apex_out)
+            .collect();
+        assert_eq!(
+            pencil.len(),
+            3,
+            "all three apex edges pierce the top plane: {pencil:?}"
+        );
+        // Each recorded member really is a sub-ULP twin of the apex.
+        for &(lpi, _) in &pencil {
+            let (p, q) = (
+                la.mesh.verts[lpi as usize].as_array(),
+                la.mesh.verts[apex_out as usize].as_array(),
+            );
+            let d = ((p[0] - q[0]).powi(2) + (p[1] - q[1]).powi(2) + (p[2] - q[2]).powi(2)).sqrt();
+            assert!(
+                d > 0.0 && d < 1e-12,
+                "pencil member {lpi} is {d:.3e} from the apex (want a sub-band twin)"
+            );
+        }
+
+        // The record is TOLERANCE-FREE: the three UPPER corners' edges also
+        // pierce nothing near them, yet every LPI whose line ends at an
+        // emitted explicit vertex is listed — so the record must also contain
+        // pairs that are macroscopically far apart. The BAND is the
+        // consumer's decision, not the record's.
+        let far = rec.iter().copied().any(|(lpi, e)| {
+            let (p, q) = (
+                la.mesh.verts[lpi as usize].as_array(),
+                la.mesh.verts[e as usize].as_array(),
+            );
+            ((p[0] - q[0]).powi(2) + (p[1] - q[1]).powi(2) + (p[2] - q[2]).powi(2)).sqrt() > 1e-3
+        });
+        assert!(
+            far,
+            "the record carries no tolerance: far pairs must be listed too"
+        );
+    }
+
+    /// Two boxes meeting transversally (no vertex near the other's plane)
+    /// still produce a record — of ordinary, macroscopically-separated
+    /// pierce points. Nothing in it is sub-band, so a consumer applying the
+    /// coincidence band welds NOTHING: the pencil pass is a no-op on generic
+    /// geometry.
+    #[test]
+    fn a_generic_transversal_pair_records_no_sub_band_pencil() {
+        let a = cube_mesh(0.0, 0.0, 0.0, 2.0);
+        let b = cube_mesh(0.7, 0.7, 1.3, 2.0);
+        let la = native_labeled_arrangement(&a, &b).expect("arrangement");
+        for &(lpi, e) in &la.lpi_through_vertex {
+            let (p, q) = (
+                la.mesh.verts[lpi as usize].as_array(),
+                la.mesh.verts[e as usize].as_array(),
+            );
+            let d = ((p[0] - q[0]).powi(2) + (p[1] - q[1]).powi(2) + (p[2] - q[2]).powi(2)).sqrt();
+            let band = cad_primitives::TAU_WORK
+                * (1.0
+                    + p.iter()
+                        .chain(q.iter())
+                        .fold(0.0f64, |m, &c| m.max(c.abs())));
+            assert!(
+                d > band,
+                "generic transversal geometry must carry no sub-band pencil: \
+                 ({lpi},{e}) d={d:.3e} band={band:.3e}"
+            );
+        }
     }
 }

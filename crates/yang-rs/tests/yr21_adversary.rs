@@ -459,6 +459,7 @@ fn acyl_build_tube(
         patch,
         source: Vec::new(),
         intersection_edges: Default::default(),
+        lpi_through_vertex: Vec::new(),
         num_inputs: 2,
     }
 }
@@ -901,6 +902,7 @@ fn build_cone_cap_arrangement(ring: &[[f64; 3]]) -> LabeledArrangement {
         patch,
         source: Vec::new(),
         intersection_edges: Default::default(),
+        lpi_through_vertex: Vec::new(),
         num_inputs: 2,
     }
 }

@@ -267,6 +267,7 @@ pub(crate) fn arrangement_a_cube_shell() -> LabeledArrangement {
         patch,
         source: Vec::new(),
         intersection_edges: Default::default(),
+        lpi_through_vertex: Vec::new(),
         num_inputs: 2,
     }
 }
@@ -371,6 +372,7 @@ pub(crate) fn m3_coplanar_surface_len_two_errors_f2() {
         patch: vec![0],
         source: Vec::new(),
         intersection_edges: Default::default(),
+        lpi_through_vertex: Vec::new(),
         num_inputs: 2,
     };
     let backend = LabelMockBackend::new(la);
@@ -401,6 +403,7 @@ pub(crate) fn m3_centroid_off_all_planes_errors_f3() {
         patch: vec![0],
         source: Vec::new(),
         intersection_edges: Default::default(),
+        lpi_through_vertex: Vec::new(),
         num_inputs: 2,
     };
     let backend = LabelMockBackend::new(la);
@@ -433,6 +436,7 @@ pub(crate) fn n4_provenance_miss_errors_loudly() {
         // …but provenance names only input B: a NoSourceEntry miss.
         source: vec![vec![(LaInputId(1), 0)]],
         intersection_edges: Default::default(),
+        lpi_through_vertex: Vec::new(),
         num_inputs: 2,
     };
     let backend = LabelMockBackend::new(la);
@@ -460,6 +464,7 @@ pub(crate) fn n4_provenance_out_of_range_parent_errors_loudly() {
         // Parent index far beyond A's 12-triangle Stage-1 map: NoMap.
         source: vec![vec![(LaInputId(0), 9999)]],
         intersection_edges: Default::default(),
+        lpi_through_vertex: Vec::new(),
         num_inputs: 2,
     };
     let backend = LabelMockBackend::new(la);
@@ -1832,6 +1837,7 @@ pub(crate) fn lineage_less_torus_disk_operand_resolves_its_faces() {
         patch: vec![0; n],
         source: Vec::new(),
         intersection_edges: Default::default(),
+        lpi_through_vertex: Vec::new(),
         num_inputs: 2,
     };
     let backend = LabelMockBackend::new(la);
