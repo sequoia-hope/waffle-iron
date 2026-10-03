@@ -538,6 +538,23 @@ estimate except where the path runs within a sagitta OUTSIDE the boundary,
 i.e. tangent to it — the same grazing configuration the enter/exit sign test
 declines.
 
+That sagitta is MEASURED from the mesh in hand, never from the chord
+tolerance the projection was asked for, and the distinction is not academic.
+`tessellate_face` always meshes at the render band, so a verdict keyed to the
+caller's own density compares against a mesh that was never built: at any
+chord tolerance finer than the render default the acceptance band falls below
+the fixed mesh's real gap, every sample reads as off the face, and every
+closed path is dropped. Measured 2026-10-03, during the review of this
+increment: a torus with a bore that misses both equator circles reported them
+at the render density and lost BOTH at `n_seg = 1024` — asking for a finer
+drawing silently deleted the outline. The band is now the sagitta of the
+mesh's own longest chord against the surface's tightest curvature,
+`ρ − √(ρ² − h²/4)`, with `h` read off the triangles and `ρ` the sphere's
+radius or the torus's MINOR radius; it has no density in it, and at the render
+band it is tighter than the formula it replaces (1.7e-5 against 3.2e-5 on that
+torus). The oracle is the property rather than the default: the verdict is
+pinned equal at five densities spanning two orders.
+
 **Two configurations still decline rather than guess**, both censused under
 `KV2_SILHOUETTE_CENSUS`:
 

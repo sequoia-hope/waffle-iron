@@ -72,8 +72,10 @@
 //!
 //! ## Known boundaries, loud rather than guessed
 //!
-//! All three are censused under `KV2_SILHOUETTE_CENSUS`, and all three
-//! UNDER-report (a missing arc of a drawing) rather than over-report.
+//! The first two are DECLINES — censused under `KV2_SILHOUETTE_CENSUS`, and
+//! both under-report (a missing arc of a drawing) rather than over-report. The
+//! third is not a decline but a precision band, and is neither censused nor
+//! counted.
 //!
 //! - A **grazing removal**: a hole whose boundary is TANGENT to the
 //!   silhouette's own plane at both ends of the arc it removes has no
@@ -90,6 +92,22 @@
 //!   carries the chord band. Documented, not hidden: the same band every other
 //!   kernel-v2 consumer of such a boundary carries, and the reason
 //!   [`Crossing3::rel_tol`] is per-arm.
+//!
+//! ## One way this could over-report, reasoned and not yet observed
+//!
+//! A skipped TANGENCY is not a decline — the path keeps whatever crossings it
+//! has. So a closed path carrying transversal crossings AND a pair of
+//! tangencies that bracket a removed span can still come out ALTERNATING, and
+//! the pairing then spans the removal: a silhouette drawn through a hole. The
+//! whole-path grazing decline above only catches the case where EVERY crossing
+//! was a tangency, which is the one the corpus happens to contain (C0065).
+//!
+//! No corpus case is known to hit the mixed form, and nothing here detects it:
+//! the declines are counted nowhere, so a count cannot be pinned, and the
+//! §5.3 bbox sandwich in `projection_corpus_oracle` catches a lost or invented
+//! EXTREME but not a wrong interior arc. Surfacing a decline count through
+//! `KernelProjection` is the fix, and D1c needs the same channel for its own
+//! visibility declines.
 //!
 //! Silhouette curves are tagged [`Visibility::Visible`] at this increment;
 //! hidden-line classification is D1c.
