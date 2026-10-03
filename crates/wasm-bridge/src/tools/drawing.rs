@@ -30,11 +30,20 @@
 //! - **An anchor that is not a persistent id.** Anchors are given as pids
 //!   (`entity_pid`, D0), because a selector that can rebind is how an
 //!   annotation comes to dimension the wrong edge.
-//! - **A section or detail view.** Those are D4b's, and the variants do not
-//!   exist to be named.
+//! - **A title block row the engine fills.** `DocumentName`, `SheetNumber`,
+//!   `Scale` and `ProjectionAngle` come from the document (D4b); giving one of
+//!   them `text` is refused by name rather than dropped, because an agent that
+//!   typed a sheet number would otherwise believe the number it typed is on
+//!   the paper.
+//!
+//! Since D4b the tools also author a **section** (`section_mm`, a cutting
+//! line in the parent view's own plane) and a **detail** (`detail_mm`, a crop
+//! disc), and `drawing_sheet_edit` carries the sheet's paper, its title block
+//! and the drawing's projection standard.
 
 use feature_engine::drawing::{
-    dimension_kind_from_tag, Drawing, NamedView, ProjectedDirection, Projection, Sheet, ViewSource,
+    dimension_kind_from_tag, Drawing, NamedView, Orientation, ProjectedDirection, Projection,
+    ProjectionAngle, Sheet, SheetSize, TitleBlockField, TitleBlockKey, ViewSource,
 };
 use modeling_ops::KernelBundle;
 use serde_json::{json, Value};
@@ -52,6 +61,7 @@ pub const DRAWING_TOOLS: &[&str] = &[
     "drawing_view_add",
     "drawing_view_edit",
     "drawing_annotation_add",
+    "drawing_sheet_edit",
 ];
 
 /// The annotation kinds these tools author, as their `type` tags.
@@ -177,6 +187,15 @@ fn drawing_state(state: &EngineState, tab_id: &str, include_anchors: bool) -> An
                         // rebuilt without asking for the curves.
                         "curves": cached.map(|c| c.curves.len()),
                         "bbox": cached.and_then(|c| c.bbox),
+                        // A section's hatched cap regions and a parent's
+                        // marks (D4b), as counts: an agent that wants the
+                        // loops themselves asks for the drawing.
+                        "hatch_loops": cached.map(|c| c.hatch.len()),
+                        "marks": cached.map(|c| c.marks.len()),
+                        // What the cache was built from. An agent comparing
+                        // it across two calls can tell a view that was
+                        // rebuilt from one that was not.
+                        "cache_key": view.cache_key,
                         // The ids an annotation can anchor on. A COUNT by
                         // default and the list on request: a real part's view
                         // has thousands of edges, and an answer that carried
@@ -197,6 +216,15 @@ fn drawing_state(state: &EngineState, tab_id: &str, include_anchors: bool) -> An
                 "orientation": sheet.orientation,
                 "extent_mm": sheet.extent_mm(),
                 "views": views,
+                // The title block as AUTHORED and as FILLED (D4b). Both,
+                // because they answer different questions: the fields say
+                // what an edit would replace, the rows say what the paper
+                // prints — and for a derived row those differ by design.
+                "title_block": {
+                    "show": sheet.title_block.show,
+                    "fields": sheet.title_block.fields,
+                    "rows": sheet.title_block_cache,
+                },
             })
         })
         .collect();
@@ -393,7 +421,229 @@ pub(crate) fn drawing_annotation_add(
     Ok(answer)
 }
 
+/// `drawing_sheet_edit {sheet_id?, name?, size?, orientation?,
+/// projection_angle?, title_block?, title_block_fields?, add_sheet?,
+/// delete_sheet?}` (D4b).
+///
+/// One door for everything that is the SHEET's rather than a view's, plus the
+/// drawing's projection standard — which closes D4a's "`projection_angle` has
+/// no setter". It sits here because the standard is what a title block prints
+/// and what a drafter changes once per document, not per view.
+pub(crate) fn drawing_sheet_edit(
+    state: &mut EngineState,
+    kb: &mut dyn KernelBundle,
+    args: &Value,
+) -> Answer {
+    let tab = require_drawing_tab(state)?;
+    if args.get("add_sheet").is_some_and(truthy) {
+        if args
+            .get("delete_sheet")
+            .is_some_and(|v| !v.is_null() && truthy(v))
+        {
+            return Err(ToolFailure::new(
+                "InvalidArgument",
+                "Give add_sheet or delete_sheet, not both.".to_string(),
+                json!({ "path": "/add_sheet" }),
+            ));
+        }
+        let id = edit(
+            state,
+            kb,
+            &tab.id,
+            DrawingEdit::AddSheet {
+                name: string_arg(args, "name"),
+                size: sheet_size_arg(args)?,
+                orientation: orientation_arg(args)?,
+            },
+        )?;
+        let mut answer = json!({ "sheet_id": id });
+        super::tabs::merge(&mut answer, drawing_state(state, &tab.id, false)?);
+        return Ok(answer);
+    }
+    if args.get("delete_sheet").is_some_and(truthy) {
+        let sheet_id = required_uuid(args, "sheet_id")?;
+        let id = edit(state, kb, &tab.id, DrawingEdit::DeleteSheet { sheet_id })?;
+        let mut answer = json!({ "sheet_id": id });
+        super::tabs::merge(&mut answer, drawing_state(state, &tab.id, false)?);
+        return Ok(answer);
+    }
+    let id = edit(
+        state,
+        kb,
+        &tab.id,
+        DrawingEdit::EditSheet {
+            sheet_id: uuid_arg(args, "sheet_id")?,
+            name: string_arg(args, "name"),
+            size: sheet_size_arg(args)?,
+            orientation: orientation_arg(args)?,
+            projection_angle: projection_angle_arg(args)?,
+            title_block_show: args.get("title_block").filter(|v| !v.is_null()).map(truthy),
+            title_block_fields: title_block_fields_arg(args)?,
+        },
+    )?;
+    let mut answer = json!({ "sheet_id": id });
+    super::tabs::merge(&mut answer, drawing_state(state, &tab.id, false)?);
+    Ok(answer)
+}
+
 // ------------------------------------------------------------- arguments
+
+fn string_arg(args: &Value, name: &str) -> Option<String> {
+    args.get(name)
+        .and_then(Value::as_str)
+        .filter(|s| !s.is_empty())
+        .map(str::to_string)
+}
+
+/// `A4` … `A0`, `Letter`, `Tabloid`, or `[width_mm, height_mm]` for a custom
+/// sheet.
+fn sheet_size_arg(args: &Value) -> Result<Option<SheetSize>, ToolFailure> {
+    let Some(v) = args.get("size").filter(|v| !v.is_null()) else {
+        return Ok(None);
+    };
+    if let Some(pair) = v.as_array() {
+        let pair = numbers(&Value::Array(pair.clone()), 2, "/size")?;
+        if !pair.iter().all(|x| *x > 0.0) {
+            return Err(ToolFailure::new(
+                "InvalidArgument",
+                "A custom sheet's width and height are positive millimetres.".to_string(),
+                json!({ "path": "/size" }),
+            ));
+        }
+        return Ok(Some(SheetSize::Custom {
+            width_mm: pair[0],
+            height_mm: pair[1],
+        }));
+    }
+    let tag = v.as_str().unwrap_or_default();
+    Ok(Some(match tag.to_ascii_uppercase().as_str() {
+        "A4" => SheetSize::A4,
+        "A3" => SheetSize::A3,
+        "A2" => SheetSize::A2,
+        "A1" => SheetSize::A1,
+        "A0" => SheetSize::A0,
+        "LETTER" => SheetSize::Letter,
+        "TABLOID" => SheetSize::Tabloid,
+        _ => {
+            return Err(ToolFailure::new(
+                "InvalidArgument",
+                format!(
+                    "`{tag}` is not a sheet size; use A4, A3, A2, A1, A0, Letter, Tabloid, or \
+                     [width_mm, height_mm]."
+                ),
+                json!({ "path": "/size" }),
+            ))
+        }
+    }))
+}
+
+fn orientation_arg(args: &Value) -> Result<Option<Orientation>, ToolFailure> {
+    let Some(v) = args.get("orientation").filter(|v| !v.is_null()) else {
+        return Ok(None);
+    };
+    match v.as_str().unwrap_or_default().to_ascii_lowercase().as_str() {
+        "landscape" => Ok(Some(Orientation::Landscape)),
+        "portrait" => Ok(Some(Orientation::Portrait)),
+        other => Err(ToolFailure::new(
+            "InvalidArgument",
+            format!("orientation is landscape or portrait, not `{other}`."),
+            json!({ "path": "/orientation" }),
+        )),
+    }
+}
+
+fn projection_angle_arg(args: &Value) -> Result<Option<ProjectionAngle>, ToolFailure> {
+    let Some(v) = args.get("projection_angle").filter(|v| !v.is_null()) else {
+        return Ok(None);
+    };
+    // Both spellings a drafter uses, and the bare number from a drawing
+    // standard. Not a free-text field: "1st" and "third" are the same
+    // standard and must not become two.
+    let text = match v {
+        Value::Number(n) => n.to_string(),
+        other => other.as_str().unwrap_or_default().to_string(),
+    };
+    match text.to_ascii_lowercase().as_str() {
+        "third" | "3" | "3rd" | "third angle" => Ok(Some(ProjectionAngle::Third)),
+        "first" | "1" | "1st" | "first angle" => Ok(Some(ProjectionAngle::First)),
+        other => Err(ToolFailure::new(
+            "InvalidArgument",
+            format!(
+                "projection_angle is `third` (the ISO/ASME default: the view placed to the right \
+                 shows the right-hand side) or `first`, not `{other}`."
+            ),
+            json!({ "path": "/projection_angle" }),
+        )),
+    }
+}
+
+/// The title block's rows, as `[{key, text?}, …]`. The whole list, replaced.
+fn title_block_fields_arg(args: &Value) -> Result<Option<Vec<TitleBlockField>>, ToolFailure> {
+    let Some(v) = args.get("title_block_fields").filter(|v| !v.is_null()) else {
+        return Ok(None);
+    };
+    let rows = v.as_array().ok_or_else(|| {
+        ToolFailure::new(
+            "InvalidArgument",
+            "title_block_fields is a list of {key, text?}.".to_string(),
+            json!({ "path": "/title_block_fields" }),
+        )
+    })?;
+    let mut out = Vec::with_capacity(rows.len());
+    for (i, row) in rows.iter().enumerate() {
+        let path = format!("/title_block_fields/{i}");
+        let tag = row
+            .get("key")
+            .and_then(Value::as_str)
+            .unwrap_or_default()
+            .to_string();
+        let text = row
+            .get("text")
+            .and_then(Value::as_str)
+            .map(str::to_string)
+            .filter(|t| !t.is_empty());
+        let label = row.get("label").and_then(Value::as_str);
+        let key = match (TitleBlockKey::from_tag(&tag), label) {
+            (Some(key), _) => key,
+            // A row whose key is not one of the known ones is a CUSTOM row
+            // named by its label — the one way to print a field this version
+            // has no name for, rather than refusing the whole title block.
+            (None, Some(label)) if !label.is_empty() => TitleBlockKey::Custom {
+                label: label.to_string(),
+            },
+            (None, _) => {
+                return Err(ToolFailure::new(
+                    "InvalidArgument",
+                    format!(
+                        "`{tag}` is not a title block field; use one of {} — or give a label for \
+                         a row of your own.",
+                        TitleBlockKey::AUTHORABLE.join(", ")
+                    ),
+                    json!({ "path": path }),
+                ))
+            }
+        };
+        if key.is_derived() && text.is_some() {
+            // Named, not quietly dropped: an agent that typed a sheet number
+            // must be told the engine fills it, or it will believe the number
+            // it typed is on the paper.
+            return Err(ToolFailure::new(
+                "InvalidArgument",
+                format!(
+                    "`{tag}` is filled from the document (the name, the sheet number, the scale, \
+                     the projection standard), so it takes no text."
+                ),
+                json!({ "path": path }),
+            ));
+        }
+        out.push(TitleBlockField {
+            key,
+            text,
+            extra: serde_json::Map::new(),
+        });
+    }
+    Ok(Some(out))
+}
 
 fn view_not_found(id: Uuid) -> ToolFailure {
     ToolFailure::new(
@@ -545,17 +795,76 @@ fn projection_arg(sheet: &Sheet, args: &Value) -> Result<Projection, ToolFailure
     let named = args.get("view").filter(|v| !v.is_null());
     let direction = args.get("direction").filter(|v| !v.is_null());
     let parent = args.get("parent_view_id").filter(|v| !v.is_null());
-    if [named.is_some(), direction.is_some(), parent.is_some()]
-        .iter()
-        .filter(|x| **x)
-        .count()
+    let section = args.get("section_mm").filter(|v| !v.is_null());
+    let detail = args.get("detail_mm").filter(|v| !v.is_null());
+    if [
+        named.is_some(),
+        direction.is_some(),
+        // A section and a detail BOTH need a parent, so the parent argument
+        // alone is not what distinguishes them — it is the geometry.
+        parent.is_some() && section.is_none() && detail.is_none(),
+        section.is_some(),
+        detail.is_some(),
+    ]
+    .iter()
+    .filter(|x| **x)
+    .count()
         > 1
     {
         return Err(ToolFailure::new(
             "InvalidArgument",
-            "Give one of view, direction or parent_view_id.".to_string(),
+            "Give one of view, direction, parent_view_id, section_mm or detail_mm.".to_string(),
             json!({ "path": "/view" }),
         ));
+    }
+    if let Some(line) = section {
+        let parent_id = section_parent(sheet, args, "section_mm")?;
+        let line = numbers(line, 4, "/section_mm")?;
+        // Millimetres on the wire, meters in the document. The whole MCP
+        // surface takes millimetres for a length an agent reads off a
+        // drawing, and a section line typed in meters would be a cut a
+        // thousand times further out than intended — a plane that misses the
+        // part, answered as an empty section.
+        let from = [line[0] / 1000.0, line[1] / 1000.0];
+        let to = [line[2] / 1000.0, line[3] / 1000.0];
+        let label = label_arg(sheet, args)?;
+        if feature_engine::drawing::section_plane(&parent_basis(sheet, parent_id)?, from, to, false)
+            .is_none()
+        {
+            return Err(ToolFailure::new(
+                "InvalidArgument",
+                "section_mm's two ends are the same point, so the line names no cut plane."
+                    .to_string(),
+                json!({ "path": "/section_mm" }),
+            ));
+        }
+        return Ok(Projection::Section {
+            parent: parent_id,
+            from,
+            to,
+            flip: args.get("flip").is_some_and(truthy),
+            label,
+        });
+    }
+    if let Some(disc) = detail {
+        let parent_id = section_parent(sheet, args, "detail_mm")?;
+        let disc = numbers(disc, 3, "/detail_mm")?;
+        if !(disc[2].is_finite() && disc[2] > 0.0) {
+            return Err(ToolFailure::new(
+                "InvalidArgument",
+                format!(
+                    "detail_mm's third number is the crop RADIUS and must be positive, not {}.",
+                    disc[2]
+                ),
+                json!({ "path": "/detail_mm" }),
+            ));
+        }
+        return Ok(Projection::Detail {
+            parent: parent_id,
+            center: [disc[0] / 1000.0, disc[1] / 1000.0],
+            radius: disc[2] / 1000.0,
+            label: label_arg(sheet, args)?,
+        });
     }
     if parent.is_some() {
         let parent_id = required_uuid(args, "parent_view_id")?;
@@ -643,6 +952,84 @@ fn projection_arg(sheet: &Sheet, args: &Value) -> Result<Projection, ToolFailure
             )
         })?;
     Ok(Projection::Named { view: found })
+}
+
+/// The parent a section or detail cuts, which it must have: there is nothing
+/// for a cutting line to be drawn ON otherwise.
+fn section_parent(sheet: &Sheet, args: &Value, what: &str) -> Result<Uuid, ToolFailure> {
+    let id = uuid_arg(args, "parent_view_id")?.ok_or_else(|| {
+        ToolFailure::new(
+            "InvalidArgument",
+            format!(
+                "{what} is drawn ON another view, so parent_view_id names the view it is taken \
+                 from."
+            ),
+            json!({ "path": "/parent_view_id" }),
+        )
+    })?;
+    if sheet.view(id).is_none() {
+        return Err(ToolFailure::new(
+            "NotFound",
+            format!("Sheet `{}` has no view {id}.", sheet.name),
+            json!({ "parent_view_id": id }),
+        ));
+    }
+    Ok(id)
+}
+
+/// The parent view's basis, for checking a cutting line before it is stored.
+fn parent_basis(
+    sheet: &Sheet,
+    parent: Uuid,
+) -> Result<waffle_types::kernel::projection::ViewBasis, ToolFailure> {
+    // The angle is immaterial for the CHECK (a degenerate line is degenerate
+    // under either standard) and the drawing's own is not in hand here, so the
+    // default is used and documented rather than threaded through.
+    sheet
+        .view_frame(parent, feature_engine::drawing::ProjectionAngle::default())
+        .ok()
+        .and_then(|f| f.basis())
+        .ok_or_else(|| {
+            ToolFailure::new(
+                "InvalidArgument",
+                format!("View {parent} has no view plane to draw a cutting line on."),
+                json!({ "parent_view_id": parent }),
+            )
+        })
+}
+
+/// A section or detail's letter: the one given, or the next free one on the
+/// sheet.
+fn label_arg(sheet: &Sheet, args: &Value) -> Result<String, ToolFailure> {
+    match args.get("label").filter(|v| !v.is_null()) {
+        None => Ok(sheet.next_label()),
+        Some(Value::String(s)) if !s.is_empty() => Ok(s.clone()),
+        Some(other) => Err(ToolFailure::new(
+            "InvalidArgument",
+            format!("label is the letter the cut is known by, not {other}."),
+            json!({ "path": "/label" }),
+        )),
+    }
+}
+
+/// Exactly `n` finite numbers.
+fn numbers(v: &Value, n: usize, path: &str) -> Result<Vec<f64>, ToolFailure> {
+    let bad = || {
+        ToolFailure::new(
+            "InvalidArgument",
+            format!("{path} must be {n} finite numbers."),
+            json!({ "path": path }),
+        )
+    };
+    let array = v.as_array().ok_or_else(bad)?;
+    if array.len() != n {
+        return Err(bad());
+    }
+    let out: Vec<f64> = array.iter().filter_map(Value::as_f64).collect();
+    if out.len() != n || !out.iter().all(|x| x.is_finite()) {
+        return Err(bad());
+    }
+    Ok(out)
 }
 
 fn vector3(v: &Value, path: &str) -> Result<[f64; 3], ToolFailure> {

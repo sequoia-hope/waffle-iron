@@ -1000,11 +1000,24 @@ impl DrawingView {
     /// is a list someone has to remember to extend, and the failure mode of
     /// forgetting is a cache that reads as valid after the change that
     /// invalidated it.
+    ///
+    /// Through `Value` rather than straight to a string, which is what makes
+    /// it CANONICAL: a `serde_json::Value` object is a `BTreeMap`, so every
+    /// key at every depth comes out sorted. Nothing in a `DrawingView` is a
+    /// `HashMap` today, but a feature tree is, and serializing one directly
+    /// produced a different string on every rebuild — see
+    /// `wasm_bridge::drawing_view::source_recipe`, which found it the hard
+    /// way. A digest input is canonicalized here so a field added later
+    /// cannot reintroduce it.
     fn recipe(&self) -> String {
         let mut bare = self.clone();
         bare.cache = None;
         bare.cache_key = None;
-        serde_json::to_string(&bare).unwrap_or_default()
+        serde_json::to_value(&bare)
+            .ok()
+            .as_ref()
+            .and_then(|v| serde_json::to_string(v).ok())
+            .unwrap_or_default()
     }
 }
 

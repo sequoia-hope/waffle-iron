@@ -75,7 +75,11 @@ fn v4_envelope_round_trip_keeps_identity_sources_and_tabs() {
     // coercion — docs/FILE_FORMAT.md §4, §13.3 and
     // `crates/feature-engine/tests/param_unit_floor.rs`). v7 was
     // `FeatureTree.names`'s `Selector::Pid`; v6 was `Sketch.plane_x_axis`.
-    assert_eq!(FORMAT_VERSION, 10);
+    // v11 since 2026-10-03 (D4b's `Projection::Section`/`Detail`: new
+    // variants inside a tab kind every reader since D4a DESERIALIZES, so
+    // unlike D4a's new tab kind they are not kept opaque — see
+    // `format_tests.rs::a_projection_variant_an_older_reader_does_not_know_fails_the_whole_document`).
+    assert_eq!(FORMAT_VERSION, 11);
     assert_eq!(parsed["document"]["id"], doc.document.id.to_string());
     assert_eq!(parsed["sources"].as_array().unwrap().len(), 1);
     // `.git` is normalized away on the way in; host is inferred, not written.

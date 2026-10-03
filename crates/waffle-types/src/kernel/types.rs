@@ -482,6 +482,32 @@ impl RigidPlacement {
         ]
     }
 
+    /// Undo [`Self::apply_dir`]: the rotation's inverse on a direction.
+    ///
+    /// The transpose, because the rotation is orthonormal — the kernel's own
+    /// rigidity check refuses anything else, so the transpose IS the inverse
+    /// and no determinant is computed. What needs it: a section cut is asked
+    /// of a body in the body's OWN frame, so a world cut plane has to come
+    /// back the other way through a placed body's placement
+    /// (`specs/drawings_and_mbd.md` §8, D4b).
+    pub fn inverse_dir(&self, v: [f64; 3]) -> [f64; 3] {
+        let m = &self.rotation;
+        [
+            m[0][0] * v[0] + m[1][0] * v[1] + m[2][0] * v[2],
+            m[0][1] * v[0] + m[1][1] * v[1] + m[2][1] * v[2],
+            m[0][2] * v[0] + m[1][2] * v[1] + m[2][2] * v[2],
+        ]
+    }
+
+    /// Undo [`Self::apply`]: the point in the placed body's own frame.
+    pub fn inverse_apply(&self, p: [f64; 3]) -> [f64; 3] {
+        self.inverse_dir([
+            p[0] - self.translation[0],
+            p[1] - self.translation[1],
+            p[2] - self.translation[2],
+        ])
+    }
+
     /// A pure translation.
     pub fn translation(t: [f64; 3]) -> RigidPlacement {
         RigidPlacement {
@@ -720,5 +746,48 @@ mod tests {
             }
             other => panic!("Expected BooleanFailed, got {:?}", other),
         }
+    }
+
+    #[test]
+    fn a_placement_inverse_undoes_it_on_points_and_on_directions() {
+        // What needs it (`specs/drawings_and_mbd.md` §8, D4b): a section cut
+        // is asked of a body in the body's OWN frame, so a WORLD cut plane —
+        // an origin and a normal — has to come back the other way through a
+        // placed body's placement. A point carries the translation, a normal
+        // must NOT, and getting that wrong tilts the cut plane by the
+        // instance's offset: a section of an assembly cut somewhere other
+        // than where the line was drawn.
+        let p = RigidPlacement {
+            translation: [10.0, -2.0, 0.5],
+            rotation: RigidPlacement::rotation_matrix([0.0, 0.0, 1.0], 0.7),
+        };
+        let point = [1.0, 2.0, 3.0];
+        let back = p.inverse_apply(p.apply(point));
+        for k in 0..3 {
+            assert!(
+                (back[k] - point[k]).abs() < 1e-12,
+                "inverse_apply must undo apply: {back:?} vs {point:?}"
+            );
+        }
+        let dir = [0.0, 1.0, 0.0];
+        let back = p.inverse_dir(p.apply_dir(dir));
+        for k in 0..3 {
+            assert!(
+                (back[k] - dir[k]).abs() < 1e-12,
+                "inverse_dir must undo apply_dir: {back:?} vs {dir:?}"
+            );
+        }
+        // And a DIRECTION is not translated, which is the half a careless
+        // inverse gets wrong: a unit normal must come back unit.
+        let moved = p.inverse_dir(dir);
+        let len = (moved[0] * moved[0] + moved[1] * moved[1] + moved[2] * moved[2]).sqrt();
+        assert!(
+            (len - 1.0).abs() < 1e-12,
+            "a rotated normal stays unit: {len}"
+        );
+        // A pure translation leaves every direction alone.
+        let shift = RigidPlacement::translation([5.0, 6.0, 7.0]);
+        assert_eq!(shift.inverse_dir(dir), dir);
+        assert_eq!(shift.inverse_apply([5.0, 6.0, 7.0]), [0.0, 0.0, 0.0]);
     }
 }

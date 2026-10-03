@@ -61,7 +61,36 @@ use crate::sources::SourceEntry;
 ///     raw serde type error, so the floor moves. READING still accepts a
 ///     bare number, so every pre-v10 file loads unchanged
 ///     (`tests/format_tests.rs::a_pre_v10_numeric_pid_still_loads`).
-pub const FORMAT_VERSION: u32 = 10;
+///   - **v11** (2026-10-03): `Projection::Section` and `Projection::Detail`
+///     (`specs/drawings_and_mbd.md` §8, D4b) — two new serde-tagged variants
+///     inside a `Drawing` tab.
+///
+///     **This is the case D4a's no-bump argument explicitly excluded.** D4a
+///     added a tab KIND, and since v4 a reader that does not know a tab kind
+///     keeps the whole tab opaque and re-emits it verbatim, so nothing inside
+///     it is deserialized and nothing can fail. A v10 reader DOES know the
+///     `Drawing` tag — `TAB_KIND_TAGS` contains it — so `known_or_unknown`
+///     takes the known branch and deserializes the drawing, and a
+///     `Projection` tag it has never heard of is a `de::Error` for the WHOLE
+///     DOCUMENT rather than an opaque tab. That is the v7 shape of the
+///     problem (a new variant inside a kind every reader knows), and this
+///     doc comment's own rule — "NEW `Operation`, constraint, selector and
+///     `PlaneDefinition` variants (wire-breaking for old readers even though
+///     they look additive)" — says the floor moves for it.
+///
+///     The bump is also the kinder failure. Without it a v10 build opens the
+///     file, claims to have read it, and then fails somewhere inside a tab
+///     with a raw serde message about a `Projection`; with it the same build
+///     refuses up front with `LoadError::FutureVersion`, which names the
+///     remedy. The cost is the one every floor bump pays and the one D4a
+///     declined to pay for a change old readers COULD handle: a v10 build now
+///     refuses documents with no drawing in them at all.
+///
+///     The rest of D4b is additive and defaulted — `Sheet.title_block`,
+///     `Sheet.title_block_cache`, `DrawingView.cache_key`, and the `hatch`,
+///     `marks` and `clip` fields of a persisted `ViewLayout` — and none of
+///     those would have moved anything on their own.
+pub const FORMAT_VERSION: u32 = 11;
 
 /// Oldest reader (by its `FORMAT_VERSION`) that can parse files we write.
 ///
@@ -76,7 +105,7 @@ pub const FORMAT_VERSION: u32 = 10;
 /// opaquely. Purely additive defaulted fields never require a bump. Files
 /// without the field (all pre-2026-08-28 files, including the assay corpus)
 /// default to 0 and always pass. See `docs/FILE_FORMAT.md` §13.
-pub const MIN_READER_VERSION: u32 = 10;
+pub const MIN_READER_VERSION: u32 = 11;
 
 // Keep the constants coherent: we can never require a reader newer than the
 // version we claim to write.

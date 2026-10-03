@@ -1332,8 +1332,10 @@ fn export_sheet_dxf(
     let part_trees = state.session.part_trees(&state.engine);
     let assembly_trees = state.session.assembly_trees();
     let mut reuse = state.take_part_engines();
+    let document_name = state.session.document().name.clone();
     let eval = crate::drawing_view::evaluate(
         &drawing,
+        &document_name,
         &part_trees,
         &assembly_trees,
         &state.engine.sources,
@@ -1412,8 +1414,10 @@ fn open_drawing(
     state.engine.rebuild_from_scratch(kb);
     let part_trees = state.session.part_trees(&state.engine);
     let assembly_trees = state.session.assembly_trees();
+    let document_name = state.session.document().name.clone();
     let eval = crate::drawing_view::evaluate(
         &drawing,
+        &document_name,
         &part_trees,
         &assembly_trees,
         &state.engine.sources,
@@ -1424,7 +1428,9 @@ fn open_drawing(
     // The layouts are derived, and they are saved with the tab (§5.7) — so
     // they go back into the tab that was just evaluated, which is also where
     // the status reads them from.
-    state.session.set_drawing_caches(tab_id, &eval.layouts);
+    state
+        .session
+        .set_drawing_caches(tab_id, &eval.layouts, &eval.cache_keys, &eval.title_blocks);
     state.drawing = Some(eval.open(tab_id));
     Ok(())
 }

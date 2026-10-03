@@ -520,6 +520,10 @@ fn the_migrated_list_is_exactly_what_this_checkpoint_implements() {
             "drawing_view_add",
             "drawing_view_edit",
             "drawing_annotation_add",
+            // D4b (2026-10-03): the sheet's own door — its paper, its title
+            // block, and the drawing's projection standard, which D4a had no
+            // setter for at all.
+            "drawing_sheet_edit",
             "mate_add",
             "mate_edit",
             "mate_delete",

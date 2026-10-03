@@ -17,21 +17,24 @@
 //! owns is *which bodies*, which is the only question the document model
 //! cannot answer on its own.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 use feature_engine::assembly::{AssemblyTree, PartRef};
 use feature_engine::drawing::{
-    auto_placement_mm, dimension_kind_from_tag, rebuild_view, Drawing, DrawingError, DrawingView,
-    Projection, Sheet, ViewAnchor, ViewSource, DEFAULT_VIEW_GAP_MM,
+    auto_placement_step_mm, body_pid_digest, cap_loops_in_view, dimension_kind_from_tag,
+    rebuild_view_in, section_frame, section_paper_step, section_plane, title_block_layout,
+    view_cache_key, CacheInputs, Drawing, DrawingError, DrawingView, Projection, ProjectionAngle,
+    Sheet, TitleBlockContext, TitleBlockLayout, ViewAnchor, ViewExtras, ViewSource,
+    DEFAULT_VIEW_GAP_MM,
 };
 use feature_engine::types::FeatureTree;
 use feature_engine::Engine;
 use modeling_ops::KernelBundle;
 use uuid::Uuid;
-use waffle_types::annotation::layout::ViewLayout;
+use waffle_types::annotation::layout::{ClipCircle, HatchLoop, ViewLayout};
 use waffle_types::annotation::{Annotation, Measured, Placement2};
 use waffle_types::geom_ref::{Anchor, GeomRef, OutputKey, ResolvePolicy, Selector};
-use waffle_types::kernel::projection::{ProjectionBody, ProjectionDeclines};
+use waffle_types::kernel::projection::{ProjectionBody, ProjectionDeclines, ViewBasis};
 
 /// The open drawing tab's last evaluation, minus the drawing itself.
 ///
@@ -85,6 +88,15 @@ pub struct DrawingEval {
     /// rather than leave an unmeasurable annotation in the document. Reading
     /// that out of an error string would be a parser of our own prose.
     pub annotation_errors: Vec<(Uuid, usize)>,
+    /// Per view, the validity key of the layout this pass produced (D4b) —
+    /// written to the document beside the cache so a later reader can tell a
+    /// current sheet from a stored one. Absent for a view that did not
+    /// rebuild, exactly as `layouts` is.
+    pub cache_keys: HashMap<Uuid, String>,
+    /// Per sheet, the title block's filled rows (D4b). A derived hint on the
+    /// same terms as a view's layout: recomputed every pass, persisted so a
+    /// reader with no engine draws the paper complete.
+    pub title_blocks: std::collections::BTreeMap<Uuid, TitleBlockLayout>,
     /// The part engines this pass built or reused, to be parked for the next
     /// one (the same contract as `AssemblyView::parts`).
     pub parts: Vec<(PartRef, Engine)>,
@@ -127,8 +139,8 @@ pub fn apply_edit(
                     0
                 }
             };
-            if let Projection::ProjectedFrom { parent, .. } = projection {
-                if drawing.sheets[index].view(*parent).is_none() {
+            if let Some(parent) = projection.parent() {
+                if drawing.sheets[index].view(parent).is_none() {
                     return Err(format!("this sheet has no view {parent} to project from"));
                 }
             }
@@ -150,11 +162,92 @@ pub fn apply_edit(
                 projection.clone(),
             );
             view.scale = scale;
-            view.placement_mm = placement_mm
-                .unwrap_or_else(|| default_placement(&drawing.sheets[index], projection));
+            view.placement_mm = placement_mm.unwrap_or_else(|| {
+                default_placement(&drawing.sheets[index], projection, drawing.projection_angle)
+            });
             let id = view.id;
             drawing.sheets[index].views.push(view);
             Ok(id)
+        }
+        E::EditSheet {
+            sheet_id,
+            name,
+            size,
+            orientation,
+            projection_angle,
+            title_block_show,
+            title_block_fields,
+        } => {
+            // The projection standard is the DRAWING's, not the sheet's (§8:
+            // "a document setting"), and it is set here because this is the
+            // sheet-level door — a drawing whose sheets disagreed about which
+            // side a projected view shows would be two standards in one
+            // document.
+            if let Some(angle) = projection_angle {
+                drawing.projection_angle = *angle;
+            }
+            let index = match sheet_id {
+                Some(id) => drawing
+                    .sheets
+                    .iter()
+                    .position(|s| s.id == *id)
+                    .ok_or_else(|| format!("this drawing has no sheet {id}"))?,
+                None if drawing.sheets.is_empty() => {
+                    // Nothing but the angle to set, and that is already done.
+                    return Ok(Uuid::nil());
+                }
+                None => 0,
+            };
+            let sheet = &mut drawing.sheets[index];
+            if let Some(name) = name.clone().filter(|n| !n.is_empty()) {
+                sheet.name = name;
+            }
+            if let Some(size) = size {
+                sheet.size = *size;
+            }
+            if let Some(orientation) = orientation {
+                sheet.orientation = *orientation;
+            }
+            if let Some(show) = title_block_show {
+                sheet.title_block.show = *show;
+            }
+            if let Some(fields) = title_block_fields {
+                sheet.title_block.fields = fields.clone();
+            }
+            Ok(sheet.id)
+        }
+        E::AddSheet {
+            name,
+            size,
+            orientation,
+        } => {
+            let mut sheet = Sheet::new(
+                name.clone()
+                    .filter(|n| !n.is_empty())
+                    .unwrap_or_else(|| format!("Sheet {}", drawing.sheets.len() + 1)),
+            );
+            if let Some(size) = size {
+                sheet.size = *size;
+            }
+            if let Some(orientation) = orientation {
+                sheet.orientation = *orientation;
+            }
+            let id = sheet.id;
+            drawing.sheets.push(sheet);
+            Ok(id)
+        }
+        E::DeleteSheet { sheet_id } => {
+            if drawing.sheets.len() <= 1 {
+                // A drawing with no sheet is not a drawing: the panel would
+                // show nothing and the exports would refuse by name, which
+                // reads as a broken tab rather than as an empty one.
+                return Err("a drawing keeps at least one sheet".to_string());
+            }
+            if !drawing.sheets.iter().any(|s| s.id == *sheet_id) {
+                return Err(format!("this drawing has no sheet {sheet_id}"));
+            }
+            drawing.sheets.retain(|s| s.id != *sheet_id);
+            Ok(*sheet_id)
         }
         E::EditView {
             view_id,
@@ -203,10 +296,24 @@ pub fn apply_edit(
                 .sheet_of_view_mut(*view_id)
                 .ok_or_else(|| format!("this drawing has no view {view_id}"))?;
             sheet.views.retain(|v| v.id != *view_id);
-            sheet.views.retain(|v| match &v.projection {
-                Projection::ProjectedFrom { parent, .. } => parent != view_id,
-                _ => true,
-            });
+            // Every view DERIVED from it goes too — a projection, a section,
+            // a detail — through the one accessor, so a kind added later
+            // cannot be left behind naming a parent the sheet does not have.
+            // TRANSITIVELY, to a fixpoint: a detail of a section of the
+            // deleted view is just as orphaned as the section, and D4a's
+            // single pass left it on the sheet to fail its rebuild forever.
+            // Bounded by the view count, since each pass removes at least one
+            // view or stops.
+            loop {
+                let ids: HashSet<Uuid> = sheet.views.iter().map(|v| v.id).collect();
+                let before = sheet.views.len();
+                sheet
+                    .views
+                    .retain(|v| v.projection.parent().is_none_or(|p| ids.contains(&p)));
+                if sheet.views.len() == before {
+                    break;
+                }
+            }
             Ok(*view_id)
         }
         E::AddAnnotation {
@@ -348,6 +455,13 @@ fn default_view_name(projection: &Projection, count: usize) -> String {
         Projection::Named { view } => view.tag().to_string(),
         Projection::Custom { .. } => format!("View {}", count + 1),
         Projection::ProjectedFrom { direction, .. } => format!("{direction:?} of parent"),
+        // The standard titles, which is what the sheet prints over the view:
+        // a cut is `SECTION A-A` (the letter twice, once per arrow) and a crop
+        // is `DETAIL A`. The scale a detail is drawn at is NOT in the name —
+        // it is `DrawingView::scale`, and a name carrying it would be a second
+        // copy of the number, stale the moment the view is rescaled.
+        Projection::Section { label, .. } => format!("SECTION {label}-{label}"),
+        Projection::Detail { label, .. } => format!("DETAIL {label}"),
     }
 }
 
@@ -359,13 +473,13 @@ fn default_view_name(projection: &Projection, count: usize) -> String {
 /// because the gap must be between the DRAWINGS and not between their
 /// centres — two views of a long part placed a fixed centre distance apart
 /// overlap, which is the mistake D3's dimension layout made once.
-fn default_placement(sheet: &Sheet, projection: &Projection) -> [f64; 2] {
+fn default_placement(sheet: &Sheet, projection: &Projection, angle: ProjectionAngle) -> [f64; 2] {
     let extent = sheet.extent_mm();
     let centre = [extent[0] / 2.0, extent[1] / 2.0];
-    let Projection::ProjectedFrom { parent, direction } = projection else {
+    let Some(parent_id) = projection.parent() else {
         return centre;
     };
-    let Some(parent_view) = sheet.view(*parent) else {
+    let Some(parent_view) = sheet.view(parent_id) else {
         return centre;
     };
     let parent_extent = match parent_view.cache.as_ref().and_then(|c| c.bbox) {
@@ -378,11 +492,37 @@ fn default_placement(sheet: &Sheet, projection: &Projection) -> [f64; 2] {
     // The child's own extent is unknown until it is projected; a projected
     // view of the same part matches its parent in one axis by construction,
     // so the parent's is the best estimate available.
-    auto_placement_mm(
+    let step = match projection {
+        Projection::ProjectedFrom { direction, .. } => direction.paper_step(),
+        Projection::Section { from, to, flip, .. } => {
+            // The cut normal, in the parent's paper, through the same rule
+            // `projected_frame` reads forwards or backwards — so a section
+            // and a projected view cannot end up on opposite sides of the
+            // same standard.
+            let Some(basis) = sheet
+                .view_frame(parent_id, angle)
+                .ok()
+                .and_then(|f| f.basis())
+            else {
+                return centre;
+            };
+            match section_plane(&basis, *from, *to, *flip) {
+                Some(cut) => section_paper_step(&cut, angle),
+                None => return centre,
+            }
+        }
+        // A detail has no side to be on: it is a magnified crop, placed
+        // wherever there is room, and the standard says only that it is
+        // labelled. Beside its parent, to the right, so a freshly added one
+        // is visible rather than on top of the view it crops.
+        Projection::Detail { .. } => [1.0, 0.0],
+        _ => return centre,
+    };
+    auto_placement_step_mm(
         parent_view.placement_mm,
         parent_extent,
         parent_extent,
-        *direction,
+        step,
         DEFAULT_VIEW_GAP_MM,
     )
 }
@@ -395,6 +535,7 @@ fn default_placement(sheet: &Sheet, projection: &Projection) -> [f64; 2] {
 /// other seven, because a drawing is useful incomplete and useless absent.
 pub fn evaluate(
     drawing: &Drawing,
+    document_name: &str,
     part_trees: &HashMap<String, FeatureTree>,
     assembly_trees: &HashMap<String, AssemblyTree>,
     sources: &feature_engine::sources::SourceStore,
@@ -407,8 +548,26 @@ pub fn evaluate(
     // Bodies per source tab, built at most once even when six views draw the
     // same part — which is the ordinary case for a six-view layout.
     let mut by_tab: HashMap<String, Vec<ProjectionBody>> = HashMap::new();
+    // The recipe digest of each source tab, for the cache key (D4b). Beside
+    // the bodies because it is the same question asked of the same tab.
+    let mut recipe_of_tab: HashMap<String, String> = HashMap::new();
 
-    for sheet in &drawing.sheets {
+    let sheet_count = drawing.sheets.len();
+    for (sheet_index, sheet) in drawing.sheets.iter().enumerate() {
+        let sheet_inputs = CacheInputs::for_sheet(sheet, drawing.projection_angle);
+        out.title_blocks.insert(
+            sheet.id,
+            title_block_layout(
+                &sheet.title_block,
+                sheet,
+                &TitleBlockContext {
+                    document_name,
+                    sheet_number: sheet_index + 1,
+                    sheet_count,
+                    angle: drawing.projection_angle,
+                },
+            ),
+        );
         for view in &sheet.views {
             let frame = match sheet.view_frame(view.id, drawing.projection_angle) {
                 Ok(frame) => frame,
@@ -433,6 +592,10 @@ pub fn evaluate(
                         continue;
                     }
                 };
+                recipe_of_tab.insert(
+                    view.source.tab_id.clone(),
+                    source_recipe(&view.source.tab_id, part_trees, assembly_trees),
+                );
                 by_tab.insert(view.source.tab_id.clone(), bodies);
             }
             let all = &by_tab[&view.source.tab_id];
@@ -452,13 +615,60 @@ pub fn evaluate(
                     ));
                 }
             }
-            match rebuild_view(view, &frame, &chosen, kb) {
+
+            // What this view draws besides its own projection (D4b): the
+            // marks its children put on it, and — for a section — the cut
+            // itself, which REPLACES the bodies projected.
+            let mut extras = ViewExtras {
+                marks: sheet.marks_on(view.id),
+                ..ViewExtras::default()
+            };
+            let mut bodies = chosen;
+            if let Projection::Section { .. } = &view.projection {
+                match cut_bodies(view, sheet, drawing, &bodies, kb) {
+                    Ok(cut) => {
+                        out.warnings.extend(
+                            cut.warnings
+                                .iter()
+                                .map(|w| format!("view `{}`: {w}", view.name)),
+                        );
+                        extras.hatch = cut.hatch;
+                        bodies = cut.bodies;
+                    }
+                    Err(message) => {
+                        // A section the kernel refused is reported and the
+                        // view draws NOTHING, rather than quietly drawing the
+                        // uncut part: a drawing labelled SECTION A-A that
+                        // shows the outside of the solid is a wrong drawing,
+                        // where a missing view is a visible gap.
+                        out.errors.push(format!("view `{}`: {message}", view.name));
+                        continue;
+                    }
+                }
+            }
+            if let Projection::Detail { center, radius, .. } = &view.projection {
+                extras.clip = Some(ClipCircle {
+                    center: *center,
+                    radius: *radius,
+                });
+            }
+
+            match rebuild_view_in(view, &frame, &bodies, &extras, kb) {
                 Ok(built) => {
                     out.declines.merge(&built.declines);
                     for (index, e) in &built.annotation_errors {
                         out.errors.push(describe(view.name.as_str(), e));
                         out.annotation_errors.push((view.id, *index));
                     }
+                    let inputs = sheet_inputs.clone().with_source(
+                        recipe_of_tab
+                            .get(&view.source.tab_id)
+                            .map(String::as_str)
+                            .unwrap_or_default(),
+                        &body_pid_digest(&bodies, kb),
+                    );
+                    out.cache_keys
+                        .insert(view.id, view_cache_key(view.id, &inputs));
                     out.layouts.insert(view.id, built.layout);
                     out.geometry.insert(view.id, built.geometry);
                     out.anchors.insert(view.id, built.anchors);
@@ -468,6 +678,188 @@ pub fn evaluate(
         }
     }
     out
+}
+
+/// A section view's own bodies: the HALVES of its source's bodies that the
+/// cut keeps, plus the cap regions to hatch (D4b).
+struct SectionCut {
+    bodies: Vec<ProjectionBody>,
+    hatch: Vec<HatchLoop>,
+    warnings: Vec<String>,
+}
+
+/// Cut `bodies` with the plane the view's cutting line names.
+///
+/// The cut is the KERNEL's (`section_with_plane`, D1d), one body at a time,
+/// and the halves it hands back are what the section view then projects with
+/// D1a–c — so a section view is an ordinary view of extraordinary bodies and
+/// shares every line of the projection path with the view it was cut on.
+///
+/// A placed body (an assembly leaf) is cut in its OWN frame: the plane goes
+/// back through the placement, because `section_with_plane` has no placement
+/// argument and a solid's arena coordinates are its own. The cap then comes
+/// back in that local plane's frame and its basis is carried forward through
+/// the placement, which is what keeps an assembly section's hatch in the same
+/// `(u, v)` as the curves it fills.
+fn cut_bodies(
+    view: &DrawingView,
+    sheet: &Sheet,
+    drawing: &Drawing,
+    bodies: &[ProjectionBody],
+    kb: &mut dyn KernelBundle,
+) -> Result<SectionCut, String> {
+    let Projection::Section {
+        parent,
+        from,
+        to,
+        flip,
+        ..
+    } = &view.projection
+    else {
+        return Err("not a section view".to_string());
+    };
+    let parent_basis = sheet
+        .view_frame(*parent, drawing.projection_angle)
+        .map_err(|e| e.to_string())?
+        .basis()
+        .ok_or_else(|| format!("view {parent} has no view basis to cut in"))?;
+    let cut = section_plane(&parent_basis, *from, *to, *flip)
+        .ok_or_else(|| "the cutting line has no length, so it names no plane".to_string())?;
+    let view_basis = section_frame(&parent_basis, &cut)
+        .basis()
+        .ok_or_else(|| "the cut plane has no view basis".to_string())?;
+
+    let mut out = SectionCut {
+        bodies: Vec::new(),
+        hatch: Vec::new(),
+        warnings: Vec::new(),
+    };
+    for body in bodies {
+        let placement = body.placement;
+        let (origin, normal) = match &placement {
+            Some(p) => (p.inverse_apply(cut.origin), p.inverse_dir(cut.normal)),
+            None => (cut.origin, cut.normal),
+        };
+        let section = kb
+            .section_with_plane(&body.handle, origin, normal)
+            .map_err(|e| format!("body `{}` could not be sectioned: {e}", body.name))?;
+        let Some(handle) = section.cut_solid else {
+            // Typed, not an error: the plane keeps none of this body. A
+            // multi-body part sectioned at one end legitimately drops the
+            // bodies at the other, and saying so is how a reader tells that
+            // from a body that failed.
+            out.warnings.push(format!(
+                "the cut keeps no part of body `{}`, so it is not drawn",
+                body.name
+            ));
+            continue;
+        };
+        out.bodies.push(ProjectionBody {
+            handle,
+            name: body.name.clone(),
+            placement,
+        });
+        // The cap's own frame, in WORLD coordinates: for a placed body the
+        // kernel answered in the body's frame.
+        let cap_basis = match &placement {
+            Some(p) => ViewBasis {
+                origin: p.apply(section.plane_basis.origin),
+                u: p.apply_dir(section.plane_basis.u),
+                v: p.apply_dir(section.plane_basis.v),
+                w: p.apply_dir(section.plane_basis.w),
+            },
+            None => section.plane_basis,
+        };
+        let (mut loops, dropped) = cap_loops_in_view(&section.cap_loops, &cap_basis, &view_basis);
+        if dropped > 0 {
+            // A region missing one of its boundary curves is not a region,
+            // and hatching it would run the lines out through the gap.
+            out.warnings.push(format!(
+                "{dropped} cap loop(s) of body `{}` could not be placed in the view and are not hatched",
+                body.name
+            ));
+        }
+        if section.cap_loops.iter().any(|l| !l.exact) {
+            out.warnings.push(format!(
+                "body `{}` has a sampled cap edge, so its hatch boundary is a chord polygon",
+                body.name
+            ));
+        }
+        if section.cap_shared_with_model {
+            // The §4.5.5 Stage-0 signature: the cut plane is coplanar with a
+            // model face. A legitimate section, and worth saying, because it
+            // is the one configuration where the cap was found by its plane
+            // rather than by its descent from the cutting half-space.
+            out.warnings.push(format!(
+                "body `{}` was cut along one of its own faces (the cap is the shared surface)",
+                body.name
+            ));
+        }
+        out.hatch.append(&mut loops);
+    }
+    if out.bodies.is_empty() {
+        return Err("the cut keeps no material at all, so there is nothing to draw".to_string());
+    }
+    Ok(out)
+}
+
+/// The recipe a source tab builds its bodies from, for the cache key — the
+/// tab's tree in its document form, CANONICALIZED.
+///
+/// ## Why it goes through `Value` rather than straight to a string
+///
+/// `serde_json::to_string(tree)` is not a stable digest input. A
+/// `FeatureTree` holds `HashMap`s — `Sketch::solved_positions` is one — and a
+/// `HashMap` serializes in its own iteration order, which is seeded per
+/// process and per insertion history. Measured: two rebuilds of the SAME
+/// unedited box in one process produced two 1851-byte strings differing only
+/// in the order of `solved_positions`' four keys, so the key moved on every
+/// rebuild — a cache that is always stale, which is indistinguishable from
+/// having no key at all and was exactly the bug this function's first version
+/// shipped with.
+///
+/// `serde_json::Value`'s object is a `BTreeMap` (this workspace does not
+/// enable serde_json's `preserve_order`), so converting to a `Value` first
+/// sorts every key at every depth and the string that comes out is canonical.
+/// `build_part`'s own reuse check compares `to_value` for the same reason,
+/// which is why IT was never wrong about whether a tree had changed.
+///
+/// An ASSEMBLY tab contributes its own tree AND the trees of the part tabs it
+/// instantiates: a drawing of an assembly changes when any of its parts does,
+/// and a digest over the assembly alone would read as valid after one of them
+/// was rebuilt. The part tabs are taken in sorted id order, for the same
+/// stability reason.
+fn source_recipe(
+    tab_id: &str,
+    part_trees: &HashMap<String, FeatureTree>,
+    assembly_trees: &HashMap<String, AssemblyTree>,
+) -> String {
+    let canonical = |value: Option<serde_json::Value>| -> String {
+        value
+            .as_ref()
+            .and_then(|v| serde_json::to_string(v).ok())
+            .unwrap_or_default()
+    };
+    if let Some(tree) = part_trees.get(tab_id) {
+        return canonical(serde_json::to_value(tree).ok());
+    }
+    if let Some(tree) = assembly_trees.get(tab_id) {
+        let mut parts: Vec<&String> = part_trees.keys().collect();
+        parts.sort();
+        let mut acc = canonical(serde_json::to_value(tree).ok());
+        for id in parts {
+            acc.push('|');
+            acc.push_str(id);
+            acc.push('=');
+            acc.push_str(&canonical(
+                part_trees
+                    .get(id)
+                    .and_then(|t| serde_json::to_value(t).ok()),
+            ));
+        }
+        return acc;
+    }
+    String::new()
 }
 
 impl DrawingEval {

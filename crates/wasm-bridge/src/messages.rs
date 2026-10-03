@@ -1629,6 +1629,47 @@ pub enum DrawingEdit {
         view_id: Uuid,
         index: usize,
     },
+    /// Change one sheet — its name, paper, title block — and the DRAWING's
+    /// projection standard (D4b).
+    ///
+    /// The standard rides on the sheet door because that is where it is
+    /// authored and read (a title block prints it), but it is the drawing's
+    /// own setting per §8: sheets that disagreed about which side a projected
+    /// view shows would be two standards in one document.
+    EditSheet {
+        #[serde(default)]
+        sheet_id: Option<Uuid>,
+        #[serde(default)]
+        name: Option<String>,
+        #[serde(default)]
+        size: Option<feature_engine::drawing::SheetSize>,
+        #[serde(default)]
+        orientation: Option<feature_engine::drawing::Orientation>,
+        #[serde(default)]
+        projection_angle: Option<feature_engine::drawing::ProjectionAngle>,
+        #[serde(default)]
+        title_block_show: Option<bool>,
+        /// The whole row list, replaced. Not a per-row edit: the rows are an
+        /// ORDER as well as a set (a title block is read top to bottom), and
+        /// an index-addressed edit of a list the caller did not just read is
+        /// how the wrong row gets changed.
+        #[serde(default)]
+        title_block_fields: Option<Vec<feature_engine::drawing::TitleBlockField>>,
+    },
+    AddSheet {
+        #[serde(default)]
+        name: Option<String>,
+        #[serde(default)]
+        size: Option<feature_engine::drawing::SheetSize>,
+        #[serde(default)]
+        orientation: Option<feature_engine::drawing::Orientation>,
+    },
+    /// Delete a sheet and the views on it. Refused for the LAST sheet: a
+    /// drawing with no sheet shows nothing and refuses every export by name,
+    /// which reads as a broken tab rather than an empty one.
+    DeleteSheet {
+        sheet_id: Uuid,
+    },
 }
 
 /// An annotation to author, in primitives (D4a).
