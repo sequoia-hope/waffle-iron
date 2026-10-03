@@ -135,18 +135,22 @@ define_id!(
 /// A face pid comes from one of two schemes, and which one it came from is
 /// readable off the id:
 ///
-/// - **Content-seeded** (D0 item 1, the F4a reseed) — `pid >= PID_CONTENT_BASE`,
-///   i.e. the top bit is set. Derived by [`crate::pid::seeded_face_pid`] from
-///   the creating step's [`FaceSeed`] and the face's role inside that step, so
-///   re-executing an unchanged step reproduces the same ids no matter what
-///   else the arena has built. This is what a document stores.
+/// - **Content-seeded** (D0 items 1 and 1b) — `pid >= PID_CONTENT_BASE`, i.e.
+///   the top bit is set. A CONSTRUCT face's id comes from
+///   [`crate::pid::seeded_face_pid`] — the creating step's [`FaceSeed`] and
+///   the face's role inside that step. A BOOLEAN output face's comes from
+///   [`crate::pid::seeded_boolean_face_pid`] — the boolean step's seed, the
+///   face's lineage root, and its rank among the patches sharing that root.
+///   Either way re-executing an unchanged step reproduces the same ids no
+///   matter what else the arena has built. This is what a document stores.
 /// - **Monotonic** (the pre-D0 scheme, still the fallback) — `pid <
 ///   PID_CONTENT_BASE`, handed out by [`BrepArena::alloc_pid`]. Reproducible
 ///   only by a full in-order rebuild: an incremental one re-runs the edited
 ///   step in an arena whose counter has advanced, and its faces come out
-///   renamed. Used where no seed is installed — boolean outputs (whose
-///   identity is their journal LINEAGE, not their own number) and raw-arena
-///   tests.
+///   renamed. Used where no step seed is installed (raw-arena tests, any
+///   caller that never calls `Kernel::set_construct_seed`) and for a boolean
+///   output face whose ancestry could not be attributed to an operand face —
+///   there is no content to seed such a face from.
 ///
 /// The split is the reason the two schemes can never alias: a content id has
 /// the top bit set and the counter is refused before it could reach there
@@ -851,10 +855,12 @@ impl BrepArena {
     /// stamps, returning the scope it replaced so the caller can restore it
     /// (D0 item 1).
     ///
-    /// Pass `None` around any operation whose output identity is NOT the
-    /// step's own content — a boolean, whose output faces are named by their
-    /// journal lineage — otherwise those faces would take role indices under
-    /// the step's seed and compete with the faces the step actually created.
+    /// Pass `None` around any operation whose output faces do not have a
+    /// ROLE in the step — a boolean, whose output faces are named from their
+    /// lineage root instead (D0 item 1b,
+    /// [`crate::pid::boolean_output_face_pids`]) — otherwise those faces
+    /// would take role indices under the step's seed and compete with the
+    /// faces the step actually created.
     pub fn set_face_seed(&mut self, seed: Option<FaceSeed>) -> Option<FaceSeedScope> {
         std::mem::replace(&mut self.face_seed, seed.map(FaceSeedScope::new))
     }

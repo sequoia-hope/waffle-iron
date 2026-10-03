@@ -4,21 +4,24 @@
 //!
 //! # Why content-seeded, and seeded from what
 //!
-//! A face's [`Pid`] is stamped by the constructor that made the face
-//! ([`BrepArena::assign_face_pids`], KV13 F1) and is therefore **fresh on
-//! every boolean**: `boolean_op` builds new faces, so the plate's far wall
-//! has one pid before a hole is drilled and a different one after. The
-//! stable name of that wall is its **lineage root** — the pid where the
+//! A face's [`Pid`] is stamped when the face is built
+//! ([`BrepArena::assign_face_pids`], KV13 F1) and is **re-minted on every
+//! boolean**: `boolean_op` builds new faces, so the plate's far wall is a
+//! different face before a hole is drilled and after. The name that spans
+//! those incarnations is the face's **lineage root** — the pid where the
 //! geometry was introduced, which `journal::face_lineage` recovers through
 //! any number of chained booleans.
 //!
-//! A root used to be a number from a per-arena counter, which is reproducible
-//! only when the whole arena is rebuilt in the same order. Since D0 item 1 a
-//! root is itself content-seeded ([`seeded_face_pid`]): the creating step's
-//! stable name plus the face's role within that step. That is what makes an
-//! INCREMENTAL rebuild safe — re-running one step in an arena whose counter
-//! has advanced now reproduces that step's face ids, so the edges named from
-//! them keep their ids too.
+//! Both halves of that used to be numbers from a per-arena counter,
+//! reproducible only when the whole arena is rebuilt in the same order.
+//! Since D0 item 1 a root is content-seeded ([`seeded_face_pid`]): the
+//! creating step's stable name plus the face's role within that step. Since
+//! D0 item 1b a boolean's own output faces are too
+//! ([`seeded_boolean_face_pid`] via [`boolean_output_face_pids`]): the
+//! boolean step's seed, the output face's root, and its rank among the
+//! patches sharing that root. That is what makes an INCREMENTAL rebuild safe
+//! — re-running a step in an arena whose counter has advanced now reproduces
+//! that step's face ids, so the edges named from them keep their ids too.
 //!
 //! So an edge is named from the *roots* of its two adjacent faces, not from
 //! their current pids:
