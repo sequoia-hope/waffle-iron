@@ -313,10 +313,13 @@ export const parametersSetTool = {
 							enum: ['Length', 'Angle', 'Count', 'Ratio', null],
 							description:
 								'Declare the dimension the expression must produce; every field that reads this ' +
-								'parameter is then checked against it. With merge:true, omitting this keeps what the ' +
-								'parameter has and null clears it.'
+								'parameter is then checked against it. Omitting this keeps what the parameter has ' +
+								'(in both modes) and null clears it.'
 						},
-						comment: { type: 'string' }
+						comment: {
+							type: ['string', 'null'],
+							description: 'Omitting this keeps the current comment; null clears it.'
+						}
 					},
 					additionalProperties: false
 				}

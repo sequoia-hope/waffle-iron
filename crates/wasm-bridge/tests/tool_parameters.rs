@@ -655,3 +655,103 @@ fn undo_of_a_rename_restores_the_dependent_field_too() {
     assert!(state.engine.errors.is_empty(), "{:?}", state.engine.errors);
     assert!((extrude_depth(&state, extrude) - 0.020).abs() < 1e-15);
 }
+
+#[test]
+fn two_renames_onto_one_name_in_a_single_call_are_refused() {
+    // The per-row check compares each new name against the table as it WAS,
+    // so neither of these looks taken on its own. The table they produce has
+    // two parameters called `x`, and the dependents of BOTH would be
+    // rewritten onto whichever one resolves first — measured before the
+    // check: `tb` went from reading `b` (3) to reading the other `x` (2),
+    // with nothing but a duplicate-name error on the shadowed row.
+    let mut state = EngineState::new();
+    let first = ok(
+        &mut state,
+        "parameters_set",
+        json!({ "parameters": [
+            { "name": "a", "expression": "1" },
+            { "name": "b", "expression": "2" },
+            { "name": "tb", "expression": "b + 1" },
+        ]}),
+    );
+    let a = first["parameters"][0]["id"].as_str().expect("an id").to_string();
+    let b = first["parameters"][1]["id"].as_str().expect("an id").to_string();
+
+    let error = refused(
+        &mut state,
+        "parameters_set",
+        json!({ "merge": true, "parameters": [
+            { "id": a, "name": "x" },
+            { "id": b, "name": "x" },
+        ]}),
+    );
+    assert_eq!(error["code"], "ParameterNameTaken");
+    // Nothing written, and the dependent still reads the parameter it meant.
+    assert_eq!(
+        state
+            .engine
+            .tree
+            .parameters
+            .iter()
+            .map(|p| p.name.as_str())
+            .collect::<Vec<_>>(),
+        vec!["a", "b", "tb"]
+    );
+    assert_eq!(state.engine.tree.parameters[2].expression, "b + 1");
+    assert!(state.engine.errors.is_empty(), "{:?}", state.engine.errors);
+}
+
+#[test]
+fn a_rename_whose_row_this_call_also_deletes_is_refused() {
+    let mut state = EngineState::new();
+    let first = ok(
+        &mut state,
+        "parameters_set",
+        json!({ "parameters": [{ "name": "w", "expression": "10" }] }),
+    );
+    let w = first["parameters"][0]["id"].as_str().expect("an id").to_string();
+    let error = refused(
+        &mut state,
+        "parameters_set",
+        json!({ "merge": true,
+                "parameters": [{ "id": w, "name": "width" }],
+                "delete": [w] }),
+    );
+    assert_eq!(error["code"], "ParameterNameTaken");
+    assert_eq!(names(&ok(&mut state, "parameters_get", json!({}))), vec!["w"]);
+}
+
+#[test]
+fn a_full_table_send_keeps_both_sidecars_it_did_not_mention() {
+    // `unit` and `comment` are the author's, and the rule is the same for
+    // both in both modes: omitting keeps, `null` clears. A full-table resend
+    // that mentions neither used to keep the unit and drop the comment.
+    let mut state = EngineState::new();
+    let first = ok(
+        &mut state,
+        "parameters_set",
+        json!({ "parameters": [
+            { "name": "turn", "expression": "90", "unit": "Angle", "comment": "half" },
+        ]}),
+    );
+    let id = first["parameters"][0]["id"].as_str().expect("an id").to_string();
+
+    let answer = ok(
+        &mut state,
+        "parameters_set",
+        json!({ "parameters": [{ "id": id, "name": "turn", "expression": "45" }] }),
+    );
+    assert_eq!(row(&answer, "turn")["unit"], "Angle");
+    assert_eq!(row(&answer, "turn")["comment"], "half");
+
+    // And `null` clears either one, in replace mode too.
+    let cleared = ok(
+        &mut state,
+        "parameters_set",
+        json!({ "parameters": [
+            { "id": id, "name": "turn", "expression": "45", "unit": null, "comment": null },
+        ]}),
+    );
+    assert!(row(&cleared, "turn").get("unit").is_none());
+    assert!(row(&cleared, "turn").get("comment").is_none());
+}

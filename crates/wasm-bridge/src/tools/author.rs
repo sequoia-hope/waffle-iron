@@ -844,9 +844,12 @@ fn find_parameter_by_key(table: &[DesignParameter], key: &str) -> Option<usize> 
 }
 
 /// Read a row's declared unit, distinguishing "absent" from "explicitly
-/// null". In `merge` mode an absent `unit` KEEPS what the parameter has —
-/// an agent setting one expression must not silently strip a declared
-/// dimension it never mentioned — while an explicit `null` clears it.
+/// null". An absent `unit` KEEPS what the parameter has — in BOTH modes: an
+/// agent that sets one expression, or re-sends a table it did not read the
+/// sidecars of, must not silently strip a declared dimension it never
+/// mentioned, because `unit` changes which fields accept the value and so
+/// changes what the document refuses. An explicit `null` clears it. The same
+/// rule governs `comment`.
 fn declared_unit(
     row: &Value,
     current: Option<Dimension>,
@@ -987,8 +990,12 @@ pub(super) fn parameters_set(
             // every field that reads this parameter is checked against it.
             // Absent leaves the parameter a plain number, as before.
             unit: declared_unit(row, base.and_then(|p| p.unit))?,
+            // Same rule as `unit`: absent keeps, `null` clears. Before this
+            // the two disagreed — a full-table send kept a declared `unit`
+            // it did not mention and dropped the `comment` beside it, which
+            // no caller can predict from one schema.
             comment: match row.get("comment") {
-                None if merge => base.and_then(|p| p.comment.clone()),
+                None => base.and_then(|p| p.comment.clone()),
                 Some(Value::String(c)) => Some(c.clone()),
                 _ => None,
             },
@@ -1031,6 +1038,33 @@ pub(super) fn parameters_set(
         removed.push(parameters[at].name.clone());
         parameters.remove(at);
     }
+
+    // Every rename's new name must name exactly ONE parameter in the table
+    // this call produces. The per-row check above compares each new name
+    // against the table as it WAS, so it cannot see two rows renamed onto the
+    // same name in one call, or a rename onto a name a NEW row in the same
+    // call also takes. Letting either through is the harm `ParameterNameTaken`
+    // exists to prevent: the dependents would be rewritten onto whichever
+    // duplicate the table resolves first, which is not the parameter they
+    // meant, and the geometry would move with no error on any feature.
+    // (Measured before this check: two rows renamed to `x` left a dependent
+    // of the second silently reading the first.)
+    for (from, to) in &renames {
+        let targets = parameters.iter().filter(|p| p.name == *to).count();
+        if targets != 1 {
+            let why = if targets == 0 {
+                format!("this call also removes '{to}'")
+            } else {
+                format!("this call would leave {targets} parameters called '{to}'")
+            };
+            return Err(ToolFailure::new(
+                "ParameterNameTaken",
+                format!("Cannot rename '{from}' to '{to}': {why}. Nothing was changed."),
+                json!({ "parameter": from, "new_name": to, "targets": targets }),
+            ));
+        }
+    }
+
     // A delete that leaves a reader behind is refused by NAME, not left to
     // break at the next rebuild: the dependents are the answer the caller
     // needs, and a loud per-feature "unknown variable" an hour later is not.

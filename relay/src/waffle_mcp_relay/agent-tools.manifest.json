@@ -1,5 +1,5 @@
 {
-  "manifest_hash": "b6c09673dc540c2cb7ae1a3ad71dff4e56bc18d0266064bd428db529cc8b51c3",
+  "manifest_hash": "ec6108acbe69044016ed7d1013fc5c4b01b7148866a408aa3371cb754921e0bf",
   "protocol": "waffle-agent-link/1",
   "tools": [
     {
@@ -16566,7 +16566,11 @@
               "additionalProperties": false,
               "properties": {
                 "comment": {
-                  "type": "string"
+                  "description": "Omitting this keeps the current comment; null clears it.",
+                  "type": [
+                    "string",
+                    "null"
+                  ]
                 },
                 "expression": {
                   "minLength": 1,
@@ -16582,7 +16586,7 @@
                   "type": "string"
                 },
                 "unit": {
-                  "description": "Declare the dimension the expression must produce; every field that reads this parameter is then checked against it. With merge:true, omitting this keeps what the parameter has and null clears it.",
+                  "description": "Declare the dimension the expression must produce; every field that reads this parameter is then checked against it. Omitting this keeps what the parameter has (in both modes) and null clears it.",
                   "enum": [
                     "Length",
                     "Angle",
