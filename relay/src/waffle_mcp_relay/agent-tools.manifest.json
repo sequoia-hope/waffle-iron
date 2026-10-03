@@ -1,5 +1,5 @@
 {
-  "manifest_hash": "5202d07a884a75071bdf08ff870e0f1b80eaea19903657464ab5674e1d40e0b5",
+  "manifest_hash": "c998a0fff36b79c22a5487aa8fd21aa2a683716a00815794fa138a4bc7756fab",
   "protocol": "waffle-agent-link/1",
   "tools": [
     {
@@ -17868,7 +17868,7 @@
         "readOnlyHint": true,
         "title": "Export DXF"
       },
-      "description": "Export ONE orthographic view of the whole model (every live body of the open Part, or an open assembly's instances at their world placements) as an R12 DXF drawing in millimetres — the flat-pattern file a laser, waterjet or plasma table consumes. Every edge of the model plus every curved face's silhouette — the outline where the surface turns away — is drawn on the VISIBLE layer; hidden-line removal is not implemented yet, so a view with depth shows the far edges too. Lines, circles and arcs are written as true DXF entities and a projected ellipse as a polyline within 0.01 mm of it; an intersection or spline curve is a polyline at the render chord density instead, which is about 0.1% of its own radius, so on a large part it is looser than 0.01 mm. Refused with NothingToExport when there are no bodies, InvalidArgument for a view it cannot name, and PayloadTooLarge above 16 MiB for deliver \"agent\". specs/drawings_and_mbd.md D1a + D1b.",
+      "description": "Export ONE orthographic view of the whole model (every live body of the open Part, or an open assembly's instances at their world placements) as an R12 DXF drawing in millimetres — the flat-pattern file a laser, waterjet or plasma table consumes. Every edge of the model plus every curved face's silhouette — the outline where the surface turns away — is drawn, with hidden-line removal: the lines the solid stands in front of land on the HIDDEN layer and the rest on VISIBLE, so switching HIDDEN off leaves a cuttable outline. Both layers are CONTINUOUS — the dashed hidden-line type's dash pitch depends on a sheet scale this one-view export does not have. Lines, circles and arcs are written as true DXF entities and a projected ellipse as a polyline within 0.01 mm of it; an intersection or spline curve is a polyline at the render chord density instead, which is about 0.1% of its own radius, so on a large part it is looser than 0.01 mm. Refused with NothingToExport when there are no bodies, InvalidArgument for a view it cannot name, and PayloadTooLarge above 16 MiB for deliver \"agent\". specs/drawings_and_mbd.md D1a + D1b + D1c.",
       "inputSchema": {
         "additionalProperties": false,
         "properties": {

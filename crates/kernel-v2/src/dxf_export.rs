@@ -79,7 +79,7 @@ pub const DEFAULT_POLYLINE_SAGITTA: f64 = 1.0e-5;
 /// Layer for [`Visibility::Visible`] curves (`specs/drawings_and_mbd.md` §8).
 pub const LAYER_VISIBLE: &str = "VISIBLE";
 
-/// Layer for [`Visibility::Hidden`] curves. Empty until D1c.
+/// Layer for [`Visibility::Hidden`] curves — populated since D1c.
 pub const LAYER_HIDDEN: &str = "HIDDEN";
 
 /// Write one view as an R12 DXF drawing.

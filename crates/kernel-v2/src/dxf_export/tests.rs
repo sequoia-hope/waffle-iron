@@ -559,6 +559,57 @@ fn the_section_method_is_a_loud_not_supported_until_d1d() {
 
 // --- the golden ---
 
+/// Hidden curves land on the `HIDDEN` layer and visible ones on `VISIBLE` —
+/// the D1c half of §8's layer list, and the thing a reader switches off to get
+/// a cuttable outline.
+///
+/// A box from a generic direction is the one configuration whose answer is a
+/// closed-form count: nine of its twelve edges are visible and the three at
+/// the far vertex are hidden.
+#[test]
+fn an_oblique_boxs_three_hidden_edges_land_on_the_hidden_layer() {
+    let mut a = KernelV2Adapter::new();
+    let solid = make_box(&mut a, 0.040, 0.030, 0.010);
+    let text = a
+        .export_dxf(
+            &[ProjectionBody::solo(solid)],
+            &ViewFrame::looking_along([-2.0, -3.0, -5.0]),
+            &ProjectOpts::default(),
+        )
+        .expect("export_dxf");
+
+    let mut on_visible = 0;
+    let mut on_hidden = 0;
+    for (kind, e) in entities(&text) {
+        assert_eq!(kind, "LINE", "every edge of a box projects to a segment");
+        match layer_of(&e).as_str() {
+            LAYER_VISIBLE => on_visible += 1,
+            LAYER_HIDDEN => on_hidden += 1,
+            other => panic!("unknown layer {other}"),
+        }
+    }
+    assert_eq!((on_visible, on_hidden), (9, 3));
+    // Both layers are declared whether or not they are used, so a reader's
+    // layer table does not change shape with the view.
+    assert_eq!(text.matches("  0\nLAYER\n").count(), 2);
+}
+
+/// The same view, byte for byte — the first golden with a populated `HIDDEN`
+/// layer. Regenerate deliberately with `UPDATE_GOLDEN=1`.
+#[test]
+fn the_oblique_box_view_matches_its_golden_byte_for_byte() {
+    let mut a = KernelV2Adapter::new();
+    let solid = make_box(&mut a, 0.040, 0.030, 0.010);
+    let actual = a
+        .export_dxf(
+            &[ProjectionBody::solo(solid)],
+            &ViewFrame::looking_along([-2.0, -3.0, -5.0]),
+            &ProjectOpts::default(),
+        )
+        .expect("export_dxf");
+    golden("box_oblique_hidden.dxf", &actual);
+}
+
 #[test]
 fn the_box_top_view_matches_its_golden_byte_for_byte() {
     let mut a = KernelV2Adapter::new();
@@ -571,10 +622,18 @@ fn the_box_top_view_matches_its_golden_byte_for_byte() {
         )
         .expect("export_dxf");
 
-    let path = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/golden/box_top_view.dxf");
+    golden("box_top_view.dxf", &actual);
+}
+
+/// Compare one written file against its golden, or rewrite it under
+/// `UPDATE_GOLDEN=1`.
+fn golden(name: &str, actual: &str) {
+    let path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("tests/golden")
+        .join(name);
     if std::env::var_os("UPDATE_GOLDEN").is_some() {
         std::fs::create_dir_all(path.parent().expect("parent")).expect("mkdir");
-        std::fs::write(&path, &actual).expect("write golden");
+        std::fs::write(&path, actual).expect("write golden");
     }
     let expected = std::fs::read_to_string(&path)
         .unwrap_or_else(|e| panic!("{}: {e} (run with UPDATE_GOLDEN=1)", path.display()));
