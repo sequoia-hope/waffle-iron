@@ -324,6 +324,7 @@ const ENGINE_QUERIES = new Set([
 	'sketch3d_get',
 	'names_list',
 	'expression_evaluate',
+	'parameters_get',
 	'export_step',
 	'export_stl',
 	'export_dxf',

@@ -286,39 +286,73 @@ export const rollbackSetTool = {
 export const parametersSetTool = {
 	name: 'parameters_set',
 	description:
-		'Replace the design-parameter table with the COMPLETE list (omitted parameters are removed) and rebuild ' +
-		'(one undo step). Expressions are mm-space and may reference other parameters by name. Keep a ' +
-		'parameter\'s id to preserve it; omit id for a new one. A failing expression is reported per ' +
-		'parameter, not rolled back.',
+		'Write the design-parameter table and rebuild (one undo step). By default parameters REPLACES the ' +
+		'table, so an omitted parameter is removed; with merge:true the rows are applied over the current ' +
+		'table and delete removes parameters by name or id, so you can set one value without re-sending the ' +
+		'rest. Expressions are mm-space and may reference other parameters by name. Keep a parameter\'s id ' +
+		'to preserve it; omit id for a new one. A row whose id names an existing parameter with a DIFFERENT ' +
+		'name is a rename: every expression that reads it — other parameters and feature fields alike — is ' +
+		'rewritten, so use this rather than deleting and re-adding. A failing expression is reported per ' +
+		'parameter, not rolled back; a delete of a parameter something still reads is refused naming the ' +
+		'dependents (read them first with parameters_get).',
 	inputSchema: {
 		type: 'object',
 		properties: {
 			parameters: {
 				type: 'array',
+				description:
+					'The complete table, or (with merge:true) just the rows to set. Required without merge.',
 				items: {
 					type: 'object',
 					properties: {
-						id: uuid('Existing parameter id (from model_summary); omit for a new parameter.'),
+						id: uuid('Existing parameter id (from parameters_get); omit for a new parameter.'),
 						name: { type: 'string', pattern: '^[A-Za-z_][A-Za-z0-9_]*$' },
-						expression: { type: 'string', minLength: 1 }
+						expression: { type: 'string', minLength: 1 },
+						unit: {
+							type: ['string', 'null'],
+							enum: ['Length', 'Angle', 'Count', 'Ratio', null],
+							description:
+								'Declare the dimension the expression must produce; every field that reads this ' +
+								'parameter is then checked against it. With merge:true, omitting this keeps what the ' +
+								'parameter has and null clears it.'
+						},
+						comment: { type: 'string' }
 					},
-					required: ['name', 'expression'],
 					additionalProperties: false
 				}
+			},
+			merge: {
+				type: 'boolean',
+				description:
+					'Apply parameters over the current table instead of replacing it. Required for delete.'
+			},
+			delete: {
+				type: 'array',
+				items: { type: 'string' },
+				description:
+					'Parameters to remove, by name or id. Needs merge:true (without merge, omitting a parameter ' +
+					'already removes it). Refused if anything still reads one of them.'
 			}
 		},
-		required: ['parameters'],
 		additionalProperties: false
 	},
 	outputSchema: commandOutputSchema({
 		parameters: {
 			type: 'array',
+			description: 'The table as the rebuild evaluated it.',
 			items: {
 				type: 'object',
 				properties: {
 					id: { type: 'string' },
 					name: { type: 'string' },
+					expression: {
+						type: 'string',
+						description:
+							'Echoed, because after a rename or a merge the table holds expressions you did not send.'
+					},
 					value_mm: { type: ['number', 'null'] },
+					unit: { type: 'string', enum: ['Length', 'Angle', 'Count', 'Ratio'] },
+					comment: { type: 'string' },
 					error: { type: 'string' }
 				}
 			}

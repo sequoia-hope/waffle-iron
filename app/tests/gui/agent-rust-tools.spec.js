@@ -62,6 +62,14 @@ const READ_ONLY = [
 	// `crates/wasm-bridge/tests/tool_names.rs`.
 	'names_list',
 	'expression_evaluate',
+	// P5 of `specs/agent_mechanical_design.md` §6 (2026-10-03): the table as
+	// data — expression, value, dimension, dependencies, dependents and the
+	// feature fields that consume each parameter. The answer's shape is
+	// pinned in `crates/wasm-bridge/tests/tool_parameters.rs`; the sequence
+	// below calls it after `parameters_set` so the page's routing of it is
+	// exercised here, against the same two-parameter table (one of which
+	// does not evaluate) the summary reports.
+	'parameters_get',
 	'export_step',
 	'export_stl',
 	// `export_dxf` (2026-10-03, drawings D1a) routes like the other exporters.
@@ -156,6 +164,7 @@ test.describe('Read-only agent tools run in the engine (S3 C5b)', () => {
 				});
 				const names = await call('names_list', {});
 				const expression = await call('expression_evaluate', { expression: 'width * 2' });
+				const parameters = await call('parameters_get', {});
 				const step = await call('export_step');
 				const stl = await call('export_stl', { body_id: bodyId });
 				for (const [name, r] of [
@@ -167,6 +176,7 @@ test.describe('Read-only agent tools run in the engine (S3 C5b)', () => {
 					['entity_name', entityName],
 					['names_list', names],
 					['expression_evaluate', expression],
+					['parameters_get', parameters],
 					['export_step', step],
 					['export_stl', stl]
 				]) {
@@ -193,6 +203,7 @@ test.describe('Read-only agent tools run in the engine (S3 C5b)', () => {
 					entityName: entityName.structuredContent,
 					names: names.structuredContent,
 					expression: expression.structuredContent,
+					parameters: parameters.structuredContent,
 					// The whole result: the embedded resource is in `content`, and a
 					// download side channel must NOT be (there was none asked for).
 					step,
@@ -224,6 +235,7 @@ test.describe('Read-only agent tools run in the engine (S3 C5b)', () => {
 			'entity_name',
 			'names_list',
 			'expression_evaluate',
+			'parameters_get',
 			'export_step',
 			'export_stl',
 			'feature_suppress',
@@ -264,6 +276,22 @@ test.describe('Read-only agent tools run in the engine (S3 C5b)', () => {
 			body: 'Base plate'
 		});
 		expect(result.expression.value_mm).toBe(40);
+
+		// P5: the table as data, through the real bridge. `width` evaluates
+		// and `broken` does not, and the second does not take the first down
+		// with it — a whole-table failure would hide every good row.
+		expect(result.parameters.parameters.map((p) => p.name)).toEqual(['width', 'broken']);
+		expect(result.parameters.parameters[0]).toMatchObject({
+			name: 'width',
+			expression: '20',
+			value_mm: 20,
+			depends_on: [],
+			used_by: [],
+			used_by_fields: []
+		});
+		expect(result.parameters.parameters[1].value_mm).toBeNull();
+		expect(typeof result.parameters.parameters[1].error).toBe('string');
+		expect(result.parameters.cycles).toEqual([]);
 
 		// The export pair (C6): the file embedded as an MCP resource, its size
 		// in the description, and nothing out of band — the relay hands

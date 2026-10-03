@@ -6377,21 +6377,38 @@ export function getParameters() {
 /**
  * Replace the design-parameter table (send the COMPLETE list) and rebuild.
  * Evaluated values/errors come back on the updated feature tree.
+ *
+ * `renames` are `(old name, new name)` pairs. The engine rewrites every
+ * expression that reads the old name — other parameters and every feature
+ * field — through the parser's AST, so a rename does not leave the document
+ * reading a name it no longer has. Pass them whenever a row's NAME changed
+ * while its id stayed: without them the table is right and every dependent
+ * is broken. See `specs/agent_mechanical_design.md` §6 P5.
+ *
  * @param {Array<{id?: string, name: string, expression: string}>} parameters
+ * @param {Array<[string, string]>} [renames]
  */
-export async function setParameters(parameters) {
+export async function setParameters(parameters, renames = []) {
 	if (!bridge || !engineReady) return;
-	log('action', 'Set parameters', { count: parameters.length });
+	log('action', 'Set parameters', { count: parameters.length, renames: renames.length });
 	const payload = parameters.map((p) => ({
 		id: p.id || crypto.randomUUID(),
 		name: p.name,
 		expression: p.expression,
-		value: typeof p.value === 'number' ? p.value : 0
+		value: typeof p.value === 'number' ? p.value : 0,
+		// A declared dimension and a comment are the author's, and an edit to
+		// ONE row sends the whole table — dropping these here would quietly
+		// strip them from every other parameter (P1's `unit` is a contract
+		// that changes what fields accept the value, so losing it changes
+		// what the document refuses).
+		...(p.unit ? { unit: p.unit } : {}),
+		...(p.comment ? { comment: p.comment } : {})
 	}));
 	try {
 		await sendRebuild({
 			type: 'SetParameters',
-			parameters: JSON.parse(JSON.stringify(payload))
+			parameters: JSON.parse(JSON.stringify(payload)),
+			renames: JSON.parse(JSON.stringify(renames))
 		});
 	} catch (err) {
 		log('error', `Set parameters failed: ${err.message}`);
