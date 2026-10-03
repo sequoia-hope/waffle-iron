@@ -126,11 +126,16 @@ imported STEP. Each of those can hang off the structures defined here later.
 
 Listed in dependency order; each later item needs the earlier ones.
 
-1. **Edge and vertex persistent ids, and content-seeded Pids.** Pids cover
-   faces only and are allocation-order dependent (the F4a reseeding note at
-   `arena.rs:135` is unimplemented). Almost every dimension and every geometric
-   tolerance anchors to an edge or vertex, so without this an annotation
-   detaches whenever its feature is re-executed.
+1. ~~**Edge and vertex persistent ids, and content-seeded Pids.**~~ **DONE
+   2026-10-03.** Was: Pids covered faces only and were allocation-order
+   dependent, so an annotation detached whenever its feature was
+   re-executed — and almost every dimension and every geometric tolerance
+   anchors to an edge or vertex. Edge and vertex ids landed as D0 items 2–3
+   (`kernel_v2::pid`); the content-seeded face Pid (item 1, the F4a reseed)
+   landed the same day — see "Implementation notes (D0)" and
+   "Implementation notes (D0 item 1)" in §4. One residue, recorded there: a
+   boolean's OWN output pids are still counter-allocated (their roots are
+   not).
 2. **Silhouette, hidden-line classification, and planar section.** Edge
    projection LANDED as D1a (`kernel_v2::projection`, 2026-10-03); the rest of
    D1 has not. The viewport's section view is still a three.js stencil cap
@@ -267,7 +272,11 @@ more, moving one member past another renumbers both and their two ids swap,
 even though neither changed its content key. Sign-of-zero counts as a move
 (`-0.0` orders below `+0.0`, as under `f64::total_cmp`). Making a
 multi-member group order-independent needs the content key itself to separate
-its members, which is the F4a face reseed below. Pinned as
+its members, which the F4a face reseed below turned out NOT to do: it
+stabilizes a face's root, but a boolean that splits one operand face into two
+patches still leaves both patches rooted at that face, so their edges still
+share a root pair and still need a rank. Separating them wants a per-patch
+discriminator inside the root. Pinned as
 `rank_groups_renumbers_a_group_when_a_member_moves_past_another`.
 
 **The hash is frozen.** `H` is a chain of SplitMix64 finalizer steps over
@@ -326,19 +335,15 @@ body". A caller that genuinely wants best-effort rebinding stores a
 
 **Still open after this increment:**
 
-- *Content-seeded FACE pids (item 1, the F4a reseed).* Face pids remain
-  monotonic. They are reproduced exactly by a full rebuild of an unchanged
+- ~~*Content-seeded FACE pids (item 1, the F4a reseed).*~~ **LANDED
+  2026-10-03** — see "Implementation notes (D0 item 1)" below. Face pids
+  were monotonic: reproduced exactly by a full rebuild of an unchanged
   document, but an INCREMENTAL rebuild re-runs only the edited feature in an
-  arena whose allocator has advanced, so that feature's faces are stamped
+  arena whose allocator has advanced, so that feature's faces were stamped
   fresh — measured on a plate+boss on 2026-10-03: a boss depth edit moved its
   face roots `{6,8,9,10,11} → {23,25,26,27,28}` while the plate's `{0..5}`
-  were untouched. Consequence: the four edges where the boss meets the plate
-  are renamed by an edit that does not move them. Pinned as the `#[ignore]`d
-  `edges_at_the_junction_with_an_edited_feature_keep_their_ids_too` in
-  `crates/test-harness/tests/d0_pid_selector.rs` — un-ignore it in the PR
-  that lands the reseed. The reseed is cross-crate (the kernel does not know
-  feature ids today; it needs the creating feature's id, the role, and for
-  side faces the sketch entity's id to reach the constructor).
+  were untouched, and the four edges where the boss meets the plate were
+  renamed by an edit that did not move them.
 - *The corpus-wide oracle (item 5).* Not run: the identity oracle here is
   focused (a box, a cylinder, a plate+boss union through the engine), not the
   assay corpus rebuilt twice.
@@ -356,6 +361,137 @@ body". A caller that genuinely wants best-effort rebinding stores a
   serde-tagged enum, so the first document that persists a `Pid` selector
   cannot be read by an older reader — that lands with a format reader-floor
   bump, which this increment did not need.
+
+### Implementation notes (D0 item 1)
+
+Landed 2026-10-03, the F4a reseed. Item 1 asked for a face Pid "seeded from
+a structural key: the creating feature's id, the role, and for side faces the
+sketch entity's id". This is what was built and why it differs where it does.
+
+**Two schemes, in disjoint halves of one number space.** A face pid is now
+either content-seeded or counter-allocated, and which one is readable off the
+id: content ids have the top bit set (`kernel_v2::PID_CONTENT_BASE`), and
+`BrepArena::alloc_pid` refuses (`PidSpaceExhausted`) rather than crossing
+into that half. So "a hash id and a counter id are never the same number" is
+true by construction rather than by luck, and a dump says which scheme a
+face came from. `alloc_pid` returning `Result` is the only signature change
+this forced.
+
+**The seed is an opaque 128-bit name, and the seam is one scope setter.**
+`Kernel::set_construct_seed(Option<ConstructSeed>) -> Option<ConstructSeed>`
+installs the identity of the step about to create geometry and returns what
+it replaced; `feature_engine::rebuild` sets it from `feature.id.as_u128()`
+around each feature's execution and restores it after. The alternative — a
+`seed` argument on `extrude_face`, `revolve_face`, `pipe`, `sweep`,
+`make_face_from_region` and every future constructor — repeats one parameter
+on every door and makes each new constructor a contract change; and it would
+have had to reach ~15 internal `finalize_solid` call sites and every
+kernel-v2 test that builds a solid. `ConstructSeed` is deliberately opaque
+(`[u64; 2]`, no uuid, no feature type): the kernel does not know what a
+feature is and must not learn. The method defaults to ignoring the seed, so
+`MockKernel` and any mesh-backed kernel are unchanged.
+
+**The role is the face's LOCAL ordinal in its constructor's output, and that
+IS the structural key item 1 asked for.** `BrepArena::assign_face_pids`
+derives `H(seed, output ordinal, role)` where `role` is the face's position
+in the solid's own face list in ascending `FaceId` order. The `FaceId`s are
+arena-global and march on as other steps build, but their relative order
+inside one constructor's output is a function of that constructor's creation
+sequence alone — which is the face's role. Measured and pinned in
+`crates/kernel-v2/tests/d0_face_seed.rs`: a polygon extrude numbers top cap
+0, base cap 1, then one lateral per profile edge **in profile order**; a
+circle extrude numbers base, top, lateral. The two orders differ, so neither
+is stated as a general rule — each is a fixed function of its own
+constructor, and the test is where to look before relying on a number. Note
+what this buys over the plan's wording: a lateral's index comes from the
+profile order the engine already fixed, so no sketch-entity id has to reach
+the constructor, and no face's name is re-derived from a coordinate (so
+nothing about it can drift with geometry).
+
+**One step, several solids: the output ordinal.** A feature can build more
+than one solid in one execution (a sketch with two profiles extrudes twice).
+Their faces share every role index, so the seed alone cannot separate them;
+each stamping pass consumes the next `output` ordinal of the installed scope.
+A pass that stamps nothing does not burn one.
+
+**The seed is withdrawn for a boolean.** Boolean output faces keep the
+pre-D0 scheme — a counter pid plus a journal lineage whose root is the
+operand face's root — because that lineage *is* their identity, and
+`pid::solid_pids` reads the root. `boolean/from_yang.rs` therefore clears the
+scope around its `finalize_solid` and restores it: a feature that extrudes
+and then auto-unions would otherwise hand the union's faces role indices
+under the same seed as the extrude's, and the two sets would compete for the
+same ids. `transform_solid`/`mirror_solid` stay on the counter for the same
+reason (`Same` lineage back to the source face).
+
+**A seeded pid is unique within one BODY, and a re-execution deliberately
+re-mints it.** A rebuild re-executes features into the same arena, leaving
+the previous incarnation's solid orphaned but still in `face_pids`; a seeded
+id is a function of the step and the role, so the new incarnation takes
+exactly the ids the orphan holds. That repetition is the property — "the same
+step always names its faces the same way" is what a reopened document needs —
+and every consumer already looks a pid up inside one body
+(`pid::solid_pids`, `all_entity_pids`, and `resolve_by_pid`, which refuses
+rather than searching other bodies; the pre-existing note "a pid is unique
+only WITHIN one body" already said so). The collision check is therefore
+scoped to the solid: two faces of ONE body may never share an id, and
+`PidCollision { kind: "face" }` refuses rather than aliasing. Two faces of
+one step with the same role cannot happen at all — a role is a position in a
+deduped list.
+
+**The frozen hash gained a third domain, and the existing literals did not
+move.** `seeded_face_pid` is the same SplitMix64 chain with a `"FACE_V1"`
+domain tag. The edge/vertex literals in
+`crates/kernel-v2/tests/d0_pid_hash_frozen.rs` are read off an UNSEEDED
+arena, where face pids still come from the counter, so they pin the
+edge/vertex derivation alone and were untouched by the reseed — no migration
+was needed, and nothing in the repo's 343-file `.waffle` corpus persists a
+`Selector::Pid` to migrate (grepped). The face digest has its own literals
+in the same file, recorded by a different process than the one asserting
+them: the cross-process half of the stability claim.
+
+**What is now green.** `edges_at_the_junction_with_an_edited_feature_keep_their_ids_too`
+(the `#[ignore]`d D0 pin) is live. Three new pins sit beside it in
+`crates/test-harness/tests/d0_pid_selector.rs`:
+`a_face_pid_names_the_same_face_after_a_save_and_a_reopen` (author, edit,
+save, reopen in a fresh engine and kernel — the pid → face-site map must be
+the one the authoring session saw),
+`a_face_root_names_the_same_face_after_a_save_and_a_reopen_through_a_union`,
+and `an_edit_to_one_feature_leaves_another_features_face_roots_alone`. The
+first is the equivalent of the N1 branch's `#[ignore]`d
+`a_face_name_keeps_its_pid_across_an_edit_to_its_own_feature`
+(`crates/wasm-bridge/tests/tool_names.rs`) — un-ignore that one when N1
+merges. All four were mutation-checked by withdrawing the seed in
+`rebuild.rs`: all four go red, the other four tests in the file stay green.
+
+**Still open after this increment:**
+
+- *A boolean's own output pids remain history-dependent.* Only their ROOTS
+  are content-seeded. An incremental edit upstream of a boolean re-runs it,
+  and its output faces take new counter numbers. Nothing stores a face's own
+  pid across a session today (the resolver matches `pid` then `root_pid`, and
+  a boolean output's root is stable), but a consumer that wants a stable name
+  for a boolean-born face — a PMI anchor on a cut wall, say — needs those
+  seeded too: `H(root, rank within the root's split group)`, which has to
+  move the stamping pass after `boolean_op` records the journal.
+- *Nothing has been measured over the assay corpus* (item 5's oracle is still
+  unrun). The reseed changes face pid VALUES everywhere, so the corpus
+  verdicts are the thing to confirm it did not disturb — not attempted here,
+  one was already running.
+- *`ingest` inherits the seed.* A STEP import under an installed seed stamps
+  its faces by file order, which is stable across re-imports of the same
+  file. Untested; the import path has no identity pin yet.
+- *A script's children have no identity of their own, and must not get one
+  here.* `script::execute` runs each child through `execute_feature` without
+  installing a seed, so a child's faces are named by the SCRIPT feature's
+  uuid plus the child's position in the script's construct sequence. That is
+  deliberate, and the reason is a finding worth recording: `script/host.rs`
+  mints every child's `Uuid` with `Uuid::new_v4()`, so a child feature's id
+  is random per run. Seeding from it would make script-generated face pids
+  change on every rebuild — strictly worse than the parent's stable seed. A
+  script child gets a durable identity only once the host mints its ids
+  deterministically (e.g. hashed from the script source position), and that
+  is the prerequisite for any annotation anchored inside a script.
 
 ## 5. D1 — Kernel projection and section
 

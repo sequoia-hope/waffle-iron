@@ -278,6 +278,35 @@ pub trait Kernel {
             operation: "sweep".to_string(),
         })
     }
+
+    /// Install the persistent-identity seed that subsequent construct calls
+    /// stamp their new faces from, returning the seed it replaced so the
+    /// caller can restore it (drawings spec D0 item 1).
+    ///
+    /// This is the narrowest seam that works: the alternative — a `seed`
+    /// argument on `extrude_face`, `revolve_face`, `pipe`, `sweep`,
+    /// `make_face_from_region` and every future constructor — repeats the
+    /// same parameter on every door and makes each new constructor a
+    /// contract change. A scope setter is one door, and the kernel keeps the
+    /// seed opaque ([`ConstructSeed`]), so no feature-tree type crosses the
+    /// boundary.
+    ///
+    /// Contract for the caller: set the seed before executing one
+    /// geometry-creating step, and restore the previous value afterwards.
+    /// Geometry created with no seed installed falls back to whatever
+    /// identity scheme the kernel used before — for `kernel_v2` a monotonic
+    /// per-arena counter, which is reproducible only by a full in-order
+    /// rebuild.
+    ///
+    /// Contract for the implementor: a seed names a STEP, not a face; faces
+    /// created under one seed must be told apart by their role within the
+    /// step, and two faces that would land on one id must be refused loudly
+    /// rather than aliased. Defaults to ignoring the seed and returning
+    /// `None`, for kernels that report no persistent identity at all
+    /// (`MockKernel`, mesh-backed imports).
+    fn set_construct_seed(&mut self, _seed: Option<ConstructSeed>) -> Option<ConstructSeed> {
+        None
+    }
 }
 
 /// What kind of analytic geometry an [`EntityAxis`] came from. Reported so a
