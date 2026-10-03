@@ -83,6 +83,27 @@ fn make_cylinder(
 // --- a minimal group-code reader, for assertions only ---
 
 /// `(code, value)` pairs, in file order. DXF is a flat stream of them.
+/// The D1a EDGE pass alone, as this writer's entity-coverage tests need it.
+///
+/// Since D1c the adapter's `project` merges curves that are COINCIDENT in
+/// `(u, v)` with the same visibility — which an axis-aligned view of a
+/// prismatic or axial solid is full of, since its front and back outlines
+/// project onto each other — so a classified top view of a box carries four
+/// lines, not eight. That is the right DRAWING and it is what the golden
+/// records; it is the wrong fixture for checking that the writer emits a
+/// `LINE` per `Curve2::Line` and a `CIRCLE` per full turn, which is what these
+/// tests are for.
+fn edge_view(a: &KernelV2Adapter, solid: &KernelSolidHandle, frame: ViewFrame) -> ViewGeometry {
+    let (arena, sid) = a.arena_of(solid).expect("a live solid");
+    crate::projection::project_edges(
+        arena,
+        sid,
+        &frame.basis().expect("a well-formed frame"),
+        crate::tessellate::RENDER_CHORD_TOLERANCE_REL,
+    )
+    .expect("the edge pass projects")
+}
+
 fn codes(text: &str) -> Vec<(i32, String)> {
     let mut lines = text.lines();
     let mut out = Vec::new();
@@ -196,9 +217,7 @@ fn the_r12_skeleton_is_present_and_balanced() {
 fn a_boxs_top_view_writes_eight_lines_and_four_points_in_millimetres() {
     let mut a = KernelV2Adapter::new();
     let solid = make_box(&mut a, 0.040, 0.030, 0.010);
-    let view = a
-        .project(&solid, &ViewFrame::TOP, &ProjectOpts::default())
-        .expect("projects");
+    let view = edge_view(&a, &solid, ViewFrame::TOP);
     let text = write_dxf(&view, DEFAULT_POLYLINE_SAGITTA);
 
     assert_eq!(entities(&text).len(), 12, "twelve edges, twelve entities");
@@ -216,7 +235,11 @@ fn a_boxs_top_view_writes_eight_lines_and_four_points_in_millimetres() {
     };
     let mut lengths = Vec::new();
     for (kind, e) in entities(&text) {
-        assert_eq!(layer_of(&e), LAYER_VISIBLE, "D1a tags everything visible");
+        assert_eq!(
+            layer_of(&e),
+            LAYER_VISIBLE,
+            "the edge pass tags everything visible"
+        );
         match kind.as_str() {
             "LINE" => {
                 let (x0, y0) = (group(&e, 10), group(&e, 20));
@@ -245,9 +268,7 @@ fn a_boxs_top_view_writes_eight_lines_and_four_points_in_millimetres() {
 fn a_cylinders_top_view_writes_two_circles_and_the_collapsed_seam() {
     let mut a = KernelV2Adapter::new();
     let solid = make_cylinder(&mut a, (0.005, -0.003), 0.008, 0.020);
-    let view = a
-        .project(&solid, &ViewFrame::TOP, &ProjectOpts::default())
-        .expect("projects");
+    let view = edge_view(&a, &solid, ViewFrame::TOP);
     let text = write_dxf(&view, DEFAULT_POLYLINE_SAGITTA);
 
     assert_eq!(count_of(&text, "CIRCLE"), 2, "two rims, seen face-on");
@@ -270,17 +291,15 @@ fn an_oblique_rim_is_flattened_within_its_sagitta() {
     let r = 0.008;
     let solid = make_cylinder(&mut a, (0.0, 0.0), r, 0.020);
     let theta = std::f64::consts::FRAC_PI_4;
-    let view = a
-        .project(
-            &solid,
-            &ViewFrame {
-                origin: [0.0; 3],
-                dir: [0.0, theta.sin(), -theta.cos()],
-                up: [0.0, 0.0, 1.0],
-            },
-            &ProjectOpts::default(),
-        )
-        .expect("projects");
+    let view = edge_view(
+        &a,
+        &solid,
+        ViewFrame {
+            origin: [0.0; 3],
+            dir: [0.0, theta.sin(), -theta.cos()],
+            up: [0.0, 0.0, 1.0],
+        },
+    );
     let text = write_dxf(&view, DEFAULT_POLYLINE_SAGITTA);
 
     assert_eq!(count_of(&text, "POLYLINE"), 2, "R12 has no ELLIPSE entity");
@@ -363,13 +382,10 @@ fn a_d_shaped_plate_writes_arcs_from_its_rounded_rims() {
         .extrude_face(faces[0], [0.0, 0.0, 1.0], 0.004)
         .expect("D-shape extrudes");
 
-    let text = a
-        .export_dxf(
-            &[ProjectionBody::solo(solid)],
-            &ViewFrame::TOP,
-            &ProjectOpts::default(),
-        )
-        .expect("export_dxf");
+    let text = write_dxf(
+        &edge_view(&a, &solid, ViewFrame::TOP),
+        DEFAULT_POLYLINE_SAGITTA,
+    );
     let arcs: Vec<Vec<(i32, String)>> = entities(&text)
         .into_iter()
         .filter(|(k, _)| k == "ARC")
@@ -426,17 +442,18 @@ fn an_arc_is_written_with_degrees_in_the_dxf_range() {
         (7.0, 9.0),
     ];
     for (s, e) in cases {
-        let view = ViewGeometry::new(vec![waffle_types::kernel::projection::ProjectedCurve {
-            geometry: Curve2::Circle {
-                center: cad_primitives::Point2::new(0.001, -0.002),
-                radius: 0.004,
-                start_angle: s,
-                end_angle: e,
-            },
-            visibility: waffle_types::kernel::projection::Visibility::Visible,
-            kind: waffle_types::kernel::projection::CurveKind::Edge,
-            source: None,
-        }]);
+        let view = ViewGeometry::new(vec![
+            waffle_types::kernel::projection::ProjectedCurve::visible(
+                Curve2::Circle {
+                    center: cad_primitives::Point2::new(0.001, -0.002),
+                    radius: 0.004,
+                    start_angle: s,
+                    end_angle: e,
+                },
+                waffle_types::kernel::projection::CurveKind::Edge,
+                None,
+            ),
+        ]);
         let text = write_dxf(&view, DEFAULT_POLYLINE_SAGITTA);
         assert_eq!(count_of(&text, "ARC"), 1, "({s}, {e}) is a partial arc");
         let arc = entities(&text).remove(0).1;
@@ -494,8 +511,12 @@ fn export_dxf_puts_several_bodies_in_one_view() {
             &ProjectOpts::default(),
         )
         .expect("export_dxf");
-    assert_eq!(count_of(&text, "LINE"), 8, "the plate");
-    assert_eq!(count_of(&text, "CIRCLE"), 2, "the disc's rims");
+    // Four lines and one circle, not eight and two: seen along `z` each
+    // body's front and back outlines project onto each other, agree on
+    // visibility, and D1c merges them. The drawing is the same drawing; the
+    // file no longer carries each line twice.
+    assert_eq!(count_of(&text, "LINE"), 4, "the plate");
+    assert_eq!(count_of(&text, "CIRCLE"), 1, "the disc's merged rims");
     // One nest, one set of extents spanning both parts.
     let all = codes(&text);
     let i = all
@@ -538,6 +559,57 @@ fn the_section_method_is_a_loud_not_supported_until_d1d() {
 
 // --- the golden ---
 
+/// Hidden curves land on the `HIDDEN` layer and visible ones on `VISIBLE` —
+/// the D1c half of §8's layer list, and the thing a reader switches off to get
+/// a cuttable outline.
+///
+/// A box from a generic direction is the one configuration whose answer is a
+/// closed-form count: nine of its twelve edges are visible and the three at
+/// the far vertex are hidden.
+#[test]
+fn an_oblique_boxs_three_hidden_edges_land_on_the_hidden_layer() {
+    let mut a = KernelV2Adapter::new();
+    let solid = make_box(&mut a, 0.040, 0.030, 0.010);
+    let text = a
+        .export_dxf(
+            &[ProjectionBody::solo(solid)],
+            &ViewFrame::looking_along([-2.0, -3.0, -5.0]),
+            &ProjectOpts::default(),
+        )
+        .expect("export_dxf");
+
+    let mut on_visible = 0;
+    let mut on_hidden = 0;
+    for (kind, e) in entities(&text) {
+        assert_eq!(kind, "LINE", "every edge of a box projects to a segment");
+        match layer_of(&e).as_str() {
+            LAYER_VISIBLE => on_visible += 1,
+            LAYER_HIDDEN => on_hidden += 1,
+            other => panic!("unknown layer {other}"),
+        }
+    }
+    assert_eq!((on_visible, on_hidden), (9, 3));
+    // Both layers are declared whether or not they are used, so a reader's
+    // layer table does not change shape with the view.
+    assert_eq!(text.matches("  0\nLAYER\n").count(), 2);
+}
+
+/// The same view, byte for byte — the first golden with a populated `HIDDEN`
+/// layer. Regenerate deliberately with `UPDATE_GOLDEN=1`.
+#[test]
+fn the_oblique_box_view_matches_its_golden_byte_for_byte() {
+    let mut a = KernelV2Adapter::new();
+    let solid = make_box(&mut a, 0.040, 0.030, 0.010);
+    let actual = a
+        .export_dxf(
+            &[ProjectionBody::solo(solid)],
+            &ViewFrame::looking_along([-2.0, -3.0, -5.0]),
+            &ProjectOpts::default(),
+        )
+        .expect("export_dxf");
+    golden("box_oblique_hidden.dxf", &actual);
+}
+
 #[test]
 fn the_box_top_view_matches_its_golden_byte_for_byte() {
     let mut a = KernelV2Adapter::new();
@@ -550,10 +622,18 @@ fn the_box_top_view_matches_its_golden_byte_for_byte() {
         )
         .expect("export_dxf");
 
-    let path = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/golden/box_top_view.dxf");
+    golden("box_top_view.dxf", &actual);
+}
+
+/// Compare one written file against its golden, or rewrite it under
+/// `UPDATE_GOLDEN=1`.
+fn golden(name: &str, actual: &str) {
+    let path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("tests/golden")
+        .join(name);
     if std::env::var_os("UPDATE_GOLDEN").is_some() {
         std::fs::create_dir_all(path.parent().expect("parent")).expect("mkdir");
-        std::fs::write(&path, &actual).expect("write golden");
+        std::fs::write(&path, actual).expect("write golden");
     }
     let expected = std::fs::read_to_string(&path)
         .unwrap_or_else(|e| panic!("{}: {e} (run with UPDATE_GOLDEN=1)", path.display()));
@@ -569,4 +649,53 @@ fn the_box_top_view_matches_its_golden_byte_for_byte() {
             path.display()
         );
     }
+}
+
+/// The DXF door hands back what the projection DECLINED along with the file.
+///
+/// A DXF is a deliverable and every decline but `cross_body` is a line the
+/// drawing does not carry, so dropping the counts at the export door would let
+/// a shop drawing be accepted with no sign that it is a degenerate view. The
+/// two fixtures are the two answers: an oblique box declines nothing, and an
+/// axis-aligned view of the same box grazes every face parallel to its line of
+/// sight and says so.
+#[test]
+fn export_dxf_reports_the_projections_declines_with_the_file() {
+    let mut a = KernelV2Adapter::new();
+    let solid = make_box(&mut a, 0.040, 0.030, 0.010);
+    let bodies = [ProjectionBody {
+        handle: solid.clone(),
+        name: "plate".to_string(),
+        placement: None,
+    }];
+    let opts = ProjectOpts::default();
+
+    let oblique = ViewFrame::looking_along([-2.0, -3.0, -5.0]);
+    let (text, declines) = a
+        .export_dxf_with_declines(&bodies, &oblique, &opts)
+        .expect("the oblique box exports");
+    assert_eq!(
+        declines.total(),
+        0,
+        "a generic view of a box decides everything: {declines:?}"
+    );
+    // And it is the same file the declines-less door writes.
+    assert_eq!(
+        text,
+        a.export_dxf(&bodies, &oblique, &opts).expect("exports")
+    );
+
+    let (_, declines) = a
+        .export_dxf_with_declines(&bodies, &ViewFrame::TOP, &opts)
+        .expect("the top view exports");
+    assert!(
+        declines.ray_grazes_face > 0,
+        "a top view grazes the four walls parallel to its line of sight: \
+         {declines:?}"
+    );
+    assert_eq!(
+        declines.total() - declines.ray_grazes_face,
+        0,
+        "and declines nothing else: {declines:?}"
+    );
 }

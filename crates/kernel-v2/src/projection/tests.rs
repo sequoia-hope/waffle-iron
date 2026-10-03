@@ -36,7 +36,9 @@ use std::collections::HashMap;
 
 use super::*;
 use crate::KernelV2Adapter;
-use waffle_types::kernel::projection::{Aabb2, KernelProjection, ProjectOpts, ViewFrame};
+use waffle_types::kernel::projection::{
+    Aabb2, KernelProjection, ProjectOpts, ViewFrame, Visibility,
+};
 use waffle_types::kernel::{
     CircleProfile, ClosedProfile, Kernel, KernelIntrospect, KernelSolidHandle, ProjectionBody,
     RigidPlacement,
@@ -46,7 +48,7 @@ use waffle_types::kernel::{
 // fixtures
 // ---------------------------------------------------------------------------
 
-fn rect_profile(w: f64, d: f64) -> (ClosedProfile, HashMap<u32, (f64, f64)>) {
+pub(super) fn rect_profile(w: f64, d: f64) -> (ClosedProfile, HashMap<u32, (f64, f64)>) {
     let mut positions = HashMap::new();
     positions.insert(1, (0.0, 0.0));
     positions.insert(2, (w, 0.0));
@@ -66,7 +68,7 @@ fn rect_profile(w: f64, d: f64) -> (ClosedProfile, HashMap<u32, (f64, f64)>) {
 }
 
 /// A `w` × `d` × `h` box with a corner at the origin.
-fn make_box(a: &mut KernelV2Adapter, w: f64, d: f64, h: f64) -> KernelSolidHandle {
+pub(super) fn make_box(a: &mut KernelV2Adapter, w: f64, d: f64, h: f64) -> KernelSolidHandle {
     let (profile, positions) = rect_profile(w, d);
     let faces = a
         .make_faces_from_profiles(
@@ -82,7 +84,7 @@ fn make_box(a: &mut KernelV2Adapter, w: f64, d: f64, h: f64) -> KernelSolidHandl
 
 /// A cylinder of `radius` about the z axis through `(cx, cy)`, from `z0`,
 /// `height` tall.
-fn make_cylinder(
+pub(super) fn make_cylinder(
     a: &mut KernelV2Adapter,
     (cx, cy): (f64, f64),
     radius: f64,
@@ -102,7 +104,7 @@ fn make_cylinder(
 
 /// A cylinder on an arbitrary sketch plane, extruded along the plane normal —
 /// how the corpus gets a cylinder whose axis is NOT `z`.
-fn make_cylinder_on(
+pub(super) fn make_cylinder_on(
     a: &mut KernelV2Adapter,
     origin: [f64; 3],
     normal: [f64; 3],
@@ -136,7 +138,7 @@ fn make_cylinder_on(
 /// parameter range is derived rather than a full turn. (The arena splits the
 /// 180° arc into two sub-arcs under its minor-arc limit, so the solid carries
 /// four arc edges, two per rim.)
-fn make_d_shape(a: &mut KernelV2Adapter, radius: f64, height: f64) -> KernelSolidHandle {
+pub(super) fn make_d_shape(a: &mut KernelV2Adapter, radius: f64, height: f64) -> KernelSolidHandle {
     let mut positions: HashMap<u32, (f64, f64)> = HashMap::new();
     positions.insert(0, (-radius, 0.0));
     positions.insert(1, (radius, 0.0));
@@ -274,6 +276,26 @@ fn basis_of(frame: ViewFrame) -> ViewBasis {
     frame.basis().expect("a named view frame has a basis")
 }
 
+/// The D1a EDGE pass alone: one curve per edge, in edge order, unclassified.
+///
+/// Since D1c the adapter's `project` splits every curve at its crossings with
+/// the others, merges the runs that agree and drops the ones that duplicate
+/// another curve — so "the nth curve is the nth listed edge" is a statement
+/// about [`super::project_edges`], and the tests that assert it reach the edge
+/// pass directly. The classified view's own contract (the edges still come
+/// before the silhouettes, and each piece still names its source) is asserted
+/// separately, through `project`.
+fn edge_view(a: &KernelV2Adapter, solid: &KernelSolidHandle, frame: ViewFrame) -> ViewGeometry {
+    let (arena, sid) = a.arena_of(solid).expect("a live solid");
+    super::project_edges(
+        arena,
+        sid,
+        &basis_of(frame),
+        crate::tessellate::RENDER_CHORD_TOLERANCE_REL,
+    )
+    .expect("the edge pass projects")
+}
+
 /// The six axis-aligned views §5.3 asks for.
 fn axis_views() -> Vec<(&'static str, ViewFrame)> {
     vec![
@@ -340,9 +362,7 @@ fn dist_to_curve(p: Point2, c: &Curve2) -> f64 {
 fn a_boxs_top_view_is_eight_segments_and_four_points() {
     let mut a = KernelV2Adapter::new();
     let solid = make_box(&mut a, 0.040, 0.030, 0.010);
-    let view = a
-        .project(&solid, &ViewFrame::TOP, &ProjectOpts::default())
-        .expect("box projects");
+    let view = edge_view(&a, &solid, ViewFrame::TOP);
 
     let lines = view
         .curves
@@ -387,9 +407,9 @@ fn a_boxs_top_view_is_eight_segments_and_four_points() {
 fn a_rims_circle_survives_as_a_circle_from_the_top() {
     let mut a = KernelV2Adapter::new();
     let solid = make_cylinder(&mut a, (0.003, -0.002), 0.008, 0.0, 0.020);
-    let view = a
-        .project(&solid, &ViewFrame::TOP, &ProjectOpts::default())
-        .expect("cylinder projects");
+    // The EDGE pass, so both rims are present: seen along the axis they are
+    // coincident in (u, v) and D1c's merge keeps one of them.
+    let view = edge_view(&a, &solid, ViewFrame::TOP);
 
     let circles: Vec<&Curve2> = view
         .curves
@@ -444,6 +464,15 @@ fn a_rims_circle_collapses_to_a_segment_seen_edge_on() {
     }
 }
 
+/// The ELLIPSE reconstruction, at the unclassified edge pass: an obliquely
+/// seen rim is one full ellipse of the right axes.
+///
+/// Through `project` this would be a test of D1c's split instead — an oblique
+/// cylinder's far rim is tangent to both its silhouette rulings and is cut at
+/// each, so the classified view carries the rim as two arcs. It passed at
+/// D1c's landing only because one of the two contacts was not split, which
+/// `an_oblique_cylinders_far_rim_is_hidden_over_exactly_half_its_length` is
+/// now the pin for.
 #[test]
 fn a_rims_circle_becomes_an_ellipse_seen_obliquely() {
     let mut a = KernelV2Adapter::new();
@@ -456,9 +485,7 @@ fn a_rims_circle_becomes_an_ellipse_seen_obliquely() {
         dir: [0.0, theta.sin(), -theta.cos()],
         up: [0.0, 0.0, 1.0],
     };
-    let view = a
-        .project(&solid, &frame, &ProjectOpts::default())
-        .expect("cylinder projects");
+    let view = edge_view(&a, &solid, frame);
 
     let ellipses: Vec<&Curve2> = view
         .curves
@@ -508,12 +535,7 @@ fn every_projected_curve_contains_its_own_three_dimensional_samples() {
         let edges = a.list_edges(&case.handle);
         for (name, frame) in axis_views() {
             let basis = basis_of(frame);
-            let view = a
-                .project(&case.handle, &frame, &ProjectOpts::default())
-                .unwrap_or_else(|e| panic!("{} along {name}: {e}", case.name));
-            // D1b appends each curved face's SILHOUETTE after the edges, so
-            // the contract this checks is the EDGE prefix: one curve per
-            // edge, in edge order, followed by silhouettes only.
+            let view = edge_view(&a, &case.handle, frame);
             let edge_curves: Vec<_> = view
                 .curves
                 .iter()
@@ -525,14 +547,31 @@ fn every_projected_curve_contains_its_own_three_dimensional_samples() {
                 "{} along {name}: one curve per edge",
                 case.name
             );
+            // And the CLASSIFIED view still groups the two passes: every edge
+            // piece before every silhouette piece, each naming its own source.
+            // D1c splits and merges within those groups, so the counts differ
+            // from the edge pass's, but the order does not.
+            let classified = a
+                .project(&case.handle, &frame, &ProjectOpts::default())
+                .unwrap_or_else(|e| panic!("{} along {name}: {e}", case.name));
+            let first_silhouette = classified
+                .curves
+                .iter()
+                .position(|c| c.kind == CurveKind::Silhouette)
+                .unwrap_or(classified.curves.len());
             assert!(
-                view.curves[..edges.len()]
+                classified.curves[..first_silhouette]
                     .iter()
                     .all(|c| c.kind == CurveKind::Edge)
-                    && view.curves[edges.len()..]
+                    && classified.curves[first_silhouette..]
                         .iter()
                         .all(|c| c.kind == CurveKind::Silhouette),
                 "{} along {name}: the edges come first, then the silhouettes",
+                case.name
+            );
+            assert!(
+                classified.curves.iter().all(|c| c.source.is_some()),
+                "{} along {name}: every classified piece names its source",
                 case.name
             );
             for (i, (curve, id)) in edge_curves.iter().zip(edges.iter()).enumerate() {
@@ -826,7 +865,17 @@ fn a_placed_body_projects_where_the_placement_puts_it() {
             &ProjectOpts::default(),
         )
         .expect("two bodies project");
-    assert_eq!(both.curves.len(), 24);
+    // Each body's TOP view merges its coincident top and bottom outlines, so
+    // the count is not twice the edge pass's twelve; what matters here is that
+    // the two bodies land where their placements put them, and that the view
+    // says out loud that neither body was tested against the other's
+    // geometry.
+    assert_eq!(
+        both.declines.cross_body, 2,
+        "a two-body view declines cross-body occlusion for both: {:?}",
+        both.declines
+    );
+    assert_eq!(both.curves.len(), 2 * placed.curves.len());
     let bb = both.bbox.expect("curves");
     assert!(
         (bb.min.x() - 0.0).abs() < 1e-12 && (bb.max.x() - 0.100).abs() < 1e-12,
@@ -839,9 +888,7 @@ fn the_curve_order_is_the_listed_edge_order() {
     let mut a = KernelV2Adapter::new();
     let solid = make_cylinder(&mut a, (0.0, 0.0), 0.008, 0.0, 0.020);
     let edges = a.list_edges(&solid);
-    let view = a
-        .project(&solid, &ViewFrame::TOP, &ProjectOpts::default())
-        .expect("projects");
+    let view = edge_view(&a, &solid, ViewFrame::TOP);
     assert_eq!(
         view.curves
             .iter()

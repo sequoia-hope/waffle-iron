@@ -884,8 +884,8 @@ fn handle_message(
                 })
                 .collect();
             let frame = waffle_types::kernel::ViewFrame::from_parts(view_dir, up);
-            let dxf_data = kb
-                .export_dxf(
+            let (dxf_data, declines) = kb
+                .export_dxf_with_declines(
                     &bodies,
                     &frame,
                     &waffle_types::kernel::ProjectOpts::default(),
@@ -896,6 +896,26 @@ fn handle_message(
                         reason: format!("{}", e),
                     })
                 })?;
+            // What the projection declined to decide, named and counted, on
+            // the same channel as the dropped-body warnings. Every counter but
+            // `cross_body` is a line the drawing does NOT carry, so a file
+            // with a large count is a degenerate view rather than a clean one
+            // — and without this the caller had no way to tell.
+            let mut warnings = warnings;
+            let declined: Vec<String> = declines
+                .counts()
+                .iter()
+                .filter(|(_, n)| *n > 0)
+                .map(|(k, n)| format!("{k} {n}"))
+                .collect();
+            if !declined.is_empty() {
+                warnings.push(format!(
+                    "the projection declined to decide some of this view ({}); \
+                     every one but cross_body means a line the drawing does not \
+                     carry — see specs/drawings_and_mbd.md D1c",
+                    declined.join(", ")
+                ));
+            }
             Ok(EngineToUi::DxfExportReady { dxf_data, warnings })
         }
 

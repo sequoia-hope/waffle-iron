@@ -366,7 +366,21 @@ fn export_dxf_defaults_to_the_top_view_of_the_whole_model() {
     assert_eq!(meta["deliver"], "agent");
     assert_eq!(meta["mime_type"], "image/vnd.dxf");
     assert_eq!(meta["file_name"], "Untitled.dxf");
-    assert_eq!(meta["warnings"], json!([]));
+    // No body was dropped — but the view is not a silent one either. A top
+    // view of a prismatic solid grazes every face parallel to its line of
+    // sight, which the kernel counts and the tool now passes on, since every
+    // decline but `cross_body` means a line the drawing does not carry.
+    let warnings = meta["warnings"].as_array().expect("a warnings array");
+    assert_eq!(warnings.len(), 1, "{warnings:?}");
+    let w = warnings[0].as_str().expect("a warning string");
+    assert!(
+        w.contains("declined to decide") && w.contains("ray_grazes_face"),
+        "{w}"
+    );
+    assert!(
+        !w.contains("mesh-backed") && !w.contains("left out"),
+        "no body was dropped: {w}"
+    );
 
     let res = resource(&result).expect("an embedded resource");
     assert_eq!(res["uri"], "waffle://export/Untitled.dxf");
@@ -375,9 +389,12 @@ fn export_dxf_defaults_to_the_top_view_of_the_whole_model() {
     assert_eq!(meta["bytes"], text.len());
     assert!(result.download.is_none());
 
-    // Seen from the top: eight segments of the two coincident rectangles and
-    // four verticals collapsed to points.
-    assert_eq!(dxf_entity_count(text, "LINE"), 8);
+    // Seen from the top: FOUR segments and four points. The top and bottom
+    // rectangles are coincident in `(u, v)` and agree on visibility, so D1c's
+    // coincidence merge keeps one of each pair — the same drawing, with each
+    // line carried once instead of twice — and the four verticals run along
+    // the line of sight and collapse to points.
+    assert_eq!(dxf_entity_count(text, "LINE"), 4);
     assert_eq!(dxf_entity_count(text, "POINT"), 4);
     // The extents, in MILLIMETRES. The 20 × 10 mm sketch rectangle sits on
     // the default XY-plane basis, whose in-plane x axis is world −y, so the
