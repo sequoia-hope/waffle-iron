@@ -28,11 +28,16 @@
 //! - **Otherwise the pair is refined analytically**: alternate the exact
 //!   closest-point projection ([`crate::signature::closest_point_on`], a
 //!   one-step exact form over each surface's implicit signed distance) between
-//!   the two carrier surfaces until both feet stop moving, then CERTIFY the
-//!   result — each foot must still lie on its own trimmed face (within the
-//!   chord band of that face's own triangles, the only statement the
-//!   tessellation licenses about the trim boundary), and the segment joining
-//!   them must be normal to both surfaces. Certified ⇒ exact.
+//!   the two carriers until both feet stop moving, then CERTIFY the result.
+//!   A carrier is the analytic surface under a face, the LINE under a straight
+//!   edge (its foot has a degree of freedom and must be allowed to slide: the
+//!   seed foot came from the other operand's chord facets, so freezing it
+//!   overclaims), or a fixed point for a vertex. The certificate: each foot
+//!   must still lie on its own trimmed face (within the chord band of that
+//!   face's own triangles, the only statement the tessellation licenses about
+//!   the trim boundary), the segment joining them must be normal to every
+//!   carrier surface, and perpendicular to a carrier line unless the foot ran
+//!   into one of its endpoints. Certified ⇒ exact.
 //! - **Anything else is the mesh tier**, with the chord bound
 //!   `RENDER_CHORD_TOLERANCE_REL × extent` the caller can hold us to: a curved
 //!   face whose refinement does not converge or converges off the face, and a
@@ -52,7 +57,7 @@ use crate::arena::{BrepArena, Curve, FaceId, HalfEdgeId, SolidId, Surface, Verte
 use crate::error::KernelV2Error;
 use crate::signature::{closest_point_on, outward_normal_at};
 use crate::tessellate::RENDER_CHORD_TOLERANCE_REL;
-use cad_primitives::{Point3, TAU_EVAL};
+use cad_primitives::{Point3, TAU_EVAL, TAU_WORK};
 
 /// What a distance is measured from or to.
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -720,20 +725,28 @@ fn walk(a: &Bvh, b: &Bvh, visit: &mut dyn FnMut(Candidate, &mut f64)) {
 
 /// What the refinement may move a foot along.
 enum Carrier {
-    /// A point that cannot move (a vertex, a free point, a straight edge's
-    /// foot — all exact already).
+    /// A point that cannot move: a vertex or a free point. It IS its geometry,
+    /// so there is nothing to slide.
     Fixed(Point3),
+    /// A straight edge. The foot has ONE degree of freedom along it and the
+    /// refinement must use it: the seed foot came from the other operand's
+    /// chord facets, so freezing it reports the distance to a point that is
+    /// only near the minimum — measured as 3.26e-4 m claimed EXACT for a box
+    /// edge against a cylinder lateral whose true gap is 10, when the facet
+    /// nearest the edge straddled the closest generator.
+    Line([Point3; 2]),
     /// An analytic surface, trimmed by `face`'s loops.
     Surf(Surface, FaceId),
 }
 
-fn carrier(arena: &BrepArena, prim: &Prim, foot: Point3) -> Option<Carrier> {
+fn carrier(arena: &BrepArena, prim: &Prim) -> Option<Carrier> {
     match *prim {
         Prim::Tri { face, .. } => {
             let surface = arena.face(face).ok()?.surface?;
             Some(Carrier::Surf(surface, face))
         }
-        Prim::Seg { exact: true, .. } | Prim::Pt { .. } => Some(Carrier::Fixed(foot)),
+        Prim::Seg { exact: true, p, .. } => Some(Carrier::Line(p)),
+        Prim::Pt { p, .. } => Some(Carrier::Fixed(p)),
         // A curved edge's chord: its foot is not on the true curve, and Q1
         // does not refine onto a curve (that is Q6's `edge_length` family).
         Prim::Seg { exact: false, .. } => None,
@@ -776,6 +789,7 @@ fn refine(
     let project = |c: &Carrier, toward: Point3| -> Option<Point3> {
         match c {
             Carrier::Fixed(p) => Some(*p),
+            Carrier::Line(p) => Some(pt_seg(toward, p[0], p[1]).2),
             Carrier::Surf(s, _) => closest_point_on(s, toward),
         }
     };
@@ -785,6 +799,17 @@ fn refine(
             .chain(pb.as_array().iter())
             .fold(0.0f64, |m, v| m.max(v.abs())),
     );
+    // The stopping rule must be strictly TIGHTER than the certificate it
+    // feeds, or certification is luck. The normality test below bounds a
+    // dimensionless sine by `TAU_EVAL`, which is a transverse position
+    // residual of `value · TAU_EVAL`; a sweep that stopped at
+    // `TAU_EVAL · scale` can leave `scale / value` times more than that. Two
+    // unit balls 48 m from the origin measured 5.00498 one way (the sweep
+    // stopped at 1.8e-9 off-axis, sine 2.1e-9, certificate refused) and an
+    // exact 5 the other — a 5 mm answer decided by operand order. `TAU_WORK`
+    // is the workspace's working floor, three orders under `TAU_EVAL` and
+    // still four orders above f64's spacing at metre scale, so the sweep
+    // converges to well inside what the certificate asks.
     let mut converged = false;
     for _ in 0..64 {
         let na = project(ca, pb)?;
@@ -792,7 +817,7 @@ fn refine(
         let moved = (dist2(na, pa) + dist2(nb, pb)).sqrt();
         pa = na;
         pb = nb;
-        if moved <= TAU_EVAL * scale {
+        if moved <= TAU_WORK * scale {
             converged = true;
             break;
         }
@@ -819,13 +844,35 @@ fn refine(
     }
     let u = [d[0] / value, d[1] / value, d[2] / value];
     for (c, p) in [(ca, pa), (cb, pb)] {
-        if let Carrier::Surf(s, _) = c {
-            let n = outward_normal_at(s, p)?;
-            // |u × n| is the sine of the angle between them; either sense of
-            // n is fine (the normal may point along or against the segment).
-            if len2(cross(u, n)).sqrt() > TAU_EVAL {
-                return None;
+        match c {
+            Carrier::Surf(s, _) => {
+                let n = outward_normal_at(s, p)?;
+                // |u × n| is the sine of the angle between them; either sense
+                // of n is fine (the normal may point along or against the
+                // segment).
+                if len2(cross(u, n)).sqrt() > TAU_EVAL {
+                    return None;
+                }
             }
+            // A foot free to slide along an edge is a critical point of the
+            // true distance only where the segment meets the edge at a right
+            // angle, or where the foot has run into an endpoint (the clamped
+            // minimum, which the endpoint vertex realizes exactly).
+            Carrier::Line(q) => {
+                let e = sub(q[1], q[0]);
+                let el = len2(e).sqrt();
+                let at_end = dist2(p, q[0]).sqrt().min(dist2(p, q[1]).sqrt()) <= TAU_EVAL * scale;
+                if !at_end {
+                    if el <= 0.0 {
+                        return None;
+                    }
+                    let cosang = dot(u, [e[0] / el, e[1] / el, e[2] / el]).abs();
+                    if cosang > TAU_EVAL {
+                        return None;
+                    }
+                }
+            }
+            Carrier::Fixed(_) => {}
         }
     }
     Some((value, pa, pb))
@@ -877,10 +924,7 @@ pub fn distance(arena: &BrepArena, a: Target, b: Target) -> Result<DistanceResul
             (c.d2.sqrt(), c.pa, c.pb, true)
         } else {
             // Tier 2: refine onto the analytic carriers and certify.
-            match (
-                carrier(arena, &c.prim_a, c.pa),
-                carrier(arena, &c.prim_b, c.pb),
-            ) {
+            match (carrier(arena, &c.prim_a), carrier(arena, &c.prim_b)) {
                 (Some(ca), Some(cb)) => match refine(arena, &ca, &cb, (c.pa, c.pb), band) {
                     Some((v, qa, qb)) => (v, qa, qb, true),
                     None => (c.d2.sqrt(), c.pa, c.pb, false),
@@ -909,9 +953,12 @@ pub fn distance(arena: &BrepArena, a: Target, b: Target) -> Result<DistanceResul
 /// negative when they overlap along it. The realizing points are the extreme
 /// sample of each operand facing the other.
 ///
-/// Exact only when every extreme sample is exact (a planar face's triangle, a
-/// straight edge, a vertex, a point): a curved face's extreme point along an
-/// arbitrary direction is an analytic support point, which Q1 does not solve.
+/// Exact only when NO inexact primitive reaches within the chord band of
+/// either extreme: a curved face's extreme point along an arbitrary direction
+/// is an analytic support point, which Q1 does not solve, and it lies up to the
+/// band beyond that face's mesh samples. So an all-planar operand pair is
+/// exact, and anything with a curved face near the extreme is honestly the mesh
+/// tier even when the winning sample happens to be a plane's.
 pub fn distance_along(
     arena: &BrepArena,
     a: Target,
@@ -930,8 +977,18 @@ pub fn distance_along(
     let band = chord_bound(&bvh_a, &bvh_b);
 
     // The extreme sample of each operand along ±u, with what it sits on.
+    //
+    // The `exact` flag carries the SAME band argument `distance` makes, not
+    // just the winning primitive's own tier: a curved face's true support
+    // point along `u` lies up to the chord band beyond its mesh samples, so
+    // any inexact primitive reaching within `band` of the extreme could hold
+    // the real one. Reading only the winner would let an exact planar face
+    // sitting a chord inside a curved one certify a gap that is wrong by the
+    // sagitta — and, where the two tie exactly, would make the tier depend on
+    // which primitive the BVH's sort visited first.
     let extreme = |prims: &[Prim], sign: f64| -> (f64, Point3, Option<On>, bool) {
-        let mut best = (f64::NEG_INFINITY, Point3::new(0.0, 0.0, 0.0), None, true);
+        let mut best = (f64::NEG_INFINITY, Point3::new(0.0, 0.0, 0.0), None);
+        let mut inexact_reach = f64::NEG_INFINITY;
         for p in prims {
             let pts: &[Point3] = match p {
                 Prim::Tri { p, .. } => p,
@@ -941,11 +998,15 @@ pub fn distance_along(
             for q in pts {
                 let s = sign * dot(q.as_array(), u);
                 if s > best.0 {
-                    best = (s, *q, p.on(), p.is_exact());
+                    best = (s, *q, p.on());
+                }
+                if !p.is_exact() && s > inexact_reach {
+                    inexact_reach = s;
                 }
             }
         }
-        best
+        let exact = inexact_reach < best.0 - band;
+        (best.0, best.1, best.2, exact)
     };
     let (a_hi, pa_hi, on_a_hi, ex_a_hi) = extreme(&bvh_a.prims, 1.0);
     let (a_lo_n, pa_lo, on_a_lo, ex_a_lo) = extreme(&bvh_a.prims, -1.0);

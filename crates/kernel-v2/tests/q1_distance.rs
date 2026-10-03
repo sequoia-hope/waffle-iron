@@ -346,3 +346,106 @@ fn along_reports_the_directional_gap_and_a_negative_overlap() {
         "a zero direction is refused, not defaulted"
     );
 }
+
+/// A straight edge against a curved face: the foot ON THE EDGE has a degree of
+/// freedom, and an `exact` answer only means something if the refinement used
+/// it. The seed foot comes from the cylinder's chord facets, so when the facet
+/// nearest the edge STRADDLES the closest generator (the seam is rotated half
+/// a facet here so it does) the seed foot sits at a facet corner — a measured
+/// 3.26e-4 m away from the truth, which the first Q1 cut reported as `exact`
+/// with a zero band.
+#[test]
+fn a_straight_edge_against_a_cylinder_slides_its_foot_before_claiming_exact() {
+    let n = kernel_v2::circle_segment_count(kernel_v2::RENDER_CHORD_TOLERANCE_REL);
+    let half = PI / n as f64;
+    let mut arena = BrepArena::new();
+    // Cylinder R = 2 about +z, seam rotated by half a facet so +x̂ lands in the
+    // MIDDLE of a chord facet rather than on a mesh vertex.
+    let c = Profile::circle(
+        Point3::new(0.0, 0.0, 0.0),
+        Vector3::new(half.cos(), half.sin(), 0.0),
+        Vector3::new(-half.sin(), half.cos(), 0.0),
+        Point2::new(0.0, 0.0),
+        2.0,
+    )
+    .expect("circle profile");
+    let cyl = extrude(&mut arena, &c, Vector3::new(0.0, 0.0, 1.0), 4.0)
+        .expect("cylinder")
+        .solid;
+    let lateral = lateral(&arena, cyl);
+
+    // A box out on +x: its x = 12 faces carry edges running along ŷ, whose
+    // closest point to the cylinder is at y = 0, INSIDE the edge. The gap is
+    // 12 − 2 = 10.
+    let b = boxx(&mut arena, [12.0, -3.0, 0.0], 2.0, 6.0, 2.0);
+    let mut checked = 0usize;
+    for sh in arena.solid(b).expect("solid").shells.clone() {
+        for f in arena.shell(sh).expect("shell").faces.clone() {
+            let face = arena.face(f).expect("face");
+            for h in arena.loop_half_edges(face.outer_loop).expect("loop") {
+                let he = arena.half_edge(h).expect("half-edge");
+                let p0 = arena.vertex(he.origin).expect("v0").point;
+                let p1 = arena
+                    .vertex(arena.half_edge(he.next).expect("next").origin)
+                    .expect("v1")
+                    .point;
+                // Only the ŷ-running edges on the x = 12 face have an interior
+                // minimum; the rest are endpoint-clamped and were always right.
+                let runs_y = (p0.x() - 12.0).abs() < 1e-12
+                    && (p1.x() - 12.0).abs() < 1e-12
+                    && (p0.y() - p1.y()).abs() > 1.0;
+                if !runs_y {
+                    continue;
+                }
+                let d = distance(&arena, Target::Edge(h), Target::Face(lateral)).expect("edge");
+                if d.exact {
+                    close(
+                        d.value,
+                        10.0,
+                        TAU_MODEL,
+                        "an exact edge/cylinder gap is the truth",
+                    );
+                    assert!(
+                        d.points[0].y().abs() <= TAU_MODEL,
+                        "the foot slid to the closest generator: {:?}",
+                        d.points[0]
+                    );
+                } else {
+                    // Declining is also honest — but then the band must cover
+                    // the error, and the value must not be better than it.
+                    assert!(
+                        (d.value - 10.0).abs() <= d.chord_bound,
+                        "a mesh answer must lie inside its own band: {d:?}"
+                    );
+                }
+                checked += 1;
+            }
+        }
+    }
+    assert!(
+        checked >= 2,
+        "only {checked} interior-minimum edges checked"
+    );
+}
+
+/// The certificate must be reachable by the sweep that feeds it, at any
+/// distance from the origin. The first Q1 cut stopped the alternating
+/// projection at `TAU_EVAL × scale` but demanded a dimensionless normality
+/// sine under `TAU_EVAL`, so the residual the sweep was allowed to leave grew
+/// with the model's coordinates while the certificate did not: two unit balls
+/// 48 m out measured an exact 5 one way and a mesh 5.00498 the other, a 5 mm
+/// answer decided by which operand came first.
+#[test]
+fn a_sphere_pair_far_from_the_origin_certifies_in_both_directions() {
+    let mut arena = BrepArena::new();
+    // Centres 8 apart, radii 1 and 2: the gap is 8 − 1 − 2 = 5. Placed far
+    // out on x so `scale` is ~48 rather than ~5.
+    let a = ball(&mut arena, 40.0, 1.0);
+    let b = ball(&mut arena, 48.0, 2.0);
+
+    let fwd = distance(&arena, Target::Solid(a), Target::Solid(b)).expect("a→b");
+    let rev = distance(&arena, Target::Solid(b), Target::Solid(a)).expect("b→a");
+    close(fwd.value, 5.0, TAU_MODEL, "ball gap far from the origin");
+    close(rev.value, fwd.value, 0.0, "symmetric");
+    assert!(fwd.exact && rev.exact, "fwd {fwd:?}\nrev {rev:?}");
+}
