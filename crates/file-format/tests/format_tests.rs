@@ -1413,18 +1413,12 @@ fn save_writes_min_reader_version() {
     let tree = make_simple_tree();
     let meta = ProjectMetadata::new("Test Project");
     let parsed: serde_json::Value = serde_json::from_str(&save_project(&tree, &meta)).unwrap();
-    assert_eq!(
-        parsed["min_reader_version"],
-        file_format::MIN_READER_VERSION
-    );
+    assert_eq!(parsed["min_reader_version"], MIN_READER_VERSION);
 
     let mut doc = WaffleDocument::new("Doc");
     doc.tabs[0].features_mut().unwrap().features = make_simple_tree().features;
     let parsed: serde_json::Value = serde_json::from_str(&save_document(&doc)).unwrap();
-    assert_eq!(
-        parsed["min_reader_version"],
-        file_format::MIN_READER_VERSION
-    );
+    assert_eq!(parsed["min_reader_version"], MIN_READER_VERSION);
 }
 
 #[test]

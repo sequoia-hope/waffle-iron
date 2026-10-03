@@ -162,6 +162,17 @@ fn call(name: &str, args: &[Expr], env: &Env, span: Span) -> Result<Quantity, Ex
         .iter()
         .map(|a| eval(a, env))
         .collect::<Result<_, _>>()?;
+    // Every function here indexes `vals[0]`. `parse` guarantees at least one
+    // argument, but `Expr` is a public type with public fields, so a caller
+    // that hand-builds a tree could reach this — and a library must not
+    // panic on it.
+    if vals.is_empty() {
+        return Err(ExprError::WrongArity {
+            function: name.to_string(),
+            expected: "1 or more",
+            got: 0,
+        });
+    }
     match name {
         // Shape-preserving: the dimension rides through unchanged.
         "abs" => finite(vals[0].value.abs(), vals[0].tag, span),
@@ -644,6 +655,26 @@ mod tests {
                 );
             }
         }
+    }
+
+    #[test]
+    fn a_hand_built_call_with_no_arguments_is_an_error_not_a_panic() {
+        // `parse` cannot produce this, but `Expr` is public with public
+        // fields, so a caller can. Every builtin indexes `vals[0]`.
+        use super::super::parse::Expr;
+        let empty = Expr::Call {
+            name: "sqrt".to_string(),
+            args: Vec::new(),
+            span: Span::new(0, 6),
+        };
+        assert_eq!(
+            eval(&empty, &Env::new()),
+            Err(ExprError::WrongArity {
+                function: "sqrt".into(),
+                expected: "1 or more",
+                got: 0
+            })
+        );
     }
 
     #[test]

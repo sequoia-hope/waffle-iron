@@ -1190,7 +1190,10 @@ export async function initEngine() {
 			getSelectedFeatureId: () => selectedFeatureId,
 			getParameters: () => JSON.parse(JSON.stringify(getParameters())),
 			setParameters: (params) => setParameters(params),
-			evaluateExpression: (expr) => evaluateExpression(expr),
+			// The optional second argument is the dimension the caller means
+			// the expression for (P1); forwarded so a test can exercise the
+			// refusal path, not only the number.
+			evaluateExpression: (expr, dimension) => evaluateExpression(expr, dimension),
 			getMeshes: () => meshes.map(m => ({
 				featureId: m.featureId,
 				bodyId: m.bodyId ?? null,

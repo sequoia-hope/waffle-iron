@@ -693,3 +693,29 @@ fn the_old_code_laundered_an_infinity_through_min_max_and_abs() {
         );
     }
 }
+
+#[test]
+fn adding_rad_newly_reserves_one_plausible_parameter_name() {
+    // The one back-compat cost of the `rad` suffix, stated rather than
+    // discovered later: `rad` was a legal PARAMETER name before P1 (it was
+    // not a unit, so nothing reserved it), and a document that used it —
+    // `rad` for a radius is not a stretch — now fails. The corpus has zero
+    // parameters so no repo file is affected, but the rule is now pinned
+    // instead of implicit.
+    let vars: HashMap<String, f64> = [("rad".to_string(), 5.0)].into_iter().collect();
+    assert_eq!(oracle::evaluate("rad * 2", &vars).unwrap(), 10.0);
+    assert!(
+        matches!(
+            expr::evaluate("rad * 2", &vars),
+            Err(ExprError::Parse { pos: 0, .. })
+        ),
+        "a parameter named `rad` is now shadowed by the unit suffix"
+    );
+    assert!(expr::validate_name("rad").is_err());
+    // Every other name the old grammar allowed still works.
+    for name in ["radius", "rad_1", "r", "deg2", "inner", "mm_total"] {
+        assert!(expr::validate_name(name).is_ok(), "{name}");
+        let vars: HashMap<String, f64> = [(name.to_string(), 3.0)].into_iter().collect();
+        assert_eq!(expr::evaluate(name, &vars).unwrap(), 3.0, "{name}");
+    }
+}
