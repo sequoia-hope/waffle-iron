@@ -171,6 +171,152 @@ pub fn circle_segment_count(rel_chord_tolerance: f64) -> u32 {
     (n as u32).max(MIN_CIRCLE_SEGMENTS)
 }
 
+/// Ceiling on the derived loop-conformity segment count
+/// ([`loop_conformity_segment_count`]). A demand above it is a true
+/// near-tangency: no practical density separates the loops, so the
+/// derivation DECLINES and the loud CDT reject remains the tripwire (the
+/// same fail-closed cap, and the same reason, as yang-rs's
+/// `segment_face_graze_n`).
+pub const LOOP_CONFORMITY_MAX_SEGMENTS: u32 = 4096;
+
+/// The chord density a solid's CIRCULAR planar-face boundaries need so that
+/// every inscribed chord polygon still CONTAINS the other loops of its own
+/// face — `None` when the canonical density already does (the overwhelming
+/// majority: the derivation is self-limiting and returns `None` unless some
+/// inner loop reaches within one sagitta of its outer circle).
+///
+/// **Why it exists (P0013, 2026-10-03).** A planar cap bounded by a full
+/// circle of radius `r` is rendered as the INSCRIBED `N`-gon, which recedes
+/// from the true circle by the sagitta `s(N) = r·(1 − cos(π/N))`. An inner
+/// loop (a through-cut hole) that the exact face clears by LESS than `s(N)`
+/// is therefore cut by the chord polygon: the two constraint rings CROSS, and
+/// the CDT rightly refuses the ring (`ring rejected by CDT
+/// (degenerate/self-intersecting)`). The fix is not a tolerance — it is to
+/// derive `N` from the clearance the face actually has: the smallest `N` with
+/// `s(N) < clearance`, i.e. `N > π / arccos(1 − clearance/r)`.
+///
+/// The bound is taken over EXACT geometry, never over sampled points: for a
+/// loop's straight edges the vertices themselves, and for a circular edge the
+/// farthest point of its own exact circle (`|c_in − c| + r_in`) — an upper
+/// bound on the loop's radial reach, so the derivation is conservative in the
+/// fail-closed direction. Clearance `≤ 0` (a loop that reaches or crosses the
+/// boundary circle) derives nothing: that face is invalid, not under-sampled,
+/// and keeps its loud reject.
+///
+/// `N` is derived GLOBALLY (for the whole solid, not per face) because the
+/// render mesh's watertightness depends on adjacent faces sampling a shared
+/// rim at the same `N` — a per-face density would tear the mesh at that rim.
+///
+/// Scope: planar faces with at least one inner loop, whose outer loop
+/// carries a FULL-circle edge, and which are not the canonical disk/annulus
+/// cap (that routine samples both rims from one anchor frame, so its chord
+/// polygons are phase-aligned and provably never cross). Arc-bounded outer
+/// loops and a curved face's holed variants (cylinder/cone/torus patches) go
+/// through their own routines and have no measured customer yet.
+fn loop_conformity_segment_count(
+    arena: &BrepArena,
+    solid: SolidId,
+) -> Result<Option<u32>, KernelV2Error> {
+    let probe = std::env::var_os("KV2_LOOP_CONFORMITY_PROBE").is_some();
+    let mut out: Option<u32> = None;
+    for &sh in &arena.solid(solid)?.shells {
+        for &f in &arena.shell(sh)?.faces {
+            let face = arena.face(f)?;
+            if !matches!(face.surface, Some(Surface::Plane(_))) || face.inner_loops.is_empty() {
+                continue;
+            }
+            // The canonical disk/annulus cap does NOT go through the general
+            // CDT: `tessellate_circular_cap` samples both rims from the same
+            // anchor frame, so a thin annulus's two chord polygons are
+            // phase-aligned and homothetic and provably never cross however
+            // thin the band. Deriving a density there would re-sample a face
+            // that was never at risk (measured on `s434_typed_rim_seam_mint`'s
+            // thin coaxial tube: 568 → 1264 render triangles for nothing).
+            if planar_face_is_canonical_cap(arena, f)? {
+                continue;
+            }
+            // Radial reach of every OTHER loop, about each circular boundary.
+            let reach_about = |center: Point3| -> Result<f64, KernelV2Error> {
+                let c = center.as_array();
+                let mut reach = 0.0f64;
+                for &lid in &face.inner_loops {
+                    for h in arena.loop_half_edges(lid)? {
+                        let he = arena.half_edge(h)?;
+                        let p = arena.vertex(he.origin)?.point.as_array();
+                        reach = reach.max(dist3(p, c));
+                        if let Curve::Circle {
+                            center: ic, radius, ..
+                        } = he.curve
+                        {
+                            reach = reach.max(dist3(ic.as_array(), c) + radius);
+                        }
+                    }
+                }
+                Ok(reach)
+            };
+            for h in arena.loop_half_edges(face.outer_loop)? {
+                let Curve::Circle { center, radius, .. } = arena.half_edge(h)?.curve else {
+                    continue;
+                };
+                if radius.is_nan() || radius <= 0.0 {
+                    continue;
+                }
+                let clearance = radius - reach_about(center)?;
+                let Some(needed) = loop_conformity_n_for(radius, clearance) else {
+                    if probe {
+                        eprintln!(
+                            "KV2_LOOP_CONFORMITY face={f:?} r={radius:e} \
+                             clearance={clearance:e} DECLINED"
+                        );
+                    }
+                    continue;
+                };
+                if probe {
+                    eprintln!(
+                        "KV2_LOOP_CONFORMITY face={f:?} r={radius:e} clearance={clearance:e} \
+                         needed N={needed}"
+                    );
+                }
+                out = Some(out.map_or(needed, |n: u32| n.max(needed)));
+            }
+        }
+    }
+    Ok(out)
+}
+
+/// The pure half of [`loop_conformity_segment_count`]: the smallest segment
+/// count whose inscribed-polygon sagitta is STRICTLY below `clearance`, i.e.
+/// the smallest `N` with `r·(1 − cos(π/N)) < clearance` — so
+/// `N = ⌊π / arccos(1 − clearance/r)⌋ + 1`.
+///
+/// `None` (derive nothing, keep the loud reject) when the radius is not
+/// positive, when `clearance ≤ 0` (a loop that reaches or crosses the
+/// boundary circle: an invalid face, not an under-sampled one), when the
+/// clearance already exceeds the radius (nothing to separate), or when the
+/// demand exceeds [`LOOP_CONFORMITY_MAX_SEGMENTS`] (a true near-tangency).
+fn loop_conformity_n_for(radius: f64, clearance: f64) -> Option<u32> {
+    if radius.is_nan() || radius <= 0.0 {
+        return None;
+    }
+    if clearance.is_nan() || clearance <= 0.0 || clearance >= radius {
+        return None;
+    }
+    let theta = (1.0 - clearance / radius).acos();
+    if theta.is_nan() || theta <= 0.0 {
+        return None;
+    }
+    let needed = (std::f64::consts::PI / theta).floor() + 1.0;
+    if !needed.is_finite() || needed > f64::from(LOOP_CONFORMITY_MAX_SEGMENTS) {
+        return None;
+    }
+    Some(needed as u32)
+}
+
+fn dist3(a: [f64; 3], b: [f64; 3]) -> f64 {
+    let (dx, dy, dz) = (a[0] - b[0], a[1] - b[1], a[2] - b[2]);
+    (dx * dx + dy * dy + dz * dz).sqrt()
+}
+
 /// Tessellate every face of `solid` into a [`RenderMesh`] at the canonical
 /// chord tolerance ([`RENDER_CHORD_TOLERANCE_REL`]).
 ///
@@ -193,7 +339,8 @@ pub fn tessellate_with_chord_tolerance(
     solid: SolidId,
     rel_chord_tolerance: f64,
 ) -> Result<RenderMesh, KernelV2Error> {
-    let n_seg = circle_segment_count(rel_chord_tolerance);
+    let n_seg = circle_segment_count(rel_chord_tolerance)
+        .max(loop_conformity_segment_count(arena, solid)?.unwrap_or(0));
     let mut mesh = RenderMesh::default();
     let solid_ref = arena.solid(solid)?;
     for &sh in &solid_ref.shells {
@@ -1269,3 +1416,6 @@ mod pinched_ring_patch_tests;
 
 #[cfg(test)]
 mod arc_grid_sampling_tests;
+
+#[cfg(test)]
+mod loop_conformity_tests;
