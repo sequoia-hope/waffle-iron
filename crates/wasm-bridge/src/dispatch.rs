@@ -69,15 +69,22 @@ fn placeholder_sketch_plane() -> waffle_types::GeomRef {
 /// — `BeginSketch` only opens the editor, and the frame the sketch commits with
 /// comes from `FinishSketch`. The cost of that choice is that such a sketch has
 /// no identity to re-resolve, which is exactly where it was before N2.
+/// Is `plane` a face of a body in THIS tab — the one case N2 pins and the one
+/// case `Sketch::plane` must keep its placeholder for? A face scoped into
+/// another instance is not local (`feature_engine::context` re-derives the
+/// plane from it, and `Sketch::plane` is where it travels); nor is a datum.
+fn is_local_model_face(plane: &waffle_types::GeomRef) -> bool {
+    plane.scope.is_none()
+        && plane.kind == waffle_types::TopoKind::Face
+        && matches!(plane.anchor, waffle_types::Anchor::FeatureOutput { .. })
+}
+
 fn pin_sketch_plane_face(
     state: &EngineState,
     kb: &mut dyn KernelBundle,
     plane: &waffle_types::GeomRef,
 ) -> Option<waffle_types::SketchFaceRef> {
-    if plane.scope.is_some() || plane.kind != waffle_types::TopoKind::Face {
-        return None;
-    }
-    if !matches!(plane.anchor, waffle_types::Anchor::FeatureOutput { .. }) {
+    if !is_local_model_face(plane) {
         return None;
     }
     let introspect = kb.as_introspect();
@@ -101,10 +108,20 @@ fn handle_message(
         // -- Sketch operations --
         UiToEngine::BeginSketch { plane } => {
             let face = pin_sketch_plane_face(state, kb, &plane);
-            // A local face ref becomes the pinned identity and the `plane`
+            // A local face ref becomes the pinned identity, and the `plane`
             // field keeps the placeholder a local sketch has always carried —
             // see `EngineState::begin_sketch`.
-            let plane = if face.is_some() {
+            //
+            // The placeholder stands in for EVERY local model face, not only
+            // the ones that pinned: `pin_sketch_plane_face` returns `None`
+            // whenever the kernel cannot pin (a mesh-backed import whose
+            // signature scores below the floor, a feature with no result yet),
+            // and letting the real reference through there would put a
+            // `FeatureOutput` anchor in `Sketch::plane` for a local sketch.
+            // `rebuild`'s share-a-face target search branches on that anchor,
+            // so it would silently change which body an extrude on this sketch
+            // merges into — the one thing this increment promised not to move.
+            let plane = if is_local_model_face(&plane) {
                 placeholder_sketch_plane()
             } else {
                 plane

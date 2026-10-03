@@ -353,6 +353,88 @@ fn a_sketch_committed_on_a_face_stores_that_face_s_persistent_identity() {
     assert!(plate_sk.plane_face.is_none());
 }
 
+/// A local face reference that CANNOT be pinned must still leave
+/// `Sketch::plane` holding the placeholder datum a local sketch has always
+/// carried.
+///
+/// `pin_sketch_plane_face` returns `None` whenever the kernel has no identity
+/// to pin — a mesh-backed import that scores below the signature floor, or, as
+/// here, a reference anchored at a feature with no result. The first cut of N2
+/// used "did it pin?" to choose the plane, so in exactly that case the real
+/// `FeatureOutput` reference went into `Sketch::plane`. `rebuild`'s
+/// share-a-face target search branches on that anchor ("the sketch is drawn on
+/// a body's face → that body"), which has never fired for a local sketch, so
+/// the leak would silently change which body an extrude on this sketch merges
+/// into — the one behaviour N2's notes promise is untouched.
+#[test]
+fn a_local_face_that_cannot_be_pinned_still_leaves_the_placeholder_plane() {
+    let mut state = EngineState::new();
+    let mut kernel = KernelV2Adapter::new();
+
+    // Anchored at a feature that does not exist: resolution refuses, so there
+    // is nothing to pin.
+    let unpinnable = GeomRef {
+        kind: TopoKind::Face,
+        anchor: Anchor::FeatureOutput {
+            feature_id: Uuid::new_v4(),
+            output_key: OutputKey::Main,
+        },
+        selector: Selector::Role {
+            role: Role::EndCapPositive,
+            index: 0,
+        },
+        policy: ResolvePolicy::Strict,
+        scope: None,
+    };
+    let sketch_id = commit_sketch(
+        &mut state,
+        &mut kernel,
+        unpinnable,
+        [0.0, 0.0, 0.0],
+        [0.0, 0.0, 1.0],
+        vec![
+            point(1, 0.0, 0.0),
+            point(2, 0.01, 0.0),
+            point(3, 0.01, 0.01),
+            point(4, 0.0, 0.01),
+            line(11, 1, 2),
+            line(12, 2, 3),
+            line(13, 3, 4),
+            line(14, 4, 1),
+        ],
+        &[11, 12, 13, 14],
+        HashMap::from([
+            (1, (0.0, 0.0)),
+            (2, (0.01, 0.0)),
+            (3, (0.01, 0.01)),
+            (4, (0.0, 0.01)),
+        ]),
+    );
+
+    let Operation::Sketch { sketch } = &state
+        .engine
+        .tree
+        .features
+        .iter()
+        .find(|f| f.id == sketch_id)
+        .expect("the sketch is in the tree")
+        .operation
+    else {
+        panic!("not a sketch")
+    };
+    assert!(
+        sketch.plane_face.is_none(),
+        "nothing was pinnable: {:?}",
+        sketch.plane_face
+    );
+    assert!(
+        matches!(sketch.plane.anchor, Anchor::Datum { .. }),
+        "and `plane` keeps the placeholder, so the share-a-face search is \
+         untouched: {:?}",
+        sketch.plane.anchor
+    );
+}
+
 /// The case §5.3 names. Take the boss away and the sketch on its top face
 /// REFUSES, naming the face's last-known signature — it does not quietly stay
 /// where it was drawn, and it does not land on the plate's top face, which is
