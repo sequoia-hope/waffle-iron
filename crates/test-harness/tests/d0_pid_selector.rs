@@ -183,26 +183,23 @@ fn every_edge_of_the_untouched_region_keeps_its_id_not_just_the_one_we_picked() 
     }
 }
 
-/// The remaining half of D0 item 1, pinned as a failing expectation rather
-/// than left silent.
+/// The other half of D0 item 1 — LIVE since the F4a reseed landed
+/// (2026-10-03).
 ///
 /// The four edges where the boss's walls meet the plate's top face do not
-/// move when the boss gets taller, yet they are RENAMED. Measured cause
-/// (2026-10-03): `edit_extrude_depth` rebuilds incrementally, so the boss's
-/// extrude re-runs in an arena whose `next_pid` has already advanced and its
-/// faces are stamped with fresh monotonic pids — roots `{6,8,9,10,11}`
-/// became `{23,25,26,27,28}` while the plate's `{0..5}` were untouched. Edge
-/// ids seeded from those roots move with them.
+/// move when the boss gets taller, and they are no longer RENAMED. Measured
+/// cause of the old failure: `edit_extrude_depth` rebuilds incrementally, so
+/// the boss's extrude re-ran in an arena whose `next_pid` had already
+/// advanced and its faces were stamped with fresh monotonic pids — roots
+/// `{6,8,9,10,11}` became `{23,25,26,27,28}` while the plate's `{0..5}` were
+/// untouched, and the edge ids seeded from those roots moved with them.
 ///
-/// The fix is the other half of §4 item 1: seed a face's `Pid` from a
-/// structural key (its creating feature's id + role + for side faces the
-/// sketch entity's id) instead of the arena's allocator, so re-executing an
-/// unchanged-identity feature reproduces its face pids. That is a
-/// cross-crate change (the kernel does not know feature ids today) and is
-/// deliberately NOT in this increment. Un-ignore this test in the PR that
-/// lands it.
+/// The fix was item 1 itself: a face's `Pid` is now derived from its
+/// creating feature's uuid and its role in that feature
+/// (`kernel_v2::seeded_face_pid`), so re-executing a feature whose identity
+/// did not change reproduces its face pids whatever the arena has built in
+/// between.
 #[test]
-#[ignore = "D0 item 1: content-seeded FACE pids (the F4a reseed) not landed — a re-executed feature's faces are stamped fresh, so edges adjacent to them are renamed"]
 fn edges_at_the_junction_with_an_edited_feature_keep_their_ids_too() {
     let mut m = plate_with_boss(15.0);
     let junction = |mid: [f64; 3]| (mid[2] - 10.0).abs() < 1e-9 && !on_plate_boundary(mid);
@@ -240,4 +237,177 @@ fn a_pid_that_is_not_on_the_body_is_refused_not_rebound() {
         text.contains("no longer exists"),
         "the refusal must name the finding, got {text}"
     );
+}
+
+// ---------------------------------------------------------------------------
+// D0 item 1 — FACE pids, the silent-rebind half
+// ---------------------------------------------------------------------------
+
+/// Centroid of a face, averaged over its edges' polyline samples. Enough to
+/// tell a body's top cap from its bottom cap, which is the distinction the
+/// defect below erased.
+fn face_centre(introspect: &dyn KernelIntrospect, face: KernelId) -> [f64; 3] {
+    let mut sum = [0.0; 3];
+    let mut n = 0.0;
+    for e in introspect.face_edges(face) {
+        for p in introspect.edge_polyline(e) {
+            for k in 0..3 {
+                sum[k] += p[k];
+            }
+            n += 1.0;
+        }
+    }
+    assert!(n > 0.0, "face {face:?} has no boundary samples");
+    [sum[0] / n, sum[1] / n, sum[2] / n]
+}
+
+/// Every FACE identity of the body a FEATURE UUID produced, mapped to where
+/// that face is. Keyed by uuid rather than by the harness's own alias so the
+/// same body can be found after a save/reopen, which rebuilds the alias map
+/// from the loaded tree's auto-generated names. `root` selects the lineage
+/// root instead of the face's own pid.
+fn face_ids_at(
+    m: &ModelBuilder,
+    feature: uuid::Uuid,
+    root: bool,
+) -> std::collections::BTreeMap<u64, [f64; 3]> {
+    let result = m
+        .state
+        .engine
+        .get_result(feature)
+        .unwrap_or_else(|| panic!("feature {feature} has no result"));
+    assert!(!result.outputs.is_empty(), "feature {feature} has no body");
+    let handle = result.outputs[0].1.handle.clone();
+    let introspect = m.kernel_ref().as_introspect();
+    let pids = introspect.all_entity_pids(&handle, TopoKind::Face);
+    assert!(!pids.is_empty(), "kernel reports face identities");
+    pids.into_iter()
+        .map(|(id, p)| {
+            (
+                if root { p.root_pid } else { p.pid },
+                face_centre(introspect, id),
+            )
+        })
+        .collect()
+}
+
+/// A single-extrude plate, the shape N1's own pin uses.
+fn plain_plate(depth: f64) -> ModelBuilder {
+    let mut m = ModelBuilder::kernel_v2();
+    m.rect_sketch("plate_sk", [0., 0., 0.], [0., 0., 1.], 0., 0., 40., 40.)
+        .expect("plate sketch");
+    m.extrude("plate", "plate_sk", depth).expect("plate");
+    m
+}
+
+/// The kernel half of the N1 defect, which is why N1 was held until this
+/// landed: a document that is REOPENED replays its features from scratch,
+/// with none of the editing history the authoring session had. Under the
+/// monotonic counter the ids therefore depended on which session you were
+/// in — a name authored on a plate's top cap came back resolving, by `pid`,
+/// with no warning, to its BOTTOM cap.
+///
+/// Stated without any naming machinery: author, edit, save; reopen in a
+/// FRESH engine and kernel; the pid → face-site map must be the one the
+/// authoring session saw. (It is also requirement (1) of the reseed —
+/// identical ids from a rebuild that shares no arena with the original — at
+/// the document layer rather than the arena layer.)
+///
+/// The N1 branch's equivalent is the `#[ignore]`d
+/// `a_face_name_keeps_its_pid_across_an_edit_to_its_own_feature` in
+/// `crates/wasm-bridge/tests/tool_names.rs` — un-ignore it when N1 merges.
+#[test]
+fn a_face_pid_names_the_same_face_after_a_save_and_a_reopen() {
+    let mut authored = plain_plate(10.0);
+    authored.edit_extrude_depth("plate", 20.0).expect("edit");
+    let plate = authored.feature_id("plate").expect("feature id");
+    let before = face_ids_at(&authored, plate, false);
+    assert_eq!(before.len(), 6, "a plate has six faces");
+    let json = authored.save().expect("save");
+
+    let mut reopened = ModelBuilder::kernel_v2();
+    reopened.load(&json).expect("reopen");
+    let after = face_ids_at(&reopened, plate, false);
+
+    assert_eq!(
+        before, after,
+        "a reopened document must mint the same pid for the same face — \
+         otherwise a stored pid silently rebinds to a different one"
+    );
+}
+
+/// Same claim with a boolean in the tree. A boolean's OUTPUT faces stay on
+/// the monotonic counter by design (their identity is their journal lineage,
+/// not their own number), so the identity under test is each face's ROOT —
+/// which is what a stored reference falls back to and what every edge pid is
+/// seeded from.
+#[test]
+fn a_face_root_names_the_same_face_after_a_save_and_a_reopen_through_a_union() {
+    let mut authored = plate_with_boss(15.0);
+    authored.edit_extrude_depth("boss", 22.0).expect("edit");
+    let boss = authored.feature_id("boss").expect("feature id");
+    let before = face_ids_at(&authored, boss, true);
+    let json = authored.save().expect("save");
+
+    let mut reopened = ModelBuilder::kernel_v2();
+    reopened.load(&json).expect("reopen");
+    let after = face_ids_at(&reopened, boss, true);
+
+    assert_eq!(
+        before.len(),
+        after.len(),
+        "the two routes to one model must agree on the face count"
+    );
+    for (root, site) in &before {
+        match after.get(root) {
+            Some(other) => {
+                let d = (0..3).map(|k| (site[k] - other[k]).powi(2)).sum::<f64>();
+                assert!(
+                    d < 1e-18,
+                    "root {root} sits at {site:?} in the authoring session but \
+                     {other:?} after a reopen — the same number names two faces"
+                );
+            }
+            None => panic!("root {root} at {site:?} exists only before the reopen"),
+        }
+    }
+}
+
+/// The "leaves every face pid of every OTHER feature unchanged" half: the
+/// plate is not re-executed by an edit to the boss, and even the faces the
+/// union rebuilt keep their LINEAGE ROOTS, which is the identity a stored
+/// reference and every edge id are seeded from.
+#[test]
+fn an_edit_to_one_feature_leaves_another_features_face_roots_alone() {
+    let mut m = plate_with_boss(15.0);
+    // The plate's own geometry: every face whose centre lies outside the
+    // boss's 5..20 footprint in u and v.
+    let plate_roots = |m: &ModelBuilder| -> std::collections::BTreeSet<u64> {
+        let handle = m.solid_handle("boss").expect("handle");
+        let introspect = m.kernel_ref().as_introspect();
+        introspect
+            .all_entity_pids(&handle, TopoKind::Face)
+            .into_iter()
+            .filter(|(id, _)| {
+                let c = face_centre(introspect, *id);
+                c[0] < 5.0 || c[0] > 20.0 || c[1] < 5.0 || c[1] > 20.0
+            })
+            .map(|(_, p)| p.root_pid)
+            .collect()
+    };
+    let before = plate_roots(&m);
+    assert!(
+        before.len() >= 5,
+        "the plate contributes at least five faces, got {before:?}"
+    );
+
+    m.edit_extrude_depth("boss", 22.0).expect("edit boss depth");
+
+    let after = plate_roots(&m);
+    for r in &before {
+        assert!(
+            after.contains(r),
+            "the plate's face root {r} was renamed by an edit to the boss"
+        );
+    }
 }
