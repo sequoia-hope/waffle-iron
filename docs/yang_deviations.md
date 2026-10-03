@@ -113,10 +113,11 @@ Presented 2026-07-16; the user's answer (2026-07-17) was **"i have no opinion on
 | N74 | OPEN (2026-10-03, P0020; remediation = `specs/yang_tangency_pinch_split.md` §0b, per-SHEET faces at Stage-6 emission; netted loud meanwhile by the typed `YangError::Stage1SelfTouchingLoop` at the consumer) | The Stage-4 `(4a2)` pass `split_pinch_vertices` correctly gives each SHEET of a self-touching boundary its own mesh vertex at the shared position (spec §0a, the 4-valent edge pinch certified by the `2 x (A, face) + 2 x (B, face)` attribution-plus-orientation signature, no tolerance involved), but Stage 6 emits output vertices 1:1 with `mesh.verts` and walks patch boundaries, so BOTH sheets land in the SAME output face: the emitted B-Rep face loop visits one position twice through two distinct vertices. kernel-v2's 2-manifold face model cannot carry that, and the next boolean's Stage-1 chart cannot triangulate it (the domain is two closed regions meeting at a point, and the zero-width slit between them carries boundary chains the neighbouring faces also use). Spec §0b already named this as the next increment ("the split sheets have to become separate FACES with their own edges and loops") and §0c recorded the render-side twin as a known fragility with no corpus case; **P0020 is the B-Rep-side corpus case**. Measured there: a cylinder lateral pinched at two contacts of 2.507e-6 and 6.155e-6, i.e. 25x and 62x the paper's single distance tolerance d_p = 1e-7 (`refs/text/yang2025_hybrid_boolean.txt:745-748`), so this is capability and NOT tolerance: a sub-resolution refusal in the edge-pinch arm was written, measured and reverted (it does not fire), the emitted mesh carries ZERO sub-d_p edges at every checkpoint, and KV15b's shortest Sec-4.3 candidate segment is 2.115e-7, above its own band. New instruments kept: `YANG_COINCIDENT_PROBE` (per-checkpoint census of distinct mesh vertices at bit-identical positions and of sub-d_p edges), `YANG_HOLED_DUP_PROBE`, `YANG_KV9_TWIN_PROBE`, `YANG_KV15B_PROBE`, plus pinch-edge LENGTHS on `YANG_EDGE_PINCH_PROBE` and Stage-4 ENTRY positions on `YANG_I1D_RELOC_PROBE` |
 | N75 | RESOLVED (2026-10-03 evening UTC, P0021: the finite-extent Case-III ladder is always-on — `YANG_172_EXTENT=0|off` kill switch; corpus 321C/0W/10E/5EE/0T over 336, one move, zero regressions; the meta's χ adjudication via the sidecar still owed) | the Case-III graze depth was read at the INFINITE axes' common perpendicular, off both faces (§N75 below) |
 | N76 | RESOLVED (2026-10-03 night, P0017) | A boolean OUTPUT face loop could traverse ONE `SurfacePair` intersection curve TWICE, and nothing detected it. kernel-v2's render CDT then refused the chart ring one crate later, blaming itself (`ring rejected by CDT (degenerate/self-intersecting)`) for geometry the loop had declared. Measured on P0017's `FaceId(28)`, a cone sliver: its loop is `Arc(136) + SurfacePair(137) + SurfacePair(138)` where 137 and 138 carry the SAME `{Cylinder r = 8.322345964738464e-4 axis +ŷ, Cone α = 0.8757228702119423 axis +x̂}` pair, field for field. On the cone's upper nappe that pair curve is a single-valued graph `h₊(θ)` — substituting the cone's own `(θ, h)` parametrization into the cylinder gives `(A + h)² + (B + h·tanα·cos(θ − φ))² = R²`, whose other root sits at `h₋ ≈ −7.03e-4`, the FAR nappe, 1.06e-3 away — and the two half-edges' spans are `[0.1420979, 0.2999498]` and `[0, 0.2999498]`: the second CONTAINS the first. The excursion `node3 → node5 → node3` is a ZERO-WIDTH spur pointing OUT of the material (`h₊(θ) − h_arc` has EXACT zeros at both of the rim arc's endpoints and dips to −5.0010e-7 between them, so the face's material region is the LENS between rim and curve, chart area ≈ 7.3e-8 — independently confirming N71's `+7.175427296555491e-8` sign). NOT a chord artifact: all nine ring points lie on the cone to machine precision (cone residual 0, −1.08e-19, at worst 6.93e-16) and the arc's chart image is exactly straight, so the ring's four proper self-crossings (`1–2 × 7–8`, `3–4 × 6–7`, `3–4 × 7–8`, `4–5 × 6–7`) are in the declared geometry and NO density removes them — measured in debug, forced rim N = 35 passes, N = 50 fails DIFFERENTLY (`reassembled output would be non-2-manifold`), N = 66/71/100/200 pass: a resolution lottery, not a convergence, so no §4.5.2 ladder may be driven off it. The crate already removed the STRAIGHT twin of this shape — `BRep::normalized_without_backtrack_spikes` (task #146, F0064) merges a consecutive `LineSegment` pair that is collinear AND reverses — but only on the INPUT operands, and its collinearity has to be MEASURED because `Curve::LineSegment`'s `PartialEq` is kind-only. A curved pair needs neither: `e1.curve == e2.curve` on a `SurfacePair` already means ONE curve, and the curve's tangent at the shared vertex is exact, `T = n̂_a × n̂_b` from `surface_distance_and_normal` (the same unit normals `relocate_onto_implicit_pair` Newtons on; `|n̂_a × n̂_b|² = sin²θ` is that operator's own `det`, reused with its `MIN_FEATURE_SIZE²` rank floor — no new constant). Two arcs of one smooth curve leaving `v` take either OPPOSITE tangent directions (a plain split, kept) or the SAME one (a double cover, merged), so the discriminant is the sign of `((v−a)·T)·((b−v)·T)`; measured at P0017's node 5 the two chord cosines are 0.998741 and 0.995439. `BRep::normalize_output_curve_backtracks` runs at the end of `boolean_once` on every path, rewriting LOOPS and the EDGE table only (the mesh, tessellation map and both attribution maps are the boolean's result, not a tessellation of this topology). Both covering uses merge to the same undirected edge — `FaceId(28)`'s loop and the cut cylinder's `LoopId(30)`, which carries the mirror spur — and twin pairing in `from_yang_brep` is keyed on `(vertex pair, CurveKey)`, never on edge index, so the output stays boundary-conformal. `FaceId(28)` becomes the exactly-correct two-edge LENS; `from_yang_brep`'s existing `lens_bigon` arm admits it (two non-`Seg` edges on DISTINCT curves), and the three mirrored developable `loop with fewer than 3 edges` walls (`tessellate/developable.rs`, `validate/faces.rs`, `validate/faces/cone.rs` — moved together so no twin is silenced) go to `< 2`, which N71 is what made measurable there (a bigon's vertices-only shoelace is identically 0; its canonical chart polygon is not). Fails closed at a tangency, on an axis, on an off-tangent chord, and when the pair IS the whole loop. Pins: `crates/yang-rs/src/brep.rs` `n76_curve_backtrack_tests` (five — the double cover with its measured cosines, the plain split that must NOT merge, the loop-level merge to the lens plus its fixpoint, the two fail-closed arms, the whole-loop spur) and the end-to-end `crates/test-harness/tests/n76_output_curve_backtrack.rs`, mutation-checked: with the predicate neutered it fails with the verbatim `TessellationFailed { face: FaceId(28), reason: "ring rejected by CDT (degenerate/self-intersecting)" }` and so does N71's cone pin. **Residue:** the rule is scoped to `Curve::SurfacePair`. `LineSegment` is out by construction (its `PartialEq` cannot establish one curve — that is the straight rule's own job) and the conic variants (`Circle`, `Ellipse`, `Parabola`, `Hyperbola`), whose `PartialEq` WOULD establish it and whose tangents are closed-form, have no measured customer; a doubled conic edge in one loop is the open extension |
+| N77 | RESOLVED (2026-10-03 night, P0019) but **GATED** on `YANG_SEAM_COMPONENT=1|on` — the `full_corpus_categorized` proof and the flip to always-on-with-a-kill-switch are OWED (it moves minted seam feet, hence render phase, for every canonical band with a rim-sharing neighbour) | `recover.rs` canonicalizes a two-closed-rim cylinder/cone face into the 4-edge `[rim, seam, rim, seam]` lateral — the only two-rim form `validate_cone_face` / `validate_cylinder_face` accept — in two GREEDY PER-FACE passes in face-index order, and PASS 2 deliberately never moves an anchor an earlier face pinned. So a band reaching PASS 2 with BOTH rims already pinned at different azimuths takes the arc fallback and the face stays ANNULAR (outer loop = one rim, inner loop = the other), and the assembler refuses its own output. Nothing in the greedy order prevents that: it fires whenever the faces that DO pair INTERLEAVE with the ones that do not along a run of rim-sharing bands. Measured on P0019 (a genus-1 ring of FIVE cone bands, no planar cap anywhere): faces 1/3/4 pair at |Δaz| = 0 and pin all five rim anchors, faces 0 and 2 then see |Δaz| = 2.61799387799148686e-1 rad = **π/12 exactly**, one whole Stage-1 lattice step and not noise, and the subtract STOPs with `CurvedGeometryMismatch { face: FaceId(17), reason: "cone face with inner loops is outside the KV6c vocabulary" }` — N73's cone-rim sense derivation unmasked. The remedy is the rule the OTHER copy of this machinery already states, SI5's STEP ingest (`specs/step_import_si5_exact_analytic_ingestion.md`, "Alignment is not pairwise"): two bands sharing a full-circle rim are NECESSARILY coaxial, a shared full circle being each surface's own rim, so the constraint is per CONNECTED COMPONENT of rims-joined-by-bands — one anchor direction per component, a component with two *pinned* rims whose directions disagree being a refusal. Admissible because a closed edge's anchor is pure representation gauge (Stroud's fake edge): sliding it along its own circle changes no boundary point, and §4.4.2 restores a face from the surfaces and curves it bounds, never from a seam's phase (`refs/text/yang2025_hybrid_boolean.txt:574-605`). PASS 1C unions the rim chains of every band whose rims are verifiably coaxial with its own axis (both normals ∥ axis, both centres on one axis-parallel line; a band failing the check joins nothing and keeps the greedy path), then per component fixes ONE seam DIRECTION — a frame-free unit radial vector, not an azimuth, because the bands of one component may report their axis with EITHER sign (P0019's five cones alternate ±ẑ) — from, in order, a PINNED rim, an already-anchored COAXIAL lateral (keeping PASS 2's C0117 phase coherence), the component's FIRST NATURAL SEAM (the lowest-face-index band with an azimuth-aligned retained pair, so a band PASS 1 would have paired keeps its own feet exactly), else that scan's smallest-|Δaz| vertex; anchors every rim there (existing vertex within `band`, else the exact minted `c + r·dir`); and VERIFIES each band's two feet are one ruling to the validator's own `cyl-seam-not-ruling` bound 1e-12 (F11), a band that still disagrees being refused to the arc fallback — recovery has no error channel by design (P9), so that refusal is loud one layer down where `validate_*_face` names the face, and `KV2_RECOVER_PROBE` prints the offset and component either way. On P0019 all five bands seam at offsets 0, 3.642e-17, 3.642e-17, 2.888e-17, 1.272e-17 and the case lands SUPPORTED_CORRECT in 0.3 s; oracles adjudicated by the exact-membership lattice (components 2, boundary_chi 2 = the ring's 0 plus a χ-2 body, two bodies; 1024-cell two-phase mean 1.2168660e0 vs the kernel's 1.214852e0 = rel −1.66e-3), `euler_target` hand-adjudicated to **0** (the χ oracle reads the MAIN body only and Main IS the genus-1 ring: V 355 − E 1065 + F 710 = 0), `derived_meta` cleared. Pins `crates/kernel-v2/tests/n77_component_seam_anchoring.rs` — a 4-band all-oblique external-axis ring (RED→GREEN, the verbatim wall off, one ring and the closed-form Pappus volume on) and the barrel washer (a rim CHAIN: same V/E/F/R census and volume to 1e-9, deliberately NOT bitwise, since the component rule picks a different representational azimuth and minted feet DO move) — mutation-checked both ways. Recorded on the way: `yang_rs::BRep::new` REFUSES the annular band as INPUT ("cone periodic strip (2 encircling rims) not yet supported") while Stage 5 EMITS it; with component anchoring on every band reaching kernel-v2 is seamed, so that asymmetry has no customer left |
 | #137 diag | HISTORICAL | #137 (2026-07-15): C0065/R0074 — the torus∩plane solver EXISTS and RUNS; the blocker is mesh RESOLUTION nea… |
 | #137 diag 2 | HISTORICAL | #137 (2026-07-15, follow-up): resolution ALONE is not the fix — it flips the loud STOP into a silent-wrong … |
 
-**OPEN count: 2** (N76 is TAKEN and RESOLVED 2026-10-03 night — the next free number is **N77**; N69 RESOLVED-pending-corpus; N74, added 2026-10-03 night — the Stage-6 pinch-sheet emission gap, netted loud at the consumer; N68 RESOLVED 2026-10-03 late night; N2 — its remit includes the §4.5.4 removal half transferred from N6 at the 2026-07-17 user-ratified closure; N60 RESOLVED 2026-08-26 — and N67, added 2026-10-03 with its remediation tracked in `specs/yang_p0013_tip_land_under_the_chord.md` §4 P3). **N69 moved OPEN → RESOLVED-pending-corpus 2026-10-03 late** — the §5 ray-graze remediation is landed always-on; what is outstanding is its `full_corpus_categorized` proof, not the capability. Capability gaps that are roadmap milestones, not deviations: M8 coplanar residue (task #130), M5 degree-4 SSI, KV6 revolve tail, #137 grazing-corner epic.
+**OPEN count: 2** (N77 is TAKEN and RESOLVED-but-GATED 2026-10-03 night — the next free number is **N78**; N76 RESOLVED 2026-10-03 night; N69 RESOLVED-pending-corpus; N74, added 2026-10-03 night — the Stage-6 pinch-sheet emission gap, netted loud at the consumer; N68 RESOLVED 2026-10-03 late night; N2 — its remit includes the §4.5.4 removal half transferred from N6 at the 2026-07-17 user-ratified closure; N60 RESOLVED 2026-08-26 — and N67, added 2026-10-03 with its remediation tracked in `specs/yang_p0013_tip_land_under_the_chord.md` §4 P3). **N69 moved OPEN → RESOLVED-pending-corpus 2026-10-03 late** — the §5 ray-graze remediation is landed always-on; what is outstanding is its `full_corpus_categorized` proof, not the capability. Capability gaps that are roadmap milestones, not deviations: M8 coplanar residue (task #130), M5 degree-4 SSI, KV6 revolve tail, #137 grazing-corner epic.
 
 ---
 
@@ -5564,3 +5565,154 @@ cannot resolve a 5.0010e-7 lens whose own rim chord sagitta is 3.41e-6, Yang
 §4.5's Case V — is recorded, not fixed: the normalization makes the OUTPUT
 correct, and the N-lottery above says the resolution half has no monotone
 remedy to reach for.
+
+## N77 — seam feet were anchored greedily PER FACE, so an interleaved run of rim-sharing bands keeps the annular form (P0019)
+
+**State: RESOLVED (2026-10-03 night, P0019) but GATED on
+`YANG_SEAM_COMPONENT=1|on` — the full-corpus proof is OWED (it moves minted
+seam feet, hence render phase, for every canonical band with a rim-sharing
+neighbour).** Ledger `docs/yang_tail_triage.md` (P0019 row). Pin
+`crates/kernel-v2/tests/n77_component_seam_anchoring.rs`.
+
+**Paper.** §4.4.2 "B-Rep Booleans"
+(`refs/text/yang2025_hybrid_boolean.txt:574-605`) restores an output face from
+"the corresponding parametric surfaces and boundary curves" it bounds. A
+closed boundary curve's start/end vertex is not one of those: it is a cut
+point the representation needs and the geometry does not — Stroud's fake edge
+— so where it sits is free, and the paper's restoration says nothing about it.
+That freedom is exactly what the fix spends.
+
+**What was wrong.** `crates/kernel-v2/src/recover.rs` turns a cylinder/cone
+face whose two loops are both closed circle rims into the canonical 4-edge
+`[rim, seam, rim, seam]` lateral — the only two-rim form
+`validate_cone_face` / `validate_cylinder_face` accept. It did so in two
+greedy per-face passes over the output's faces in index order: PASS 1 pairs a
+rim pair that already shares an azimuth (and PINS both rims' anchors, because
+a rim shared by two laterals must emit ONE closed edge), PASS 2 mints the
+exact on-circle foot for a rim that has none. PASS 2 deliberately never moves
+an anchor a previous face fixed, so a band that reaches it with BOTH rims
+already pinned at different azimuths has nowhere to go: it takes the arc
+fallback and the face stays ANNULAR (outer loop = one rim, inner loop = the
+other), and the assembler then refuses its own output.
+
+Nothing in the greedy order prevents that. It happens whenever the faces that
+DO pair interleave with the ones that do not along a run of rim-sharing bands
+— a closed lathe profile revolved about an external axis (P0019's rim CYCLE)
+being the extreme case, but a 4-band CHAIN reproduces it too (the pin's `ring`
+fixture: PASS 1 pairs faces 0 and 2, pins four rims, and face 1 then sees
+|Δaz| = 2.51327412287182916e-1 rad between two pinned anchors).
+
+**Measured on P0019** (`KV2_RECOVER_PROBE=1`, release) — a genus-1 ring of
+five cone bands, no planar cap anywhere, all five faces valid two-closed-chain
+candidates with 4 retained vertices per rim:
+
+```
+pass1 face 0: daz=2.61799387799148686e-1 daz*r=1.63830377525321175e-1 band=2.57608556135408847e-9 -> UNPAIRED
+pass1 face 1: daz=0.00000000000000000e0  daz*r=0.00000000000000000e0  band=2.57608556135408847e-9 -> paired
+pass1 face 2: daz=2.61799387799149130e-1 daz*r=1.71762798306361403e-1 band=2.57608556135408847e-9 -> UNPAIRED
+pass1 face 3: daz=0.00000000000000000e0  daz*r=0.00000000000000000e0  band=2.57608556135408847e-9 -> paired
+pass1 face 4: daz=0.00000000000000000e0  daz*r=0.00000000000000000e0  band=2.57608556135408847e-9 -> paired
+```
+
+2.618e-1 rad is **π/12 exactly** — a whole Stage-1 lattice step, not noise, so
+this is not a tolerance question. Faces 1/3/4 pin all five rim anchors; faces
+0 and 2 keep the annular form and the subtract STOPs with
+`CurvedGeometryMismatch { face: FaceId(17), reason: "cone face with inner
+loops is outside the KV6c vocabulary" }` — the latent N73's cone-rim sense
+derivation unmasked.
+
+**The rule, already written down for the other copy of it.** SI5's STEP ingest
+states it in `specs/step_import_si5_exact_analytic_ingestion.md` ("Alignment
+is not pairwise"): two bands sharing a full-circle rim are *necessarily*
+coaxial, because a shared full circle is each surface's own rim, so the
+constraint is **per connected component of rims-joined-by-bands** — "pick one
+anchor direction per component and re-anchor the rest to it. A component
+containing two *pinned* rims … whose directions disagree is a refusal."
+Admissible for the reason above: sliding a closed edge's anchor along its own
+circle changes no boundary point.
+
+**As implemented** (`recover.rs`, PASS 1C, after PASS 2 so the increment is a
+single gated block):
+
+1. **Union** the two rim chains of every lateral candidate whose rims are
+   verifiably coaxial with its own axis — both rim normals ∥ the axis and both
+   rim centres on one axis-parallel line. A band that fails the check joins
+   nothing and keeps the ordinary greedy path, so the component rule never
+   anchors against a line that is not the rims' own.
+2. **One seam DIRECTION per component**, as a frame-free unit radial vector ⊥
+   the component axis — not an azimuth, because the bands of one component may
+   report their axis with EITHER sign (P0019's five cones alternate ±ẑ) and
+   `ortho_basis(+ẑ)` / `ortho_basis(−ẑ)` are different frames. Chosen, in
+   order: (1) a PINNED rim's anchor (PASS 0's torus bands), two pinned rims
+   disagreeing being a component refusal, verbatim per the SI5 rule;
+   (2) an already-anchored COAXIAL lateral of the same output, keeping the
+   C0117 cross-component phase coherence PASS 2 established; (3) the
+   component's FIRST NATURAL SEAM — the lowest-face-index band whose rims
+   already retain an azimuth-aligned vertex pair (PASS 1's own predicate), at
+   that pair's rim-a vertex, so a band PASS 1 would have paired keeps its own
+   existing feet exactly; (4) else that scan's smallest-|Δaz| rim-a vertex.
+3. **Anchor every rim of the component at that direction**: an existing vertex
+   within the band (`existing_foot`'s own predicate) or the exact minted foot
+   `c + r·dir`, on the circle both adjacent surfaces declare.
+4. **Per band, verify the ruling** — the two feet must share an azimuth to the
+   validator's own `cyl-seam-not-ruling` bound (`SEAM_RULING_TOLERANCE` =
+   1e-12, the F11 lesson). A band whose two rims still disagree is REFUSED and
+   keeps the arc fallback. Recovery is a pure rewrite with no error channel by
+   design (P9: `from_yang_brep` is the single authority on a malformed
+   output), so the refusal is conservative here and loud one layer down, where
+   `validate_*_face` names the face; `KV2_RECOVER_PROBE` prints the measured
+   offset and the component for every band either way.
+
+On P0019 all five bands seam, with measured ruling offsets `0`,
+`3.64200648169714843e-17`, `3.64200648169714843e-17`,
+`2.88796976369154685e-17`, `1.27195530643449169e-17` against the 1e-12 bound,
+and the case lands SUPPORTED_CORRECT in 0.3 s. Oracles adjudicated at the
+conversion by the exact-membership lattice (stable at every rung and both
+phases: components 2, boundary_chi 2 = the genus-1 ring's 0 plus a χ-2 body,
+two bodies; 1024-cell phase-0.5/0.25 totals 1.216869e0 / 1.216863e0, mean
+1.2168660e0, against the kernel's tessellated 1.214852e0 = rel −1.66e-3, the
+inscribed-lathe chord deficit). `euler_target` is hand-adjudicated to **0**,
+not the generator's 2: the χ oracle reads the MAIN body's mesh only and Main
+IS the ring (one shell, V 355 − E 1065 + F 710 = 0); the lattice's 2 is the
+SUM over both components, which is what `expected_volume` compares against.
+`derived_meta` cleared.
+
+**Pins.** `crates/kernel-v2/tests/n77_component_seam_anchoring.rs`, both
+fixtures a lathe through a REAL boolean (an end-shave subtract of the
+`axial < 0.1` slab — a strictly AABB-disjoint union will not do, task #134's
+passthrough skips yang entirely so recover is never called):
+
+* `a_rim_run_that_defeats_the_greedy_order_converts_under_component_anchoring`
+  — a 4-edge all-oblique closed profile revolved a full turn about an external
+  axis. RED→GREEN: with the gate off it raises P0019's wall VERBATIM
+  (`CurvedGeometryMismatch { face: FaceId(11), reason: "cone face with inner
+  loops is outside the KV6c vocabulary" }`); with it on the solid assembles,
+  validates, carries exactly ONE ring (the shaved cap's inner rim — a band
+  still annular would add one), and its faceted volume sits just below the
+  closed-form Pappus `21.5π − π·4.796296296296296e-2`.
+* `a_rim_chain_the_greedy_order_already_handles_keeps_its_solid` — the barrel
+  washer (two cone bands at a shared rim, inner cylinder, two annular caps).
+  Deliberately NOT a bitwise pin: the component rule chooses a different
+  representational azimuth, so minted feet DO move. What may not move is the
+  SOLID — identical V/E/F/R census and volume within 1e-9 relative, both just
+  below the closed form `(8/3)π − π·8.008333333333333e-2`.
+
+Mutation-checked both ways: neutering `seam_component_mode()` to `false` fails
+the GREEN half with the verbatim KV6c wall; widening the per-rim reuse band
+from `band` to `1e9·band` (so a rim reuses a far-off vertex instead of minting
+the exact foot) makes the step-4 ruling check refuse and BOTH fixtures fail
+with the same wall — the designed refusal firing, not a silent pass.
+
+**Recorded on the way (no customer left).** `yang_rs::BRep::new` REFUSES the
+annular cone band as INPUT — `MalformedTopology("… cone periodic strip (2
+encircling rims) not yet supported (KV14 Slice E holed frustum band — later
+sub-slice)")` — while yang's own Stage 5 EMITS exactly that form, and `BRep`'s
+fields are `pub(crate)`, so only a real boolean can produce one (which is why
+the N73 pin could not carry P0019's shape and why these fixtures go through
+`boolean_op`). With component anchoring on, every band reaching kernel-v2 is
+seamed, so that asymmetry has no customer; it stays a latent of the gate-off
+path and of any future producer of a 2-encircling-rim input.
+
+**Owed.** The `full_corpus_categorized` proof, and the flip from opt-in gate to
+always-on with a kill switch (the N75 shape). Until then the P0019 category pin
+in `assay_kv2.rs` stays `Error`, which is what the default build measures.

@@ -61,6 +61,23 @@ const BAND: f64 = cad_primitives::TAU_EVAL;
 /// ruling by the same standard `validate_solid` applies to it.
 const SEAM_RULING_TOLERANCE: f64 = crate::validate::CURVED_SURFACE_DEBUG_TOLERANCE;
 
+/// Deviation N77 — component-wise seam anchoring (PASS 1C below). GATED: with
+/// the flag off, canonicalization decides exactly as PASS 1 / PASS 2 always
+/// have, so every existing output is byte-identical.
+fn seam_component_mode() -> bool {
+    matches!(std::env::var("YANG_SEAM_COMPONENT"), Ok(v) if v == "1" || v == "on")
+}
+
+/// Union-find root with path halving (component = rims joined by a band).
+fn uf_find(parent: &mut [usize], mut x: usize) -> usize {
+    while parent[x] != x {
+        let p = parent[x];
+        parent[x] = parent[p];
+        x = p;
+    }
+    x
+}
+
 fn sub(a: Point3, b: Point3) -> [f64; 3] {
     let (a, b) = (a.as_array(), b.as_array());
     [a[0] - b[0], a[1] - b[1], a[2] - b[2]]
@@ -1024,6 +1041,78 @@ fn try_recover(
             dot3(w, e2).atan2(dot3(w, e1))
         };
 
+        // ---- COMPONENTS of rims-joined-by-bands (deviation N77, gated) -----
+        // PASS 1/PASS 2 below anchor GREEDILY PER FACE. That is sound while
+        // the bands form a CHAIN (each new face shares at most one
+        // already-anchored rim), but a lathe profile revolved about an axis
+        // OUTSIDE it closes the bands into a CYCLE of rims. Then the faces
+        // that happen to pair first pin EVERY rim anchor, and the rest reach
+        // PASS 2 with BOTH anchors already fixed a whole Stage-1 lattice step
+        // apart, where its "never move an anchor" refusal leaves them in the
+        // ANNULAR form (outer loop = one rim, inner loop = the other) that
+        // `validate_cone_face` / `validate_cylinder_face` refuse.
+        //
+        // Measured on P0019 (`docs/yang_tail_triage.md`), a genus-1 ring of
+        // five cone bands with no planar cap anywhere: faces 1/3/4 pair at
+        // |Δaz| = 0 and pin all five rims; faces 0 and 2 then see
+        // |Δaz| = 2.618e-1 rad = π/12 exactly — one lattice step, not noise.
+        //
+        // The remedy is the rule the OTHER copy of this machinery already
+        // states: SI5's STEP ingest
+        // (`specs/step_import_si5_exact_analytic_ingestion.md`, "Alignment is
+        // not pairwise") — two bands sharing a full-circle rim are
+        // necessarily COAXIAL, a shared rim being each surface's own rim, so
+        // the constraint is per CONNECTED COMPONENT of rims-joined-by-bands:
+        // pick ONE anchor direction per component and re-anchor the rest to
+        // it. Admissible because a closed edge's anchor is pure
+        // representation gauge — Stroud's fake edge — so sliding it along its
+        // own circle changes no boundary point, the loop being the entire
+        // circle either way. §4.4.2 likewise restores a B-Rep face from the
+        // surfaces and curves it bounds, never from a seam's phase
+        // (`refs/text/yang2025_hybrid_boolean.txt:574-605`).
+        //
+        // The union is built HERE (before PASS 1) only so PASS 1 can step
+        // aside for the bands PASS 1C owns; a band whose two rims are not
+        // verifiably coaxial with its own axis joins nothing and keeps the
+        // ordinary greedy path.
+        let component_mode = seam_component_mode();
+        let mut seam_components: BTreeMap<usize, Vec<usize>> = BTreeMap::new();
+        let mut in_component: Vec<bool> = vec![false; cands.len()];
+        if component_mode {
+            let mut parent: Vec<usize> = (0..chains.len()).collect();
+            for (ci, cand) in cands.iter().enumerate() {
+                let (EffCurve::Circle { normal: na, .. }, EffCurve::Circle { normal: nb, .. }) =
+                    (chains[cand.ca].curve, chains[cand.cb].curve)
+                else {
+                    continue;
+                };
+                // Both rim normals ∥ the band axis, and both rim centres on
+                // ONE axis-parallel line: that is what makes "the component's
+                // seam direction" a well-defined radial direction for every
+                // rim in it.
+                if norm3(cross3(na, cand.axis)) > BAND
+                    || norm3(cross3(nb, cand.axis)) > BAND
+                    || norm3(cross3(sub(cand.ccb, cand.cca), cand.axis)) > band
+                {
+                    continue;
+                }
+                in_component[ci] = true;
+                let (ra, rb) = (uf_find(&mut parent, cand.ca), uf_find(&mut parent, cand.cb));
+                if ra != rb {
+                    parent[ra] = rb;
+                }
+            }
+            // `cands` is built in face-index order, so each component's first
+            // listed band is its lowest face index — the key both the
+            // component ORDER and the "first natural seam" rule below use.
+            for (ci, &joined) in in_component.iter().enumerate() {
+                if joined {
+                    let root = uf_find(&mut parent, cands[ci].ca);
+                    seam_components.entry(root).or_default().push(ci);
+                }
+            }
+        }
+
         // PASS 1 — rims that already share an azimuth-aligned vertex pair
         // (the mesh-granular case: both rims retain the Stage-1 lattice).
         // Deterministic: smallest |Δaz|, ties by (va, vb) index order. A rim
@@ -1031,6 +1120,11 @@ fn try_recover(
         // by two laterals must emit ONE closed edge).
         let mut unpaired: Vec<usize> = Vec::new();
         for (ci, cand) in cands.iter().enumerate() {
+            if in_component[ci] {
+                // PASS 1C owns this band's anchoring (component mode only;
+                // `in_component` is all-false with the gate off).
+                continue;
+            }
             let (e1, e2) = ortho_basis(cand.axis);
             let cand_a: Vec<u32> = match chains[cand.ca].anchor {
                 Some(a0) => vec![a0],
@@ -1265,6 +1359,255 @@ fn try_recover(
                     ct * e1[2] + st * e2[2],
                 ];
                 axis_refs.push((cand.axis, cand.cca.as_array(), dir));
+            }
+        }
+
+        // PASS 1C — COMPONENT-WISE SEAM ANCHORING (deviation N77, gated on
+        // `YANG_SEAM_COMPONENT=1|on`; `seam_components` is empty with the gate
+        // off, so this loop does not execute and nothing above it changed).
+        // One seam DIRECTION per connected component of rims-joined-by-bands,
+        // chosen once and applied to every rim in it — see the rationale at
+        // the union-find above.
+        //
+        // The direction is a frame-free unit radial vector ⊥ the component
+        // axis, not an azimuth: the bands of one component may report their
+        // axis with EITHER sign (P0019's five cones alternate ±ẑ), and
+        // `ortho_basis(+ẑ)` and `ortho_basis(−ẑ)` are different frames.
+        if !seam_components.is_empty() {
+            let probe = std::env::var_os("KV2_RECOVER_PROBE").is_some();
+            // Radial direction of a vertex about the component axis.
+            let rdir =
+                |v: u32, c: Point3, axis: [f64; 3], minted: &[BRepVertex]| -> Option<[f64; 3]> {
+                    let w = sub(point_any(v, minted), c);
+                    let along = dot3(w, axis);
+                    normalize3([
+                        w[0] - along * axis[0],
+                        w[1] - along * axis[1],
+                        w[2] - along * axis[2],
+                    ])
+                };
+            // Unsigned angle between two unit radial directions, in [0, π].
+            let ang =
+                |d1: [f64; 3], d2: [f64; 3]| -> f64 { norm3(cross3(d1, d2)).atan2(dot3(d1, d2)) };
+            let mut order: Vec<(usize, usize)> = seam_components
+                .iter()
+                .map(|(root, bands)| (cands[bands[0]].fi, *root))
+                .collect();
+            order.sort_unstable();
+            for (_, root) in order {
+                let bands = seam_components[&root].clone();
+                let axis = cands[bands[0]].axis;
+                let base = cands[bands[0]].cca;
+                // Every band of the component must share that ONE axis line.
+                // (It follows from the per-band check at the union, but a
+                // component is only meaningful if it holds globally, and a
+                // violation must refuse rather than anchor against a line
+                // that is not the rims' own.)
+                if bands.iter().any(|&ci| {
+                    norm3(cross3(cands[ci].axis, axis)) > BAND
+                        || norm3(cross3(sub(cands[ci].cca, base), axis)) > band
+                }) {
+                    if probe {
+                        eprintln!(
+                            "[recover-probe] pass1c component {root}: axis line incoherent -> REFUSED"
+                        );
+                    }
+                    continue;
+                }
+                let mut rims: Vec<usize> = bands
+                    .iter()
+                    .flat_map(|&ci| [cands[ci].ca, cands[ci].cb])
+                    .collect();
+                rims.sort_unstable();
+                rims.dedup();
+                let rim_circle = |chains: &[Chain], rc: usize| -> Option<(Point3, f64)> {
+                    match chains[rc].curve {
+                        EffCurve::Circle { center, radius, .. } => Some((center, radius)),
+                        _ => None,
+                    }
+                };
+
+                // (1) A PINNED rim — an anchor already fixed by PASS 0 — names
+                // the component's direction. Two pinned rims whose directions
+                // disagree are a REFUSAL, verbatim per the SI5 rule ("A
+                // component containing two *pinned* rims … whose directions
+                // disagree is a refusal"): the whole component keeps the arc
+                // fallback rather than move a load-bearing anchor.
+                let mut dir: Option<[f64; 3]> = None;
+                let mut pinned_conflict = false;
+                for &rc in &rims {
+                    let (Some(a0), Some((c, r))) = (chains[rc].anchor, rim_circle(&chains, rc))
+                    else {
+                        continue;
+                    };
+                    let Some(d) = rdir(a0, c, axis, &minted) else {
+                        continue;
+                    };
+                    match dir {
+                        None => dir = Some(d),
+                        Some(d0) => {
+                            if ang(d0, d) * r > band {
+                                pinned_conflict = true;
+                            }
+                        }
+                    }
+                }
+                if pinned_conflict {
+                    if probe {
+                        eprintln!(
+                            "[recover-probe] pass1c component {root}: pinned rims disagree -> REFUSED"
+                        );
+                    }
+                    continue;
+                }
+                // (2) An already-anchored COAXIAL lateral of this output —
+                // the cross-component phase coherence PASS 2 established
+                // (C0117: two coaxial laterals thinner than the sagitta
+                // render self-consistently only in phase).
+                if dir.is_none() {
+                    dir = axis_refs
+                        .iter()
+                        .find(|r| coaxial(axis, base.as_array(), r))
+                        .map(|r| r.2);
+                }
+                // (3) The component's FIRST NATURAL SEAM: the lowest-face-index
+                // band whose two rims already retain an azimuth-aligned vertex
+                // pair (PASS 1's own predicate), taken at that pair's rim-a
+                // vertex — so a band that PASS 1 would have paired keeps its
+                // own existing feet, exactly.
+                // (4) Else the smallest-|Δaz| rim-a vertex over the same scan.
+                if dir.is_none() {
+                    let mut fallback: Option<(f64, u32, Point3)> = None;
+                    'bands: for &ci in &bands {
+                        let cand = &cands[ci];
+                        let (Some((cca, _)), Some((ccb, _))) =
+                            (rim_circle(&chains, cand.ca), rim_circle(&chains, cand.cb))
+                        else {
+                            continue;
+                        };
+                        for &va in &chains[cand.ca].verts {
+                            let Some(da) = rdir(va, cca, axis, &minted) else {
+                                continue;
+                            };
+                            for &vb in &chains[cand.cb].verts {
+                                let Some(db) = rdir(vb, ccb, axis, &minted) else {
+                                    continue;
+                                };
+                                let daz = ang(da, db);
+                                if daz * cand.radius <= band {
+                                    dir = Some(da);
+                                    break 'bands;
+                                }
+                                let better = match fallback {
+                                    None => true,
+                                    Some((d, pa, _)) => daz < d || (daz == d && va < pa),
+                                };
+                                if better {
+                                    fallback = Some((daz, va, cca));
+                                }
+                            }
+                        }
+                    }
+                    if dir.is_none() {
+                        if let Some((_, va, cca)) = fallback {
+                            dir = rdir(va, cca, axis, &minted);
+                        }
+                    }
+                }
+                let Some(dir) = dir else {
+                    if probe {
+                        eprintln!(
+                            "[recover-probe] pass1c component {root}: no seam direction -> REFUSED"
+                        );
+                    }
+                    continue;
+                };
+
+                // Anchor EVERY rim of the component at that one direction: an
+                // existing vertex within the band (same predicate PASS 2's
+                // `existing_foot` uses), else the EXACT minted foot
+                // `c + r·dir`, which lies on the circle both adjacent
+                // surfaces declare.
+                for &rc in &rims {
+                    if chains[rc].anchor.is_some() {
+                        continue;
+                    }
+                    let Some((c, r)) = rim_circle(&chains, rc) else {
+                        continue;
+                    };
+                    let mut best: Option<(f64, u32)> = None;
+                    for &v in &chains[rc].verts {
+                        let Some(d) = rdir(v, c, axis, &minted) else {
+                            continue;
+                        };
+                        let a = ang(d, dir);
+                        let better = match best {
+                            None => true,
+                            Some((bd, bv)) => a < bd || (a == bd && v < bv),
+                        };
+                        if better {
+                            best = Some((a, v));
+                        }
+                    }
+                    let foot = match best.filter(|&(a, _)| a * r <= band) {
+                        Some((_, v)) => v,
+                        None => {
+                            let ca = c.as_array();
+                            let p = Point3::new(
+                                ca[0] + r * dir[0],
+                                ca[1] + r * dir[1],
+                                ca[2] + r * dir[2],
+                            );
+                            let nv = (yverts.len() + minted.len()) as u32;
+                            minted.push(BRepVertex { point: p });
+                            nv
+                        }
+                    };
+                    chains[rc].anchor = Some(foot);
+                }
+
+                // Per band: the two feet are the ends of ONE seam ruling, so
+                // they must share an azimuth to the validator's own
+                // `cyl-seam-not-ruling` bound (F11). A band whose two rims
+                // still disagree is REFUSED and keeps the arc fallback —
+                // recovery is a pure rewrite with no error channel by design
+                // (P9: `from_yang_brep` is the single authority on a
+                // malformed output), so the refusal is conservative here and
+                // becomes loud one layer down, where `validate_*_face` names
+                // the face.
+                for &ci in &bands {
+                    let cand = &cands[ci];
+                    let (Some(va), Some(vb)) = (chains[cand.ca].anchor, chains[cand.cb].anchor)
+                    else {
+                        continue;
+                    };
+                    let (Some(da), Some(db)) = (
+                        rdir(va, cand.cca, axis, &minted),
+                        rdir(vb, cand.ccb, axis, &minted),
+                    ) else {
+                        continue;
+                    };
+                    let off = ang(da, db) * cand.radius;
+                    if probe {
+                        eprintln!(
+                            "[recover-probe] pass1c component {root} face {}: off={off:.17e} tol={:.17e} -> {}",
+                            cand.fi,
+                            SEAM_RULING_TOLERANCE,
+                            if off > SEAM_RULING_TOLERANCE {
+                                "REFUSED"
+                            } else {
+                                "seamed"
+                            }
+                        );
+                    }
+                    if off > SEAM_RULING_TOLERANCE {
+                        continue;
+                    }
+                    lateral_pairs.insert(cand.fi, ((cand.ca, va), (cand.cb, vb)));
+                }
+                if !axis_refs.iter().any(|r| coaxial(axis, base.as_array(), r)) {
+                    axis_refs.push((axis, base.as_array(), dir));
+                }
             }
         }
     }
