@@ -261,8 +261,8 @@ A second set, the `SurfacePair`- and ring-reject-heavy R- and C-series rows
 whose own ledger text names this locus, all **SUPPORTED_CORRECT** too:
 R0011 2.5 s, R0016 111.5 s, R0025 33.1 s, R0028 5.1 s, R0049 4.5 s,
 R0050 30.2 s, R0059 6.1 s, R0074 13.5 s, R0077 2.0 s, C0065 3.1 s,
-R0004 4.8 s, R0070 53.7 s, R0032 121.5 s, R0020 1.6 s (R0044 still running at
-write-up time). **26 cases, zero category moves, and `[n76]` fired
+R0004 4.8 s, R0070 53.7 s, R0032 121.5 s, R0020 1.6 s, R0044 462.9 s.
+**27 cases, zero category moves, and `[n76]` fired
 on NONE of them** — which is what makes the byte-identity STRUCTURAL rather
 than sampled: a loop that does not double-cover a curve is not rewritten at
 all. (CPU times run high across the board because the box sat at load 25–42
