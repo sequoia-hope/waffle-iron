@@ -715,20 +715,39 @@ sentence — the wrong shape for a caller's typo. The tool validates it as
 `InvalidArguments` with the fix in the message and the kernel keeps its own
 refusal as the backstop.
 
-**The acute corner is not an exotic case, and the tool says so.** Reviewed
+**The acute corner is not an exotic case, so there are TWO minima.** Reviewed
 2026-10-03: the wedge above is a fixture, but the same sliver appears on any
 part with an acute dihedral. A 4 mm radial slot through a 10/7 mm tube — a C —
-reports `min` = 0.043 mm where its wall is 3 mm, because the slot's flat face
-meets the outer cylinder at 78° and the thinnest inward cast lands in that
-corner (`a_slot_in_a_tube_is_thinnest_at_the_acute_corner_not_at_the_wall`).
-The number is right for the question §4.2 defines — the first hit along the
-inward normal — and wrong for "how thick is this part", so the tool's own
-description names the case and points the caller at `thinnest.from`/`to` and
-the histogram, where a corner sliver is a lone site in the lowest bin and a
-real wall is a populated one. **If a later increment wants the wall and not the
-corner, the cheap form is a flag on the thinnest site saying whether its two
-faces share an edge** (or a second minimum taken over non-adjacent pairs);
-nothing in the sampler needs to change for it.
+has its slot face meeting the outer cylinder at 78°, and the thinnest inward
+cast lands in that corner at 0.043 mm where the wall is 3 mm. The number is
+right for the question §4.2 defines — the first hit along the inward normal —
+and useless as "how thick is this part", which is the question a rule asks.
+
+So the answer carries both. `min` is unchanged and still §4.2's. Beside it,
+`min_wall` is the same minimum over only the sites whose two faces do NOT
+share an edge, with `thinnest_wall` as its site, and every site says which it
+is through `faces_share_an_edge`. On that C: `min` 0.0434 mm, `min_wall`
+2.99999999999999703e-3 — `r_outer − r_inner` to rounding, because the wall is
+the same at every point of the cylinder pair and both ends of the cast refine
+onto the analytic surfaces. On a plate the two numbers and the two SITES are
+identical, because a right-angled body has no corner reading to leave out: a
+cast along one face's inward normal is parallel to every face it shares an
+edge with. A face hitting ITSELF is not a corner either, so a solid cylinder's
+diameter survives into `min_wall` (`faces_share_an_edge` is about two distinct
+faces that meet, and a cylinder's lateral face meets itself at its seam).
+Pinned in `a_slot_in_a_tube_is_thinnest_at_the_acute_corner_not_at_the_wall`,
+`a_plate_reports_its_thickness_on_the_planar_pair`,
+`a_solid_cylinder_measures_across_its_own_lateral_face` and, on the wire,
+`a_wedge_reports_the_corner_and_the_wall_as_two_numbers`.
+
+The exclusion is coarse ON PURPOSE: it drops every reading between two faces
+that meet anywhere, so a tapered rib whose flanks meet at a tip edge does not
+contribute its own thickness to `min_wall` either. For a rule that is the
+conservative direction — a wall it cannot see is not a wall it calls thick —
+and `min` with the thinnest site's own faces is what a caller judges such a
+rib from. The adjacency itself is one pass over the solid's loops (a half-edge
+and its twin are the two sides of one edge), read O(1) per site, so it does
+not move the cost below.
 
 **`min` moving with `spacing` is measured, not argued.** The same wedge at
 4 mm / 1 mm / 0.25 mm reports 2.111 mm / 0.952 mm / 0.625 mm — at 4 mm the
@@ -749,8 +768,11 @@ what costs, and it is the caller's choice.
 sampling (a rule that cares about one web filters the sites itself from the
 thinnest site and the histogram, or asks for a denser spacing). No medial axis.
 No area-weighted mean — the mean is unweighted over sites, which are
-approximately area-uniform by construction, and the answer says so. Assembly
-instance scoping, as for Q2, Q4 and Q6.
+approximately area-uniform by construction, and the answer says so. And no
+third minimum: `mean`, `max` and the histogram stay over ALL sites, corner
+readings included, because they describe the sample and only the two minima
+answer a question about the body. Assembly instance scoping, as for Q2, Q4 and
+Q6.
 
 ## 5. N — Stable semantic references
 
