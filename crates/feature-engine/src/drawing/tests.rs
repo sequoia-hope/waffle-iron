@@ -1030,7 +1030,8 @@ fn a_detail_view_keeps_its_parents_frame_and_crops_to_the_disc_it_was_given() {
         }),
         ..ViewExtras::default()
     };
-    let out = rebuild_view_in(view, &frame, &[], &extras, &kernel, None).expect("a detail of nothing");
+    let out =
+        rebuild_view_in(view, &frame, &[], &extras, &kernel, None).expect("a detail of nothing");
     assert_eq!(out.extent_mm, [16.0, 16.0]);
     assert_eq!(
         out.layout.clip,
