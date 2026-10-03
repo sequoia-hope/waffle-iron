@@ -37,6 +37,61 @@ pub fn dispatch(state: &mut EngineState, msg: UiToEngine, kb: &mut dyn KernelBun
     }
 }
 
+/// The placeholder plane anchor a LOCAL sketch has always carried: a fresh
+/// datum uuid that resolves to nothing, because the sketch's real frame travels
+/// in `plane_origin` / `plane_normal`. Kept verbatim when N2 moved the face
+/// identity into `Sketch::plane_face`, so no existing behaviour that reads
+/// `Sketch::plane` moved (the share-a-face target search is the one that
+/// matters).
+fn placeholder_sketch_plane() -> waffle_types::GeomRef {
+    waffle_types::GeomRef {
+        kind: waffle_types::TopoKind::Face,
+        anchor: waffle_types::Anchor::Datum {
+            datum_id: uuid::Uuid::new_v4(),
+        },
+        selector: waffle_types::Selector::Role {
+            role: waffle_types::Role::EndCapPositive,
+            index: 0,
+        },
+        policy: waffle_types::ResolvePolicy::BestEffort,
+        scope: None,
+    }
+}
+
+/// Pin the LOCAL model face a `BeginSketch` names, so every later rebuild can
+/// prove it is still there (N2 §5.3 item 3).
+///
+/// `None`, and the sketch keeps its cached frame with nothing to re-resolve,
+/// when the plane is not a local model face at all — a datum anchor, or a face
+/// scoped into another instance (which `feature_engine::context` re-derives
+/// from the open assembly context instead). Also `None` when the kernel cannot
+/// pin it: an unresolvable reference here must not stop the user from sketching
+/// — `BeginSketch` only opens the editor, and the frame the sketch commits with
+/// comes from `FinishSketch`. The cost of that choice is that such a sketch has
+/// no identity to re-resolve, which is exactly where it was before N2.
+fn pin_sketch_plane_face(
+    state: &EngineState,
+    kb: &mut dyn KernelBundle,
+    plane: &waffle_types::GeomRef,
+) -> Option<waffle_types::SketchFaceRef> {
+    if plane.scope.is_some() || plane.kind != waffle_types::TopoKind::Face {
+        return None;
+    }
+    if !matches!(plane.anchor, waffle_types::Anchor::FeatureOutput { .. }) {
+        return None;
+    }
+    let introspect = kb.as_introspect();
+    let pinned =
+        feature_engine::resolve::pin_identity(plane, &state.engine.feature_results, introspect)
+            .ok()?;
+    let signature = introspect.compute_signature(pinned.kernel_id, waffle_types::TopoKind::Face);
+    Some(waffle_types::SketchFaceRef {
+        target: pinned.target,
+        fallback: pinned.fallback,
+        signature,
+    })
+}
+
 fn handle_message(
     state: &mut EngineState,
     msg: UiToEngine,
@@ -45,7 +100,16 @@ fn handle_message(
     match msg {
         // -- Sketch operations --
         UiToEngine::BeginSketch { plane } => {
-            state.begin_sketch(plane);
+            let face = pin_sketch_plane_face(state, kb, &plane);
+            // A local face ref becomes the pinned identity and the `plane`
+            // field keeps the placeholder a local sketch has always carried —
+            // see `EngineState::begin_sketch`.
+            let plane = if face.is_some() {
+                placeholder_sketch_plane()
+            } else {
+                plane
+            };
+            state.begin_sketch(plane, face);
             Ok(model_updated_response(state))
         }
 

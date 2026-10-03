@@ -85,6 +85,10 @@ pub struct KicadBoardRecord {
 pub struct ActiveSketch {
     /// The plane the sketch is on.
     pub plane: GeomRef,
+    /// The local model face it was started on, pinned to the face's persistent
+    /// identity, when `BeginSketch` named one (N2 §5.3 item 3). `None` for a
+    /// datum plane, a bare frame, or another instance's face.
+    pub plane_face: Option<waffle_types::SketchFaceRef>,
     /// Sketch entities added so far.
     pub entities: Vec<SketchEntity>,
     /// Constraints added so far.
@@ -197,9 +201,23 @@ impl EngineState {
     }
 
     /// Begin a new sketch session on the given plane.
-    pub fn begin_sketch(&mut self, plane: GeomRef) {
+    /// Open a sketch on `plane`.
+    ///
+    /// `plane_face` is the pinned identity of the LOCAL model face the sketch
+    /// was started on, when the caller named one and the kernel could pin it
+    /// (N2 §5.3 item 3; `dispatch::pin_sketch_plane_face` does the pinning,
+    /// where a kernel is at hand). It is recorded SEPARATELY from `plane`,
+    /// which keeps the placeholder datum anchor a local sketch has always
+    /// carried — the share-a-face target search branches on that anchor, so
+    /// changing it would quietly change which body an extrude merges into.
+    pub fn begin_sketch(
+        &mut self,
+        plane: GeomRef,
+        plane_face: Option<waffle_types::SketchFaceRef>,
+    ) {
         self.active_sketch = Some(ActiveSketch {
             plane,
+            plane_face,
             entities: Vec::new(),
             constraints: Vec::new(),
             solve_status: SolveStatus::UnderConstrained { dof: 0 },
@@ -278,6 +296,7 @@ impl EngineState {
             solved_positions: HashMap::new(),
             solved_profiles: Vec::new(),
             projected: Vec::new(),
+            plane_face: active.plane_face.clone(),
         })
     }
 

@@ -175,6 +175,7 @@ fn hunt_explosion_waffle_fixture() {
                 solved_positions: HashMap::new(),
                 solved_profiles: Vec::new(),
                 projected: Vec::new(),
+                plane_face: None,
             };
             let solved = solve_sketch(&sketch);
             for (id, p) in &solved.positions {
@@ -289,6 +290,7 @@ fn hunt_explosion_with_accidental_pin() {
                     solved_positions: HashMap::new(),
                     solved_profiles: Vec::new(),
                     projected: Vec::new(),
+                    plane_face: None,
                 };
                 let solved = solve_sketch(&sketch);
                 for (id, p) in &solved.positions {
@@ -376,6 +378,7 @@ fn hunt_explosion_large_mouse_deltas() {
                     solved_positions: HashMap::new(),
                     solved_profiles: Vec::new(),
                     projected: Vec::new(),
+                    plane_face: None,
                 };
                 let solved = solve_sketch(&sketch);
                 for (id, p) in &solved.positions {

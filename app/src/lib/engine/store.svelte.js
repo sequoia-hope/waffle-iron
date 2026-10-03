@@ -2327,15 +2327,24 @@ function collectSamePlaneSketchPoints(origin, normal, excludeFeatureId) {
 
 /**
  * The `BeginSketch` plane reference for a sketch started on `faceGeomRef`.
- * A face of ANOTHER instance (in-context editing, v4 §2.8) is recorded as the
- * sketch's plane reference so the engine re-derives the plane from that
- * instance on rebuild. A local face, a datum or no face keeps the historical
- * placeholder anchor (the sketch's origin/normal snapshot is authoritative).
- * Shared by Sketch mode and the agent link's `sketch_create`.
+ *
+ * Every MODEL-face reference is passed through — a face of another instance
+ * (in-context editing, v4 §2.8), which the engine re-derives the plane from on
+ * every rebuild, and since N2 (`specs/agent_mechanical_design.md` §5.3 item 3)
+ * a LOCAL face too: the engine pins it to the face's persistent identity and
+ * re-resolves it every rebuild, so a sketch whose face is deleted refuses
+ * loudly instead of staying where it was drawn. Before N2 a local face ref was
+ * dropped here, and the sketch had no record of what it was drawn on.
+ *
+ * A datum plane, or no face at all, still gets the placeholder anchor (the
+ * sketch's origin/normal snapshot is authoritative). Shared by Sketch mode and
+ * the agent link's `sketch_create`.
  * @param {any} [faceGeomRef]
  */
 export function beginSketchPlaneRef(faceGeomRef = null) {
-	if (faceGeomRef?.scope) return JSON.parse(JSON.stringify(faceGeomRef));
+	if (faceGeomRef?.scope || faceGeomRef?.anchor?.type === 'FeatureOutput') {
+		return JSON.parse(JSON.stringify(faceGeomRef));
+	}
 	return {
 		kind: { type: 'Face' },
 		anchor: { type: 'Datum', datum_id: generateUUID() },

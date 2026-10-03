@@ -30,7 +30,7 @@ use modeling_ops::OpResult;
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 use waffle_types::kernel::{KernelId, KernelIntrospect};
-use waffle_types::{GeomRef, ResolvePolicy, Selector, TopoKind};
+use waffle_types::{GeomRef, Selector, TopoKind};
 
 use crate::types::{EngineError, Provenance};
 
@@ -184,34 +184,17 @@ pub fn mint(
     created: Provenance,
 ) -> Result<NamedRef, EngineError> {
     // Strict whatever the caller sent: an agent sees no warning, so a
-    // near-miss rebind would be a silently wrong name (§5.3).
-    let mut authored = target.clone();
-    authored.policy = ResolvePolicy::Strict;
-
-    let resolved = crate::resolve::resolve_geom_ref_live(&authored, feature_results, introspect)?;
-    let pid = introspect.entity_pid(resolved.kernel_id, authored.kind);
-
-    match pid {
-        Some(pid) if !matches!(authored.selector, Selector::Pid { .. }) => {
-            let mut by_pid = authored.clone();
-            by_pid.selector = Selector::Pid {
-                pid: pid.pid,
-                root_pid: pid.root_pid,
-            };
-            Ok(NamedRef {
-                target: by_pid,
-                kind: authored.kind,
-                fallback: Some(authored),
-                created,
-            })
-        }
-        _ => Ok(NamedRef {
-            kind: authored.kind,
-            target: authored,
-            fallback: None,
-            created,
-        }),
-    }
+    // near-miss rebind would be a silently wrong name (§5.3). That rule, and
+    // the pid/fallback pair itself, live in `resolve::pin_identity` since N2 —
+    // a sketch's plane face is pinned the same way, and two copies of the
+    // rule would be two places for it to drift.
+    let pinned = crate::resolve::pin_identity(target, feature_results, introspect)?;
+    Ok(NamedRef {
+        kind: pinned.target.kind,
+        target: pinned.target,
+        fallback: pinned.fallback,
+        created,
+    })
 }
 
 /// Resolve a name's reference against the live geometry.
@@ -225,37 +208,22 @@ pub fn resolve(
     introspect: &dyn KernelIntrospect,
 ) -> Result<NameResolution, EngineError> {
     let by_pid = matches!(named.target.selector, Selector::Pid { .. });
-    match crate::resolve::resolve_geom_ref_live(&named.target, feature_results, introspect) {
-        Ok(resolved) => Ok(NameResolution {
-            kernel_id: resolved.kernel_id,
-            resolved_by: if by_pid {
-                ResolvedBy::Pid
-            } else {
-                ResolvedBy::Selector
-            },
-            via: resolved.via,
-            warnings: resolved.warnings,
-        }),
-        Err(primary) => {
-            let Some(fallback) = &named.fallback else {
-                return Err(primary);
-            };
-            let resolved =
-                crate::resolve::resolve_geom_ref_live(fallback, feature_results, introspect)
-                    .map_err(|_| primary.clone())?;
-            let mut warnings = vec![format!(
-                "the persistent id is gone ({primary}); the name resolved through the reference it \
-                 was authored with, which rebinds by geometry and may name a different entity"
-            )];
-            warnings.extend(resolved.warnings);
-            Ok(NameResolution {
-                kernel_id: resolved.kernel_id,
-                resolved_by: ResolvedBy::Query,
-                via: resolved.via,
-                warnings,
-            })
-        }
-    }
+    let (resolved, used_fallback) = crate::resolve::resolve_pinned(
+        &named.target,
+        named.fallback.as_ref(),
+        feature_results,
+        introspect,
+    )?;
+    Ok(NameResolution {
+        kernel_id: resolved.kernel_id,
+        resolved_by: match (used_fallback, by_pid) {
+            (true, _) => ResolvedBy::Query,
+            (false, true) => ResolvedBy::Pid,
+            (false, false) => ResolvedBy::Selector,
+        },
+        via: resolved.via,
+        warnings: resolved.warnings,
+    })
 }
 
 #[cfg(test)]

@@ -597,6 +597,7 @@ fn tree_box(engine: &mut Engine, kernel: &mut MockKernel, name: &str, depth: f64
         solve_status: SolveStatus::FullyConstrained,
         solved_positions: std::collections::HashMap::new(),
         projected: Vec::new(),
+        plane_face: None,
         solved_profiles: Vec::new(),
     };
     script::host::derive_sketch(&mut sketch);

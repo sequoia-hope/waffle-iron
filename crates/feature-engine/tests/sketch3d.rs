@@ -131,6 +131,7 @@ fn a_3d_sketch_does_not_become_a_boolean_target() {
         solved_positions: Default::default(),
         solved_profiles: vec![],
         projected: Default::default(),
+        plane_face: None,
     };
     let sid = engine
         .add_feature("Sketch".into(), Operation::Sketch { sketch }, &mut kernel)
@@ -389,6 +390,7 @@ fn unit_square() -> Sketch {
         solved_positions: Default::default(),
         solved_profiles: vec![],
         projected: Default::default(),
+        plane_face: None,
     }
 }
 

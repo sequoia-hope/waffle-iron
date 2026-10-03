@@ -100,6 +100,45 @@ pub struct Sketch {
     /// for ordinary sketches. See `specs/projected_sketch_geometry.md`.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub projected: Vec<ProjectedEntity>,
+    /// The LOCAL model face this sketch was drawn on, when it was drawn on one
+    /// (N2 of `specs/agent_mechanical_design.md` §5.3 item 3). Absent for a
+    /// sketch on a datum plane, on a bare origin/normal, or on another
+    /// instance's face — the last of which travels in [`Sketch::plane`]'s
+    /// `scope` and is re-derived by `feature_engine::context`.
+    ///
+    /// Why this is not [`Sketch::plane`]: for a local sketch that field holds a
+    /// PLACEHOLDER datum with a freshly minted uuid (it always has), and
+    /// `feature_engine::rebuild`'s share-a-face target search branches on its
+    /// anchor — so making it the real face reference would silently change
+    /// which body an extrude on this sketch merges into. The identity and the
+    /// anchor are different jobs, so they are different fields.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub plane_face: Option<SketchFaceRef>,
+}
+
+/// The identity of the face a local sketch is drawn on, recorded so that every
+/// rebuild can prove the face is still there (N2 §5.3 item 3).
+///
+/// The pid/fallback pair is `feature_engine::resolve::pin_identity`'s, the same
+/// one an entity name stores (N1): the persistent id answers by identity, its
+/// lineage root answers when a later operation rebuilt the face, and only then
+/// does the authored selector rebind by geometry. When none of the three
+/// answers, the sketch REFUSES — it does not get drawn on whichever face
+/// happened to score best — and `signature` is what the refusal reports, so the
+/// author can see which face went missing rather than only that one did.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "json-schema", derive(schemars::JsonSchema))]
+pub struct SketchFaceRef {
+    /// What to try first: a `Selector::Pid` when the kernel had an identity
+    /// for the face, else the reference as authored.
+    pub target: GeomRef,
+    /// The authored reference, stored only when a pid replaced it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub fallback: Option<GeomRef>,
+    /// The face's fingerprint when the sketch was drawn — its surface type,
+    /// area, centroid and normal. Reported by the refusal; never used to
+    /// resolve (that would be the rebind this field exists to make visible).
+    pub signature: crate::TopoSignature,
 }
 
 /// A binding from a local sketch Point to the external geometry it projects.
@@ -1515,6 +1554,7 @@ mod tests {
             solved_positions: positions.clone(),
             solved_profiles: vec![],
             projected: vec![],
+            plane_face: None,
         };
 
         // solved_positions use skip_serializing_if = "HashMap::is_empty":
@@ -1587,6 +1627,7 @@ mod tests {
             solved_positions: HashMap::new(),
             solved_profiles: vec![],
             projected: vec![],
+            plane_face: None,
         };
 
         sketch.expand_gears();
@@ -1633,6 +1674,7 @@ mod tests {
             solved_positions: HashMap::new(),
             solved_profiles: vec![],
             projected: vec![],
+            plane_face: None,
         };
         let mut val: serde_json::Value = serde_json::to_value(&sketch).unwrap();
         // Remove the fields so defaults kick in on deserialize
@@ -1718,6 +1760,7 @@ mod tests {
             solved_positions: HashMap::new(),
             solved_profiles: vec![],
             projected: vec![],
+            plane_face: None,
         }
     }
 

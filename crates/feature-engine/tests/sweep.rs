@@ -46,6 +46,7 @@ fn sketch_on(normal: [f64; 3], entities: Vec<SketchEntity>) -> Sketch {
         solved_positions: HashMap::new(),
         solved_profiles: Vec::new(),
         projected: vec![],
+        plane_face: None,
     }
 }
 

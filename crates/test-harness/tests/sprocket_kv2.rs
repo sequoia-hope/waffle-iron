@@ -67,6 +67,7 @@ fn sprocket_sketch(params: SprocketParams) -> Operation {
             solved_positions: HashMap::new(),
             solved_profiles: Vec::new(),
             projected: vec![],
+            plane_face: None,
         },
     }
 }

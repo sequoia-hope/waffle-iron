@@ -101,6 +101,7 @@ fn plate(
         solve_status: SolveStatus::FullyConstrained,
         solved_positions,
         projected: Vec::new(),
+        plane_face: None,
         solved_profiles: vec![ClosedProfile {
             entity_ids: vec![l0, l1, l2, l3],
             is_outer: true,
@@ -191,6 +192,7 @@ fn pocket(
         solve_status: SolveStatus::FullyConstrained,
         solved_positions,
         projected: Vec::new(),
+        plane_face: None,
         solved_profiles: vec![ClosedProfile {
             entity_ids: vec![l0, l1, l2, l3],
             is_outer: true,
@@ -1060,6 +1062,7 @@ fn ngon_sketch(n: u32, r: f64, base: u32) -> Sketch {
         solve_status: SolveStatus::FullyConstrained,
         solved_positions,
         projected: Vec::new(),
+        plane_face: None,
         solved_profiles: vec![ClosedProfile {
             entity_ids: profile,
             is_outer: true,

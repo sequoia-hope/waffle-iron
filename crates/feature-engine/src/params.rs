@@ -1043,6 +1043,7 @@ mod tests {
             solved_positions: Default::default(),
             solved_profiles: Vec::new(),
             projected: Vec::new(),
+            plane_face: None,
         };
         sketch.recompute_derived();
         sketch

@@ -61,6 +61,7 @@ fn make_sketch_op() -> Operation {
         solve_status: SolveStatus::FullyConstrained,
         solved_positions,
         projected: Vec::new(),
+        plane_face: None,
         solved_profiles: vec![ClosedProfile {
             entity_ids: vec![1, 2, 3, 4],
             is_outer: true,
@@ -379,7 +380,9 @@ fn engine_state_sketch_workflow() {
     assert!(state.active_sketch.is_none());
 
     // Begin sketch
-    state.begin_sketch(make_geom_ref());
+    // No pinned face: this fixture's plane is a bare reference, not a face
+    // picked off a model (N2 §5.3 item 3 — the pinning happens in `dispatch`).
+    state.begin_sketch(make_geom_ref(), None);
     assert!(state.active_sketch.is_some());
 
     // Add entity
@@ -1677,6 +1680,7 @@ fn make_sketch_operation() -> Operation {
             solved_positions: std::collections::HashMap::new(),
             solved_profiles: Vec::new(),
             projected: Vec::new(),
+            plane_face: None,
         },
     }
 }

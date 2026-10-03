@@ -272,13 +272,30 @@ fn check_x_axis(normal: [f64; 3], x_axis: Option<[f64; 3]>) -> Result<(), ToolFa
 
 /// The `GeomRef` a `BeginSketch` carries (JS `beginSketchPlaneRef`).
 ///
-/// A scoped face ref is passed through, because in-context editing re-derives
-/// the plane from it on every rebuild. Anything else becomes a placeholder
-/// datum: the committed sketch's real plane travels in `plane_origin` /
+/// Every face reference is passed through now — scoped or local. A scoped one
+/// is the sketch's plane anchor, because in-context editing re-derives the
+/// plane from it on every rebuild; a LOCAL one is pinned to the face's
+/// persistent identity by `dispatch::pin_sketch_plane_face` and recorded in
+/// `Sketch::plane_face`, which is what lets the rebuild prove the face is
+/// still there instead of sketching into space (N2 §5.3 item 3). Before N2 a
+/// local face ref was thrown away here and replaced by the placeholder below.
+///
+/// Anything that is not a face reference still becomes the placeholder datum:
+/// the committed sketch's real plane travels in `plane_origin` /
 /// `plane_normal`, so the ref only has to be well formed.
 fn begin_sketch_plane_ref(face_ref: Option<&Value>) -> Result<GeomRef, ToolFailure> {
     if let Some(reference) = face_ref {
-        if reference.get("scope").is_some_and(|s| !s.is_null()) {
+        // A model face: the anchor is a feature's output. The page's own
+        // `{"type":"DatumPlane"}` anchor is NOT a `waffle_types::Anchor`
+        // variant, so typing it here would refuse every origin-plane sketch —
+        // the reason `resolve_plane` reads that form from raw JSON.
+        let anchored_at_a_feature = reference
+            .get("anchor")
+            .and_then(|a| a.get("type"))
+            .and_then(Value::as_str)
+            == Some("FeatureOutput");
+        let scoped = reference.get("scope").is_some_and(|s| !s.is_null());
+        if anchored_at_a_feature || scoped {
             return serde_json::from_value(reference.clone())
                 .map_err(|e| invalid_sketch(format!("plane is not a GeomRef: {e}")));
         }

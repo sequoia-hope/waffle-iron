@@ -602,6 +602,11 @@ pub(crate) fn execute_feature(
                     });
                 }
             }
+            // N2 §5.3 item 3: a sketch drawn on a model face re-resolves that
+            // face EVERY rebuild, through the whole ladder, and refuses if it
+            // is gone. Warnings ride out on the diagnostics, which the rebuild
+            // loop attributes to this feature.
+            let warnings = resolve_sketch_plane_face(sketch, feature_results, kb.as_introspect())?;
             // Sketches don't produce OpResults directly — they store solved geometry.
             // Return a minimal OpResult with no outputs.
             Ok(OpResult {
@@ -612,7 +617,10 @@ pub(crate) fn execute_feature(
                     modified: Vec::new(),
                     role_assignments: Vec::new(),
                 },
-                diagnostics: modeling_ops::Diagnostics::default(),
+                diagnostics: modeling_ops::Diagnostics {
+                    warnings,
+                    ..modeling_ops::Diagnostics::default()
+                },
             })
         }
 
@@ -3146,6 +3154,142 @@ pub fn resolve_face_plane(
     crate::connector::planar_face_plane(resolved.kernel_id, introspect, "Datum plane base face")
 }
 
+/// How far a re-resolved sketch plane may sit from the cached one and still be
+/// "the same face, where it was". The same figure `context::apply_context` uses
+/// for the in-context form of this question, for the same reason: below it the
+/// difference is the two resolvers' f64 rounding, not the face moving.
+const SKETCH_PLANE_TOL: f64 = 1e-9;
+
+/// Re-resolve the model face a sketch is drawn on, every rebuild, and say what
+/// happened (N2 of `specs/agent_mechanical_design.md` §5.3 item 3).
+///
+/// Three outcomes:
+///
+/// 1. **The face is there, where it was.** Nothing is reported and nothing
+///    moves: the sketch keeps its cached `plane_origin` / `plane_normal`
+///    bit-for-bit, which is the frame it was SOLVED in. That is what §5.3
+///    means by "the cached numbers remain the solve-time frame for unchanged
+///    faces so determinism holds" — re-deriving a frame that agrees to 1e-9
+///    would still move every point by the last few ulps.
+/// 2. **The face is there and has MOVED** (or the pid answered through its
+///    lineage root, or the authored selector had to rebind). A warning says
+///    which, and by how far — and the sketch still keeps its cached frame,
+///    because moving a solved sketch's plane moves every point of it and every
+///    feature downstream. The plane-FOLLOWING half of this is deliberately not
+///    in N2; see the spec's implementation notes.
+/// 3. **The face is gone.** A loud typed refusal naming the face's last-known
+///    signature, so the author can see WHICH face went missing. The sketch
+///    produces no result and nothing downstream of it builds. It is never
+///    re-bound to whichever face now scores best — that is the silent wrong
+///    answer this increment exists to remove.
+///
+/// A sketch with no `plane_face` (a datum plane, a bare frame, an in-context
+/// face, or any sketch authored before N2) is left exactly as it was.
+fn resolve_sketch_plane_face(
+    sketch: &Sketch,
+    feature_results: &HashMap<Uuid, OpResult>,
+    introspect: &dyn waffle_types::kernel::KernelIntrospect,
+) -> Result<Vec<String>, EngineError> {
+    let Some(face) = &sketch.plane_face else {
+        return Ok(Vec::new());
+    };
+
+    let describe = |sig: &waffle_types::TopoSignature| -> String {
+        let mut parts = Vec::new();
+        if let Some(t) = &sig.surface_type {
+            parts.push(format!("a {t} face"));
+        }
+        if let Some(a) = sig.area {
+            parts.push(format!("area {a:.6} m²"));
+        }
+        if let Some(c) = sig.centroid {
+            parts.push(format!("centroid [{:.6}, {:.6}, {:.6}]", c[0], c[1], c[2]));
+        }
+        if let Some(n) = sig.normal {
+            parts.push(format!("normal [{:.6}, {:.6}, {:.6}]", n[0], n[1], n[2]));
+        }
+        if parts.is_empty() {
+            "a face the reference recorded no geometry for".to_string()
+        } else {
+            parts.join(", ")
+        }
+    };
+
+    let (resolved, used_fallback) = crate::resolve::resolve_pinned(
+        &face.target,
+        face.fallback.as_ref(),
+        feature_results,
+        introspect,
+    )
+    .map_err(|e| {
+        // The refusal keeps its classification (so a host can branch) and
+        // gains the last-known signature (so a person can tell which face).
+        let text = format!(
+            "the face this sketch is drawn on is gone: {}. It was {}. The sketch is not drawn on \
+             another face — re-attach it to the face you want.",
+            e.resolution_text()
+                .unwrap_or("the reference did not resolve"),
+            describe(&face.signature)
+        );
+        match e {
+            EngineError::ReferenceUnresolved(mut r) => {
+                r.reason_text = text;
+                EngineError::ReferenceUnresolved(r)
+            }
+            _ => EngineError::ResolutionFailed { reason: text },
+        }
+    })?;
+
+    // A face that is not planar cannot carry a sketch. Loud, never a guessed
+    // plane — the same rule `resolve_face_plane` applies to a datum base face.
+    let (origin, normal) =
+        crate::connector::planar_face_plane(resolved.kernel_id, introspect, "Sketch plane face")
+            .map_err(|e| EngineError::ResolutionFailed {
+                reason: format!(
+            "the face this sketch is drawn on is no longer a plane it can be drawn on: {e}. It \
+             was {}.",
+            describe(&face.signature)
+        ),
+            })?;
+
+    let mut warnings = Vec::new();
+    if used_fallback {
+        warnings.push(format!(
+            "this sketch's face lost its persistent identity and was re-found by geometry, which \
+             may be a different face: it was {}",
+            describe(&face.signature)
+        ));
+    }
+    // The resolver's own account of which rung answered, verbatim.
+    warnings.extend(resolved.warnings.iter().cloned());
+
+    // The PLANE, not the point. The two resolvers deliberately return
+    // different on-face origins — the engine's is the face centroid, the UI's
+    // is a rendered triangle's centroid (`resolve_face_plane`'s doc comment
+    // spells this out) — so comparing origins directly would report every
+    // sketch as moved. What has to agree is the plane: the cached origin's
+    // signed distance along the current normal, and the normal itself.
+    let cached_normal = unit_normal(sketch.plane_normal);
+    let off_plane = (0..3)
+        .map(|i| (sketch.plane_origin[i] - origin[i]) * normal[i])
+        .sum::<f64>()
+        .abs();
+    let turned = dist3(normal, cached_normal);
+    let drift = off_plane.max(turned);
+    if drift > SKETCH_PLANE_TOL {
+        warnings.push(format!(
+            "the face this sketch is drawn on has moved: the sketch's plane is {off_plane:.3e} off \
+             it and its normal differs by {turned:.3e}. The sketch keeps the frame it was solved \
+             in, so its geometry no longer lies on that face — re-draw it on the face to follow it."
+        ));
+    }
+    Ok(warnings)
+}
+
+fn dist3(a: [f64; 3], b: [f64; 3]) -> f64 {
+    ((a[0] - b[0]).powi(2) + (a[1] - b[1]).powi(2) + (a[2] - b[2]).powi(2)).sqrt()
+}
+
 /// Resolve a datum plane, named by its UUID, to `(origin, normal)`.
 ///
 /// The public face of [`find_datum_plane_data`], for a host that must resolve
@@ -4226,6 +4370,7 @@ mod tests {
             solved_positions: HashMap::new(),
             solved_profiles: vec![],
             projected: vec![],
+            plane_face: None,
         }
     }
 
@@ -4635,6 +4780,7 @@ mod tests {
             solve_status: SolveStatus::UnderConstrained { dof: 0 },
             solved_positions: HashMap::new(),
             solved_profiles: vec![],
+            plane_face: None,
             projected: vec![ProjectedEntity {
                 point_id: 100,
                 source: ProjectedSource {
@@ -4748,6 +4894,7 @@ mod tests {
             solve_status: SolveStatus::UnderConstrained { dof: 0 },
             solved_positions: HashMap::new(),
             solved_profiles: vec![],
+            plane_face: None,
             projected: vec![ProjectedEntity {
                 point_id: 100,
                 source: ProjectedSource {
@@ -4817,6 +4964,7 @@ mod profile_addressing_tests {
             solve_status: SolveStatus::FullyConstrained,
             solved_positions: Default::default(),
             projected: vec![],
+            plane_face: None,
             solved_profiles: profiles,
         }
     }

@@ -73,6 +73,7 @@ fn unsolved_square(constraints: Vec<SketchConstraint>) -> Sketch {
         solve_status: SolveStatus::Unsolved,
         solved_positions: Default::default(),
         projected: vec![],
+        plane_face: None,
         solved_profiles: vec![],
     }
 }

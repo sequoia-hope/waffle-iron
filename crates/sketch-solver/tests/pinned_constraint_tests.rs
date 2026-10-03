@@ -55,6 +55,7 @@ fn make_sketch(entities: Vec<SketchEntity>, constraints: Vec<SketchConstraint>) 
         solved_positions: HashMap::new(),
         solved_profiles: Vec::new(),
         projected: Vec::new(),
+        plane_face: None,
     }
 }
 

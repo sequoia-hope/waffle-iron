@@ -63,12 +63,15 @@ fn v4_envelope_round_trip_keeps_identity_sources_and_tabs() {
     let parsed: serde_json::Value = serde_json::from_str(&json).unwrap();
     assert_eq!(parsed["version"], FORMAT_VERSION);
     assert_eq!(parsed["min_reader_version"], MIN_READER_VERSION);
-    // v8 since 2026-10-03 (`DesignParameter.unit`: a field an old reader
-    // must not silently ignore, since dropping it turns a loud dimension
-    // refusal into the pre-P1 coercion — docs/FILE_FORMAT.md §4, §13.3 and
+    // v9 since 2026-10-03 (`Sketch.plane_face`: the identity of the face a
+    // local sketch is drawn on — a reader that drops it sketches into space
+    // where this one refuses, `crates/feature-engine/tests/sketch_plane_face.rs`).
+    // v8 was `DesignParameter.unit` (a field an old reader must not silently
+    // ignore, since dropping it turns a loud dimension refusal into the pre-P1
+    // coercion — docs/FILE_FORMAT.md §4, §13.3 and
     // `crates/feature-engine/tests/param_unit_floor.rs`). v7 was
     // `FeatureTree.names`'s `Selector::Pid`; v6 was `Sketch.plane_x_axis`.
-    assert_eq!(FORMAT_VERSION, 8);
+    assert_eq!(FORMAT_VERSION, 9);
     assert_eq!(parsed["document"]["id"], doc.document.id.to_string());
     assert_eq!(parsed["sources"].as_array().unwrap().len(), 1);
     // `.git` is normalized away on the way in; host is inferred, not written.

@@ -684,6 +684,97 @@ pub fn resolve_geom_ref_live(
     resolve_with_fallback(geom_ref, feature_results)
 }
 
+/// A stored identity: the entity's **persistent id** when the kernel has one,
+/// with the reference as the caller authored it kept as the fallback.
+///
+/// This is the shape N1's `names::mint` invented for a name and N2 gives to
+/// every stored reference that has to survive a rebuild — a sketch's own plane
+/// face first (§5.3 item 3). The pair is what makes the ladder possible: the
+/// pid answers by identity, its lineage root answers when a later operation
+/// rebuilt the geometry, and only then does the authored reference rebind by
+/// geometry — loudly.
+#[derive(Debug, Clone)]
+pub struct PinnedRef {
+    /// What to store and try first: a `Selector::Pid` when the kernel had an
+    /// identity for the entity, else the authored reference itself.
+    pub target: GeomRef,
+    /// The authored reference, stored only when a pid replaced it — otherwise
+    /// `target` already IS it, and a second copy would be a second thing to
+    /// keep in step.
+    pub fallback: Option<GeomRef>,
+    /// The entity it resolved to at pinning time.
+    pub kernel_id: KernelId,
+}
+
+/// Pin `authored` to the identity the kernel has for it right now.
+///
+/// `Strict` whatever the caller sent: this runs at AUTHORING time, with the
+/// entity in front of the author, so a reference that does not identify one
+/// entity is a thing to fix now rather than to rebind silently on every
+/// rebuild forever (§5.3 item 1).
+pub fn pin_identity(
+    authored: &GeomRef,
+    feature_results: &std::collections::HashMap<Uuid, OpResult>,
+    introspect: &dyn KernelIntrospect,
+) -> Result<PinnedRef, EngineError> {
+    let mut authored = authored.clone();
+    authored.policy = ResolvePolicy::Strict;
+    let resolved = resolve_geom_ref_live(&authored, feature_results, introspect)?;
+    match introspect.entity_pid(resolved.kernel_id, authored.kind) {
+        Some(pid) if !matches!(authored.selector, Selector::Pid { .. }) => {
+            let mut by_pid = authored.clone();
+            by_pid.selector = Selector::Pid {
+                pid: pid.pid,
+                root_pid: pid.root_pid,
+            };
+            Ok(PinnedRef {
+                target: by_pid,
+                fallback: Some(authored),
+                kernel_id: resolved.kernel_id,
+            })
+        }
+        _ => Ok(PinnedRef {
+            target: authored,
+            fallback: None,
+            kernel_id: resolved.kernel_id,
+        }),
+    }
+}
+
+/// Resolve a stored identity through the full ladder: `target` (a pid, then its
+/// lineage root, inside [`resolve_by_pid`]), then `fallback` — and only then.
+///
+/// Returns the answer and whether the FALLBACK supplied it. When it did, the
+/// primary failure rides along as the first warning, because "the identity I
+/// recorded is gone and this answer came from geometry instead" is the fact
+/// that decides whether the reference is still trustworthy — and an agent is
+/// told it rather than just handed an entity.
+pub fn resolve_pinned(
+    target: &GeomRef,
+    fallback: Option<&GeomRef>,
+    feature_results: &std::collections::HashMap<Uuid, OpResult>,
+    introspect: &dyn KernelIntrospect,
+) -> Result<(ResolvedRef, bool), EngineError> {
+    match resolve_geom_ref_live(target, feature_results, introspect) {
+        Ok(resolved) => Ok((resolved, false)),
+        Err(primary) => {
+            let Some(fallback) = fallback else {
+                return Err(primary);
+            };
+            let mut resolved = resolve_geom_ref_live(fallback, feature_results, introspect)
+                .map_err(|_| primary.clone())?;
+            let mut warnings = vec![format!(
+                "the persistent id is gone ({primary}); the reference resolved through the \
+                 selector it was authored with, which rebinds by geometry and may name a \
+                 different entity"
+            )];
+            warnings.append(&mut resolved.warnings);
+            resolved.warnings = warnings;
+            Ok((resolved, true))
+        }
+    }
+}
+
 /// Resolve by user-specified geometric query over the feature's provenance
 /// (what the operation created). See [`resolve_geom_ref_live`] for the
 /// body-wide form.
