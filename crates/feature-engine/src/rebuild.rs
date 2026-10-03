@@ -1063,7 +1063,7 @@ pub(crate) fn execute_feature(
             // targets. See specs/optional_booleans_multibody_extrude.md §4.
             let mut result =
                 dispatch_combine(kb, &eff, &combine_targets, extrude_result, "extrude")?;
-            carry_untargeted_siblings(&mut result, &eff, feature_results);
+            carry_untargeted_siblings(&mut result, feature, feature_results);
             result.diagnostics.warnings.extend(combine_warnings);
             Ok(result)
         }
@@ -1155,7 +1155,7 @@ pub(crate) fn execute_feature(
             };
             let mut result =
                 dispatch_combine(kb, &eff, &combine_targets, revolve_result, "revolve")?;
-            carry_untargeted_siblings(&mut result, &eff, feature_results);
+            carry_untargeted_siblings(&mut result, feature, feature_results);
             result.diagnostics.warnings.extend(combine_warnings);
             Ok(result)
         }
@@ -1216,7 +1216,7 @@ pub(crate) fn execute_feature(
                 )?,
             };
             let mut result = dispatch_combine(kb, &eff, &combine_targets, pipe_result, "pipe")?;
-            carry_untargeted_siblings(&mut result, &eff, feature_results);
+            carry_untargeted_siblings(&mut result, feature, feature_results);
             result.diagnostics.warnings.extend(combine_warnings);
             Ok(result)
         }
@@ -1251,7 +1251,7 @@ pub(crate) fn execute_feature(
                 )?,
             };
             let mut result = dispatch_combine(kb, &eff, &combine_targets, sweep_result, "sweep")?;
-            carry_untargeted_siblings(&mut result, &eff, feature_results);
+            carry_untargeted_siblings(&mut result, feature, feature_results);
             result.diagnostics.warnings.extend(combine_warnings);
             Ok(result)
         }
@@ -1324,7 +1324,11 @@ pub(crate) fn execute_feature(
                 BooleanOp::Intersect => BooleanKind::Intersect,
             };
 
-            let result = execute_boolean(kb, &handle_a, &handle_b, kind)?;
+            let mut result = execute_boolean(kb, &handle_a, &handle_b, kind)?;
+            // Custody: the op names ONE output per operand but consumes both
+            // operand features whole, so every other live body of either
+            // feature must be carried, not hidden (P0010/P0011).
+            carry_untargeted_siblings(&mut result, feature, feature_results);
             Ok(result)
         }
 
@@ -2209,34 +2213,11 @@ fn resolved_explicit_targets(
         .collect()
 }
 
-/// The first resolved explicit target (what an explicit combine's `Main`
-/// output descends from, for name inheritance — failure log F9b).
-pub(crate) fn first_resolved_explicit_target(
-    eff: &crate::types::EffectiveCombine,
-    feature_results: &HashMap<Uuid, OpResult>,
-) -> Option<(Uuid, OutputKey)> {
-    resolved_explicit_targets(eff, feature_results)
-        .into_iter()
-        .next()
-}
-
-/// The outputs an explicit combine carries unchanged, as `(feature_id,
-/// output_key)` in the order `carry_untargeted_siblings` appends them: for each
-/// targeted feature (first-target order), its Main/Body outputs that no resolved
-/// target names. The single source for both the carried bodies and their
-/// inherited names.
-pub(crate) fn untargeted_sibling_sources(
-    eff: &crate::types::EffectiveCombine,
-    feature_results: &HashMap<Uuid, OpResult>,
-) -> Vec<(Uuid, OutputKey)> {
-    untargeted_sibling_sources_named(
-        &resolved_explicit_targets(eff, feature_results),
-        feature_results,
-    )
-}
-
-/// [`untargeted_sibling_sources`] for an explicit list of the outputs a
-/// feature takes custody of (a pattern's seeds and targets).
+/// The outputs a name-based custody feature carries unchanged, as `(feature_id,
+/// output_key)` in the order [`carry_untargeted_named`] appends them: for each
+/// named feature (first-mention order), its Main/Body outputs that no named
+/// output claims. The single source for both the carried bodies and their
+/// inherited names (`Engine::inherit_source_body_id`).
 pub(crate) fn untargeted_sibling_sources_named(
     targeted: &[(Uuid, OutputKey)],
     feature_results: &HashMap<Uuid, OpResult>,
@@ -2285,30 +2266,84 @@ pub(crate) fn carry_untargeted_named(
     }
 }
 
-/// Explicit targets that name only SOME outputs of a multi-output feature consume
-/// that whole feature (consumption is tracked per feature), which silently
-/// dropped the untargeted outputs (docs/notes/agent_bicycle_session_failures_2026_09_14.md F9).
-/// Carry them unchanged as extra outputs of the consuming feature, with a
-/// warning — the custody rule the legacy most-recent path already follows.
-fn carry_untargeted_siblings(
+/// The outputs `feature` takes custody of **by name**, as `(feature_id,
+/// output_key)` — the operands/targets it names in its own params. `None` when
+/// the feature's custody is not name-based (a legacy most-recent combine takes
+/// ALL of its target feature's live bodies; a pattern builds its own list; a
+/// non-solid op names nothing).
+///
+/// Naming SOME outputs of a multi-output feature while consumption is tracked
+/// per FEATURE is the shape of the custody defect: the unnamed siblings are
+/// hidden with no boolean ever touching them. Every caller that consumes whole
+/// features off a named list must therefore carry those siblings
+/// ([`carry_untargeted_named`]) and let them inherit their names
+/// (`Engine::inherit_source_body_id`). One list, so the two can never disagree.
+pub(crate) fn named_custody_outputs(
+    feature: &Feature,
+    feature_results: &HashMap<Uuid, OpResult>,
+) -> Option<Vec<(Uuid, OutputKey)>> {
+    match &feature.operation {
+        Operation::Extrude { .. }
+        | Operation::Revolve { .. }
+        | Operation::Pipe { .. }
+        | Operation::Sweep { .. } => {
+            let eff = match &feature.operation {
+                Operation::Extrude { params } => crate::types::normalize_extrude_combine(params),
+                Operation::Revolve { params } => crate::types::normalize_revolve_combine(params),
+                Operation::Pipe { params } => crate::types::normalize_pipe_combine(params),
+                Operation::Sweep { params } => crate::types::normalize_sweep_combine(params),
+                _ => unreachable!("outer match restricts the operation"),
+            };
+            if matches!(eff.mode, crate::types::CombineMode::NewBody)
+                || !matches!(eff.targets, TargetStrategy::Explicit(_))
+            {
+                return None;
+            }
+            Some(resolved_explicit_targets(&eff, feature_results))
+        }
+        // A pair boolean names exactly one output per operand, yet consumes
+        // both operand FEATURES whole (`find_consumed_feature_ids`): every
+        // other live body of either feature is in its custody. P0010/P0011
+        // (2026-10-03) lost 64 % and 25 % of the model this way, silently.
+        Operation::BooleanCombine { params } => Some(
+            [&params.body_a, &params.body_b]
+                .into_iter()
+                .filter(|gr| find_solid_handle(gr, feature_results).is_ok())
+                .filter_map(|gr| match &gr.anchor {
+                    waffle_types::Anchor::FeatureOutput {
+                        feature_id,
+                        output_key,
+                    } => Some((*feature_id, output_key.clone())),
+                    _ => None,
+                })
+                .collect(),
+        ),
+        // `All` folds every live body of every live feature, so it names
+        // nothing it does not already hold; `Selected` names a body list.
+        Operation::UnionAll { params } => {
+            crate::union_all::named_custody_outputs(params, feature_results)
+        }
+        _ => None,
+    }
+}
+
+/// Carry the outputs a feature consumes but never names — the custody rule.
+///
+/// Consumption is tracked per FEATURE, so naming only SOME outputs of a
+/// multi-output feature consumed the whole feature and silently dropped the
+/// rest (docs/notes/agent_bicycle_session_failures_2026_09_14.md F9 for an
+/// explicit-target cut; P0010/P0011 for a `BooleanCombine`). Re-emit them
+/// unchanged as extra outputs of the consuming feature, with a warning — the
+/// custody rule the legacy most-recent path already follows.
+pub(crate) fn carry_untargeted_siblings(
     result: &mut OpResult,
-    eff: &crate::types::EffectiveCombine,
+    feature: &Feature,
     feature_results: &HashMap<Uuid, OpResult>,
 ) {
-    for (fid, key) in untargeted_sibling_sources(eff, feature_results) {
-        let Some(body) = feature_results
-            .get(&fid)
-            .and_then(|r| r.outputs.iter().find(|(k, _)| *k == key))
-            .map(|(_, b)| b.clone())
-        else {
-            continue;
-        };
-        let index = result.outputs.len();
-        result.outputs.push((OutputKey::Body { index }, body));
-        result.diagnostics.warnings.push(format!(
-            "output {key:?} of feature {fid} was not targeted; kept unchanged as a separate body"
-        ));
-    }
+    let Some(named) = named_custody_outputs(feature, feature_results) else {
+        return;
+    };
+    carry_untargeted_named(result, &named, feature_results);
 }
 
 /// The sketch `sketch_id` as it is NOW: projected points re-derived from
