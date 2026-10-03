@@ -886,6 +886,7 @@ export function applyViewerSnapshot(snapshot, viewerMeshes) {
 	assemblyStatus = snapshot.assembly
 		? { errors: [], warnings: [], parts: [], connectors: [], part_connectors: [], ...snapshot.assembly }
 		: null;
+	drawingStatus = snapshot.drawing ? { declines: {}, errors: [], warnings: [], ...snapshot.drawing } : null;
 	consumedFeatures = new Set(snapshot.consumed_features ?? []);
 	lastError = null;
 	rebuildProgress = null;
@@ -939,6 +940,11 @@ export async function initEngine() {
 		// hints written back into the tab so they are saved with it.
 		// Empty arrays are omitted on the wire; give the UI a stable shape.
 		assemblyStatus = msg.assembly ? { errors: [], warnings: [], parts: [], connectors: [], part_connectors: [], ...msg.assembly } : null;
+		// Drawing evaluation (D4a): the open Drawing tab's sheets with every
+		// view's layout — the record the sheet draws. Mirrored rather than
+		// kept per tab for the same reason the assembly's status is: it is the
+		// OPEN tab's evaluation, and the engine drops it on any tab switch.
+		drawingStatus = msg.drawing ? { declines: {}, errors: [], warnings: [], ...msg.drawing } : null;
 		partConnectors = msg.connectors ?? [];
 		// In-context editing (v4 Phase 3d-4): present while a Part is open in
 		// an assembly's context; the engine drops it on any tab switch.
@@ -1326,6 +1332,18 @@ export async function initEngine() {
 			moveTab: (tabId, index) => moveTab(tabId, index),
 			switchTab: (id) => switchTab(id),
 			refreshAssembly: () => refreshAssembly(),
+			// Drawings (D4a, `specs/drawings_and_mbd.md` §8). The STATUS is
+			// the whole evaluated drawing — every view's `ViewLayout` — which
+			// is what a spec asserts the sheet against, and `refreshDrawing`
+			// re-evaluates it after a change to the part it draws.
+			getDrawingStatus: () => (drawingStatus ? JSON.parse(JSON.stringify(drawingStatus)) : null),
+			getDrawing: () => { const d = getDrawing(); return d ? JSON.parse(JSON.stringify(d)) : null; },
+			refreshDrawing: (tabId) => refreshDrawing(tabId),
+			addDrawingView: (source, options) => addDrawingView(source, options),
+			editDrawingView: (viewId, changes) => editDrawingView(viewId, changes),
+			deleteDrawingView: (viewId) => deleteDrawingView(viewId),
+			addDrawingAnnotation: (viewId, spec) => addDrawingAnnotation(viewId, spec),
+			deleteDrawingAnnotation: (viewId, index) => deleteDrawingAnnotation(viewId, index),
 			// In-context editing (v4 Phase 3d-4)
 			openPartInContext: (path) => openPartInContext(path),
 			updateEditContext: () => updateEditContext(),
@@ -7126,6 +7144,11 @@ export async function switchTab(tabId) {
 
 	if (bridge && engineReady && targetTab?.kind?.type === 'Assembly') {
 		await refreshAssembly();
+	} else if (bridge && engineReady && targetTab?.kind?.type === 'Drawing') {
+		// Not a `SwitchTab`: a Drawing tab holds no tree, and its views are of
+		// OTHER tabs' bodies. `OpenDrawing` makes it active and projects them
+		// (D4a) — the drawing twin of `refreshAssembly`.
+		await refreshDrawing(tabId);
 	} else if (bridge && engineReady) {
 		// The tree is NOT on the wire any more (S2 C3): the session holds every
 		// tab's, stashes the live one into the tab being left and loads the
@@ -7144,6 +7167,35 @@ export async function switchTab(tabId) {
  */
 let assemblyStatus = $state(null);
 export function getAssemblyStatus() { return assemblyStatus; }
+
+// -- Drawings (D4a, `specs/drawings_and_mbd.md` §8) --
+
+/**
+ * Evaluation result of the open Drawing tab (`ModelUpdated.drawing`):
+ * `{ tab_id, drawing, declines, errors, warnings }`, or null while any other
+ * kind of tab is open.
+ *
+ * `drawing` carries every view's `cache` — a `ViewLayout` of curves and
+ * ALREADY-MEASURED annotations, with no `GeomRef` and no kernel handle in it.
+ * That is what the sheet renders, and it is why the sheet cannot draw a value
+ * other than the measured one: it has no path back to the model.
+ */
+let drawingStatus = $state(null);
+export function getDrawingStatus() { return drawingStatus; }
+
+/** The open Drawing tab's content, or null. */
+export function getDrawing() { return drawingStatus?.drawing ?? null; }
+
+/**
+ * The sheet the drawing UI shows: the one whose id is `sheetId`, else the
+ * first. A drawing always has at least one sheet (`Drawing::new`).
+ * @param {string | null} [sheetId]
+ */
+export function getDrawingSheet(sheetId) {
+	const sheets = drawingStatus?.drawing?.sheets ?? [];
+	if (!sheets.length) return null;
+	return sheets.find((s) => s.id === sheetId) ?? sheets[0];
+}
 
 /**
  * Every mate connector's evaluated frame in WORLD coordinates —
@@ -7229,6 +7281,183 @@ export async function refreshAssembly() {
 		showToast('error', `Assembly evaluation failed: ${err?.message || err}`);
 		return false;
 	}
+}
+
+/**
+ * Re-evaluate a Drawing tab: project every view's source tab, measure its
+ * annotations, and mirror the result into `drawingStatus` (D4a).
+ *
+ * The drawing twin of [`refreshAssembly`], and the same shape: the session
+ * holds the tab's drawing and every tree its views reference, so the message
+ * carries only the tab id.
+ *
+ * @param {string} [tabId] the Drawing tab; defaults to the active one.
+ * @returns {Promise<boolean>}
+ */
+export async function refreshDrawing(tabId) {
+	const id = tabId ?? activeTabId;
+	const tab = documentTabs.find((t) => t.id === id);
+	if (!tab || tab.kind?.type !== 'Drawing' || !bridge || !engineReady) return false;
+	try {
+		await sendRebuild({ type: 'OpenDrawing', tab_id: id });
+		return true;
+	} catch (err) {
+		log('error', `Drawing evaluation failed: ${err?.message || err}`);
+		showToast('error', `Drawing evaluation failed: ${err?.message || err}`);
+		return false;
+	}
+}
+
+/**
+ * Send one TARGETED edit to the open Drawing tab and re-evaluate it (D4a).
+ *
+ * Targeted, not "send the whole drawing back", and that is not a style
+ * choice. A drawing carries annotations, an annotation's anchors carry `u64`
+ * persistent ids, and a JSON number in JavaScript is an `f64` — so a whole
+ * drawing that came out to this page and went back would have every pid above
+ * 2^53 silently ROUNDED, and every dimension anchored on one would then
+ * refuse as "resolves to no geometry". Measured: an edge pid
+ * 2216071694111992607 arrived here as …992000. The engine applies the edit on
+ * its own side, where `u64` is exact.
+ *
+ * @param {Record<string, any>} edit a `DrawingEdit` (`type` plus its fields)
+ */
+async function sendDrawingEdit(edit) {
+	const current = drawingStatus;
+	if (!current || !bridge || !engineReady) return false;
+	try {
+		await sendRebuild({ type: 'DrawingEdit', tab_id: current.tab_id, edit });
+		scheduleAutoSave();
+		return true;
+	} catch (err) {
+		log('error', `Drawing edit failed: ${err?.message || err}`);
+		showToast('error', `Drawing edit failed: ${err?.message || err}`);
+		return false;
+	}
+}
+
+/** The named view directions a drawing view can take (D4a). */
+export const DRAWING_NAMED_VIEWS = ['Front', 'Back', 'Left', 'Right', 'Top', 'Bottom', 'Iso'];
+
+/** Where a projected view can sit relative to its parent on the paper. */
+export const DRAWING_PROJECTED_DIRECTIONS = ['Left', 'Right', 'Up', 'Down'];
+
+/**
+ * Add a view of `sourceTabId` to the open drawing's sheet.
+ *
+ * The placement is left to the ENGINE when the caller gives none: a projected
+ * view goes clear of its parent's drawn extent, which only the last
+ * evaluation's layouts know, and the engine has them.
+ *
+ * @param {string} sourceTabId a Part or Assembly tab of this document
+ * @param {{ view?: string, parent?: string, direction?: string, scale?: number,
+ *           placementMm?: [number, number], name?: string, bodies?: string[] }} [options]
+ * @returns {Promise<string | null>} the new view's id, or null when refused
+ */
+export async function addDrawingView(sourceTabId, options = {}) {
+	if (!drawingStatus) return null;
+	// A source tab is REQUIRED. Without this check an absent one travelled to
+	// the engine and came back as a refusal about a wire shape, where the
+	// fault is a missing argument.
+	if (typeof sourceTabId !== 'string' || !sourceTabId) {
+		log('error', 'A drawing view needs the id of the Part or Assembly tab it draws.');
+		showToast('error', 'A drawing view needs a part to draw.');
+		return null;
+	}
+	const sheet = getDrawingSheet(null);
+	if (!sheet) return null;
+	const projection = options.parent
+		? { type: 'ProjectedFrom', parent: options.parent, direction: { type: options.direction ?? 'Right' } }
+		: { type: 'Named', view: { type: options.view ?? 'Front' } };
+	const before = new Set((sheet.views ?? []).map((v) => v.id));
+	const ok = await sendDrawingEdit({
+		type: 'AddView',
+		sheet_id: sheet.id,
+		source_tab: sourceTabId,
+		bodies: options.bodies ?? [],
+		projection,
+		name: options.name ?? null,
+		scale: Number.isFinite(options.scale) ? options.scale : null,
+		placement_mm: options.placementMm ?? null
+	});
+	if (!ok) return null;
+	// The engine mints the id, as it mints a tab's: a view the store invented
+	// would be a view the engine cannot be asked about.
+	const after = getDrawingSheet(sheet.id)?.views ?? [];
+	return after.find((v) => !before.has(v.id))?.id ?? null;
+}
+
+/**
+ * Change one view of the open drawing: `{ name, scale, placementMm, bodies,
+ * hiddenLines, silhouettes }`, each optional.
+ * @param {string} viewId
+ * @param {Record<string, any>} changes
+ */
+export async function editDrawingView(viewId, changes = {}) {
+	return sendDrawingEdit({
+		type: 'EditView',
+		view_id: viewId,
+		name: changes.name ?? null,
+		scale: Number.isFinite(changes.scale) ? changes.scale : null,
+		placement_mm: Array.isArray(changes.placementMm) ? changes.placementMm.map(Number) : null,
+		bodies: Array.isArray(changes.bodies) ? changes.bodies : null,
+		hidden_lines: typeof changes.hiddenLines === 'boolean' ? changes.hiddenLines : null,
+		silhouettes: typeof changes.silhouettes === 'boolean' ? changes.silhouettes : null
+	});
+}
+
+/**
+ * Remove a view from the open drawing — and with it every view projected FROM
+ * it, which is what deleting a parent view means (a child left behind would
+ * name a parent that is not on the sheet).
+ */
+export async function deleteDrawingView(viewId) {
+	return sendDrawingEdit({ type: 'DeleteView', view_id: viewId });
+}
+
+/**
+ * Add an annotation to one view of the open drawing.
+ *
+ * `anchors` are PERSISTENT IDS and travel as decimal STRINGS — see
+ * `sendDrawingEdit` for the rounding that forces it. They come from the
+ * view's own `drawingStatus.anchors[viewId]`, which the engine sends beside
+ * the layout for exactly this, already stringified.
+ *
+ * There is no `value`: a dimension's number is measured from the model on
+ * every rebuild, and the engine refuses a literal.
+ *
+ * @param {string} viewId
+ * @param {{ annotation?: string, kind?: string,
+ *           anchors?: (string | number | {pid: string | number, kind?: string})[],
+ *           text?: string, label?: string, precision?: number, dualUnit?: string,
+ *           placement?: [number, number] }} spec
+ */
+export async function addDrawingAnnotation(viewId, spec = {}) {
+	const anchors = (spec.anchors ?? []).map((a) => {
+		const raw = typeof a === 'object' && a !== null ? a.pid : a;
+		const kind = typeof a === 'object' && a !== null ? (a.kind ?? 'Edge') : 'Edge';
+		// String, always: a number here is this page's own rounding.
+		return { pid: String(raw), kind: { type: kind } };
+	});
+	return sendDrawingEdit({
+		type: 'AddAnnotation',
+		view_id: viewId,
+		annotation: {
+			annotation: spec.annotation ?? 'Dimension',
+			kind: spec.kind ?? 'Distance',
+			anchors,
+			text: spec.text ?? null,
+			label: spec.label ?? null,
+			precision: Number.isInteger(spec.precision) ? spec.precision : null,
+			dual_unit: spec.dualUnit ?? null,
+			placement: Array.isArray(spec.placement) ? spec.placement.map(Number) : null
+		}
+	});
+}
+
+/** Remove one annotation from a view, by its index. */
+export async function deleteDrawingAnnotation(viewId, index) {
+	return sendDrawingEdit({ type: 'DeleteAnnotation', view_id: viewId, index });
 }
 
 // -- In-context editing (v4 Phase 3d-4) --
@@ -7780,7 +8009,14 @@ function mirrorSessionDocument(info) {
 				? existing.kind
 				: t.kind === 'Assembly'
 					? { type: 'Assembly', assembly: { instances: [], connectors: [], mates: [] } }
-					: { type: t.kind, features: { features: [], active_index: null } };
+					: // A Drawing tab's content is not mirrored here either: it
+						// comes with `ModelUpdated.drawing` for the OPEN tab
+						// (D4a), which is what `drawingStatus` holds and the
+						// sheet renders. The placeholder is enough for the tab
+						// bar to label it and for `switchTab` to route it.
+						t.kind === 'Drawing'
+						? { type: 'Drawing', drawing: { sheets: [] } }
+						: { type: t.kind, features: { features: [], active_index: null } };
 		return { ...(existing ?? {}), id: t.id, name: t.name, kind };
 	});
 	activeTabId = info.active_tab;

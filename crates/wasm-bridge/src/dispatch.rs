@@ -769,6 +769,20 @@ fn handle_message(
             Ok(model_updated_response(state))
         }
 
+        UiToEngine::DrawingEdit { tab_id, edit } => {
+            // The page's edit path. The whole drawing never goes out and
+            // comes back, so an annotation's `u64` pids cannot be rounded by
+            // a JSON round trip through JavaScript (see `EditDrawing`).
+            let mut drawing = state.session.drawing(&tab_id)?.clone();
+            crate::drawing_view::apply_edit(&mut drawing, &edit)
+                .map_err(|reason| BridgeError::InvalidRequest { reason })?;
+            state.session.set_drawing(&tab_id, drawing)?;
+            if state.session.active_tab_id() == tab_id {
+                open_drawing(state, &tab_id, kb)?;
+            }
+            Ok(model_updated_response(state))
+        }
+
         UiToEngine::EditDrawing { tab_id, drawing } => {
             state.session.set_drawing(&tab_id, drawing)?;
             // Re-evaluate only what is on screen, exactly as `EditAssembly`
@@ -2547,6 +2561,7 @@ fn drawing_status(state: &EngineState) -> Option<crate::messages::DrawingStatus>
     Some(crate::messages::DrawingStatus {
         tab_id: open.tab_id.clone(),
         drawing,
+        anchors: open.anchors.clone(),
         declines: open.declines.clone(),
         errors: open.errors.clone(),
         warnings: open.warnings.clone(),

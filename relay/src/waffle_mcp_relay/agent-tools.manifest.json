@@ -1,5 +1,5 @@
 {
-  "manifest_hash": "16d52f27ab57adc182a5a859c2ee2f078e6c05eb7d2c34d9a001e3c3e4901ece",
+  "manifest_hash": "30312a63d915e465e401b42eb205e17dc7489cf7a8e1ea309c9a9e12019e175b",
   "protocol": "waffle-agent-link/1",
   "tools": [
     {
@@ -18225,7 +18225,7 @@
         "readOnlyHint": true,
         "title": "Export DXF"
       },
-      "description": "Export ONE orthographic view of the whole model (every live body of the open Part, or an open assembly's instances at their world placements) as an R12 DXF drawing in millimetres — the flat-pattern file a laser, waterjet or plasma table consumes. Every edge of the model plus every curved face's silhouette — the outline where the surface turns away — is drawn, with hidden-line removal: the lines the solid stands in front of land on the HIDDEN layer and the rest on VISIBLE, so switching HIDDEN off leaves a cuttable outline. Both layers are CONTINUOUS — the dashed hidden-line type's dash pitch depends on a sheet scale this one-view export does not have. Lines, circles and arcs are written as true DXF entities and a projected ellipse as a polyline within 0.01 mm of it; an intersection or spline curve is a polyline at the render chord density instead, which is about 0.1% of its own radius, so on a large part it is looser than 0.01 mm. Refused with NothingToExport when there are no bodies, InvalidArgument for a view it cannot name, and PayloadTooLarge above 16 MiB for deliver \"agent\". specs/drawings_and_mbd.md D1a + D1b + D1c.",
+      "description": "On a Part or Assembly tab: export ONE orthographic view of the whole model (every live body of the open Part, or an open assembly's instances at their world placements) as an R12 DXF drawing in millimetres — the flat-pattern file a laser, waterjet or plasma table consumes. Every edge of the model plus every curved face's silhouette — the outline where the surface turns away — is drawn, with hidden-line removal: the lines the solid stands in front of land on the HIDDEN layer and the rest on VISIBLE, so switching HIDDEN off leaves a cuttable outline. Both layers are CONTINUOUS — the dashed hidden-line type's dash pitch depends on a sheet scale this one-view export does not have. Lines, circles and arcs are written as true DXF entities and a projected ellipse as a polyline within 0.01 mm of it; an intersection or spline curve is a polyline at the render chord density instead, which is about 0.1% of its own radius, so on a large part it is looser than 0.01 mm. Refused with NothingToExport when there are no bodies, InvalidArgument for a view it cannot name, and PayloadTooLarge above 16 MiB for deliver \"agent\". On a DRAWING tab the sheet is exported instead: every view of it, each at its own scale and position, in one file in sheet millimetres — or one view alone, at the paper origin, with view_id. The projection arguments below describe a view of the MODEL and are refused on a drawing tab (its views carry their own projections); sheet_id and view_id are refused off one. specs/drawings_and_mbd.md D1a + D1b + D1c + D4a.",
       "inputSchema": {
         "additionalProperties": false,
         "properties": {
@@ -18246,6 +18246,10 @@
             "maxItems": 3,
             "minItems": 3,
             "type": "array"
+          },
+          "sheet_id": {
+            "description": "DRAWING tab only: which sheet. Omit for its first (and usually only) one.",
+            "type": "string"
           },
           "up": {
             "description": "Which world direction points up on the paper. Omit to take the named view's own up, or to let the engine pick one for a free direction.",
@@ -18268,11 +18272,79 @@
               "left"
             ],
             "type": "string"
+          },
+          "view_id": {
+            "description": "DRAWING tab only: export just this view, alone and at the paper origin — what a cutting table wants from a sheet it should not read the rest of.",
+            "type": "string"
           }
         },
         "type": "object"
       },
       "name": "export_dxf",
+      "outputSchema": {
+        "properties": {
+          "bytes": {
+            "description": "Size of the exported file.",
+            "type": "integer"
+          },
+          "deliver": {
+            "enum": [
+              "agent",
+              "download"
+            ],
+            "type": "string"
+          },
+          "file_name": {
+            "type": "string"
+          },
+          "mime_type": {
+            "type": "string"
+          },
+          "warnings": {
+            "description": "What the exporter left out, verbatim.",
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "deliver",
+          "file_name",
+          "mime_type",
+          "bytes",
+          "warnings"
+        ],
+        "type": "object"
+      }
+    },
+    {
+      "annotations": {
+        "openWorldHint": false,
+        "readOnlyHint": true,
+        "title": "Export SVG"
+      },
+      "description": "Export the open DRAWING tab's sheet as SVG — the same markup the sheet shows on screen, at paper size in millimetres, so the browser's print path is true to scale. One SVG user unit is one paper millimetre; dimension text carries the measured value at the annotation's precision. Refused with TabKindNotSupported off a Drawing tab and NothingToExport when no view of the sheet rebuilt. specs/drawings_and_mbd.md §8 D4a.",
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "deliver": {
+            "default": "agent",
+            "description": "\"agent\": the file comes back in this result as an embedded resource. \"download\": the browser downloads it for the user, as the Export menu does, and the result only describes it.",
+            "enum": [
+              "agent",
+              "download"
+            ],
+            "type": "string"
+          },
+          "sheet_id": {
+            "description": "Which sheet. Omit for the first one.",
+            "type": "string"
+          }
+        },
+        "type": "object"
+      },
+      "name": "export_svg",
       "outputSchema": {
         "properties": {
           "bytes": {
@@ -24341,6 +24413,421 @@
           "mates",
           "part_connectors",
           "available_parts",
+          "errors",
+          "warnings"
+        ],
+        "type": "object"
+      }
+    },
+    {
+      "annotations": {
+        "destructiveHint": false,
+        "openWorldHint": false,
+        "readOnlyHint": false,
+        "title": "Add drawing view"
+      },
+      "description": "Add a view of a Part or Assembly tab to the open DRAWING tab's sheet. The view is a projection direction plus a position on the paper: give view for a named direction (front, top, iso, …), direction+up for one nothing names, or parent_view_id+direction_from_parent for a view projected from another — which follows the document's projection standard (third angle by default, so the view placed to the right of its parent shows the right-hand side). Hidden lines and curved faces' silhouettes are drawn by default. Answers with the whole evaluated drawing, which is where the view ids for the other tools come from. Refused with TabKindNotSupported off a Drawing tab, TabNotFound for a tab the document does not have, and InvalidArgument for a scale that is not a positive ratio or more than one way of naming the projection. specs/drawings_and_mbd.md §8 D4a.",
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "bodies": {
+            "description": "Which of that tab's bodies, by the names model_summary reports. Omit for every live body.",
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "direction": {
+            "description": "Direction of SIGHT as [x, y, z], away from the viewer. Mutually exclusive with view.",
+            "items": {
+              "type": "number"
+            },
+            "maxItems": 3,
+            "minItems": 3,
+            "type": "array"
+          },
+          "direction_from_parent": {
+            "default": "right",
+            "description": "Where the projected view sits from its parent ON PAPER. What it SHOWS follows from the document's projection standard.",
+            "enum": [
+              "left",
+              "right",
+              "up",
+              "down"
+            ],
+            "type": "string"
+          },
+          "include_anchors": {
+            "default": false,
+            "description": "Also list, per view, the PERSISTENT IDS an annotation can anchor on (anchor_list): every entity the view drew, each with its shape on the drawing (Point, Line, Circle, Ellipse, Polyline), its witness point in view-plane meters and its radius where it has one. The shape is what tells a wall from a corner — picking two anchors by position alone can take two corners and measure the diagonal. Each pid is a decimal STRING, because a persistent id is a 64-bit number and JSON numbers in JavaScript are not exact above 2^53; pass it back verbatim. Omitted by default — a real part's view has thousands of edges — but it is where the anchors for drawing_annotation_add come from.",
+            "type": "boolean"
+          },
+          "name": {
+            "description": "The view's label. Omit for the projection's own name.",
+            "type": "string"
+          },
+          "parent_view_id": {
+            "description": "Project from this view of the same sheet instead of naming a direction. Mutually exclusive with view and direction.",
+            "type": "string"
+          },
+          "placement_mm": {
+            "description": "Where the view's drawn CENTRE sits on the sheet, millimetres from the bottom-left corner. Omit to have it placed clear of its parent (a projected view) or in the middle of the sheet.",
+            "items": {
+              "type": "number"
+            },
+            "maxItems": 2,
+            "minItems": 2,
+            "type": "array"
+          },
+          "scale": {
+            "default": 1,
+            "description": "Paper length per model length: 1 is 1:1, 0.1 is 1:10.",
+            "exclusiveMinimum": 0,
+            "type": "number"
+          },
+          "sheet_id": {
+            "description": "Which sheet. Omit for the first one.",
+            "type": "string"
+          },
+          "tab_id": {
+            "description": "The Part or Assembly tab this view draws.",
+            "type": "string"
+          },
+          "up": {
+            "description": "Which world direction points up on the paper, for a free direction.",
+            "items": {
+              "type": "number"
+            },
+            "maxItems": 3,
+            "minItems": 3,
+            "type": "array"
+          },
+          "view": {
+            "default": "front",
+            "description": "A named direction.",
+            "enum": [
+              "front",
+              "back",
+              "left",
+              "right",
+              "top",
+              "bottom",
+              "iso"
+            ],
+            "type": "string"
+          }
+        },
+        "required": [
+          "tab_id"
+        ],
+        "type": "object"
+      },
+      "name": "drawing_view_add",
+      "outputSchema": {
+        "properties": {
+          "declines": {
+            "description": "What the projections declined to decide, by counter name (D1c). Every counter but cross_body means a line the drawing does not carry, so a large count is a degenerate view rather than a clean one.",
+            "type": "object"
+          },
+          "errors": {
+            "description": "Per-view failures, each naming its view.",
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "projection_angle": {
+            "description": "Third or First angle.",
+            "type": "object"
+          },
+          "sheets": {
+            "description": "Each sheet with its size and its views (ids, projections, scales, placements, how many curves each drew and how many anchors it offers — anchor_list with include_anchors).",
+            "items": {
+              "type": "object"
+            },
+            "type": "array"
+          },
+          "tab_id": {
+            "type": "string"
+          },
+          "view_id": {
+            "type": "string"
+          },
+          "warnings": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "view_id",
+          "tab_id",
+          "sheets",
+          "errors",
+          "warnings"
+        ],
+        "type": "object"
+      }
+    },
+    {
+      "annotations": {
+        "destructiveHint": false,
+        "openWorldHint": false,
+        "readOnlyHint": false,
+        "title": "Edit drawing view"
+      },
+      "description": "Change one view of the open DRAWING tab: its name, scale, position on the sheet, which bodies it draws, and whether it draws hidden lines and silhouettes. Every argument but view_id is optional and only what is given changes. Refused with NotFound for a view the drawing does not have and InvalidArgument for a scale that is not a positive ratio. specs/drawings_and_mbd.md §8 D4a.",
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "bodies": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "hidden_lines": {
+            "description": "Draw the edges the part hides (D1c).",
+            "type": "boolean"
+          },
+          "include_anchors": {
+            "default": false,
+            "description": "Also list, per view, the PERSISTENT IDS an annotation can anchor on (anchor_list): every entity the view drew, each with its shape on the drawing (Point, Line, Circle, Ellipse, Polyline), its witness point in view-plane meters and its radius where it has one. The shape is what tells a wall from a corner — picking two anchors by position alone can take two corners and measure the diagonal. Each pid is a decimal STRING, because a persistent id is a 64-bit number and JSON numbers in JavaScript are not exact above 2^53; pass it back verbatim. Omitted by default — a real part's view has thousands of edges — but it is where the anchors for drawing_annotation_add come from.",
+            "type": "boolean"
+          },
+          "name": {
+            "type": "string"
+          },
+          "placement_mm": {
+            "items": {
+              "type": "number"
+            },
+            "maxItems": 2,
+            "minItems": 2,
+            "type": "array"
+          },
+          "scale": {
+            "exclusiveMinimum": 0,
+            "type": "number"
+          },
+          "silhouettes": {
+            "description": "Draw curved faces' outlines (D1b).",
+            "type": "boolean"
+          },
+          "view_id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "view_id"
+        ],
+        "type": "object"
+      },
+      "name": "drawing_view_edit",
+      "outputSchema": {
+        "properties": {
+          "declines": {
+            "description": "What the projections declined to decide, by counter name (D1c). Every counter but cross_body means a line the drawing does not carry, so a large count is a degenerate view rather than a clean one.",
+            "type": "object"
+          },
+          "errors": {
+            "description": "Per-view failures, each naming its view.",
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "projection_angle": {
+            "description": "Third or First angle.",
+            "type": "object"
+          },
+          "sheets": {
+            "description": "Each sheet with its size and its views (ids, projections, scales, placements, how many curves each drew and how many anchors it offers — anchor_list with include_anchors).",
+            "items": {
+              "type": "object"
+            },
+            "type": "array"
+          },
+          "tab_id": {
+            "type": "string"
+          },
+          "warnings": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "tab_id",
+          "sheets",
+          "errors",
+          "warnings"
+        ],
+        "type": "object"
+      }
+    },
+    {
+      "annotations": {
+        "destructiveHint": false,
+        "openWorldHint": false,
+        "readOnlyHint": false,
+        "title": "Add drawing annotation"
+      },
+      "description": "Add an annotation to one view of the open DRAWING tab: a Dimension, a Note, a CentreMark, a CentreLine or a Datum. A dimension takes NO value — its number is measured from the model on every rebuild, which is what keeps a drawing from disagreeing with the part it is of. Anchors are PERSISTENT ids of the entities measured (edges, faces, vertices), so an annotation never silently rebinds to a different edge; an anchor whose entity this view does not draw is refused with AnnotationNotMeasurable and nothing is added. Refused with NotFound for a view the drawing does not have and InvalidArgument for the wrong number of anchors for the kind. specs/drawings_and_mbd.md §7 + §8 D4a.",
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "anchors": {
+            "description": "The entities measured, in the order the kind expects: 1 for Radius, Diameter, CentreMark and Datum, 2 for the distances, Angle and CentreLine. Each is a persistent id — a number or a decimal STRING (use the string: an id above 2^53 is not exact as a JSON number) meaning an edge — or {pid, kind} with kind Edge, Face or Vertex. The ids come from anchor_list on drawing_view_add / _edit with include_anchors.",
+            "items": {
+              "oneOf": [
+                {
+                  "minimum": 0,
+                  "type": "integer"
+                },
+                {
+                  "pattern": "^[0-9]+$",
+                  "type": "string"
+                },
+                {
+                  "additionalProperties": false,
+                  "properties": {
+                    "kind": {
+                      "default": "Edge",
+                      "enum": [
+                        "Edge",
+                        "Face",
+                        "Vertex"
+                      ],
+                      "type": "string"
+                    },
+                    "pid": {
+                      "oneOf": [
+                        {
+                          "minimum": 0,
+                          "type": "integer"
+                        },
+                        {
+                          "pattern": "^[0-9]+$",
+                          "type": "string"
+                        }
+                      ]
+                    }
+                  },
+                  "required": [
+                    "pid"
+                  ],
+                  "type": "object"
+                }
+              ]
+            },
+            "type": "array"
+          },
+          "annotation": {
+            "default": "Dimension",
+            "enum": [
+              "Dimension",
+              "Note",
+              "CentreMark",
+              "CentreLine",
+              "Datum"
+            ],
+            "type": "string"
+          },
+          "dual_unit": {
+            "description": "A second unit shown in brackets beneath the primary one (\"in\", \"mm\", …).",
+            "type": "string"
+          },
+          "kind": {
+            "default": "Distance",
+            "description": "Dimension only. Distance is an ALIGNED dimension (between two parallel edges, or between two points); HDistance and VDistance are the horizontal and vertical components; Angle is in degrees when printed and measures the ACUTE angle between two straight edges.",
+            "enum": [
+              "Distance",
+              "PointLineDistance",
+              "HDistance",
+              "VDistance",
+              "Angle",
+              "Radius",
+              "Diameter"
+            ],
+            "type": "string"
+          },
+          "label": {
+            "description": "Datum only: the letter (A, B, …).",
+            "type": "string"
+          },
+          "placement": {
+            "description": "A cosmetic offset of the whole annotation from where the layout puts it, in the view's own units (meters).",
+            "items": {
+              "type": "number"
+            },
+            "maxItems": 2,
+            "minItems": 2,
+            "type": "array"
+          },
+          "precision": {
+            "description": "Decimal places shown. Omit for the document setting.",
+            "maximum": 9,
+            "minimum": 0,
+            "type": "integer"
+          },
+          "text": {
+            "description": "Note only: the text.",
+            "type": "string"
+          },
+          "view_id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "view_id"
+        ],
+        "type": "object"
+      },
+      "name": "drawing_annotation_add",
+      "outputSchema": {
+        "properties": {
+          "annotation_index": {
+            "type": "integer"
+          },
+          "declines": {
+            "description": "What the projections declined to decide, by counter name (D1c). Every counter but cross_body means a line the drawing does not carry, so a large count is a degenerate view rather than a clean one.",
+            "type": "object"
+          },
+          "errors": {
+            "description": "Per-view failures, each naming its view.",
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "projection_angle": {
+            "description": "Third or First angle.",
+            "type": "object"
+          },
+          "sheets": {
+            "description": "Each sheet with its size and its views (ids, projections, scales, placements, how many curves each drew and how many anchors it offers — anchor_list with include_anchors).",
+            "items": {
+              "type": "object"
+            },
+            "type": "array"
+          },
+          "tab_id": {
+            "type": "string"
+          },
+          "warnings": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "annotation_index",
+          "tab_id",
+          "sheets",
           "errors",
           "warnings"
         ],

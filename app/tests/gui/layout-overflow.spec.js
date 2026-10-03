@@ -135,6 +135,57 @@ test.describe('Layout overflow', () => {
 		}
 	});
 
+	test('the drawing tab fits at every desktop width', async ({ waffle }) => {
+		const page = waffle.page;
+		// D4a's state: a Drawing tab replaces the sidebar AND the viewport, so
+		// neither of this file's other states exercises it. The sheet is an A3
+		// at 1:1 — wider than the window at every width here — which is
+		// exactly the case the "scroll or collapse, never overflow" rule
+		// exists for.
+		const drawingTab = await page.evaluate(() => window.__waffle.addTab('Drawing'));
+		expect(drawingTab, 'the engine added a Drawing tab').toBeTruthy();
+		await page.evaluate((id) => window.__waffle.switchTab(id), drawingTab);
+		// Read AFTER the add: `activeTabId` is null until the store has
+		// mirrored a document, so the id has to come from the mirrored list.
+		const partTab = await page.evaluate(() => {
+			const tabs = window.__waffle.getDocumentState().documentTabs ?? [];
+			return (tabs.find((t) => t.kind === 'Part') ?? tabs[0])?.id ?? null;
+		});
+		expect(partTab, 'the document has a Part tab to draw').toBeTruthy();
+		await expect(page.getByTestId('drawing-panel')).toBeVisible();
+		await expect(page.getByTestId('drawing-sheet')).toBeVisible();
+
+		for (const width of WIDTHS) {
+			await resizeTo(page, { width, height: 720 });
+			await expectNothingOffscreen(page, expect, `drawing tab @${width}`);
+			// There is no canvas to measure (`expectViewportUsable` would find
+			// none): the sheet is the main region, and it must keep a usable
+			// size of its own.
+			const sheet = await page.getByTestId('drawing-sheet').boundingBox();
+			expect(sheet.width, `sheet width @${width}`).toBeGreaterThanOrEqual(320);
+			expect(sheet.height, `sheet height @${width}`).toBeGreaterThanOrEqual(200);
+			// And it SCROLLS rather than pushing the chrome out: the paper is
+			// wider than the region at 1:1, so the region's content must
+			// overflow inside it.
+			const scrolls = await page.evaluate(() => {
+				const el = document.querySelector('[data-testid="drawing-sheet"]');
+				return getComputedStyle(el).overflow !== 'visible';
+			});
+			expect(scrolls, `the sheet region scrolls @${width}`).toBe(true);
+		}
+
+		// Every view row's own fields open at once — the panel's widest state.
+		// The view draws an EMPTY part tab, which is fine here: the panel's
+		// layout is what is under test, not the projection.
+		await page.evaluate((tab) => window.__waffle.addDrawingView(tab, { view: 'Top' }), partTab);
+		await resizeTo(page, { width: 1024, height: 640 });
+		const toggles = page.locator('[data-testid^="dwg-view-toggle-"]');
+		for (let i = 0; i < (await toggles.count()); i += 1) await toggles.nth(i).click();
+		await expectNothingOffscreen(page, expect, 'drawing panel with every view open @1024');
+		await resizeTo(page, { width: 800, height: 640 });
+		await expectNothingOffscreen(page, expect, 'drawing panel with every view open @800');
+	});
+
 	test('side panels cannot squeeze the view out', async ({ waffle }) => {
 		const page = waffle.page;
 		await resizeTo(page, { width: 1024, height: 640 });

@@ -34,19 +34,18 @@
 //!   exist to be named.
 
 use feature_engine::drawing::{
-    auto_placement_mm, dimension_kind_from_tag, Drawing, DrawingView, NamedView,
-    ProjectedDirection, Projection, Sheet, ViewSource, DEFAULT_VIEW_GAP_MM,
+    dimension_kind_from_tag, Drawing, NamedView, ProjectedDirection, Projection, Sheet, ViewSource,
 };
 use modeling_ops::KernelBundle;
 use serde_json::{json, Value};
 use uuid::Uuid;
-use waffle_types::annotation::{Annotation, Measured, Placement2};
-use waffle_types::geom_ref::{Anchor, GeomRef, OutputKey, ResolvePolicy, Selector};
 use waffle_types::kernel::TopoKind;
 
 use super::{Answer, ToolFailure};
 use crate::engine_state::EngineState;
-use crate::messages::{EngineToUi, UiToEngine};
+use crate::messages::{
+    DrawingAnchorSpec, DrawingAnnotationSpec, DrawingEdit, EngineToUi, UiToEngine,
+};
 
 /// The drawing tools: the ones whose gate is "a Drawing tab is active".
 pub const DRAWING_TOOLS: &[&str] = &[
@@ -152,7 +151,7 @@ fn commit(
 /// ids it needs for the next call. The layouts themselves are NOT here —
 /// they are curve lists, a megabyte of them on a real part, and an agent that
 /// wants the drawing itself asks for `export_svg` or `export_dxf`.
-fn drawing_state(state: &EngineState, tab_id: &str) -> Answer {
+fn drawing_state(state: &EngineState, tab_id: &str, include_anchors: bool) -> Answer {
     let drawing = drawing_of(state, tab_id)?;
     let open = state.drawing.as_ref().filter(|d| d.tab_id == tab_id);
     let sheets: Vec<Value> = drawing
@@ -178,6 +177,16 @@ fn drawing_state(state: &EngineState, tab_id: &str) -> Answer {
                         // rebuilt without asking for the curves.
                         "curves": cached.map(|c| c.curves.len()),
                         "bbox": cached.and_then(|c| c.bbox),
+                        // The ids an annotation can anchor on. A COUNT by
+                        // default and the list on request: a real part's view
+                        // has thousands of edges, and an answer that carried
+                        // them all on every add would be most of the wire.
+                        "anchors": open
+                            .map(|d| d.anchors.get(&view.id).map(Vec::len).unwrap_or(0))
+                            .unwrap_or(0),
+                        "anchor_list": (include_anchors)
+                            .then(|| open.and_then(|d| d.anchors.get(&view.id)).cloned())
+                            .flatten(),
                     })
                 })
                 .collect();
@@ -228,111 +237,133 @@ fn sheet_index(drawing: &Drawing, args: &Value) -> Result<usize, ToolFailure> {
     }
 }
 
-/// `drawing_view_add {tab_id, bodies?, view? | direction?+up? | parent_view_id?+direction?,
-/// sheet_id?, name?, scale?, placement_mm?}`.
+/// Apply one edit through `drawing_view::apply_edit` — the same function the
+/// page's `DrawingEdit` message uses — and answer with the evaluated drawing.
+///
+/// One implementation of "what this instruction does to the document", so a
+/// tool and the UI cannot make different documents out of the same edit. The
+/// ARGUMENTS are checked here first, where a refusal can name the argument at
+/// fault; `apply_edit`'s own refusals are about the document.
+fn edit(
+    state: &mut EngineState,
+    kb: &mut dyn KernelBundle,
+    tab_id: &str,
+    edit: DrawingEdit,
+) -> Result<Uuid, ToolFailure> {
+    let mut drawing = drawing_of(state, tab_id)?;
+    let id = crate::drawing_view::apply_edit(&mut drawing, &edit).map_err(|reason| {
+        ToolFailure::new("NotFound", reason.clone(), json!({ "reason": reason }))
+    })?;
+    commit(state, kb, tab_id, drawing)?;
+    Ok(id)
+}
+
+/// `drawing_view_add {tab_id, bodies?, view? | direction?+up? |
+/// parent_view_id?+direction_from_parent?, sheet_id?, name?, scale?,
+/// placement_mm?, include_anchors?}`.
 pub(crate) fn drawing_view_add(
     state: &mut EngineState,
     kb: &mut dyn KernelBundle,
     args: &Value,
 ) -> Answer {
     let tab = require_drawing_tab(state)?;
-    let mut drawing = drawing_of(state, &tab.id)?;
+    let drawing = drawing_of(state, &tab.id)?;
     let sheet = sheet_index(&drawing, args)?;
     let source = view_source(state, &tab.id, args)?;
     let projection = projection_arg(&drawing.sheets[sheet], args)?;
-    let scale = scale_arg(args)?.unwrap_or(1.0);
-
-    let count = drawing.sheets[sheet].views.len();
-    let name = args
-        .get("name")
-        .and_then(Value::as_str)
-        .filter(|n| !n.is_empty())
-        .map(str::to_string)
-        .unwrap_or_else(|| default_view_name(&projection, count));
-    let mut view = DrawingView::new(name, source, projection.clone());
-    view.scale = scale;
-    view.placement_mm = match placement_arg(args, "placement_mm")? {
-        Some(p) => p,
-        // No placement given: a projected view goes clear of its parent, and
-        // anything else goes in the middle of the sheet. Both are computed
-        // from the extents the LAST evaluation measured, which is why this
-        // runs before the view is added rather than after.
-        None => default_placement(state, &drawing, sheet, &projection),
-    };
-    let id = view.id;
-    drawing.sheets[sheet].views.push(view);
-    commit(state, kb, &tab.id, drawing)?;
+    let id = edit(
+        state,
+        kb,
+        &tab.id,
+        DrawingEdit::AddView {
+            sheet_id: Some(drawing.sheets[sheet].id),
+            source_tab: source.tab_id,
+            bodies: source.bodies,
+            projection,
+            name: args
+                .get("name")
+                .and_then(Value::as_str)
+                .filter(|n| !n.is_empty())
+                .map(str::to_string),
+            scale: scale_arg(args)?,
+            placement_mm: placement_arg(args, "placement_mm")?,
+        },
+    )?;
     let mut answer = json!({ "view_id": id });
-    super::tabs::merge(&mut answer, drawing_state(state, &tab.id)?);
+    super::tabs::merge(
+        &mut answer,
+        drawing_state(
+            state,
+            &tab.id,
+            args.get("include_anchors").is_some_and(truthy),
+        )?,
+    );
     Ok(answer)
 }
 
 /// `drawing_view_edit {view_id, name?, scale?, placement_mm?, bodies?,
-/// hidden_lines?, silhouettes?}`.
+/// hidden_lines?, silhouettes?, include_anchors?}`.
 pub(crate) fn drawing_view_edit(
     state: &mut EngineState,
     kb: &mut dyn KernelBundle,
     args: &Value,
 ) -> Answer {
     let tab = require_drawing_tab(state)?;
-    let mut drawing = drawing_of(state, &tab.id)?;
     let view_id = required_uuid(args, "view_id")?;
-    let scale = scale_arg(args)?;
-    let placement = placement_arg(args, "placement_mm")?;
-    let bodies = bodies_arg(args)?;
-    let sheet = drawing
-        .sheet_of_view_mut(view_id)
-        .ok_or_else(|| view_not_found(view_id))?;
-    let view = sheet
-        .view_mut(view_id)
-        .ok_or_else(|| view_not_found(view_id))?;
-    if let Some(name) = args
-        .get("name")
-        .and_then(Value::as_str)
-        .filter(|n| !n.is_empty())
-    {
-        view.name = name.to_string();
-    }
-    if let Some(scale) = scale {
-        view.scale = scale;
-    }
-    if let Some(placement) = placement {
-        view.placement_mm = placement;
-    }
-    if let Some(bodies) = bodies {
-        view.source.bodies = bodies;
-    }
-    if let Some(v) = args.get("hidden_lines").filter(|v| !v.is_null()) {
-        view.style.hidden_lines = truthy(v);
-    }
-    if let Some(v) = args.get("silhouettes").filter(|v| !v.is_null()) {
-        view.style.silhouettes = truthy(v);
-    }
-    commit(state, kb, &tab.id, drawing)?;
-    drawing_state(state, &tab.id)
+    edit(
+        state,
+        kb,
+        &tab.id,
+        DrawingEdit::EditView {
+            view_id,
+            name: args
+                .get("name")
+                .and_then(Value::as_str)
+                .filter(|n| !n.is_empty())
+                .map(str::to_string),
+            scale: scale_arg(args)?,
+            placement_mm: placement_arg(args, "placement_mm")?,
+            bodies: bodies_arg(args)?,
+            hidden_lines: args
+                .get("hidden_lines")
+                .filter(|v| !v.is_null())
+                .map(truthy),
+            silhouettes: args.get("silhouettes").filter(|v| !v.is_null()).map(truthy),
+        },
+    )?;
+    drawing_state(
+        state,
+        &tab.id,
+        args.get("include_anchors").is_some_and(truthy),
+    )
 }
 
-/// `drawing_annotation_add {view_id, annotation, kind?, anchors, text?, label?,
-/// precision?, dual_unit?, placement?}`.
+/// `drawing_annotation_add {view_id, annotation?, kind?, anchors, text?,
+/// label?, precision?, dual_unit?, placement?}`.
 pub(crate) fn drawing_annotation_add(
     state: &mut EngineState,
     kb: &mut dyn KernelBundle,
     args: &Value,
 ) -> Answer {
     let tab = require_drawing_tab(state)?;
-    let mut drawing = drawing_of(state, &tab.id)?;
     let view_id = required_uuid(args, "view_id")?;
-    let annotation = annotation_arg(args)?;
-    let sheet = drawing
-        .sheet_of_view_mut(view_id)
+    let spec = annotation_arg(args)?;
+    // Which index it will land at, read before the edit so the rollback
+    // check below knows which annotation is the new one.
+    let index = drawing_of(state, &tab.id)?
+        .find_view(view_id)
+        .map(|(_, v)| v.annotations.len())
         .ok_or_else(|| view_not_found(view_id))?;
-    let view = sheet
-        .view_mut(view_id)
-        .ok_or_else(|| view_not_found(view_id))?;
-    let index = view.annotations.len();
-    view.annotations.push(annotation);
     let before = drawing_of(state, &tab.id)?;
-    commit(state, kb, &tab.id, drawing)?;
+    edit(
+        state,
+        kb,
+        &tab.id,
+        DrawingEdit::AddAnnotation {
+            view_id,
+            annotation: spec,
+        },
+    )?;
 
     // An annotation that could not be resolved does not stay in the
     // document. The rebuild reports such a failure per annotation rather than
@@ -358,7 +389,7 @@ pub(crate) fn drawing_annotation_add(
         ));
     }
     let mut answer = json!({ "annotation_index": index });
-    super::tabs::merge(&mut answer, drawing_state(state, &tab.id)?);
+    super::tabs::merge(&mut answer, drawing_state(state, &tab.id, false)?);
     Ok(answer)
 }
 
@@ -636,160 +667,74 @@ fn vector3(v: &Value, path: &str) -> Result<[f64; 3], ToolFailure> {
     Ok(out)
 }
 
-/// A freshly added view's name: the projection's own name, numbered when the
-/// sheet already carries one like it.
-fn default_view_name(projection: &Projection, count: usize) -> String {
-    match projection {
-        Projection::Named { view } => view.tag().to_string(),
-        Projection::Custom { .. } => format!("View {}", count + 1),
-        Projection::ProjectedFrom { direction, .. } => format!("{direction:?} of parent"),
-    }
-}
-
-/// Where a freshly added view goes when the caller gives no placement.
+/// The annotation an argument set describes, as the primitive SPEC the edit
+/// carries.
 ///
-/// A projected view goes clear of its parent's DRAWN extent, which is why it
-/// reads the last evaluation's layouts rather than guessing: the gap must be
-/// between the drawings, not between their centres (the same mistake D3's
-/// dimension layout made once). A view whose parent has not been evaluated
-/// yet, or any other kind of view, goes in the middle of the sheet.
-fn default_placement(
-    state: &EngineState,
-    drawing: &Drawing,
-    sheet: usize,
-    projection: &Projection,
-) -> [f64; 2] {
-    let sheet_ref = &drawing.sheets[sheet];
-    let centre = {
-        let extent = sheet_ref.extent_mm();
-        [extent[0] / 2.0, extent[1] / 2.0]
-    };
-    let Projection::ProjectedFrom { parent, direction } = projection else {
-        return centre;
-    };
-    let Some(parent_view) = sheet_ref.view(*parent) else {
-        return centre;
-    };
-    let parent_extent = drawn_extent_mm(parent_view);
-    // The new view's own extent is unknown until it is projected; the
-    // parent's is the best available estimate of it, and a projected view of
-    // the same part is the same size in one axis by construction.
-    let _ = state;
-    auto_placement_mm(
-        parent_view.placement_mm,
-        parent_extent,
-        parent_extent,
-        *direction,
-        DEFAULT_VIEW_GAP_MM,
-    )
-}
-
-/// A view's drawn size in sheet millimetres, from its cached layout.
-fn drawn_extent_mm(view: &DrawingView) -> [f64; 2] {
-    match view.cache.as_ref().and_then(|c| c.bbox) {
-        Some([min, max]) => [
-            (max[0] - min[0]) * 1000.0 * view.scale,
-            (max[1] - min[1]) * 1000.0 * view.scale,
-        ],
-        None => [0.0, 0.0],
-    }
-}
-
-/// The annotation an argument set describes.
-fn annotation_arg(args: &Value) -> Result<Annotation, ToolFailure> {
-    let tag = args
+/// Note what it cannot express: a dimension's `value`. There is no such
+/// argument, so a literal number cannot enter a document through this door —
+/// the authoring half of §7's refusal.
+fn annotation_arg(args: &Value) -> Result<DrawingAnnotationSpec, ToolFailure> {
+    let annotation = args
         .get("annotation")
         .and_then(Value::as_str)
         .unwrap_or("Dimension")
         .to_string();
-    let placement = match placement_arg(args, "placement")? {
-        Some(p) => Placement2::new(p[0], p[1]),
-        None => Placement2::default(),
-    };
-    match tag.as_str() {
-        "Dimension" => {
-            let kind_tag = args
-                .get("kind")
-                .and_then(Value::as_str)
-                .unwrap_or("Distance");
-            let kind = dimension_kind_from_tag(kind_tag).ok_or_else(|| {
+    if !ANNOTATION_TAGS.contains(&annotation.as_str()) {
+        return Err(ToolFailure::new(
+            "InvalidArgument",
+            format!(
+                "`{annotation}` is not an annotation kind; use one of {}.",
+                ANNOTATION_TAGS.join(", ")
+            ),
+            json!({ "path": "/annotation" }),
+        ));
+    }
+    let kind = args
+        .get("kind")
+        .and_then(Value::as_str)
+        .unwrap_or("Distance")
+        .to_string();
+    // The arity is a property of the KIND, and checking it here is what lets
+    // the refusal name `/anchors` rather than describe the document.
+    let arity = if annotation == "Dimension" {
+        dimension_kind_from_tag(&kind)
+            .ok_or_else(|| {
                 ToolFailure::new(
                     "InvalidArgument",
                     format!(
-                        "`{kind_tag}` is not a dimension kind; use one of {}.",
+                        "`{kind}` is not a dimension kind; use one of {}.",
                         DIMENSION_TAGS.join(", ")
                     ),
                     json!({ "path": "/kind" }),
                 )
-            })?;
-            let anchors = anchors_arg(args, kind.arity())?;
-            Ok(Annotation::Dimension {
-                kind,
-                anchors,
-                // Never from an argument. See the module docs.
-                value: Measured::FromGeometry,
-                precision: precision_arg(args)?,
-                dual_unit: args
-                    .get("dual_unit")
-                    .and_then(Value::as_str)
-                    .filter(|s| !s.is_empty())
-                    .map(str::to_string),
-                placement,
-            })
+            })?
+            .arity()
+    } else {
+        match annotation.as_str() {
+            "CentreLine" => 2,
+            // A note's leader is optional: no anchors is a legal note.
+            "Note" => usize::from(args.get("anchors").is_some()),
+            _ => 1,
         }
-        "Note" => {
-            let text = args
-                .get("text")
-                .and_then(Value::as_str)
-                .filter(|s| !s.is_empty())
-                .ok_or_else(|| {
-                    ToolFailure::new(
-                        "InvalidArgument",
-                        "a Note needs text.".to_string(),
-                        json!({ "path": "/text" }),
-                    )
-                })?
-                .to_string();
-            let leader = match anchors_arg(args, 1) {
-                Ok(mut a) => Some(a.remove(0)),
-                // A note with no leader is a legal note.
-                Err(_) if args.get("anchors").is_none() => None,
-                Err(e) => return Err(e),
-            };
-            Ok(Annotation::Note {
-                text,
-                leader,
-                placement,
-            })
-        }
-        "CentreMark" => Ok(Annotation::CentreMark {
-            anchor: anchors_arg(args, 1)?.remove(0),
-        }),
-        "CentreLine" => {
-            let mut anchors = anchors_arg(args, 2)?;
-            let b = anchors.remove(1);
-            let a = anchors.remove(0);
-            Ok(Annotation::CentreLine { anchors: [a, b] })
-        }
-        "Datum" => Ok(Annotation::Datum {
-            label: args
-                .get("label")
-                .and_then(Value::as_str)
-                .filter(|s| !s.is_empty())
-                .unwrap_or("A")
-                .to_string(),
-            anchor: anchors_arg(args, 1)?.remove(0),
-            placement,
-        }),
-        other => Err(ToolFailure::new(
-            "InvalidArgument",
-            format!(
-                "`{other}` is not an annotation kind; use one of {}.",
-                ANNOTATION_TAGS.join(", ")
-            ),
-            json!({ "path": "/annotation" }),
-        )),
-    }
+    };
+    let anchors = anchors_arg(args, arity)?;
+    Ok(DrawingAnnotationSpec {
+        annotation,
+        kind: Some(kind),
+        anchors,
+        text: args.get("text").and_then(Value::as_str).map(str::to_string),
+        label: args
+            .get("label")
+            .and_then(Value::as_str)
+            .map(str::to_string),
+        precision: precision_arg(args)?,
+        dual_unit: args
+            .get("dual_unit")
+            .and_then(Value::as_str)
+            .filter(|s| !s.is_empty())
+            .map(str::to_string),
+        placement: placement_arg(args, "placement")?,
+    })
 }
 
 fn precision_arg(args: &Value) -> Result<Option<u8>, ToolFailure> {
@@ -809,12 +754,18 @@ fn precision_arg(args: &Value) -> Result<Option<u8>, ToolFailure> {
 /// The annotation's anchors: `arity` persistent ids, each with the kind of
 /// entity it names.
 ///
-/// An anchor is `{pid, kind?}` or a bare number (an edge, the common case).
-/// `root_pid` equals `pid`: for edges and vertices D0 makes the two the same,
-/// and for a face the caller who has a pid from `entity_pid` has its root
-/// too — the argument is kept simple until something needs the distinction.
-fn anchors_arg(args: &Value, arity: usize) -> Result<Vec<GeomRef>, ToolFailure> {
+/// An anchor is a bare id (an edge, the common case) or `{pid, kind}`. The id
+/// may be a NUMBER or a decimal STRING, and a caller that goes through
+/// JavaScript must use the string: a `u64` above `2^53` is not exact as a
+/// JSON number there, and the rounded value resolves to nothing
+/// (`feature_engine::drawing::pid_string`). `root_pid` equals `pid` — for
+/// edges and vertices D0 makes the two the same, and a caller holding a face
+/// pid from `entity_pid` holds its root too.
+fn anchors_arg(args: &Value, arity: usize) -> Result<Vec<DrawingAnchorSpec>, ToolFailure> {
     let path = json!({ "path": "/anchors" });
+    if arity == 0 {
+        return Ok(Vec::new());
+    }
     let array = args
         .get("anchors")
         .and_then(Value::as_array)
@@ -837,8 +788,7 @@ fn anchors_arg(args: &Value, arity: usize) -> Result<Vec<GeomRef>, ToolFailure> 
     }
     let mut out = Vec::with_capacity(arity);
     for item in array {
-        let (pid, kind) = match item {
-            Value::Number(n) => (n.as_u64(), TopoKind::Edge),
+        let (raw, kind) = match item {
             Value::Object(o) => {
                 let kind = match o.get("kind").and_then(Value::as_str).unwrap_or("Edge") {
                     "Edge" => TopoKind::Edge,
@@ -852,31 +802,25 @@ fn anchors_arg(args: &Value, arity: usize) -> Result<Vec<GeomRef>, ToolFailure> 
                         ))
                     }
                 };
-                (o.get("pid").and_then(Value::as_u64), kind)
+                (o.get("pid").cloned().unwrap_or(Value::Null), kind)
             }
-            _ => (None, TopoKind::Edge),
+            other => (other.clone(), TopoKind::Edge),
+        };
+        let pid = match &raw {
+            Value::Number(n) => n.as_u64(),
+            Value::String(s) => s.parse::<u64>().ok(),
+            _ => None,
         };
         let pid = pid.ok_or_else(|| {
             ToolFailure::new(
                 "InvalidArgument",
-                "each anchor is a persistent id (entity_pid), or {pid, kind}.".to_string(),
+                "each anchor is a persistent id — a number, or a decimal string for one above \
+                 2^53 — or {pid, kind}."
+                    .to_string(),
                 path.clone(),
             )
         })?;
-        out.push(GeomRef {
-            kind,
-            // The anchor is immaterial for a `Selector::Pid`: the pid is
-            // resolved against the view's own projection, not through a
-            // feature output. Kept at the nil feature so the shape is
-            // explicit rather than absent.
-            anchor: Anchor::FeatureOutput {
-                feature_id: Uuid::nil(),
-                output_key: OutputKey::Main,
-            },
-            selector: Selector::Pid { pid, root_pid: pid },
-            policy: ResolvePolicy::Strict,
-            scope: None,
-        });
+        out.push(DrawingAnchorSpec { pid, kind });
     }
     Ok(out)
 }
@@ -900,7 +844,7 @@ mod tests {
     }
 
     #[test]
-    fn every_annotation_tag_builds_the_variant_it_names() {
+    fn every_annotation_tag_parses_to_the_spec_it_names() {
         for tag in ANNOTATION_TAGS {
             let args = json!({
                 "annotation": tag,
@@ -911,15 +855,33 @@ mod tests {
             });
             // `Distance` takes two anchors; the single-anchor kinds get the
             // arity refusal, which is itself the check that arity is read
-            // from the kind rather than from the argument.
+            // from the KIND rather than from the argument.
             match annotation_arg(&args) {
-                Ok(a) => assert_eq!(feature_engine::drawing::annotation_tag(&a), *tag),
+                Ok(spec) => assert_eq!(spec.annotation, *tag),
                 Err(e) => assert_eq!(e.details["path"], "/anchors", "{tag}"),
             }
         }
         let err = annotation_arg(&json!({ "annotation": "FeatureControlFrame" })).unwrap_err();
         assert_eq!(err.code, "InvalidArgument");
         assert!(err.message.contains("FeatureControlFrame"));
+        // And every tag the tool offers builds a real annotation, which is
+        // the half the spec alone does not prove.
+        for (tag, anchors) in [
+            ("Dimension", vec![json!(11), json!(12)]),
+            ("Note", vec![json!(11)]),
+            ("CentreMark", vec![json!(11)]),
+            ("CentreLine", vec![json!(11), json!(12)]),
+            ("Datum", vec![json!(11)]),
+        ] {
+            let spec = annotation_arg(&json!({
+                "annotation": tag, "kind": "Distance", "anchors": anchors,
+                "text": "note", "label": "A",
+            }))
+            .unwrap_or_else(|e| panic!("{tag}: {}", e.message));
+            let built = crate::drawing_view::build_annotation(&spec)
+                .unwrap_or_else(|e| panic!("{tag}: {e}"));
+            assert_eq!(feature_engine::drawing::annotation_tag(&built), tag);
+        }
     }
 
     #[test]
@@ -933,37 +895,56 @@ mod tests {
             "anchors": [7],
             "value": 0.123,
         });
-        let Annotation::Dimension { value, .. } = annotation_arg(&args).unwrap() else {
+        let spec = annotation_arg(&args).unwrap();
+        let built = crate::drawing_view::build_annotation(&spec).unwrap();
+        let waffle_types::annotation::Annotation::Dimension { value, .. } = built else {
             panic!("not a dimension");
         };
-        assert_eq!(value, Measured::FromGeometry);
+        assert_eq!(value, waffle_types::annotation::Measured::FromGeometry);
     }
 
     #[test]
-    fn an_anchor_is_a_persistent_id_and_nothing_else() {
-        let args =
-            json!({ "annotation": "CentreMark", "anchors": [{ "pid": 42, "kind": "Face" }] });
-        let Annotation::CentreMark { anchor } = annotation_arg(&args).unwrap() else {
-            panic!("not a centre mark");
-        };
-        assert_eq!(anchor.kind, TopoKind::Face);
-        assert!(matches!(
-            anchor.selector,
-            Selector::Pid {
-                pid: 42,
-                root_pid: 42
-            }
-        ));
-        // A bare number is an edge, the common case.
-        let args = json!({ "annotation": "CentreMark", "anchors": [9] });
-        let Annotation::CentreMark { anchor } = annotation_arg(&args).unwrap() else {
-            panic!("not a centre mark");
-        };
-        assert_eq!(anchor.kind, TopoKind::Edge);
-        // Anything that is not a pid is refused by name.
+    fn a_persistent_id_is_accepted_as_a_string_because_json_numbers_lose_it() {
+        // The measured defect: a pid is a `u64` and a JSON number in
+        // JavaScript is an `f64`, so `2216071694111992607` arrives as
+        // …992000 and the dimension anchored on it refuses as "resolves to no
+        // geometry". Every caller that goes through the page sends the
+        // decimal string, and it must parse EXACTLY.
+        let big: u64 = 2216071694111992607;
+        assert!(big > (1u64 << 53), "the fixture must exceed f64's integers");
+        let spec = annotation_arg(&json!({
+            "annotation": "CentreMark",
+            "anchors": [{ "pid": big.to_string(), "kind": "Face" }],
+        }))
+        .unwrap();
+        assert_eq!(spec.anchors[0].pid, big);
+        assert_eq!(spec.anchors[0].kind, TopoKind::Face);
+        // A number is still accepted — it is exact below 2^53 and a
+        // hand-written argument should not have to be quoted.
+        let spec = annotation_arg(&json!({ "annotation": "CentreMark", "anchors": [9] })).unwrap();
+        assert_eq!(spec.anchors[0].pid, 9);
+        assert_eq!(spec.anchors[0].kind, TopoKind::Edge);
+        // Anything that is not an id is refused by name.
         let err = annotation_arg(&json!({ "annotation": "CentreMark", "anchors": ["face-3"] }))
             .unwrap_err();
         assert_eq!(err.details["path"], "/anchors");
+    }
+
+    #[test]
+    fn a_view_anchor_crosses_the_wire_as_a_string() {
+        // The other half of the same rule: what the engine SENDS must be a
+        // string too, or the app reads a rounded id back.
+        let anchor = feature_engine::drawing::ViewAnchor {
+            pid: 2216071694111992607,
+            kind: TopoKind::Edge,
+            shape: feature_engine::drawing::AnchorShape::Line,
+            at: Some([0.0, 0.0]),
+            radius: None,
+        };
+        let json = serde_json::to_value(&anchor).unwrap();
+        assert_eq!(json["pid"], json!("2216071694111992607"));
+        let back: feature_engine::drawing::ViewAnchor = serde_json::from_value(json).unwrap();
+        assert_eq!(back.pid, anchor.pid);
     }
 
     #[test]

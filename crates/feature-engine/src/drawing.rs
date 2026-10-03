@@ -817,6 +817,99 @@ pub const DEFAULT_VIEW_GAP_MM: f64 = 15.0;
 
 // ----------------------------------------------------------------- rebuild
 
+/// A `u64` as a decimal STRING on the wire.
+///
+/// A persistent id is a 64-bit hash and a JSON number in JavaScript is an
+/// `f64`: every pid above `2^53` is silently ROUNDED by `JSON.parse`, and the
+/// rounded value resolves to nothing. Measured — a plate's edge pid
+/// `2216071694111992607` came back as `2216071694111992000`, and the
+/// dimension anchored on it refused as "resolves to no geometry", which is
+/// the loud failure doing its job about a corruption three layers upstream.
+///
+/// So every pid that crosses a boundary JavaScript touches crosses as a
+/// string. `u64` stays the type in Rust and in the FILE (a `Selector::Pid`
+/// is written as a number and read back by serde_json's own u64 path, which
+/// is exact).
+pub mod pid_string {
+    use serde::{Deserialize, Deserializer, Serializer};
+
+    pub fn serialize<S: Serializer>(pid: &u64, s: S) -> Result<S::Ok, S::Error> {
+        s.serialize_str(&pid.to_string())
+    }
+
+    /// Accepts a string (the written form) or a number (a small pid, and any
+    /// hand-written argument), so a caller is not made to quote an id that
+    /// would have been exact anyway.
+    pub fn deserialize<'de, D: Deserializer<'de>>(d: D) -> Result<u64, D::Error> {
+        #[derive(Deserialize)]
+        #[serde(untagged)]
+        enum Either {
+            Text(String),
+            Number(u64),
+        }
+        match Either::deserialize(d)? {
+            Either::Text(s) => s.parse().map_err(serde::de::Error::custom),
+            Either::Number(n) => Ok(n),
+        }
+    }
+}
+
+/// What an anchor looks like on the drawing — the arms of
+/// [`LayoutCurve`](waffle_types::annotation::layout::LayoutCurve), which is
+/// what the projection made of the entity.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "type")]
+#[cfg_attr(feature = "json-schema", derive(schemars::JsonSchema))]
+pub enum AnchorShape {
+    /// A line seen end-on, or a vertex: one point.
+    Point,
+    /// A straight edge — what a linear dimension measures between.
+    Line,
+    /// A circular rim seen square on; `radius` is its radius.
+    Circle,
+    /// A circular rim seen obliquely; `radius` is its MAJOR radius, which is
+    /// the hole's true radius.
+    Ellipse,
+    /// A sampled curve. It has no witness point, so a dimension on one
+    /// refuses — a polyline's midpoint moves with the chord tolerance that
+    /// sampled it.
+    Polyline,
+}
+
+/// One entity a view drew, as an annotation can anchor on it.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "json-schema", derive(schemars::JsonSchema))]
+pub struct ViewAnchor {
+    /// The persistent id (D0) — what `Selector::Pid` stores.
+    ///
+    /// A decimal STRING on the wire; see [`pid_string`] for the measurement
+    /// that forced it.
+    #[serde(with = "pid_string")]
+    #[cfg_attr(feature = "json-schema", schemars(with = "String"))]
+    pub pid: u64,
+    /// What the anchor IS on the drawing — a corner, a straight edge, a rim.
+    ///
+    /// Without it an anchor list is not usable for picking: the plate's top
+    /// view offers eight anchors, four walls and four corners, and a caller
+    /// told only their witness points cannot tell which pair is the two
+    /// parallel walls a width dimension measures. (It tried: the test that
+    /// found this picked two corners and the dimension measured the
+    /// diagonal.) `kind` says Edge or Vertex in the MODEL; this says what the
+    /// projection made of it.
+    pub shape: AnchorShape,
+    pub kind: TopoKind,
+    /// The one point a dimension measures from, in view-plane meters, or
+    /// `None` for a sampled polyline (which has no canonical witness — see
+    /// `LayoutCurve::witness_point`). Also what a UI hit-tests a click
+    /// against.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub at: Option<[f64; 2]>,
+    /// The radius, for a circle or an ellipse — so a caller can tell a rim
+    /// from an edge before dimensioning it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub radius: Option<f64>,
+}
+
 /// What one view's rebuild produced.
 #[derive(Debug, Clone)]
 pub struct ViewRebuild {
@@ -840,6 +933,20 @@ pub struct ViewRebuild {
     /// takes the serde-able twin. Both come from this one filtered set, so a
     /// sheet and a screen cannot disagree about which lines are on it.
     pub geometry: ViewGeometry,
+    /// The entities this view DREW, each with the persistent id an annotation
+    /// anchors on.
+    ///
+    /// Deliberately NOT part of [`ViewLayout`]: the layout record carries no
+    /// model reference at all, which is what makes a renderer holding one
+    /// unable to draw a value other than the measured one (D3, asserted on
+    /// the schema's `$ref` closure). This list is the other half of that
+    /// arrangement — the AUTHORING path. Picking an edge on a sheet to
+    /// dimension it needs the edge's id, and a UI that had to ask the kernel
+    /// for one per click would be reaching past the engine.
+    ///
+    /// A pid that names more than one drawn curve is absent: an annotation
+    /// must not be offered an anchor that would then refuse as ambiguous.
+    pub anchors: Vec<ViewAnchor>,
     /// The annotations that could NOT be resolved or measured, by their index
     /// in the view, each with the reason.
     ///
@@ -944,6 +1051,7 @@ pub fn rebuild_view(
         declines: drawn.declines,
         extent_mm,
         geometry: drawn,
+        anchors: anchors.offered(),
         annotation_errors,
     })
 }
@@ -1004,6 +1112,56 @@ impl AnchorIndex {
                 .push(LayoutCurve::from_curve2(&curve.geometry));
         }
         AnchorIndex { curves, vertices }
+    }
+
+    /// The anchors a caller may author on: every pid that names exactly ONE
+    /// drawn entity. An ambiguous one is left out rather than offered and
+    /// then refused.
+    fn offered(&self) -> Vec<ViewAnchor> {
+        let mut out: Vec<ViewAnchor> = self
+            .curves
+            .iter()
+            .filter_map(|((kind, pid), curves)| {
+                let [curve] = curves.as_slice() else {
+                    return None;
+                };
+                Some(ViewAnchor {
+                    pid: *pid,
+                    kind: *kind,
+                    shape: shape_of(curve),
+                    at: curve.witness_point(),
+                    radius: curve.radius(),
+                })
+            })
+            .chain(self.vertices.iter().filter_map(|(pid, at)| {
+                let [_] = at.as_slice() else { return None };
+                // The projected position is the curve index's business; a
+                // vertex's own is resolved per anchor, so `at` is left out
+                // rather than projected a second way here.
+                Some(ViewAnchor {
+                    pid: *pid,
+                    kind: TopoKind::Vertex,
+                    shape: AnchorShape::Point,
+                    at: None,
+                    radius: None,
+                })
+            }))
+            .collect();
+        // Deterministic: a tool answer and a UI list must not depend on hash
+        // iteration order.
+        out.sort_by_key(|a| (a.kind as u8, a.pid));
+        out
+    }
+}
+
+/// What the projection made of a curve.
+fn shape_of(curve: &LayoutCurve) -> AnchorShape {
+    match curve {
+        LayoutCurve::Point { .. } => AnchorShape::Point,
+        LayoutCurve::Line { .. } => AnchorShape::Line,
+        LayoutCurve::Circle { .. } => AnchorShape::Circle,
+        LayoutCurve::Ellipse { .. } => AnchorShape::Ellipse,
+        LayoutCurve::Polyline { .. } => AnchorShape::Polyline,
     }
 }
 

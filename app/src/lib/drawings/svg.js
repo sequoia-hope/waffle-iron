@@ -248,6 +248,10 @@ function viewBounds(layout) {
  * @param {number} [input.documentPrecision]
  * @param {number} [input.margin] paper mm of blank around the drawing
  * @param {string|null} [input.title] an `<title>` for accessibility
+ * @param {boolean} [input.paper] paint the paper rectangle behind the drawing
+ *   (default true). A view composed onto a SHEET (D4a) passes false: the sheet
+ *   paints one piece of paper, and a rectangle per view would read as a stack
+ *   of cards rather than as one drawing.
  * @returns {{ svg: string, widthMm: number, heightMm: number, warnings: string[] }}
  */
 export function renderViewSvg({
@@ -257,7 +261,8 @@ export function renderViewSvg({
 	unit = 'mm',
 	documentPrecision = 2,
 	margin = 20,
-	title = null
+	title = null,
+	paper = true
 }) {
 	const style = drawingStyle(styleOverrides);
 	const warnings = [];
@@ -352,7 +357,9 @@ export function renderViewSvg({
 		`viewBox="${n(-pad)} ${n(-pad)} ${n(widthMm)} ${n(heightMm)}" ` +
 		`data-scale="${n(scale)}" data-curves="${curves.length}" data-annotations="${annotations.length}">` +
 		titleEl +
-		`<rect class="wi-paper" x="${n(-pad)}" y="${n(-pad)}" width="${n(widthMm)}" height="${n(heightMm)}" fill="${DRAWING_TOKENS.paper}" />` +
+		(paper
+			? `<rect class="wi-paper" x="${n(-pad)}" y="${n(-pad)}" width="${n(widthMm)}" height="${n(heightMm)}" fill="${DRAWING_TOKENS.paper}" />`
+			: '') +
 		`<g class="wi-curves">${curveEls.join('')}</g>` +
 		`<g class="wi-annotations">${annEls.join('')}</g>` +
 		`</svg>`;

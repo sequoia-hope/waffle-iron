@@ -110,6 +110,7 @@
 	</div>
 	<button class="tab-add" data-testid="tab-add" onclick={() => onadd?.('Part')} title="New part tab">+</button>
 	<button class="tab-add tab-add-assembly" data-testid="tab-add-assembly" onclick={() => onadd?.('Assembly')} title="New assembly tab">+ Asm</button>
+	<button class="tab-add tab-add-drawing" data-testid="tab-add-drawing" onclick={() => onadd?.('Drawing')} title="New drawing tab">+ Dwg</button>
 </div>
 
 <style>

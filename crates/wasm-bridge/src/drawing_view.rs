@@ -20,12 +20,17 @@
 use std::collections::HashMap;
 
 use feature_engine::assembly::{AssemblyTree, PartRef};
-use feature_engine::drawing::{rebuild_view, Drawing, DrawingError, ViewSource};
+use feature_engine::drawing::{
+    auto_placement_mm, dimension_kind_from_tag, rebuild_view, Drawing, DrawingError, DrawingView,
+    Projection, Sheet, ViewAnchor, ViewSource, DEFAULT_VIEW_GAP_MM,
+};
 use feature_engine::types::FeatureTree;
 use feature_engine::Engine;
 use modeling_ops::KernelBundle;
 use uuid::Uuid;
 use waffle_types::annotation::layout::ViewLayout;
+use waffle_types::annotation::{Annotation, Measured, Placement2};
+use waffle_types::geom_ref::{Anchor, GeomRef, OutputKey, ResolvePolicy, Selector};
 use waffle_types::kernel::projection::{ProjectionBody, ProjectionDeclines};
 
 /// The open drawing tab's last evaluation, minus the drawing itself.
@@ -43,6 +48,8 @@ pub struct OpenDrawing {
     pub warnings: Vec<String>,
     /// `(view, annotation index)` of every annotation that did not resolve.
     pub annotation_errors: Vec<(Uuid, usize)>,
+    /// Per view, the anchors an annotation may be authored on.
+    pub anchors: std::collections::BTreeMap<Uuid, Vec<ViewAnchor>>,
 }
 
 /// What evaluating a drawing tab produced.
@@ -57,6 +64,12 @@ pub struct DrawingEval {
     /// rather than as the chord polyline a round trip through the layout
     /// record would make of it. Not persisted and not sent to the app.
     pub geometry: HashMap<Uuid, waffle_types::kernel::projection::ViewGeometry>,
+    /// Per view, the entities it drew with the persistent ids an annotation
+    /// anchors on — the authoring half of the layout record's deliberate
+    /// model-blindness (`ViewRebuild::anchors`). Sent to the app, not
+    /// persisted: the document stores the annotations, not the ids available
+    /// to make one from.
+    pub anchors: std::collections::BTreeMap<Uuid, Vec<ViewAnchor>>,
     /// The sheet-wide total of what every view's projection declined to
     /// decide (D1c). Carried for the same reason the DXF export carries it:
     /// the counts are what tell a decided drawing from a quiet one.
@@ -75,6 +88,303 @@ pub struct DrawingEval {
     /// The part engines this pass built or reused, to be parked for the next
     /// one (the same contract as `AssemblyView::parts`).
     pub parts: Vec<(PartRef, Engine)>,
+}
+
+/// Apply one targeted edit to `drawing` (D4a), or say why not.
+///
+/// One place, two callers: the page's `DrawingEdit` message and — through
+/// the same vocabulary — the authoring tools. Putting it here rather than in
+/// each means the page and an agent cannot make different documents out of
+/// the same instruction.
+pub fn apply_edit(
+    drawing: &mut Drawing,
+    edit: &crate::messages::DrawingEdit,
+) -> Result<Uuid, String> {
+    use crate::messages::DrawingEdit as E;
+    match edit {
+        E::AddView {
+            sheet_id,
+            source_tab,
+            bodies,
+            projection,
+            name,
+            scale,
+            placement_mm,
+        } => {
+            if source_tab.is_empty() {
+                return Err("a drawing view needs the id of the tab it draws".to_string());
+            }
+            let index = match sheet_id {
+                Some(id) => drawing
+                    .sheets
+                    .iter()
+                    .position(|s| s.id == *id)
+                    .ok_or_else(|| format!("this drawing has no sheet {id}"))?,
+                None => {
+                    if drawing.sheets.is_empty() {
+                        return Err("this drawing has no sheets".to_string());
+                    }
+                    0
+                }
+            };
+            if let Projection::ProjectedFrom { parent, .. } = projection {
+                if drawing.sheets[index].view(*parent).is_none() {
+                    return Err(format!("this sheet has no view {parent} to project from"));
+                }
+            }
+            let scale = scale.unwrap_or(1.0);
+            if !(scale.is_finite() && scale > 0.0) {
+                return Err(format!(
+                    "a view's scale must be a positive ratio (1 is 1:1), not {scale}"
+                ));
+            }
+            let count = drawing.sheets[index].views.len();
+            let mut view = DrawingView::new(
+                name.clone()
+                    .filter(|n| !n.is_empty())
+                    .unwrap_or_else(|| default_view_name(projection, count)),
+                ViewSource {
+                    tab_id: source_tab.clone(),
+                    bodies: bodies.clone(),
+                },
+                projection.clone(),
+            );
+            view.scale = scale;
+            view.placement_mm = placement_mm
+                .unwrap_or_else(|| default_placement(&drawing.sheets[index], projection));
+            let id = view.id;
+            drawing.sheets[index].views.push(view);
+            Ok(id)
+        }
+        E::EditView {
+            view_id,
+            name,
+            scale,
+            placement_mm,
+            bodies,
+            hidden_lines,
+            silhouettes,
+        } => {
+            if let Some(scale) = scale {
+                if !(scale.is_finite() && *scale > 0.0) {
+                    return Err(format!(
+                        "a view's scale must be a positive ratio (1 is 1:1), not {scale}"
+                    ));
+                }
+            }
+            let sheet = drawing
+                .sheet_of_view_mut(*view_id)
+                .ok_or_else(|| format!("this drawing has no view {view_id}"))?;
+            let view = sheet
+                .view_mut(*view_id)
+                .ok_or_else(|| format!("this drawing has no view {view_id}"))?;
+            if let Some(name) = name.clone().filter(|n| !n.is_empty()) {
+                view.name = name;
+            }
+            if let Some(scale) = scale {
+                view.scale = *scale;
+            }
+            if let Some(placement) = placement_mm {
+                view.placement_mm = *placement;
+            }
+            if let Some(bodies) = bodies {
+                view.source.bodies = bodies.clone();
+            }
+            if let Some(on) = hidden_lines {
+                view.style.hidden_lines = *on;
+            }
+            if let Some(on) = silhouettes {
+                view.style.silhouettes = *on;
+            }
+            Ok(*view_id)
+        }
+        E::DeleteView { view_id } => {
+            let sheet = drawing
+                .sheet_of_view_mut(*view_id)
+                .ok_or_else(|| format!("this drawing has no view {view_id}"))?;
+            sheet.views.retain(|v| v.id != *view_id);
+            sheet.views.retain(|v| match &v.projection {
+                Projection::ProjectedFrom { parent, .. } => parent != view_id,
+                _ => true,
+            });
+            Ok(*view_id)
+        }
+        E::AddAnnotation {
+            view_id,
+            annotation,
+        } => {
+            let built = build_annotation(annotation)?;
+            let sheet = drawing
+                .sheet_of_view_mut(*view_id)
+                .ok_or_else(|| format!("this drawing has no view {view_id}"))?;
+            let view = sheet
+                .view_mut(*view_id)
+                .ok_or_else(|| format!("this drawing has no view {view_id}"))?;
+            view.annotations.push(built);
+            Ok(*view_id)
+        }
+        E::DeleteAnnotation { view_id, index } => {
+            let sheet = drawing
+                .sheet_of_view_mut(*view_id)
+                .ok_or_else(|| format!("this drawing has no view {view_id}"))?;
+            let view = sheet
+                .view_mut(*view_id)
+                .ok_or_else(|| format!("this drawing has no view {view_id}"))?;
+            if *index >= view.annotations.len() {
+                return Err(format!(
+                    "view {view_id} has {} annotation(s), not an index {index}",
+                    view.annotations.len()
+                ));
+            }
+            view.annotations.remove(*index);
+            Ok(*view_id)
+        }
+    }
+}
+
+/// The document annotation one `DrawingAnnotationSpec` means.
+///
+/// Note what it cannot build: a dimension with a `value`. The spec carries no
+/// such field, so a literal number is not expressible at this boundary at all
+/// — which is the authoring half of §7's refusal (the rebuild refuses one
+/// that arrives another way, `drawing::check_measured`).
+pub fn build_annotation(
+    spec: &crate::messages::DrawingAnnotationSpec,
+) -> Result<Annotation, String> {
+    let placement = spec
+        .placement
+        .map(|p| Placement2::new(p[0], p[1]))
+        .unwrap_or_default();
+    let anchors: Vec<GeomRef> = spec
+        .anchors
+        .iter()
+        .map(|a| pid_ref(a.kind, a.pid))
+        .collect();
+    let need = |n: usize| -> Result<(), String> {
+        if anchors.len() == n {
+            Ok(())
+        } else {
+            Err(format!(
+                "this annotation anchors on {n} entity(ies), {} given",
+                anchors.len()
+            ))
+        }
+    };
+    match spec.annotation.as_str() {
+        "Dimension" => {
+            let tag = spec.kind.as_deref().unwrap_or("Distance");
+            let kind = dimension_kind_from_tag(tag)
+                .ok_or_else(|| format!("`{tag}` is not a dimension kind"))?;
+            need(kind.arity())?;
+            Ok(Annotation::Dimension {
+                kind,
+                anchors,
+                value: Measured::FromGeometry,
+                precision: spec.precision,
+                dual_unit: spec.dual_unit.clone().filter(|u| !u.is_empty()),
+                placement,
+            })
+        }
+        "Note" => Ok(Annotation::Note {
+            text: spec
+                .text
+                .clone()
+                .filter(|t| !t.is_empty())
+                .ok_or_else(|| "a note needs text".to_string())?,
+            leader: anchors.into_iter().next(),
+            placement,
+        }),
+        "CentreMark" => {
+            need(1)?;
+            Ok(Annotation::CentreMark {
+                anchor: anchors.into_iter().next().expect("checked"),
+            })
+        }
+        "CentreLine" => {
+            need(2)?;
+            let mut it = anchors.into_iter();
+            let a = it.next().expect("checked");
+            let b = it.next().expect("checked");
+            Ok(Annotation::CentreLine { anchors: [a, b] })
+        }
+        "Datum" => {
+            need(1)?;
+            Ok(Annotation::Datum {
+                label: spec
+                    .label
+                    .clone()
+                    .filter(|l| !l.is_empty())
+                    .unwrap_or_else(|| "A".to_string()),
+                anchor: anchors.into_iter().next().expect("checked"),
+                placement,
+            })
+        }
+        other => Err(format!("`{other}` is not an annotation kind")),
+    }
+}
+
+/// An annotation anchor on a persistent id — the only selector a drawing
+/// annotation may use (D0 item 4: it never rebinds).
+fn pid_ref(kind: waffle_types::TopoKind, pid: u64) -> GeomRef {
+    GeomRef {
+        kind,
+        // Immaterial for a `Selector::Pid`: the pid is resolved against the
+        // view's own projection, not through a feature output. Explicit at
+        // the nil feature rather than absent.
+        anchor: Anchor::FeatureOutput {
+            feature_id: Uuid::nil(),
+            output_key: OutputKey::Main,
+        },
+        selector: Selector::Pid { pid, root_pid: pid },
+        policy: ResolvePolicy::Strict,
+        scope: None,
+    }
+}
+
+/// A freshly added view's name: the projection's own, numbered when the
+/// sheet already carries one like it.
+fn default_view_name(projection: &Projection, count: usize) -> String {
+    match projection {
+        Projection::Named { view } => view.tag().to_string(),
+        Projection::Custom { .. } => format!("View {}", count + 1),
+        Projection::ProjectedFrom { direction, .. } => format!("{direction:?} of parent"),
+    }
+}
+
+/// Where a freshly added view goes when the caller gives no placement: clear
+/// of its parent's DRAWN extent for a projected view, the middle of the sheet
+/// otherwise.
+///
+/// It reads the last evaluation's cached layouts rather than guessing,
+/// because the gap must be between the DRAWINGS and not between their
+/// centres — two views of a long part placed a fixed centre distance apart
+/// overlap, which is the mistake D3's dimension layout made once.
+fn default_placement(sheet: &Sheet, projection: &Projection) -> [f64; 2] {
+    let extent = sheet.extent_mm();
+    let centre = [extent[0] / 2.0, extent[1] / 2.0];
+    let Projection::ProjectedFrom { parent, direction } = projection else {
+        return centre;
+    };
+    let Some(parent_view) = sheet.view(*parent) else {
+        return centre;
+    };
+    let parent_extent = match parent_view.cache.as_ref().and_then(|c| c.bbox) {
+        Some([min, max]) => [
+            (max[0] - min[0]) * 1000.0 * parent_view.scale,
+            (max[1] - min[1]) * 1000.0 * parent_view.scale,
+        ],
+        None => [0.0, 0.0],
+    };
+    // The child's own extent is unknown until it is projected; a projected
+    // view of the same part matches its parent in one axis by construction,
+    // so the parent's is the best estimate available.
+    auto_placement_mm(
+        parent_view.placement_mm,
+        parent_extent,
+        parent_extent,
+        *direction,
+        DEFAULT_VIEW_GAP_MM,
+    )
 }
 
 /// Rebuild every view of `drawing`.
@@ -151,6 +461,7 @@ pub fn evaluate(
                     }
                     out.layouts.insert(view.id, built.layout);
                     out.geometry.insert(view.id, built.geometry);
+                    out.anchors.insert(view.id, built.anchors);
                 }
                 Err(e) => out.errors.push(describe(view.name.as_str(), &e)),
             }
@@ -174,6 +485,7 @@ impl DrawingEval {
             errors: self.errors.clone(),
             warnings: self.warnings.clone(),
             annotation_errors: self.annotation_errors.clone(),
+            anchors: self.anchors.clone(),
         }
     }
 }

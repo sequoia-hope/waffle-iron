@@ -128,7 +128,7 @@ export const exportStepTool = {
 export const exportDxfTool = {
 	name: 'export_dxf',
 	description:
-		'Export ONE orthographic view of the whole model (every live body of the open Part, or an open ' +
+		'On a Part or Assembly tab: export ONE orthographic view of the whole model (every live body of the open Part, or an open ' +
 		"assembly's instances at their world placements) as an R12 DXF drawing in millimetres — the " +
 		'flat-pattern file a laser, waterjet or plasma table consumes. Every edge of the model plus every ' +
 		"curved face's silhouette — the outline where the surface turns away — is drawn, with hidden-line " +
@@ -140,7 +140,12 @@ export const exportDxfTool = {
 		'curve is a polyline at the render chord density instead, which is about 0.1% of its own radius, so ' +
 		'on a large part it is looser than 0.01 mm. Refused with NothingToExport when ' +
 		'there are no bodies, InvalidArgument for a view it cannot name, and PayloadTooLarge above 16 MiB for ' +
-		'deliver "agent". specs/drawings_and_mbd.md D1a + D1b + D1c.',
+		'deliver "agent". ' +
+		'On a DRAWING tab the sheet is exported instead: every view of it, each at its own scale and ' +
+		'position, in one file in sheet millimetres — or one view alone, at the paper origin, with ' +
+		'view_id. The projection arguments below describe a view of the MODEL and are refused on a ' +
+		'drawing tab (its views carry their own projections); sheet_id and view_id are refused off one. ' +
+		'specs/drawings_and_mbd.md D1a + D1b + D1c + D4a.',
 	inputSchema: {
 		type: 'object',
 		properties: {
@@ -168,12 +173,42 @@ export const exportDxfTool = {
 					"Which world direction points up on the paper. Omit to take the named view's own up, or " +
 					'to let the engine pick one for a free direction.'
 			},
+			sheet_id: {
+				type: 'string',
+				description: 'DRAWING tab only: which sheet. Omit for its first (and usually only) one.'
+			},
+			view_id: {
+				type: 'string',
+				description:
+					'DRAWING tab only: export just this view, alone and at the paper origin — what a cutting ' +
+					'table wants from a sheet it should not read the rest of.'
+			},
 			deliver
 		},
 		additionalProperties: false
 	},
 	outputSchema: exportResultSchema,
 	annotations: { title: 'Export DXF', readOnlyHint: true, openWorldHint: false }
+};
+
+export const exportSvgTool = {
+	name: 'export_svg',
+	description:
+		'Export the open DRAWING tab\'s sheet as SVG — the same markup the sheet shows on screen, at paper ' +
+		'size in millimetres, so the browser\'s print path is true to scale. One SVG user unit is one paper ' +
+		'millimetre; dimension text carries the measured value at the annotation\'s precision. Refused with ' +
+		'TabKindNotSupported off a Drawing tab and NothingToExport when no view of the sheet rebuilt. ' +
+		'specs/drawings_and_mbd.md §8 D4a.',
+	inputSchema: {
+		type: 'object',
+		properties: {
+			sheet_id: { type: 'string', description: 'Which sheet. Omit for the first one.' },
+			deliver
+		},
+		additionalProperties: false
+	},
+	outputSchema: exportResultSchema,
+	annotations: { title: 'Export SVG', readOnlyHint: true, openWorldHint: false }
 };
 
 export const exportStlTool = {
