@@ -26,7 +26,7 @@ import { findConnectedChain, orderChain } from '$lib/sketch/chain.js';
 import { resolveChainSegments, offsetChainSegments } from '$lib/sketch/offset.js';
 import { isDatumPlaneRef, getPlaneIdFromRef, getPlaneById, resolvePlane, BUILTIN_PLANES } from './planes.js';
 import { renderViewSvg } from '$lib/drawings/svg.js';
-import { FORMAT_VERSION, MIN_READER_VERSION, fileTooNew } from './format.js';
+import { FORMAT_VERSION, MIN_READER_VERSION, fileTooNew, editDocumentMeta } from './format.js';
 import { fetchTestCases, fetchTestCase, createTestCase as apiCreateTestCase, deleteTestCase as apiDeleteTestCase } from './testCaseApi.js';
 
 /**
@@ -8942,8 +8942,21 @@ export async function loadExample(id) {
 		}
 		const docId = generateUUID();
 		const now = new Date().toISOString();
-		parsed.document = { ...(parsed.document || {}), id: docId, name: entry.name, created: now, modified: now };
-		await openDocumentRecord(docId, JSON.stringify(parsed));
+		// A TARGETED edit of the metadata object, not a parse/stringify of the
+		// whole example: the file carries persistent entity ids, and a
+		// pre-v10 example carries them as JSON numbers, which a JavaScript
+		// round trip rounds above 2^53 into different entities
+		// (`editDocumentMeta`, `waffle_types::pid_str`). Opening the shipped
+		// pendant example used to unanchor its drawing dimensions on the way
+		// in. Everything outside `document` now reaches the engine
+		// byte-identical to the shipped bytes.
+		const opening = editDocumentMeta(text, (meta) => {
+			meta.id = docId;
+			meta.name = entry.name;
+			meta.created = now;
+			meta.modified = now;
+		});
+		await openDocumentRecord(docId, opening);
 		examplesBrowserState.active = id;
 		showToast('info', `Example "${entry.name}" opened as a new document`);
 		return true;

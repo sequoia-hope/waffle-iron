@@ -1502,7 +1502,16 @@ fn a_named_entity_round_trips_through_the_document() {
     let parsed: serde_json::Value = serde_json::from_str(&json).unwrap();
     let entry = &parsed["tabs"][0]["kind"]["features"]["names"]["plate.top_face"];
     assert_eq!(entry["target"]["selector"]["type"], "Pid");
-    assert_eq!(entry["target"]["selector"]["root_pid"], 7);
+    // Decimal STRINGS since v9 (`waffle_types::pid_str`): the id is a
+    // content-seeded u64 and a JSON number in JavaScript is an f64.
+    assert_eq!(
+        entry["target"]["selector"]["root_pid"],
+        serde_json::json!("7")
+    );
+    assert_eq!(
+        entry["target"]["selector"]["pid"],
+        serde_json::json!("1311768467463790320")
+    );
     assert_eq!(entry["fallback"]["selector"]["type"], "Role");
     assert_eq!(entry["created"]["origin"]["name"], "n1-test");
 
@@ -1789,13 +1798,58 @@ fn a_3d_sketch_round_trips() {
 /// ignore (`crates/feature-engine/tests/param_unit_floor.rs` measures why);
 /// v9 is N2's `Sketch.plane_face` (§5.3 item 3), the same shape of reason —
 /// a reader that drops it builds a sketch into space where this one refuses
-/// (`crates/feature-engine/tests/sketch_plane_face.rs` measures it).
+/// (`crates/feature-engine/tests/sketch_plane_face.rs` measures it); v10 is
+/// the pid REPRESENTATION flip — a `Selector::Pid`'s ids are decimal strings,
+/// because a JSON number in JavaScript is an `f64` and a rounded id is a
+/// different entity (`waffle_types::pid_str`).
 /// What this test holds is that the writer and the floor move together and
 /// only deliberately.
 #[test]
 fn the_3d_sketch_operation_did_not_move_the_format_floor() {
-    assert_eq!(file_format::FORMAT_VERSION, 9);
-    assert_eq!(file_format::MIN_READER_VERSION, 9);
+    assert_eq!(file_format::FORMAT_VERSION, 10);
+    assert_eq!(file_format::MIN_READER_VERSION, 10);
+}
+
+/// v10: a pre-v10 file wrote its `Selector::Pid` ids as JSON NUMBERS, and it
+/// still loads — which is what makes the flip to strings free of a migration.
+///
+/// This is the half of the rule that is easy to lose. Writing strings is one
+/// `#[serde(with)]`; ACCEPTING both forms is a deliberate deserializer
+/// (`waffle_types::pid_str`), and without it every `.waffle` and every assay
+/// case written before today would fail to parse. The id here is above
+/// `2^53`, so it is also the case a reader cannot fake with an `f64`.
+#[test]
+fn a_pre_v10_numeric_pid_still_loads() {
+    let mut tree = make_simple_tree();
+    let feature_id = tree.features[0].id;
+    tree.set_name("plate.top_face", named_face(feature_id));
+    let meta = ProjectMetadata::new("Numeric");
+
+    // Rewrite the file the way a v7–v9 writer wrote it: bare numbers, and
+    // the floor it claimed at the time.
+    let mut parsed: serde_json::Value =
+        serde_json::from_str(&save_project(&tree, &meta)).expect("the v10 file parses");
+    let sel =
+        &mut parsed["tabs"][0]["kind"]["features"]["names"]["plate.top_face"]["target"]["selector"];
+    assert_eq!(sel["pid"], serde_json::json!("1311768467463790320"));
+    sel["pid"] = serde_json::json!(1_311_768_467_463_790_320_u64);
+    sel["root_pid"] = serde_json::json!(7);
+    parsed["version"] = serde_json::json!(9);
+    parsed["min_reader_version"] = serde_json::json!(9);
+
+    let (back, _) = load_project(&parsed.to_string()).expect("a numeric-pid file loads");
+    match back
+        .named_ref("plate.top_face")
+        .expect("the name came back")
+        .target
+        .selector
+    {
+        Selector::Pid { pid, root_pid } => {
+            assert_eq!(pid, 0x1234_5678_9abc_def0);
+            assert_eq!(root_pid, 7);
+        }
+        ref other => panic!("want a Pid selector, got {other:?}"),
+    }
 }
 
 /// Neither did the `Drawing` tab kind (D4a, `specs/drawings_and_mbd.md` §8),

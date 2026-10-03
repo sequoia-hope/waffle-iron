@@ -730,7 +730,11 @@ fn the_refusal_reaches_a_host_as_a_typed_error_kind_with_its_payload() {
     let json = serde_json::to_value(ErrorKind::from(&err)).expect("serializes");
     assert_eq!(json["type"], "ResolutionFailed");
     assert_eq!(json["reason"]["type"], "PidGone");
-    assert_eq!(json["reason"]["pid"], 7002);
+    // A decimal STRING, like every pid that reaches a caller
+    // (`waffle_types::pid_str`): this payload exists so an agent can
+    // re-author the reference, and a `JSON.parse` that rounded the id would
+    // hand it a different entity's identity to re-author against.
+    assert_eq!(json["reason"]["pid"], serde_json::json!("7002"));
 }
 
 /// An unclassified `ResolutionFailed` — a resolution step that is not one

@@ -1595,7 +1595,15 @@ pub enum ResolutionReason {
     /// The recorded persistent id is gone AND nothing descends from its
     /// lineage root (the second rung of the pid ladder, `resolve_by_pid`).
     PidGone {
+        /// Decimal STRINGS, like every pid that crosses to a caller
+        /// (`waffle_types::pid_str`). This refusal exists so an agent can
+        /// re-author the reference, and an id rounded by `JSON.parse` would
+        /// hand it the identity of a different entity to re-author against —
+        /// turning N2's loud refusal back into a quiet wrong answer one
+        /// layer along.
+        #[serde(with = "waffle_types::pid_str")]
         pid: u64,
+        #[serde(with = "waffle_types::pid_str")]
         root_pid: u64,
         /// The feature whose output the reference is anchored to — where the
         /// entity was last seen by this reference. NOT the feature that

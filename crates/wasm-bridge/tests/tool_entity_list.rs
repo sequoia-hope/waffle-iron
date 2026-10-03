@@ -251,8 +251,16 @@ fn a_box_lists_six_faces_twelve_edges_eight_vertices() {
         assert_eq!(entities(&out).len(), want, "{kind}");
         // Every entity carries its persistent identity and a reference.
         for e in entities(&out) {
-            assert!(e["pid"].is_u64(), "{kind} has a pid: {e}");
-            assert!(e["root_pid"].is_u64(), "{kind} has a root: {e}");
+            // A decimal STRING, not a number: these ids are content-seeded
+            // `u64`s and a JSON number in JavaScript is an `f64`
+            // (`waffle_types::pid_str`). `is_u64()` here is what the Q6
+            // listing shipped with, and it is what let the hazard through.
+            assert!(e["pid"].is_string(), "{kind}'s pid is a string: {e}");
+            assert!(
+                e["pid"].as_str().unwrap().parse::<u64>().is_ok(),
+                "{kind}'s pid is a decimal u64: {e}"
+            );
+            assert!(e["root_pid"].is_string(), "{kind}'s root is a string: {e}");
             assert!(e["geom_ref"].is_object(), "{kind} has a ref: {e}");
             assert!(e["signature"].is_object(), "{kind} has a signature: {e}");
         }

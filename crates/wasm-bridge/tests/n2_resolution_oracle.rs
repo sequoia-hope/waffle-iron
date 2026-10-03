@@ -384,8 +384,20 @@ fn an_edit_that_deletes_the_named_face_refuses_with_pid_gone() {
         row["refusal"]["type"], "PidGone",
         "the reason an agent branches on: {row}"
     );
-    assert_eq!(row["refusal"]["pid"], floor_pid.0, "{row}");
-    assert_eq!(row["refusal"]["root_pid"], floor_pid.1, "{row}");
+    // Decimal STRINGS on the wire (`waffle_types::pid_str`): the id is a
+    // content-seeded u64 and a JSON number in JavaScript is an f64, so a
+    // numeric one would hand the agent a different entity to re-author
+    // against — the quiet half of the defect N2's loud refusal exists for.
+    assert_eq!(
+        row["refusal"]["pid"],
+        json!(floor_pid.0.to_string()),
+        "{row}"
+    );
+    assert_eq!(
+        row["refusal"]["root_pid"],
+        json!(floor_pid.1.to_string()),
+        "{row}"
+    );
     assert_eq!(
         row["refusal"]["last_seen_feature"],
         json!(cut),
@@ -448,7 +460,11 @@ fn a_best_effort_name_whose_face_is_gone_rebinds_and_says_so_instead() {
         row["lost_identity"]["type"], "PidGone",
         "with the identity it lost: {row}"
     );
-    assert_eq!(row["lost_identity"]["pid"], floor_pid.0, "{row}");
+    assert_eq!(
+        row["lost_identity"]["pid"],
+        json!(floor_pid.0.to_string()),
+        "{row}"
+    );
     assert_eq!(
         row["resolved_by"], "query",
         "the authored selector answered, not the id: {row}"

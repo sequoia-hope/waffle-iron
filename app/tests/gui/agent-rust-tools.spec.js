@@ -283,7 +283,18 @@ test.describe('Read-only agent tools run in the engine (S3 C5b)', () => {
 		expect(result.entities.count).toBe(12);
 		expect(result.entities.entities.every((e) => e.length.method === 'exact')).toBe(true);
 		expect(result.entities.entities.every((e) => e.length.curve_type === 'line')).toBe(true);
-		expect(result.entities.entities.every((e) => typeof e.pid === 'number')).toBe(true);
+		// A decimal STRING, through the real bridge and the real worker — the
+		// one assertion that is about JavaScript rather than about Rust. A
+		// persistent id is a content-seeded u64; `JSON.parse` rounds one above
+		// 2^53 into a different entity, and this spec's `typeof e.pid ===
+		// 'number'` is what blessed that for as long as it stood
+		// (`waffle_types::pid_str`).
+		expect(result.entities.entities.every((e) => typeof e.pid === 'string')).toBe(true);
+		expect(result.entities.entities.every((e) => /^[0-9]+$/.test(e.pid))).toBe(true);
+		expect(result.entities.entities.every((e) => typeof e.root_pid === 'string')).toBe(true);
+		// And a pid that reached the page as a string is still the id the
+		// engine minted: BigInt parses it exactly, where Number would not.
+		expect(result.entities.entities.every((e) => BigInt(e.pid).toString() === e.pid)).toBe(true);
 		expect(result.entities.entities.every((e) => e.geom_ref.selector.type === 'Pid')).toBe(true);
 		expect(result.entities.body.principal_axes.length).toBe(3);
 		// Nothing was filtered, so nothing was excluded — and the answer says

@@ -399,7 +399,7 @@ pub enum UiToEngine {
     /// an `f64` — so a whole drawing that went out to the page and came back
     /// would have every pid above `2^53` silently rounded, and every
     /// dimension anchored on one would refuse as "resolves to no geometry"
-    /// (measured; see `feature_engine::drawing::pid_string`). The tools
+    /// (measured; see `waffle_types::pid_str`). The tools
     /// construct the `Drawing` in Rust, where `u64` is exact. The page uses
     /// [`UiToEngine::DrawingEdit`], which never carries one.
     EditDrawing {
@@ -831,9 +831,24 @@ pub struct ListedEntity {
     /// under (`waffle_types::kernel::EntityPid`). `null` for a kernel with no
     /// persistent identity for this body — a mesh-backed import — never a
     /// fabricated number.
-    #[serde(skip_serializing_if = "Option::is_none")]
+    ///
+    /// Decimal STRINGS, like every pid that crosses this boundary
+    /// (`waffle_types::pid_str`): these ids are content-seeded `u64`s, a
+    /// gear body hands out a thousand of them, and a JSON number in
+    /// JavaScript rounds the ones above `2^53` onto a different entity.
+    /// Q6 shipped them as numbers; the `is_u64()` assertion in
+    /// `tests/tool_entity_list.rs` is now `is_string()`.
+    #[serde(
+        default,
+        with = "waffle_types::pid_str::option",
+        skip_serializing_if = "Option::is_none"
+    )]
     pub pid: Option<u64>,
-    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(
+        default,
+        with = "waffle_types::pid_str::option",
+        skip_serializing_if = "Option::is_none"
+    )]
     pub root_pid: Option<u64>,
     /// The reference that names this entity. For a FACE this is exactly the
     /// ref `face_list` and the viewport hand out, so the two tools cannot
@@ -1644,8 +1659,8 @@ pub struct DrawingAnnotationSpec {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct DrawingAnchorSpec {
     /// A decimal STRING, because a `u64` is not exact as a JSON number in
-    /// JavaScript (`feature_engine::drawing::pid_string`).
-    #[serde(with = "feature_engine::drawing::pid_string")]
+    /// JavaScript (`waffle_types::pid_str`).
+    #[serde(with = "waffle_types::pid_str")]
     pub pid: u64,
     #[serde(default = "edge_kind")]
     pub kind: waffle_types::TopoKind,
@@ -1667,7 +1682,7 @@ fn edge_kind() -> waffle_types::TopoKind {
 /// The AUTHORED annotations beside those layouts do carry their anchors, and
 /// a `Selector::Pid` in one serializes as a JSON **number** — a `u64` a
 /// JavaScript `JSON.parse` rounds above `2^53` (see
-/// `feature_engine::drawing::pid_string` for the measurement). That is
+/// `waffle_types::pid_str` for the measurement). That is
 /// inert, not safe by construction: the page reads the authored annotations
 /// only as a count, draws from the layouts, and writes back exclusively
 /// through [`DrawingEdit`], whose every field is a primitive and whose

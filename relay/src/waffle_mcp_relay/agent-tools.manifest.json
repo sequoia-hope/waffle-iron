@@ -1,5 +1,5 @@
 {
-  "manifest_hash": "aa9d159e7f129665828cdb88b37999ea05cd6854c6c03c75cdc2874465a75ee0",
+  "manifest_hash": "f6b57592342f06c29d527227f12ce108a75c845364f8c88a77cbface0481cb7d",
   "protocol": "waffle-agent-link/1",
   "tools": [
     {
@@ -2247,7 +2247,7 @@
         "readOnlyHint": true,
         "title": "List entities"
       },
-      "description": "Every face, edge or vertex of one body, with its geometric content (Q6). Each entity carries its persistent id (pid/root_pid — content-derived, so it survives rebuilds and booleans), the GeomRef that names it, its entity_name if it has one, its signature (surface type, area, centroid, normal, bbox, and the axis descriptor of a cylinder/cone/sphere/torus), and its axis LINE (origin + direction) where it has one. An EDGE also carries length.arc_length_m — the length ALONG the curve, with curve_type and method: exact for lines, circles and circular arcs; quadrature (plus residual_m) for ellipse and hyperbola arcs, which have no closed form; chords (a lower bound) for SSI curves and imported polylines. A VERTEX carries position. body carries the whole body principal axes and centroid (the same integration measure_mass reports), or says why it has none. Order is by persistent id, so two listings of the same geometry are comparable. filter arms compose: query (TopoQuery filters), name (a * / ? glob over the entity name), bbox ([min, max] in meters, keeping entities whose own bbox is inside it). excluded_unevaluable counts entities a filter arm dropped because their own data could not answer it, so an empty list does not read as \"nothing matched\" when it means \"nothing could be asked\"; unresolved_names lists the body entity names that now bind to nothing, and name_warnings on an entity means its name was rebound by geometry after its persistent id went away and may be naming the wrong entity. A spherical axis has a centre and no direction. Lengths in meters.",
+      "description": "Every face, edge or vertex of one body, with its geometric content (Q6). Each entity carries its persistent id (pid/root_pid — content-derived, so it survives rebuilds and booleans; DECIMAL STRINGS, because an id above 2^53 is not exact as a JSON number — treat them as opaque, never as arithmetic), the GeomRef that names it, its entity_name if it has one, its signature (surface type, area, centroid, normal, bbox, and the axis descriptor of a cylinder/cone/sphere/torus), and its axis LINE (origin + direction) where it has one. An EDGE also carries length.arc_length_m — the length ALONG the curve, with curve_type and method: exact for lines, circles and circular arcs; quadrature (plus residual_m) for ellipse and hyperbola arcs, which have no closed form; chords (a lower bound) for SSI curves and imported polylines. A VERTEX carries position. body carries the whole body principal axes and centroid (the same integration measure_mass reports), or says why it has none. Order is by persistent id, so two listings of the same geometry are comparable. filter arms compose: query (TopoQuery filters), name (a * / ? glob over the entity name), bbox ([min, max] in meters, keeping entities whose own bbox is inside it). excluded_unevaluable counts entities a filter arm dropped because their own data could not answer it, so an empty list does not read as \"nothing matched\" when it means \"nothing could be asked\"; unresolved_names lists the body entity names that now bind to nothing, and name_warnings on an entity means its name was rebound by geometry after its persistent id went away and may be naming the wrong entity. A spherical axis has a centre and no direction. Lengths in meters.",
       "inputSchema": {
         "$defs": {
           "Filter": {
@@ -2629,7 +2629,8 @@
                   "type": "array"
                 },
                 "pid": {
-                  "type": "number"
+                  "pattern": "^[0-9]+$",
+                  "type": "string"
                 },
                 "position": {
                   "items": {
@@ -2638,7 +2639,8 @@
                   "type": "array"
                 },
                 "root_pid": {
-                  "type": "number"
+                  "pattern": "^[0-9]+$",
+                  "type": "string"
                 },
                 "signature": {
                   "type": "object"
@@ -4416,17 +4418,13 @@
                 "type": "object"
               },
               {
-                "description": "Select by **persistent id** — the preferred selector for anything\nthat must stay attached to one specific entity across rebuilds: a\ndrawing dimension's anchor, a PMI item, an `UpTo` termination, a\n3D-sketch attachment (drawings spec D0,\n`specs/drawings_and_mbd.md` §4 item 4).\n\nBoth ids come from `waffle_types::kernel::EntityPid`. `pid` names the\nentity; `root_pid` names where its geometry was introduced, so the\nreference still resolves when a later boolean rebuilt the face it\npointed at. For edges and vertices the two are equal — their ids are\ncontent-seeded through the faces' roots already.\n\nUnlike every other selector this one NEVER rebinds: an entity whose\nid and root are both gone is a loud `ResolutionFailed`, under either\n`ResolvePolicy`. A nearest-match fallback is exactly how an\nannotation ends up dimensioning the wrong edge, and the whole point\nof a persistent id is that its absence is information.",
+                "description": "Select by **persistent id** — the preferred selector for anything\nthat must stay attached to one specific entity across rebuilds: a\ndrawing dimension's anchor, a PMI item, an `UpTo` termination, a\n3D-sketch attachment (drawings spec D0,\n`specs/drawings_and_mbd.md` §4 item 4).\n\nBoth ids come from `waffle_types::kernel::EntityPid`. `pid` names the\nentity; `root_pid` names where its geometry was introduced, so the\nreference still resolves when a later boolean rebuilt the face it\npointed at. For edges and vertices the two are equal — their ids are\ncontent-seeded through the faces' roots already.\n\nBoth are `u64` in Rust and **decimal STRINGS on the wire** — in a\n`.waffle` file (format v10) and in every message and tool payload\nalike. A content-seeded id routinely exceeds `2^53`, where a JSON\nnumber stops being exact in JavaScript; see [`crate::pid_str`] for\nthe measurement and for why there is one representation rather than\none per boundary. Reading accepts a bare number too, so every file\nwritten before the flip still loads.\n\nUnlike every other selector this one NEVER rebinds: an entity whose\nid and root are both gone is a loud `ResolutionFailed`, under either\n`ResolvePolicy`. A nearest-match fallback is exactly how an\nannotation ends up dimensioning the wrong edge, and the whole point\nof a persistent id is that its absence is information.",
                 "properties": {
                   "pid": {
-                    "format": "uint64",
-                    "minimum": 0,
-                    "type": "integer"
+                    "type": "string"
                   },
                   "root_pid": {
-                    "format": "uint64",
-                    "minimum": 0,
-                    "type": "integer"
+                    "type": "string"
                   },
                   "type": {
                     "const": "Pid",
@@ -8917,17 +8915,13 @@
                 "type": "object"
               },
               {
-                "description": "Select by **persistent id** — the preferred selector for anything\nthat must stay attached to one specific entity across rebuilds: a\ndrawing dimension's anchor, a PMI item, an `UpTo` termination, a\n3D-sketch attachment (drawings spec D0,\n`specs/drawings_and_mbd.md` §4 item 4).\n\nBoth ids come from `waffle_types::kernel::EntityPid`. `pid` names the\nentity; `root_pid` names where its geometry was introduced, so the\nreference still resolves when a later boolean rebuilt the face it\npointed at. For edges and vertices the two are equal — their ids are\ncontent-seeded through the faces' roots already.\n\nUnlike every other selector this one NEVER rebinds: an entity whose\nid and root are both gone is a loud `ResolutionFailed`, under either\n`ResolvePolicy`. A nearest-match fallback is exactly how an\nannotation ends up dimensioning the wrong edge, and the whole point\nof a persistent id is that its absence is information.",
+                "description": "Select by **persistent id** — the preferred selector for anything\nthat must stay attached to one specific entity across rebuilds: a\ndrawing dimension's anchor, a PMI item, an `UpTo` termination, a\n3D-sketch attachment (drawings spec D0,\n`specs/drawings_and_mbd.md` §4 item 4).\n\nBoth ids come from `waffle_types::kernel::EntityPid`. `pid` names the\nentity; `root_pid` names where its geometry was introduced, so the\nreference still resolves when a later boolean rebuilt the face it\npointed at. For edges and vertices the two are equal — their ids are\ncontent-seeded through the faces' roots already.\n\nBoth are `u64` in Rust and **decimal STRINGS on the wire** — in a\n`.waffle` file (format v10) and in every message and tool payload\nalike. A content-seeded id routinely exceeds `2^53`, where a JSON\nnumber stops being exact in JavaScript; see [`crate::pid_str`] for\nthe measurement and for why there is one representation rather than\none per boundary. Reading accepts a bare number too, so every file\nwritten before the flip still loads.\n\nUnlike every other selector this one NEVER rebinds: an entity whose\nid and root are both gone is a loud `ResolutionFailed`, under either\n`ResolvePolicy`. A nearest-match fallback is exactly how an\nannotation ends up dimensioning the wrong edge, and the whole point\nof a persistent id is that its absence is information.",
                 "properties": {
                   "pid": {
-                    "format": "uint64",
-                    "minimum": 0,
-                    "type": "integer"
+                    "type": "string"
                   },
                   "root_pid": {
-                    "format": "uint64",
-                    "minimum": 0,
-                    "type": "integer"
+                    "type": "string"
                   },
                   "type": {
                     "const": "Pid",
@@ -13953,17 +13947,13 @@
                 "type": "object"
               },
               {
-                "description": "Select by **persistent id** — the preferred selector for anything\nthat must stay attached to one specific entity across rebuilds: a\ndrawing dimension's anchor, a PMI item, an `UpTo` termination, a\n3D-sketch attachment (drawings spec D0,\n`specs/drawings_and_mbd.md` §4 item 4).\n\nBoth ids come from `waffle_types::kernel::EntityPid`. `pid` names the\nentity; `root_pid` names where its geometry was introduced, so the\nreference still resolves when a later boolean rebuilt the face it\npointed at. For edges and vertices the two are equal — their ids are\ncontent-seeded through the faces' roots already.\n\nUnlike every other selector this one NEVER rebinds: an entity whose\nid and root are both gone is a loud `ResolutionFailed`, under either\n`ResolvePolicy`. A nearest-match fallback is exactly how an\nannotation ends up dimensioning the wrong edge, and the whole point\nof a persistent id is that its absence is information.",
+                "description": "Select by **persistent id** — the preferred selector for anything\nthat must stay attached to one specific entity across rebuilds: a\ndrawing dimension's anchor, a PMI item, an `UpTo` termination, a\n3D-sketch attachment (drawings spec D0,\n`specs/drawings_and_mbd.md` §4 item 4).\n\nBoth ids come from `waffle_types::kernel::EntityPid`. `pid` names the\nentity; `root_pid` names where its geometry was introduced, so the\nreference still resolves when a later boolean rebuilt the face it\npointed at. For edges and vertices the two are equal — their ids are\ncontent-seeded through the faces' roots already.\n\nBoth are `u64` in Rust and **decimal STRINGS on the wire** — in a\n`.waffle` file (format v10) and in every message and tool payload\nalike. A content-seeded id routinely exceeds `2^53`, where a JSON\nnumber stops being exact in JavaScript; see [`crate::pid_str`] for\nthe measurement and for why there is one representation rather than\none per boundary. Reading accepts a bare number too, so every file\nwritten before the flip still loads.\n\nUnlike every other selector this one NEVER rebinds: an entity whose\nid and root are both gone is a loud `ResolutionFailed`, under either\n`ResolvePolicy`. A nearest-match fallback is exactly how an\nannotation ends up dimensioning the wrong edge, and the whole point\nof a persistent id is that its absence is information.",
                 "properties": {
                   "pid": {
-                    "format": "uint64",
-                    "minimum": 0,
-                    "type": "integer"
+                    "type": "string"
                   },
                   "root_pid": {
-                    "format": "uint64",
-                    "minimum": 0,
-                    "type": "integer"
+                    "type": "string"
                   },
                   "type": {
                     "const": "Pid",
@@ -21844,17 +21834,13 @@
                 "type": "object"
               },
               {
-                "description": "Select by **persistent id** — the preferred selector for anything\nthat must stay attached to one specific entity across rebuilds: a\ndrawing dimension's anchor, a PMI item, an `UpTo` termination, a\n3D-sketch attachment (drawings spec D0,\n`specs/drawings_and_mbd.md` §4 item 4).\n\nBoth ids come from `waffle_types::kernel::EntityPid`. `pid` names the\nentity; `root_pid` names where its geometry was introduced, so the\nreference still resolves when a later boolean rebuilt the face it\npointed at. For edges and vertices the two are equal — their ids are\ncontent-seeded through the faces' roots already.\n\nUnlike every other selector this one NEVER rebinds: an entity whose\nid and root are both gone is a loud `ResolutionFailed`, under either\n`ResolvePolicy`. A nearest-match fallback is exactly how an\nannotation ends up dimensioning the wrong edge, and the whole point\nof a persistent id is that its absence is information.",
+                "description": "Select by **persistent id** — the preferred selector for anything\nthat must stay attached to one specific entity across rebuilds: a\ndrawing dimension's anchor, a PMI item, an `UpTo` termination, a\n3D-sketch attachment (drawings spec D0,\n`specs/drawings_and_mbd.md` §4 item 4).\n\nBoth ids come from `waffle_types::kernel::EntityPid`. `pid` names the\nentity; `root_pid` names where its geometry was introduced, so the\nreference still resolves when a later boolean rebuilt the face it\npointed at. For edges and vertices the two are equal — their ids are\ncontent-seeded through the faces' roots already.\n\nBoth are `u64` in Rust and **decimal STRINGS on the wire** — in a\n`.waffle` file (format v10) and in every message and tool payload\nalike. A content-seeded id routinely exceeds `2^53`, where a JSON\nnumber stops being exact in JavaScript; see [`crate::pid_str`] for\nthe measurement and for why there is one representation rather than\none per boundary. Reading accepts a bare number too, so every file\nwritten before the flip still loads.\n\nUnlike every other selector this one NEVER rebinds: an entity whose\nid and root are both gone is a loud `ResolutionFailed`, under either\n`ResolvePolicy`. A nearest-match fallback is exactly how an\nannotation ends up dimensioning the wrong edge, and the whole point\nof a persistent id is that its absence is information.",
                 "properties": {
                   "pid": {
-                    "format": "uint64",
-                    "minimum": 0,
-                    "type": "integer"
+                    "type": "string"
                   },
                   "root_pid": {
-                    "format": "uint64",
-                    "minimum": 0,
-                    "type": "integer"
+                    "type": "string"
                   },
                   "type": {
                     "const": "Pid",

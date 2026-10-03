@@ -134,7 +134,7 @@ by the app's file picker.
 |---|---|---|---|
 | `format` | string | ✔ | Must be exactly `"waffle-iron"`; anything else ⇒ `LoadError::UnknownFormat`. |
 | `version` | u32 | ✔* | Format version (6 since 2026-09-24). `> 6` ⇒ `LoadError::FutureVersion` (refuse, don't guess). *The Rust loader defaults a missing/non-numeric version to `0`, which then fails migration (`no migration path from v0`). |
-| `min_reader_version` | u32 | opt (default 0) | Since 2026-08-28: the oldest reader (by its `FORMAT_VERSION`) that can parse this file. Readers refuse `max(version, min_reader_version) > FORMAT_VERSION` with `FutureVersion`. Writers set it to `MIN_READER_VERSION` (currently 9); bump it together with `version` whenever a change lands that old readers cannot parse — new constraint/selector/`PlaneDefinition` variants included, and any new field a reader must not silently ignore (v5: `GeomRef.scope`, §8 — a v4 reader would drop it and resolve the reference against the wrong part; v6: `Sketch.plane_x_axis`, §9.1 — a v5 reader would derive the basis from the normal and draw the sketch rotated; v9: `Sketch.plane_face`, §9.1 — a v8 reader would drop it and sketch into space where this one refuses). Since v4, new **tab kinds, source kinds and locator kinds do not** require a bump (§5.3), and since Phase 1b (2026-09-08) **new operation kinds do not either** (§7: unknown `Operation` kinds are preserved opaquely). Absent in pre-2026-08-28 files ⇒ no requirement. |
+| `min_reader_version` | u32 | opt (default 0) | Since 2026-08-28: the oldest reader (by its `FORMAT_VERSION`) that can parse this file. Readers refuse `max(version, min_reader_version) > FORMAT_VERSION` with `FutureVersion`. Writers set it to `MIN_READER_VERSION` (currently 10); bump it together with `version` whenever a change lands that old readers cannot parse — new constraint/selector/`PlaneDefinition` variants included, and any new field a reader must not silently ignore (v5: `GeomRef.scope`, §8 — a v4 reader would drop it and resolve the reference against the wrong part; v6: `Sketch.plane_x_axis`, §9.1 — a v5 reader would derive the basis from the normal and draw the sketch rotated; v9: `Sketch.plane_face`, §9.1 — a v8 reader would drop it and sketch into space where this one refuses) — or that changes how an existing value is WRITTEN (v10: a `Selector::Pid`'s ids became decimal strings, §8, so a v9 reader fails on the type). Since v4, new **tab kinds, source kinds and locator kinds do not** require a bump (§5.3), and since Phase 1b (2026-09-08) **new operation kinds do not either** (§7: unknown `Operation` kinds are preserved opaquely). Absent in pre-2026-08-28 files ⇒ no requirement. |
 | `document` | DocumentMetadata | ✔ | §5.1. `document.id` since v4 (writers always emit; a reader minting one for a hand-written file warns). |
 | `sources` | SourceEntry[] | opt (default `[]`) | v4 §5.5: external content the document depends on. |
 | `tabs` | Tab[] | ✔ | At least one tab expected; `load_document` rejects an `active_tab` that names no tab; `load_project` falls back to the first tab. |
@@ -184,6 +184,7 @@ they are converted on load (§4).
 | 7 | 2026-10-03 | `FeatureTree.names` (§6.1): entity names — agent/user labels over persistent references (N1, `specs/agent_mechanical_design.md` §5.2). The field itself is additive and defaulted, but each entry stores a `Selector::Pid` (§8, drawings spec D0) and `Selector` is a serde-tagged enum, so a v6 reader given one fails with a raw unknown-variant error. A new selector variant is a floor bump by §13.3, and this is the first version that writes one. | none (a v6 file parses as-is; absent `names` ⇒ the document has no names). |
 | 8 | 2026-10-03 | `DesignParameter.unit` (`Length \| Angle \| Count \| Ratio`) and `.comment` (P1, `specs/agent_mechanical_design.md` §6): the declared KIND of a design parameter, and a free-text note. Both are additive, defaulted and serialized only when present, and `unit` is a bare string an old reader simply drops — it does NOT fail. The floor moves anyway, by the §13.3 "must not silently ignore" clause: `unit` is the author's written statement that a parameter is an angle, and a reader that drops it hands that number to a length field as millimetres, building a solid the declaring reader refuses to build. Measured, one file and two solids, in `crates/feature-engine/tests/param_unit_floor.rs`. | none (a v7 file parses as-is; absent `unit` ⇒ a plain number that adopts its field's dimension, the pre-P1 behaviour). |
 | 9 | 2026-10-03 | `Sketch.plane_face` (§9.1): the identity of the model face a LOCAL sketch is drawn on — `{target: GeomRef, fallback?: GeomRef, signature: TopoSignature}`, the same pid/fallback pair a name stores (N2, `specs/agent_mechanical_design.md` §5.3 item 3). Additive, defaulted, omitted when absent, and an old reader does not FAIL on it. The floor moves for the v8 reason: a reader that drops it builds a DIFFERENT solid from the same file. With the field, a sketch whose face has been deleted refuses and nothing downstream of it builds; without it, the sketch stays at the frame it was solved in and the extrude on it produces a solid floating where the face used to be. Measured, one file and two solids, in `crates/wasm-bridge/tests/tool_sketch_plane_face.rs::a_reader_that_drops_the_plane_face_builds_a_different_solid`. | none (a v8 file parses as-is; absent `plane_face` ⇒ a sketch with no face identity to re-resolve, the pre-N2 behaviour). |
+| 10 | 2026-10-03 | **A `Selector::Pid`'s `pid` and `root_pid` are decimal STRINGS, not JSON numbers** (§8, `waffle_types::pid_str`). A persistent id is a content-seeded 64-bit hash, so it routinely exceeds `2^53`; a JSON number in JavaScript is an `f64`, and `JSON.parse("2216071694111992607")` yields `2216071694111992600` — not a rounder id but a **different entity**. Every pid crossing the WASM↔JS boundary therefore crosses as a string, and the representation is ONE rather than one per boundary: a type that serializes two ways is a per-site decision, and `Selector::Pid` reaches the page inside a dozen message fields (`ModelUpdated.drawing`, `feature_get`, `names_list`, `assembly_get`, `face_list`, `entity_list`, …), each of which would have to remember. The file follows the wire for that reason alone — **no JS path parses a `.waffle` deeply enough to round one today** (measured: `initDocumentState` reads only `document.id`/`created`; `SaveDocument` carries no payload) — and a v9 reader given a string pid fails with a raw serde type error, so the floor moves. | none: **reading accepts a bare number too** (`waffle_types::pid_str::deserialize`), so every pre-v10 file loads unchanged — pinned by `format_tests.rs::a_pre_v10_numeric_pid_still_loads`. |
 
 Migrations run **sequentially** (v1→v2→v3→v4). They live only in the Rust loader;
 the JS `initDocumentState` applies the same tab-id rewrite so its tab list agrees
@@ -733,6 +734,21 @@ an `AssemblyTree` (§5.6) predates this field and stays where it is.
   `output_key` must still exist. Written by `FeatureTree.names` (§6.1); its
   arrival is what moved the reader floor to 7.
 
+  **Both ids are decimal STRINGS on the wire (v10)** — `{"type": "Pid", "pid":
+  "2216071694111992607", "root_pid": "2216071694111992607"}` — never JSON
+  numbers. A persistent id is a content-seeded 64-bit hash and a JSON number
+  in JavaScript is an `f64`, so an id above `2^53` arrives in the page as a
+  *different entity*. One rule, one implementation:
+  `waffle_types::pid_str`, applied to the type itself rather than per
+  message, so no site chooses. Reading accepts a bare number as well, which
+  is what makes every pre-v10 file load unchanged. The same rule governs every
+  bare `u64` pid in an `EngineToUi`/`UiToEngine` message and every MCP tool
+  argument and result (`ListedEntity.pid`/`root_pid`,
+  `DrawingAnchorSpec.pid`, `ViewAnchor.pid`); the drift oracle is
+  `file-format/tests/schema_golden.rs::no_pid_field_crosses_as_a_number`,
+  which fails if a new `integer`-typed `pid`/`root_pid` appears in a schema
+  golden.
+
 **Reality note:** files in the wild overwhelmingly use `Role` selectors, and a
 sketch-on-face is persisted with a *random* `Datum` UUID anchor plus a
 `Role` selector while the actually-used plane geometry is snapshotted into the
@@ -931,7 +947,11 @@ Anyone changing the format must touch all of them:
    `crates/feature-engine/tests/param_unit_floor.rs`; v9:
    `Sketch.plane_face`, dropping it turns a sketch's loud refusal into the
    pre-N2 silent sketch-into-space —
-   `crates/wasm-bridge/tests/tool_sketch_plane_face.rs`). **Since v4, new tab
+   `crates/wasm-bridge/tests/tool_sketch_plane_face.rs`) — and as does a change
+   to how an EXISTING field is written (v10: a `Selector::Pid`'s `pid` and
+   `root_pid` became decimal strings, §8; the value is the same `u64`, but a
+   v9 reader's `u64` deserializer fails on a JSON string, so the floor moves
+   even though nothing was added). **Since v4, new tab
    kinds, source kinds and locator kinds need no bump, and since Phase 1b
    neither do new operation kinds**: v4 readers preserve unknown ones opaquely
    (§5.3, §5.5, §7). That holds **even when the new kind's payload uses a new
