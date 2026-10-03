@@ -749,6 +749,9 @@ pub struct Lump {
     pub centroid: [f64; 3],
     pub aabb: [[f64; 3]; 2],
     pub exact: bool,
+    /// The render chord band in meters — 0 when `exact`. Carried so Q2 can
+    /// report the band its own numbers sit in rather than inventing a zero.
+    pub chord_bound: f64,
 }
 
 /// The volume, centroid and bounds of a solid, for Q2's per-lump report.
@@ -760,6 +763,7 @@ pub(crate) fn lump_of(arena: &BrepArena, solid: SolidId) -> Result<Lump, KernelV
         centroid: m.centroid,
         aabb: [lo, hi],
         exact: m.exact,
+        chord_bound: m.chord_bound,
     })
 }
 

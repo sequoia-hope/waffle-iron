@@ -2280,6 +2280,7 @@ impl KernelMeasure for KernelV2Adapter {
                 volume,
                 bodies,
                 exact,
+                chord_bound,
             } => Interference::Interferes {
                 volume,
                 bodies: bodies
@@ -2290,7 +2291,7 @@ impl KernelMeasure for KernelV2Adapter {
                         aabb: r.aabb,
                     })
                     .collect(),
-                method: Self::tier(exact, 0.0),
+                method: Self::tier(exact, chord_bound),
             },
             crate::interference::Interference::Contact { evidence, closest } => {
                 Interference::Contact {

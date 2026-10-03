@@ -107,6 +107,12 @@ pub enum Interference {
         /// intersection of two curved operands is a partial-patch B-Rep,
         /// which the moment integrator reads at the mesh tier).
         exact: bool,
+        /// The render chord band of the region in meters — the bound on
+        /// `volume`'s linear dimensions when `exact` is false, 0 when it is
+        /// true. Carried rather than re-derived by the caller: a mesh-tier
+        /// number whose band reads as zero is indistinguishable from an exact
+        /// one, and a mesh volume is LOW by the chord deficit.
+        chord_bound: f64,
     },
     /// Touching, no shared interior.
     Contact {
@@ -175,16 +181,19 @@ pub fn interference(
     let mut bodies = Vec::with_capacity(lumps.len());
     let mut total = 0.0;
     let mut exact = true;
+    let mut chord_bound = 0.0f64;
     for lump in lumps {
         let l = crate::mass::lump_of(&scratch, lump)?;
         total += l.volume;
         exact &= l.exact;
+        chord_bound = chord_bound.max(l.chord_bound);
         bodies.push(RegionBody {
             volume: l.volume,
             centroid: l.centroid,
             aabb: l.aabb,
         });
     }
+
     if total <= SLIVER_VOLUME_FLOOR {
         let closest = crate::measure::distance(arena, Target::Solid(a), Target::Solid(b))?;
         return Ok(Interference::Contact {
@@ -196,6 +205,7 @@ pub fn interference(
         volume: total,
         bodies,
         exact,
+        chord_bound,
     })
 }
 
