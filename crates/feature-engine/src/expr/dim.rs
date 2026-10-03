@@ -127,6 +127,18 @@ impl Dim {
         length: 0,
         angle: 1,
     };
+    /// An area — what `area(face)` measures (D2). No field accepts one, so
+    /// it exists to be composed with (`area(f) / w` is a length) and to be
+    /// refused by name where it does not belong.
+    pub const AREA: Dim = Dim {
+        length: 2,
+        angle: 0,
+    };
+    /// A volume — what `volume(body)` measures (D2).
+    pub const VOLUME: Dim = Dim {
+        length: 3,
+        angle: 0,
+    };
 
     /// Compose: `self · other^sign`, or `None` when an exponent leaves the
     /// representable range.

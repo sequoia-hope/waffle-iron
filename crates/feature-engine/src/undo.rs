@@ -51,6 +51,13 @@ pub enum Command {
         /// Previous override (`None` ⇒ the body had no override / used a derived name).
         old_name: Option<String>,
         new_name: Option<String>,
+        /// D2: a body's name is a measurement argument (`volume(plate)`), so
+        /// a rename rewrites every expression that measures it. Both halves
+        /// are kept for the same reason P5 keeps both for a parameter
+        /// rename: restoring the NAME alone would leave every expression
+        /// reading the other one.
+        old_expressions: crate::params::EntityRenameEdits,
+        new_expressions: crate::params::EntityRenameEdits,
     },
     /// Set or clear one entity name (N1, `specs/agent_mechanical_design.md`
     /// §5.2). `new: None` is the unname. Names affect no geometry, so neither

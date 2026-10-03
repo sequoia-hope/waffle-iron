@@ -6,6 +6,7 @@ pub mod drawing;
 pub mod expr;
 pub mod import_tiers;
 pub mod kicad;
+pub mod measure;
 pub mod names;
 pub mod opaque;
 pub mod params;
@@ -60,6 +61,13 @@ pub struct Engine {
     /// The same errors, typed (`specs/waffle_mcp_server.md` ICR-2):
     /// `feature_errors[i]` describes `errors[i]`.
     pub feature_errors: Vec<FeatureError>,
+    /// How many build→measure passes the last rebuild ran (D2,
+    /// `specs/drawings_and_mbd.md` §6). One for a document that measures
+    /// nothing; at most (measurement sites + 1) for one that does, which is
+    /// the bound [`Engine::rebuild`]'s termination argument rests on.
+    /// Observable so that bound is a thing a test can measure rather than a
+    /// claim in a comment.
+    pub measure_passes: usize,
     /// Feature IDs consumed by a later boolean (should not be rendered).
     pub consumed_features: std::collections::HashSet<Uuid>,
     /// Which feature consumed which (consumer → consumed, in target order),
@@ -116,6 +124,7 @@ impl Engine {
             feature_references: Vec::new(),
             errors: Vec::new(),
             feature_errors: Vec::new(),
+            measure_passes: 0,
             consumed_features: std::collections::HashSet::new(),
             consumed_by: HashMap::new(),
             rebuild_errors: Vec::new(),
@@ -337,12 +346,32 @@ impl Engine {
             Some(trimmed.to_string())
         };
         let old_name = self.tree.set_body_name(&body_id, new.clone());
+        // D2: a body's name is what a measurement argument spells
+        // (`volume(plate)`), so the rename carries the expressions with it.
+        // Rewritten rather than left to break: the expression means the same
+        // thing after the rename, and the author did not ask for a different
+        // measurement. Only a rename of one name ONTO another name — both
+        // present — can be rewritten; clearing an override leaves nothing to
+        // spell, and the expressions then refuse loudly (`MeasurementFailed`),
+        // which is the honest outcome.
+        let (old_expressions, new_expressions) = match (&old_name, &new) {
+            (Some(from), Some(to)) if from != to => {
+                let old = params::rename_entity(&mut self.tree, from, to);
+                let new = params::read_entity_rename(&mut self.tree, &old);
+                (old, new)
+            }
+            _ => Default::default(),
+        };
         self.undo_stack.push(Command::RenameBody {
             body_id,
             old_name,
             new_name: new,
+            old_expressions,
+            new_expressions,
         });
         self.recompute_body_name_inheritance();
+        // No rebuild: the rewritten expressions denote the same entities, so
+        // every measured value is unchanged by construction.
     }
 
     /// Give one entity a name (N1, `specs/agent_mechanical_design.md` §5.2).
@@ -746,9 +775,13 @@ impl Engine {
                 0 // No rebuild needed for rename
             }
             Command::RenameBody {
-                body_id, old_name, ..
+                body_id,
+                old_name,
+                old_expressions,
+                ..
             } => {
                 self.tree.set_body_name(body_id, old_name.clone());
+                params::restore_entity_rename(&mut self.tree, old_expressions);
                 0 // No rebuild needed for rename
             }
             Command::SetEntityName { name, old, .. } => {
@@ -841,9 +874,13 @@ impl Engine {
                 0 // No rebuild needed for rename
             }
             Command::RenameBody {
-                body_id, new_name, ..
+                body_id,
+                new_name,
+                new_expressions,
+                ..
             } => {
                 self.tree.set_body_name(body_id, new_name.clone());
+                params::restore_entity_rename(&mut self.tree, new_expressions);
                 0 // No rebuild needed for rename
             }
             Command::SetEntityName { name, new, .. } => {
@@ -867,16 +904,144 @@ impl Engine {
 
     /// Rebuild the feature tree from the given index, re-executing only what
     /// `changed` reaches (see [`rebuild::Changed`]).
-    fn rebuild(
+    ///
+    /// ## Measurement (D2)
+    ///
+    /// An expression that measures the model (`depth = distance(wall_a,
+    /// wall_b) / 2`, `specs/drawings_and_mbd.md` §6) cannot be evaluated
+    /// before the geometry it measures exists, so a rebuild that has any
+    /// measurement runs more than one pass: build, measure, and — if a
+    /// measured value moved a field — build again from that field's feature.
+    ///
+    /// **Why this terminates.** `crate::measure::TreeMeasurer` enforces
+    /// ordinally that a measurement reads only geometry EARLIER in the tree
+    /// than the expression it drives, so each pass settles the lowest
+    /// unsettled site and never disturbs an earlier one: the sites settle in
+    /// index order, each once. `budget` is that count plus one, and
+    /// exhausting it is a loud typed error rather than a loop — the backstop
+    /// for the one case the ordinal rule cannot see, a name whose owning
+    /// feature the kernel cannot attribute (a mesh-backed import).
+    fn rebuild(&mut self, kb: &mut dyn KernelBundle, from_index: usize, changed: rebuild::Changed) {
+        // Counted before any pass: nothing measures in the overwhelming
+        // majority of documents, and such a document must pay nothing for
+        // D2 beyond this walk.
+        let budget = params::measurement_sites(&mut self.tree).len();
+        if budget == 0 {
+            self.measure_passes = 1;
+            self.rebuild_once(kb, from_index, changed, true);
+            return;
+        }
+        let mut from_index = from_index;
+        let mut changed = changed;
+        for pass in 0..=budget {
+            self.measure_passes = pass + 1;
+            // `false`: the measuring pass below re-evaluates EVERY
+            // expression, so it is the one reporter of expression errors.
+            // Letting both report would duplicate every non-measurement
+            // expression error, and an intermediate pass's errors are
+            // provisional anyway.
+            self.rebuild_once(kb, from_index, changed.clone(), false);
+            let last = pass == budget;
+            let outcome = self.apply_measurements(kb, last.then_some(budget + 1));
+            if outcome.changed.is_empty() || last {
+                // Spliced in FRONT, where `rebuild_once` puts the expression
+                // errors it reports itself: a bad expression is usually the
+                // cause of the rebuild failures below it, and ICR-2's
+                // `feature_errors[i]` ↔ `errors[i]` pairing holds either way
+                // because both lists are spliced in the same order.
+                self.feature_errors.splice(
+                    0..0,
+                    outcome.errors.iter().map(|(id, message)| FeatureError {
+                        feature_id: *id,
+                        kind: ErrorKind::Expression,
+                        message: message.clone(),
+                    }),
+                );
+                self.errors.splice(0..0, outcome.errors);
+                return;
+            }
+            if let Some(at) = outcome.first_changed {
+                from_index = from_index.min(at);
+            }
+            if let rebuild::Changed::Features(ids) = &mut changed {
+                ids.extend(outcome.changed.iter().copied());
+            }
+        }
+    }
+
+    /// Re-evaluate every measuring expression against the geometry that was
+    /// just built, and write what moved back onto the tree (D2).
+    ///
+    /// `spent` is `Some(passes)` on the LAST pass — the budget is gone, so a
+    /// value that is still moving becomes a typed error rather than being
+    /// quietly used, and the error reports how many passes were actually
+    /// run.
+    fn apply_measurements(
+        &mut self,
+        kb: &mut dyn KernelBundle,
+        spent: Option<usize>,
+    ) -> params::ParamOutcome {
+        // The measurer holds owned copies of the name tables, so the apply
+        // pass below can take `&mut self.tree` while it is alive.
+        let measurer = measure::TreeMeasurer::new(
+            &self.tree,
+            &self.feature_results,
+            kb.as_introspect(),
+            kb.as_measure(),
+            &self.pid_to_feature,
+        );
+        let mut outcome = params::apply_parameters_with(&mut self.tree, Some(&measurer));
+        if let (Some(passes), false) = (spent, outcome.changed.is_empty()) {
+            for id in &outcome.changed {
+                let name = self
+                    .tree
+                    .find_feature(*id)
+                    .map(|f| f.name.clone())
+                    .unwrap_or_else(|| id.to_string());
+                outcome.errors.push((
+                    *id,
+                    // `passes` is the budget that was SPENT, not the number
+                    // of features still moving — the two were confused, and
+                    // "did not settle after 1 passes" on a document with one
+                    // runaway field and sixteen passes is not a fact anyone
+                    // can act on.
+                    format!(
+                        "{name}: a measured value did not settle after {passes} passes — the \
+                         measurement and the geometry it reads are feeding each other"
+                    ),
+                ));
+            }
+        }
+        let reads = measurer.read_features();
+        for name in reads.unattributed {
+            // Loud rather than silent: the ordering rule could not be
+            // checked for this name, so the settle budget is all that stands
+            // between it and a loop.
+            self.warnings.push(format!(
+                "the measured entity \"{name}\" belongs to no feature the kernel can name \
+                 (a mesh-backed body has no persistent ids), so its rebuild order was not \
+                 checked"
+            ));
+        }
+        outcome
+    }
+
+    /// One pass: the expression and context passes, then the feature walk.
+    fn rebuild_once(
         &mut self,
         kb: &mut dyn KernelBundle,
         from_index: usize,
         mut changed: rebuild::Changed,
+        report_expressions: bool,
     ) {
         // Design-parameter pass FIRST: refresh every expression-driven
         // measurement (and re-solve affected sketches) so the rebuild below
         // executes against current values. If an expression changed a feature
         // EARLIER than the requested rebuild point, widen to include it.
+        //
+        // No measurer here, ever: the geometry a measurement reads does not
+        // exist yet on the first pass, and `report_expressions` is false
+        // whenever a measuring pass will follow and report these instead.
         let param_outcome = params::apply_parameters(&mut self.tree);
         let from_index = param_outcome
             .first_changed
@@ -939,11 +1104,16 @@ impl Engine {
                 })
                 .collect::<Vec<_>>()
         };
-        self.feature_errors = typed(&param_outcome.errors, ErrorKind::Expression);
+        let param_errors = if report_expressions {
+            param_outcome.errors
+        } else {
+            Vec::new()
+        };
+        self.feature_errors = typed(&param_errors, ErrorKind::Expression);
         self.feature_errors
             .extend(typed(&context_outcome.errors, ErrorKind::Context));
         self.feature_errors.extend(state.feature_errors);
-        self.errors = param_outcome.errors;
+        self.errors = param_errors;
         self.errors.extend(context_outcome.errors);
         self.errors.extend(state.errors);
         self.consumed_features = state.consumed_features;
