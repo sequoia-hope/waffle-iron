@@ -579,8 +579,27 @@ hand-made document can still hold both; `names_list` lists both entries.)
   today's behaviour, and the `#[ignore]`d
   `a_face_name_keeps_its_pid_across_an_edit_to_its_own_feature` holds it
   under the reseed — un-ignore it when that lands. A name over an edit
-  ELSEWHERE in the document keeps its pid
-  (`a_name_survives_an_unrelated_edit_elsewhere_in_the_document_by_pid`).
+  ELSEWHERE in the document keeps its pid *within the session*
+  (`a_name_survives_an_unrelated_edit_elsewhere_in_the_document_by_pid`) —
+  but see the next item, which is the same counter read across a reload.
+- *A reopened document can re-mint a stored pid onto a DIFFERENT face, and
+  the name answers `pid` with no warning.* Measured 2026-10-03: face pids
+  are a per-arena monotonic counter (`kernel_v2::arena::BrepArena::alloc_pid`),
+  so reopening numbers every face again from the recipe. A hexagonal prism
+  edited to a pentagonal one — one face fewer, and not the body that was
+  named — shifted every later body's numbers by one, and the untouched
+  body's `b_top` came back on its neighbour: `resolves: true`,
+  `resolved_by: "pid"`, `warnings: []`. That is a silently wrong answer of
+  precisely the kind `Selector::Pid`'s refuse-never-rebind contract exists
+  to prevent (P9/P10), and it is the first time a pid is persisted, so it is
+  new with this increment. In-session the same edit is LOUD (the counter
+  only climbs, so the stored number is simply gone). **This is D0's open
+  item 1 — content-seeded face pids — and nothing short of it fixes the
+  numbering;** a cross-check against the authored fallback would refuse
+  exactly the cases a pid exists to answer. Pinned by the `#[ignore]`d
+  `a_name_does_not_follow_a_reused_pid_onto_another_face_after_a_reload`;
+  until the reseed lands, a name is trustworthy across a reload only for a
+  document whose earlier features did not change their face counts.
 - *Edge and vertex names are untested against the real kernel.* The table,
   the grammar and the resolution are kind-agnostic and the mock covers all
   three, but every kernel-v2 test here names a FACE. An edge name inherits

@@ -333,7 +333,9 @@ fn a_name_whose_pid_is_gone_still_measures_through_its_fallback() {
         }),
     );
     assert_eq!(
-        measured["distance_m"].as_f64().map(|d| (d - 0.1).abs() < 1e-9),
+        measured["distance_m"]
+            .as_f64()
+            .map(|d| (d - 0.1).abs() < 1e-9),
         Some(true),
         "the fallback's face is 100 mm below the probe point: {measured}"
     );
@@ -827,4 +829,196 @@ fn a_body_cannot_be_renamed_onto_an_entity_name() {
         json!({ "target": { "type": "entity", "geom_ref": face }, "name": "plate" }),
     );
     assert_eq!(code, "NameTaken");
+}
+
+/// An `n`-gon prism (n + 2 faces) as its own body, so a document can be
+/// rebuilt with one body carrying a different number of faces than before.
+/// Returns `(sketch feature id, extrude feature id, body id)`.
+fn ngon_prism(
+    state: &mut EngineState,
+    kernel: &mut KernelV2Adapter,
+    n: u32,
+    r: f64,
+    depth: f64,
+    base: u32,
+) -> (Uuid, Uuid, String) {
+    let sketch = ngon_sketch(n, r, base);
+    let profile = sketch.solved_profiles[0].entity_ids.clone();
+    let sketch_feature = added_id(dispatch(
+        state,
+        UiToEngine::AddFeature {
+            operation: Operation::Sketch { sketch },
+            provenance: None,
+        },
+        kernel,
+    ));
+    let extrude = added_id(dispatch(
+        state,
+        UiToEngine::AddFeature {
+            operation: Operation::Extrude {
+                params: ExtrudeParams {
+                    sketch_id: sketch_feature,
+                    profile_index: 0,
+                    profile_entity_ids: Some(profile),
+                    depth,
+                    depth_expr: None,
+                    direction: None,
+                    symmetric: false,
+                    cut: false,
+                    merge: false,
+                    target_body: None,
+                    depth_mode: DepthMode::Blind,
+                    second_direction: None,
+                    region: None,
+                    regions: Vec::new(),
+                    combine: Some(CombineMode::NewBody),
+                    targets: None,
+                },
+            },
+            provenance: None,
+        },
+        kernel,
+    ));
+    wasm_bridge::tessellation_runner::tessellate_missing_meshes(state, kernel);
+    (
+        sketch_feature,
+        extrude,
+        FeatureTree::body_id(extrude, &OutputKey::Main),
+    )
+}
+
+/// A regular `n`-gon on the XY plane, entity ids from `base`.
+fn ngon_sketch(n: u32, r: f64, base: u32) -> Sketch {
+    let mut entities = Vec::new();
+    let mut solved_positions: HashMap<u32, (f64, f64)> = HashMap::new();
+    for i in 0..n {
+        let a = std::f64::consts::TAU * f64::from(i) / f64::from(n);
+        let (x, y) = (r * a.cos(), r * a.sin());
+        entities.push(point(base + i, x, y));
+        solved_positions.insert(base + i, (x, y));
+    }
+    let mut profile = Vec::new();
+    for i in 0..n {
+        let id = base + 100 + i;
+        profile.push(id);
+        entities.push(line(id, base + i, base + (i + 1) % n));
+    }
+    Sketch {
+        id: Uuid::new_v4(),
+        plane: datum_xy(),
+        plane_origin: [0.0, 0.0, 0.0],
+        plane_normal: [0.0, 0.0, 1.0],
+        plane_x_axis: None,
+        entities,
+        constraints: Vec::new(),
+        solve_status: SolveStatus::FullyConstrained,
+        solved_positions,
+        projected: Vec::new(),
+        solved_profiles: vec![ClosedProfile {
+            entity_ids: profile,
+            is_outer: true,
+            vertex_ids: vec![],
+            circle: None,
+            spline_segments: vec![],
+            arc_segments: vec![],
+        }],
+    }
+}
+
+/// The face of `body` that carries `name`, by its `face_list` entry.
+fn named_face(
+    state: &mut EngineState,
+    kernel: &mut KernelV2Adapter,
+    body: &str,
+    name: &str,
+) -> Value {
+    let all = ok(state, kernel, "face_list", json!({ "body_id": body }));
+    let faces: Vec<&Value> = all["faces"]
+        .as_array()
+        .expect("faces")
+        .iter()
+        .filter(|f| f["name"] == json!(name))
+        .collect();
+    assert_eq!(faces.len(), 1, "exactly one face carries {name}: {all}");
+    faces[0].clone()
+}
+
+/// A name must never answer `resolved_by: "pid"` for an entity that is not
+/// the one it was given to.
+///
+/// Measured 2026-10-03. Face pids are a per-arena monotonic COUNTER
+/// (`kernel_v2::arena::BrepArena::alloc_pid`), not content-seeded, so a
+/// reopened document numbers every face again from the recipe. A document
+/// edited ELSEWHERE — here a hexagonal prism that became a pentagonal one,
+/// one face fewer — therefore shifts the numbers of every body built after
+/// it, and the untouched body's stored pid names its NEIGHBOUR. The listing
+/// reports `resolves: true`, `resolved_by: "pid"`, no warnings: a silently
+/// wrong answer of exactly the kind `Selector::Pid`'s refuse-never-rebind
+/// contract exists to prevent (P9/P10).
+///
+/// In-session the same edit is loud (the counter only climbs, so the stored
+/// pid is simply gone and the authored fallback answers with a warning —
+/// `a_name_over_an_edited_feature_s_own_face_falls_back_and_says_so`). It is
+/// the reload that re-mints the number onto other geometry.
+#[test]
+#[ignore = "D0 item 1: content-seeded FACE pids (the F4a reseed) not landed — face pids are a per-arena counter, so reopening a document edited elsewhere re-mints a stored pid onto a different face and the name answers `pid` with no warning"]
+fn a_name_does_not_follow_a_reused_pid_onto_another_face_after_a_reload() {
+    let mut state = EngineState::new();
+    let mut kernel = KernelV2Adapter::new();
+    // Body A first, so body B's faces are numbered after it.
+    let (sketch_a, extrude_a, _body_a) = ngon_prism(&mut state, &mut kernel, 6, 0.010, 0.002, 1);
+    let (_, _, body_b) = ngon_prism(&mut state, &mut kernel, 3, 0.004, 0.002, 1000);
+    let face = top_face_ref(&mut state, &mut kernel, &body_b);
+    ok(
+        &mut state,
+        &mut kernel,
+        "entity_name",
+        json!({ "target": { "type": "entity", "geom_ref": face }, "name": "b_top" }),
+    );
+    let authored = named_face(&mut state, &mut kernel, &body_b, "b_top");
+
+    // The document is edited elsewhere: body A loses one face. Written into
+    // the tree and saved, which is what a session that edited body A leaves
+    // on disk; body B is untouched.
+    let pentagon = ngon_sketch(5, 0.010, 1);
+    let profile = pentagon.solved_profiles[0].entity_ids.clone();
+    for feature in state.engine.tree.features.iter_mut() {
+        if feature.id == sketch_a {
+            feature.operation = Operation::Sketch {
+                sketch: pentagon.clone(),
+            };
+        }
+        if feature.id == extrude_a {
+            if let Operation::Extrude { params } = &mut feature.operation {
+                params.profile_entity_ids = Some(profile.clone());
+            }
+        }
+    }
+    let json_data = match dispatch(&mut state, UiToEngine::SaveProject, &mut kernel) {
+        EngineToUi::SaveReady { json_data } => json_data,
+        other => panic!("expected SaveReady, got {other:?}"),
+    };
+
+    // Reopened in a fresh engine and a fresh arena: every face is numbered
+    // again from the recipe.
+    let mut state = EngineState::new();
+    let mut kernel = KernelV2Adapter::new();
+    match dispatch(
+        &mut state,
+        UiToEngine::LoadProject { data: json_data },
+        &mut kernel,
+    ) {
+        EngineToUi::ModelUpdated { errors, .. } => {
+            assert!(errors.is_empty(), "the reload rebuilds: {errors:?}")
+        }
+        other => panic!("expected ModelUpdated, got {other:?}"),
+    }
+    wasm_bridge::tessellation_runner::tessellate_missing_meshes(&mut state, &mut kernel);
+
+    let entry = listed(&mut state, &mut kernel, "b_top");
+    let reloaded = named_face(&mut state, &mut kernel, &body_b, "b_top");
+    assert_eq!(
+        reloaded["signature"]["centroid"], authored["signature"]["centroid"],
+        "the name must still be on the face it was given to, or refuse: {entry}"
+    );
 }
