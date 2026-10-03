@@ -64,7 +64,10 @@ use waffle_types::kernel::{
     KernelId, KernelSolidHandle, PipePathSegment, RenderMesh, StepExportBody, SweepSection,
     TopoKind, TopoSignature,
 };
-use waffle_types::kernel::{Kernel, KernelIntrospect};
+use waffle_types::kernel::{
+    Distance, DistanceOpts, EntityRef, Kernel, KernelIntrospect, KernelMeasure, MeasureEntity,
+    Method,
+};
 
 mod profile_convert;
 use profile_convert::*;
@@ -1992,4 +1995,100 @@ fn reentry_census(arena: &crate::BrepArena, face: crate::FaceId) -> String {
         }
     }
     out
+}
+
+// ---------------------------------------------------------------------------
+// KernelMeasure (Q1 of `specs/agent_mechanical_design.md` §4.1)
+// ---------------------------------------------------------------------------
+
+impl KernelV2Adapter {
+    /// A measurement operand as a [`crate::measure::Target`] over this
+    /// adapter's arena.
+    ///
+    /// Typed `NotSupported` for the two operand kinds Q1 does not measure: an
+    /// infinite axis (the pair kernels carry triangles, segments and points,
+    /// not unbounded lines) and a mesh-backed imported body (its triangles
+    /// live outside the arena). Never a substituted operand.
+    fn measure_target(
+        &self,
+        entity: &MeasureEntity,
+    ) -> Result<crate::measure::Target, KernelError> {
+        let unsupported = |what: &str| KernelError::NotSupported {
+            operation: format!("distance to {what} (Q1 measures solid/face/edge/vertex/point)"),
+        };
+        match entity {
+            MeasureEntity::Solid(handle) => {
+                if self.imported_slot_of(handle).is_some() {
+                    return Err(unsupported("a mesh-backed imported body"));
+                }
+                Ok(crate::measure::Target::Solid(self.solid_of(handle)?))
+            }
+            MeasureEntity::Face(id) => match decode(*id) {
+                (TAG_FACE, idx) => Ok(crate::measure::Target::Face(FaceId(idx))),
+                (TAG_IMPORTED_FACE, _) => Err(unsupported("an imported body's face")),
+                _ => Err(KernelError::EntityNotFound { id: *id }),
+            },
+            MeasureEntity::Edge(id) => match decode(*id) {
+                (TAG_EDGE, idx) => Ok(crate::measure::Target::Edge(HalfEdgeId(idx))),
+                (TAG_IMPORTED_EDGE, _) => Err(unsupported("an imported body's edge")),
+                _ => Err(KernelError::EntityNotFound { id: *id }),
+            },
+            MeasureEntity::Vertex(id) => match decode(*id) {
+                (TAG_VERTEX, idx) => Ok(crate::measure::Target::Vertex(VertexId(idx))),
+                (TAG_IMPORTED_VERTEX, _) => Err(unsupported("an imported body's vertex")),
+                _ => Err(KernelError::EntityNotFound { id: *id }),
+            },
+            MeasureEntity::Point(p) => {
+                Ok(crate::measure::Target::Point(Point3::new(p[0], p[1], p[2])))
+            }
+            MeasureEntity::Axis { .. } => Err(unsupported("an infinite axis")),
+        }
+    }
+
+    fn encode_on(on: Option<crate::measure::On>) -> Option<EntityRef> {
+        on.map(|on| match on {
+            crate::measure::On::Face(f) => EntityRef {
+                entity: encode_face(f),
+                kind: TopoKind::Face,
+            },
+            crate::measure::On::Edge(h) => EntityRef {
+                entity: encode_edge(h),
+                kind: TopoKind::Edge,
+            },
+            crate::measure::On::Vertex(v) => EntityRef {
+                entity: encode_vertex(v),
+                kind: TopoKind::Vertex,
+            },
+        })
+    }
+}
+
+impl KernelMeasure for KernelV2Adapter {
+    fn distance(
+        &self,
+        a: &MeasureEntity,
+        b: &MeasureEntity,
+        opts: &DistanceOpts,
+    ) -> Result<Distance, KernelError> {
+        let (ta, tb) = (self.measure_target(a)?, self.measure_target(b)?);
+        let r = match opts.along {
+            None => crate::measure::distance(&self.arena, ta, tb),
+            Some(dir) => crate::measure::distance_along(&self.arena, ta, tb, dir),
+        }
+        .map_err(|e| KernelError::Other {
+            message: format!("distance measurement: {e}"),
+        })?;
+        Ok(Distance {
+            value: r.value,
+            points: [r.points[0].as_array(), r.points[1].as_array()],
+            on: [Self::encode_on(r.on[0]), Self::encode_on(r.on[1])],
+            method: if r.exact {
+                Method::Exact
+            } else {
+                Method::Mesh {
+                    chord_bound: r.chord_bound,
+                }
+            },
+        })
+    }
 }

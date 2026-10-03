@@ -428,6 +428,16 @@ pub enum UiToEngine {
     MeasureBody {
         body_id: String,
     },
+    /// The minimum distance between two operands, and the closest point on
+    /// each (Q1 of `specs/agent_mechanical_design.md` §4.2). With `along`,
+    /// the gap along that direction instead — negative when the operands
+    /// overlap along it. Query: no rebuild.
+    MeasureDistance {
+        a: MeasureOperand,
+        b: MeasureOperand,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        along: Option<[f64; 3]>,
+    },
     /// Every face of a body as the `GeomRef` the viewport's face ranges carry,
     /// with its signature (`specs/waffle_mcp_server.md` ICR-3). `filter` uses
     /// the `TopoQuery` filter rules (`tie_break` is ignored: a listing returns
@@ -617,6 +627,36 @@ pub struct ListedFace {
     pub signature: waffle_types::TopoSignature,
 }
 
+/// One operand of [`UiToEngine::MeasureDistance`] (Q1 §4.3): a whole body, a
+/// face / edge / vertex named by the `GeomRef` `face_list` hands out, or a
+/// free point in space (meters).
+///
+/// An axis operand is not in Q1 — the kernel refuses it, typed, rather than
+/// approximating it as a long segment.
+// A `GeomRef` operand dwarfs a point one, as it does in every message that
+// carries a reference (see `UiToEngine`): two of these exist per call, and
+// boxing one arm would buy nothing but a serde indirection.
+#[allow(clippy::large_enum_variant)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(tag = "type", rename_all = "snake_case")]
+pub enum MeasureOperand {
+    Body { body_id: String },
+    Entity { geom_ref: waffle_types::GeomRef },
+    Point { point: [f64; 3] },
+}
+
+/// What a measured closest point lies on (Q1).
+///
+/// `kernel_id` is the kernel's TRANSIENT entity id: stable within this kernel
+/// session only, never to be persisted — a durable reference is a `GeomRef`.
+/// It is here so a caller can tell two answers apart and match a point to an
+/// entity it already listed in the same session.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct MeasuredOn {
+    pub kind: waffle_types::TopoKind,
+    pub kernel_id: u64,
+}
+
 /// How a [`Measured`] quantity was obtained.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
@@ -752,6 +792,25 @@ pub enum EngineToUi {
         vertex_count: usize,
         /// Every edge bounds exactly two faces.
         closed: bool,
+    },
+
+    /// Answer to `MeasureDistance` (Q1). Lengths in meters.
+    ///
+    /// `method` is `exact` only when the kernel could certify the number
+    /// analytically; otherwise it is `mesh` and `chord_bound_m` is the band
+    /// the true value lies within. A mesh number is never presented as exact.
+    DistanceMeasured {
+        /// The distance, or the gap along the requested direction (negative
+        /// when the operands overlap along it).
+        value_m: f64,
+        method: MeasureMethod,
+        /// The tessellation band, in meters — the bound on `value_m` when
+        /// `method` is `mesh`. Reported either way.
+        chord_bound_m: f64,
+        /// The closest point on the first operand, then on the second.
+        points: [[f64; 3]; 2],
+        /// What each point lies on; `null` for a free-point operand.
+        on: [Option<MeasuredOn>; 2],
     },
 
     /// Save project is ready.

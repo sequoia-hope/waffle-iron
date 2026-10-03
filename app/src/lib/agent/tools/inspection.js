@@ -122,6 +122,72 @@ export const bodyMeasureTool = {
 	annotations: readOnly('Measure body')
 };
 
+const measureOperand = {
+	type: 'object',
+	description:
+		'A measurement operand: {"type":"body","body_id":…} (from model_summary.bodies), ' +
+		'{"type":"entity","geom_ref":…} (a face/edge/vertex GeomRef from face_list), or ' +
+		'{"type":"point","point":[x,y,z]} (meters).',
+	properties: {
+		type: { type: 'string', enum: ['body', 'entity', 'point'] },
+		body_id: { type: 'string' },
+		geom_ref: { type: 'object' },
+		point: { type: 'array', items: { type: 'number' }, minItems: 3, maxItems: 3 }
+	},
+	required: ['type']
+};
+
+export const measureDistanceTool = {
+	name: 'measure_distance',
+	description:
+		'Minimum distance in meters between two operands (bodies, faces, edges, vertices or points), ' +
+		'with the closest point on each and what that point lies on. method is "exact" when the kernel ' +
+		'certified the number from the analytic surfaces, else "mesh" and chord_bound_m is the band the ' +
+		'true value lies within. along asks for the gap along a direction instead of the minimum ' +
+		'distance, and comes back negative when the operands overlap along it. An axis operand and a ' +
+		'mesh-backed imported body are not supported yet: they refuse rather than approximate.',
+	inputSchema: {
+		type: 'object',
+		properties: {
+			a: measureOperand,
+			b: measureOperand,
+			along: {
+				type: ['array', 'null'],
+				items: { type: 'number' },
+				minItems: 3,
+				maxItems: 3,
+				description: 'Measure the gap along this direction instead of the minimum distance.'
+			}
+		},
+		required: ['a', 'b'],
+		additionalProperties: false
+	},
+	outputSchema: {
+		type: 'object',
+		properties: {
+			distance_m: { type: 'number' },
+			method: { type: 'string', enum: ['exact', 'mesh'] },
+			chord_bound_m: { type: 'number' },
+			points: {
+				type: 'array',
+				items: { type: 'array', items: { type: 'number' } },
+				minItems: 2,
+				maxItems: 2
+			},
+			on: {
+				type: 'array',
+				items: {
+					type: ['object', 'null'],
+					properties: { kind: { type: 'object' }, kernel_id: { type: 'integer' } }
+				}
+			},
+			along: { type: ['array', 'null'], items: { type: 'number' } }
+		},
+		required: ['distance_m', 'method', 'points', 'on']
+	},
+	annotations: readOnly('Measure distance')
+};
+
 export const faceListTool = {
 	name: 'face_list',
 	description:

@@ -1805,6 +1805,25 @@ fn shoelace_area(pts: &[(f64, f64)]) -> f64 {
     area / 2.0
 }
 
+/// Q1 (`specs/agent_mechanical_design.md` §4.1): the mock has no analytic
+/// surfaces to project onto and no tessellation to seed from, so it refuses
+/// every measurement, typed. A unit test that needs a real distance needs
+/// kernel-v2 — a mock number here would be a fabricated measurement, which is
+/// worse than no answer.
+impl super::measure::KernelMeasure for MockKernel {
+    fn distance(
+        &self,
+        _a: &super::measure::MeasureEntity,
+        _b: &super::measure::MeasureEntity,
+        _opts: &super::measure::DistanceOpts,
+    ) -> Result<super::measure::Distance, KernelError> {
+        Err(KernelError::NotSupported {
+            operation: "distance measurement (MockKernel carries no geometry to measure)"
+                .to_string(),
+        })
+    }
+}
+
 impl KernelIntrospect for MockKernel {
     fn list_faces(&self, solid: &KernelSolidHandle) -> Vec<KernelId> {
         self.solids
@@ -2145,6 +2164,35 @@ mod tests {
                 !neighbors.contains(face),
                 "A face should not be its own neighbor"
             );
+        }
+    }
+
+    /// Q1 (`specs/agent_mechanical_design.md` §4.1): the mock refuses every
+    /// measurement with a typed `NotSupported` that says why. A fabricated
+    /// distance would be worse than no answer — a unit test that needs a real
+    /// one needs kernel-v2.
+    #[test]
+    fn measurement_is_a_typed_refusal_not_a_number() {
+        use super::super::measure::{DistanceOpts, KernelMeasure, MeasureEntity};
+        let mut kernel = MockKernel::new();
+        let (handle, solid) = kernel.make_box_solid(1.0, 1.0, 1.0);
+        kernel.solids.insert(handle.raw(), solid);
+
+        let err = kernel
+            .distance(
+                &MeasureEntity::Solid(handle),
+                &MeasureEntity::Point([5.0, 0.0, 0.0]),
+                &DistanceOpts::default(),
+            )
+            .expect_err("the mock cannot measure");
+        match err {
+            KernelError::NotSupported { operation } => {
+                assert!(
+                    operation.contains("MockKernel"),
+                    "the refusal names the reason: {operation}"
+                );
+            }
+            other => panic!("want a typed capability refusal, got {other:?}"),
         }
     }
 

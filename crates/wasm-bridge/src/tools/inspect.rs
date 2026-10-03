@@ -172,6 +172,83 @@ pub(super) fn body_measure(
     Ok(out)
 }
 
+/// The minimum distance between two operands, and the closest point on each
+/// (Q1 of `specs/agent_mechanical_design.md` §4.2/§4.3).
+///
+/// `method` is `exact` only when the kernel certified the number analytically;
+/// otherwise it is `mesh` and `chord_bound_m` is the band the true value lies
+/// within. `along` asks for the gap along a direction instead of the minimum
+/// distance, and comes back negative when the operands overlap along it.
+pub(super) fn measure_distance(
+    state: &mut EngineState,
+    kb: &mut dyn KernelBundle,
+    args: &Value,
+) -> Answer {
+    let operand = |name: &str| -> Result<crate::messages::MeasureOperand, ToolFailure> {
+        let value = args.get(name).ok_or_else(|| {
+            ToolFailure::new(
+                "InvalidArguments",
+                format!("{name} is required."),
+                json!({ "reason": format!("{name} is required.") }),
+            )
+        })?;
+        serde_json::from_value(value.clone()).map_err(|e| {
+            ToolFailure::new(
+                "InvalidArguments",
+                format!(
+                    "{name}: {e}. An operand is {{\"type\":\"body\",\"body_id\":…}}, \
+                     {{\"type\":\"entity\",\"geom_ref\":…}} or \
+                     {{\"type\":\"point\",\"point\":[x,y,z]}}."
+                ),
+                json!({ "reason": e.to_string() }),
+            )
+        })
+    };
+    let (a, b) = (operand("a")?, operand("b")?);
+    let along = match args.get("along") {
+        None | Some(Value::Null) => None,
+        Some(value) => Some(serde_json::from_value(value.clone()).map_err(|e| {
+            ToolFailure::new(
+                "InvalidArguments",
+                format!("along: {e}. A direction is [x, y, z]."),
+                json!({ "reason": e.to_string() }),
+            )
+        })?),
+    };
+
+    let response = engine_call(
+        state,
+        kb,
+        "MeasureDistance",
+        UiToEngine::MeasureDistance { a, b, along },
+    )?;
+    let EngineToUi::DistanceMeasured {
+        value_m,
+        method,
+        chord_bound_m,
+        points,
+        on,
+    } = &response
+    else {
+        return Err(unexpected("MeasureDistance", "DistanceMeasured", &response));
+    };
+
+    let exact = matches!(method, crate::messages::MeasureMethod::Exact);
+    let mut out = json!({
+        "distance_m": value_m,
+        "method": if exact { "exact" } else { "mesh" },
+        "points": points,
+        "on": on,
+    });
+    if !exact {
+        out["chord_bound_m"] = json!(chord_bound_m);
+    }
+    if along.is_some() {
+        out["along"] = json!(along);
+    }
+    Ok(out)
+}
+
 /// The faces of one body, each with the `GeomRef` that names it (ICR-3).
 pub(super) fn face_list(
     state: &mut EngineState,

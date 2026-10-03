@@ -1,5 +1,5 @@
 {
-  "manifest_hash": "aa63e2076b39fd29084d11bb5ac2b1b49404a73c5dfea606dc1c42befe64d302",
+  "manifest_hash": "d3df0965db7c088cbaa94c0e46c63e5815d334a54be443f1b35d3b1b067277b1",
   "protocol": "waffle-agent-link/1",
   "tools": [
     {
@@ -1595,6 +1595,159 @@
           "edge_count",
           "vertex_count",
           "closed"
+        ],
+        "type": "object"
+      }
+    },
+    {
+      "annotations": {
+        "readOnlyHint": true,
+        "title": "Measure distance"
+      },
+      "description": "Minimum distance in meters between two operands (bodies, faces, edges, vertices or points), with the closest point on each and what that point lies on. method is \"exact\" when the kernel certified the number from the analytic surfaces, else \"mesh\" and chord_bound_m is the band the true value lies within. along asks for the gap along a direction instead of the minimum distance, and comes back negative when the operands overlap along it. An axis operand and a mesh-backed imported body are not supported yet: they refuse rather than approximate.",
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "a": {
+            "description": "A measurement operand: {\"type\":\"body\",\"body_id\":…} (from model_summary.bodies), {\"type\":\"entity\",\"geom_ref\":…} (a face/edge/vertex GeomRef from face_list), or {\"type\":\"point\",\"point\":[x,y,z]} (meters).",
+            "properties": {
+              "body_id": {
+                "type": "string"
+              },
+              "geom_ref": {
+                "type": "object"
+              },
+              "point": {
+                "items": {
+                  "type": "number"
+                },
+                "maxItems": 3,
+                "minItems": 3,
+                "type": "array"
+              },
+              "type": {
+                "enum": [
+                  "body",
+                  "entity",
+                  "point"
+                ],
+                "type": "string"
+              }
+            },
+            "required": [
+              "type"
+            ],
+            "type": "object"
+          },
+          "along": {
+            "description": "Measure the gap along this direction instead of the minimum distance.",
+            "items": {
+              "type": "number"
+            },
+            "maxItems": 3,
+            "minItems": 3,
+            "type": [
+              "array",
+              "null"
+            ]
+          },
+          "b": {
+            "description": "A measurement operand: {\"type\":\"body\",\"body_id\":…} (from model_summary.bodies), {\"type\":\"entity\",\"geom_ref\":…} (a face/edge/vertex GeomRef from face_list), or {\"type\":\"point\",\"point\":[x,y,z]} (meters).",
+            "properties": {
+              "body_id": {
+                "type": "string"
+              },
+              "geom_ref": {
+                "type": "object"
+              },
+              "point": {
+                "items": {
+                  "type": "number"
+                },
+                "maxItems": 3,
+                "minItems": 3,
+                "type": "array"
+              },
+              "type": {
+                "enum": [
+                  "body",
+                  "entity",
+                  "point"
+                ],
+                "type": "string"
+              }
+            },
+            "required": [
+              "type"
+            ],
+            "type": "object"
+          }
+        },
+        "required": [
+          "a",
+          "b"
+        ],
+        "type": "object"
+      },
+      "name": "measure_distance",
+      "outputSchema": {
+        "properties": {
+          "along": {
+            "items": {
+              "type": "number"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          },
+          "chord_bound_m": {
+            "type": "number"
+          },
+          "distance_m": {
+            "type": "number"
+          },
+          "method": {
+            "enum": [
+              "exact",
+              "mesh"
+            ],
+            "type": "string"
+          },
+          "on": {
+            "items": {
+              "properties": {
+                "kernel_id": {
+                  "type": "integer"
+                },
+                "kind": {
+                  "type": "object"
+                }
+              },
+              "type": [
+                "object",
+                "null"
+              ]
+            },
+            "type": "array"
+          },
+          "points": {
+            "items": {
+              "items": {
+                "type": "number"
+              },
+              "type": "array"
+            },
+            "maxItems": 2,
+            "minItems": 2,
+            "type": "array"
+          }
+        },
+        "required": [
+          "distance_m",
+          "method",
+          "points",
+          "on"
         ],
         "type": "object"
       }

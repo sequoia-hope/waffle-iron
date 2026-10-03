@@ -12,7 +12,7 @@ use crate::messages::{
     AssemblyStatus, ConnectorFrameInfo, ContextInstanceInfo, ContextStatus, DocumentInfo,
     EngineToUi, PartConnectorInfo, SourceStatus, UiToEngine,
 };
-use crate::messages::{ListedFace, MeasureMethod, Measured};
+use crate::messages::{ListedFace, MeasureMethod, MeasureOperand, Measured, MeasuredOn};
 use crate::session::DocumentSession;
 
 /// Dispatch a UI message to the engine and return a response.
@@ -914,6 +914,7 @@ fn handle_message(
         }
 
         UiToEngine::MeasureBody { body_id } => measure_body(state, kb, &body_id),
+        UiToEngine::MeasureDistance { a, b, along } => measure_distance(state, kb, &a, &b, along),
         UiToEngine::ListFaces { body_id, filter } => {
             list_faces(state, kb, &body_id, filter.as_ref())
         }
@@ -1155,6 +1156,106 @@ fn measure_body(
         edge_count: edges.len(),
         vertex_count: introspect.list_vertices(&body.handle).len(),
         closed,
+    })
+}
+
+/// `MeasureDistance` (Q1 of `specs/agent_mechanical_design.md` §4.2): the
+/// minimum distance between two operands, or the gap along a direction.
+///
+/// The kernel answers; this handler only turns operands into kernel entities
+/// and the answer into the wire shape. A `GeomRef` operand is resolved exactly
+/// as a feature resolves one (`resolve_geom_ref_live`), so the face an agent
+/// listed is the face it measures — and a reference that no longer identifies
+/// one entity fails here, loudly, instead of measuring something else.
+fn measure_distance(
+    state: &mut EngineState,
+    kb: &mut dyn KernelBundle,
+    a: &MeasureOperand,
+    b: &MeasureOperand,
+    along: Option<[f64; 3]>,
+) -> Result<EngineToUi, BridgeError> {
+    use waffle_types::kernel::{DistanceOpts, MeasureEntity, Method};
+    use waffle_types::TopoKind;
+
+    let operand = |state: &EngineState,
+                   introspect: &dyn KernelIntrospect,
+                   op: &MeasureOperand|
+     -> Result<MeasureEntity, BridgeError> {
+        match op {
+            MeasureOperand::Point { point } => Ok(MeasureEntity::Point(*point)),
+            MeasureOperand::Body { body_id } => {
+                let body =
+                    find_body(state, body_id).ok_or_else(|| BridgeError::InvalidRequest {
+                        reason: format!("no live body {body_id}"),
+                    })?;
+                Ok(MeasureEntity::Solid(body.handle.clone()))
+            }
+            MeasureOperand::Entity { geom_ref } => {
+                let resolved = feature_engine::resolve::resolve_geom_ref_live(
+                    geom_ref,
+                    &state.engine.feature_results,
+                    introspect,
+                )
+                .map_err(|e| BridgeError::InvalidRequest {
+                    reason: format!("the reference does not resolve: {e}"),
+                })?;
+                Ok(match geom_ref.kind {
+                    TopoKind::Face => MeasureEntity::Face(resolved.kernel_id),
+                    TopoKind::Edge => MeasureEntity::Edge(resolved.kernel_id),
+                    TopoKind::Vertex => MeasureEntity::Vertex(resolved.kernel_id),
+                    // A shell or solid reference is a BODY, which the
+                    // `body` operand names directly; refuse rather than
+                    // guess which body a bare kind means.
+                    other => {
+                        return Err(BridgeError::InvalidRequest {
+                            reason: format!(
+                                "a {other:?} reference is not a measurement operand; \
+                                 name the body with `body_id`"
+                            ),
+                        })
+                    }
+                })
+            }
+        }
+    };
+
+    let introspect = kb.as_introspect();
+    let (ea, eb) = (
+        operand(state, introspect, a)?,
+        operand(state, introspect, b)?,
+    );
+    // A kernel capability wall stays a capability wall on the wire
+    // (`NotImplemented`), not a bad request: an axis operand or a mesh-backed
+    // imported body is a roadmap item, and a caller must not retry it with
+    // different numbers.
+    let d = kb
+        .as_measure()
+        .distance(&ea, &eb, &DistanceOpts { along })
+        .map_err(|e| match e {
+            waffle_types::kernel::KernelError::NotSupported { operation } => {
+                BridgeError::NotImplemented { operation }
+            }
+            other => BridgeError::InvalidRequest {
+                reason: other.to_string(),
+            },
+        })?;
+
+    let on = |slot: Option<waffle_types::kernel::EntityRef>| {
+        slot.map(|r| MeasuredOn {
+            kind: r.kind,
+            kernel_id: r.entity.0,
+        })
+    };
+    let (method, chord_bound_m) = match d.method {
+        Method::Exact => (MeasureMethod::Exact, 0.0),
+        Method::Mesh { chord_bound } => (MeasureMethod::Mesh, chord_bound),
+    };
+    Ok(EngineToUi::DistanceMeasured {
+        value_m: d.value,
+        method,
+        chord_bound_m,
+        points: d.points,
+        on: [on(d.on[0]), on(d.on[1])],
     })
 }
 

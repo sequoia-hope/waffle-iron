@@ -38,6 +38,10 @@ const READ_ONLY = [
 	'model_summary',
 	'feature_get',
 	'body_measure',
+	// Q1 of `specs/agent_mechanical_design.md` §4.3; the Rust side pins its
+	// answers (`crates/wasm-bridge/tests/measure_distance.rs`), this list only
+	// pins that the page routes it to the engine.
+	'measure_distance',
 	'face_list',
 	'sketch_regions',
 	'expression_evaluate',
