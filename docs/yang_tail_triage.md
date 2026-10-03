@@ -51,7 +51,8 @@ UNSUPPORTED(coplanar-boolean) in 991 s at 8 jobs — 17 finding signatures.
 `prospect_minimize` (1572 s, 16 of 17 signatures; the `timeout` row had no
 lineage to minimize — see "The two TIMEOUTs" below) reduced them to 2–5 steps
 each. Grouped by error TEXT with the boolean VERB stripped, the 21 ERROR rows
-are **eleven** families, not fifteen.
+are **twelve** families, not fifteen — and ten of those twelve have no
+current corpus customer.
 
 ### The three SUPPORTED_WRONG rows are three different silent wrongs
 

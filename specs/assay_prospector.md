@@ -376,7 +376,7 @@ adjudication evidence and the retirements live in
 
 1. **Dedupe by error TEXT, not by signature.** The signature keys on the
    boolean VERB too, so the 21 ERROR rows presented as 15 signatures but are
-   **eleven** families; four of those fifteen were the same text reached
+   **twelve** families; four of those fifteen were the same text reached
    through a different verb or the auto-union path.
 2. **A SUPPORTED_WRONG signature (`wrong[exact_volume]`) is far too coarse to
    dedupe on.** Seed 2's three WRONG rows share it and are three unrelated
