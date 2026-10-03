@@ -1,0 +1,59 @@
+{
+  "id": "P0010",
+  "description": "4 ops, scale=1.19e-2, extrude(polygon,boss)+extrude(polygon,boss)+extrude(circle,boss)+boolean-union — prospector seed 2 index 159, hand-reduced 2026-10-03 (8 ops -> 4 by dropping three cuts and re-pointing body_a; the kept features are the generated document's own, UNROUNDED, so no minted contact). Two square bosses that never meet (merge:true, so the engine keeps TWO bodies: 1.273494e-6 and 7.830e-8), a standalone circle boss (6.4706e-7), then an explicit BooleanCombine Union of the SECOND boss's Main with the standalone. SILENT WRONG: the live set goes from 3 non-empty bodies totalling 1.998854e-6 to 2 totalling 7.253601e-7 — exactly the union's own two operands (7.830e-8 + 6.4706e-7) — and the UNINVOLVED first body's 1.273494e-6 (64 % of the model) is gone. A union cannot reduce total volume, so the refutation is arithmetic and needs no oracle; the exact-membership lattice agrees independently (1.922222e-6, stable over 192/256/384/512 cells x phases 0.5/0.25). rel -6.226e-1; byte-identical rel at x1e-3 and x1e3; smallest authored length 1.24e-3 = 1240x MIN_FEATURE_SIZE. Same family as P0011 (a chained Union keeping one body of a two-body operand). SUPPORTED_WRONG-class pin, derived_meta: the in-line exact-membership oracle supplies the expectation; the conversion adjudicates chi and volume and moves the pin.",
+  "master_seed": 0,
+  "test_seed": 0,
+  "scale": 0.011928307514147623,
+  "log_scale": -1.9234211732123463,
+  "plane_origin": [
+    0.0,
+    0.0,
+    0.0
+  ],
+  "plane_normal": [
+    0.0,
+    1.0,
+    0.0
+  ],
+  "operations": [
+    {
+      "kind": "extrude",
+      "profile_type": "unknown",
+      "profile_size": 0.0,
+      "depth_or_angle": 0.011473697641051892,
+      "is_cut": false
+    },
+    {
+      "kind": "extrude",
+      "profile_type": "unknown",
+      "profile_size": 0.0,
+      "depth_or_angle": 0.010222353645926573,
+      "is_cut": false
+    },
+    {
+      "kind": "extrude",
+      "profile_type": "unknown",
+      "profile_size": 0.0,
+      "depth_or_angle": 0.0049144926317009775,
+      "is_cut": false
+    },
+    {
+      "kind": "boolean-union",
+      "profile_type": "none",
+      "profile_size": 0.0,
+      "depth_or_angle": 0.0,
+      "is_cut": false
+    }
+  ],
+  "oracles": {
+    "euler_target": 2,
+    "expect_watertight": true,
+    "max_bbox_extent": 1.1928307514147622,
+    "expect_positive_volume": true,
+    "volume_monotonicity": [],
+    "expect_rebuild_error": false,
+    "derived_meta": true
+  },
+  "generator_version": 100,
+  "featured": true
+}

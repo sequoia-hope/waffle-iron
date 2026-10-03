@@ -1,0 +1,52 @@
+{
+  "id": "P0017",
+  "description": "3 ops, scale=1.66e-3, extrude(polygon,boss)+revolve(polygon,boss)+extrude(circle,cut) — prospector seed 2 index 27 minimized 2026-10-03 (3 ops, profiles simplified, 17 verdicts): a square boss, a 10-vertex non-convex polygon REVOLVE boss (whose lateral is a fan of cone bands), then a circle cut. boolean_subtract CurvedGeometryMismatch { face: FaceId(25), reason: \"bounded cone patch must have exactly one material-CCW loop\" } — kernel-v2's curved-patch postcondition rejects its own output face: a bounded cone patch came back with zero or several material-CCW loops. Smallest authored length 9.14e-5 = 91x MIN_FEATURE_SIZE; ERROR at both x1e-3 and x1e3. The cylinder twin of this postcondition is P0018. ERROR-class pin, derived_meta: expectations unadjudicated until conversion.",
+  "master_seed": 0,
+  "test_seed": 0,
+  "scale": 0.001664026710533139,
+  "log_scale": -2.7788397068048813,
+  "plane_origin": [
+    0.0,
+    0.0,
+    0.0
+  ],
+  "plane_normal": [
+    0.0,
+    1.0,
+    0.0
+  ],
+  "operations": [
+    {
+      "kind": "extrude",
+      "profile_type": "unknown",
+      "profile_size": 0.0,
+      "depth_or_angle": 0.0002,
+      "is_cut": false
+    },
+    {
+      "kind": "revolve",
+      "profile_type": "unknown",
+      "profile_size": 0.0,
+      "depth_or_angle": 147.0,
+      "is_cut": false
+    },
+    {
+      "kind": "extrude",
+      "profile_type": "unknown",
+      "profile_size": 0.0,
+      "depth_or_angle": 0.001664026710533139,
+      "is_cut": true
+    }
+  ],
+  "oracles": {
+    "euler_target": 2,
+    "expect_watertight": true,
+    "max_bbox_extent": 0.16640267105331388,
+    "expect_positive_volume": true,
+    "volume_monotonicity": [],
+    "expect_rebuild_error": false,
+    "derived_meta": true
+  },
+  "generator_version": 100,
+  "featured": true
+}

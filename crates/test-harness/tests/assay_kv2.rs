@@ -1475,6 +1475,104 @@ fn smoke_corpus_boundary_categories() {
         // oracle: two bodies (the first boss never merges), χ 4.
         ("P0008", Category::SupportedCorrect),
         ("P0009", Category::SupportedCorrect),
+        // P0010–P0022 PROMOTED 2026-10-03 (prospector seed 2 × 200 candidates,
+        // adjudicated per `specs/assay_prospector.md` §8: each minimum
+        // re-judged on the current kernel, measured against
+        // `MIN_FEATURE_SIZE`, and judged again at ×1e-3 and ×1e3).
+        //
+        // P0010–P0012 are three DIFFERENT silent wrongs, each localized by
+        // bisecting the chain (every prefix judged on its own, the
+        // exact-membership lattice read at 192/256/384/512 cells on two
+        // phases — stable to < 1 % on every rung, so the gaps are not its
+        // noise). They are pinned SUPPORTED_WRONG: the corpus records a
+        // finding honestly until the kernel converts it.
+        //
+        // P0010 / P0011: a `BooleanCombine` whose operand resolves to a
+        // MULTI-BODY output emits only one body's worth of material. Neither
+        // needs an oracle — the live-volume total DROPS across a union,
+        // which is arithmetically impossible. P0010 (4 ops): two square
+        // bosses that never meet (`merge: true` ⇒ two bodies, 1.273494e-6 and
+        // 7.830e-8), a standalone circle boss (6.4706e-7), then a Union of
+        // the SECOND boss's Main with the standalone — 3 non-empty bodies
+        // totalling 1.998854e-6 become 2 totalling 7.253601e-7, exactly the
+        // union's own two operands, with the UNINVOLVED first body's 64 %
+        // gone, watertight, χ 4, no error and no warning. P0011 (5 ops):
+        // boss (1114.81) + standalone boss (3468.21) + Union (DISJOINT, so
+        // the output is still two bodies and the total is unchanged at
+        // 4583.02 — CORRECT) + standalone boss (9563.76; 14146.78 — CORRECT)
+        // + a second Union anchored on the FIRST union's Main ⇒ 2 bodies,
+        // 10678.57 = 1114.81 + 9563.76 exactly, the first union's second body
+        // dropped. Both are byte-identical in `rel` at ×1e-3 AND ×1e3.
+        ("P0010", Category::SupportedWrong),
+        ("P0011", Category::SupportedWrong),
+        // P0012: a `ThroughAll` cut whose target lies entirely behind its
+        // sketch plane removes NOTHING (72016 = 72000 + 16 exactly, against a
+        // lattice 62146). Root cause CONFIRMED BY CODE READING, not inferred:
+        // `resolve_depth(DepthMode::ThroughAll, …)`
+        // (`crates/feature-engine/src/rebuild.rs:1410`) measures
+        // `compute_solid_extent` along the UNREVERSED sketch normal — where
+        // the extent past the plane is ~0 — and returns `extent + 1.0`
+        // floored at an ABSOLUTE 1.0 m, while `should_reverse_for_cut` (same
+        // file, ≈ line 881) only flips the sweep afterwards. The 1 m cutter
+        // spans projection [42.71, 43.71] and never reaches the body's 38.04
+        // (`FE_CUT_TRACE=1`). The scale behaviour matches: ×1e3 keeps the
+        // WRONG, ×1e-3 reads CORRECT because the absolute margin then dwarfs
+        // the model.
+        ("P0012", Category::SupportedWrong),
+        // P0013–P0022: ten loud families whose error text (boolean VERB
+        // stripped) has no current corpus customer — CLAUDE.md records the
+        // Stage-4 relocation walls, the Stage-3 `AmbiguousCurve` class and
+        // the `ring rejected by CDT` family as having none left. Each is the
+        // smallest example of its text, 2–5 ops. ERROR-class pins with
+        // `derived_meta`; a conversion moves the pin.
+        //
+        // P0013 `ring rejected by CDT` (2 ops: circle boss, 7-point star cut
+        // at needle ratio 0.70) — P0002's own recipe shape on a different
+        // point count, so it is the residue of P0002's conversion.
+        ("P0013", Category::Error),
+        // P0014 (2 ops: pentagon boss, 10-tooth gear REVOLVE-CUT) ⇒ Stage-4
+        // `LocalRefinementRequired` around vertex 4294967295 (u32::MAX — a
+        // sentinel, not a real vertex, which is itself worth reading at the
+        // conversion). Four of the 21 seed-2 ERROR rows carry this text.
+        // NOT pinned in this gate: 77.6 s release on this box (≈ 350 s in the
+        // debug build this gate also runs in) is beyond the "a pin must be
+        // CHEAP" policy stated below — same disposition as R0044 / F0082.
+        // Its verdict is recorded by `full_corpus_categorized` and the
+        // committed `results.json`.
+        //
+        // P0015 (3 ops) ⇒ Stage-4 `RelocationCrossedCarrierVertex`, the R0085
+        // family. The third row carrying this text (seed 2 index 169) reaches
+        // it through the AUTO-UNION path and is ledgered, not promoted.
+        ("P0015", Category::Error),
+        // P0016 (3 ops) ⇒ Stage-3 `AmbiguousCurve { candidates: 0, matched: 0 }`
+        // — candidates ZERO, so no analytical curve was proposed at all.
+        ("P0016", Category::Error),
+        // P0017 / P0018: the two arms of kernel-v2's curved-patch
+        // postcondition — "bounded cone patch must have exactly one
+        // material-CCW loop" and its cylinder twin. P0017's class MOVES under
+        // scale (×1e-3 a degenerate zero-area input face, ×1e3 a CDT ring
+        // reject), so judge it at its own scale.
+        ("P0017", Category::Error),
+        ("P0018", Category::Error),
+        // P0019 (3 ops) ⇒ `InvalidBooleanOutput("full-circle edge sense is
+        // underivable …")`: a closed output edge whose traversal sense neither
+        // allowed witness can supply. The wall R0004 once hit.
+        ("P0019", Category::Error),
+        // P0020 (5 ops, two chained Intersects) ⇒ an INPUT rejection: the
+        // FIRST intersect's own output B-Rep carries a holed cylinder-lateral
+        // chart with two coincident loop vertices, and the second intersect
+        // refuses it. Its smallest authored length is 83 × MIN_FEATURE_SIZE —
+        // the tightest of the seed-2 promotions, still far above the floor.
+        ("P0020", Category::Error),
+        // P0021 (3 ops: a square and two circle bosses) ⇒ auto-union
+        // `SelfIntersectingBooleanOutput { penetrations: 5 }` at kernel-v2's
+        // render-level output gate — P0007's signature, converted 2026-09-29,
+        // residue on three plain bosses.
+        ("P0021", Category::Error),
+        // P0022 (5 ops) ⇒ the junction-mint postcondition catching itself:
+        // "interior junction … not contained by any lateral triangle — the
+        // mint would be silently dropped". ×1e-3 keeps it, ×1e3 reads CORRECT.
+        ("P0022", Category::Error),
     ];
     // Per-case CPU budget, expressed in RELEASE-equivalent seconds and scaled
     // for debug. `scripts/test.sh` runs test-harness WITHOUT `--release`, and
@@ -1580,8 +1678,8 @@ fn full_corpus_categorized() {
     let cases = discover_cases(&dir);
     assert_eq!(
         cases.len(),
-        321,
-        "expected the 321-case assay corpus (194 legacy + 118 C-series + 9 P-series)"
+        334,
+        "expected the 334-case assay corpus (194 legacy + 118 C-series + 22 P-series)"
     );
 
     // Per-case timeout (default 30s, env-overridable) so no single case can
