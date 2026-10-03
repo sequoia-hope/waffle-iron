@@ -1413,12 +1413,18 @@ fn save_writes_min_reader_version() {
     let tree = make_simple_tree();
     let meta = ProjectMetadata::new("Test Project");
     let parsed: serde_json::Value = serde_json::from_str(&save_project(&tree, &meta)).unwrap();
-    assert_eq!(parsed["min_reader_version"], MIN_READER_VERSION);
+    assert_eq!(
+        parsed["min_reader_version"],
+        file_format::MIN_READER_VERSION
+    );
 
     let mut doc = WaffleDocument::new("Doc");
     doc.tabs[0].features_mut().unwrap().features = make_simple_tree().features;
     let parsed: serde_json::Value = serde_json::from_str(&save_document(&doc)).unwrap();
-    assert_eq!(parsed["min_reader_version"], MIN_READER_VERSION);
+    assert_eq!(
+        parsed["min_reader_version"],
+        file_format::MIN_READER_VERSION
+    );
 }
 
 #[test]
@@ -1519,8 +1525,10 @@ fn a_named_entity_round_trips_through_the_document() {
 }
 
 /// The reader floor moved WITH the field: a document carrying a name demands
-/// reader 7, and a v6 build (which refuses `min_reader_version > 6`) is told
-/// so cleanly instead of failing on an unknown `Selector` variant.
+/// at least reader 7, and a v6 build (which refuses `min_reader_version > 6`)
+/// is told so cleanly instead of failing on an unknown `Selector` variant.
+/// The floor has moved on since (v8, `DesignParameter.unit`), so what this
+/// pins is the v6 refusal, not the exact number.
 #[test]
 fn a_document_with_names_demands_the_v7_reader() {
     let mut tree = make_simple_tree();
@@ -1528,7 +1536,10 @@ fn a_document_with_names_demands_the_v7_reader() {
     tree.set_name("top_face", named_face(feature_id));
     let parsed: serde_json::Value =
         serde_json::from_str(&save_project(&tree, &ProjectMetadata::new("Named"))).unwrap();
-    assert_eq!(parsed["min_reader_version"], 7);
+    assert_eq!(
+        parsed["min_reader_version"],
+        file_format::MIN_READER_VERSION
+    );
     assert!(
         parsed["min_reader_version"].as_u64().unwrap() > 6,
         "a v6 reader must be refused, not handed a Pid selector it cannot parse"
@@ -1773,11 +1784,13 @@ fn a_3d_sketch_round_trips() {
 ///
 /// The numbers below are the floor as it stands, not what the 3D sketch set:
 /// v7 is N1's `Selector::Pid` (`specs/agent_mechanical_design.md` §5.2,
-/// 2026-10-03), a new SELECTOR variant, which §13.3 does make a bump. What
-/// this test holds is that the writer and the floor move together and only
-/// deliberately.
+/// 2026-10-03), a new SELECTOR variant, which §13.3 does make a bump; v8 is
+/// P1's `DesignParameter.unit`, a field an old reader must not silently
+/// ignore (`crates/feature-engine/tests/param_unit_floor.rs` measures why).
+/// What this test holds is that the writer and the floor move together and
+/// only deliberately.
 #[test]
 fn the_3d_sketch_operation_did_not_move_the_format_floor() {
-    assert_eq!(file_format::FORMAT_VERSION, 7);
-    assert_eq!(file_format::MIN_READER_VERSION, 7);
+    assert_eq!(file_format::FORMAT_VERSION, 8);
+    assert_eq!(file_format::MIN_READER_VERSION, 8);
 }
