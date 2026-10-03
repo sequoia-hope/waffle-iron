@@ -1,11 +1,12 @@
-//! Orthographic projection of a solid's B-Rep edges into a view plane —
-//! **D1a** of `specs/drawings_and_mbd.md` (§5.2 increment 1).
+//! Orthographic projection of a solid into a view plane — **D1a** of
+//! `specs/drawings_and_mbd.md` (§5.2 increment 1), the EDGES; the curved
+//! faces' silhouettes are D1b and live in [`silhouette`], which
+//! [`project_solid`] appends.
 //!
 //! The contract lives in [`waffle_types::kernel::projection`]; this is the
 //! implementation. One view, one solid, every undirected edge, all tagged
-//! [`Visibility::Visible`]: a wireframe view, which is what a flat-pattern DXF
-//! needs and the floor the later increments build on (D1b silhouettes, D1c
-//! hidden-line classification).
+//! [`Visibility::Visible`]: with the silhouettes, the outline a flat-pattern
+//! DXF needs, and the floor D1c's hidden-line classification builds on.
 //!
 //! ## Analytic survival
 //!

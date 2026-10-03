@@ -1995,10 +1995,11 @@ impl KernelIntrospect for KernelV2Adapter {
     }
 }
 
-/// Drawing projection (`specs/drawings_and_mbd.md` §5, increment D1a):
-/// `project` / `project_bodies` over [`crate::projection`] and `export_dxf`
-/// over [`crate::dxf_export`]. `section_with_plane` keeps its typed
-/// `NotSupported` default — that is D1d.
+/// Drawing projection (`specs/drawings_and_mbd.md` §5, increments D1a + D1b):
+/// `project` / `project_bodies` over [`crate::projection::project_solid`] —
+/// every edge, then every curved face's silhouette — and `export_dxf` over
+/// [`crate::dxf_export`]. `section_with_plane` keeps its typed `NotSupported`
+/// default — that is D1d.
 ///
 /// A mesh-backed imported body is refused by name, for the same reason
 /// `export_step_bodies` refuses it: it never entered the exact arena, so there
