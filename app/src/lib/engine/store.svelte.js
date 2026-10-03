@@ -1375,6 +1375,10 @@ export async function initEngine() {
 			deleteDrawingView: (viewId) => deleteDrawingView(viewId),
 			addDrawingAnnotation: (viewId, spec) => addDrawingAnnotation(viewId, spec),
 			deleteDrawingAnnotation: (viewId, index) => deleteDrawingAnnotation(viewId, index),
+			// D4b: the sheet's own door and the projection standard.
+			editDrawingSheet: (changes) => editDrawingSheet(changes),
+			addDrawingSheet: (options) => addDrawingSheet(options),
+			deleteDrawingSheet: (sheetId) => deleteDrawingSheet(sheetId),
 			// In-context editing (v4 Phase 3d-4)
 			openPartInContext: (path) => openPartInContext(path),
 			updateEditContext: () => updateEditContext(),
@@ -7262,8 +7266,32 @@ export function getDrawing() { return drawingStatus?.drawing ?? null; }
 export function getDrawingSheet(sheetId) {
 	const sheets = drawingStatus?.drawing?.sheets ?? [];
 	if (!sheets.length) return null;
-	if (sheetId === null || sheetId === undefined) return sheets[0];
+	if (sheetId === null || sheetId === undefined) {
+		// D4b: the DEFAULT is the sheet the UI is showing, which is the first
+		// until someone picks another. Store state rather than a prop,
+		// because the panel and the paper are siblings in the page (the
+		// `AssemblyPanel` arrangement) and a second copy passed down would be
+		// the next thing to go stale — and because an export asked for "the
+		// sheet" should mean the one on screen.
+		return sheets.find((s) => s.id === activeDrawingSheetId) ?? sheets[0];
+	}
 	return sheets.find((s) => s.id === sheetId) ?? null;
+}
+
+/** Which sheet the drawing UI is showing (D4b). */
+let activeDrawingSheetId = $state(null);
+
+export function getActiveDrawingSheetId() {
+	return getDrawingSheet(null)?.id ?? null;
+}
+
+/**
+ * Show `sheetId`. An id the drawing does not have is ignored rather than
+ * blanking the paper: a stale selection (the sheet was deleted) falls back to
+ * the first sheet through `getDrawingSheet`.
+ */
+export function setActiveDrawingSheetId(sheetId) {
+	activeDrawingSheetId = sheetId ?? null;
 }
 
 /**
@@ -7418,9 +7446,18 @@ export const DRAWING_PROJECTED_DIRECTIONS = ['Left', 'Right', 'Up', 'Down'];
  * view goes clear of its parent's drawn extent, which only the last
  * evaluation's layouts know, and the engine has them.
  *
+ * A SECTION or a DETAIL (D4b) is given its geometry in the PARENT view's own
+ * plane, in METERS — the document's unit, as every other geometry argument in
+ * this store is. (The MCP tool takes millimetres, because an agent reads them
+ * off a drawing; the two differ deliberately and each says which.)
+ *
  * @param {string} sourceTabId a Part or Assembly tab of this document
  * @param {{ view?: string, parent?: string, direction?: string, scale?: number,
- *           placementMm?: [number, number], name?: string, bodies?: string[] }} [options]
+ *           placementMm?: [number, number], name?: string, bodies?: string[],
+ *           sheetId?: string, section?: { from: [number, number],
+ *           to: [number, number], flip?: boolean, label?: string },
+ *           detail?: { center: [number, number], radius: number,
+ *           label?: string } }} [options]
  * @returns {Promise<string | null>} the new view's id, or null when refused
  */
 export async function addDrawingView(sourceTabId, options = {}) {
@@ -7433,11 +7470,40 @@ export async function addDrawingView(sourceTabId, options = {}) {
 		showToast('error', 'A drawing view needs a part to draw.');
 		return null;
 	}
-	const sheet = getDrawingSheet(null);
+	const sheet = getDrawingSheet(options.sheetId ?? null);
 	if (!sheet) return null;
-	const projection = options.parent
-		? { type: 'ProjectedFrom', parent: options.parent, direction: { type: options.direction ?? 'Right' } }
-		: { type: 'Named', view: { type: options.view ?? 'Front' } };
+	if ((options.section || options.detail) && !options.parent) {
+		// A cutting line and a crop disc are drawn ON a view, so there is
+		// nothing for either to be relative to without one. Refused here,
+		// where the fault can be named as the missing argument.
+		log('error', 'A section or detail view needs the parent view it is taken from.');
+		showToast('error', 'A section or detail needs a parent view.');
+		return null;
+	}
+	const projection = options.section
+		? {
+				type: 'Section',
+				parent: options.parent,
+				from: options.section.from.map(Number),
+				to: options.section.to.map(Number),
+				flip: !!options.section.flip,
+				label: options.section.label ?? 'A'
+			}
+		: options.detail
+			? {
+					type: 'Detail',
+					parent: options.parent,
+					center: options.detail.center.map(Number),
+					radius: Number(options.detail.radius),
+					label: options.detail.label ?? 'A'
+				}
+			: options.parent
+				? {
+						type: 'ProjectedFrom',
+						parent: options.parent,
+						direction: { type: options.direction ?? 'Right' }
+					}
+				: { type: 'Named', view: { type: options.view ?? 'Front' } };
 	const before = new Set((sheet.views ?? []).map((v) => v.id));
 	const ok = await sendDrawingEdit({
 		type: 'AddView',
@@ -7487,6 +7553,76 @@ export async function editDrawingView(viewId, changes = {}) {
 export async function deleteDrawingView(viewId) {
 	return sendDrawingEdit({ type: 'DeleteView', view_id: viewId });
 }
+
+/** Sheet sizes a drawing can be set to (D4b). */
+export const DRAWING_SHEET_SIZES = ['A4', 'A3', 'A2', 'A1', 'A0', 'Letter', 'Tabloid'];
+
+/** The projection standards, as the engine tags them. */
+export const DRAWING_PROJECTION_ANGLES = ['Third', 'First'];
+
+/**
+ * Change the open drawing's sheet, or its projection standard (D4b).
+ *
+ * The standard is the DRAWING's rather than one sheet's (§8: a document
+ * setting), and it rides the sheet door because that is where it is authored
+ * and read — the title block prints it. `null` means "no change" for every
+ * field, so a panel control can send only what it changed.
+ *
+ * @param {{ sheetId?: string, name?: string, size?: string | [number, number],
+ *           orientation?: string, projectionAngle?: string,
+ *           titleBlock?: boolean, titleBlockFields?: any[] }} [changes]
+ */
+export async function editDrawingSheet(changes = {}) {
+	const size =
+		typeof changes.size === 'string'
+			? { type: changes.size }
+			: Array.isArray(changes.size)
+				? { type: 'Custom', width_mm: Number(changes.size[0]), height_mm: Number(changes.size[1]) }
+				: null;
+	return sendDrawingEdit({
+		type: 'EditSheet',
+		sheet_id: changes.sheetId ?? null,
+		name: changes.name ?? null,
+		size,
+		orientation: changes.orientation ? { type: changes.orientation } : null,
+		projection_angle: changes.projectionAngle ? { type: changes.projectionAngle } : null,
+		title_block_show: typeof changes.titleBlock === 'boolean' ? changes.titleBlock : null,
+		title_block_fields: Array.isArray(changes.titleBlockFields) ? changes.titleBlockFields : null
+	});
+}
+
+/**
+ * Add a sheet to the open drawing (D4b) and answer with its id.
+ *
+ * The id comes from the DOCUMENT after the edit, not from here: a sheet id the
+ * store invented would be a sheet the engine cannot be asked about — the same
+ * rule `addDrawingView` follows for a view.
+ *
+ * @param {{ name?: string, size?: string, orientation?: string }} [options]
+ * @returns {Promise<string | null>}
+ */
+export async function addDrawingSheet(options = {}) {
+	if (!drawingStatus) return null;
+	const before = new Set((drawingStatus.drawing?.sheets ?? []).map((s) => s.id));
+	const ok = await sendDrawingEdit({
+		type: 'AddSheet',
+		name: options.name ?? null,
+		size: options.size ? { type: options.size } : null,
+		orientation: options.orientation ? { type: options.orientation } : null
+	});
+	if (!ok) return null;
+	return (drawingStatus.drawing?.sheets ?? []).find((s) => !before.has(s.id))?.id ?? null;
+}
+
+/**
+ * Remove a sheet and the views on it (D4b). The engine refuses the LAST
+ * sheet: a drawing with no sheet shows nothing and refuses every export by
+ * name, which reads as a broken tab rather than an empty one.
+ */
+export async function deleteDrawingSheet(sheetId) {
+	return sendDrawingEdit({ type: 'DeleteSheet', sheet_id: sheetId });
+}
+
 
 /**
  * Add an annotation to one view of the open drawing.
@@ -9451,8 +9587,24 @@ export async function exportStep() {
  * @param {string} fileName - with extension
  */
 export function triggerStepDownload(stepData, fileName) {
+	triggerFileDownload(stepData, fileName, 'application/step');
+}
+
+/**
+ * Trigger a browser download of `data` as `fileName`.
+ *
+ * `data` may be a string or a `Uint8Array`: a `Blob` takes either, which is
+ * what lets a BINARY export (the sheet PDF, D4b) go out the same door as a
+ * text one instead of needing a second path that could differ in how it
+ * names the file or cleans up the object URL.
+ *
+ * @param {string | Uint8Array} data
+ * @param {string} fileName - with extension
+ * @param {string} mimeType
+ */
+export function triggerFileDownload(data, fileName, mimeType) {
 	if (typeof document === 'undefined') return;
-	const blob = new Blob([stepData], { type: 'application/step' });
+	const blob = new Blob([data], { type: mimeType });
 	const url = URL.createObjectURL(blob);
 	const a = document.createElement('a');
 	a.href = url;

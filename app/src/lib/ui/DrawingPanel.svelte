@@ -15,15 +15,24 @@
 	import {
 		DRAWING_NAMED_VIEWS,
 		DRAWING_PROJECTED_DIRECTIONS,
+		DRAWING_PROJECTION_ANGLES,
+		DRAWING_SHEET_SIZES,
+		addDrawingSheet,
 		addDrawingView,
+		deleteDrawingSheet,
 		deleteDrawingView,
+		editDrawingSheet,
 		editDrawingView,
 		getDocumentTabs,
+		getDrawing,
 		getDrawingSheet,
-		getDrawingStatus
+		getDrawingStatus,
+		setActiveDrawingSheetId
 	} from '$lib/engine/store.svelte.js';
 
 	let status = $derived(getDrawingStatus());
+	let drawing = $derived(getDrawing());
+	let sheets = $derived(drawing?.sheets ?? []);
 	let sheet = $derived(getDrawingSheet(null));
 	let views = $derived(sheet?.views ?? []);
 	/** The tabs a view can draw: this document's Parts and Assemblies. */
@@ -40,6 +49,14 @@
 	let namedView = $state('Front');
 	let parentView = $state('');
 	let direction = $state('Right');
+	/** D4b: what a view OF A PARENT is — a projection, a cut, or a crop. */
+	let derived = $state('projected');
+	/** The cutting line and the crop disc, in the parent's own mm. */
+	let cutFrom = $state([0, 0]);
+	let cutTo = $state([0, 10]);
+	let cutFlip = $state(false);
+	let cropAt = $state([0, 0]);
+	let cropRadius = $state(5);
 
 	function toggle(id) {
 		const next = new Set(open);
@@ -66,10 +83,14 @@
 		const p = view?.projection;
 		if (p?.type === 'Named') return p.view?.type ?? '?';
 		if (p?.type === 'Custom') return 'custom';
+		const parentName = () => views.find((v) => v.id === p.parent)?.name ?? '?';
 		if (p?.type === 'ProjectedFrom') {
-			const parent = views.find((v) => v.id === p.parent);
-			return `${p.direction?.type ?? '?'} of ${parent?.name ?? '?'}`;
+			return `${p.direction?.type ?? '?'} of ${parentName()}`;
 		}
+		// D4b. The letter is what a reader matches against the parent's own
+		// cutting line, so it leads.
+		if (p?.type === 'Section') return `section ${p.label ?? '?'} of ${parentName()}`;
+		if (p?.type === 'Detail') return `detail ${p.label ?? '?'} of ${parentName()}`;
 		return '?';
 	}
 
@@ -85,14 +106,34 @@
 		return Math.abs(x - Math.round(x)) < 1e-6 ? String(Math.round(x)) : x.toFixed(2);
 	}
 
+	/** The panel's millimetres as the store's meters. */
+	function mm(pair) {
+		return [Number(pair[0]) / 1000, Number(pair[1]) / 1000];
+	}
+
 	async function add() {
 		if (!sourceTab) return;
 		await run(async () => {
-			if (parentView) {
-				await addDrawingView(sourceTab, { parent: parentView, direction });
-			} else {
+			if (!parentView) {
 				await addDrawingView(sourceTab, { view: namedView });
+				return;
 			}
+			if (derived === 'section') {
+				await addDrawingView(sourceTab, {
+					parent: parentView,
+					section: { from: mm(cutFrom), to: mm(cutTo), flip: cutFlip }
+				});
+				return;
+			}
+			if (derived === 'detail') {
+				await addDrawingView(sourceTab, {
+					parent: parentView,
+					scale: 2,
+					detail: { center: mm(cropAt), radius: Number(cropRadius) / 1000 }
+				});
+				return;
+			}
+			await addDrawingView(sourceTab, { parent: parentView, direction });
 		});
 	}
 
@@ -111,6 +152,94 @@
 				<span class="meta" data-testid="dwg-sheet-size">
 					{sheet?.size?.type ?? '?'} {sheet?.orientation?.type === 'Portrait' ? 'portrait' : 'landscape'}
 				</span>
+			</div>
+			<!-- D4b: the sheet's own controls. The paper, the projection
+			     standard (a DOCUMENT setting, which is why it is here and not
+			     per view) and the title block. -->
+			<div class="row-main">
+				<select
+					data-testid="dwg-sheet-pick"
+					value={sheet?.id ?? ''}
+					disabled={busy || sheets.length < 2}
+					onchange={(e) => setActiveDrawingSheetId(e.currentTarget.value)}
+				>
+					{#each sheets as s, i (s.id)}
+						<option value={s.id}>{s.name} ({i + 1}/{sheets.length})</option>
+					{/each}
+				</select>
+				<button
+					class="act"
+					title="Add a sheet to this drawing"
+					data-testid="dwg-sheet-add"
+					disabled={busy}
+					onclick={() => run(() => addDrawingSheet({}))}>+ sheet</button
+				>
+				<button
+					class="act"
+					title="Remove this sheet and the views on it (a drawing keeps at least one)"
+					data-testid="dwg-sheet-remove"
+					disabled={busy || sheets.length < 2}
+					onclick={() => run(() => deleteDrawingSheet(sheet?.id))}>×</button
+				>
+			</div>
+			<div class="row-main">
+				<label title="Paper size">
+					paper
+					<select
+						data-testid="dwg-sheet-size-input"
+						value={sheet?.size?.type ?? 'A3'}
+						disabled={busy}
+						onchange={(e) =>
+							run(() => editDrawingSheet({ sheetId: sheet?.id, size: e.currentTarget.value }))}
+					>
+						{#each DRAWING_SHEET_SIZES as size}
+							<option value={size}>{size}</option>
+						{/each}
+					</select>
+				</label>
+				<label title="Portrait or landscape">
+					<select
+						data-testid="dwg-sheet-orientation"
+						value={sheet?.orientation?.type ?? 'Landscape'}
+						disabled={busy}
+						onchange={(e) =>
+							run(() =>
+								editDrawingSheet({ sheetId: sheet?.id, orientation: e.currentTarget.value })
+							)}
+					>
+						<option value="Landscape">landscape</option>
+						<option value="Portrait">portrait</option>
+					</select>
+				</label>
+			</div>
+			<div class="row-main">
+				<label
+					title="Third angle (ISO/ASME default) places a view on the side it is viewed from, so the view to the right of its parent shows the right-hand side. First angle places it opposite."
+				>
+					projection
+					<select
+						data-testid="dwg-projection-angle"
+						value={drawing?.projection_angle?.type ?? 'Third'}
+						disabled={busy}
+						onchange={(e) => run(() => editDrawingSheet({ projectionAngle: e.currentTarget.value }))}
+					>
+						{#each DRAWING_PROJECTION_ANGLES as angle}
+							<option value={angle}>{angle.toLowerCase()} angle</option>
+						{/each}
+					</select>
+				</label>
+				<label title="Draw the title block in the frame's bottom-right corner">
+					<input
+						type="checkbox"
+						data-testid="dwg-title-block"
+						checked={sheet?.title_block?.show !== false}
+						disabled={busy}
+						onchange={(e) =>
+							run(() =>
+								editDrawingSheet({ sheetId: sheet?.id, titleBlock: e.currentTarget.checked })
+							)}
+					/> title block
+				</label>
 			</div>
 		</div>
 
@@ -227,11 +356,21 @@
 				</div>
 				<div class="row-main">
 					{#if parentView}
-						<select data-testid="dwg-add-direction" bind:value={direction} disabled={busy}>
-							{#each DRAWING_PROJECTED_DIRECTIONS as d}
-								<option value={d}>{d.toLowerCase()} of it</option>
-							{/each}
+						<!-- D4b: what a view OF a parent is. A projection takes
+						     a side; a section takes the cutting line it is cut
+						     along; a detail takes the disc it crops. -->
+						<select data-testid="dwg-add-derived" bind:value={derived} disabled={busy}>
+							<option value="projected">projected</option>
+							<option value="section">section</option>
+							<option value="detail">detail</option>
 						</select>
+						{#if derived === 'projected'}
+							<select data-testid="dwg-add-direction" bind:value={direction} disabled={busy}>
+								{#each DRAWING_PROJECTED_DIRECTIONS as d}
+									<option value={d}>{d.toLowerCase()} of it</option>
+								{/each}
+							</select>
+						{/if}
 					{:else}
 						<select data-testid="dwg-add-view" bind:value={namedView} disabled={busy}>
 							{#each DRAWING_NAMED_VIEWS as v}
@@ -246,6 +385,85 @@
 						onclick={add}>+ view</button
 					>
 				</div>
+				{#if parentView && derived === 'section'}
+					<div class="row-sub" data-testid="dwg-add-section">
+						<span
+							class="xyz"
+							title="The cutting line's two ends, in the parent view's own plane: mm right and up from its origin"
+						>
+							cut
+							{#each [0, 1] as k}
+								<input
+									class="num"
+									type="number"
+									step="1"
+									data-testid="dwg-cut-from-{k}"
+									value={cutFrom[k]}
+									disabled={busy}
+									onchange={(e) =>
+										(cutFrom = k === 0
+											? [Number(e.currentTarget.value), cutFrom[1]]
+											: [cutFrom[0], Number(e.currentTarget.value)])}
+								/>
+							{/each}
+							→
+							{#each [0, 1] as k}
+								<input
+									class="num"
+									type="number"
+									step="1"
+									data-testid="dwg-cut-to-{k}"
+									value={cutTo[k]}
+									disabled={busy}
+									onchange={(e) =>
+										(cutTo = k === 0
+											? [Number(e.currentTarget.value), cutTo[1]]
+											: [cutTo[0], Number(e.currentTarget.value)])}
+								/>
+							{/each}
+							<span class="unit">mm</span>
+						</span>
+						<label title="Keep the other half — the arrows reverse, the line does not move">
+							<input type="checkbox" data-testid="dwg-cut-flip" bind:checked={cutFlip} disabled={busy} />
+							flip
+						</label>
+					</div>
+				{/if}
+				{#if parentView && derived === 'detail'}
+					<div class="row-sub" data-testid="dwg-add-detail">
+						<span
+							class="xyz"
+							title="The crop disc's centre and radius, in the parent view's own plane (mm). A detail is added at 2:1."
+						>
+							crop
+							{#each [0, 1] as k}
+								<input
+									class="num"
+									type="number"
+									step="1"
+									data-testid="dwg-crop-at-{k}"
+									value={cropAt[k]}
+									disabled={busy}
+									onchange={(e) =>
+										(cropAt = k === 0
+											? [Number(e.currentTarget.value), cropAt[1]]
+											: [cropAt[0], Number(e.currentTarget.value)])}
+								/>
+							{/each}
+							r
+							<input
+								class="num"
+								type="number"
+								step="1"
+								min="0.1"
+								data-testid="dwg-crop-radius"
+								bind:value={cropRadius}
+								disabled={busy}
+							/>
+							<span class="unit">mm</span>
+						</span>
+					</div>
+				{/if}
 			</div>
 			{#if !sources.length}
 				<div class="row">

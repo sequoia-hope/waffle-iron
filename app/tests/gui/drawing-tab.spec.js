@@ -377,3 +377,202 @@ test.describe('Drawing tab', () => {
 		expect(answer.structuredContent.error.code).toBe('TabKindNotSupported');
 	});
 });
+
+// ══════════════════════════════════════════════════════ D4b: sections, details,
+// the title block, the sheet PDF.
+
+test.describe('the drawing tab, D4b', () => {
+	test('a section view hatches its cap and the parent carries the cutting line', async ({
+		waffle
+	}) => {
+		const page = waffle.page;
+		await waffle.waitForReady();
+		const { partTab, viewId } = await plateAndDrawing(page);
+
+		// The cutting line is drawn on the TOP view the fixture made, in that
+		// view's own plane, in METERS (the store's unit; the MCP tool takes
+		// millimetres — each says which).
+		//
+		// Across the middle of the view's OWN reported box rather than across
+		// the authored plate: where the plate lands in a view's (u, v) depends
+		// on the sketch basis the app derived, which is not this test's
+		// subject, and a line that missed the part came back as the typed "the
+		// cut keeps no material at all" — correct, and not what is being
+		// measured. It is also what a drafter does: the line is drawn across
+		// the view in front of them.
+		const box = await page.evaluate(
+			(id) =>
+				(window.__waffle.getDrawingStatus()?.drawing?.sheets?.[0]?.views ?? []).find(
+					(v) => v.id === id
+				)?.cache?.bbox ?? null,
+			viewId
+		);
+		expect(box, 'the parent view drew something to cut').toBeTruthy();
+		const [[minU, minV], [maxU, maxV]] = box;
+		const midV = (minV + maxV) / 2;
+		const pad = (maxU - minU) / 10;
+		const section = await page.evaluate(
+			([tab, parent, from, to]) =>
+				window.__waffle.addDrawingView(tab, { parent, section: { from, to } }),
+			[partTab, viewId, [minU - pad, midV], [maxU + pad, midV]]
+		);
+		expect(section, 'the engine added a section view').toBeTruthy();
+		await page.waitForFunction(
+			(id) => {
+				const sheet = window.__waffle?.getDrawingStatus()?.drawing?.sheets?.[0];
+				return (sheet?.views ?? []).some((v) => v.id === id && v.cache);
+			},
+			section,
+			{ timeout: 20000 }
+		);
+
+		// The cap is HATCHED: the lines are in the SVG, which is the whole
+		// point of a section view — a cut face that is not filled reads as a
+		// hole.
+		const hatched = await page.locator('[data-testid="drawing-sheet"] line.wi-hatch').count();
+		expect(hatched, 'the cap must be hatched').toBeGreaterThan(0);
+
+		// And the PARENT carries the cutting line with its arrows and the
+		// letter, so a reader can match the two views.
+		const marks = page.locator('[data-testid="drawing-sheet"] .wi-marks');
+		await expect(marks.locator('line.wi-mark-cut').first()).toBeAttached();
+		expect(
+			await marks.locator('polygon.wi-mark-arrow').count(),
+			'one arrow at each end of the cutting line'
+		).toBe(2);
+		const labels = await marks.locator('text.wi-mark-label').allTextContents();
+		expect(labels, 'the letter prints at both arrows').toEqual(['A', 'A']);
+
+		// The view is titled the way the standard titles it.
+		const names = await page.evaluate(() =>
+			(window.__waffle.getDrawingStatus()?.drawing?.sheets?.[0]?.views ?? []).map((v) => v.name)
+		);
+		expect(names).toContain('SECTION A-A');
+	});
+
+	test('a detail view crops its parent to the disc and says so in the markup', async ({
+		waffle
+	}) => {
+		const page = waffle.page;
+		await waffle.waitForReady();
+		const { partTab, viewId } = await plateAndDrawing(page);
+		// On the view's OWN box, for the reason the section test states.
+		const box = await page.evaluate(
+			(id) =>
+				(window.__waffle.getDrawingStatus()?.drawing?.sheets?.[0]?.views ?? []).find(
+					(v) => v.id === id
+				)?.cache?.bbox ?? null,
+			viewId
+		);
+		expect(box, 'the parent view drew something to crop').toBeTruthy();
+		const centre = [(box[0][0] + box[1][0]) / 2, (box[0][1] + box[1][1]) / 2];
+		const detail = await page.evaluate(
+			([tab, parent, center]) =>
+				window.__waffle.addDrawingView(tab, {
+					parent,
+					scale: 2,
+					detail: { center, radius: 0.004 }
+				}),
+			[partTab, viewId, centre]
+		);
+		expect(detail).toBeTruthy();
+		await page.waitForFunction(
+			(id) => {
+				const sheet = window.__waffle?.getDrawingStatus()?.drawing?.sheets?.[0];
+				return (sheet?.views ?? []).some((v) => v.id === id && v.cache);
+			},
+			detail,
+			{ timeout: 20000 }
+		);
+		// The crop is a clip path in the view's OWN namespace — two details on
+		// one sheet must not clip each other (the ids carry the view's uuid).
+		const clip = await page.evaluate(
+			(id) =>
+				document.querySelector(`[data-testid="drawing-sheet"] clipPath[id="wi-crop-${id}"]`) !== null,
+			detail
+		);
+		expect(clip, 'the detail declares its own crop clip path').toBe(true);
+		// And the parent is marked with the circle and the letter.
+		await expect(
+			page.locator('[data-testid="drawing-sheet"] circle.wi-mark-detail').first()
+		).toBeAttached();
+	});
+
+	test('the title block prints the document, the sheet number, the scale and the standard', async ({
+		waffle
+	}) => {
+		const page = waffle.page;
+		await waffle.waitForReady();
+		await plateAndDrawing(page);
+		const block = page.locator('[data-testid="drawing-sheet"] .wi-title-block');
+		await expect(block).toBeAttached();
+		const labels = await block.locator('text.wi-title-label').allTextContents();
+		expect(labels).toEqual(['Title', 'Sheet', 'Scale', 'Projection', 'Date', 'Drawn by']);
+		const values = await block.locator('text.wi-title-value').allTextContents();
+		expect(values[1], 'the sheet number is its POSITION, not a stored string').toBe('1 / 1');
+		expect(values[2]).toBe('1:1');
+		// The standard prints as WORDS: the ISO 5456-2 cone symbol is a mirror
+		// pair whose handedness is a convention, and a symbol that might be
+		// the wrong way round is worse than none (see `renderTitleBlock`).
+		expect(values[3]).toBe('Third angle');
+
+		// Flipping the standard moves the row, which is what makes it the
+		// document's setting rather than a label.
+		await page.evaluate(() => window.__waffle.editDrawingSheet({ projectionAngle: 'First' }));
+		await page.waitForFunction(
+			() => window.__waffle?.getDrawing()?.projection_angle?.type === 'First',
+			null,
+			{ timeout: 15000 }
+		);
+		await expect(block.locator('text.wi-title-value').nth(3)).toHaveText('First angle');
+
+		// And turning it off takes the whole block off the paper.
+		await page.evaluate(() => window.__waffle.editDrawingSheet({ titleBlock: false }));
+		await expect(block).toHaveCount(0);
+	});
+
+	test('export_pdf writes a one-page PDF of the sheet', async ({ waffle }) => {
+		const page = waffle.page;
+		await waffle.waitForReady();
+		await plateAndDrawing(page);
+		const answer = await callTool(page, 'export_pdf', { deliver: 'agent' });
+		expect(answer.isError, JSON.stringify(answer.structuredContent)).toBe(false);
+		expect(answer.structuredContent.mime_type).toBe('application/pdf');
+		expect(answer.structuredContent.pages).toBe(1);
+		expect(answer.structuredContent.bytes).toBeGreaterThan(500);
+
+		const blob = answer.content.find((c) => c.type === 'resource')?.resource?.blob;
+		expect(blob, 'the PDF rides back base64 for deliver:agent').toBeTruthy();
+		const file = await page.evaluate((b64) => {
+			const binary = atob(b64);
+			const bytes = new Uint8Array(binary.length);
+			for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+			const text = new TextDecoder('latin1').decode(bytes);
+			return {
+				header: text.slice(0, 8),
+				length: bytes.length,
+				pageObjects: (text.match(/\/Type\s*\/Page[^s]/g) ?? []).length,
+				count: /\/Count\s+(\d+)/.exec(text)?.[1] ?? null,
+				tail: text.slice(-6),
+				startxref: /startxref\s+(\d+)/.exec(text)?.[1] ?? null
+			};
+		}, blob);
+		expect(file.header).toBe('%PDF-1.4');
+		expect(file.count, 'one sheet is one page').toBe('1');
+		expect(file.pageObjects, 'exactly one /Type /Page object').toBe(1);
+		expect(file.tail).toBe('%%EOF\n');
+		// The xref offset must point at the table it names, or no reader
+		// opens the file.
+		expect(Number(file.startxref)).toBeGreaterThan(0);
+		expect(Number(file.startxref)).toBeLessThan(file.length);
+		expect(file.length).toBe(answer.structuredContent.bytes);
+	});
+
+	test('export_pdf is refused on a part tab, by name', async ({ waffle }) => {
+		const page = waffle.page;
+		await waffle.waitForReady();
+		const answer = await callTool(page, 'export_pdf', { deliver: 'agent' });
+		expect(answer.isError).toBe(true);
+		expect(answer.structuredContent.error.code).toBe('TabKindNotSupported');
+	});
+});

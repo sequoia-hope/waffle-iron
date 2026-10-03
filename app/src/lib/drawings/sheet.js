@@ -20,7 +20,7 @@
  * placement is flipped here — once, in one expression, rather than by a
  * `scale(1, -1)` transform that would mirror every label.
  */
-import { DRAWING_TOKENS } from './style.js';
+import { DRAWING_TOKENS, drawingStyle } from './style.js';
 import { esc, n, renderViewSvg } from './svg.js';
 
 /** The paper border's inset from the sheet edge, in millimetres (ISO 5457). */
@@ -92,7 +92,11 @@ export function renderSheetSvg({ sheet, unit = 'mm', documentPrecision = 2, styl
 			unit,
 			documentPrecision,
 			title: view.name ?? null,
-			paper: false
+			paper: false,
+			// A sheet nests several views in ONE document, so a detail's
+			// clipPath id has to be the view's own: two details declaring
+			// the same id would both clip to whichever came first (D4b).
+			idPrefix: view.id ?? ''
 		});
 		warnings.push(...rendered.warnings.map((w) => `view "${view?.name ?? '?'}": ${w}`));
 		// The view's own SVG is `rendered.widthMm × rendered.heightMm` with
@@ -130,6 +134,11 @@ export function renderSheetSvg({ sheet, unit = 'mm', documentPrecision = 2, styl
 			`width="${n(widthMm - 2 * SHEET_MARGIN_MM)}" height="${n(heightMm - 2 * SHEET_MARGIN_MM)}" ` +
 			`fill="none" stroke="${DRAWING_TOKENS.annotation}" stroke-width="0.5" />`
 		: '';
+	// D4b. After the views, so the title block is never drawn over; it sits
+	// in the frame's corner, which the auto-layout does not reserve, so a
+	// view placed there would otherwise hide it.
+	const titleBlock = renderTitleBlock(sheet, [widthMm, heightMm], drawingStyle(style));
+	warnings.push(...titleBlock.warnings);
 
 	const svg =
 		`<svg xmlns="http://www.w3.org/2000/svg" class="wi-sheet" ` +
@@ -140,9 +149,104 @@ export function renderSheetSvg({ sheet, unit = 'mm', documentPrecision = 2, styl
 		`<rect class="wi-paper" x="0" y="0" width="${n(widthMm)}" height="${n(heightMm)}" fill="${DRAWING_TOKENS.paper}" />` +
 		borderEl +
 		parts.join('') +
+		titleBlock.svg +
 		`</svg>`;
 
 	return { svg, widthMm, heightMm, views: drawn, warnings };
+}
+
+/**
+ * The sheet's title block as SVG (`specs/drawings_and_mbd.md` §8, D4b): the
+ * data-field block in the frame's bottom-right corner.
+ *
+ * ## It is DATA, not a layout
+ *
+ * The rows come from the engine already filled
+ * (`Sheet::title_block_cache`, a `TitleBlockLayout` of label/value pairs), so
+ * this function decides where the lines go and nothing about what they say —
+ * the same division as `renderViewSvg` over a `ViewLayout`. A renderer that
+ * worked out the sheet number itself would be a second source of truth for a
+ * number the document already knows.
+ *
+ * ## The projection standard is printed as WORDS
+ *
+ * ISO 5456-2's projection symbol is a truncated cone shown in two views, and
+ * the first- and third-angle symbols are MIRROR IMAGES of one another — the
+ * two concentric circles are identical in both, so the only thing that
+ * distinguishes them is which side of the trapezoid they sit on. Which side
+ * is which is a convention, and it is not derivable from the projection rule:
+ * the circles view of a frustum shows two concentric circles whichever end
+ * faces the viewer. Printing a symbol that might be the wrong one round is
+ * worse than printing none, so the row prints `Third angle` / `First angle`,
+ * which ASME Y14.3 allows as a note and which cannot be misread. The glyph
+ * is an open item, for whoever has the standard to hand.
+ *
+ * @param {any} sheet
+ * @param {[number, number]} extent `[width, height]` in paper mm
+ * @param {import('./style.js').DrawingStyle} style
+ * @returns {{ svg: string, warnings: string[] }}
+ */
+export function renderTitleBlock(sheet, extent, style) {
+	const warnings = [];
+	if (sheet?.title_block?.show === false) return { svg: '', warnings };
+	const rows = sheet?.title_block_cache?.rows ?? [];
+	if (rows.length === 0) {
+		// A title block the engine has not filled. Named rather than drawn
+		// empty: an empty frame in the corner of a sheet reads as a title
+		// block whose fields are blank, which is a different statement.
+		if (sheet?.title_block) {
+			warnings.push('the title block has no filled rows and was not drawn');
+		}
+		return { svg: '', warnings };
+	}
+	const [widthMm, heightMm] = extent;
+	const inner = widthMm - 2 * SHEET_MARGIN_MM;
+	const blockW = Math.min(style.titleBlockWidth, inner);
+	const rowH = style.titleBlockRowHeight;
+	const blockH = rowH * rows.length;
+	// Bottom-right of the frame, which is where every standard puts it.
+	const x = widthMm - SHEET_MARGIN_MM - blockW;
+	const y = heightMm - SHEET_MARGIN_MM - blockH;
+	if (![x, y, blockW, blockH].every((v) => Number.isFinite(v) && v > -widthMm)) {
+		return { svg: '', warnings: ['the title block does not fit this sheet'] };
+	}
+	const labelW = Math.min(style.titleBlockLabelWidth, blockW / 2);
+	const stroke = `stroke="${DRAWING_TOKENS.frame}" stroke-width="${n(style.thinWidth)}"`;
+	const parts = [
+		`<rect class="wi-title-frame" x="${n(x)}" y="${n(y)}" width="${n(blockW)}" height="${n(blockH)}" ` +
+			`fill="none" ${stroke} />`
+	];
+	rows.forEach((row, i) => {
+		const top = y + i * rowH;
+		if (i > 0) {
+			parts.push(
+				`<line class="wi-title-rule" x1="${n(x)}" y1="${n(top)}" x2="${n(x + blockW)}" y2="${n(top)}" ${stroke} />`
+			);
+		}
+		parts.push(
+			`<line class="wi-title-rule" x1="${n(x + labelW)}" y1="${n(top)}" x2="${n(x + labelW)}" y2="${n(top + rowH)}" ${stroke} />`
+		);
+		// The label is small caps-ish by size rather than by transform: a
+		// `font-variant` is a text feature a plotter may not have, where a
+		// size is geometry.
+		const mid = top + rowH / 2;
+		parts.push(
+			`<text class="wi-title-label" x="${n(x + 2)}" y="${n(mid)}" ` +
+				`font-size="${n(style.textHeight * 0.7)}" font-family="${esc(style.fontFamily)}" ` +
+				`fill="${DRAWING_TOKENS.text}" text-anchor="start" dominant-baseline="middle">` +
+				`${esc(row?.label ?? '')}</text>`
+		);
+		parts.push(
+			`<text class="wi-title-value" x="${n(x + labelW + 2)}" y="${n(mid)}" ` +
+				`font-size="${n(style.textHeight)}" font-family="${esc(style.fontFamily)}" ` +
+				`fill="${DRAWING_TOKENS.text}" text-anchor="start" dominant-baseline="middle">` +
+				`${esc(row?.value ?? '')}</text>`
+		);
+	});
+	return {
+		svg: `<g class="wi-title-block" data-rows="${rows.length}">${parts.join('')}</g>`,
+		warnings
+	};
 }
 
 /**

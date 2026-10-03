@@ -117,7 +117,14 @@ const TAB_TOOLS = new Set(['tab_switch', 'tab_add', 'tab_move', 'tab_rename']);
  * tab-kind gate. The engine refuses too; this gate answers before a call
  * waits for the lock.
  */
-const DRAWING_COMMANDS = new Set(['drawing_view_add', 'drawing_view_edit', 'drawing_annotation_add']);
+const DRAWING_COMMANDS = new Set([
+	'drawing_view_add',
+	'drawing_view_edit',
+	'drawing_annotation_add',
+	// D4b: the sheet's own door — its paper, its title block, and the
+	// drawing's projection standard.
+	'drawing_sheet_edit'
+]);
 
 const ASSEMBLY_COMMANDS = new Set([
 	'instance_add',
