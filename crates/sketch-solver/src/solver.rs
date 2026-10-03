@@ -21,6 +21,10 @@ use crate::constraint_mapping::{residual_count, weight, CompiledConstraint};
 use crate::entity_mapping::ParamLayout;
 use crate::profiles::extract_profiles;
 use crate::types::{Sketch, SolveStatus, SolvedSketch};
+use waffle_types::sketch_state::{
+    ConstraintResidual, Convergence, FreeComponent, FreeDirection, MovedPoint, SketchSolveReport,
+    Termination,
+};
 
 /// Default tolerance for residual satisfiability. 1e-6 m = 1 micrometer,
 /// which is the kernel's feature-size floor per A14.2 (TAU_MODEL = 1e-7 m).
@@ -57,6 +61,18 @@ const RANK_TOL: f64 = 1e-8;
 /// down to 1e-6 in the spec's sweep) but with less margin on NEAR-null
 /// valleys, so 1e-5 is the balance point.
 const PROXIMAL_WEIGHT: f64 = 1e-5;
+
+/// Displacement below which a point counts as NOT moved by the solve
+/// (`report.moved`). One nanometre: three orders below the solve tolerance,
+/// so a satisfied solve's own numerical settling never reads as a move, while
+/// any displacement a user or a dimension could have asked for does.
+const MOVED_EPS: f64 = 1e-9;
+
+/// Component magnitude below which a free direction does not name a piece of
+/// geometry (`report.free`). The basis vectors are unit-norm, so this is a
+/// relative floor: a point contributing less than 1e-9 of a unit direction is
+/// numerical dust, not a freedom the user can see.
+const FREE_EPS: f64 = 1e-9;
 
 /// The least-squares problem: weighted residuals + analytic Jacobian.
 struct SketchProblem {
@@ -164,21 +180,39 @@ impl LeastSquaresProblem<f64, nalgebra::Dyn, nalgebra::Dyn> for SketchProblem {
 }
 
 /// Solve a sketch: map entities/constraints to parameters, run LM, classify.
+///
+/// **Reference (driven) dimensions never drive.** They are filtered out of the
+/// constraint set HERE, once, and every index the result reports —
+/// `OverConstrained { conflicts }`, `report.conflicts`, `report.redundant`,
+/// `report.residuals[].index` — indexes `sketch.constraints`, the caller's own
+/// full array. Before S2 the filter lived in three places (the sketch UI, the
+/// `sketch_create` tool and `feature_engine::params`) and the conflict indices
+/// came back in the FILTERED space, so every consumer had to undo a mapping it
+/// had applied itself (`specs/agent_mechanical_design.md` §2.2 item 10, §10.2).
 pub fn solve_sketch(sketch: &Sketch) -> SolvedSketch {
     let layout = ParamLayout::build(&sketch.entities);
 
-    // Compile constraints. If any fail, return SolveFailed.
+    // Compile the DRIVING constraints, remembering each one's index in the
+    // caller's array. If any fail, return SolveFailed.
     let mut compiled = Vec::new();
-    for constraint in &sketch.constraints {
+    let mut driving_index: Vec<u32> = Vec::new();
+    for (i, constraint) in sketch.constraints.iter().enumerate() {
+        if constraint.is_reference() {
+            continue;
+        }
         match CompiledConstraint::compile(constraint, &layout) {
-            Ok(cc) => compiled.push(cc),
+            Ok(cc) => {
+                compiled.push(cc);
+                driving_index.push(i as u32);
+            }
             Err(reason) => {
                 return failed_result(&layout, reason);
             }
         }
     }
 
-    // Edge case: no constraints.
+    // Edge case: no driving constraints. Nothing to solve, but the state
+    // report is still real — every parameter is a free direction.
     if compiled.is_empty() {
         let positions = layout.extract_positions(&layout.params);
         let radii = layout.extract_radii(&layout.params);
@@ -189,23 +223,41 @@ pub fn solve_sketch(sketch: &Sketch) -> SolvedSketch {
             SolveStatus::UnderConstrained { dof }
         };
         let profiles = extract_profiles(&sketch.entities, &positions);
+        let report = SketchSolveReport {
+            dof,
+            params: layout.n_params() as u32,
+            rank: 0,
+            rows: 0,
+            residuals: reference_residuals(sketch, &layout, &layout.params),
+            conflicts: Vec::new(),
+            redundant: Vec::new(),
+            moved: Vec::new(),
+            free: unconstrained_free_directions(&layout),
+            convergence: Convergence {
+                termination: Termination::NotRun,
+                successful: false,
+                evaluations: 0,
+                residual_inf: 0.0,
+                tolerance: SOLVE_TOL,
+            },
+        };
         return SolvedSketch {
             positions,
             radii,
             profiles,
             status,
+            report,
         };
     }
 
-    let _n_params = layout.n_params();
-
-    // Row → owning-constraint map for conflict reporting: constraint i owns
-    // residual_count(i) consecutive rows. Built before `compiled` moves into
-    // the problem.
+    // Row → owning-constraint map for conflict reporting, in the CALLER's
+    // index space: driving constraint k owns residual_count(k) consecutive
+    // rows and reports as `driving_index[k]`. Built before `compiled` moves
+    // into the problem.
     let mut row_owner: Vec<u32> = Vec::new();
-    for (i, cc) in compiled.iter().enumerate() {
+    for (k, cc) in compiled.iter().enumerate() {
         for _ in 0..residual_count(cc) {
-            row_owner.push(i as u32);
+            row_owner.push(driving_index[k]);
         }
     }
 
@@ -241,9 +293,10 @@ pub fn solve_sketch(sketch: &Sketch) -> SolvedSketch {
         .map(|j| j.rows(0, n_constraint_rows).into_owned())
         .unwrap_or_else(|| DMatrix::zeros(0, n_params));
 
+    let rank = matrix_rank(&final_jacobian, RANK_TOL);
     let status = classify_status(
         &final_residuals,
-        &final_jacobian,
+        rank,
         n_constraint_rows,
         n_params,
         &row_owner,
@@ -282,18 +335,54 @@ pub fn solve_sketch(sketch: &Sketch) -> SolvedSketch {
         }
     }
 
+    // Solver state as data (§10.2 S2). Computed from the SAME final Jacobian
+    // and rank the verdict is made on, so `report.dof` and `report.free`
+    // cannot disagree with `status`.
+    let residual_inf = final_residuals.abs().max();
+    let satisfied = residual_inf < SOLVE_TOL;
+    let dof = n_params.saturating_sub(rank);
+    let state_report = SketchSolveReport {
+        dof: dof as u32,
+        params: n_params as u32,
+        rank: rank as u32,
+        rows: n_constraint_rows as u32,
+        residuals: constraint_residual_rows(
+            sketch,
+            &layout,
+            &solved.constraints,
+            &driving_index,
+            final_params,
+        ),
+        conflicts: find_conflict_constraints(&final_residuals, &row_owner),
+        redundant: if satisfied && rank < n_constraint_rows {
+            redundant_constraints(&solved.constraints, &driving_index, final_params, n_params)
+        } else {
+            Vec::new()
+        },
+        moved: moved_points(&layout, final_params),
+        free: free_directions(&layout, &final_jacobian, n_params, dof),
+        convergence: Convergence {
+            termination: termination_of(&report),
+            successful: report.termination.was_successful(),
+            evaluations: report.number_of_evaluations as u32,
+            residual_inf,
+            tolerance: SOLVE_TOL,
+        },
+    };
+
     SolvedSketch {
         positions,
         radii,
         profiles,
         status,
+        report: state_report,
     }
 }
 
 /// Classify the solve result using the deterministic decision tree from the
 /// spec (amendment G2):
 ///
-/// 1. Compute rank(J) via rank-revealing QR.
+/// 1. Compute rank(J) via rank-revealing QR (the caller's `rank`).
 /// 2. dof = n_params - rank.
 /// 3. If ‖r‖∞ < tol (satisfiable):
 ///    - dof == 0 → FullyConstrained
@@ -303,16 +392,13 @@ pub fn solve_sketch(sketch: &Sketch) -> SolvedSketch {
 ///    - rank(J) == n_residuals → SolveFailed { reason }
 fn classify_status(
     residuals: &DVector<f64>,
-    jacobian: &DMatrix<f64>,
+    rank: usize,
     n_residuals: usize,
     n_params: usize,
     row_owner: &[u32],
     report: &MinimizationReport<f64>,
 ) -> SolveStatus {
     let residual_inf = residuals.abs().max();
-
-    // Compute rank via QR with column pivoting.
-    let rank = matrix_rank(jacobian, RANK_TOL);
     let dof = n_params.saturating_sub(rank);
 
     if residual_inf < SOLVE_TOL {
@@ -400,6 +486,11 @@ fn find_conflict_constraints(residuals: &DVector<f64>, row_owner: &[u32]) -> Vec
 }
 
 /// Build a SolveFailed result with initial positions.
+///
+/// A constraint that does not compile is an authoring error, not a search
+/// failure: nothing was solved, so the state report carries the layout's own
+/// facts (`params`, every parameter free) and a `NotRun` termination rather
+/// than a fabricated residual set.
 fn failed_result(layout: &ParamLayout, reason: String) -> SolvedSketch {
     let positions = layout.extract_positions(&layout.params);
     let radii = layout.extract_radii(&layout.params);
@@ -407,6 +498,281 @@ fn failed_result(layout: &ParamLayout, reason: String) -> SolvedSketch {
         positions,
         radii,
         profiles: Vec::new(),
-        status: SolveStatus::SolveFailed { reason },
+        status: SolveStatus::SolveFailed {
+            reason: reason.clone(),
+        },
+        report: SketchSolveReport {
+            dof: layout.n_params() as u32,
+            params: layout.n_params() as u32,
+            rank: 0,
+            rows: 0,
+            residuals: Vec::new(),
+            conflicts: Vec::new(),
+            redundant: Vec::new(),
+            moved: Vec::new(),
+            free: unconstrained_free_directions(layout),
+            convergence: Convergence {
+                termination: Termination::Degenerate { detail: reason },
+                successful: false,
+                evaluations: 0,
+                residual_inf: 0.0,
+                tolerance: SOLVE_TOL,
+            },
+        },
+    }
+}
+
+/// Per-constraint residuals for EVERY constraint in the sketch, in the
+/// caller's declaration order.
+///
+/// Driving constraints are evaluated from the compiled form the solve used;
+/// reference (driven) dimensions are compiled here on the side and evaluated
+/// at the same solved parameters — a reference dimension's residual IS its
+/// measurement error against the value it displays, which is the whole point
+/// of a driven dimension. `residual: None` means the constraint could not be
+/// compiled at all (only reachable for a reference dimension: a driving one
+/// that fails to compile fails the solve).
+fn constraint_residual_rows(
+    sketch: &Sketch,
+    layout: &ParamLayout,
+    compiled: &[CompiledConstraint],
+    driving_index: &[u32],
+    params: &[f64],
+) -> Vec<ConstraintResidual> {
+    let worst = |cc: &CompiledConstraint| -> f64 {
+        let r = cc.residuals(params);
+        r.iter().fold(0.0f64, |acc, v| acc.max(v.abs()))
+    };
+    sketch
+        .constraints
+        .iter()
+        .enumerate()
+        .map(|(i, c)| {
+            let residual = match driving_index.iter().position(|&d| d as usize == i) {
+                Some(k) => Some(worst(&compiled[k])),
+                None => CompiledConstraint::compile(c, layout)
+                    .ok()
+                    .map(|cc| worst(&cc)),
+            };
+            ConstraintResidual {
+                index: i as u32,
+                kind: c.kind().to_string(),
+                residual,
+                satisfied: matches!(residual, Some(r) if r < SOLVE_TOL),
+                reference: c.is_reference(),
+            }
+        })
+        .collect()
+}
+
+/// Residual rows for a sketch with no driving constraints: every constraint
+/// present is a reference dimension (a driving one would have compiled).
+fn reference_residuals(
+    sketch: &Sketch,
+    layout: &ParamLayout,
+    params: &[f64],
+) -> Vec<ConstraintResidual> {
+    constraint_residual_rows(sketch, layout, &[], &[], params)
+}
+
+/// Dependent driving constraints of a SATISFIED, over-determined system
+/// (`rank(J) < rows`): walk the constraints in declaration order and name
+/// every one whose rows add no rank to the rows before it.
+///
+/// Declaration order makes the answer stable and names the LATER duplicate,
+/// which is the one the author just added. The scan costs one rank
+/// computation per constraint and runs only when the system is already known
+/// to be over-determined.
+fn redundant_constraints(
+    compiled: &[CompiledConstraint],
+    driving_index: &[u32],
+    params: &[f64],
+    n_params: usize,
+) -> Vec<u32> {
+    let mut accumulated: Vec<Vec<f64>> = Vec::new();
+    let mut rank_so_far = 0usize;
+    let mut dependent = Vec::new();
+    for (k, cc) in compiled.iter().enumerate() {
+        let j = cc.jacobian(params, n_params);
+        let before = accumulated.len();
+        for row in 0..j.nrows() {
+            accumulated.push((0..n_params).map(|c| j[(row, c)]).collect());
+        }
+        let m = DMatrix::from_fn(accumulated.len(), n_params, |r, c| accumulated[r][c]);
+        let rank = matrix_rank(&m, RANK_TOL);
+        if rank == rank_so_far && accumulated.len() > before {
+            dependent.push(driving_index[k]);
+        }
+        rank_so_far = rank;
+    }
+    dependent
+}
+
+/// Points the solve displaced, against the positions the caller sent in,
+/// worst first.
+fn moved_points(layout: &ParamLayout, final_params: &[f64]) -> Vec<MovedPoint> {
+    let mut moved: Vec<MovedPoint> = layout
+        .point_indices
+        .iter()
+        .filter_map(|(&id, &(xi, yi))| {
+            let dx = final_params[xi] - layout.params[xi];
+            let dy = final_params[yi] - layout.params[yi];
+            let distance = dx.hypot(dy);
+            (distance > MOVED_EPS).then_some(MovedPoint {
+                id,
+                dx,
+                dy,
+                distance,
+            })
+        })
+        .collect();
+    moved.sort_by(|a, b| {
+        b.distance
+            .partial_cmp(&a.distance)
+            .unwrap_or(std::cmp::Ordering::Equal)
+            .then(a.id.cmp(&b.id))
+    });
+    moved
+}
+
+/// Null-space basis of the final constraint Jacobian as named geometry moves.
+///
+/// `dof` directions, by construction: the basis is the `dof` eigenvectors of
+/// `JᵗJ` with the smallest eigenvalues, where `dof` comes from the same
+/// column-pivoted QR rank the verdict uses. Taking the count from the QR
+/// rather than from a second rank test on `JᵗJ` is what keeps
+/// `free.len() == dof` — two independent rank decisions on the same matrix can
+/// differ by one near the tolerance, and a report whose freedom count
+/// contradicts its own `dof` would be worse than no report.
+///
+/// `JᵗJ` rather than an SVD of `J`: with fewer constraint rows than
+/// parameters (every under-constrained sketch) nalgebra's thin `v_t` has only
+/// `min(m, n)` rows and cannot span the null space at all.
+fn free_directions(
+    layout: &ParamLayout,
+    jacobian: &DMatrix<f64>,
+    n_params: usize,
+    dof: usize,
+) -> Vec<FreeDirection> {
+    if dof == 0 || n_params == 0 {
+        return Vec::new();
+    }
+    if jacobian.nrows() == 0 {
+        return unconstrained_free_directions(layout);
+    }
+    let jtj = jacobian.transpose() * jacobian;
+    let eigen = nalgebra::SymmetricEigen::new(jtj);
+    let mut order: Vec<usize> = (0..n_params).collect();
+    order.sort_by(|&a, &b| {
+        eigen.eigenvalues[a]
+            .partial_cmp(&eigen.eigenvalues[b])
+            .unwrap_or(std::cmp::Ordering::Equal)
+            .then(a.cmp(&b))
+    });
+    order
+        .into_iter()
+        .take(dof)
+        .enumerate()
+        .map(|(basis, col)| {
+            let v = eigen.eigenvectors.column(col);
+            // An eigenvector's sign is arbitrary; fix it so the first
+            // significant component is positive and the report reads the same
+            // way every time.
+            let sign = v.iter().find(|x| x.abs() > FREE_EPS).map_or(1.0, |x| {
+                if *x < 0.0 {
+                    -1.0
+                } else {
+                    1.0
+                }
+            });
+            FreeDirection {
+                basis: basis as u32,
+                components: components_of(layout, |i| sign * v[i]),
+            }
+        })
+        .collect()
+}
+
+/// A sketch with no constraint rows at all: every parameter is its own free
+/// direction, in a deterministic order (points by id, then radii by id).
+fn unconstrained_free_directions(layout: &ParamLayout) -> Vec<FreeDirection> {
+    let mut axes: Vec<usize> = Vec::new();
+    let mut points: Vec<(u32, (usize, usize))> =
+        layout.point_indices.iter().map(|(&k, &v)| (k, v)).collect();
+    points.sort_by_key(|(id, _)| *id);
+    for (_, (xi, yi)) in &points {
+        axes.push(*xi);
+        axes.push(*yi);
+    }
+    let mut radii: Vec<(u32, usize)> = layout
+        .radius_indices
+        .iter()
+        .map(|(&k, &v)| (k, v))
+        .collect();
+    radii.sort_by_key(|(id, _)| *id);
+    for (_, ri) in &radii {
+        axes.push(*ri);
+    }
+    axes.into_iter()
+        .enumerate()
+        .map(|(basis, axis)| FreeDirection {
+            basis: basis as u32,
+            components: components_of(layout, |i| if i == axis { 1.0 } else { 0.0 }),
+        })
+        .collect()
+}
+
+/// Turn a parameter-space direction into the geometry it moves: one component
+/// per point that translates and per radius that grows, above the noise floor,
+/// ordered by id so the report is comparable between solves.
+fn components_of(layout: &ParamLayout, at: impl Fn(usize) -> f64) -> Vec<FreeComponent> {
+    let mut points: Vec<(u32, (usize, usize))> =
+        layout.point_indices.iter().map(|(&k, &v)| (k, v)).collect();
+    points.sort_by_key(|(id, _)| *id);
+    let mut components: Vec<FreeComponent> = points
+        .into_iter()
+        .filter_map(|(id, (xi, yi))| {
+            let (dx, dy) = (at(xi), at(yi));
+            (dx.hypot(dy) > FREE_EPS).then_some(FreeComponent::Point { id, dx, dy })
+        })
+        .collect();
+    let mut radii: Vec<(u32, usize)> = layout
+        .radius_indices
+        .iter()
+        .map(|(&k, &v)| (k, v))
+        .collect();
+    radii.sort_by_key(|(id, _)| *id);
+    for (entity, ri) in radii {
+        let dr = at(ri);
+        if dr.abs() > FREE_EPS {
+            components.push(FreeComponent::Radius { entity, dr });
+        }
+    }
+    components
+}
+
+/// LM's termination reason, typed, so no consumer parses a Debug string.
+fn termination_of(report: &MinimizationReport<f64>) -> Termination {
+    use levenberg_marquardt::TerminationReason as T;
+    match report.termination {
+        T::Converged { ftol, xtol } => Termination::Converged { ftol, xtol },
+        T::ResidualsZero => Termination::ResidualsZero,
+        T::Orthogonal => Termination::Orthogonal,
+        T::LostPatience => Termination::LostPatience,
+        T::NoImprovementPossible(detail) => Termination::NoImprovementPossible {
+            detail: detail.to_string(),
+        },
+        T::Numerical(detail) => Termination::Numerical {
+            detail: detail.to_string(),
+        },
+        T::User(detail) | T::WrongDimensions(detail) => Termination::Degenerate {
+            detail: detail.to_string(),
+        },
+        T::NoParameters => Termination::Degenerate {
+            detail: "no parameters".to_string(),
+        },
+        T::NoResiduals => Termination::Degenerate {
+            detail: "no residuals".to_string(),
+        },
     }
 }

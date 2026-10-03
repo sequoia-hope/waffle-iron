@@ -75,6 +75,7 @@ fn handle_message(
             let solved = sketch_solver::solve_sketch(&sketch);
             if let Some(active) = state.active_sketch.as_mut() {
                 active.solve_status = solved.status.clone();
+                active.solve_report = solved.report.clone();
             }
             Ok(EngineToUi::SketchSolved { solved })
         }

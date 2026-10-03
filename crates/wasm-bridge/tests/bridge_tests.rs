@@ -1383,6 +1383,7 @@ fn serde_roundtrip_sketch_solved() {
                 arc_segments: vec![],
             }],
             status: SolveStatus::UnderConstrained { dof: 2 },
+            report: waffle_types::SketchSolveReport::default(),
         },
     };
     let json = serde_json::to_string(&msg).unwrap();
