@@ -6390,20 +6390,41 @@ export async function setParameters(parameters) {
 
 /**
  * Evaluate one expression against the current variables (stateless).
- * Resolves to { value, error }: `value` is an mm-space number (lengths in mm,
- * angles in degrees) or null; `error` a user-facing message or null.
+ *
+ * There is NO expression parser in the browser: this is the one path, and it
+ * is the same engine code the rebuild runs, so a preview and the geometry can
+ * never disagree. (`$lib/units.js` parses a DISPLAY measurement — a number
+ * with a unit suffix in the document's display unit — and is not an
+ * expression evaluator; `isPlainMeasurement` is what routes anything else
+ * here.)
+ *
+ * Resolves to { value, dimension, error }: `value` is an mm-space number
+ * (lengths in mm, angles in degrees) or null; `dimension` names what the
+ * expression IS ("length", "angle", "ratio", "length^2", or "unitless" for a
+ * plain number any field accepts); `error` a user-facing message or null.
+ *
+ * Pass `dimension` to have the engine judge the expression as that kind of
+ * field would (P1): "25deg" asked for as 'Length' comes back as an error
+ * rather than 25 mm.
  * @param {string} expression
+ * @param {'Length'|'Angle'|'Count'|'Ratio'} [dimension]
  */
-export async function evaluateExpression(expression) {
-	if (!bridge || !engineReady) return { value: null, error: 'Engine not ready' };
+export async function evaluateExpression(expression, dimension) {
+	if (!bridge || !engineReady) return { value: null, dimension: null, error: 'Engine not ready' };
 	try {
-		const resp = await bridge.send({ type: 'EvaluateExpression', expression });
+		const msg = { type: 'EvaluateExpression', expression };
+		if (dimension) msg.dimension = dimension;
+		const resp = await bridge.send(msg);
 		if (resp?.type === 'ExpressionEvaluated') {
-			return { value: resp.value ?? null, error: resp.error ?? null };
+			return {
+				value: resp.value ?? null,
+				dimension: resp.dimension ?? null,
+				error: resp.error ?? null
+			};
 		}
-		return { value: null, error: 'Unexpected engine response' };
+		return { value: null, dimension: null, error: 'Unexpected engine response' };
 	} catch (err) {
-		return { value: null, error: err.message };
+		return { value: null, dimension: null, error: err.message };
 	}
 }
 

@@ -1,5 +1,5 @@
 {
-  "manifest_hash": "593f1240e692830b92508203d808d74a04ab6672485b02c42c975a861d87e050",
+  "manifest_hash": "fd59f23fa25340e008e28ba6856790a675ee456a37300052be3c2851bf83bc1c",
   "protocol": "waffle-agent-link/1",
   "tools": [
     {
@@ -2478,10 +2478,20 @@
         "readOnlyHint": true,
         "title": "Evaluate expression"
       },
-      "description": "Evaluate an expression against the design parameters, as a dimension field would. mm-space: a bare number means millimeters for lengths (degrees for angles); unit suffixes (in, cm, …) and parameter names are allowed. Returns value_mm, or value_mm null with the evaluation error.",
+      "description": "Evaluate an expression against the design parameters, as a dimension field would. mm-space: a bare number means millimeters for lengths (degrees for angles); unit suffixes (mm, cm, m, in, ft, deg, rad) and parameter names are allowed. Returns value_mm plus the dimension the expression produced, or value_mm null with the evaluation error. Pass dimension to have it judged as that kind of field would judge it: \"25deg\" asked for as a Length is an error, not 25 mm.",
       "inputSchema": {
         "additionalProperties": false,
         "properties": {
+          "dimension": {
+            "description": "Optional: the kind of field this expression is meant for. A committed unit that does not fit is refused instead of read as a plain number.",
+            "enum": [
+              "Length",
+              "Angle",
+              "Count",
+              "Ratio"
+            ],
+            "type": "string"
+          },
           "expression": {
             "description": "e.g. \"width / 2\" or \"1.5in\".",
             "type": "string"
@@ -2495,6 +2505,10 @@
       "name": "expression_evaluate",
       "outputSchema": {
         "properties": {
+          "dimension": {
+            "description": "What the expression IS: \"length\", \"angle\", \"ratio\", a composite such as \"length^2\", or \"unitless\" when no suffix committed a dimension (a plain number any field accepts).",
+            "type": "string"
+          },
           "error": {
             "type": "string"
           },

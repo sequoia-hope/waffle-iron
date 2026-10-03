@@ -441,11 +441,22 @@ export const expressionEvaluateTool = {
 	name: 'expression_evaluate',
 	description:
 		'Evaluate an expression against the design parameters, as a dimension field would. mm-space: a bare ' +
-		'number means millimeters for lengths (degrees for angles); unit suffixes (in, cm, …) and parameter ' +
-		'names are allowed. Returns value_mm, or value_mm null with the evaluation error.',
+		'number means millimeters for lengths (degrees for angles); unit suffixes (mm, cm, m, in, ft, deg, rad) ' +
+		'and parameter names are allowed. Returns value_mm plus the dimension the expression produced, or ' +
+		'value_mm null with the evaluation error. Pass dimension to have it judged as that kind of field ' +
+		'would judge it: "25deg" asked for as a Length is an error, not 25 mm.',
 	inputSchema: {
 		type: 'object',
-		properties: { expression: { type: 'string', description: 'e.g. "width / 2" or "1.5in".' } },
+		properties: {
+			expression: { type: 'string', description: 'e.g. "width / 2" or "1.5in".' },
+			dimension: {
+				type: 'string',
+				enum: ['Length', 'Angle', 'Count', 'Ratio'],
+				description:
+					'Optional: the kind of field this expression is meant for. A committed unit that does not fit is ' +
+					'refused instead of read as a plain number.'
+			}
+		},
 		required: ['expression'],
 		additionalProperties: false
 	},
@@ -454,6 +465,12 @@ export const expressionEvaluateTool = {
 		properties: {
 			expression: { type: 'string' },
 			value_mm: { type: ['number', 'null'] },
+			dimension: {
+				type: 'string',
+				description:
+					'What the expression IS: "length", "angle", "ratio", a composite such as "length^2", or ' +
+					'"unitless" when no suffix committed a dimension (a plain number any field accepts).'
+			},
 			error: { type: 'string' }
 		},
 		required: ['expression', 'value_mm']

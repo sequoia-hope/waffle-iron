@@ -575,8 +575,15 @@ pub enum UiToEngine {
     /// Stateless: evaluate one expression against the current parameter
     /// table's cached values (mm-space result). Used by dialogs and the
     /// dimension input for live validation/preview.
+    ///
+    /// `dimension` is the kind of field the caller means it for (P1). When
+    /// set, an expression whose committed dimension does not fit — `25deg`
+    /// for a `Length` — comes back as an error instead of a number, which
+    /// is the same refusal the rebuild would make at that field.
     EvaluateExpression {
         expression: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        dimension: Option<feature_engine::expr::Dimension>,
     },
 
     // -- Gear generation (stateless) --
@@ -1135,9 +1142,15 @@ pub enum EngineToUi {
     RegionsComputed { regions: Vec<Region> },
 
     /// Result of `EvaluateExpression`: exactly one of `value` (mm-space
-    /// number) or `error` (user-facing message) is set.
+    /// number) or `error` (user-facing message) is set. `dimension` names
+    /// the kind of quantity the expression produced — `"length"`,
+    /// `"angle"`, `"ratio"`, a composite like `"length^2"`, or
+    /// `"unitless"` when no unit suffix committed one (a plain number,
+    /// which any field accepts).
     ExpressionEvaluated {
         value: Option<f64>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        dimension: Option<String>,
         error: Option<String>,
     },
 

@@ -830,15 +830,31 @@ fn handle_message(
             Ok(model_updated_response(state))
         }
 
-        UiToEngine::EvaluateExpression { expression } => {
+        UiToEngine::EvaluateExpression {
+            expression,
+            dimension,
+        } => {
             let env = feature_engine::params::cached_env(&state.engine.tree.parameters);
-            match feature_engine::expr::evaluate_quantity(&expression, &env).map(|q| q.value) {
-                Ok(v) => Ok(EngineToUi::ExpressionEvaluated {
-                    value: Some(v),
+            // The preview reports the WORKING-SPACE magnitude (mm for a
+            // length, degrees for an angle) — what the field's own boundary
+            // will convert — plus the dimension the expression produced. A
+            // caller that named a dimension gets the field's refusal here.
+            let evaluated =
+                feature_engine::expr::evaluate_quantity(&expression, &env).and_then(|q| {
+                    match dimension {
+                        Some(want) => q.check(want).map(|()| q),
+                        None => Ok(q),
+                    }
+                });
+            match evaluated {
+                Ok(q) => Ok(EngineToUi::ExpressionEvaluated {
+                    value: Some(q.value),
+                    dimension: Some(q.dimension_label()),
                     error: None,
                 }),
                 Err(e) => Ok(EngineToUi::ExpressionEvaluated {
                     value: None,
+                    dimension: None,
                     error: Some(e.to_string()),
                 }),
             }
