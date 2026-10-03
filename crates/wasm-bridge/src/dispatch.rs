@@ -1191,8 +1191,17 @@ fn measure_distance(
                 Ok(MeasureEntity::Solid(body.handle.clone()))
             }
             MeasureOperand::Entity { geom_ref } => {
+                // Resolved under `Strict`, whatever the caller sent. The refs
+                // `face_list` hands out are minted `BestEffort` for the
+                // viewport, where a near miss is better than nothing and the
+                // user sees the warning; an agent measuring a clearance sees
+                // no warning, so a near miss would silently measure the wrong
+                // face. §5.3 of `specs/agent_mechanical_design.md` makes this
+                // the rule for every ref an agent authors through a tool.
+                let mut geom_ref = geom_ref.clone();
+                geom_ref.policy = waffle_types::ResolvePolicy::Strict;
                 let resolved = feature_engine::resolve::resolve_geom_ref_live(
-                    geom_ref,
+                    &geom_ref,
                     &state.engine.feature_results,
                     introspect,
                 )
