@@ -282,7 +282,8 @@ fn measuring_a_later_feature_is_the_same_typed_cycle() {
     // that mixed a one-based position with a zero-based one would send an
     // author to the wrong feature.
     assert!(
-        msg.contains("\"Block 1\" (#4 of the tree)") && msg.contains("\"Block 0\" (#2 of the tree)"),
+        msg.contains("\"Block 1\" (#4 of the tree)")
+            && msg.contains("\"Block 0\" (#2 of the tree)"),
         "the refusal must name BOTH features at consistent positions: {msg}"
     );
 }
@@ -564,8 +565,18 @@ fn two_chained_measuring_fields_settle_at_the_sites_plus_one_bound() {
     let (mut engine, mut kernel, blocks) = blocks(3);
     name_side(&mut engine, &kernel, blocks[0], "a_side");
     name_side(&mut engine, &kernel, blocks[1], "b_side");
-    set_depth_expr(&mut engine, &mut kernel, blocks[1], "sqrt(area(a_side)) * 2");
-    set_depth_expr(&mut engine, &mut kernel, blocks[2], "sqrt(area(b_side)) * 2");
+    set_depth_expr(
+        &mut engine,
+        &mut kernel,
+        blocks[1],
+        "sqrt(area(a_side)) * 2",
+    );
+    set_depth_expr(
+        &mut engine,
+        &mut kernel,
+        blocks[2],
+        "sqrt(area(b_side)) * 2",
+    );
     assert!(errors(&engine).is_empty(), "{}", errors(&engine));
     assert_eq!(
         feature_engine::params::measurement_sites(&mut engine.tree.clone()).len(),
@@ -636,7 +647,7 @@ fn fifteen_independent_measuring_sites_cost_two_passes_not_sixteen() {
             // A measuring PARAMETER plus a measuring field, so both kinds of
             // site are in the count.
             engine.tree.parameters.push(DesignParameter::new(
-                &format!("p{k}"),
+                format!("p{k}"),
                 "sqrt(area(datum_side))",
             ));
             format!("sqrt(area(datum_side)) + p{k} * 0")

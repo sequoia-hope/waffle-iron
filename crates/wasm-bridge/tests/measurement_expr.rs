@@ -605,7 +605,10 @@ fn mixed_operands_and_the_two_angle_families_answer_or_refuse_by_name() {
         json!({ "expression": "angle(x_face, x_face)" }),
     );
     assert!(out["error"].is_null(), "{out}");
-    assert!(out["value_mm"].as_f64().expect("a value").abs() < 1e-9, "{out}");
+    assert!(
+        out["value_mm"].as_f64().expect("a value").abs() < 1e-9,
+        "{out}"
+    );
 
     // §6's other angle family, "two LINES": two straight edges of the cube.
     // A straight edge carries no axis descriptor, so its direction is the
@@ -628,8 +631,14 @@ fn mixed_operands_and_the_two_angle_families_answer_or_refuse_by_name() {
         "expression_evaluate",
         json!({ "expression": "angle(e0, e0)" }),
     );
-    assert!(out["error"].is_null(), "a straight edge has a direction: {out}");
-    assert!(out["value_mm"].as_f64().expect("a value").abs() < 1e-9, "{out}");
+    assert!(
+        out["error"].is_null(),
+        "a straight edge has a direction: {out}"
+    );
+    assert!(
+        out["value_mm"].as_f64().expect("a value").abs() < 1e-9,
+        "{out}"
+    );
     let out = ok(
         &mut state,
         &mut kernel,
@@ -753,4 +762,3 @@ fn a_feature_measuring_its_own_output_is_a_typed_cycle_against_the_real_kernel()
     // The depth is untouched, so the body is still the one it was.
     assert_eq!(depth_of(&state, feature), s);
 }
-

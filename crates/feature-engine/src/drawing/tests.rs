@@ -449,7 +449,9 @@ fn an_expression_dimension_whose_expression_fails_is_loud_and_draws_nothing() {
     struct Broken;
     impl ExprDimensions for Broken {
         fn value_of(&self, expression: &str, _kind: DimensionKind) -> Result<f64, String> {
-            Err(format!("radius(\"rim\"): the name does not resolve ({expression})"))
+            Err(format!(
+                "radius(\"rim\"): the name does not resolve ({expression})"
+            ))
         }
     }
     let kernel = waffle_types::kernel::MockKernel::new();
