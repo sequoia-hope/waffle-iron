@@ -13,6 +13,29 @@
  * on a font change and says nothing about whether the number is right.
  */
 import { test, expect } from './helpers/waffle-test.js';
+import { collectCrashErrors, expectNoAnyCrash } from './helpers/state.js';
+
+/**
+ * Every test in this file gets the strict crash oracle (CLAUDE.md, "WASM crash
+ * detection"), because every test in it drives the kernel: a projection, and
+ * since D4b a section cut and a detail crop.
+ *
+ * It is here rather than per test for the reason the rule exists. A panic
+ * inside a section cut does not fail a DOM assertion loudly — the sheet simply
+ * renders without that view, and a test asserting "the cap is one loop with one
+ * hole" then fails with a message about loops, pointing at the hatch rather
+ * than at the crash. `engineReady` is NOT usable as the oracle here: it is not
+ * reliably reset on a crash, which is exactly what the rule says.
+ */
+let crashes = null;
+test.beforeEach(({ waffle }) => {
+	crashes = collectCrashErrors(waffle.page);
+});
+test.afterEach(() => {
+	const tracker = crashes;
+	crashes = null;
+	if (tracker) expectNoAnyCrash(tracker);
+});
 
 /**
  * Call one agent tool through the page's own executor, the way
@@ -548,24 +571,77 @@ test.describe('the drawing tab, D4b', () => {
 			const bytes = new Uint8Array(binary.length);
 			for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
 			const text = new TextDecoder('latin1').decode(bytes);
+			// Every xref entry must point at the `N 0 obj` it names. The
+			// offsets are counted in BYTES, so an off-by-one here is a file no
+			// reader opens — and the only check that catches it is following
+			// each one. (Verified against pypdf, pdfminer.six and PyMuPDF; this
+			// is the dependency-free form of the same walk.)
+			const startxref = Number(/startxref\s+(\d+)/.exec(text)?.[1] ?? NaN);
+			const table = text.slice(startxref);
+			const entries = [...table.matchAll(/^(\d{10}) (\d{5}) ([nf]) $/gm)];
+			const badOffsets = entries
+				.map((m, i) => ({ i, at: Number(m[1]), free: m[3] === 'f' }))
+				.filter((e) => !e.free && !text.startsWith(`${e.i} 0 obj`, e.at))
+				.map((e) => e.i);
 			return {
 				header: text.slice(0, 8),
 				length: bytes.length,
 				pageObjects: (text.match(/\/Type\s*\/Page[^s]/g) ?? []).length,
 				count: /\/Count\s+(\d+)/.exec(text)?.[1] ?? null,
 				tail: text.slice(-6),
-				startxref: /startxref\s+(\d+)/.exec(text)?.[1] ?? null
+				startxref,
+				xrefHeader: /xref\s+0 (\d+)/.exec(table)?.[1] ?? null,
+				entries: entries.length,
+				badOffsets,
+				mediaBox: /\/MediaBox \[([^\]]*)\]/.exec(text)?.[1] ?? null,
+				cm: /q ([0-9.]+) 0 0 (-[0-9.]+) 0 ([0-9.]+) cm/.exec(text)?.slice(1) ?? null,
+				// Each operator is its own line in the content stream, so the
+				// rectangle is anchored at a line start, not after a space.
+				borderRect: /^10 10 ([0-9.]+) ([0-9.]+) re$/m.exec(text)?.slice(1) ?? null
 			};
 		}, blob);
 		expect(file.header).toBe('%PDF-1.4');
 		expect(file.count, 'one sheet is one page').toBe('1');
 		expect(file.pageObjects, 'exactly one /Type /Page object').toBe(1);
 		expect(file.tail).toBe('%%EOF\n');
-		// The xref offset must point at the table it names, or no reader
-		// opens the file.
 		expect(Number(file.startxref)).toBeGreaterThan(0);
 		expect(Number(file.startxref)).toBeLessThan(file.length);
 		expect(file.length).toBe(answer.structuredContent.bytes);
+		expect(file.badOffsets, 'every xref offset points at its own object').toEqual([]);
+		expect(file.entries, 'the xref table is as long as it claims').toBe(
+			Number(file.xrefHeader)
+		);
+
+		// The page is the PAPER, and one user unit is one paper millimetre.
+		//
+		// Both are measurable from the file alone and both were wrong at the
+		// same place: the `cm` scale was written through the 3-decimal
+		// coordinate formatter, so `72/25.4` became `2.835` — 12.5 ppm high,
+		// which drew a 100 mm dimension at 100.0125 mm and pushed an A3 sheet
+		// 52 µm past the MediaBox that bounds it. A scale error is invisible in
+		// every structural assertion above, which is why these two are here.
+		// The paper size comes from the mounted sheet's own viewBox, so what is
+		// compared is the PDF against the SVG on the screen — which is the
+		// claim this writer makes by scanning that SVG in the first place.
+		const PT_PER_MM = 72 / 25.4;
+		const onScreen = await sheetDom(page);
+		const vb = String(onScreen.viewBox).split(/\s+/).map(Number);
+		expect(vb.slice(0, 2), 'the sheet viewBox starts at the paper corner').toEqual([0, 0]);
+		const [paperW, paperH] = [vb[2], vb[3]];
+		const box = String(file.mediaBox).split(/\s+/).map(Number);
+		expect(box.slice(0, 2)).toEqual([0, 0]);
+		expect(box[2]).toBeCloseTo(paperW * PT_PER_MM, 3);
+		expect(box[3]).toBeCloseTo(paperH * PT_PER_MM, 3);
+		expect(file.cm, 'the page opens with one millimetre transform').toBeTruthy();
+		expect(Number(file.cm[0])).toBeCloseTo(PT_PER_MM, 5);
+		expect(Number(file.cm[1])).toBeCloseTo(-PT_PER_MM, 5);
+		expect(Number(file.cm[2])).toBeCloseTo(paperH * PT_PER_MM, 3);
+		// The sheet border is inset 10 mm on every side (ISO 5457), so in a
+		// space whose unit is one millimetre it is written literally. Any
+		// scaling of user space moves these two numbers.
+		expect(file.borderRect, 'the border frame is written in millimetres').toBeTruthy();
+		expect(Number(file.borderRect[0])).toBeCloseTo(paperW - 20, 6);
+		expect(Number(file.borderRect[1])).toBeCloseTo(paperH - 20, 6);
 	});
 
 	test('export_pdf is refused on a part tab, by name', async ({ waffle }) => {
