@@ -484,6 +484,17 @@ pub enum UiToEngine {
         #[serde(default)]
         filter: Option<waffle_types::TopoQuery>,
     },
+    /// Every face, edge or vertex of one body with its full geometric content
+    /// (Q6 of `specs/agent_mechanical_design.md` §4.2): the persistent id, the
+    /// reference that names it, its N1 name, its signature, its analytic axis
+    /// where it has one, an edge's exact arc length and a vertex's position.
+    /// Query: no rebuild.
+    ListEntities {
+        body_id: String,
+        kind: EntityListKind,
+        #[serde(default)]
+        filter: Option<EntityListFilter>,
+    },
     ExportStep,
     /// One orthographic view of every live body as an R12 DXF drawing
     /// (`specs/drawings_and_mbd.md` §8 / §12, increment D1a — wireframe, no
@@ -697,6 +708,197 @@ pub struct ListedFace {
     /// `GeomRef` also carries `name`). Absent when the face is unnamed.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub name: Option<String>,
+}
+
+/// Which topology [`UiToEngine::ListEntities`] lists (Q6).
+///
+/// Its own enum rather than `waffle_types::TopoKind`: that type is serde-
+/// tagged (`{"type":"Face"}`) and carries `Shell`/`Solid`, neither of which is
+/// a listable entity. One lowercase token is what a tool argument wants.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum EntityListKind {
+    Face,
+    Edge,
+    Vertex,
+}
+
+impl EntityListKind {
+    pub fn topo(self) -> waffle_types::TopoKind {
+        match self {
+            EntityListKind::Face => waffle_types::TopoKind::Face,
+            EntityListKind::Edge => waffle_types::TopoKind::Edge,
+            EntityListKind::Vertex => waffle_types::TopoKind::Vertex,
+        }
+    }
+}
+
+/// What narrows an [`UiToEngine::ListEntities`] answer (Q6 §4.3).
+///
+/// Every field is independent and they COMPOSE: an entity is listed only if
+/// it passes all of the ones that are present. `query` is the same
+/// `TopoQuery` vocabulary `ListFaces` already takes, so one filter language
+/// serves both listings and `Selector::Query`; the other two ask about
+/// things a `TopoSignature` cannot express.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct EntityListFilter {
+    /// The `TopoQuery` filter rules (`SurfaceType`, `NormalDirection`,
+    /// `NearPoint`, `AreaRange`). `tie_break` is ignored: a listing returns
+    /// every match.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub query: Option<waffle_types::TopoQuery>,
+    /// A glob over the entity's N1 name: `*` matches any run of characters
+    /// and `?` any single one. An entity with no name never matches a glob.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub name: Option<String>,
+    /// `[min, max]` in meters. Keeps only entities whose own bounding box
+    /// lies INSIDE this box, boundary included — "what is in this region",
+    /// not "what reaches into it". An entity whose signature carries no bbox
+    /// is excluded rather than assumed to fit.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub bbox: Option<[[f64; 3]; 2]>,
+}
+
+/// One entity of an `EntitiesListed` answer (Q6).
+///
+/// `signature`, `axis`, `length` and `position` are all present or absent by
+/// KIND rather than by luck: a face has no `length`, a vertex no `axis`. A
+/// field that is absent for a reason the caller should know about says so
+/// (`length_unavailable`), because a missing number and an impossible one are
+/// different facts.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ListedEntity {
+    /// The entity's persistent id, and the id its geometry was introduced
+    /// under (`waffle_types::kernel::EntityPid`). `null` for a kernel with no
+    /// persistent identity for this body — a mesh-backed import — never a
+    /// fabricated number.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub pid: Option<u64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub root_pid: Option<u64>,
+    /// The reference that names this entity. For a FACE this is exactly the
+    /// ref `face_list` and the viewport hand out, so the two tools cannot
+    /// drift; for an edge or a vertex it is a `Selector::Pid` ref, which is
+    /// the durable identity D0 gave them. `null` when neither exists.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub geom_ref: Option<waffle_types::GeomRef>,
+    /// The N1 name pointing at this entity, when one does.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub name: Option<String>,
+    /// What the name's resolution had to say, verbatim — empty when the name
+    /// reached this entity by its persistent id, which is the normal case.
+    ///
+    /// Non-empty means N1's LOUD FALLBACK fired: the pid the name was stored
+    /// over is gone and the name was rebound through the reference it was
+    /// authored with, which matches by geometry and may well be naming a
+    /// different entity than the user meant. N1 reports that on
+    /// `names_list`; a listing that showed the bare `name` beside it would be
+    /// the one place the warning disappeared, so it travels here too.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub name_warnings: Vec<String>,
+    /// The N0 signature: surface type, area, centroid, normal, bbox, and the
+    /// rotation-invariant `AxisDescriptor` of a surface of revolution.
+    pub signature: waffle_types::TopoSignature,
+    /// The analytic axis LINE of a rotational face or a circular/elliptical
+    /// edge — a point on it plus a direction, which the signature's
+    /// `AxisDescriptor` deliberately does not carry (it is rotation- and
+    /// position-invariant by design). `null` for a plane, whose orientation
+    /// is its `signature.normal`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub axis: Option<ListedAxis>,
+    /// An edge's ARC length (Q6), never its chord. Faces and vertices have
+    /// none.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub length: Option<ListedLength>,
+    /// Why this edge has no `length` — the kernel's own refusal, verbatim.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub length_unavailable: Option<String>,
+    /// A vertex's position in meters. Faces and edges have none (their
+    /// `signature.centroid` is the comparable field).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub position: Option<[f64; 3]>,
+}
+
+/// The analytic axis of one entity (`KernelIntrospect::entity_axis`).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ListedAxis {
+    /// `cylindrical`, `conical`, `spherical`, `toroidal`, `circular` or
+    /// `elliptical`.
+    pub kind: String,
+    /// A point ON the axis — the cylinder's axis point, the cone's apex, the
+    /// sphere's/torus's centre, the circle's centre.
+    pub origin: [f64; 3],
+    /// The unit axis direction, and `null` for `spherical`: a sphere has no
+    /// intrinsic axis, so it carries a CENTRE and nothing else. (The kernel's
+    /// own `EntityAxis` fills a canonical pole there to keep its field
+    /// infallible; publishing that as the sphere's direction would make an
+    /// agent believe a frame the geometry does not have, and would contradict
+    /// the `null` that `signature.axis.direction` reports for the same face.)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub direction: Option<[f64; 3]>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub radius: Option<f64>,
+}
+
+/// One edge's arc length and the tier it is (Q6).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ListedLength {
+    /// Meters, along the curve.
+    pub arc_length_m: f64,
+    /// `line`, `circle`, `arc`, `ellipse_arc`, `hyperbola_arc`,
+    /// `surface_pair` or `polyline`.
+    pub curve_type: String,
+    /// Whether the edge closes on itself (a full circle or ellipse).
+    pub closed: bool,
+    pub method: LengthTierWire,
+    /// `quadrature` only: the measured difference against the same
+    /// quadrature at twice the step count.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub residual_m: Option<f64>,
+    /// `chords` only, and only when the sampler was ours: the band on each
+    /// sample point. Absent for an imported body's polyline, whose source
+    /// tolerance we do not know.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub chord_bound_m: Option<f64>,
+}
+
+/// How an arc length was obtained (Q6) — the wire form of
+/// `waffle_types::kernel::LengthMethod`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum LengthTierWire {
+    /// A closed form: a chord, `2πr`, `rΔθ`.
+    Exact,
+    /// A converged quadrature of a closed-form speed whose integral is
+    /// elliptic (an ellipse or hyperbola arc). `residual_m` is the witness.
+    Quadrature,
+    /// The sum of a sampled polyline's chords — a LOWER bound on the true
+    /// length.
+    Chords,
+}
+
+/// The body-level frame an `EntitiesListed` answer carries (Q6): the mass
+/// properties' principal axes, reused from Q3 rather than recomputed.
+///
+/// Every field is `null` together when the kernel refuses the integration (a
+/// mesh-backed import), and `unavailable` then says why — a listing must not
+/// fail because a body has no closed-form moments.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ListedBodyFrame {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub centroid: Option<[f64; 3]>,
+    /// The inertia tensor's eigenvalues, ascending, at unit density.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub principal_moments: Option<[f64; 3]>,
+    /// The unit eigenvector of each, as rows, right-handed.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub principal_axes: Option<[[f64; 3]; 3]>,
+    /// Which tier those numbers are — Q3's own, carried, not re-derived.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub method: Option<MeasureMethod>,
+    /// The kernel's refusal, verbatim, when there are no axes.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub unavailable: Option<String>,
 }
 
 /// One operand of [`UiToEngine::MeasureDistance`] (Q1 §4.3): a whole body, a
@@ -975,6 +1177,34 @@ pub enum EngineToUi {
     FacesListed {
         body_id: String,
         faces: Vec<ListedFace>,
+    },
+
+    /// Answer to `ListEntities` (Q6): ordered by persistent id, which is
+    /// content-seeded and therefore the same order after a rebuild.
+    EntitiesListed {
+        body_id: String,
+        kind: EntityListKind,
+        entities: Vec<ListedEntity>,
+        /// The body's own frame (Q3's principal axes), or why it has none.
+        body: ListedBodyFrame,
+        /// How many entities a filter arm EXCLUDED because their own data
+        /// could not answer it, rather than because they failed it.
+        ///
+        /// Without this an agent cannot tell "no entity is in that box" from
+        /// "no entity could be asked", and those call for opposite next
+        /// moves. Today only the `bbox` arm can contribute: an entity whose
+        /// signature carries no bounding box is not assumed to fit, so it
+        /// drops out of a `bbox`-filtered listing — and that is the fact this
+        /// counts. (An unnamed entity failing a `name` glob is NOT counted:
+        /// "this entity's name does not match" is a real answer when there is
+        /// no name. Zero whenever no filter is given.)
+        excluded_unevaluable: usize,
+        /// This body's N1 names that resolve to nothing, so no entity in the
+        /// listing carries them — in name order. A name the user set and then
+        /// invalidated is a fact about the listing they asked for, and an
+        /// empty `name` on every entity is not a way to learn it.
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        unresolved_names: Vec<String>,
     },
 
     /// Answer to `QueryEntityNames` (N1), in name order.

@@ -320,6 +320,7 @@ const ENGINE_QUERIES = new Set([
 	'measure_interference',
 	'measure_mass',
 	'face_list',
+	'entity_list',
 	'sketch_regions',
 	'sketch3d_get',
 	'names_list',

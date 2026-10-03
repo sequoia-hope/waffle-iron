@@ -1847,6 +1847,16 @@ impl super::measure::KernelMeasure for MockKernel {
             operation: "mass properties (MockKernel carries no geometry to integrate)".to_string(),
         })
     }
+
+    /// Q6: the mock's edges are endpoint pairs with no curve under them, so
+    /// the only length it could report is the chord — and a chord answered to
+    /// an arc-length question is a wrong number, not an approximate one.
+    fn edge_length(&self, _edge: KernelId) -> Result<super::measure::EdgeLength, KernelError> {
+        Err(KernelError::NotSupported {
+            operation: "edge arc length (MockKernel carries no curves, only endpoint pairs)"
+                .to_string(),
+        })
+    }
 }
 
 impl KernelIntrospect for MockKernel {
@@ -2280,9 +2290,9 @@ mod tests {
         }
     }
 
-    /// Q2 and Q3 refuse on the same terms as Q1, each naming itself — so a
-    /// consumer wired to the mock sees a capability wall, never a zero volume
-    /// or an origin centroid it might believe.
+    /// Q2, Q3 and Q6 refuse on the same terms as Q1, each naming itself — so
+    /// a consumer wired to the mock sees a capability wall, never a zero
+    /// volume, an origin centroid or a chord-for-an-arc it might believe.
     #[test]
     fn interference_and_mass_are_typed_refusals_too() {
         use super::super::measure::KernelMeasure;
@@ -2292,6 +2302,7 @@ mod tests {
         let (b, solid_b) = kernel.make_box_solid(1.0, 1.0, 1.0);
         kernel.solids.insert(b.raw(), solid_b);
 
+        let edge = KernelIntrospect::list_edges(&kernel, &a)[0];
         for (what, err) in [
             (
                 "interference",
@@ -2300,6 +2311,12 @@ mod tests {
             (
                 "mass properties",
                 kernel.mass_properties(&a, None).expect_err("no geometry"),
+            ),
+            // Q6: the mock's edges are endpoint pairs, so it has a CHORD and
+            // no arc — and the chord is exactly the wrong answer here.
+            (
+                "edge arc length",
+                kernel.edge_length(edge).expect_err("no curves"),
             ),
         ] {
             match err {

@@ -1,5 +1,5 @@
 {
-  "manifest_hash": "ec6108acbe69044016ed7d1013fc5c4b01b7148866a408aa3371cb754921e0bf",
+  "manifest_hash": "26e14cf053e57f767b5b4f9825a92ab585e8742d6623a2ae0033797d654df62a",
   "protocol": "waffle-agent-link/1",
   "tools": [
     {
@@ -2237,6 +2237,444 @@
         "required": [
           "body_id",
           "faces"
+        ],
+        "type": "object"
+      }
+    },
+    {
+      "annotations": {
+        "readOnlyHint": true,
+        "title": "List entities"
+      },
+      "description": "Every face, edge or vertex of one body, with its geometric content (Q6). Each entity carries its persistent id (pid/root_pid — content-derived, so it survives rebuilds and booleans), the GeomRef that names it, its entity_name if it has one, its signature (surface type, area, centroid, normal, bbox, and the axis descriptor of a cylinder/cone/sphere/torus), and its axis LINE (origin + direction) where it has one. An EDGE also carries length.arc_length_m — the length ALONG the curve, with curve_type and method: exact for lines, circles and circular arcs; quadrature (plus residual_m) for ellipse and hyperbola arcs, which have no closed form; chords (a lower bound) for SSI curves and imported polylines. A VERTEX carries position. body carries the whole body principal axes and centroid (the same integration measure_mass reports), or says why it has none. Order is by persistent id, so two listings of the same geometry are comparable. filter arms compose: query (TopoQuery filters), name (a * / ? glob over the entity name), bbox ([min, max] in meters, keeping entities whose own bbox is inside it). excluded_unevaluable counts entities a filter arm dropped because their own data could not answer it, so an empty list does not read as \"nothing matched\" when it means \"nothing could be asked\"; unresolved_names lists the body entity names that now bind to nothing, and name_warnings on an entity means its name was rebound by geometry after its persistent id went away and may be naming the wrong entity. A spherical axis has a centre and no direction. Lengths in meters.",
+      "inputSchema": {
+        "$defs": {
+          "Filter": {
+            "description": "Filter predicate for TopoQuery.",
+            "oneOf": [
+              {
+                "description": "Entity's surface/curve type must match.",
+                "properties": {
+                  "surface_type": {
+                    "type": "string"
+                  },
+                  "type": {
+                    "const": "SurfaceType",
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "type",
+                  "surface_type"
+                ],
+                "type": "object"
+              },
+              {
+                "description": "Entity's normal must be within `tolerance` radians of `direction`.",
+                "properties": {
+                  "direction": {
+                    "items": {
+                      "format": "double",
+                      "type": "number"
+                    },
+                    "maxItems": 3,
+                    "minItems": 3,
+                    "type": "array"
+                  },
+                  "tolerance": {
+                    "format": "double",
+                    "type": "number"
+                  },
+                  "type": {
+                    "const": "NormalDirection",
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "type",
+                  "direction",
+                  "tolerance"
+                ],
+                "type": "object"
+              },
+              {
+                "description": "Entity must be within `distance` of `point`.",
+                "properties": {
+                  "distance": {
+                    "format": "double",
+                    "type": "number"
+                  },
+                  "point": {
+                    "items": {
+                      "format": "double",
+                      "type": "number"
+                    },
+                    "maxItems": 3,
+                    "minItems": 3,
+                    "type": "array"
+                  },
+                  "type": {
+                    "const": "NearPoint",
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "type",
+                  "point",
+                  "distance"
+                ],
+                "type": "object"
+              },
+              {
+                "description": "Entity's area must be in range [min, max].",
+                "properties": {
+                  "max": {
+                    "format": "double",
+                    "type": "number"
+                  },
+                  "min": {
+                    "format": "double",
+                    "type": "number"
+                  },
+                  "type": {
+                    "const": "AreaRange",
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "type",
+                  "min",
+                  "max"
+                ],
+                "type": "object"
+              }
+            ]
+          },
+          "TieBreak": {
+            "description": "Tie-breaking strategy when multiple entities match a query.",
+            "oneOf": [
+              {
+                "description": "Pick the entity with the largest area.",
+                "properties": {
+                  "type": {
+                    "const": "LargestArea",
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "type"
+                ],
+                "type": "object"
+              },
+              {
+                "description": "Pick the entity nearest to the given point.",
+                "properties": {
+                  "point": {
+                    "items": {
+                      "format": "double",
+                      "type": "number"
+                    },
+                    "maxItems": 3,
+                    "minItems": 3,
+                    "type": "array"
+                  },
+                  "type": {
+                    "const": "NearestTo",
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "type",
+                  "point"
+                ],
+                "type": "object"
+              },
+              {
+                "description": "Pick the entity whose centroid lies farthest along `direction`\n(the top face of a boss: `[0, 0, 1]`). Ties keep the first.",
+                "properties": {
+                  "direction": {
+                    "items": {
+                      "format": "double",
+                      "type": "number"
+                    },
+                    "maxItems": 3,
+                    "minItems": 3,
+                    "type": "array"
+                  },
+                  "type": {
+                    "const": "FarthestAlong",
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "type",
+                  "direction"
+                ],
+                "type": "object"
+              },
+              {
+                "description": "Pick the entity with the smallest index (arbitrary but deterministic).",
+                "properties": {
+                  "type": {
+                    "const": "SmallestIndex",
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "type"
+                ],
+                "type": "object"
+              }
+            ]
+          },
+          "TopoQuery": {
+            "description": "User-specified geometric query for selecting entities.",
+            "properties": {
+              "filters": {
+                "description": "Filters to narrow down candidate entities.",
+                "items": {
+                  "$ref": "#/$defs/Filter"
+                },
+                "type": "array"
+              },
+              "tie_break": {
+                "anyOf": [
+                  {
+                    "$ref": "#/$defs/TieBreak"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "description": "How to break ties if multiple entities match."
+              }
+            },
+            "required": [
+              "filters"
+            ],
+            "type": "object"
+          }
+        },
+        "additionalProperties": false,
+        "properties": {
+          "body_id": {
+            "description": "Body id or body name from model_summary.bodies.",
+            "type": "string"
+          },
+          "filter": {
+            "additionalProperties": false,
+            "properties": {
+              "bbox": {
+                "description": "[min, max] corners in meters; keeps entities contained in the box.",
+                "items": {
+                  "items": {
+                    "type": "number"
+                  },
+                  "maxItems": 3,
+                  "minItems": 3,
+                  "type": "array"
+                },
+                "maxItems": 2,
+                "minItems": 2,
+                "type": "array"
+              },
+              "name": {
+                "description": "Glob over the entity name: * and ?.",
+                "type": "string"
+              },
+              "query": {
+                "$ref": "#/$defs/TopoQuery"
+              }
+            },
+            "type": "object"
+          },
+          "kind": {
+            "enum": [
+              "face",
+              "edge",
+              "vertex"
+            ],
+            "type": "string"
+          }
+        },
+        "required": [
+          "body_id",
+          "kind"
+        ],
+        "type": "object"
+      },
+      "name": "entity_list",
+      "outputSchema": {
+        "properties": {
+          "body": {
+            "properties": {
+              "centroid": {
+                "items": {
+                  "type": "number"
+                },
+                "type": "array"
+              },
+              "method": {
+                "enum": [
+                  "exact",
+                  "mesh"
+                ],
+                "type": "string"
+              },
+              "principal_axes": {
+                "items": {
+                  "items": {
+                    "type": "number"
+                  },
+                  "type": "array"
+                },
+                "type": "array"
+              },
+              "principal_moments": {
+                "items": {
+                  "type": "number"
+                },
+                "type": "array"
+              },
+              "unavailable": {
+                "type": "string"
+              }
+            },
+            "type": "object"
+          },
+          "body_id": {
+            "type": "string"
+          },
+          "count": {
+            "type": "number"
+          },
+          "entities": {
+            "items": {
+              "properties": {
+                "axis": {
+                  "properties": {
+                    "direction": {
+                      "items": {
+                        "type": "number"
+                      },
+                      "type": "array"
+                    },
+                    "kind": {
+                      "type": "string"
+                    },
+                    "origin": {
+                      "items": {
+                        "type": "number"
+                      },
+                      "type": "array"
+                    },
+                    "radius": {
+                      "type": "number"
+                    }
+                  },
+                  "required": [
+                    "kind",
+                    "origin"
+                  ],
+                  "type": "object"
+                },
+                "geom_ref": {
+                  "type": "object"
+                },
+                "length": {
+                  "properties": {
+                    "arc_length_m": {
+                      "type": "number"
+                    },
+                    "chord_bound_m": {
+                      "type": "number"
+                    },
+                    "closed": {
+                      "type": "boolean"
+                    },
+                    "curve_type": {
+                      "type": "string"
+                    },
+                    "method": {
+                      "enum": [
+                        "exact",
+                        "quadrature",
+                        "chords"
+                      ],
+                      "type": "string"
+                    },
+                    "residual_m": {
+                      "type": "number"
+                    }
+                  },
+                  "required": [
+                    "arc_length_m",
+                    "curve_type",
+                    "closed",
+                    "method"
+                  ],
+                  "type": "object"
+                },
+                "length_unavailable": {
+                  "type": "string"
+                },
+                "name": {
+                  "type": "string"
+                },
+                "name_warnings": {
+                  "items": {
+                    "type": "string"
+                  },
+                  "type": "array"
+                },
+                "pid": {
+                  "type": "number"
+                },
+                "position": {
+                  "items": {
+                    "type": "number"
+                  },
+                  "type": "array"
+                },
+                "root_pid": {
+                  "type": "number"
+                },
+                "signature": {
+                  "type": "object"
+                }
+              },
+              "required": [
+                "signature"
+              ],
+              "type": "object"
+            },
+            "type": "array"
+          },
+          "excluded_unevaluable": {
+            "type": "number"
+          },
+          "kind": {
+            "enum": [
+              "face",
+              "edge",
+              "vertex"
+            ],
+            "type": "string"
+          },
+          "unresolved_names": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "body_id",
+          "kind",
+          "count",
+          "entities",
+          "body",
+          "excluded_unevaluable"
         ],
         "type": "object"
       }

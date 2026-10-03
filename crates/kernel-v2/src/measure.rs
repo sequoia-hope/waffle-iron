@@ -1040,9 +1040,409 @@ pub fn distance_along(
     })
 }
 
+// ---------------------------------------------------------------------------
+// Q6 — arc length
+// ---------------------------------------------------------------------------
+
+/// How an arc length was obtained. The kernel-local counterpart of
+/// `waffle_types::kernel::LengthMethod`, which the adapter translates to (and
+/// which carries an `Option` on the chord bound for the imported bodies this
+/// module never sees).
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum LengthTier {
+    /// A closed form in f64: a chord, `2πr`, `rΔθ`.
+    Exact,
+    /// A composite-Simpson quadrature of a closed-form speed whose integral
+    /// is elliptic. `residual` is [`quadrature_residual`]'s Richardson
+    /// ESTIMATE of this value's own error — read its docs before believing
+    /// the number: it is not a proven bound.
+    Quadrature { residual: f64 },
+    /// The sum of the render polyline's chords, which is a LOWER bound on the
+    /// true length. `chord_bound` is the band on each sample POINT, Q1's
+    /// `RENDER_CHORD_TOLERANCE_REL × extent` at this edge's own extent — not
+    /// a two-sided band on the length, whose deficit accumulates over the
+    /// chords.
+    Chords { chord_bound: f64 },
+}
+
+/// The arc length of one edge (Q6 of `specs/agent_mechanical_design.md`
+/// §4.2).
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct ArcLength {
+    /// Meters, along the curve.
+    pub value: f64,
+    /// The curve family, as one lowercase token.
+    pub curve_type: &'static str,
+    /// Whether the edge closes on itself (a full circle or ellipse, whose two
+    /// endpoints are the one seam vertex).
+    pub closed: bool,
+    pub tier: LengthTier,
+}
+
+/// Simpson intervals for the hyperbola arm, matching
+/// `waffle_types::kernel::projection::ELLIPSE_QUADRATURE_STEPS` so both
+/// elliptic-integral arms are integrated at one density.
+const HYPERBOLA_QUADRATURE_STEPS: usize = 2048;
+
+/// What [`LengthTier::Quadrature`] reports alongside a Simpson value: the
+/// **Richardson error estimate** of `value`, given the same quadrature at `n`
+/// and at `2n` intervals.
+///
+/// ## Why not the raw difference
+///
+/// Composite Simpson is `O(h⁴)`, so `E_n ≈ 16·E_2n` and the raw difference
+/// `|I_2n − I_n|` is `(15/16)·E_n` — it is systematically SMALLER than the
+/// error of the value being reported, never a bound on it. Measured over
+/// hyperbola arcs against a Kahan-summed 2 000 000-interval reference, the
+/// ratio is 0.9375 in every truncation-dominated case, exactly the 15/16 the
+/// theory predicts. Reporting it raw would have handed a caller a number 6 %
+/// short of the error, every single time. The textbook estimate of `E_n` is
+/// `(16/15)|I_2n − I_n|`, which is what this returns.
+///
+/// ## What it still is not
+///
+/// An ESTIMATE, not a bound, and the docs on the wire say so. Richardson
+/// assumes the step is already in the asymptotic regime, and a near-kinked
+/// integrand is not: a hyperbola arc with `semi_conjugate ≪ semi_transverse`
+/// (measured at `b/a = 1e-4` over `t ∈ [0, 12]`) has a near-`|t|` corner at
+/// its vertex, where the estimate comes out ~11 % BELOW the true error. Treat
+/// the number as an order of magnitude on the accuracy, not as a tolerance to
+/// compute with.
+///
+/// The result is floored at a few ulp of `value`, so a quadrature whose two
+/// step counts happen to agree bit for bit reports its own f64 resolution
+/// rather than a residual of exactly 0 — which would read as "exact", the one
+/// thing this tier exists to avoid claiming.
+fn quadrature_residual(value: f64, coarse: f64, finer: f64) -> f64 {
+    let richardson = (finer - coarse).abs() * 16.0 / 15.0;
+    richardson.max(16.0 * f64::EPSILON * value.abs())
+}
+
+/// Composite Simpson of `f` over `[t0, t1]` in `n` intervals (`n` even, ≥ 2).
+fn simpson(t0: f64, t1: f64, n: usize, f: &dyn Fn(f64) -> f64) -> f64 {
+    let n = n.max(2) & !1;
+    let h = (t1 - t0) / n as f64;
+    let mut acc = f(t0) + f(t1);
+    for i in 1..n {
+        acc += if i % 2 == 1 { 4.0 } else { 2.0 } * f(t0 + h * i as f64);
+    }
+    acc * h / 3.0
+}
+
+/// The **arc length** of the edge named by half-edge `h`, its curve family,
+/// and the tier the number is (Q6).
+///
+/// This is the length OF THE CURVE, which is a different quantity from the
+/// edge's `TopoSignature::length` (the straight-line distance between its
+/// endpoints — 0 for a full circle, short by the sagitta for every arc).
+///
+/// Per family:
+///
+/// - **line** — the chord. Exact.
+/// - **circle** — `2πr`. Exact.
+/// - **arc** — `r·Δθ` with `Δθ` the CCW sweep between the endpoints
+///   ([`crate::geom::ccw_sweep`], the same sweep the tessellator walks).
+///   Exact.
+/// - **ellipse_arc** — no closed form (an incomplete elliptic integral of
+///   the second kind). The speed `|dP/dt| = √(a²sin²t + b²cos²t)` depends
+///   only on the two radii, not on the frame, so the arc is handed to D1a's
+///   own `Curve2::Ellipse` integrator in a canonical 2D frame with the same
+///   radii and the same parameter interval. That is deliberate reuse: the
+///   number an agent is told here is bit-identical to the length the drawing
+///   layer shows for the same curve, and there is one integrator of an
+///   ellipse in the tree. `Quadrature`, with the doubled-step residual.
+/// - **hyperbola_arc** — the same situation (`√(a²sinh²t + b²cosh²t)`) with
+///   no 2D counterpart to borrow, so it is integrated here, at the same
+///   density. `Quadrature`, with the doubled-step residual.
+/// - **surface_pair** — an SSI curve defined implicitly by two surfaces.
+///   Its exact length is an integral of a curve with no parameterization in
+///   hand; the honest answer is the render polyline's chord sum, labelled
+///   `Chords` and known to be a lower bound.
+///
+/// Computed on the CANONICAL half-edge (`min(h, twin)`), so both sides of an
+/// edge report a bit-identical length rather than two values that differ in
+/// the last bits by summation order. (Arc length is direction-free: a twin
+/// carries the negated normal and the reversed endpoints, which is the same
+/// point set traversed the other way.)
+pub fn edge_length(arena: &BrepArena, h: HalfEdgeId) -> Result<ArcLength, KernelV2Error> {
+    let canon = h.min(arena.half_edge(h)?.twin);
+    let he = arena.half_edge(canon)?;
+    let start = arena.vertex(he.origin)?.point;
+    let dest_vid = arena.half_edge(he.next)?.origin;
+    let end = arena.vertex(dest_vid)?.point;
+    let closed = dest_vid == he.origin;
+    let degenerate = |reason: &'static str| KernelV2Error::EdgeLengthDegenerate {
+        half_edge: canon,
+        reason,
+    };
+
+    let (value, curve_type, tier) = match he.curve {
+        Curve::LineSegment => (dist2(start, end).sqrt(), "line", LengthTier::Exact),
+        Curve::Circle { radius, .. } => {
+            (std::f64::consts::TAU * radius, "circle", LengthTier::Exact)
+        }
+        Curve::Arc {
+            center,
+            normal,
+            radius,
+        } => {
+            let n = [normal.x, normal.y, normal.z];
+            let sweep = crate::geom::ccw_sweep(center, n, start, end)
+                .ok_or_else(|| degenerate("arc endpoint has no radial direction"))?;
+            (radius * sweep, "arc", LengthTier::Exact)
+        }
+        Curve::EllipseArc {
+            center,
+            normal,
+            major_axis,
+            major_radius,
+            minor_radius,
+        } => {
+            use cad_primitives::Point2;
+            use waffle_types::kernel::projection::{Curve2, ELLIPSE_QUADRATURE_STEPS};
+            let nu = [normal.x, normal.y, normal.z];
+            let mr = [major_axis.x, major_axis.y, major_axis.z];
+            let t0 = crate::geom::ellipse_param(center, nu, mr, major_radius, minor_radius, start)
+                .ok_or_else(|| degenerate("ellipse endpoint projects onto the centre"))?;
+            // A closed ellipse half-edge starts and ends at its seam vertex,
+            // where the sweep between the endpoints is 0 — the arena's own
+            // convention is that this IS the full turn (`Curve::EllipseArc`
+            // docs), so it is read as one rather than measured.
+            let sweep = if closed {
+                std::f64::consts::TAU
+            } else {
+                crate::geom::ellipse_ccw_sweep(
+                    center,
+                    nu,
+                    mr,
+                    major_radius,
+                    minor_radius,
+                    start,
+                    end,
+                )
+                .ok_or_else(|| degenerate("ellipse endpoint projects onto the centre"))?
+            };
+            let canonical_2d = Curve2::Ellipse {
+                center: Point2::new(0.0, 0.0),
+                major_axis: [1.0, 0.0],
+                major_radius,
+                minor_radius,
+                start_param: t0,
+                end_param: t0 + sweep,
+            };
+            // `length()` is the reported value — the very number the drawing
+            // layer shows for this curve — and the doubled-step run is only
+            // the witness, so the residual is the Richardson estimate of
+            // `length()`'s error rather than the raw gap between the two.
+            let value = canonical_2d.length();
+            let finer = canonical_2d.length_with_steps(2 * ELLIPSE_QUADRATURE_STEPS);
+            (
+                value,
+                "ellipse_arc",
+                LengthTier::Quadrature {
+                    residual: quadrature_residual(value, value, finer),
+                },
+            )
+        }
+        Curve::HyperbolaArc {
+            center,
+            normal,
+            major_axis,
+            semi_transverse,
+            semi_conjugate,
+        } => {
+            let nu = [normal.x, normal.y, normal.z];
+            let mr = [major_axis.x, major_axis.y, major_axis.z];
+            let (t0, t1) = (
+                crate::geom::hyperbola_param(center, nu, mr, semi_conjugate, start)
+                    .ok_or_else(|| degenerate("hyperbola endpoint has no parameter"))?,
+                crate::geom::hyperbola_param(center, nu, mr, semi_conjugate, end)
+                    .ok_or_else(|| degenerate("hyperbola endpoint has no parameter"))?,
+            );
+            let (a, b) = (semi_transverse, semi_conjugate);
+            let speed = move |t: f64| {
+                let (sh, ch) = (t.sinh(), t.cosh());
+                ((a * sh).powi(2) + (b * ch).powi(2)).sqrt()
+            };
+            let value = simpson(t0, t1, HYPERBOLA_QUADRATURE_STEPS, &speed).abs();
+            let finer = simpson(t0, t1, 2 * HYPERBOLA_QUADRATURE_STEPS, &speed).abs();
+            (
+                value,
+                "hyperbola_arc",
+                LengthTier::Quadrature {
+                    residual: quadrature_residual(value, value, finer),
+                },
+            )
+        }
+        Curve::SurfacePair { .. } => {
+            let pts = edge_polyline(arena, canon)?;
+            let mut value = 0.0;
+            let mut lo = [f64::INFINITY; 3];
+            let mut hi = [f64::NEG_INFINITY; 3];
+            for (i, p) in pts.iter().enumerate() {
+                if i > 0 {
+                    value += dist2(pts[i - 1], *p).sqrt();
+                }
+                for (k, c) in p.as_array().iter().enumerate() {
+                    lo[k] = lo[k].min(*c);
+                    hi[k] = hi[k].max(*c);
+                }
+            }
+            let diag =
+                ((hi[0] - lo[0]).powi(2) + (hi[1] - lo[1]).powi(2) + (hi[2] - lo[2]).powi(2))
+                    .sqrt();
+            (
+                value,
+                "surface_pair",
+                LengthTier::Chords {
+                    chord_bound: RENDER_CHORD_TOLERANCE_REL * diag,
+                },
+            )
+        }
+    };
+
+    if !value.is_finite() || value < 0.0 {
+        return Err(degenerate("the curve's length is not a finite length"));
+    }
+    Ok(ArcLength {
+        value,
+        curve_type,
+        closed,
+        tier,
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// The hyperbola arm's integrand, `|dP/dt|` for semi-transverse `a` and
+    /// semi-conjugate `b` — the same closed form [`edge_length`] builds.
+    fn hyperbola_speed(a: f64, b: f64) -> impl Fn(f64) -> f64 {
+        move |t: f64| {
+            let (sh, ch) = (t.sinh(), t.cosh());
+            ((a * sh).powi(2) + (b * ch).powi(2)).sqrt()
+        }
+    }
+
+    /// Composite Simpson with Kahan compensation, so a 2 000 000-interval
+    /// reference is limited by its own TRUNCATION and not by the roundoff of
+    /// two million naive additions (which at that count is the larger of the
+    /// two and would make the reference useless as an oracle).
+    fn simpson_reference(t0: f64, t1: f64, f: &dyn Fn(f64) -> f64) -> f64 {
+        const N: usize = 2_000_000;
+        let h = (t1 - t0) / N as f64;
+        let mut acc = f(t0) + f(t1);
+        let mut c = 0.0f64;
+        for i in 1..N {
+            let term = if i % 2 == 1 { 4.0 } else { 2.0 } * f(t0 + h * i as f64);
+            let y = term - c;
+            let t = acc + y;
+            c = (t - acc) - y;
+            acc = t;
+        }
+        acc * h / 3.0
+    }
+
+    /// Q6's `Quadrature` tier against a reference integral — the arm
+    /// [`edge_length`] reaches for a `Curve::HyperbolaArc`, which until this
+    /// test had no numerical oracle at all.
+    ///
+    /// Two claims, both MEASURED rather than asserted from the theory:
+    ///
+    /// 1. **The reported residual covers the reported value's error** in the
+    ///    asymptotic regime — which is why [`quadrature_residual`] carries the
+    ///    16/15 Richardson factor. The raw `|I_2n − I_n|` does NOT: it is
+    ///    0.9375 of the error in every truncation-dominated case here, so a
+    ///    caller handed it would have been told 6 % less than the truth.
+    /// 2. **It is not a bound**, and the one case that shows it is the
+    ///    near-kinked integrand: `b/a = 1e-4` puts a near-`|t|` corner at the
+    ///    vertex, Richardson's asymptotic assumption fails, and the estimate
+    ///    lands ~11 % below the error. Pinned as a KNOWN under-statement so
+    ///    nobody later reads `residual` as a tolerance.
+    #[test]
+    fn the_hyperbola_arms_residual_is_measured_against_a_reference_integral() {
+        // (a, b, t0, t1, label) — the asymptotic family: smooth integrands
+        // where Richardson holds and the estimate must cover the error.
+        for (a, b, t0, t1, label) in [
+            (1.0f64, 1.0f64, 0.0f64, 5.0f64, "0..5"),
+            (1.0, 1.0, 0.0, 10.0, "far out the branch, 0..10"),
+            (1.0, 1.0, 0.0, 20.0, "0..20"),
+            (1.0, 1.0, -8.0, 8.0, "symmetric about the vertex"),
+            (1e-4, 1.0, 0.0, 12.0, "a far below b"),
+            (0.05, 0.001, 0.0, 9.0, "millimetre radii"),
+        ] {
+            let speed = hyperbola_speed(a, b);
+            let value = simpson(t0, t1, HYPERBOLA_QUADRATURE_STEPS, &speed).abs();
+            let finer = simpson(t0, t1, 2 * HYPERBOLA_QUADRATURE_STEPS, &speed).abs();
+            let residual = quadrature_residual(value, value, finer);
+            let reference = simpson_reference(t0, t1, &speed).abs();
+            let error = (value - reference).abs();
+
+            assert!(
+                residual >= error,
+                "{label}: the residual must cover the error it witnesses — \
+                 residual {residual:e} < error {error:e} (value {value:e})"
+            );
+            // And it must not be wildly loose either, or it says nothing: the
+            // Richardson estimate of a smooth integrand is the error to a few
+            // per cent.
+            assert!(
+                residual <= error * 1.5 + 16.0 * f64::EPSILON * value.abs(),
+                "{label}: the residual must ESTIMATE the error, not dwarf it — \
+                 residual {residual:e} vs error {error:e}"
+            );
+            // The raw difference, which is what this arm used to report, is
+            // short of the error every time. This is the regression pin.
+            let raw = (finer - value).abs();
+            assert!(
+                raw < error,
+                "{label}: the raw doubled-step gap is NOT a bound (that is the \
+                 whole reason for the 16/15 factor) — raw {raw:e}, error {error:e}"
+            );
+        }
+
+        // The known under-statement: a near-kink at the vertex. Pinned with
+        // its measured size so a future change to the step count or the
+        // integrand has to re-measure rather than assume.
+        let speed = hyperbola_speed(1.0, 1e-4);
+        let (t0, t1) = (0.0, 12.0);
+        let value = simpson(t0, t1, HYPERBOLA_QUADRATURE_STEPS, &speed).abs();
+        let finer = simpson(t0, t1, 2 * HYPERBOLA_QUADRATURE_STEPS, &speed).abs();
+        let residual = quadrature_residual(value, value, finer);
+        let error = (value - simpson_reference(t0, t1, &speed).abs()).abs();
+        assert!(
+            residual < error && residual > error * 0.5,
+            "a near-kinked hyperbola under-states, by a factor this pins: \
+             residual {residual:e}, error {error:e}"
+        );
+        // It under-states the ESTIMATE, not the ANSWER: the length itself is
+        // still right to ten significant figures, which is why this is a
+        // documented limit of the witness and not a defect in the value.
+        assert!(
+            error / value < 1e-10,
+            "the value is accurate even where the witness is pessimistic: \
+             relative error {:e}",
+            error / value
+        );
+    }
+
+    /// A quadrature whose two step counts agree bit for bit must not report a
+    /// residual of 0 — that reads as `Exact`, which is the one claim this
+    /// tier exists to avoid making.
+    #[test]
+    fn a_residual_is_never_exactly_zero() {
+        let r = quadrature_residual(1.0e-2, 7.0, 7.0);
+        assert!(
+            r > 0.0 && r < 1e-16,
+            "an ulp-scale floor, not a made-up band: {r}"
+        );
+        assert_eq!(
+            quadrature_residual(0.0, 3.0, 3.0),
+            0.0,
+            "a zero length has no error to report"
+        );
+    }
 
     #[test]
     fn pair_kernels_agree_with_hand_computed_cases() {

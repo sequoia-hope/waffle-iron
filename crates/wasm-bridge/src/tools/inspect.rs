@@ -408,6 +408,87 @@ pub(super) fn face_list(
     Ok(json!({ "body_id": body_id, "faces": faces }))
 }
 
+/// Every face, edge or vertex of one body with its geometric content (Q6 of
+/// `specs/agent_mechanical_design.md` §4.2/§4.3).
+///
+/// `body_id` takes a body NAME too, through `require_body` like every other
+/// body-scoped tool (N1). The order is by persistent id, which is
+/// content-seeded — so a listing is reproducible across rebuilds and
+/// processes, and a caller can diff two of them.
+pub(super) fn entity_list(
+    state: &mut EngineState,
+    kb: &mut dyn KernelBundle,
+    args: &Value,
+) -> Answer {
+    let body_id = require_body(
+        state,
+        args.get("body_id").and_then(Value::as_str).unwrap_or(""),
+    )?;
+
+    let kind: crate::messages::EntityListKind = match args.get("kind") {
+        Some(v) => serde_json::from_value(v.clone()).map_err(|e| {
+            ToolFailure::new(
+                "InvalidArguments",
+                format!("kind must be \"face\", \"edge\" or \"vertex\": {e}"),
+                json!({ "reason": e.to_string() }),
+            )
+        })?,
+        None => {
+            return Err(ToolFailure::new(
+                "InvalidArguments",
+                "kind is required: \"face\", \"edge\" or \"vertex\".",
+                json!({ "reason": "kind is required." }),
+            ))
+        }
+    };
+
+    let filter = match args.get("filter") {
+        None | Some(Value::Null) => None,
+        Some(value) => Some(
+            serde_json::from_value::<crate::messages::EntityListFilter>(value.clone()).map_err(
+                |e| {
+                    ToolFailure::new(
+                        "InvalidArguments",
+                        format!("filter is not an entity filter: {e}"),
+                        json!({ "reason": e.to_string() }),
+                    )
+                },
+            )?,
+        ),
+    };
+
+    let response = engine_call(
+        state,
+        kb,
+        "ListEntities",
+        UiToEngine::ListEntities {
+            body_id: body_id.clone(),
+            kind,
+            filter,
+        },
+    )?;
+    let EngineToUi::EntitiesListed {
+        body_id,
+        kind,
+        entities,
+        body,
+        excluded_unevaluable,
+        unresolved_names,
+    } = &response
+    else {
+        return Err(unexpected("ListEntities", "EntitiesListed", &response));
+    };
+    Ok(json!({
+        "body_id": body_id,
+        "kind": kind,
+        "count": entities.len(),
+        "entities": entities,
+        "body": body,
+        "excluded_unevaluable": excluded_unevaluable,
+        "unresolved_names": unresolved_names,
+    }))
+}
+
 /// The minimal closed regions of one committed sketch.
 pub(super) fn sketch_regions(
     state: &mut EngineState,

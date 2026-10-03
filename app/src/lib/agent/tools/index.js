@@ -43,6 +43,7 @@ import {
 } from './documents.js';
 import {
 	bodyMeasureTool,
+	entityListTool,
 	expressionEvaluateTool,
 	faceListTool,
 	measureDistanceTool,
@@ -93,6 +94,7 @@ export const TOOLS = [
 	measureInterferenceTool,
 	measureMassTool,
 	faceListTool,
+	entityListTool,
 	sketchRegionsTool,
 	sketch3dGetTool,
 	namesListTool,

@@ -456,7 +456,10 @@ fn the_migrated_list_is_exactly_what_this_checkpoint_implements() {
     // 2026-10-03, so the three measurement tools sit together. The N1 name
     // trio (`entity_name`, `entity_unname`, `names_list`, §5.2, 2026-10-03)
     // sits after `body_rename`: a body's display name is the first segment of
-    // every dotted entity name, so the four are one namespace.
+    // every dotted entity name, so the four are one namespace. `entity_list`
+    // (Q6, §4.2/§4.3, 2026-10-03) sits next to `face_list`: it is the same
+    // listing widened to edges and vertices, and the spec says `face_list`
+    // becomes its `face` arm.
     assert_eq!(
         wasm_bridge::tools::MIGRATED,
         &[
@@ -467,6 +470,7 @@ fn the_migrated_list_is_exactly_what_this_checkpoint_implements() {
             "measure_interference",
             "measure_mass",
             "face_list",
+            "entity_list",
             "sketch_regions",
             "expression_evaluate",
             "parameters_get",

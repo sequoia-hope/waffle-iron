@@ -642,6 +642,20 @@ pub enum KernelV2Error {
     /// would let a counter id alias a hash id, so the allocator refuses.
     /// Needs 2^63 allocations in one arena to reach.
     PidSpaceExhausted,
+
+    // ----- Q6 arc length (`crate::measure::edge_length`) ------------------
+    /// Q6 of `specs/agent_mechanical_design.md` §4.2: an edge's own curve
+    /// cannot be parameterized at its endpoints, so its arc length has no
+    /// value to report — an arc endpoint with no radial direction, an
+    /// ellipse endpoint that projects onto the centre, a hyperbola endpoint
+    /// with no parameter. A GEOMETRY error (the model is wrong, or the
+    /// curve/endpoint pair is inconsistent), unlike
+    /// [`Self::MeasureInvalidRequest`]: the chord is NOT substituted for the
+    /// arc, because a plausible wrong length is worse than a refusal.
+    EdgeLengthDegenerate {
+        half_edge: HalfEdgeId,
+        reason: &'static str,
+    },
 }
 
 impl core::fmt::Display for KernelV2Error {

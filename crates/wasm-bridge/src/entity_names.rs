@@ -171,24 +171,70 @@ pub(crate) fn list(
     out
 }
 
-/// The name pointing at each entity of one body, by kernel id and kind — what
-/// a result that carries a `GeomRef` needs to also carry its name (§5.2).
+/// One N1 name bound to one entity, with whatever the resolution had to say
+/// about HOW it got there.
+#[derive(Debug, Clone, Default)]
+pub(crate) struct NameBinding {
+    pub name: String,
+    /// `names::resolve`'s own warnings, verbatim. Non-empty when the name did
+    /// not reach this entity by its persistent id — N1's loud fallback ("the
+    /// persistent id is gone; the name resolved through the reference it was
+    /// authored with, which rebinds by geometry and may name a different
+    /// entity"). A listing that showed the bare name would silence exactly
+    /// the case N1 made loud, so every consumer of this map gets the warnings
+    /// with it and decides whether to pass them on.
+    pub warnings: Vec<String>,
+}
+
+/// The name pointing at each entity of one body, by kernel id and kind, with
+/// its resolution warnings — what a result that carries a `GeomRef` needs to
+/// also carry its name (§5.2).
 ///
-/// Resolution is per name, and a name that no longer resolves simply is not in
-/// the map; nothing is guessed.
+/// Resolution is per name, and a name that no longer resolves at all simply is
+/// not in the map; nothing is guessed. `unresolved` collects those names so a
+/// caller can say "this body has a name that binds to nothing" rather than
+/// leaving the fact invisible.
+pub(crate) fn name_bindings(
+    state: &EngineState,
+    kb: &mut dyn KernelBundle,
+    body_id: &str,
+) -> (HashMap<(TopoKind, KernelId), NameBinding>, Vec<String>) {
+    let mut out = HashMap::new();
+    let mut unresolved = Vec::new();
+    for (name, named) in &state.engine.tree.names {
+        if body_of_ref(&named.target).as_deref() != Some(body_id) {
+            continue;
+        }
+        match names::resolve(named, &state.engine.feature_results, kb.as_introspect()) {
+            Ok(r) => {
+                out.insert(
+                    (named.kind, r.kernel_id),
+                    NameBinding {
+                        name: name.clone(),
+                        warnings: r.warnings,
+                    },
+                );
+            }
+            // `tree.names` is a `BTreeMap`, so this list is in name order and
+            // the same in every process.
+            Err(_) => unresolved.push(name.clone()),
+        }
+    }
+    (out, unresolved)
+}
+
+/// [`name_bindings`] with the warnings discarded — the name alone, for the
+/// listings whose wire type carries no field for them.
+///
+/// One resolution path, so the two cannot drift.
 pub(crate) fn names_by_entity(
     state: &EngineState,
     kb: &mut dyn KernelBundle,
     body_id: &str,
 ) -> HashMap<(TopoKind, KernelId), String> {
-    let mut out = HashMap::new();
-    for (name, named) in &state.engine.tree.names {
-        if body_of_ref(&named.target).as_deref() != Some(body_id) {
-            continue;
-        }
-        if let Ok(r) = names::resolve(named, &state.engine.feature_results, kb.as_introspect()) {
-            out.insert((named.kind, r.kernel_id), name.clone());
-        }
-    }
-    out
+    name_bindings(state, kb, body_id)
+        .0
+        .into_iter()
+        .map(|(k, b)| (k, b.name))
+        .collect()
 }
