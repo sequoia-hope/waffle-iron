@@ -514,6 +514,28 @@ pub enum KernelV2Error {
         face_b: FaceId,
         penetrations: usize,
     },
+
+    // ----- persistent identity (`crate::pid`, D0) -------------------------
+    /// A face of the solid whose persistent ids were requested carries no
+    /// stamped `Pid`, so there is nothing to seed its edges and vertices
+    /// from. Produced only by a raw Euler-operator arena that never reached
+    /// a constructor's `finalize_solid` (every public constructor stamps).
+    PidMissing { face: FaceId },
+
+    /// Two edges (or two vertices) of one solid agree on BOTH their content
+    /// key — the adjacent faces' lineage roots, respectively the incident
+    /// edge pids — and the geometric key that breaks that tie. Their
+    /// persistent names cannot be told apart, so the kernel refuses instead
+    /// of picking one (P9/P10): a silent choice would rebind an annotation
+    /// to the wrong edge on the next rebuild. `kind` is `"edge"` or
+    /// `"vertex"`.
+    PidAmbiguous { kind: &'static str },
+
+    /// Two DISTINCT content keys hashed to the same 64-bit persistent id.
+    /// Astronomically unlikely and never repaired by re-salting (a salt that
+    /// depends on the colliding set is not stable across edits, which is the
+    /// one property these ids exist for). `kind` is `"edge"` or `"vertex"`.
+    PidCollision { kind: &'static str },
 }
 
 impl core::fmt::Display for KernelV2Error {

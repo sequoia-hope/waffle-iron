@@ -122,6 +122,24 @@ pub enum Selector {
     Query { query: TopoQuery },
     /// Select by 3D position (nearest entity within tolerance).
     Position { x: f64, y: f64, z: f64 },
+    /// Select by **persistent id** — the preferred selector for anything
+    /// that must stay attached to one specific entity across rebuilds: a
+    /// drawing dimension's anchor, a PMI item, an `UpTo` termination, a
+    /// 3D-sketch attachment (drawings spec D0,
+    /// `specs/drawings_and_mbd.md` §4 item 4).
+    ///
+    /// Both ids come from `waffle_types::kernel::EntityPid`. `pid` names the
+    /// entity; `root_pid` names where its geometry was introduced, so the
+    /// reference still resolves when a later boolean rebuilt the face it
+    /// pointed at. For edges and vertices the two are equal — their ids are
+    /// content-seeded through the faces' roots already.
+    ///
+    /// Unlike every other selector this one NEVER rebinds: an entity whose
+    /// id and root are both gone is a loud `ResolutionFailed`, under either
+    /// `ResolvePolicy`. A nearest-match fallback is exactly how an
+    /// annotation ends up dimensioning the wrong edge, and the whole point
+    /// of a persistent id is that its absence is information.
+    Pid { pid: u64, root_pid: u64 },
 }
 
 /// What to do when GeomRef resolution is ambiguous or fails.
