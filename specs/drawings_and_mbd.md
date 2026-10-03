@@ -11,7 +11,7 @@ Owner crates: `kernel-v2` (D1, D2), `waffle-types` (D0, D3, M1), `file-format`
 (D4), `feature-engine` (D0, D3, M1, M2), `wasm-bridge` (D5), `app` (D3, D4, D5,
 M2), `step-export` work in `kernel-v2::step_export` (M3).
 
-Status: **D1a and D1b landed 2026-10-03, with the one-view DXF export of
+Status: **D1a, D1b and D1c landed 2026-10-03, with the one-view DXF export of
 §12.** Everything else is still design. Written 2026-10-03 from a survey of
 the tree.
 The v4 document model (`specs/waffle_v4_document_model.md` §Phase 4, line 503)
@@ -65,6 +65,35 @@ What D1b added, the same day:
   between the conservative AABB above and the render tessellation below (see
   "Implementation notes (D1b)" for why the conservative AABB cannot be the
   reference on its own).
+
+What D1c added, also the same day:
+
+- `kernel_v2::projection::crossings` — the §5.2 increment-3 split. Every
+  `Curve2` decomposes into segments and conics, so three pair kinds carry the
+  whole problem; segment × segment and segment × conic are closed form (the
+  latter a quadratic in the conic's own normalized frame, exact for a circle
+  and an ellipse alike), and conic × conic is bracketed and bisected on the
+  second's exact implicit function along the first.
+- `kernel_v2::projection::visibility` — the classification. Each split piece
+  is classified at its midpoint by a ray toward the viewer against the solid's
+  render tessellation, with `yang_rs::segment_intersects_triangle_3d` (Cherchi
+  2022 §3 over Shewchuk's `orient3d`, re-exported for kernel-v2's dep rules)
+  deciding wherever the float solve is not; adjacent pieces that agree are
+  rejoined, and curves coincident in `(u, v)` with the same visibility are
+  deduplicated.
+- `waffle_types::kernel::projection` — `Curve2::subcurve` plus `eval` and
+  `param_range` over every arm (a polyline is parameterized by chord index, so
+  a sub-polyline is exact rather than resampled); `CurveDepth` on each curve;
+  and **`ProjectionDeclines`** on `ViewGeometry`, which closes the open finding
+  D1b's own notes recorded — the clip's declines were print-only, so no oracle
+  could pin them.
+- `kernel_v2::dxf_export` — the `HIDDEN` layer carries lines, with
+  `box_oblique_hidden.dxf` as its golden, and the `export_dxf` tool
+  description no longer tells callers that hidden-line removal is missing.
+- Oracles — the §5.3 visibility oracle in
+  `test-harness/tests/projection_visibility_oracle.rs` (a software
+  orthographic depth buffer, no GPU) and the per-primitive pins in
+  `kernel_v2::projection::visibility::tests`.
 
 Fillet, chamfer and shell remain deferred and nothing here depends on them.
 
@@ -417,14 +446,19 @@ pub struct SectionResult {
    out to have four exact silhouette curves rather than two, and the clip is a
    local enter/exit classification of exact boundary crossings rather than a
    parity walk over a sampled chart polygon.
-3. **D1c — visibility.** Split every projected curve at the (u,v) crossings
-   with every other projected curve and at silhouette tangencies, then
-   classify each segment by casting a ray from the segment midpoint along the
-   view direction toward the viewer and testing for a face hit in front of the
-   segment's 3D depth. The face hit test uses the solid's tessellation at
-   render chord tolerance with the exact in/out predicates in cherchi-rs as
-   the tie-breaker when the ray grazes a face. Segments that are coincident in
-   (u,v) after projection and have the same visibility are merged.
+3. **D1c — visibility. LANDED 2026-10-03.** Split every projected curve at the
+   (u,v) crossings with every other projected curve and at silhouette
+   tangencies, then classify each segment by casting a ray from the segment
+   midpoint along the view direction toward the viewer and testing for a face
+   hit in front of the segment's 3D depth. The face hit test uses the solid's
+   tessellation at render chord tolerance with the exact in/out predicates in
+   cherchi-rs as the tie-breaker when the ray grazes a face. Segments that are
+   coincident in (u,v) after projection and have the same visibility are
+   merged. See "Implementation notes (D1c)" below: the tie-breaker's
+   `Intersects` covers a boundary TOUCH as well as an interior crossing and
+   taking a touch for occlusion is wrong, the one tangency this plan names is
+   on a polyline fold rather than on the analytic arms, and the declines are
+   now typed and counted on the result.
 4. **D1d — section.** `section_with_plane` runs the yang pipeline with a
    half-space operand built as a box that encloses the solid's AABB with a
    margin, then collects the cap face (the face whose plane equals the cut
@@ -643,6 +677,370 @@ patch, bounded by 110 line segments, lost its whole outline), and a closed
 path with no crossings declined where the face's own triangles can decide it.
 Both are fixed; the commits carry the reasoning.
 
+### Implementation notes (D1c)
+
+Landed 2026-10-03, in `kernel_v2::projection::{crossings, visibility}` with the
+contract additions in `waffle_types::kernel::projection`. Where §5.2's
+increment 3 left a choice open, this is the choice made and why.
+
+**The pipeline is split, classify, merge, and the merge is not cosmetic.**
+§5.2 names the three steps and it is worth being explicit that the third is
+load-bearing rather than tidying. A box seen from a generic direction has its
+far-vertex edges crossing its near-vertex ones in `(u, v)`, so the split cuts
+several of its twelve edges — and every piece of each comes back with the same
+verdict, because a convex solid's edge is wholly visible or wholly hidden.
+Without the merge the drawing would carry a curve per piece and the DXF a
+`LINE` per piece, for twelve edges. The pin is
+`a_box_from_a_generic_direction_has_nine_visible_and_three_hidden_edges`: the
+answer is twelve curves, nine visible and three hidden, and the three are
+exactly the ones reaching the far vertex — one assertion over all three steps.
+
+**A split piece keeps its parent's analytic KIND.** The splitting primitive is
+`Curve2::subcurve` in `waffle-types`, and it answers the same arm over a
+sub-interval: half a projected rim is a `Curve2::Ellipse` of the same centre
+and axes over half the parameter window, not a polyline. That is what keeps a
+hidden-line-removed drawing writing true `ARC` entities, and it is why
+`Curve2::eval`/`param_range` now answer for EVERY arm — including the polyline,
+which is parameterized by chord index plus fraction so its integer parameters
+are its own vertices and a sub-polyline is exact rather than resampled.
+
+**Crossings are closed form for two pair kinds of three.** Every `Curve2`
+decomposes into segments and conics and no third thing, so there are three
+pair kinds. Segment × segment is one 2×2 solve. Segment × conic is a QUADRATIC
+in the segment's parameter, taken in the conic's own normalized frame where the
+conic is the unit circle and the segment is still a segment — exact for a
+circle and an ellipse alike, which is the payoff for carrying the projected
+ellipse analytically through D1a. Conic × conic is a quartic, and is solved
+instead by bracketing the strict sign changes of one conic's implicit function
+along the other and bisecting; the implicit is exact, so a transversal root
+converges to it, and what a sample can miss is a pair of roots closer together
+than its spacing, which is the near-tangential case and is declined.
+
+**Two degeneracies are deliberately NOT declines, and one of them was a bug.**
+A parallel or coincident piece pair has no transversal crossing and needs no
+split — what it needs is the coincidence merge — so it is passed over silently.
+Counting it would bury the real declines under the ordinary degeneracy of an
+axis-aligned view, where a box's front and back faces project exactly onto each
+other. The conic form of the same statement had to be found the hard way: a
+through hole's two rim circles come back with radii differing in the last bit,
+so the implicit of one along the other is ~3e-16, and the sign noise around
+zero minted THIRTEEN spurious roots and cut one rim into alternating visible and
+hidden arcs. Two distinct conics meet in at most four points and cannot agree
+on an arc, so "the implicit is zero everywhere along it" is a sound test for
+"the same conic", and it is `COINCIDENT_IMPLICIT`. Pinned as
+`two_coincident_circles_report_no_crossings`.
+
+**A tangency puts an exact zero in the sample array, and a zero must not
+bracket.** The companion defect: two internally tangent circles have `f = 0`
+exactly at the sample on their contact, and a sign test that counts a zero as
+one side reports two spurious transversal roots around it. So the bracket is
+STRICTLY opposite signs, and a sample that lands inside the band is a separate
+CONTACT pass — the signs on either side of it say which kind it is: opposite
+is a transversal root that happened to land on a sample, equal is a tangency,
+which is counted and not split.
+
+**The classification is a ray cast, and what makes it answerable is a MEASURED
+offset.** A piece is classified at its parameter midpoint by lifting that 2-D
+point to 3-D and asking whether any face stands in front. The ray cannot start
+on the surface it belongs to: the render mesh is inscribed, so a point on a
+curved face's true surface sits OUTSIDE the mesh by up to the chord sagitta and
+the ray would graze its own face. The offset is the distance from the lifted
+point to the nearest candidate triangle — measured at that point, from the mesh
+in hand — plus a float margin. It is NOT the sagitta the caller's chord
+tolerance implies, for exactly the reason D1b records one layer down:
+`tessellate` always meshes at the render band, so a band keyed to the caller's
+density describes a mesh that was never built. That offset is the ONLY
+approximation in the verdict: an occluder standing closer to the curve than the
+local mesh gap cannot be distinguished from the curve's own surface, which is a
+thin-feature band of the render density.
+
+**A 2-D point lifts to its NEAREST pre-image, and that is a drawing decision.**
+Each projected curve travels with the 3-D sample polyline of its own source —
+an edge's `introspect::edge_polyline`, a silhouette's own path samples, in both
+cases the sampling the rest of the kernel already uses for that entity — and a
+2-D point is lifted by taking the minimum DEPTH among the chords that pass
+within float noise of it. The projection is not injective: a rim seen edge-on
+collapses its near and far halves onto one segment, and the drawing shows the
+near one. Taking the nearest pre-image is what makes a cylinder's end rim come
+out whole and visible in a side view instead of half-dashed. Pinned as
+`an_edge_on_circle_lifts_to_its_near_half`.
+
+**The hit test is exact where the float test is not decisive, and a GRAZE does
+not occlude.** A float Möller–Trumbore solve answers the generic case; where
+the barycentric coordinates or the hit parameter land inside a float band — the
+ray through a triangle's edge or vertex, or along its plane — the verdict comes
+from `yang_rs::segment_intersects_triangle_3d`, Cherchi 2022 §3's primitive over
+Shewchuk's adaptive `orient3d` (re-exported through yang-rs for the same reason
+the CDT is: kernel-v2 may not depend on cherchi-rs directly). No orientation
+predicate is implemented here.
+
+But the exact predicate's `Intersects` covers an edge or vertex touch as well as
+an interior crossing, and taking a touch for occlusion is wrong: **a face hides
+a curve only by standing BETWEEN it and the viewer, which means the ray crosses
+from one side of it to the other.** A face the ray merely grazes separates
+nothing. That is not a convenient reading — it was measured. Before the rule, a
+cylinder's far rim came back HIDDEN behind its own bore, because the rim's
+samples and the end disc's polygon come from the same angular sampling and the
+ray went exactly through a shared vertex. The configuration is systematic
+rather than accidental, so it is counted, as `ray_grazes_face`: a bore's far rim
+sits at exactly the radius of the inscribed wall it grazes, and an axis-aligned
+view of a prismatic solid grazes every face parallel to its line of sight.
+A nonzero `ray_grazes_face` is how a caller tells a degenerate view from a
+decided one.
+
+**A degeneracy at ONE point of a piece is a coincidence; at every point it is
+the configuration.** The graze rule above is right about what a grazing contact
+means and wrong about when to apply it, and the corpus said so: a slot's
+blind-end edge in C0009 runs along `y = 0`, which is also the symmetry line the
+occluding face's own CDT put a triangulation seam on — so the ray from the
+piece's midpoint passed exactly through that seam, every incident triangle
+reported a boundary touch, and a face standing a fifth of the solid in front of
+the edge was taken for a graze. NINETEEN of the forty-two cases the visibility
+oracle sweeps failed before this was fixed, and the stride-48 sample of seven
+had shown none of it: the defect needed a face whose triangulation seam happens
+to lie under a curve, which is a coincidence only a corpus produces.
+
+The fix is not a different rule but a different POINT. Visibility is constant
+along a piece — that is what the split established — so any interior point of
+it gives the piece's verdict, and a cast that comes back degenerate can simply
+be redone elsewhere on the same piece: `RECAST_FRACTIONS` tries the midpoint
+first and then four other interior fractions, stopping at the first cast that
+either finds an occluder or grazes nothing. One point to the side of a
+triangulation seam, the same ray crosses a triangle's interior and the occluder
+is found. Only a piece that grazes at EVERY probed point counts
+`ray_grazes_face` — and that is the real configuration, a curve lying IN a face
+parallel to the line of sight, which no choice of point can escape.
+
+**Of two coincident curves the survivor is the NEARER.** Coincidence is tested
+geometrically — sample one, measure against the other's flattening, both ways —
+rather than by comparing representations, since the same point set can arrive as
+an `Ellipse` from one rim and a `Polyline` from another; the sweep is over the
+`u` order with an active set, so it costs the number of curves times the number
+that overlap any one of them. Curves of DIFFERENT visibility are never merged,
+which is the case that matters: those are a near line and a far one and a
+drawing needs both. Of two that do merge the farther goes, with a tie going to
+the later index — so a silhouette that reproduces an edge at the same depth
+loses to the edge, and the one line that is drawn keeps the `CurveKind::Edge`
+tag. That is not hypothetical: a frustum's seam edge runs exactly along one of
+its two silhouette rulings, so an edge-on view of it reports ONE silhouette, not
+two (`a_frustum_seen_edge_on_shows_four_curves_and_merges_the_seam_ruling`).
+
+**The declines are typed, counted and on the result.** This is the open finding
+D1b's own module docs recorded — "the declines are counted nowhere, so a count
+cannot be pinned" — and the fix is `ProjectionDeclines` on `ViewGeometry`, with
+D1b's four silhouette declines and D1c's five. `counts()` names every field from
+the struct so a report cannot drift from it, and `ViewGeometry::extend` merges
+them. Every counter is an under-report of lines — a missing dashed arc — except
+`cross_body`, which is the one over-report and is named apart for it:
+visibility is computed per BODY against that body's own tessellation, so in a
+multi-body view a curve hidden behind a DIFFERENT body is still reported
+visible, and the adapter counts one per body rather than leaving it to be
+discovered from a wrong drawing.
+
+**The crossing search has a work BUDGET, not a timeout.** The search is
+all-pairs over the view's curves, pruned by curve box, then by the overlap
+region, then per piece pair; each pair is charged what it costs (a 2×2 solve is
+the unit, a bracketed conic pair its sample count) against `SPLIT_BUDGET`.
+Exhausting it leaves the remaining curves UNSPLIT — still honestly classified at
+their own midpoints, just not cut — and counts `split_budget` once for the view.
+A budget rather than a clock, so the boundary is deterministic: the same view
+always declines in the same place. No view of the corpus sample the visibility
+oracle sweeps reaches it, and that sweep ASSERTS `split_budget == 0`, so the
+headroom is pinned rather than assumed.
+
+**D1a's curve-order contract moves to `project_edges`.** "The nth curve is the
+nth `extract_edges` edge" cannot survive an increment that splits curves and
+drops duplicates. It is now a statement about `projection::project_edges`, the
+unclassified door, which is what the D1a tests reach; the corpus projection
+oracle keeps projecting through the CLASSIFIED path, since its checks are about
+the point set and a merge does not change one. What survives in a classified
+view is the grouping (every edge piece
+before every silhouette piece, a parent's pieces consecutive and in parameter
+order) and the `source` on each piece. The per-edge-sample containment check and
+the DXF writer's entity-coverage tests moved to that door for the same reason:
+an axis-aligned view of a prismatic solid merges its front and back outlines,
+which is the right drawing and the wrong fixture for checking that the writer
+emits one `LINE` per `Curve2::Line`.
+
+**DXF.** `HIDDEN` is populated, with `box_oblique_hidden.dxf` as its golden —
+nine `LINE`s on `VISIBLE` and three on `HIDDEN` for a box from a generic
+direction. Both layers stay `CONTINUOUS` on purpose: R12 expresses a dashed
+line type through an `LTYPE` table whose dash lengths are in drawing units, so
+the right pitch depends on the sheet scale, which is the drawing sheet's
+business (§8) and not a one-view flat-pattern export's. The `box_top_view.dxf`
+golden shrank, because the top view's coincident top and bottom outlines now
+merge: the drawing is the same drawing, the file no longer carries each line
+twice.
+
+**§5.3's visibility oracle.** `test-harness/tests/projection_visibility_oracle.rs`,
+`#[ignore]`d and stride-sampled like its projection sibling. It rasterizes each
+body's tessellation into a software orthographic depth buffer (512², no GPU),
+samples each classified curve at sixteen interior points, and requires that
+nothing stand in front of a `Visible` sample and that something stand in front
+of a `Hidden` one. Nothing is shared with the kernel's answer: not the ray, not
+the predicate, not the acceleration structure, and not the lift — the sample's
+own depth is re-derived in the harness from `edge_polyline` — so a
+classification that agreed with itself but not with the surface fails here.
+
+§5.3 words it as "a visible sample must lie within one chord tolerance of the
+depth buffer's front surface", and stating it as "nothing in front" is not a
+weakening: a projected edge's sample lies ON the solid's boundary (the oracle
+asserts that separately, as a projection check), so the two are the same
+statement — and the "nothing in front" form is the one that can be tested at a
+curve that lies on the boundary of its own faces, which every edge does.
+
+Four things about that comparison had to be got right, and every one of them
+was found by a corpus case rather than reasoned in advance:
+
+- *The front depth is evaluated AT the sample, not at a cell centre.* A cell
+  centre half a cell away can land on material that is not there along the
+  sample's own line of sight — which is what a hole's rim edge, sitting inside
+  the hole in the body's front face, does. The raster stays for the coverage
+  census; the comparison walks the triangles covering the point.
+- *Containment is a MODEL-unit test with two different margins.* A surface
+  contains the sample at all if the sample is no further outside it than the
+  mesh's own inscription deficit — a boss's top rim sits ~1e-4 outside the
+  inscribed top disc on a 0.5-unit part — and strictly only if it is inside by
+  more than the f32 quantization of `tessellate`'s vertices. A dimensionless
+  barycentric margin expresses neither: a rim lying exactly in a plate's top
+  plane reads as a part in 1e8 INSIDE the plate's front face, because the f32
+  mesh puts that face's top edge 1e-8 above the rim.
+- *The depth band carries the front surface's own SLOPE.* The mesh's facet sits
+  a chord sagitta off the exact surface measured perpendicular to it, and
+  converting that to the line of sight costs `√(1 + slope²)` — 1 on a face seen
+  square on, divergent as the surface turns parallel to the view. R0055's rim
+  near the silhouette of a 21.8-unit cylinder read 0.069 off a mesh whose
+  radial sagitta is 0.021, because there the surface stands at ~68° to the view
+  plane.
+- *The samples are INTERIOR.* A classified piece's two endpoints are the
+  crossings it was cut at, which is exactly where its visibility changes, so a
+  sample sitting on one is ambiguous by construction. R0055's hidden arcs
+  reported "nothing in front" at their own ends and nowhere else.
+
+The judgement is about the CURVE, not about each sample on its own, and that is
+not a convenience either. A classified piece claims one visibility for its whole
+length, so a piece whose samples DISAGREE is saying something quite different
+from a piece every sample contradicts: the first means the curve really does go
+behind something partway along, so a CROSSING WAS NOT SPLIT, and the second
+means the classification is wrong. Only the second fails; the first is counted
+by curve and listed per case as `spans_a_change`, because the fix is upstream in
+the split — a declined silhouette arc or a `split_tangency` is the usual reason
+the outline element the curve should have been cut against is not there.
+
+The two directions are deliberately NOT symmetric. "Not definitely in front"
+already leaves a `Visible` tag standing, since a surface within the band of the
+sample's own depth does not contradict it; it is not enough to call a `Hidden`
+tag wrong, for which something has to be definitely NOT in front. A surface
+nearer than the sample by less than its own band is the undecidable middle and
+is counted. Without that distinction the sweep reported hidden arcs as having
+nothing in front of them, on near-silhouette occluders whose slopes run from
+0.77 to 44 over the corpus sample.
+
+Four categories are counted rather than asserted, and each is a configuration
+rather than a tolerance. **Grazing occluders**: a surface nearer than a hidden
+sample that either reaches it only on a triangle's boundary — a curve lying
+exactly in a face parallel to the line of sight, which the kernel counts from
+its own side as `ray_grazes_face` — or is nearer by less than its own band.
+**Grazing surfaces**: the front surface stands so near parallel to the line of
+sight that its slope band exceeds a quarter of the solid's depth extent, so the
+inscribed mesh cannot place it in depth at all. **Curves spanning a change**, as
+above. **Silhouette curves**: coverage-checked only, because at a silhouette the
+front and back depths coincide and a band wide enough to be sound would assert
+nothing. And the sweep sums the kernel's own `ProjectionDeclines` and asserts
+the three that must stay empty — `split_budget`, `cross_body`,
+`depth_unliftable` — which is what the typed channel was added for.
+
+**Measured 2026-10-03**, at the default stride 8 over the 334-case corpus — 42
+cases, **380 s** in `--release`, 264 `(case, body, direction)` views, 3 not
+built (C0113, P0013, R0007, the assay's own business), 5 multi-body cases
+classified per body. **532,786 VISIBLE samples and 515,907 HIDDEN samples
+asserted against the depth buffer.** Not asserted and counted instead: 2,045
+samples uncovered, 6,384 with a grazing occluder, 4,289 on a grazing surface,
+394 silhouette curves coverage-checked only, 0 curves unliftable.
+
+The kernel's own declines over the same sweep: `split_budget` 0, `cross_body`
+0, `depth_unliftable` 0 (all three asserted), `ray_grazes_face` 36,548,
+`split_tangency` 1,406, `silhouette_off_face` 12,
+`silhouette_non_alternating` 6, `silhouette_grazing_removal` 0,
+`silhouette_no_triangles` 0.
+
+Two residues, and they are different in kind. **218 curves over 15 cases SPAN a
+visibility change** — the piece covers both states, so the crossing where it
+changes was not split; that is the §5.2 split's tail, it is listed per case,
+and every mechanism that can lose a crossing is already counted beside it.
+**Five cases are contradicted along a WHOLE curve** (F0059, F0083, P0005,
+R0047, R0087) and are pinned in `KNOWN_DISAGREEMENTS` with their two families
+named in that constant's docs: a hidden curve whose occluder sits inside the
+band this mesh can resolve (F0083, P0005, R0087), and a visible curve with a
+face plainly in front of it on a surface that is NOT near-parallel (F0059,
+P0005, R0047 — slopes 0.77 to 5.0, discrepancies up to 600 on a 1000-unit
+body), which is the one family with no band argument available and so the one
+to work next. The pin is a LIST and not a tolerance: nothing was widened,
+every other case is asserted, the set cannot grow silently, and a case that
+stops disagreeing must come off the list in the commit that fixes it.
+
+The sweep found one of its own: nineteen cases failed before the RE-CAST rule
+above, which is the defect it was built to be able to find. The seven-case
+stride-48 sample had shown none of them.
+
+**Still open after this increment:**
+
+- *Cross-body occlusion.* Counted (`cross_body`), not computed. A multi-body
+  part or an assembly view reports a curve hidden behind another body as
+  visible. The fix is a view-level pass: project every body into the view, then
+  classify every curve against the union of the bodies' meshes in world space,
+  which means `project_bodies` doing the classification instead of delegating
+  per body.
+- *A fold inside an edge-on conic.* `project_circle` reports a circle whose
+  plane contains the line of sight as a `Curve2::Line` over the exact `cos`
+  range of its parameter window, which is the right point set but discards the
+  fold where the circle turns back on itself. The nearest-pre-image lift makes
+  the VERDICT right there (the near half is what is drawn), and nothing is
+  currently wrong — but a consumer that wanted the two halves as separate
+  curves could not get them, and `crossings::folds` finds a fold only on a
+  polyline for this reason.
+- *The crossing search is all-pairs.* Pruned three ways and budgeted, and
+  nothing in the sampled corpus approaches the budget, but a drawing of a
+  thousand-curve assembly would want a sweep or a grid over the curve boxes
+  rather than the quadratic pre-filter.
+- *A tangency is declined, never resolved.* `split_tangency` counts the
+  contacts where two curves touch within the band without crossing. The honest
+  resolution is the derivative test at the contact (a transversal crossing has
+  a sign change in the cross product of the two tangents, a tangency does not),
+  which needs `Curve2` to answer its own tangent — a contract addition D3's
+  renderer will want anyway for arrowhead placement.
+- *Pieces that SPAN a visibility change.* The oracle's own category, and the
+  largest remaining tail: a classified piece whose samples disagree covers both
+  states, which means the crossing where it changes was not split. Every
+  mechanism that can lose a crossing is already counted — a declined silhouette
+  arc (`silhouette_grazing_removal`, `silhouette_non_alternating`,
+  `silhouette_off_face`), a near-tangential contact (`split_tangency`), and the
+  fold a projected edge-on conic discards — so the next step is to take the
+  spanning curves the sweep names, attribute each to the mechanism that lost
+  its crossing, and work the mechanisms in order of how many curves they cost.
+  That attribution is a session of its own and it wants the oracle's own list as
+  its input, which is why the list is printed per case.
+- *A SILHOUETTE's visibility is classified but not independently checked.* The
+  kernel classifies silhouette curves exactly as it does edges, and the
+  per-primitive pins cover the cases with a closed-form answer (a cylinder's two
+  rulings, a frustum's). The corpus oracle only coverage-checks them, because at
+  a silhouette the front and back depths coincide and a depth comparison there
+  has no band that is both sound and non-vacuous. Checking them wants a
+  different oracle — a 2-D one, over the region the body's footprint occupies,
+  rather than a depth comparison.
+- *Samples the inscribed mesh does not reach.* The oracle counts `uncovered`
+  samples: a thin feature or a silhouette whose exact curve lies further outside
+  the mesh's footprint than the chord band. Reported, not fixed; a finer
+  tessellation for the oracle alone would shrink it, at the cost of no longer
+  measuring the mesh the kernel actually classifies against.
+- *The five pinned disagreements.* `KNOWN_DISAGREEMENTS` in the oracle, with
+  the two families in that constant's own docs. The one with no band argument
+  available — a visible curve with a face plainly in front of it on a surface
+  that is not near-parallel (F0059, P0005, R0047) — is the one to work first,
+  and R0047's "a sample sits in front of the whole solid" row is probably where
+  to start, since that is a projection-level complaint and not a visibility
+  one.
+
 ## 6. D2 — Measurement bridge
 
 Owner: `feature-engine` (`expr.rs`, `params.rs`).
@@ -837,7 +1235,7 @@ under both schema settings.
 | D0 | content-seeded Pids; edge + vertex Pids; `Selector::Pid`; identity oracle | — | kernel-v2, waffle-types, feature-engine |
 | D1a | edge projection, wireframe views + the §12 one-view DXF export | — | kernel-v2, waffle-types, wasm-bridge — **LANDED 2026-10-03** |
 | D1b | analytic silhouettes | D1a | kernel-v2 — **LANDED 2026-10-03** |
-| D1c | visibility classification + oracle | D1b | kernel-v2 |
+| D1c | visibility classification + oracle | D1b | kernel-v2 — **LANDED 2026-10-03** |
 | D1d | `section_with_plane` | D1a | kernel-v2 |
 | D2 | measurement functions in expressions | D0 | feature-engine |
 | D3 | `Annotation` types + SVG dimension renderer | D0 | waffle-types, app |
@@ -859,10 +1257,11 @@ covers laser, waterjet and plasma flat-pattern workflows before any sheet UI
 exists. **Both landed 2026-10-03** (see the status note at the top): the MCP
 tool `export_dxf` writes one named or free-direction view of the whole model as
 R12 DXF in millimetres. Since D1b (also 2026-10-03) it carries the curved
-faces' silhouettes too, so a flat pattern of a curved part has its outline;
-it is still a view with no HIDDEN-line removal until D1c, and the tool's own
-description says so, because a caller who is not told would ship a drawing
-with the far edges in it and never know.
+faces' silhouettes too, so a flat pattern of a curved part has its outline,
+and since D1c (the same day) the far edges land on the `HIDDEN` layer instead
+of being drawn as if they were near ones — the tool's description was updated
+in the same commit, because a caller who is not told would either distrust a
+correct drawing or redo the removal itself.
 
 ## 13. What this is not
 
