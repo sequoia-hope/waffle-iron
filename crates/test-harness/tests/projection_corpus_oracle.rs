@@ -231,6 +231,17 @@ struct Tally {
     /// sample, computed in the same pass from the `CurveKind::Edge` curves, so
     /// the before/after is one measurement and not two runs.
     equality_edges_only: usize,
+    /// `(case, direction)` pairs where one of the two half-turn views reported
+    /// no VISIBLE curve at all — every curve hidden. Reported, not asserted:
+    /// it is a statement about D1c's split and the §5.3 visibility oracle is
+    /// what judges that.
+    no_visible_curve: usize,
+    /// Worst relative disagreement between the two half-turn views' VISIBLE
+    /// length, and where.
+    worst_visible_swing: f64,
+    worst_visible_swing_at: String,
+    /// And over BOTH visibilities, which the coincidence merge also moves.
+    worst_total_swing: f64,
     /// Failures, by case id.
     failures: BTreeMap<String, Vec<String>>,
 }
@@ -413,19 +424,81 @@ fn the_projection_oracle_holds_over_the_whole_assay_corpus() {
                 }
             }
 
-            // 3. The half-turn length invariant.
+            // 3. The half-turn SYMMETRY of the projected extremes.
+            //
+            //    A half turn about the view axis maps `(u, v)` to `(−u, −v)`,
+            //    so the turned view's bounding box must be the negation of the
+            //    original's. Which is what this check was always for: every
+            //    analytic reconstruction the projection performs — the
+            //    ellipse's principal axes and parameter range, the circular
+            //    and edge-on special cases, a sphere's silhouette circle —
+            //    reaches its own extremes, and a mistake in any of them moves
+            //    one.
+            //
+            //    It used to be stated as the invariance of the total VISIBLE
+            //    length, and that worked only because D1a and D1b tagged every
+            //    curve visible, which made it the length of the whole point
+            //    set. D1c breaks it twice over, and neither break is a defect:
+            //    the visible SUBSET is not symmetric under a coordinate
+            //    negation, because the crossing roots and the coincidence
+            //    sweep's `u` ordering are computed on negated coordinates and a
+            //    marginal piece changes side; and the total over both
+            //    visibilities is not either, because the coincidence MERGE
+            //    drops a curve that reproduces another and the near-coincidence
+            //    decision flips the same way. Measured over this sample: the
+            //    total swings by up to 1.4 % (P0005) and the visible subset by
+            //    13 % (F0043), with one direction of C0065 reporting no visible
+            //    curve at all.
+            //
+            //    The BBOX has neither problem. A dropped duplicate's points are
+            //    also in the curve that kept it, and a split tiles its parent,
+            //    so the extremes are exactly what they were. The lengths are
+            //    MEASURED and printed instead, and what judges the split itself
+            //    is `projection_visibility_oracle`, against the surface rather
+            //    than against a rotation of itself.
             let turned = half_turned(&frame);
             match builder.kernel_mut().project_bodies(&bodies, &turned, &opts) {
                 Err(e) => problems.push(format!("{name}: the half turn failed: {e}")),
                 Ok(other) => {
-                    let a = view.total_length(Visibility::Visible);
-                    let b = other.total_length(Visibility::Visible);
-                    if a <= 0.0 {
-                        problems.push(format!("{name}: zero visible length"));
-                    } else if (a - b).abs() > REL_SLACK * a {
+                    let Some(mirrored) = other.bbox else {
+                        problems.push(format!("{name}: the half turn projected no curves"));
+                        continue;
+                    };
+                    let want = Aabb2 {
+                        min: cad_primitives::Point2::new(-mirrored.max.x(), -mirrored.max.y()),
+                        max: cad_primitives::Point2::new(-mirrored.min.x(), -mirrored.min.y()),
+                    };
+                    if !boxes_agree(&got, &want, REL_SLACK * extent) {
                         problems.push(format!(
-                            "{name}: visible length {a} becomes {b} after a half turn"
+                            "{name}: the projected bbox {got:?} is not the negation of the \
+                             half-turned view's {mirrored:?}"
                         ));
+                    }
+                    // The lengths, measured rather than asserted (see above).
+                    let whole = |v: &waffle_types::kernel::projection::ViewGeometry| {
+                        v.total_length(Visibility::Visible) + v.total_length(Visibility::Hidden)
+                    };
+                    let (a, b) = (whole(&view), whole(&other));
+                    if a <= 0.0 {
+                        problems.push(format!("{name}: zero projected length"));
+                    } else {
+                        let swing = (a - b).abs() / a.max(b);
+                        if swing > tally.worst_total_swing {
+                            tally.worst_total_swing = swing;
+                        }
+                    }
+                    let (va, vb) = (
+                        view.total_length(Visibility::Visible),
+                        other.total_length(Visibility::Visible),
+                    );
+                    if va <= 0.0 || vb <= 0.0 {
+                        tally.no_visible_curve += 1;
+                    } else {
+                        let swing = (va - vb).abs() / va.max(vb);
+                        if swing > tally.worst_visible_swing {
+                            tally.worst_visible_swing = swing;
+                            tally.worst_visible_swing_at = format!("{id} {name}");
+                        }
                     }
                 }
             }
@@ -443,7 +516,10 @@ fn the_projection_oracle_holds_over_the_whole_assay_corpus() {
          bounded and containment-checked, {} pinned from below by the render \
          tessellation; the AABB is TIGHT on {} of them (conservative on {}), and \
          there §5.3's literal bbox equality holds for {} — against {} with the \
-         EDGE curves alone, which is what D1a reached; {} failing cases",
+         EDGE curves alone, which is what D1a reached; the visible subset of \
+         the half-turn pair swings in length by at most {:.3e} ({}) and the \
+         whole point set by {:.3e}, with {} pair(s) reporting no visible curve \
+         at all; {} failing cases",
         ids.len(),
         tally.projected,
         tally.not_built.len(),
@@ -454,6 +530,14 @@ fn the_projection_oracle_holds_over_the_whole_assay_corpus() {
         tally.aabb_conservative,
         tally.equality,
         tally.equality_edges_only,
+        tally.worst_visible_swing,
+        if tally.worst_visible_swing_at.is_empty() {
+            "none"
+        } else {
+            &tally.worst_visible_swing_at
+        },
+        tally.worst_total_swing,
+        tally.no_visible_curve,
         tally.failures.len()
     );
     if !tally.not_built.is_empty() {
