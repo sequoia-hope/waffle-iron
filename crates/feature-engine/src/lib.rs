@@ -561,16 +561,64 @@ impl Engine {
     }
 
     /// Replace the design-parameter table and rebuild everything that
-    /// consumes it (undoable). The UI always sends the complete list.
+    /// consumes it (undoable). The caller always sends the complete list.
+    ///
+    /// `renames` are `(old name, new name)` pairs whose DEPENDENTS must
+    /// follow: every other parameter's expression and every expression field
+    /// on the tree is rewritten through the AST
+    /// (`params::rename_parameter`), so renaming `w` does not leave a dozen
+    /// features reading a name that no longer exists — and does not touch
+    /// `w2`. The incoming table already carries the new name on the renamed
+    /// row; the rewrite is what the rest of the document needs. One undo
+    /// step covers both the table and the rewritten fields.
+    ///
+    /// A rename whose new name is NOT unambiguously the renamed parameter's
+    /// is skipped — see the check below for why a rewrite is the one thing
+    /// that must not happen in that case.
     pub fn set_parameters(
         &mut self,
         parameters: Vec<types::DesignParameter>,
+        renames: &[(String, String)],
         kb: &mut dyn KernelBundle,
     ) {
         let old = std::mem::replace(&mut self.tree.parameters, parameters);
+        let mut old_expressions: Vec<params::ExprEdit> = Vec::new();
+        for (from, to) in renames {
+            if from == to || from.is_empty() || to.is_empty() {
+                continue;
+            }
+            // The rewrite is only safe when the incoming table carries `to`
+            // on exactly one row and carries `from` on none. Otherwise the
+            // dependents are spliced onto a DIFFERENT parameter — one that
+            // resolves, so the geometry silently takes another variable's
+            // value and no feature reports anything. Measured on the panel's
+            // own path: renaming `w` to a name another variable already had
+            // moved an extrude from 20 mm to 198 mm, the only complaint a
+            // `duplicate parameter name` on the shadowed row.
+            //
+            // `parameters_set` refuses this outright (`ParameterNameTaken`);
+            // here there is no answer to refuse into, so the rewrite is
+            // skipped and every dependent keeps reading `from`, which the
+            // table no longer resolves — loud, undoable, and recoverable by
+            // picking a free name.
+            let targets = self
+                .tree
+                .parameters
+                .iter()
+                .filter(|p| p.name == *to)
+                .count();
+            let old_name_still_live = self.tree.parameters.iter().any(|p| p.name == *from);
+            if targets != 1 || old_name_still_live || expr::validate_name(to).is_err() {
+                continue;
+            }
+            old_expressions.extend(params::rename_parameter(&mut self.tree, from, to));
+        }
+        let new_expressions = params::read_expressions(&mut self.tree, &old_expressions);
         self.undo_stack.push(Command::SetParameters {
             old,
             new: self.tree.parameters.clone(),
+            old_expressions,
+            new_expressions,
         });
         // Rebuild from 0: any feature may consume any parameter. The apply
         // pass inside rebuild() refreshes every expression and reports the
@@ -698,8 +746,15 @@ impl Engine {
                 };
                 0 // A name affects no geometry.
             }
-            Command::SetParameters { old, .. } => {
+            Command::SetParameters {
+                old,
+                old_expressions,
+                ..
+            } => {
                 self.tree.parameters = old.clone();
+                // A rename rewrote expressions OUTSIDE the table; restoring
+                // the table alone would leave them reading the new name.
+                params::restore_expressions(&mut self.tree, old_expressions);
                 0 // Any feature may consume any parameter.
             }
         }
@@ -786,8 +841,13 @@ impl Engine {
                 };
                 0 // A name affects no geometry.
             }
-            Command::SetParameters { new, .. } => {
+            Command::SetParameters {
+                new,
+                new_expressions,
+                ..
+            } => {
                 self.tree.parameters = new.clone();
+                params::restore_expressions(&mut self.tree, new_expressions);
                 0 // Any feature may consume any parameter.
             }
         }

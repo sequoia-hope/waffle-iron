@@ -616,7 +616,7 @@ fn edit_count_regenerates_and_expressions_drive_angle_and_spacing() {
         params.angle_expr = Some("sweep".into());
     }
     engine.edit_feature(p, op, &mut kernel).unwrap();
-    engine.set_parameters(vec![DesignParameter::new("sweep", "90")], &mut kernel);
+    engine.set_parameters(vec![DesignParameter::new("sweep", "90")], &[], &mut kernel);
     let Operation::PatternCircular { params } = &engine.tree.features[2].operation else {
         panic!("pattern");
     };
@@ -634,7 +634,7 @@ fn edit_count_regenerates_and_expressions_drive_angle_and_spacing() {
         params.spacing_expr = Some("pitch * 2".into());
     }
     engine.edit_feature(p, op, &mut kernel).unwrap();
-    engine.set_parameters(vec![DesignParameter::new("pitch", "10")], &mut kernel);
+    engine.set_parameters(vec![DesignParameter::new("pitch", "10")], &[], &mut kernel);
     let Operation::PatternLinear { params } = &engine.tree.features[2].operation else {
         panic!("pattern");
     };

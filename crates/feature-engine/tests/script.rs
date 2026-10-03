@@ -395,7 +395,7 @@ fn expression_driven_arguments_regenerate_on_parameter_change() {
     if let Operation::Script { params } = &mut op {
         params.arg_exprs.insert("depth".into(), "thick * 2".into());
     }
-    engine.set_parameters(vec![DesignParameter::new("thick", "5")], &mut kernel);
+    engine.set_parameters(vec![DesignParameter::new("thick", "5")], &[], &mut kernel);
     let id = engine.add_feature("Box".into(), op, &mut kernel).unwrap();
     assert_eq!(error_of(&engine, id), None);
     let Operation::Script { params } = &engine.tree.features[0].operation else {
@@ -405,7 +405,7 @@ fn expression_driven_arguments_regenerate_on_parameter_change() {
     assert_eq!(params.arg_values.get("depth"), Some(&10.0));
     let mesh_before = engine.get_result(id).unwrap().outputs[0].1.handle.raw();
 
-    engine.set_parameters(vec![DesignParameter::new("thick", "7")], &mut kernel);
+    engine.set_parameters(vec![DesignParameter::new("thick", "7")], &[], &mut kernel);
     assert_eq!(error_of(&engine, id), None);
     let Operation::Script { params } = &engine.tree.features[0].operation else {
         panic!()
@@ -419,7 +419,11 @@ fn expression_driven_arguments_regenerate_on_parameter_change() {
 
     // A broken expression is a loud parameter error and the node keeps its
     // last value (like depth_expr).
-    engine.set_parameters(vec![DesignParameter::new("thick", "1 / 0")], &mut kernel);
+    engine.set_parameters(
+        vec![DesignParameter::new("thick", "1 / 0")],
+        &[],
+        &mut kernel,
+    );
     assert!(
         engine.errors.iter().any(|(_, m)| m.contains("thick")),
         "{:?}",

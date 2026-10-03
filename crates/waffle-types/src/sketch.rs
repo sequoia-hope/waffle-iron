@@ -730,6 +730,23 @@ impl SketchConstraint {
         }
     }
 
+    /// The driving expression's storage, for a caller that must REWRITE it —
+    /// a parameter rename (`specs/agent_mechanical_design.md` §6 P5). `None`
+    /// for a plain-valued dimension and every non-dimension constraint, so a
+    /// rewrite can never invent an expression where there was none.
+    pub fn expression_mut(&mut self) -> Option<&mut String> {
+        match self {
+            SketchConstraint::Distance { expression, .. }
+            | SketchConstraint::PointLineDistance { expression, .. }
+            | SketchConstraint::HDistance { expression, .. }
+            | SketchConstraint::VDistance { expression, .. }
+            | SketchConstraint::Angle { expression, .. }
+            | SketchConstraint::Radius { expression, .. }
+            | SketchConstraint::Diameter { expression, .. } => expression.as_mut(),
+            _ => None,
+        }
+    }
+
     /// True for reference (driven) dimensions, which must be excluded from any
     /// driving-constraint set handed to the solver.
     pub fn is_reference(&self) -> bool {

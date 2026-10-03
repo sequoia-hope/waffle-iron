@@ -273,6 +273,7 @@ fn expression_errors_are_typed_for_features_and_parameters() {
             comment: None,
             tag: None,
         }],
+        &[],
         &mut kernel,
     );
     assert_eq!(kind_for(&engine, param_id), &ErrorKind::Expression);

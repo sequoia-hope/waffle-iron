@@ -671,3 +671,112 @@ pub(super) fn expression_evaluate(
     }
     Ok(out)
 }
+
+/// The design-parameter table as DATA (`specs/agent_mechanical_design.md`
+/// §6 P5): every parameter with its expression, the value and dimension the
+/// last rebuild evaluated, what it reads, who reads it, and which feature
+/// fields consume it.
+///
+/// Read-only, and deliberately not a second evaluator: every number and
+/// every error here is what the rebuild computed, so an agent reading this
+/// and the rebuilt geometry can never be told two different stories. The
+/// dependency lists come from the parser's AST
+/// (`feature_engine::expr::dependencies`), not from evaluation, so a
+/// parameter whose expression FAILS still reports what it was trying to
+/// read — which is usually the thing that needs fixing.
+pub(super) fn parameters_get(state: &mut EngineState) -> Answer {
+    let params = state.engine.tree.parameters.clone();
+    // Who reads what, from the one enumeration of expression fields.
+    let field_uses = feature_engine::params::field_uses(&mut state.engine.tree);
+    // Cycles come off the GRAPH, so the answer names the loop rather than
+    // leaving an agent to infer one from several "does not resolve" errors.
+    let cycles = feature_engine::params::cycles(&params);
+
+    let rows: Vec<Value> = params
+        .iter()
+        .map(|p| {
+            let depends_on: Vec<String> = feature_engine::expr::dependencies(&p.expression)
+                .map(|ids| ids.into_iter().collect())
+                .unwrap_or_default();
+            // A dependent is another parameter whose expression names this
+            // one. Derived here rather than stored: one table, one source of
+            // truth, and no index to fall out of date.
+            let used_by: Vec<String> = params
+                .iter()
+                .filter(|other| {
+                    other.name != p.name
+                        && feature_engine::expr::dependencies(&other.expression)
+                            .is_some_and(|ids| ids.contains(&p.name))
+                })
+                .map(|other| other.name.clone())
+                .collect();
+            let used_by_fields: Vec<Value> = field_uses
+                .iter()
+                .filter(|u| u.reads.contains(&p.name))
+                .map(|u| {
+                    json!({
+                        "feature_id": u.feature,
+                        "feature": u.feature_name,
+                        "field": u.field,
+                        "expression": u.expression,
+                    })
+                })
+                .collect();
+
+            let mut row = json!({
+                "id": p.id,
+                "name": p.name,
+                "expression": p.expression,
+                // The WORKING-SPACE magnitude — mm for a length, degrees
+                // for an angle — the same convention `expression_evaluate`
+                // and `parameters_set` answer in. Null when the expression
+                // does not evaluate: a stale number presented as the answer
+                // is worse than no number.
+                "value_mm": if p.error.is_some() { Value::Null } else { json!(p.value) },
+                "depends_on": depends_on,
+                "used_by": used_by,
+                "used_by_fields": used_by_fields,
+            });
+            // The dimension the expression PRODUCED (P1), not the declared
+            // one: `width = "2cm"` is a length whether or not anyone said
+            // so, and a depth reading an undeclared `angle_expr` is refused
+            // on this basis. `committed` is the asymmetry that makes every
+            // pre-P1 document still work — a bare number commits to
+            // nothing and adopts whatever field consumes it.
+            if let Some(tag) = p.tag {
+                let q = feature_engine::expr::Quantity {
+                    value: p.value,
+                    tag,
+                };
+                let dim = tag.dim();
+                let mut dimension = json!({
+                    "length": dim.length,
+                    "angle": dim.angle,
+                    "committed": tag.at().is_some(),
+                    "label": q.dimension_label(),
+                });
+                // The named `Dimension` when the exponents are one of the
+                // four a field can ask for; absent for `length^2` and
+                // friends, which no field accepts.
+                if let Some(named) = q.dimension() {
+                    dimension["kind"] = json!(named);
+                }
+                row["dimension"] = dimension;
+            }
+            if let Some(unit) = p.unit {
+                row["unit"] = json!(unit);
+            }
+            if let Some(comment) = &p.comment {
+                row["comment"] = json!(comment);
+            }
+            // Per PARAMETER, never a whole-table failure: one bad
+            // expression must not hide the twenty that are fine.
+            if let Some(error) = &p.error {
+                row["error"] = json!(error);
+            }
+            row
+        })
+        .collect();
+
+    Ok(json!({ "parameters": rows, "cycles": cycles }))
+}

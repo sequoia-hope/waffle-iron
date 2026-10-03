@@ -571,6 +571,15 @@ pub enum UiToEngine {
     /// `ModelUpdated.feature_tree.parameters`.
     SetParameters {
         parameters: Vec<DesignParameter>,
+        /// `(old name, new name)` pairs whose dependents must follow
+        /// (`specs/agent_mechanical_design.md` §6 P5). The table below
+        /// already carries the new name; this is what tells the engine to
+        /// rewrite every OTHER expression that reads the old one — other
+        /// parameters and every `*_expr` field on the tree — through the
+        /// AST. Absent (the pre-P5 shape, and every send that renames
+        /// nothing) means no rewrite.
+        #[serde(default)]
+        renames: Vec<(String, String)>,
     },
     /// Stateless: evaluate one expression against the current parameter
     /// table's cached values (mm-space result). Used by dialogs and the

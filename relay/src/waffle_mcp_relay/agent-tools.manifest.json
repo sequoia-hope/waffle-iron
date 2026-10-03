@@ -1,5 +1,5 @@
 {
-  "manifest_hash": "16d52f27ab57adc182a5a859c2ee2f078e6c05eb7d2c34d9a001e3c3e4901ece",
+  "manifest_hash": "ec6108acbe69044016ed7d1013fc5c4b01b7148866a408aa3371cb754921e0bf",
   "protocol": "waffle-agent-link/1",
   "tools": [
     {
@@ -2525,6 +2525,150 @@
         "required": [
           "expression",
           "value_mm"
+        ],
+        "type": "object"
+      }
+    },
+    {
+      "annotations": {
+        "readOnlyHint": true,
+        "title": "Read parameters"
+      },
+      "description": "Read the design-parameter table. Each parameter carries its expression, the value and dimension the last rebuild evaluated, what it reads (depends_on), which parameters read it (used_by) and which FEATURE FIELDS read it (used_by_fields) — so you can see what a change will move before making it. An expression that does not evaluate reports its own error with value_mm null; the rest of the table still answers. Dependency cycles are listed in cycles, each as the names around the loop.",
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {},
+        "type": "object"
+      },
+      "name": "parameters_get",
+      "outputSchema": {
+        "properties": {
+          "cycles": {
+            "description": "Each dependency cycle as the names around the loop with the first repeated at the end, e.g. [\"a\",\"b\",\"a\"]. Empty when the table is acyclic.",
+            "items": {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            "type": "array"
+          },
+          "parameters": {
+            "items": {
+              "properties": {
+                "comment": {
+                  "type": "string"
+                },
+                "depends_on": {
+                  "description": "Parameter names this expression reads directly. Empty if it does not parse.",
+                  "items": {
+                    "type": "string"
+                  },
+                  "type": "array"
+                },
+                "dimension": {
+                  "description": "What the expression PRODUCED, not what was declared. `committed` false means no unit suffix committed a dimension, so the value adopts whatever field reads it. `kind` is absent for a composite such as length^2, which no field accepts.",
+                  "properties": {
+                    "angle": {
+                      "type": "integer"
+                    },
+                    "committed": {
+                      "type": "boolean"
+                    },
+                    "kind": {
+                      "enum": [
+                        "Length",
+                        "Angle",
+                        "Count",
+                        "Ratio"
+                      ],
+                      "type": "string"
+                    },
+                    "label": {
+                      "type": "string"
+                    },
+                    "length": {
+                      "type": "integer"
+                    }
+                  },
+                  "type": "object"
+                },
+                "error": {
+                  "type": "string"
+                },
+                "expression": {
+                  "type": "string"
+                },
+                "id": {
+                  "type": "string"
+                },
+                "name": {
+                  "type": "string"
+                },
+                "unit": {
+                  "description": "The DECLARED dimension, when the author declared one.",
+                  "enum": [
+                    "Length",
+                    "Angle",
+                    "Count",
+                    "Ratio"
+                  ],
+                  "type": "string"
+                },
+                "used_by": {
+                  "description": "Parameters whose expressions read this one.",
+                  "items": {
+                    "type": "string"
+                  },
+                  "type": "array"
+                },
+                "used_by_fields": {
+                  "description": "Feature fields driven by an expression that reads this parameter.",
+                  "items": {
+                    "properties": {
+                      "expression": {
+                        "type": "string"
+                      },
+                      "feature": {
+                        "type": "string"
+                      },
+                      "feature_id": {
+                        "type": "string"
+                      },
+                      "field": {
+                        "description": "e.g. \"depth\", \"angle\", \"spacing\", \"dimension #3\", \"arg teeth\".",
+                        "type": "string"
+                      }
+                    },
+                    "type": "object"
+                  },
+                  "type": "array"
+                },
+                "value_mm": {
+                  "description": "The working-space magnitude: millimeters for a length, degrees for an angle, the plain number otherwise. Null when the expression does not evaluate.",
+                  "type": [
+                    "number",
+                    "null"
+                  ]
+                }
+              },
+              "required": [
+                "id",
+                "name",
+                "expression",
+                "value_mm",
+                "depends_on",
+                "used_by",
+                "used_by_fields"
+              ],
+              "type": "object"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "parameters",
+          "cycles"
         ],
         "type": "object"
       }
@@ -16401,40 +16545,66 @@
         "readOnlyHint": false,
         "title": "Set parameters"
       },
-      "description": "Replace the design-parameter table with the COMPLETE list (omitted parameters are removed) and rebuild (one undo step). Expressions are mm-space and may reference other parameters by name. Keep a parameter's id to preserve it; omit id for a new one. A failing expression is reported per parameter, not rolled back.",
+      "description": "Write the design-parameter table and rebuild (one undo step). By default parameters REPLACES the table, so an omitted parameter is removed; with merge:true the rows are applied over the current table and delete removes parameters by name or id, so you can set one value without re-sending the rest. Expressions are mm-space and may reference other parameters by name. Keep a parameter's id to preserve it; omit id for a new one. A row whose id names an existing parameter with a DIFFERENT name is a rename: every expression that reads it — other parameters and feature fields alike — is rewritten, so use this rather than deleting and re-adding. A failing expression is reported per parameter, not rolled back; a delete of a parameter something still reads is refused naming the dependents (read them first with parameters_get).",
       "inputSchema": {
         "additionalProperties": false,
         "properties": {
+          "delete": {
+            "description": "Parameters to remove, by name or id. Needs merge:true (without merge, omitting a parameter already removes it). Refused if anything still reads one of them.",
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "merge": {
+            "description": "Apply parameters over the current table instead of replacing it. Required for delete.",
+            "type": "boolean"
+          },
           "parameters": {
+            "description": "The complete table, or (with merge:true) just the rows to set. Required without merge.",
             "items": {
               "additionalProperties": false,
               "properties": {
+                "comment": {
+                  "description": "Omitting this keeps the current comment; null clears it.",
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
                 "expression": {
                   "minLength": 1,
                   "type": "string"
                 },
                 "id": {
-                  "description": "Existing parameter id (from model_summary); omit for a new parameter.",
+                  "description": "Existing parameter id (from parameters_get); omit for a new parameter.",
                   "format": "uuid",
                   "type": "string"
                 },
                 "name": {
                   "pattern": "^[A-Za-z_][A-Za-z0-9_]*$",
                   "type": "string"
+                },
+                "unit": {
+                  "description": "Declare the dimension the expression must produce; every field that reads this parameter is then checked against it. Omitting this keeps what the parameter has (in both modes) and null clears it.",
+                  "enum": [
+                    "Length",
+                    "Angle",
+                    "Count",
+                    "Ratio",
+                    null
+                  ],
+                  "type": [
+                    "string",
+                    "null"
+                  ]
                 }
               },
-              "required": [
-                "name",
-                "expression"
-              ],
               "type": "object"
             },
             "type": "array"
           }
         },
-        "required": [
-          "parameters"
-        ],
         "type": "object"
       },
       "name": "parameters_set",
@@ -16504,15 +16674,32 @@
             "type": "boolean"
           },
           "parameters": {
+            "description": "The table as the rebuild evaluated it.",
             "items": {
               "properties": {
+                "comment": {
+                  "type": "string"
+                },
                 "error": {
+                  "type": "string"
+                },
+                "expression": {
+                  "description": "Echoed, because after a rename or a merge the table holds expressions you did not send.",
                   "type": "string"
                 },
                 "id": {
                   "type": "string"
                 },
                 "name": {
+                  "type": "string"
+                },
+                "unit": {
+                  "enum": [
+                    "Length",
+                    "Angle",
+                    "Count",
+                    "Ratio"
+                  ],
                   "type": "string"
                 },
                 "value_mm": {

@@ -250,6 +250,7 @@ fn parameters_report_their_expression_and_last_value() {
         &mut state,
         UiToEngine::SetParameters {
             parameters: vec![DesignParameter::new("width", "20")],
+            renames: Vec::new(),
         },
         &mut kernel,
     );
@@ -271,6 +272,7 @@ fn a_parameter_that_does_not_evaluate_reports_its_error() {
         &mut state,
         UiToEngine::SetParameters {
             parameters: vec![DesignParameter::new("width", "nope +")],
+            renames: Vec::new(),
         },
         &mut kernel,
     );

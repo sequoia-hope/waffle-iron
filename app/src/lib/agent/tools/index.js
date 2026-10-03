@@ -49,6 +49,7 @@ import {
 	measureInterferenceTool,
 	measureMassTool,
 	featureGetTool,
+	parametersGetTool,
 	selectionGetTool,
 	sketch3dGetTool,
 	sketchRegionsTool
@@ -96,6 +97,7 @@ export const TOOLS = [
 	sketch3dGetTool,
 	namesListTool,
 	expressionEvaluateTool,
+	parametersGetTool,
 	viewportViewTool,
 	viewportCaptureTool,
 	sketchCreateTool,

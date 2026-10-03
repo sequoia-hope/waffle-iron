@@ -1772,6 +1772,7 @@ fn dispatch_set_parameters_returns_evaluated_table() {
                 DesignParameter::new("width", "30"),
                 DesignParameter::new("half", "width / 2"),
             ],
+            renames: Vec::new(),
         },
         &mut kernel,
     );
@@ -1794,6 +1795,7 @@ fn dispatch_evaluate_expression_uses_current_parameters() {
         &mut state,
         UiToEngine::SetParameters {
             parameters: vec![DesignParameter::new("width", "30")],
+            renames: Vec::new(),
         },
         &mut kernel,
     );
@@ -1845,6 +1847,7 @@ fn set_parameters_undo_flows_through_bridge() {
         &mut state,
         UiToEngine::SetParameters {
             parameters: vec![DesignParameter::new("d", "5")],
+            renames: Vec::new(),
         },
         &mut kernel,
     );
@@ -1852,6 +1855,7 @@ fn set_parameters_undo_flows_through_bridge() {
         &mut state,
         UiToEngine::SetParameters {
             parameters: vec![DesignParameter::new("d", "9")],
+            renames: Vec::new(),
         },
         &mut kernel,
     );

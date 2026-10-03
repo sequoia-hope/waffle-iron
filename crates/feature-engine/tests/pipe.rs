@@ -283,6 +283,7 @@ fn expressions_drive_both_radii() {
             DesignParameter::new("od", "40"),
             DesignParameter::new("wall", "4"),
         ],
+        &[],
         &mut kernel,
     );
     assert!(

@@ -131,15 +131,23 @@
 		const expression = edit.expression.trim();
 		if (!name || !expression) return;
 		const list = parameters.map((p) => ({ ...p }));
+		/** @type {Array<[string, string]>} */
+		const renames = [];
 		if (edit.id === null) {
 			list.push({ name, expression });
 		} else {
 			const row = list.find((p) => p.id === edit.id);
 			if (!row) return;
+			// A changed name on the same row is a RENAME, and its dependents
+			// have to follow — other parameters and every feature field that
+			// reads it. Sending only the new table would leave them reading a
+			// name the document no longer has, and they would hold their
+			// last-good geometry while saying so (P5).
+			if (row.name !== name) renames.push([row.name, name]);
 			row.name = name;
 			row.expression = expression;
 		}
-		await setParameters(list);
+		await setParameters(list, renames);
 	}
 
 	function cancelVariableEdit() {

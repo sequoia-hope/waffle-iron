@@ -855,6 +855,174 @@ Found and fixed in review (2026-10-03):
   `docs/FILE_FORMAT.md` §4, or an explicit note there that this one is
   additive-and-droppable by design.
 
+### Implementation notes (P5)
+
+Landed 2026-10-03 (`crates/feature-engine/src/{expr,params,lib,undo}.rs`,
+`crates/waffle-types/src/sketch.rs`, `crates/wasm-bridge/src/tools/`,
+`app/src/lib/agent/`). Where the plan above left a choice open, this is
+the choice made and why.
+
+**The reverse index is computed, never cached.** `used_by_fields` is a
+pure function of the tree, so `params::field_uses(&mut tree)` walks it on
+demand. The alternative — derived state on `Engine`, refreshed every
+rebuild, next to `connectors` and `pid_to_feature` — is the established
+pattern in that struct, and it was rejected for one reason: a cache
+refreshed "every rebuild" is wrong for any path that reaches the tool
+without one, and the failure is silent (an empty `used_by_fields` reads
+exactly like "nothing uses this", which is the answer a delete decision
+turns on). The walk is a parse per expression field, bounded by the
+document.
+
+**One enumeration, and an oracle that says so.** `params::expression_sites`
+is the single list of where an expression can live on the tree —
+`depth_expr`, `angle_expr`, pipe radii, datum distances, sketch dimension
+constraints, 3D-sketch coordinates and fillet radii, pattern spacings,
+script arguments. Both the reverse index and the rename rewrite walk it.
+The apply pass does NOT: it also needs each field's value slot and the
+sketch re-solve, and collapsing the two would have meant yielding
+`&mut f64` and `&mut String` through one visitor past the sketch
+constraint accessors, which store their value behind
+`set_dimension_value`. So there are two traversals, and
+`every_expression_field_is_enumerated` is the drift oracle: a tree with
+all fifteen sites set to the same unresolvable expression must produce
+exactly fifteen per-field errors from the apply pass. A field added to one
+traversal and not the other fails it.
+
+**A rename splices byte spans; it does not pretty-print the AST.**
+`Expr::reference_spans(name)` returns the byte ranges of the `Ident` nodes
+that ARE references, and `expr::rename_identifier` replaces them
+descending so an earlier splice cannot move a later span. Printing the
+rewritten AST back out would have been simpler and would have reformatted
+every expression it touched (`w*(w  + 3mm)` → `w * (w + 3mm)`), which is a
+change to the author's text that nobody asked for. Using the AST for
+IDENTIFICATION and the original text for everything else keeps `w2`, a
+`mm` suffix, spacing and parentheses exactly as they were — all three of
+which a string replace corrupts. A callee name is not an `Ident` node and
+needs no special case: every function name is reserved, so no parameter
+can be called one.
+
+**An unparseable expression is left alone by a rename.** It has no
+references to rewrite. Guessing at its text would turn a typo into a
+different typo, and the author is mid-edit by definition.
+
+**The id is the identity, so a changed name on a kept id is a rename — in
+both modes.** This is the one place P5 changes existing behaviour. A
+full-table `parameters_set` that keeps an id and changes the name used to
+leave every dependent reading a name the document no longer had, and a
+feature with an unresolvable expression KEEPS its last-good value, so the
+geometry looked right while being disconnected from the variable driving
+it. The panel sends the whole table, so this was the panel's rename too.
+Treating it as a rename needs no new tool and no new mode; "keep a
+parameter's id to preserve it" already said the id was the identity.
+
+**Renames travel on the message, and the undo record carries both halves.**
+`UiToEngine::SetParameters` gained `renames: Vec<(String, String)>`
+(`#[serde(default)]`, so every pre-P5 sender is unchanged) rather than the
+tool computing the rewrite itself, because the rewrite reaches the
+FEATURE TREE and the panel needs it as much as an agent does. The rewrite
+outside the parameter table is why `Command::SetParameters` now carries
+`old_expressions` and `new_expressions`: restoring the table alone would
+undo the name and leave the features on the new one.
+`params::ExprEdit` addresses a field by `(feature id, field label)`, which
+is replayable because the labels are a pure function of the tree's shape.
+
+**Cycles come off the graph, not off a stalled fixpoint.** The fixpoint in
+`evaluate_parameters` can only report that a parameter never resolved —
+the same symptom as a typo'd name — so `params::cycles` does an iterative
+DFS over the dependency graph and reads each loop off the current path.
+Each cycle is canonicalised to start at its smallest member and the list
+is sorted, so the answer does not depend on table order. A parameter in a
+loop now says `circular reference: a → b → c → a`; one merely downstream
+of a loop says which name it is waiting on and that the name is in a
+cycle. `parameters_get` also returns `cycles` as structured data. The
+whole-call refusal was considered and rejected: §6 asks for per-parameter
+errors, and a cyclic pair must not stop the other twenty rows from
+answering.
+
+**Three things the merge mode refuses whole, writing nothing.** A delete of
+a parameter something still reads (`ParameterInUse`, naming every
+dependent — parameters and feature fields alike), a rename onto a name
+already taken (`ParameterNameTaken` — had it applied, every dependent
+would be rewritten onto a parameter that is not the one they meant), and a
+rename to a reserved word (`InvalidParameterName`). These are
+preconditions, not evaluation failures: half a rename is worse than none.
+A delete whose dependents are all in the same call is still refused if a
+FEATURE reads the parameter, because the feature is not in the table the
+delete is checked against — the message names it.
+
+**`value_mm`, not `value`.** §6's sketch says `value`; the answer uses
+`value_mm` because `parameters_set` and `expression_evaluate` already
+answer in that key, and the key has always meant the working-space
+magnitude (mm for a length, degrees for an angle — P1's convention). One
+name across three tools beats matching the sketch.
+
+**The dimension is reported as exponents plus a label, not just a name.**
+`{length, angle, committed, label, kind?}`. `committed: false` is the
+asymmetry P1 turns on — a bare number adopts whatever field reads it — and
+an agent cannot reason about `25deg` in a depth without it. `kind` is
+absent for a composite such as `length^2`, because no field accepts one
+and naming it would invite an attempt.
+
+**The browser still has no second parser.** The panel reads `param.value`
+and `param.error` from the engine's tree and formats them; `parameters_get`
+is the engine's answer too. Nothing client-side evaluates anything, which
+is what keeps a preview and the rebuilt geometry from disagreeing.
+
+Found and fixed along the way:
+
+- *A panel edit to one row stripped `unit` and `comment` from every row.*
+  `setParameters` rebuilt each row from id/name/expression/value only, so
+  one inline edit silently dropped P1's declared dimensions across the
+  whole table — and `unit` changes which fields accept the value, so what
+  the document refuses changed with it. Pre-existing, P1-era.
+- *The authoring goldens were red before this branch.* All eight
+  sequences, on P1's v8 reader floor and its new parse-error message,
+  neither of which was re-recorded at that merge. Measured and re-recorded
+  (see the commit); the only P5 change in the diff is the `expression`
+  echo.
+
+Found in review (2026-10-03), after the above:
+
+- *The rewrite needs its guard at the ENGINE, not only in the tool.*
+  `parameters_set` refuses a rename onto a taken name because the rewrite
+  would SUCCEED — every dependent splices onto a different parameter, which
+  resolves, so the geometry moves and no feature reports anything. The
+  panel reaches `Engine::set_parameters` directly, where there was no such
+  check: renaming `w` onto a name another variable held moved an extrude
+  from 20 mm to 198 mm, the only complaint a `duplicate parameter name` on
+  the shadowed row. The engine now rewrites only when the incoming table
+  carries the new name on exactly one row and the old name on none, and the
+  new name is valid; otherwise the dependents keep reading a name that no
+  longer resolves — loud, undoable, recoverable. The same hole was reachable
+  through the tool by renaming TWO rows onto one name in a single call,
+  which the per-row check cannot see because it compares against the table
+  as it was; every rename's target must now name exactly one parameter in
+  the table the call produces.
+- *`unit` and `comment` disagreed about what omitting them means.* A
+  full-table send kept a `unit` it never mentioned and dropped the `comment`
+  beside it, while the schema documented the keep as a merge-mode feature.
+  One rule now governs both sidecars in both modes — omitting keeps, `null`
+  clears — the side that cannot silently discard an author's dimension
+  contract. `comment` accepts `null` to clear.
+
+Still open:
+
+- *No tool reads the table's dependency graph transitively.* `depends_on`
+  and `used_by` are DIRECT edges. An agent wanting the full downstream
+  closure walks them itself; `cycles` is the only global answer.
+- *`parameters_get` takes no arguments.* No filter, no single-parameter
+  form. A table large enough to want one does not exist yet, and the
+  answer is cheap.
+- *A rename does not reach `Instance.parameter_overrides` or a document
+  table*, because neither exists yet (P2). When P2 lands, its tables join
+  `expression_sites`' callers — the drift oracle will not catch a table
+  the rename does not know about, only a FIELD it does not know about.
+- *`field_uses` takes `&mut FeatureTree`* so one enumeration serves both
+  the index and the rewrite. A read-only caller does not write through the
+  site, but the signature does not say so. Splitting it would mean two
+  near-identical traversals, which is the drift this increment spent its
+  design on avoiding.
+
 ## 7. K — Mechanical rule check
 
 Owner: `waffle-types` (types), `feature-engine` (new module `rules`),

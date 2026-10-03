@@ -469,6 +469,7 @@ fn the_migrated_list_is_exactly_what_this_checkpoint_implements() {
             "face_list",
             "sketch_regions",
             "expression_evaluate",
+            "parameters_get",
             "export_step",
             "export_stl",
             "export_dxf",

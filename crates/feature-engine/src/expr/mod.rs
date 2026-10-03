@@ -172,6 +172,41 @@ pub fn parse(input: &str) -> Result<Expr, ExprError> {
     parse::parse(input)
 }
 
+/// The names `input` reads, or `None` if it does not parse.
+///
+/// An expression that does not parse has no dependency list — not an empty
+/// one — and a caller that must tell those apart (the parameter table's
+/// `depends_on`, P5) needs the difference.
+pub fn dependencies(input: &str) -> Option<std::collections::BTreeSet<String>> {
+    parse(input).ok().map(|ast| ast.identifiers())
+}
+
+/// Rewrite every reference to `from` in `input` as `to`, through the AST.
+///
+/// Returns the new source, or `None` when `input` does not reference `from`
+/// (including when it does not parse — an unparseable expression has no
+/// references to rewrite, and guessing at its text is how a rename corrupts
+/// an expression someone is still fixing).
+///
+/// The rewrite splices the byte spans [`Expr::reference_spans`] reports, so
+/// the rest of the source — spacing, parentheses, a `w2` that merely starts
+/// with `w` — is preserved byte-for-byte. This is NOT a string replace, and
+/// the distinction is the whole point: `substring` matching would rename
+/// `w2`, a unit suffix, or the inside of a function name.
+pub fn rename_identifier(input: &str, from: &str, to: &str) -> Option<String> {
+    let ast = parse(input).ok()?;
+    let spans = ast.reference_spans(from);
+    if spans.is_empty() {
+        return None;
+    }
+    let mut out = input.to_string();
+    // Descending, so an earlier splice cannot move a later span.
+    for span in spans.iter().rev() {
+        out.replace_range(span.start..span.end, to);
+    }
+    Some(out)
+}
+
 /// Parse and evaluate `input` against `env`, keeping the dimension tag.
 /// The caller accepts the result at a typed boundary
 /// ([`Quantity::as_length_meters`] and friends).
@@ -335,6 +370,59 @@ mod tests {
         assert_eq!(unit_factor("deg"), Some(1.0));
         assert_eq!(unit_factor("rad"), Some(180.0 / std::f64::consts::PI));
         assert_eq!(unit_factor("furlong"), None);
+    }
+
+    // -- P5: dependencies and the AST rename --
+
+    #[test]
+    fn dependencies_distinguish_an_empty_list_from_no_list() {
+        assert_eq!(
+            dependencies("w * 2 + h"),
+            Some(["h".to_string(), "w".to_string()].into_iter().collect())
+        );
+        assert_eq!(dependencies("25mm"), Some(Default::default()));
+        assert_eq!(
+            dependencies("w +"),
+            None,
+            "an expression that does not parse has no dependency list"
+        );
+    }
+
+    #[test]
+    fn a_rename_touches_only_the_identifier_it_names() {
+        // Every one of these would be corrupted by a substring replace.
+        assert_eq!(
+            rename_identifier("w * 2 + w2 + ww", "w", "width").as_deref(),
+            Some("width * 2 + w2 + ww")
+        );
+        assert_eq!(rename_identifier("w2 + ww", "w", "width"), None);
+        // Spacing and parentheses are preserved byte-for-byte.
+        assert_eq!(
+            rename_identifier("max( w ,w)/w^2", "w", "q").as_deref(),
+            Some("max( q ,q)/q^2")
+        );
+        // A unit suffix lexes inside its literal, so it is never a reference
+        // (and `mm` cannot be a parameter name anyway).
+        assert_eq!(rename_identifier("2mm + 3", "mm", "q"), None);
+        // An unparseable expression is left alone — `None`, not a guess.
+        assert_eq!(rename_identifier("w +", "w", "q"), None);
+    }
+
+    #[test]
+    fn reference_spans_point_at_the_identifier_not_the_whole_term() {
+        let ast = parse("1 + w * 2").expect("parses");
+        assert_eq!(ast.reference_spans("w"), vec![Span::new(4, 5)]);
+        assert!(ast.reference_spans("q").is_empty());
+    }
+
+    #[test]
+    fn a_rename_that_lengthens_the_name_still_lands_on_every_reference() {
+        // Descending splices: a rename to a LONGER name must not shift the
+        // spans of the references that follow it.
+        assert_eq!(
+            rename_identifier("a+a+a+a", "a", "long_name").as_deref(),
+            Some("long_name+long_name+long_name+long_name")
+        );
     }
 
     #[test]

@@ -477,3 +477,93 @@ export const expressionEvaluateTool = {
 	},
 	annotations: readOnly('Evaluate expression')
 };
+
+export const parametersGetTool = {
+	name: 'parameters_get',
+	description:
+		'Read the design-parameter table. Each parameter carries its expression, the value and dimension the ' +
+		'last rebuild evaluated, what it reads (depends_on), which parameters read it (used_by) and which ' +
+		'FEATURE FIELDS read it (used_by_fields) — so you can see what a change will move before making it. ' +
+		'An expression that does not evaluate reports its own error with value_mm null; the rest of the table ' +
+		'still answers. Dependency cycles are listed in cycles, each as the names around the loop.',
+	inputSchema: { type: 'object', properties: {}, additionalProperties: false },
+	outputSchema: {
+		type: 'object',
+		properties: {
+			parameters: {
+				type: 'array',
+				items: {
+					type: 'object',
+					properties: {
+						id: { type: 'string' },
+						name: { type: 'string' },
+						expression: { type: 'string' },
+						value_mm: {
+							type: ['number', 'null'],
+							description:
+								'The working-space magnitude: millimeters for a length, degrees for an angle, the plain ' +
+								'number otherwise. Null when the expression does not evaluate.'
+						},
+						dimension: {
+							type: 'object',
+							description:
+								'What the expression PRODUCED, not what was declared. `committed` false means no unit ' +
+								'suffix committed a dimension, so the value adopts whatever field reads it. `kind` is ' +
+								'absent for a composite such as length^2, which no field accepts.',
+							properties: {
+								length: { type: 'integer' },
+								angle: { type: 'integer' },
+								committed: { type: 'boolean' },
+								label: { type: 'string' },
+								kind: { type: 'string', enum: ['Length', 'Angle', 'Count', 'Ratio'] }
+							}
+						},
+						unit: {
+							type: 'string',
+							enum: ['Length', 'Angle', 'Count', 'Ratio'],
+							description: 'The DECLARED dimension, when the author declared one.'
+						},
+						comment: { type: 'string' },
+						error: { type: 'string' },
+						depends_on: {
+							type: 'array',
+							items: { type: 'string' },
+							description: 'Parameter names this expression reads directly. Empty if it does not parse.'
+						},
+						used_by: {
+							type: 'array',
+							items: { type: 'string' },
+							description: 'Parameters whose expressions read this one.'
+						},
+						used_by_fields: {
+							type: 'array',
+							description: 'Feature fields driven by an expression that reads this parameter.',
+							items: {
+								type: 'object',
+								properties: {
+									feature_id: { type: 'string' },
+									feature: { type: 'string' },
+									field: {
+										type: 'string',
+										description: 'e.g. "depth", "angle", "spacing", "dimension #3", "arg teeth".'
+									},
+									expression: { type: 'string' }
+								}
+							}
+						}
+					},
+					required: ['id', 'name', 'expression', 'value_mm', 'depends_on', 'used_by', 'used_by_fields']
+				}
+			},
+			cycles: {
+				type: 'array',
+				description:
+					'Each dependency cycle as the names around the loop with the first repeated at the end, ' +
+					'e.g. ["a","b","a"]. Empty when the table is acyclic.',
+				items: { type: 'array', items: { type: 'string' } }
+			}
+		},
+		required: ['parameters', 'cycles']
+	},
+	annotations: readOnly('Read parameters')
+};

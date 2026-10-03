@@ -825,8 +825,11 @@ fn handle_message(
         }
 
         // -- Design parameters (variables) --
-        UiToEngine::SetParameters { parameters } => {
-            state.engine.set_parameters(parameters, kb);
+        UiToEngine::SetParameters {
+            parameters,
+            renames,
+        } => {
+            state.engine.set_parameters(parameters, &renames, kb);
             Ok(model_updated_response(state))
         }
 
