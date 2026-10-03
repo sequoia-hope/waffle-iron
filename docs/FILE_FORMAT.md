@@ -227,21 +227,23 @@ absent**: an older build given a newer file fails with a raw serde
 
 ### 5.3 `TabKind`
 
-Two known variants (Phase 3, 2026-09-08):
+Three known variants (Phase 3, 2026-09-08; `Drawing` 2026-10-03):
 
 ```json
 { "type": "Part", "features": { …FeatureTree… }, "preview_mesh": null }
 { "type": "Assembly", "assembly": { …AssemblyTree… }, "preview_mesh": null }
+{ "type": "Drawing", "drawing": { …Drawing… }, "preview_mesh": null }
 ```
 
 | Field | Type | Req | Notes |
 |---|---|---|---|
 | `features` | FeatureTree | ✔ (Part) | §6. |
 | `assembly` | AssemblyTree | ✔ (Assembly) | §5.6. |
-| `preview_mesh` | PreviewMesh \| null | opt | Thumbnail mesh for the document browser. Omitted when `None`; an explicit `null` also loads. |
+| `drawing` | Drawing | opt (Drawing, defaulted) | §5.7. |
+| `preview_mesh` | PreviewMesh \| null | opt | Thumbnail mesh for the document browser. Omitted when `None`; an explicit `null` also loads. Always `None` on a Drawing tab — a drawing's preview is its views' own cached 2-D layouts, not a mesh. |
 
 **Unknown kinds (v4).** A well-formed `{"type": …}` the reader does not know
-(`Assembly`, `Drawing`, …) loads as `TabKind::Unknown(Value)`: the tab is kept,
+(`Schematic`, …) loads as `TabKind::Unknown(Value)`: the tab is kept,
 reported in the load warnings, not editable, and re-emitted **verbatim** on
 save (`crates/file-format/src/metadata.rs`, pinned by
 `tests/v4_document_tests.rs::unknown_tab_kind_is_preserved_verbatim_and_reported`).
@@ -270,6 +272,36 @@ instance/connector references, a connector on a missing instance, an
 instance whose tab or source the document does not have, an unknown mate
 kind. The single-tree API (`load_project`) refuses to open an Assembly tab
 as a part.
+
+### 5.7 `Drawing` (D4a, `crates/feature-engine/src/drawing.rs`)
+
+The content of a `Drawing` tab: **sheets** of **views** of another tab's
+bodies, with the annotations drawn on them
+(`specs/drawings_and_mbd.md` §8). Unknown keys on the drawing, each sheet and
+each view are preserved (flattened `extra`).
+
+| Field | Type | Req/default | Notes |
+|---|---|---|---|
+| `sheets` | Sheet[] | default `[]` | `{id (UUID), name, size (default `{"type":"A3"}`), orientation (default `{"type":"Landscape"}`), views (default `[]`, omitted when empty)}`. `size` is tagged: `A4`\|`A3`\|`A2`\|`A1`\|`A0`\|`Letter`\|`Tabloid`\|`Custom {width_mm, height_mm}`; the named sizes are portrait dimensions and `orientation` swaps them, a `Custom` one is taken as authored. |
+| `projection_angle` | tagged | default `{"type":"Third"}` | `Third` \| `First` — the document setting §8 names. Read only by a `ProjectedFrom` view: the view placed on one side of its parent shows that side in third angle and the opposite side in first. |
+| *(view)* `id`, `name` | UUID, string | ✔ | |
+| *(view)* `source` | ViewSource | ✔ | `{tab_id, bodies (default `[]`, omitted when empty)}`. `tab_id` is a Part or Assembly tab of **this** document; a view of a linked source is not D4a's. `bodies` names bodies as the source tab's rebuild reports them (`"Extrude 1"`, `"Extrude 1 / Body 2"`); empty means every live body. |
+| *(view)* `projection` | tagged | ✔ | `Named {view}` where `view` is tagged `Front`\|`Back`\|`Left`\|`Right`\|`Top`\|`Bottom`\|`Iso`; `Custom {dir: [3], up?: [3]}`; `ProjectedFrom {parent (UUID of a view on the same sheet), direction}` with `direction` tagged `Left`\|`Right`\|`Up`\|`Down` — the PAPER placement, which with `projection_angle` decides what is seen. `Section` and `Detail` are D4b's and absent. |
+| *(view)* `scale` | number | default `1.0` | Paper length per model length: `1.0` is 1:1, `0.1` is 1:10. Must be positive and finite. |
+| *(view)* `placement_mm` | [2] | default `[0, 0]` | Where the view's drawn CENTRE sits on the sheet, millimetres from the bottom-left corner, `+x` right and `+y` up. The centre, not the view-plane origin, which is a property of the projection and can be far outside the part. |
+| *(view)* `style` | ViewStyle | default both true | `{hidden_lines, silhouettes}` — whether the view draws the curves D1c classified `Hidden` and the curved faces' silhouettes (D1b). No `tangent_edges`: the projection has no tangent-edge classification to switch. |
+| *(view)* `annotations` | Annotation[] | default `[]`, omitted when empty | §7 of the drawings spec (`waffle_types::annotation`). Anchors are `GeomRef`s with `Selector::Pid` (§8), resolved against THIS view's projection; another selector is refused by the rebuild. `Measured::Value` is refused too — a drawing dimension is measured, never typed in. |
+| *(view)* `cache` | ViewLayout | omitted when absent | **Derived hint**: the last rebuild's layout — projected curves plus resolved, measured annotations — recomputed on every rebuild and persisted so a reader with no kernel (a thumbnail, a script, a freshly opened document) can draw the sheet. Never authoritative. This is also §8's `SheetPreview`. |
+
+Loader warnings (`WaffleDocument::validate`): duplicate sheet or view ids, a
+non-positive view scale, a `ProjectedFrom` parent that is not on the sheet, a
+view whose source tab the document does not have. The single-tree API
+(`load_project`) refuses to open a Drawing tab as a part.
+
+**The `Drawing` kind did not move the version or the reader floor** — see
+§13.3, and `format_tests.rs::a_drawing_tab_did_not_move_the_format_floor` for
+why bumping would be worse than not: an older reader would reject the whole
+document instead of keeping the drawing opaque.
 
 ### 5.5 `SourceEntry` (v4)
 
@@ -897,7 +929,18 @@ Anyone changing the format must touch all of them:
    `crates/feature-engine/tests/param_unit_floor.rs`). **Since v4, new tab
    kinds, source kinds and locator kinds need no bump, and since Phase 1b
    neither do new operation kinds**: v4 readers preserve unknown ones opaquely
-   (§5.3, §5.5, §7).
+   (§5.3, §5.5, §7). That holds **even when the new kind's payload uses a new
+   variant of an existing tagged enum**, which is the one place this rule and
+   the sentence before it appear to collide: `TabKind::Drawing` (2026-10-03,
+   §5.7) persists annotation anchors carrying `Selector::Pid`, and a new
+   selector variant is what made v7 — but v7's sat inside `FeatureTree.names`,
+   a defaulted field of a kind every reader knows, so an old reader
+   deserialized it and failed. Inside an unknown tab kind nothing is
+   deserialized. Bumping anyway would be worse than not: a reader refuses a
+   file whose demanded version exceeds its own, so the bump would lose the
+   part tabs an old build reads perfectly well, where today it opens the
+   document and keeps the drawing opaque
+   (`format_tests.rs::a_drawing_tab_did_not_move_the_format_floor`).
 4. **Writer duties:** never emit NaN/∞ (serializes as `null`, poisons the file —
    §2): the bridge save path enforces this via `save_project_verified`, which
    round-trips its own output through the loader and errors loudly instead of

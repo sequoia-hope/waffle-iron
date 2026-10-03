@@ -150,6 +150,14 @@ impl DocumentSession {
                 name.unwrap_or_else(|| self.next_name("Assembly")),
                 Default::default(),
             ),
+            // A fresh Drawing tab comes with one empty sheet
+            // (`Drawing::new`), not with none: a drawing tab whose first
+            // action has to be "add a sheet" has nothing to put a view on,
+            // and every drawing has at least one sheet.
+            "Drawing" => Tab::drawing(
+                name.unwrap_or_else(|| self.next_name("Drawing")),
+                feature_engine::drawing::Drawing::new(),
+            ),
             other => {
                 return Err(SessionError::TabKindNotSupported {
                     name: name.unwrap_or_default(),
@@ -286,6 +294,10 @@ impl DocumentSession {
         match &mut self.tabs[index].kind {
             TabKind::Part { preview_mesh, .. } => *preview_mesh = stored,
             TabKind::Assembly { preview_mesh, .. } => *preview_mesh = stored,
+            // A Drawing tab takes no mesh thumbnail: its preview is its
+            // views' own cached 2-D layouts. Stamping the live tree's mesh
+            // onto it would show the PART on the drawing tab's card.
+            TabKind::Drawing { .. } => {}
             TabKind::Unknown(_) => {}
         }
     }
@@ -374,6 +386,75 @@ impl DocumentSession {
                 kind: tab.kind.type_tag().to_string(),
                 expected: "hold an assembly".to_string(),
             })
+    }
+
+    // ── Drawings ────────────────────────────────────────────────────────
+
+    /// A `Drawing` tab's content, refused loudly for a tab of any other kind.
+    ///
+    /// The drawing sibling of [`Self::assembly`], and for the same reason:
+    /// the tab's content lives here, so a message names the tab instead of
+    /// carrying its drawing.
+    pub fn drawing(&self, id: &str) -> Result<&feature_engine::drawing::Drawing, SessionError> {
+        let tab = self
+            .tab(id)
+            .ok_or_else(|| SessionError::TabNotFound { id: id.to_string() })?;
+        tab.drawing_tree()
+            .ok_or_else(|| SessionError::TabKindNotSupported {
+                name: tab.name.clone(),
+                kind: tab.kind.type_tag().to_string(),
+                expected: "hold a drawing".to_string(),
+            })
+    }
+
+    /// Replace a `Drawing` tab's content, as the drawing tools' edits do.
+    pub fn set_drawing(
+        &mut self,
+        id: &str,
+        drawing: feature_engine::drawing::Drawing,
+    ) -> Result<(), SessionError> {
+        let index = self.index_of(id)?;
+        let tab = &mut self.tabs[index];
+        match &mut tab.kind {
+            TabKind::Drawing { drawing: slot, .. } => *slot = drawing,
+            other => {
+                return Err(SessionError::TabKindNotSupported {
+                    name: tab.name.clone(),
+                    kind: other.type_tag().to_string(),
+                    expected: "hold a drawing".to_string(),
+                })
+            }
+        }
+        self.commit();
+        Ok(())
+    }
+
+    /// Write the rebuilt layouts back onto a `Drawing` tab's views (the
+    /// `cache` field) — the drawing's equivalent of
+    /// [`Self::set_assembly_placements`], and derived on exactly the same
+    /// terms: recomputed every rebuild, saved with the tab so a reader
+    /// without a kernel can draw the sheet, never authoritative. Silent for
+    /// a tab that holds no drawing, because this rides on a rebuild rather
+    /// than on a user action.
+    pub fn set_drawing_caches(
+        &mut self,
+        id: &str,
+        caches: &HashMap<uuid::Uuid, waffle_types::annotation::layout::ViewLayout>,
+    ) {
+        let Ok(index) = self.index_of(id) else {
+            return;
+        };
+        if let TabKind::Drawing { drawing, .. } = &mut self.tabs[index].kind {
+            for sheet in &mut drawing.sheets {
+                for view in &mut sheet.views {
+                    // A view the rebuild could not produce has its stale
+                    // cache CLEARED rather than kept: a drawing showing the
+                    // last layout that worked, beside an error about the one
+                    // that did not, is a sheet that looks right and is not.
+                    view.cache = caches.get(&view.id).cloned();
+                }
+            }
+        }
     }
 
     /// Every `Part` tab's tree, keyed by tab id — what evaluating an assembly

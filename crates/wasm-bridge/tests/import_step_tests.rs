@@ -285,16 +285,18 @@ fn an_opaque_tab_is_preserved_through_a_save() {
     let mut state = EngineState::new();
     let mut kernel = KernelV2Adapter::new();
 
+    // `Drawing` was the stand-in kind until D4a implemented it; `Schematic`
+    // is the next one nothing does. The mechanism is what is under test.
     let part = Tab::part("Part 1", FeatureTree::new());
     let part_id = part.id.clone();
-    let drawing: Tab = serde_json::from_value(serde_json::json!({
-        "id": "drw", "name": "Drawing 1", "kind": { "type": "Drawing", "sheets": [] }
+    let opaque: Tab = serde_json::from_value(serde_json::json!({
+        "id": "sch", "name": "Schematic 1", "kind": { "type": "Schematic", "nets": [] }
     }))
     .unwrap();
     let fixture = WaffleDocument {
         document: DocumentMetadata::new("Doc"),
         sources: Vec::new(),
-        tabs: vec![part, drawing],
+        tabs: vec![part, opaque],
         active_tab: part_id,
         extra: Default::default(),
     };
@@ -310,8 +312,8 @@ fn an_opaque_tab_is_preserved_through_a_save() {
         panic!("{response:?}")
     };
     let parsed: serde_json::Value = serde_json::from_str(&json_data).unwrap();
-    assert_eq!(parsed["tabs"][1]["kind"]["type"], "Drawing");
-    assert_eq!(parsed["tabs"][1]["kind"]["sheets"], serde_json::json!([]));
+    assert_eq!(parsed["tabs"][1]["kind"]["type"], "Schematic");
+    assert_eq!(parsed["tabs"][1]["kind"]["nets"], serde_json::json!([]));
 }
 
 // ── v4 Phase 2 P2-3: source listing, resolved commits, linked STEP imports ──

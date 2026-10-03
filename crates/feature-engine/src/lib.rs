@@ -2,6 +2,7 @@ pub mod assembly;
 pub mod assembly_solver;
 pub mod connector;
 pub mod context;
+pub mod drawing;
 pub mod expr;
 pub mod import_tiers;
 pub mod kicad;

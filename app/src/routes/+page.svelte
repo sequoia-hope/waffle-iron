@@ -27,6 +27,8 @@
 	import SaveTestCaseDialog from '$lib/ui/SaveTestCaseDialog.svelte';
 	import AssayBrowser from '$lib/ui/AssayBrowser.svelte';
 	import ExamplesBrowser from '$lib/ui/ExamplesBrowser.svelte';
+	import DrawingPanel from '$lib/ui/DrawingPanel.svelte';
+	import DrawingSheet from '$lib/ui/DrawingSheet.svelte';
 	import TabBar from '$lib/ui/TabBar.svelte';
 
 	let tabs = $derived(getDocumentTabs().length > 0
@@ -34,7 +36,13 @@
 		: [{ id: 'default', name: 'Part 1' }]
 	);
 	let activeTab = $derived(getActiveTabId() || tabs[0]?.id);
-	let activeIsAssembly = $derived(getDocumentTabs().find((t) => t.id === getActiveTabId())?.kind?.type === 'Assembly');
+	let activeTabKind = $derived(getDocumentTabs().find((t) => t.id === getActiveTabId())?.kind?.type ?? 'Part');
+	let activeIsAssembly = $derived(activeTabKind === 'Assembly');
+	// A Drawing tab (D4a) replaces BOTH regions: the sidebar shows its views
+	// instead of a feature tree, and the main area shows the sheet instead of
+	// the 3D viewport — the drawing is what the tab is for, and the viewport
+	// would show the part the drawing is OF, which is a different tab.
+	let activeIsDrawing = $derived(activeTabKind === 'Drawing');
 
 	// Side-panel widths. Each panel has its own range, and TOGETHER they must
 	// leave MIN_VIEWPORT_WIDTH for the 3D view — the `1fr` column is the only
@@ -163,7 +171,7 @@
 		/>
 	</div>
 	<div class="viewport-area">
-		<Viewport />
+		{#if activeIsDrawing}<DrawingSheet />{:else}<Viewport />{/if}
 		<button class="fab fab-left" data-testid="mobile-toggle-tree" onclick={() => toggleMobilePanel('left')} title="Feature Tree">&#x2630;</button>
 		<button class="fab fab-right" data-testid="mobile-toggle-props" onclick={() => toggleMobilePanel('right')} title="Properties">&#x2699;</button>
 	</div>
@@ -172,7 +180,7 @@
 		<div class="mobile-backdrop" onclick={closeMobilePanel}></div>
 	{/if}
 	<div class="mobile-panel mobile-panel-left" class:open={activePanel === 'left'}>
-		{#if activeIsAssembly}<AssemblyPanel />{:else}<FeatureTree />{/if}
+		{#if activeIsDrawing}<DrawingPanel />{:else if activeIsAssembly}<AssemblyPanel />{:else}<FeatureTree />{/if}
 	</div>
 	<div class="mobile-panel mobile-panel-right" class:open={activePanel === 'right'}>
 		<PropertyEditor />
@@ -204,7 +212,7 @@
 		/>
 	</div>
 	<div class="left-panel">
-		{#if activeIsAssembly}<AssemblyPanel />{:else}<FeatureTree />{/if}
+		{#if activeIsDrawing}<DrawingPanel />{:else if activeIsAssembly}<AssemblyPanel />{:else}<FeatureTree />{/if}
 	</div>
 	<div
 		class="divider"
@@ -215,7 +223,7 @@
 		tabindex="-1"
 	></div>
 	<div class="viewport-area">
-		<Viewport />
+		{#if activeIsDrawing}<DrawingSheet />{:else}<Viewport />{/if}
 	</div>
 	<div
 		class="divider"

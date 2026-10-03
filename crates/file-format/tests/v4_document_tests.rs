@@ -151,10 +151,15 @@ fn duplicate_source_ids_are_a_parse_error() {
 
 #[test]
 fn unknown_tab_kind_is_preserved_verbatim_and_reported() {
-    let assembly = serde_json::json!({
-        "type": "Drawing",
-        "sheets": [{ "id": "s1", "views": [{ "source": { "tab_id": "t0" }, "projection": "front" }] }],
-        "annotations": []
+    // The stand-in used to be `Drawing`, which became a KNOWN kind with D4a
+    // (drawings spec §8). `Schematic` is the next kind nothing implements —
+    // and the point of the test is the mechanism, not the name: a tab kind
+    // from a newer build is kept, reported, and re-emitted byte-for-byte,
+    // which is exactly why adding a tab kind is not a reader-floor bump
+    // (`docs/FILE_FORMAT.md` §13.3).
+    let future = serde_json::json!({
+        "type": "Schematic",
+        "nets": [{ "id": "n1", "pins": ["U1.1", "R3.2"] }]
     });
     let mut parsed: serde_json::Value =
         serde_json::from_str(&save_document(&WaffleDocument::new("Asm"))).unwrap();
@@ -162,30 +167,119 @@ fn unknown_tab_kind_is_preserved_verbatim_and_reported() {
     parsed["tabs"]
         .as_array_mut()
         .unwrap()
-        .push(serde_json::json!({ "id": "drw-tab", "name": "Drawing 1", "kind": assembly, "x-note": "kept" }));
+        .push(serde_json::json!({ "id": "sch-tab", "name": "Schematic 1", "kind": future, "x-note": "kept" }));
     parsed["active_tab"] = part_id;
 
     let loaded = load_document(&parsed.to_string()).unwrap();
     assert!(loaded
         .warnings
         .iter()
-        .any(|w| w.contains("unknown tab kind `Drawing`")));
+        .any(|w| w.contains("unknown tab kind `Schematic`")));
     let doc = loaded.document;
     assert_eq!(doc.tabs.len(), 2);
     assert!(matches!(doc.tabs[1].kind, TabKind::Unknown(_)));
-    assert_eq!(doc.tabs[1].kind.type_tag(), "Drawing");
+    assert_eq!(doc.tabs[1].kind.type_tag(), "Schematic");
     assert!(doc.tabs[1].features().is_none());
 
     let out: serde_json::Value = serde_json::from_str(&save_document(&doc)).unwrap();
-    assert_eq!(out["tabs"][1]["kind"], assembly, "re-emitted byte-for-byte");
+    assert_eq!(out["tabs"][1]["kind"], future, "re-emitted byte-for-byte");
     assert_eq!(out["tabs"][1]["x-note"], "kept");
 
     // The single-tree API still opens the Part tab, and refuses to pretend
-    // a Drawing tab is a part.
+    // an unknown-kind tab is a part.
     assert!(load_project(&parsed.to_string()).is_ok());
-    parsed["active_tab"] = serde_json::Value::String("drw-tab".into());
+    parsed["active_tab"] = serde_json::Value::String("sch-tab".into());
+    assert!(
+        matches!(load_project(&parsed.to_string()), Err(LoadError::ParseError(m)) if m.contains("Schematic"))
+    );
+}
+
+#[test]
+fn a_drawing_tab_round_trips_and_cannot_be_opened_as_a_part() {
+    // The positive half of the test above, now that `Drawing` is a kind this
+    // build knows (D4a). What matters is that the payload survives a
+    // save → load → save unchanged — the corpus pin saves twice and compares
+    // — and that `load_project` refuses it BY NAME rather than handing back
+    // an empty tree, which is how a drawing tab would silently become a part.
+    use feature_engine::drawing::{Drawing, DrawingView, NamedView, Projection, Sheet, ViewSource};
+
+    let mut doc = WaffleDocument::new("Drawn");
+    let part_id = doc.tabs[0].id.clone();
+    let mut sheet = Sheet::new("Sheet 1");
+    let mut view = DrawingView::new(
+        "Top",
+        ViewSource::whole_tab(&part_id),
+        Projection::Named {
+            view: NamedView::Top,
+        },
+    );
+    view.scale = 0.5;
+    view.placement_mm = [210.0, 148.5];
+    sheet.views.push(view);
+    let drawing = Drawing {
+        sheets: vec![sheet],
+        ..Drawing::default()
+    };
+    doc.tabs.push(Tab::drawing("Drawing 1", drawing));
+    let drawing_tab_id = doc.tabs[1].id.clone();
+
+    let json = save_document(&doc);
+    let loaded = load_document(&json).expect("a drawing tab loads");
+    assert!(
+        loaded.warnings.is_empty(),
+        "a well-formed drawing warns about nothing: {:?}",
+        loaded.warnings
+    );
+    let back = loaded.document;
+    assert_eq!(back.tabs[1].kind.type_tag(), "Drawing");
+    let drawn = back.tabs[1]
+        .drawing_tree()
+        .expect("the drawing is readable");
+    assert_eq!(drawn.sheets.len(), 1);
+    assert_eq!(drawn.sheets[0].views[0].scale, 0.5);
+    assert_eq!(drawn.sheets[0].views[0].source.tab_id, part_id);
+    assert_eq!(
+        save_document(&back),
+        json,
+        "byte-stable across a round trip"
+    );
+
+    // And it is not a part.
+    let mut parsed: serde_json::Value = serde_json::from_str(&json).unwrap();
+    parsed["active_tab"] = serde_json::Value::String(drawing_tab_id);
     assert!(
         matches!(load_project(&parsed.to_string()), Err(LoadError::ParseError(m)) if m.contains("Drawing"))
+    );
+}
+
+#[test]
+fn a_drawing_view_of_a_tab_the_document_does_not_have_is_a_warning_not_a_failure() {
+    use feature_engine::drawing::{Drawing, DrawingView, NamedView, Projection, Sheet, ViewSource};
+
+    let mut doc = WaffleDocument::new("Dangling");
+    let mut sheet = Sheet::new("Sheet 1");
+    sheet.views.push(DrawingView::new(
+        "Top",
+        ViewSource::whole_tab("a-tab-that-is-gone"),
+        Projection::Named {
+            view: NamedView::Top,
+        },
+    ));
+    doc.tabs.push(Tab::drawing(
+        "Drawing 1",
+        Drawing {
+            sheets: vec![sheet],
+            ..Drawing::default()
+        },
+    ));
+    let loaded = load_document(&save_document(&doc)).expect("it still loads");
+    assert!(
+        loaded
+            .warnings
+            .iter()
+            .any(|w| w.contains("a-tab-that-is-gone")),
+        "{:?}",
+        loaded.warnings
     );
 }
 
@@ -200,6 +294,13 @@ fn malformed_known_tab_kind_is_still_a_parse_error() {
     parsed["tabs"][0]["kind"] = serde_json::json!({ "features": {} });
     assert!(
         matches!(load_document(&parsed.to_string()), Err(LoadError::ParseError(m)) if m.contains("string `type`"))
+    );
+    // Including the kind D4a added: a `Drawing` whose payload is nonsense
+    // must stay a hard parse error rather than degrading to `Unknown`, which
+    // would silently discard a drawing the writer meant.
+    parsed["tabs"][0]["kind"] = serde_json::json!({ "type": "Drawing", "drawing": 42 });
+    assert!(
+        matches!(load_document(&parsed.to_string()), Err(LoadError::ParseError(m)) if m.contains("tab kind `Drawing`"))
     );
 }
 

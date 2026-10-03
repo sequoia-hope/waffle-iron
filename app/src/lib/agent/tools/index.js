@@ -60,6 +60,7 @@ import {
 	exportDxfTool,
 	exportStepTool,
 	exportStlTool,
+	exportSvgTool,
 	importStepTool,
 	kicadLinkTool
 } from './export.js';
@@ -72,6 +73,7 @@ import {
 	scriptSourceGetTool,
 	scriptSourceUpdateTool
 } from './scripts.js';
+import { drawingAnnotationAddTool, drawingViewAddTool, drawingViewEditTool } from './drawing.js';
 import { viewportCaptureTool, viewportViewTool } from './viewport.js';
 
 /** Tool definitions, in manifest order. */
@@ -127,6 +129,7 @@ export const TOOLS = [
 	exportStepTool,
 	exportStlTool,
 	exportDxfTool,
+	exportSvgTool,
 	assemblyGetTool,
 	instanceAddTool,
 	instanceEditTool,
@@ -136,7 +139,10 @@ export const TOOLS = [
 	connectorDeleteTool,
 	mateAddTool,
 	mateEditTool,
-	mateDeleteTool
+	mateDeleteTool,
+	drawingViewAddTool,
+	drawingViewEditTool,
+	drawingAnnotationAddTool
 ];
 
 export const TOOL_NAMES = new Set(TOOLS.map((t) => t.name));

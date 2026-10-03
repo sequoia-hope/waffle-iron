@@ -376,6 +376,46 @@ pub enum UiToEngine {
         /// engine's source store.
         tab_id: String,
     },
+    /// Open (or re-evaluate) a `Drawing` tab (D4a,
+    /// `specs/drawings_and_mbd.md` §8): every view's source tab is built,
+    /// projected and annotated, and the resulting layouts are written back
+    /// onto the views as their caches and returned as
+    /// `ModelUpdated.drawing`.
+    ///
+    /// The drawing sibling of [`UiToEngine::OpenAssembly`], on the same
+    /// terms: the tab's content and every tree it references come from the
+    /// session, so the message carries only the tab id, and the session is
+    /// made to agree about which tab is active (without that the next switch
+    /// would stash the live tree onto the wrong tab).
+    OpenDrawing {
+        tab_id: String,
+    },
+    /// Replace a `Drawing` tab's content — what every drawing TOOL's edit
+    /// becomes. Re-evaluates the tab when it is the open one; an edit to a
+    /// background drawing tab is recorded and shown when that tab opens.
+    ///
+    /// **Not for the page.** A drawing carries annotations, an annotation's
+    /// anchors carry `u64` persistent ids, and a JSON number in JavaScript is
+    /// an `f64` — so a whole drawing that went out to the page and came back
+    /// would have every pid above `2^53` silently rounded, and every
+    /// dimension anchored on one would refuse as "resolves to no geometry"
+    /// (measured; see `feature_engine::drawing::pid_string`). The tools
+    /// construct the `Drawing` in Rust, where `u64` is exact. The page uses
+    /// [`UiToEngine::DrawingEdit`], which never carries one.
+    EditDrawing {
+        tab_id: String,
+        drawing: feature_engine::drawing::Drawing,
+    },
+    /// One TARGETED edit to a `Drawing` tab (D4a) — what the page sends.
+    ///
+    /// Targeted rather than whole-document for the reason above: nothing in
+    /// this message is a persisted document type, so nothing in it can be
+    /// corrupted by a round trip through JavaScript. An annotation's anchors
+    /// arrive as decimal strings.
+    DrawingEdit {
+        tab_id: String,
+        edit: DrawingEdit,
+    },
     /// Replace an `Assembly` tab's tree — the assembly panel's edits
     /// (instances, connectors, mates), which used to live only in the JS tab
     /// copy (S2 C3b). Re-evaluates when it is the tab on screen; an edit to a
@@ -496,19 +536,38 @@ pub enum UiToEngine {
         filter: Option<EntityListFilter>,
     },
     ExportStep,
-    /// One orthographic view of every live body as an R12 DXF drawing
-    /// (`specs/drawings_and_mbd.md` §8 / §12, increment D1a — wireframe, no
-    /// hidden lines yet). Query: no rebuild.
+    /// An R12 DXF drawing. Query: no rebuild.
     ///
-    /// `view_dir` is the direction of SIGHT, away from the viewer; absent
-    /// means the top view (`[0, 0, -1]`), which is the flat-pattern default.
-    /// `up` is which world direction points up on the paper; absent lets the
-    /// kernel pick one that is not parallel to `view_dir`.
+    /// Two shapes, by what is open (`specs/drawings_and_mbd.md` §8 / §12):
+    ///
+    /// - **A Part or Assembly tab**: one orthographic view of every live
+    ///   body — §12's flat pattern, increment D1a. `view_dir` is the
+    ///   direction of SIGHT, away from the viewer; absent means the top view
+    ///   (`[0, 0, -1]`). `up` is which world direction points up on the
+    ///   paper; absent lets the kernel pick one that is not parallel to
+    ///   `view_dir`.
+    /// - **A Drawing tab** (D4a): the SHEET — every view of it, each placed
+    ///   at its own scale and position, in one file in sheet millimetres. A
+    ///   `view_id` narrows it to one view, still at the view's own scale but
+    ///   alone and at the paper origin, which is what a cutting table wants
+    ///   from a sheet it should not read the rest of.
+    ///
+    /// `view_dir` / `up` on a Drawing tab, or `sheet_id` / `view_id` on a
+    /// Part tab, are refused rather than ignored: each pair names a
+    /// projection the other shape does not have, so honouring one and
+    /// dropping the other would silently export a different drawing than the
+    /// caller asked for.
     ExportDxf {
         #[serde(default)]
         view_dir: Option<[f64; 3]>,
         #[serde(default)]
         up: Option<[f64; 3]>,
+        /// Which sheet of the open Drawing tab; absent means its first.
+        #[serde(default)]
+        sheet_id: Option<Uuid>,
+        /// One view of that sheet, alone.
+        #[serde(default)]
+        view_id: Option<Uuid>,
     },
     ExportStl,
     /// Export a single body to STL. `body_id` is the persistent body identity
@@ -1121,6 +1180,10 @@ pub enum EngineToUi {
         /// the evaluation's problems (Phase 3b).
         #[serde(default, skip_serializing_if = "Option::is_none")]
         assembly: Option<AssemblyStatus>,
+        /// Present while a `Drawing` tab is open: its evaluated sheets
+        /// (D4a).
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        drawing: Option<DrawingStatus>,
         /// Present while a Part is open in the context of an assembly
         /// (`OpenPartInContext`, Phase 3d-4).
         #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -1460,6 +1523,147 @@ pub struct AssemblyStatus {
     /// assembly connector can be made from (`part_connector`).
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub part_connectors: Vec<PartConnectorInfo>,
+}
+
+/// One edit to a drawing, in primitives (D4a).
+///
+/// The page's edit vocabulary. Every field is a string, a number or a small
+/// enum — deliberately no `Drawing`, no `Annotation` and no `GeomRef` — so
+/// that nothing a JavaScript `JSON.parse` would damage crosses the wire. The
+/// engine builds the document types on this side.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(tag = "type")]
+pub enum DrawingEdit {
+    AddView {
+        #[serde(default)]
+        sheet_id: Option<Uuid>,
+        /// The Part or Assembly tab the view draws.
+        source_tab: String,
+        #[serde(default)]
+        bodies: Vec<String>,
+        projection: feature_engine::drawing::Projection,
+        #[serde(default)]
+        name: Option<String>,
+        #[serde(default)]
+        scale: Option<f64>,
+        #[serde(default)]
+        placement_mm: Option<[f64; 2]>,
+    },
+    EditView {
+        view_id: Uuid,
+        #[serde(default)]
+        name: Option<String>,
+        #[serde(default)]
+        scale: Option<f64>,
+        #[serde(default)]
+        placement_mm: Option<[f64; 2]>,
+        #[serde(default)]
+        bodies: Option<Vec<String>>,
+        #[serde(default)]
+        hidden_lines: Option<bool>,
+        #[serde(default)]
+        silhouettes: Option<bool>,
+    },
+    /// Delete a view, and with it every view projected FROM it — which is
+    /// what deleting a parent view means; a child left behind would name a
+    /// parent that is not on the sheet.
+    DeleteView {
+        view_id: Uuid,
+    },
+    AddAnnotation {
+        view_id: Uuid,
+        annotation: DrawingAnnotationSpec,
+    },
+    DeleteAnnotation {
+        view_id: Uuid,
+        index: usize,
+    },
+}
+
+/// An annotation to author, in primitives (D4a).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DrawingAnnotationSpec {
+    /// `Dimension` | `Note` | `CentreMark` | `CentreLine` | `Datum`.
+    pub annotation: String,
+    /// The dimension kind, for `Dimension`.
+    #[serde(default)]
+    pub kind: Option<String>,
+    /// The entities measured, as persistent ids.
+    #[serde(default)]
+    pub anchors: Vec<DrawingAnchorSpec>,
+    #[serde(default)]
+    pub text: Option<String>,
+    #[serde(default)]
+    pub label: Option<String>,
+    #[serde(default)]
+    pub precision: Option<u8>,
+    #[serde(default)]
+    pub dual_unit: Option<String>,
+    #[serde(default)]
+    pub placement: Option<[f64; 2]>,
+}
+
+/// One anchor of an authored annotation: a persistent id and what kind of
+/// entity it names.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DrawingAnchorSpec {
+    /// A decimal STRING, because a `u64` is not exact as a JSON number in
+    /// JavaScript (`feature_engine::drawing::pid_string`).
+    #[serde(with = "feature_engine::drawing::pid_string")]
+    pub pid: u64,
+    #[serde(default = "edge_kind")]
+    pub kind: waffle_types::TopoKind,
+}
+
+fn edge_kind() -> waffle_types::TopoKind {
+    waffle_types::TopoKind::Edge
+}
+
+/// The evaluated drawing as the UI needs it (D4a,
+/// `specs/drawings_and_mbd.md` §8).
+///
+/// Carries the whole drawing, caches included, because that is what the sheet
+/// draws. It is the `ViewLayout` per view — curves and already-measured
+/// annotations — that holds no `GeomRef` and no kernel handle, which is the
+/// D3 argument this is the producer for: the renderer has no path back to the
+/// model and so no way to draw a value other than the measured one.
+///
+/// The AUTHORED annotations beside those layouts do carry their anchors, and
+/// a `Selector::Pid` in one serializes as a JSON **number** — a `u64` a
+/// JavaScript `JSON.parse` rounds above `2^53` (see
+/// `feature_engine::drawing::pid_string` for the measurement). That is
+/// inert, not safe by construction: the page reads the authored annotations
+/// only as a count, draws from the layouts, and writes back exclusively
+/// through [`DrawingEdit`], whose every field is a primitive and whose
+/// annotation deletes address by INDEX. Nothing may start echoing a pid read
+/// from here; a page that needs one reads `anchors` below, which crosses as
+/// a string.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DrawingStatus {
+    pub tab_id: String,
+    /// The tab's drawing, with every view that rebuilt carrying its layout.
+    pub drawing: feature_engine::drawing::Drawing,
+    /// Per view id, the entities it drew with the persistent ids an
+    /// annotation anchors on.
+    ///
+    /// Beside the drawing rather than inside it, and for the reason the
+    /// LAYOUT carries no reference at all (D3): the document stores the
+    /// annotations, not the ids available to make one from, and the renderer
+    /// reads only the layout. This is the authoring path — picking an edge on
+    /// the sheet to dimension it needs the edge's id.
+    #[serde(default, skip_serializing_if = "std::collections::BTreeMap::is_empty")]
+    pub anchors: std::collections::BTreeMap<Uuid, Vec<feature_engine::drawing::ViewAnchor>>,
+    /// What the projections declined to decide, by counter name, non-zero
+    /// ones only (D1c `ProjectionDeclines`). Present for the same reason the
+    /// DXF export carries them: they are what tells a decided drawing from a
+    /// quiet one, and a sheet that silently dropped a hundred hidden arcs
+    /// looks finished.
+    #[serde(default, skip_serializing_if = "std::collections::BTreeMap::is_empty")]
+    pub declines: std::collections::BTreeMap<String, u32>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub errors: Vec<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub warnings: Vec<String>,
 }
 
 /// One named mate connector of a part (`specs/part_mate_connectors.md`), as

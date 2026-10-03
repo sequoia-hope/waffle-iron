@@ -897,6 +897,63 @@ impl Curve2 {
             }
         }
     }
+
+    /// This curve scaled about the view-plane origin by `scale` and then
+    /// moved by `offset` — the paper-space placement of a drawing view
+    /// (`specs/drawings_and_mbd.md` §8, D4a).
+    ///
+    /// `scale` is UNIFORM and must be positive and finite; `None` otherwise.
+    /// Uniform is not a limitation here but the whole point: a drawing scale
+    /// is one ratio, and under a uniform positive scale a circle stays a
+    /// circle, an ellipse keeps its axis directions, and every angle
+    /// parameter is unchanged — so the analytic arms survive placement
+    /// instead of degrading to polylines on the way to the sheet. An
+    /// anisotropic scale would turn a circle into an ellipse and an ellipse
+    /// into one with a different major direction, which is a different curve
+    /// family and a different arm.
+    pub fn transformed(&self, scale: f64, offset: [f64; 2]) -> Option<Curve2> {
+        if !(scale.is_finite() && scale > 0.0 && offset[0].is_finite() && offset[1].is_finite()) {
+            return None;
+        }
+        let map = |p: Point2| Point2::new(p.x() * scale + offset[0], p.y() * scale + offset[1]);
+        Some(match *self {
+            Curve2::Point(p) => Curve2::Point(map(p)),
+            Curve2::Line { start, end } => Curve2::Line {
+                start: map(start),
+                end: map(end),
+            },
+            Curve2::Circle {
+                center,
+                radius,
+                start_angle,
+                end_angle,
+            } => Curve2::Circle {
+                center: map(center),
+                radius: radius * scale,
+                start_angle,
+                end_angle,
+            },
+            Curve2::Ellipse {
+                center,
+                major_axis,
+                major_radius,
+                minor_radius,
+                start_param,
+                end_param,
+            } => Curve2::Ellipse {
+                center: map(center),
+                major_axis,
+                major_radius: major_radius * scale,
+                minor_radius: minor_radius * scale,
+                start_param,
+                end_param,
+            },
+            Curve2::Polyline { ref points, closed } => Curve2::Polyline {
+                points: points.iter().map(|p| map(*p)).collect(),
+                closed,
+            },
+        })
+    }
 }
 
 /// How many chords a polyline of `n` points has: one fewer than its points
@@ -1041,6 +1098,43 @@ impl ViewGeometry {
             (a, b) => a.or(b),
         };
         self.declines.merge(&other.declines);
+    }
+
+    /// This view placed in paper space: every curve scaled by `scale` about
+    /// the view-plane origin and moved by `offset`.
+    ///
+    /// How several views become ONE drawing (D4a's sheet): each view is
+    /// projected in its own frame, then placed, then the placed views are
+    /// [`ViewGeometry::extend`]ed together and written as one file. `None`
+    /// when the transform is not a positive finite similarity (see
+    /// [`Curve2::transformed`]); a curve arm that cannot be transformed is
+    /// DROPPED rather than approximated, which the `Option` cannot express —
+    /// there is no such arm today, and `transformed` returning `None` for the
+    /// whole view is the honest answer if one ever appears.
+    ///
+    /// [`CurveDepth`] is left in MODEL units deliberately: depth is not a
+    /// paper quantity, it is what orders coincident curves, and a positive
+    /// uniform scale preserves that order. Scaling it would invent a number
+    /// in units nothing reads.
+    pub fn transformed(&self, scale: f64, offset: [f64; 2]) -> Option<ViewGeometry> {
+        let mut curves = Vec::with_capacity(self.curves.len());
+        for c in &self.curves {
+            curves.push(ProjectedCurve {
+                geometry: c.geometry.transformed(scale, offset)?,
+                visibility: c.visibility,
+                kind: c.kind,
+                source: c.source,
+                depth: c.depth,
+            });
+        }
+        Some(ViewGeometry {
+            curves,
+            bbox: self.bbox.map(|b| Aabb2 {
+                min: Point2::new(b.min.x() * scale + offset[0], b.min.y() * scale + offset[1]),
+                max: Point2::new(b.max.x() * scale + offset[0], b.max.y() * scale + offset[1]),
+            }),
+            declines: self.declines,
+        })
     }
 
     /// Total length of every curve tagged `visibility`.
@@ -1834,6 +1928,129 @@ mod tests {
         };
         assert_eq!(single.param_range(), Some((0.0, 0.0)));
         assert_eq!(single.eval(7.0), Some(p));
+    }
+
+    /// One of each arm, for the transform tests below.
+    fn one_of_each_arm() -> Vec<Curve2> {
+        let p = Point2::new(1.0, 2.0);
+        vec![
+            Curve2::Point(p),
+            Curve2::Line {
+                start: p,
+                end: Point2::new(4.0, 6.0),
+            },
+            Curve2::Circle {
+                center: p,
+                radius: 2.0,
+                start_angle: 0.3,
+                end_angle: 1.7,
+            },
+            Curve2::Ellipse {
+                center: p,
+                major_axis: [0.6, 0.8],
+                major_radius: 3.0,
+                minor_radius: 1.0,
+                start_param: -0.5,
+                end_param: 2.0,
+            },
+            Curve2::Polyline {
+                points: vec![p, Point2::new(2.0, 2.0), Point2::new(2.0, 5.0)],
+                closed: true,
+            },
+        ]
+    }
+
+    #[test]
+    fn a_paper_transform_maps_every_arm_to_its_own_kind_and_moves_every_point() {
+        // D4a places a view on a sheet by scaling and translating it. The
+        // claim the sheet export rests on is that this is a SIMILARITY: every
+        // arm survives as the same arm, so the analytic entities (a DXF
+        // CIRCLE, an ARC) reach the file instead of being flattened on the
+        // way. Asserted point-wise through `eval`, not on the fields, so a
+        // transform that got a radius right and a centre wrong still fails.
+        let (scale, offset) = (0.25, [10.0, -4.0]);
+        for curve in one_of_each_arm() {
+            let moved = curve
+                .transformed(scale, offset)
+                .expect("a positive finite similarity applies to every arm");
+            assert_eq!(
+                std::mem::discriminant(&moved),
+                std::mem::discriminant(&curve),
+                "{curve:?} changed arm under a similarity"
+            );
+            let (t0, t1) = curve.param_range().unwrap();
+            for i in 0..=8 {
+                let t = t0 + (t1 - t0) * (i as f64) / 8.0;
+                let a = curve.eval(t).unwrap();
+                let b = moved.eval(t).unwrap();
+                assert!(
+                    (b.x() - (a.x() * scale + offset[0])).abs() < 1e-12
+                        && (b.y() - (a.y() * scale + offset[1])).abs() < 1e-12,
+                    "{curve:?} at t={t}: {a:?} should map to {b:?}"
+                );
+            }
+            // And the length scales with it, which is the property a drawn
+            // dimension's paper length depends on.
+            assert!(
+                (moved.length() - curve.length() * scale).abs() < 1e-12,
+                "{curve:?}: length {} should be {}",
+                moved.length(),
+                curve.length() * scale
+            );
+        }
+    }
+
+    #[test]
+    fn a_paper_transform_refuses_a_scale_that_is_not_a_positive_finite_number() {
+        // A zero or negative scale is not a drawing scale: zero collapses the
+        // view to a point and a negative one mirrors it, which on a
+        // manufacturing drawing is a part machined the wrong way round. The
+        // ratio is refused here rather than normalized to its absolute value.
+        let line = Curve2::Line {
+            start: Point2::new(0.0, 0.0),
+            end: Point2::new(1.0, 0.0),
+        };
+        for bad in [0.0, -1.0, f64::NAN, f64::INFINITY] {
+            assert!(
+                line.transformed(bad, [0.0, 0.0]).is_none(),
+                "scale {bad} should be refused"
+            );
+        }
+        assert!(line.transformed(1.0, [f64::NAN, 0.0]).is_none());
+    }
+
+    #[test]
+    fn a_placed_view_keeps_its_declines_and_rebuilds_its_box() {
+        // The sheet composes placed views; the declines are a statement about
+        // what the PROJECTION declined, so placing a view on paper cannot
+        // change them, and the box has to follow the curves or the sheet's
+        // auto-layout places the view by a stale extent.
+        let mut view = ViewGeometry::with_declines(
+            vec![ProjectedCurve::visible(
+                Curve2::Line {
+                    start: Point2::new(0.0, 0.0),
+                    end: Point2::new(2.0, 1.0),
+                },
+                CurveKind::Edge,
+                None,
+            )],
+            ProjectionDeclines {
+                ray_grazes_face: 7,
+                ..ProjectionDeclines::default()
+            },
+        );
+        view.curves[0].depth = Some(CurveDepth {
+            at_midpoint: 0.5,
+            occluder: None,
+        });
+        let placed = view.transformed(0.5, [100.0, 200.0]).expect("places");
+        assert_eq!(placed.declines.ray_grazes_face, 7);
+        let bbox = placed.bbox.expect("a placed curve has a box");
+        assert_eq!((bbox.min.x(), bbox.min.y()), (100.0, 200.0));
+        assert_eq!((bbox.max.x(), bbox.max.y()), (101.0, 200.5));
+        // Depth is model-space and is NOT scaled: it orders curves, and the
+        // order is what a positive scale preserves.
+        assert_eq!(placed.curves[0].depth.unwrap().at_midpoint, 0.5);
     }
 
     #[test]

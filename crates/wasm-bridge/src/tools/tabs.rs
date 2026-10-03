@@ -62,8 +62,9 @@ fn require_tab(state: &EngineState, tab_id: &str) -> Result<crate::session::TabI
 }
 
 /// Make `tab_id` the active tab: an Assembly tab is opened and evaluated, a
-/// Part tab is rebuilt. A tab that is already active is left alone, as the
-/// page's `switchTab` leaves it.
+/// Drawing tab is opened and its views projected (D4a), a Part tab is
+/// rebuilt. A tab that is already active is left alone, as the page's
+/// `switchTab` leaves it.
 fn activate(
     state: &mut EngineState,
     kb: &mut dyn KernelBundle,
@@ -78,6 +79,18 @@ fn activate(
             kb,
             "OpenAssembly",
             UiToEngine::OpenAssembly {
+                tab_id: tab.id.clone(),
+            },
+        )?;
+    } else if tab.kind == "Drawing" {
+        // Not a `SwitchTab`: a drawing has no tree to rebuild, and its views
+        // are of OTHER tabs' bodies. `OpenDrawing` makes the tab active and
+        // projects them.
+        engine_call(
+            state,
+            kb,
+            "OpenDrawing",
+            UiToEngine::OpenDrawing {
                 tab_id: tab.id.clone(),
             },
         )?;
@@ -101,7 +114,8 @@ fn activate(
 }
 
 /// `tab_switch`: Part tabs take the feature tools, Assembly tabs the
-/// assembly tools; any other kind has no tool to work it.
+/// assembly tools, Drawing tabs the drawing tools; any other kind has no tool
+/// to work it.
 pub(crate) fn tab_switch(
     state: &mut EngineState,
     kb: &mut dyn KernelBundle,
@@ -109,11 +123,11 @@ pub(crate) fn tab_switch(
 ) -> Answer {
     let tab_id = tab_id_arg(args);
     let tab = require_tab(state, &tab_id)?;
-    if tab.kind != "Part" && tab.kind != "Assembly" {
+    if !matches!(tab.kind.as_str(), "Part" | "Assembly" | "Drawing") {
         return Err(ToolFailure::new(
             "TabKindNotSupported",
             format!(
-                "Tab {} is a {} tab; agents work on Part and Assembly tabs.",
+                "Tab {} is a {} tab; agents work on Part, Assembly and Drawing tabs.",
                 tab.name, tab.kind
             ),
             json!({ "kind": tab.kind }),
@@ -123,7 +137,7 @@ pub(crate) fn tab_switch(
     Ok(document_core(state))
 }
 
-/// `tab_add`: a new Part or Assembly tab after the last one, named
+/// `tab_add`: a new Part, Assembly or Drawing tab after the last one, named
 /// `"{kind} N"` unless `name` is given, and activated unless `activate` is
 /// false. Answers `{tab_id, ...document}`.
 pub(crate) fn tab_add(state: &mut EngineState, kb: &mut dyn KernelBundle, args: &Value) -> Answer {
@@ -132,10 +146,13 @@ pub(crate) fn tab_add(state: &mut EngineState, kb: &mut dyn KernelBundle, args: 
         .and_then(Value::as_str)
         .unwrap_or("Part")
         .to_string();
-    if kind != "Part" && kind != "Assembly" {
+    if !matches!(kind.as_str(), "Part" | "Assembly" | "Drawing") {
         return Err(ToolFailure::new(
             "TabKindNotSupported",
-            format!("A tab of kind {kind} cannot be added; agents add Part and Assembly tabs."),
+            format!(
+                "A tab of kind {kind} cannot be added; agents add Part, Assembly and Drawing \
+                 tabs."
+            ),
             json!({ "kind": kind }),
         ));
     }

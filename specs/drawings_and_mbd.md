@@ -1821,9 +1821,12 @@ a `.waffle` file today — it becomes reachable when D4a adds
 `docs/FILE_FORMAT.md` §13 rule 3: no new variant reaches a persisted type, no
 reader can encounter one, so the reader floor does not move and
 `docs/schema/waffle-v5.schema.json` is byte-unchanged (its golden is green).
-**That is the bump D4a owes**, and it owes it for the §13 reason v7 did: the
+**That was expected to be the bump D4a owes**, for the §13 reason v7 did: the
 annotations it persists are serde-tagged enums whose anchors carry a
-`Selector::Pid`. The shapes are pinned now anyway —
+`Selector::Pid`. *It turned out not to be* — see the D4a notes below: inside
+an unknown tab kind nothing is deserialized, so an old reader never meets the
+variant, and bumping would make it reject the whole document instead of
+keeping the drawing opaque. The shapes are pinned now anyway —
 `docs/schema/annotation.schema.json` and
 `docs/schema/annotation-layout.schema.json`, regenerated with
 `UPDATE_SCHEMA=1` — because the window between D3 and D4a is exactly when an
@@ -2000,6 +2003,186 @@ The MCP surface gains `drawing_view_add`, `drawing_view_edit`,
 `drawing_annotation_add`, and `export_dxf` / `export_svg`, mirroring the
 feature tools.
 
+### Implementation notes (D4a)
+
+Landed 2026-10-03. Where §8 left a choice open, this is the choice made and
+why. D4b — section and detail views, the title block, the sheet PDF — is
+untouched.
+
+**The model is `feature_engine::drawing`, beside `assembly` and for the same
+reason.** `file-format`'s `TabKind` holds it, so it has to live below
+file-format and above `waffle-types`, which owns the annotations and the
+projection contract. Five deviations from §8's sketch:
+
+| §8 | what landed | why |
+|---|---|---|
+| `annotations` on the tab | on the **view** | a dimension is measured in view-plane `(u, v)`; an annotation with no view has no coordinate system. A tab-level list needs a view id per entry anyway, and then "an entry naming a deleted view" is a state the type permits |
+| `sheet: Sheet` | `sheets: Vec<Sheet>` | a part with six views and a detail sheet is the ordinary case; one sheet per tab would split a title block from the views it describes |
+| `source: GeomRef` | `ViewSource { tab_id, bodies }` | a `GeomRef` names ONE entity (it has a `TopoKind` and a selector); a view projects a SET of bodies, which is exactly what `project_bodies` takes |
+| `cache: ViewGeometry` + `preview: SheetPreview` | `cache: ViewLayout`, no separate preview | `ViewGeometry` has no serde (`cad_primitives::Point2` derives none); `ViewLayout` is its persistable form AND carries the annotations, so one field does both jobs |
+| `ViewStyle` with `tangent_edges` | `{ hidden_lines, silhouettes }` | `CurveKind` is `Edge \| Silhouette \| SectionOutline` — there is no tangent-edge classification to switch, and a checkbox wired to nothing is worse than a missing one |
+
+**`TabKind::Drawing` did NOT bump the format version, and that is a
+decision.** §13.3 and `MIN_READER_VERSION`'s own doc comment: since v4 a new
+tab kind needs no bump, because a reader that does not know the tag keeps the
+whole tab as `TabKind::Unknown` and re-emits it verbatim. The D3 notes above
+expected D4a to owe a bump anyway, on the v7 precedent — a drawing's
+annotation anchors persist a `Selector::Pid`, and a new selector variant IS a
+floor bump. **The difference is where the variant sits.** v7's was inside
+`FeatureTree.names`, a defaulted field of a kind every reader knows, so an old
+reader deserialized it and failed on the unknown variant; inside an unknown
+tab kind nothing is deserialized at all.
+
+And bumping anyway would be actively **worse** than not. A reader refuses a
+file whose `max(version, min_reader_version)` exceeds its own
+`FORMAT_VERSION`, so a bump makes every older build reject the WHOLE document
+— losing the part tabs it reads perfectly well — where today it opens the
+document and keeps the drawing opaque. That argument lives in
+`format_tests.rs::a_drawing_tab_did_not_move_the_format_floor`, which checks
+that a document WITH a drawing tab claims exactly what one without claims —
+written against the CONSTANTS rather than a literal, because the claim is
+"a drawing tab moves nothing", whatever the floor is, and a bump should have
+to be deliberate in one place rather than in every test that mentions a
+version. (It was 8 — P1's `DesignParameter.unit` — when this landed.) Two
+existing tests used
+`Drawing` as their stand-in for an unimplemented kind; both moved to
+`Schematic`, since the mechanism under test is the opaque branch and not the
+name.
+
+**First angle is not "third angle with `dir` negated".** It is the
+third-angle frame of the **opposite** placement, which is what the standard
+says: the view placed on one side shows the side opposite. Negating only `dir`
+and keeping `up` gave a first-angle `Up` view with paper up `+w` — a bottom
+view mirrored horizontally against the parent it sits above, the classic wrong
+bottom view reached from the other direction. For the same reason
+`NamedView::Bottom` has paper up `−y`, not `+y`: every view in a projection
+group must share a paper axis with the front view, pinned by
+`every_named_view_shares_a_paper_axis_with_the_front_view_it_is_grouped_with`.
+`projected_frame` is one four-row table read forwards or backwards.
+
+**A plan view of a box draws four lines, not four plus four hidden.** The
+obvious expectation is wrong and D1c is right. The far face's edges are
+coincident in `(u, v)` with the near ones, and the ray from them leaves
+through the near face's own BOUNDARY — it grazes, and "a face the ray merely
+grazes separates nothing" (`ProjectionDeclines::ray_grazes_face`). So they are
+visible, and the coincident-and-same-visibility merge leaves one line each,
+which is also what a drafter draws. The test asserts the four AND asserts
+`ray_grazes_face > 0`, so the merge is the decided outcome rather than a depth
+test that quietly found nothing. The count that exercises occlusion is the
+isometric view's **9 visible / 3 hidden**.
+
+**An annotation's failure is not its view's.** `rebuild_view` first returned
+`Err` for an unresolvable anchor, which blanked the whole view — a sheet of
+eight views losing one entirely, curves and all, because one dimension's
+entity was gone. It now reports per annotation
+(`ViewRebuild::annotation_errors`) and the view still draws. The exception is
+`drawing_annotation_add`, which rolls back the annotation IT just added: that
+one never worked, so there is nothing to preserve, and leaving it would be a
+drawing carrying a dimension that draws nothing.
+
+**`Measured::Value` is refused in two places, and `Measured::Expr` in the
+same breath.** §7 left "nothing refuses a literal" open and named D4a as its
+owner. `feature_engine::drawing::check_measured` refuses both at the engine
+boundary with the index of the annotation that carries them, and the MCP tool
+has no `value` argument at all, so a literal is not reachable from the
+authoring door. `Expr` is refused rather than measured from geometry instead —
+that would print a different number from the one authored. It becomes
+evaluable with D2.
+
+**Anchors are offered beside the layout, never inside it.** The layout record
+carries no model reference, which is what makes a renderer holding one unable
+to draw a value other than the measured one (asserted on the schema's `$ref`
+closure, D3). But picking an edge on a sheet to dimension it needs the edge's
+id, so the rebuild also produces `Vec<ViewAnchor>` per view — pid, kind,
+witness point, radius — which rides on `ModelUpdated.drawing.anchors` and, for
+an agent, on `drawing_view_add`/`_edit` with `include_anchors: true`. A pid
+naming more than one drawn curve is left out: an annotation must not be
+offered an anchor that would then refuse as ambiguous. A count comes back by
+default and the list only on request, because a real part's view has thousands
+of edges.
+
+**`export_svg` is the app's tool, not wasm-bridge's.** §8 says both exports
+are wasm-bridge tools and the DXF one is. The SVG one cannot be, by §3's own
+rule — "Rust produces curves and numbers; the app draws them". The sheet's
+markup comes from `app/src/lib/drawings/sheet.js` over D3's `svg.js`, and a
+second renderer in Rust would be a second source of truth for the same
+geometry: exactly what `DrawingView.svelte` refuses for a single view.
+Exporting from the page makes the file byte-identical to what the sheet shows,
+which a Rust writer could only approximate. It keeps the export door's own
+shape (`deliver`, `file_name`, `mime_type`, `bytes`, `warnings`) and delivers
+a download the same way, so an agent cannot tell the two apart — and it is in
+neither engine routing table, which is why the READ_ONLY pin did not move.
+
+**The sheet is composed by nested `<svg>`, one per view.** Each view is
+rendered by `renderViewSvg` exactly as it is on its own — same function, same
+bytes — and the nesting only positions it. `renderViewSvg` gained one
+additive argument, `paper: false`, so the sheet paints one piece of paper
+rather than a rectangle per view (which reads as a stack of cards). The
+placement flip happens once, in one expression: `placement_mm` is measured up
+from the sheet's bottom-left (the drafting convention) and SVG measures down
+from the top-left, and a `scale(1, -1)` transform would mirror every label.
+
+**The sheet DXF composes in paper METERS.** `kernel_v2::dxf_export::write_dxf`
+converts meters to millimetres itself, so handing it millimetres would write a
+sheet a thousand times too large. `Curve2::transformed` and
+`ViewGeometry::transformed` (new in waffle-types) do the placement as a
+similarity, which is what keeps a circle a circle and an ellipse's axis
+direction — so the analytic DXF entities survive placement instead of being
+flattened on the way to the sheet. A non-positive or non-finite ratio is
+refused rather than normalized: a negative scale mirrors the view, and a
+mirrored manufacturing drawing is a part machined the wrong way round. One
+view alone exports at the paper ORIGIN, which is what a cutting table wants
+from a sheet it should not read the rest of. `export_dxf` refuses each
+shape's arguments on the other — `direction`/`up` name a projection a sheet
+does not have, `sheet_id`/`view_id` name views a Part tab does not have.
+
+**A view of no bodies is not asked of the kernel.** Nothing projects to
+nothing, so the only thing the call can add is a `NotSupported` from a kernel
+that cannot project — which says nothing about this view, and would report a
+freshly added view of an unbuilt tab as a projection failure, hiding the real
+ones.
+
+**A drawing of an Assembly tab reuses `assembly_view::evaluate`.** The
+instance poses are a solve, not a field, so re-deriving them would be the
+next thing to disagree with the assembly tab beside it. The whole drawing
+evaluation goes through the same part-engine pool as an assembly's, so
+switching to a drawing and back does not rebuild a part that did not change.
+
+**Still open after this increment:**
+
+- *No `drawing_get`.* §8 names three tools and they are all mutating; an
+  agent reads the drawing from any edit's answer, and the app reads it from
+  `ModelUpdated.drawing`. An agent that OPENS a document with a drawing tab
+  has no read-only way to list its views — `tab_switch` answers with the
+  document, not the drawing. A `drawing_get`, on `assembly_get`'s terms, is
+  the fix.
+- *No annotation UI.* The engine, the tools, the store door
+  (`addDrawingAnnotation`) and the renderer are all wired, and the sheet draws
+  what is in the document — but nothing in the panel adds a dimension, and
+  nothing on the sheet is clickable. Picking an edge needs a hit test against
+  the anchors' witness points, which is the next increment's natural start.
+- *`Ordinate` is still not authorable.* §7's open item stands: it reads one
+  raw view-plane coordinate measured from the view FRAME's origin, so its
+  printed value cannot be read off the sheet. `DIMENSION_TAGS` leaves it out
+  deliberately rather than offering a dimension whose number moves when the
+  part moves in space. The `origin: GeomRef` fix is additive and now has a
+  view frame to be relative to.
+- *A sheet has no title block and no second sheet in the UI.* The model holds
+  `sheets: Vec<Sheet>` and the renderer takes one; `DrawingPanel` shows the
+  first. Choosing between sheets is D4b's, with the title block.
+- *The read-only viewer route still shows the 3D viewport on a drawing tab.*
+  `app/routes/view/+page.svelte` branches on `Assembly` only, so a shared
+  document opened at a Drawing tab shows an empty viewport rather than the
+  sheet. One branch, deliberately left to keep this increment's app surface
+  to the editing route.
+- *Deleting a view deletes the views projected FROM it.* That is what
+  deleting a parent means, but it is silent: the panel does not say how many
+  go with it.
+- *A view's `cache` is persisted, so a `.waffle` with a drawing is larger by
+  its curve lists.* Deliberate (a reader with no kernel can draw the sheet)
+  and bounded by the drawn curves, but there is no document setting to turn
+  it off, and a six-view drawing of a gear would be substantial.
+
 ## 9. M1 — Tolerance, precision, material
 
 Owner: `waffle-types`, `feature-engine`, `app`.
@@ -2094,7 +2277,7 @@ under both schema settings.
 | D1d | `section_with_plane` | D1a | kernel-v2 |
 | D2 | measurement functions in expressions | D0 | feature-engine |
 | D3 | `Annotation` types + SVG dimension renderer | D0 | waffle-types, app — **LANDED 2026-10-03** |
-| D4a | `Drawing` tab kind, named + projected views, DXF/SVG export | D1c, D3 | file-format, feature-engine, app, wasm-bridge |
+| D4a | `Drawing` tab kind, named + projected views, DXF/SVG export | D1c, D3 | file-format, feature-engine, app, wasm-bridge — **LANDED 2026-10-03** |
 | D4b | section + detail views, title block, sheet PDF | D1d, D2, D4a | same |
 | M1 | tolerance types, precision, material + mass | D2 | waffle-types, feature-engine, app |
 | M2 | `Datum` + `Pmi` features, 3D PMI overlay | D0, D3, M1 | feature-engine, app |

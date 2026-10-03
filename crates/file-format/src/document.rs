@@ -113,6 +113,29 @@ impl WaffleDocument {
                     t.kind.type_tag()
                 ));
             }
+            if let Some(drawing) = t.drawing_tree() {
+                warnings.extend(
+                    drawing
+                        .validate()
+                        .into_iter()
+                        .map(|w| format!("tab `{}` ({}): {w}", t.name, t.id)),
+                );
+                // A view's source tab must exist in this document. Same
+                // check, and the same "warning, never a load failure", as an
+                // assembly instance's part below: a drawing of a tab someone
+                // deleted is a document worth opening and telling about.
+                for sheet in &drawing.sheets {
+                    for view in &sheet.views {
+                        if !self.tabs.iter().any(|x| x.id == view.source.tab_id) {
+                            warnings.push(format!(
+                                "tab `{}` ({}): view `{}` draws tab `{}`, which this document \
+                                 does not have",
+                                t.name, t.id, view.name, view.source.tab_id
+                            ));
+                        }
+                    }
+                }
+            }
             if let Some(asm) = t.assembly_tree() {
                 warnings.extend(
                     asm.validate()

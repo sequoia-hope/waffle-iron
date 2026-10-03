@@ -69,10 +69,33 @@ fn tab_add_appends_names_and_activates_by_default() {
         "activate: false leaves the active tab"
     );
 
-    let err = refused(&mut state, "tab_add", json!({ "kind": "Drawing" }));
+    // `Drawing` was the refused kind until D4a implemented it (2026-10-03);
+    // it is now the third kind a tab can be, and it comes with one empty
+    // sheet, because a drawing tab whose first action has to be "add a
+    // sheet" has nothing to put a view on.
+    let c = ok(&mut state, "tab_add", json!({ "kind": "Drawing" }));
+    let c_id = c["tab_id"].as_str().unwrap().to_string();
+    assert_eq!(c["tabs"][3]["name"], "Drawing 1");
+    assert_eq!(c["tabs"][3]["kind"], "Drawing");
+    assert_eq!(c["active_tab"], c_id, "activated by default");
+    assert_eq!(
+        state
+            .session
+            .drawing(&c_id)
+            .expect("a Drawing tab holds a drawing")
+            .sheets
+            .len(),
+        1
+    );
+    assert!(
+        state.drawing.is_some(),
+        "activating a Drawing tab evaluates it"
+    );
+
+    let err = refused(&mut state, "tab_add", json!({ "kind": "Schematic" }));
     assert_eq!(err["code"], "TabKindNotSupported");
-    assert_eq!(err["details"]["kind"], "Drawing");
-    assert_eq!(state.session.tabs().len(), 3, "nothing was added");
+    assert_eq!(err["details"]["kind"], "Schematic");
+    assert_eq!(state.session.tabs().len(), 4, "nothing was added");
 }
 
 #[test]

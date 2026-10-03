@@ -1,5 +1,6 @@
 use chrono::{DateTime, Utc};
 use feature_engine::assembly::AssemblyTree;
+use feature_engine::drawing::Drawing;
 use feature_engine::types::FeatureTree;
 
 /// RFC 3339 UTC timestamps written the way JavaScript's `toISOString()`
@@ -212,6 +213,19 @@ impl Tab {
         }
     }
 
+    /// A Drawing tab with a fresh UUID id (drawings spec §8, D4a).
+    pub fn drawing(name: impl Into<String>, drawing: Drawing) -> Self {
+        Tab {
+            id: Uuid::new_v4().to_string(),
+            name: name.into(),
+            kind: TabKind::Drawing {
+                drawing,
+                preview_mesh: None,
+            },
+            extra: Map::new(),
+        }
+    }
+
     /// The tab's assembly, if it is an Assembly.
     pub fn assembly_tree(&self) -> Option<&AssemblyTree> {
         match &self.kind {
@@ -219,14 +233,34 @@ impl Tab {
             _ => None,
         }
     }
+
+    /// The tab's drawing, if it is a Drawing.
+    pub fn drawing_tree(&self) -> Option<&Drawing> {
+        match &self.kind {
+            TabKind::Drawing { drawing, .. } => Some(drawing),
+            _ => None,
+        }
+    }
+
+    /// The tab's drawing, mutably.
+    pub fn drawing_mut(&mut self) -> Option<&mut Drawing> {
+        match &mut self.kind {
+            TabKind::Drawing { drawing, .. } => Some(drawing),
+            _ => None,
+        }
+    }
 }
 
 /// The kind/content of a tab.
 ///
-/// Known kinds in v4.0: `Part`. A well-formed `{"type": …}` this reader does
-/// not know (`Assembly`, `Drawing`, …) is kept as [`TabKind::Unknown`] and
-/// re-emitted verbatim (v4 §2.5), so adding a tab kind is not a
-/// `MIN_READER_VERSION` bump. A malformed known kind is still a parse error.
+/// Known kinds: `Part`, `Assembly` (Phase 3) and `Drawing` (drawings spec
+/// D4a). A well-formed `{"type": …}` this reader does not know is kept as
+/// [`TabKind::Unknown`] and re-emitted verbatim (v4 §2.5), so adding a tab
+/// kind is not a `MIN_READER_VERSION` bump — including `Drawing`, whose
+/// annotation anchors carry a `Selector::Pid`: a reader that does not know
+/// the kind never deserializes what is inside it, which is exactly the
+/// difference from v7's `FeatureTree.names`. A malformed known kind is still
+/// a parse error.
 // One TabKind lives per tab, not per vertex; boxing the FeatureTree to shrink
 // the Unknown variant's discriminant would touch every `TabKind::Part` site
 // for no measurable gain (same call as `Operation` in feature-engine).
@@ -243,6 +277,19 @@ pub enum TabKind {
     /// mate connectors and mates.
     Assembly {
         assembly: AssemblyTree,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        preview_mesh: Option<PreviewMesh>,
+    },
+    /// D4a (`feature_engine::drawing`): sheets of projected views of another
+    /// tab's bodies, with the annotations drawn on them.
+    ///
+    /// `preview_mesh` is carried for shape with the other two and is `None`:
+    /// a drawing's preview is its views' own cached `ViewLayout`s, which are
+    /// 2-D curves rather than a mesh, so there is nothing for the document
+    /// browser's 3-D thumbnail to hold. Dropping the field would make the
+    /// variant's JSON asymmetric with its siblings for no gain.
+    Drawing {
+        drawing: Drawing,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         preview_mesh: Option<PreviewMesh>,
     },
@@ -263,10 +310,16 @@ enum KnownTabKind {
         #[serde(default)]
         preview_mesh: Option<PreviewMesh>,
     },
+    Drawing {
+        #[serde(default)]
+        drawing: Drawing,
+        #[serde(default)]
+        preview_mesh: Option<PreviewMesh>,
+    },
 }
 
 /// The tab kinds this build can open.
-pub const TAB_KIND_TAGS: &[&str] = &["Part", "Assembly"];
+pub const TAB_KIND_TAGS: &[&str] = &["Part", "Assembly", "Drawing"];
 
 impl<'de> Deserialize<'de> for TabKind {
     fn deserialize<D: Deserializer<'de>>(d: D) -> Result<Self, D::Error> {
@@ -286,6 +339,13 @@ impl<'de> Deserialize<'de> for TabKind {
                     assembly,
                     preview_mesh,
                 },
+                Ok(KnownTabKind::Drawing {
+                    drawing,
+                    preview_mesh,
+                }) => TabKind::Drawing {
+                    drawing,
+                    preview_mesh,
+                },
                 Err(v) => TabKind::Unknown(v),
             },
         )
@@ -299,7 +359,7 @@ impl schemars::JsonSchema for TabKind {
     }
     fn json_schema(g: &mut schemars::SchemaGenerator) -> schemars::Schema {
         schemars::json_schema!({
-            "description": "A tab's content: a `Part` (feature tree) or an `Assembly` (instances, mate connectors, mates). Any other well-formed object with a string `type` (a tab kind from a newer build: Drawing) is preserved verbatim and re-emitted on save.",
+            "description": "A tab's content: a `Part` (feature tree), an `Assembly` (instances, mate connectors, mates) or a `Drawing` (sheets of projected views with their annotations). Any other well-formed object with a string `type` (a tab kind from a newer build) is preserved verbatim and re-emitted on save.",
             "oneOf": [
                 {
                     "type": "object",
@@ -321,6 +381,15 @@ impl schemars::JsonSchema for TabKind {
                 },
                 {
                     "type": "object",
+                    "required": ["type"],
+                    "properties": {
+                        "type": { "const": "Drawing" },
+                        "drawing": g.subschema_for::<Drawing>(),
+                        "preview_mesh": { "anyOf": [ g.subschema_for::<PreviewMesh>(), { "type": "null" } ] }
+                    }
+                },
+                {
+                    "type": "object",
                     "description": "Unknown tab kind (opaque, preserved).",
                     "required": ["type"],
                     "properties": { "type": { "type": "string", "not": { "enum": TAB_KIND_TAGS } } }
@@ -336,6 +405,7 @@ impl TabKind {
         match self {
             TabKind::Part { .. } => "Part",
             TabKind::Assembly { .. } => "Assembly",
+            TabKind::Drawing { .. } => "Drawing",
             TabKind::Unknown(v) => v.get("type").and_then(Value::as_str).unwrap_or("?"),
         }
     }

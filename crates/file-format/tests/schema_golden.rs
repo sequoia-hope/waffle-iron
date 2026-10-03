@@ -208,13 +208,16 @@ fn every_repo_waffle_file_validates_after_migration() {
         !validator.is_valid(&bad),
         "source without locator must not validate"
     );
-    // …while an unknown tab kind (opaque) DOES validate.
+    // …while an unknown tab kind (opaque) DOES validate. The stand-in was
+    // `Drawing` until D4a made it a real kind; `Schematic` is the next one
+    // nothing implements, and the mechanism under test is the opaque branch,
+    // not the name.
     let mut future = v4.clone();
     future["tabs"]
         .as_array_mut()
         .unwrap()
         .push(serde_json::json!({
-            "id": "drw", "name": "Drawing 1", "kind": { "type": "Drawing", "sheets": [] }
+            "id": "sch", "name": "Schematic 1", "kind": { "type": "Schematic", "nets": [] }
         }));
     let errors: Vec<String> = validator
         .iter_errors(&future)
@@ -223,6 +226,38 @@ fn every_repo_waffle_file_validates_after_migration() {
     assert!(
         errors.is_empty(),
         "opaque tab kind must validate: {errors:#?}"
+    );
+    // A Drawing tab (D4a) validates against its real schema — and a
+    // malformed one does not. The pair matters because the opaque branch
+    // above would otherwise accept any `Drawing` object at all: once the tag
+    // is in `TAB_KIND_TAGS` that branch's `not: {enum: …}` stops matching it,
+    // so the real branch is the only thing left to be right.
+    let mut drw = v4.clone();
+    drw["tabs"].as_array_mut().unwrap().push(serde_json::json!({
+        "id": "drw", "name": "Drawing 1",
+        "kind": { "type": "Drawing", "drawing": { "sheets": [
+            { "id": "6f1c2a4e-1111-4222-8333-44445555aaaa", "name": "Sheet 1",
+              "size": { "type": "A3" }, "orientation": { "type": "Landscape" },
+              "views": [
+                { "id": "6f1c2a4e-1111-4222-8333-44445555bbbb", "name": "Top",
+                  "source": { "tab_id": "t" },
+                  "projection": { "type": "Named", "view": { "type": "Top" } },
+                  "scale": 1.0, "placement_mm": [100.0, 100.0] }
+              ] }
+        ], "projection_angle": { "type": "Third" } } }
+    }));
+    let errors: Vec<String> = validator.iter_errors(&drw).map(|e| e.to_string()).collect();
+    assert!(errors.is_empty(), "drawing tab must validate: {errors:#?}");
+    let mut bad_drw = v4.clone();
+    bad_drw["tabs"]
+        .as_array_mut()
+        .unwrap()
+        .push(serde_json::json!({
+            "id": "drw", "name": "Drawing 1", "kind": { "type": "Drawing", "drawing": 42 }
+        }));
+    assert!(
+        !validator.is_valid(&bad_drw),
+        "malformed Drawing must not validate"
     );
     // An Assembly tab (Phase 3) validates against its real schema — and a
     // malformed one (no `assembly`) does not.

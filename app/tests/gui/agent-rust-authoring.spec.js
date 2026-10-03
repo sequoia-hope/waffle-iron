@@ -265,7 +265,17 @@ test.describe('Authoring tools run in the engine and still answer as the page di
 				// file and it is an undo step — so both are authoring tools;
 				// `names_list` is read-only and lives in the other spec.
 				'entity_name',
-				'entity_unname'
+				'entity_unname',
+				// The drawing edits (D4a, `specs/drawings_and_mbd.md` §8,
+				// 2026-10-03): the third tab-kind family, gated on a Drawing
+				// tab the way the assembly edits are gated on an Assembly
+				// one. Their answers are pinned in
+				// `crates/wasm-bridge/tests/tool_drawing.rs`; `export_svg`
+				// is read-only AND stays in the page (the sheet's renderer is
+				// the app's), so it is in neither routing table.
+				'drawing_view_add',
+				'drawing_view_edit',
+				'drawing_annotation_add'
 			].sort()
 		);
 	});

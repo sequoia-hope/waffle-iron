@@ -29,6 +29,7 @@ import { snapshotNow } from './commands.js';
 import { newlyErroring, sameModel } from './delta.js';
 import { DOCUMENT_COMMANDS, DOCUMENT_QUERIES, documentInfo } from './documents.js';
 import { deliverDownload } from './export.js';
+import { DRAWING_QUERIES } from './drawings.js';
 import { QUERIES } from './queries.js';
 import { ToolFailure, toolError } from './results.js';
 import { TOOL_NAMES } from './tools/index.js';
@@ -111,6 +112,13 @@ const TAB_TOOLS = new Set(['tab_switch', 'tab_add', 'tab_move', 'tab_rename']);
  * Assembly tab. The engine refuses too; this gate answers before a call
  * waits for the lock.
  */
+/**
+ * The drawing edits (engine, D4a): they need a Drawing tab, the third
+ * tab-kind gate. The engine refuses too; this gate answers before a call
+ * waits for the lock.
+ */
+const DRAWING_COMMANDS = new Set(['drawing_view_add', 'drawing_view_edit', 'drawing_annotation_add']);
+
 const ASSEMBLY_COMMANDS = new Set([
 	'instance_add',
 	'instance_edit',
@@ -142,6 +150,14 @@ function commandRefusal(ctx, tool) {
 			return new ToolFailure(
 				'TabKindNotSupported',
 				`The active tab is a ${kind} tab; assembly tools need an Assembly tab (tab_add kind:"Assembly" or tab_switch).`,
+				{ kind }
+			);
+		}
+	} else if (DRAWING_COMMANDS.has(tool)) {
+		if (kind !== 'Drawing') {
+			return new ToolFailure(
+				'TabKindNotSupported',
+				`The active tab is a ${kind} tab; drawing tools need a Drawing tab (tab_add kind:"Drawing" or tab_switch).`,
 				{ kind }
 			);
 		}
@@ -356,7 +372,8 @@ const ENGINE_COMMANDS = new Set([
 	'script_source_update',
 	'script_feature_add',
 	...TAB_TOOLS,
-	...ASSEMBLY_COMMANDS
+	...ASSEMBLY_COMMANDS,
+	...DRAWING_COMMANDS
 ]);
 
 /**
@@ -392,7 +409,9 @@ async function runEngineQuery(tool, args) {
  */
 export async function executeTool(tool, args, ctx) {
 	const known = TOOL_NAMES.has(tool);
-	const query = known ? (QUERIES[tool] ?? DOCUMENT_QUERIES[tool] ?? VIEWPORT_QUERIES[tool]) : undefined;
+	const query = known
+		? (QUERIES[tool] ?? DOCUMENT_QUERIES[tool] ?? VIEWPORT_QUERIES[tool] ?? DRAWING_QUERIES[tool])
+		: undefined;
 	const documentCommand = known ? DOCUMENT_COMMANDS[tool] : undefined;
 	// The engine sets are where those tools' implementations live now: none
 	// of them has a JS body, so without them every one would be reported as a
