@@ -37,7 +37,7 @@
  */
 
 import { DRAWING_TOKENS, drawingStyle } from './style.js';
-import { formatDimension } from './format.js';
+import { formatDimension, isKnownUnit } from './format.js';
 import { layoutAnnotation, paperTransform } from './layout.js';
 
 /** Decimals kept on every emitted coordinate. 0.1 µm on paper — plenty. */
@@ -58,7 +58,15 @@ export function n(x) {
 	return String(r === 0 ? 0 : r);
 }
 
-/** XML-escape text content and attribute values. */
+/**
+ * XML-escape text content and attribute values.
+ *
+ * Every interpolated value goes through this, including the ones that come
+ * from the STYLE rather than from the model (`fontFamily`, the dash patterns).
+ * The style is the document-settings seam, so from D4a its strings are
+ * document data; and the output is handed to `{@html}`, where an unescaped
+ * `"` would close an attribute and let the rest be read as markup.
+ */
 export function esc(s) {
 	return String(s ?? '')
 		.replaceAll('&', '&amp;')
@@ -178,7 +186,7 @@ function renderPrimitive(p, style) {
 	switch (p.kind) {
 		case 'line': {
 			const s = primitiveStroke(p.role, style);
-			const dash = s.dash ? ` stroke-dasharray="${s.dash}"` : '';
+			const dash = s.dash ? ` stroke-dasharray="${esc(s.dash)}"` : '';
 			return `<line class="wi-dim-${esc(p.role)}" x1="${n(p.from[0])}" y1="${n(p.from[1])}" x2="${n(p.to[0])}" y2="${n(p.to[1])}" stroke="${s.stroke}" stroke-width="${n(s.width)}"${dash} />`;
 		}
 		case 'arc': {
@@ -216,7 +224,7 @@ function renderPrimitive(p, style) {
 				p.rotateDeg === 0
 					? ''
 					: ` transform="rotate(${n(p.rotateDeg)} ${n(p.at[0])} ${n(p.at[1])})"`;
-			return `<text class="wi-dim-${esc(p.role)}" x="${n(p.at[0])}" y="${n(p.at[1])}" font-size="${n(style.textHeight)}" font-family="${style.fontFamily}" fill="${DRAWING_TOKENS.text}" text-anchor="${esc(p.anchor)}" dominant-baseline="${esc(p.baseline)}"${rot}>${esc(p.text)}</text>`;
+			return `<text class="wi-dim-${esc(p.role)}" x="${n(p.at[0])}" y="${n(p.at[1])}" font-size="${n(style.textHeight)}" font-family="${esc(style.fontFamily)}" fill="${DRAWING_TOKENS.text}" text-anchor="${esc(p.anchor)}" dominant-baseline="${esc(p.baseline)}"${rot}>${esc(p.text)}</text>`;
 		}
 		default:
 			return '';
@@ -269,26 +277,52 @@ export function renderViewSvg({
 	const drawnH = (maxV - minV) * tf.mmPerMeter;
 
 	const centrePaper = /** @type {[number, number]} */ ([drawnW / 2, drawnH / 2]);
+	// The view's own box in paper space: the origin is its top-left corner by
+	// construction, so it spans (0, 0) to (drawnW, drawnH). A linear dimension
+	// has to clear this, not just its own witness points.
+	const boundsPaper = bounds
+		? /** @type {[number, number][]} */ ([
+				[0, 0],
+				[drawnW, drawnH]
+			])
+		: undefined;
 
 	const curveEls = [];
 	for (const entry of curves) {
+		// A non-finite coordinate becomes `0` in the output (see `n`), which
+		// would quietly move a curve to the origin. The annotation primitives
+		// already have this tripwire; the curves need it too.
+		for (const bad of nonFiniteIn(entry?.geometry ?? {})) {
+			warnings.push(`a ${entry?.geometry?.type ?? '?'} curve had a non-finite ${bad}`);
+		}
 		const d = curvePath(entry?.geometry, tf);
 		if (!d) {
 			warnings.push(`a curve of kind ${entry?.geometry?.type ?? '?'} produced no path`);
 			continue;
 		}
 		const s = curveStroke(entry, style);
-		const dash = s.dash ? ` stroke-dasharray="${s.dash}"` : '';
+		const dash = s.dash ? ` stroke-dasharray="${esc(s.dash)}"` : '';
 		const cls = `wi-curve wi-curve-${String(entry.kind).toLowerCase()} wi-curve-${String(entry.visibility).toLowerCase()}`;
 		curveEls.push(
 			`<path class="${cls}" d="${d}" fill="none" stroke="${s.stroke}" stroke-width="${n(s.width)}" stroke-linecap="round"${dash} />`
 		);
 	}
 
+	// A unit key `units.js` does not know converts by a factor of 1 — it would
+	// print a 40 mm feature as "0.04" and label it with whatever was asked
+	// for. `formatDimension` withholds the number instead; say why, because a
+	// dash with no explanation is a bug report waiting to happen.
+	if (!isKnownUnit(unit)) {
+		warnings.push(`unknown display unit "${unit}" — dimension values withheld`);
+	}
+
 	const annEls = [];
 	for (const a of annotations) {
+		if (a?.dual_unit && !isKnownUnit(a.dual_unit)) {
+			warnings.push(`unknown dual unit "${a.dual_unit}" — omitted`);
+		}
 		const text = annotationText(a, { unit, documentPrecision });
-		const primitives = layoutAnnotation({ ...a, text }, style, tf, centrePaper);
+		const primitives = layoutAnnotation({ ...a, text }, style, tf, centrePaper, boundsPaper);
 		if (primitives.length === 0) {
 			warnings.push(
 				`an annotation of type ${a?.type ?? '?'}${a?.kind?.type ? `/${a.kind.type}` : ''} laid out nothing`

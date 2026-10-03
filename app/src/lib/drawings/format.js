@@ -17,6 +17,31 @@
  *
  * Angular dimensions are the exception the standards make: degrees always
  * carry their `°`, because there is no title-block declaration for them.
+ *
+ * ## The rounding rule, stated
+ *
+ * ISO 129-1 expects a drawing to round by a stated rule rather than by
+ * whatever the renderer happens to do. The rule here is
+ * `Number.prototype.toFixed`: **round half away from zero, applied to the
+ * exact binary value of the double, after the unit conversion**. A
+ * representable half goes up rather than to even — 40.125 mm prints "40.13",
+ * and 2.5 mm at zero places prints "3", not "2".
+ *
+ * The "after the unit conversion" is the part that surprises. As a literal,
+ * `1.005` stores a hair below the half, so `(1.005).toFixed(2)` is `"1.00"`;
+ * but a 0.001005 m measurement times 1000 lands a hair above it and prints
+ * `"1.01"`. The number being rounded is the converted double, not the decimal
+ * anyone wrote. That is not a defect to patch around — a decimal re-rounding
+ * would print digits the value does not have — and the difference only ever
+ * appears one place past what the drawing claims to control. Pinned in
+ * `app/tests/gui/drawing-dimension-svg.spec.js`.
+ *
+ * Both units of a dual dimension use the SAME number of decimals, which is
+ * the simple reading of §7's single `precision`. Note that this is coarser in
+ * the secondary unit when it is the larger one: two places of mm is 0.01 mm,
+ * two places of inches is 0.254 mm. ASME Y14.5 §1.6.2 wants the converted
+ * value to preserve the implied precision, so a separate dual precision
+ * belongs with M1's document settings.
  */
 
 import { internalToDisplay, UNITS } from '$lib/units.js';
@@ -57,14 +82,28 @@ export function formatDimension({
 		return `${fixed(radToDeg(value), places)}°`;
 	}
 
+	// An unknown unit key converts by a factor of ONE in `units.js`, which
+	// means a 40 mm feature prints as "0.04" under a label the reader will
+	// take at face value. A length with no known unit has no legible value at
+	// all, so it is withheld the same way a non-finite one is.
+	if (!isKnownUnit(unit)) return '—';
+
 	const prefix = kind?.type === 'Radius' ? 'R' : kind?.type === 'Diameter' ? '⌀' : '';
 	const primary = fixed(internalToDisplay(value, unit), places);
 	const suffix = showUnit ? ` ${label(unit)}` : '';
 	let text = `${prefix}${primary}${suffix}`;
-	if (dualUnit && dualUnit !== unit) {
+	// A dual unit is dropped rather than withheld: the primary value is still
+	// correct and legible, and the omission is reported in the render's
+	// `warnings`.
+	if (dualUnit && dualUnit !== unit && isKnownUnit(dualUnit)) {
 		text += ` [${fixed(internalToDisplay(value, dualUnit), places)} ${label(dualUnit)}]`;
 	}
 	return text;
+}
+
+/** Whether `units.js` knows this unit key, i.e. can actually convert it. */
+export function isKnownUnit(unit) {
+	return typeof unit === 'string' && Object.hasOwn(UNITS, unit);
 }
 
 /** @param {number} rad */

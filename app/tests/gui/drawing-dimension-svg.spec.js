@@ -75,6 +75,21 @@ const HOLE_CIRCLE = {
 	end_angle: Math.PI * 2
 };
 
+/**
+ * The same value with every object's keys in the opposite order. Arrays keep
+ * their order — that is data, not serialization — so the result is the same
+ * record under a different key order, and must render to the same bytes.
+ */
+function reverseKeys(value) {
+	if (Array.isArray(value)) return value.map(reverseKeys);
+	if (value === null || typeof value !== 'object') return value;
+	return Object.fromEntries(
+		Object.entries(value)
+			.reverse()
+			.map(([k, v]) => [k, reverseKeys(v)])
+	);
+}
+
 /** Call the renderer in the page and get back its result. */
 async function render(page, input) {
 	return page.evaluate((i) => window.__waffle.renderDrawingSvg(i), input);
@@ -237,6 +252,40 @@ test.describe('D3 SVG dimension renderer', () => {
 			expect(printedMm).toBeCloseTo(40, 6);
 			expect(drawn).toBeCloseTo(printedMm * scale, 3);
 		}
+	});
+
+	test('the dimension line clears the part instead of crossing it', async ({ page, waffle }) => {
+		await waffle.waitForReady();
+		// A witness point is a wall's MIDPOINT, not the part's extreme. Both
+		// walls' midpoints sit at mid-height, so offsetting 10 mm from them
+		// alone put the dimension line 2.5 mm inside this 40 × 25 mm plate —
+		// line, arrowheads and extension lines all on top of the outline. The
+		// offset is measured from the view's box, so the line must land clear
+		// of the paper box's 0 .. 25 mm.
+		const r = await renderAndQuery(
+			page,
+			{ layout: plateLayout([WIDTH_DIMENSION]) },
+			{
+				attrs: {
+					dimY: ['line.wi-dim-dimension', 'y1'],
+					extY: ['line.wi-dim-extension', 'y2'],
+					arrows: ['polygon.wi-dim-arrow', 'points']
+				}
+			}
+		);
+		const partBottomMm = 25;
+		const dimY = Number(r.attrs.dimY[0]);
+		expect(dimY).toBeGreaterThanOrEqual(partBottomMm);
+		// Every arrowhead vertex, too — the heads are what a reader sees
+		// sitting on the outline.
+		for (const pts of r.attrs.arrows) {
+			for (const v of pts.split(' ')) {
+				expect(Number(v.split(',')[1])).toBeGreaterThanOrEqual(partBottomMm);
+			}
+		}
+		// And the extension lines reach past the dimension line, not back
+		// into the part.
+		for (const y of r.attrs.extY) expect(Number(y)).toBeGreaterThan(dimY);
 	});
 
 	test('a radial dimension draws a leader with one arrowhead and an R prefix', async ({
@@ -516,6 +565,134 @@ test.describe('D3 SVG dimension renderer', () => {
 		expect(bad).toEqual([]);
 	});
 
+	test("a radial arrowhead sits on an oblique hole's rim, not at its major radius", async ({
+		page,
+		waffle
+	}) => {
+		await waffle.waitForReady();
+		// A circular hole seen obliquely projects to an ellipse whose MAJOR
+		// radius is the hole's true radius — which is the number printed, and
+		// is not how far the rim is in any other direction. At a 45° leader
+		// the rim of this 8 mm × 5.657 mm ellipse is 6.532 mm out
+		// (1/√((cos45/8)² + (sin45/5.657)²)), so an arrow placed at 8 mm
+		// floats 1.5 mm off the curve it points at.
+		const R = 0.008;
+		const CENTRE = [0.02, 0.0125];
+		const r = await renderAndQuery(
+			page,
+			{
+				layout: plateLayout([
+					{
+						type: 'Dimension',
+						kind: { type: 'Radius' },
+						anchors: [
+							{
+								type: 'Curve',
+								curve: {
+									type: 'Ellipse',
+									center: CENTRE,
+									major_axis: [1, 0],
+									major_radius: R,
+									minor_radius: R / Math.SQRT2,
+									start_param: 0,
+									end_param: Math.PI * 2
+								}
+							}
+						],
+						value: R,
+						precision: 2,
+						placement: { dx: 0, dy: 0 }
+					}
+				])
+			},
+			{ texts: 'text.wi-dim-value', attrs: { arrow: ['polygon.wi-dim-arrow', 'points'] } }
+		);
+		// The printed value is still the TRUE radius, 8 mm.
+		expect(r.texts).toEqual(['R8.00']);
+		// The paper origin is the bbox's top-left, so the centre is here.
+		const centreMm = [CENTRE[0] * 1000, (0.025 - CENTRE[1]) * 1000];
+		const tip = r.attrs.arrow[0].split(' ')[0].split(',').map(Number);
+		const reach = Math.hypot(tip[0] - centreMm[0], tip[1] - centreMm[1]);
+		expect(reach).toBeCloseTo(6.532, 2);
+	});
+
+	test('an unknown display unit withholds the number instead of converting by one', async ({
+		page,
+		waffle
+	}) => {
+		await waffle.waitForReady();
+		// `units.js` returns the value unchanged for a key it does not know,
+		// so a 40 mm feature would print "0.04" under a label the reader
+		// takes at face value. A length with no known unit has no legible
+		// value: it is withheld, and the render says why.
+		const r = await renderAndQuery(
+			page,
+			{ layout: plateLayout([WIDTH_DIMENSION]), unit: 'furlong' },
+			{ texts: 'text.wi-dim-value' }
+		);
+		expect(r.texts).toEqual(['—']);
+		expect(r.warnings.join('\n')).toContain('furlong');
+
+		// A bad DUAL unit drops only the bracket; the primary is still right.
+		const dual = await renderAndQuery(
+			page,
+			{ layout: plateLayout([{ ...WIDTH_DIMENSION, dual_unit: 'furlong' }]), unit: 'mm' },
+			{ texts: 'text.wi-dim-value' }
+		);
+		expect(dual.texts).toEqual(['40.00']);
+		expect(dual.warnings.join('\n')).toContain('furlong');
+	});
+
+	test('the rounding rule is half away from zero, at the stated places', async ({
+		page,
+		waffle
+	}) => {
+		await waffle.waitForReady();
+		// ISO 129-1 expects a stated rule. Ours is `toFixed` on the exact
+		// binary value of the double AFTER the unit conversion: a
+		// representable half rounds away from zero, not to even (40.125 mm ⇒
+		// "40.13", 2.5 mm at zero places ⇒ "3" and not "2").
+		//
+		// The third case is the one worth pinning: as a literal, `1.005`
+		// stores a hair BELOW the half and `(1.005).toFixed(2)` is "1.00" —
+		// but the value here is 0.001005 m and the ×1000 lands it a hair
+		// ABOVE, so the drawing prints "1.01". The thing rounded is the
+		// converted double, never the number a user typed in metres.
+		const cases = [
+			[0.040125, 2, '40.13'],
+			[0.0025, 0, '3'],
+			[0.001005, 2, '1.01'],
+			[-0.0000001, 2, '0.00'] // never "-0.00"
+		];
+		for (const [value, precision, expected] of cases) {
+			const r = await renderAndQuery(
+				page,
+				{ layout: plateLayout([{ ...WIDTH_DIMENSION, value, precision }]) },
+				{ texts: 'text.wi-dim-value' }
+			);
+			expect(r.texts, `${value} at ${precision} places`).toEqual([expected]);
+		}
+	});
+
+	test('a style-supplied string cannot break out of the markup', async ({ page, waffle }) => {
+		await waffle.waitForReady();
+		// `style` is the document-settings seam, so from D4a its strings are
+		// document data — and the output goes to `{@html}`. An unescaped `"`
+		// in a font family would close the attribute and let the rest be read
+		// as markup.
+		const r = await renderAndQuery(
+			page,
+			{
+				layout: plateLayout([WIDTH_DIMENSION]),
+				style: { fontFamily: 'x" onload="alert(1)', hiddenDash: ['2" x="y'] }
+			},
+			{ counts: { injected: '[onload]', texts: 'text' } }
+		);
+		expect(r.counts.injected).toBe(0);
+		expect(r.svg).not.toContain('onload="alert(1)"');
+		expect(r.svg).toContain('&quot;');
+	});
+
 	test('every paint is a CSS variable, so the sheet follows the theme', async ({
 		page,
 		waffle
@@ -562,6 +739,13 @@ test.describe('D3 SVG dimension renderer', () => {
 		// would pass on a renderer that ignored its argument.
 		const c = await render(page, { ...input, scale: 0.5 });
 		expect(c.svg).not.toBe(a.svg);
+
+		// The same record with its object keys in a different order is the
+		// same record. JSON from the engine carries no key-order guarantee,
+		// so a renderer that iterated `Object.entries` anywhere in its
+		// geometry would make the byte oracle depend on serialization order.
+		const reordered = await render(page, reverseKeys(input));
+		expect(reordered.svg).toBe(a.svg);
 	});
 
 	test('the architectural-tick option replaces arrowheads with ticks', async ({

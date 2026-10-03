@@ -169,18 +169,23 @@ function measurementDirection(kind, anchors, tf) {
  * A linear dimension: two extension lines, the dimension line, two
  * arrowheads, the text.
  *
- * The dimension line sits `style.dimensionOffset` clear of the FARTHER of the
- * two witness points, on the side away from the view's centre, plus the
- * annotation's own `placement`. Offsetting from the far point rather than from
- * the midpoint is what keeps the dimension line outside the part instead of
- * through it; choosing the side by the view centre is what keeps it outside
- * rather than inside, with no per-annotation authoring.
+ * The dimension line sits `style.dimensionOffset` clear of the whole VIEW, on
+ * the side away from the view's centre, plus the annotation's own `placement`.
+ *
+ * Clearing the view rather than the two witness points is what actually keeps
+ * the line off the part, and the two differ: a witness point is a wall's
+ * MIDPOINT, not the part's extreme. Two opposite walls dimensioned for width
+ * have their midpoints at mid-height, so a 10 mm offset from them put the
+ * dimension line 2.5 mm INSIDE a 40 × 25 mm plate — line, arrowheads and both
+ * extension lines, which then ran backwards into the part. The view's own
+ * bounding box is the only thing that knows where the part ends; without one
+ * (an annotation-only layout) the witness points are all there is.
  *
  * `placement` moves the whole dimension, not only its label — the same
  * behaviour as dragging a sketch dimension, and the reason it can push a
  * dimension to the other side of the part when a drafter wants it there.
  */
-function layoutLinear(a, style, tf, centrePaper) {
+function layoutLinear(a, style, tf, centrePaper, boundsPaper) {
 	const p0 = witnessPoint(a.anchors?.[0]);
 	const p1 = witnessPoint(a.anchors?.[1]);
 	if (!p0 || !p1) return [];
@@ -193,7 +198,8 @@ function layoutLinear(a, style, tf, centrePaper) {
 	// Which side of the view centre these anchors are on, measured along n.
 	const mid = mul(add(q0, q1), 0.5);
 	const side = dot(mid, n) >= dot(centrePaper, n) ? 1 : -1;
-	const nFar = side > 0 ? Math.max(dot(q0, n), dot(q1, n)) : Math.min(dot(q0, n), dot(q1, n));
+	const clear = [q0, q1, ...boxCorners(boundsPaper)].map((q) => dot(q, n));
+	const nFar = side > 0 ? Math.max(...clear) : Math.min(...clear);
 	const placement = paperPlacement(a.placement, tf);
 	const nLine = nFar + side * style.dimensionOffset + dot(placement, n);
 
@@ -264,16 +270,25 @@ function layoutRadial(a, style, tf, isDiameter) {
 					Math.sin((style.leaderAngleDeg * Math.PI) / 180)
 				]);
 
-	const onRim = add(centre, mul(dir, rPaper));
-	const knee = add(centre, mul(dir, rPaper + style.dimensionOffset));
+	// How far the RIM is along `dir`. For a circle that is the radius; for a
+	// foreshortened hole it is not, and using the major radius there floated
+	// the arrowhead off the ellipse it was pointing at — by up to
+	// major − minor, 2.3 mm on a Ø16 rim seen at 45°. The printed value stays
+	// the true (major) radius; only the arrow follows the drawn curve.
+	const rimPaper = curve.type === 'Circle' ? rPaper : ellipseReach(curve, dir, tf);
+	if (!(rimPaper > 0)) return [];
+
+	const onRim = add(centre, mul(dir, rimPaper));
+	const knee = add(centre, mul(dir, rimPaper + style.dimensionOffset));
 	const shoulderSign = dir[0] >= 0 ? 1 : -1;
 	const shoulderEnd = add(knee, [shoulderSign * style.leaderShoulder, 0]);
 
 	const out = [];
 	if (isDiameter) {
 		// Through the centre: both rims get a head, and the line spans the
-		// full diameter rather than starting at the centre.
-		const other = add(centre, mul(dir, -rPaper));
+		// full diameter rather than starting at the centre. A conic is
+		// centrally symmetric, so the opposite rim is the same reach back.
+		const other = add(centre, mul(dir, -rimPaper));
 		out.push({ kind: 'line', from: other, to: knee, role: 'dimension' });
 		out.push(...arrowhead(other, mul(dir, -1), style));
 	} else {
@@ -558,6 +573,50 @@ function readableAngleDeg(d) {
 	return deg;
 }
 
+/**
+ * How far an ellipse's rim lies from its centre along the paper-space unit
+ * direction `dir`, in paper mm.
+ *
+ * Writing `dir` in the ellipse's own frame as `α û + β ŵ`, a rim point at
+ * distance `r` satisfies `(rα/a)² + (rβ/b)² = 1`, so
+ * `r = 1 / √((α/a)² + (β/b)²)`. The v-flip into paper space is a reflection,
+ * which preserves both radii and perpendicularity, so the axes can be flipped
+ * and used directly; `ŵ`'s sign does not matter because only `β²` appears.
+ *
+ * @param {[number, number]} dir unit, paper space
+ */
+function ellipseReach(curve, dir, tf) {
+	const a = (curve.major_radius ?? 0) * tf.mmPerMeter;
+	const b = (curve.minor_radius ?? 0) * tf.mmPerMeter;
+	if (!(a > 0) || !(b > 0)) return 0;
+	const u = tf.dirToPaper(curve.major_axis ?? [1, 0]);
+	if (Math.hypot(u[0], u[1]) === 0) return a;
+	const w = perp(u);
+	const alpha = dot(dir, u) / a;
+	const beta = dot(dir, w) / b;
+	const q = Math.hypot(alpha, beta);
+	return q > 0 ? 1 / q : 0;
+}
+
+/**
+ * The four corners of a paper-space `[[x0, y0], [x1, y1]]` box, or none when
+ * there is no box. All four are needed, not just the two given: the extreme
+ * along an arbitrary direction `n` can be either diagonal.
+ *
+ * @returns {[number, number][]}
+ */
+function boxCorners(box) {
+	if (!Array.isArray(box) || box.length !== 2) return [];
+	const [[x0, y0], [x1, y1]] = box;
+	if (![x0, y0, x1, y1].every((v) => Number.isFinite(v))) return [];
+	return [
+		[x0, y0],
+		[x1, y0],
+		[x1, y1],
+		[x0, y1]
+	];
+}
+
 /** Intersection of the infinite lines through `(a0, a1)` and `(b0, b1)`. */
 function lineIntersection(a0, a1, b0, b1) {
 	const r = sub(a1, a0);
@@ -581,9 +640,11 @@ function lineIntersection(a0, a1, b0, b1) {
  * @param {import('./style.js').DrawingStyle} style
  * @param {ReturnType<typeof paperTransform>} tf
  * @param {[number, number]} centrePaper the view's centre, for choosing sides
+ * @param {[number, number][]} [boundsPaper] the view's paper-space box,
+ *   `[[x0, y0], [x1, y1]]`, which a linear dimension must clear
  * @returns {Primitive[]}
  */
-export function layoutAnnotation(a, style, tf, centrePaper) {
+export function layoutAnnotation(a, style, tf, centrePaper, boundsPaper) {
 	switch (a?.type) {
 		case 'Dimension':
 			switch (a.kind?.type) {
@@ -596,7 +657,7 @@ export function layoutAnnotation(a, style, tf, centrePaper) {
 				case 'Ordinate':
 					return layoutOrdinate(a, style, tf);
 				default:
-					return layoutLinear(a, style, tf, centrePaper);
+					return layoutLinear(a, style, tf, centrePaper, boundsPaper);
 			}
 		case 'Note':
 			return layoutNote(a, style, tf);
