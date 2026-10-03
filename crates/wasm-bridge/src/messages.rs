@@ -531,6 +531,17 @@ pub enum UiToEngine {
         plane_origin: [f64; 3],
         plane_normal: [f64; 3],
     },
+    /// Sampled wall thickness of one body (Q5 of
+    /// `specs/agent_mechanical_design.md` §4.2): rays cast inward from points
+    /// on every face to the first face opposite.
+    ///
+    /// `spacing_m` asks for a denser sample than the default; the answer
+    /// always reports the spacing it used. Query: no rebuild.
+    MeasureThickness {
+        body_id: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        spacing_m: Option<f64>,
+    },
     /// Every face of a body as the `GeomRef` the viewport's face ranges carry,
     /// with its signature (`specs/waffle_mcp_server.md` ICR-3). `filter` uses
     /// the `TopoQuery` filter rules (`tie_break` is ignored: a listing returns
@@ -1367,6 +1378,118 @@ pub struct SectionDecline {
     pub reason: String,
 }
 
+// ---------------------------------------------------------------------------
+// Q5 — sampled wall thickness
+// ---------------------------------------------------------------------------
+
+/// One end of a measured thickness (Q5): the face it sits on, and how that
+/// face can be named.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ThicknessFace {
+    /// The kernel's TRANSIENT face id — stable within this kernel session
+    /// only, never to be persisted.
+    pub kernel_id: u64,
+    /// The face's persistent id, as a DECIMAL STRING (`waffle_types::pid_str`):
+    /// content-seeded `u64`s above `2^53` do not survive a JSON number.
+    #[serde(
+        default,
+        with = "waffle_types::pid_str::option",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub pid: Option<u64>,
+    #[serde(
+        default,
+        with = "waffle_types::pid_str::option",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub root_pid: Option<u64>,
+    /// The N1 name pointing at this face, when one does.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub name: Option<String>,
+}
+
+/// The thinnest site a thickness sample found (Q5).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ThinnestSite {
+    pub thickness_m: f64,
+    /// Where the ray started, on `from` — in meters, world frame.
+    pub point: [f64; 3],
+    /// Where it landed, on `to`.
+    pub opposite: [f64; 3],
+    pub from: ThicknessFace,
+    pub to: ThicknessFace,
+}
+
+/// One bar of the thickness histogram (Q5). Bins are equal-width over
+/// `[min, max]`; `count` is sites, not area.
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+pub struct ThicknessBin {
+    pub lo_m: f64,
+    pub hi_m: f64,
+    pub count: usize,
+}
+
+/// Sites that produced no thickness, by reason (Q5).
+///
+/// Counted rather than dropped: a body whose casts mostly fail has a thickness
+/// answer covering less of it than the sample count suggests, and nothing else
+/// in the answer would say so.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+pub struct ThicknessDeclines {
+    /// The inward ray left the body without hitting a face — a non-closed
+    /// shell, or a cast that grazed out along a tangency.
+    pub no_hit: usize,
+    /// The only hit was on the site's OWN face within the local sagitta of
+    /// the facet the site came from, so it could not be told from the ray's
+    /// own start. A thickness that small is below what a render-density cast
+    /// can resolve.
+    pub below_self_band: usize,
+    /// The face carries no analytic surface to take an inward normal from.
+    pub no_surface: usize,
+}
+
+/// Answer to [`UiToEngine::MeasureThickness`] (Q5).
+///
+/// **Every number here is SAMPLED.** `method` is `sampled` and nothing else:
+/// a wall thinner than `spacing_m` between two sample sites can be missed
+/// entirely, so `min_m` is an upper bound on the body's true minimum wall and
+/// is never presented as the medial-axis answer.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct MeasuredThickness {
+    pub body_id: String,
+    pub min_m: f64,
+    /// The unweighted mean over sites. The sites are approximately
+    /// area-uniform (every facet is subdivided to `spacing_m`), so this
+    /// approximates the area-weighted mean wall.
+    pub mean_m: f64,
+    pub max_m: f64,
+    pub thinnest: ThinnestSite,
+    pub histogram: Vec<ThicknessBin>,
+    /// Sites that produced a thickness.
+    pub samples: usize,
+    /// The sample spacing used, meters — the largest gap between neighbouring
+    /// sites on one face.
+    pub spacing_m: f64,
+    /// The tessellation band the sites were derived at, meters.
+    pub chord_bound_m: f64,
+    /// Sites whose refined hit was certified on the analytic surface pair.
+    /// The rest kept their facet hit, which is inside the true surface by at
+    /// most `chord_bound_m`.
+    pub refined: usize,
+    pub declines: ThicknessDeclines,
+    /// `sampled`, always. The field exists so the tier is read rather than
+    /// assumed, and so a later exact method has somewhere to say it is one.
+    pub method: ThicknessMethod,
+}
+
+/// How a thickness was obtained (Q5). One arm today, deliberately: a sampled
+/// answer must never be able to serialize as an exact one.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ThicknessMethod {
+    Sampled,
+}
+
 /// Messages from the engine (WASM Worker) to the UI (JavaScript main thread).
 #[allow(clippy::large_enum_variant)] // see `UiToEngine`
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -1597,6 +1720,14 @@ pub enum EngineToUi {
         #[serde(default, skip_serializing_if = "Vec::is_empty")]
         declines: Vec<SectionDecline>,
     },
+
+    /// Answer to `MeasureThickness` (Q5). Lengths in meters.
+    ///
+    /// Nested in a `result` field, as `InterferenceMeasured` nests its own:
+    /// the enum is internally tagged, so a newtype variant would have to
+    /// flatten its struct into the message and a field named `type` anywhere
+    /// inside it would collide with the tag.
+    ThicknessMeasured { result: MeasuredThickness },
 
     /// Save project is ready.
     SaveReady { json_data: String },

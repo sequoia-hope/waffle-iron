@@ -419,6 +419,94 @@ export const measureSectionTool = {
 	annotations: readOnly('Measure section')
 };
 
+export const measureThicknessTool = {
+	name: 'measure_thickness',
+	description:
+		'The wall thickness of a body, SAMPLED: points are laid out on every face and a ray is cast ' +
+		'inward from each one to the first face opposite. Reports min_m, mean_m, max_m, a histogram of ' +
+		'the sites, and the thinnest site itself — where it is, and the two faces it spans, each with ' +
+		'its persistent id (DECIMAL STRINGS: ids above 2^53 are not exact as JSON numbers) and its ' +
+		'entity_name if it has one. method is always "sampled": min_m is an UPPER BOUND on the true ' +
+		'minimum wall, because a wall thinner than spacing_m between two sites is never looked at. ' +
+		'Pass spacing_m under the width of the web you care about to be sure it was sampled; the ' +
+		'answer always reports the spacing_m it used and how many samples it took. Each individual ' +
+		'cast is refined onto the analytic surfaces (a plate reports its thickness, and a tube ' +
+		'r_outer − r_inner, to rounding), and refined says how many were; declines counts the sites ' +
+		'that produced nothing, so an answer covering little of the body says so. A sharp corner has ' +
+		'no minimum wall at all — a taper is thinnest AT its acute corner, approaching zero — so read ' +
+		'min_m as "the thinnest place sampled", not as the body\'s medial axis. Lengths in meters.',
+	inputSchema: {
+		type: 'object',
+		properties: {
+			body_id: { type: 'string', description: 'Body id (or name) from model_summary.bodies.' },
+			spacing_m: {
+				type: ['number', 'null'],
+				description:
+					'Largest gap between neighbouring sample sites on one face, in meters. Omit for the ' +
+					"default (the body's bounding diagonal / 32)."
+			}
+		},
+		required: ['body_id'],
+		additionalProperties: false
+	},
+	outputSchema: {
+		type: 'object',
+		properties: {
+			body_id: { type: 'string' },
+			min_m: { type: 'number' },
+			mean_m: { type: 'number' },
+			max_m: { type: 'number' },
+			thinnest: {
+				type: 'object',
+				properties: {
+					thickness_m: { type: 'number' },
+					point: { type: 'array', items: { type: 'number' }, minItems: 3, maxItems: 3 },
+					opposite: { type: 'array', items: { type: 'number' }, minItems: 3, maxItems: 3 },
+					from: { type: 'object' },
+					to: { type: 'object' }
+				},
+				required: ['thickness_m', 'point', 'opposite', 'from', 'to']
+			},
+			histogram: {
+				type: 'array',
+				items: {
+					type: 'object',
+					properties: {
+						lo_m: { type: 'number' },
+						hi_m: { type: 'number' },
+						count: { type: 'integer' }
+					}
+				}
+			},
+			samples: { type: 'integer' },
+			spacing_m: { type: 'number' },
+			chord_bound_m: { type: 'number' },
+			refined: { type: 'integer' },
+			declines: {
+				type: 'object',
+				properties: {
+					no_hit: { type: 'integer' },
+					below_self_band: { type: 'integer' },
+					no_surface: { type: 'integer' }
+				}
+			},
+			method: { type: 'string', enum: ['sampled'] }
+		},
+		required: [
+			'body_id',
+			'min_m',
+			'mean_m',
+			'max_m',
+			'thinnest',
+			'histogram',
+			'samples',
+			'spacing_m',
+			'method'
+		]
+	},
+	annotations: readOnly('Measure thickness')
+};
+
 export const faceListTool = {
 	name: 'face_list',
 	description:

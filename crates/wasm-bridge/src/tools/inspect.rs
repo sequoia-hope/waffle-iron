@@ -682,6 +682,66 @@ pub(super) fn measure_section(
     Ok(out)
 }
 
+/// The sampled wall thickness of one body (Q5 of
+/// `specs/agent_mechanical_design.md` §4.2/§4.3).
+///
+/// `method` is `sampled` and there is no other value: the minimum is an UPPER
+/// bound on the body's true minimum wall, because a wall thinner than
+/// `spacing_m` between two sample sites is never looked at. The answer carries
+/// `spacing_m` and `samples` so a caller can see what was and was not asked.
+pub(super) fn measure_thickness(
+    state: &mut EngineState,
+    kb: &mut dyn KernelBundle,
+    args: &Value,
+) -> Answer {
+    let body_id = require_body(
+        state,
+        args.get("body_id").and_then(Value::as_str).unwrap_or(""),
+    )?;
+    // Validated HERE, not at the kernel: a spacing of zero is a caller's
+    // mistake with an obvious fix, and the kernel's own refusal would reach
+    // the host as an `Internal` engine error rather than as the bad argument
+    // it is. The kernel still refuses it — this is the message, not the
+    // guard.
+    let spacing_m = match args.get("spacing_m") {
+        None | Some(Value::Null) => None,
+        Some(value) => {
+            let bad = || {
+                ToolFailure::new(
+                    "InvalidArguments",
+                    "spacing_m must be a positive length in meters — the largest gap to leave \
+                     between neighbouring sample sites. Omit it for the default."
+                        .to_string(),
+                    json!({ "reason": "spacing_m is not a positive, finite number." }),
+                )
+            };
+            let s = value.as_f64().ok_or_else(bad)?;
+            if !(s.is_finite() && s > 0.0) {
+                return Err(bad());
+            }
+            Some(s)
+        }
+    };
+
+    let response = engine_call(
+        state,
+        kb,
+        "MeasureThickness",
+        UiToEngine::MeasureThickness {
+            body_id: body_id.clone(),
+            spacing_m,
+        },
+    )?;
+    let EngineToUi::ThicknessMeasured { result } = &response else {
+        return Err(unexpected(
+            "MeasureThickness",
+            "ThicknessMeasured",
+            &response,
+        ));
+    };
+    Ok(serde_json::to_value(result).unwrap_or(Value::Null))
+}
+
 /// The faces of one body, each with the `GeomRef` that names it (ICR-3).
 pub(super) fn face_list(
     state: &mut EngineState,

@@ -1163,6 +1163,9 @@ fn handle_message(
             plane_origin,
             plane_normal,
         } => measure_section(state, kb, &body_ids, plane_origin, plane_normal),
+        UiToEngine::MeasureThickness { body_id, spacing_m } => {
+            measure_thickness(state, kb, &body_id, spacing_m)
+        }
         UiToEngine::ListFaces { body_id, filter } => {
             list_faces(state, kb, &body_id, filter.as_ref())
         }
@@ -2465,6 +2468,99 @@ fn measure_section(
         basis,
         bodies,
         declines,
+    })
+}
+
+/// `MeasureThickness` (Q5 of `specs/agent_mechanical_design.md` §4.2): the
+/// body's wall thickness, sampled.
+///
+/// The faces of the thinnest site arrive as transient kernel ids, and this
+/// handler is where they become something an agent can keep: the persistent id
+/// (as a decimal STRING — these are content-seeded `u64`s and a JSON number
+/// rounds the ones above `2^53` onto a different entity) and the N1 name, from
+/// the same `all_entity_pids` and `name_bindings` the Q6 listing reads. A site
+/// that names "face 47 of this session" is not an answer anyone can act on
+/// tomorrow.
+fn measure_thickness(
+    state: &mut EngineState,
+    kb: &mut dyn KernelBundle,
+    body_id: &str,
+    spacing_m: Option<f64>,
+) -> Result<EngineToUi, BridgeError> {
+    use crate::messages::{
+        MeasuredThickness, ThicknessBin, ThicknessDeclines, ThicknessFace, ThicknessMethod,
+        ThinnestSite,
+    };
+    use waffle_types::kernel::ThicknessOpts;
+    use waffle_types::TopoKind;
+
+    // The sampler reads the arena, not the render mesh, but `name_bindings`
+    // and the pid table are read off the built body — so the body must be
+    // built, which is what every other query here ensures too.
+    crate::tessellation_runner::tessellate_engine(&mut state.engine, kb);
+    let handle = find_body(state, body_id)
+        .map(|b| b.handle.clone())
+        .ok_or_else(|| BridgeError::InvalidRequest {
+            reason: format!("no live body {body_id}"),
+        })?;
+    let t = kb
+        .as_measure()
+        .thickness(&handle, &ThicknessOpts { spacing: spacing_m })
+        .map_err(measure_error)?;
+
+    let (named, _unresolved) = crate::entity_names::name_bindings(state, kb, body_id);
+    let pids: std::collections::HashMap<_, _> = kb
+        .as_introspect()
+        .all_entity_pids(&handle, TopoKind::Face)
+        .into_iter()
+        .collect();
+    let face = |r: waffle_types::kernel::EntityRef| {
+        let pid = pids.get(&r.entity);
+        ThicknessFace {
+            kernel_id: r.entity.0,
+            pid: pid.map(|p| p.pid),
+            root_pid: pid.map(|p| p.root_pid),
+            name: named
+                .get(&(TopoKind::Face, r.entity))
+                .map(|b| b.name.clone()),
+        }
+    };
+    let (samples, spacing_m) = match t.method {
+        waffle_types::kernel::ThicknessMethod::Sampled { samples, spacing } => (samples, spacing),
+    };
+    Ok(EngineToUi::ThicknessMeasured {
+        result: MeasuredThickness {
+            body_id: body_id.to_string(),
+            min_m: t.min,
+            mean_m: t.mean,
+            max_m: t.max,
+            thinnest: ThinnestSite {
+                thickness_m: t.thinnest.thickness,
+                point: t.thinnest.point,
+                opposite: t.thinnest.opposite,
+                from: face(t.thinnest.from),
+                to: face(t.thinnest.to),
+            },
+            histogram: t
+                .histogram
+                .iter()
+                .map(|b| ThicknessBin {
+                    lo_m: b.lo,
+                    hi_m: b.hi,
+                    count: b.count,
+                })
+                .collect(),
+            samples,
+            spacing_m,
+            chord_bound_m: t.chord_bound,
+            refined: t.refined,
+            declines: ThicknessDeclines {
+                no_hit: t.declines.no_hit,
+                below_self_band: t.declines.below_self_band,
+                no_surface: t.declines.no_surface,
+            },
+            method: ThicknessMethod::Sampled,
+        },
     })
 }
 

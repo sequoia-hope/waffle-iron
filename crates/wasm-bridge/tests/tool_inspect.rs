@@ -461,9 +461,9 @@ fn the_migrated_list_is_exactly_what_this_checkpoint_implements() {
     // (Q6, §4.2/§4.3, 2026-10-03) sits next to `face_list`: it is the same
     // listing widened to edges and vertices, and the spec says `face_list`
     // becomes its `face` arm. `measure_section` (Q4, §4.2/§4.3, 2026-10-03)
-    // joins the measurement run for the same reason: it is a geometric query
-    // over a body, answered by the kernel, and an agent looking for one looks
-    // among these.
+    // and `measure_thickness` (Q5, same day) join the measurement run for the
+    // same reason: they are geometric queries over a body, answered by the
+    // kernel, and an agent looking for one looks among these.
     assert_eq!(
         wasm_bridge::tools::MIGRATED,
         &[
@@ -474,6 +474,7 @@ fn the_migrated_list_is_exactly_what_this_checkpoint_implements() {
             "measure_interference",
             "measure_mass",
             "measure_section",
+            "measure_thickness",
             "face_list",
             "entity_list",
             "sketch_regions",
