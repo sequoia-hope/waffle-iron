@@ -66,6 +66,7 @@ fn plate_with_depth_expr(state: &mut EngineState, depth_expr: &str) -> Uuid {
     let sketch = Operation::Sketch {
         sketch: Sketch {
             id: Uuid::new_v4(),
+            plane_face: None,
             plane: GeomRef {
                 kind: TopoKind::Face,
                 anchor: Anchor::Datum {

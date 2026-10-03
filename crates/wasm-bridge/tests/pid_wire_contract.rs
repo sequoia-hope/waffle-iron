@@ -154,6 +154,7 @@ fn block(state: &mut EngineState, kernel: &mut KernelV2Adapter) -> String {
     ]);
     let sketch = Sketch {
         id: Uuid::new_v4(),
+        plane_face: None,
         plane: datum_xy(),
         plane_origin: [0.0, 0.0, 0.0],
         plane_normal: [0.0, 0.0, 1.0],

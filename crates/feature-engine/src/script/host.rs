@@ -801,6 +801,9 @@ impl SketchBuilder {
             solved_positions: HashMap::new(),
             projected: Vec::new(),
             solved_profiles: Vec::new(),
+            // A script's sketch is placed on a datum or a bare frame, never
+            // picked off a model face, so it pins no face identity (N2 §5.3).
+            plane_face: None,
         };
         if let PlaneSpec::OriginNormal {
             origin,

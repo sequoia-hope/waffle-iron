@@ -30,7 +30,7 @@ use modeling_ops::OpResult;
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 use waffle_types::kernel::{KernelId, KernelIntrospect};
-use waffle_types::{GeomRef, ResolvePolicy, Selector, TopoKind};
+use waffle_types::{GeomRef, Selector, TopoKind};
 
 use crate::types::{EngineError, Provenance};
 
@@ -155,6 +155,22 @@ pub enum ResolvedBy {
 pub struct NameResolution {
     pub kernel_id: KernelId,
     pub resolved_by: ResolvedBy,
+    /// Which rung of the ladder actually answered (N2). This is what closes
+    /// N1's last open item: `resolved_by: "pid"` could not say whether the pid
+    /// answered directly or through its lineage root, and the honest signal was
+    /// the presence of a warning. The resolver reports its own rung now, so
+    /// `via` says `pid` or `pid_root` as a fact rather than an inference.
+    pub via: crate::resolve::ResolvedVia,
+    /// Set when the stored persistent identity is GONE and the answer came
+    /// from the authored fallback instead — which rebinds by geometry and may
+    /// well be a different entity (N2 §5.3). The name points somewhere, so
+    /// `resolve` returns `Ok`; this is what says it no longer points at what it
+    /// was given to, as a reason a host can branch on rather than a sentence.
+    pub lost_identity: Option<crate::types::ResolutionReason>,
+    /// True when the answer is NOT the identity the name recorded: either the
+    /// fallback supplied it (above) or the rung that answered was a
+    /// `BestEffort` rebind. The one flag worth branching on.
+    pub rebound: bool,
     /// The resolver's own warnings, verbatim (a pid answered through its
     /// lineage root says so here), plus the primary failure when the fallback
     /// was used.
@@ -178,34 +194,17 @@ pub fn mint(
     created: Provenance,
 ) -> Result<NamedRef, EngineError> {
     // Strict whatever the caller sent: an agent sees no warning, so a
-    // near-miss rebind would be a silently wrong name (§5.3).
-    let mut authored = target.clone();
-    authored.policy = ResolvePolicy::Strict;
-
-    let resolved = crate::resolve::resolve_geom_ref_live(&authored, feature_results, introspect)?;
-    let pid = introspect.entity_pid(resolved.kernel_id, authored.kind);
-
-    match pid {
-        Some(pid) if !matches!(authored.selector, Selector::Pid { .. }) => {
-            let mut by_pid = authored.clone();
-            by_pid.selector = Selector::Pid {
-                pid: pid.pid,
-                root_pid: pid.root_pid,
-            };
-            Ok(NamedRef {
-                target: by_pid,
-                kind: authored.kind,
-                fallback: Some(authored),
-                created,
-            })
-        }
-        _ => Ok(NamedRef {
-            kind: authored.kind,
-            target: authored,
-            fallback: None,
-            created,
-        }),
-    }
+    // near-miss rebind would be a silently wrong name (§5.3). That rule, and
+    // the pid/fallback pair itself, live in `resolve::pin_identity` since N2 —
+    // a sketch's plane face is pinned the same way, and two copies of the
+    // rule would be two places for it to drift.
+    let pinned = crate::resolve::pin_identity(target, feature_results, introspect)?;
+    Ok(NamedRef {
+        kind: pinned.target.kind,
+        target: pinned.target,
+        fallback: pinned.fallback,
+        created,
+    })
 }
 
 /// Resolve a name's reference against the live geometry.
@@ -219,35 +218,30 @@ pub fn resolve(
     introspect: &dyn KernelIntrospect,
 ) -> Result<NameResolution, EngineError> {
     let by_pid = matches!(named.target.selector, Selector::Pid { .. });
-    match crate::resolve::resolve_geom_ref_live(&named.target, feature_results, introspect) {
-        Ok(resolved) => Ok(NameResolution {
-            kernel_id: resolved.kernel_id,
-            resolved_by: if by_pid {
-                ResolvedBy::Pid
-            } else {
-                ResolvedBy::Selector
-            },
-            warnings: resolved.warnings,
-        }),
-        Err(primary) => {
-            let Some(fallback) = &named.fallback else {
-                return Err(primary);
-            };
-            let resolved =
-                crate::resolve::resolve_geom_ref_live(fallback, feature_results, introspect)
-                    .map_err(|_| primary.clone())?;
-            let mut warnings = vec![format!(
-                "the persistent id is gone ({primary}); the name resolved through the reference it \
-                 was authored with, which rebinds by geometry and may name a different entity"
-            )];
-            warnings.extend(resolved.warnings);
-            Ok(NameResolution {
-                kernel_id: resolved.kernel_id,
-                resolved_by: ResolvedBy::Query,
-                warnings,
-            })
-        }
-    }
+    let (resolved, primary) = crate::resolve::resolve_pinned(
+        &named.target,
+        named.fallback.as_ref(),
+        feature_results,
+        introspect,
+    )?;
+    // The primary's own classification, carried through even though something
+    // answered: "the id I was given to is gone" is the fact that decides
+    // whether this name still means what it did (N2 §5.3).
+    let lost_identity = primary
+        .as_ref()
+        .and_then(|e| e.resolution_reason().cloned());
+    Ok(NameResolution {
+        kernel_id: resolved.kernel_id,
+        resolved_by: match (primary.is_some(), by_pid) {
+            (true, _) => ResolvedBy::Query,
+            (false, true) => ResolvedBy::Pid,
+            (false, false) => ResolvedBy::Selector,
+        },
+        via: resolved.via,
+        lost_identity,
+        rebound: primary.is_some() || resolved.via.rebound(),
+        warnings: resolved.warnings,
+    })
 }
 
 #[cfg(test)]

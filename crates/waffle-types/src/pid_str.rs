@@ -37,7 +37,7 @@
 //! (`ModelUpdated.drawing`, `feature_get`, `names_list`, `assembly_get`,
 //! `face_list`, `entity_list`, …), each of which would have to remember. The
 //! id is written as a string everywhere instead, which cost one format-floor
-//! bump (v8 → v9, `docs/FILE_FORMAT.md` §13) and bought a representation no
+//! bump (v9 → v10, `docs/FILE_FORMAT.md` §13) and bought a representation no
 //! call site chooses.
 //!
 //! **Reading accepts both forms**, so every `.waffle` written before the flip
@@ -47,7 +47,7 @@
 use serde::{Deserialize, Deserializer, Serializer};
 
 /// A pid as it arrives: the written form (a decimal string) or a bare JSON
-/// number (a pre-v9 file, or a hand-written small id).
+/// number (a pre-v10 file, or a hand-written small id).
 #[derive(Deserialize)]
 #[serde(untagged)]
 enum Either {
@@ -153,7 +153,7 @@ mod tests {
     }
 
     #[test]
-    fn a_bare_number_still_reads_so_pre_v9_files_load() {
+    fn a_bare_number_still_reads_so_pre_v10_files_load() {
         let h: Holder = serde_json::from_value(serde_json::json!({
             "pid": 42,
             "root_pid": 7

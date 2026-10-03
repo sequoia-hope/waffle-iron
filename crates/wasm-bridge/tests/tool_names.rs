@@ -101,6 +101,7 @@ fn plate(
         solve_status: SolveStatus::FullyConstrained,
         solved_positions,
         projected: Vec::new(),
+        plane_face: None,
         solved_profiles: vec![ClosedProfile {
             entity_ids: vec![l0, l1, l2, l3],
             is_outer: true,
@@ -191,6 +192,7 @@ fn pocket(
         solve_status: SolveStatus::FullyConstrained,
         solved_positions,
         projected: Vec::new(),
+        plane_face: None,
         solved_profiles: vec![ClosedProfile {
             entity_ids: vec![l0, l1, l2, l3],
             is_outer: true,
@@ -414,16 +416,21 @@ fn a_named_face_can_be_measured_by_name() {
 }
 
 /// A measure by name answers through the same resolution `names_list`
-/// reports: once the stored reference is gone the authored fallback answers,
-/// in both places. Measured 2026-10-03: reading the stored reference directly
-/// made the measure refuse (as `Internal`) a name the listing in the very
-/// same state called `resolves: true`.
+/// reports, in both directions — including the refusal.
+///
+/// An agent's name is `Strict` (its reference comes from `face_list`, which
+/// hands out `Strict` refs), so once the recorded identity is gone the ladder
+/// refuses rather than rebinding by geometry (N2 §5.3 item 1, settled
+/// 2026-10-03). The measure must refuse the same name the listing calls
+/// unresolvable: one question answered one way. The warned-rebind half lives on
+/// a `BestEffort` name —
+/// `a_best_effort_name_whose_reference_is_gone_still_measures_through_its_fallback`.
 ///
 /// The fixture is the one case that still loses a persistent identity for
 /// good — a pocket floor, named, and then turned into a through hole, so
 /// neither the pid nor its lineage root is on the body any more.
 #[test]
-fn a_name_whose_reference_is_gone_still_measures_through_its_fallback() {
+fn a_name_whose_reference_is_gone_refuses_rather_than_measuring_another_face() {
     let mut state = EngineState::new();
     let mut kernel = KernelV2Adapter::new();
     let (_, _) = plate(&mut state, &mut kernel, 0.04, 0.01, 1);
@@ -441,12 +448,64 @@ fn a_name_whose_reference_is_gone_still_measures_through_its_fallback() {
     set_depth(&mut state, &mut kernel, cut, 0.012);
     let entry = listed(&mut state, &mut kernel, "floor");
     assert_eq!(
+        entry["resolves"], false,
+        "neither the pid nor its root is left, and a Strict reference does not \
+         rebind by geometry: {entry}"
+    );
+    assert_eq!(entry["refusal"]["type"], "PidGone", "{entry}");
+    assert_eq!(
+        entry["refusal"]["last_seen_feature"],
+        json!(cut),
+        "the feature whose output it was last seen in: {entry}"
+    );
+
+    // And the measure refuses the same name, with the same account of why.
+    let (code, error) = refusal(
+        &mut state,
+        &mut kernel,
+        "measure_distance",
+        json!({
+            "a": { "type": "name", "name": "floor" },
+            "b": { "type": "point", "point": [0.0, 0.0, 0.5] },
+        }),
+    );
+    assert_eq!(code, "Internal", "{error}");
+    let message = error["message"].as_str().unwrap_or_default();
+    assert!(
+        message.contains("does not resolve") && message.contains("floor"),
+        "the refusal names the name that died: {error}"
+    );
+}
+
+/// The other half of §5.3 item 1: a `BestEffort` name — what a document written
+/// from a user's viewport pick carries — still measures through its authored
+/// fallback once the recorded identity is gone, because a person can see the
+/// geometry and the UI shows the warning. The listing and the measure agree
+/// here too: both rebind.
+#[test]
+fn a_best_effort_name_whose_reference_is_gone_still_measures_through_its_fallback() {
+    let mut state = EngineState::new();
+    let mut kernel = KernelV2Adapter::new();
+    let (_, _) = plate(&mut state, &mut kernel, 0.04, 0.01, 1);
+    let (cut, body) = pocket(&mut state, &mut kernel, 0.01, 0.004, 500, 0.005);
+    let mut floor = pocket_floor_ref(&mut state, &mut kernel, &body, f64::INFINITY);
+    floor["policy"] = json!({ "type": "BestEffort" });
+    ok(
+        &mut state,
+        &mut kernel,
+        "entity_name",
+        json!({ "target": { "type": "entity", "geom_ref": floor }, "name": "floor" }),
+    );
+
+    set_depth(&mut state, &mut kernel, cut, 0.012);
+    let entry = listed(&mut state, &mut kernel, "floor");
+    assert_eq!(
         entry["resolved_by"], "query",
         "neither the pid nor its root is left: {entry}"
     );
     assert_eq!(entry["resolves"], true, "{entry}");
+    assert_eq!(entry["rebound"], true, "and it says it rebound: {entry}");
 
-    // The measure answers through the same fallback rather than refusing.
     let measured = ok(
         &mut state,
         &mut kernel,
@@ -1060,6 +1119,7 @@ fn ngon_sketch(n: u32, r: f64, base: u32) -> Sketch {
         solve_status: SolveStatus::FullyConstrained,
         solved_positions,
         projected: Vec::new(),
+        plane_face: None,
         solved_profiles: vec![ClosedProfile {
             entity_ids: profile,
             is_outer: true,

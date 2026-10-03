@@ -38,7 +38,18 @@ use crate::sources::SourceEntry;
 ///     reader that drops it builds a DIFFERENT solid from the same file,
 ///     which is the v5/v6 rationale (`docs/FILE_FORMAT.md` §4, §13.3), and
 ///     `crates/feature-engine/tests/param_unit_floor.rs` measures it.
-///   - **v9** (2026-10-03): a `Selector::Pid`'s `pid` and `root_pid` are
+///   - **v9** (2026-10-03): `Sketch.plane_face` (N2,
+///     `specs/agent_mechanical_design.md` §5.3 item 3) — the identity of the
+///     model face a local sketch is drawn on. Additive, defaulted, omitted
+///     when absent, and a reader that drops it does not FAIL. The floor moves
+///     for the v8 reason: a reader that ignores it builds a DIFFERENT solid
+///     from the same file. With the field, a sketch whose face has been
+///     deleted refuses and nothing downstream of it builds; without it, the
+///     sketch stays at its cached frame and extrudes into space — the silent
+///     wrong answer N2 exists to remove. (Its content also carries a
+///     `Selector::Pid`, which is the v7 reason over again, but the semantic
+///     one is what settles it.)
+///   - **v10** (2026-10-03): a `Selector::Pid`'s `pid` and `root_pid` are
 ///     written as decimal **STRINGS** rather than JSON numbers
 ///     (`waffle_types::pid_str`). A persistent id is a content-seeded 64-bit
 ///     hash and a JSON number in JavaScript is an `f64`, so every id above
@@ -46,11 +57,11 @@ use crate::sources::SourceEntry;
 ///     WASM↔JS boundary. The fix is one representation everywhere rather
 ///     than one per boundary — a type that serializes two ways is a
 ///     per-site decision, and `Selector::Pid` reaches the page inside a
-///     dozen message fields. A v8 reader given a string pid fails with a
+///     dozen message fields. A v9 reader given a string pid fails with a
 ///     raw serde type error, so the floor moves. READING still accepts a
-///     bare number, so every pre-v9 file loads unchanged
-///     (`tests/format_tests.rs::a_pre_v9_numeric_pid_still_loads`).
-pub const FORMAT_VERSION: u32 = 9;
+///     bare number, so every pre-v10 file loads unchanged
+///     (`tests/format_tests.rs::a_pre_v10_numeric_pid_still_loads`).
+pub const FORMAT_VERSION: u32 = 10;
 
 /// Oldest reader (by its `FORMAT_VERSION`) that can parse files we write.
 ///
@@ -65,7 +76,7 @@ pub const FORMAT_VERSION: u32 = 9;
 /// opaquely. Purely additive defaulted fields never require a bump. Files
 /// without the field (all pre-2026-08-28 files, including the assay corpus)
 /// default to 0 and always pass. See `docs/FILE_FORMAT.md` §13.
-pub const MIN_READER_VERSION: u32 = 9;
+pub const MIN_READER_VERSION: u32 = 10;
 
 // Keep the constants coherent: we can never require a reader newer than the
 // version we claim to write.

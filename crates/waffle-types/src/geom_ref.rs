@@ -143,7 +143,7 @@ pub enum Selector {
     /// content-seeded through the faces' roots already.
     ///
     /// Both are `u64` in Rust and **decimal STRINGS on the wire** — in a
-    /// `.waffle` file (format v9) and in every message and tool payload
+    /// `.waffle` file (format v10) and in every message and tool payload
     /// alike. A content-seeded id routinely exceeds `2^53`, where a JSON
     /// number stops being exact in JavaScript; see [`crate::pid_str`] for
     /// the measurement and for why there is one representation rather than

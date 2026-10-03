@@ -18,6 +18,14 @@ use crate::messages::{EngineToUi, UiToEngine};
 use crate::tools::{engine_call, require_body, require_feature, unexpected, Answer, ToolFailure};
 
 /// One feature's full definition, as `feature_edit` would take it back.
+///
+/// Plus the state of its REFERENCES (N2 §5.3 item 4). An agent cannot see a
+/// warning toast, so every reference resolution the last rebuild did for this
+/// feature is reported here: `warnings` carries what the resolver said
+/// verbatim, and `references` says whether each reference the feature stores
+/// still answers, through which rung, and — when it does not — the typed
+/// reason. Without this a reference that rebound by geometry was visible only
+/// in the user's UI.
 pub(super) fn feature_get(state: &EngineState, args: &Value) -> Answer {
     let feature = require_feature(state, args)?;
     let tree = &state.engine.tree;
@@ -44,7 +52,113 @@ pub(super) fn feature_get(state: &EngineState, args: &Value) -> Answer {
     {
         out["error"] = json!(message);
     }
+    // The typed class of that error, when it has one — so an agent branches on
+    // `ResolutionFailed`'s reason instead of reading the sentence above.
+    if let Some(e) = state
+        .engine
+        .feature_errors
+        .iter()
+        .rev()
+        .find(|e| e.feature_id == feature.id)
+    {
+        out["error_kind"] = serde_json::to_value(&e.kind).unwrap_or(Value::Null);
+    }
+    let warnings: Vec<&String> = state
+        .engine
+        .feature_warnings
+        .iter()
+        .filter(|(id, _)| *id == feature.id)
+        .map(|(_, w)| w)
+        .collect();
+    if !warnings.is_empty() {
+        out["warnings"] = json!(warnings);
+    }
+    let references = reference_state(state, feature);
+    if !references.is_empty() {
+        out["references"] = json!(references);
+    }
     Ok(out)
+}
+
+/// The resolution state of each reference this feature STORES, as of the last
+/// rebuild (N2 §5.3 item 4).
+///
+/// Only references the engine can re-resolve without re-running the operation
+/// are listed. Today that is a sketch's pinned plane face, which is the one
+/// §5.3 item 3 added and the one whose failure stops the feature. A boolean's
+/// `targets` resolve inside the operation against state the rebuild has moved
+/// on from, so reporting them here would mean re-resolving against DIFFERENT
+/// geometry and calling the answer the feature's — a worse lie than saying
+/// nothing. Their outcome reaches the agent as the feature's error.
+///
+/// `resolves`, `resolved_via`, `rebound` and the typed reasons are the
+/// REBUILD's own record (`Engine::feature_references`), not something inferred
+/// here: `feature_get` has no kernel, and the previous cut of this read
+/// inferred `resolves` from "did the feature fail?" — which reported a
+/// perfectly good plane face as refused whenever the sketch failed for some
+/// other reason (its x-axis, say), and could never say which rung answered.
+fn reference_state(state: &EngineState, feature: &feature_engine::types::Feature) -> Vec<Value> {
+    let feature_engine::types::Operation::Sketch { sketch } = &feature.operation else {
+        return Vec::new();
+    };
+    let Some(face) = &sketch.plane_face else {
+        return Vec::new();
+    };
+    let mut entry = json!({
+        "role": feature_engine::rebuild::SKETCH_PLANE_FACE_ROLE,
+        "kind": face.target.kind,
+        "geom_ref": face.target,
+        "recorded_signature": face.signature,
+    });
+    match state
+        .engine
+        .feature_references
+        .iter()
+        .find(|(id, r)| {
+            *id == feature.id && r.role == feature_engine::rebuild::SKETCH_PLANE_FACE_ROLE
+        })
+        .map(|(_, r)| r)
+    {
+        Some(record) => {
+            entry["resolves"] = json!(record.resolves);
+            if let Some(via) = record.via {
+                entry["resolved_via"] = serde_json::to_value(via).unwrap_or(Value::Null);
+            }
+            if record.rebound {
+                entry["rebound"] = json!(true);
+            }
+            if let Some(reason) = &record.lost_identity {
+                entry["lost_identity"] = serde_json::to_value(reason).unwrap_or(Value::Null);
+            }
+            if let Some(reason) = &record.refusal {
+                entry["refusal"] = serde_json::to_value(reason).unwrap_or(Value::Null);
+            }
+        }
+        // The rebuild never reached this reference — the feature failed
+        // earlier, or it has not been rebuilt in this session. Say that
+        // rather than answer for it.
+        None => {
+            if let Some(e) = state
+                .engine
+                .feature_errors
+                .iter()
+                .rev()
+                .find(|e| e.feature_id == feature.id)
+            {
+                entry["blocked_by"] = json!(e.message);
+            }
+        }
+    }
+    if let Some(e) = state
+        .engine
+        .feature_errors
+        .iter()
+        .rev()
+        .find(|e| e.feature_id == feature.id)
+    {
+        entry["message"] = json!(e.message);
+    }
+    vec![entry]
 }
 
 /// What a linked KiCad board knows about a body or an instance
@@ -405,6 +519,28 @@ pub(super) fn face_list(
     let EngineToUi::FacesListed { body_id, faces } = &response else {
         return Err(unexpected("ListFaces", "FacesListed", &response));
     };
+    // N2 §5.3 item 1: the references this tool hands out are what an agent
+    // authors with, so they are `Strict` HERE, in the JSON the agent reads.
+    //
+    // `face_refs::face_geom_refs` is shared with the viewport's own face-range
+    // accessors, deliberately — a ref a user picks and a ref an agent lists are
+    // the same ref by construction — and so it builds them `BestEffort`, which
+    // is what a user's pick needs. That default travelled into every agent
+    // reference: `execute_tool`'s stamp only fills a policy a caller OMITS, and
+    // an agent does not omit it, it echoes back the one this tool printed. So
+    // the loudness item 1 asks for never reached the one path that sources
+    // almost every agent reference (measured 2026-10-03: the N1 and N2 oracles
+    // built their references from `face_list` and resolved `BestEffort`
+    // throughout). An agent that wants a rebind still spells `BestEffort` for
+    // itself, and then it is genuinely in the transcript.
+    let mut faces = serde_json::to_value(faces).unwrap_or(Value::Null);
+    if let Some(list) = faces.as_array_mut() {
+        for face in list {
+            if let Some(policy) = face.pointer_mut("/geom_ref/policy") {
+                *policy = json!({ "type": "Strict" });
+            }
+        }
+    }
     Ok(json!({ "body_id": body_id, "faces": faces }))
 }
 
