@@ -3,6 +3,7 @@
 //! Produces synthetic topology with predictable entity counts and signatures.
 //! Used by feature-engine and modeling-ops for unit testing.
 
+use super::projection::KernelProjection;
 use super::traits::{Kernel, KernelIntrospect};
 use super::types::*;
 use super::units::{TAU_MODEL, TAU_WORK};
@@ -2017,6 +2018,16 @@ impl KernelIntrospect for MockKernel {
             .collect()
     }
 }
+
+/// The test double projects NOTHING, deliberately
+/// (`specs/drawings_and_mbd.md` §5): a mock solid is a face/edge/vertex table
+/// with no analytic curves on it, so every answer it could give — an empty
+/// view, straight chords between recorded vertex positions — would be
+/// indistinguishable from a real projection of a degenerate solid, and a
+/// consumer's test would pass on a kernel that never projected anything. Every
+/// method keeps its typed `NotSupported` default, so a drawing test that needs
+/// geometry has to reach for kernel-v2.
+impl KernelProjection for MockKernel {}
 
 #[cfg(test)]
 mod tests {

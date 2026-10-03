@@ -70,6 +70,7 @@ mod cone_boolean_test;
 #[cfg(test)]
 pub(crate) mod cone_fixtures;
 pub mod construct;
+pub mod dxf_export;
 pub mod error;
 pub mod euler;
 pub(crate) mod exact2d;
@@ -80,6 +81,7 @@ pub mod introspect;
 pub mod journal;
 pub mod pid;
 pub mod profile;
+pub mod projection;
 pub(crate) mod recover;
 pub mod step_export;
 pub mod tessellate;
@@ -99,6 +101,7 @@ pub use construct::{
     PipeResult, RevolveResult, SweepFrame, SweepPath, SweepResult, SweepSegment, SweepSegmentKind,
     SweepStation,
 };
+pub use dxf_export::{write_dxf, DEFAULT_POLYLINE_SAGITTA, LAYER_HIDDEN, LAYER_VISIBLE};
 pub use error::KernelV2Error;
 pub use euler::{
     kemr, kfmrh, mef, mev, mev_lone, mvfs, KemrResult, MefResult, MevResult, MvfsResult,
@@ -108,6 +111,7 @@ pub use introspect::{extract_edges, extract_edges_with_chord_tolerance, face_pla
 pub use journal::{descendants, face_lineage, EvoKind, Evolution, FaceLineage, OpTag};
 pub use pid::{edge_pid, solid_face_pids, solid_pids, vertex_pid, FacePids, SolidPids};
 pub use profile::{Profile, ProfileEdge, ProfileRegion};
+pub use projection::project_edges;
 pub use step_export::{write_step, StepSolid};
 pub use tessellate::{
     circle_segment_count, surface_pair_interior_samples, surface_pair_project, tessellate,

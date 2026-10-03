@@ -1540,12 +1540,14 @@ impl ModelBuilder {
         count
     }
 
-    /// Tessellate every LIVE body in the model (the same walk as
+    /// Every LIVE body's kernel handle (the same walk as
     /// [`Self::distinct_solid_count`]: unsuppressed, unconsumed, solid-bearing
-    /// features), one mesh per output body. Deliberate multi-body cases sum
-    /// volumes over this set — `tessellate_last_with_tol` only covers the
-    /// LAST feature's bodies.
-    pub fn tessellate_live_with_tol(&mut self, tol: f64) -> Result<Vec<RenderMesh>, HarnessError> {
+    /// features), one per output body, in feature order.
+    ///
+    /// This is what an oracle that is not about meshes needs — the projection
+    /// sweep asks the kernel for curves, not triangles — so the walk lives
+    /// here once instead of being copied per oracle.
+    pub fn live_solid_handles(&self) -> Vec<KernelSolidHandle> {
         let tree = &self.state.engine.tree;
         let limit = tree.active_index.unwrap_or(tree.features.len());
         let mut handles = Vec::new();
@@ -1566,6 +1568,15 @@ impl ModelBuilder {
                 handles.extend(result.outputs.iter().map(|(_, b)| b.handle.clone()));
             }
         }
+        handles
+    }
+
+    /// Tessellate every LIVE body in the model ([`Self::live_solid_handles`]),
+    /// one mesh per output body. Deliberate multi-body cases sum volumes over
+    /// this set — `tessellate_last_with_tol` only covers the LAST feature's
+    /// bodies.
+    pub fn tessellate_live_with_tol(&mut self, tol: f64) -> Result<Vec<RenderMesh>, HarnessError> {
+        let handles = self.live_solid_handles();
         let mut meshes = Vec::with_capacity(handles.len());
         for handle in handles {
             meshes.push(

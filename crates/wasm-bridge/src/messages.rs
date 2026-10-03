@@ -438,6 +438,20 @@ pub enum UiToEngine {
         filter: Option<waffle_types::TopoQuery>,
     },
     ExportStep,
+    /// One orthographic view of every live body as an R12 DXF drawing
+    /// (`specs/drawings_and_mbd.md` §8 / §12, increment D1a — wireframe, no
+    /// hidden lines yet). Query: no rebuild.
+    ///
+    /// `view_dir` is the direction of SIGHT, away from the viewer; absent
+    /// means the top view (`[0, 0, -1]`), which is the flat-pattern default.
+    /// `up` is which world direction points up on the paper; absent lets the
+    /// kernel pick one that is not parallel to `view_dir`.
+    ExportDxf {
+        #[serde(default)]
+        view_dir: Option<[f64; 3]>,
+        #[serde(default)]
+        up: Option<[f64; 3]>,
+    },
     ExportStl,
     /// Export a single body to STL. `body_id` is the persistent body identity
     /// (`FeatureTree::body_id` = `"{feature_id}/{output_key.tag()}"`).
@@ -810,6 +824,14 @@ pub enum EngineToUi {
     /// (a mesh-backed imported body has no analytic geometry to write).
     ExportReady {
         step_data: String,
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        warnings: Vec<String>,
+    },
+
+    /// DXF export is ready. `warnings` names anything the export left out,
+    /// on the same terms as [`EngineToUi::ExportReady`].
+    DxfExportReady {
+        dxf_data: String,
         #[serde(default, skip_serializing_if = "Vec::is_empty")]
         warnings: Vec<String>,
     },

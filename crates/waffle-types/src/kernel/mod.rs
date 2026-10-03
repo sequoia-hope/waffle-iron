@@ -12,6 +12,7 @@
 
 pub mod analytic;
 pub mod import;
+pub mod projection;
 pub mod traits;
 pub mod types;
 pub mod units;
@@ -21,6 +22,7 @@ pub mod mock;
 
 pub use analytic::*;
 pub use import::*;
+pub use projection::*;
 pub use traits::*;
 pub use types::*;
 

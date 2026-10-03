@@ -1,5 +1,7 @@
-//! The export pair in the engine (`specs/waffle_server_mode.md` §2.3 S3 C6):
-//! `export_step` and `export_stl`.
+//! The export tools in the engine (`specs/waffle_server_mode.md` §2.3 S3 C6):
+//! `export_step`, `export_stl`, and since 2026-10-03 `export_dxf`
+//! (`specs/drawings_and_mbd.md` §12 — one orthographic view of the model as a
+//! flat-pattern drawing, over the D1a projection).
 //!
 //! Agreement with the page's former JS implementation is held end to end by
 //! `app/tests/gui/agent-export-import.spec.js`, which drives the REAL relay
@@ -136,7 +138,7 @@ fn resource(result: &ToolResult) -> Option<&Value> {
 fn an_empty_part_has_nothing_to_export() {
     let mut state = EngineState::new();
     let mut kernel = kernel_v2::KernelV2Adapter::new();
-    for name in ["export_step", "export_stl"] {
+    for name in ["export_step", "export_stl", "export_dxf"] {
         let result = tool(&mut state, &mut kernel, name, json!({}));
         assert!(result.is_error, "{name}: {result:?}");
         assert_eq!(
@@ -317,6 +319,150 @@ fn on_the_wire_download_rides_beside_the_mcp_fields_and_only_for_a_download() {
         inline.get("download").is_none(),
         "an inline answer has nothing out of band: {inline}"
     );
+}
+
+// ── export_dxf ────────────────────────────────────────────────
+
+/// Every `(code, value)` pair of a DXF, so the assertions read the file the
+/// way a CAM front end does rather than by substring.
+fn dxf_codes(text: &str) -> Vec<(i32, String)> {
+    let mut lines = text.lines();
+    let mut out = Vec::new();
+    while let (Some(code), Some(value)) = (lines.next(), lines.next()) {
+        out.push((
+            code.trim().parse().expect("a group code"),
+            value.trim().to_string(),
+        ));
+    }
+    out
+}
+
+fn dxf_entity_count(text: &str, kind: &str) -> usize {
+    dxf_codes(text)
+        .iter()
+        .filter(|(c, v)| *c == 0 && v == kind)
+        .count()
+}
+
+/// A header variable's `(x, y)`, in the file's millimetres.
+fn dxf_header_point(text: &str, name: &str) -> (f64, f64) {
+    let codes = dxf_codes(text);
+    let i = codes
+        .iter()
+        .position(|(c, v)| *c == 9 && v == name)
+        .unwrap_or_else(|| panic!("no {name} in the header"));
+    (
+        codes[i + 1].1.parse().expect("a real"),
+        codes[i + 2].1.parse().expect("a real"),
+    )
+}
+
+#[test]
+fn export_dxf_defaults_to_the_top_view_of_the_whole_model() {
+    let (mut state, mut kernel, _) = box_document();
+    let result = tool(&mut state, &mut kernel, "export_dxf", json!({}));
+    assert!(!result.is_error, "{result:?}");
+    let meta = &result.structured_content;
+    assert_eq!(meta["deliver"], "agent");
+    assert_eq!(meta["mime_type"], "image/vnd.dxf");
+    assert_eq!(meta["file_name"], "Untitled.dxf");
+    assert_eq!(meta["warnings"], json!([]));
+
+    let res = resource(&result).expect("an embedded resource");
+    assert_eq!(res["uri"], "waffle://export/Untitled.dxf");
+    let text = res["text"].as_str().expect("DXF text");
+    assert!(res.get("blob").is_none());
+    assert_eq!(meta["bytes"], text.len());
+    assert!(result.download.is_none());
+
+    // Seen from the top: eight segments of the two coincident rectangles and
+    // four verticals collapsed to points.
+    assert_eq!(dxf_entity_count(text, "LINE"), 8);
+    assert_eq!(dxf_entity_count(text, "POINT"), 4);
+    // The extents, in MILLIMETRES. The 20 × 10 mm sketch rectangle sits on
+    // the default XY-plane basis, whose in-plane x axis is world −y, so the
+    // box's world footprint is x ∈ [0, 10], y ∈ [−20, 0]; the top view reads
+    // x right and y up.
+    assert_eq!(dxf_header_point(text, "$EXTMIN"), (0.0, -20.0));
+    assert_eq!(dxf_header_point(text, "$EXTMAX"), (10.0, 0.0));
+}
+
+#[test]
+fn export_dxf_takes_a_named_view_and_a_free_direction() {
+    let (mut state, mut kernel, _) = box_document();
+    // From the front the box is 10 mm wide and 5 mm tall where the top view
+    // showed 10 × 20, so the view argument reaches the kernel rather than
+    // being decoration.
+    let front = tool(
+        &mut state,
+        &mut kernel,
+        "export_dxf",
+        json!({ "view": "front" }),
+    );
+    assert!(!front.is_error, "{front:?}");
+    let text = resource(&front).expect("resource")["text"]
+        .as_str()
+        .expect("DXF text")
+        .to_string();
+    assert_eq!(dxf_header_point(&text, "$EXTMIN"), (0.0, 0.0));
+    assert_eq!(dxf_header_point(&text, "$EXTMAX"), (10.0, 5.0));
+
+    // The same frame spelled as a direction must give the same file.
+    let explicit = tool(
+        &mut state,
+        &mut kernel,
+        "export_dxf",
+        json!({ "direction": [0.0, 1.0, 0.0], "up": [0.0, 0.0, 1.0] }),
+    );
+    assert!(!explicit.is_error, "{explicit:?}");
+    assert_eq!(
+        resource(&explicit).expect("resource")["text"].as_str(),
+        Some(text.as_str())
+    );
+}
+
+#[test]
+fn export_dxf_refuses_a_view_it_cannot_name_rather_than_falling_back() {
+    let (mut state, mut kernel, _) = box_document();
+    for (args, path) in [
+        (json!({ "view": "isometric" }), "/view"),
+        (
+            json!({ "view": "top", "direction": [0.0, 0.0, 1.0] }),
+            "/direction",
+        ),
+        (json!({ "direction": [0.0, 0.0, 0.0] }), "/direction"),
+    ] {
+        let result = tool(&mut state, &mut kernel, "export_dxf", args.clone());
+        assert!(result.is_error, "{args} should be refused: {result:?}");
+        assert_eq!(
+            result.structured_content["error"]["code"], "InvalidArgument",
+            "{args}"
+        );
+        assert_eq!(
+            result.structured_content["error"]["details"]["path"], path,
+            "{args}"
+        );
+    }
+}
+
+#[test]
+fn export_dxf_hands_a_download_to_the_host() {
+    let (mut state, mut kernel, _) = box_document();
+    let result = tool(
+        &mut state,
+        &mut kernel,
+        "export_dxf",
+        json!({ "deliver": "download" }),
+    );
+    assert!(!result.is_error, "{result:?}");
+    assert!(resource(&result).is_none());
+    let file = result.download.as_ref().expect("the file, for the host");
+    assert_eq!(file.file_name, "Untitled.dxf");
+    assert_eq!(file.mime_type, "image/vnd.dxf");
+    let text = file.text.as_deref().expect("DXF text");
+    assert!(text.ends_with("  0\nEOF\n"));
+    assert!(file.blob.is_none());
+    assert_eq!(result.structured_content["bytes"], text.len());
 }
 
 /// Standard padded base64, decoded by hand so the test needs no crate.
