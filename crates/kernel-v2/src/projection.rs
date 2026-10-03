@@ -371,7 +371,8 @@ fn offset(p: Point2, dir: [f64; 2], s: f64) -> Point2 {
     Point2::new(p.x() + dir[0] * s, p.y() + dir[1] * s)
 }
 
-mod crossings;
+pub(crate) mod crossings;
+pub mod section;
 mod silhouette;
 pub(crate) mod visibility;
 

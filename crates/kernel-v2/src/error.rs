@@ -560,6 +560,53 @@ pub enum KernelV2Error {
     /// The boxes are carried as formatted text because this enum is `Eq`.
     InterferenceRegionOutsideOperands { bounds: String },
 
+    // ----- planar section (`crate::projection::section`, D1d) ------------
+    /// D1d ([`crate::projection::section::section_with_plane`]): the cut
+    /// plane's normal is zero-length or non-finite, or its origin is
+    /// non-finite. There is no plane to cut with — an invalid input, refused
+    /// before any arena work.
+    SectionDegeneratePlane,
+
+    /// D1d: the solid cannot be BOUNDED, so there is no scale to derive the
+    /// half-space box's margin from.
+    ///
+    /// [`crate::introspect::conservative_aabb`] answers `None` once an edge
+    /// carries an unbounded-bulge curve (a hyperbola piece or a surface-pair
+    /// curve). A section could still be attempted with a box sized from the
+    /// vertex hull, but that box would not provably enclose the solid, and a
+    /// box that clips the solid at its own lateral face produces a cap that
+    /// is a sub-region of the true section — a silently wrong drawing. So the
+    /// section declines instead (P9/P10).
+    SectionSolidUnbounded { solid: crate::arena::SolidId },
+
+    /// D1d, P10: the Intersect against the half-space box returned material
+    /// on the DISCARDED side of the cut plane.
+    ///
+    /// Every point of `solid ∩ halfspace` satisfies
+    /// `(p − origin)·normal ≤ 0` by definition, so a result vertex beyond
+    /// that is a containment PROOF of failure, not a tolerance miss. The live
+    /// customer is deviation N69's class: a box that meets the solid along an
+    /// EDGE comes back from `Intersect` as a bit-for-bit COPY of an operand
+    /// (measured 2026-10-03), and a copy of the solid has vertices on both
+    /// sides. Without this net a grazing section would be drawn as a cap
+    /// around the solid's whole silhouette.
+    ///
+    /// Carried as formatted text because this enum is `Eq`.
+    SectionCutOutsideHalfSpace { detail: String },
+
+    /// D1d, P10: a face the lineage attributes to the cutting box is not the
+    /// cap.
+    ///
+    /// Two shapes of failure, both loud:
+    /// - the face descends from a WALL or the far face of the box rather than
+    ///   its base, which means the box did not enclose the solid and the
+    ///   margin derivation is wrong;
+    /// - the face's plane is not the cut plane, which means the lineage and
+    ///   the geometry disagree about what the cap is.
+    ///
+    /// Carried as formatted text because this enum is `Eq`.
+    SectionCapNotOnCutPlane { detail: String },
+
     // ----- persistent identity (`crate::pid`, D0) -------------------------
     /// A face of the solid whose persistent ids were requested carries no
     /// stamped `Pid`, so there is nothing to seed its edges and vertices

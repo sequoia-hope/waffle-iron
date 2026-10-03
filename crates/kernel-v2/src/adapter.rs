@@ -2110,6 +2110,73 @@ impl waffle_types::kernel::KernelProjection for KernelV2Adapter {
         Ok(out)
     }
 
+    /// D1d (`specs/drawings_and_mbd.md` §5.2 increment 4). The cut runs the
+    /// real Intersect against a half-space box in a scratch arena and the
+    /// result is copied back into the live one, so the caller gets a solid it
+    /// can project while the box and the boolean's journal never touch the
+    /// live persistent ids — see [`crate::projection::section`].
+    ///
+    /// The cap edges that cannot stay analytic are sampled at the RENDER chord
+    /// band: the trait method takes no [`ProjectOpts`], and a section's cap is
+    /// a hatch boundary rather than a dimensioned outline, so the density the
+    /// rest of the kernel draws at is the right default. A caller that needs
+    /// another density calls `kernel_v2::projection::section::section_with_plane`.
+    fn section_with_plane(
+        &mut self,
+        solid: &KernelSolidHandle,
+        plane_origin: [f64; 3],
+        plane_normal: [f64; 3],
+    ) -> Result<waffle_types::kernel::projection::SectionResult, KernelError> {
+        use waffle_types::kernel::projection::SectionResult;
+        if self.imported_slot_of(solid).is_some() {
+            return Err(KernelError::NotSupported {
+                operation: "section_with_plane of an imported mesh-backed body".to_string(),
+            });
+        }
+        let sid = self.solid_of(solid)?;
+        let cut = crate::projection::section::section_with_plane(
+            &mut self.arena,
+            sid,
+            plane_origin,
+            plane_normal,
+            crate::tessellate::RENDER_CHORD_TOLERANCE_REL,
+        )
+        .map_err(|e| match e {
+            // The Stage-0 coplanar wall is a CAPABILITY boundary, named the
+            // same way every other consumer of the boolean names it.
+            KernelV2Error::UnsupportedCoplanar => Self::not_supported(
+                "section_with_plane: coplanar input face pair the Yang Stage-0 overlay could not \
+                 resolve (roadmap M8)",
+            ),
+            KernelV2Error::UnsupportedCurvedBoolean { face, reason } => {
+                Self::not_supported(&format!(
+                    "section_with_plane: curved partial-patch operand face {face:?} [{reason}] \
+                     cannot re-enter yang-rs Stage 1"
+                ))
+            }
+            // Everything else — an invalid plane, an unboundable solid, a
+            // containment-net STOP, a Stage-3/4/5 wall — is a loud failure
+            // naming the kernel's own error, never an empty section.
+            other => KernelError::Other {
+                message: format!("kernel-v2 section_with_plane failed: {other}"),
+            },
+        })?;
+        // The "nothing was cut" arm hands back the INPUT solid id, so it must
+        // hand back the input HANDLE too rather than minting a second handle
+        // for the same body.
+        let cut_solid = match cut.cut_solid {
+            None => None,
+            Some(s) if s == sid => Some(solid.clone()),
+            Some(s) => Some(self.alloc_handle(s)),
+        };
+        Ok(SectionResult {
+            cap_loops: cut.cap_loops,
+            cut_solid,
+            plane_basis: cut.plane_basis,
+            cap_shared_with_model: cut.cap_shared_with_model,
+        })
+    }
+
     fn export_dxf_with_declines(
         &self,
         bodies: &[ProjectionBody],

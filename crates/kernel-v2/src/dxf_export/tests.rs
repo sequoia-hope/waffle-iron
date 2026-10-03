@@ -19,7 +19,7 @@ use std::path::PathBuf;
 use super::*;
 use crate::KernelV2Adapter;
 use waffle_types::kernel::projection::{KernelProjection, ProjectOpts, ProjectionBody, ViewFrame};
-use waffle_types::kernel::{CircleProfile, ClosedProfile, Kernel, KernelError, KernelSolidHandle};
+use waffle_types::kernel::{CircleProfile, ClosedProfile, Kernel, KernelSolidHandle};
 
 // --- fixtures (the step_export tests' shapes, in the same two sizes) ---
 
@@ -544,17 +544,21 @@ fn export_dxf_refuses_a_degenerate_view_rather_than_writing_an_empty_file() {
     assert!(format!("{err}").contains("degenerate view frame"), "{err}");
 }
 
+/// D1d has landed, so the method that used to be a loud `NotSupported` here
+/// now answers the cap. The quarantine goes with the capability, in the same
+/// change — a stale `until_d1d` test is itself a defect.
 #[test]
-fn the_section_method_is_a_loud_not_supported_until_d1d() {
+fn the_section_method_answers_the_cap_since_d1d() {
     let mut a = KernelV2Adapter::new();
     let solid = make_box(&mut a, 0.010, 0.010, 0.010);
-    let err = a
+    let cut = a
         .section_with_plane(&solid, [0.0, 0.0, 0.005], [0.0, 0.0, 1.0])
-        .expect_err("D1d has not landed");
-    assert!(
-        matches!(err, KernelError::NotSupported { ref operation } if operation == "section_with_plane"),
-        "{err}"
-    );
+        .expect("a 10 mm cube cut at mid height");
+    assert_eq!(cut.cap_loops.len(), 1);
+    // 10 mm × 10 mm = 1e-4 m², in closed form from four exact lines.
+    assert_eq!(cut.cap_area(), 1.0e-4);
+    assert!(cut.exact());
+    assert!(cut.cut_solid.is_some());
 }
 
 // --- the golden ---
