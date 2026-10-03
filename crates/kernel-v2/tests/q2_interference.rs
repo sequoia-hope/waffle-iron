@@ -534,6 +534,14 @@ fn an_intersect_region_outside_the_operands_stops_instead_of_answering() {
                     "{label}: the STOP names the violation: {bounds}"
                 );
             }
+            // Or the kernel's own N69 net fires one layer EARLIER (merged the
+            // same day, 2026-10-03): cherchi-rs's `InnerLabelOutsideInputBounds`
+            // refutes the grazing-ray label with a containment proof before
+            // any operand copy can reach the interference query. Equally
+            // loud, equally typed, and the earlier of the two is the one that
+            // answers — so both nets are legitimate outcomes here.
+            Err(KernelV2Error::BooleanFailed(msg))
+                if msg.contains("InnerLabelOutsideInputBounds") => {}
             other => panic!("{label}: two cubes sharing one edge share no volume — got {other:?}"),
         }
     }
