@@ -1505,7 +1505,15 @@ fn smoke_corpus_boundary_categories() {
         // dropped. Both are byte-identical in `rel` at ×1e-3 AND ×1e3.
         ("P0010", Category::SupportedWrong),
         ("P0011", Category::SupportedWrong),
-        // P0012: a `ThroughAll` cut whose target lies entirely behind its
+        // P0012 CONVERTED 2026-10-03 (`docs/yang_tail_triage.md`, the
+        // "P0012 CONVERTED" section): the through-all depth is now measured
+        // along the direction the extrude ACTUALLY sweeps, over every body the
+        // feature acts on, with a RELATIVE overshoot — no absolute 1 m margin
+        // anywhere. The kernel's 1.739652e3 matches an independent closed-form
+        // reading of the document (1739.6523) to six digits. Pins:
+        // `crates/test-harness/tests/through_all_depth_kv2.rs` at ×1e-3 / ×1 /
+        // ×1e3. The diagnosis it was promoted with, for the record:
+        // a `ThroughAll` cut whose target lies entirely behind its
         // sketch plane removes NOTHING (72016 = 72000 + 16 exactly, against a
         // lattice 62146). Root cause CONFIRMED BY CODE READING, not inferred:
         // `resolve_depth(DepthMode::ThroughAll, …)`
@@ -1517,8 +1525,11 @@ fn smoke_corpus_boundary_categories() {
         // spans projection [42.71, 43.71] and never reaches the body's 38.04
         // (`FE_CUT_TRACE=1`). The scale behaviour matches: ×1e3 keeps the
         // WRONG, ×1e-3 reads CORRECT because the absolute margin then dwarfs
-        // the model.
-        ("P0012", Category::SupportedWrong),
+        // the model. (The "lattice 62146" was an artifact of its own: the
+        // oracle mirrored the same formula on a BOUNDING BOX, so its cutter
+        // was 15.5 long instead of 1.0 and clipped a 9870 slab. The true
+        // swept volume is 70276.35 — 97.6 % of the box.)
+        ("P0012", Category::SupportedCorrect),
         // P0013–P0022: ten loud families whose error text (boolean VERB
         // stripped) has no current corpus customer — CLAUDE.md records the
         // Stage-4 relocation walls, the Stage-3 `AmbiguousCurve` class and
@@ -1569,10 +1580,14 @@ fn smoke_corpus_boundary_categories() {
         // render-level output gate — P0007's signature, converted 2026-09-29,
         // residue on three plain bosses.
         ("P0021", Category::Error),
-        // P0022 (5 ops) ⇒ the junction-mint postcondition catching itself:
-        // "interior junction … not contained by any lateral triangle — the
-        // mint would be silently dropped". ×1e-3 keeps it, ×1e3 reads CORRECT.
-        ("P0022", Category::Error),
+        // P0022 (5 ops) was promoted for the junction-mint postcondition
+        // catching itself ("interior junction … not contained by any lateral
+        // triangle — the mint would be silently dropped"; ×1e-3 kept it, ×1e3
+        // already read CORRECT). Its last op is a ThroughAll cut, so P0012's
+        // conversion the same day moved it too: the document's real geometry
+        // no longer reaches that wall, and the case is CORRECT end to end.
+        // That loud family has NO corpus customer again.
+        ("P0022", Category::SupportedCorrect),
     ];
     // Per-case CPU budget, expressed in RELEASE-equivalent seconds and scaled
     // for debug. `scripts/test.sh` runs test-harness WITHOUT `--release`, and
