@@ -59,9 +59,14 @@ pub struct EngineState {
     /// Part engines of assembly views this state has LEFT (a tab switch away
     /// from an assembly, out of an edit context), kept for the next
     /// evaluation to reuse (`assembly_view::evaluate`'s `reuse`): a part whose
-    /// tree is unchanged is not rebuilt. At most one engine per part; the
+    /// tree is unchanged is not rebuilt. At most one engine per BUILD; the
     /// newest wins.
-    pub part_cache: Vec<(feature_engine::assembly::PartRef, Engine)>,
+    ///
+    /// The key is a `PartBuild` (P2) rather than a `PartRef`, because an
+    /// instance's `parameter_overrides` change the geometry: two instances
+    /// of one Part tab are two cache entries, and one engine per part would
+    /// hand the second instance the first one's bodies.
+    pub part_cache: Vec<(feature_engine::assembly::PartBuild, Engine)>,
     /// Linked KiCad boards (`specs/kicad_board_link.md` C2): which tabs a
     /// `KicadPcb` source derived and the hover metadata for them. A pure
     /// function of the source bytes — regenerated, never persisted.
@@ -153,7 +158,7 @@ impl EngineState {
     /// currently open — leaving none behind. What the next
     /// `assembly_view::evaluate` is handed; whatever it does not take comes
     /// back through [`Self::park_unused_part_engines`].
-    pub fn take_part_engines(&mut self) -> Vec<(feature_engine::assembly::PartRef, Engine)> {
+    pub fn take_part_engines(&mut self) -> Vec<(feature_engine::assembly::PartBuild, Engine)> {
         self.stash_assembly_views();
         std::mem::take(&mut self.part_cache)
     }
@@ -161,16 +166,22 @@ impl EngineState {
     /// Keep the engines an evaluation did not take, minus the stale ones.
     ///
     /// An engine the evaluation left behind is one of two things. If the pass
-    /// built a part with the same `PartRef`, the leftover is the OLD engine for
-    /// a tree that has since changed — stale, and dropping it is the point.
-    /// Otherwise no live instance names that part at all: it is hidden
-    /// (`suppressed`) or its instance was removed, and the engine is still an
-    /// exact build of a tree nobody touched. Parking it is what makes showing a
-    /// hidden instance again cost the solve instead of a full part rebuild.
+    /// built a part with the same `PartBuild`, the leftover is the OLD engine
+    /// for a tree that has since changed — stale, and dropping it is the point.
+    /// Otherwise no live instance names that build at all: it is hidden
+    /// (`suppressed`), its instance was removed, or its overrides were edited,
+    /// and the engine is still an exact build of a tree nobody touched. Parking
+    /// it is what makes showing a hidden instance again cost the solve instead
+    /// of a full part rebuild.
+    ///
+    /// Comparing BUILDS rather than parts is what makes an override edit
+    /// behave: changing one instance's overrides retires that build's engine
+    /// and leaves its siblings' engines parked, where a `PartRef` comparison
+    /// would have declared every build of the part stale at once.
     pub fn park_unused_part_engines(
         &mut self,
-        unused: Vec<(feature_engine::assembly::PartRef, Engine)>,
-        built: &[(feature_engine::assembly::PartRef, Engine)],
+        unused: Vec<(feature_engine::assembly::PartBuild, Engine)>,
+        built: &[(feature_engine::assembly::PartBuild, Engine)],
     ) {
         for (part, engine) in unused {
             if built.iter().any(|(p, _)| *p == part) {

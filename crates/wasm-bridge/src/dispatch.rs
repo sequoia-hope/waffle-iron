@@ -658,6 +658,12 @@ fn handle_message(
             // first message (S2 C2).
             state.session = DocumentSession::from_document(doc);
             state.engine.tree = tree;
+            // The document's parameter table (P2, v11) reaches the engine the
+            // same way `sources` does — pushed in, not held in the tree.
+            // Here as well as in `switch_tab`, because a load does not switch
+            // tabs: the active tab's tree was taken above.
+            state.engine.document_parameters = state.session.document_parameters().to_vec();
+            state.engine.parameter_overrides = None;
             // Another document's parts are of no use to this one.
             state.assembly = None;
             state.drawing = None;
@@ -917,11 +923,13 @@ fn handle_message(
             let assembly = state.session.assembly(&assembly_tab_id)?.clone();
             let part_trees = state.session.part_trees(&state.engine);
             let assembly_trees = state.session.assembly_trees();
+            let document_parameters = state.session.document_parameters().to_vec();
             let view = crate::assembly_view::evaluate(
                 assembly,
                 &part_trees,
                 &assembly_trees,
                 &state.engine.sources,
+                &document_parameters,
                 kb,
                 &mut reuse,
             );
@@ -960,11 +968,40 @@ fn handle_message(
             Ok(model_updated_response(state))
         }
 
+        UiToEngine::SetDocumentParameters { parameters } => {
+            // The ENGINE evaluates and the session stores what the engine
+            // evaluated, so `value`/`error` are computed once and the two
+            // copies cannot disagree about them.
+            state.engine.set_document_parameters(parameters, kb);
+            state
+                .session
+                .set_document_parameters(state.engine.document_parameters.clone());
+            // An open Assembly or Drawing tab holds part engines built
+            // against the OLD table, and its own tree is not the live one, so
+            // the rebuild above did not touch them. Re-evaluate what is on
+            // screen — the same rule `EditAssembly` follows. The pool's
+            // engines are rejected on their own (the reuse hit compares the
+            // document table's signature), so this costs a rebuild only for
+            // the parts that actually read it.
+            let active = state.session.active_tab_id().to_string();
+            if state.session.assembly(&active).is_ok() {
+                open_assembly(state, &active, kb)?;
+            } else if state.session.drawing(&active).is_ok() {
+                open_drawing(state, &active, kb)?;
+            }
+            Ok(model_updated_response(state))
+        }
+
         UiToEngine::EvaluateExpression {
             expression,
             dimension,
         } => {
-            let env = feature_engine::params::cached_env(&state.engine.tree.parameters);
+            // Both scopes (P2), tab-shadows-document, so the preview refuses
+            // exactly what the next rebuild refuses.
+            let env = feature_engine::params::cached_env_in(
+                &state.engine.tree.parameters,
+                &state.engine.document_parameters,
+            );
             // The preview reports the WORKING-SPACE magnitude (mm for a
             // length, degrees for an angle) — what the field's own boundary
             // will convert — plus the dimension the expression produced. A
@@ -1236,11 +1273,13 @@ fn open_assembly(
     state.engine.rebuild_from_scratch(kb);
     let part_trees = state.session.part_trees(&state.engine);
     let assembly_trees = state.session.assembly_trees();
+    let document_parameters = state.session.document_parameters().to_vec();
     let view = crate::assembly_view::evaluate(
         assembly,
         &part_trees,
         &assembly_trees,
         &state.engine.sources,
+        &document_parameters,
         kb,
         &mut reuse,
     );
@@ -1332,11 +1371,13 @@ fn export_sheet_dxf(
     let part_trees = state.session.part_trees(&state.engine);
     let assembly_trees = state.session.assembly_trees();
     let mut reuse = state.take_part_engines();
+    let document_parameters = state.session.document_parameters().to_vec();
     let eval = crate::drawing_view::evaluate(
         &drawing,
         &part_trees,
         &assembly_trees,
         &state.engine.sources,
+        &document_parameters,
         kb,
         &mut reuse,
     );
@@ -1412,11 +1453,13 @@ fn open_drawing(
     state.engine.rebuild_from_scratch(kb);
     let part_trees = state.session.part_trees(&state.engine);
     let assembly_trees = state.session.assembly_trees();
+    let document_parameters = state.session.document_parameters().to_vec();
     let eval = crate::drawing_view::evaluate(
         &drawing,
         &part_trees,
         &assembly_trees,
         &state.engine.sources,
+        &document_parameters,
         kb,
         &mut reuse,
     );
@@ -2946,6 +2989,10 @@ pub fn document_info(state: &EngineState) -> DocumentInfo {
             .assembly(state.session.active_tab_id())
             .ok()
             .cloned(),
+        // The EVALUATED table, from the engine rather than the session's
+        // store: both hold the same rows, but the engine's are the ones the
+        // last parameter pass filled `value`/`error` on.
+        parameters: state.engine.document_parameters.clone(),
         revision: state.session.revision(),
     }
 }
@@ -2959,7 +3006,9 @@ pub fn assembly_status(state: &EngineState) -> Option<AssemblyStatus> {
         placements: v.placements.clone(),
         errors: v.errors.clone(),
         warnings: v.warnings.clone(),
-        parts: v.parts.iter().map(|(p, _)| p.clone()).collect(),
+        // Which PARTS the assembly uses, not which builds: the answer names
+        // tabs, and two builds of one Part tab are still one part.
+        parts: v.parts.iter().map(|(p, _)| p.part.clone()).collect(),
         connectors: v
             .tree
             .connectors
@@ -3057,8 +3106,8 @@ fn model_updated_response(state: &EngineState) -> EngineToUi {
                     ContextInstanceInfo {
                         path: leaf.path.clone(),
                         name: cv.view.leaf_name(&leaf.path),
-                        part_tab_id: part.tab_id.clone(),
-                        part_source_id: part.source_id,
+                        part_tab_id: part.part.tab_id.clone(),
+                        part_source_id: part.part.source_id,
                     }
                 })
                 .collect(),

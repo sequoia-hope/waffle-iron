@@ -19,7 +19,7 @@
 
 use std::collections::HashMap;
 
-use feature_engine::assembly::{AssemblyTree, PartRef};
+use feature_engine::assembly::{AssemblyTree, PartBuild, PartRef};
 use feature_engine::drawing::{
     auto_placement_mm, dimension_kind_from_tag, rebuild_view, Drawing, DrawingError, DrawingView,
     Projection, Sheet, ViewAnchor, ViewSource, DEFAULT_VIEW_GAP_MM,
@@ -87,7 +87,7 @@ pub struct DrawingEval {
     pub annotation_errors: Vec<(Uuid, usize)>,
     /// The part engines this pass built or reused, to be parked for the next
     /// one (the same contract as `AssemblyView::parts`).
-    pub parts: Vec<(PartRef, Engine)>,
+    pub parts: Vec<(PartBuild, Engine)>,
 }
 
 /// Apply one targeted edit to `drawing` (D4a), or say why not.
@@ -389,6 +389,21 @@ fn default_placement(sheet: &Sheet, projection: &Projection) -> [f64; 2] {
 
 /// Rebuild every view of `drawing`.
 ///
+/// The document-level inputs a drawing evaluation reads, bundled.
+///
+/// Four borrows that always travel together and never change during a pass:
+/// the tabs it can draw, the source store, and (P2) the document parameter
+/// table every part resolves through. One struct rather than four parameters
+/// because they were threaded through three call levels and the next addition
+/// would have made a seven-argument function an eight-argument one at each.
+#[derive(Clone, Copy)]
+struct DocumentInputs<'a> {
+    part_trees: &'a HashMap<String, FeatureTree>,
+    assembly_trees: &'a HashMap<String, AssemblyTree>,
+    sources: &'a feature_engine::sources::SourceStore,
+    document_parameters: &'a [feature_engine::types::DesignParameter],
+}
+
 /// `reuse` is the part-engine pool (`EngineState::take_part_engines`);
 /// whatever is left in it afterwards the caller parks. Errors never abort the
 /// pass: a sheet of eight views reports the one that failed and draws the
@@ -398,9 +413,16 @@ pub fn evaluate(
     part_trees: &HashMap<String, FeatureTree>,
     assembly_trees: &HashMap<String, AssemblyTree>,
     sources: &feature_engine::sources::SourceStore,
+    document_parameters: &[feature_engine::types::DesignParameter],
     kb: &mut dyn KernelBundle,
-    reuse: &mut Vec<(PartRef, Engine)>,
+    reuse: &mut Vec<(PartBuild, Engine)>,
 ) -> DrawingEval {
+    let doc = DocumentInputs {
+        part_trees,
+        assembly_trees,
+        sources,
+        document_parameters,
+    };
     let mut out = DrawingEval::default();
     out.warnings.extend(drawing.validate());
 
@@ -418,15 +440,7 @@ pub fn evaluate(
                 }
             };
             if !by_tab.contains_key(&view.source.tab_id) {
-                let bodies = match bodies_of_tab(
-                    &view.source,
-                    part_trees,
-                    assembly_trees,
-                    sources,
-                    kb,
-                    reuse,
-                    &mut out,
-                ) {
+                let bodies = match bodies_of_tab(&view.source, &doc, kb, reuse, &mut out) {
                     Ok(bodies) => bodies,
                     Err(message) => {
                         out.errors.push(format!("view `{}`: {message}", view.name));
@@ -499,19 +513,23 @@ fn describe(view_name: &str, e: &DrawingError) -> String {
 /// Every projectable body of the tab `source` names.
 fn bodies_of_tab(
     source: &ViewSource,
-    part_trees: &HashMap<String, FeatureTree>,
-    assembly_trees: &HashMap<String, AssemblyTree>,
-    sources: &feature_engine::sources::SourceStore,
+    doc: &DocumentInputs<'_>,
     kb: &mut dyn KernelBundle,
-    reuse: &mut Vec<(PartRef, Engine)>,
+    reuse: &mut Vec<(PartBuild, Engine)>,
     out: &mut DrawingEval,
 ) -> Result<Vec<ProjectionBody>, String> {
+    let DocumentInputs {
+        part_trees,
+        assembly_trees,
+        sources,
+        document_parameters,
+    } = *doc;
     let part = PartRef {
         source_id: None,
         tab_id: source.tab_id.clone(),
     };
     if let Some(tree) = part_trees.get(&source.tab_id) {
-        let engine = build_part(part.clone(), tree, sources, kb, reuse);
+        let engine = build_part(part.clone(), tree, sources, document_parameters, kb, reuse);
         for (fid, msg) in &engine.errors {
             let name = engine
                 .tree
@@ -526,7 +544,7 @@ fn bodies_of_tab(
         let (bodies, warnings) =
             crate::dispatch::projection_bodies(&engine, kb.as_introspect(), "", None);
         out.warnings.extend(warnings);
-        out.parts.push((part, engine));
+        out.parts.push((PartBuild::plain(part), engine));
         return Ok(bodies);
     }
     if let Some(tree) = assembly_trees.get(&source.tab_id) {
@@ -541,6 +559,7 @@ fn bodies_of_tab(
             part_trees,
             assembly_trees,
             sources,
+            document_parameters,
             kb,
             reuse,
         );
@@ -587,13 +606,22 @@ fn build_part(
     part: PartRef,
     tree: &FeatureTree,
     sources: &feature_engine::sources::SourceStore,
+    document_parameters: &[feature_engine::types::DesignParameter],
     kb: &mut dyn KernelBundle,
-    reuse: &mut Vec<(PartRef, Engine)>,
+    reuse: &mut Vec<(PartBuild, Engine)>,
 ) -> Engine {
+    // A view of a PART tab draws the part as its own tab defines it, so this
+    // is always the default build: a drawing view names a tab, never an
+    // instance, and has no overrides to apply. (A view of an ASSEMBLY tab
+    // goes through `assembly_view::evaluate` above, which does.)
+    let build = PartBuild::plain(part);
     let wanted = serde_json::to_value(tree).ok();
+    let doc_sig = feature_engine::params::table_signature(document_parameters);
     let cached = wanted.and_then(|wanted| {
         reuse.iter().position(|(p, e)| {
-            *p == part && serde_json::to_value(&e.tree).ok() == Some(wanted.clone())
+            *p == build
+                && feature_engine::params::table_signature(&e.document_parameters) == doc_sig
+                && serde_json::to_value(&e.tree).ok() == Some(wanted.clone())
         })
     });
     match cached {
@@ -606,6 +634,7 @@ fn build_part(
             let mut engine = Engine::new();
             engine.tree = tree.clone();
             engine.sources = sources.clone();
+            engine.document_parameters = document_parameters.to_vec();
             engine.rebuild_from_scratch(kb);
             engine
         }

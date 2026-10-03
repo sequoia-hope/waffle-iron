@@ -94,6 +94,7 @@ fn parity_document(part: &FeatureTree, assembly: &AssemblyTree) -> Value {
             created: fixed,
             modified: fixed,
             display_unit: None,
+            parameters: Vec::new(),
             extra: Map::new(),
         },
         sources: Vec::new(),
