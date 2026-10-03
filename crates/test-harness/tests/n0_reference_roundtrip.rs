@@ -222,3 +222,161 @@ fn a_curved_fingerprint_is_reproducible_and_survives_a_chord_tolerance_change() 
         );
     }
 }
+
+/// The three consumers that read a face's point normal, or its centroid as a
+/// point ON the face, against a body whose curved face has neither (N0: a
+/// full-turn surface of revolution reports `normal: None` and an ON-AXIS
+/// centroid). None of them may panic, and none may pick a face arbitrarily.
+///
+/// A plain cylinder is the fixture: two planar caps and one full lateral.
+#[test]
+fn a_full_turn_face_without_a_normal_is_skipped_not_guessed() {
+    use waffle_types::{Anchor, Filter, GeomRef, Selector, TieBreak, TopoQuery};
+
+    let mut m = ModelBuilder::kernel_v2();
+    m.true_circle_sketch("sk", [0., 0., 0.], [0., 0., 1.], 0., 0., 5.)
+        .unwrap();
+    m.extrude("cyl", "sk", 10.0).unwrap();
+    let feature_id = m.feature_id("cyl").expect("feature");
+    let result = m.op_result("cyl").expect("result").clone();
+    let (output_key, body) = result.outputs.first().expect("body").clone();
+    let mut results = HashMap::new();
+    results.insert(feature_id, result.clone());
+    let introspect = m.kernel_ref().as_introspect();
+
+    // The fixture really is the case under test: one cylindrical face with no
+    // normal and a centroid on the axis, plus planar caps that have both.
+    let faces: Vec<_> = introspect
+        .list_faces(&body.handle)
+        .into_iter()
+        .map(|f| (f, introspect.compute_signature(f, TopoKind::Face)))
+        .collect();
+    let lateral: Vec<_> = faces
+        .iter()
+        .filter(|(_, s)| s.surface_type.as_deref() == Some("cylindrical"))
+        .collect();
+    assert_eq!(lateral.len(), 1, "one lateral: {faces:?}");
+    let (lat_id, lat_sig) = lateral[0];
+    assert!(lat_sig.normal.is_none(), "{lat_sig:?}");
+    assert!(lat_sig.axis.is_some(), "{lat_sig:?}");
+    let on_axis = lat_sig.centroid.expect("on-axis centroid");
+    assert!(
+        on_axis[0].abs() < 1e-12 && on_axis[1].abs() < 1e-12,
+        "{on_axis:?}"
+    );
+    assert!(
+        faces.iter().any(|(_, s)| s.normal.is_some()),
+        "the caps still have normals: {faces:?}"
+    );
+
+    let anchored = |selector: Selector| GeomRef {
+        kind: TopoKind::Face,
+        anchor: Anchor::FeatureOutput {
+            feature_id,
+            output_key: output_key.clone(),
+        },
+        selector,
+        policy: ResolvePolicy::BestEffort,
+        scope: None,
+    };
+
+    // 1. `Filter::NormalDirection` EXCLUDES it. Even at a tolerance of π
+    //    radians — which matches every direction there is — "no normal" is
+    //    not a match, and the query still answers over the caps.
+    for dir in [[0.0, 0.0, 1.0], [1.0, 0.0, 0.0], [0.0, 0.0, -1.0]] {
+        let filters = vec![Filter::NormalDirection {
+            direction: dir,
+            tolerance: std::f64::consts::PI,
+        }];
+        assert!(
+            !feature_engine::resolve::passes_all_filters(lat_sig, &filters),
+            "a tolerance of π radians still must not match a face with no \
+             normal (direction {dir:?}): {lat_sig:?}"
+        );
+        let matched = faces
+            .iter()
+            .filter(|(_, s)| feature_engine::resolve::passes_all_filters(s, &filters))
+            .count();
+        assert_eq!(matched, 2, "but both caps do match (direction {dir:?})");
+    }
+    // A query carrying that filter therefore answers over the caps, and the
+    // tie-break picks among them rather than reaching the lateral.
+    let q = TopoQuery {
+        filters: vec![Filter::NormalDirection {
+            direction: [0.0, 0.0, 1.0],
+            tolerance: 0.1,
+        }],
+        tie_break: Some(TieBreak::LargestArea),
+    };
+    let hit = resolve_geom_ref_live(
+        &anchored(Selector::Query { query: q }),
+        &results,
+        introspect,
+    )
+    .expect("the +z cap resolves");
+    assert_ne!(hit.kernel_id, *lat_id, "never the lateral");
+
+    // 2. `Selector::Position` AT the lateral's own on-axis centroid resolves
+    //    deterministically — the same face every time, never a coin flip.
+    let pos = anchored(Selector::Position {
+        x: on_axis[0],
+        y: on_axis[1],
+        z: on_axis[2],
+    });
+    let first = feature_engine::resolve::resolve_by_position(&pos, &results, introspect, on_axis)
+        .map(|r| r.kernel_id);
+    for _ in 0..3 {
+        let again =
+            feature_engine::resolve::resolve_by_position(&pos, &results, introspect, on_axis)
+                .map(|r| r.kernel_id);
+        assert_eq!(
+            first.as_ref().ok(),
+            again.as_ref().ok(),
+            "a Position selector must be deterministic"
+        );
+    }
+    assert!(
+        first.is_ok(),
+        "and it must not panic or fail outright: {first:?}"
+    );
+
+    // 3. `UpTo` against that face REFUSES, typed, naming why — it did so
+    //    before N0 too (the face carried no centroid at all then), and the
+    //    alternative is extruding to a plane through the axis.
+    let lateral_ref = anchored(Selector::Signature {
+        signature: lat_sig.clone(),
+    });
+    let _ = lat_id;
+    m.true_circle_sketch("sk2", [0., 0., 20.], [0., 0., 1.], 0., 0., 2.)
+        .unwrap();
+    let added = m.extrude_up_to("upto", "sk2", lateral_ref);
+    // The refusal reaches the caller either way: as a dispatch error, or as a
+    // typed engine error against the feature with no solid behind it. What it
+    // may NOT do is quietly extrude to a plane through the axis.
+    let refusal = match &added {
+        Err(e) => e.to_string(),
+        Ok(id) => {
+            let msgs: Vec<&str> = m
+                .engine_errors()
+                .iter()
+                .filter(|(f, _)| f == id)
+                .map(|(_, msg)| msg.as_str())
+                .collect();
+            assert!(
+                !msgs.is_empty(),
+                "UpTo to a full-turn face must refuse, not pick a plane \
+                 (engine errors: {:?})",
+                m.engine_errors()
+            );
+            assert!(
+                m.assert_has_solid("upto").is_err(),
+                "and it must not have produced a body"
+            );
+            msgs.join(" | ")
+        }
+    };
+    assert!(
+        refusal.contains("all the way round") || refusal.contains("no centroid"),
+        "the refusal says why: {refusal}"
+    );
+}

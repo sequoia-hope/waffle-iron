@@ -1555,6 +1555,26 @@ fn resolve_reference_position(
 
             let introspect = kb.as_introspect();
             let sig = introspect.compute_signature(resolved.kernel_id, reference.kind);
+            // An extrude stops AT a point of the referenced entity, so the
+            // centroid has to be a point ON it. For a face on a surface of
+            // revolution that goes all the way round, the centroid is the
+            // area centroid on the AXIS and `normal` is unset (N0 of
+            // `specs/agent_mechanical_design.md` §5.1) — a point the face does
+            // not contain. Refuse it, which is what this did before N0, when
+            // such a face had no centroid at all.
+            if reference.kind == TopoKind::Face
+                && sig.surface_type.as_deref() != Some("planar")
+                && sig.normal.is_none()
+            {
+                return Err(EngineError::ResolutionFailed {
+                    reason: format!(
+                        "UpTo references a {} face that goes all the way round its axis, so it \
+                         has no single point to stop at; reference a planar face, a partial \
+                         face, or a datum plane",
+                        sig.surface_type.as_deref().unwrap_or("curved")
+                    ),
+                });
+            }
             sig.centroid.ok_or_else(|| EngineError::ResolutionFailed {
                 reason: "UpTo reference has no centroid".into(),
             })
