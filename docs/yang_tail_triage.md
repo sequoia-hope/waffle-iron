@@ -157,6 +157,47 @@ the four R0100 cone pins are unmoved. `cargo test -p yang-rs --release --lib`
 1049 passed, `kernel-v2` `loop_conformity` 6 passed, and the end-to-end
 `test-harness/tests/p0013_tip_land_conformity.rs` green unchanged.
 
+### The sharer set re-judged with the guard ON and the LOCAL form — zero moves
+
+The same thirteen cases the P0014 session listed (every §4.5.1 corridor
+customer, every case in the boundary-point certificate's fire inventory, the
+§4.5.2 ladder's own customers and the sentinel-STOP case), plus R0054 / R0081
+and the P-series rows, each `YANG_433_GUARD=1` release `single_case` at 900 s:
+
+| case | guard-ON, local form | reference |
+|---|---|---|
+| R0003 | SUPPORTED_CORRECT 95.3 s | CORRECT (115.6 s guard-off, same session) |
+| R0004 | SUPPORTED_CORRECT 5.3 s | CORRECT |
+| R0011 | SUPPORTED_CORRECT 2.7 s | CORRECT |
+| R0019 | SUPPORTED_CORRECT 388.8 s | CORRECT |
+| R0032 | SUPPORTED_CORRECT 93.4 s | CORRECT |
+| R0038 | SUPPORTED_CORRECT 1.7 s | CORRECT |
+| R0044 | SUPPORTED_CORRECT 394.6 s | CORRECT |
+| R0049 | SUPPORTED_CORRECT 5.2 s | CORRECT |
+| R0050 | SUPPORTED_CORRECT 24.2 s | CORRECT |
+| R0054 | SUPPORTED_CORRECT 219.2 s | CORRECT (262.7 s guard-off, same session) |
+| R0070 | SUPPORTED_CORRECT 43.4 s | CORRECT |
+| R0074 | SUPPORTED_CORRECT 12.4 s | CORRECT |
+| R0081 | SUPPORTED_CORRECT 348.3 s | CORRECT (384.3 s guard-off, same session) |
+| R0085 | SUPPORTED_CORRECT 654.3 s | CORRECT (749.0 s guard-off, same session) |
+| C0065 | SUPPORTED_CORRECT 2.6 s | CORRECT |
+| P0013 | **SUPPORTED_CORRECT 0.9 s** | ERROR guard-off — **the conversion** |
+| P0015 | SUPPORTED_CORRECT 17.4 s | CORRECT |
+| P0014 | ERROR 27.9 s — `LocalRefinementRequired`, vertex 4294967295 | its own ledgered wall, detail identical |
+| P0016 | ERROR 0.2 s — `AmbiguousCurve { candidates: 0, matched: 0 }` on edge (6, 13) | its own ledgered wall, detail identical |
+
+Seventeen CORRECT, two unchanged loud walls, **zero moves and one
+conversion**. R0085's row is the re-run on the FINAL binary (the
+post-refactor one), so no verdict here rests on an intermediate build.
+
+**READY TO FLIP — but it needs a full-corpus run, and this session did not
+take one.** The local form is proven on P0013, on the four cases the global
+form broke, and on the thirteen sharers; the other ~317 cases are unmeasured
+against it. The flip is the orchestrator's call: run guard-off first (it must
+come back byte-identical — with the gate closed the overrides are empty before
+any work is done and the guard no longer appears in `boolean_once`'s `req`
+fold), then guard-on.
+
 **Still open: P3, the flip itself.** The guard remains `YANG_433_GUARD`-gated
 off. What the local form has NOT yet been measured against is the other 329
 corpus cases — this session re-judged only P0013 and the sharer set. The flip

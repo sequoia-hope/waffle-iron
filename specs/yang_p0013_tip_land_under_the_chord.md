@@ -336,6 +336,21 @@ full rim or is not coaxial, and one needing more than
 `LOCAL_REFINE_MAX_SAMPLES = 4096` samples all derive nothing — the local twin
 of the existing `n > 4096` demand ceiling, same argument.
 
+**One known LOUD edge, unmeasured.** Stage 1 owns the uniform rim grid, and
+its override validation refuses an override whose seam-relative angle lands
+inside `uni_step·1e-6` of a uniform sample while differing from it by
+≥ `TAU_MODEL` (`"coincides with uniform sample k=… but is … away …
+(merge refused)"`). The guard derives its angles from the site's own geometry,
+not from that grid — it cannot, because Stage 1's `n_seg` folds the
+cylinder-pair and thin-band demands on top of `natural_rim_n` — so an
+accidental collision is possible. It needs `r·uni_step ≳ 0.1`, so it cannot
+fire on P0013 (`r·uni_step = 9.7e-3`, a 9.7e-9 positional difference, which
+MERGES silently and correctly), and it is loud rather than silent when it
+does. The structural cure is to pass the span + demand DOWN to Stage 1 as a
+standing directive and let the grid's owner place the samples; that is a
+plumbing increment across `from_topology_with_rim_overrides` and the Stage-0
+rebuild paths, deliberately not taken here.
+
 **Measured verdicts** (release `single_case`, `ASSAY_CASE_TIMEOUT_SECS=900`;
 the guard-off column re-measured in the same session, same box load, because
 the ledger's figures were taken under a different one):
@@ -345,8 +360,23 @@ the ledger's figures were taken under a different one):
 | P0013 | **SUPPORTED_CORRECT (1.1 s)**, `rims_a=2 pts_a=12` | SUPPORTED_CORRECT (1.6 s) | ERROR (CDT reject, FaceId(19)) |
 | R0003 | SUPPORTED_CORRECT (94.9 s), operands byte-identical | TIMEOUT (900 s CPU) | SUPPORTED_CORRECT (115.6 s) |
 | R0054 | SUPPORTED_CORRECT (219.2 s), byte-identical | TIMEOUT (900 s CPU) | SUPPORTED_CORRECT (262.7 s) |
-| R0081 | SUPPORTED_CORRECT (348.3 s), byte-identical | TIMEOUT (900 s CPU) | see ledger row |
-| R0085 | see ledger row | ERROR 515.9 s, FaceId(1761) | see ledger row |
+| R0081 | SUPPORTED_CORRECT (348.3 s), byte-identical | TIMEOUT (900 s CPU) | SUPPORTED_CORRECT (384.3 s) |
+| R0085 | SUPPORTED_CORRECT (654.3 s) | ERROR 515.9 s, FaceId(1761) | SUPPORTED_CORRECT (749.0 s) |
+
+**The sharer set re-judged guard-on with the local form: zero moves.** All
+thirteen cases the P0014 session listed, plus R0054 / R0081 and the P-series
+rows (release `single_case`, 900 s): R0003 95.3 s, R0004 5.3 s, R0011 2.7 s,
+R0019 388.8 s, R0032 93.4 s, R0038 1.7 s, R0044 394.6 s, R0049 5.2 s,
+R0050 24.2 s, R0054 219.2 s, R0070 43.4 s, R0074 12.4 s, R0081 348.3 s,
+R0085 654.3 s, C0065 2.6 s, P0015 17.4 s — **all SUPPORTED_CORRECT** — plus
+**P0013 SUPPORTED_CORRECT 0.9 s (the conversion)**, and P0014 / P0016 holding
+their own ledgered walls verbatim. Seventeen CORRECT, two unchanged loud
+walls, zero moves, one conversion.
+
+So the local form is **ready to flip — pending a full-corpus run.** It has
+been measured on P0013, on the four cases the global form broke, and on the
+sharers; the remaining ~317 cases are not yet measured against it, so the flip
+itself stays P3 and is not taken here.
 
 Pins (`edge_graze_tests`): `risk_span_is_a_tip_fraction_not_the_whole_edge`
 (one run, closing at `t = 1`, a tip fraction — the saving itself),
@@ -362,10 +392,14 @@ still green.
 ## 5. What is NOT claimed
 
 * **P0013 is not converted on the default path.** It needs P3.
-* **No full-corpus measurement was taken** (another assay was running on the
-  box). The evidence base for the landed halves is: the two crate suites,
-  the new pins with their mutation checks, and the single-case re-runs
-  recorded in the ledger row.
+* **The local form has NOT been corpus-measured.** The guard-on run recorded
+  above was taken against the GLOBAL form; what the local form has been
+  measured against is P0013, the four cases the global form broke, and the
+  sharer set — not the other 329 cases. P3 needs its own full-corpus pair
+  (guard-off, which is byte-identical by construction, then guard-on).
+  The default path's byte-identity is structural, not measured: with the gate
+  closed `edge_graze_local_rim_overrides` returns empty maps before doing any
+  work, and the guard no longer appears in `boolean_once`'s `req` fold at all.
 * The §4.3.3 closed-loop certificate's blindness to a phantom BUMP on a real
   curve (§2a finding 2) is recorded, not fixed. P3 side-steps it a priori;
   a downstream rule-out for it would need the §4.4.1 mesh-update candidate
