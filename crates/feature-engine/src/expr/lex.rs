@@ -1,7 +1,7 @@
 //! Tokenizer. Every lexeme carries the byte range it came from, so a
 //! diagnostic downstream can point into the source.
 
-use super::{ExprError, Span};
+use super::{ExprError, Span, MAX_LEXEMES};
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum Tok {
@@ -31,6 +31,15 @@ pub fn tokenize(input: &str) -> Result<Vec<Lexeme>, ExprError> {
     let mut out: Vec<Lexeme> = Vec::new();
     let mut i = 0;
     while i < bytes.len() {
+        // Bounded before anything is pushed: the tree the parser builds from
+        // these lexemes is walked recursively, so an unbounded token stream
+        // is an unbounded stack (see `MAX_LEXEMES`).
+        if out.len() >= MAX_LEXEMES {
+            return Err(ExprError::TooComplex {
+                what: "token count",
+                limit: MAX_LEXEMES,
+            });
+        }
         let c = bytes[i] as char;
         let single = match c {
             '+' => Some(Tok::Plus),
@@ -96,10 +105,15 @@ pub fn tokenize(input: &str) -> Result<Vec<Lexeme>, ExprError> {
                 });
             }
             _ => {
+                // `c` is one BYTE read as a char, which is wrong for a
+                // multibyte character (`π` would print as 'Ï'). Decode the
+                // real character for the message; `pos` stays a byte offset,
+                // which is what every other span in this module is.
+                let shown = input[i..].chars().next().unwrap_or(c);
                 return Err(ExprError::Parse {
                     pos: i,
-                    message: format!("unexpected character '{c}'"),
-                })
+                    message: format!("unexpected character '{shown}'"),
+                });
             }
         }
     }

@@ -10,7 +10,7 @@ use std::collections::BTreeSet;
 
 use super::dim::{unit_by_name, Unit};
 use super::lex::{tokenize, Lexeme, Tok};
-use super::{ExprError, Span, FUNCTIONS};
+use super::{ExprError, Span, FUNCTIONS, MAX_DEPTH};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum BinOp {
@@ -128,6 +128,7 @@ pub fn parse(input: &str) -> Result<Expr, ExprError> {
     let mut p = Parser {
         lexemes: &lexemes,
         pos: 0,
+        depth: 0,
     };
     let ast = p.parse_expr()?;
     if let Some(lx) = p.peek() {
@@ -142,9 +143,31 @@ pub fn parse(input: &str) -> Result<Expr, ExprError> {
 struct Parser<'a> {
     lexemes: &'a [Lexeme],
     pos: usize,
+    /// How many nesting levels deep the descent currently is. Bounded by
+    /// [`MAX_DEPTH`]: this parser is recursive, so an unbounded nest is a
+    /// stack overflow — an abort natively and a trap in WASM, neither of
+    /// which a caller can report.
+    depth: usize,
 }
 
 impl<'a> Parser<'a> {
+    /// Run `f` one nesting level deeper, or refuse at the bound.
+    fn nested<T>(
+        &mut self,
+        f: impl FnOnce(&mut Self) -> Result<T, ExprError>,
+    ) -> Result<T, ExprError> {
+        if self.depth >= MAX_DEPTH {
+            return Err(ExprError::TooComplex {
+                what: "nesting depth",
+                limit: MAX_DEPTH,
+            });
+        }
+        self.depth += 1;
+        let out = f(self);
+        self.depth -= 1;
+        out
+    }
+
     fn peek(&self) -> Option<&'a Lexeme> {
         self.lexemes.get(self.pos)
     }
@@ -207,7 +230,7 @@ impl<'a> Parser<'a> {
         };
         let start = lx.span;
         self.pos += 1;
-        let operand = self.parse_unary()?;
+        let operand = self.nested(Self::parse_unary)?;
         let span = start.join(operand.span());
         Ok(Expr::Unary {
             op,
@@ -222,7 +245,7 @@ impl<'a> Parser<'a> {
         if let Some(lx) = self.peek() {
             if lx.tok == Tok::Caret {
                 self.pos += 1;
-                let exp = self.parse_unary()?;
+                let exp = self.nested(Self::parse_unary)?;
                 return Ok(binary(BinOp::Pow, base, exp));
             }
         }
@@ -241,7 +264,7 @@ impl<'a> Parser<'a> {
         match &lx.tok {
             Tok::Num(n) => self.finish_number(*n, lx.span),
             Tok::LParen => {
-                let inner = self.parse_expr()?;
+                let inner = self.nested(Self::parse_expr)?;
                 match self.next() {
                     Some(close) if close.tok == Tok::RParen => Ok(inner),
                     _ => Err(ExprError::Parse {
@@ -352,7 +375,7 @@ impl<'a> Parser<'a> {
             }
         }
         loop {
-            args.push(self.parse_expr()?);
+            args.push(self.nested(Self::parse_expr)?);
             let fallback = self.end_pos();
             let Some(lx) = self.next() else {
                 return Err(ExprError::Parse {
@@ -548,5 +571,108 @@ mod tests {
             })
         );
         assert_eq!(parse("*2").unwrap_err().offset(), Some(0));
+    }
+
+    #[test]
+    fn a_multibyte_character_is_named_correctly_at_its_byte_offset() {
+        // The offset is a BYTE offset (every span in this module is), and
+        // the character in the message is the real one, not one byte of it.
+        assert_eq!(
+            parse("1 + π"),
+            Err(ExprError::Parse {
+                pos: 4,
+                message: "unexpected character 'π'".into()
+            })
+        );
+        assert_eq!(
+            parse("2mm × 3"),
+            Err(ExprError::Parse {
+                pos: 4,
+                message: "unexpected character '×'".into()
+            })
+        );
+    }
+
+    #[test]
+    fn identifiers_take_digits_and_underscores_but_never_start_with_a_digit() {
+        assert_eq!(tree("bore_d2 + _x1"), "(+ bore_d2 _x1)");
+        assert_eq!(parse("2mm_x").unwrap_err().offset(), Some(1));
+        // `2mm 3` is implicit multiplication nobody wrote: a parse error,
+        // never 6.
+        assert_eq!(
+            parse("2mm 3"),
+            Err(ExprError::Parse {
+                pos: 4,
+                message: "unexpected trailing input".into()
+            })
+        );
+        assert!(parse("2 3").is_err());
+        assert!(parse("width height").is_err());
+    }
+
+    #[test]
+    fn a_deep_nest_is_a_typed_error_not_a_stack_overflow() {
+        // Both the parser and the evaluator are recursive: without this
+        // bound a nest like this aborts the process (and traps the WASM
+        // engine), which no caller can report. Measured 2026-10-03: 3 000
+        // levels overflowed an 8 MB stack.
+        // Just past the depth bound, the depth bound is what names it.
+        let nest = format!(
+            "{}1{}",
+            "(".repeat(MAX_DEPTH + 1),
+            ")".repeat(MAX_DEPTH + 1)
+        );
+        assert_eq!(
+            parse(&nest),
+            Err(ExprError::TooComplex {
+                what: "nesting depth",
+                limit: MAX_DEPTH
+            })
+        );
+        // Far past it, whichever bound trips first does — both are typed.
+        for n in [MAX_DEPTH + 1, 1_000, 10_000] {
+            let nest = format!("{}1{}", "(".repeat(n), ")".repeat(n));
+            assert!(
+                matches!(parse(&nest), Err(ExprError::TooComplex { .. })),
+                "{n} parentheses"
+            );
+            let unary = format!("{}1", "-".repeat(n));
+            assert!(
+                matches!(parse(&unary), Err(ExprError::TooComplex { .. })),
+                "{n} unary minuses"
+            );
+            // `n` carets, so `n` levels of right-associative descent.
+            let power = vec!["2"; n + 2].join("^");
+            assert!(
+                matches!(parse(&power), Err(ExprError::TooComplex { .. })),
+                "{n} chained powers"
+            );
+            let args = format!("min({}1{})", "max(".repeat(n), ")".repeat(n));
+            assert!(
+                matches!(parse(&args), Err(ExprError::TooComplex { .. })),
+                "{n} nested calls"
+            );
+        }
+        // Just inside the bound still parses.
+        let ok = format!("{}1{}", "(".repeat(MAX_DEPTH), ")".repeat(MAX_DEPTH));
+        assert!(parse(&ok).is_ok());
+    }
+
+    #[test]
+    fn a_long_flat_chain_is_a_typed_error_too() {
+        // A left-associative chain parses ITERATIVELY, so the depth bound
+        // does not see it — but it evaluates down a tree half as deep as
+        // the token count, which is the other way to overflow. The lexeme
+        // bound is what stops it.
+        let chain = vec!["1"; 10_000].join("+");
+        assert_eq!(
+            parse(&chain),
+            Err(ExprError::TooComplex {
+                what: "token count",
+                limit: super::super::MAX_LEXEMES
+            })
+        );
+        let ok = vec!["1"; 400].join("+");
+        assert!(parse(&ok).is_ok());
     }
 }

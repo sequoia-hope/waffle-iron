@@ -79,6 +79,27 @@ pub use parse::{BinOp, Expr, UnOp};
 /// Scale factor from the evaluator's mm-space numbers to internal meters.
 pub const MM_TO_METERS: f64 = 1e-3;
 
+/// Most lexemes one expression may contain.
+///
+/// Both the parser and the evaluator walk the tree recursively, and a left-
+/// associative chain (`1+1+1+…`) parses iteratively but *evaluates* down a
+/// tree whose depth is half the token count. Measured on this box (8 MB
+/// native stack, 2026-10-03): such a chain overflows the stack somewhere
+/// between 3 000 and 4 000 terms, so the evaluator's own safe depth is
+/// ~1 500 on the WASM worker's 4 MB stack. This bound keeps the deepest
+/// reachable evaluation at ~512 — a 3× margin — and no real design
+/// expression comes near 1 024 lexemes.
+pub const MAX_LEXEMES: usize = 1024;
+
+/// Deepest nesting (parentheses, call arguments, chained unary or `^`) the
+/// parser will descend.
+///
+/// Separate from [`MAX_LEXEMES`] because nesting costs several stack frames
+/// per level: a parenthesis nest overflows between 1 500 and 3 000 levels
+/// natively, so ~750 on the WASM worker. 64 is far below that and far above
+/// anything a person or an agent writes.
+pub const MAX_DEPTH: usize = 64;
+
 /// Function names (all reserved as identifiers). Trig is in DEGREES.
 pub const FUNCTIONS: &[&str] = &[
     "sqrt", "abs", "floor", "ceil", "round", "sin", "cos", "tan", "min", "max",
@@ -214,6 +235,12 @@ pub enum ExprError {
     },
     /// A count field got a value that is not a whole non-negative number.
     NotACount { value: f64 },
+    /// The expression is bigger or more deeply nested than the parser will
+    /// walk. Both the parser and the evaluator are recursive, so without a
+    /// bound a nested-parenthesis expression overflows the stack — in WASM
+    /// a trap that kills the engine, not a catchable error. `what` names
+    /// the bound that was hit.
+    TooComplex { what: &'static str, limit: usize },
 }
 
 impl ExprError {
@@ -228,7 +255,8 @@ impl ExprError {
             | ExprError::UnknownIdentifier(_)
             | ExprError::UnknownFunction(_)
             | ExprError::WrongArity { .. }
-            | ExprError::NotACount { .. } => None,
+            | ExprError::NotACount { .. }
+            | ExprError::TooComplex { .. } => None,
         }
     }
 
@@ -267,6 +295,9 @@ impl fmt::Display for ExprError {
             } => write!(f, "{function}(): {message} (at bytes {span})"),
             ExprError::NotACount { value } => {
                 write!(f, "expected a whole non-negative count, got {value}")
+            }
+            ExprError::TooComplex { what, limit } => {
+                write!(f, "expression is too complex ({what} exceeds {limit})")
             }
         }
     }
