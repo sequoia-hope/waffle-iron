@@ -661,6 +661,7 @@ fn script_op(source_id: Uuid, args: serde_json::Value) -> Operation {
             args,
             arg_exprs: BTreeMap::new(),
             arg_values: BTreeMap::new(),
+            arg_dimensions: Default::default(),
         },
     }
 }

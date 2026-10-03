@@ -269,6 +269,8 @@ fn expression_errors_are_typed_for_features_and_parameters() {
             expression: "1 +".to_string(),
             value: 0.0,
             error: None,
+            unit: None,
+            comment: None,
         }],
         &mut kernel,
     );

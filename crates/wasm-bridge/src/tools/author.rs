@@ -25,6 +25,7 @@
 //!   the worker failing to restart (`needsRestart`), which is a transport
 //!   failure, not an engine answer. A host detects its own crashed engine.
 
+use feature_engine::expr::Dimension;
 use feature_engine::types::{DesignParameter, Operation, Provenance, ProvenanceOrigin};
 use modeling_ops::KernelBundle;
 use serde_json::{json, Value};
@@ -864,6 +865,16 @@ pub(super) fn parameters_set(
             // while an expression is being fixed.
             value: current.get(&id).copied().unwrap_or(0.0),
             error: None,
+            // A declared dimension (P1): the expression must produce it, and
+            // every field that reads this parameter is checked against it.
+            // Absent leaves the parameter a plain number, as before.
+            unit: row
+                .get("unit")
+                .and_then(|v| serde_json::from_value::<Dimension>(v.clone()).ok()),
+            comment: row
+                .get("comment")
+                .and_then(Value::as_str)
+                .map(str::to_string),
         });
     }
 
@@ -886,6 +897,12 @@ pub(super) fn parameters_set(
                 "name": p.name,
                 "value_mm": if p.error.is_some() { Value::Null } else { json!(p.value) },
             });
+            if let Some(unit) = p.unit {
+                row["unit"] = json!(unit);
+            }
+            if let Some(comment) = &p.comment {
+                row["comment"] = json!(comment);
+            }
             if let Some(error) = &p.error {
                 row["error"] = json!(error);
             }

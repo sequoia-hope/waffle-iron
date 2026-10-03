@@ -832,7 +832,7 @@ fn handle_message(
 
         UiToEngine::EvaluateExpression { expression } => {
             let env = feature_engine::params::cached_env(&state.engine.tree.parameters);
-            match feature_engine::expr::evaluate(&expression, &env) {
+            match feature_engine::expr::evaluate_quantity(&expression, &env).map(|q| q.value) {
                 Ok(v) => Ok(EngineToUi::ExpressionEvaluated {
                     value: Some(v),
                     error: None,
@@ -2547,6 +2547,7 @@ pub(crate) fn check_script(
             args,
             arg_exprs: Default::default(),
             arg_values: Default::default(),
+            arg_dimensions: Default::default(),
         };
         match feature_engine::script::record(text, &params) {
             Ok(rec) => ScriptDryRun {

@@ -43,6 +43,7 @@ fn script_op(source_id: Uuid, args: serde_json::Value) -> Operation {
             args,
             arg_exprs: BTreeMap::new(),
             arg_values: BTreeMap::new(),
+            arg_dimensions: Default::default(),
         },
     }
 }
@@ -408,6 +409,7 @@ fn recording_is_deterministic_and_suppress_undo_behave() {
         args: serde_json::from_value(json!({ "plane": plane_json() })).unwrap(),
         arg_exprs: BTreeMap::new(),
         arg_values: BTreeMap::new(),
+        arg_dimensions: Default::default(),
     };
     let a = script::record(BOX_SCRIPT, &params).unwrap();
     let b = script::record(BOX_SCRIPT, &params).unwrap();

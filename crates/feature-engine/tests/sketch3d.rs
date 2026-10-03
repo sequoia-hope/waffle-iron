@@ -179,6 +179,8 @@ fn an_expression_drives_a_point_coordinate_in_mm_space() {
         expression: "250".into(),
         value: 0.0,
         error: None,
+        unit: None,
+        comment: None,
     });
     let sketch = Sketch3d::new(
         Uuid::new_v4(),
@@ -207,6 +209,8 @@ fn a_fillet_radius_expression_is_driven_too() {
         expression: "100".into(),
         value: 0.0,
         error: None,
+        unit: None,
+        comment: None,
     });
     let mut sketch = l_bend();
     sketch.entities.push(Sketch3dEntity::Fillet {
@@ -684,6 +688,8 @@ fn an_expression_on_an_attached_point_is_this_features_typed_error() {
         expression: "10".into(),
         value: 0.0,
         error: None,
+        unit: None,
+        comment: None,
     });
     let sketch = Sketch3d::new(
         Uuid::new_v4(),

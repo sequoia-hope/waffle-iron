@@ -307,6 +307,22 @@ impl Quantity {
         }
     }
 
+    /// Accept for `want` and COMMIT to it, keeping the working-space
+    /// magnitude. This is what a declared unit does to a parameter: the
+    /// value does not move, but from here on it carries the dimension, so a
+    /// field of another kind that reads it is refused. `at` is the
+    /// commitment site to blame when the value had none of its own.
+    pub fn retag(self, want: Dimension, at: Span) -> Result<Quantity, ExprError> {
+        self.check(want)?;
+        if want == Dimension::Count && (self.value < 0.0 || self.value.fract() != 0.0) {
+            return Err(ExprError::NotACount { value: self.value });
+        }
+        Ok(Quantity {
+            value: self.value,
+            tag: Tag::committed(want.dim(), self.tag.at().unwrap_or(at)),
+        })
+    }
+
     /// Does this quantity's dimension fit `want`? An uncommitted number
     /// fits anything; a committed one must match exactly.
     pub fn check(self, want: Dimension) -> Result<(), ExprError> {
@@ -541,6 +557,39 @@ mod tests {
             r.as_length_meters(),
             Err(ExprError::DimensionMismatch { .. })
         ));
+    }
+
+    #[test]
+    fn retag_commits_without_moving_the_magnitude() {
+        let whole = Span::new(0, 4);
+        let q = Quantity::untagged(25.0)
+            .retag(Dimension::Length, whole)
+            .unwrap();
+        assert_eq!(q.value, 25.0, "the working-space magnitude does not move");
+        assert_eq!(q.dimension(), Some(Dimension::Length));
+        assert_eq!(q.tag.at(), Some(whole));
+        assert_eq!(q.as_length_meters().unwrap(), 0.025);
+        assert!(matches!(
+            q.as_angle_degrees(),
+            Err(ExprError::DimensionMismatch { .. })
+        ));
+
+        // An already-committed value keeps its own blame site.
+        let own = Span::new(7, 9);
+        let q = Quantity::tagged(90.0, Dim::ANGLE, own)
+            .retag(Dimension::Angle, whole)
+            .unwrap();
+        assert_eq!(q.tag.at(), Some(own));
+
+        // A declared unit the expression contradicts is refused.
+        assert!(matches!(
+            Quantity::tagged(90.0, Dim::ANGLE, own).retag(Dimension::Length, whole),
+            Err(ExprError::DimensionMismatch { .. })
+        ));
+        assert_eq!(
+            Quantity::untagged(2.5).retag(Dimension::Count, whole),
+            Err(ExprError::NotACount { value: 2.5 })
+        );
     }
 
     #[test]
