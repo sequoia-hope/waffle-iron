@@ -48,6 +48,20 @@
 //!    [`ContactEvidence::EmptyIntersectionAtZeroDistance`]. A positive
 //!    distance ⇒ `Disjoint`.
 //!
+//! ## The containment net
+//!
+//! Whatever the Intersect returns, every point of `A ∩ B` is in `A` and in
+//! `B`, so the region lies inside the intersection of the two operands'
+//! boxes. Q2 checks that and STOPs
+//! ([`KernelV2Error::InterferenceRegionOutsideOperands`]) when it fails. It is
+//! a containment proof rather than a tolerance, and it is not hypothetical:
+//! two cubes meeting along ONE edge, flush in the third axis, come back from
+//! `Intersect` as a copy of operand A (measured 2026-10-03; the live `Union`
+//! of the same pair also drops an operand, so the defect is in the boolean).
+//! Without the net Q2 answers "they overlap by 1000 mm³" about two bodies
+//! that only touch — the single wrong answer a clearance query must never
+//! give.
+//!
 //! "A distance of zero" is Q1's own zero, which is exact for the planar
 //! pairs that touch on a face, an edge or a vertex: the pair kernels report
 //! 0 at a piercing or coincident point rather than a small positive number
@@ -192,6 +206,26 @@ pub fn interference(
             centroid: l.centroid,
             aabb: l.aabb,
         });
+    }
+
+    // P10: `A ∩ B` lies inside `A` and inside `B`, so inside both their
+    // boxes. A region that escapes that box is not the intersection of what
+    // was asked about, and the boolean has handed back something else (see
+    // `KernelV2Error::InterferenceRegionOutsideOperands`). A containment
+    // proof, not a tolerance: the only slack is the band the tessellated
+    // boxes themselves carry, which is the band already measured above.
+    let allowed_lo = [0, 1, 2].map(|k| lo_a[k].max(lo_b[k]) - band);
+    let allowed_hi = [0, 1, 2].map(|k| hi_a[k].min(hi_b[k]) + band);
+    for body in &bodies {
+        if (0..3).any(|k| body.aabb[0][k] < allowed_lo[k] || body.aabb[1][k] > allowed_hi[k]) {
+            return Err(KernelV2Error::InterferenceRegionOutsideOperands {
+                bounds: format!(
+                    "lump {:?} is not inside the operands' shared box {:?} (band {band:e})",
+                    body.aabb,
+                    [allowed_lo, allowed_hi]
+                ),
+            });
+        }
     }
 
     if total <= SLIVER_VOLUME_FLOOR {

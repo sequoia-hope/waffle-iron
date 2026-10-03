@@ -2379,6 +2379,14 @@ impl KernelV2Adapter {
                      previous curved boolean's result cannot re-enter yang-rs Stage 1)"
                 ))
             }
+            KernelV2Error::InterferenceRegionOutsideOperands { bounds } => {
+                KernelError::BooleanFailed {
+                    reason: format!(
+                        "interference: the Intersect returned a region that is not inside both \
+                         operands, so it is not their intersection — {bounds}"
+                    ),
+                }
+            }
             other => KernelError::BooleanFailed {
                 reason: format!("interference: Intersect failed: {other}"),
             },
