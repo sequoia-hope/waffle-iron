@@ -1,5 +1,5 @@
 {
-  "manifest_hash": "aa63e2076b39fd29084d11bb5ac2b1b49404a73c5dfea606dc1c42befe64d302",
+  "manifest_hash": "706b36d8b0da382becda73f10bb62b3e048f6b38a687a5bc88e8d62442e12d37",
   "protocol": "waffle-agent-link/1",
   "tools": [
     {
@@ -2220,16 +2220,173 @@
         "readOnlyHint": true,
         "title": "Capture viewport"
       },
-      "description": "A PNG image of the user's 3D view as it is now. The camera is not moved: call viewport_view first to frame the model. Refused with ViewportUnavailable while the viewport is hidden.",
+      "description": "A PNG image of the 3D model, rendered in its OWN offscreen pass: every argument below applies to this image only and the user's camera, selection and body visibility are left exactly as they were. With no arguments it is a picture of the view as it is now. `view`/`camera`/`frame`/`fit` frame it (the `viewport_view` vocabulary, in MODEL space where up is +Z), `size` fixes the output pixels, and `style:\"agent\"` draws flat per-body colours with black edges on a white ground — no theme, no lighting, no hover or selection highlight. The answer carries `legend` (which colour is which body or feature) and `labels` (the text drawn into the image, each with its pixel position and the reference it names), so read those rather than the pixels to map the picture back to ids you can query. Refused with ViewportUnavailable while the viewport is hidden, and with BodyNotFound when `frame`/`isolate`/`hide` names a body this view does not draw.",
       "inputSchema": {
         "additionalProperties": false,
         "properties": {
+          "camera": {
+            "additionalProperties": false,
+            "description": "An explicit camera in world meters, instead of `view`. Not both.",
+            "properties": {
+              "position": {
+                "description": "Eye point, world meters.",
+                "items": {
+                  "type": "number"
+                },
+                "maxItems": 3,
+                "minItems": 3,
+                "type": "array"
+              },
+              "target": {
+                "description": "Point looked at, world meters.",
+                "items": {
+                  "type": "number"
+                },
+                "maxItems": 3,
+                "minItems": 3,
+                "type": "array"
+              },
+              "up": {
+                "description": "Up direction; defaults to the viewport's current up.",
+                "items": {
+                  "type": "number"
+                },
+                "maxItems": 3,
+                "minItems": 3,
+                "type": "array"
+              }
+            },
+            "required": [
+              "position",
+              "target"
+            ],
+            "type": "object"
+          },
+          "color_by": {
+            "description": "What the flat colours mean; needs style:\"agent\" (defaults to \"body\" there). Colours come from a fixed palette of 24, assigned in sorted-id order, and are reported in `legend`.",
+            "enum": [
+              "body",
+              "feature"
+            ],
+            "type": "string"
+          },
+          "fit": {
+            "description": "Frame all visible bodies (or, with none, the sketches). Defaults to true when `view` or `frame` is given and false otherwise, so a bare capture keeps the user's framing.",
+            "type": "boolean"
+          },
+          "frame": {
+            "additionalProperties": false,
+            "description": "Frame a REGION instead of the whole model: either `body_ids` (the union of those bodies' boxes) or `point` + `radius` (a cube of half-size `radius` about that world point). Not both.",
+            "properties": {
+              "body_ids": {
+                "description": "Body ids from model_summary.bodies.",
+                "items": {
+                  "type": "string"
+                },
+                "minItems": 1,
+                "type": "array"
+              },
+              "point": {
+                "description": "World point in meters.",
+                "items": {
+                  "type": "number"
+                },
+                "maxItems": 3,
+                "minItems": 3,
+                "type": "array"
+              },
+              "radius": {
+                "description": "Half-size in meters of the region framed about `point`.",
+                "exclusiveMinimum": 0,
+                "type": "number"
+              }
+            },
+            "type": "object"
+          },
+          "hide": {
+            "description": "Hide these bodies in this image. The user's own visibility is unchanged.",
+            "items": {
+              "type": "string"
+            },
+            "minItems": 1,
+            "type": "array"
+          },
+          "isolate": {
+            "description": "Show only these bodies in this image. The user's own visibility is unchanged.",
+            "items": {
+              "type": "string"
+            },
+            "minItems": 1,
+            "type": "array"
+          },
+          "labels": {
+            "description": "Text overlays drawn into the image with leader lines. Each one also comes back in `labels` with its pixel position and the reference it names. A label the camera cannot see, or one that would overlap a label already placed, is drawn in neither the image nor the array.",
+            "items": {
+              "enum": [
+                "body_names",
+                "face_ids"
+              ],
+              "type": "string"
+            },
+            "type": "array"
+          },
           "max_edge_px": {
             "default": 1024,
-            "description": "Longest image edge in pixels; the view is scaled down (never up) to fit.",
+            "description": "Longest image edge in pixels when `size` is absent; the view is scaled down (never up) to fit.",
             "maximum": 4096,
             "minimum": 64,
             "type": "integer"
+          },
+          "projection": {
+            "description": "Projection for this image; defaults to the viewport's current one.",
+            "enum": [
+              "perspective",
+              "orthographic"
+            ],
+            "type": "string"
+          },
+          "size": {
+            "additionalProperties": false,
+            "description": "Exact output size in pixels. Without it the viewport's aspect is kept and scaled to `max_edge_px`.",
+            "properties": {
+              "height": {
+                "maximum": 4096,
+                "minimum": 64,
+                "type": "integer"
+              },
+              "width": {
+                "maximum": 4096,
+                "minimum": 64,
+                "type": "integer"
+              }
+            },
+            "required": [
+              "width",
+              "height"
+            ],
+            "type": "object"
+          },
+          "style": {
+            "default": "shaded",
+            "description": "\"shaded\" is the user's shading and theme. \"agent\" is flat unlit per-body colours, black edges, enlarged vertices, a white ground and no antialiasing — the one to read mechanically.",
+            "enum": [
+              "shaded",
+              "agent"
+            ],
+            "type": "string"
+          },
+          "view": {
+            "description": "Standard view to look from; omit to keep the current direction.",
+            "enum": [
+              "front",
+              "back",
+              "top",
+              "bottom",
+              "left",
+              "right",
+              "iso"
+            ],
+            "type": "string"
           }
         },
         "type": "object"
@@ -2237,12 +2394,199 @@
       "name": "viewport_capture",
       "outputSchema": {
         "properties": {
+          "camera": {
+            "description": "The camera this image was rendered through — not the user's, which did not move.",
+            "properties": {
+              "position": {
+                "items": {
+                  "type": "number"
+                },
+                "maxItems": 3,
+                "minItems": 3,
+                "type": "array"
+              },
+              "projection": {
+                "enum": [
+                  "perspective",
+                  "orthographic"
+                ],
+                "type": "string"
+              },
+              "target": {
+                "items": {
+                  "type": "number"
+                },
+                "maxItems": 3,
+                "minItems": 3,
+                "type": "array"
+              },
+              "up": {
+                "items": {
+                  "type": "number"
+                },
+                "maxItems": 3,
+                "minItems": 3,
+                "type": "array"
+              }
+            },
+            "required": [
+              "projection",
+              "position",
+              "target",
+              "up"
+            ],
+            "type": "object"
+          },
+          "color_by": {
+            "enum": [
+              "body",
+              "feature",
+              null
+            ],
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "framed": {
+            "description": "The box actually framed when `frame` or `fit` applied, else null.",
+            "properties": {
+              "max": {
+                "items": {
+                  "type": "number"
+                },
+                "maxItems": 3,
+                "minItems": 3,
+                "type": "array"
+              },
+              "min": {
+                "items": {
+                  "type": "number"
+                },
+                "maxItems": 3,
+                "minItems": 3,
+                "type": "array"
+              }
+            },
+            "required": [
+              "min",
+              "max"
+            ],
+            "type": [
+              "object",
+              "null"
+            ]
+          },
           "height": {
             "type": "integer"
+          },
+          "labels": {
+            "description": "The text drawn into the image, each at its anchor in image pixels (top-left origin).",
+            "items": {
+              "properties": {
+                "body_id": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "kind": {
+                  "enum": [
+                    "body_names",
+                    "face_ids"
+                  ],
+                  "type": "string"
+                },
+                "ref": {
+                  "description": "What the label names: a GeomRef for a face, `{body_id}` for a body.",
+                  "type": [
+                    "object",
+                    "null"
+                  ]
+                },
+                "text": {
+                  "description": "Exactly the characters drawn.",
+                  "type": "string"
+                },
+                "x": {
+                  "type": "number"
+                },
+                "y": {
+                  "type": "number"
+                }
+              },
+              "required": [
+                "kind",
+                "text",
+                "x",
+                "y",
+                "body_id",
+                "ref"
+              ],
+              "type": "object"
+            },
+            "type": "array"
+          },
+          "legend": {
+            "description": "One entry per colour in the image.",
+            "items": {
+              "properties": {
+                "color": {
+                  "description": "CSS hex, as drawn.",
+                  "type": "string"
+                },
+                "id": {
+                  "type": "string"
+                },
+                "kind": {
+                  "enum": [
+                    "body",
+                    "feature"
+                  ],
+                  "type": "string"
+                },
+                "name": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                }
+              },
+              "required": [
+                "color",
+                "kind",
+                "id",
+                "name"
+              ],
+              "type": "object"
+            },
+            "type": "array"
           },
           "mime_type": {
             "enum": [
               "image/png"
+            ],
+            "type": "string"
+          },
+          "size": {
+            "properties": {
+              "height": {
+                "type": "integer"
+              },
+              "width": {
+                "type": "integer"
+              }
+            },
+            "required": [
+              "width",
+              "height"
+            ],
+            "type": "object"
+          },
+          "style": {
+            "enum": [
+              "shaded",
+              "agent"
             ],
             "type": "string"
           },
@@ -2253,7 +2597,13 @@
         "required": [
           "mime_type",
           "width",
-          "height"
+          "height",
+          "size",
+          "style",
+          "color_by",
+          "camera",
+          "legend",
+          "labels"
         ],
         "type": "object"
       }
