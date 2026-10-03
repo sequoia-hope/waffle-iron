@@ -11,10 +11,43 @@ Owner crates: `kernel-v2` (D1, D2), `waffle-types` (D0, D3, M1), `file-format`
 (D4), `feature-engine` (D0, D3, M1, M2), `wasm-bridge` (D5), `app` (D3, D4, D5,
 M2), `step-export` work in `kernel-v2::step_export` (M3).
 
-Status: **design, nothing landed.** Written 2026-10-03 from a survey of the
-tree. The v4 document model (`specs/waffle_v4_document_model.md` §Phase 4,
-line 503) reserved the `Drawing` tab kind and named the kernel projection debt
-(line 489) that this spec carries as D1.
+Status: **D1a landed 2026-10-03, with the one-view DXF export of §12.**
+Everything else is still design. Written 2026-10-03 from a survey of the tree.
+The v4 document model (`specs/waffle_v4_document_model.md` §Phase 4, line 503)
+reserved the `Drawing` tab kind and named the kernel projection debt (line
+489) that this spec carries as D1.
+
+What D1a put in the tree:
+
+- `waffle_types::kernel::projection` — the §5.1 contract: `KernelProjection`,
+  `ViewFrame`/`ViewBasis`, `Curve2` (with exact `bbox`, `length`, `flatten`),
+  `ProjectedCurve`, `ViewGeometry`, `ProjectOpts`, `ProjectionBody`,
+  `SectionResult`. Every trait method defaults to a typed `NotSupported`, so
+  D1b–D1d extend this shape rather than renegotiating it, and an
+  unimplemented increment is loud. `MockKernel` implements none of them.
+- `kernel_v2::projection` — orthographic projection of every B-Rep edge, line
+  and circle/arc surviving analytically (ellipse, circular and edge-on
+  degenerate branches all exact), everything else as the render-identical
+  sample polyline. Implemented on `KernelV2Adapter` as `project` /
+  `project_bodies` (assembly placements composed into the view basis).
+- `kernel_v2::dxf_export` — R12/`AC1009`, millimetres, layers `VISIBLE` and
+  `HIDDEN`, with a golden file. R12 has no `ELLIPSE` entity, so an obliquely
+  seen rim is a `POLYLINE` at a proved sagitta bound; the analytic ellipse
+  stays in `ViewGeometry` for the SVG renderer and a later R13+ writer.
+- `wasm-bridge` — `UiToEngine::ExportDxf` and the MCP tool `export_dxf`
+  (named views plus a free direction, `deliver` agent/download), beside
+  `export_step` and `export_stl`.
+- Oracles — the §5.3 checks per primitive in `kernel_v2::projection::tests`
+  and corpus-wide in `test-harness/tests/projection_corpus_oracle.rs`
+  (`#[ignore]`, stride-sampled).
+
+Two things §5.3 as written cannot assert at D1a, and both are now recorded in
+those tests rather than worked around: the projected bbox can only EQUAL the
+AABB's projection for a solid whose extremes lie on edges (a curved solid's
+lie on a silhouette, which is D1b), and the kernel's own `solid_aabb` is
+conservative on circle edges and declines a solid carrying a surface-pair
+curve, so the equality is asserted for prismatic cases and containment for the
+rest.
 
 Fillet, chamfer and shell remain deferred and nothing here depends on them.
 
@@ -81,10 +114,14 @@ Listed in dependency order; each later item needs the earlier ones.
    `arena.rs:135` is unimplemented). Almost every dimension and every geometric
    tolerance anchors to an edge or vertex, so without this an annotation
    detaches whenever its feature is re-executed.
-2. **Kernel projection, silhouette, hidden-line classification, and planar
-   section.** Nothing exists. The viewport's section view is a three.js
-   stencil cap (`app/src/lib/viewport/SectionCap.svelte`), not geometry. Edge
-   extraction exists only as render polylines (`kernel_v2::extract_edges`).
+2. **Silhouette, hidden-line classification, and planar section.** Edge
+   projection LANDED as D1a (`kernel_v2::projection`, 2026-10-03); the rest of
+   D1 has not. The viewport's section view is still a three.js stencil cap
+   (`app/src/lib/viewport/SectionCap.svelte`), not geometry, and
+   `KernelProjection::section_with_plane` is a typed `NotSupported`. Before
+   D1a, edge extraction existed only as render polylines
+   (`kernel_v2::extract_edges`), which is still what the polyline arm of the
+   projection samples.
 3. **A 2D paper-space renderer.** The sketch editor is the threlte 3D viewport
    locked to a plane. Dimension rendering is an HTML label and a bare leader
    line (`app/src/lib/sketch/DimensionLabels.svelte`); there are no
@@ -207,12 +244,19 @@ pub struct SectionResult {
 
 ### 5.2 Increments
 
-1. **D1a — edge projection.** Orthographic projection of every B-Rep edge.
-   Analytic curve types survive where they can: a line projects to a line or a
-   point; a circle projects to an ellipse, a circle, or a line segment; other
-   curves (ellipse, hyperbola, SSI curves) project as polylines sampled at
-   the chord tolerance. All edges are tagged `Visible` at this increment, which
-   gives a wireframe view.
+1. **D1a — edge projection. LANDED 2026-10-03.** Orthographic projection of
+   every B-Rep edge. Analytic curve types survive where they can: a line
+   projects to a line or a point; a circle projects to an ellipse, a circle, or
+   a line segment; other curves (ellipse, hyperbola, SSI curves) project as
+   polylines sampled at the chord tolerance. All edges are tagged `Visible` at
+   this increment, which gives a wireframe view. Three deviations from §5.1's
+   sketch, argued in `waffle_types::kernel::projection`'s module docs:
+   `ProjectedCurve::source` is a `KernelId`, not a `GeomRef` (the kernel cannot
+   mint one — a `GeomRef` needs the feature anchor); `Curve2` has a `Point` arm,
+   since this increment says a line may project to one; and
+   `ViewGeometry::bbox` is an `Option`, because a view with no curves has no
+   box. Handles are `KernelSolidHandle` and `section_with_plane` takes an
+   origin/normal pair, the kernel contract's own vocabulary.
 2. **D1b — silhouettes.** For each curved face, the locus where the surface
    normal is perpendicular to the view direction, clipped to the face's
    trimming loops. Cylinder: two lines. Cone: two lines through the apex.
@@ -447,7 +491,7 @@ under both schema settings.
 | id | increment | depends on | lands |
 |---|---|---|---|
 | D0 | content-seeded Pids; edge + vertex Pids; `Selector::Pid`; identity oracle | — | kernel-v2, waffle-types, feature-engine |
-| D1a | edge projection, wireframe views | — | kernel-v2 |
+| D1a | edge projection, wireframe views + the §12 one-view DXF export | — | kernel-v2, waffle-types, wasm-bridge — **LANDED 2026-10-03** |
 | D1b | analytic silhouettes | D1a | kernel-v2 |
 | D1c | visibility classification + oracle | D1b | kernel-v2 |
 | D1d | `section_with_plane` | D1a | kernel-v2 |
@@ -468,7 +512,11 @@ land.
 
 An early deliverable with real value is **D1a + a one-view DXF export**, which
 covers laser, waterjet and plasma flat-pattern workflows before any sheet UI
-exists.
+exists. **Both landed 2026-10-03** (see the status note at the top): the MCP
+tool `export_dxf` writes one named or free-direction view of the whole model as
+R12 DXF in millimetres. It is a WIREFRAME until D1b/D1c, and the tool's own
+description says so, because a caller who is not told would ship a drawing with
+the far edges in it and never know.
 
 ## 13. What this is not
 
