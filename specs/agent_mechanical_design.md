@@ -407,12 +407,29 @@ An ellipse arc and a hyperbola arc are incomplete elliptic integrals — calling
 such a number `Exact` overclaims, and calling it `Mesh` understates a quantity
 that never went near a tessellation. So `LengthMethod` is its own enum:
 `Exact` (a chord, `2πr`, `rΔθ`), `Quadrature { residual }`, and
-`Chords { chord_bound: Option<f64> }`. The quadrature's `residual` is the
-MEASURED difference against the same quadrature at twice the step count — a
-convergence witness rather than a constant a caller would have to trust — and
-the `Chords` bound is an `Option` because an imported body's polyline was
-sampled by someone else at a tolerance we do not know. `Chords` is documented
-as a LOWER bound: a chord is never longer than the arc it subtends.
+`Chords { chord_bound: Option<f64> }`. The `Chords` bound is an `Option`
+because an imported body's polyline was sampled by someone else at a tolerance
+we do not know. `Chords` is documented as a LOWER bound: a chord is never
+longer than the arc it subtends.
+
+**The quadrature's `residual` is a Richardson ESTIMATE, not a bound, and it
+carries the 16/15.** It was first written as the raw difference between the
+reported value and the same quadrature at twice the step count. Review
+measured that against a Kahan-summed 2 000 000-interval reference and the raw
+difference is `(15/16)` of the error, in every truncation-dominated case — the
+`O(h⁴)` relation `E_n ≈ 16·E_2n` showing through, so a caller reading the
+number as "how wrong can this be" was being told 6 % less than the truth,
+systematically. It is now the textbook estimate `(16/15)|I_2n − I_n|`, floored
+at a few ulp so a quadrature whose two step counts agree bit for bit reports
+its own f64 resolution instead of a 0 that would read as `Exact`. It is still
+an estimate: Richardson assumes the asymptotic regime, and a hyperbola arc
+with `semi_conjugate/semi_transverse = 1e-4` has a near-kink at its vertex
+where the estimate lands ~11 % below the error (the length itself is still
+right to ten significant figures there — it is the witness that is
+pessimistic, not the answer). The hyperbola arm is pinned against the
+reference integral in `kernel_v2::measure`'s
+`the_hyperbola_arms_residual_is_measured_against_a_reference_integral`,
+including a regression pin that the raw gap does NOT cover the error.
 
 **The ellipse arm is D1a's integrator, not a second one.** `|dP/dt| =
 √(a²sin²t + b²cos²t)` depends on the two radii and not on the frame, so a 3D
@@ -470,6 +487,15 @@ the line itself. A planar face has no `axis` at all: its orientation is
 `signature.normal`, which §4.2 asks for and which N0 already fills in. A
 full-turn curved face has `normal: null` and the descriptor, per N0.
 
+**A SPHERE publishes a centre and no direction.** `EntityAxis::direction` is
+an infallible `[f64; 3]` and the kernel fills it with its own canonical pole
+for a sphere — documented there as the kernel's pole, not the sphere's. The
+wire type makes `direction` an `Option` and leaves it null for `spherical`:
+publishing the pole would tell an agent a sphere is oriented along z, and it
+would contradict `signature.axis.direction`, which N0 already reports as null
+for the same face. One payload must not state two contradictory things about
+one entity.
+
 **The body frame is Q3's answer, carried.** `principal_axes`,
 `principal_moments` and `centroid` come from `mass_properties` at the default
 density, with Q3's own `method`, so the axes an agent reads here and from
@@ -487,6 +513,37 @@ feature-engine's table from waffle-types. The arms compose by conjunction, and
 an arm that cannot be evaluated EXCLUDES: an unnamed entity does not pass a
 glob and a signature with no bbox does not pass a bbox. A listing answers
 "which entities satisfy this", and one whose data cannot answer does not.
+
+**An exclusion for that reason is COUNTED, in `excluded_unevaluable`.** An
+empty list otherwise means two different things an agent must respond to
+differently: "no entity is in that box" and "no entity could be asked about
+the box". The counter separates them. Only the `bbox` arm can contribute: a
+missing name is a real answer to a glob ("this entity's name does not match"
+is true and complete when there is no name), while whether an entity lies
+inside a box is a question a signature with no bbox simply cannot answer. And
+a body's names that resolve to NOTHING — so that no listed entity carries
+them — come back in `unresolved_names`, in name order, because an empty `name`
+on every entity is not a way to learn that a name the user set has been
+invalidated.
+
+**A name that did not arrive by its pid says so.** `ListedEntity` carries
+`name_warnings`, which is `names::resolve`'s own output verbatim and empty in
+the normal case. Non-empty means N1's loud fallback fired: the pid the name
+was stored over is gone and the name was rebound through the reference it was
+authored with, which matches by geometry and may be naming a different entity
+than the user meant. `names_list` reports that; a listing that printed the
+bare name beside it would have been the one place the warning disappeared.
+(`entity_names::name_bindings` is the one resolution path, and the older
+`names_by_entity` is now a wrapper over it that drops the warnings for the
+listings whose wire type has no field for them.)
+
+**Cost, measured.** A listing is eager — every entity's signature, axis, name
+and (for an edge) arc length is computed before the filter runs — and that is
+cheap enough to need no `fields` selector. On the gear body of assay case
+F0061 (339 faces, 1011 edges, 674 vertices), release build: faces 4.9 ms,
+edges 9.1 ms (arc length per edge included), vertices 7.0 ms. The signature
+JSON that breaks ties in the ordering is rendered only for the id-LESS tail,
+so a body whose entities all have pids never pays for it.
 
 **Not in Q6.** Assembly instance scoping (the same gap Q2 has: a world-space
 transform step that is not in this increment), and `kind` beyond the three
