@@ -21,7 +21,7 @@
 //! face literals are their own oracle.
 
 use cad_primitives::{Point2, Point3, Vector3};
-use kernel_v2::pid::{seeded_face_pid, solid_pids};
+use kernel_v2::pid::{seeded_boolean_face_pid, seeded_face_pid, solid_pids};
 use kernel_v2::{extrude, BrepArena, Profile};
 
 /// The unit box of `d0_pid_identity.rs`: a 1×1 rectangle in z = 0 extruded
@@ -114,6 +114,63 @@ const EXPECTED_SEEDED_FACE_PIDS: [u64; 12] = [
     15_265_343_453_234_432_217,
     13_578_505_666_377_178_222,
     14_654_715_188_200_795_029,
+];
+
+/// The same obligation for the content-seeded BOOLEAN-OUTPUT face pid
+/// (D0 item 1b). The derivation is `H(op seed, lineage root, rank)`, and
+/// these literals were recorded by a different process than the one
+/// asserting them.
+///
+/// This pins the HASH, not a model: a boolean output pid read off a solid
+/// would also pin which operand face the kernel happens to split, and would
+/// go red for a kernel improvement that is not a format break. The
+/// cross-process claim about a whole body is
+/// `d0_boolean_face_seed.rs::a_fresh_process_mints_the_same_output_face_pids`,
+/// which re-runs the build in a child process instead of trusting literals.
+#[test]
+fn a_seeded_boolean_face_pid_is_the_same_this_process_as_the_one_that_recorded_it() {
+    let seed = kernel_v2::FaceSeed {
+        origin: [0x0123_4567_89AB_CDEF, 0xFEDC_BA98_7654_3210],
+    };
+    let roots = [
+        kernel_v2::Pid(0),
+        kernel_v2::Pid(7),
+        kernel_v2::Pid(0x8000_0000_0000_002A),
+    ];
+    let ids: Vec<u64> = roots
+        .iter()
+        .flat_map(|&root| (0..3).map(move |rank| seeded_boolean_face_pid(seed, root, rank).0))
+        .collect();
+    assert_eq!(
+        ids, EXPECTED_SEEDED_BOOLEAN_FACE_PIDS,
+        "boolean output face pid digest drifted"
+    );
+    assert!(
+        ids.iter().all(|&p| p >= kernel_v2::PID_CONTENT_BASE),
+        "a content-seeded face pid must stay in the top half of the space"
+    );
+    // And it must not alias the construct-face domain on equal words.
+    assert!(
+        (0..3)
+            .all(|r| seeded_boolean_face_pid(seed, kernel_v2::Pid(7), r)
+                != seeded_face_pid(seed, 7, r)),
+        "the two face domains must not alias"
+    );
+}
+
+/// Recorded 2026-10-03 from `cargo test --release -p kernel-v2`, for seed
+/// `[0x0123456789ABCDEF, 0xFEDCBA9876543210]` over roots
+/// `[0, 7, 0x800000000000002A]` × `rank` 0..3, in that nesting order.
+const EXPECTED_SEEDED_BOOLEAN_FACE_PIDS: [u64; 9] = [
+    14_135_070_232_667_750_279,
+    9_496_092_669_091_621_601,
+    11_412_509_757_174_812_631,
+    15_174_571_834_054_859_250,
+    17_623_650_993_385_254_791,
+    16_290_946_018_028_947_051,
+    12_935_839_452_352_604_937,
+    17_900_454_161_134_951_846,
+    14_138_117_117_875_383_554,
 ];
 
 const EXPECTED_VERTEX_PIDS: [u64; 8] = [
