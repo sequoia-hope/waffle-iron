@@ -143,6 +143,7 @@ fn block(
     ]);
     let sketch = Sketch {
         id: Uuid::new_v4(),
+        plane_face: None,
         plane: datum_xy(),
         plane_origin: [0.0, 0.0, 0.0],
         plane_normal: [0.0, 0.0, 1.0],
@@ -174,6 +175,7 @@ fn cylinder(
 ) -> String {
     let sketch = Sketch {
         id: Uuid::new_v4(),
+        plane_face: None,
         plane: datum_xy(),
         plane_origin: [0.0, 0.0, 0.0],
         plane_normal: [0.0, 0.0, 1.0],
@@ -700,6 +702,7 @@ fn pocketed_plate_document() -> String {
     ]);
     let sketch = Sketch {
         id: Uuid::new_v4(),
+        plane_face: None,
         plane: datum_xy(),
         plane_origin: [0.0, 0.0, 0.010],
         plane_normal: [0.0, 0.0, 1.0],
