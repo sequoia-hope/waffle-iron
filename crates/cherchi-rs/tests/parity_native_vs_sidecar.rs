@@ -67,7 +67,7 @@ use std::time::Duration;
 use cad_primitives::{BoolOp, Point3};
 use cherchi_rs::arrangements::fast_trimesh::VertexCoords;
 use cherchi_rs::labeling::NativeBoolean;
-use cherchi_rs::{mesh_arrangement, native_labeled_arrangement, InputId, Mesh, MeshBoolean};
+use cherchi_rs::{mesh_arrangement, InputId, Mesh, MeshBoolean};
 use cherchi_sidecar_rs::{SidecarBoolean, SidecarError};
 
 const ALL_OPS: [BoolOp; 4] = [
@@ -899,7 +899,7 @@ fn promoted_coplanar_corner_contact_matches_sidecar() {
 /// Run the production arrangement on the concatenated two-input soup (the
 /// exact label setup `native_labeled_arrangement` uses) and count vertex
 /// kinds: (explicit, lpi, tpi).
-fn arrangement_vertex_census(a: &Mesh, b: &Mesh) -> (usize, usize, usize) {
+fn arrangement_soup_of(a: &Mesh, b: &Mesh) -> cherchi_rs::ArrangementSoup {
     let mut coords = Vec::with_capacity(3 * (a.verts.len() + b.verts.len()));
     for v in a.verts.iter().chain(b.verts.iter()) {
         coords.extend_from_slice(&[v.x(), v.y(), v.z()]);
@@ -909,7 +909,11 @@ fn arrangement_vertex_census(a: &Mesh, b: &Mesh) -> (usize, usize, usize) {
     tris.extend(b.tris.iter().map(|t| [t[0] + off, t[1] + off, t[2] + off]));
     let mut labels = vec![vec![InputId(0)]; a.tris.len()];
     labels.extend(std::iter::repeat_n(vec![InputId(1)], b.tris.len()));
-    let soup = mesh_arrangement(&coords, &tris, &labels).expect("arrangement must succeed");
+    mesh_arrangement(&coords, &tris, &labels).expect("arrangement must succeed")
+}
+
+fn arrangement_vertex_census(a: &Mesh, b: &Mesh) -> (usize, usize, usize) {
+    let soup = arrangement_soup_of(a, b);
     let mut census = (0usize, 0usize, 0usize);
     for v in &soup.verts {
         match v {
@@ -986,7 +990,18 @@ fn tpi_xcrossing_arrangement_parity() {
     );
 
     // ----- arrangement-level reference parity ------------------------------
-    let native = weld(&native_labeled_arrangement(&a, &b).expect("native").mesh);
+    // The ARRANGEMENT stage's own mesh, NOT the labeled arrangement: this
+    // fixture's inputs deliberately violate the boolean labeling stage's
+    // solid-input contract (see the `tpi-x-crossing-shells` entry in
+    // EXCLUDED_FIXTURES), so the labels are junk in BOTH backends and
+    // asking for them would mean ignoring them. Since the P0023 containment
+    // net (2026-10-03) that junk is no longer ignorable: labeling now STOPs
+    // on this fixture with `InnerLabelOutsideInputBounds` — a patch of the
+    // crossing shells is labeled inside input 0 while sitting at z = 12,
+    // outside input 0's own [0, 8] — which is exactly the EXCLUDED_FIXTURES
+    // judgement made mechanical. The arrangement is well-defined for an
+    // arbitrary soup, and that is what this cell measures.
+    let native = weld(&cherchi_rs::arrangement_mesh(&arrangement_soup_of(&a, &b)).expect("native"));
     let sidecar = weld(&sidecar_arrangement(&a, &b));
 
     // The two analytically-known TPI points, exact in the native output

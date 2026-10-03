@@ -1962,6 +1962,29 @@ fn boolean_once(
         }
     }
 
+    // Stage-2 INPUT probe (read-only, env-gated): the two meshes handed to
+    // the arrangement producer, verbatim. The §4.5.5 overlay and the Stage-1
+    // chart machinery both rewrite these, so an in/out misclassification can
+    // only be attributed to the producer once the producer's own input is on
+    // the record (P0023: the labels blamed Cherchi until this dump showed
+    // what Stage 0 had handed it).
+    if std::env::var_os("YANG_S2_MESH_DUMP").is_some() {
+        for (tag, m) in [("A", mesh_a), ("B", mesh_b)] {
+            eprintln!(
+                "[s2-mesh] {tag}: {} verts {} tris",
+                m.verts.len(),
+                m.tris.len()
+            );
+            for (i, v) in m.verts.iter().enumerate() {
+                let p = v.as_array();
+                eprintln!("[s2-mesh] {tag} v{i} ({:?}, {:?}, {:?})", p[0], p[1], p[2]);
+            }
+            for (i, t) in m.tris.iter().enumerate() {
+                eprintln!("[s2-mesh] {tag} t{i} {t:?}");
+            }
+        }
+    }
+
     // (1) Stage 2: full labeled arrangement.
     let la = backend
         .labeled_arrangement(mesh_a, mesh_b)

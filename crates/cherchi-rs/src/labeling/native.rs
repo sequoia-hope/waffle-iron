@@ -165,28 +165,8 @@ pub fn native_labeled_arrangement(
         source.push(prov);
     }
 
-    // Explicit DESCALED mesh over the REFERENCED vertices only, compacted
-    // in first-reference order (the C++ computeFinalExplicitResult
-    // `vertex_index` walk) — the jolly tail and any unreferenced vertices
-    // never enter the output.
-    let mut remap: Vec<Option<u32>> = vec![None; soup.verts.len()];
-    let mut out_verts: Vec<Point3> = Vec::new();
-    let mut out_tris: Vec<[u32; 3]> = Vec::with_capacity(n);
-    for tri in &soup.tris {
-        let mut g = [0u32; 3];
-        for (k, &v) in tri.iter().enumerate() {
-            g[k] = match remap[v as usize] {
-                Some(id) => id,
-                None => {
-                    let id = out_verts.len() as u32;
-                    out_verts.push(emit_vertex(&soup, v)?);
-                    remap[v as usize] = Some(id);
-                    id
-                }
-            };
-        }
-        out_tris.push(g);
-    }
+    let (mesh, remap) = arrangement_mesh_with_remap(&soup)?;
+    let (out_verts, out_tris) = (mesh.verts, mesh.tris);
 
     vert_provenance_probe(&soup, &remap, &out_verts, a, b);
 
@@ -412,6 +392,50 @@ fn vert_provenance_probe(
 /// rational evaluation (`exact_point_coords`, pure dashu) → nearest f64 →
 /// divide by the soup's power-of-two multiplier (exact). Mirrors the C++
 /// `getApproxXYZCoordinates` + `c /= multiplier` emission.
+/// The explicit DESCALED mesh of an arrangement soup, over the REFERENCED
+/// vertices only, compacted in first-reference order (the C++
+/// `computeFinalExplicitResult` `vertex_index` walk) — the jolly tail and
+/// any unreferenced vertices never enter the output.
+///
+/// This is the ARRANGEMENT stage's own output, independent of the in/out
+/// labeling that [`native_labeled_arrangement`] runs after it. The split
+/// matters because the arrangement is well-defined for an arbitrary (even
+/// self-crossing) triangle soup while the boolean labeling is defined only
+/// for watertight, 2-manifold, non-self-intersecting solids — so an
+/// arrangement-level consumer (notably the TPI X-crossing reference-parity
+/// cell, whose inputs deliberately violate the labeling contract) must be
+/// able to ask for the mesh without asking for labels it would have to
+/// ignore.
+pub fn arrangement_mesh(soup: &ArrangementSoup) -> Result<Mesh, NativeBooleanError> {
+    arrangement_mesh_with_remap(soup).map(|(m, _)| m)
+}
+
+/// [`arrangement_mesh`] plus the soup-vertex → output-vertex remap the
+/// labeled-arrangement assembly needs for its per-edge provenance.
+fn arrangement_mesh_with_remap(
+    soup: &ArrangementSoup,
+) -> Result<(Mesh, Vec<Option<u32>>), NativeBooleanError> {
+    let mut remap: Vec<Option<u32>> = vec![None; soup.verts.len()];
+    let mut out_verts: Vec<Point3> = Vec::new();
+    let mut out_tris: Vec<[u32; 3]> = Vec::with_capacity(soup.tris.len());
+    for tri in &soup.tris {
+        let mut g = [0u32; 3];
+        for (k, &v) in tri.iter().enumerate() {
+            g[k] = match remap[v as usize] {
+                Some(id) => id,
+                None => {
+                    let id = out_verts.len() as u32;
+                    out_verts.push(emit_vertex(soup, v)?);
+                    remap[v as usize] = Some(id);
+                    id
+                }
+            };
+        }
+        out_tris.push(g);
+    }
+    Ok((Mesh::new(out_verts, out_tris), remap))
+}
+
 fn emit_vertex(soup: &ArrangementSoup, v: u32) -> Result<Point3, NativeBooleanError> {
     let xc = exact_point_coords(&soup.verts[v as usize])
         .ok_or(NativeBooleanError::UnresolvableVertex { vert: v })?;

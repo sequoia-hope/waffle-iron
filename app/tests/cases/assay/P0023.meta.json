@@ -1,0 +1,53 @@
+{
+  "id": "P0023",
+  "description": "3 ops, scale=2.00e-2, extrude(rectangle,boss)+extrude(rectangle,boss)+boolean-intersect \u2014 Two 10 mm cubes meeting along ONE EDGE, flush in the third axis, authored 2026-10-03 as the document-level companions of the kernel-v2 pin crates/kernel-v2/tests/p0023_edge_contact_boolean.rs. Both rectangles are profiles of ONE sketch offset a full side in BOTH in-plane axes, so the two prisms share exactly one edge (along the plane normal) and their cap faces are coplanar (4 Stage-0 cross pairs, each with ZERO-area overlap: a point for the two cap pairs, the shared segment for the two side pairs). Measured operands: A = x[0,0.01] y[-0.01,0] z[0,0.01], B = x[0.01,0.02] y[-0.02,-0.01] z[0,0.01]. WHY THE SILENT WRONG IS NOT PINNED HERE: the defect is RAY-ORIGIN dependent. Cherchi 2022 \u00a75 picks the first non-border explicit patch vertex and casts +X; when that vertex sits on the shared edge the ray runs ALONG an edge of the other operand, never crosses it transversally, and the degenerate ring resolution counts exactly ONE hit, so the nearest-hit orientation labels all of A inside B (Intersect then returns a copy of A, Union drops an operand - the measured silent wrong, reproduced deterministically in the kernel-v2 pin, where the operand vertex order is the test's to choose). Through the document path Stage 1 emits an order whose chosen origin is A's FAR corner (0.01, 0, 0.01), whose +X ray at y = 0 misses B's y[-0.02,-0.01] entirely - a clean ray and correct labels (inside [false,false] on both patches, CHERCHI_INOUT_PROBE). So these two cases pin the HONEST answers for the configuration; the wrong answer is pinned one crate down. The C++ reference mesh_booleans was measured producing byte-identical wrong labels and the same operand-copy output on the unlucky ordering, so the port is in parity and the method - not the port - has no answer there (deviation N69; the structural fix is graze-aware ray selection). The P10 containment net InsideOutError::InnerLabelOutsideInputBounds makes the unlucky ordering LOUD in the meantime. THIS CASE: the explicit BooleanCombine Intersect. Two solids meeting in a SEGMENT share no volume, so the adjudicated answer is ZERO live bodies and that is what the kernel delivers: the labeling keeps 0 of 24 arrangement triangles (YANG_KEEP_PROBE) and the Intersect leaves no solid. Hand-adjudicated meta: expected_solid_count 0 - without it an empty model passes vacuously, so the pin would not catch a regression to \"returns operand A\" (volume 1.0000000000000002e-6 m\u00b3, A's own, measured 2026-10-03 on the unlucky ordering).",
+  "master_seed": 0,
+  "test_seed": 0,
+  "scale": 0.02,
+  "log_scale": -1.6989700043360187,
+  "plane_origin": [
+    0.0,
+    0.0,
+    0.0
+  ],
+  "plane_normal": [
+    0.0,
+    0.0,
+    1.0
+  ],
+  "operations": [
+    {
+      "kind": "extrude",
+      "profile_type": "rectangle",
+      "profile_size": 0.01,
+      "depth_or_angle": 0.01,
+      "is_cut": false
+    },
+    {
+      "kind": "extrude",
+      "profile_type": "rectangle",
+      "profile_size": 0.01,
+      "depth_or_angle": 0.01,
+      "is_cut": false
+    },
+    {
+      "kind": "boolean-intersect",
+      "profile_type": "none",
+      "profile_size": 0.0,
+      "depth_or_angle": 0.0,
+      "is_cut": false
+    }
+  ],
+  "oracles": {
+    "euler_target": 2,
+    "expect_watertight": true,
+    "max_bbox_extent": 0.031,
+    "expect_positive_volume": true,
+    "volume_monotonicity": [],
+    "expect_rebuild_error": false,
+    "expected_solid_count": 0,
+    "derived_meta": false
+  },
+  "generator_version": 100,
+  "featured": true
+}
