@@ -64,8 +64,8 @@ in every case, so the 10–29 % gaps are not its noise.
 
 | candidate | first divergent op | kernel | exact (stable) | rel | promoted |
 |---|---|---|---|---|---|
-| seed 2 index 159 (8 ops) | op 6, an explicit `BooleanCombine` Union | 6.664371e-7 | 1.490760e-6 | −55.3 % | **P0010** (hand-reduced to 4 ops) |
-| seed 2 index 89 (8 ops) | op 7, the THIRD chained `BooleanCombine` Union | 3.798833e4 | 4.421668e4 | −14.1 % | **P0011** (hand-reduced to 5 ops) |
+| seed 2 index 159 (8 ops) | op 6, an explicit `BooleanCombine` Union | 6.664371e-7 | 1.490760e-6 | −55.3 % | **P0010** (hand-reduced to 4 ops) — **CONVERTED 2026-10-03** |
+| seed 2 index 89 (8 ops) | op 7, the THIRD chained `BooleanCombine` Union | 3.798833e4 | 4.421668e4 | −14.1 % | **P0011** (hand-reduced to 5 ops) — **CONVERTED 2026-10-03** |
 | seed 2 index 129 (7 ops) | op 6, a `ThroughAll` cut | 9.721746e4 | 7.580963e4 | +28.2 % | **P0012** (minimized to 3 ops) |
 
 **P0010 / P0011 — a `BooleanCombine` whose operand is a MULTI-BODY output
@@ -89,6 +89,88 @@ live-volume total DROPS across a union, which is arithmetically impossible.
 - Both are byte-identical in `rel` at ×1e-3 AND ×1e3, and their smallest
   authored lengths are 1.24e-3 (1 240× `MIN_FEATURE_SIZE`) and 3.74
   (3.7e6×) — pure combinatorics, no tolerance in sight.
+
+#### P0010 / P0011 **CONVERTED 2026-10-03** — ONE cause, in the engine's body bookkeeping, not the kernel
+
+ANCHOR (measured, both cases, by dumping each feature's output keys and its
+`consumed` flag): `Operation::BooleanCombine` names exactly ONE output per
+operand — `body_a` / `body_b` are `GeomRef`s carrying an `OutputKey` — while
+`find_consumed_feature_ids` (`crates/feature-engine/src/rebuild.rs`) marks both
+operand FEATURES consumed WHOLE. Consumption is tracked per feature, so every
+other live output of either operand feature was hidden with no boolean ever
+touching it. The two rows differ only in how the operand came to hold two
+bodies:
+
+- P0010: the operand feature is the second extrude, `merge: true` but disjoint
+  from its target, so the Add fold re-emitted the target as its `Body{1}`
+  (`outputs = [Main, Body{1}]`, `Body{1}` = the first boss, 1.273494e-6). The
+  Union named only `Main` ⇒ `Body{1}` dropped. Live total went
+  7.253601e-7 → **1.998854e-6 over 3 bodies** after the fix.
+- P0011: the operand feature is the FIRST `BooleanCombine`, whose two operands
+  were disjoint, so the kernel's own boolean returned two shells
+  (`outputs = [Main, Body{1}]`, `Body{1}` = 3468.21). The second Union named
+  only `Main` ⇒ `Body{1}` dropped. Live total 10678.57 → **14146.78 over 3
+  bodies** (14146.779977 measured).
+
+This is the SAME custody rule the legacy most-recent path has followed since
+the 2026-08-08 R0090/R0030 base-drop (`find_most_recent_solid_outputs`) and the
+explicit-target combines since F9
+(`docs/notes/agent_bicycle_session_failures_2026_09_14.md`,
+`feature-engine/tests/combine_sibling_outputs.rs`) — it had simply never been
+applied to the pair-boolean op. `UnionAll{Selected}` had the identical hole
+(it names a body list and consumes those features whole) and was fixed in the
+same change; `UnionAll{All}` folds every live body, so it names nothing it does
+not already hold.
+
+FIX (structural, one place): `rebuild::named_custody_outputs(feature,
+feature_results)` is now the single answer to "which outputs does this feature
+take custody of BY NAME" — explicit-target extrude/revolve/pipe/sweep,
+`BooleanCombine`, `UnionAll{Selected}`. Both the sibling CARRY
+(`carry_untargeted_named`, with its existing "not targeted; kept unchanged as a
+separate body" warning, so the survival is LOUD) and the body-NAME inheritance
+(`Engine::inherit_source_body_id`, F9b) read that one list, so they can no
+longer disagree. Pins: `feature-engine/tests/boolean_combine_custody.rs`
+(5 tests, all five RED before the fix — including the invariant itself,
+`boolean_output_set_is_inputs_minus_operands_plus_result`, over 1–4 extra
+bodies) and `test-harness/tests/boolean_combine_custody_kv2.rs` (3 tests on
+real kernel-v2 geometry; the two P0010/P0011 shapes RED before, the
+single-output invariance pin green both ways).
+
+ORACLE finding on the way, needed to reach CORRECT on P0010 and worth keeping:
+the assay fed `check_no_self_intersection` the MERGE of every body of the last
+feature. P0010's restored first boss legitimately OVERLAPS the union result —
+kernel-measured intersect volume **8.237708e-8 m³, one shell**, while each of
+the three bodies is individually watertight and penetration-free (two live
+bodies the document never unioned may overlap; that is legal multi-body CAD).
+On the merge that reads as one solid penetrating itself. The check now runs per
+BODY (`ModelBuilder::tessellate_last_bodies_with_tol`), which is identical for
+a single-body result. STILL OPEN (recorded, not fixed): the exact-volume oracle
+compares a per-body volume SUM against exact MEMBERSHIP, so on an overlapping
+multi-body model it is off by exactly the overlap — here 1.998854e-6 summed vs
+1.922222e-6 membership, +3.99e-2, inside the case's 5.277e-2 band only by luck.
+
+VERDICTS after the fix (`ASSAY_CASE=<id> … single_case --release`):
+`P0010: SUPPORTED_CORRECT (0.5s) — all checks passed`;
+`P0011: SUPPORTED_CORRECT (0.3s) — all checks passed`. Every other corpus case
+whose recipe contains a `BooleanCombine` was re-run and none moved category:
+`C0084: SUPPORTED_CORRECT`, `P0001: SUPPORTED_CORRECT`,
+`P0007: SUPPORTED_CORRECT`, `P0020: ERROR` (its own ledger row's text,
+unchanged: `holed lateral CDT failed: duplicate (coincident) loop vertex`). No
+corpus case uses `UnionAll`. `smoke_corpus_boundary_categories` (release,
+472.6 s) is green with both rows moved to `SupportedCorrect`.
+**Corpus not re-measured this session.**
+
+METAS: P0011's is HARDENED and adjudicated independently of the kernel — its
+three live bodies are polygonal prisms, so `shoelace(profile) × depth` gives
+1114.8138596839553 + 3468.2063661270504 + 9563.76033938299 =
+**14146.780565193996**, which the kernel meets to rel 4.2e-8 (pinned at
+`expected_volume_tol_rel` 1e-6, `expected_shell_count` 3, `euler_target` 6,
+`expected_solid_count` 1, `derived_meta: false`). P0010's KEEPS `derived_meta`
+deliberately: there is no kernel-independent volume SUM for it — the restored
+boss overlaps the union result by a term only the kernel can supply, and its
+third body is a TRUE circle whose tessellated prism sits 1.1e-3 below πr²h by
+the chord deficit. Its expectation stays the in-line exact-membership lattice,
+which is kernel-independent and now passes.
 
 **P0012 — a `ThroughAll` cut whose target lies entirely behind its sketch
 plane removes nothing. Root cause CONFIRMED BY CODE READING, not inferred.**

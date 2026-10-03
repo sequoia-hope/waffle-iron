@@ -277,6 +277,33 @@ pub(crate) fn resolve_sources(
     Ok(out)
 }
 
+/// The outputs a `UnionAll` takes custody of **by name**
+/// (`crate::rebuild::named_custody_outputs`): the `Selected` body list, in
+/// listed order, restricted to the ones that resolve. `None` for `All`, which
+/// folds every live body of every live feature and so names nothing it does
+/// not already hold.
+pub(crate) fn named_custody_outputs(
+    params: &UnionAllParams,
+    feature_results: &HashMap<Uuid, OpResult>,
+) -> Option<Vec<(Uuid, OutputKey)>> {
+    let UnionTargets::Selected { bodies } = &params.targets else {
+        return None;
+    };
+    Some(
+        bodies
+            .iter()
+            .filter(|gr| find_solid_handle(gr, feature_results).is_ok())
+            .filter_map(|gr| match &gr.anchor {
+                Anchor::FeatureOutput {
+                    feature_id,
+                    output_key,
+                } => Some((*feature_id, output_key.clone())),
+                _ => None,
+            })
+            .collect(),
+    )
+}
+
 /// The feature ids a `UnionAll` consumes (in body order, deduplicated).
 pub(crate) fn consumed_feature_ids(
     feature: &Feature,
@@ -408,6 +435,10 @@ pub(crate) fn execute(
             .collect(),
     );
     prov.diagnostics.warnings.extend(warnings);
+    // Custody: a `Selected` list names specific bodies but consumes their
+    // features whole, so the unnamed live bodies of those features must be
+    // carried, not hidden (the P0010/P0011 custody rule).
+    crate::rebuild::carry_untargeted_siblings(&mut prov, feature, feature_results);
     Ok(prov)
 }
 
