@@ -14,8 +14,28 @@
  * user is looking at.
  */
 import { fail, toolOk } from './results.js';
+import { CAPTURE_STYLES, COLOR_BY_KINDS, LABEL_KINDS, PROJECTIONS, VIEWS } from './tools/viewport.js';
 
 const NOT_MOUNTED = 'No 3D viewport is mounted in this tab.';
+
+/**
+ * Every closed vocabulary and every number is checked HERE, not left to the
+ * schema. The relay validates arguments against `inputSchema` before it
+ * forwards them, but the in-page executor (`window.__waffleAgentExecutor`, what
+ * the in-app agent calls) does not — and an unknown value did not refuse, it
+ * drew the wrong picture: `style: "wireframe"` came back as a shaded image
+ * reporting `style: "wireframe"`, `labels: ["dimensions"]` drew nothing, and
+ * `view: "nope"` threw inside the capture component, where the exception cannot
+ * reach the caller (an exception from a `dispatchEvent` listener is reported to
+ * the page, not propagated), so the tool blamed a missing viewport.
+ * @param {string} name @param {any} value @param {string[]} allowed
+ */
+function checkEnum(name, value, allowed) {
+	if (value == null) return;
+	if (typeof value !== 'string' || !allowed.includes(value)) {
+		throw fail('InvalidArguments', `${name} must be one of ${allowed.join(', ')}.`, { [name]: value });
+	}
+}
 
 /**
  * @param {string} name
@@ -47,12 +67,21 @@ function checkFrame(frame) {
 	if (hasPoint && !(frame.radius > 0)) {
 		throw fail('InvalidArguments', 'frame.point needs a positive frame.radius (meters).', { frame });
 	}
+	// A non-numeric point does not refuse further down: it builds a NaN box and
+	// then a NaN camera, and the answer is a blank image with a NaN `framed`.
+	if (hasPoint && (frame.point.length !== 3 || !frame.point.every((/** @type {any} */ v) => Number.isFinite(v)))) {
+		throw fail('InvalidArguments', 'frame.point is three world coordinates in meters.', { frame });
+	}
+	if (hasBodies && frame.body_ids.some((/** @type {any} */ id) => typeof id !== 'string')) {
+		throw fail('InvalidArguments', 'frame.body_ids is a list of body ids.', { frame });
+	}
 }
 
 /** @type {Record<string, { run: (args: any) => any }>} */
 export const VIEWPORT_QUERIES = {
 	viewport_view: {
 		run: ({ view, fit = true, frame = null }) => {
+			checkEnum('view', view, VIEWS);
 			checkFrame(frame);
 			const detail = dispatch('waffle-agent-view', {
 				view: view ?? null,
@@ -94,6 +123,34 @@ export const VIEWPORT_QUERIES = {
 				max_edge_px = 1024
 			} = args ?? {};
 
+			checkEnum('view', view, VIEWS);
+			checkEnum('style', style, CAPTURE_STYLES);
+			checkEnum('projection', projection, PROJECTIONS);
+			checkEnum('color_by', color_by, COLOR_BY_KINDS);
+			if (labels != null) {
+				if (!Array.isArray(labels)) {
+					throw fail('InvalidArguments', 'labels is a list of label kinds.', { labels });
+				}
+				for (const kind of labels) checkEnum('labels', kind, LABEL_KINDS);
+			}
+			for (const [name, value] of [
+				['isolate', isolate],
+				['hide', hide]
+			]) {
+				if (value == null) continue;
+				if (!Array.isArray(value) || value.some((id) => typeof id !== 'string')) {
+					throw fail('InvalidArguments', `${name} is a list of body ids.`, { [name]: value });
+				}
+			}
+			if (size != null) {
+				const positive = (/** @type {any} */ v) => Number.isFinite(v) && v > 0;
+				if (typeof size !== 'object' || !positive(size.width) || !positive(size.height)) {
+					throw fail('InvalidArguments', 'size needs a positive width and height in pixels.', { size });
+				}
+			}
+			if (!Number.isFinite(max_edge_px) || max_edge_px <= 0) {
+				throw fail('InvalidArguments', 'max_edge_px is a pixel count.', { max_edge_px });
+			}
 			checkFrame(frame);
 			// Contradictions are refused, never resolved by precedence: an agent
 			// that asked for both a named view and an explicit camera does not

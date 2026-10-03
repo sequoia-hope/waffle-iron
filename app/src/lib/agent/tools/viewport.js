@@ -6,6 +6,20 @@
 /** The standard views of the View Cube and the viewport context menu. */
 export const VIEWS = ['front', 'back', 'top', 'bottom', 'left', 'right', 'iso'];
 
+/** Label overlays V1 draws (`specs/agent_mechanical_design.md` §9.1). */
+export const LABEL_KINDS = ['body_names', 'face_ids'];
+
+/**
+ * The capture's remaining closed vocabularies. Named here, beside the schema
+ * that publishes them, and imported by `../viewport.js` to refuse anything
+ * else: the relay validates arguments against this schema, but the in-page
+ * executor does not, so the implementation has to check the same lists or an
+ * unknown value gets a picture it did not ask for.
+ */
+export const CAPTURE_STYLES = ['shaded', 'agent'];
+export const PROJECTIONS = ['perspective', 'orthographic'];
+export const COLOR_BY_KINDS = ['body', 'feature'];
+
 const vec3 = { type: 'array', items: { type: 'number' }, minItems: 3, maxItems: 3 };
 
 export const viewportViewTool = {
@@ -64,7 +78,7 @@ export const viewportViewTool = {
 			camera: {
 				type: 'object',
 				properties: {
-					projection: { type: 'string', enum: ['perspective', 'orthographic'] },
+					projection: { type: 'string', enum: PROJECTIONS },
 					position: vec3,
 					target: vec3,
 					up: vec3
@@ -76,9 +90,6 @@ export const viewportViewTool = {
 	},
 	annotations: { title: 'Set view', readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false }
 };
-
-/** Label overlays V1 draws (`specs/agent_mechanical_design.md` §9.1). */
-export const LABEL_KINDS = ['body_names', 'face_ids'];
 
 export const viewportCaptureTool = {
 	name: 'viewport_capture',
@@ -109,7 +120,7 @@ export const viewportCaptureTool = {
 			},
 			projection: {
 				type: 'string',
-				enum: ['perspective', 'orthographic'],
+				enum: PROJECTIONS,
 				description: 'Projection for this image; defaults to the viewport\'s current one.'
 			},
 			fit: {
@@ -149,7 +160,7 @@ export const viewportCaptureTool = {
 			},
 			style: {
 				type: 'string',
-				enum: ['shaded', 'agent'],
+				enum: CAPTURE_STYLES,
 				default: 'shaded',
 				description:
 					'"shaded" is the user\'s shading and theme. "agent" is flat unlit per-body colours, black edges, ' +
@@ -157,7 +168,7 @@ export const viewportCaptureTool = {
 			},
 			color_by: {
 				type: 'string',
-				enum: ['body', 'feature'],
+				enum: COLOR_BY_KINDS,
 				description:
 					'What the flat colours mean; needs style:"agent" (defaults to "body" there). Colours come from a ' +
 					'fixed palette of 24, assigned in sorted-id order, and are reported in `legend`.'
@@ -196,13 +207,13 @@ export const viewportCaptureTool = {
 				properties: { width: { type: 'integer' }, height: { type: 'integer' } },
 				required: ['width', 'height']
 			},
-			style: { type: 'string', enum: ['shaded', 'agent'] },
-			color_by: { type: ['string', 'null'], enum: ['body', 'feature', null] },
+			style: { type: 'string', enum: CAPTURE_STYLES },
+			color_by: { type: ['string', 'null'], enum: [...COLOR_BY_KINDS, null] },
 			camera: {
 				type: 'object',
 				description: 'The camera this image was rendered through — not the user\'s, which did not move.',
 				properties: {
-					projection: { type: 'string', enum: ['perspective', 'orthographic'] },
+					projection: { type: 'string', enum: PROJECTIONS },
 					position: vec3,
 					target: vec3,
 					up: vec3
@@ -222,7 +233,7 @@ export const viewportCaptureTool = {
 					type: 'object',
 					properties: {
 						color: { type: 'string', description: 'CSS hex, as drawn.' },
-						kind: { type: 'string', enum: ['body', 'feature'] },
+						kind: { type: 'string', enum: COLOR_BY_KINDS },
 						id: { type: 'string' },
 						name: { type: ['string', 'null'] }
 					},
