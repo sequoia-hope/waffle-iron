@@ -423,21 +423,23 @@ export const measureThicknessTool = {
 	name: 'measure_thickness',
 	description:
 		'The wall thickness of a body, SAMPLED: points are laid out on every face and a ray is cast ' +
-		'inward from each one to the first face opposite. Reports min_m, mean_m, max_m, a histogram of ' +
-		'the sites, and the thinnest site itself — where it is, and the two faces it spans, each with ' +
-		'its persistent id (DECIMAL STRINGS: ids above 2^53 are not exact as JSON numbers) and its ' +
-		'entity_name if it has one. method is always "sampled": min_m is an UPPER BOUND on the true ' +
-		'minimum wall, because a wall thinner than spacing_m between two sites is never looked at. ' +
-		'Pass spacing_m under the width of the web you care about to be sure it was sampled; the ' +
-		'answer always reports the spacing_m it used and how many samples it took. Each individual ' +
-		'cast is refined onto the analytic surfaces (a plate reports its thickness, and a tube ' +
-		'r_outer − r_inner, to rounding), and refined says how many were; declines counts the sites ' +
-		'that produced nothing, so an answer covering little of the body says so. min_m is the thinnest ' +
-		'cast ANYWHERE on the body, and every ACUTE edge is a sliver: a 4 mm slot through a tube ' +
-		'measures 0.04 mm where the tube wall is 3 mm, and a taper approaches zero at its sharp ' +
-		'corner. So read min_m together with thinnest.from/to and the histogram — a corner sliver is a ' +
-		'lone site in the lowest bin, a real wall is a populated one — and never as the body\'s medial ' +
-		'axis. Lengths in meters.',
+		'inward from each one to the first face opposite. **For a wall, read min_wall_m, not min_m.** ' +
+		'min_m is the shortest cast ANYWHERE on the body, and every ACUTE edge is a sliver of material ' +
+		'— a 4 mm slot through a 10/7 mm tube reports min_m 0.043 mm where its wall is 3 mm, and a ' +
+		'taper approaches zero at its sharp corner. min_wall_m is the shortest cast between two faces ' +
+		'that do NOT meet at an edge, so it leaves every corner reading out: 3.000 mm on that same ' +
+		'tube, and equal to min_m on a plate, which has no corner to leave out. Each site says which ' +
+		'it is with faces_share_an_edge. min_wall_m is absent only when every site crossed a corner. ' +
+		'Also reports mean_m, max_m, a histogram of the sites, and the thinnest site of each kind — ' +
+		'where it is and the two faces it spans, each with its persistent id (DECIMAL STRINGS: ids ' +
+		'above 2^53 are not exact as JSON numbers) and its entity_name if it has one. method is always ' +
+		'"sampled": both minima are UPPER BOUNDS, because a wall thinner than spacing_m between two ' +
+		'sites is never looked at. Pass spacing_m under the width of the web you care about to be sure ' +
+		'it was sampled; the answer always reports the spacing_m it used and how many samples it took. ' +
+		'Each individual cast is refined onto the analytic surfaces (a plate reports its thickness, and ' +
+		'a tube r_outer − r_inner, to rounding), and refined says how many were; declines counts the ' +
+		'sites that produced nothing, so an answer covering little of the body says so. Neither number ' +
+		'is the body\'s medial axis. Lengths in meters.',
 	inputSchema: {
 		type: 'object',
 		properties: {
@@ -457,6 +459,7 @@ export const measureThicknessTool = {
 		properties: {
 			body_id: { type: 'string' },
 			min_m: { type: 'number' },
+			min_wall_m: { type: ['number', 'null'] },
 			mean_m: { type: 'number' },
 			max_m: { type: 'number' },
 			thinnest: {
@@ -466,9 +469,21 @@ export const measureThicknessTool = {
 					point: { type: 'array', items: { type: 'number' }, minItems: 3, maxItems: 3 },
 					opposite: { type: 'array', items: { type: 'number' }, minItems: 3, maxItems: 3 },
 					from: { type: 'object' },
-					to: { type: 'object' }
+					to: { type: 'object' },
+					faces_share_an_edge: { type: 'boolean' }
 				},
-				required: ['thickness_m', 'point', 'opposite', 'from', 'to']
+				required: ['thickness_m', 'point', 'opposite', 'from', 'to', 'faces_share_an_edge']
+			},
+			thinnest_wall: {
+				type: ['object', 'null'],
+				properties: {
+					thickness_m: { type: 'number' },
+					point: { type: 'array', items: { type: 'number' }, minItems: 3, maxItems: 3 },
+					opposite: { type: 'array', items: { type: 'number' }, minItems: 3, maxItems: 3 },
+					from: { type: 'object' },
+					to: { type: 'object' },
+					faces_share_an_edge: { type: 'boolean' }
+				}
 			},
 			histogram: {
 				type: 'array',
