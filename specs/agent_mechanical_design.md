@@ -484,6 +484,103 @@ additive, no reader bump). Deleting the feature that introduced an entity
 leaves its name in place and `resolves: false`, so the agent sees the hole
 rather than losing the record.
 
+#### Implementation notes (N1)
+
+Landed 2026-10-03. Where the plan above left a choice open, this is the
+choice made and why.
+
+**The reader floor DID move — to v7.** "No reader bump" above is wrong, and
+the format's own rule says why (`docs/FILE_FORMAT.md` §13.3): a bump is
+needed for "any change old readers cannot parse — which includes new
+constraint/selector/`PlaneDefinition` *variants*". The `names` FIELD is
+additive and defaulted, but every entry in it stores a `Selector::Pid`, and
+`Selector` is a serde-tagged enum, so a v6 reader given a named document
+fails with a raw unknown-variant error instead of the clean `FutureVersion`
+message. D0 landed the variant without writing one and left exactly this
+note (`specs/drawings_and_mbd.md` §4, "Still open"); N1 is the increment
+that writes one. `FORMAT_VERSION` and `MIN_READER_VERSION` are both 7, in
+`save.rs` and `app/src/lib/engine/format.js` together. A document with no
+names is byte-identical to a pre-N1 one (the key is omitted), which is why
+the corpus still loads — `corpus_backcompat` is the pin.
+
+**The dotted path is a label; the identity is the stored reference.** The
+map key is the name as written (`plate.top_face`), and the body segment is
+checked against the body's display name when the name is ASSIGNED — never
+again. A body renamed afterwards leaves a dotted name that still resolves
+(its pid did not move) but whose first segment has drifted, which
+`names_list` shows by reporting the owning body's *current* display name in
+a `body` field next to each entry. The alternative — rewriting labels from
+inside `rename_body` — would make a user's body rename fail on an agent's
+name collision, and a label is not worth that.
+
+**A body's name IS its display name.** `entity_name` with a `{"type":"body"}`
+target routes to `body_names` (the mechanism `body_rename` already owns)
+rather than opening a second record of it, which is what §5.2's "bodies where
+not already present" asks for. The two share ONE namespace: a name taken by
+a body's display name is `NameTaken` for an entity and vice versa, because a
+body name is the first segment of every dotted entity name in it. For the
+same reason `names_list` reports body names too, with `kind: Solid` and no
+`geom_ref`. A body display name that is not an identifier (the derived
+"Base plate", "Extrude (2)") cannot be a dotted first segment, and the
+refusal says so and names the body rather than inventing a segment.
+Features keep `feature_rename`: a feature is not a `GeomRef`.
+
+**`NamedRef` carries a `fallback`, and `resolved_by` says which answered.**
+`target` is the pid; `fallback` is the reference as the caller authored it,
+stored only when a pid replaced it. `names_list`'s `resolved_by` is `pid`
+(the stored pid answered), `selector` (the kernel had no identity for this
+entity when it was named — a mesh-backed import) or `query` (the pid is gone
+and the authored reference answered, which rebinds by geometry). The last
+case carries a warning naming the lost id, so the agent is told rather than
+just handed an answer.
+
+**Names are not garbage-collected, deliberately** — including on feature
+delete, where `body_names` and `provenance` ARE collected. §5.2 asks for
+exactly this: the hole is the information.
+
+**Refusals are typed at the tool layer, and checked again in the engine.**
+`engine_call` collapses every engine error into `Internal` (ICR-2), and a
+taken name is an ordinary thing for an agent to hit, so `entity_name` parses
+the name, checks the namespace and checks the dotted segment itself and
+answers `InvalidName` / `NameTaken` / `NameNotFound` /
+`ReferenceNotResolved`. `Engine::set_entity_name` re-checks the grammar, the
+uniqueness and the body segment, so a host that bypasses the tool layer
+cannot store an unchecked name; such a refusal is then `Internal`, which is
+right — it is a broken invariant, not a user error.
+
+**Narrowed:** "every tool argument typed `EntityRef`" is `MeasureOperand`
+(Q1's `a`/`b`) today, which gains a `{"type":"name"}` arm; "every result that
+carries a `GeomRef`" is `face_list`, whose entries gain `name`. The
+remaining arguments adopt names as they gain `EntityRef` typing.
+
+**Open after this increment:**
+
+- *A name over a face of a feature that is later EDITED loses its pid.* Face
+  pids are still monotonic (D0's open item 1, the F4a reseed), so
+  re-executing a feature stamps its faces fresh. Measured 2026-10-03: a
+  plate's top cap was `pid 0`, and after a depth edit no face of the body
+  carried it. The authored reference answers instead, the listing reports
+  `resolved_by: "query"` with a warning, and it is still the right face —
+  but the name is no longer held by persistent identity. Pinned both ways in
+  `crates/wasm-bridge/tests/tool_names.rs`:
+  `a_name_over_an_edited_feature_s_own_face_falls_back_and_says_so` holds
+  today's behaviour, and the `#[ignore]`d
+  `a_face_name_keeps_its_pid_across_an_edit_to_its_own_feature` holds it
+  under the reseed — un-ignore it when that lands. A name over an edit
+  ELSEWHERE in the document keeps its pid
+  (`a_name_survives_an_unrelated_edit_elsewhere_in_the_document_by_pid`).
+- *Edge and vertex names are untested against the real kernel.* The table,
+  the grammar and the resolution are kind-agnostic and the mock covers all
+  three, but every kernel-v2 test here names a FACE. An edge name inherits
+  D0's own caveat: edge ids are seeded from face lineage roots, so an edit
+  that re-stamps either adjacent face's root renames the edge too.
+- *The UI shows none of this.* Names are agent-facing only; nothing in the
+  feature tree or the viewport displays or edits them.
+- *`resolved_by: "pid"` does not distinguish a pid that answered directly
+  from one that answered through its lineage root.* The root case carries
+  the resolver's warning verbatim, which is the honest signal; splitting the
+  enum would mean inferring it from the presence of a warning.
+
 ### 5.3 N2 — Loud resolution for agents
 
 1. Every `GeomRef` an agent authors through a tool is stored with

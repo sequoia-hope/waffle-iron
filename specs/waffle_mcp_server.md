@@ -208,6 +208,9 @@ agent renames with `feature_rename`. ICR-5 (§9) would add the field.
 | `import_step` | command | `file_name`, `step_text`, `on_error` | `{feature_id}` + `ModelDelta`. Sends `ImportStep` (the engine records `Import` provenance) through the command path, so it is one undo step with A2 rollback; unlike `importStepFromText` it opens no placement dialog |
 | `kicad_link` | command | `file_name`, `pcb_text`, `locator?`, `resolved_commit?`, `on_error` | `{source_id, board_tab, assembly_tab, placeholder_tabs, board, component_count}` + `ModelDelta` (2026-09-26, `specs/kicad_board_link.md` C4). Sends `ImportKicad` / `LinkKicadFromLocator`: a `KicadPcb` source, a Board Part tab (exact outline solid, Derived provenance), placeholder Parts, a Board assembly tab; opens the Board tab |
 | `entity_meta` | query | `body_id?` \| `instance_path?` | `{board, component, source}` — each `null` for anything no KiCad board derived (`QueryEntityMeta`) |
+| `entity_name` | command | `target: {type: entity, geom_ref} \| {type: body, body_id} \| {type: name, name}`, `name` | `{name, kind, geom_ref, body_id}` + `ModelDelta` (2026-10-03, N1 of `specs/agent_mechanical_design.md` §5.2). The name is stored against the entity's persistent id (`Selector::Pid`, `policy: Strict`); a BODY target sets its display name instead, which is the namespace a dotted `body.leaf` name sits in. One or two identifier segments; `NameTaken`, `InvalidName`, `ReferenceNotResolved` |
+| `entity_unname` | command | `name` | `{name}` + `ModelDelta`; `NameNotFound` |
+| `names_list` | query | `body_id?` | `{names: [{name, kind, geom_ref?, body_id?, body?, resolves, resolved_by?, warnings?, created?}]}` in name order. `resolves: false` is a name whose entity is gone — kept, never collected, so the hole is visible. `resolved_by` is `pid`, `selector`, or `query` (the pid is gone and the authored reference answered, which rebinds by geometry) |
 
 **Custom feature scripts** (2026-09-23, A-M4 of
 `specs/custom_features_and_modeling_roadmap.md`; reference
@@ -540,6 +543,8 @@ Tool results with `isError: true`:
 | `ConnectorRefused` | `connector_add` with a `geom_ref` the engine cannot derive a frame from (`reason` verbatim from `ProbeConnectorRef`) |
 | `AssemblyEditFailed` | the engine refused the `EditAssembly` (`reason` verbatim) |
 | `InvalidArguments` | an argument combination the schema cannot express: both `rotation_quat` and `rotation_euler_deg`, a zero quaternion, several of `part_connector`/`geom_ref`/`frame`, `mate_add` with `a === b` |
+| `NameTaken` / `InvalidName` / `NameNotFound` | `entity_name` with a name the document already uses (for an entity or a body — one namespace), a name that is not one or two identifier segments, or whose `body.` segment is not the body the entity is in; `entity_unname` with a name the document does not have (N1, §5.2) |
+| `ReferenceNotResolved` | `entity_name` with a `target` that no longer identifies one entity, or a `{type: name}` target naming nothing. A name must point at something real at the moment it is assigned |
 | `Internal` | the executor detects a broken invariant (rollback not byte-exact; `ModelDelta` inconsistent). The agent session is then **paused** automatically, and the bar tells the user why. |
 
 ### 6.2 Structured-error gap
