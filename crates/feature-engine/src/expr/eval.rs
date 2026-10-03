@@ -14,6 +14,7 @@
 use std::collections::HashMap;
 
 use super::dim::{Dim, Dimension, Quantity, Tag};
+use super::measure::{measure_fn, EntityArg, MeasureCall, MeasureRefusal, Measurer, MASS_NEEDS_M1};
 use super::parse::{BinOp, Expr, UnOp};
 use super::{ExprError, Span};
 
@@ -25,8 +26,22 @@ pub type Env = HashMap<String, Quantity>;
 /// noise rather than a dimension anyone drew.
 const TAN_POLE_COS: f64 = 1e-9;
 
-/// Evaluate `ast` against `env`.
+/// Evaluate `ast` against `env`, with no model geometry: a measurement
+/// function (D2) is a typed [`ExprError::MeasurementUnavailable`].
 pub fn eval(ast: &Expr, env: &Env) -> Result<Quantity, ExprError> {
+    eval_with(ast, env, None)
+}
+
+/// Evaluate `ast` against `env`, answering measurement functions through
+/// `measurer` (D2, `specs/drawings_and_mbd.md` §6).
+///
+/// `None` is not "measure as best you can": it is a context with no model
+/// behind it, where a measurement refuses rather than guessing.
+pub fn eval_with(
+    ast: &Expr,
+    env: &Env,
+    measurer: Option<&dyn Measurer>,
+) -> Result<Quantity, ExprError> {
     match ast {
         Expr::Number { value, unit, span } => Ok(match unit {
             Some(u) => Quantity::tagged(*value, u.dim, *span),
@@ -37,7 +52,7 @@ pub fn eval(ast: &Expr, env: &Env) -> Result<Quantity, ExprError> {
             .copied()
             .ok_or_else(|| ExprError::UnknownIdentifier(name.clone())),
         Expr::Unary { op, operand, span } => {
-            let q = eval(operand, env)?;
+            let q = eval_with(operand, env, measurer)?;
             let value = match op {
                 UnOp::Neg => -q.value,
                 UnOp::Pos => q.value,
@@ -45,8 +60,8 @@ pub fn eval(ast: &Expr, env: &Env) -> Result<Quantity, ExprError> {
             finite(value, q.tag, *span)
         }
         Expr::Binary { op, lhs, rhs, span } => {
-            let l = eval(lhs, env)?;
-            let r = eval(rhs, env)?;
+            let l = eval_with(lhs, env, measurer)?;
+            let r = eval_with(rhs, env, measurer)?;
             let tag = match op {
                 BinOp::Add | BinOp::Sub | BinOp::Rem => unify(l.tag, r.tag)?,
                 BinOp::Mul => compose(l.tag, r.tag, 1, *span)?,
@@ -63,7 +78,65 @@ pub fn eval(ast: &Expr, env: &Env) -> Result<Quantity, ExprError> {
             };
             finite(value, tag, *span)
         }
-        Expr::Call { name, args, span } => call(name, args, env, *span),
+        Expr::Call { name, args, span } => call(name, args, env, *span, measurer),
+        Expr::Measure {
+            function,
+            args,
+            span,
+        } => measure(function, args, *span, measurer),
+    }
+}
+
+/// Take one measurement (D2).
+///
+/// The DIMENSION comes from [`super::measure::MEASUREMENTS`], never from the
+/// measurer: one table decides that `area` is a length² and `angle` an
+/// angle, so two measurers cannot disagree and a measurer cannot pass an
+/// area off as a length. A measurement COMMITS its dimension (unlike a bare
+/// literal), which is what makes `depth = distance(a, b) / 2` type-check as
+/// a length and `depth = area(f)` refuse by name.
+fn measure(
+    function: &'static str,
+    args: &[EntityArg],
+    span: Span,
+    measurer: Option<&dyn Measurer>,
+) -> Result<Quantity, ExprError> {
+    let m = measure_fn(function).ok_or_else(|| ExprError::UnknownFunction(function.to_string()))?;
+    let Some(dim) = m.dim else {
+        // A function whose answer has no nameable dimension here (`mass`).
+        // Refused BEFORE the measurer runs: there is no number it could
+        // return that this evaluator could carry honestly.
+        return Err(ExprError::MeasurementUnavailable {
+            function: function.to_string(),
+            reason: MASS_NEEDS_M1.to_string(),
+            span,
+        });
+    };
+    let Some(measurer) = measurer else {
+        return Err(ExprError::MeasurementUnavailable {
+            function: function.to_string(),
+            reason: "no model geometry is available in this context".to_string(),
+            span,
+        });
+    };
+    let call = MeasureCall {
+        function,
+        args,
+        span,
+    };
+    match measurer.measure(&call) {
+        Ok(value) => finite(value, Tag::committed(dim, span), span),
+        Err(MeasureRefusal::Entity { name, reason }) => Err(ExprError::MeasurementFailed {
+            function: function.to_string(),
+            name,
+            reason,
+            span,
+        }),
+        Err(MeasureRefusal::Unavailable { reason }) => Err(ExprError::MeasurementUnavailable {
+            function: function.to_string(),
+            reason,
+            span,
+        }),
     }
 }
 
@@ -156,11 +229,17 @@ fn pow_tag(base: Tag, exponent: Quantity, span: Span) -> Result<Tag, ExprError> 
     }
 }
 
-fn call(name: &str, args: &[Expr], env: &Env, span: Span) -> Result<Quantity, ExprError> {
+fn call(
+    name: &str,
+    args: &[Expr],
+    env: &Env,
+    span: Span,
+    measurer: Option<&dyn Measurer>,
+) -> Result<Quantity, ExprError> {
     // Arity was validated at parse time; evaluate what is there.
     let vals: Vec<Quantity> = args
         .iter()
-        .map(|a| eval(a, env))
+        .map(|a| eval_with(a, env, measurer))
         .collect::<Result<_, _>>()?;
     // Every function here indexes `vals[0]`. `parse` guarantees at least one
     // argument, but `Expr` is a public type with public fields, so a caller

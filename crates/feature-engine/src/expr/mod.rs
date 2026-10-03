@@ -48,32 +48,68 @@
 //! field is refused there, not coerced: `25deg` in an extrude depth is an
 //! error, where before P1 it silently meant 25 mm.
 //!
+//! ## Measurement functions (D2)
+//!
+//! An expression can also read the MODEL: `depth = distance(wall_a, wall_b)
+//! / 2`. The seven functions of `specs/drawings_and_mbd.md` §6 —
+//! [`MEASUREMENTS`] — take **entity names** (N1), not subexpressions, and
+//! are answered through a [`Measurer`] the caller supplies
+//! ([`evaluate_measured`]); with no measurer every one of them is a typed
+//! refusal rather than a number. Each function's dimension comes from the
+//! table, and a measurement COMMITS it, so `distance(a, b) / 2` is a length
+//! a depth accepts and `area(f)` is a length² a depth refuses by name.
+//!
+//! Entity names are a **separate namespace** from design parameters: they
+//! are a separate AST node ([`Expr::Measure`]) walked by
+//! [`Expr::entity_references`], never by [`Expr::identifiers`]. A parameter
+//! and an entity may share a spelling and neither shadows the other.
+//!
+//! **D2 reserves no new words.** A measurement name is callable-only, so a
+//! document with a parameter called `radius`, `length`, `area` or `distance`
+//! keeps working: a bare `radius` is that parameter and `radius(rim)` is the
+//! measurement, and the two readings are disjoint. Adding them to
+//! [`is_reserved_word`] would have invalidated such a parameter — and every
+//! expression reading it — for nothing, since no ambiguity exists to
+//! resolve. (The arithmetic functions ARE reserved; that is pre-D2
+//! behaviour, not a rule D2 extends.)
+//!
 //! ## Grammar
 //!
 //! ```text
-//! expr    := mul (('+' | '-') mul)*
-//! mul     := unary (('*' | '/' | '%') unary)*
-//! unary   := ('-' | '+') unary | power
-//! power   := primary ('^' unary)?             // right-associative
-//! primary := number unit? | ident | ident '(' args? ')' | '(' expr ')'
-//! args    := expr (',' expr)*
+//! expr        := mul (('+' | '-') mul)*
+//! mul         := unary (('*' | '/' | '%') unary)*
+//! unary       := ('-' | '+') unary | power
+//! power       := primary ('^' unary)?             // right-associative
+//! primary     := number unit? | ident | call | measurement | '(' expr ')'
+//! call        := ident '(' (expr (',' expr)*)? ')'
+//! measurement := measure_fn '(' (path (',' path)*)? ')'    // D2
+//! path        := ident ('.' ident)?                        // an N1 name
 //! ```
 //!
 //! `^` binds tighter than unary minus (`-2^2 == -4`). The constant `pi` is a
 //! bare number. Trig functions take and return degrees. Every intermediate
 //! result must be finite: a non-finite subexpression is an error where it
 //! occurs, not a value that can be hidden by a later `min`.
+//!
+//! Which argument parser runs is decided by the CALLEE: every measurement
+//! takes only names and every arithmetic function only numbers, so there is
+//! no mixed case and no ambiguity to resolve by lookahead.
 
 mod dim;
 mod eval;
 mod lex;
+pub mod measure;
 mod parse;
 
 use std::collections::HashMap;
 use std::fmt;
 
 pub use dim::{Dim, Dimension, Quantity, Tag, Unit, UNITS};
-pub use eval::{eval, Env};
+pub use eval::{eval, eval_with, Env};
+pub use measure::{
+    is_measurement, measure_fn, EntityArg, MeasureCall, MeasureFn, MeasureRefusal, Measurer,
+    MEASUREMENTS,
+};
 pub use parse::{BinOp, Expr, UnOp};
 
 /// Scale factor from the evaluator's mm-space numbers to internal meters.
@@ -145,7 +181,10 @@ pub fn unit_by_name(name: &str) -> Option<&'static Unit> {
 }
 
 /// True if `name` may not be used as a parameter name (unit suffixes,
-/// function names, constants).
+/// arithmetic function names, constants).
+///
+/// A MEASUREMENT function name (D2) is deliberately absent: see the
+/// "reserves no new words" note in the module docs.
 pub fn is_reserved_word(name: &str) -> bool {
     name == "pi" || dim::unit_by_name(name).is_some() || FUNCTIONS.contains(&name)
 }
@@ -207,11 +246,64 @@ pub fn rename_identifier(input: &str, from: &str, to: &str) -> Option<String> {
     Some(out)
 }
 
+/// Every ENTITY name `input` measures, or `None` if it does not parse.
+///
+/// The D2 counterpart of [`dependencies`]: the names here live in the N1
+/// entity namespace, and each one makes the expression depend on the
+/// FEATURE that owns that entity (`specs/drawings_and_mbd.md` §6).
+pub fn entity_references(input: &str) -> Option<std::collections::BTreeSet<String>> {
+    parse(input).ok().map(|ast| ast.entity_references())
+}
+
+/// Whether `input` reads the model (D2). `false` for an expression that
+/// does not parse — it reads nothing yet, and its own parse error is where
+/// that is reported.
+pub fn measures(input: &str) -> bool {
+    parse(input).is_ok_and(|ast| ast.measures())
+}
+
+/// Rewrite every measurement reference to the ENTITY `from` as `to`.
+///
+/// The entity-namespace twin of [`rename_identifier`], and deliberately a
+/// SECOND function rather than a flag on the first: the two namespaces are
+/// disjoint, and one function renaming both would mean that renaming a
+/// parameter `w` also rewrote `area(w)` — a different thing that merely
+/// shares a spelling. Same mechanism (splice the AST's byte spans,
+/// descending), same promise: spacing, parentheses and a `w2` that merely
+/// starts with `w` survive byte-for-byte, and an unparseable expression is
+/// left alone.
+pub fn rename_entity_reference(input: &str, from: &str, to: &str) -> Option<String> {
+    let ast = parse(input).ok()?;
+    let spans = ast.entity_reference_spans(from);
+    if spans.is_empty() {
+        return None;
+    }
+    let mut out = input.to_string();
+    for span in spans.iter().rev() {
+        out.replace_range(span.start..span.end, to);
+    }
+    Some(out)
+}
+
 /// Parse and evaluate `input` against `env`, keeping the dimension tag.
 /// The caller accepts the result at a typed boundary
 /// ([`Quantity::as_length_meters`] and friends).
+///
+/// No model geometry: a measurement function (D2) is a typed
+/// [`ExprError::MeasurementUnavailable`]. [`evaluate_measured`] is the path
+/// that can answer one.
 pub fn evaluate_quantity(input: &str, env: &Env) -> Result<Quantity, ExprError> {
     eval(&parse(input)?, env)
+}
+
+/// Parse and evaluate `input` against `env`, answering measurement
+/// functions through `measurer` (D2).
+pub fn evaluate_measured(
+    input: &str,
+    env: &Env,
+    measurer: &dyn Measurer,
+) -> Result<Quantity, ExprError> {
+    eval_with(&parse(input)?, env, Some(measurer))
 }
 
 /// Evaluate `input` against `vars` (parameter name → working-space value),
@@ -270,6 +362,25 @@ pub enum ExprError {
     },
     /// A count field got a value that is not a whole non-negative number.
     NotACount { value: f64 },
+    /// A measurement function (D2) this context cannot answer at all: no
+    /// model geometry here, or no density to compute a mass from (M1).
+    /// Distinct from [`ExprError::MeasurementFailed`], which is about the
+    /// entity the author named.
+    MeasurementUnavailable {
+        function: String,
+        reason: String,
+        span: Span,
+    },
+    /// A measurement whose entity name does not resolve — under `Strict`,
+    /// so a near miss refuses rather than measuring something else (N2) —
+    /// or which the kernel refused. Names the function AND the name, which
+    /// is what an author needs to fix it.
+    MeasurementFailed {
+        function: String,
+        name: String,
+        reason: String,
+        span: Span,
+    },
     /// The expression is bigger or more deeply nested than the parser will
     /// walk. Both the parser and the evaluator are recursive, so without a
     /// bound a nested-parenthesis expression overflows the stack — in WASM
@@ -285,7 +396,9 @@ impl ExprError {
             ExprError::Parse { pos, .. } => Some(Span::new(*pos, *pos)),
             ExprError::NonFinite { span }
             | ExprError::DimensionMismatch { span, .. }
-            | ExprError::FunctionDomain { span, .. } => Some(*span),
+            | ExprError::FunctionDomain { span, .. }
+            | ExprError::MeasurementUnavailable { span, .. }
+            | ExprError::MeasurementFailed { span, .. } => Some(*span),
             ExprError::Empty
             | ExprError::UnknownIdentifier(_)
             | ExprError::UnknownFunction(_)
@@ -334,6 +447,15 @@ impl fmt::Display for ExprError {
             ExprError::TooComplex { what, limit } => {
                 write!(f, "expression is too complex ({what} exceeds {limit})")
             }
+            ExprError::MeasurementUnavailable {
+                function, reason, ..
+            } => write!(f, "{function}() cannot be measured here: {reason}"),
+            ExprError::MeasurementFailed {
+                function,
+                name,
+                reason,
+                ..
+            } => write!(f, "{function}(\"{name}\"): {reason}"),
         }
     }
 }
@@ -423,6 +545,93 @@ mod tests {
             rename_identifier("a+a+a+a", "a", "long_name").as_deref(),
             Some("long_name+long_name+long_name+long_name")
         );
+    }
+
+    // -- D2: the entity namespace and its rename --
+
+    #[test]
+    fn entity_references_are_their_own_dependency_list() {
+        assert_eq!(
+            entity_references("distance(wall_a, plate.top) / n"),
+            Some(
+                ["plate.top".to_string(), "wall_a".to_string()]
+                    .into_iter()
+                    .collect()
+            )
+        );
+        assert_eq!(entity_references("w * 2"), Some(Default::default()));
+        assert_eq!(entity_references("distance(a,"), None);
+        assert!(measures("area(f)"));
+        assert!(!measures("w * 2"));
+        assert!(
+            !measures("area(f"),
+            "an unparseable expression measures nothing yet"
+        );
+    }
+
+    #[test]
+    fn an_entity_rename_and_a_parameter_rename_do_not_reach_each_other() {
+        // One spelling, two namespaces. Renaming the PARAMETER `w` must
+        // leave `area(w)` — a different thing — exactly as it was.
+        assert_eq!(
+            rename_identifier("area(w) * w", "w", "width").as_deref(),
+            Some("area(w) * width")
+        );
+        assert_eq!(
+            rename_entity_reference("area(w) * w", "w", "top_face").as_deref(),
+            Some("area(top_face) * w")
+        );
+        // Spacing, dots and a longer name all survive.
+        assert_eq!(
+            rename_entity_reference("distance( a ,a.b)/a", "a", "wall_1").as_deref(),
+            Some("distance( wall_1 ,a.b)/a")
+        );
+        assert_eq!(
+            rename_entity_reference("distance(a.b, a.b)", "a.b", "plate.face").as_deref(),
+            Some("distance(plate.face, plate.face)")
+        );
+        // Not referenced, or does not parse: left alone.
+        assert_eq!(rename_entity_reference("area(f)", "g", "h"), None);
+        assert_eq!(rename_entity_reference("area(f", "f", "g"), None);
+        assert_eq!(rename_entity_reference("w * 2", "w", "q"), None);
+    }
+
+    #[test]
+    fn a_measurement_refuses_without_a_measurer_and_names_the_function() {
+        let err = evaluate_quantity("distance(a, b)", &Env::new()).unwrap_err();
+        assert_eq!(
+            err,
+            ExprError::MeasurementUnavailable {
+                function: "distance".to_string(),
+                reason: "no model geometry is available in this context".to_string(),
+                span: Span::new(0, 14),
+            }
+        );
+        assert_eq!(
+            err.to_string(),
+            "distance() cannot be measured here: no model geometry is available in this context"
+        );
+    }
+
+    #[test]
+    fn mass_is_parsed_and_refused_by_name_until_m1() {
+        // Its name and arity are checked at parse time, so the spelling
+        // cannot drift before M1 fills in a density.
+        assert!(parse("mass(plate)").is_ok());
+        assert!(matches!(
+            parse("mass(a, b)"),
+            Err(ExprError::WrongArity { .. })
+        ));
+        let err = evaluate_quantity("mass(plate)", &Env::new()).unwrap_err();
+        let ExprError::MeasurementUnavailable {
+            function, reason, ..
+        } = &err
+        else {
+            panic!("expected MeasurementUnavailable, got {err:?}");
+        };
+        assert_eq!(function, "mass");
+        assert!(reason.contains("M1"), "{reason}");
+        assert!(reason.contains("volume("), "{reason}");
     }
 
     #[test]
