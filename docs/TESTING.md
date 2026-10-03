@@ -530,6 +530,52 @@ oracle, which reads the same document. A generated candidate whose build
 stopped at a harness error still has the failing feature (and its engine
 error) in the document — that is what the categorizer reads.
 
+## Running the SI5 corpus gate (exact STEP ingestion over real CAD)
+
+`crates/test-harness/tests/si5_c7_corpus_gate.rs` (SI5 checkpoint C7,
+`specs/step_import_si5_exact_analytic_ingestion.md` §7) pins the exact STEP
+tier's verdict over a **fixed sample of ABC chunk 0000**: 400 models,
+stride-spaced over the chunk's ≤ 2 MB files, each ingested through
+`parse_step_analytic` → `kernel_v2::ingest_analytic` in a killable child with a
+CPU-time budget (the assay runner's pattern). Per shell it records `exact` with
+volume, surface area and the validated `[V, E, F, rings, shells, genus]`, or
+`mesh` with the refusal's class. The committed pin is
+`crates/test-harness/corpora/abc_0000_si5_gate.json`; the corpus is
+license-restricted and never committed, so each model is named by ABC id,
+byte count and FNV-1a hash.
+
+The gate is part of the full tier (release). It **skips with a note** when no
+chunk is on disk (CI) or in a debug build. The chunk lives at
+`~/.cache/waffle-iron/corpus/abc/step/0000` (`scripts/fetch-abc-corpus.sh`;
+`ABC_DIR` / `WAFFLE_CORPUS_DIR` override).
+
+```
+# the gate (~2 min at 8 jobs)
+cargo test -p test-harness --test si5_c7_corpus_gate --release -- --nocapture
+# one model, by hand
+SI5_GATE_CASE=/path/to/model.step cargo test -p test-harness \
+  --test si5_c7_corpus_gate --release -- --ignored --nocapture --exact si5_gate_child
+```
+
+Knobs: `SI5_GATE_JOBS` (default min(cores, 8)), `SI5_GATE_CASE_CPU_SECS`
+(default 120), `SI5_GATE_ALLOW_DEBUG=1`.
+
+Any difference from the pin is red, and the message classifies it:
+
+- **REGRESSION** — an exact shell now refuses, or its volume / area /
+  topology moved, or a model stopped parsing. The pin is right; fix the kernel.
+- **PROGRESS** — a refused shell now ingests, or a refused measurement is now
+  delivered. The ratchet moved: regenerate with `UPDATE_SI5_GATE_PIN=1` and
+  commit the pin **with the change that earned it**, as the assay smoke pins
+  move with a conversion.
+- **CLASS MOVED** — still refused, by a different wall. Recorded the same way.
+- **CORRUPT** — the local file is not the pinned one. Re-extract the chunk; do
+  not touch the pin.
+
+A `timeout` outcome in the pin is a CPU-budget verdict, not a kernel one; the
+ledger in the SI5 spec names the model and its measured solo cost before it is
+pinned, so nobody mistakes it for a refusal.
+
 ## Topology adjudication — the independent topology oracle
 
 The corpus's `oracles.euler_target` is AUTHORED (genus 0 assumed), not

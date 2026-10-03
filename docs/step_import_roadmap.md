@@ -334,3 +334,13 @@ depend on them are `#[ignore]`-tagged with reason `refs-fixture`.
   until the exact tier carries voids. The STEP exporter asks the kernel per
   body whether it is exact. Per-product (KiCad) imports stay on the mesh
   tier, said so on the feature.
+- 2026-10-03 — **SI5 C7: the corpus gate.** `test-harness/tests/si5_c7_corpus_gate.rs`
+  pins the exact tier's per-shell verdict (exact + volume/area/topology, or
+  the refusal's class) over 400 stride-sampled models of ABC chunk 0000 in
+  `test-harness/corpora/abc_0000_si5_gate.json`; each model runs in a
+  CPU-budgeted child; red on any change, classified REGRESSION / PROGRESS /
+  CLASS MOVED / CORRUPT; skips where no chunk is on disk. First pin: 193 of
+  400 fully exact (48.2 %), 709 exact shells. Full tier, release
+  (`docs/TESTING.md` §"Running the SI5 corpus gate"). The SI5 checkpoint
+  list C1–C7 is complete; what remains is the refusal tail (SI5 spec §11,
+  2026-10-03 entry).

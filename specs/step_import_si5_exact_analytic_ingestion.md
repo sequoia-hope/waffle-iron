@@ -969,9 +969,26 @@ Each is an atomic, committable increment. Nothing after C1 touches app code.
   exact import is written like any constructed body. Not attempted by the
   exact tier, each with its reason on the feature: a per-product (KiCad
   component) import, and a scale that is not a positive finite factor.
-- **C7 — corpus gate.** Promote a sampled SI5 tier into the assay/prospector
-  path so a regression in ingestion is a red test, per
-  `specs/boolean_hardening_external_corpus.md`.
+- **C7 — corpus gate. DONE 2026-10-03.** A sampled SI5 tier is a pinned
+  test, per `specs/boolean_hardening_external_corpus.md` §1.1's smoke-pin
+  pattern: `test-harness/tests/si5_c7_corpus_gate.rs` stride-samples 400 of
+  ABC chunk 0000's ≤ 2 MB models (so the Onshape-document clustering of
+  adjacent ids does not make the sample forty copies of ten designs), judges
+  each in a killable CPU-budgeted child (`parse_step_analytic` →
+  `ingest_analytic`, no tessellation — the mesh tier is SI1's, tested in
+  C6), and compares every shell's verdict — `exact` with volume, surface
+  area and validated `[V,E,F,R,S,G]`, or `mesh` with the refusal's CLASS —
+  against the committed `corpora/abc_0000_si5_gate.json`. The corpus stays
+  out of git (license); each model is named by id, byte count and FNV-1a
+  hash, so the gate skips with a note where no chunk is on disk (CI) and
+  runs in the full tier (release) wherever `fetch-abc-corpus.sh` has run.
+  Red on any change, classified: REGRESSION (exact → refused, a moved
+  measurement, a lost measurement, a model that stopped parsing), PROGRESS
+  (refused → exact, a measurement now delivered — regenerate with
+  `UPDATE_SI5_GATE_PIN=1` and commit the pin with the change that moved
+  it), CLASS MOVED, CORRUPT (the local chunk is not the pinned one). First
+  pin, §11 ledger 2026-10-03. Recipe: `docs/TESTING.md` §"Running the SI5
+  corpus gate".
 
 A C-step that turns out to need a design decision of its own stops and gets its
 own spec, the way #137 and #168 did.
@@ -1202,3 +1219,31 @@ subset a reader would need — and `si5_census.py` already measures it.
   its `cylinder.step` fails on NURBS *edge curves*, not on a swept surface.
   Next: **C7** (corpus gate), then the C5c refusal tail and voids (§5.2) as
   the first measured customers of the fallback warning.
+- 2026-10-03 — **C7 DONE.** The corpus gate's first pin
+  (`test-harness/corpora/abc_0000_si5_gate.json`, 400 stride-sampled models
+  of chunk 0000's 9 140 files ≤ 2 MB, 8 jobs, 121 s wall, 120 s CPU budget per
+  model): **193 fully exact (48.2 %), 36 mixed, 169 all mesh-tier; 709 exact
+  shells, 464 refused**; 398 parse, 1 clean `no solids or shells` error, 1
+  timeout. Not comparable to the C5b census's 42.0 % — that scanned the FIRST
+  400 sorted files, this sample spans the chunk. Every exact shell has an
+  exact volume (all positive, 4.75e-9 … 675.5 m³ as written) and validates;
+  411 of 709 have NO surface area (`surface_area` has no closed form for
+  arc-bounded partial patches or cavity-sense cylinder faces — pinned as the
+  measurement's refusal, so landing it is PROGRESS the gate records).
+  Wall census of the 464 refusals: 219 `VERTEX_LOOP` file-wide (spec §5.3),
+  178 b-spline edges, 26 unclosed/holed curved bands (C5c), 14 NURBS
+  surfaces, 5 NURBS curves, 4 sphere band/windowed sphere (C5c), 4
+  plane-seeded torus sense (C5c), 3 non-canonical circle+edge loops, 2
+  spindle tori, 2 swept surfaces, 2 non-latitude torus rims, 2 closed
+  ELLIPSE edges, 1 multi-loop curved patch (C4b outer-loop ranking — now has
+  its first customer), and TWO validation-tier refusals that are findings
+  in the census's own sense (the assembler built a solid and geometry
+  disagreed): `00005451_2ccd2dfb9ffc4cf29e94e0cf_step_005` shell 3 vertex
+  off surface, `00009298_f8dbe7d6802d4f918bc23332_step_002` shell 0
+  `NonPlanarFace`. The timeout, `00003951_cb29926b8a244c868ae5ed86_step_001`
+  (1.33 MB), completes ALONE in **540 s CPU** with every shell exact — a
+  performance finding (where the nine minutes go is unmeasured: truck's
+  parse or our ingest), pinned honestly as `timeout` under the default
+  budget so its conversion is the gate's to report. Next: the two
+  validation findings (anchor each against its file before assuming a
+  family), then the C5c refusal tail and voids (§5.2).

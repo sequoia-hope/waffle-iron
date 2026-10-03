@@ -449,6 +449,13 @@ run_rust_full() {
   # cheap extra coverage, not waste.
   run_cargo_test_binary_release test-harness assay_kv2
 
+  # SI5 C7 corpus gate in RELEASE — the exact STEP tier over a pinned sample of
+  # ABC chunk 0000 (crates/test-harness/corpora/abc_0000_si5_gate.json). It
+  # SKIPS itself with a note when no chunk is on disk (CI) or in a debug build
+  # (the debug pass above), so this is the run that actually gates: ~2 min at
+  # 8 jobs on the dev box. docs/TESTING.md §"Running the SI5 corpus gate".
+  run_cargo_test_binary_release test-harness si5_c7_corpus_gate
+
   # wasm-bridge with --no-default-features
   run_cargo_test "$WASM_BRIDGE_CRATE" --no-default-features
 
