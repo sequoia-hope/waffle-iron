@@ -579,6 +579,45 @@ A `timeout` outcome in the pin is a CPU-budget verdict, not a kernel one; the
 ledger in the SI5 spec names the model and its measured solo cost before it is
 pinned, so nobody mistakes it for a refusal.
 
+## Running the drawing projection oracles (D1 of `specs/drawings_and_mbd.md`)
+
+Two corpus-wide sweeps, both `#[ignore]`d and both STRIDE-SAMPLED, because the
+expensive part of each is rebuilding the assay documents:
+
+```bash
+# §5.3's projection oracle: the projected bbox, sandwiched between the
+# conservative AABB above and the render tessellation below, plus the
+# half-turn length invariant.
+cargo test -p test-harness --test projection_corpus_oracle --release \
+  -- --ignored --nocapture
+# §5.3's VISIBILITY oracle: a software orthographic depth buffer against which
+# every classified curve's sixteen samples are checked.
+cargo test -p test-harness --test projection_visibility_oracle --release \
+  -- --ignored --nocapture
+# Both honour the same knob; 1 is the exhaustive sweep.
+PROJECTION_ORACLE_STRIDE=1 cargo test -p test-harness \
+  --test projection_visibility_oracle --release -- --ignored --nocapture
+# One case by id, for diagnosing a single disagreement; `VISIBILITY_ORACLE_DEBUG`
+# prints where a sample fell outside the mesh's footprint, and
+# `KV2_VISIBILITY_PROBE` dumps the kernel's own ray cast (candidates, the
+# measured offset, the hit) for every query.
+VISIBILITY_ORACLE_CASE=C0009 KV2_VISIBILITY_PROBE=1 cargo test -p test-harness \
+  --test projection_visibility_oracle --release -- --ignored --nocapture
+```
+
+**Run them in `--release`.** In debug the rasterizer alone is minutes per case.
+
+Both print a tally rather than only a pass, and the tally is the point: a sweep
+where nothing built, nothing could be bounded, or nothing came back HIDDEN
+would pass vacuously, so each asserts a floor on its own coverage. The
+visibility sweep also sums the kernel's typed `ProjectionDeclines` over the
+run and prints them by kind; `split_budget`, `cross_body` and
+`depth_unliftable` must be zero, while `ray_grazes_face` and `split_tangency`
+are configurations the corpus genuinely contains and are reported, not
+asserted. A per-primitive half of each oracle runs in the inner loop
+(`cargo test -p kernel-v2 --release --lib projection`), where the answers are
+known in closed form.
+
 ## Topology adjudication — the independent topology oracle
 
 The corpus's `oracles.euler_target` is AUTHORED (genus 0 assumed), not
