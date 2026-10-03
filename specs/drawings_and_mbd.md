@@ -973,11 +973,23 @@ scale. The v-flip (view `v` up, SVG `y` down) is applied to coordinates, not
 as a `scale(1, -1)` transform, which would mirror the text.
 
 **Where the dimension line goes, with no authoring.** It sits
-`style.dimensionOffset` clear of the FARTHER of the two witness points — not
-the midpoint, which would put it through the part — on the side away from the
-view's centre, plus the annotation's `placement`. `placement` moves the whole
-dimension rather than only its label, matching how dragging a sketch
-dimension behaves and letting a drafter push one to the other side.
+`style.dimensionOffset` clear of the whole VIEW BOX, on the side away from
+the view's centre, plus the annotation's `placement`. Clearing the two
+witness points is not enough and was the first version's bug: a witness point
+is a wall's midpoint, not the part's extreme, so two opposite walls
+dimensioned for width put the line 2.5 mm *inside* a 40 × 25 mm plate —
+arrowheads, extension lines and all. The view's own bbox is the only thing
+that knows where the part ends. `placement` moves the whole dimension rather
+than only its label, matching how dragging a sketch dimension behaves and
+letting a drafter push one to the other side.
+
+**A radial arrowhead lands on the drawn rim, not at the printed radius.**
+For a circle those are the same point. For a hole seen obliquely they are
+not: the value is the ellipse's major radius (the hole's true radius) while
+the rim along the leader is `1/√((α/a)² + (β/b)²)`, up to `major − minor`
+nearer — 1.5 mm on a Ø16 rim at 45°. `layout.js` solves the reach on the
+ellipse, so the arrow touches the curve it points at and the text still reads
+the true size.
 
 **The renderer never invents a number.** A non-finite value prints an em dash
 (`measure` refuses one, so a record carrying one was built by something that
@@ -1040,6 +1052,26 @@ so the test predicts rather than records.
   `drawingStyle(overrides)` takes the rest; wiring them to real document
   settings is M1's, which is also where the `units.js` formatter gains
   fractional inches.
+- *An ordinate dimension has no ordinate ORIGIN.* `DimensionKind::Ordinate`
+  reads one raw view-plane coordinate, so its number is measured from the
+  view frame's origin — which is a property of the projection, not of the
+  part, and is not the corner the sheet is laid out from (`svg.js` puts paper
+  `(0, 0)` at the bbox's top-left). The printed value therefore cannot be
+  read off the sheet, and moving the part in space changes it. An
+  `origin: GeomRef` (a datum vertex or edge) on the `Ordinate` variant is the
+  fix, and it is additive; it belongs with D4a, which is where a view frame
+  first becomes a document object.
+- *Nothing refuses `Measured::Value`.* It is documented as not authorable and
+  nothing in the tree constructs it (only `FromGeometry` is), but there is no
+  boundary that rejects one either — no MCP tool, no deserialization guard.
+  D4a and M2 own that refusal, at the same seam where they first make an
+  `Annotation` reachable from a file.
+- *A dual dimension's two units share one precision.* Two places of
+  millimetres is 0.01 mm; two places of inches is 0.254 mm, so the bracketed
+  value is 25× coarser than the primary it is supposed to restate. ASME
+  Y14.5 §1.6.2 wants the conversion to preserve the implied precision. The
+  rule is stated and pinned in `format.js`; a separate dual precision is
+  M1's, with the rest of the document settings.
 - *`Placement2` is in view-space meters.* For a label nudge, paper
   millimetres would be the natural unit, and a label dragged on a 1:10 view
   would then move the same distance on paper at any scale. It is meters here
