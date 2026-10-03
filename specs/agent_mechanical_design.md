@@ -581,26 +581,38 @@ hand-made document can still hold both; `names_list` lists both entries.)
   just only where an identity is genuinely gone (a pocket floor named and
   then turned into a through hole costs both the pid and its lineage root:
   `a_name_whose_reference_is_gone_still_measures_through_its_fallback`).
-- *A name on a BOOLEAN's own output face can still move on reopen, silently
+- *A name on a BOOLEAN's own output face loses its NUMBER on reopen, loudly
   — D0 item 1b.* `boolean/from_yang.rs` withdraws the construct seed around
   its `finalize_solid`, so boolean output faces keep counter pids and only
   their lineage ROOTS are seeded. The counter is therefore still live for
-  this family and still re-mints from the recipe on reopen. Measured
-  2026-10-03 on one plate with two pockets: the second pocket's FLOOR was
-  named (`pid 22`), the first pocket was deepened into a through hole (which
-  costs that cut's output its own floor), and after save and reopen the name
-  sat on the second pocket's SIDE WALL while the floor it was given to was
-  still there, unnamed — `resolves: true`, `resolved_by: "pid"`, no
-  warnings. The stable root cannot save this: `resolve_by_pid` matches the
-  pid exactly before it ever looks at the root. Pinned `#[ignore]`d as
-  `a_name_on_a_boolean_output_face_does_not_move_after_a_reload`; un-ignore
-  when the stamping pass moves after `boolean_op` records the journal. The
-  loud half IS pinned green: an edit to the boolean answers through the root
-  and the resolver says so
-  (`a_name_on_a_boolean_output_face_answers_through_its_root_and_says_so`).
-  Until then, a name on a boolean-born or boolean-rebuilt face is reliable
-  across a reopen only for a document whose earlier booleans did not change
-  their output face counts.
+  this family and still renumbers from the recipe on reopen.
+
+  As first measured 2026-10-03 this was SILENT: one plate with two pockets,
+  the second pocket's FLOOR named (`pid 22`), the first pocket deepened into
+  a through hole (which costs that cut's output its own floor), and after
+  save and reopen the name sat on the second pocket's SIDE WALL while the
+  floor it was given to was still there, unnamed — `resolves: true`,
+  `resolved_by: "pid"`, no warnings.
+
+  **Closed as a silent wrong answer by the root cross-check**
+  (`feature_engine::resolve::resolve_by_pid`, 2026-10-03): a pid match now
+  requires the recorded `root_pid` too, so a recycled number is not a match
+  at all. The floor descends from the cutter's end cap and the wall from its
+  lateral, their roots differ, and resolution falls through to the recorded
+  root — which still names the floor. The listing reports it with the
+  warning `"Face pid 22 is no longer this entity's: it now belongs to
+  geometry rooted at … (recorded root …), so the id was re-minted onto
+  something else — it was not matched by number"`, and refuses outright if
+  nothing descends from the recorded root. Pinned green as
+  `a_name_on_a_boolean_output_face_does_not_move_after_a_reload`, and
+  mutation-checked by disabling the cross-check (the name goes back to the
+  side wall).
+
+  What remains open is the IDEAL: the number itself surviving, so there is
+  nothing to warn about. That needs the stamping pass to move after
+  `boolean_op` records the journal (`H(root, rank within the root's split
+  group)`). Pinned `#[ignore]`d as
+  `a_boolean_output_face_keeps_its_own_pid_across_a_reload`.
 - *Edge and vertex names are untested against the real kernel.* The table,
   the grammar and the resolution are kind-agnostic and the mock covers all
   three, but every kernel-v2 test here names a FACE. An edge name inherits

@@ -1163,32 +1163,78 @@ fn a_name_does_not_follow_a_reused_pid_onto_another_face_after_a_reload() {
 }
 
 /// The same claim as the test above, for the face family the reseed does NOT
-/// cover: a BOOLEAN's own output faces.
+/// cover: a BOOLEAN's own output faces — and the net that keeps it loud.
 ///
-/// Their pids are still counter-allocated — `boolean/from_yang.rs` withdraws
+/// Their pids are still counter-allocated: `boolean/from_yang.rs` withdraws
 /// the construct seed around its `finalize_solid`, because a boolean output's
 /// identity is its journal lineage and `pid::solid_pids` reads the root. Only
 /// that root is content-seeded. So the counter is still live for this family,
-/// and a reopened document still re-mints its numbers from the recipe: an
-/// edit that changes an EARLIER boolean's output face count shifts them all.
+/// and a reopened document re-mints its numbers from the recipe: an edit that
+/// changes an EARLIER boolean's output face count shifts them all.
 ///
 /// Measured 2026-10-03 on the model below — one plate, two pockets, the body
 /// being the second cut's output. The name was given to the second pocket's
-/// FLOOR (`pid 22`, centroid `[0.01, -0.03, 0.004]`, normal −z). The first
-/// pocket was then deepened into a through hole, which costs that cut's
-/// output its own floor. After save and reopen the name sat on the second
-/// pocket's SIDE WALL (`[0.005, -0.03, 0.002]`, normal +x) while the floor
-/// it was given to was still there, unnamed — and the listing reported
-/// `resolves: true`, `resolved_by: "pid"`, with no `warnings` key at all.
-/// `resolve_by_pid` matches the pid exactly before it ever looks at the
-/// root, so the stable root cannot save this: step 1 wins with the wrong
-/// face.
+/// FLOOR (`pid 22`). The first pocket was then deepened into a through hole,
+/// which costs that cut's output its own floor. Before the root cross-check,
+/// the reopened name sat on the second pocket's SIDE WALL while the floor it
+/// was given to was still there unnamed, reported `resolves: true`,
+/// `resolved_by: "pid"`, no warnings at all.
 ///
-/// Un-ignore when the stamping pass moves after `boolean_op` records the
-/// journal (`H(root, rank within the root's split group)`).
+/// `resolve_by_pid` now requires the recorded `root_pid` as well as the
+/// number, so a recycled number is not a match: the floor descends from the
+/// cutter's end cap and the wall from its lateral, their roots differ, and
+/// resolution falls through to the recorded root — which still names the
+/// floor. The name is where it belongs and the warning says the number was
+/// re-minted. That is the loud outcome this pin holds. The IDEAL, where the
+/// number itself survives and there is nothing to warn about, is the
+/// `#[ignore]`d pin below.
 #[test]
-#[ignore = "D0 item 1b: stamp boolean outputs after the journal — a boolean's OWN output pids are still counter-allocated, so reopening a document whose earlier boolean changed its face count re-mints a stored pid onto a different face of the same body, and the name answers `pid` with no warning"]
 fn a_name_on_a_boolean_output_face_does_not_move_after_a_reload() {
+    let (entry, authored, reloaded) = boolean_output_name_across_a_reload();
+    assert_eq!(
+        reloaded["signature"]["centroid"], authored["signature"]["centroid"],
+        "the name must still be on the face it was given to: {entry}"
+    );
+    assert_eq!(entry["resolves"], true, "{entry}");
+    let warnings = entry["warnings"].as_array().cloned().unwrap_or_default();
+    assert!(
+        warnings.iter().any(|w| w
+            .as_str()
+            .unwrap_or_default()
+            .contains("re-minted onto something else")),
+        "the agent is told the recorded id now belongs to other geometry: {entry}"
+    );
+}
+
+/// The ideal the pin above settles for less than: a boolean output face's own
+/// id survives a reopen, so the name resolves by number with nothing to warn
+/// about. Red until the stamping pass moves after `boolean_op` records the
+/// journal (`H(root, rank within the root's split group)`), because only then
+/// is a boolean output's own pid content-derived rather than counter-allocated.
+#[test]
+#[ignore = "D0 item 1b: stamp boolean outputs after the journal — a boolean's OWN output pids are still counter-allocated, so a reopen re-mints them and the name can only be recovered through its lineage root, with a warning"]
+fn a_boolean_output_face_keeps_its_own_pid_across_a_reload() {
+    let (entry, authored, reloaded) = boolean_output_name_across_a_reload();
+    assert_eq!(
+        reloaded["signature"]["centroid"], authored["signature"]["centroid"],
+        "{entry}"
+    );
+    assert_eq!(entry["resolved_by"], "pid", "{entry}");
+    assert!(
+        entry.get("warnings").is_none(),
+        "the recorded id itself survived, so there is nothing to warn about: {entry}"
+    );
+}
+
+/// One plate, two pockets; the body is the SECOND cut's output, so its
+/// counter pids are allocated after the first cut's. Name the second
+/// pocket's floor, deepen the FIRST pocket into a through hole (its boolean
+/// output loses a face, shifting every counter pid after it), save, and
+/// reopen in a fresh engine and kernel.
+///
+/// Returns `(the name's listing entry, the face as authored, the face the
+/// name is on after the reopen)`.
+fn boolean_output_name_across_a_reload() -> (Value, Value, Value) {
     let mut state = EngineState::new();
     let mut kernel = KernelV2Adapter::new();
     let (_, _) = plate(&mut state, &mut kernel, 0.04, 0.01, 1);
@@ -1229,8 +1275,5 @@ fn a_name_on_a_boolean_output_face_does_not_move_after_a_reload() {
 
     let entry = listed(&mut state, &mut kernel, "p2_floor");
     let reloaded = named_face(&mut state, &mut kernel, &body, "p2_floor");
-    assert_eq!(
-        reloaded["signature"]["centroid"], authored["signature"]["centroid"],
-        "the name must still be on the face it was given to, or refuse: {entry}"
-    );
+    (entry, authored, reloaded)
 }
