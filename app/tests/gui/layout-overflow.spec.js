@@ -155,6 +155,31 @@ test.describe('Layout overflow', () => {
 		await expect(page.getByTestId('drawing-panel')).toBeVisible();
 		await expect(page.getByTestId('drawing-sheet')).toBeVisible();
 
+		// The panel's WIDEST state, built BEFORE the sweep rather than after
+		// it: an empty drawing panel has no view rows at all, so sweeping it
+		// first measured none of the per-view controls — the name field, the
+		// scale and placement numbers, the checkboxes, the parent select —
+		// at any width. Two views, one with a long name, so the add form's
+		// "projected from" select has an option wide enough to push a row.
+		const first = await page.evaluate(
+			(tab) => window.__waffle.addDrawingView(tab, { view: 'Top' }),
+			partTab
+		);
+		await page.evaluate(
+			(tab) => window.__waffle.addDrawingView(tab, { view: 'Front' }),
+			partTab
+		);
+		await page.evaluate(
+			(id) =>
+				window.__waffle.editDrawingView(id, {
+					name: 'Plan view of the left-hand mounting bracket'
+				}),
+			first
+		);
+		const toggles = page.locator('[data-testid^="dwg-view-toggle-"]');
+		await expect(toggles).toHaveCount(2);
+		for (let i = 0; i < (await toggles.count()); i += 1) await toggles.nth(i).click();
+
 		for (const width of WIDTHS) {
 			await resizeTo(page, { width, height: 720 });
 			await expectNothingOffscreen(page, expect, `drawing tab @${width}`);
@@ -164,26 +189,24 @@ test.describe('Layout overflow', () => {
 			const sheet = await page.getByTestId('drawing-sheet').boundingBox();
 			expect(sheet.width, `sheet width @${width}`).toBeGreaterThanOrEqual(320);
 			expect(sheet.height, `sheet height @${width}`).toBeGreaterThanOrEqual(200);
-			// And it SCROLLS rather than pushing the chrome out: the paper is
-			// wider than the region at 1:1, so the region's content must
-			// overflow inside it.
-			const scrolls = await page.evaluate(() => {
+			// And the paper stays INSIDE its region rather than pushing the
+			// chrome out. `svg.wi-sheet` is `max-width: 100%`, so an A3 at
+			// 1:1 is scaled down to fit; the region is an `overflow: auto`
+			// scroller as the fallback for anything that still does not.
+			// Either way nothing of the sheet may stick out sideways, which
+			// is what is actually asserted — `overflow !== 'visible'` would
+			// only have re-read the stylesheet.
+			const paper = await page.evaluate(() => {
 				const el = document.querySelector('[data-testid="drawing-sheet"]');
-				return getComputedStyle(el).overflow !== 'visible';
+				const svg = el.querySelector('svg.wi-sheet');
+				return svg ? { svg: svg.getBoundingClientRect().width, box: el.clientWidth } : null;
 			});
-			expect(scrolls, `the sheet region scrolls @${width}`).toBe(true);
+			if (paper) {
+				expect(paper.svg, `the paper fits its region @${width}`).toBeLessThanOrEqual(
+					paper.box + 1
+				);
+			}
 		}
-
-		// Every view row's own fields open at once — the panel's widest state.
-		// The view draws an EMPTY part tab, which is fine here: the panel's
-		// layout is what is under test, not the projection.
-		await page.evaluate((tab) => window.__waffle.addDrawingView(tab, { view: 'Top' }), partTab);
-		await resizeTo(page, { width: 1024, height: 640 });
-		const toggles = page.locator('[data-testid^="dwg-view-toggle-"]');
-		for (let i = 0; i < (await toggles.count()); i += 1) await toggles.nth(i).click();
-		await expectNothingOffscreen(page, expect, 'drawing panel with every view open @1024');
-		await resizeTo(page, { width: 800, height: 640 });
-		await expectNothingOffscreen(page, expect, 'drawing panel with every view open @800');
 	});
 
 	test('side panels cannot squeeze the view out', async ({ waffle }) => {
