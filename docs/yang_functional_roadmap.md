@@ -9,6 +9,58 @@
 
 ## 0. Honest status (refreshed 2026-06-26; addendum 2026-09-04 below)
 
+> **2026-10-03 (late night, second) refresh — P0021 ANCHORED, remediation
+> BUILT and GATED; corpus NOT re-measured this session.** Deviation **N75**,
+> spec `specs/yang_p0021_case_iii_finite_extent_depth.md`. P0021 carries
+> P0007's error text but **not its family**: both penetrating faces are
+> CYLINDERS and `KV2_OUT_CURVE_CENSUS` reads `plane×curved chords: 0` on every
+> op with **zero `SurfacePair`** half-edges — the cylinder×cylinder curve was
+> never derived, so both laterals survive un-trimmed and genuinely
+> interpenetrate (a true B-Rep self-intersection, not a render-sampler
+> artefact: the probe's face-28 vertices sit exactly on that cylinder's base
+> rim and one is `6.08e-6` inside face 32). **The owner is the Case-III graze
+> guard's depth** (`yang_172_case_iii_graze_guard.md` §2): it is
+> `r_a + r_b − d_lines`, read at the common perpendicular of the two
+> **INFINITE** axis LINES, whose foot for P0021 sits at `s* = −3.302106e-3` on
+> a cylinder spanning `[0, 1.68e-3]` — **1.97 lengths off the far end**. It
+> reports `1.480362e-3` where the finite bands realize `2.5197e-5` (59×) and
+> the two finite SOLIDS overlap in a lens only `6.162267e-6` deep, pinched
+> between their nearly coincident base cap planes; so it derives N = 5, the
+> self-limiting natural-N gate (10 / 12) absorbs it, and the realized
+> clearance's demand of 33 is never made. The guard had already PROVEN the
+> miss and discarded it — `[graze-guard] pair=(6,2) n=5 meshes_touch=false` is
+> Yang Fig. 8 Case III by definition (`:438`, "Case III the meshes miss
+> intersections … Here we explain how we eliminate Case III"). Remediation:
+> `cyl_band_overlap_clearance` witnesses the overlap on the two faces' OWN
+> axial spans (closed form in `s`, a sound LOWER bound — the safe direction;
+> recovers the closed form exactly when the perpendicular is in-extent, so the
+> existing population is byte-identical), then an escalation ladder refines
+> until the exact tri-tri predicate flips, per §4.5.2's own termination
+> theorem (`:668`). No sagitta margin is interposed and none is needed:
+> `meshes_touch == true` ⟺ CORRECT at all 12 Stage-1 density floors measured
+> both ways. **Measured:** P0021 ERROR → **SUPPORTED_CORRECT (2.0 s)** and its
+> un-minimized 8-op lineage ERROR → SUPPORTED_CORRECT (χ 8 → 6, 5 → 4 bodies,
+> volume `4.7617355307854375e-5`) with `YANG_172_EXTENT=1`; C0105 / C0116 /
+> C0118 / C0057 / P0007 byte-identical under both gates. **It ships GATED OFF**
+> — the always-on flip owes `full_corpus_categorized` in release (P10; the
+> cost risk is a CORRECT case the ladder re-meshes), which this session was
+> not permitted to run — so the canonical score is unchanged, P0021 still
+> counts as **E**, and its pin and `derived_meta` have not moved. One
+> adjudication finding for that PR: gated on, P0021 measures **1 body, χ 0,
+> volume `3.922430276348064e-8`** — χ 0, not the meta's derived
+> `euler_target: 2`; "all checks passed" only because `derived_meta: true`
+> suppresses the χ comparison. Genus 1 is what the shape should have (the
+> three solids form an overlap CYCLE whose third edge is the lens this fix
+> resolves), but that needs an independent reading via the sidecar, not the
+> lattice — whose χ diverges on grazing operands, and this case is nothing
+> but a graze. Recorded
+> en route: the §4.5.4 rim-graze retry could never have rescued this class
+> either, because its `natural_broken` trigger is `output_improper_count` on
+> the **boolean-resolution** mesh — the very mesh whose coarseness is the
+> defect — which reads 0 improper contacts, so the retry never runs. Trap:
+> `YANG_NSEG_FLOOR` is `cfg!(debug_assertions)`-gated, so a `--release` density
+> sweep is a silent no-op.
+
 > **2026-10-03 (night, fourth) refresh — P0020 ANCHORED and netted loud, NOT
 > converted; deviation **N74**; corpus NOT re-measured this session.** P0020's
 > `holed lateral CDT failed: duplicate (coincident) loop vertex in CDT input`

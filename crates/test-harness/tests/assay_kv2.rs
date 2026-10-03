@@ -1586,7 +1586,7 @@ fn smoke_corpus_boundary_categories() {
         // the full-corpus proof its 2026-08-27 flip was refused on. The
         // end-to-end pin for the landed halves is
         // `tests/p0013_tip_land_conformity.rs`.
-        ("P0013", Category::Error),
+        ("P0013", Category::SupportedCorrect), // CONVERTED 2026-10-03: the §4.3.3 LOCAL-form guard is always-on (318C/13E corpus proof)
         // P0014 (2 ops: pentagon boss, 10-tooth gear REVOLVE-CUT) ⇒ Stage-4
         // `LocalRefinementRequired` around vertex 4294967295 (u32::MAX — a
         // sentinel, not a real vertex, which is itself worth reading at the

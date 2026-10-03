@@ -5248,3 +5248,83 @@ read as a ULP-twin family. Pins
 both ways: gate off ⇒ the fixture reproduces the original text verbatim; a
 thin notch 5e-4 rad wide still tessellates with every boundary vertex
 present).
+## N75 — the Case-III graze depth is measured at the INFINITE axes' common perpendicular, which may lie off both faces (P0021)
+
+**State: ANCHORED, remediation BUILT and GATED (2026-10-03, P0021).** Spec
+`specs/yang_p0021_case_iii_finite_extent_depth.md`. Converts P0021 and its
+un-minimized 8-op lineage with `YANG_172_EXTENT=1`; the always-on flip owes
+the full release categorized assay (P10), not run in the session that built
+it, so the corpus verdict and the pin are unchanged.
+
+**Paper.** §4.2.1 enumerates Fig. 8's five mesh-vs-surface detection cases and
+commits to eliminating one of them at discretization time: "Case III the
+meshes miss intersections … Here we explain how we eliminate Case III"
+(`refs/text/yang2025_hybrid_boolean.txt:436-447`). The object of that sentence
+is the **mesh**, and the mesh is of the finite, capped operand — so the
+clearance that decides whether a mesh can miss an intersection is the
+clearance the two BOUNDED patches realize. §4.5.2 supplies the remedy and its
+termination argument: "The algorithm is guaranteed to terminate since the mesh
+intersections converge to the spline surface intersections under refinement"
+(`:668`).
+
+**Implementation.** `cyl_pair_graze_demand` (`crates/yang-rs/src/boolean/` 
+`rim_junction.rs`, spec `yang_172_case_iii_graze_guard.md` §2) computes
+`depth = r_a + r_b − d_lines` for non-parallel axes — the penetration of the
+two **infinite** cylinders, evaluated at the common perpendicular of their
+axis **lines**. Neither face's axial extent enters. The guard already owns the
+extent idea (`axial_span`, and the SubSagitta arm's witness check that the
+graze "reaches both FACES' axial extents") and §3 deliberately withholds it
+from the Boost arm: "the BOOST arm needs no extent check (a finer mesh is
+always valid; mirror of Case-IV)".
+
+**Why that withholding is wrong.** It is sound about a *false boost*, which
+costs only triangles. It is not sound about the *depth*, because the depth
+sizes the boost — and the error runs in the dangerous direction: an
+overestimated depth derives too COARSE an N, so the miss survives.
+
+**Measured on P0021.** The two op-2/op-3 boss laterals: the common
+perpendicular's foot sits at `s* = −3.302106e-3` on a cylinder whose own span
+is `[0, 1.68e-3]` — 1.97 lengths off the far end, on the opposite side. The
+depth it reports is `1.480362e-3`; the clearance the finite bands realize is
+`2.5197e-5` (**59× smaller**), and the two finite SOLIDS overlap in a lens
+only `6.162267e-6` deep, pinched between their nearly coincident base cap
+planes. The derived N is therefore **5**, which the self-limiting natural-N
+gate (naturals 10 / 12) absorbs, while the realized clearance demands 33. The
+guard's own phase filter prints the proof it then discards:
+`[graze-guard] pair=(6,2) n=5 meshes_touch=false` — `meshes_touch=false` is an
+exact (Cherchi tri-tri) statement that the natural meshes miss an
+intersection the surfaces have, i.e. Case III by definition.
+
+**Consequence.** Stage 2 derives no cylinder×cylinder curve at all (output
+half-edge kinds `{Arc, EllipseArc, Line}`, **zero `SurfacePair`**; `KV2_OUT_` 
+`CURVE_CENSUS` reads `plane×curved chords: 0` on every op, so this is NOT
+P0007's carried-chord family). Both laterals survive un-trimmed against each
+other and genuinely interpenetrate — face 28 sits `6.08e-6` inside face 32's
+cylinder — caught only one crate later by kernel-v2's render-resolution
+`validate::selfx` gate, the C0116 class.
+
+**Mutation-certified.** Ignoring A's own axial span in the finite-band witness
+makes it return `1.4803612303380738e-3` — bit-for-bit the number the existing
+guard uses. The deviation is that single substitution. Ignoring B's span gives
+`6.758677e-4`; both mutations turn the new pins RED.
+
+**Remediation.** `cyl_band_overlap_clearance` witnesses the overlap on the two
+faces' OWN axial spans (closed form in `s`, deterministic circumferential
+walk; a reported value is a real overlap point, hence a sound LOWER bound —
+the safe direction, A14.3), and recovers the closed-form depth exactly when
+the common perpendicular is in-extent (so the existing population is
+byte-identical). A flagged pair whose demand the natural gate would absorb,
+whose meshes are proven disjoint, and which has an on-face witness then walks
+rungs `base·2^k` re-asking the exact tri-tri predicate, demanding the first
+rung at which the meshes meet. No sagitta margin is interposed and none is
+needed: swept over 16 Stage-1 density floors, `meshes_touch == true` ⟺
+`SUPPORTED_CORRECT` at all 12 floors measured both ways.
+
+**Second observation (its own follow-up, not this deviation's remedy).**
+Nothing downstream could have rescued it: the §4.5.4 rim-graze retry fires
+only on `natural_broken`, measured by `output_improper_count` on the
+boolean-resolution mesh — the very mesh whose coarseness is the defect. It
+reads 0 improper contacts, so the retry never runs, and the defect only
+becomes observable where no refinement path remains. The two-layer
+disjointness `validate/selfx.rs`'s header documents; the trigger reads the
+layer that cannot see the class.
