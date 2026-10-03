@@ -29,7 +29,7 @@ use crate::arena::{Plane, UnitVector3};
 use crate::cone_fixtures::build_frustum;
 use crate::{revolve, BrepArena, FaceId, Profile, ProfileEdge, SolidId, Surface};
 use cad_primitives::{Point2 as P2, Vector3};
-use waffle_types::kernel::projection::{Aabb2, ViewFrame};
+use waffle_types::kernel::projection::{Aabb2, ProjectionDeclines, ViewFrame};
 
 // ---------------------------------------------------------------------------
 // fixtures
@@ -793,8 +793,14 @@ fn the_reported_silhouettes_agree_with_a_brute_force_normal_sign_sweep() {
                 continue;
             }
             generic += 1;
-            let paths = clipped_paths(&sweep.arena, sweep.face, w, n_seg())
-                .unwrap_or_else(|e| panic!("{} along {dir:?}: {e}", sweep.name));
+            let paths = clipped_paths(
+                &sweep.arena,
+                sweep.face,
+                w,
+                n_seg(),
+                &mut ProjectionDeclines::default(),
+            )
+            .unwrap_or_else(|e| panic!("{} along {dir:?}: {e}", sweep.name));
             let tol = 1e-6 * sweep.scale;
             let (u0, u1, v0, v1) = sweep.domain;
 

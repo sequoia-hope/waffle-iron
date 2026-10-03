@@ -83,6 +83,27 @@ fn make_cylinder(
 // --- a minimal group-code reader, for assertions only ---
 
 /// `(code, value)` pairs, in file order. DXF is a flat stream of them.
+/// The D1a EDGE pass alone, as this writer's entity-coverage tests need it.
+///
+/// Since D1c the adapter's `project` merges curves that are COINCIDENT in
+/// `(u, v)` with the same visibility — which an axis-aligned view of a
+/// prismatic or axial solid is full of, since its front and back outlines
+/// project onto each other — so a classified top view of a box carries four
+/// lines, not eight. That is the right DRAWING and it is what the golden
+/// records; it is the wrong fixture for checking that the writer emits a
+/// `LINE` per `Curve2::Line` and a `CIRCLE` per full turn, which is what these
+/// tests are for.
+fn edge_view(a: &KernelV2Adapter, solid: &KernelSolidHandle, frame: ViewFrame) -> ViewGeometry {
+    let (arena, sid) = a.arena_of(solid).expect("a live solid");
+    crate::projection::project_edges(
+        arena,
+        sid,
+        &frame.basis().expect("a well-formed frame"),
+        crate::tessellate::RENDER_CHORD_TOLERANCE_REL,
+    )
+    .expect("the edge pass projects")
+}
+
 fn codes(text: &str) -> Vec<(i32, String)> {
     let mut lines = text.lines();
     let mut out = Vec::new();
@@ -196,9 +217,7 @@ fn the_r12_skeleton_is_present_and_balanced() {
 fn a_boxs_top_view_writes_eight_lines_and_four_points_in_millimetres() {
     let mut a = KernelV2Adapter::new();
     let solid = make_box(&mut a, 0.040, 0.030, 0.010);
-    let view = a
-        .project(&solid, &ViewFrame::TOP, &ProjectOpts::default())
-        .expect("projects");
+    let view = edge_view(&a, &solid, ViewFrame::TOP);
     let text = write_dxf(&view, DEFAULT_POLYLINE_SAGITTA);
 
     assert_eq!(entities(&text).len(), 12, "twelve edges, twelve entities");
@@ -216,7 +235,11 @@ fn a_boxs_top_view_writes_eight_lines_and_four_points_in_millimetres() {
     };
     let mut lengths = Vec::new();
     for (kind, e) in entities(&text) {
-        assert_eq!(layer_of(&e), LAYER_VISIBLE, "D1a tags everything visible");
+        assert_eq!(
+            layer_of(&e),
+            LAYER_VISIBLE,
+            "the edge pass tags everything visible"
+        );
         match kind.as_str() {
             "LINE" => {
                 let (x0, y0) = (group(&e, 10), group(&e, 20));
@@ -245,9 +268,7 @@ fn a_boxs_top_view_writes_eight_lines_and_four_points_in_millimetres() {
 fn a_cylinders_top_view_writes_two_circles_and_the_collapsed_seam() {
     let mut a = KernelV2Adapter::new();
     let solid = make_cylinder(&mut a, (0.005, -0.003), 0.008, 0.020);
-    let view = a
-        .project(&solid, &ViewFrame::TOP, &ProjectOpts::default())
-        .expect("projects");
+    let view = edge_view(&a, &solid, ViewFrame::TOP);
     let text = write_dxf(&view, DEFAULT_POLYLINE_SAGITTA);
 
     assert_eq!(count_of(&text, "CIRCLE"), 2, "two rims, seen face-on");
@@ -270,17 +291,15 @@ fn an_oblique_rim_is_flattened_within_its_sagitta() {
     let r = 0.008;
     let solid = make_cylinder(&mut a, (0.0, 0.0), r, 0.020);
     let theta = std::f64::consts::FRAC_PI_4;
-    let view = a
-        .project(
-            &solid,
-            &ViewFrame {
-                origin: [0.0; 3],
-                dir: [0.0, theta.sin(), -theta.cos()],
-                up: [0.0, 0.0, 1.0],
-            },
-            &ProjectOpts::default(),
-        )
-        .expect("projects");
+    let view = edge_view(
+        &a,
+        &solid,
+        ViewFrame {
+            origin: [0.0; 3],
+            dir: [0.0, theta.sin(), -theta.cos()],
+            up: [0.0, 0.0, 1.0],
+        },
+    );
     let text = write_dxf(&view, DEFAULT_POLYLINE_SAGITTA);
 
     assert_eq!(count_of(&text, "POLYLINE"), 2, "R12 has no ELLIPSE entity");
@@ -363,13 +382,10 @@ fn a_d_shaped_plate_writes_arcs_from_its_rounded_rims() {
         .extrude_face(faces[0], [0.0, 0.0, 1.0], 0.004)
         .expect("D-shape extrudes");
 
-    let text = a
-        .export_dxf(
-            &[ProjectionBody::solo(solid)],
-            &ViewFrame::TOP,
-            &ProjectOpts::default(),
-        )
-        .expect("export_dxf");
+    let text = write_dxf(
+        &edge_view(&a, &solid, ViewFrame::TOP),
+        DEFAULT_POLYLINE_SAGITTA,
+    );
     let arcs: Vec<Vec<(i32, String)>> = entities(&text)
         .into_iter()
         .filter(|(k, _)| k == "ARC")
@@ -426,17 +442,18 @@ fn an_arc_is_written_with_degrees_in_the_dxf_range() {
         (7.0, 9.0),
     ];
     for (s, e) in cases {
-        let view = ViewGeometry::new(vec![waffle_types::kernel::projection::ProjectedCurve {
-            geometry: Curve2::Circle {
-                center: cad_primitives::Point2::new(0.001, -0.002),
-                radius: 0.004,
-                start_angle: s,
-                end_angle: e,
-            },
-            visibility: waffle_types::kernel::projection::Visibility::Visible,
-            kind: waffle_types::kernel::projection::CurveKind::Edge,
-            source: None,
-        }]);
+        let view = ViewGeometry::new(vec![
+            waffle_types::kernel::projection::ProjectedCurve::visible(
+                Curve2::Circle {
+                    center: cad_primitives::Point2::new(0.001, -0.002),
+                    radius: 0.004,
+                    start_angle: s,
+                    end_angle: e,
+                },
+                waffle_types::kernel::projection::CurveKind::Edge,
+                None,
+            ),
+        ]);
         let text = write_dxf(&view, DEFAULT_POLYLINE_SAGITTA);
         assert_eq!(count_of(&text, "ARC"), 1, "({s}, {e}) is a partial arc");
         let arc = entities(&text).remove(0).1;
@@ -494,8 +511,12 @@ fn export_dxf_puts_several_bodies_in_one_view() {
             &ProjectOpts::default(),
         )
         .expect("export_dxf");
-    assert_eq!(count_of(&text, "LINE"), 8, "the plate");
-    assert_eq!(count_of(&text, "CIRCLE"), 2, "the disc's rims");
+    // Four lines and one circle, not eight and two: seen along `z` each
+    // body's front and back outlines project onto each other, agree on
+    // visibility, and D1c merges them. The drawing is the same drawing; the
+    // file no longer carries each line twice.
+    assert_eq!(count_of(&text, "LINE"), 4, "the plate");
+    assert_eq!(count_of(&text, "CIRCLE"), 1, "the disc's merged rims");
     // One nest, one set of extents spanning both parts.
     let all = codes(&text);
     let i = all

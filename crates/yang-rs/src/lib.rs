@@ -199,6 +199,16 @@ pub use cherchi_rs::triangulation::{
 // `ArrangementError::CoplanarPairDeferred`, which kernel-v2 maps to its
 // typed `UnsupportedCoplanar` error. Public-surface addition only.
 pub use cherchi_rs::ArrangementError;
+// The EXACT segment/triangle predicate, re-exported for the same reason as
+// the CDT above: kernel-v2's dep rules allow `yang-rs` but not `cherchi-rs`,
+// and its D1c hidden-line classification
+// (`specs/drawings_and_mbd.md` §5.2 increment 3) needs an exact answer for the
+// one question a float ray cast cannot settle — whether a view ray that GRAZES
+// a render triangle crosses it. Cherchi 2022 §3's primitive (5 `orient3d`
+// tests over Shewchuk's adaptive predicates) is that answer; reimplementing
+// orientation predicates in kernel-v2 is what this seam exists to prevent.
+// Public-surface addition only.
+pub use cherchi_rs::predicates::{segment_intersects_triangle_3d, SegmentTriangleIntersection};
 
 /// Construct the PRODUCTION boolean backend: the native, in-process
 /// cherchi-rs pipeline ([`NativeBoolean`]) — `mesh_arrangement` → labeling →

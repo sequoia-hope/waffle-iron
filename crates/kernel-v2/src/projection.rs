@@ -51,12 +51,13 @@ use std::f64::consts::{PI, TAU};
 
 use cad_primitives::{Point2, Point3};
 use waffle_types::kernel::projection::{
-    Curve2, CurveKind, ProjectedCurve, ViewBasis, ViewGeometry, Visibility,
+    Curve2, CurveKind, ProjectedCurve, ProjectionDeclines, ViewBasis, ViewGeometry,
 };
 use waffle_types::kernel::units::TAU_MODEL;
 
 use crate::arena::{BrepArena, Curve, HalfEdgeId, SolidId, UnitVector3};
 use crate::error::KernelV2Error;
+use visibility::LiftedCurve;
 
 /// Relative slack at which a projected ellipse's two semi-axes are the same
 /// number and the curve is reported as a circle. The exact case (a circle
@@ -80,6 +81,26 @@ pub fn project_edges(
     rel_chord_tolerance: f64,
 ) -> Result<ViewGeometry, KernelV2Error> {
     let n_seg = crate::tessellate::circle_segment_count(rel_chord_tolerance);
+    Ok(ViewGeometry::new(
+        lifted_edges(arena, solid, basis, n_seg)?
+            .into_iter()
+            .map(|l| l.curve)
+            .collect(),
+    ))
+}
+
+/// Every undirected edge projected, each carrying the 3-D sample polyline of
+/// its own source — the input D1c's classification lifts a 2-D point back
+/// through. The lift is [`crate::introspect::edge_polyline`], the same
+/// sampling [`crate::extract_edges`] and the polyline arm of
+/// [`project_edge`] use, so the drawing and the viewport cannot disagree
+/// about where an edge is in depth either.
+fn lifted_edges(
+    arena: &BrepArena,
+    solid: SolidId,
+    basis: &ViewBasis,
+    n_seg: u32,
+) -> Result<Vec<LiftedCurve>, KernelV2Error> {
     let he_set = crate::introspect::solid_half_edges(arena, solid)?;
     let mut curves = Vec::with_capacity(he_set.len() / 2);
     for &h in &he_set {
@@ -87,22 +108,30 @@ pub fn project_edges(
         if he.twin < h {
             continue; // the twin (lower id) already reported this edge
         }
-        curves.push(ProjectedCurve {
-            geometry: project_edge(arena, h, basis, n_seg)?,
-            visibility: Visibility::Visible,
-            kind: CurveKind::Edge,
-            source: Some(crate::adapter::encode_edge(h)),
+        curves.push(LiftedCurve {
+            curve: ProjectedCurve::visible(
+                project_edge(arena, h, basis, n_seg)?,
+                CurveKind::Edge,
+                Some(crate::adapter::encode_edge(h)),
+            ),
+            lift: crate::introspect::edge_polyline(arena, h, n_seg)?,
         });
     }
-    Ok(ViewGeometry::new(curves))
+    Ok(curves)
 }
 
-/// One solid's whole view: every edge (D1a) followed by every curved face's
-/// silhouette (D1b, [`silhouette::solid_silhouettes`]).
+/// One solid's whole view: every edge (D1a) and every curved face's
+/// silhouette (D1b), classified visible or hidden against the solid's own
+/// tessellation (D1c, [`visibility::classify`]).
 ///
-/// The EDGE curves come first and in [`project_edges`]'s order, so the
-/// `CurveKind::Edge` prefix of a view still zips with
-/// [`crate::extract_edges`]; the silhouettes follow in shell walk order.
+/// The EDGE curves come first, in [`project_edges`]'s order, and the
+/// silhouettes follow in shell walk order — but D1c SPLITS a curve at its
+/// crossings and drops the ones that duplicate another, so the result is no
+/// longer one curve per edge. D1a's "the nth curve is the nth
+/// [`crate::extract_edges`] edge" is therefore a statement about
+/// [`project_edges`] from here on; what survives in a classified view is the
+/// grouping (a parent's pieces are consecutive, in parameter order) and the
+/// `source` on each piece, which still names the edge or face it came from.
 pub fn project_solid(
     arena: &BrepArena,
     solid: SolidId,
@@ -110,11 +139,17 @@ pub fn project_solid(
     rel_chord_tolerance: f64,
 ) -> Result<ViewGeometry, KernelV2Error> {
     let n_seg = crate::tessellate::circle_segment_count(rel_chord_tolerance);
-    let mut geometry = project_edges(arena, solid, basis, rel_chord_tolerance)?;
-    geometry.extend(ViewGeometry::new(silhouette::solid_silhouettes(
-        arena, solid, basis, n_seg,
-    )?));
-    Ok(geometry)
+    let mut declines = ProjectionDeclines::default();
+    let mut lifted = lifted_edges(arena, solid, basis, n_seg)?;
+    lifted.extend(silhouette::solid_silhouettes(
+        arena,
+        solid,
+        basis,
+        n_seg,
+        &mut declines,
+    )?);
+    let curves = visibility::classify(arena, solid, basis, lifted, n_seg, &mut declines)?;
+    Ok(ViewGeometry::with_declines(curves, declines))
 }
 
 /// One canonical half-edge's curve, projected. `n_seg` is the angular sample
@@ -336,7 +371,9 @@ fn offset(p: Point2, dir: [f64; 2], s: f64) -> Point2 {
     Point2::new(p.x() + dir[0] * s, p.y() + dir[1] * s)
 }
 
+mod crossings;
 mod silhouette;
+pub(crate) mod visibility;
 
 #[cfg(test)]
 mod tests;

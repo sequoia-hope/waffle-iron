@@ -1995,6 +1995,23 @@ impl KernelIntrospect for KernelV2Adapter {
     }
 }
 
+/// The arena and solid id behind a handle, for the crate's own tests.
+///
+/// The projection's D1a contract — "the nth curve is the nth listed edge" —
+/// is a statement about [`crate::projection::project_edges`], which takes the
+/// arena directly; since D1c the adapter's `project` splits and merges on top
+/// of it, so a test of the edge pass has to reach the edge pass. Test-only on
+/// purpose: a production caller goes through the traits.
+#[cfg(test)]
+impl KernelV2Adapter {
+    pub(crate) fn arena_of(
+        &self,
+        handle: &KernelSolidHandle,
+    ) -> Result<(&crate::arena::BrepArena, SolidId), KernelError> {
+        Ok((&self.arena, self.solid_of(handle)?))
+    }
+}
+
 /// Drawing projection (`specs/drawings_and_mbd.md` §5, increments D1a + D1b):
 /// `project` / `project_bodies` over [`crate::projection::project_solid`] —
 /// every edge, then every curved face's silhouette — and `export_dxf` over
@@ -2061,6 +2078,13 @@ impl waffle_types::kernel::KernelProjection for KernelV2Adapter {
                     },
                 )?,
             );
+        }
+        // D1c classifies each body against its OWN tessellation, so a curve
+        // hidden behind a DIFFERENT body is still reported visible. That is
+        // the one projection decline that over-reports, so it is counted
+        // rather than left to be discovered from a wrong drawing.
+        if bodies.len() > 1 {
+            out.declines.cross_body = out.declines.cross_body.saturating_add(bodies.len() as u32);
         }
         Ok(out)
     }

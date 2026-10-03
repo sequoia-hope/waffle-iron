@@ -337,10 +337,19 @@ pub struct ProjectionDeclines {
     /// source, so nothing could be tested in front of it and it stays
     /// visible.
     pub depth_unliftable: u32,
-    /// D1c: the view ray lay IN a candidate triangle's plane, where the exact
-    /// segment/triangle predicate reports neither a hit nor a miss. That
-    /// triangle contributes no occlusion.
-    pub ray_coplanar: u32,
+    /// D1c: the view ray TOUCHED a candidate triangle without crossing its
+    /// interior — it ran in the triangle's plane, or met it exactly on an
+    /// edge or at a vertex. Such a face contributes no occlusion, and that is
+    /// a decision rather than a fallback: a face hides a curve only by
+    /// standing BETWEEN it and the viewer, which means the ray crosses from
+    /// one side of it to the other, so a face the ray merely grazes separates
+    /// nothing. Counted once per classified curve, because the configuration
+    /// is systematic rather than accidental — a rim at a bore's own radius
+    /// grazes the whole inscribed wall, and an axis-aligned view of a
+    /// prismatic solid grazes every face parallel to the line of sight — and
+    /// the count is how a caller tells a decided drawing from a degenerate
+    /// one.
+    pub ray_grazes_face: u32,
     /// D1c: bodies whose curves were classified against their OWN geometry
     /// only. Visibility is computed per body, so in a multi-body view a curve
     /// hidden behind a DIFFERENT body is still reported visible. Counted once
@@ -365,7 +374,7 @@ impl ProjectionDeclines {
             ("split_tangency", self.split_tangency),
             ("split_budget", self.split_budget),
             ("depth_unliftable", self.depth_unliftable),
-            ("ray_coplanar", self.ray_coplanar),
+            ("ray_grazes_face", self.ray_grazes_face),
             ("cross_body", self.cross_body),
         ]
     }
@@ -393,7 +402,7 @@ impl ProjectionDeclines {
         self.split_tangency = self.split_tangency.saturating_add(other.split_tangency);
         self.split_budget = self.split_budget.saturating_add(other.split_budget);
         self.depth_unliftable = self.depth_unliftable.saturating_add(other.depth_unliftable);
-        self.ray_coplanar = self.ray_coplanar.saturating_add(other.ray_coplanar);
+        self.ray_grazes_face = self.ray_grazes_face.saturating_add(other.ray_grazes_face);
         self.cross_body = self.cross_body.saturating_add(other.cross_body);
     }
 }
@@ -1704,7 +1713,7 @@ mod tests {
         assert_eq!(a.total(), 0);
         assert_eq!(a.counts().len(), 9, "every field must be in `counts`");
         a.split_tangency = 2;
-        a.ray_coplanar = 1;
+        a.ray_grazes_face = 1;
         let mut b = ProjectionDeclines {
             cross_body: 3,
             split_tangency: 1,
@@ -1712,7 +1721,7 @@ mod tests {
         };
         b.merge(&a);
         assert_eq!(b.split_tangency, 3);
-        assert_eq!(b.ray_coplanar, 1);
+        assert_eq!(b.ray_grazes_face, 1);
         assert_eq!(b.cross_body, 3);
         assert_eq!(b.total(), 7);
         // Named counters, so a report cannot drift from the struct.
@@ -1724,7 +1733,7 @@ mod tests {
             .collect();
         assert_eq!(
             named,
-            vec!["split_tangency", "ray_coplanar", "cross_body"],
+            vec!["split_tangency", "ray_grazes_face", "cross_body"],
             "counts() reports in field order"
         );
     }

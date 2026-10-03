@@ -115,8 +115,12 @@
 use std::f64::consts::{PI, TAU};
 
 use cad_primitives::{Point2, Point3};
-use waffle_types::kernel::projection::{Curve2, CurveKind, ProjectedCurve, ViewBasis, Visibility};
+use waffle_types::kernel::projection::{
+    Curve2, CurveKind, ProjectedCurve, ProjectionDeclines, ViewBasis,
+};
 use waffle_types::kernel::units::{TAU_MODEL, TAU_NORMALIZE};
+
+use super::visibility::LiftedCurve;
 
 use crate::arena::{BrepArena, Curve, FaceId, HalfEdgeId, SolidId, Surface, UnitVector3};
 use crate::error::KernelV2Error;
@@ -145,16 +149,19 @@ pub(crate) fn solid_silhouettes(
     solid: SolidId,
     basis: &ViewBasis,
     n_seg: u32,
-) -> Result<Vec<ProjectedCurve>, KernelV2Error> {
+    declines: &mut ProjectionDeclines,
+) -> Result<Vec<LiftedCurve>, KernelV2Error> {
     let mut out = Vec::new();
     for &sh in &arena.solid(solid)?.shells {
         for &fid in &arena.shell(sh)?.faces {
-            for geometry in face_silhouettes(arena, fid, basis, n_seg)? {
-                out.push(ProjectedCurve {
-                    geometry,
-                    visibility: Visibility::Visible,
-                    kind: CurveKind::Silhouette,
-                    source: Some(crate::adapter::encode_face(fid)),
+            for (geometry, lift) in face_silhouettes_lifted(arena, fid, basis, n_seg, declines)? {
+                out.push(LiftedCurve {
+                    curve: ProjectedCurve::visible(
+                        geometry,
+                        CurveKind::Silhouette,
+                        Some(crate::adapter::encode_face(fid)),
+                    ),
+                    lift,
                 });
             }
         }
@@ -165,17 +172,40 @@ pub(crate) fn solid_silhouettes(
 /// One face's silhouette curves, in the view plane. Empty for a planar face,
 /// for a view along a cylinder's or cone's axis, and wherever the clip
 /// declines (see the module docs).
+#[cfg(test)]
 pub(crate) fn face_silhouettes(
     arena: &BrepArena,
     fid: FaceId,
     basis: &ViewBasis,
     n_seg: u32,
 ) -> Result<Vec<Curve2>, KernelV2Error> {
+    let mut sink = ProjectionDeclines::default();
+    Ok(
+        face_silhouettes_lifted(arena, fid, basis, n_seg, &mut sink)?
+            .into_iter()
+            .map(|(c, _)| c)
+            .collect(),
+    )
+}
+
+/// One face's silhouette curves, each with the 3-D samples of the path it came
+/// from — what D1c's classification lifts a 2-D point back through.
+///
+/// The samples are the path's own, at the parameters
+/// [`project_interval`] already evaluates it at, so the lift costs nothing
+/// beyond keeping what the projection computed.
+pub(crate) fn face_silhouettes_lifted(
+    arena: &BrepArena,
+    fid: FaceId,
+    basis: &ViewBasis,
+    n_seg: u32,
+    declines: &mut ProjectionDeclines,
+) -> Result<Vec<(Curve2, Vec<Point3>)>, KernelV2Error> {
     let mut out = Vec::new();
-    for (path, intervals) in clipped_paths(arena, fid, basis.w, n_seg)? {
+    for (path, intervals) in clipped_paths(arena, fid, basis.w, n_seg, declines)? {
         for (s0, s1) in intervals {
-            if let Some(curve) = project_interval(basis, &path, s0, s1, n_seg) {
-                out.push(curve);
+            if let Some(pair) = project_interval(basis, &path, s0, s1, n_seg) {
+                out.push(pair);
             }
         }
     }
@@ -193,6 +223,7 @@ fn clipped_paths(
     fid: FaceId,
     w: [f64; 3],
     n_seg: u32,
+    declines: &mut ProjectionDeclines,
 ) -> Result<Vec<ClippedPath>, KernelV2Error> {
     let face = arena.face(fid)?;
     let Some(surface) = face.surface else {
@@ -246,7 +277,17 @@ fn clipped_paths(
     }
     let mut out = Vec::new();
     for (path, functional) in paths {
-        let intervals = clip_path(arena, fid, &surface, &path, &functional, &hes, scale, n_seg)?;
+        let intervals = clip_path(
+            arena,
+            fid,
+            &surface,
+            &path,
+            &functional,
+            &hes,
+            scale,
+            n_seg,
+            declines,
+        )?;
         if !intervals.is_empty() {
             out.push((path, intervals));
         }
@@ -725,6 +766,7 @@ fn clip_path(
     hes: &[HalfEdgeId],
     scale: f64,
     n_seg: u32,
+    declines: &mut ProjectionDeclines,
 ) -> Result<Vec<(f64, f64)>, KernelV2Error> {
     let mut xs: Vec<Crossing> = Vec::new();
     let mut tangencies = 0usize;
@@ -780,7 +822,7 @@ fn clip_path(
             // construction; otherwise nothing LOCAL decides it and the one
             // global question of this module gets asked (once, of the face's
             // own triangles).
-            if hes.is_empty() || closed_path_is_on_face(arena, fid, surface, path)? {
+            if hes.is_empty() || closed_path_is_on_face(arena, fid, surface, path, declines)? {
                 return Ok(vec![(0.0, TAU)]);
             }
             if tangencies > 0 {
@@ -791,11 +833,14 @@ fn clip_path(
                 // both ends of that arc, so the removal has no transversal
                 // crossing to find). Nothing is emitted rather than a circle
                 // that runs through the hole.
+                declines.silhouette_grazing_removal =
+                    declines.silhouette_grazing_removal.saturating_add(1);
                 census(
                     fid,
                     "closed path meets the boundary only tangentially — grazing removal",
                 );
             } else {
+                declines.silhouette_off_face = declines.silhouette_off_face.saturating_add(1);
                 census(fid, "closed path lies off the face (no crossings)");
             }
             return Ok(Vec::new());
@@ -805,6 +850,8 @@ fn clip_path(
         for i in 0..n {
             let j = (i + 1) % n;
             if xs[i].enter == xs[j].enter {
+                declines.silhouette_non_alternating =
+                    declines.silhouette_non_alternating.saturating_add(1);
                 census(fid, "closed path crossings do not alternate");
                 return Ok(Vec::new());
             }
@@ -862,10 +909,12 @@ fn closed_path_is_on_face(
     fid: FaceId,
     surface: &Surface,
     path: &Path,
+    declines: &mut ProjectionDeclines,
 ) -> Result<bool, KernelV2Error> {
     const SAMPLES: usize = 48;
     let mesh = crate::tessellate::tessellate_face(arena, fid)?;
     if mesh.indices.is_empty() {
+        declines.silhouette_no_triangles = declines.silhouette_no_triangles.saturating_add(1);
         census(fid, "closed path on a face with no triangles");
         return Ok(false);
     }
@@ -943,7 +992,7 @@ fn tightest_radius(surface: &Surface) -> f64 {
 /// indexings because the alternative is three panics on a production path,
 /// which this crate's rule 4 forbids — and "the producer is correct" is an
 /// argument about the producer, not a property of this function.
-fn mesh_vertex(mesh: &crate::tessellate::RenderMesh, i: u32) -> Option<[f64; 3]> {
+pub(super) fn mesh_vertex(mesh: &crate::tessellate::RenderMesh, i: u32) -> Option<[f64; 3]> {
     let k = (i as usize).checked_mul(3)?;
     Some([
         *mesh.positions.get(k)?,
@@ -975,7 +1024,7 @@ fn distance_to_mesh(mesh: &crate::tessellate::RenderMesh, p: [f64; 3]) -> f64 {
 /// Detection* §5.1.5: the closest point is in the interior, on one of the
 /// three edges, or at one of the three vertices, decided by the barycentric
 /// region `p` projects into.
-fn distance_to_triangle(p: [f64; 3], a: [f64; 3], b: [f64; 3], c: [f64; 3]) -> f64 {
+pub(super) fn distance_to_triangle(p: [f64; 3], a: [f64; 3], b: [f64; 3], c: [f64; 3]) -> f64 {
     let ab = sub(b, a);
     let ac = sub(c, a);
     let ap = sub(p, a);
@@ -1364,7 +1413,7 @@ fn on_path_rel_tol(param: &EdgeParam, n_seg: u32) -> f64 {
 /// The sagitta of an `n_seg`-gon inscribed in a unit circle, `1 − cos(π/n)` —
 /// the render band's own deviation, and the unit every chord-derived tolerance
 /// in this module is expressed in.
-fn chord_sagitta_rel(n_seg: u32) -> f64 {
+pub(super) fn chord_sagitta_rel(n_seg: u32) -> f64 {
     1.0 - (PI / f64::from(n_seg.max(3))).cos()
 }
 
@@ -1542,22 +1591,30 @@ fn numeric_roots(param: &EdgeParam, functional: &Functional, n_seg: u32) -> Vec<
 // ---------------------------------------------------------------------------
 
 /// The projection of `path` restricted to `[s0, s1]`, analytic where it can
-/// be. `None` when the interval projects to a single point, which adds nothing
-/// to a drawing the rims do not already carry.
+/// be, with the 3-D samples of the same interval beside it (D1c's lift).
+/// `None` when the interval projects to a single point, which adds nothing to
+/// a drawing the rims do not already carry.
+///
+/// The lift is the path's OWN adaptive sampling in every case, including the
+/// two that project analytically: the 2-D answer stays exact (a ruling is a
+/// `Line`, a coordinate circle a `Circle` or `Ellipse`) while the depth of a
+/// point on it is read off the chords. Those agree to the render sagitta,
+/// which is the band the whole classification carries anyway.
 fn project_interval(
     basis: &ViewBasis,
     path: &Path,
     s0: f64,
     s1: f64,
     n_seg: u32,
-) -> Option<Curve2> {
+) -> Option<(Curve2, Vec<Point3>)> {
     match *path {
         Path::Ruling { .. } => {
-            let a = super::project_point(basis, path.eval(s0));
-            let b = super::project_point(basis, path.eval(s1));
+            let (a3, b3) = (path.eval(s0), path.eval(s1));
+            let a = super::project_point(basis, a3);
+            let b = super::project_point(basis, b3);
             match super::line_or_point(a, b) {
                 Curve2::Point(_) => None,
-                c => Some(c),
+                c => Some((c, vec![a3, b3])),
             }
         }
         Path::Circle {
@@ -1574,16 +1631,22 @@ fn project_interval(
             };
             let full = s1 - s0 >= TAU - 1e-12;
             let end = if full { None } else { Some(path.eval(s1)) };
-            super::project_circle(basis, pt(center), nu, radius, path.eval(s0), end)
-                .filter(|c| !matches!(c, Curve2::Point(_)))
-                .or_else(|| sampled(basis, path, s0, s1, radius, n_seg))
+            let analytic = super::project_circle(basis, pt(center), nu, radius, path.eval(s0), end)
+                .filter(|c| !matches!(c, Curve2::Point(_)));
+            match analytic {
+                Some(curve) => {
+                    let params = refine_params(path, s0, s1, radius, n_seg);
+                    Some((curve, params.iter().map(|s| path.eval(*s)).collect()))
+                }
+                None => sampled(basis, path, s0, s1, radius, n_seg),
+            }
         }
         Path::Branch { minor, .. } => sampled(basis, path, s0, s1, minor, n_seg),
     }
 }
 
-/// A path interval as a projected polyline, refined until every chord's
-/// midpoint is within the render sagitta of the curve.
+/// The adaptively refined parameters of `path` over `[s0, s1]`: every chord's
+/// midpoint within the render sagitta of the curve.
 ///
 /// The sagitta target is the render band's own: an `n_seg`-gon inscribed in a
 /// circle of radius `scale` deviates by `scale·(1 − cos(π/n_seg))`, so a
@@ -1591,27 +1654,20 @@ fn project_interval(
 /// refinement is adaptive rather than uniform because a torus branch's speed
 /// in `θ` is wildly uneven as `w·a → 0` — uniform sampling would miss the
 /// steep stretch entirely while over-sampling the flat one.
-fn sampled(
-    basis: &ViewBasis,
-    path: &Path,
-    s0: f64,
-    s1: f64,
-    scale: f64,
-    n_seg: u32,
-) -> Option<Curve2> {
+fn refine_params(path: &Path, s0: f64, s1: f64, scale: f64, n_seg: u32) -> Vec<f64> {
     const SEED: usize = 24;
     const MAX_DEPTH: u32 = 22;
     let sag = scale * chord_sagitta_rel(n_seg);
     let sag = if sag > 0.0 { sag } else { TAU_MODEL };
 
-    let mut params: Vec<f64> = (0..=SEED)
+    let seeds: Vec<f64> = (0..=SEED)
         .map(|i| s0 + (s1 - s0) * (i as f64) / (SEED as f64))
         .collect();
-    let mut refined: Vec<f64> = Vec::with_capacity(params.len());
+    let mut refined: Vec<f64> = Vec::with_capacity(seeds.len());
     // Depth-first refinement of each seed interval.
     let mut stack: Vec<(f64, f64, u32)> = Vec::new();
-    refined.push(params[0]);
-    for win in params.windows(2) {
+    refined.push(seeds[0]);
+    for win in seeds.windows(2) {
         stack.clear();
         stack.push((win[0], win[1], 0));
         while let Some((a, b, depth)) = stack.pop() {
@@ -1633,7 +1689,21 @@ fn sampled(
             }
         }
     }
-    params = refined;
+    refined
+}
+
+/// A path interval as a projected polyline at [`refine_params`]'s density,
+/// with the matching 3-D samples.
+fn sampled(
+    basis: &ViewBasis,
+    path: &Path,
+    s0: f64,
+    s1: f64,
+    scale: f64,
+    n_seg: u32,
+) -> Option<(Curve2, Vec<Point3>)> {
+    let params = refine_params(path, s0, s1, scale, n_seg);
+    let lift: Vec<Point3> = params.iter().map(|s| path.eval(*s)).collect();
 
     let closed = s1 - s0 >= TAU - 1e-12;
     let mut points: Vec<Point2> = params
@@ -1646,7 +1716,7 @@ fn sampled(
     if points.len() < 2 {
         return None;
     }
-    Some(Curve2::Polyline { points, closed })
+    Some((Curve2::Polyline { points, closed }, lift))
 }
 
 // ---------------------------------------------------------------------------
