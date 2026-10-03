@@ -67,6 +67,12 @@ pub fn face_geom_refs(
                         bbox: None,
                         adjacency_hash: None,
                         length: None,
+                        // The identifying content of a face that goes all the
+                        // way round its axis, which has no point normal to
+                        // carry (N0; `waffle_types::AxisDescriptor`). Without
+                        // this a cylinder lateral's ref would hold only its
+                        // type and area.
+                        axis: sig.axis,
                     },
                 }
             };

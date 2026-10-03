@@ -406,11 +406,40 @@ increment resolves references.
    for every surface the arena holds. Consequences: `SurfaceType` filters
    work on real bodies; `assign_boolean_roles` no longer ties every curved
    face to operand A.
-2. **Roleless face fingerprints.** `face_list` and every other agent-facing
+
+   **Full-revolution faces: axis descriptor, no point normal** (amended
+   2026-10-03, during review of the N0 branch). "The outward normal at the
+   centroid" is not available for a face that sweeps all the way round its
+   axis: its area centroid lies ON the axis, where the normal is undefined
+   and the direction from the axis to the centroid is f64 summation rounding
+   — measured 3.1e-17 m off a cylinder's axis, so changing that cylinder's
+   height from 2 to 2.0001 swung the reported centroid 58° round the axis
+   and flipped the normal from (−0.50, −0.87, 0) to (−1.00, −0.03, 0). A
+   fingerprint exists to be stable, so such a face reports `normal: None`
+   and a centroid snapped exactly onto the axis (which IS its area centroid,
+   and pins its axial position), and carries the rotation-invariant
+   `AxisDescriptor` instead: the sign-canonicalised axis direction, the
+   radius / half-angle / minor radius the surface holds, and how far the face
+   reaches along the axis. Every cylinder, cone, sphere and torus face
+   carries the descriptor, full turn or not, read straight off the analytic
+   surface. Partial faces additionally keep the projected centroid and the
+   normal there, both well defined; the presence of `normal` is what says
+   which kind of centroid a signature carries, so a consumer that needs a
+   point ON the face must require both. `signature_match` scores the
+   descriptor (direction sign-free, then the radii and the extent relative);
+   `Filter::NormalDirection` excludes a face with no normal, `Selector::
+   Position` still resolves by nearest centroid deterministically, and
+   `DepthMode::UpTo` refuses such a face rather than extruding to a plane
+   through its axis.
+2. **Roleless fingerprints.** `face_list` and every other agent-facing
    path call `face_geom_refs` with `fingerprint_roleless: true`, and
    `signature_similarity` refuses a zero-weight signature with
    `ResolutionFailed { reason: "signature carries no geometry" }` instead of
-   scoring 0.0 and binding to the first face. The ICR-3 limit closes.
+   scoring 0.0 and binding to the first face. The ICR-3 limit closes. The
+   index-only fallback goes away on the EDGE path too (`build_edge_entries`
+   minted the edge index in `adjacency_hash` and nothing else): an edge ref
+   now carries the length and centroid of its own render polyline, or the
+   resolver would refuse every viewport edge pick.
 
 Oracle: for every corpus case, every face in `face_list` resolves back to
 itself through `resolve_geom_ref_live`; for every imported STEP fixture, the

@@ -2800,6 +2800,7 @@ fn resolve_signature_medium_match_warns() {
         bbox: None,
         adjacency_hash: None,
         length: None,
+        axis: None,
     };
 
     let geom_ref = GeomRef {
@@ -2856,6 +2857,7 @@ fn resolve_signature_low_match_strict_errors() {
         bbox: None,
         adjacency_hash: Some(12345),
         length: None,
+        axis: None,
     };
 
     let geom_ref = GeomRef {
@@ -2902,6 +2904,7 @@ fn resolve_signature_low_match_best_effort_succeeds() {
         bbox: None,
         adjacency_hash: Some(12345),
         length: None,
+        axis: None,
     };
 
     let geom_ref = GeomRef {
@@ -2953,6 +2956,7 @@ fn resolve_signature_no_entities_errors() {
         bbox: None,
         adjacency_hash: None,
         length: None,
+        axis: None,
     };
 
     let geom_ref = GeomRef {
@@ -2996,6 +3000,7 @@ fn resolve_with_fallback_signature_selector_no_fallback() {
         bbox: None,
         adjacency_hash: None,
         length: None,
+        axis: None,
     };
 
     // Signature selector — fallback only works for Role selectors

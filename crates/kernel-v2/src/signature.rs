@@ -31,6 +31,31 @@
 //!   ([`outward_normal_at`]), honouring the surface's cavity (`reversed`)
 //!   sense. On a cylinder this is radial, not axial; `KernelIntrospect::
 //!   entity_axis` remains the only door to a rotational surface's axis.
+//!   **`None` for a face that goes all the way round its axis** — see below.
+//! - `axis` — the rotation-invariant [`waffle_types::AxisDescriptor`] of every
+//!   cylinder, cone, sphere and torus face: the canonicalised axis direction,
+//!   the radii the surface holds, and how far the face reaches along the axis.
+//!   Read straight off the analytic surface, so exact.
+//!
+//! ## Full-turn faces carry an axis, not a point normal
+//!
+//! A face that sweeps all the way round its axis has no distinguished point.
+//! Its area-weighted centroid lies ON the axis, where the normal is undefined
+//! and where the direction "from the axis to the centroid" is nothing but f64
+//! summation rounding — **measured at 3.1e-17 m off a cylinder's axis**, so
+//! changing that cylinder's height from 2 to 2.0001 swung the reported
+//! centroid 58° round the axis and flipped the reported normal from
+//! (−0.50, −0.87, 0) to (−1.00, −0.03, 0). A fingerprint exists to be stable,
+//! so such a face reports `normal: None` and a centroid snapped exactly onto
+//! the axis (which IS its area centroid, and pins its axial position), and the
+//! `axis` descriptor carries the rest of its identity. Partial faces keep the
+//! projected centroid and the normal there, both well defined.
+//!
+//! The gate is the distance from the mean to the surface's degeneracy locus
+//! ([`distance_from_degeneracy`]) against `TAU_MODEL`, so it covers the full
+//! turn and its genuine neighbourhood rather than a parametric special case.
+//! A consumer that needs a point ON the face must therefore require `normal`
+//! alongside `centroid`.
 //! - `bbox` — over the tessellation's vertices for a curved face (which
 //!   covers the bulge between boundary chords), over the loop points for a
 //!   planar one.
@@ -40,10 +65,10 @@
 //! vertex mean as the centroid, loop-point bbox. Planar fingerprints are
 //! bit-identical across N0.
 
-use waffle_types::TopoSignature;
+use waffle_types::{AxisDescriptor, TopoSignature};
 
 use crate::arena::{BrepArena, FaceId, PairSurface, Surface};
-use cad_primitives::Point3;
+use cad_primitives::{Point3, TAU_MODEL};
 
 /// The arena surface vocabulary, shared with `ImportedSurface::
 /// surface_type_str` so arena and imported faces compare field-for-field.
@@ -136,6 +161,155 @@ pub fn outward_normal_at(surface: &Surface, p: Point3) -> Option<[f64; 3]> {
             })
         }
     }
+}
+
+/// The axis of `surface` as `(a point on it, a unit direction)`, or `None` for
+/// a plane and a sphere (neither has one).
+fn axis_of(surface: &Surface) -> Option<(Point3, [f64; 3])> {
+    match *surface {
+        Surface::Plane(_) | Surface::Sphere { .. } => None,
+        Surface::Cylinder {
+            axis_point,
+            axis_dir,
+            ..
+        } => Some((axis_point, [axis_dir.x, axis_dir.y, axis_dir.z])),
+        Surface::Cone { apex, axis_dir, .. } => Some((apex, [axis_dir.x, axis_dir.y, axis_dir.z])),
+        Surface::Torus {
+            center, axis_dir, ..
+        } => Some((center, [axis_dir.x, axis_dir.y, axis_dir.z])),
+    }
+}
+
+/// `d` with its sign fixed by geometry rather than by construction order: the
+/// first component whose magnitude clears `TAU_MODEL` is made positive. An
+/// axis direction and its negative describe the SAME axis, and which one a
+/// constructor stored is not a property of the face.
+fn canonical_direction(d: [f64; 3]) -> [f64; 3] {
+    for k in 0..3 {
+        if d[k].abs() > TAU_MODEL {
+            return if d[k] < 0.0 { [-d[0], -d[1], -d[2]] } else { d };
+        }
+    }
+    d
+}
+
+/// How far `p` sits from the locus where this surface's closest-point
+/// projection is undefined — a cylinder's or cone's axis, a sphere's centre, a
+/// torus's axis — in meters. `None` for a plane, which has no such locus.
+///
+/// This is the quantity that decides whether a face's area-weighted mean can
+/// be projected onto the surface at all. The full-turn case lands at f64
+/// summation noise (3.1e-17 m measured on a cylinder), so `TAU_MODEL` — the
+/// workspace's model-coincidence floor — separates "the mean is on the axis"
+/// from "the mean is off the axis and the direction to it is real geometry".
+/// A nearly-full patch sits well above the floor (a 359° cylinder band's mean
+/// is ~1e-3·r off axis), so this gate is the full-turn condition and its
+/// genuine neighbourhood, not a tuned band.
+fn distance_from_degeneracy(surface: &Surface, p: Point3) -> Option<f64> {
+    match *surface {
+        Surface::Plane(_) => None,
+        Surface::Sphere { center, .. } => Some(norm(sub(p.as_array(), center.as_array()))),
+        _ => {
+            let (a0, dir) = axis_of(surface)?;
+            let v = sub(p.as_array(), a0.as_array());
+            let along = v[0] * dir[0] + v[1] * dir[1] + v[2] * dir[2];
+            Some(norm([
+                v[0] - along * dir[0],
+                v[1] - along * dir[1],
+                v[2] - along * dir[2],
+            ]))
+        }
+    }
+}
+
+/// `p` moved exactly onto the degeneracy locus — the foot on the axis, or a
+/// sphere's centre. Used as the centroid of a full-turn face: that IS the area
+/// centroid, and snapping removes the f64 transverse noise so the value is
+/// reproducible to the last bit.
+fn snap_to_degeneracy(surface: &Surface, p: Point3) -> Option<Point3> {
+    match *surface {
+        Surface::Plane(_) => None,
+        Surface::Sphere { center, .. } => Some(center),
+        _ => {
+            let (a0, dir) = axis_of(surface)?;
+            let v = sub(p.as_array(), a0.as_array());
+            let along = v[0] * dir[0] + v[1] * dir[1] + v[2] * dir[2];
+            Some(Point3::new(
+                a0.x() + along * dir[0],
+                a0.y() + along * dir[1],
+                a0.z() + along * dir[2],
+            ))
+        }
+    }
+}
+
+/// Write `mean` into `sig` as the centroid, with the normal there — or, when
+/// the projection is degenerate, as the on-axis centroid with NO normal.
+///
+/// Two cases, and which one it is is readable from the result (a centroid with
+/// a normal is on the face; one without is on the axis):
+///
+/// - `mean` is off the degeneracy locus by more than `TAU_MODEL`: the
+///   direction from the axis to it is real geometry. Project onto the surface
+///   — the mean of an inscribed partition sits just inside — and take the
+///   outward normal there. This is every planar-trimmed patch and every
+///   partial band.
+/// - `mean` is ON the locus (a face that goes all the way round its axis, or
+///   any band symmetric about it): there is no direction to project along, and
+///   the one f64 rounding leaves is noise. Snap `mean` exactly onto the locus
+///   and leave `normal` unset. The axis descriptor carries this face's
+///   identity instead.
+fn place_centroid(sig: &mut TopoSignature, surface: &Surface, mean: Point3) {
+    let degenerate = distance_from_degeneracy(surface, mean).is_some_and(|d| d <= TAU_MODEL);
+    if degenerate {
+        if let Some(on_axis) = snap_to_degeneracy(surface, mean) {
+            sig.centroid = Some(on_axis.as_array());
+            sig.normal = None;
+        }
+        return;
+    }
+    if let Some(on) = closest_point_on(surface, mean) {
+        sig.centroid = Some(on.as_array());
+        sig.normal = outward_normal_at(surface, on);
+    }
+}
+
+/// The rotation-invariant descriptor of `surface`, with `extent` measured over
+/// `points` (the face's own tessellation or loop vertices). `None` for a plane.
+fn axis_descriptor(surface: &Surface, points: &[[f64; 3]]) -> Option<AxisDescriptor> {
+    if matches!(surface, Surface::Plane(_)) {
+        return None;
+    }
+    let (radius, half_angle, minor_radius) = match *surface {
+        Surface::Cylinder { radius, .. } => (Some(radius), None, None),
+        Surface::Sphere { radius, .. } => (Some(radius), None, None),
+        Surface::Cone { half_angle, .. } => (None, Some(half_angle), None),
+        Surface::Torus {
+            major_radius,
+            minor_radius,
+            ..
+        } => (Some(major_radius), None, Some(minor_radius)),
+        Surface::Plane(_) => unreachable!("returned above"),
+    };
+    let axis = axis_of(surface);
+    let extent = axis.and_then(|(a0, dir)| {
+        let mut lo = f64::INFINITY;
+        let mut hi = f64::NEG_INFINITY;
+        for p in points {
+            let v = sub(*p, a0.as_array());
+            let t = v[0] * dir[0] + v[1] * dir[1] + v[2] * dir[2];
+            lo = lo.min(t);
+            hi = hi.max(t);
+        }
+        (hi >= lo).then_some(hi - lo)
+    });
+    Some(AxisDescriptor {
+        direction: axis.map(|(_, d)| canonical_direction(d)),
+        radius,
+        half_angle,
+        minor_radius,
+        extent,
+    })
 }
 
 /// The closest point to `p` on the UNBOUNDED surface `surface` (no trimming
@@ -265,8 +439,10 @@ fn curved_signature(arena: &BrepArena, fid: FaceId, surface: &Surface) -> TopoSi
     let mesh = crate::tessellate::tessellate_face(arena, fid).ok();
     if let Some(mesh) = &mesh {
         let mut bbox = empty_bbox();
+        let mut verts: Vec<[f64; 3]> = Vec::with_capacity(mesh.positions.len() / 3);
         for p in mesh.positions.chunks_exact(3) {
             grow_bbox(&mut bbox, [p[0], p[1], p[2]]);
+            verts.push([p[0], p[1], p[2]]);
         }
         if bbox[0].is_finite() {
             sig.bbox = Some(bbox);
@@ -292,6 +468,7 @@ fn curved_signature(arena: &BrepArena, fid: FaceId, surface: &Surface) -> TopoSi
                 moment[k] += area2 * (a[k] + b[k] + c[k]) / 3.0;
             }
         }
+        sig.axis = axis_descriptor(surface, &verts);
         if area2_sum > 0.0 {
             sig.area = Some(area2_sum / 2.0);
             let mean = Point3::new(
@@ -299,14 +476,7 @@ fn curved_signature(arena: &BrepArena, fid: FaceId, surface: &Surface) -> TopoSi
                 moment[1] / area2_sum,
                 moment[2] / area2_sum,
             );
-            // The area-weighted mean of an inscribed partition sits just
-            // inside the surface; project it back on so the centroid is a
-            // point OF the face's geometry (and so the normal below is the
-            // normal there, not near there).
-            if let Some(on) = closest_point_on(surface, mean) {
-                sig.centroid = Some(on.as_array());
-                sig.normal = outward_normal_at(surface, on);
-            }
+            place_centroid(&mut sig, surface, mean);
         }
     }
 
@@ -317,16 +487,18 @@ fn curved_signature(arena: &BrepArena, fid: FaceId, surface: &Surface) -> TopoSi
         let mut bbox = empty_bbox();
         let mut mean = [0.0f64; 3];
         let mut count = 0usize;
+        let mut pts: Vec<[f64; 3]> = Vec::new();
         let mut loops = Vec::new();
         if let Ok(f) = arena.face(fid) {
             loops.push(f.outer_loop);
             loops.extend(f.inner_loops.iter().copied());
         }
         for lid in loops {
-            if let Ok(pts) = arena.loop_points(lid) {
-                for p in &pts {
+            if let Ok(lp) = arena.loop_points(lid) {
+                for p in &lp {
                     grow_bbox(&mut bbox, p.as_array());
                     let p = p.as_array();
+                    pts.push(p);
                     for k in 0..3 {
                         mean[k] += p[k];
                     }
@@ -338,15 +510,15 @@ fn curved_signature(arena: &BrepArena, fid: FaceId, surface: &Surface) -> TopoSi
             if sig.bbox.is_none() {
                 sig.bbox = Some(bbox);
             }
+            if sig.axis.is_none() {
+                sig.axis = axis_descriptor(surface, &pts);
+            }
             let mean = Point3::new(
                 mean[0] / count as f64,
                 mean[1] / count as f64,
                 mean[2] / count as f64,
             );
-            if let Some(on) = closest_point_on(surface, mean) {
-                sig.centroid = Some(on.as_array());
-                sig.normal = outward_normal_at(surface, on);
-            }
+            place_centroid(&mut sig, surface, mean);
         }
     }
 

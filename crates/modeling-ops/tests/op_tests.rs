@@ -141,6 +141,7 @@ fn signature_similarity_identical_is_1() {
         bbox: None,
         adjacency_hash: None,
         length: None,
+        axis: None,
     };
     let sim = signature_similarity(&sig, &sig);
     assert!(
@@ -160,6 +161,7 @@ fn signature_similarity_different_type_is_low() {
         bbox: None,
         adjacency_hash: None,
         length: None,
+        axis: None,
     };
     let sig_b = TopoSignature {
         surface_type: Some("cylindrical".to_string()),
@@ -169,6 +171,7 @@ fn signature_similarity_different_type_is_low() {
         bbox: None,
         adjacency_hash: None,
         length: None,
+        axis: None,
     };
     let sim = signature_similarity(&sig_a, &sig_b);
     assert!(

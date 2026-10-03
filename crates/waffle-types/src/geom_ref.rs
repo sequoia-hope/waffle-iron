@@ -110,9 +110,17 @@ impl OutputKey {
 }
 
 /// How to find a specific entity within a feature's output.
+// large_enum_variant: `Signature` crossed the lint's threshold when N0 added
+// the `AxisDescriptor` to `TopoSignature` (`specs/agent_mechanical_design.md`
+// §5.1). Same call as `Operation` in feature-engine: a serialized
+// document type, matched or constructed at 26 sites across four crates and
+// written into the `.waffle` file, living one per reference rather than one
+// per vertex. Boxing would ripple through the format and the call sites to
+// buy a smaller discriminant. Revisit if it shows up in a profile.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "type")]
 #[cfg_attr(feature = "json-schema", derive(schemars::JsonSchema))]
+#[allow(clippy::large_enum_variant)]
 pub enum Selector {
     /// Select by semantic role assigned during the operation.
     Role { role: Role, index: usize },

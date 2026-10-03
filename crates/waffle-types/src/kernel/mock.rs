@@ -1908,6 +1908,9 @@ impl KernelIntrospect for MockKernel {
                                 bbox: None,
                                 adjacency_hash: None,
                                 length: None,
+                                // The mock holds no analytic surface, so it
+                                // has no axis to describe (N0).
+                                axis: None,
                             };
                         }
                     }
@@ -1933,6 +1936,7 @@ impl KernelIntrospect for MockKernel {
                                 bbox: None,
                                 adjacency_hash: None,
                                 length: Some(e.length),
+                                axis: None,
                             };
                         }
                     }
@@ -1948,6 +1952,7 @@ impl KernelIntrospect for MockKernel {
                                 bbox: None,
                                 adjacency_hash: None,
                                 length: None,
+                                axis: None,
                             };
                         }
                     }

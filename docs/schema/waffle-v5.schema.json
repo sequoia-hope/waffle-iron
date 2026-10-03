@@ -275,6 +275,57 @@
       ],
       "type": "string"
     },
+    "AxisDescriptor": {
+      "description": "The rotation-invariant content of a face on a surface of revolution: what\nidentifies that face no matter where around the axis you look at it.\n\n**Why a fingerprint needs this** (N0 of `specs/agent_mechanical_design.md`\n§5.1). A face that goes all the way round its axis has no distinguished\npoint: its area-weighted centroid lies ON the axis, where the surface\nnormal is not defined and the direction from the axis to \"the centroid\" is\nwhatever f64 summation rounding left behind — measured at 3.1e-17 m off a\ncylinder's axis, so changing that cylinder's height from 2 to 2.0001 swung\nthe reported centroid 58° round the axis and flipped the reported normal.\nA fingerprint exists to be STABLE, so such a face reports no point normal\nat all and carries this instead: the axis, the on-axis centroid (in\n[`TopoSignature::centroid`], which is a feature — it pins the axial\nposition), and the surface's own radii.\n\nEvery cylinder, cone, sphere and torus face carries one, full turn or not;\nit is read straight off the analytic surface, so it is exact either way.\nWhether the face ALSO has a point normal is what says where its centroid\nis: a face with a normal has its centroid projected onto the surface, a\nface without has it on the axis.",
+      "properties": {
+        "direction": {
+          "description": "Unit axis direction, canonicalised into one half-space so the value\ndoes not depend on which way round the constructor ran the axis.\n`None` for a sphere, which has no distinguished axis.",
+          "items": {
+            "format": "double",
+            "type": "number"
+          },
+          "maxItems": 3,
+          "minItems": 3,
+          "type": [
+            "array",
+            "null"
+          ]
+        },
+        "extent": {
+          "description": "How far this FACE reaches along the axis, in meters — the one field\nhere that is about the trim rather than the surface, so a short band\nand a long one on the same cylinder are told apart. `None` for a\nsphere (no axis to measure along).",
+          "format": "double",
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "half_angle": {
+          "description": "A cone's half-angle, in radians.",
+          "format": "double",
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "minor_radius": {
+          "description": "A torus's tube radius.",
+          "format": "double",
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "radius": {
+          "description": "Distance from the axis: a cylinder's radius, a torus's MAJOR radius, a\nsphere's radius. `None` for a cone, whose radius varies along the axis.",
+          "format": "double",
+          "type": [
+            "number",
+            "null"
+          ]
+        }
+      },
+      "type": "object"
+    },
     "AxisRef": {
       "description": "A line in space named for a pattern: a circular pattern's rotation axis or\na linear pattern's direction (`specs/custom_features_and_modeling_roadmap.md`\n§B1). `#[serde(tag = \"method\")]`, like [`PlaneDefinition`].",
       "oneOf": [
@@ -5752,6 +5803,18 @@
             "null"
           ]
         },
+        "axis": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/AxisDescriptor"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "The rotation-invariant content of a surface of revolution. Serde-\ndefaulted: a document written before N0 simply has no key here."
+        },
         "bbox": {
           "description": "Axis-aligned bounding box [min_x, min_y, min_z, max_x, max_y, max_z].",
           "items": {
@@ -5766,7 +5829,7 @@
           ]
         },
         "centroid": {
-          "description": "Centroid position [x, y, z].",
+          "description": "Centroid position [x, y, z]. For a face on a surface of revolution\nthat goes all the way round, this is the area centroid ON THE AXIS and\n`normal` is `None`; a consumer that needs a point on the face itself\nmust require `normal` alongside it (see [`AxisDescriptor`]).",
           "items": {
             "format": "double",
             "type": "number"
@@ -5787,7 +5850,7 @@
           ]
         },
         "normal": {
-          "description": "Outward-pointing normal at centroid (for faces).",
+          "description": "Outward-pointing normal at centroid (for faces). `None` where there is\nno single one: a full-turn surface of revolution, whose centroid lies\non its axis (see [`AxisDescriptor`]).",
           "items": {
             "format": "double",
             "type": "number"

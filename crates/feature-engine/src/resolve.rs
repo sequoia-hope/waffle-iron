@@ -711,6 +711,7 @@ mod tests {
                 bbox: None,
                 adjacency_hash: None,
                 length: None,
+                axis: None,
             },
         }
     }
@@ -757,6 +758,7 @@ mod tests {
                 bbox: None,
                 adjacency_hash: None,
                 length: None,
+                axis: None,
             }
         }
         fn list_faces(&self, _: &KernelSolidHandle) -> Vec<KernelId> {

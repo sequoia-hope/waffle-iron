@@ -230,6 +230,36 @@ pub fn signature_match(a: &TopoSignature, b: &TopoSignature) -> Option<f64> {
         }
     }
 
+    // The rotation-invariant content of a surface of revolution (N0 of
+    // `specs/agent_mechanical_design.md` §5.1). This is what identifies a
+    // full-turn face, which has no point normal to weigh: the axis direction
+    // (compared sign-free — an axis and its negative are the same axis), the
+    // radii the surface holds, and how far the face reaches along the axis.
+    if let (Some(ax_a), Some(ax_b)) = (a.axis, b.axis) {
+        if let (Some(da), Some(db)) = (ax_a.direction, ax_b.direction) {
+            weight += 2.0;
+            let dot = (da[0] * db[0] + da[1] * db[1] + da[2] * db[2]).abs();
+            score += 2.0 * dot.clamp(0.0, 1.0);
+        }
+        for (wt, va, vb) in [
+            (2.0, ax_a.radius, ax_b.radius),
+            (1.0, ax_a.half_angle, ax_b.half_angle),
+            (1.0, ax_a.minor_radius, ax_b.minor_radius),
+            (1.0, ax_a.extent, ax_b.extent),
+        ] {
+            if let (Some(va), Some(vb)) = (va, vb) {
+                weight += wt;
+                let max = va.abs().max(vb.abs());
+                if max > TAU_WORK {
+                    let diff = (va - vb).abs() / max;
+                    score += wt * (1.0 - diff.min(1.0));
+                } else {
+                    score += wt;
+                }
+            }
+        }
+    }
+
     if weight > 0.0 {
         Some(score / weight)
     } else {
