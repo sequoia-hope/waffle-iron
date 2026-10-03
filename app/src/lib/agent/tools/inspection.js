@@ -306,6 +306,225 @@ export const measureMassTool = {
 	annotations: readOnly('Measure mass')
 };
 
+export const measureSectionTool = {
+	name: 'measure_section',
+	description:
+		'Cut bodies with a plane and get the cap as DATA: per body, the cap boundary loops as 2D ' +
+		'analytic curves in the cut plane\'s own frame (line, circle, ellipse — never flattened to ' +
+		'chords unless the kernel could not keep the curve analytic, which it says per loop), each ' +
+		"loop's signed area (positive outer, negative hole), the net area and the area centroid. The " +
+		'cut is the kernel\'s own Intersect against a half-space, keeping the side the normal points ' +
+		'AWAY from, so a section and a Subtract against the same plane agree. basis is the frame the ' +
+		'loops live in (world = origin + u·u_axis + v·v_axis) — use it rather than deriving your own, ' +
+		'or the loops will be rotated against it. plane is {origin, normal}, a planar face GeomRef ' +
+		'from face_list, {"plane":"XY"|"XZ"|"YZ"} for a datum, or {"name":"Plate.top"} for a named ' +
+		'planar face. body_ids defaults to every body. A plane that MISSES a body is an empty loops ' +
+		'list with kept_material saying which side it missed on — not an error; a body the kernel ' +
+		'REFUSED to cut is named in declines instead, never as an empty section. cap_shared_with_model ' +
+		'means at least one cap face came from the coplanar-overlay path rather than from the cut\'s ' +
+		'own lineage — the signature of a plane coplanar with a face of this body; it describes how ' +
+		'the KEPT cap was attributed, so it can be true on one side of such a cut and false on the ' +
+		'other. Lengths in meters, areas in m².',
+	inputSchema: {
+		type: 'object',
+		properties: {
+			body_ids: {
+				type: ['array', 'null'],
+				items: { type: 'string' },
+				description:
+					'Body ids (or display names) from model_summary.bodies. Omit for every body of the open Part.'
+			},
+			plane: {
+				type: 'object',
+				description:
+					'{origin:[x,y,z], normal:[x,y,z]} | a planar face GeomRef | {"plane":"XY"} | {"name":"Plate.top"}.'
+			}
+		},
+		required: ['plane'],
+		additionalProperties: false
+	},
+	outputSchema: {
+		type: 'object',
+		properties: {
+			plane: {
+				type: 'object',
+				properties: {
+					origin: { type: 'array', items: { type: 'number' }, minItems: 3, maxItems: 3 },
+					normal: { type: 'array', items: { type: 'number' }, minItems: 3, maxItems: 3 }
+				}
+			},
+			basis: {
+				type: 'object',
+				properties: {
+					origin: { type: 'array', items: { type: 'number' } },
+					u_axis: { type: 'array', items: { type: 'number' } },
+					v_axis: { type: 'array', items: { type: 'number' } },
+					w_axis: { type: 'array', items: { type: 'number' } }
+				}
+			},
+			total_area_m2: { type: 'number' },
+			bodies: {
+				type: 'array',
+				items: {
+					type: 'object',
+					properties: {
+						body_id: { type: 'string' },
+						area_m2: { type: 'number' },
+						centroid_uv: { type: ['array', 'null'], items: { type: 'number' } },
+						centroid: { type: ['array', 'null'], items: { type: 'number' } },
+						centroid_exact: { type: 'boolean' },
+						method: { type: 'string', enum: ['exact', 'mesh'] },
+						cap_shared_with_model: { type: 'boolean' },
+						kept_material: { type: 'boolean' },
+						loops: {
+							type: 'array',
+							items: {
+								type: 'object',
+								properties: {
+									signed_area_m2: { type: 'number' },
+									exact: { type: 'boolean' },
+									kind: { type: 'string', enum: ['outer', 'hole'] },
+									curves: { type: 'array', items: { type: 'object' } }
+								},
+								required: ['signed_area_m2', 'exact', 'kind', 'curves']
+							}
+						}
+					},
+					required: [
+						'body_id',
+						'loops',
+						'area_m2',
+						'centroid_exact',
+						'method',
+						'cap_shared_with_model',
+						'kept_material'
+					]
+				}
+			},
+			declines: {
+				type: 'array',
+				items: {
+					type: 'object',
+					properties: {
+						body_id: { type: 'string' },
+						kind: { type: 'string', enum: ['not_supported', 'failed'] },
+						reason: { type: 'string' }
+					}
+				}
+			},
+			name_warnings: { type: 'array', items: { type: 'string' } }
+		},
+		required: ['plane', 'bodies', 'total_area_m2']
+	},
+	annotations: readOnly('Measure section')
+};
+
+export const measureThicknessTool = {
+	name: 'measure_thickness',
+	description:
+		'The wall thickness of a body, SAMPLED: points are laid out on every face and a ray is cast ' +
+		'inward from each one to the first face opposite. **For a wall, read min_wall_m, not min_m.** ' +
+		'min_m is the shortest cast ANYWHERE on the body, and every ACUTE edge is a sliver of material ' +
+		'— a 4 mm slot through a 10/7 mm tube reports min_m 0.043 mm where its wall is 3 mm, and a ' +
+		'taper approaches zero at its sharp corner. min_wall_m is the shortest cast between two faces ' +
+		'that do NOT meet at an edge, so it leaves every corner reading out: 3.000 mm on that same ' +
+		'tube, and equal to min_m on a plate, which has no corner to leave out. Each site says which ' +
+		'it is with faces_share_an_edge. min_wall_m is absent only when every site crossed a corner. ' +
+		'Also reports mean_m, max_m, a histogram of the sites, and the thinnest site of each kind — ' +
+		'where it is and the two faces it spans, each with its persistent id (DECIMAL STRINGS: ids ' +
+		'above 2^53 are not exact as JSON numbers) and its entity_name if it has one. method is always ' +
+		'"sampled": both minima are UPPER BOUNDS, because a wall thinner than spacing_m between two ' +
+		'sites is never looked at. Pass spacing_m under the width of the web you care about to be sure ' +
+		'it was sampled; the answer always reports the spacing_m it used and how many samples it took. ' +
+		'Each individual cast is refined onto the analytic surfaces (a plate reports its thickness, and ' +
+		'a tube r_outer − r_inner, to rounding), and refined says how many were; declines counts the ' +
+		'sites that produced nothing, so an answer covering little of the body says so. Neither number ' +
+		'is the body\'s medial axis. Lengths in meters.',
+	inputSchema: {
+		type: 'object',
+		properties: {
+			body_id: { type: 'string', description: 'Body id (or name) from model_summary.bodies.' },
+			spacing_m: {
+				type: ['number', 'null'],
+				description:
+					'Largest gap between neighbouring sample sites on one face, in meters. Omit for the ' +
+					"default (the body's bounding diagonal / 32)."
+			}
+		},
+		required: ['body_id'],
+		additionalProperties: false
+	},
+	outputSchema: {
+		type: 'object',
+		properties: {
+			body_id: { type: 'string' },
+			min_m: { type: 'number' },
+			min_wall_m: { type: ['number', 'null'] },
+			mean_m: { type: 'number' },
+			max_m: { type: 'number' },
+			thinnest: {
+				type: 'object',
+				properties: {
+					thickness_m: { type: 'number' },
+					point: { type: 'array', items: { type: 'number' }, minItems: 3, maxItems: 3 },
+					opposite: { type: 'array', items: { type: 'number' }, minItems: 3, maxItems: 3 },
+					from: { type: 'object' },
+					to: { type: 'object' },
+					faces_share_an_edge: { type: 'boolean' }
+				},
+				required: ['thickness_m', 'point', 'opposite', 'from', 'to', 'faces_share_an_edge']
+			},
+			thinnest_wall: {
+				type: ['object', 'null'],
+				properties: {
+					thickness_m: { type: 'number' },
+					point: { type: 'array', items: { type: 'number' }, minItems: 3, maxItems: 3 },
+					opposite: { type: 'array', items: { type: 'number' }, minItems: 3, maxItems: 3 },
+					from: { type: 'object' },
+					to: { type: 'object' },
+					faces_share_an_edge: { type: 'boolean' }
+				}
+			},
+			histogram: {
+				type: 'array',
+				items: {
+					type: 'object',
+					properties: {
+						lo_m: { type: 'number' },
+						hi_m: { type: 'number' },
+						count: { type: 'integer' }
+					}
+				}
+			},
+			samples: { type: 'integer' },
+			spacing_m: { type: 'number' },
+			chord_bound_m: { type: 'number' },
+			refined: { type: 'integer' },
+			declines: {
+				type: 'object',
+				properties: {
+					no_hit: { type: 'integer' },
+					below_self_band: { type: 'integer' },
+					no_surface: { type: 'integer' }
+				}
+			},
+			method: { type: 'string', enum: ['sampled'] }
+		},
+		required: [
+			'body_id',
+			'min_m',
+			'mean_m',
+			'max_m',
+			'thinnest',
+			'histogram',
+			'samples',
+			'spacing_m',
+			'method'
+		]
+	},
+	annotations: readOnly('Measure thickness')
+};
+
 export const faceListTool = {
 	name: 'face_list',
 	description:

@@ -7,10 +7,14 @@
 //! [`Method`] it was obtained by, so a mesh number is never presented as a
 //! measurement.
 //!
-//! The trait grows one method per Q increment (Q1 distance, Q2 interference,
-//! Q3 mass properties and Q6 `edge_length` have landed; Q5 thickness adds
-//! its own in its increment). Methods default to `NotSupported`, so each
-//! addition is additive for every implementor.
+//! The trait grows one method per Q increment: Q1 `distance`, Q2
+//! `interference`, Q3 `mass_properties`, Q5 `thickness` and Q6 `edge_length`
+//! have landed. Methods default to `NotSupported`, so each addition is
+//! additive for every implementor.
+//!
+//! Q4 (`section_with_plane`) is NOT here: a section cuts the solid, so it
+//! lives on [`super::projection::KernelProjection`] with the rest of the
+//! kernel's plane work, and the Q4 tool is a thin reader over it.
 
 use super::types::{KernelError, KernelId, KernelSolidHandle};
 use crate::TopoKind;
@@ -268,6 +272,144 @@ pub struct EdgeLength {
     pub method: LengthMethod,
 }
 
+// ---------------------------------------------------------------------------
+// Q5 — sampled wall thickness
+// ---------------------------------------------------------------------------
+
+/// Options for [`KernelMeasure::thickness`] (Q5).
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct ThicknessOpts {
+    /// The largest gap allowed between neighbouring sample sites on one face,
+    /// in meters. `None` asks for the kernel's own default, which the answer
+    /// reports either way.
+    ///
+    /// A rule that needs to catch a thin web asks for a spacing under its
+    /// width: a feature narrower than the spacing can sit between two sites
+    /// and never be sampled, which is why the answer carries the number.
+    pub spacing: Option<f64>,
+}
+
+/// One site a thickness was measured at (Q5).
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct ThicknessSite {
+    /// The wall thickness there, in meters: the distance from `point` to
+    /// `opposite` along the inward normal at `point`.
+    pub thickness: f64,
+    /// Where the ray started, on `from`.
+    pub point: [f64; 3],
+    /// Where it landed, on `to`.
+    pub opposite: [f64; 3],
+    /// The face the site sits on.
+    pub from: EntityRef,
+    /// The face the inward ray hit.
+    pub to: EntityRef,
+    /// Whether [`Self::from`] and [`Self::to`] are two DISTINCT faces that
+    /// share an edge — so this reading crossed a CORNER rather than a wall.
+    ///
+    /// Two faces meeting at an edge enclose a wedge of material that goes to
+    /// zero at the edge, so a cast between them measures how close the site is
+    /// to that edge. A site that hits its OWN face is not such a reading: a
+    /// solid cylinder measures its diameter across its own lateral face, which
+    /// is a wall.
+    pub faces_share_an_edge: bool,
+}
+
+/// One bar of a thickness histogram (Q5): equal-width bins over
+/// `[min, max]`, counted in SITES rather than in area.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct ThicknessBin {
+    pub lo: f64,
+    pub hi: f64,
+    pub count: usize,
+}
+
+/// Sites that produced no thickness, by reason (Q5).
+///
+/// Counted rather than dropped: a body most of whose casts fail has an answer
+/// covering much less of it than the sample count suggests, and nothing else
+/// in the result would say so.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub struct ThicknessDeclines {
+    /// The inward ray left the body without hitting a face — a shell that is
+    /// not closed, or a cast that grazed out along a tangency.
+    pub no_hit: usize,
+    /// The only hit was on the site's OWN face, within a few times the local
+    /// sagitta of the facet the site was taken from, so it cannot be told
+    /// from the ray's own start. A wall that thin is below what a cast seeded
+    /// on a render tessellation can resolve, and saying nothing about it
+    /// would be worse than counting it.
+    pub below_self_band: usize,
+    /// The face carries no analytic surface to take an inward normal from.
+    pub no_surface: usize,
+}
+
+/// How a thickness was obtained (Q5).
+///
+/// One arm, deliberately. A sampled minimum is an UPPER bound on the body's
+/// true minimum wall — a thinner spot between two sites is simply not looked
+/// at — so there must be no way for one to be reported as anything else. An
+/// exact medial axis is not in scope and would add its own arm here.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum ThicknessMethod {
+    Sampled {
+        /// Sites that produced a thickness.
+        samples: usize,
+        /// The spacing those sites were laid out at, meters.
+        spacing: f64,
+    },
+}
+
+/// The answer to [`KernelMeasure::thickness`] (Q5 of
+/// `specs/agent_mechanical_design.md` §4.2).
+///
+/// Every number is in meters and SAMPLED — see [`ThicknessMethod`].
+#[derive(Debug, Clone, PartialEq)]
+pub struct Thickness {
+    /// The smallest thickness found. An UPPER bound on the body's true
+    /// minimum wall.
+    ///
+    /// This is §4.2's question answered exactly as posed — the shortest cast
+    /// along an inward normal anywhere on the body — and it is dominated by
+    /// any ACUTE edge, where the material is a sliver: a 4 mm slot through a
+    /// 10/7 mm tube reports 0.043 mm here against a 3 mm wall. For the wall,
+    /// read [`Self::min_wall`].
+    pub min: f64,
+    /// The smallest thickness among sites whose two faces do NOT share an
+    /// edge ([`ThicknessSite::faces_share_an_edge`]) — the thinnest WALL,
+    /// with every corner reading left out, and the number a wall-thickness
+    /// rule wants.
+    ///
+    /// `None` when every site crossed a corner, so there is no wall the
+    /// sample found — never a 0 or an infinity standing in for one.
+    ///
+    /// The exclusion is coarse on purpose: it drops every reading between two
+    /// faces that meet ANYWHERE, so a tapered rib whose flanks meet at a tip
+    /// edge does not contribute its own thickness here either. That is the
+    /// conservative direction for a rule, and [`Self::min`] with
+    /// [`Self::thinnest`]'s own faces is what a caller judges such a rib
+    /// from.
+    pub min_wall: Option<f64>,
+    /// The unweighted mean over sites. The sites are approximately
+    /// area-uniform — every facet is subdivided to the spacing — so this
+    /// approximates the area-weighted mean wall.
+    pub mean: f64,
+    pub max: f64,
+    /// Where [`Self::min`] is, and between which two faces.
+    pub thinnest: ThicknessSite,
+    /// Where [`Self::min_wall`] is. `None` on the same bodies that number is.
+    pub thinnest_wall: Option<ThicknessSite>,
+    pub histogram: Vec<ThicknessBin>,
+    /// The tessellation band the sites were derived at, meters — the same
+    /// `RENDER_CHORD_TOLERANCE_REL × extent` band [`Method::Mesh`] carries.
+    pub chord_bound: f64,
+    /// Sites whose hit was refined onto the analytic surface and certified
+    /// there. The rest kept their facet hit, which is inside the true surface
+    /// by at most [`Self::chord_bound`].
+    pub refined: usize,
+    pub declines: ThicknessDeclines,
+    pub method: ThicknessMethod,
+}
+
 /// Geometric measurement over bodies the kernel holds (§4.1).
 pub trait KernelMeasure {
     /// Minimum distance (or the gap along `opts.along`) between `a` and `b`,
@@ -341,6 +483,33 @@ pub trait KernelMeasure {
     fn edge_length(&self, _edge: KernelId) -> Result<EdgeLength, KernelError> {
         Err(KernelError::NotSupported {
             operation: "edge arc length".to_string(),
+        })
+    }
+
+    /// The wall thickness of `solid`, by casting inward from points sampled on
+    /// its own faces (Q5).
+    ///
+    /// This is the medial-axis question answered by SAMPLING, and the answer
+    /// never claims to be anything else: [`Thickness::method`] has one arm,
+    /// [`ThicknessMethod::Sampled`], carrying the site count and the spacing,
+    /// so a consumer can see that a feature narrower than the spacing could
+    /// have been missed. An exact medial axis is not in scope.
+    ///
+    /// Two minima come back, and a wall-thickness decision belongs to the
+    /// second: [`Thickness::min`] is the shortest cast anywhere, which any
+    /// acute edge drives towards zero, and [`Thickness::min_wall`] is the
+    /// shortest cast that did not cross a corner.
+    ///
+    /// `Err` when no site produced a thickness at all — a body whose every
+    /// cast failed is not a body with no walls, and reporting a `min` of 0 or
+    /// of infinity for it would be a number nothing measured.
+    fn thickness(
+        &self,
+        _solid: &KernelSolidHandle,
+        _opts: &ThicknessOpts,
+    ) -> Result<Thickness, KernelError> {
+        Err(KernelError::NotSupported {
+            operation: "wall thickness".to_string(),
         })
     }
 }

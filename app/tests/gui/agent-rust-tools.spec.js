@@ -54,6 +54,17 @@ const READ_ONLY = [
 	// are named here for the routing table.
 	'measure_interference',
 	'measure_mass',
+	// Q4 of `specs/agent_mechanical_design.md` §4.2/§4.3 (2026-10-03). Needs a
+	// plane and a body whose section is worth asserting, so its numbers are
+	// pinned in Rust (`crates/wasm-bridge/tests/measure_section.rs`); it is
+	// named here for the routing table, in the engine's own order.
+	'measure_section',
+	// Q5 of `specs/agent_mechanical_design.md` §4.2/§4.3 (2026-10-03). A
+	// thickness answer is only worth asserting against a closed form, so its
+	// numbers are pinned in Rust (`crates/kernel-v2/tests/q5_thickness.rs` for
+	// the geometry, `crates/wasm-bridge/tests/measure_thickness.rs` for the
+	// wire); it is named here for the routing table, in the engine's order.
+	'measure_thickness',
 	'face_list',
 	// Q6 of `specs/agent_mechanical_design.md` §4.2/§4.3 (2026-10-03). Called
 	// by the sequence below on the plate's edges, so the page's own routing of

@@ -138,6 +138,43 @@ fn is_reversed(surface: &Surface) -> bool {
     }
 }
 
+/// The signed distance from `p` to `surface`, POSITIVE on the side
+/// [`outward_normal_at`] points to — so it is positive outside the material a
+/// face of this surface bounds, for a cavity face as much as for a convex one.
+///
+/// This is the same implicit residual [`closest_point_on`] takes its Newton
+/// step along, which for every arena surface is an exact signed distance
+/// (cylinder `|r| − R`, sphere `|x − c| − R`, torus `|x − q| − r`, cone the
+/// true distance to the nearest generator, plane the dot product) — so a
+/// one-dimensional root find on it converges on the surface itself and not on
+/// a scaled proxy of it.
+///
+/// Added for Q5 (`crate::measure::thickness`), which refines a ray's facet hit
+/// onto the analytic surface by Newton along the ray: `g(t) = offset(ray(t))`,
+/// `g'(t) = dir · outward_normal_at`. `None` where the gradient is undefined,
+/// on the same degeneracies [`outward_normal_at`] refuses.
+pub fn signed_offset_at(surface: &Surface, p: Point3) -> Option<f64> {
+    match surface {
+        Surface::Plane(plane) => {
+            let d = [
+                p.x() - plane.point.x(),
+                p.y() - plane.point.y(),
+                p.z() - plane.point.z(),
+            ];
+            let f = d[0] * plane.normal.x + d[1] * plane.normal.y + d[2] * plane.normal.z;
+            f.is_finite().then_some(f)
+        }
+        other => {
+            let pair = pair_surface_of(other)?;
+            let (f, _) = crate::geom::pair_surface_residual_gradient(&pair, p.as_array())?;
+            if !f.is_finite() {
+                return None;
+            }
+            Some(if is_reversed(other) { -f } else { f })
+        }
+    }
+}
+
 /// The OUTWARD unit normal of `surface` at `p` — the implicit gradient,
 /// negated for a cavity-sense (`reversed`) surface.
 ///

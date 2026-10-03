@@ -553,6 +553,227 @@ transform step that is not in this increment), and `kind` beyond the three
 listable entities — a shell or a solid is the body, which `body_measure` and
 `measure_mass` already describe.
 
+#### Implementation notes (Q4/Q5)
+
+Landed 2026-10-03. Where the plan above left a choice open, this is the choice
+made and why — and where a measurement contradicted the plan, this is the
+measurement.
+
+##### Q4 — `measure_section`
+
+**It is a reader, so what it decided is the WIRE.** D1d
+(`KernelProjection::section_with_plane`) already cuts the solid with the real
+Intersect against a half-space box; the tool adds no geometry. Three wire
+decisions carry it.
+
+**The analytic arms survive serialization, in a mirrored type.** `Curve2` is
+built on `cad_primitives::Point2`, which has no serde and which `wasm-bridge`
+does not even depend on, so `messages::SectionCurve` is a one-to-one mirror of
+`Curve2`'s five arms. Nothing is collapsed and nothing is pre-flattened: a
+bore's cap must arrive as a `circle`, because a cap bounded by 71 chords is a
+different area and a different drawing. (D1a's DXF writer never needed such a
+type — it consumes `Curve2` kernel-side and emits entities — so Q4 is the first
+consumer that had to publish one.)
+
+**A kernel refusal is a typed DECLINE, never an empty section.** `body_ids`
+takes many bodies (defaulting to every body of the open Part, so "section the
+model" is one call), and one body hitting the §4.5.5 Stage-0 coplanar wall must
+not take the others' sections with it. So a refused body appears in `declines`
+with `not_supported` / `failed` and the kernel's own sentence, and has no entry
+in `bodies` at all. `loops: []` means the plane MISSED, which is a different
+answer, and `kept_material` says which side it missed on — the three outcomes
+`section_with_plane` documents, each distinguishable on the wire.
+
+**`cap_shared_with_model` describes how the KEPT cap was attributed, not
+whether a face is coplanar with the plane.** Measured on a pocket: cutting at
+the pocket ceiling's plane reports `true` keeping the material above it and
+`false` keeping the slab below it (where every cap face descended from the
+cutting half-space and the kernel's own lineage could name it). Both sides are
+pinned in `tests/measure_section.rs`, because an agent reading the flag as "a
+face is coplanar here" would read the two sides of one cut as two different
+geometries.
+
+**The plane goes through `sketch_create`'s resolver, plus an N1 name.**
+`{origin, normal}`, a datum, and a face `GeomRef` are all resolved by
+`tools::sketch::resolve_plane` — so a plane an agent can sketch on is a plane
+it can section with, by construction. `{"plane": "XY"}` is lifted into the
+anchor shape that resolver reads (the short form an agent can type without
+knowing the three built-in planes' UUIDs; `sketch_create`'s own input surface
+is unchanged). The fourth form, `{"name": "..."}`, resolves through
+`feature_engine::names::resolve` — the same ladder `names_list` reports and
+`measure_distance` uses for a name operand — and the cut takes the face's OWN
+outward normal, so the kept side is the material behind the face. When the
+loud fallback fires, its warnings come back as `name_warnings`: a section
+through a face that re-bound by geometry is a section through a plane the
+caller may not have meant. `plane.x_axis` is accepted and ignored, because the
+cap's frame is the kernel's (`basis`) and a consumer that re-derived one could
+rotate the loops against it.
+
+**The centroid is the one approximated number, and it says so.** The areas the
+kernel reports are closed-form, but a first MOMENT over a circular arc is not a
+quantity `SectionLoop` carries, so the centroid is Green's theorem over each
+loop flattened at `kernel_v2::dxf_export::DEFAULT_POLYLINE_SAGITTA` (1e-5 m
+absolute — the same sagitta the DXF writer flattens an ellipse at, rather than
+an invented one). `centroid_exact` is true exactly when every curve of every
+loop is a `line`, where the flattened polygon IS the cap.
+
+**A graze is decided before any boolean, and a section moves nothing.** Two
+boundary cases reviewed 2026-10-03. A plane lying exactly ON a face is settled
+from the solid's conservative bounds (`dmax ≤ 0` keeps everything, `dmin ≥ 0`
+keeps nothing), so it is a typed empty section with `kept_material` saying
+which side — it cannot reach the §4.5.5 Stage-0 coplanar wall by accident, and
+the kept half-space is the one that CONTAINS the plane
+(`a_plane_grazing_a_face_is_a_typed_empty_section_on_both_sides`). And a
+section is a query in the sense that matters to a caller: `section_with_plane`
+runs its Intersect in the LIVE arena, but the sectioned body's own face
+listing — ids, pids, signatures — comes back byte-identical across two cuts of
+a bored plate (`a_section_leaves_the_bodys_faces_where_they_were`), so no
+`GeomRef`, name binding or rule written before the cut moves. What the cut does
+leave behind is the half-space box and the cut solid, in the arena, until the
+session ends; that is a footprint, not a correctness bug, and Q2's scratch-arena
+pattern is what would retire it.
+
+**A name is the one plane form whose geometry must be checked.** An
+`{origin, normal}` is a plane by construction and a datum is one by
+definition, but a name points at whatever face it was given to — so the tool
+reads the face's surface type first and refuses a curved one as
+`InvalidArguments`, naming what it found and the form to use instead
+(`a_name_on_a_curved_face_is_refused`). Cutting on some tangent plane of a
+barrel would be a section the caller could not have meant.
+
+**Not in Q4.** The loop edges' SOURCE FACES, which §4.3's table asks for:
+`SectionLoop` carries `curves`, `signed_area` and `exact` and no provenance, so
+there is nothing to publish without a D1d change. And no `chord_bound_m`: the
+kernel exposes the per-loop `exact` flag but no band, and a fabricated band
+would be worse than the flag. Assembly instance scoping, as for Q2 and Q6.
+
+##### Q5 — `measure_thickness`
+
+**Sites are sub-facet CENTROIDS, not tessellation vertices.** §4.2 says "every
+vertex of the render tessellation (and the centroid of every triangle above a
+size threshold)". A vertex sits on a face's rim or on the shared edge of two
+facets, where the inward normal is not the face's alone and the cast is
+degenerate or grazing; a centroid is strictly inside one facet of the face's
+own CDT. Barycentric subdivision to the requested spacing replaces the size
+threshold, and covers a large facet's middle — exactly where a plate's thin
+spot would be. The reported `spacing_m` is the largest sub-facet edge actually
+used, so a request the subdivision cap could not meet comes back as a looser
+spacing rather than as a false one.
+
+**Both ends of every cast are refined onto the analytic surfaces.** The site is
+projected onto its own face's surface and the facet hit is Newton-refined along
+the ray on the hit surface's signed distance (`signature::signed_offset_at`,
+added for this), then certified on the surface and on the hit face's trim.
+Without both, a tube's wall reads low by two sagittas; with them it is
+`r_outer − r_inner` to 1e-12 relative and a plate's wall is exact. `refined`
+counts the sites that certified.
+
+**The self-hit band is LOCAL.** A site on a convex curved face sits outside its
+own chords, so the inward ray crosses them within the snap distance. That is
+rejected by `4·|p − c|` — the site's own local sagitta — and only for a hit on
+the site's own face. A band on the whole body would have thrown away every site
+of a 1 mm plate 100 mm across, whose chord band exceeds the wall being
+measured; a solid cylinder still measures its own diameter across its lateral
+face. A wall under the local band is counted in `declines.below_self_band`
+rather than reported.
+
+**§4.4's wedge oracle is wrong as stated, and the correction is the point of
+the increment.** A real taper is NOT thinnest at its thin end: its slant makes
+one base angle acute (84.3° on the pinned fixture), and a body is arbitrarily
+thin near an acute corner — the wall along `+x` from the end face at height `y`
+is `(t0 − y)/slope`, which goes to zero at the corner. Measured 1.333 mm on a
+taper whose thin end's perpendicular wall is 1.990 mm, with the thinnest site
+AT the corner. Every right trapezoid has exactly one such corner, so the
+closed-form case is a STEPPED plate (`min` is exactly the thin section, and the
+site is inside it); the wedge is pinned as the clearest demonstration that
+`min` is an upper bound on a body that has no minimum wall at all.
+
+**Thickness is invariant in VALUE under a rigid motion, not in its site set.**
+The render CDT is computed from the body's own coordinates, so a 30° turn of
+one plate took it from 8528 sites to 4744 while `min` and `max` held to 1e-12.
+A planar wall is the same everywhere on it, so the values survive; on a body
+whose thin spot is a corner a rotation can move the reported minimum by up to
+the spacing — which is what `Sampled` means, and why the invariance test
+asserts the values and the wall's own span rather than the site's identity.
+
+**`ThicknessMethod` has one arm and `mass`-style tiers were not reused.**
+`Method` is `Exact | Mesh { chord_bound }` and neither describes this: the
+individual casts are exact and the SAMPLE is not, so the honest statement is
+`Sampled { samples, spacing }` with no sibling. An exact medial axis would add
+its own arm. A body where no site produced a thickness is an `Err` naming the
+decline counts, not a `min` of 0 or of infinity.
+
+**The thinnest site's faces are named durably.** Each arrives as its persistent
+id (a DECIMAL STRING, like every pid on this boundary) plus its N1 name, from
+the same `all_entity_pids` and `name_bindings` the Q6 listing reads. A site
+that names a transient kernel id alone is not an answer a caller can act on
+tomorrow.
+
+**A bad `spacing_m` is refused in the tool.** Measured: passed through to the
+kernel, a spacing of 0 returns as an `Internal` engine error carrying a kernel
+sentence — the wrong shape for a caller's typo. The tool validates it as
+`InvalidArguments` with the fix in the message and the kernel keeps its own
+refusal as the backstop.
+
+**The acute corner is not an exotic case, so there are TWO minima.** Reviewed
+2026-10-03: the wedge above is a fixture, but the same sliver appears on any
+part with an acute dihedral. A 4 mm radial slot through a 10/7 mm tube — a C —
+has its slot face meeting the outer cylinder at 78°, and the thinnest inward
+cast lands in that corner at 0.043 mm where the wall is 3 mm. The number is
+right for the question §4.2 defines — the first hit along the inward normal —
+and useless as "how thick is this part", which is the question a rule asks.
+
+So the answer carries both. `min` is unchanged and still §4.2's. Beside it,
+`min_wall` is the same minimum over only the sites whose two faces do NOT
+share an edge, with `thinnest_wall` as its site, and every site says which it
+is through `faces_share_an_edge`. On that C: `min` 0.0434 mm, `min_wall`
+2.99999999999999703e-3 — `r_outer − r_inner` to rounding, because the wall is
+the same at every point of the cylinder pair and both ends of the cast refine
+onto the analytic surfaces. On a plate the two numbers and the two SITES are
+identical, because a right-angled body has no corner reading to leave out: a
+cast along one face's inward normal is parallel to every face it shares an
+edge with. A face hitting ITSELF is not a corner either, so a solid cylinder's
+diameter survives into `min_wall` (`faces_share_an_edge` is about two distinct
+faces that meet, and a cylinder's lateral face meets itself at its seam).
+Pinned in `a_slot_in_a_tube_is_thinnest_at_the_acute_corner_not_at_the_wall`,
+`a_plate_reports_its_thickness_on_the_planar_pair`,
+`a_solid_cylinder_measures_across_its_own_lateral_face` and, on the wire,
+`a_wedge_reports_the_corner_and_the_wall_as_two_numbers`.
+
+The exclusion is coarse ON PURPOSE: it drops every reading between two faces
+that meet anywhere, so a tapered rib whose flanks meet at a tip edge does not
+contribute its own thickness to `min_wall` either. For a rule that is the
+conservative direction — a wall it cannot see is not a wall it calls thick —
+and `min` with the thinnest site's own faces is what a caller judges such a
+rib from. The adjacency itself is one pass over the solid's loops (a half-edge
+and its twin are the two sides of one edge), read O(1) per site, so it does
+not move the cost below.
+
+**`min` moving with `spacing` is measured, not argued.** The same wedge at
+4 mm / 1 mm / 0.25 mm reports 2.111 mm / 0.952 mm / 0.625 mm — at 4 mm the
+thinnest site is out on the base casting up to the slant (`t0 − slope·x`), and
+from 1 mm down it is the corner itself (`(t0 − y)/slope`). Each is exact as a
+measurement; they are answers to three questions about one body
+(`a_finer_spacing_finds_a_thinner_corner_because_min_is_an_upper_bound`). The
+0.25 mm run also shows the subdivision cap binding: the reported spacing comes
+back at 1.4 mm, LOOSER than the request, which is the honest direction.
+
+**The cost, measured.** F0061 — the 339-face assay gear with a through bore —
+takes **77 ms** at the default spacing (48 884 sites, every one refined, no
+declines) and 2.9 s at a requested 2 mm (1.52 M sites). The default is cheap
+enough to call per body in a rule pass; a spacing an order under the body is
+what costs, and it is the caller's choice.
+
+**Not in Q5.** `Thickness` is per BODY: no face-restricted or region-restricted
+sampling (a rule that cares about one web filters the sites itself from the
+thinnest site and the histogram, or asks for a denser spacing). No medial axis.
+No area-weighted mean — the mean is unweighted over sites, which are
+approximately area-uniform by construction, and the answer says so. And no
+third minimum: `mean`, `max` and the histogram stay over ALL sites, corner
+readings included, because they describe the sample and only the two minima
+answer a question about the body. Assembly instance scoping, as for Q2, Q4 and
+Q6.
+
 ## 5. N — Stable semantic references
 
 Owner: `waffle-types`, `feature-engine`, `wasm-bridge`, `kernel-v2` (N0).

@@ -1,5 +1,5 @@
 {
-  "manifest_hash": "641a3f7f8c9ba35bd5577434d99107fab185f6bc8194e3470d189633f60febbc",
+  "manifest_hash": "b186d74e1a9dc0df5b5d342a6d82e5ef909b260a9e2b53f30f5db9baf0998acd",
   "protocol": "waffle-agent-link/1",
   "tools": [
     {
@@ -1972,6 +1972,405 @@
           "principal_axes",
           "density_kg_m3",
           "mass_kg",
+          "method"
+        ],
+        "type": "object"
+      }
+    },
+    {
+      "annotations": {
+        "readOnlyHint": true,
+        "title": "Measure section"
+      },
+      "description": "Cut bodies with a plane and get the cap as DATA: per body, the cap boundary loops as 2D analytic curves in the cut plane's own frame (line, circle, ellipse — never flattened to chords unless the kernel could not keep the curve analytic, which it says per loop), each loop's signed area (positive outer, negative hole), the net area and the area centroid. The cut is the kernel's own Intersect against a half-space, keeping the side the normal points AWAY from, so a section and a Subtract against the same plane agree. basis is the frame the loops live in (world = origin + u·u_axis + v·v_axis) — use it rather than deriving your own, or the loops will be rotated against it. plane is {origin, normal}, a planar face GeomRef from face_list, {\"plane\":\"XY\"|\"XZ\"|\"YZ\"} for a datum, or {\"name\":\"Plate.top\"} for a named planar face. body_ids defaults to every body. A plane that MISSES a body is an empty loops list with kept_material saying which side it missed on — not an error; a body the kernel REFUSED to cut is named in declines instead, never as an empty section. cap_shared_with_model means at least one cap face came from the coplanar-overlay path rather than from the cut's own lineage — the signature of a plane coplanar with a face of this body; it describes how the KEPT cap was attributed, so it can be true on one side of such a cut and false on the other. Lengths in meters, areas in m².",
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "body_ids": {
+            "description": "Body ids (or display names) from model_summary.bodies. Omit for every body of the open Part.",
+            "items": {
+              "type": "string"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          },
+          "plane": {
+            "description": "{origin:[x,y,z], normal:[x,y,z]} | a planar face GeomRef | {\"plane\":\"XY\"} | {\"name\":\"Plate.top\"}.",
+            "type": "object"
+          }
+        },
+        "required": [
+          "plane"
+        ],
+        "type": "object"
+      },
+      "name": "measure_section",
+      "outputSchema": {
+        "properties": {
+          "basis": {
+            "properties": {
+              "origin": {
+                "items": {
+                  "type": "number"
+                },
+                "type": "array"
+              },
+              "u_axis": {
+                "items": {
+                  "type": "number"
+                },
+                "type": "array"
+              },
+              "v_axis": {
+                "items": {
+                  "type": "number"
+                },
+                "type": "array"
+              },
+              "w_axis": {
+                "items": {
+                  "type": "number"
+                },
+                "type": "array"
+              }
+            },
+            "type": "object"
+          },
+          "bodies": {
+            "items": {
+              "properties": {
+                "area_m2": {
+                  "type": "number"
+                },
+                "body_id": {
+                  "type": "string"
+                },
+                "cap_shared_with_model": {
+                  "type": "boolean"
+                },
+                "centroid": {
+                  "items": {
+                    "type": "number"
+                  },
+                  "type": [
+                    "array",
+                    "null"
+                  ]
+                },
+                "centroid_exact": {
+                  "type": "boolean"
+                },
+                "centroid_uv": {
+                  "items": {
+                    "type": "number"
+                  },
+                  "type": [
+                    "array",
+                    "null"
+                  ]
+                },
+                "kept_material": {
+                  "type": "boolean"
+                },
+                "loops": {
+                  "items": {
+                    "properties": {
+                      "curves": {
+                        "items": {
+                          "type": "object"
+                        },
+                        "type": "array"
+                      },
+                      "exact": {
+                        "type": "boolean"
+                      },
+                      "kind": {
+                        "enum": [
+                          "outer",
+                          "hole"
+                        ],
+                        "type": "string"
+                      },
+                      "signed_area_m2": {
+                        "type": "number"
+                      }
+                    },
+                    "required": [
+                      "signed_area_m2",
+                      "exact",
+                      "kind",
+                      "curves"
+                    ],
+                    "type": "object"
+                  },
+                  "type": "array"
+                },
+                "method": {
+                  "enum": [
+                    "exact",
+                    "mesh"
+                  ],
+                  "type": "string"
+                }
+              },
+              "required": [
+                "body_id",
+                "loops",
+                "area_m2",
+                "centroid_exact",
+                "method",
+                "cap_shared_with_model",
+                "kept_material"
+              ],
+              "type": "object"
+            },
+            "type": "array"
+          },
+          "declines": {
+            "items": {
+              "properties": {
+                "body_id": {
+                  "type": "string"
+                },
+                "kind": {
+                  "enum": [
+                    "not_supported",
+                    "failed"
+                  ],
+                  "type": "string"
+                },
+                "reason": {
+                  "type": "string"
+                }
+              },
+              "type": "object"
+            },
+            "type": "array"
+          },
+          "name_warnings": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "plane": {
+            "properties": {
+              "normal": {
+                "items": {
+                  "type": "number"
+                },
+                "maxItems": 3,
+                "minItems": 3,
+                "type": "array"
+              },
+              "origin": {
+                "items": {
+                  "type": "number"
+                },
+                "maxItems": 3,
+                "minItems": 3,
+                "type": "array"
+              }
+            },
+            "type": "object"
+          },
+          "total_area_m2": {
+            "type": "number"
+          }
+        },
+        "required": [
+          "plane",
+          "bodies",
+          "total_area_m2"
+        ],
+        "type": "object"
+      }
+    },
+    {
+      "annotations": {
+        "readOnlyHint": true,
+        "title": "Measure thickness"
+      },
+      "description": "The wall thickness of a body, SAMPLED: points are laid out on every face and a ray is cast inward from each one to the first face opposite. **For a wall, read min_wall_m, not min_m.** min_m is the shortest cast ANYWHERE on the body, and every ACUTE edge is a sliver of material — a 4 mm slot through a 10/7 mm tube reports min_m 0.043 mm where its wall is 3 mm, and a taper approaches zero at its sharp corner. min_wall_m is the shortest cast between two faces that do NOT meet at an edge, so it leaves every corner reading out: 3.000 mm on that same tube, and equal to min_m on a plate, which has no corner to leave out. Each site says which it is with faces_share_an_edge. min_wall_m is absent only when every site crossed a corner. Also reports mean_m, max_m, a histogram of the sites, and the thinnest site of each kind — where it is and the two faces it spans, each with its persistent id (DECIMAL STRINGS: ids above 2^53 are not exact as JSON numbers) and its entity_name if it has one. method is always \"sampled\": both minima are UPPER BOUNDS, because a wall thinner than spacing_m between two sites is never looked at. Pass spacing_m under the width of the web you care about to be sure it was sampled; the answer always reports the spacing_m it used and how many samples it took. Each individual cast is refined onto the analytic surfaces (a plate reports its thickness, and a tube r_outer − r_inner, to rounding), and refined says how many were; declines counts the sites that produced nothing, so an answer covering little of the body says so. Neither number is the body's medial axis. Lengths in meters.",
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "body_id": {
+            "description": "Body id (or name) from model_summary.bodies.",
+            "type": "string"
+          },
+          "spacing_m": {
+            "description": "Largest gap between neighbouring sample sites on one face, in meters. Omit for the default (the body's bounding diagonal / 32).",
+            "type": [
+              "number",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "body_id"
+        ],
+        "type": "object"
+      },
+      "name": "measure_thickness",
+      "outputSchema": {
+        "properties": {
+          "body_id": {
+            "type": "string"
+          },
+          "chord_bound_m": {
+            "type": "number"
+          },
+          "declines": {
+            "properties": {
+              "below_self_band": {
+                "type": "integer"
+              },
+              "no_hit": {
+                "type": "integer"
+              },
+              "no_surface": {
+                "type": "integer"
+              }
+            },
+            "type": "object"
+          },
+          "histogram": {
+            "items": {
+              "properties": {
+                "count": {
+                  "type": "integer"
+                },
+                "hi_m": {
+                  "type": "number"
+                },
+                "lo_m": {
+                  "type": "number"
+                }
+              },
+              "type": "object"
+            },
+            "type": "array"
+          },
+          "max_m": {
+            "type": "number"
+          },
+          "mean_m": {
+            "type": "number"
+          },
+          "method": {
+            "enum": [
+              "sampled"
+            ],
+            "type": "string"
+          },
+          "min_m": {
+            "type": "number"
+          },
+          "min_wall_m": {
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "refined": {
+            "type": "integer"
+          },
+          "samples": {
+            "type": "integer"
+          },
+          "spacing_m": {
+            "type": "number"
+          },
+          "thinnest": {
+            "properties": {
+              "faces_share_an_edge": {
+                "type": "boolean"
+              },
+              "from": {
+                "type": "object"
+              },
+              "opposite": {
+                "items": {
+                  "type": "number"
+                },
+                "maxItems": 3,
+                "minItems": 3,
+                "type": "array"
+              },
+              "point": {
+                "items": {
+                  "type": "number"
+                },
+                "maxItems": 3,
+                "minItems": 3,
+                "type": "array"
+              },
+              "thickness_m": {
+                "type": "number"
+              },
+              "to": {
+                "type": "object"
+              }
+            },
+            "required": [
+              "thickness_m",
+              "point",
+              "opposite",
+              "from",
+              "to",
+              "faces_share_an_edge"
+            ],
+            "type": "object"
+          },
+          "thinnest_wall": {
+            "properties": {
+              "faces_share_an_edge": {
+                "type": "boolean"
+              },
+              "from": {
+                "type": "object"
+              },
+              "opposite": {
+                "items": {
+                  "type": "number"
+                },
+                "maxItems": 3,
+                "minItems": 3,
+                "type": "array"
+              },
+              "point": {
+                "items": {
+                  "type": "number"
+                },
+                "maxItems": 3,
+                "minItems": 3,
+                "type": "array"
+              },
+              "thickness_m": {
+                "type": "number"
+              },
+              "to": {
+                "type": "object"
+              }
+            },
+            "type": [
+              "object",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "body_id",
+          "min_m",
+          "mean_m",
+          "max_m",
+          "thinnest",
+          "histogram",
+          "samples",
+          "spacing_m",
           "method"
         ],
         "type": "object"
