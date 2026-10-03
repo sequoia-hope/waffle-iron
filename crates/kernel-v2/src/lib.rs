@@ -95,9 +95,9 @@ pub mod validate;
 pub use adapter::KernelV2Adapter;
 
 pub use arena::{
-    BrepArena, Curve, EulerCounts, Face, FaceId, GeometryProvenance, HalfEdge, HalfEdgeId, Loop,
-    LoopBoundary, LoopId, LoopKind, PairSurface, Pid, Plane, Shell, ShellId, Solid, SolidId,
-    Surface, UnitVector3, Vertex, VertexId,
+    BrepArena, Curve, EulerCounts, Face, FaceId, FaceSeed, FaceSeedScope, GeometryProvenance,
+    HalfEdge, HalfEdgeId, Loop, LoopBoundary, LoopId, LoopKind, PairSurface, Pid, Plane, Shell,
+    ShellId, Solid, SolidId, Surface, UnitVector3, Vertex, VertexId, PID_CONTENT_BASE,
 };
 pub use boolean::{boolean_op, from_yang_brep, split_solid_into_bodies, to_yang_brep};
 pub use construct::{
@@ -114,7 +114,9 @@ pub use ingest::ingest_analytic;
 pub use introspect::{extract_edges, extract_edges_with_chord_tolerance, face_plane, surface_area};
 pub use journal::{descendants, face_lineage, EvoKind, Evolution, FaceLineage, OpTag};
 pub use measure::{distance, distance_along, DistanceResult, On, Target};
-pub use pid::{edge_pid, solid_face_pids, solid_pids, vertex_pid, FacePids, SolidPids};
+pub use pid::{
+    edge_pid, seeded_face_pid, solid_face_pids, solid_pids, vertex_pid, FacePids, SolidPids,
+};
 pub use profile::{Profile, ProfileEdge, ProfileRegion};
 pub use projection::{project_edges, project_solid};
 pub use signature::{closest_point_on, face_signature, outward_normal_at, surface_type_str};

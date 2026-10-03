@@ -94,6 +94,53 @@ impl From<FaceProvenance> for EntityPid {
     }
 }
 
+/// The stable identity of the thing that is ABOUT to create geometry — the
+/// seed a kernel stamps new faces' persistent ids from (drawings spec D0
+/// item 1, the F4a reseed).
+///
+/// # Why the kernel needs this at all
+///
+/// A face's [`FaceProvenance::pid`] used to come from a per-arena monotonic
+/// counter. That is reproducible only when the whole arena is rebuilt in the
+/// same order: an INCREMENTAL rebuild re-runs just the edited feature, in an
+/// arena whose counter has already advanced, so that feature's faces are
+/// stamped with numbers nothing else would have minted — and a stored pid
+/// either goes missing or, worse, lands on a different face (measured: a
+/// name authored on a body's top cap resolved to its bottom cap after a
+/// reopen, reporting `resolved_by: "pid"` with no warning). Seeding the id
+/// from content instead of from history removes both failure modes.
+///
+/// # What the 128 bits are
+///
+/// Deliberately opaque: the kernel does not know, and must not learn, what a
+/// feature is. The engine owns the meaning and passes its own stable name —
+/// in practice a feature's `Uuid` via [`Self::from_u128`]. All the kernel
+/// requires is that the same geometry-creating step hands it the same bits
+/// on every rebuild, and that two different steps never share bits.
+///
+/// Faces created under one seed are told apart by their **role** inside the
+/// creating step (see `kernel_v2::arena::BrepArena::assign_face_pids`), so a
+/// seed names a step, never a single face.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
+pub struct ConstructSeed {
+    /// The creating step's stable 128-bit name, high word first.
+    pub origin: [u64; 2],
+}
+
+impl ConstructSeed {
+    /// Seed from a 128-bit stable name (e.g. `feature.id.as_u128()`).
+    pub fn from_u128(name: u128) -> Self {
+        Self {
+            origin: [(name >> 64) as u64, name as u64],
+        }
+    }
+
+    /// The seed's 128-bit name, the inverse of [`Self::from_u128`].
+    pub fn as_u128(self) -> u128 {
+        ((self.origin[0] as u128) << 64) | self.origin[1] as u128
+    }
+}
+
 /// Structured error types for boolean operation failures.
 /// Distinguishes failure stages (intersection, classification, stitching, topology validation)
 /// so that callers can diagnose and potentially retry with adjusted parameters.

@@ -508,6 +508,14 @@ pub(crate) fn execute(
             &consumed,
             Some(kb.as_introspect()),
         );
+        // D0 item 1: NO construct seed is installed per child, deliberately.
+        // The parent `Script` feature's seed is still in place, so a child's
+        // faces are named by the script's uuid plus the child's position in
+        // the script's construct sequence. Seeding from `child_feature.id`
+        // would be worse, not better: `host.rs` mints child ids with
+        // `Uuid::new_v4()`, so they are random per run and the face pids
+        // would change on every rebuild. A script child earns a durable
+        // identity only once those ids are minted deterministically.
         let result = crate::rebuild::execute_feature(
             &child_feature,
             kb,

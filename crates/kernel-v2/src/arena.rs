@@ -127,12 +127,78 @@ define_id!(
 /// Persistent identity of a topological entity, stable across rebuilds —
 /// distinct from the array-index handles (`FaceId` etc.), which churn on
 /// every reconstruction. KV13 (provenance / topological naming): F1 assigns
-/// `Pid`s to faces; edges/vertices follow in F1b. Allocated monotonically per
-/// arena (deterministic given operation order), so the determinism oracle
-/// stays green; F4a will reseed from a content/structural key so re-executing
-/// an unchanged feature reproduces the same `Pid`s.
+/// `Pid`s to faces; edges/vertices are derived in [`crate::pid`] (D0 items
+/// 2–3).
+///
+/// # Two disjoint halves of the number space
+///
+/// A face pid comes from one of two schemes, and which one it came from is
+/// readable off the id:
+///
+/// - **Content-seeded** (D0 item 1, the F4a reseed) — `pid >= PID_CONTENT_BASE`,
+///   i.e. the top bit is set. Derived by [`crate::pid::seeded_face_pid`] from
+///   the creating step's [`FaceSeed`] and the face's role inside that step, so
+///   re-executing an unchanged step reproduces the same ids no matter what
+///   else the arena has built. This is what a document stores.
+/// - **Monotonic** (the pre-D0 scheme, still the fallback) — `pid <
+///   PID_CONTENT_BASE`, handed out by [`BrepArena::alloc_pid`]. Reproducible
+///   only by a full in-order rebuild: an incremental one re-runs the edited
+///   step in an arena whose counter has advanced, and its faces come out
+///   renamed. Used where no seed is installed — boolean outputs (whose
+///   identity is their journal LINEAGE, not their own number) and raw-arena
+///   tests.
+///
+/// The split is the reason the two schemes can never alias: a content id has
+/// the top bit set and the counter is refused before it could reach there
+/// (`PidSpaceExhausted`), so no hash value and no counter value are ever the
+/// same number.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct Pid(pub u64);
+
+/// First `Pid` of the content-seeded half of the number space (`1 << 63`).
+/// Monotonic ids live strictly below it; content-seeded ids at or above it.
+/// See [`Pid`].
+pub const PID_CONTENT_BASE: u64 = 1 << 63;
+
+/// The stable 128-bit name of the step that is creating geometry — the seed
+/// a face's content pid is derived from (D0 item 1).
+///
+/// The kernel keeps this opaque on purpose: it is the engine that knows what
+/// a feature is, and `kernel-v2` must not learn. The adapter converts the
+/// contract's `waffle_types::kernel::ConstructSeed` into this at the
+/// boundary.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct FaceSeed {
+    /// The step's stable name, high word first.
+    pub origin: [u64; 2],
+}
+
+/// An installed [`FaceSeed`] plus the number of stamping passes it has
+/// already served.
+///
+/// One step can build more than one solid (a sketch with two profiles
+/// extrudes twice under one feature id). Every such solid's faces would
+/// otherwise take the same role indices under the same seed and collide, so
+/// each stamping pass consumes the next `output` ordinal. The ordinal is the
+/// pass's position in the step's own construct sequence, which is as
+/// deterministic as the step is — nothing global feeds it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct FaceSeedScope {
+    /// The seed installed for this step.
+    pub seed: FaceSeed,
+    /// Ordinal of the NEXT stamping pass under this seed.
+    pub next_output: u64,
+}
+
+impl FaceSeedScope {
+    /// A freshly installed scope, before any pass has stamped.
+    pub fn new(seed: FaceSeed) -> Self {
+        Self {
+            seed,
+            next_output: 0,
+        }
+    }
+}
 
 // ---------------------------------------------------------------------------
 // Geometry carried by topology
@@ -683,6 +749,16 @@ pub struct BrepArena {
     /// Append-only; deterministic given operation order. `FaceOrigin` (F3)
     /// walks its `modified` edges back to a `generated` origin.
     pub journal: Vec<crate::journal::Evolution>,
+    /// The content seed for faces stamped by the construct step now running
+    /// (D0 item 1). `None` ⇒ [`assign_face_pids`](Self::assign_face_pids)
+    /// falls back to [`alloc_pid`](Self::alloc_pid).
+    ///
+    /// Installed and restored by the caller through
+    /// [`set_face_seed`](Self::set_face_seed) — it is part of the canonical
+    /// arena state (the determinism oracle compares whole arenas), so a run
+    /// that installs the same seeds in the same order compares equal and one
+    /// that does not is meant to differ.
+    pub face_seed: Option<FaceSeedScope>,
 }
 
 macro_rules! checked_getters {
@@ -754,11 +830,39 @@ impl BrepArena {
             .count()
     }
 
-    /// Allocate a fresh persistent id (monotonic; KV13 F1).
-    pub fn alloc_pid(&mut self) -> Pid {
+    /// Allocate a fresh persistent id from the monotonic half of the number
+    /// space (KV13 F1).
+    ///
+    /// Refuses rather than crossing into the content-seeded half
+    /// ([`PID_CONTENT_BASE`]), which is what makes "a counter id and a hash
+    /// id are never the same number" true by construction rather than by
+    /// luck. Reaching the wall needs 2^63 allocations in one arena, so the
+    /// refusal is a guarantee, not a budget.
+    pub fn alloc_pid(&mut self) -> Result<Pid, KernelV2Error> {
+        if self.next_pid >= PID_CONTENT_BASE {
+            return Err(KernelV2Error::PidSpaceExhausted);
+        }
         let p = Pid(self.next_pid);
         self.next_pid += 1;
-        p
+        Ok(p)
+    }
+
+    /// Install the content seed for the faces the current construct step
+    /// stamps, returning the scope it replaced so the caller can restore it
+    /// (D0 item 1).
+    ///
+    /// Pass `None` around any operation whose output identity is NOT the
+    /// step's own content — a boolean, whose output faces are named by their
+    /// journal lineage — otherwise those faces would take role indices under
+    /// the step's seed and compete with the faces the step actually created.
+    pub fn set_face_seed(&mut self, seed: Option<FaceSeed>) -> Option<FaceSeedScope> {
+        std::mem::replace(&mut self.face_seed, seed.map(FaceSeedScope::new))
+    }
+
+    /// Restore a scope previously returned by [`Self::set_face_seed`],
+    /// including how many passes it had already served.
+    pub fn restore_face_seed(&mut self, scope: Option<FaceSeedScope>) {
+        self.face_seed = scope;
     }
 
     /// The persistent id of a face, if one has been assigned (KV13 F1).
@@ -766,10 +870,64 @@ impl BrepArena {
         self.face_pids.get(&face).copied()
     }
 
-    /// Assign a fresh persistent id to every face of `solid` that lacks one,
-    /// in ascending `FaceId` order (deterministic). Constructors call this at
-    /// their exit (`finalize_solid`) so a finished solid's faces are all
-    /// tagged; faces reused by a body split already carry a `Pid` and keep it.
+    /// Assign a persistent id to every face of `solid` that lacks one.
+    /// Constructors call this at their exit (`finalize_solid`) so a finished
+    /// solid's faces are all tagged; faces reused by a body split already
+    /// carry a `Pid` and keep it.
+    ///
+    /// # The role index
+    ///
+    /// With a seed installed ([`Self::set_face_seed`]) each face's id is
+    /// derived from `(seed, output ordinal, role)` by
+    /// [`crate::pid::seeded_face_pid`]. The **role** is the face's position
+    /// in the solid's own face list in ascending `FaceId` order — a purely
+    /// LOCAL index, which is the whole point: the `FaceId`s themselves are
+    /// arena-global and march on as other steps build, but their relative
+    /// order inside one constructor's output is a function of that
+    /// constructor's creation sequence alone.
+    ///
+    /// That sequence is the face's semantic role, constructor by
+    /// constructor. For a polygon [`crate::extrude`] it is top cap = 0, base
+    /// cap = 1, then one lateral per profile edge in profile order, then the
+    /// hole walls; a circle extrude assembles its three faces base, top,
+    /// lateral. Each is a fixed function of its own constructor, and the two
+    /// differ — so the orders are MEASURED and pinned by
+    /// `tests/d0_face_seed.rs` rather than asserted as a general rule, and
+    /// that is where to look before relying on a particular number. "Cap
+    /// top/bottom, lateral by profile-edge index" (spec §4 item 1) is what
+    /// the index expresses; it is not re-derived from geometry, so nothing
+    /// about it can drift with a coordinate.
+    ///
+    /// Already-stamped faces consume their role index and are then skipped,
+    /// so a second pass over the same solid (a constructor that finalizes an
+    /// intermediate body first) leaves the earlier faces' ids alone and
+    /// numbers only the new ones. `FaceId`s are append-only, so an earlier
+    /// face's role never moves.
+    ///
+    /// # What a seeded pid is unique WITHIN
+    ///
+    /// One solid — never the whole arena, and deliberately so. A rebuild
+    /// re-executes features into the SAME arena, leaving the previous
+    /// incarnation's solid orphaned but still in `face_pids`; a seeded id is
+    /// a function of the step and the role, so the new incarnation's faces
+    /// take exactly the ids the orphan holds. That repetition is the
+    /// property, not a fault — "the same step always names its faces the
+    /// same way" is what a reopened document needs — and every consumer
+    /// already looks a pid up inside one body (`pid::solid_pids`,
+    /// `all_entity_pids`, and `resolve_by_pid`, which refuses rather than
+    /// searching other bodies).
+    ///
+    /// # Refusals
+    ///
+    /// - [`KernelV2Error::PidCollision`] if a derived id is already on
+    ///   ANOTHER face of this same solid. Two faces of one step with the
+    ///   same role cannot happen (a role is a position in a deduped list),
+    ///   so within one pass this can only be a 64-bit hash collision; it can
+    ///   also catch a face stamped by an earlier pass whose id the current
+    ///   seed would re-mint. Either way it is a refusal, never an alias: two
+    ///   faces of one body sharing a name would let a stored reference
+    ///   resolve to whichever came first.
+    /// - [`KernelV2Error::PidSpaceExhausted`] from the monotonic fallback.
     pub fn assign_face_pids(&mut self, solid: SolidId) -> Result<(), KernelV2Error> {
         let shells = self.solid(solid)?.shells.clone();
         let mut faces: Vec<FaceId> = Vec::new();
@@ -778,10 +936,40 @@ impl BrepArena {
         }
         faces.sort_unstable_by_key(|f| f.0);
         faces.dedup();
-        for f in faces {
-            if !self.face_pids.contains_key(&f) {
-                let p = self.alloc_pid();
-                self.face_pids.insert(f, p);
+
+        let Some(scope) = self.face_seed else {
+            for f in faces {
+                if !self.face_pids.contains_key(&f) {
+                    let p = self.alloc_pid()?;
+                    self.face_pids.insert(f, p);
+                }
+            }
+            return Ok(());
+        };
+
+        // A pass is only "used" if it actually stamps something, so a
+        // constructor that finalizes a solid whose faces are all already
+        // stamped does not burn an output ordinal.
+        let mut stamped_any = false;
+        let mut in_solid: std::collections::BTreeSet<Pid> = faces
+            .iter()
+            .filter_map(|f| self.face_pids.get(f))
+            .copied()
+            .collect();
+        for (role, f) in faces.into_iter().enumerate() {
+            if self.face_pids.contains_key(&f) {
+                continue;
+            }
+            let p = crate::pid::seeded_face_pid(scope.seed, scope.next_output, role as u64);
+            if !in_solid.insert(p) {
+                return Err(KernelV2Error::PidCollision { kind: "face" });
+            }
+            self.face_pids.insert(f, p);
+            stamped_any = true;
+        }
+        if stamped_any {
+            if let Some(s) = self.face_seed.as_mut() {
+                s.next_output += 1;
             }
         }
         Ok(())

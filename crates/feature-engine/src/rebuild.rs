@@ -304,6 +304,25 @@ pub fn rebuild(
             Some(kb.as_introspect()),
         );
 
+        // D0 item 1 (`specs/drawings_and_mbd.md` §4): tell the kernel WHOSE
+        // geometry it is about to create, so the faces it stamps are named
+        // from this feature's stable identity and their role in it rather
+        // than from the arena's monotonic counter. Without it an incremental
+        // rebuild — which re-runs only this feature, in an arena whose
+        // counter has already advanced — renames every face of the edited
+        // feature, and with them the edges at its junctions with untouched
+        // geometry, and any stored pid either goes missing or lands on a
+        // different face.
+        //
+        // The feature's uuid is the seed: it is the engine's own permanent
+        // name for the step, it survives a reorder, a rename and a parameter
+        // edit, and it is already what `pid_to_feature` keys on. Restored
+        // (not cleared) afterwards so a nested execution — a script child —
+        // hands the seed back to its parent.
+        let prev_seed = kb.set_construct_seed(Some(
+            waffle_types::kernel::ConstructSeed::from_u128(feature.id.as_u128()),
+        ));
+
         // A `Script` node reports what it consumed and placed AFTER running
         // (its children are private); every other operation is known before.
         let outcome = if let Operation::Sketch3d { sketch } = &feature.operation {
@@ -345,6 +364,7 @@ pub fn rebuild(
                 context,
             )
         };
+        kb.set_construct_seed(prev_seed);
         match outcome {
             Ok(result) => {
                 for w in &result.diagnostics.warnings {

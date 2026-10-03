@@ -616,7 +616,11 @@ fn emit_copy(
     let mut modified = Vec::new();
     let mut generated = Vec::new();
     for (&src, &dst) in &fmap {
-        let pid = arena.alloc_pid();
+        // A transformed copy's identity is its LINEAGE (`Same` back to the
+        // source face), not its own number, so it stays on the monotonic
+        // allocator even under an installed face seed (D0 item 1) — the same
+        // reasoning as a boolean's output faces.
+        let pid = arena.alloc_pid()?;
         arena.face_pids.insert(dst, pid);
         match src_pids.get(&src) {
             Some(&src_pid) => modified.push((src_pid, pid, EvoKind::Same)),

@@ -60,9 +60,9 @@ use crate::arena::Curve;
 use crate::{BrepArena, FaceId, HalfEdgeId, KernelV2Error, SolidId, Surface, VertexId};
 use cad_primitives::{BoolOp, Point2, Point3, Vector3};
 use waffle_types::kernel::{
-    AxisKind, ClosedProfile, EdgeRange, EdgeRenderData, EntityAxis, FaceRange, KernelError,
-    KernelId, KernelSolidHandle, PipePathSegment, ProjectOpts, ProjectionBody, RenderMesh,
-    StepExportBody, SweepSection, TopoKind, TopoSignature, ViewFrame, ViewGeometry,
+    AxisKind, ClosedProfile, ConstructSeed, EdgeRange, EdgeRenderData, EntityAxis, FaceRange,
+    KernelError, KernelId, KernelSolidHandle, PipePathSegment, ProjectOpts, ProjectionBody,
+    RenderMesh, StepExportBody, SweepSection, TopoKind, TopoSignature, ViewFrame, ViewGeometry,
 };
 use waffle_types::kernel::{
     ContactEvidence, Distance, DistanceOpts, EntityRef, Interference, InterferenceBody, Kernel,
@@ -1459,6 +1459,27 @@ impl Kernel for KernelV2Adapter {
         self.next_staged += 1;
         self.staged.insert(idx, profile);
         Ok(KernelId(TAG_PROFILE | idx))
+    }
+
+    /// D0 item 1: install the step's identity seed on the arena, so the
+    /// faces the next constructor stamps are named from content rather than
+    /// from the arena's counter.
+    ///
+    /// The returned value is the previous SEED, not the previous scope — the
+    /// contract speaks only of seeds, and a restored seed restarts its
+    /// output ordinals. That is safe because the engine's nesting is one
+    /// level deep (a feature, possibly running a script child): a step whose
+    /// seed is restored has already finished every construct call it was
+    /// going to make. A kernel-internal caller that needs the ordinals back
+    /// as well uses `BrepArena::restore_face_seed`, which the boolean path
+    /// does.
+    fn set_construct_seed(&mut self, seed: Option<ConstructSeed>) -> Option<ConstructSeed> {
+        let prev = self
+            .arena
+            .set_face_seed(seed.map(|s| crate::arena::FaceSeed { origin: s.origin }));
+        prev.map(|scope| ConstructSeed {
+            origin: scope.seed.origin,
+        })
     }
 }
 

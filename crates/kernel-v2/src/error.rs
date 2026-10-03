@@ -579,8 +579,16 @@ pub enum KernelV2Error {
     /// Two DISTINCT content keys hashed to the same 64-bit persistent id.
     /// Astronomically unlikely and never repaired by re-salting (a salt that
     /// depends on the colliding set is not stable across edits, which is the
-    /// one property these ids exist for). `kind` is `"edge"` or `"vertex"`.
+    /// one property these ids exist for). `kind` is `"edge"`, `"vertex"` or
+    /// `"face"`.
     PidCollision { kind: &'static str },
+
+    /// The monotonic persistent-id counter reached
+    /// [`crate::arena::PID_CONTENT_BASE`], the first id of the
+    /// content-seeded half of the number space (D0 item 1). Crossing it
+    /// would let a counter id alias a hash id, so the allocator refuses.
+    /// Needs 2^63 allocations in one arena to reach.
+    PidSpaceExhausted,
 }
 
 impl core::fmt::Display for KernelV2Error {

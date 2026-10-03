@@ -1213,7 +1213,19 @@ pub fn from_yang_brep_indexed_with_operands(
     // Validate, then stamp persistent ids on the boolean's output faces
     // (KV13 F1). Per-face lineage attribution (F2) is recorded by `boolean_op`,
     // which has the operand→Pid maps; here we return the output face mapping.
-    finalize_solid(arena, solid_id)?;
+    //
+    // A boolean output face is named by that LINEAGE, not by its own number
+    // — `pid::solid_pids` reads the journal root, and every output face has
+    // one. So the step's content seed (D0 item 1) is explicitly withdrawn
+    // for this stamping pass: a feature that extrudes and then auto-unions
+    // would otherwise hand the union's faces role indices under the same
+    // seed as the extrude's, and the two sets would compete for the same
+    // ids. Restored immediately, so a later construct call in the same
+    // feature still seeds.
+    let scope = arena.set_face_seed(None);
+    let finalized = finalize_solid(arena, solid_id);
+    arena.restore_face_seed(scope);
+    finalized?;
     Ok((solid_id, face_ids))
 }
 
