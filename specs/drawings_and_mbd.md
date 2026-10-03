@@ -2006,8 +2006,8 @@ feature tools.
 ### Implementation notes (D4a)
 
 Landed 2026-10-03. Where §8 left a choice open, this is the choice made and
-why. D4b — section and detail views, the title block, the sheet PDF — is
-untouched.
+why. (D4b — section and detail views, the title block, the sheet PDF — landed
+the same day; its notes follow these.)
 
 **The model is `feature_engine::drawing`, beside `assembly` and for the same
 reason.** `file-format`'s `TabKind` holds it, so it has to live below
@@ -2183,6 +2183,359 @@ switching to a drawing and back does not rebuild a part that did not change.
   and bounded by the drawn curves, but there is no document setting to turn
   it off, and a six-view drawing of a gear would be substantial.
 
+### Implementation notes (D4b)
+
+Landed 2026-10-03. Where §8 and the D4a notes left a choice open, this is the
+choice made and why. D4b is section and detail views, the title block, the
+sheet PDF, and the two D4a open items the spec named: `projection_angle`'s
+setter and the cache's validity key.
+
+**A section is authored as a LINE, not as §8's `plane: Plane`.** §8 writes
+`Section { parent: Uuid, plane: Plane }`. A world plane can be authored to
+miss the parent view entirely, or to lie oblique to its line of sight — and
+then the cutting line drawn on the parent is a *projection* of the plane
+rather than the plane itself, so dragging that line on the sheet would not be
+an edit of the view. `Section { parent, from, to, flip, label }` holds the
+line in the parent's own `(u, v)`, which is what a drafter draws and what a UI
+drags, and the plane follows with no freedom left over: it is the line swept
+back along the parent's sight direction (`drawing::section_plane`).
+
+The section's own frame then comes out of one rule rather than a second table.
+The line of sight is the NEGATED cut normal — the convention D1d's
+`plane_basis` already states — and the paper up is the direction in the
+section's plane CLOSEST to the parent's up, so a side section shares its
+vertical axis with the view it was cut on. Measured consequences, each pinned:
+a vertical cutting line on a front view gives exactly `NamedView::Left`'s
+frame of the half it keeps; `flip` gives `Right`'s; a HORIZONTAL cutting line
+gives exactly `Top`, and flipped exactly `Bottom`. That last pair is why the
+fallback exists at all: when the cut normal is parallel to the parent's up the
+"closest direction" vanishes, and a careless fallback gives a top view with
+paper up `+z` — a view of the top drawn upside down, which is `NamedView::
+Bottom`'s own D4a trap arrived at from a third direction. The fallback is
+signed the way `projected_frame`'s `Up`/`Down` rows sign it, so the two
+derivations cannot drift apart.
+
+**A section follows the same projection standard as any other projected
+view**, and for the same reason it is one table read forwards or backwards:
+third angle places the view on the side it is viewed FROM (against the
+arrows), first angle on the side they point to (`section_paper_step`). Its
+placement therefore clears the parent through the box's SUPPORT function
+rather than a half-extent — `auto_placement_step_mm`, which the four-way form
+now delegates to. For an axis step the two agree exactly; for the oblique step
+an oblique cutting line produces, taking "the half-extent of whichever axis
+dominates" would overlap the corner the view is placed toward.
+
+**The cut is the KERNEL's, one body at a time, and it REPLACES the bodies the
+view projects.** `wasm_bridge::drawing_view::cut_bodies` calls D1d's
+`section_with_plane` per body and hands the halves to the ordinary projection
+path, so a section view is an ordinary view of extraordinary bodies and shares
+every line of D1a–c with the view it was cut on. Three things fall out of
+that:
+
+- A placed body (an assembly leaf) is cut in its OWN frame: the plane goes
+  back through the placement (`RigidPlacement::inverse_apply`/`inverse_dir`,
+  new), because `section_with_plane` has no placement argument and a solid's
+  arena coordinates are its own. The cap then comes back in that LOCAL plane's
+  frame and its basis is carried forward through the placement, which is what
+  keeps an assembly section's hatch in the same `(u, v)` as the curves it
+  fills.
+- A cut that keeps no material at all is an ERROR for the view and the view
+  draws NOTHING. A drawing labelled `SECTION A-A` showing the outside of the
+  solid is a wrong drawing; a missing view is a visible gap. A cut that keeps
+  no part of ONE body of several is a warning and that body is left out, which
+  is the honest difference between "nothing to draw" and "this body is not in
+  this half".
+- `cap_shared_with_model` and a sampled cap edge are reported as warnings
+  rather than swallowed. The first is the §4.5.5 Stage-0 signature (the cut
+  plane is coplanar with a model face, so the cap was found by its plane
+  rather than by its descent from the cutting box); the second says the hatch
+  BOUNDARY is a chord polygon. Both are legitimate sections and both change
+  what the drawing means.
+
+**The cap is ROTATED into the section view's frame, and that needed a new
+`Curve2` method.** The kernel reports a cap in the cut plane's own `(u, v)`,
+which it derives from the normal alone; the section view's paper up is chosen
+to agree with its parent. Both frames share the line of sight and the
+handedness, so they differ by exactly one planar rotation —
+`Curve2::transformed_by(scale, [cos, sin], offset)`, with
+`drawing::cap_loops_in_view` computing the pair from the two bases
+(`cos = cu·vu`, `sin = cu·vv`). Without it the hatch arrives turned against
+the drawing it fills. A rotation is a similarity, so the analytic arms
+survive: a circle's angles shift with the frame, an ellipse's parameters are
+measured from its own major axis and do NOT, and getting that backwards turns
+the ellipse twice. A non-unit `[cos, sin]` is refused rather than normalized —
+it would scale the curve by a factor the caller never named — and a rotated
+arc's angle pair is slid back by whole turns so `start_angle` lands inside one
+revolution, because the DXF writer turns 7.1 rad into 407°.
+
+**The hatch is computed as line SEGMENTS, in the app, by an even-odd
+scanline.** An SVG `<pattern>` fill would be shorter and a `<clipPath>` with
+long lines through it shorter still, and neither survives the trip to PDF (or
+to DXF, whose `HATCH` entity is a different thing again). Computing the
+segments means the hatch is the same geometry in every output and the line a
+reader measures on the screen is the line in the file. Two details carry the
+correctness:
+
+- A crossing is counted with the half-open test `(y0 ≤ y) != (y1 ≤ y)`, which
+  is what makes a scanline passing exactly through a VERTEX count once rather
+  than twice — the classic even-odd bug, and the one a cap with a hole in it
+  meets at the hole's extremes.
+- The scanlines sit on a GLOBAL grid (multiples of the spacing from the paper
+  origin) rather than from each cap's own minimum, so a section of two bodies
+  carries one continuous pattern instead of two that nearly line up.
+
+Even-odd rather than each loop's own winding, even though the kernel reports
+the direction as `HatchLoop::hole`: an outer loop nested inside another outer
+loop (two bodies, one inside a hollow of the other) comes out right under
+even-odd without anyone having to work out the nesting. `hole` is carried
+anyway, because a renderer that fills loops separately needs it and a test
+asserting "one outer boundary and one hole" needs it most of all.
+
+Spacing is 3 mm at 45°, a PAPER quantity like the line widths (ISO 128-50
+specifies continuous narrow lines at a uniform spacing and leaves the spacing
+to the drawing; 3 mm is the middle of general practice's 2–4 mm and coarse
+enough that a 10 mm cap reads as hatched rather than as solid).
+
+**A detail crops to a DISC, not §8's `rect: Aabb2`.** ISO 128-30's detail
+boundary is a circle, and a circle has no orientation to disagree with the
+view frame — a rectangle authored in the parent's `(u, v)` would have to be
+re-derived whenever the parent's paper up changed. §5.4 rules out detail views
+"beyond cropping a parent view's `ViewGeometry`", which is what this is: the
+detail's frame IS its parent's, exactly (re-deriving one would be the next
+thing to disagree with the view it crops), and only the scale differs.
+
+**The crop is culled in the engine and CLIPPED in the renderer.** The engine
+drops every curve whose exact bounding box misses the disc's — conservative,
+so it never drops a curve that reaches the disc — and the renderer clips what
+is left with a `clipPath`. Clipping in the engine would mean trimming an
+analytic arc against a circle, a new intersection problem whose answer is a
+polyline, so the detail (the one view that exists to be looked at closely)
+would be the only view drawn from sampled geometry. The view's BOX becomes the
+disc's box, so a detail of an empty corner is still laid out on the crop
+rather than on the one edge that reached it — which is also what makes "2:1
+doubles the paper span of the same crop" a property that can be measured
+(`tool_drawing.rs`).
+
+The clip path's id carries the VIEW's uuid (`renderViewSvg`'s new `idPrefix`).
+A sheet nests several views in one SVG document, and two details declaring the
+same id would both clip to whichever came first.
+
+**A child's marks live on the PARENT's layout.** A cutting line belongs to the
+view it cuts, so `ViewLayout::marks` hangs off the parent and the engine puts
+each child's mark there during the rebuild (`Sheet::marks_on`) — derived from
+the children rather than stored, because a stored mark is a second record of
+the child's geometry, free to survive the child's deletion. The arrows point
+along the direction of SIGHT, which is into the material the section keeps, so
+a reader can tell which half is drawn from the parent alone. Labels are the
+next FREE letter rather than a count, so deleting `A` and cutting again
+re-uses `A` instead of minting a second `B`; the sequence is bijective base 26
+(`A`…`Z`, `AA`…), so a sheet does not run out at 26 marks.
+
+Deleting a view now cascades TRANSITIVELY to a fixpoint. D4a's single pass
+left a detail of a section of the deleted view on the sheet, naming a parent
+that is not there, to fail its rebuild forever. One accessor
+(`Projection::parent`) is what the cycle check, the cascade and the validator
+all read, so a derived kind added later cannot be forgotten by one of them.
+
+**The title block's fields are KEYS and literal text, not expressions.** §8
+wants expressions over document metadata and the measurement functions, and
+that is right once D2 lands — it has not. An unevaluated expression printed as
+a number is a different number from the one authored, and printed as its
+source is a title block reading `mass(part)`. So D4b offers the four rows the
+engine can fill (`DocumentName`, `SheetNumber`, `Scale`, `ProjectionAngle`),
+text for the ones only a person knows (`Date`, `Author`, `Material`,
+`Revision`, `Custom { label }`), and no `Expr` variant at all — D4a's own
+argument for leaving `Section` out until it worked.
+
+Three consequences, each deliberate:
+
+- A derived row IGNORES authored text, and the authoring door refuses it by
+  name. A title block whose sheet number disagrees with the sheet it is
+  printed on is worse than one nobody can overrule; and an agent that typed a
+  sheet number and was silently ignored would believe the number it typed is
+  on the paper.
+- The DATE is not generated. A rebuild that stamped today would make the
+  document change when nothing changed, break every byte oracle over the
+  sheet, and print an issue date the issue did not have. It is an authored
+  field, blank until someone types it — which on paper is the line you sign.
+- The sheet's `Scale` row is the one ratio every view shares, `AS SHOWN` when
+  they differ, `—` for a sheet with no views. A DETAIL is excluded from the
+  comparison: its scale prints under its own label, and counting it would make
+  every sheet carrying a detail read `AS SHOWN`, which is true of the paper and
+  useless as a statement about the part.
+
+The filled rows are a `TitleBlockLayout` on the sheet (`title_block_cache`), a
+derived hint on exactly the terms a view's `cache` is one, and the renderer
+decides only where the lines go. A renderer that worked out the sheet number
+itself would be a second source of truth for a number the document already
+knows.
+
+**The projection-angle symbol is printed as WORDS, and that is a refusal
+rather than a shortcut.** ISO 5456-2's symbol is a truncated cone shown in two
+views, and the first- and third-angle symbols are MIRROR IMAGES of one
+another: the two concentric circles are identical in both, so the only thing
+distinguishing them is which side of the trapezoid they sit on. That handedness
+is a convention and is NOT derivable from the projection rule — the circles
+view of a frustum shows two concentric circles whichever end faces the viewer,
+which is the whole difficulty. No copy of the standard was available in this
+environment to settle it, and a symbol that might be the wrong way round is
+worse than no symbol: a drafter reads it and believes it. So the row prints
+`Third angle` / `First angle`, which ASME Y14.3 permits as a note and which
+cannot be misread. **Open item:** draw the glyph once the handedness is
+confirmed against ISO 5456-2.
+
+**`projection_angle` gained its setter at the SHEET door** (`drawing_sheet_edit`
+plus the panel's `dwg-projection-angle` select), which closes the first D4a
+open item. It is the DRAWING's setting per §8 and not the sheet's — sheets that
+disagreed about which side a projected view shows would be two standards in
+one document — but it is authored and read where the sheet is (a title block
+prints it), so the one tool carries both. The same tool carries the paper size,
+the orientation, the title block, and adding and deleting sheets, which closes
+"no second sheet in the UI" as well: the panel has a sheet picker, a `+ sheet`
+and a `×`, and the engine refuses the LAST sheet (a drawing with no sheet shows
+nothing and refuses every export by name, which reads as a broken tab rather
+than an empty one).
+
+**The cache validity key is `d4b-<FNV-1a of three digests>`** — the second D4a
+open item. Without it a persisted layout is indistinguishable from a current
+one, so a document opened in a build with no kernel draws last week's sheet
+with no sign that it is last week's. Three decisions:
+
+- It covers the whole SHEET's view recipes, not the one view's, because a
+  projected, section or detail view's frame is derived from its parent's: a
+  key over the view alone would read as valid after the parent was re-aimed. It
+  over-covers (editing one view moves every key on the sheet) and that is the
+  safe direction — every view is rebuilt on every evaluation anyway, so the
+  cost is a reader being told "stale" more often than it strictly had to be.
+- The digest is FNV-1a, not `DefaultHasher`. The key is PERSISTED and std's
+  hasher is documented as unstable between releases, so a pinned key would
+  drift on a toolchain bump and report every cache in every saved document
+  stale at once. The pins include FNV's own published vectors, so the test also
+  checks that this IS FNV-1a rather than something that looks like it.
+- **Every digest input goes through `serde_json::Value` first, and that was a
+  measured bug.** The first version hashed `serde_json::to_string(tree)`. A
+  `FeatureTree` holds `HashMap`s — `Sketch::solved_positions` is one — and a
+  `HashMap` serializes in its own iteration order, seeded per process: two
+  rebuilds of the SAME unedited box produced two 1851-byte strings differing
+  only in the order of four keys, the key moved on every rebuild, and a cache
+  that is always stale is the same as no cache key at all. A `Value`'s object
+  is a `BTreeMap`, so converting first sorts every key at every depth.
+  `build_part`'s own reuse check compares `to_value` for this reason, which is
+  why IT was never wrong about whether a tree had changed.
+
+The key is written beside the cache and cleared with it, both ways: a key
+outliving its cache would say a layout that is not there is current, and a
+cache outliving its key would be a layout nothing can date.
+
+**The sheet PDF is written in the page, from the SVG, with no dependency.**
+§8 says "PDF is the browser's print path over the SVG". `window.print()` does
+produce a true-to-scale sheet — in a dialog, with the browser's own margins,
+and it hands back NOTHING: no bytes for the export door's
+`deliver`/`file_name`/`mime_type`/`bytes` shape, nothing an agent can ask for,
+nothing a test can assert on. A library (`jspdf` + `svg2pdf.js` is the usual
+pair) was rejected on three counts: the app bundles nothing but `three` and
+Threlte, so it would be the first dependency added for an export path;
+`svg2pdf` brings its own SVG parser, which would be a second reading of our
+markup with its own idea of what our markup means; and the whole of what this
+sheet needs is lines, filled polygons, circles and single-line text in one
+base-14 font, which is fewer lines of PDF operators than the glue would be.
+
+`app/src/lib/drawings/pdf.js` therefore scans the string `renderSheetSvg`
+produced. Taking the SVG rather than the sheet DATA is the point: the PDF is
+provably the drawing on the screen rather than a second rendering of the same
+geometry, which is the mistake `DrawingView.svelte` and `export_svg` both
+refuse. The scanner knows exactly the vocabulary `svg.js` and `sheet.js` emit
+(`svg` nested, `g`, `defs`, `clipPath`, `rect`, `line`, `circle`, `polygon`,
+`path` with `M`/`L`/`l`/`Z` only, `text`, `title`) and **reports anything
+else** — a renderer change this writer does not understand becomes a warning
+on the export, not a line missing from a manufacturing drawing. Four further
+choices:
+
+- **One `cm` makes user space PAPER MILLIMETRES WITH Y DOWN**, which is the
+  SVG's own frame, so every number from the markup is written unchanged and a
+  0.5 mm line is `0.5 w`. Text is the one thing that cannot ride a flipped
+  axis, so each run sets a text matrix that flips back (`1 0 0 -1 x y Tm`, or
+  `[cos sin sin −cos]` composed with the rotation for a rotated dimension).
+- **Ink is BLACK ON WHITE whatever the theme.** The SVG's paints are
+  `var(--drawing-…)` references a PDF cannot resolve, and they map to a print
+  palette rather than to whatever the viewer's theme resolves to: a sheet
+  exported from the dark theme with a black background would waste a cartridge
+  and print the lines invisibly.
+- **Helvetica, with the real base-14 widths.** `text-anchor="middle"` and
+  `"end"` are SVG features PDF has no equivalent for, so the writer measures
+  the string and moves the origin — with the Adobe metrics, not an average,
+  because getting them wrong does not break the file, it moves every
+  dimension's number off its line.
+- **`⌀` prints as `Ø`, and says so.** U+2300 is not in WinAnsiEncoding and is
+  in no base-14 font; `Ø` is the substitution CAD has used for the diameter
+  symbol since before Unicode had one. It is reported in `warnings`, because a
+  sheet whose diameter symbol changed shape between the screen and the file
+  should say so.
+
+`export_pdf` is the page's tool beside `export_svg`, for D4a's reason, and
+`triggerFileDownload` (a generalization of `triggerStepDownload`) carries the
+binary out the same door. **No PDF reader was available in this environment**,
+so what is asserted is the file's structure rather than its appearance: the
+`%PDF-1.4` header, one `/Type /Page` and `/Count 1`, a `startxref` inside the
+file, `%%EOF` at the end, and — in the Node smoke run — every xref offset
+pointing at the `N 0 obj` it names. Opening it in a reader is an open item.
+
+**D4b DID move the format floor, to v11, and D4a's argument is why.** D4a did
+not move it because a tab KIND a reader does not know is kept opaque:
+`known_or_unknown` takes the unknown branch, nothing inside the tab is
+deserialized, and nothing can fail. A `Drawing` tab's own tag IS known to
+every reader since D4a, so the known branch runs, the drawing IS deserialized,
+and `Projection::Section` — a tag a v10 reader has never heard of — is a
+`de::Error` for the WHOLE DOCUMENT. That is the v7 shape of the problem (a new
+variant inside a kind every reader knows), and `MIN_READER_VERSION`'s own doc
+comment makes it a bump. The bump is also the kinder failure: a v10 build now
+refuses up front with `LoadError::FutureVersion`, which names the remedy,
+where without it the same build opens the file, claims to have read it, and
+then fails with a raw serde message about a `Projection`. The cost is the one
+every floor bump pays and the one D4a declined to pay for a change old readers
+COULD handle: a v10 build now refuses documents with no drawing in them at all.
+`format_tests.rs::a_projection_variant_an_older_reader_does_not_know_fails_the_whole_document`
+measures the mechanism with a variant no build has, so it keeps measuring it
+once `Section` and `Detail` are old news — and asserts the contrast, that an
+unknown tab KIND in the same position is still re-emitted verbatim.
+
+`Projection` has no opaque arm, deliberately: a view whose projection cannot
+be read is a view that cannot be drawn, re-aimed or deleted sensibly, and
+keeping it as a blob would put a view on the sheet that nothing can do
+anything with. Everything else D4b adds is additive and defaulted —
+`Sheet.title_block`, `Sheet.title_block_cache`, `DrawingView.cache_key` and
+the `hatch`/`marks`/`clip` fields of a persisted `ViewLayout`, all
+`skip_serializing_if` empty — so a plain view's persisted layout is
+byte-identical to what D4a wrote and none of them would have moved anything on
+their own.
+
+**Still open after this increment:**
+
+- *The projection-angle GLYPH.* The row prints the words; the ISO 5456-2 cone
+  symbol waits on confirming which way round the mirror pair goes.
+- *No PDF reader opened the file.* The structure is asserted and the geometry
+  comes from the SVG by construction, but nothing in this environment
+  rasterized a page.
+- *Hatching is not in the DXF.* §8 names a `HATCH` layer and the sheet DXF
+  still carries only curves: the cap's BOUNDARY is there (the projection emits
+  it as an ordinary edge), the fill is not. The segments now exist as geometry
+  (`hatchSegments`), so writing them on a `HATCH` layer is a small increment —
+  it needs the DXF writer to take a layer per curve, which it does not today.
+- *A detail view's DXF is culled but not clipped.* The export places the
+  curves the engine kept, which reach past the disc; only the SVG and the PDF
+  clip. A cutting table given a detail would get the overhang.
+- *Nothing on the sheet is clickable* — D4a's open item stands. The cutting
+  line and the crop circle are authored as numbers in the panel (or as
+  millimetres through the tool), where a drafter drags them.
+- *`Ordinate` is still not authorable*, and `Measured::Expr` still refuses:
+  both wait on D2, which is also what the title block's expressions wait on.
+- *The read-only viewer route still shows the 3D viewport on a drawing tab.*
+  Unchanged from D4a.
+- *A section of an assembly leaf is implemented but not measured.* The plane
+  goes through the placement and the cap's basis comes back through it, and the
+  arithmetic is pinned on a placed-body unit case — but no corpus assembly has
+  been sectioned end to end.
+
 ## 9. M1 — Tolerance, precision, material
 
 Owner: `waffle-types`, `feature-engine`, `app`.
@@ -2278,7 +2631,7 @@ under both schema settings.
 | D2 | measurement functions in expressions | D0 | feature-engine |
 | D3 | `Annotation` types + SVG dimension renderer | D0 | waffle-types, app — **LANDED 2026-10-03** |
 | D4a | `Drawing` tab kind, named + projected views, DXF/SVG export | D1c, D3 | file-format, feature-engine, app, wasm-bridge — **LANDED 2026-10-03** |
-| D4b | section + detail views, title block, sheet PDF | D1d, D2, D4a | same |
+| D4b | section + detail views, title block, sheet PDF | D1d, D2, D4a | same — **LANDED 2026-10-03** (D2 not yet: the title block takes keys and literal text, not expressions) |
 | M1 | tolerance types, precision, material + mass | D2 | waffle-types, feature-engine, app |
 | M2 | `Datum` + `Pmi` features, 3D PMI overlay | D0, D3, M1 | feature-engine, app |
 | M3 | AP242 writer with PMI + round-trip oracle | M2 | kernel-v2, wasm-bridge |
