@@ -104,6 +104,7 @@ Presented 2026-07-16; the user's answer (2026-07-17) was **"i have no opinion on
 | N64 | EXTENSION — PERMANENT-proposed (2026-09-27, P0001; paper silent) | §4.5.5 is applied one dimension DOWN: an edge (or vertex) of one operand within the #178 coincidence line of a partner planar face is identified onto the plane and its sub-segments inside the face become identically-sampled shared mesh edges (crossings minted into every copy of both crossed edges, inside endpoints as interior Steiner points, the sub-segment as an interior CDT constraint). The paper's §4.5.5 addresses coplanar FACE pairs only; its stated rationale (discretization does not maintain coplanarity) and remedy (identical sampling on the shared part) are what the arm implements |
 | N65 | RESOLVED (2026-09-27, P0002) | The §4.3.3 Case-IV per-claim verdict judged the EDGE ("any exact root inside the segment" ⇒ valid) instead of the vertex's OWN solution; a line × quadric solve with one in-segment root and one beyond the edge passed the vertex sitting on the far root, the phantom loop stayed MIXED and rode into Stage 6 as `ring rejected by CDT`. Now the vertex's own root (the nearest) is judged, per the paper's "no solution in one of the two parametric domains" — a statement about the solution, not the edge (spec `yang_433_case_iv_corner_phantom.md` §9) |
 | N66 | RESOLVED (2026-09-28, P0003) | Stage-4 relocation of a BOUNDARY point (one operand's model edge crossing the other's face) accepted any exact root of the extended surfaces — a circle × plane root past the plane face's edge, a line × torus root past the torus face's rim — and nothing asked whether the solution lay within the face's domain (§4.5: "cannot converge to a distance of 0 WITHIN THEIR DOMAINS"); the phantom junctions rode into Stage 6 as a stray edge the render tessellator declined. Now `boundary_domain_postcondition` (creases from the operand's B-Rep edges, a divider plane + extent per crease, the §3t sign test) records the fires and the op-level §4.5.2 ladder (`refine_452_domain`) adopts a fire-free rung, else the natural output stands and the fires are inventoried — a hard STOP would convert five CORRECT gear cases the ladder cannot reach (spec `yang_45_boundary_point_domain_certificate.md` §7) |
+| N67 | RESOLVED (2026-10-03, P0015) | The §4.5.2 op-level ladder treated its UNDER-RESOLUTION certificate as a futility PROOF: a demand past `REFINE_452_MAX_FACTOR` yielded an EMPTY rung list, so the op ran no refinement at all and its Stage-4 STOP stood by construction. The paper's loop skips no rung on a prediction — "The above procedures are repeated if optimization failure persists. The algorithm is guaranteed to terminate since the mesh intersections converge to the spline surface intersections under refinement" (`refs/text/yang2025_hybrid_boolean.txt:665-670`, §4.5). Measured on P0015: demand 159.37, and the op CONVERGES at `d_ε/32` (0 unpaired, 0 improper) while the certificate still read 9.96 — the inequality `d_ε/f < |d_far(q)|` is SUFFICIENT for placing that corner, never NECESSARY for a watertight output, and the re-measured demand is exactly `demand / f` (the corner clearance is refinement-invariant), so it carries no new information per rung. The ceiling now BOUNDS the ladder instead of vetoing it: a demand outside the budget runs the whole budget `[2, 4, 8, 16, 32, 64]` under the unchanged Q3 guard shell (spec `specs/yang_452_local_refinement.md` §10). The skip of rungs below an IN-budget demand is untouched and recorded as open in §10.5 |
 | #137 diag | HISTORICAL | #137 (2026-07-15): C0065/R0074 — the torus∩plane solver EXISTS and RUNS; the blocker is mesh RESOLUTION nea… |
 | #137 diag 2 | HISTORICAL | #137 (2026-07-15, follow-up): resolution ALONE is not the fix — it flips the loud STOP into a silent-wrong … |
 
@@ -4633,3 +4634,55 @@ to ERROR for a defect they survive (spec §7), the §3t verdict restated.
 Not a band: sign at evaluation precision, extent at the step's own reach.
 Unit pins `tests_unit/s45_boundary_domain.rs` (7). Corpus: spec §7.
 
+
+---
+
+## N67 — the §4.5.2 ladder's under-resolution certificate vetoed its own budget
+
+**State: RESOLVED (2026-10-03, P0015).**
+
+**Paper:** §4.5 / §4.5.2, `refs/text/yang2025_hybrid_boolean.txt:659-670`.
+The refinement loop is iterative and unconditional: *"The above procedures
+are repeated if optimization failure persists. The algorithm is guaranteed to
+terminate since the mesh intersections converge to the spline surface
+intersections under refinement."* No rung is skipped on a prediction about
+how fine the mesh will need to be.
+
+**Divergence (2026-09-18 → 2026-10-03).** `refine_452_rounds_for` read the
+under-resolution certificate's demand — `max over fires of d_ε(far) /
+|d_far(q)|`, the inequality that says when the far mesh can place a crossed
+corner — as a futility proof. A demand at or past the ceiling
+(`REFINE_452_MAX_FACTOR = 64`) returned an EMPTY rung list, so the op ran no
+refinement at all and its Stage-4 STOP stood by construction. The skip of
+rungs BELOW an in-budget demand was, and remains, a measured economy (spec
+§8.3); the ceiling clause was a wall wearing a budget's clothes.
+
+**Refuted by measurement (P0015, release, `YANG_452_ROUNDS=2,4,8,16,32,64
+YANG_452_PROBE=1`).** Demand 159.3736669947812; the re-measured demand is
+exactly `demand / f` at every rung (79.69 / 39.84 / 19.92 / 9.96) because
+`|d_far(q)|` is a property of the corner and is refinement-invariant; and the
+op CONVERGED at `d_ε/32` — 626 operand triangles, 5310 output, 0 unpaired, 0
+improper, adopted — while the certificate still called the tightest corner
+9.96× under-resolved. The inequality is SUFFICIENT for placing one corner,
+never NECESSARY for a watertight 2-manifold output, because the §4.5.1
+corridor and the §4.4.1 mesh update repair the rest once the mesh is fine
+enough. On P0015 the three fires that set the 159 demand are exactly the
+three the §4.5.1 planner already resolves as `Transit`, while the three that
+decline `NoRealCandidate` demand only 16.5 and 27.6.
+
+**Resolution.** `refine_452_full_budget()`: a demand the ceiling cannot reach
+narrows nothing, so the ladder is the whole doubling budget
+`[2, 4, 8, 16, 32, 64]`. The Q3 guard shell is unchanged — adoption still
+requires `unpaired == 0`, the strict-decrease monitor still aborts a
+non-improving ladder, and every downstream gate applies. Not a band: no
+threshold moved and no acceptance widened. Blast radius is the bucket that
+previously ran zero rungs and therefore always errored; no
+SUPPORTED_CORRECT case can be in it.
+
+P0015 ERROR → SUPPORTED_CORRECT (5.8 s → 16.2 s), with its un-minimized
+lineage and the seed-2 index-169 auto-union row that carried the same error
+text. Unit pins `tests_unit/s452_under_resolution_ladder.rs`
+(`demand_beyond_the_ceiling_still_runs_the_budget`,
+`the_re_measured_demand_is_the_natural_demand_over_the_rung`), RED→GREEN and
+mutation-checked. Spec `specs/yang_452_local_refinement.md` §10; §10.5
+records the remaining open question about the in-budget skip.

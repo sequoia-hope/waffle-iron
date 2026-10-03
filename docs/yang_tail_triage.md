@@ -43,6 +43,220 @@ after the reconciliation run (release, 8 jobs, 360 s; wall 577 s, F0085
 regression since 2026-08-01 is outstanding (checked over every commit of
 `results.json`).
 
+## 2026-10-03 (evening) — the Stage-4 relocation family, seed 2: **P0015 CONVERTED** (the §4.5.2 under-resolution certificate vetoed its own ladder — a demand past the ceiling was read as a PROOF of futility and ran ZERO rungs; the op converges at `d_ε/32`), **P0014 ANCHORED and still ERROR** (a different locus: a sub-ULP ARRANGEMENT twin pair the §4.4.1(a) unzip cannot act on) — **corpus not re-measured this session**
+
+Two seed-2 ERROR rows, same error-text FAMILY (`Stage-4 relocation region
+around vertex # is invalid`), **two different loci**. Both anchored against
+their un-minimized lineage first.
+
+### P0015 — anchor (written before any code changed)
+
+`ASSAY_CASE=P0015 … single_case --release`, verbatim before the fix:
+
+```
+[451-transit] fires=[(149, 150), (1278, 150), (1280, 152), (1282, 154)] verts=1448
+[451-transit] REFUSE (verts=1448): site v149: NoRealCandidate — the standing §4-I9 STOP applies
+[451-transit] fires=[(155, 156), (1280, 156)] verts=1446
+[451-transit] REFUSE (verts=1446): assembly declines: 1 — the standing §4-I9 STOP applies
+P0015: ERROR (5.8s) — … BooleanFailed("yang-rs: Stage-4 relocation region around vertex 149 is invalid: RelocationCrossedCarrierVertex")
+```
+
+The vertex id moved 85 → 149 since promotion (it moves with the mesh); the
+un-minimized lineage (`PROSPECT_CANDIDATE=target/prospect/seed-2/candidates/X00000002-00054`)
+still reproduced the promoted text at **v85**, so the minimizer minted
+nothing.
+
+**Site (`YANG_S4_CARRIER_DOMAIN=census`): the §4.5.1 corner-crosser anatomy,
+verbatim, on a 27-tooth gear facet FAN — six fires, one far surface.** The
+traveller rides A's model edge `A:6 ∩ A:157` chasing the revolve-cut's single
+lateral face `B:2`, and its exact triple lands past the still corner
+q = `A:6 ∩ A:157 ∩ A:158`:
+
+| fire | q | travel | overrun | far | next | shared | `d_far(q)` | plan |
+|---|---|---|---|---|---|---|---|---|
+| v149 | v150 | 2.7249e-2 | 2.2774e-2 | B:2 | A:158 | A:6, A:157 | 5.512022e-3 | DECLINE `NoRealCandidate` |
+| v1278 | v150 | 7.8377e-3 | 6.3804e-3 | B:2 | A:6 | A:157, A:158 | 5.512022e-3 | DECLINE `NoRealCandidate` |
+| v1280 | v152 | 8.2030e-3 | 3.8301e-3 | B:2 | A:6 | A:158, A:159 | 3.309429e-3 | DECLINE `NoRealCandidate` |
+| v1282 | v154 | 8.5919e-3 | 6.6204e-4 | B:2 | — | — | 5.721696e-4 | `Transit { cand: 1 }` |
+| v155 | v156 | 8.3965e-3 | 2.0287e-3 | B:2 | — | — | 5.721696e-4 | `Transit { cand: 0 }` |
+| v1280 | v156 | 2.7962e-3 | 6.6204e-4 | B:2 | — | — | 5.721696e-4 | `Transit { cand: 1 }` |
+
+At v149 BOTH corrected triples CONVERGE in-hull (`next_hull=Some(true)`) and
+both are refused as not REAL by the corner-incident-edge rule: `{B:2, A:6,
+A:158}` hosts on edge 275 at `q_end = 1.81e-2` (`not-corner-incident`), and
+`{B:2, A:157, A:158}` sits exactly on edge 2143's line (`off_line = 1.226e-15`)
+at `t = 1.0120` — 6.3804e-3 PAST the corner, outside the segment
+(`on-line-past-end`). That is R0085 §8.1's WALKING CHAIN: each phantom
+overshoots its own corner by one facet, so the corrected junction is one
+corner further along than the single-hop corridor can route. The corridor
+family remains open for those three sites.
+
+**The certificate, and the bug it caused.** `B:2`'s Stage-1 chord band is
+`d_eps_far = 9.118876e-2`; the TIGHTEST crossed corner clears it by
+`5.721696e-4`, so `under_resolution_ratio` — a max over every fire — reports
+**159.3736669947812**. That is past `REFINE_452_MAX_FACTOR = 64`, and
+`refine_452_rounds_for` read a demand past the ceiling as a proof that no
+affordable rung resolves the corner:
+
+```
+[refine] op=Subtract natural=Err(Stage4RegionInvalid { vertex: 149, reason: RelocationCrossedCarrierVertex, under_resolution: Some(159.3736669947812) }) broken=true graze=Some(57)
+[s452] op=Subtract trigger v149 RelocationCrossedCarrierVertex adopt=true under_resolution=Some(159.3736669947812) rungs=[]
+[s452]   BUDGET EXHAUSTED: no rung converged — the Stage-4 STOP stands
+```
+
+**The proof is false, measured** (`YANG_452_ROUNDS=2,4,8,16,32,64
+YANG_452_PROBE=1`, release). `d_far(q)` is a property of the corner and does
+not move under refinement, so the re-measured demand is exactly `demand / f`
+at every rung — and the op CONVERGED at `d_ε/32` while the certificate still
+called it 9.96× under-resolved:
+
+| rung | B tris | re-measured demand |
+|---|---|---|
+| natural | 126 | 159.3736669947812 |
+| d_ε/2 | 166 | 79.6868334973906 |
+| d_ε/4 | 236 | 39.8434167486953 |
+| d_ε/8 | 316 | 19.92170837434765 |
+| d_ε/16 | 446 | 9.960854187173824 |
+| **d_ε/32** | **626** | **Ok tris=5310 unpaired=0 improper=0** |
+
+So the certificate is SUFFICIENT ("this rung places that corner"), never
+NECESSARY: the three sites that set the 159 demand are exactly the three the
+§4.5.1 corridor already plans as `Transit`, and the demand they set vetoed
+the rungs the DECLINING sites needed. The paper's own loop is iterative and
+unconditional — *"The above procedures are repeated if optimization failure
+persists. The algorithm is guaranteed to terminate since the mesh
+intersections converge to the spline surface intersections under
+refinement"* (`refs/text/yang2025_hybrid_boolean.txt:665-670`, §4.5) — it
+skips no rung on a prediction. The predictive SKIP was added as an ECONOMY
+(spec `specs/yang_452_local_refinement.md` §8); the CEILING VETO turned the
+economy into a wall.
+
+**Fix** (`crates/yang-rs/src/boolean.rs`, `refine_452_full_budget`): a demand
+the ceiling cannot reach narrows nothing, so the ladder runs the whole
+doubling budget it can afford — `[2, 4, 8, 16, 32, 64]` — under the unchanged
+Q3 guard shell (a rung is adopted only when it emits a watertight 2-manifold
+body; every downstream oracle applies). Demands BELOW the ceiling keep
+today's skip bit-for-bit, so the change touches only the bucket that was
+previously guaranteed to error: a demand ≥ 64 ran no rung at all, the natural
+`Err` stood, and the op failed. No CORRECT case can be in that bucket, and
+none of the seven canonical C-series ERRORs carries a `Stage4RegionInvalid`
+at all (checked in the committed `results.json`).
+
+**Re-judged, verbatim:**
+
+```
+P0015: SUPPORTED_CORRECT (16.2s) — all checks passed
+```
+
+Its un-minimized lineage converts with it (`X00000002-00054`:
+SUPPORTED_CORRECT, 1 body, χ 2, volume 8.088612e-1), and so does the
+**seed 2 index 169 auto-union row** that carried the same error text and was
+ledgered rather than promoted (`X00000002-00169-min`: SUPPORTED_CORRECT, 2
+bodies, χ 4, volume 1.516515e-7) — that retirement row is now closed.
+
+**Oracles adjudicated at the conversion** (`derived_meta` cleared;
+`assay_exact_membership one_case_ladder`, cells 192/256/384/512 × phases
+0.5/0.27): ONE body on every rung; `boundary_chi = 2` on five of the eight
+rungs (`chi_solid` jitters 0…2 on 1–5-cube specks — the known
+grazing-operand lattice instability), so `euler_target` 2 and
+`expected_solid_count` 1 stand; the two finest rungs read volume 9.929906e-1
+and 9.942010e-1, mean **9.935958e-1** pinned with `expected_volume_tol_rel`
+3e-3 (the P0003 precedent). The kernel reads 9.935467e-1 — **rel −4.9e-5**.
+
+### P0014 — anchor: a DIFFERENT locus, still ERROR
+
+`YANG_LRR_PROBE=1`, verbatim and reproduced on every one of the four Stage-4
+invocations (natural + the §4.5.4 retry + both ladder rungs):
+
+```
+YANG_LRR_ACTION simple d=142 n=143 a=140 c=141 b=139 area_d=2.489e-11 l_ac=1.918e2 height_b=2.595e-13 h_over_l=1.352e-15 area_n=1.362e4 band=1.0e-9
+YANG_LRR_DEGEN_SURF tri=385 surface=Some(Cone { apex: [50.0, -3000.0, 2510.8647932634995], axis_dir: [0, 0, -1], half_angle: 0.9424777960769377 })
+YANG_LRR_DEGEN tri=385 verts=[38, 139, 141] long_edge=(38,139) off=141 inc_count=4 nbr_degen=true moved_a=true moved_c=false moved_b=false
+YANG_LRR_DEGEN_SURF tri=388 surface=Some(Plane { normal: [-0.9838084507032624, 0.0, 0.17922313557363745], d: -656.5063973754494 })
+YANG_LRR_DEGEN tri=388 verts=[141, 139, 38] long_edge=(139,38) off=141 inc_count=4 nbr_degen=true
+YANG_LRR_STOP site=degenerate_no_longedge ndeg=2
+YANG_LRR_SITE loc=crates/yang-rs/src/stage4_correct.rs:14388 reason=LocalRefinementRequired v=4294967295
+```
+
+* **The site is a TRIANGLE PAIR, not a vertex** — the `u32::MAX` in the error
+  is honest: the §4.4.1(a) degenerate-triangle unzip raises it, so no
+  traveller is named, there is no fire list, and the STOP carries
+  `under_resolution: None`. The §4.5.2 certificate cannot speak for this
+  family at all, which is why P0015's fix does not touch it (re-judged after
+  the fix: ERROR, 27.4 s, identical detail).
+* **The two degenerates are the SAME vertex triple with opposite winding**
+  ({38, 139, 141} on B:225, a gear-flank Cone; {141, 139, 38} on A:6, a
+  pentagon-boss Plane), so neither the simple arm (which needs a 2-incident
+  long edge and a non-degenerate neighbour) nor the mutual arm (which needs
+  the two off-vertices to DIFFER — `nb == b` here) is even defined.
+* **The root is a sub-ULP ARRANGEMENT twin.** `YANG_TWIN_SCAN=1`:
+  `edge (139,141) len=2.730e-13 exact_j=(false,false) moved=(false,false)`
+  — v139 and v141 are the same point to 2.73e-13 at coordinate scale 651
+  (relative 4.2e-16, ≈ 2 ULP; `TAU_WORK` is 1e-12), so EVERY triangle using
+  both is a needle. Neither is relocated and neither is a minted exact
+  junction, so `weld_coincident_relocated` — the §4.3 "remove a point too
+  close to another point on the same loop" merge, deliberately restricted to
+  `moved`×`moved` so it never touches arrangement geometry kept for
+  watertightness — skips the pair by design. Three further sub-floor twins
+  sit in the same mesh: (110,112) 2.583e-13, (110,113) 5.859e-14,
+  (114,115) 3.281e-13, two of them WITH an exact-junction member. This is the
+  "un-relocated arrangement verts needing the Stage-0 fix" population the
+  `weld_coincident_relocated` comment already names (R0012 / R0098 precedent).
+* **The 4-incidence is MINTED by the loop's own single action.**
+  `[nm-edge before-3d] 390 tris, 0 open edge(s), 0 over-2 edge(s)` — the mesh
+  enters the loop a clean 2-manifold. The one simple action splits
+  N = [140, 141, 38] at b = 139, but b is not interior to the long edge
+  (140, 141) at all: it coincides with c = 141, so the half [139, 141, 38] is
+  itself a zero-area needle and the mirror of the pre-existing B:225 one.
+  Fig-11(a)'s precondition ("the vertex OFF the longest edge lies ON it", a
+  redundant intersection point) holds on the collinearity test
+  (`h/l = 1.35e-15`) but NOT on the parameter: an unzip must refuse an
+  off-vertex at `t ≈ 0` or `t ≈ 1` and weld instead.
+* **The §4.5.2 ladder is INERT on this operand pair**, measured: at both
+  rungs `operands a 16 -> 16 tris …, b 15116 -> 15116 tris` — identical
+  counts, so two full extra ops bought zero triangles and the paper's remedy
+  was never actually applied. Whether that is a legitimate per-face segment
+  FLOOR (10 teeth × many narrow cone bands) or a chord-bound plumbing gap in
+  `retessellated_at_current_d_eps` is the first question for P0014's own
+  session.
+
+**Owner:** not the §4.5.2 ladder and not the §4.5.1 corridor — the producer.
+P0014 is the first corpus customer for the sub-feature-floor arrangement-twin
+weld, with the §4.4.1(a) `t ≈ 0 | 1` unzip refusal as its loud safety net.
+
+### Sharers re-judged (no corpus run; `ASSAY_CASE_TIMEOUT_SECS=900`, release `single_case`)
+
+Every §4.5.1 corridor customer, every case in the boundary-point
+certificate's fire inventory, the §4.5.2 ladder's own customers and the
+sentinel-STOP case — **thirteen cases, all unchanged SUPPORTED_CORRECT, zero
+moves**:
+
+| case | before | after |
+|---|---|---|
+| R0003 | CORRECT | SUPPORTED_CORRECT 78.7 s |
+| R0004 | CORRECT | SUPPORTED_CORRECT 3.7 s |
+| R0011 | CORRECT | SUPPORTED_CORRECT 1.9 s |
+| R0032 | CORRECT | SUPPORTED_CORRECT 82.6 s |
+| R0038 | CORRECT | SUPPORTED_CORRECT 1.0 s |
+| R0044 | CORRECT | SUPPORTED_CORRECT 359.7 s |
+| R0049 | CORRECT | SUPPORTED_CORRECT 3.8 s |
+| R0050 | CORRECT | SUPPORTED_CORRECT 18.0 s |
+| R0070 | CORRECT | SUPPORTED_CORRECT 39.9 s |
+| R0074 | CORRECT | SUPPORTED_CORRECT 12.4 s |
+| R0085 | CORRECT | SUPPORTED_CORRECT 608.7 s |
+| C0065 | CORRECT | SUPPORTED_CORRECT 2.3 s |
+| R0019 | CORRECT | SUPPORTED_CORRECT 311.3 s |
+
+A first sweep at the DEFAULT 300 s budget reported `R0085: TIMEOUT (300.6s)` —
+the documented spurious-timeout artifact (CLAUDE.md: the budget on this box is
+≥ 900 s); re-run at 900 s it is CORRECT in 608.7 s. The remaining P-series
+rows were re-judged too: P0013 (0.2 s), P0014 (27.4 s) and P0016 (0.2 s) keep
+their own ledger rows' error text verbatim.
+
+**Corpus NOT re-measured this session** (another corpus run held the box). The
+canonical score stands at the 2026-09-30 **310C / 0W / 7E / 4EE / 0T over 321
+cases** plus the 2026-10-03 promotions and conversions, un-re-measured.
+
 ## 2026-10-03 (later) — P0012 CONVERTED: a `ThroughAll` depth was measured along the UNREVERSED sketch normal and padded by an ABSOLUTE 1 m, so a cut whose body lay behind its plane swept a 1 m cutter into empty space; the depth is now measured along the direction the extrude ACTUALLY sweeps, with a RELATIVE overshoot — **corpus not re-measured this session** (178 ThroughAll / direction-less-cut cases re-judged singly: 2 moves, both conversions, 0 regressions)
 
 **Anchor (written before any code changed).** `ASSAY_CASE=P0012 … single_case
@@ -358,8 +572,8 @@ ten give those families customers again, at 2–5 ops.
 | id | minimal recipe | ops | error text | ×1e-3 / ×1e3 | floor | cost |
 |---|---|---|---|---|---|---|
 | P0013 | `circle:boss star7(0.70):cut` | 2 | `TessellationFailed "ring rejected by CDT (degenerate/self-intersecting)"` — P0002's own shape, different needle ratio | ERROR / ERROR (same class) | 5 180× | 0.6 s |
-| P0014 | `convex5:boss gear10:rev-cut` | 2 | Stage-4 `LocalRefinementRequired` around vertex **4294967295** (u32::MAX — a sentinel, not a vertex) | **CORRECT** / ERROR (same class) | 3.09e6× | 77.6 s |
-| P0015 | `convex4:boss gear27:boss convex5:rev-cut` | 3 | Stage-4 `RelocationCrossedCarrierVertex` (the R0085 family) | ERROR / ERROR (same class) | 648× | 13.9 s |
+| P0014 | `convex5:boss gear10:rev-cut` | 2 | Stage-4 `LocalRefinementRequired` around vertex **4294967295** (u32::MAX — a sentinel, not a vertex). **ANCHORED 2026-10-03 (evening), still ERROR**: the §4.4.1(a) unzip at `stage4_correct.rs:14388`, rooted in a 2.73e-13 (2-ULP) un-relocated ARRANGEMENT twin pair — a DIFFERENT locus from P0015; owner = the producer-side weld | **CORRECT** / ERROR (same class) | 3.09e6× | 77.6 s |
+| P0015 | `convex4:boss gear27:boss convex5:rev-cut` | 3 | Stage-4 `RelocationCrossedCarrierVertex` (the R0085 family). **CONVERTED 2026-10-03 (evening)**: the §4.5.2 certificate's demand (159.37) sat past the ladder's ceiling and was read as a PROOF of futility ⇒ zero rungs; the op converges at `d_ε/32`. Oracles adjudicated, `derived_meta` cleared | ERROR / ERROR (same class) | 648× | 13.9 s |
 | P0016 | `convex4:boss convex4:rev-cut convex3:cut` | 3 | Stage-3 `AmbiguousCurve { candidates: 0, matched: 0 }` — **zero** candidates, so no curve was proposed at all | ERROR / ERROR (same class) | 3e4× | 0.4 s |
 | P0017 | `convex4:boss nonconvex10:rev circle:cut` | 3 | `CurvedGeometryMismatch "bounded cone patch must have exactly one material-CCW loop"` | ERROR (a degenerate zero-area input face) / ERROR (a CDT ring reject) — the class MOVES, so judge at its own scale | 91× | 1.1 s |
 | P0018 | `circle:boss circle:sym nonconvex7:cut` | 3 | the cylinder arm of the same postcondition | ERROR / ERROR (same class) | 8.9e7× | 1.0 s |
@@ -383,7 +597,7 @@ committed `results.json` carry its verdict.
 |---|---|
 | `cone periodic strip (2 encircling rims) not yet supported (KV14 Slice E holed frustum band)` ×3 (indices 61, 85, 105; minima `convex4:boss convex4:rev convex6:boss convex4:cut` and `convex4:boss convex4:rev-cut convex4:boss`) | a DOCUMENTED deferred sub-slice, retired for the same reason on seed 1 |
 | `GeomRef resolution failed: Output key Main not found` ×1 (index 9; minimum `convex4:boss convex4:boss convex4:∩ convex4:∪`) | not kernel geometry. Its 3-op prefix (the two bosses and the Intersect) judges **SUPPORTED_CORRECT with ZERO bodies**: the Intersect's operands are disjoint, it annihilates the model, and the only loud symptom is the NEXT op's GeomRef failure. See the harness note below |
-| `boolean_union … RelocationCrossedCarrierVertex` ×1 (index 169; minimum `convex4:boss nonconvex9:rev circle:boss`, 3 ops) | same error TEXT as P0015, reached through the auto-union path instead of an explicit subtract. Recorded here so a later session can promote it if P0015's conversion misses it |
+| `boolean_union … RelocationCrossedCarrierVertex` ×1 (index 169; minimum `convex4:boss nonconvex9:rev circle:boss`, 3 ops) | same error TEXT as P0015, reached through the auto-union path instead of an explicit subtract. Recorded here so a later session can promote it if P0015's conversion misses it. **CLOSED 2026-10-03 (evening): P0015's conversion carries it** — `PROSPECT_CANDIDATE=…/X00000002-00169-min prospect_judge` reads SUPPORTED_CORRECT (2 bodies, χ 4, volume 1.516515e-7) |
 | `boolean_union … TessellationFailed "ring rejected by CDT"` ×2 (indices 86, 140; minimum `circle:boss convex7:cut convex6:boss`, 3 ops) | same error TEXT as P0013, reached through the auto-union path. Recorded for the same reason |
 
 ### The two TIMEOUTs are one shape: a 0.74 M-triangle operand in Stage 2

@@ -1583,10 +1583,23 @@ fn smoke_corpus_boundary_categories() {
         // Its verdict is recorded by `full_corpus_categorized` and the
         // committed `results.json`.
         //
-        // P0015 (3 ops) ⇒ Stage-4 `RelocationCrossedCarrierVertex`, the R0085
-        // family. The third row carrying this text (seed 2 index 169) reaches
+        // P0015 (3 ops) was promoted as Stage-4
+        // `RelocationCrossedCarrierVertex`, the R0085 family. **CONVERTED
+        // 2026-10-03**: its §4.5.2 under-resolution certificate read 159.37 —
+        // past `REFINE_452_MAX_FACTOR` — and the rule read a demand past the
+        // ceiling as a PROOF that no affordable rung resolves the corner, so
+        // the ladder was EMPTY and the Stage-4 STOP was guaranteed. The op
+        // converges at `d_ε/32` (5310 tris, 0 unpaired, 0 improper) while the
+        // certificate still read 9.96: the certificate is sufficient, never
+        // necessary, so a demand outside the budget narrows nothing and the
+        // ladder now runs the whole budget it can afford
+        // (`boolean::refine_452_full_budget`; pins
+        // `yang-rs/src/tests_unit/s452_under_resolution_ladder.rs`). Oracles
+        // adjudicated by the exact-membership lattice at the conversion (one
+        // body, boundary_chi 2, volume 9.935958e-1 ± 3e-3) and `derived_meta`
+        // cleared. The third row carrying this text (seed 2 index 169) reaches
         // it through the AUTO-UNION path and is ledgered, not promoted.
-        ("P0015", Category::Error),
+        ("P0015", Category::SupportedCorrect),
         // P0016 (3 ops) ⇒ Stage-3 `AmbiguousCurve { candidates: 0, matched: 0 }`
         // — candidates ZERO, so no analytical curve was proposed at all.
         ("P0016", Category::Error),

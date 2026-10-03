@@ -563,9 +563,18 @@ pub(crate) const REFINE_452_ROUNDS: &[f64] = &[2.0, 4.0];
 /// ceiling. Measured: R0085 demands 18.2 → d_ε/32 converges (b 312 → 9028
 /// tris, 95 s release for the whole case) and d_ε/64 converges too; the cost
 /// is geometric in the factor, so the last rung dominates and one doubling
-/// of headroom over the largest measured demand is the budget. A demand
-/// above the ceiling is a corner whose clearance no practical rim density
-/// resolves — the STOP stands, loudly, without paying futile rungs.
+/// of headroom over the largest measured demand is the budget.
+///
+/// A demand ABOVE this ceiling does NOT certify futility (P0015, 2026-10-03;
+/// unit pins `tests_unit/s452_under_resolution_ladder.rs`). Until then the
+/// rule read such a demand as a proof that no affordable rung resolves the
+/// corner and ran the empty ladder — a guaranteed ERROR. P0015's demand is
+/// 159.37 and the op CONVERGES at `d_ε/32`, watertight with 0 unpaired and 0
+/// improper, while the certificate still read 9.96. The certificate is
+/// SUFFICIENT ("this rung places that corner"), never necessary, so a demand
+/// it cannot satisfy inside the budget is simply uninformative about the
+/// rungs inside the budget: the ladder runs the whole doubling sequence it
+/// can afford, under the unchanged Q3 guard shell.
 pub(crate) const REFINE_452_MAX_FACTOR: f64 = 64.0;
 
 /// The rung ladder in force for one STOP. Production uses
@@ -573,11 +582,15 @@ pub(crate) const REFINE_452_MAX_FACTOR: f64 = 64.0;
 /// demands more than its last rung — then the ladder STARTS at the first
 /// power of two strictly above the demand (`d_ε/f < |d_far(q)|` for every
 /// crossed corner is the certificate's own inequality) and doubles up to
-/// [`REFINE_452_MAX_FACTOR`]. Rungs below the demand are certified futile
-/// (the far mesh still cannot place the corner) and are skipped — the paper's
-/// loop "repeated if optimization failure persists" reaches the same rung,
-/// one full op per skipped rung slower. `YANG_452_ROUNDS=3,6,8` overrides
-/// everything for the census ladder that MEASURES the budget (spec §6).
+/// [`REFINE_452_MAX_FACTOR`]. Rungs below the demand are skipped as an
+/// ECONOMY — the paper's loop "repeated if optimization failure persists"
+/// reaches the same rung, one full op per skipped rung slower.
+///
+/// A demand the ceiling cannot reach narrows nothing (see
+/// [`REFINE_452_MAX_FACTOR`]): the ladder is then the whole doubling budget,
+/// [`REFINE_452_ROUNDS`]'s first rung up to the ceiling.
+/// `YANG_452_ROUNDS=3,6,8` overrides everything for the census ladder that
+/// MEASURES the budget (spec §6).
 fn refine_452_rounds(under_resolution: Option<f64>) -> Vec<f64> {
     if let Some(v) = std::env::var("YANG_452_ROUNDS")
         .ok()
@@ -601,7 +614,8 @@ pub(crate) fn refine_452_rounds_for(under_resolution: Option<f64>) -> Vec<f64> {
     match under_resolution {
         Some(demand) if !demand.is_nan() && demand >= last => {
             if demand >= REFINE_452_MAX_FACTOR {
-                return Vec::new();
+                // Uninformative certificate (P0015): run the whole budget.
+                return refine_452_full_budget();
             }
             let mut f = last;
             while f <= demand {
@@ -616,6 +630,20 @@ pub(crate) fn refine_452_rounds_for(under_resolution: Option<f64>) -> Vec<f64> {
         }
         _ => REFINE_452_ROUNDS.to_vec(),
     }
+}
+
+/// Every rung the budget allows: double from [`REFINE_452_ROUNDS`]'s first
+/// rung up to [`REFINE_452_MAX_FACTOR`]. The ladder in force when the
+/// under-resolution certificate names a rung past the ceiling and therefore
+/// certifies nothing about the rungs inside it.
+fn refine_452_full_budget() -> Vec<f64> {
+    let mut f = REFINE_452_ROUNDS.first().copied().unwrap_or(2.0);
+    let mut rungs = Vec::new();
+    while f <= REFINE_452_MAX_FACTOR {
+        rungs.push(f);
+        f *= 2.0;
+    }
+    rungs
 }
 
 /// The §4.5.2 topology-error functional: the number of unpaired undirected

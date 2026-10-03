@@ -659,6 +659,8 @@ Landed (`errors.rs`, `stage4_correct.rs`, `boolean.rs`):
   "repeated if optimization failure persists" reaches the same rung one full
   op per rung slower). A demand ≥ 64 yields an EMPTY ladder: the STOP stands
   immediately (clause 3, the budget, honest and without futile cost).
+  **AMENDED 2026-10-03 — see §10: that last clause was WRONG and is now the
+  whole budget `[2, 4, 8, 16, 32, 64]`.**
 - The ceiling: one doubling of headroom over the largest measured demand
   (R0085's 32; 64 also converges). Cost is geometric in the factor, so the
   last rung dominates: R0085 whole case 95 s release under the adopt arm.
@@ -670,7 +672,9 @@ R0050: `under_resolution=Some(3.38) rungs=[2, 4]`, byte-identical verdict.
 R0038: sentinel, fixed ladder, byte-identical.
 
 Pins: `tests_unit/s452_under_resolution_ladder.rs` (the R0085 numbers; the
-strictness at a power of two; the empty ladder beyond the ceiling).
+strictness at a power of two; the ladder beyond the ceiling — the last of
+those became `demand_beyond_the_ceiling_still_runs_the_budget` with §10's
+P0015 numbers).
 
 ### 8.4 Where R0085 lands
 
@@ -769,3 +773,117 @@ and by the composition oracle (0W enforced).
   **SUPPORTED_CORRECT 9.2 s**. `YANG_452_REQUIRE_CLEAN=1`: ERROR v389, 2.9 s
   (the pre-change verdict).
 - Full corpus (release, 8 jobs, 600 s): **298C / 0W / 8E / 4EE / 0T + 2 UNSUPPORTED(coplanar-boolean)** (wall 809.8 s, F0085 325.4 s) — per-id diff of the committed `results.json`: exactly ONE category move (R0050 ERROR → SUPPORTED_CORRECT), ZERO detail moves.
+
+## 10. The CEILING bounds the ladder, it does not veto it (2026-10-03) — P0015 CONVERTS at `d_ε/32` with a demand of 159
+
+### 10.1 What §8.3's last clause claimed, and what it cost
+
+§8.3 landed the certificate with three clauses. Two are measured economy: no
+certificate ⇒ the fixed `[2, 4]`; a demand inside the budget ⇒ start at the
+first power of two above it. The third — *"a demand ≥ 64 yields an EMPTY
+ladder: the STOP stands immediately"* — is not an economy. It reads the
+certificate's PREDICTION as a PROOF that no affordable rung resolves the
+crossing, and so turns the budget clause into a wall: an op in that bucket
+runs zero rungs and its natural `Err` stands by construction.
+
+P0015 (prospector seed 2 index 54; `convex4:boss gear27:boss convex5:rev-cut`)
+is the counter-example. Its §4-I9 STOP carries
+`under_resolution = Some(159.3736669947812)` — the revolve-cut's lateral face
+`B:2` has `d_ε = 9.118876e-2` and the tightest crossed corner clears it by
+`5.721696e-4`:
+
+```
+[s452] op=Subtract trigger v149 RelocationCrossedCarrierVertex adopt=true under_resolution=Some(159.3736669947812) rungs=[]
+[s452]   BUDGET EXHAUSTED: no rung converged — the Stage-4 STOP stands
+```
+
+### 10.2 The prediction is an OVER-estimate, measured (`YANG_452_ROUNDS=2,4,8,16,32,64 YANG_452_PROBE=1`, release)
+
+| rung | B tris | re-measured demand |
+|---|---|---|
+| natural | 126 | 159.3736669947812 |
+| d_ε/2 | 166 | 79.6868334973906 |
+| d_ε/4 | 236 | 39.8434167486953 |
+| d_ε/8 | 316 | 19.92170837434765 |
+| d_ε/16 | 446 | 9.960854187173824 |
+| **d_ε/32** | **626** | **Ok tris=5310 unpaired=0 improper=0 — ADOPTED** |
+
+Two readings, both load-bearing:
+
+1. **The re-measured demand is exactly `demand / f`.** `|d_far(q)|` is a
+   property of the CORNER and does not move under refinement; only
+   `d_ε(far)` shrinks. So the certificate carries no new information per
+   rung — a re-measured demand can never justify skipping a rung either.
+2. **The op converged EIGHT rungs below what the certificate demanded**, while
+   the certificate still called the tightest corner 9.96× under-resolved. The
+   census inequality `d_ε/f < |d_far(q)|` is SUFFICIENT for "the far mesh can
+   place that corner"; it is not NECESSARY for the output to be a watertight
+   2-manifold, because the other machinery (the §4.5.1 corridor, the §4.4.1
+   mesh update) repairs the remaining crossings once the mesh is fine enough.
+
+P0015 shows exactly why the max-over-fires demand mis-serves: the three fires
+that set the 159 demand (q = v154 / v156, clearance 5.7e-4) are precisely the
+three the §4.5.1 planner already resolves as `Transit`, while the three that
+DECLINE `NoRealCandidate` demand only 16.5 and 27.6. The demand set by the
+repairable sites vetoed the rungs the unrepairable ones needed.
+
+### 10.3 The change
+
+`refine_452_rounds_for`: a demand the ceiling cannot reach narrows nothing, so
+the ladder is `refine_452_full_budget()` — double from `REFINE_452_ROUNDS`'s
+first rung to `REFINE_452_MAX_FACTOR`, i.e. `[2, 4, 8, 16, 32, 64]`. Demands
+BELOW the ceiling keep §8.3's skip bit-for-bit (R0085's 18.19 ⇒ `[32, 64]`,
+R0050's 3.38 ⇒ `[2, 4]`, R0038's sentinel ⇒ `[2, 4]`).
+
+Not a band: no threshold moved, no acceptance widened. The Q3 guard shell is
+untouched — a rung is adopted only when it emits a watertight 2-manifold body
+(`unpaired == 0`), the strict-decrease monitor still aborts a non-improving
+ladder, and every downstream gate (kernel-v2's render self-intersection gate,
+the composition oracle, the exact-membership volume oracle) applies
+unchanged. It restores the paper's own loop, which skips no rung on a
+prediction: *"The above procedures are repeated if optimization failure
+persists. The algorithm is guaranteed to terminate since the mesh
+intersections converge to the spline surface intersections under
+refinement"* (`refs/text/yang2025_hybrid_boolean.txt:665-670`, §4.5).
+
+**Blast radius.** Only ops whose natural `Stage4RegionInvalid` carries a
+demand ≥ 64 change behaviour, and every such op previously ran no remedy at
+all, so its boolean failed: no SUPPORTED_CORRECT case can be in the bucket.
+None of the seven canonical C-series ERRORs carries a `Stage4RegionInvalid`
+(checked against the committed `results.json`), so the bucket's only known
+members are P-series rows.
+
+### 10.4 Measurements
+
+- P0015 single case (release): **ERROR 5.8 s → SUPPORTED_CORRECT 16.2 s.** Its
+  un-minimized lineage (`X00000002-00054`) converts with it (1 body, χ 2,
+  volume 8.088612e-1), and so does the seed-2 index-169 auto-union row that
+  carried the same error text (`X00000002-00169-min`: 2 bodies, χ 4, volume
+  1.516515e-7) — that retirement row is closed.
+- P0015's oracles adjudicated and `derived_meta` cleared: exact-membership
+  lattice (cells 192/256/384/512 × phases 0.5/0.27) reads one body on every
+  rung, `boundary_chi = 2` on five of eight, finest-rung volumes 9.929906e-1
+  and 9.942010e-1 ⇒ `expected_volume` 9.935958e-1 ± 3e-3; the kernel reads
+  9.935467e-1 (rel −4.9e-5).
+- Pins: `tests_unit/s452_under_resolution_ladder.rs` —
+  `demand_beyond_the_ceiling_still_runs_the_budget` (the P0015 numbers, the
+  converging rung's residual, infinity) and
+  `the_re_measured_demand_is_the_natural_demand_over_the_rung` (the measured
+  column, to the digits the probe printed). RED→GREEN confirmed on the
+  pre-change rule and mutation-checked (starting the budget at `[4]` instead
+  of `[2]` fails both).
+- Corpus **not re-measured this session** (another corpus run held the box);
+  the §4.5.1 corridor customers and the whole Stage-4 relocation family were
+  re-judged singly instead — see `docs/yang_tail_triage.md` 2026-10-03
+  (evening).
+
+### 10.5 Open, recorded rather than changed
+
+The same measurement bears on §8.3's SECOND clause: if the certificate
+over-predicts by 8× on P0015, then the skip of rungs BELOW an in-budget
+demand is also not a futility proof — R0085's `[32, 64]` may be skipping a
+cheaper converging rung at 4 or 8. Changing it would move R0085's adopted
+body and its cost, so it is NOT touched here. The honest next measurement is
+R0085 under `YANG_452_ROUNDS=2,4,8,16,32` with the per-rung verdicts recorded;
+if a cheaper rung converges, the skip becomes a start HINT (try the cheap
+rungs first, then jump) rather than a skip.
