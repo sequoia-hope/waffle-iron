@@ -1,5 +1,5 @@
 {
-  "manifest_hash": "7e90f3d75c0eb8d049d71dad188c987aef27dcdce2e3013b8b56c809af3f4009",
+  "manifest_hash": "593f1240e692830b92508203d808d74a04ab6672485b02c42c975a861d87e050",
   "protocol": "waffle-agent-link/1",
   "tools": [
     {
@@ -16017,7 +16017,7 @@
         "readOnlyHint": false,
         "title": "Name entity"
       },
-      "description": "Give a face, edge, vertex or body a name you can use afterwards wherever a GeomRef or body id is taken (one undo step). A name is one or two dot-separated identifiers: \"top_face\", or \"plate.top_face\" where \"plate\" is the display name of the body the entity is in. Naming a BODY sets its display name, which is what that first segment matches. Names are unique across entities and bodies alike: a taken one is NameTaken, a malformed one InvalidName. The name is stored against the entity's persistent id, so it follows that entity across rebuilds and reports it when the id is lost rather than quietly binding to something else.",
+      "description": "Give a face, edge, vertex or body a name you can use afterwards wherever a GeomRef or body id is taken (one undo step, and a body name then works anywhere a body_id does). A name is one or two dot-separated identifiers: \"top_face\", or \"plate.top_face\" where \"plate\" is the display name of the body the entity is in. Naming a BODY sets its display name, which is what that first segment matches. Names are unique across entities and bodies alike: a taken one is NameTaken, a malformed one InvalidName. The name is stored against the entity's persistent id, so it follows that entity across rebuilds and reports it when the id is lost rather than quietly binding to something else.",
       "inputSchema": {
         "additionalProperties": false,
         "properties": {

@@ -392,9 +392,10 @@ pub(super) fn export_stl(
             Value::String(s) => s.clone(),
             other => other.to_string(),
         });
-    if let Some(id) = &body_id {
-        require_body(state, id)?;
-    }
+    let body_id = match &body_id {
+        Some(id) => Some(require_body(state, id)?),
+        None => None,
+    };
     let (tag, message) = match &body_id {
         Some(id) => (
             "ExportBodyStl",

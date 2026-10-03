@@ -698,3 +698,48 @@ fn names_list_can_be_limited_to_one_body() {
     );
     assert_eq!(code, "BodyNotFound");
 }
+
+/// §5.2's other half of "every `EntityRef` argument accepts a name string in
+/// place of a `GeomRef` or body id": a `body_id` argument takes a body's NAME,
+/// at every body-scoped tool at once (`require_body` is the one chokepoint).
+#[test]
+fn a_body_name_works_wherever_a_body_id_does() {
+    let mut state = EngineState::new();
+    let mut kernel = KernelV2Adapter::new();
+    let (_, body) = plate(&mut state, &mut kernel, 0.04, 0.01, 1);
+    ok(
+        &mut state,
+        &mut kernel,
+        "entity_name",
+        json!({ "target": { "type": "body", "body_id": body }, "name": "plate" }),
+    );
+
+    let by_id = ok(
+        &mut state,
+        &mut kernel,
+        "body_measure",
+        json!({ "body_id": body }),
+    );
+    let by_name = ok(
+        &mut state,
+        &mut kernel,
+        "body_measure",
+        json!({ "body_id": "plate" }),
+    );
+    assert_eq!(by_id, by_name, "a name must measure the body it names");
+    // And through the other body-scoped tools.
+    let faces = ok(
+        &mut state,
+        &mut kernel,
+        "face_list",
+        json!({ "body_id": "plate" }),
+    );
+    assert_eq!(faces["body_id"], json!(body), "{faces}");
+    let mass = ok(
+        &mut state,
+        &mut kernel,
+        "measure_mass",
+        json!({ "body_id": "plate" }),
+    );
+    assert!(mass["volume_m3"].as_f64().unwrap() > 0.0, "{mass}");
+}

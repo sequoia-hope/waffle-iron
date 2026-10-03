@@ -57,6 +57,12 @@ pub(super) fn entity_name(
 ) -> Answer {
     let name = name_of(args)?;
     let target = target_of(args)?;
+    // Every check below reads the RENDERED body list (the namespace, the body
+    // a reference belongs to, that body's display name), and a body with no
+    // tessellated mesh is not in it. `apply_step` tessellates, but these run
+    // before it — without this a dotted name would be refused for a body that
+    // simply had not been meshed yet.
+    crate::tessellation_runner::tessellate_missing_meshes(state, kb);
 
     // The grammar first, so a malformed name is refused before anything is
     // resolved and the message says which segment is wrong.
@@ -101,7 +107,7 @@ pub(super) fn entity_name(
                     json!({ "name": key, "reason": "a body name is one segment" }),
                 ));
             }
-            require_body(state, &body_id)?;
+            let body_id = require_body(state, &body_id)?;
             let step = apply_step(
                 state,
                 kb,
@@ -206,6 +212,7 @@ pub(super) fn entity_unname(
     args: &Value,
 ) -> Answer {
     let name = name_of(args)?;
+    crate::tessellation_runner::tessellate_missing_meshes(state, kb);
     if !state.engine.tree.names.contains_key(&name) {
         let as_body = entity_names::body_display_names(state)
             .values()
@@ -245,9 +252,10 @@ pub(super) fn names_list(
         .get("body_id")
         .and_then(Value::as_str)
         .map(str::to_string);
-    if let Some(body_id) = &body_id {
-        require_body(state, body_id)?;
-    }
+    let body_id = match &body_id {
+        Some(id) => Some(require_body(state, id)?),
+        None => None,
+    };
     let response = crate::tools::engine_call(
         state,
         kb,

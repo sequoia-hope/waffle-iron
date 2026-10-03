@@ -548,10 +548,15 @@ uniqueness and the body segment, so a host that bypasses the tool layer
 cannot store an unchecked name; such a refusal is then `Internal`, which is
 right — it is a broken invariant, not a user error.
 
-**Narrowed:** "every tool argument typed `EntityRef`" is `MeasureOperand`
-(Q1's `a`/`b`) today, which gains a `{"type":"name"}` arm; "every result that
-carries a `GeomRef`" is `face_list`, whose entries gain `name`. The
-remaining arguments adopt names as they gain `EntityRef` typing.
+**Names reach arguments through two doors.** `MeasureOperand` (Q1's `a`/`b`,
+the only `EntityRef`-shaped argument today) gains a `{"type":"name"}` arm, and
+`require_body` — the one chokepoint every body-scoped tool already goes
+through — accepts a body's NAME in place of its id and returns the id, so
+`body_measure`, `face_list`, `measure_mass`, `measure_interference`,
+`export_stl`, `body_rename` and `names_list` all take a name for free with no
+second code path (an id is `"{uuid}/{tag}"` and a name is one identifier, so
+the two cannot collide; the id is tried first). "Every result that carries a
+`GeomRef`" is `face_list`, whose entries gain `name`.
 
 **Open after this increment:**
 

@@ -372,18 +372,32 @@ pub(crate) fn require_feature<'a>(
         })
 }
 
-/// Check that `body_id` names a rendered body, or `BodyNotFound`
-/// (JS `requireBody`).
-pub(crate) fn require_body(state: &EngineState, body_id: &str) -> Result<(), ToolFailure> {
-    if rendered_bodies(state)
+/// Resolve a `body_id` argument to the persistent id of a rendered body, or
+/// `BodyNotFound` (JS `requireBody`).
+///
+/// A body's NAME is accepted in place of its id, which is N1's "every tool
+/// argument typed `EntityRef` accepts a name string in place of a `GeomRef` or
+/// body id" (`specs/agent_mechanical_design.md` §5.2) for every body-scoped
+/// tool at once. The id is tried first and a name second; the two cannot
+/// collide, since an id is `"{uuid}/{tag}"` and a name is one identifier.
+pub(crate) fn require_body(state: &EngineState, body_id: &str) -> Result<String, ToolFailure> {
+    let bodies = rendered_bodies(state);
+    if bodies
         .iter()
         .any(|b| b.get("bodyId") == Some(&json!(body_id)))
     {
-        return Ok(());
+        return Ok(body_id.to_string());
+    }
+    if let Some(id) = bodies
+        .iter()
+        .find(|b| b.get("name") == Some(&json!(body_id)))
+        .and_then(|b| b.get("bodyId").and_then(Value::as_str))
+    {
+        return Ok(id.to_string());
     }
     Err(ToolFailure::new(
         "BodyNotFound",
-        format!("No body with id {body_id} in the open Part."),
+        format!("No body with id or name {body_id} in the open Part."),
         json!({ "body_id": body_id }),
     ))
 }

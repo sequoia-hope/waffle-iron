@@ -31,7 +31,8 @@ export const entityNameTool = {
 	name: 'entity_name',
 	description:
 		'Give a face, edge, vertex or body a name you can use afterwards wherever a GeomRef or body id ' +
-		'is taken (one undo step). A name is one or two dot-separated identifiers: "top_face", or ' +
+		'is taken (one undo step, and a body name then works anywhere a body_id does). A name is one or ' +
+		'two dot-separated identifiers: "top_face", or ' +
 		'"plate.top_face" where "plate" is the display name of the body the entity is in. Naming a BODY ' +
 		'sets its display name, which is what that first segment matches. Names are unique across ' +
 		'entities and bodies alike: a taken one is NameTaken, a malformed one InvalidName. The name is ' +

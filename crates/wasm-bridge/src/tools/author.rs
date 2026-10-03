@@ -750,12 +750,10 @@ pub(super) fn body_rename(
     kb: &mut dyn KernelBundle,
     args: &Value,
 ) -> Answer {
-    let body_id = args
-        .get("body_id")
-        .and_then(Value::as_str)
-        .unwrap_or("")
-        .to_string();
-    require_body(state, &body_id)?;
+    let body_id = require_body(
+        state,
+        args.get("body_id").and_then(Value::as_str).unwrap_or(""),
+    )?;
     let new_name = args
         .get("new_name")
         .and_then(Value::as_str)
