@@ -43,6 +43,8 @@ const READ_ONLY = [
 	'expression_evaluate',
 	'export_step',
 	'export_stl',
+	// `export_dxf` (2026-10-03, drawings D1a) routes like the other exporters.
+	'export_dxf',
 	'script_run_check',
 	'script_source_get'
 ];
