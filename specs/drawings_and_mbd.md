@@ -11,8 +11,9 @@ Owner crates: `kernel-v2` (D1, D2), `waffle-types` (D0, D3, M1), `file-format`
 (D4), `feature-engine` (D0, D3, M1, M2), `wasm-bridge` (D5), `app` (D3, D4, D5,
 M2), `step-export` work in `kernel-v2::step_export` (M3).
 
-Status: **D1a landed 2026-10-03, with the one-view DXF export of §12.**
-Everything else is still design. Written 2026-10-03 from a survey of the tree.
+Status: **D1a and D1b landed 2026-10-03, with the one-view DXF export of
+§12.** Everything else is still design. Written 2026-10-03 from a survey of
+the tree.
 The v4 document model (`specs/waffle_v4_document_model.md` §Phase 4, line 503)
 reserved the `Drawing` tab kind and named the kernel projection debt (line
 489) that this spec carries as D1.
@@ -48,6 +49,22 @@ lie on a silhouette, which is D1b), and the kernel's own `solid_aabb` is
 conservative on circle edges and declines a solid carrying a surface-pair
 curve, so the equality is asserted for prismatic cases and containment for the
 rest.
+
+What D1b added, the same day:
+
+- `kernel_v2::projection::silhouette` — the §5.2 increment-2 locus for all
+  four curved surfaces, clipped exactly to each face's trimming loops, with
+  every degeneracy the plan names (and one it did not: the edge-on torus has
+  four exact silhouette curves, not two). Reported as `CurveKind::Silhouette`
+  with `source` = the face, tagged `Visible` until D1c.
+- `kernel_v2::project_solid` — edges then silhouettes, which is what
+  `project` / `project_bodies` / `export_dxf` now answer, so a flat-pattern
+  DXF of a curved part carries its outline.
+- The §5.3 bbox equality now holds: literally against each fixture's exact
+  support function in `silhouette::tests`, and corpus-wide as a sandwich
+  between the conservative AABB above and the render tessellation below (see
+  "Implementation notes (D1b)" for why the conservative AABB cannot be the
+  reference on its own).
 
 Fillet, chamfer and shell remain deferred and nothing here depends on them.
 
@@ -389,11 +406,17 @@ pub struct SectionResult {
    `ViewGeometry::bbox` is an `Option`, because a view with no curves has no
    box. Handles are `KernelSolidHandle` and `section_with_plane` takes an
    origin/normal pair, the kernel contract's own vocabulary.
-2. **D1b — silhouettes.** For each curved face, the locus where the surface
+2. **D1b — silhouettes. LANDED 2026-10-03.** For each curved face, the locus
+   where the surface
    normal is perpendicular to the view direction, clipped to the face's
    trimming loops. Cylinder: two lines. Cone: two lines through the apex.
    Sphere: a circle. Torus: two closed curves, computed analytically on the
-   (θ,φ) chart and sampled. Silhouette curves carry `source` = the face.
+   (θ,φ) chart and sampled. Silhouette curves carry `source` = the face and
+   are tagged `Visible` (visibility is D1c). See "Implementation notes (D1b)"
+   below: every degeneracy this plan names is handled, the EDGE-ON torus turns
+   out to have four exact silhouette curves rather than two, and the clip is a
+   local enter/exit classification of exact boundary crossings rather than a
+   parity walk over a sampled chart polygon.
 3. **D1c — visibility.** Split every projected curve at the (u,v) crossings
    with every other projected curve and at silhouette tangencies, then
    classify each segment by casting a ray from the segment midpoint along the
@@ -430,6 +453,178 @@ pub struct SectionResult {
 
 Perspective projection, curved section lines, broken-out and detail views
 beyond cropping a parent view's `ViewGeometry` to a rectangle.
+
+### Implementation notes (D1b)
+
+Landed 2026-10-03, in `kernel_v2::projection::silhouette`. Where §5.2's
+increment 2 left a choice open, this is the choice made and why.
+
+**The locus is analytic for all four surfaces, and so are its degeneracies.**
+With `w` the unit line of sight, `a` a surface's axis, `w∥ = w·a`,
+`m = |w − w∥·a|`, `u₁ = (w − w∥·a)/m` and `u₂ = a × u₁`:
+
+| surface | silhouette | the degeneracies |
+|---|---|---|
+| cylinder | two rulings at `axis ± R·u₂`, parallel to the axis | `m = 0` (seen along the axis): NONE, the rims are the outline |
+| cone | two rulings through the apex at `r̂ = c·u₁ ± √(1−c²)·u₂`, `c = tan α·w∥/m` | `|c| = 1`: one grazing ruling. `|c| > 1`: NONE — the viewer is inside the cone's own shadow. `m = 0`: NONE |
+| sphere | the great circle in the plane through the centre ⊥ `w` | none; and since that plane IS the view plane, it projects to an exact `Curve2::Circle` of the sphere's radius |
+| torus | two closed branches `φ(θ) = atan2(−m·cos θ, w∥)` and `+π`, on the `(θ, φ)` chart | `m = 0` (along the axis): the two equator circles `ρ = R ± r`, exact. `w∥ = 0` (edge-on): FOUR exact circles — the two latitude circles of radius `R` at `τ = ±r` and the two profile circles of radius `r` at `θ = ±π/2` |
+
+The edge-on torus is the one case §5.2's "two closed curves" undercounts: at
+`w∥ = 0` the branch equation factors, and the silhouette really is four
+curves (the classic side view of a doughnut — two circles joined by their
+common tangents, where the tangents are the latitude circles seen edge-on).
+The threshold between the branch form and the four-circle form is `|w∥| ≤
+1e-12`; above it the branch form is used for every `w∥`, because its total
+arc length is bounded by `2π(R + 2r)` no matter how small `w∥` gets (the
+branch's `φ` variation is at most `2π`), so there is no sampling blow-up to
+avoid — only an exact answer to prefer where one exists.
+
+**Clipping is local, not a parity walk.** §5.2 asks for the locus "clipped to
+the face's trimming loops", exactly in the face's own chart. Rather than
+develop the face's boundary into a chart polygon and walk parity — which would
+inherit the chart's seam handling and the boundary's sampling — each path
+carries a scalar **functional** whose zero set contains it, and the clip is
+the set of crossings of the boundary with that functional:
+
+- For every path but a torus branch the functional is a PLANE distance: the
+  cylinder's and cone's rulings lie in a plane through the axis, and the
+  sphere's great circle and the torus's coordinate circles are plane sections.
+  Crossings with a line, circle, arc, ellipse arc or hyperbola arc are then
+  closed form — `C + A·cos t + B·sin t = 0`, or a quadratic in `eᵗ` for the
+  hyperbola.
+- A torus branch's functional is `n·w` itself, and a `SurfacePair` boundary
+  edge has no closed form against either; those crossings are bracketed on a
+  dense parameter sample and bisected to float precision. The surface-pair
+  case rides that curve's render polyline, so it carries that polyline's chord
+  error — the same band every other kernel-v2 consumer of a surface-pair curve
+  carries, and recorded here rather than hidden.
+- The zero set of a plane functional holds BOTH rulings of an axial plane (and
+  both profile circles of a meridian plane), so a crossing that is not on this
+  path is dropped by a distance test. That is what makes "a silhouette line on
+  a partial cylinder may be absent or a sub-segment" come out right. The
+  tolerance of that test is the crossing's own representation error, and it is
+  NOT one number: a root on an analytic parameterization is exact to float,
+  while a root on a chord — a surface-pair curve's render polyline, or a
+  `LineSegment` bounding a curved face, which is what a boolean output's
+  boundary actually is — sits up to a chord sagitta off the true curve, four
+  orders looser. C0065 is the measurement: a torus patch bounded by 110 line
+  segments lost BOTH silhouette branches to a single `1e-6` tolerance. The
+  paths the test has to tell apart are `2R` apart, so the chord band
+  discriminates them with four orders to spare.
+- Each surviving crossing is ENTER or EXIT by the sign of `S·(N×T)` — path
+  tangent against the inward direction `N × T`, since a loop walk puts the
+  face's material on its left. A vanishing sign is a tangency and does not
+  toggle. An open path (a ruling) that runs off the end of its crossing list
+  is clamped to the boundary's own parameter extent, which is how a cone face
+  containing the apex keeps the segment from the apex to its single rim
+  crossing.
+
+**A seam is not a boundary.** A half-edge whose twin lies in the SAME face is
+a slit the face continues across — the closed sphere's meridian, the closed
+torus's profile circle. Those are dropped before the clip, which is what lets
+a closed surface report its whole silhouette instead of a piece interrupted at
+the seam.
+
+**One global question, asked once.** A closed path with NO crossings on a face
+that does have a boundary is wholly inside or wholly outside, and nothing
+local decides which. A face whose only boundary is its seams IS the whole
+closed surface, so that case is settled by construction; otherwise the
+face's own render triangles settle it — the mesh is inscribed in the face, so
+a point on the face is within a chord sagitta of it and a point elsewhere on
+the same surface is at the distance separating it from the face's region. Only
+this branch pays for it, once per path. It is a decision rather than an
+estimate except where the path runs within a sagitta OUTSIDE the boundary,
+i.e. tangent to it — the same grazing configuration the enter/exit sign test
+declines.
+
+**Two configurations still decline rather than guess**, both censused under
+`KV2_SILHOUETTE_CENSUS`:
+
+- *A grazing removal.* The corpus has one: C0065 punches a 0.5 × 0.5 square
+  hole through a torus's tube at `x = 1.2`, which removes an arc of each
+  latitude circle — and the hole's boundary is TANGENT to the latitude
+  circle's own plane at both ends of that arc, so the removal has no
+  transversal crossing to find. Those two paths are dropped whole rather than
+  drawn through the hole. The view's bbox is unaffected (the profile circles
+  reach the same extremes), so §5.3 still holds; what is lost is two arcs of a
+  drawing, and the census says so.
+- *A non-alternating crossing sequence* — a tangency the sign test did not
+  catch, or a boundary running along the silhouette. Three paths of R0087's
+  422-face gear body hit this.
+
+Both are under-reports, never over-reports, and both are loud.
+
+**What a silhouette projects to.** A cylinder's or cone's ruling is a straight
+segment, so it stays a `Curve2::Line`; a ruling that projects to a single
+point is dropped, since the rims already carry it. A sphere's great circle and
+a torus's coordinate circles go through the same `project_circle` the rim edges
+use, so they come out as an exact `Circle`, `Ellipse` or edge-on `Line`. Only
+a torus's oblique branches are sampled, and they are refined ADAPTIVELY —
+bisecting any chord whose midpoint deviates by more than the render sagitta —
+rather than uniformly in `θ`, because a branch's speed in `θ` is wildly uneven
+as `w∥ → 0` and a uniform sample would miss the steep stretch while
+over-sampling the flat one.
+
+**Curve order.** Silhouettes are appended AFTER the edges, so D1a's contract
+that the nth curve is the nth `extract_edges` edge survives as a statement
+about the `CurveKind::Edge` prefix. The DXF writer needs no change: a
+silhouette is `Visible`, so it lands on the `VISIBLE` layer, and a
+flat-pattern export of a curved part is now correct where before it was
+missing the outline.
+
+**§5.3's bbox equality, and what it can honestly be measured against.** §5.3
+writes "the projected bbox equals the solid AABB's projection". D1a could only
+assert that for prismatic solids, and silhouettes are only half the reason:
+the kernel's own `introspect::conservative_aabb` is documented CONSERVATIVE
+and bounds a circular EDGE by the box of its whole circle, so a `z`-axis
+cylinder's rim at `z = 0` inflates the reported box to `z ∈ [−R, R]`, and a
+torus to the cube `centre ± (R + r)`. An equality against that would measure
+the AABB's slack. So the oracle now reads:
+
+- in `kernel_v2::projection::silhouette::tests`, the equality is asserted
+  against each fixture's **exact support function** in closed form
+  (`max(t₀,t₁)(d·a) + R·s` for a cylinder, `max τ(d·a + tan α·s)` for a cone
+  frustum, `c·d + R` for a sphere, `R·s + r` for a torus, with
+  `s = |d − (d·a)a|`), for all four curved fixtures in all six axis views. It
+  is exact for the cylinder, frustum and sphere and within the render sagitta
+  on the torus, whose oblique branches are inscribed.
+- in `test-harness/tests/projection_corpus_oracle.rs`, the corpus-wide
+  equality is SANDWICHED: the projected bbox must lie inside the AABB's
+  projection (D1a's half) and must CONTAIN the render tessellation's
+  projection (the new half — the mesh is inscribed, so its box is a sound
+  lower bound on the solid's, and at D1a a curved solid failed it by its whole
+  radial bulge). Where the two agree the sandwich IS §5.3's literal equality;
+  where they do not, the AABB is itself conservative there and the pair is a
+  typed decline (`aabb_conservative`), counted and reported rather than
+  asserted away.
+
+Measured 2026-10-03 at the default stride 8 over the 334-case corpus — 42
+cases, 263 s in `--release`, 39 projected in all six directions, 3 not built
+(C0113, P0013, R0007, the assay's own business), 216 of 234 `(case,
+direction)` pairs boundable, all 234 pinned from below by the tessellation, 0
+failures. The AABB is TIGHT on 136 of the bounded pairs and conservative on
+80; on all 136 tight ones §5.3's literal bbox equality HOLDS, against **134
+with the edge curves alone**.
+
+Two things are worth reading off that. The equality moves only from 134 to
+136 pairs, because a tight AABB and a curved extreme rarely coincide: most
+corpus cases are prismatic outlines with interior curved features, whose
+global bbox the edges already reached, and the cases whose outline IS curved
+are exactly the ones whose AABB is conservative. The check D1b actually turns
+green is the TESSELLATION containment — projecting the same sample with
+`project_edges` instead of `project_solid`, 2 of the 42 cases fail it (the
+ones whose outline is a silhouette: a torus, a bored revolve) and at D1b all
+42 pass. The sharp statement lives in the per-primitive half instead, where
+the projected bbox equals each fixture's exact support box in all six views
+and the brute-force sweep matches 28,924 exact silhouette points both ways.
+
+The corpus also found two real clip defects, both needing a boolean output's
+boundary and so invisible to any hand-written fixture: a single on-path
+tolerance four orders too tight for a crossing found on a chord (C0065's torus
+patch, bounded by 110 line segments, lost its whole outline), and a closed
+path with no crossings declined where the face's own triangles can decide it.
+Both are fixed; the commits carry the reasoning.
 
 ## 6. D2 — Measurement bridge
 
@@ -624,7 +819,7 @@ under both schema settings.
 |---|---|---|---|
 | D0 | content-seeded Pids; edge + vertex Pids; `Selector::Pid`; identity oracle | — | kernel-v2, waffle-types, feature-engine |
 | D1a | edge projection, wireframe views + the §12 one-view DXF export | — | kernel-v2, waffle-types, wasm-bridge — **LANDED 2026-10-03** |
-| D1b | analytic silhouettes | D1a | kernel-v2 |
+| D1b | analytic silhouettes | D1a | kernel-v2 — **LANDED 2026-10-03** |
 | D1c | visibility classification + oracle | D1b | kernel-v2 |
 | D1d | `section_with_plane` | D1a | kernel-v2 |
 | D2 | measurement functions in expressions | D0 | feature-engine |
@@ -646,9 +841,11 @@ An early deliverable with real value is **D1a + a one-view DXF export**, which
 covers laser, waterjet and plasma flat-pattern workflows before any sheet UI
 exists. **Both landed 2026-10-03** (see the status note at the top): the MCP
 tool `export_dxf` writes one named or free-direction view of the whole model as
-R12 DXF in millimetres. It is a WIREFRAME until D1b/D1c, and the tool's own
-description says so, because a caller who is not told would ship a drawing with
-the far edges in it and never know.
+R12 DXF in millimetres. Since D1b (also 2026-10-03) it carries the curved
+faces' silhouettes too, so a flat pattern of a curved part has its outline;
+it is still a view with no HIDDEN-line removal until D1c, and the tool's own
+description says so, because a caller who is not told would ship a drawing
+with the far edges in it and never know.
 
 ## 13. What this is not
 
