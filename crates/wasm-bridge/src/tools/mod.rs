@@ -29,6 +29,7 @@ mod assembly;
 mod author;
 mod export;
 mod inspect;
+mod names;
 mod script;
 mod sketch;
 mod sketch3d;
@@ -64,6 +65,9 @@ pub const MIGRATED: &[&str] = &[
     "feature_reorder",
     "feature_rename",
     "body_rename",
+    "entity_name",
+    "entity_unname",
+    "names_list",
     "rollback_set",
     "parameters_set",
     "import_step",
@@ -114,6 +118,8 @@ pub fn mutates(name: &str) -> bool {
             | "feature_reorder"
             | "feature_rename"
             | "body_rename"
+            | "entity_name"
+            | "entity_unname"
             | "rollback_set"
             | "parameters_set"
             | "import_step"
@@ -256,6 +262,9 @@ fn run(
         "feature_reorder" => author::feature_reorder(state, kb, args),
         "feature_rename" => author::feature_rename(state, kb, args),
         "body_rename" => author::body_rename(state, kb, args),
+        "entity_name" => names::entity_name(state, kb, args, context),
+        "entity_unname" => names::entity_unname(state, kb, args),
+        "names_list" => names::names_list(state, kb, args),
         "rollback_set" => author::rollback_set(state, kb, args),
         "parameters_set" => author::parameters_set(state, kb, args),
         "import_step" => author::import_step(state, kb, args),
@@ -363,18 +372,41 @@ pub(crate) fn require_feature<'a>(
         })
 }
 
-/// Check that `body_id` names a rendered body, or `BodyNotFound`
-/// (JS `requireBody`).
-pub(crate) fn require_body(state: &EngineState, body_id: &str) -> Result<(), ToolFailure> {
-    if rendered_bodies(state)
+/// Resolve a `body_id` argument to the persistent id of a rendered body, or
+/// `BodyNotFound` (JS `requireBody`).
+///
+/// A body's NAME is accepted in place of its id, which is N1's "every tool
+/// argument typed `EntityRef` accepts a name string in place of a `GeomRef` or
+/// body id" (`specs/agent_mechanical_design.md` §5.2) for every body-scoped
+/// tool at once. **The id is tried first**, and a name only if no body has
+/// that id — which settles the one collision a body's display name can cause,
+/// since a display name is free text and can be spelled like another body's
+/// `"{uuid}/{tag}"` id.
+///
+/// A string that is BOTH a body's display name and an entity name resolves to
+/// the body here and to the entity in a `{"type":"name"}` operand. The agent
+/// surface cannot create that state — `entity_name` and `body_rename` each
+/// refuse a name the other side holds — so it takes a rename in the UI, which
+/// is deliberately not blocked on an agent's label (see
+/// `feature_engine::names`); `names_list` shows both entries.
+pub(crate) fn require_body(state: &EngineState, body_id: &str) -> Result<String, ToolFailure> {
+    let bodies = rendered_bodies(state);
+    if bodies
         .iter()
         .any(|b| b.get("bodyId") == Some(&json!(body_id)))
     {
-        return Ok(());
+        return Ok(body_id.to_string());
+    }
+    if let Some(id) = bodies
+        .iter()
+        .find(|b| b.get("name") == Some(&json!(body_id)))
+        .and_then(|b| b.get("bodyId").and_then(Value::as_str))
+    {
+        return Ok(id.to_string());
     }
     Err(ToolFailure::new(
         "BodyNotFound",
-        format!("No body with id {body_id} in the open Part."),
+        format!("No body with id or name {body_id} in the open Part."),
         json!({ "body_id": body_id }),
     ))
 }

@@ -318,7 +318,28 @@ siblings" of `face_provenance`. Instead there is one pair of
 `face_provenance` stays as it is for its KV13 F5/F6 callers. For an edge or
 vertex `root_pid == pid` (the id is already content-seeded through the
 roots), so a consumer matches `pid` then `root_pid` without ever branching
-on kind. Both methods default to `None`/empty, so the addition is additive
+on kind.
+
+**The root is a mandatory CROSS-CHECK, not a second choice** (N1, 2026-10-03).
+`resolve_by_pid` requires `pid` AND the recorded `root_pid` before it calls an
+entity a match; an entity carrying the number with a different root is not
+this reference's entity, and resolution falls through to the recorded root
+with a warning saying the number was re-minted onto other geometry. A pid is
+unique within one body at one moment, not forever: a boolean's own output
+pids are still counter-allocated (see "Still open"), and a counter restarts
+in a fresh arena, so a reopened document whose earlier boolean changed its
+output face count re-mints the same numbers onto different faces. Measured
+2026-10-03 on one plate with two pockets: a reference recorded against the
+second pocket's floor came back, after a reopen, on that pocket's SIDE WALL
+— matched by number alone, with the floor still present. Pinned at both
+doors: `feature_engine::resolve` unit tests
+(`a_recycled_pid_is_not_a_match_and_the_recorded_root_answers`,
+`a_recycled_pid_with_no_surviving_root_is_refused`) and end to end in
+`crates/wasm-bridge/tests/tool_names.rs`
+(`a_name_on_a_boolean_output_face_does_not_move_after_a_reload`). The check
+is vacuous for edges and vertices, whose `root_pid == pid` — and does not
+need to be more, since their ids are content-seeded from face lineage roots
+and were never counter-allocated. Both methods default to `None`/empty, so the addition is additive
 for every implementor; mesh-backed imported bodies report nothing, since a
 face-index-derived number would change silently on re-import.
 
@@ -466,14 +487,19 @@ merges. All four were mutation-checked by withdrawing the seed in
 
 **Still open after this increment:**
 
-- *A boolean's own output pids remain history-dependent.* Only their ROOTS
-  are content-seeded. An incremental edit upstream of a boolean re-runs it,
-  and its output faces take new counter numbers. Nothing stores a face's own
-  pid across a session today (the resolver matches `pid` then `root_pid`, and
-  a boolean output's root is stable), but a consumer that wants a stable name
-  for a boolean-born face — a PMI anchor on a cut wall, say — needs those
-  seeded too: `H(root, rank within the root's split group)`, which has to
-  move the stamping pass after `boolean_op` records the journal.
+- *A boolean's own output pids remain history-dependent (item 1b).* Only
+  their ROOTS are content-seeded. An incremental edit upstream of a boolean
+  re-runs it, and its output faces take new counter numbers; a reopen
+  renumbers them from the recipe. **This is LOUD, not silent, since N1
+  landed the root cross-check above**: a recycled number is not a match, the
+  recorded root answers if anything still descends from it, and the caller
+  is told the number was re-minted. What is still missing is the number's
+  own stability — a consumer that wants a boolean-born face (a PMI anchor on
+  a cut wall, say) to resolve without a warning needs those seeded too:
+  `H(root, rank within the root's split group)`, which has to move the
+  stamping pass after `boolean_op` records the journal. Pinned `#[ignore]`d
+  as `a_boolean_output_face_keeps_its_own_pid_across_a_reload`
+  (`crates/wasm-bridge/tests/tool_names.rs`); un-ignore it when that lands.
 - *Nothing has been measured over the assay corpus* (item 5's oracle is still
   unrun). The reseed changes face pid VALUES everywhere, so the corpus
   verdicts are the thing to confirm it did not disturb — not attempted here,

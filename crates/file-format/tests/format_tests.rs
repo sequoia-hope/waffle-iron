@@ -1447,6 +1447,121 @@ fn load_refuses_file_requiring_newer_reader() {
     }
 }
 
+// ── v7: entity names (N1, `specs/agent_mechanical_design.md` §5.2) ───────
+
+/// One named face, stored the way `names::mint` stores one: a `Selector::Pid`
+/// target with the authored reference kept as the fallback.
+fn named_face(feature_id: Uuid) -> feature_engine::names::NamedRef {
+    let authored = GeomRef {
+        kind: TopoKind::Face,
+        anchor: Anchor::FeatureOutput {
+            feature_id,
+            output_key: OutputKey::Main,
+        },
+        selector: Selector::Role {
+            role: Role::EndCapPositive,
+            index: 0,
+        },
+        policy: ResolvePolicy::Strict,
+        scope: None,
+    };
+    feature_engine::names::NamedRef {
+        target: GeomRef {
+            selector: Selector::Pid {
+                pid: 0x1234_5678_9abc_def0,
+                root_pid: 7,
+            },
+            ..authored.clone()
+        },
+        kind: TopoKind::Face,
+        fallback: Some(authored),
+        created: feature_engine::types::Provenance {
+            origin: feature_engine::types::ProvenanceOrigin::Agent {
+                name: "n1-test".to_string(),
+            },
+            at: None,
+        },
+    }
+}
+
+#[test]
+fn a_named_entity_round_trips_through_the_document() {
+    let mut tree = make_simple_tree();
+    let feature_id = tree.features[0].id;
+    tree.set_name("plate.top_face", named_face(feature_id));
+
+    let meta = ProjectMetadata::new("Named");
+    let json = save_project(&tree, &meta);
+    // The pid is written as a tagged selector, exactly as §8 documents it.
+    let parsed: serde_json::Value = serde_json::from_str(&json).unwrap();
+    let entry = &parsed["tabs"][0]["kind"]["features"]["names"]["plate.top_face"];
+    assert_eq!(entry["target"]["selector"]["type"], "Pid");
+    assert_eq!(entry["target"]["selector"]["root_pid"], 7);
+    assert_eq!(entry["fallback"]["selector"]["type"], "Role");
+    assert_eq!(entry["created"]["origin"]["name"], "n1-test");
+
+    let (back, _) = load_project(&json).expect("a v7 document loads");
+    let stored = back
+        .named_ref("plate.top_face")
+        .expect("the name came back");
+    assert_eq!(stored.kind, TopoKind::Face);
+    match stored.target.selector {
+        Selector::Pid { pid, root_pid } => {
+            // The full 64 bits survive the JSON round-trip — a pid near
+            // 2^64 must not come back through an f64.
+            assert_eq!(pid, 0x1234_5678_9abc_def0);
+            assert_eq!(root_pid, 7);
+        }
+        ref other => panic!("want a Pid selector, got {other:?}"),
+    }
+    assert_eq!(stored.target.policy, ResolvePolicy::Strict);
+    assert!(stored.fallback.is_some(), "the authored reference survives");
+}
+
+/// The reader floor moved WITH the field: a document carrying a name demands
+/// reader 7, and a v6 build (which refuses `min_reader_version > 6`) is told
+/// so cleanly instead of failing on an unknown `Selector` variant.
+#[test]
+fn a_document_with_names_demands_the_v7_reader() {
+    let mut tree = make_simple_tree();
+    let feature_id = tree.features[0].id;
+    tree.set_name("top_face", named_face(feature_id));
+    let parsed: serde_json::Value =
+        serde_json::from_str(&save_project(&tree, &ProjectMetadata::new("Named"))).unwrap();
+    assert_eq!(parsed["min_reader_version"], 7);
+    assert!(
+        parsed["min_reader_version"].as_u64().unwrap() > 6,
+        "a v6 reader must be refused, not handed a Pid selector it cannot parse"
+    );
+}
+
+/// A document with no names is byte-identical to a pre-N1 one: the key is
+/// omitted, so the whole corpus keeps loading and re-saving unchanged.
+#[test]
+fn a_document_without_names_writes_no_names_key() {
+    let tree = make_simple_tree();
+    let parsed: serde_json::Value =
+        serde_json::from_str(&save_project(&tree, &ProjectMetadata::new("Plain"))).unwrap();
+    assert!(
+        parsed["tabs"][0]["kind"]["features"].get("names").is_none(),
+        "an empty name table is not written"
+    );
+}
+
+/// A pre-v7 file has no `names` key at all; it must load with an empty table
+/// rather than be refused.
+#[test]
+fn a_pre_v7_document_loads_with_no_names() {
+    let tree = make_simple_tree();
+    let mut value: serde_json::Value =
+        serde_json::from_str(&save_project(&tree, &ProjectMetadata::new("Old"))).unwrap();
+    value["version"] = serde_json::json!(6);
+    value["min_reader_version"] = serde_json::json!(6);
+    let (loaded, _) =
+        load_project(&serde_json::to_string(&value).unwrap()).expect("a v6 file loads");
+    assert!(loaded.names.is_empty());
+}
+
 #[test]
 fn load_accepts_files_without_min_reader_version() {
     // Every pre-2026-08-28 file (including the whole assay corpus) lacks the
@@ -1655,8 +1770,14 @@ fn a_3d_sketch_round_trips() {
 /// unknown `type` tag round-trips through `Operation::Unknown`, so an older
 /// build keeps a document containing a 3D sketch intact and refuses only that
 /// one feature's rebuild.
+///
+/// The numbers below are the floor as it stands, not what the 3D sketch set:
+/// v7 is N1's `Selector::Pid` (`specs/agent_mechanical_design.md` §5.2,
+/// 2026-10-03), a new SELECTOR variant, which §13.3 does make a bump. What
+/// this test holds is that the writer and the floor move together and only
+/// deliberately.
 #[test]
 fn the_3d_sketch_operation_did_not_move_the_format_floor() {
-    assert_eq!(file_format::FORMAT_VERSION, 6);
-    assert_eq!(file_format::MIN_READER_VERSION, 6);
+    assert_eq!(file_format::FORMAT_VERSION, 7);
+    assert_eq!(file_format::MIN_READER_VERSION, 7);
 }

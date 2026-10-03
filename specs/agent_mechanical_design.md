@@ -484,6 +484,147 @@ additive, no reader bump). Deleting the feature that introduced an entity
 leaves its name in place and `resolves: false`, so the agent sees the hole
 rather than losing the record.
 
+#### Implementation notes (N1)
+
+Landed 2026-10-03. Where the plan above left a choice open, this is the
+choice made and why.
+
+**The reader floor DID move — to v7.** "No reader bump" above is wrong, and
+the format's own rule says why (`docs/FILE_FORMAT.md` §13.3): a bump is
+needed for "any change old readers cannot parse — which includes new
+constraint/selector/`PlaneDefinition` *variants*". The `names` FIELD is
+additive and defaulted, but every entry in it stores a `Selector::Pid`, and
+`Selector` is a serde-tagged enum, so a v6 reader given a named document
+fails with a raw unknown-variant error instead of the clean `FutureVersion`
+message. D0 landed the variant without writing one and left exactly this
+note (`specs/drawings_and_mbd.md` §4, "Still open"); N1 is the increment
+that writes one. `FORMAT_VERSION` and `MIN_READER_VERSION` are both 7, in
+`save.rs` and `app/src/lib/engine/format.js` together. A document with no
+names is byte-identical to a pre-N1 one (the key is omitted), which is why
+the corpus still loads — `corpus_backcompat` is the pin.
+
+**The dotted path is a label; the identity is the stored reference.** The
+map key is the name as written (`plate.top_face`), and the body segment is
+checked against the body's display name when the name is ASSIGNED — never
+again. A body renamed afterwards leaves a dotted name that still resolves
+(its pid did not move) but whose first segment has drifted, which
+`names_list` shows by reporting the owning body's *current* display name in
+a `body` field next to each entry. The alternative — rewriting labels from
+inside `rename_body` — would make a user's body rename fail on an agent's
+name collision, and a label is not worth that.
+
+**A body's name IS its display name.** `entity_name` with a `{"type":"body"}`
+target routes to `body_names` (the mechanism `body_rename` already owns)
+rather than opening a second record of it, which is what §5.2's "bodies where
+not already present" asks for. The two share ONE namespace: a name taken by
+a body's display name is `NameTaken` for an entity and vice versa, because a
+body name is the first segment of every dotted entity name in it. For the
+same reason `names_list` reports body names too, with `kind: Solid` and no
+`geom_ref`. A body display name that is not an identifier (the derived
+"Base plate", "Extrude (2)") cannot be a dotted first segment, and the
+refusal says so and names the body rather than inventing a segment.
+Features keep `feature_rename`: a feature is not a `GeomRef`.
+
+**`NamedRef` carries a `fallback`, and `resolved_by` says which answered.**
+`target` is the pid; `fallback` is the reference as the caller authored it,
+stored only when a pid replaced it. `names_list`'s `resolved_by` is `pid`
+(the stored pid answered), `selector` (the kernel had no identity for this
+entity when it was named — a mesh-backed import) or `query` (the pid is gone
+and the authored reference answered, which rebinds by geometry). The last
+case carries a warning naming the lost id, so the agent is told rather than
+just handed an answer.
+
+**Names are not garbage-collected, deliberately** — including on feature
+delete, where `body_names` and `provenance` ARE collected. §5.2 asks for
+exactly this: the hole is the information.
+
+**Refusals are typed at the tool layer, and checked again in the engine.**
+`engine_call` collapses every engine error into `Internal` (ICR-2), and a
+taken name is an ordinary thing for an agent to hit, so `entity_name` parses
+the name, checks the namespace and checks the dotted segment itself and
+answers `InvalidName` / `NameTaken` / `NameNotFound` /
+`ReferenceNotResolved`. `Engine::set_entity_name` re-checks the grammar, the
+uniqueness and the body segment, so a host that bypasses the tool layer
+cannot store an unchecked name; such a refusal is then `Internal`, which is
+right — it is a broken invariant, not a user error.
+
+**Names reach arguments through two doors.** `MeasureOperand` (Q1's `a`/`b`,
+the only `EntityRef`-shaped argument today) gains a `{"type":"name"}` arm, and
+`require_body` — the one chokepoint every body-scoped tool already goes
+through — accepts a body's NAME in place of its id and returns the id, so
+`body_measure`, `face_list`, `measure_mass`, `measure_interference`,
+`export_stl`, `body_rename` and `names_list` all take a name for free with no
+second code path. The id is tried FIRST, which settles the one collision
+possible: a body's display name is free text and can be spelled like another
+body's `"{uuid}/{tag}"` id. The one namespace is enforced in both directions —
+`entity_name` refuses a name a body's display name holds, and `body_rename`
+refuses a `new_name` an entity name holds — so a string cannot come to mean
+the entity in a `{"type":"name"}` operand and the body in `require_body`.
+(A rename in the UI is deliberately not blocked on an agent's label, so a
+hand-made document can still hold both; `names_list` lists both entries.)
+"Every result that carries a `GeomRef`" is `face_list`, whose entries gain
+`name`.
+
+**Open after this increment:**
+
+- *CLOSED by D0 item 1 (content-seeded face pids), merged 2026-10-03.* Both
+  pid gaps this increment shipped with are gone for constructor-built faces.
+  A name over a face of a feature that is later EDITED now keeps its pid
+  (`a_face_name_keeps_its_pid_across_an_edit_to_its_own_feature`, un-ignored),
+  and a reopened document no longer re-mints a stored pid onto a different
+  face (`a_name_does_not_follow_a_reused_pid_onto_another_face_after_a_reload`,
+  un-ignored — it was the silent wrong answer, and it is the one that
+  mattered). Both were mutation-checked by withdrawing the seed in
+  `feature_engine::rebuild`: those two go red and the other twelve tests in
+  the file stay green. The two tests that pinned the OLD loud-fallback
+  behaviour were re-pointed, not deleted — the fallback is still reachable,
+  just only where an identity is genuinely gone (a pocket floor named and
+  then turned into a through hole costs both the pid and its lineage root:
+  `a_name_whose_reference_is_gone_still_measures_through_its_fallback`).
+- *A name on a BOOLEAN's own output face loses its NUMBER on reopen, loudly
+  — D0 item 1b.* `boolean/from_yang.rs` withdraws the construct seed around
+  its `finalize_solid`, so boolean output faces keep counter pids and only
+  their lineage ROOTS are seeded. The counter is therefore still live for
+  this family and still renumbers from the recipe on reopen.
+
+  As first measured 2026-10-03 this was SILENT: one plate with two pockets,
+  the second pocket's FLOOR named (`pid 22`), the first pocket deepened into
+  a through hole (which costs that cut's output its own floor), and after
+  save and reopen the name sat on the second pocket's SIDE WALL while the
+  floor it was given to was still there, unnamed — `resolves: true`,
+  `resolved_by: "pid"`, no warnings.
+
+  **Closed as a silent wrong answer by the root cross-check**
+  (`feature_engine::resolve::resolve_by_pid`, 2026-10-03): a pid match now
+  requires the recorded `root_pid` too, so a recycled number is not a match
+  at all. The floor descends from the cutter's end cap and the wall from its
+  lateral, their roots differ, and resolution falls through to the recorded
+  root — which still names the floor. The listing reports it with the
+  warning `"Face pid 22 is no longer this entity's: it now belongs to
+  geometry rooted at … (recorded root …), so the id was re-minted onto
+  something else — it was not matched by number"`, and refuses outright if
+  nothing descends from the recorded root. Pinned green as
+  `a_name_on_a_boolean_output_face_does_not_move_after_a_reload`, and
+  mutation-checked by disabling the cross-check (the name goes back to the
+  side wall).
+
+  What remains open is the IDEAL: the number itself surviving, so there is
+  nothing to warn about. That needs the stamping pass to move after
+  `boolean_op` records the journal (`H(root, rank within the root's split
+  group)`). Pinned `#[ignore]`d as
+  `a_boolean_output_face_keeps_its_own_pid_across_a_reload`.
+- *Edge and vertex names are untested against the real kernel.* The table,
+  the grammar and the resolution are kind-agnostic and the mock covers all
+  three, but every kernel-v2 test here names a FACE. An edge name inherits
+  D0's own caveat: edge ids are seeded from face lineage roots, so an edit
+  that re-stamps either adjacent face's root renames the edge too.
+- *The UI shows none of this.* Names are agent-facing only; nothing in the
+  feature tree or the viewport displays or edits them.
+- *`resolved_by: "pid"` does not distinguish a pid that answered directly
+  from one that answered through its lineage root.* The root case carries
+  the resolver's warning verbatim, which is the honest signal; splitting the
+  enum would mean inferring it from the presence of a warning.
+
 ### 5.3 N2 — Loud resolution for agents
 
 1. Every `GeomRef` an agent authors through a tool is stored with

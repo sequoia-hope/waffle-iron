@@ -56,6 +56,11 @@ const READ_ONLY = [
 	'measure_mass',
 	'face_list',
 	'sketch_regions',
+	// N1 of `specs/agent_mechanical_design.md` §5.2 (2026-10-03). Called by
+	// the sequence below after a face has been named, so the page's routing of
+	// it is exercised here; the answers are pinned in
+	// `crates/wasm-bridge/tests/tool_names.rs`.
+	'names_list',
 	'expression_evaluate',
 	'export_step',
 	'export_stl',
@@ -141,6 +146,15 @@ test.describe('Read-only agent tools run in the engine (S3 C5b)', () => {
 				});
 				const faces = await call('face_list', { body_id: bodyId });
 				const regions = await call('sketch_regions', { feature_id: sketch.structuredContent.feature_id });
+				// N1: name one of the faces just listed, then read the name
+				// table back. `entity_name` is a mutating tool, so the
+				// authoring spec pins its routing; it is called here because
+				// `names_list` has nothing to report without it.
+				const entityName = await call('entity_name', {
+					target: { type: 'entity', geom_ref: faces.structuredContent.faces[0].geom_ref },
+					name: 'first_face'
+				});
+				const names = await call('names_list', {});
 				const expression = await call('expression_evaluate', { expression: 'width * 2' });
 				const step = await call('export_step');
 				const stl = await call('export_stl', { body_id: bodyId });
@@ -150,6 +164,8 @@ test.describe('Read-only agent tools run in the engine (S3 C5b)', () => {
 					['measure_distance', distance],
 					['face_list', faces],
 					['sketch_regions', regions],
+					['entity_name', entityName],
+					['names_list', names],
 					['expression_evaluate', expression],
 					['export_step', step],
 					['export_stl', stl]
@@ -174,6 +190,8 @@ test.describe('Read-only agent tools run in the engine (S3 C5b)', () => {
 					distance: distance.structuredContent,
 					faces: faces.structuredContent,
 					regions: regions.structuredContent,
+					entityName: entityName.structuredContent,
+					names: names.structuredContent,
 					expression: expression.structuredContent,
 					// The whole result: the embedded resource is in `content`, and a
 					// download side channel must NOT be (there was none asked for).
@@ -203,6 +221,8 @@ test.describe('Read-only agent tools run in the engine (S3 C5b)', () => {
 			'measure_distance',
 			'face_list',
 			'sketch_regions',
+			'entity_name',
+			'names_list',
 			'expression_evaluate',
 			'export_step',
 			'export_stl',
@@ -234,6 +254,15 @@ test.describe('Read-only agent tools run in the engine (S3 C5b)', () => {
 		expect(result.distance.on[0].kind).toEqual({ type: 'Face' });
 		expect(result.faces.faces.length).toBeGreaterThan(0);
 		expect(result.regions.regions.length).toBeGreaterThan(0);
+		// N1: the name is stored over the face's persistent id, and the
+		// listing has it alongside the body's own display name.
+		expect(result.entityName.name).toBe('first_face');
+		expect(result.entityName.geom_ref.selector.type).toBe('Pid');
+		expect(result.names.names.find((n) => n.name === 'first_face')).toMatchObject({
+			resolves: true,
+			resolved_by: 'pid',
+			body: 'Base plate'
+		});
 		expect(result.expression.value_mm).toBe(40);
 
 		// The export pair (C6): the file embedded as an MCP resource, its size

@@ -1,5 +1,6 @@
 use uuid::Uuid;
 
+use crate::names::NamedRef;
 use crate::types::{BodyNames, DesignParameter, Feature, Operation, Provenance};
 
 /// A reversible command recorded by the engine.
@@ -50,6 +51,14 @@ pub enum Command {
         /// Previous override (`None` ⇒ the body had no override / used a derived name).
         old_name: Option<String>,
         new_name: Option<String>,
+    },
+    /// Set or clear one entity name (N1, `specs/agent_mechanical_design.md`
+    /// §5.2). `new: None` is the unname. Names affect no geometry, so neither
+    /// direction rebuilds.
+    SetEntityName {
+        name: String,
+        old: Option<Box<NamedRef>>,
+        new: Option<Box<NamedRef>>,
     },
     /// Whole-table design-parameter replacement (the UI always sends the full
     /// list). Undo restores `old`, redo re-applies `new`; both rebuild from 0

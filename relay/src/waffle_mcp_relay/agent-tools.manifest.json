@@ -1,5 +1,5 @@
 {
-  "manifest_hash": "5202d07a884a75071bdf08ff870e0f1b80eaea19903657464ab5674e1d40e0b5",
+  "manifest_hash": "593f1240e692830b92508203d808d74a04ab6672485b02c42c975a861d87e050",
   "protocol": "waffle-agent-link/1",
   "tools": [
     {
@@ -1609,13 +1609,16 @@
         "additionalProperties": false,
         "properties": {
           "a": {
-            "description": "A measurement operand: {\"type\":\"body\",\"body_id\":…} (from model_summary.bodies), {\"type\":\"entity\",\"geom_ref\":…} (a face/edge/vertex GeomRef from face_list), or {\"type\":\"point\",\"point\":[x,y,z]} (meters).",
+            "description": "A measurement operand: {\"type\":\"body\",\"body_id\":…} (from model_summary.bodies), {\"type\":\"entity\",\"geom_ref\":…} (a face/edge/vertex GeomRef from face_list), {\"type\":\"name\",\"name\":…} (an entity or body name from entity_name / names_list), or {\"type\":\"point\",\"point\":[x,y,z]} (meters).",
             "properties": {
               "body_id": {
                 "type": "string"
               },
               "geom_ref": {
                 "type": "object"
+              },
+              "name": {
+                "type": "string"
               },
               "point": {
                 "items": {
@@ -1629,6 +1632,7 @@
                 "enum": [
                   "body",
                   "entity",
+                  "name",
                   "point"
                 ],
                 "type": "string"
@@ -1652,13 +1656,16 @@
             ]
           },
           "b": {
-            "description": "A measurement operand: {\"type\":\"body\",\"body_id\":…} (from model_summary.bodies), {\"type\":\"entity\",\"geom_ref\":…} (a face/edge/vertex GeomRef from face_list), or {\"type\":\"point\",\"point\":[x,y,z]} (meters).",
+            "description": "A measurement operand: {\"type\":\"body\",\"body_id\":…} (from model_summary.bodies), {\"type\":\"entity\",\"geom_ref\":…} (a face/edge/vertex GeomRef from face_list), {\"type\":\"name\",\"name\":…} (an entity or body name from entity_name / names_list), or {\"type\":\"point\",\"point\":[x,y,z]} (meters).",
             "properties": {
               "body_id": {
                 "type": "string"
               },
               "geom_ref": {
                 "type": "object"
+              },
+              "name": {
+                "type": "string"
               },
               "point": {
                 "items": {
@@ -1672,6 +1679,7 @@
                 "enum": [
                   "body",
                   "entity",
+                  "name",
                   "point"
                 ],
                 "type": "string"
@@ -1973,7 +1981,7 @@
         "readOnlyHint": true,
         "title": "List faces"
       },
-      "description": "Every face of a body as the GeomRef the viewport hands out when the user picks it (usable as a sketch_create plane), with its topological signature, in a deterministic order. filter narrows the list with TopoQuery filters (tie_break is ignored).",
+      "description": "Every face of a body as the GeomRef the viewport hands out when the user picks it (usable as a sketch_create plane), with its topological signature, in a deterministic order. filter narrows the list with TopoQuery filters (tie_break is ignored). A face that has been given a name (entity_name) also carries it as name.",
       "inputSchema": {
         "$defs": {
           "Filter": {
@@ -2209,6 +2217,10 @@
                 "geom_ref": {
                   "type": "object"
                 },
+                "name": {
+                  "description": "The entity name pointing at this face, if any.",
+                  "type": "string"
+                },
                 "signature": {
                   "type": "object"
                 }
@@ -2383,6 +2395,80 @@
           "points",
           "chains",
           "warnings"
+        ],
+        "type": "object"
+      }
+    },
+    {
+      "annotations": {
+        "readOnlyHint": true,
+        "title": "List names"
+      },
+      "description": "Every name in the open Part, in name order: the entity names and the body display names they are scoped by. resolves says whether the name still points at geometry — a name whose entity was deleted stays listed and resolves false, so the hole is visible. resolved_by is \"pid\" when the persistent id answered, \"query\" when it was lost and the reference the name was authored with answered instead (the name may then describe different geometry — re-name it), and absent for a body name. body is the owning body's CURRENT display name, so a dotted name whose first segment has drifted is visible too. body_id limits the answer to one body.",
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "body_id": {
+            "description": "Only this body's names.",
+            "type": "string"
+          }
+        },
+        "type": "object"
+      },
+      "name": "names_list",
+      "outputSchema": {
+        "properties": {
+          "names": {
+            "items": {
+              "properties": {
+                "body": {
+                  "type": "string"
+                },
+                "body_id": {
+                  "type": "string"
+                },
+                "created": {
+                  "type": "object"
+                },
+                "geom_ref": {
+                  "type": "object"
+                },
+                "kind": {
+                  "type": "object"
+                },
+                "name": {
+                  "type": "string"
+                },
+                "resolved_by": {
+                  "enum": [
+                    "pid",
+                    "selector",
+                    "query"
+                  ],
+                  "type": "string"
+                },
+                "resolves": {
+                  "type": "boolean"
+                },
+                "warnings": {
+                  "items": {
+                    "type": "string"
+                  },
+                  "type": "array"
+                }
+              },
+              "required": [
+                "name",
+                "kind",
+                "resolves"
+              ],
+              "type": "object"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "names"
         ],
         "type": "object"
       }
@@ -15900,6 +15986,263 @@
           "kept_with_error": {
             "description": "Present and true when on_error was \"keep\" and the step left features failing.",
             "type": "boolean"
+          },
+          "order_changed": {
+            "description": "The relative order of surviving features changed.",
+            "type": "boolean"
+          },
+          "warnings": {
+            "description": "Rebuild warnings, verbatim.",
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "features_added",
+          "features_changed",
+          "features_removed",
+          "bodies_added",
+          "bodies_removed",
+          "errors",
+          "warnings"
+        ],
+        "type": "object"
+      }
+    },
+    {
+      "annotations": {
+        "destructiveHint": false,
+        "readOnlyHint": false,
+        "title": "Name entity"
+      },
+      "description": "Give a face, edge, vertex or body a name you can use afterwards wherever a GeomRef or body id is taken (one undo step, and a body name then works anywhere a body_id does). A name is one or two dot-separated identifiers: \"top_face\", or \"plate.top_face\" where \"plate\" is the display name of the body the entity is in. Naming a BODY sets its display name, which is what that first segment matches. Names are unique across entities and bodies alike: a taken one is NameTaken, a malformed one InvalidName. The name is stored against the entity's persistent id, so it follows that entity across rebuilds and reports it when the id is lost rather than quietly binding to something else.",
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "name": {
+            "description": "The name to assign.",
+            "minLength": 1,
+            "type": "string"
+          },
+          "target": {
+            "description": "What to name: {\"type\":\"entity\",\"geom_ref\":…} (a face/edge/vertex GeomRef from face_list), {\"type\":\"body\",\"body_id\":…} (from model_summary.bodies), or {\"type\":\"name\",\"name\":…} (something already named, to re-label it).",
+            "properties": {
+              "body_id": {
+                "type": "string"
+              },
+              "geom_ref": {
+                "type": "object"
+              },
+              "name": {
+                "type": "string"
+              },
+              "type": {
+                "enum": [
+                  "entity",
+                  "body",
+                  "name"
+                ],
+                "type": "string"
+              }
+            },
+            "required": [
+              "type"
+            ],
+            "type": "object"
+          }
+        },
+        "required": [
+          "target",
+          "name"
+        ],
+        "type": "object"
+      },
+      "name": "entity_name",
+      "outputSchema": {
+        "properties": {
+          "bodies_added": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "bodies_removed": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "body_id": {
+            "type": "string"
+          },
+          "errors": {
+            "description": "Every current rebuild error in tree order, verbatim from the engine; kind is the typed class when known.",
+            "items": {
+              "properties": {
+                "feature_id": {
+                  "type": "string"
+                },
+                "kind": {
+                  "description": "Engine ErrorKind, e.g. {\"type\":\"NotSupported\",\"operation\":\"…\"}.",
+                  "type": "object"
+                },
+                "message": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "feature_id",
+                "message"
+              ],
+              "type": "object"
+            },
+            "type": "array"
+          },
+          "features_added": {
+            "description": "Feature ids added, in tree order.",
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "features_changed": {
+            "description": "Feature ids whose definition or provenance changed.",
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "features_removed": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "geom_ref": {
+            "description": "The reference stored under the name (a Pid selector).",
+            "type": "object"
+          },
+          "kept_with_error": {
+            "description": "Present and true when on_error was \"keep\" and the step left features failing.",
+            "type": "boolean"
+          },
+          "kind": {
+            "description": "TopoKind of the named entity; {\"type\":\"Solid\"} for a body.",
+            "type": "object"
+          },
+          "name": {
+            "type": "string"
+          },
+          "order_changed": {
+            "description": "The relative order of surviving features changed.",
+            "type": "boolean"
+          },
+          "warnings": {
+            "description": "Rebuild warnings, verbatim.",
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "features_added",
+          "features_changed",
+          "features_removed",
+          "bodies_added",
+          "bodies_removed",
+          "errors",
+          "warnings"
+        ],
+        "type": "object"
+      }
+    },
+    {
+      "annotations": {
+        "destructiveHint": false,
+        "readOnlyHint": false,
+        "title": "Unname entity"
+      },
+      "description": "Remove an entity name (one undo step). The geometry is untouched. An unknown name is NameNotFound. A body's display name is not an entity name: clear that with body_rename and an empty new_name.",
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "name": {
+            "minLength": 1,
+            "type": "string"
+          }
+        },
+        "required": [
+          "name"
+        ],
+        "type": "object"
+      },
+      "name": "entity_unname",
+      "outputSchema": {
+        "properties": {
+          "bodies_added": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "bodies_removed": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "errors": {
+            "description": "Every current rebuild error in tree order, verbatim from the engine; kind is the typed class when known.",
+            "items": {
+              "properties": {
+                "feature_id": {
+                  "type": "string"
+                },
+                "kind": {
+                  "description": "Engine ErrorKind, e.g. {\"type\":\"NotSupported\",\"operation\":\"…\"}.",
+                  "type": "object"
+                },
+                "message": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "feature_id",
+                "message"
+              ],
+              "type": "object"
+            },
+            "type": "array"
+          },
+          "features_added": {
+            "description": "Feature ids added, in tree order.",
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "features_changed": {
+            "description": "Feature ids whose definition or provenance changed.",
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "features_removed": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "kept_with_error": {
+            "description": "Present and true when on_error was \"keep\" and the step left features failing.",
+            "type": "boolean"
+          },
+          "name": {
+            "type": "string"
           },
           "order_changed": {
             "description": "The relative order of surviving features changed.",

@@ -146,8 +146,8 @@ test.describe('In-context editing', () => {
 		// The document writes the scoped reference and demands the current
 		// reader floor (v5 for `scope`, raised to v6 by `plane_x_axis`).
 		const json = JSON.parse(await page.evaluate(() => window.__waffle.buildDocumentJson()));
-		expect(json.version).toBe(6);
-		expect(json.min_reader_version).toBe(6);
+		expect(json.version).toBe(7);
+		expect(json.min_reader_version).toBe(7);
 		const part = json.tabs.find((t) => t.id === partTab);
 		expect(part.kind.features.features[1].operation.sketch.plane.scope).toEqual({ tab_id: asmTab, instance_path: [a] });
 	});

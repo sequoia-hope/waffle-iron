@@ -419,6 +419,32 @@ fn handle_message(
             Ok(model_updated_response(state))
         }
 
+        // N1 (`specs/agent_mechanical_design.md` §5.2). The dotted body
+        // segment is checked HERE, not by the caller: the body's display name
+        // is the render layer's answer (a body with no override is named after
+        // its producing feature plus an ordinal among that feature's rendered
+        // bodies), so a sender could not check it even if it wanted to.
+        UiToEngine::SetEntityName { name, named } => {
+            let display = crate::entity_names::body_of_ref(&named.target)
+                .and_then(|id| crate::entity_names::body_display_names(state).remove(&id));
+            state
+                .engine
+                .set_entity_name(&name, *named, display.as_deref())?;
+            Ok(model_updated_response(state))
+        }
+
+        UiToEngine::ClearEntityName { name } => {
+            state.engine.clear_entity_name(&name)?;
+            Ok(model_updated_response(state))
+        }
+
+        UiToEngine::QueryEntityNames { body_id } => {
+            crate::tessellation_runner::tessellate_engine(&mut state.engine, kb);
+            Ok(EngineToUi::EntityNamesListed {
+                names: crate::entity_names::list(state, kb, body_id.as_deref()),
+            })
+        }
+
         UiToEngine::SetRollbackIndex { index } => {
             state.engine.set_rollback(index, kb);
             Ok(model_updated_response(state))
@@ -1085,6 +1111,10 @@ fn list_faces(
     filter: Option<&waffle_types::TopoQuery>,
 ) -> Result<EngineToUi, BridgeError> {
     crate::tessellation_runner::tessellate_engine(&mut state.engine, kb);
+    // Which face each N1 name points at, resolved once for the body rather
+    // than per face (§5.2: a result that carries a `GeomRef` carries its
+    // name). Taken before the borrow below, since resolving needs the kernel.
+    let named = crate::entity_names::names_by_entity(state, kb, body_id);
     let engine = &state.engine;
     let (feature_id, key, result, body) = engine
         .tree
@@ -1114,6 +1144,7 @@ fn list_faces(
     .map(|(face, geom_ref)| ListedFace {
         geom_ref,
         signature: introspect.compute_signature(face, waffle_types::TopoKind::Face),
+        name: named.get(&(waffle_types::TopoKind::Face, face)).cloned(),
     })
     .filter(|f| {
         filter.is_none_or(|q| feature_engine::resolve::passes_all_filters(&f.signature, &q.filters))
@@ -1223,7 +1254,61 @@ fn measure_distance(
                    introspect: &dyn KernelIntrospect,
                    op: &MeasureOperand|
      -> Result<MeasureEntity, BridgeError> {
+        // An N1 name is measured as whatever it points at TODAY
+        // (`specs/agent_mechanical_design.md` §5.2: every `EntityRef`
+        // argument takes a name in place of a ref or a body id). An ENTITY
+        // name goes through `names::resolve`, the same resolution
+        // `names_list` reports — the stored persistent id first, the authored
+        // fallback when that id is gone. Resolving the stored reference
+        // directly instead would refuse a name the listing calls resolvable,
+        // which is one question answered two ways. A body name becomes the
+        // body operand, so a name reaches whichever of the two it was given
+        // to.
+        if let MeasureOperand::Name { name } = op {
+            if let Some(named) = state.engine.tree.named_ref(name) {
+                let resolved = feature_engine::names::resolve(
+                    named,
+                    &state.engine.feature_results,
+                    introspect,
+                )
+                .map_err(|e| BridgeError::InvalidRequest {
+                    reason: format!("the name \"{name}\" does not resolve: {e}"),
+                })?;
+                return match named.kind {
+                    TopoKind::Face => Ok(MeasureEntity::Face(resolved.kernel_id)),
+                    TopoKind::Edge => Ok(MeasureEntity::Edge(resolved.kernel_id)),
+                    TopoKind::Vertex => Ok(MeasureEntity::Vertex(resolved.kernel_id)),
+                    // A shell or solid name is a BODY, which the `body`
+                    // operand names directly; refuse rather than guess.
+                    other => Err(BridgeError::InvalidRequest {
+                        reason: format!(
+                            "\"{name}\" names a {other:?}, which is not a measurement operand; \
+                             name the body with `body_id`"
+                        ),
+                    }),
+                };
+            }
+        }
+        let op = &match op {
+            MeasureOperand::Name { name } => {
+                match crate::entity_names::resolve_target(
+                    state,
+                    &crate::messages::EntityTarget::Name {
+                        name: name.to_string(),
+                    },
+                )
+                .map_err(|reason| BridgeError::InvalidRequest { reason })?
+                {
+                    crate::entity_names::Target::Entity(geom_ref) => {
+                        MeasureOperand::Entity { geom_ref }
+                    }
+                    crate::entity_names::Target::Body(body_id) => MeasureOperand::Body { body_id },
+                }
+            }
+            other => other.clone(),
+        };
         match op {
+            MeasureOperand::Name { .. } => unreachable!("a name was just replaced"),
             MeasureOperand::Point { point } => Ok(MeasureEntity::Point(*point)),
             MeasureOperand::Body { body_id } => {
                 let body =

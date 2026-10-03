@@ -363,7 +363,10 @@ fn the_migrated_list_is_exactly_what_this_checkpoint_implements() {
     // `measure_distance` (Q1 of `specs/agent_mechanical_design.md` §4.3) is
     // the first body-to-body geometric query the stack has; Q2
     // (`measure_interference`) and Q3 (`measure_mass`) joined it on
-    // 2026-10-03, so the three measurement tools sit together.
+    // 2026-10-03, so the three measurement tools sit together. The N1 name
+    // trio (`entity_name`, `entity_unname`, `names_list`, §5.2, 2026-10-03)
+    // sits after `body_rename`: a body's display name is the first segment of
+    // every dotted entity name, so the four are one namespace.
     assert_eq!(
         wasm_bridge::tools::MIGRATED,
         &[
@@ -386,6 +389,9 @@ fn the_migrated_list_is_exactly_what_this_checkpoint_implements() {
             "feature_reorder",
             "feature_rename",
             "body_rename",
+            "entity_name",
+            "entity_unname",
+            "names_list",
             "rollback_set",
             "parameters_set",
             "import_step",

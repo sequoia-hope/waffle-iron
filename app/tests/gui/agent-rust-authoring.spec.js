@@ -259,7 +259,13 @@ test.describe('Authoring tools run in the engine and still answer as the page di
 				'connector_delete',
 				'mate_add',
 				'mate_edit',
-				'mate_delete'
+				'mate_delete',
+				// The entity-name pair (N1, `specs/agent_mechanical_design.md`
+				// §5.2, 2026-10-03). Naming changes the document — it is in the
+				// file and it is an undo step — so both are authoring tools;
+				// `names_list` is read-only and lives in the other spec.
+				'entity_name',
+				'entity_unname'
 			].sort()
 		);
 	});

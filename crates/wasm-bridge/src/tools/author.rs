@@ -750,17 +750,27 @@ pub(super) fn body_rename(
     kb: &mut dyn KernelBundle,
     args: &Value,
 ) -> Answer {
-    let body_id = args
-        .get("body_id")
-        .and_then(Value::as_str)
-        .unwrap_or("")
-        .to_string();
-    require_body(state, &body_id)?;
+    let body_id = require_body(
+        state,
+        args.get("body_id").and_then(Value::as_str).unwrap_or(""),
+    )?;
     let new_name = args
         .get("new_name")
         .and_then(Value::as_str)
         .unwrap_or("")
         .to_string();
+    // A body's display name and an entity name share ONE namespace (N1,
+    // `specs/agent_mechanical_design.md` §5.2) — `entity_name` refuses a name
+    // a body already holds, so this is the other direction of the same rule.
+    // Without it one string would resolve to the entity through a
+    // `{"type":"name"}` operand and to the body through `require_body`.
+    if state.engine.tree.names.contains_key(&new_name) {
+        return Err(ToolFailure::new(
+            "NameTaken",
+            format!("\"{new_name}\" is already an entity name in this document."),
+            json!({ "name": new_name, "taken_by": "an entity name" }),
+        ));
+    }
     let step = apply_step(
         state,
         kb,

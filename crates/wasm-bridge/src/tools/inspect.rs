@@ -109,8 +109,11 @@ pub(super) fn body_measure(
     kb: &mut dyn KernelBundle,
     args: &Value,
 ) -> Answer {
-    let body_id = args.get("body_id").and_then(Value::as_str).unwrap_or("");
-    require_body(state, body_id)?;
+    let body_id = require_body(
+        state,
+        args.get("body_id").and_then(Value::as_str).unwrap_or(""),
+    )?;
+    let body_id = body_id.as_str();
 
     let response = engine_call(
         state,
@@ -271,8 +274,8 @@ pub(super) fn measure_interference(
         }
     };
     let (a, b) = (body("a")?, body("b")?);
-    require_body(state, &a)?;
-    require_body(state, &b)?;
+    let a = require_body(state, &a)?;
+    let b = require_body(state, &b)?;
 
     let response = engine_call(
         state,
@@ -303,8 +306,11 @@ pub(super) fn measure_mass(
     kb: &mut dyn KernelBundle,
     args: &Value,
 ) -> Answer {
-    let body_id = args.get("body_id").and_then(Value::as_str).unwrap_or("");
-    require_body(state, body_id)?;
+    let body_id = require_body(
+        state,
+        args.get("body_id").and_then(Value::as_str).unwrap_or(""),
+    )?;
+    let body_id = body_id.as_str();
     let density_kg_m3 = match args.get("density_kg_m3") {
         None | Some(Value::Null) => None,
         Some(value) => Some(value.as_f64().ok_or_else(|| {
@@ -366,8 +372,11 @@ pub(super) fn face_list(
     kb: &mut dyn KernelBundle,
     args: &Value,
 ) -> Answer {
-    let body_id = args.get("body_id").and_then(Value::as_str).unwrap_or("");
-    require_body(state, body_id)?;
+    let body_id = require_body(
+        state,
+        args.get("body_id").and_then(Value::as_str).unwrap_or(""),
+    )?;
+    let body_id = body_id.as_str();
 
     // An unparseable filter is what the page would have watched the engine
     // refuse: the message never forms, so it is that same `Internal`.

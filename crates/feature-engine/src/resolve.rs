@@ -228,7 +228,9 @@ fn anchor_body_handle<'a>(
 /// Resolve a `Selector::Pid` against the live kernel (drawings spec D0 §4
 /// item 4).
 ///
-/// 1. An entity of the anchor body whose `pid` matches wins.
+/// 1. An entity of the anchor body whose `pid` matches **and whose
+///    `root_pid` still matches the recorded one** wins. The root is a
+///    mandatory cross-check, not a second choice: see below.
 /// 2. Otherwise, an entity whose `root_pid` matches the stored `root_pid`
 ///    wins — this is the face that a later boolean rebuilt, carrying a fresh
 ///    pid but the same lineage root. The warning says so.
@@ -241,6 +243,31 @@ fn anchor_body_handle<'a>(
 /// nearest or first match under `BestEffort`; this one must not, because
 /// silently rebinding a dimension to a different edge produces a drawing
 /// that is wrong rather than one that is visibly broken (P9/P10).
+///
+/// # Why the root is checked and not just preferred
+///
+/// A pid is not globally unique forever — it is unique within one body at
+/// one moment. Faces built by a constructor are content-seeded (D0 item 1),
+/// but a BOOLEAN's own output faces are still counter-allocated, and a
+/// counter restarts in a fresh arena. So a reopened document whose earlier
+/// boolean changed its output face count re-mints the same numbers onto
+/// different faces. Measured 2026-10-03 (one plate, two pockets): a name
+/// recorded against the second pocket's floor came back, after a reopen, on
+/// that pocket's SIDE WALL — matched exactly by `pid`, with the floor still
+/// present and unnamed.
+///
+/// The root is what catches it: the floor descends from the cutter's end
+/// cap and the wall from its lateral, so their roots differ even when a
+/// recycled number does not. Requiring both means a reused number is no
+/// longer a match at all; resolution falls through to the recorded root,
+/// which still names the right face, and the caller is TOLD the number was
+/// re-minted. If nothing answers, it refuses.
+///
+/// This cannot catch every reuse: edges and vertices carry `root_pid ==
+/// pid`, so for them the check is vacuous. It does not need to be more —
+/// their ids are content-seeded from their faces' lineage roots already
+/// (`kernel_v2::pid`), so they are not counter-allocated and have no
+/// recycled numbers to confuse.
 pub fn resolve_by_pid(
     geom_ref: &GeomRef,
     feature_results: &std::collections::HashMap<Uuid, OpResult>,
@@ -261,9 +288,11 @@ pub fn resolve_by_pid(
         });
     }
 
+    // The number AND the lineage it was recorded with. A face that answers
+    // to the number alone is not this reference's face.
     let exact: Vec<KernelId> = known
         .iter()
-        .filter(|(_, p)| p.pid == pid)
+        .filter(|(_, p)| p.pid == pid && p.root_pid == root_pid)
         .map(|(id, _)| *id)
         .collect();
     if exact.len() == 1 {
@@ -284,26 +313,64 @@ pub fn resolve_by_pid(
         });
     }
 
+    // The number is on the body but on OTHER geometry: a recycled
+    // counter-allocated id (a boolean output's — D0 item 1b). Whatever
+    // answers below, the caller is told this happened, because "the id I
+    // recorded now belongs to something else" is the fact that decides
+    // whether a stored reference is still trustworthy.
+    let reused: Vec<u64> = known
+        .iter()
+        .filter(|(_, p)| p.pid == pid && p.root_pid != root_pid)
+        .map(|(_, p)| p.root_pid)
+        .collect();
+    let reuse_note = (!reused.is_empty()).then(|| {
+        format!(
+            "{:?} pid {} is no longer this entity's: it now belongs to geometry rooted at {} \
+             (recorded root {}), so the id was re-minted onto something else — it was not \
+             matched by number",
+            geom_ref.kind,
+            pid,
+            reused
+                .iter()
+                .map(u64::to_string)
+                .collect::<Vec<_>>()
+                .join(", "),
+            root_pid
+        )
+    });
+
     let by_root: Vec<KernelId> = known
         .iter()
         .filter(|(_, p)| p.root_pid == root_pid)
         .map(|(id, _)| *id)
         .collect();
     match by_root.len() {
-        1 => Ok(ResolvedRef {
-            kernel_id: by_root[0],
-            warnings: vec![format!(
+        1 => {
+            let mut warnings = Vec::new();
+            warnings.extend(reuse_note);
+            warnings.push(format!(
                 "{:?} pid {} is gone; resolved through its lineage root {} (geometry was rebuilt \
                  by a later operation)",
                 geom_ref.kind, pid, root_pid
-            )],
-        }),
+            ));
+            Ok(ResolvedRef {
+                kernel_id: by_root[0],
+                warnings,
+            })
+        }
         0 => Err(EngineError::ResolutionFailed {
-            reason: format!(
-                "no {:?} with persistent id {} (root {}) on this body — the referenced entity no \
-                 longer exists",
-                geom_ref.kind, pid, root_pid
-            ),
+            reason: match reuse_note {
+                Some(note) => format!(
+                    "no {:?} on this body carries persistent id {} with root {} — {}, and nothing \
+                     descends from that root any more",
+                    geom_ref.kind, pid, root_pid, note
+                ),
+                None => format!(
+                    "no {:?} with persistent id {} (root {}) on this body — the referenced entity \
+                     no longer exists",
+                    geom_ref.kind, pid, root_pid
+                ),
+            },
         }),
         n => Err(EngineError::ResolutionFailed {
             reason: format!(
@@ -1456,6 +1523,65 @@ mod tests {
             "the root fallback must be reported, got {:?}",
             got.warnings
         );
+    }
+
+    /// The root is a CROSS-CHECK, not a second choice: an entity carrying
+    /// the recorded number but a different lineage root is not this
+    /// reference's entity, and the recorded root answers instead.
+    ///
+    /// This is the counter-reuse case (D0 item 1b): a boolean output's pid is
+    /// counter-allocated, and a reopened document re-mints the number onto
+    /// other geometry. Measured end to end in
+    /// `crates/wasm-bridge/tests/tool_names.rs`
+    /// (`a_name_on_a_boolean_output_face_does_not_move_after_a_reload`).
+    #[test]
+    fn a_recycled_pid_is_not_a_match_and_the_recorded_root_answers() {
+        // 22 is now held by geometry rooted at 8800; the entity that was
+        // recorded as (22, 7001) has been re-minted as 9100 but kept its root.
+        let (fid, results, k) =
+            pid_fixture(vec![(KernelId(10), 22, 8800), (KernelId(11), 9100, 7001)]);
+        let got =
+            resolve_geom_ref_live(&pid_ref(fid, 22, 7001, ResolvePolicy::Strict), &results, &k)
+                .expect("the recorded root still names it");
+        assert_eq!(
+            got.kernel_id,
+            KernelId(11),
+            "the number alone must not win: {:?}",
+            got.warnings
+        );
+        assert!(
+            got.warnings
+                .iter()
+                .any(|w| w.contains("re-minted onto something else")),
+            "the caller is told the id now belongs elsewhere, got {:?}",
+            got.warnings
+        );
+        assert!(
+            got.warnings.iter().any(|w| w.contains("lineage root")),
+            "and which door answered, got {:?}",
+            got.warnings
+        );
+    }
+
+    /// Same reuse, but nothing descends from the recorded root any more: a
+    /// typed refusal that names the reuse, never the entity holding the
+    /// recycled number.
+    #[test]
+    fn a_recycled_pid_with_no_surviving_root_is_refused() {
+        for policy in [ResolvePolicy::Strict, ResolvePolicy::BestEffort] {
+            let (fid, results, k) = pid_fixture(vec![(KernelId(10), 22, 8800)]);
+            let err = resolve_geom_ref_live(&pid_ref(fid, 22, 7001, policy), &results, &k)
+                .expect_err("a recycled number is not a match");
+            match &err {
+                EngineError::ResolutionFailed { reason } => {
+                    assert!(
+                        reason.contains("re-minted onto something else"),
+                        "{policy:?}: the refusal says why, got {reason}"
+                    );
+                }
+                other => panic!("{policy:?}: want ResolutionFailed, got {other:?}"),
+            }
+        }
     }
 
     /// The property the whole selector exists for: a reference whose entity

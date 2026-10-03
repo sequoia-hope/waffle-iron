@@ -62,6 +62,7 @@ import {
 	kicadLinkTool
 } from './export.js';
 import { modelSummaryTool } from './model_summary.js';
+import { entityNameTool, entityUnnameTool, namesListTool } from './names.js';
 import {
 	scriptFeatureAddTool,
 	scriptRunCheckTool,
@@ -93,6 +94,7 @@ export const TOOLS = [
 	faceListTool,
 	sketchRegionsTool,
 	sketch3dGetTool,
+	namesListTool,
 	expressionEvaluateTool,
 	viewportViewTool,
 	viewportCaptureTool,
@@ -104,6 +106,8 @@ export const TOOLS = [
 	featureReorderTool,
 	featureRenameTool,
 	bodyRenameTool,
+	entityNameTool,
+	entityUnnameTool,
 	rollbackSetTool,
 	parametersSetTool,
 	undoTool,

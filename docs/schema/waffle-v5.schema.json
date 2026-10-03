@@ -949,6 +949,13 @@
           },
           "type": "array"
         },
+        "names": {
+          "additionalProperties": {
+            "$ref": "#/$defs/NamedRef"
+          },
+          "description": "Entity names (N1, `specs/agent_mechanical_design.md` §5.2): labels an\nagent or user assigned to faces, edges and vertices, each keyed by the\nname and pointing at a `Selector::Pid` reference. NOT GC'd on feature\ndelete — a name whose entity is gone is information (`resolves:\nfalse`), not litter. Its references persist a `Selector::Pid`, which\nan older reader cannot parse, so this field arrived with format v7.",
+          "type": "object"
+        },
         "parameters": {
           "description": "Named design variables. Order is display order only; expressions may\nreference any parameter regardless of position.",
           "items": {
@@ -1901,6 +1908,40 @@
           "type": "object"
         }
       ]
+    },
+    "NamedRef": {
+      "description": "One named entity: what it points at, and what it was when it was named.",
+      "properties": {
+        "created": {
+          "$ref": "#/$defs/Provenance",
+          "description": "Who named it (ICR-4), the same record a feature's provenance carries."
+        },
+        "fallback": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/GeomRef"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "The reference as the caller authored it, kept ONLY when `target` is a\npid — the fallback §5.2 asks for, used when the pid is gone and\nreported as `resolved_by: \"query\"` so the agent knows the primary\nidentity was lost. Absent when `target` already IS the authored\nreference."
+        },
+        "kind": {
+          "$ref": "#/$defs/TopoKind",
+          "description": "What kind of entity this names. Redundant with `target.kind`, and kept\nbecause the tools answer with it and a caller should not have to reach\ninto the reference to branch on it."
+        },
+        "target": {
+          "$ref": "#/$defs/GeomRef",
+          "description": "The preferred reference: `Selector::Pid` when the kernel had an id for\nthe entity at naming time, else whatever selector identified it.\nAlways stored with `ResolvePolicy::Strict` (§5.3): an agent sees no\nwarning, so a near miss would be a silent wrong answer."
+        }
+      },
+      "required": [
+        "target",
+        "kind",
+        "created"
+      ],
+      "type": "object"
     },
     "Operation": {
       "description": "A parametric modeling operation with its parameters. Any other well-formed object with a string `type` (an operation kind from a newer build) is preserved verbatim, re-emitted on save, and fails its rebuild loudly.",
