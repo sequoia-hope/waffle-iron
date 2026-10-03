@@ -87,9 +87,20 @@ fn pin_sketch_plane_face(
     if !is_local_model_face(plane) {
         return None;
     }
+    // STRICT whatever the pick carried, unlike a name (N2 §5.3). A name's
+    // policy is the author's: an agent's refuses when the identity is gone, a
+    // user's rebinds by geometry and warns, because a person can look at what
+    // it bound. §5.3 item 3 gives a sketch no such choice — "fail loudly on a
+    // non-planar or missing face" — and the reason is the geometry, not the
+    // audience: a sketch that rebinds to whichever face scores best moves
+    // every point of itself and every feature below it, and the plate's top
+    // face is always sitting right there to be found. The face a user picked
+    // in the viewport is pinned exactly as hard as one an agent named.
+    let mut authored = plane.clone();
+    authored.policy = waffle_types::ResolvePolicy::Strict;
     let introspect = kb.as_introspect();
     let pinned =
-        feature_engine::resolve::pin_identity(plane, &state.engine.feature_results, introspect)
+        feature_engine::resolve::pin_identity(&authored, &state.engine.feature_results, introspect)
             .ok()?;
     let signature = introspect.compute_signature(pinned.kernel_id, waffle_types::TopoKind::Face);
     Some(waffle_types::SketchFaceRef {

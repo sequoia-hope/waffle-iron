@@ -142,10 +142,14 @@ fn top_face_ref(block: Uuid) -> GeomRef {
 }
 
 /// Pin `authored` the way `dispatch::pin_sketch_plane_face` does at
-/// `BeginSketch`: the persistent id, the authored reference as the fallback,
-/// and the face's signature for the refusal to report.
+/// `BeginSketch`: `Strict` whatever the pick carried (§5.3 item 3 gives a
+/// sketch no rebind, however the face was picked), the persistent id, the
+/// authored reference as the fallback, and the face's signature for the
+/// refusal to report.
 fn pin_plane_face(engine: &Engine, kernel: &MockKernel, authored: &GeomRef) -> SketchFaceRef {
-    let pinned = feature_engine::resolve::pin_identity(authored, &engine.feature_results, kernel)
+    let mut authored = authored.clone();
+    authored.policy = ResolvePolicy::Strict;
+    let pinned = feature_engine::resolve::pin_identity(&authored, &engine.feature_results, kernel)
         .expect("the authored reference resolves at pinning time");
     SketchFaceRef {
         target: pinned.target,
@@ -362,12 +366,21 @@ fn a_sketch_with_no_pinned_face_is_untouched() {
 /// a face. That is a REBIND, so it is reported — "may be a different face" —
 /// and the sketch still builds, because something plausible did answer.
 #[test]
-fn a_face_re_found_by_geometry_is_reported_as_a_rebind() {
+fn a_face_whose_pid_and_root_are_both_gone_refuses_rather_than_rebinding() {
     let (mut engine, mut kernel, block) = plate();
     let mut face = pin_plane_face(&engine, &kernel, &top_face_ref(block));
-    // Break the pid, keep the authored role selector as the fallback: the
-    // shape a reopened document takes when the kernel re-minted the number
-    // (N1's D0 item 1b note) — the ladder must fall through to the fallback.
+    // Break the pid AND its lineage root, keeping the authored role selector
+    // as the fallback. The fallback would answer — the plate's top cap is
+    // still there and still has that role — and for a NAME a user picked it
+    // would, with a warning. A sketch's face is pinned `Strict`, so it does
+    // not: §5.3 item 3 asks for a loud failure on a missing face, and a
+    // sketch re-bound by geometry moves every point of itself and every
+    // feature below it.
+    //
+    // (A number re-minted on reopen, with its recorded ROOT intact, is the
+    // other case and is not this one: `resolve_by_pid`'s second rung answers
+    // it and warns — `an_edit_to_the_boss_keeps_the_pin_and_reports_the_face_moving`
+    // over the real kernel.)
     face.target.selector = Selector::Pid {
         pid: u64::MAX,
         root_pid: u64::MAX,
@@ -388,23 +401,23 @@ fn a_face_re_found_by_geometry_is_reported_as_a_rebind() {
         )
         .expect("the sketch is accepted");
 
+    let error = error_of(&engine, sid).expect("the sketch refuses");
     assert!(
-        engine.errors.is_empty(),
-        "it still builds: {:?}",
-        engine.errors
+        error
+            .message
+            .contains("the face this sketch is drawn on is gone"),
+        "{}",
+        error.message
     );
     assert!(
-        engine.feature_results.contains_key(&sid),
-        "a rebind is a warning, not a refusal"
+        error.message.contains("It was a planar face"),
+        "naming the face that went missing: {}",
+        error.message
     );
     assert!(
-        engine
-            .warnings
-            .iter()
-            .any(|w| w.contains("lost its persistent identity")
-                && w.contains("may be a different face")),
-        "the rebind is reported: {:?}",
-        engine.warnings
+        !engine.feature_results.contains_key(&sid),
+        "and it produced nothing — it is not drawn on the face the fallback \
+         would have found"
     );
 }
 
