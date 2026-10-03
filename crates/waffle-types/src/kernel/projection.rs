@@ -42,6 +42,27 @@
 //! This is what makes the §5.3 projected-bbox oracle an EQUALITY for a curved
 //! solid: its extreme points lie on a silhouette, not on an edge.
 //!
+//! ## What D1c adds
+//!
+//! **Visibility** (spec §5.2 increment 3). Every projected curve is split at
+//! its `(u, v)` crossings with every other projected curve and at its own
+//! cusps, and each piece is tagged [`Visibility::Visible`] or
+//! [`Visibility::Hidden`] by whether a face of the solid stands in front of
+//! it. Each classified piece carries the [`CurveDepth`] the verdict was
+//! reached at, so a hidden piece knows what hides it.
+//!
+//! D1c also puts the kernel's own DECLINES on the contract, as
+//! [`ProjectionDeclines`] on [`ViewGeometry`]. A projection can meet a
+//! configuration it refuses to decide — a silhouette whose boundary crossings
+//! are all tangential, a near-tangential curve crossing that may not have been
+//! split, a curve of one body not tested against another body's geometry — and
+//! before D1c those were print-only (`KV2_SILHOUETTE_CENSUS`), so no oracle
+//! could pin them and a regression that started declining everything would
+//! have looked like a clean drawing. They are counted now, by kind. Every one
+//! of them is an UNDER-report (a missing dashed line, a missing arc) except
+//! [`ProjectionDeclines::cross_body`], which is named separately for exactly
+//! that reason.
+//!
 //! ## Deviations from the spec's sketch, and why
 //!
 //! - **`ProjectedCurve::source` is a [`KernelId`], not a `GeomRef`.** A
@@ -241,12 +262,140 @@ pub struct ProjectOpts {
     pub rel_chord_tolerance: Option<f64>,
 }
 
-/// Whether the viewer can see a curve. D1a and D1b tag everything `Visible` —
-/// a silhouette can be hidden too, and `Hidden` is produced by D1c.
+/// Whether the viewer can see a curve.
+///
+/// D1a and D1b tagged everything `Visible`; since D1c the kernel splits each
+/// projected curve at its crossings and classifies each piece, so `Hidden` is
+/// a produced answer and a drawing's HIDDEN layer is populated.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum Visibility {
     Visible,
     Hidden,
+}
+
+/// Where a classified curve sits in depth along the line of sight (D1c).
+///
+/// Carried so that a consumer can order coincident curves, and so a `Hidden`
+/// piece knows WHAT hides it rather than only that something does — which is
+/// what a section view (D1d) needs when it has to decide whether the occluder
+/// is the part of the solid the section removed.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct CurveDepth {
+    /// Depth of the curve's own 3-D source at the point the classification
+    /// sampled — the curve's parameter midpoint. Depth grows AWAY from the
+    /// viewer (see [`ViewBasis::project`]), so smaller is nearer.
+    pub at_midpoint: f64,
+    /// Depth of the NEAREST face found in front of that point, when one was
+    /// found. `Some` exactly when the curve came back
+    /// [`Visibility::Hidden`]; `None` for a visible one, where by definition
+    /// nothing was in front.
+    pub occluder: Option<f64>,
+}
+
+/// Configurations a projection DECLINED to decide, by kind and counted.
+///
+/// The kernel's projection under-reports rather than guesses: a silhouette arc
+/// it cannot clip is dropped, a crossing it cannot locate is not split, a
+/// depth it cannot recover leaves the curve visible. Each of those is a real
+/// difference between the drawing and the solid, so each is counted here and
+/// travels with the [`ViewGeometry`] — an oracle can pin the counts, and a
+/// caller can tell a clean drawing from a quiet one.
+///
+/// Every field is an under-report of HIDDEN or of silhouette arcs — a drawing
+/// missing a line — except [`ProjectionDeclines::cross_body`], which is an
+/// over-report of VISIBLE and is named apart for that reason.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub struct ProjectionDeclines {
+    /// D1b: a closed silhouette path whose only boundary crossings were
+    /// TANGENTIAL, so the arc a hole removes from it has no transversal
+    /// crossing to find. The whole path is dropped rather than drawn through
+    /// the hole.
+    pub silhouette_grazing_removal: u32,
+    /// D1b: a closed silhouette path whose crossings did not alternate
+    /// enter/exit — a tangency the sign test missed, or a boundary running
+    /// along the silhouette. Declined rather than paired arbitrarily.
+    pub silhouette_non_alternating: u32,
+    /// D1b: a closed silhouette path with no crossings that the face's own
+    /// render triangles placed OFF the face. A decision, not a decline, in
+    /// the generic case — counted because it is the branch that pays for the
+    /// one non-local question, and a path running within a chord sagitta
+    /// outside the boundary lands here too.
+    pub silhouette_off_face: u32,
+    /// D1b: a face with no render triangles at all, so that question could
+    /// not be asked.
+    pub silhouette_no_triangles: u32,
+    /// D1c: a near-tangential crossing of two projected curves — a contact
+    /// where the curves touch without crossing, within the band the pair can
+    /// be resolved to. The split may be missing, so one classified piece may
+    /// span two visibilities and report only the one at its midpoint.
+    pub split_tangency: u32,
+    /// D1c: the all-pairs crossing search hit its work budget on this view,
+    /// so the curves past that point were classified UNSPLIT. A whole-view
+    /// decline, counted once.
+    pub split_budget: u32,
+    /// D1c: a curve piece whose own 3-D depth could not be recovered from its
+    /// source, so nothing could be tested in front of it and it stays
+    /// visible.
+    pub depth_unliftable: u32,
+    /// D1c: the view ray lay IN a candidate triangle's plane, where the exact
+    /// segment/triangle predicate reports neither a hit nor a miss. That
+    /// triangle contributes no occlusion.
+    pub ray_coplanar: u32,
+    /// D1c: bodies whose curves were classified against their OWN geometry
+    /// only. Visibility is computed per body, so in a multi-body view a curve
+    /// hidden behind a DIFFERENT body is still reported visible. Counted once
+    /// per body in a view of more than one.
+    pub cross_body: u32,
+}
+
+impl ProjectionDeclines {
+    /// Every counter with its name — so a report cannot drift from the struct.
+    pub fn counts(&self) -> [(&'static str, u32); 9] {
+        [
+            (
+                "silhouette_grazing_removal",
+                self.silhouette_grazing_removal,
+            ),
+            (
+                "silhouette_non_alternating",
+                self.silhouette_non_alternating,
+            ),
+            ("silhouette_off_face", self.silhouette_off_face),
+            ("silhouette_no_triangles", self.silhouette_no_triangles),
+            ("split_tangency", self.split_tangency),
+            ("split_budget", self.split_budget),
+            ("depth_unliftable", self.depth_unliftable),
+            ("ray_coplanar", self.ray_coplanar),
+            ("cross_body", self.cross_body),
+        ]
+    }
+
+    /// Total declines of every kind.
+    pub fn total(&self) -> u32 {
+        self.counts().iter().map(|(_, n)| *n).sum()
+    }
+
+    /// Add another projection's declines to these — how the per-body counts of
+    /// a multi-body view add up.
+    pub fn merge(&mut self, other: &ProjectionDeclines) {
+        self.silhouette_grazing_removal = self
+            .silhouette_grazing_removal
+            .saturating_add(other.silhouette_grazing_removal);
+        self.silhouette_non_alternating = self
+            .silhouette_non_alternating
+            .saturating_add(other.silhouette_non_alternating);
+        self.silhouette_off_face = self
+            .silhouette_off_face
+            .saturating_add(other.silhouette_off_face);
+        self.silhouette_no_triangles = self
+            .silhouette_no_triangles
+            .saturating_add(other.silhouette_no_triangles);
+        self.split_tangency = self.split_tangency.saturating_add(other.split_tangency);
+        self.split_budget = self.split_budget.saturating_add(other.split_budget);
+        self.depth_unliftable = self.depth_unliftable.saturating_add(other.depth_unliftable);
+        self.ray_coplanar = self.ray_coplanar.saturating_add(other.ray_coplanar);
+        self.cross_body = self.cross_body.saturating_add(other.cross_body);
+    }
 }
 
 /// What the curve is in the drawing.
@@ -309,11 +458,39 @@ pub enum Curve2 {
 }
 
 impl Curve2 {
-    /// Point at parameter `t`, for the parameterized arms; `None` for a
-    /// polyline or a point (sample those from their own data).
-    fn eval(&self, t: f64) -> Option<Point2> {
+    /// Point at parameter `t`.
+    ///
+    /// Every arm is parameterized, and [`Curve2::param_range`] gives the
+    /// domain: `[0, 1]` along a line, the angular or elliptic interval of a
+    /// circular or elliptic arc, `[0, chords]` along a polyline (so the
+    /// integer parameters ARE its vertices), and the degenerate `[0, 0]` of a
+    /// point. `None` only for an empty polyline, which has no points to
+    /// answer with.
+    ///
+    /// The parameterization is what D1c splits on, and it is deliberately the
+    /// curve's OWN: a sub-curve of a circular arc is the same circle over a
+    /// sub-interval, with no resampling and no accumulated error.
+    pub fn eval(&self, t: f64) -> Option<Point2> {
         match *self {
-            Curve2::Point(_) | Curve2::Polyline { .. } => None,
+            Curve2::Point(p) => Some(p),
+            Curve2::Polyline { ref points, closed } => {
+                let chords = polyline_chords(points.len(), closed)?;
+                if chords == 0 {
+                    return Some(points[0]); // a one-point polyline IS that point
+                }
+                // `floor` then clamp: the last chord owns `t == chords`, and a
+                // parameter outside the domain evaluates on the nearest chord's
+                // own line rather than refusing — the clip's callers hand this
+                // function roots that can sit a float epsilon outside.
+                let i = (t.floor() as isize).clamp(0, chords as isize - 1) as usize;
+                let f = t - i as f64;
+                let a = points[i];
+                let b = points[(i + 1) % points.len()];
+                Some(Point2::new(
+                    a.x() + f * (b.x() - a.x()),
+                    a.y() + f * (b.y() - a.y()),
+                ))
+            }
             Curve2::Line { start, end } => Some(Point2::new(
                 start.x() + t * (end.x() - start.x()),
                 start.y() + t * (end.y() - start.y()),
@@ -339,10 +516,14 @@ impl Curve2 {
         }
     }
 
-    /// The curve's parameter range, for the parameterized arms.
-    fn range(&self) -> Option<(f64, f64)> {
+    /// The curve's parameter domain — see [`Curve2::eval`]. `None` only for an
+    /// empty polyline.
+    pub fn param_range(&self) -> Option<(f64, f64)> {
         match *self {
-            Curve2::Point(_) | Curve2::Polyline { .. } => None,
+            Curve2::Point(_) => Some((0.0, 0.0)),
+            Curve2::Polyline { ref points, closed } => {
+                Some((0.0, polyline_chords(points.len(), closed)? as f64))
+            }
             Curve2::Line { .. } => Some((0.0, 1.0)),
             Curve2::Circle {
                 start_angle,
@@ -364,7 +545,7 @@ impl Curve2 {
             Curve2::Point(_) => None,
             Curve2::Line { start, end } => Some((*start, *end)),
             Curve2::Circle { .. } | Curve2::Ellipse { .. } => {
-                let (t0, t1) = self.range()?;
+                let (t0, t1) = self.param_range()?;
                 if (t1 - t0) >= std::f64::consts::TAU - 1e-12 {
                     return None;
                 }
@@ -401,7 +582,7 @@ impl Curve2 {
                 }
             }
             Curve2::Circle { .. } | Curve2::Ellipse { .. } => {
-                let (t0, t1) = self.range().expect("parameterized arm has a range");
+                let (t0, t1) = self.param_range().expect("parameterized arm has a range");
                 let mut bb = Aabb2::point(self.eval(t0).expect("parameterized arm evaluates"))
                     .united_point(self.eval(t1).expect("parameterized arm evaluates"));
                 for t in self.axis_extremes() {
@@ -418,7 +599,7 @@ impl Curve2 {
     /// `2π` period the curve's range can reach.
     fn axis_extremes(&self) -> Vec<f64> {
         use std::f64::consts::{PI, TAU};
-        let (t0, t1) = match self.range() {
+        let (t0, t1) = match self.param_range() {
             Some(r) => r,
             None => return Vec::new(),
         };
@@ -542,7 +723,7 @@ impl Curve2 {
                 major_radius: radius,
                 ..
             } => {
-                let (t0, t1) = self.range().expect("parameterized arm has a range");
+                let (t0, t1) = self.param_range().expect("parameterized arm has a range");
                 let n = segment_count(*radius, t1 - t0, sagitta);
                 (0..=n)
                     .map(|i| {
@@ -562,9 +743,99 @@ impl Curve2 {
             Curve2::Line { .. } => false,
             Curve2::Polyline { closed, .. } => *closed,
             Curve2::Circle { .. } | Curve2::Ellipse { .. } => self
-                .range()
+                .param_range()
                 .is_some_and(|(a, b)| b - a >= std::f64::consts::TAU - 1e-12),
         }
+    }
+
+    /// The part of this curve between parameters `t0` and `t1`, as the SAME
+    /// kind of curve over a sub-interval.
+    ///
+    /// This is D1c's splitting primitive, and keeping the kind is the point:
+    /// half of a circular arc is a circular arc of the same centre and radius,
+    /// not a polyline, so a drawing that has been split for hidden-line
+    /// removal still carries true `ARC` entities. A polyline's sub-curve keeps
+    /// the vertices strictly inside `(t0, t1)` and adds the two interpolated
+    /// ends, so it is a sub-polyline of the original and nothing is resampled.
+    ///
+    /// `None` when the interval is empty or degenerate (`t1 <= t0`), when it
+    /// falls outside [`Curve2::param_range`], or for the arms with nothing to
+    /// cut — a point, and an empty polyline. A sub-curve of a CLOSED curve is
+    /// an open one, which is why a full turn asked for in full comes back
+    /// unchanged rather than as an arc of itself.
+    pub fn subcurve(&self, t0: f64, t1: f64) -> Option<Curve2> {
+        let (lo, hi) = self.param_range()?;
+        if !(t0.is_finite() && t1.is_finite()) || t1 <= t0 {
+            return None;
+        }
+        // The caller's interval, clamped to the domain. A root the clip found
+        // can sit a float epsilon outside it.
+        let (t0, t1) = (t0.max(lo), t1.min(hi));
+        if t1 <= t0 {
+            return None;
+        }
+        if t0 <= lo && t1 >= hi {
+            return Some(self.clone());
+        }
+        match *self {
+            Curve2::Point(_) => None,
+            Curve2::Line { .. } => {
+                let (a, b) = (self.eval(t0)?, self.eval(t1)?);
+                Some(Curve2::Line { start: a, end: b })
+            }
+            Curve2::Circle { center, radius, .. } => Some(Curve2::Circle {
+                center,
+                radius,
+                start_angle: t0,
+                end_angle: t1,
+            }),
+            Curve2::Ellipse {
+                center,
+                major_axis,
+                major_radius,
+                minor_radius,
+                ..
+            } => Some(Curve2::Ellipse {
+                center,
+                major_axis,
+                major_radius,
+                minor_radius,
+                start_param: t0,
+                end_param: t1,
+            }),
+            Curve2::Polyline { ref points, closed } => {
+                let chords = polyline_chords(points.len(), closed)?;
+                let mut out = vec![self.eval(t0)?];
+                // The original's own vertices, which are the integers.
+                let first = (t0.floor() as usize) + 1;
+                for i in first..=chords {
+                    if (i as f64) <= t0 || (i as f64) >= t1 {
+                        continue;
+                    }
+                    out.push(points[i % points.len()]);
+                }
+                out.push(self.eval(t1)?);
+                out.dedup_by(|b, a| (b.x() - a.x()).abs() <= 0.0 && (b.y() - a.y()).abs() <= 0.0);
+                if out.len() < 2 {
+                    return None;
+                }
+                Some(Curve2::Polyline {
+                    points: out,
+                    closed: false,
+                })
+            }
+        }
+    }
+}
+
+/// How many chords a polyline of `n` points has: one fewer than its points
+/// when open, and one per point when closed (the last returning to the
+/// first). `None` for an empty one, and zero chords for a single point.
+fn polyline_chords(n: usize, closed: bool) -> Option<usize> {
+    match n {
+        0 => None,
+        1 => Some(0),
+        n => Some(if closed { n } else { n - 1 }),
     }
 }
 
@@ -636,6 +907,24 @@ pub struct ProjectedCurve {
     /// for a silhouette — or `None` when the kernel cannot name one. See the
     /// module docs for why this is a `KernelId` and not a `GeomRef`.
     pub source: Option<KernelId>,
+    /// Where the curve sits in depth, and what hides it — `Some` once D1c has
+    /// classified it, `None` for an unclassified wireframe curve.
+    pub depth: Option<CurveDepth>,
+}
+
+impl ProjectedCurve {
+    /// An unclassified curve: visible, with no depth recorded. What the edge
+    /// and silhouette passes produce before D1c's classification runs over
+    /// them, and what a caller asking only for a wireframe gets.
+    pub fn visible(geometry: Curve2, kind: CurveKind, source: Option<KernelId>) -> ProjectedCurve {
+        ProjectedCurve {
+            geometry,
+            visibility: Visibility::Visible,
+            kind,
+            source,
+            depth: None,
+        }
+    }
 }
 
 /// Everything a drawing view needs from the kernel.
@@ -644,26 +933,43 @@ pub struct ViewGeometry {
     pub curves: Vec<ProjectedCurve>,
     /// Exact bounding box of every curve, or `None` when there are none.
     pub bbox: Option<Aabb2>,
+    /// What the projection declined to decide while producing these curves.
+    pub declines: ProjectionDeclines,
 }
 
 impl ViewGeometry {
-    /// A view of `curves`, with the bounding box computed from them.
+    /// A view of `curves`, with the bounding box computed from them and no
+    /// declines.
     pub fn new(curves: Vec<ProjectedCurve>) -> ViewGeometry {
+        ViewGeometry::with_declines(curves, ProjectionDeclines::default())
+    }
+
+    /// A view of `curves` with the declines its production accumulated.
+    pub fn with_declines(
+        curves: Vec<ProjectedCurve>,
+        declines: ProjectionDeclines,
+    ) -> ViewGeometry {
         let bbox = curves
             .iter()
             .map(|c| c.geometry.bbox())
             .reduce(|a, b| a.united(b));
-        ViewGeometry { curves, bbox }
+        ViewGeometry {
+            curves,
+            bbox,
+            declines,
+        }
     }
 
     /// Append another view's curves — how several bodies land in one view.
-    /// Both must already be in the same view frame.
+    /// Both must already be in the same view frame. Declines add up, since
+    /// each body's are the same kind of statement about the same view.
     pub fn extend(&mut self, other: ViewGeometry) {
         self.curves.extend(other.curves);
         self.bbox = match (self.bbox, other.bbox) {
             (Some(a), Some(b)) => Some(a.united(b)),
             (a, b) => a.or(b),
         };
+        self.declines.merge(&other.declines);
     }
 
     /// Total length of every curve tagged `visibility`.
@@ -1117,7 +1423,7 @@ mod tests {
             let pts = curve.flatten(sagitta);
             assert!(pts.len() > 4, "{} points", pts.len());
             // Midpoint of each chord must be within `sagitta` of the curve.
-            let (t0, t1) = curve.range().expect("range");
+            let (t0, t1) = curve.param_range().expect("range");
             let n = pts.len() - 1;
             for i in 0..n {
                 let tm = t0 + (t1 - t0) * (i as f64 + 0.5) / (n as f64);
@@ -1173,12 +1479,7 @@ mod tests {
 
     #[test]
     fn a_view_geometrys_bbox_is_the_union_of_its_curves() {
-        let mk = |c: Curve2| ProjectedCurve {
-            geometry: c,
-            visibility: Visibility::Visible,
-            kind: CurveKind::Edge,
-            source: None,
-        };
+        let mk = |c: Curve2| ProjectedCurve::visible(c, CurveKind::Edge, None);
         let empty = ViewGeometry::new(Vec::new());
         assert!(empty.bbox.is_none());
         assert_eq!(empty.total_length(Visibility::Visible), 0.0);
@@ -1210,6 +1511,257 @@ mod tests {
     #[test]
     fn default_opts_ask_for_the_kernels_own_density() {
         assert_eq!(ProjectOpts::default().rel_chord_tolerance, None);
+    }
+
+    // --- D1c: the parameterization, and the splitting primitive over it ---
+
+    #[test]
+    fn every_arm_is_parameterized_and_its_domain_evaluates() {
+        let p = Point2::new(1.0, 2.0);
+        let cases = [
+            Curve2::Point(p),
+            Curve2::Line {
+                start: p,
+                end: Point2::new(4.0, 6.0),
+            },
+            Curve2::Circle {
+                center: p,
+                radius: 2.0,
+                start_angle: 0.3,
+                end_angle: 1.7,
+            },
+            Curve2::Ellipse {
+                center: p,
+                major_axis: [0.6, 0.8],
+                major_radius: 3.0,
+                minor_radius: 1.0,
+                start_param: -0.5,
+                end_param: 2.0,
+            },
+            Curve2::Polyline {
+                points: vec![p, Point2::new(2.0, 2.0), Point2::new(2.0, 5.0)],
+                closed: false,
+            },
+            Curve2::Polyline {
+                points: vec![p, Point2::new(2.0, 2.0), Point2::new(2.0, 5.0)],
+                closed: true,
+            },
+        ];
+        for c in &cases {
+            let (t0, t1) = c.param_range().expect("every arm has a domain");
+            assert!(t1 >= t0, "{c:?}: empty domain {t0}..{t1}");
+            assert!(c.eval(t0).is_some() && c.eval(t1).is_some(), "{c:?}");
+        }
+        // The polyline's integer parameters ARE its vertices, which is what
+        // makes a sub-polyline exact rather than resampled.
+        let line = Curve2::Polyline {
+            points: vec![p, Point2::new(2.0, 2.0), Point2::new(2.0, 5.0)],
+            closed: false,
+        };
+        assert_eq!(line.param_range(), Some((0.0, 2.0)));
+        assert_eq!(line.eval(1.0), Some(Point2::new(2.0, 2.0)));
+        assert_eq!(line.eval(1.5), Some(Point2::new(2.0, 3.5)));
+        // Closed: one more chord, back to the first point.
+        let ring = Curve2::Polyline {
+            points: vec![p, Point2::new(2.0, 2.0), Point2::new(2.0, 5.0)],
+            closed: true,
+        };
+        assert_eq!(ring.param_range(), Some((0.0, 3.0)));
+        assert_eq!(ring.eval(3.0), Some(p));
+        // The degenerate ends, which must answer rather than panic.
+        assert!(Curve2::Polyline {
+            points: Vec::new(),
+            closed: false
+        }
+        .param_range()
+        .is_none());
+        let single = Curve2::Polyline {
+            points: vec![p],
+            closed: true,
+        };
+        assert_eq!(single.param_range(), Some((0.0, 0.0)));
+        assert_eq!(single.eval(7.0), Some(p));
+    }
+
+    #[test]
+    fn a_subcurve_keeps_the_curves_own_kind() {
+        let arc = Curve2::Circle {
+            center: Point2::new(1.0, 1.0),
+            radius: 2.0,
+            start_angle: 0.0,
+            end_angle: TAU,
+        };
+        let half = arc.subcurve(0.0, PI).expect("half of a circle");
+        match half {
+            Curve2::Circle {
+                center,
+                radius,
+                start_angle,
+                end_angle,
+            } => {
+                assert_eq!((center.x(), center.y()), (1.0, 1.0));
+                assert_eq!(radius, 2.0);
+                assert_eq!((start_angle, end_angle), (0.0, PI));
+            }
+            other => panic!("half a circle is a circular arc, got {other:?}"),
+        }
+        assert!(!half.is_closed());
+        assert!(close(half.length(), 2.0 * PI));
+
+        let e = Curve2::Ellipse {
+            center: Point2::new(0.0, 0.0),
+            major_axis: [1.0, 0.0],
+            major_radius: 3.0,
+            minor_radius: 1.0,
+            start_param: 0.0,
+            end_param: TAU,
+        };
+        assert!(matches!(
+            e.subcurve(1.0, 2.0),
+            Some(Curve2::Ellipse {
+                start_param,
+                end_param,
+                major_radius,
+                ..
+            }) if start_param == 1.0 && end_param == 2.0 && major_radius == 3.0
+        ));
+
+        let l = Curve2::Line {
+            start: Point2::new(0.0, 0.0),
+            end: Point2::new(4.0, 0.0),
+        };
+        assert_eq!(
+            l.subcurve(0.25, 0.75),
+            Some(Curve2::Line {
+                start: Point2::new(1.0, 0.0),
+                end: Point2::new(3.0, 0.0),
+            })
+        );
+    }
+
+    #[test]
+    fn a_polyline_subcurve_keeps_the_interior_vertices_it_spans() {
+        let pts = vec![
+            Point2::new(0.0, 0.0),
+            Point2::new(1.0, 0.0),
+            Point2::new(2.0, 0.0),
+            Point2::new(3.0, 0.0),
+        ];
+        let pl = Curve2::Polyline {
+            points: pts,
+            closed: false,
+        };
+        let Some(Curve2::Polyline { points, closed }) = pl.subcurve(0.5, 2.5) else {
+            panic!("a polyline's sub-curve is a polyline");
+        };
+        assert!(!closed, "a sub-curve of anything is open");
+        // The two interpolated ends plus the two vertices strictly inside.
+        assert_eq!(
+            points,
+            vec![
+                Point2::new(0.5, 0.0),
+                Point2::new(1.0, 0.0),
+                Point2::new(2.0, 0.0),
+                Point2::new(2.5, 0.0),
+            ]
+        );
+        assert!(close(pl.subcurve(0.5, 2.5).expect("sub").length(), 2.0));
+    }
+
+    #[test]
+    fn a_subcurve_of_the_whole_domain_is_the_curve_itself() {
+        let ring = Curve2::Polyline {
+            points: vec![
+                Point2::new(0.0, 0.0),
+                Point2::new(1.0, 0.0),
+                Point2::new(1.0, 1.0),
+            ],
+            closed: true,
+        };
+        assert_eq!(ring.subcurve(0.0, 3.0).as_ref(), Some(&ring));
+        // And a request wider than the domain is clamped to it, not refused.
+        assert_eq!(ring.subcurve(-1.0, 99.0).as_ref(), Some(&ring));
+    }
+
+    #[test]
+    fn a_degenerate_subcurve_is_refused_rather_than_zero_length() {
+        let l = Curve2::Line {
+            start: Point2::new(0.0, 0.0),
+            end: Point2::new(1.0, 0.0),
+        };
+        assert!(l.subcurve(0.5, 0.5).is_none());
+        assert!(l.subcurve(0.7, 0.3).is_none());
+        assert!(l.subcurve(f64::NAN, 1.0).is_none());
+        // A point has nothing to cut.
+        assert!(Curve2::Point(Point2::new(1.0, 1.0))
+            .subcurve(0.0, 0.0)
+            .is_none());
+    }
+
+    #[test]
+    fn declines_count_by_kind_and_add_up() {
+        let mut a = ProjectionDeclines::default();
+        assert_eq!(a.total(), 0);
+        assert_eq!(a.counts().len(), 9, "every field must be in `counts`");
+        a.split_tangency = 2;
+        a.ray_coplanar = 1;
+        let mut b = ProjectionDeclines {
+            cross_body: 3,
+            split_tangency: 1,
+            ..Default::default()
+        };
+        b.merge(&a);
+        assert_eq!(b.split_tangency, 3);
+        assert_eq!(b.ray_coplanar, 1);
+        assert_eq!(b.cross_body, 3);
+        assert_eq!(b.total(), 7);
+        // Named counters, so a report cannot drift from the struct.
+        let named: Vec<&str> = b
+            .counts()
+            .iter()
+            .filter(|(_, n)| *n > 0)
+            .map(|(k, _)| *k)
+            .collect();
+        assert_eq!(
+            named,
+            vec!["split_tangency", "ray_coplanar", "cross_body"],
+            "counts() reports in field order"
+        );
+    }
+
+    #[test]
+    fn a_views_declines_merge_when_bodies_are_appended() {
+        let mut one = ViewGeometry::with_declines(
+            Vec::new(),
+            ProjectionDeclines {
+                depth_unliftable: 1,
+                ..Default::default()
+            },
+        );
+        one.extend(ViewGeometry::with_declines(
+            Vec::new(),
+            ProjectionDeclines {
+                depth_unliftable: 2,
+                cross_body: 1,
+                ..Default::default()
+            },
+        ));
+        assert_eq!(one.declines.depth_unliftable, 3);
+        assert_eq!(one.declines.cross_body, 1);
+        // `new` is the no-decline door, and the default view has none.
+        assert_eq!(ViewGeometry::new(Vec::new()).declines.total(), 0);
+        assert_eq!(ViewGeometry::default().declines.total(), 0);
+    }
+
+    #[test]
+    fn an_unclassified_curve_carries_no_depth() {
+        let c = ProjectedCurve::visible(
+            Curve2::Point(Point2::new(0.0, 0.0)),
+            CurveKind::Silhouette,
+            None,
+        );
+        assert_eq!(c.visibility, Visibility::Visible);
+        assert!(c.depth.is_none());
     }
 
     #[test]
