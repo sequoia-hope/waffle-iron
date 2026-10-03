@@ -524,3 +524,263 @@ fn a_document_edit_rebuilds_the_parts_of_an_open_assembly() {
         "and so did the second"
     );
 }
+
+#[test]
+fn a_parked_part_engine_is_rejected_when_the_document_table_moved_under_it() {
+    // The cache-key half nothing else reaches: a PARKED engine (the pool a
+    // tab switch leaves behind) whose part tree is byte-identical to the one
+    // the next pass wants, built against a document table that has since
+    // changed.
+    //
+    // It has to be the tab that is NOT open while the edit happens. The open
+    // tab's tree is rebuilt by `set_document_parameters`, so its stored tree
+    // moves and the reuse hit's tree comparison rejects the parked engine on
+    // its own. The other tab's stored tree does not move — its `depth` still
+    // holds the value the OLD table drove — so the tree comparison PASSES and
+    // only `params::table_signature` stands between the instance and a solid
+    // built from a document variable that no longer has that value.
+    let mut state = EngineState::new();
+    ok(
+        &mut state,
+        "parameters_set",
+        json!({ "scope": "document",
+                "parameters": [{ "name": "stock", "expression": "8" }] }),
+    );
+    let open = state.session.tabs()[0].id.clone();
+    plate_with_depth_expr(&mut state, "stock");
+    let parked = ok(&mut state, "tab_add", json!({ "kind": "Part" }));
+    let parked = parked["tab_id"].as_str().unwrap().to_string();
+    ok(
+        &mut state,
+        "tab_switch",
+        json!({ "tab_id": parked.clone() }),
+    );
+    plate_with_depth_expr(&mut state, "stock * 2");
+
+    let asm = ok(&mut state, "tab_add", json!({ "kind": "Assembly" }));
+    let asm = asm["tab_id"].as_str().unwrap().to_string();
+    ok(&mut state, "tab_switch", json!({ "tab_id": asm.clone() }));
+    let a = add_instance(&mut state, &open);
+    let b = add_instance(&mut state, &parked);
+    assert!((instance_depth(&state, a) - 0.008).abs() < 1e-15);
+    assert!((instance_depth(&state, b) - 0.016).abs() < 1e-15);
+
+    // Leave the assembly: both part engines are parked, each an exact build
+    // of its tree against `stock = 8`.
+    ok(&mut state, "tab_switch", json!({ "tab_id": open.clone() }));
+    assert_eq!(
+        state.part_cache.len(),
+        2,
+        "both part engines parked for reuse"
+    );
+
+    // Move the document table while the assembly is closed and `parked` is
+    // not the open tab, so nothing rebuilds its tree.
+    ok(
+        &mut state,
+        "parameters_set",
+        json!({ "scope": "document", "merge": true,
+                "parameters": [{ "name": "stock", "expression": "20" }] }),
+    );
+
+    // Back to the assembly: both instances must be the new table's solids.
+    ok(&mut state, "tab_switch", json!({ "tab_id": asm }));
+    assert!(
+        (instance_depth(&state, a) - 0.020).abs() < 1e-15,
+        "the open tab's part followed the document edit"
+    );
+    assert!(
+        (instance_depth(&state, b) - 0.040).abs() < 1e-15,
+        "the PARKED part was rebuilt rather than reused against the old table"
+    );
+}
+
+#[test]
+fn an_overridden_instance_does_not_cost_its_siblings_their_parked_engines() {
+    // The park half of keying on the BUILD: editing one instance's overrides
+    // retires that build's engine and leaves every sibling's parked. Keyed on
+    // the part instead, one override edit declared every build of the part
+    // stale and the siblings paid a full rebuild.
+    let mut state = EngineState::new();
+    let part = parameterised_part_and_assembly(&mut state);
+    let a = add_instance(&mut state, &part);
+    let b = add_instance(&mut state, &part);
+    ok(
+        &mut state,
+        "instance_edit",
+        json!({ "instance_id": b.to_string(),
+                "parameter_overrides": { "height": 40.0 } }),
+    );
+    assert_eq!(state.assembly.as_ref().unwrap().parts.len(), 2);
+
+    // Edit B's override again. A's build is untouched, so its engine must
+    // still be the one the pass took rather than a fresh build.
+    ok(
+        &mut state,
+        "instance_edit",
+        json!({ "instance_id": b.to_string(),
+                "parameter_overrides": { "height": 60.0 } }),
+    );
+    assert!((instance_depth(&state, a) - 0.0025).abs() < 1e-15, "A held");
+    assert!((instance_depth(&state, b) - 0.015).abs() < 1e-15, "B moved");
+
+    // And an instance with NO overrides never becomes a second cache entry:
+    // a third plain instance joins A's build.
+    let c = add_instance(&mut state, &part);
+    assert!((instance_depth(&state, c) - 0.0025).abs() < 1e-15);
+    assert_eq!(
+        state.assembly.as_ref().unwrap().parts.len(),
+        2,
+        "three instances, two distinct builds"
+    );
+}
+#[test]
+fn a_document_edit_leaves_an_unopened_tab_s_stored_value_stale() {
+    // MEASURED, not a claim: a document-table edit rebuilds the OPEN tab and
+    // re-evaluates an open Assembly or Drawing, and nothing else. Every other
+    // Part tab keeps the plain value the OLD table drove until it is next
+    // switched to, where `switch_tab`'s rebuild re-applies the expression.
+    //
+    // The geometry a v12 reader builds is therefore always right — a load
+    // rebuilds the active tab and a switch rebuilds the rest. What is NOT
+    // right in that window is the file: `docs/FILE_FORMAT.md` §13.3 leans on
+    // "a correctly written file has `value == eval(expr)`" to argue that an
+    // `*_expr` sidecar needs no floor bump, and a save taken here breaks that
+    // for the tabs nobody opened. A v11 reader of such a file, which drops the
+    // document table, then builds the PRE-edit size rather than the size the
+    // document was saved with. See the P2/P3 implementation notes' open items.
+    let mut state = EngineState::new();
+    ok(
+        &mut state,
+        "parameters_set",
+        json!({ "scope": "document",
+                "parameters": [{ "name": "stock", "expression": "8" }] }),
+    );
+    let open = state.session.tabs()[0].id.clone();
+    plate_with_depth_expr(&mut state, "stock");
+    let other = ok(&mut state, "tab_add", json!({ "kind": "Part" }));
+    let other = other["tab_id"].as_str().unwrap().to_string();
+    ok(&mut state, "tab_switch", json!({ "tab_id": other.clone() }));
+    plate_with_depth_expr(&mut state, "stock");
+    ok(&mut state, "tab_switch", json!({ "tab_id": open.clone() }));
+
+    ok(
+        &mut state,
+        "parameters_set",
+        json!({ "scope": "document", "merge": true,
+                "parameters": [{ "name": "stock", "expression": "20" }] }),
+    );
+
+    // The open tab followed.
+    assert!(
+        (stored_depth(&state, &open) - 0.020).abs() < 1e-15,
+        "the open tab rebuilt"
+    );
+    // The other one did not — this is the gap, pinned so it cannot change
+    // silently in either direction.
+    assert!(
+        (stored_depth(&state, &other) - 0.008).abs() < 1e-15,
+        "an unopened tab keeps the old table's value until it is switched to"
+    );
+
+    // And switching to it is what repairs it.
+    ok(&mut state, "tab_switch", json!({ "tab_id": other.clone() }));
+    assert!(
+        (stored_depth(&state, &other) - 0.020).abs() < 1e-15,
+        "the switch re-applied the expression against the new table"
+    );
+}
+
+/// The extrude depth stored on a tab's tree (the ACTIVE tab's live tree, or
+/// the session's copy for any other).
+fn stored_depth(state: &EngineState, tab_id: &str) -> f64 {
+    let tree = if state.session.active_tab_id() == tab_id {
+        state.engine.tree.clone()
+    } else {
+        state
+            .session
+            .tab(tab_id)
+            .and_then(|t| t.features())
+            .expect("a part tab")
+            .clone()
+    };
+    tree.features
+        .iter()
+        .find_map(|f| match &f.operation {
+            Operation::Extrude { params } => Some(params.depth),
+            _ => None,
+        })
+        .expect("the extrude")
+}
+
+#[test]
+fn renaming_a_parameter_an_instance_overrides_does_not_move_the_override_key() {
+    // P5's rename rewrites every expression that READS the parameter, on the
+    // tree it holds. An instance's override key is not an expression and is
+    // not on that tree — it is on the AssemblyTree in the session — so it
+    // keeps the old name.
+    //
+    // The outcome is LOUD, which is why it is pinned rather than fixed here:
+    // the override now names a parameter the part does not declare, which is
+    // already a reported error and already listed under
+    // `overrides_matching_no_parameter`. What it is NOT is silent: the
+    // instance does not keep building 40 mm under a new name, and it does not
+    // quietly adopt the renamed row.
+    let mut state = EngineState::new();
+    let part = parameterised_part_and_assembly(&mut state);
+    let b = add_instance(&mut state, &part);
+    ok(
+        &mut state,
+        "instance_edit",
+        json!({ "instance_id": b.to_string(),
+                "parameter_overrides": { "height": 40.0 } }),
+    );
+    assert!((instance_depth(&state, b) - 0.010).abs() < 1e-15);
+
+    // Rename `height` to `tall` in the part tab: same id, new name.
+    ok(&mut state, "tab_switch", json!({ "tab_id": part.clone() }));
+    let table = ok(&mut state, "parameters_get", json!({}));
+    let height_id = row(&table, "height")["id"].as_str().unwrap().to_string();
+    let wall_id = row(&table, "wall")["id"].as_str().unwrap().to_string();
+    ok(
+        &mut state,
+        "parameters_set",
+        json!({ "parameters": [
+            { "id": height_id, "name": "tall", "expression": "10" },
+            { "id": wall_id, "name": "wall", "expression": "height / 4" },
+        ]}),
+    );
+    // The dependent's expression followed the rename.
+    let table = ok(&mut state, "parameters_get", json!({}));
+    assert_eq!(row(&table, "wall")["expression"], "tall / 4");
+
+    // Back in the assembly, the override addresses nothing and says so.
+    let asm = state
+        .session
+        .tabs()
+        .iter()
+        .find(|t| t.kind == "Assembly")
+        .expect("the assembly tab")
+        .id
+        .clone();
+    ok(&mut state, "tab_switch", json!({ "tab_id": asm }));
+    let got = ok(
+        &mut state,
+        "parameters_get",
+        json!({ "scope": "instance", "instance_id": b.to_string() }),
+    );
+    assert_eq!(
+        got["overrides_matching_no_parameter"],
+        json!(["height"]),
+        "the override key did not follow the rename, and is named for it"
+    );
+    assert_eq!(
+        row(&got, "tall").get("override"),
+        None,
+        "and it did not silently re-attach to the renamed row"
+    );
+    assert!(
+        (instance_depth(&state, b) - 0.0025).abs() < 1e-15,
+        "the instance fell back to the part's own build"
+    );
+}

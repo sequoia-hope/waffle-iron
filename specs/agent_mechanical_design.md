@@ -1714,6 +1714,33 @@ on a pass with no model. That is what sharing the enumeration was for.
   back to the names the instance already overrides, so an existing override
   is never hidden, but a new one on a linked part has to go through the
   tool.
+- *A parameter RENAME does not move an instance's override KEY* (review,
+  2026-10-03). P5's rename rewrites every expression that reads the
+  parameter, on the tree the engine holds; an override key is not an
+  expression and lives on the `AssemblyTree` in the session, so it keeps the
+  old name. The result is loud rather than silent — the override then names a
+  parameter the part does not declare, which is already a reported error and
+  already listed under `overrides_matching_no_parameter`, and the instance
+  falls back to the part's own build. It does NOT re-attach to the renamed
+  row. Pinned in
+  `crates/wasm-bridge/tests/tool_param_instances.rs::renaming_a_parameter_an_instance_overrides_does_not_move_the_override_key`.
+  Moving the key needs the same session-level reach the document rename
+  needs, and the same decision about the half-applied case.
+- *A document-table edit leaves every UNOPENED tab's stored value stale*
+  (review, 2026-10-03). `SetDocumentParameters` rebuilds the open tab and
+  re-evaluates an open Assembly or Drawing; no other Part tab is touched
+  until `switch_tab` rebuilds it. The geometry a v12 reader builds is always
+  right (a load rebuilds the active tab, a switch rebuilds the rest), but a
+  SAVE taken in that window writes `value != eval(expr)` for those tabs,
+  which is the one invariant §13.3 leans on to argue that an `*_expr`
+  sidecar needs no floor bump. A v11 reader of such a file — which drops the
+  document table — then builds the PRE-edit size rather than the size the
+  document was saved with. Measured in
+  `crates/wasm-bridge/tests/tool_param_instances.rs::a_document_edit_leaves_an_unopened_tab_s_stored_value_stale`,
+  which also pins that the switch repairs it. The fix is to re-apply
+  expressions over every tab's tree on a document edit, which is the same
+  session-level pass the document rename wants; §13.3 now bounds the claim
+  rather than overstating it.
 - *`bench_rebuild_50_features` is a wall-clock budget and flaked once under
   load.* Measured alone it is 607 ms – 1.12 s against a 2 s assertion, and
   the whole `engine_tests` binary runs in 0.98 s; it exceeded the budget only
