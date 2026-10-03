@@ -1510,8 +1510,8 @@ But a boolean in the live arena appends its own entities AND journal entries,
 and the box is scaffolding that must not survive the call. So both operands go
 into a scratch `BrepArena` the way Q2's does — and then, UNLIKE Q2, the result
 is copied back, because a section is not a pure query: the cut body is the
-thing the caller projects. The live arena gains one solid and one `Transform`
-journal entry, not a boolean's worth of entities and not the box.
+thing the caller projects. The live arena gains one solid and one journal
+entry, not a boolean's worth of entities and not the box.
 
 That copy forces one piece of hygiene the plan does not mention and the cap's
 attribution depends on. `copy_solid_into` records `(source pid → copy pid)` in
