@@ -617,6 +617,30 @@ absolute — the same sagitta the DXF writer flattens an ellipse at, rather than
 an invented one). `centroid_exact` is true exactly when every curve of every
 loop is a `line`, where the flattened polygon IS the cap.
 
+**A graze is decided before any boolean, and a section moves nothing.** Two
+boundary cases reviewed 2026-10-03. A plane lying exactly ON a face is settled
+from the solid's conservative bounds (`dmax ≤ 0` keeps everything, `dmin ≥ 0`
+keeps nothing), so it is a typed empty section with `kept_material` saying
+which side — it cannot reach the §4.5.5 Stage-0 coplanar wall by accident, and
+the kept half-space is the one that CONTAINS the plane
+(`a_plane_grazing_a_face_is_a_typed_empty_section_on_both_sides`). And a
+section is a query in the sense that matters to a caller: `section_with_plane`
+runs its Intersect in the LIVE arena, but the sectioned body's own face
+listing — ids, pids, signatures — comes back byte-identical across two cuts of
+a bored plate (`a_section_leaves_the_bodys_faces_where_they_were`), so no
+`GeomRef`, name binding or rule written before the cut moves. What the cut does
+leave behind is the half-space box and the cut solid, in the arena, until the
+session ends; that is a footprint, not a correctness bug, and Q2's scratch-arena
+pattern is what would retire it.
+
+**A name is the one plane form whose geometry must be checked.** An
+`{origin, normal}` is a plane by construction and a datum is one by
+definition, but a name points at whatever face it was given to — so the tool
+reads the face's surface type first and refuses a curved one as
+`InvalidArguments`, naming what it found and the form to use instead
+(`a_name_on_a_curved_face_is_refused`). Cutting on some tangent plane of a
+barrel would be a section the caller could not have meant.
+
 **Not in Q4.** The loop edges' SOURCE FACES, which §4.3's table asks for:
 `SectionLoop` carries `curves`, `signed_area` and `exact` and no provenance, so
 there is nothing to publish without a D1d change. And no `chord_bound_m`: the
@@ -690,6 +714,36 @@ kernel, a spacing of 0 returns as an `Internal` engine error carrying a kernel
 sentence — the wrong shape for a caller's typo. The tool validates it as
 `InvalidArguments` with the fix in the message and the kernel keeps its own
 refusal as the backstop.
+
+**The acute corner is not an exotic case, and the tool says so.** Reviewed
+2026-10-03: the wedge above is a fixture, but the same sliver appears on any
+part with an acute dihedral. A 4 mm radial slot through a 10/7 mm tube — a C —
+reports `min` = 0.043 mm where its wall is 3 mm, because the slot's flat face
+meets the outer cylinder at 78° and the thinnest inward cast lands in that
+corner (`a_slot_in_a_tube_is_thinnest_at_the_acute_corner_not_at_the_wall`).
+The number is right for the question §4.2 defines — the first hit along the
+inward normal — and wrong for "how thick is this part", so the tool's own
+description names the case and points the caller at `thinnest.from`/`to` and
+the histogram, where a corner sliver is a lone site in the lowest bin and a
+real wall is a populated one. **If a later increment wants the wall and not the
+corner, the cheap form is a flag on the thinnest site saying whether its two
+faces share an edge** (or a second minimum taken over non-adjacent pairs);
+nothing in the sampler needs to change for it.
+
+**`min` moving with `spacing` is measured, not argued.** The same wedge at
+4 mm / 1 mm / 0.25 mm reports 2.111 mm / 0.952 mm / 0.625 mm — at 4 mm the
+thinnest site is out on the base casting up to the slant (`t0 − slope·x`), and
+from 1 mm down it is the corner itself (`(t0 − y)/slope`). Each is exact as a
+measurement; they are answers to three questions about one body
+(`a_finer_spacing_finds_a_thinner_corner_because_min_is_an_upper_bound`). The
+0.25 mm run also shows the subdivision cap binding: the reported spacing comes
+back at 1.4 mm, LOOSER than the request, which is the honest direction.
+
+**The cost, measured.** F0061 — the 339-face assay gear with a through bore —
+takes **77 ms** at the default spacing (48 884 sites, every one refined, no
+declines) and 2.9 s at a requested 2 mm (1.52 M sites). The default is cheap
+enough to call per body in a rule pass; a spacing an order under the body is
+what costs, and it is the caller's choice.
 
 **Not in Q5.** `Thickness` is per BODY: no face-restricted or region-restricted
 sampling (a rule that cares about one web filters the sites itself from the
