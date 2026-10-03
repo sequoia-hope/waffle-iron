@@ -799,6 +799,33 @@ impl Occluders {
         &self.cells[y * self.nx + x]
     }
 
+    /// The MEASURED local gap between a curve's own 3-D point and the mesh
+    /// here — the distance to the nearest candidate triangle, at that point,
+    /// from the mesh in hand.
+    ///
+    /// The ray's origin is pushed this far toward the viewer before it is
+    /// cast, because the render mesh is INSCRIBED: a point on a curved face's
+    /// true surface sits outside it by up to the chord sagitta, and a ray that
+    /// started on the surface would graze the face it belongs to.
+    ///
+    /// It is deliberately not the sagitta the caller's chord tolerance implies
+    /// — `tessellate` always meshes at the render band, so a band keyed to the
+    /// caller's density describes a mesh that was never built (the same
+    /// correction D1b's [`super::silhouette::chord_sagitta_rel`] note records)
+    /// — and it is deliberately not a constant: the gap of a given mesh scales
+    /// with the local radius of curvature, so a fixed number is either useless
+    /// on a large part or a thin-feature hazard on a small one.
+    /// `the_rays_offset_is_the_measured_local_gap_and_scales_with_the_surface`
+    /// is the pin.
+    fn local_gap(&self, p3: [f64; 3], cands: &[u32]) -> f64 {
+        let mut gap = f64::INFINITY;
+        for &i in cands {
+            let [a, b, c] = self.tris[i as usize];
+            gap = gap.min(super::silhouette::distance_to_triangle(p3, a, b, c));
+        }
+        gap
+    }
+
     /// Depth of the nearest face standing in front of `p3`, and whether the
     /// cast GRAZED anything — touched a triangle without crossing its
     /// interior. The caller re-casts a grazing miss elsewhere on the same
@@ -809,15 +836,7 @@ impl Occluders {
             return (None, false);
         }
         let margin = MARGIN_REL * self.extent;
-        // The MEASURED local gap between the curve's own 3-D point and the
-        // mesh here: the mesh is inscribed, so a point on a curved face's true
-        // surface sits outside it by up to the chord sagitta, and a ray that
-        // started at `p3` would graze the face it belongs to.
-        let mut gap = f64::INFINITY;
-        for &i in cands {
-            let [a, b, c] = self.tris[i as usize];
-            gap = gap.min(super::silhouette::distance_to_triangle(p3, a, b, c));
-        }
+        let gap = self.local_gap(p3, cands);
         let offset = if gap.is_finite() { gap } else { 0.0 } + margin;
 
         let w = basis.w;

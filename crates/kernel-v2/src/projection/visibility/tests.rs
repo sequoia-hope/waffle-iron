@@ -1031,3 +1031,51 @@ fn an_oblique_cylinders_far_rim_is_hidden_over_exactly_half_its_length() {
         );
     }
 }
+
+/// The ray's start offset is the gap MEASURED at that point from the mesh in
+/// hand, not a constant and not the caller's own chord band.
+///
+/// The decisive property is that it tracks the surface. Two cylinders of
+/// different radii mesh at the same RELATIVE chord tolerance, so their
+/// inscription deficits stand in the same ratio as their radii — a fixed
+/// number could not do that, and a number keyed to the caller's tolerance
+/// would describe a mesh `tessellate` never builds. The value itself is pinned
+/// against the closed form for an inscribed polygon, `R·(1 − cos(π/n))`, at
+/// the worst point there is: the exact surface halfway between two mesh
+/// vertices.
+#[test]
+fn the_rays_offset_is_the_measured_local_gap_and_scales_with_the_surface() {
+    let n = crate::tessellate::circle_segment_count(crate::tessellate::RENDER_CHORD_TOLERANCE_REL);
+    let sagitta_rel = 1.0 - (PI / f64::from(n)).cos();
+    let mut gaps = Vec::new();
+    for radius in [0.008, 0.040] {
+        let mut a = KernelV2Adapter::new();
+        let solid = make_cylinder(&mut a, (0.0, 0.0), radius, 0.0, 0.020);
+        let (arena, sid) = a.arena_of(&solid).expect("a live solid");
+        let mesh = crate::tessellate::tessellate(arena, sid).expect("tessellates");
+        let basis = ViewFrame::looking_along([1.0, 0.0, 0.0])
+            .basis()
+            .expect("basis");
+        let occ = super::Occluders::new(&mesh, &basis).expect("a cylinder has triangles");
+        // A point on the EXACT lateral surface, at the angle halfway between
+        // two mesh vertices, which is where the inscribed facet is furthest
+        // from it.
+        let theta = PI / f64::from(n);
+        let p3 = [radius * theta.cos(), radius * theta.sin(), 0.010];
+        let (q, _) = basis.project(p3);
+        let gap = occ.local_gap(p3, occ.candidates(q));
+        let want = radius * sagitta_rel;
+        assert!(
+            close(gap, want, 1e-6),
+            "the measured gap {gap} at R = {radius} is not the inscribed \
+             sagitta {want}"
+        );
+        gaps.push(gap);
+    }
+    // And it is the SURFACE's number: five times the radius, five times the
+    // gap. A constant offset would report the same twice.
+    assert!(
+        close(gaps[1] / gaps[0], 5.0, 1e-6),
+        "the gap must scale with the radius, got {gaps:?}"
+    );
+}

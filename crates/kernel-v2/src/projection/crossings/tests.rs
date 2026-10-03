@@ -246,6 +246,90 @@ fn two_internally_tangent_circles_are_declined_rather_than_split() {
     assert_eq!(tang, 1, "the tangency must be counted, got {found:?}");
 }
 
+/// The companion of the internal case, and the one that reaches the other
+/// branch: two circles touching from OUTSIDE. The implicit of one along the
+/// other never changes sign at all, so there is no bracket to find and the
+/// contact is only visible as a sample inside the band.
+#[test]
+fn two_externally_tangent_circles_are_declined_rather_than_split() {
+    let a = circle(0.0, 0.0, 1.0, 0.0, TAU);
+    // Touching at `(1, 0)`, so the contact sits exactly on `a`'s sample at
+    // `t = 0` and on `b`'s at `t = π` — the configuration a zero-counts-as-a-side
+    // sign test turns into two spurious roots.
+    let b = circle(2.0, 0.0, 1.0, 0.0, TAU);
+    let (found, tang) = xs(&a, &b, 1e-6);
+    assert!(
+        found.is_empty(),
+        "an external tangency is a contact, not a crossing: {found:?}"
+    );
+    assert_eq!(tang, 1, "and it must be counted");
+    // Off the sample grid too: nudged so the contact lands between samples.
+    let c = circle(2.0, 0.013, 1.0, 0.0, TAU);
+    let (found, _) = xs(&a, &c, 1e-6);
+    assert!(
+        found.len() <= 2,
+        "a near-tangential pair reports its contact or nothing, never a \
+         bracketing storm: {found:?}"
+    );
+    assert_eq!(crossings_are_consistent(&a, &c, 1e-6, 1e-3), found.len());
+}
+
+/// A circle and an ellipse OSCULATING — tangent, and with the same curvature
+/// there, which is the hardest contact of the three because the implicit stays
+/// inside the band over a whole neighbourhood rather than at one sample.
+///
+/// The ellipse `u²/4 + v² = 1` has radius of curvature `b²/a = 1/2` at
+/// `(0, ±1)`, so the circle of radius `1/2` centred at `(0, 1/2)` touches it
+/// there and agrees to second order. The pair must report a contact or
+/// nothing, never a run of spurious roots through the band, and it must not be
+/// mistaken for the SAME conic.
+#[test]
+fn an_osculating_circle_and_ellipse_are_a_contact_and_not_the_same_conic() {
+    let e = ellipse(0.0, 0.0, 2.0, 1.0, [1.0, 0.0]);
+    let c = circle(0.0, 0.5, 0.5, 0.0, TAU);
+    let (found, tang) = xs(&e, &c, 1e-6);
+    assert!(
+        found.len() <= 2,
+        "an osculating pair is a contact, not a bracketing storm: {found:?}"
+    );
+    assert_eq!(crossings_are_consistent(&e, &c, 1e-6, 1e-2), found.len());
+    assert!(
+        tang > 0 || !found.is_empty(),
+        "the contact must be reported one way or the other"
+    );
+    // And the coincidence test must NOT swallow it: these are two different
+    // conics that agree only to second order at one point.
+    let far = (0..64)
+        .map(|i| {
+            let t = TAU * f64::from(i) / 64.0;
+            let pe = e.eval(t).expect("eval");
+            let pc = c.eval(t).expect("eval");
+            (pe.x() - pc.x()).hypot(pe.y() - pc.y())
+        })
+        .fold(0.0f64, f64::max);
+    assert!(
+        far > 1.0,
+        "the two conics are far apart away from the contact"
+    );
+}
+
+/// Concentric circles of different radii: no crossing, no contact, and
+/// crucially NOT the coincidence verdict, which would be the right answer only
+/// if they were the same circle.
+#[test]
+fn concentric_circles_of_different_radii_report_nothing_at_all() {
+    let a = circle(0.02, 0.015, 0.006, 0.0, TAU);
+    for r in [0.0059, 0.0061, 0.003, 0.012] {
+        let b = circle(0.02, 0.015, r, 0.0, TAU);
+        let (found, tang) = xs(&a, &b, 1e-6);
+        assert!(
+            found.is_empty() && tang == 0,
+            "radius {r}: {} crossing(s), {tang} tangenc(ies)",
+            found.len()
+        );
+    }
+}
+
 #[test]
 fn a_circle_and_an_ellipse_cross_where_a_dense_sampling_says_they_do() {
     let c = circle(0.0, 0.0, 2.0, 0.0, TAU);
