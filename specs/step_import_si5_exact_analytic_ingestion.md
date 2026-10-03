@@ -1247,3 +1247,26 @@ subset a reader would need — and `si5_census.py` already measures it.
   budget so its conversion is the gate's to report. Next: the two
   validation findings (anchor each against its file before assuming a
   family), then the C5c refusal tail and voids (§5.2).
+- 2026-10-03 (b) — **C7 finding 1 anchored and converted: the apex cone.**
+  `00005451_2ccd2dfb9ffc4cf29e94e0cf_step_005` shell 3 was no geometry defect
+  on our side; it was a refusal NAME decided by a rounding SIGN.
+  `ADVANCED_FACE #227` is a conical patch (`CONICAL_SURFACE #536`, r = 6e-4 at
+  z = 0.0206, half-angle 0.5404195003 ⇒ `tan = 0.6` ⇒ apex at z = 0.0196)
+  bounded by two rulings (`EDGE_CURVE #2524`, `#2525`) and a quarter arc
+  (`#2526`) meeting at `VERTEX_POINT #3110` — **the apex itself** — written at
+  z = 0.0195999999999685 against the apex our f64 derivation puts at
+  0.0196000000000667, i.e. `τ = −9.8e-14`. The single-nappe residual
+  `|ρ − τ·tan α|` needs `τ > 0`, so `ingest::FaceSurface::residual` returned
+  `None` there and pass 1g reported `AnalyticVertexOffSurface` — while the
+  SAME geometry rounded the other way passed that gate and walled one check
+  later, by its correct name (`validate_cone_face`: "cone patch vertex lies on
+  the axis"). FIXED structurally: `residual` is now TOTAL — at `τ ≤ 0` it
+  measures the distance to the APEX, which is a point OF the nappe and hence
+  an upper bound on the true distance to it, so the gate can only stay
+  stricter there, never looser, and the apex itself measures 0. All three
+  roundings now give the one true verdict, the capability row
+  (`an_apex_cone_patch_is_refused_by_name_whichever_way_the_file_rounded_its_apex`,
+  with a quarter-cone-wedge fixture that writes the corpus face's shape). The
+  gate's `kernel_class` names `CurvedGeometryMismatch`'s reason instead of
+  bucketing it under `{other:?}`. Gate: 0 regression, 0 progress, 1 class
+  moved; reach unchanged at 193/400 (48.2 %).

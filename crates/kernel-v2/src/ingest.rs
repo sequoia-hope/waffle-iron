@@ -263,17 +263,32 @@ impl FaceSurface {
     }
 
     /// Distance from `p` to this surface, the quantity the import-tier
-    /// on-surface gate bands. `None` when `p` is somewhere the surface has no
-    /// defined residual (behind a cone's apex).
-    fn residual(&self, p: Point3) -> Option<f64> {
+    /// on-surface gate bands. Defined everywhere: every surface in the
+    /// vocabulary is a closed set, so every point of space has a distance to
+    /// it, and the gate's verdict is a measurement in every case.
+    ///
+    /// The one place that was not always true is a cone's APEX PLANE. The
+    /// single-nappe residual `|ρ − τ·tan α|` needs `τ > 0`, and at `τ ≤ 0`
+    /// this used to return `None`, which the caller then reported as "vertex
+    /// off surface" — a refusal NAME that depends on which side of the apex
+    /// the exchange file's own rounding of the apex coordinate fell on. ABC
+    /// `00005451_…_step_005` face #227 is a conical patch whose boundary runs
+    /// THROUGH its apex, written at `τ = −9.8e-14`: the same geometry rounded
+    /// the other way passes this gate and walls one check later, by its
+    /// correct name (`validate_cone_face`'s "cone patch vertex lies on the
+    /// axis"). So at `τ ≤ 0` the residual is the distance to the APEX,
+    /// which is on the nappe — an UPPER bound on the true distance to it, so
+    /// the gate can only stay stricter here, never looser (the apex itself
+    /// measures 0, exactly as it should).
+    fn residual(&self, p: Point3) -> f64 {
         match *self {
-            FaceSurface::Plane { origin, normal } => Some(dot3(sub(p, origin), normal).abs()),
+            FaceSurface::Plane { origin, normal } => dot3(sub(p, origin), normal).abs(),
             FaceSurface::Cylinder {
                 axis_point,
                 axis_dir,
                 radius,
                 ..
-            } => Some((len3(radial(sub(p, axis_point), axis_dir)) - radius).abs()),
+            } => (len3(radial(sub(p, axis_point), axis_dir)) - radius).abs(),
             FaceSurface::Cone {
                 apex,
                 axis_dir,
@@ -283,9 +298,9 @@ impl FaceSurface {
                 let d = sub(p, apex);
                 let tau = dot3(d, axis_dir);
                 if !(tau.is_finite() && tau > 0.0) {
-                    return None;
+                    return len3(d);
                 }
-                Some((len3(radial(d, axis_dir)) - geom::cone_radius_at(tau, half_angle)).abs())
+                (len3(radial(d, axis_dir)) - geom::cone_radius_at(tau, half_angle)).abs()
             }
             FaceSurface::Torus {
                 center,
@@ -299,11 +314,9 @@ impl FaceSurface {
                 let d = sub(p, center);
                 let tau = dot3(d, axis_dir);
                 let rho = len3(radial(d, axis_dir));
-                Some(((rho - major).hypot(tau) - minor).abs())
+                ((rho - major).hypot(tau) - minor).abs()
             }
-            FaceSurface::Sphere { center, radius, .. } => {
-                Some((len3(sub(p, center)) - radius).abs())
-            }
+            FaceSurface::Sphere { center, radius, .. } => (len3(sub(p, center)) - radius).abs(),
         }
     }
 
@@ -1620,9 +1633,7 @@ pub fn ingest_analytic(
         for &v in &plan.cycle {
             let p = vpos[v as usize];
             let band = on_surface_band(p);
-            let Some(d) = surfs[fi].residual(p) else {
-                return Err(KernelV2Error::AnalyticVertexOffSurface { face: fi });
-            };
+            let d = surfs[fi].residual(p);
             if d > band {
                 if probe {
                     eprintln!(

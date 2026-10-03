@@ -1742,3 +1742,117 @@ fn an_ingested_sphere_patch_is_a_typed_boolean_wall() {
         other => panic!("expected the typed sphere-patch boolean wall, got {other:?}"),
     }
 }
+
+// ---------------------------------------------------------------------------
+// C7 corpus findings — the two refusals whose NAME the file's own rounding
+// or the build profile decided (SI5 gate pin `abc_0000_si5_gate.json`)
+// ---------------------------------------------------------------------------
+
+/// A quarter CONE WEDGE: apex `A` on the axis, half-angle 45°, the base sector
+/// at `z = h` of radius `h`, azimuth 0 → π/2. The conical face is a three-edge
+/// patch whose loop runs **through its own apex** — the shape ABC
+/// `00005451_2ccd2dfb9ffc4cf29e94e0cf_step_005` writes at face `#227` (two
+/// rulings `#2524`/`#2525` and the quarter arc `#2526`, meeting at
+/// `VERTEX_POINT #3110`). `dz` offsets the apex VERTEX along the axis away
+/// from the apex the `CONICAL_SURFACE` implies, standing in for the exchange
+/// file's own rounding of that coordinate — which in the corpus file lands at
+/// `τ = −9.8e-14`, on the far side of the apex plane.
+fn cone_wedge(h: f64, dz: f64) -> AnalyticShellData {
+    let r = h;
+    let s = r / 2.0_f64.sqrt();
+    AnalyticShellData {
+        vertices: vec![
+            v(0.0, 0.0, dz), // 0: A, the apex vertex
+            v(0.0, 0.0, h),  // 1: O, the base centre
+            v(r, 0.0, h),    // 2: B
+            v(0.0, r, h),    // 3: C
+        ],
+        edges: vec![
+            edge(0, 2),                                       // 0: ruling A → B
+            arc_edge(2, 3, v(0.0, 0.0, h), Z, r, v(s, s, h)), // 1: base arc B → C
+            edge(3, 0),                                       // 2: ruling C → A
+            edge(1, 2),                                       // 3: O → B
+            edge(1, 3),                                       // 4: O → C
+            edge(0, 1),                                       // 5: A → O, the axis
+        ],
+        faces: vec![
+            // The conical patch. CCW about the outward (radially outward)
+            // normal runs A → C, back along the arc, then down to A.
+            AnalyticFace {
+                surface: AnalyticSurface::Cone {
+                    apex: v(0.0, 0.0, 0.0),
+                    axis_dir: Z,
+                    half_angle: PI / 4.0,
+                },
+                loops: vec![AnalyticLoop::Edges(vec![
+                    oe(2, false),
+                    oe(1, false),
+                    oe(0, false),
+                ])],
+                same_sense: true,
+            },
+            // The base sector, outward +z.
+            plane_face(
+                v(0.0, 0.0, h),
+                Z,
+                true,
+                vec![oe(3, true), oe(1, true), oe(4, false)],
+            ),
+            // The y = 0 flank, outward −y.
+            plane_face(
+                v(0.0, 0.0, 0.0),
+                Vector3::new(0.0, 1.0, 0.0),
+                false,
+                vec![oe(0, true), oe(3, false), oe(5, false)],
+            ),
+            // The x = 0 flank, outward −x.
+            plane_face(
+                v(0.0, 0.0, 0.0),
+                Vector3::new(1.0, 0.0, 0.0),
+                false,
+                vec![oe(5, true), oe(4, true), oe(2, true)],
+            ),
+        ],
+    }
+}
+
+#[test]
+fn an_apex_cone_patch_is_refused_by_name_whichever_way_the_file_rounded_its_apex() {
+    // The single-nappe residual `|ρ − τ·tan α|` needs `τ > 0`, so the apex
+    // plane used to be a HOLE in the on-surface gate's domain, reported as
+    // `AnalyticVertexOffSurface` — making the refusal's NAME depend on the
+    // sign of a 1e-13 rounding in the file. ABC
+    // `00005451_…_step_005` shell 3 is that case at τ = −9.8e-14; the same
+    // geometry rounded the other way passed the gate and walled one check
+    // later, correctly named. Now all three roundings give the one true
+    // verdict: the arena has no apex-bearing cone patch (a capability row,
+    // not a measurement about the file).
+    for dz in [0.0, -1e-13, 1e-13] {
+        let mut arena = BrepArena::new();
+        match ingest_analytic(&mut arena, &cone_wedge(3.0, dz)) {
+            // `validate_cone_face` names the same rule at two sites — "cone
+            // patch ANCHOR vertex lies on the axis" when the apex happens to
+            // be the loop's first half-edge origin (this fixture) and "cone
+            // patch vertex lies on the axis" otherwise (the corpus file). Both
+            // say the one thing that matters: a cone patch's parametrization
+            // is singular on its axis, so the apex has no azimuth.
+            Err(KernelV2Error::CurvedGeometryMismatch { reason, .. }) => assert!(
+                reason.contains("vertex lies on the axis"),
+                "dz = {dz:e}: {reason}"
+            ),
+            other => panic!("dz = {dz:e}: expected the named apex wall, got {other:?}"),
+        }
+    }
+    // A vertex genuinely off the nappe is still the off-surface measurement,
+    // on BOTH sides of the apex plane: the `τ ≤ 0` residual is the distance
+    // to the apex, which is a point OF the surface, so the gate stays
+    // stricter there than the true distance to the nappe — never looser.
+    for dz in [-1e-6, 1e-6] {
+        let mut arena = BrepArena::new();
+        assert_eq!(
+            ingest_analytic(&mut arena, &cone_wedge(3.0, dz)),
+            Err(KernelV2Error::AnalyticVertexOffSurface { face: 0 }),
+            "dz = {dz:e}"
+        );
+    }
+}

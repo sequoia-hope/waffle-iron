@@ -194,7 +194,8 @@ default mm with a diagnostic warning if absent. User `scale` multiplies it.
   edges only) enter the kernel-v2 arena as exact solids → full yang booleans,
   analytic primacy end-to-end. **Design spec and plan of record:
   `specs/step_import_si5_exact_analytic_ingestion.md`** (checkpoints C1–C7;
-  **C1–C6 DONE by 2026-10-02**, next is C7, the corpus gate). Measured reach:
+  **C1–C7 DONE by 2026-10-03**; what remains is the refusal tail, spec §11).
+  Measured reach:
   54.0 % of ABC chunk 0000 passes the vocabulary gate and 98.9 % of those are
   already exact to the arena's own `import_band`; the kernel ingests 42.0 %
   of a 400-model sample exactly (planes, cylinder/cone bands and patches,
@@ -344,3 +345,10 @@ depend on them are `#[ignore]`-tagged with reason `refs-fixture`.
   (`docs/TESTING.md` §"Running the SI5 corpus gate"). The SI5 checkpoint
   list C1–C7 is complete; what remains is the refusal tail (SI5 spec §11,
   2026-10-03 entry).
+- 2026-10-03 (b) — **C7 finding 1: the apex cone.** `00005451_…_step_005`
+  shell 3 is a conical patch whose boundary runs through its own apex, written
+  at τ = −9.8e-14. The on-surface residual had no form behind the apex plane,
+  so a 1e-13 rounding SIGN decided which refusal fired.
+  `ingest::FaceSurface::residual` is now total (distance to the apex at
+  τ ≤ 0 — a point of the nappe, hence strictly conservative), and every
+  rounding gives the capability row. Gate: 0 regression, 1 class moved.
