@@ -582,11 +582,19 @@ fn a_blind_slots_edges_are_hidden_under_the_box_it_is_cut_into() {
                 .is_some_and(|dd| close(dd.at_midpoint, -0.008, 1e-9))
         })
         .collect();
+    // The slot's four VERTICAL corner edges run along the line of sight and
+    // project to dots rather than segments; two of them sit at the roof's own
+    // depth. They are asserted below, on their own terms — what this count is
+    // about is the edges with length.
+    let is_line = |c: &ProjectedCurve| matches!(c.geometry, Curve2::Line { .. });
     let on_outline = |c: &ProjectedCurve| match c.geometry {
         Curve2::Line { start, end } => close(start.x(), side, 1e-9) && close(end.x(), side, 1e-9),
         _ => false,
     };
-    let interior: Vec<&&ProjectedCurve> = at_roof.iter().filter(|c| !on_outline(c)).collect();
+    let interior: Vec<&&ProjectedCurve> = at_roof
+        .iter()
+        .filter(|c| is_line(c) && !on_outline(c))
+        .collect();
     assert_eq!(
         interior.len(),
         3,
@@ -614,9 +622,31 @@ fn a_blind_slots_edges_are_hidden_under_the_box_it_is_cut_into() {
     // And the mouth edge, which lies IN the `+x` face the line of sight runs
     // along, is the grazing case: nothing stands between it and the viewer, so
     // it stays visible and the view says out loud that it grazed.
-    let mouth: Vec<&&ProjectedCurve> = at_roof.iter().filter(|c| on_outline(c)).collect();
+    let mouth: Vec<&&ProjectedCurve> = at_roof
+        .iter()
+        .filter(|c| is_line(c) && on_outline(c))
+        .collect();
     assert_eq!(mouth.len(), 1);
     assert_eq!(mouth[0].visibility, Visibility::Visible);
+    // The two corner dots at the roof's depth answer the same two ways: the
+    // one at the blind end is under the box's top face and hidden by it, the
+    // one at the mouth lies IN the `+x` face and grazes.
+    let dots: Vec<&&ProjectedCurve> = at_roof
+        .iter()
+        .filter(|c| matches!(c.geometry, Curve2::Point(_)))
+        .collect();
+    assert_eq!(dots.len(), 2, "{:?}", dots);
+    for c in &dots {
+        let Curve2::Point(p) = c.geometry else {
+            unreachable!("filtered to points")
+        };
+        let expect = if close(p.x(), side, 1e-9) {
+            Visibility::Visible
+        } else {
+            Visibility::Hidden
+        };
+        assert_eq!(c.visibility, expect, "the dot at {p:?}");
+    }
     assert!(
         v.declines.ray_grazes_face > 0,
         "the mouth edge grazes at every point of itself: {:?}",
@@ -778,4 +808,49 @@ fn an_empty_lift_answers_none() {
         .expect("a single point lifts to itself");
     assert_eq!(p, [1.0, 2.0, 3.0]);
     assert_eq!(d, -3.0, "the top view's depth is −z");
+}
+
+// ---------------------------------------------------------------------------
+// the curve that has no length: a line running along the line of sight
+// ---------------------------------------------------------------------------
+
+/// A box's top view: the four VERTICAL edges run along the line of sight, so
+/// `project_circle`'s companion case in `project_line` reports each as a
+/// [`Curve2::Point`] — and the classified view must still carry them.
+///
+/// A point's parameter domain is the degenerate `[0, 0]`, which is exactly the
+/// shape the split/classify/merge loop has no window for, so the pieces loop
+/// ran zero times and the curve was dropped with no decline to say so. It is
+/// the one arm of `Curve2` whose whole domain is a single parameter, and a dot
+/// at a box's corner is a drawing: the DXF writer has a `POINT` entity for it
+/// and `a_boxs_top_view_is_eight_segments_and_four_points` pins four of them
+/// one door down, at the unclassified edge pass.
+#[test]
+fn a_degenerate_point_curve_survives_classification() {
+    let mut a = KernelV2Adapter::new();
+    let solid = make_box(&mut a, 0.040, 0.030, 0.010);
+    let v = view(&a, &solid, [0.0, 0.0, -1.0]);
+
+    let points: Vec<&ProjectedCurve> = v
+        .curves
+        .iter()
+        .filter(|c| matches!(c.geometry, Curve2::Point(_)))
+        .collect();
+    assert_eq!(
+        points.len(),
+        4,
+        "a box's four verticals project to four dots, got {} of {} curves",
+        points.len(),
+        v.curves.len()
+    );
+    // Each one names its own edge and carries a depth, like every other piece.
+    for c in &points {
+        assert!(c.source.is_some(), "a classified dot names its edge");
+        assert!(
+            c.depth.is_some(),
+            "a classified dot knows its own depth: {:?}",
+            c.geometry
+        );
+    }
+    assert_eq!(v.declines.depth_unliftable, 0);
 }

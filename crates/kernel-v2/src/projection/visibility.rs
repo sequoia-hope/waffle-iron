@@ -255,6 +255,38 @@ fn emit_classified(
         out.push(curve);
         return;
     };
+    if t1 <= t0 {
+        // A DEGENERATE domain — a `Curve2::Point` (a line running along the
+        // line of sight), or a one-point polyline. There is no interval to cut
+        // and `subcurve` has nothing to answer over one, so the curve is
+        // classified once at its only parameter and kept whole. Falling
+        // through to the windows loop below drops it instead: `bounds` is
+        // `[t0, t0]`, its one window is empty, and nothing is ever flushed —
+        // which lost a box's four corner dots from every top view, with no
+        // decline to say so (there is no counter for a dropped curve, so
+        // neither the declines nor the §5.3 oracle, which only judges the
+        // curves that came back, could see it).
+        let (vis, occluder) = verdict(&curve.geometry, lift, t0, t1, basis, occ, declines);
+        let depth = curve
+            .geometry
+            .eval(t0)
+            .and_then(|q| lift_point(basis, lift, q))
+            .map(|(at_midpoint, _)| CurveDepth {
+                at_midpoint,
+                occluder,
+            });
+        if depth.is_none() {
+            declines.depth_unliftable = declines.depth_unliftable.saturating_add(1);
+        }
+        out.push(ProjectedCurve {
+            geometry: curve.geometry,
+            visibility: vis,
+            kind: curve.kind,
+            source: curve.source,
+            depth,
+        });
+        return;
+    }
     // The cut parameters, strictly inside the domain and deduplicated: two
     // curves meeting a third at the same place report the same parameter
     // twice, and a zero-length piece is not a drawing.
