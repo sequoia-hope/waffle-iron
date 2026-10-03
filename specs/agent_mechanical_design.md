@@ -567,39 +567,40 @@ hand-made document can still hold both; `names_list` lists both entries.)
 
 **Open after this increment:**
 
-- *A name over a face of a feature that is later EDITED loses its pid.* Face
-  pids are still monotonic (D0's open item 1, the F4a reseed), so
-  re-executing a feature stamps its faces fresh. Measured 2026-10-03: a
-  plate's top cap was `pid 0`, and after a depth edit no face of the body
-  carried it. The authored reference answers instead, the listing reports
-  `resolved_by: "query"` with a warning, and it is still the right face —
-  but the name is no longer held by persistent identity. Pinned both ways in
-  `crates/wasm-bridge/tests/tool_names.rs`:
-  `a_name_over_an_edited_feature_s_own_face_falls_back_and_says_so` holds
-  today's behaviour, and the `#[ignore]`d
-  `a_face_name_keeps_its_pid_across_an_edit_to_its_own_feature` holds it
-  under the reseed — un-ignore it when that lands. A name over an edit
-  ELSEWHERE in the document keeps its pid *within the session*
-  (`a_name_survives_an_unrelated_edit_elsewhere_in_the_document_by_pid`) —
-  but see the next item, which is the same counter read across a reload.
-- *A reopened document can re-mint a stored pid onto a DIFFERENT face, and
-  the name answers `pid` with no warning.* Measured 2026-10-03: face pids
-  are a per-arena monotonic counter (`kernel_v2::arena::BrepArena::alloc_pid`),
-  so reopening numbers every face again from the recipe. A hexagonal prism
-  edited to a pentagonal one — one face fewer, and not the body that was
-  named — shifted every later body's numbers by one, and the untouched
-  body's `b_top` came back on its neighbour: `resolves: true`,
-  `resolved_by: "pid"`, `warnings: []`. That is a silently wrong answer of
-  precisely the kind `Selector::Pid`'s refuse-never-rebind contract exists
-  to prevent (P9/P10), and it is the first time a pid is persisted, so it is
-  new with this increment. In-session the same edit is LOUD (the counter
-  only climbs, so the stored number is simply gone). **This is D0's open
-  item 1 — content-seeded face pids — and nothing short of it fixes the
-  numbering;** a cross-check against the authored fallback would refuse
-  exactly the cases a pid exists to answer. Pinned by the `#[ignore]`d
-  `a_name_does_not_follow_a_reused_pid_onto_another_face_after_a_reload`;
-  until the reseed lands, a name is trustworthy across a reload only for a
-  document whose earlier features did not change their face counts.
+- *CLOSED by D0 item 1 (content-seeded face pids), merged 2026-10-03.* Both
+  pid gaps this increment shipped with are gone for constructor-built faces.
+  A name over a face of a feature that is later EDITED now keeps its pid
+  (`a_face_name_keeps_its_pid_across_an_edit_to_its_own_feature`, un-ignored),
+  and a reopened document no longer re-mints a stored pid onto a different
+  face (`a_name_does_not_follow_a_reused_pid_onto_another_face_after_a_reload`,
+  un-ignored — it was the silent wrong answer, and it is the one that
+  mattered). Both were mutation-checked by withdrawing the seed in
+  `feature_engine::rebuild`: those two go red and the other twelve tests in
+  the file stay green. The two tests that pinned the OLD loud-fallback
+  behaviour were re-pointed, not deleted — the fallback is still reachable,
+  just only where an identity is genuinely gone (a pocket floor named and
+  then turned into a through hole costs both the pid and its lineage root:
+  `a_name_whose_reference_is_gone_still_measures_through_its_fallback`).
+- *A name on a BOOLEAN's own output face can still move on reopen, silently
+  — D0 item 1b.* `boolean/from_yang.rs` withdraws the construct seed around
+  its `finalize_solid`, so boolean output faces keep counter pids and only
+  their lineage ROOTS are seeded. The counter is therefore still live for
+  this family and still re-mints from the recipe on reopen. Measured
+  2026-10-03 on one plate with two pockets: the second pocket's FLOOR was
+  named (`pid 22`), the first pocket was deepened into a through hole (which
+  costs that cut's output its own floor), and after save and reopen the name
+  sat on the second pocket's SIDE WALL while the floor it was given to was
+  still there, unnamed — `resolves: true`, `resolved_by: "pid"`, no
+  warnings. The stable root cannot save this: `resolve_by_pid` matches the
+  pid exactly before it ever looks at the root. Pinned `#[ignore]`d as
+  `a_name_on_a_boolean_output_face_does_not_move_after_a_reload`; un-ignore
+  when the stamping pass moves after `boolean_op` records the journal. The
+  loud half IS pinned green: an edit to the boolean answers through the root
+  and the resolver says so
+  (`a_name_on_a_boolean_output_face_answers_through_its_root_and_says_so`).
+  Until then, a name on a boolean-born or boolean-rebuilt face is reliable
+  across a reopen only for a document whose earlier booleans did not change
+  their output face counts.
 - *Edge and vertex names are untested against the real kernel.* The table,
   the grammar and the resolution are kind-agnostic and the mock covers all
   three, but every kernel-v2 test here names a FACE. An edge name inherits

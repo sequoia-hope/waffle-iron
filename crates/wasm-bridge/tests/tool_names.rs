@@ -149,6 +149,121 @@ fn plate(
     (extrude, FeatureTree::body_id(extrude, &OutputKey::Main))
 }
 
+/// A square pocket cut into whatever body is already there, `side` wide and
+/// `depth` deep, its near corner at `(x0, 5 mm)` in the sketch frame.
+///
+/// The CUT is a boolean, so its output faces are the ones D0's reseed does
+/// NOT stamp: they take counter pids, with a lineage root that leads back to
+/// the seeded operand face. Returns `(cut feature id, body id)`.
+fn pocket(
+    state: &mut EngineState,
+    kernel: &mut KernelV2Adapter,
+    side: f64,
+    depth: f64,
+    base: u32,
+    x0: f64,
+) -> (Uuid, String) {
+    let corners = [
+        (base, x0, 0.005),
+        (base + 1, x0 + side, 0.005),
+        (base + 2, x0 + side, 0.005 + side),
+        (base + 3, x0, 0.005 + side),
+    ];
+    let solved_positions: HashMap<u32, (f64, f64)> =
+        corners.iter().map(|&(id, x, y)| (id, (x, y))).collect();
+    let mut entities: Vec<SketchEntity> =
+        corners.iter().map(|&(id, x, y)| point(id, x, y)).collect();
+    let (l0, l1, l2, l3) = (base + 10, base + 11, base + 12, base + 13);
+    entities.extend([
+        line(l0, base, base + 1),
+        line(l1, base + 1, base + 2),
+        line(l2, base + 2, base + 3),
+        line(l3, base + 3, base),
+    ]);
+    let sketch = Sketch {
+        id: Uuid::new_v4(),
+        plane: datum_xy(),
+        plane_origin: [0.0, 0.0, 0.0],
+        plane_normal: [0.0, 0.0, 1.0],
+        plane_x_axis: None,
+        entities,
+        constraints: Vec::new(),
+        solve_status: SolveStatus::FullyConstrained,
+        solved_positions,
+        projected: Vec::new(),
+        solved_profiles: vec![ClosedProfile {
+            entity_ids: vec![l0, l1, l2, l3],
+            is_outer: true,
+            vertex_ids: vec![],
+            circle: None,
+            spline_segments: vec![],
+            arc_segments: vec![],
+        }],
+    };
+    let sketch_feature = added_id(dispatch(
+        state,
+        UiToEngine::AddFeature {
+            operation: Operation::Sketch { sketch },
+            provenance: None,
+        },
+        kernel,
+    ));
+    let cut = added_id(dispatch(
+        state,
+        UiToEngine::AddFeature {
+            operation: Operation::Extrude {
+                params: ExtrudeParams {
+                    sketch_id: sketch_feature,
+                    profile_index: 0,
+                    profile_entity_ids: Some(vec![l0, l1, l2, l3]),
+                    depth,
+                    depth_expr: None,
+                    direction: None,
+                    symmetric: false,
+                    cut: true,
+                    merge: true,
+                    target_body: None,
+                    depth_mode: DepthMode::Blind,
+                    second_direction: None,
+                    region: None,
+                    regions: Vec::new(),
+                    combine: Some(CombineMode::Cut),
+                    targets: None,
+                },
+            },
+            provenance: None,
+        },
+        kernel,
+    ));
+    wasm_bridge::tessellation_runner::tessellate_missing_meshes(state, kernel);
+    (cut, FeatureTree::body_id(cut, &OutputKey::Main))
+}
+
+/// The reference for a pocket floor of `body`: a face pointing DOWN that sits
+/// above the base plane. `beyond` keeps only floors whose 3-D y is past it, so
+/// a model with two pockets can name the far one (the sketch frame maps
+/// sketch +x to world −y).
+fn pocket_floor_ref(
+    state: &mut EngineState,
+    kernel: &mut KernelV2Adapter,
+    body: &str,
+    beyond: f64,
+) -> Value {
+    let all = ok(state, kernel, "face_list", json!({ "body_id": body }));
+    let floor = all["faces"]
+        .as_array()
+        .expect("faces")
+        .iter()
+        .find(|f| {
+            let c = &f["signature"]["centroid"];
+            f["signature"]["normal"][2].as_f64().unwrap_or(0.0) < -0.5
+                && c[2].as_f64().unwrap_or(0.0) > 1e-9
+                && c[1].as_f64().unwrap_or(0.0) < beyond
+        })
+        .unwrap_or_else(|| panic!("a pocket floor past y = {beyond}: {all}"));
+    floor["geom_ref"].clone()
+}
+
 fn call(
     state: &mut EngineState,
     kernel: &mut KernelV2Adapter,
@@ -299,46 +414,53 @@ fn a_named_face_can_be_measured_by_name() {
 }
 
 /// A measure by name answers through the same resolution `names_list`
-/// reports: once the stored pid is gone the authored fallback answers, in
-/// both places. Measured 2026-10-03: reading the stored reference directly
+/// reports: once the stored reference is gone the authored fallback answers,
+/// in both places. Measured 2026-10-03: reading the stored reference directly
 /// made the measure refuse (as `Internal`) a name the listing in the very
 /// same state called `resolves: true`.
+///
+/// The fixture is the one case that still loses a persistent identity for
+/// good — a pocket floor, named, and then turned into a through hole, so
+/// neither the pid nor its lineage root is on the body any more.
 #[test]
-fn a_name_whose_pid_is_gone_still_measures_through_its_fallback() {
+fn a_name_whose_reference_is_gone_still_measures_through_its_fallback() {
     let mut state = EngineState::new();
     let mut kernel = KernelV2Adapter::new();
-    let (extrude, body) = plate(&mut state, &mut kernel, 0.04, 0.01, 1);
-    let face = top_face_ref(&mut state, &mut kernel, &body);
+    let (_, _) = plate(&mut state, &mut kernel, 0.04, 0.01, 1);
+    let (cut, body) = pocket(&mut state, &mut kernel, 0.01, 0.004, 500, 0.005);
+    let floor = pocket_floor_ref(&mut state, &mut kernel, &body, f64::INFINITY);
     ok(
         &mut state,
         &mut kernel,
         "entity_name",
-        json!({ "target": { "type": "entity", "geom_ref": face }, "name": "top_face" }),
+        json!({ "target": { "type": "entity", "geom_ref": floor }, "name": "floor" }),
     );
 
-    // Editing the named face's own feature re-stamps its pid (D0 item 1).
-    set_depth(&mut state, &mut kernel, extrude, 0.02);
-    let entry = listed(&mut state, &mut kernel, "top_face");
-    assert_eq!(entry["resolved_by"], "query", "the pid is gone: {entry}");
+    // The pocket becomes a through hole: the floor is gone, and so is the
+    // operand face its root led back to.
+    set_depth(&mut state, &mut kernel, cut, 0.012);
+    let entry = listed(&mut state, &mut kernel, "floor");
+    assert_eq!(
+        entry["resolved_by"], "query",
+        "neither the pid nor its root is left: {entry}"
+    );
     assert_eq!(entry["resolves"], true, "{entry}");
 
-    // The point sits 100 mm above the new top cap (z = 20 mm).
+    // The measure answers through the same fallback rather than refusing.
     let measured = ok(
         &mut state,
         &mut kernel,
         "measure_distance",
         json!({
-            "a": { "type": "name", "name": "top_face" },
-            "b": { "type": "point", "point": [0.0, 0.0, 0.12] },
+            "a": { "type": "name", "name": "floor" },
+            "b": { "type": "point", "point": [0.0, 0.0, 0.5] },
         }),
     );
-    assert_eq!(
-        measured["distance_m"]
-            .as_f64()
-            .map(|d| (d - 0.1).abs() < 1e-9),
-        Some(true),
-        "the fallback's face is 100 mm below the probe point: {measured}"
+    assert!(
+        measured["distance_m"].as_f64().unwrap_or(0.0) > 0.0,
+        "a name the listing calls resolvable must measure: {measured}"
     );
+    assert_eq!(measured["method"], "exact", "{measured}");
 }
 
 /// Re-extrude the plate at a new depth, through the tool an agent would use.
@@ -416,18 +538,15 @@ fn a_name_survives_an_unrelated_edit_elsewhere_in_the_document_by_pid() {
     );
 }
 
-/// An edit to the named face's OWN feature. The name still points at the
-/// right face — but through the authored reference, not the pid, and it says
-/// so rather than quietly answering.
+/// An edit to the named face's OWN feature. Since D0 item 1 (content-seeded
+/// face pids) the name keeps its persistent identity: the seed is the
+/// feature's uuid and the role is the face's position in its constructor's
+/// output, so re-executing the step hands the same face the same id.
 ///
-/// This is D0's open item 1 (content-seeded FACE pids, the F4a reseed)
-/// measured from up here: face pids are monotonic, so re-executing a feature
-/// stamps its faces fresh and the recorded pid is simply gone. Measured
-/// 2026-10-03: the plate's top cap was `pid 0`, and after the depth edit no
-/// face of the body carried it. The `#[ignore]`d test below is the same claim
-/// under the reseed — un-ignore it when it lands.
+/// Before the reseed this was the loud-fallback case, pinned the other way
+/// (the plate's top cap was `pid 0` and no face carried it after the edit).
 #[test]
-fn a_name_over_an_edited_feature_s_own_face_falls_back_and_says_so() {
+fn a_face_name_keeps_its_pid_across_an_edit_to_its_own_feature() {
     let mut state = EngineState::new();
     let mut kernel = KernelV2Adapter::new();
     let (extrude, body) = plate(&mut state, &mut kernel, 0.04, 0.01, 1);
@@ -443,59 +562,79 @@ fn a_name_over_an_edited_feature_s_own_face_falls_back_and_says_so() {
     set_depth(&mut state, &mut kernel, extrude, 0.02);
 
     let entry = listed(&mut state, &mut kernel, "top_face");
+    assert_eq!(entry["resolves"], true, "{entry}");
     assert_eq!(
-        entry["resolves"], true,
-        "the authored reference answers when the pid is gone: {entry}"
-    );
-    assert_eq!(
-        entry["resolved_by"], "query",
-        "and the agent is TOLD the persistent identity was lost: {entry}"
+        entry["resolved_by"], "pid",
+        "the seeded pid survives its own feature's re-execution: {entry}"
     );
     assert!(
-        entry["warnings"][0]
-            .as_str()
-            .unwrap_or_default()
-            .contains("persistent id is gone"),
-        "{entry}"
+        entry.get("warnings").is_none(),
+        "a clean pid resolution warns about nothing: {entry}"
     );
     assert_eq!(
         entry["geom_ref"]["selector"], stored,
         "nothing rewrites the stored reference: {entry}"
     );
 
-    // It is still the right face: the top cap, now 20 mm up instead of 10.
+    // And it is the right face: the top cap, now 20 mm up instead of 10.
+    let z = named_face(&mut state, &mut kernel, &body, "top_face")["signature"]["centroid"][2]
+        .as_f64()
+        .expect("a centroid");
+    assert!(
+        (z - 0.02).abs() < 1e-9,
+        "the name is on the new top cap (z = 20 mm): z = {z}"
+    );
+}
+
+/// A BOOLEAN's own output face is the family the reseed does not cover: its
+/// pid is still counter-allocated, and only its lineage ROOT is content-
+/// seeded. Editing the boolean therefore loses the face's own id, and the
+/// root answers instead — correctly, and with the resolver's warning saying
+/// so. That warning is the honest signal, so it is pinned.
+#[test]
+fn a_name_on_a_boolean_output_face_answers_through_its_root_and_says_so() {
+    let mut state = EngineState::new();
+    let mut kernel = KernelV2Adapter::new();
+    let (_, plate_body) = plate(&mut state, &mut kernel, 0.04, 0.01, 1);
+    let (cut, body) = pocket(&mut state, &mut kernel, 0.01, 0.004, 500, 0.005);
+    assert_ne!(body, plate_body, "the cut's output is its own body");
+    // A plate wall that SURVIVED the cut: a boolean output face whose root
+    // leads back to the extrude's seeded face.
     let all = ok(
         &mut state,
         &mut kernel,
         "face_list",
-        json!({ "body_id": body }),
+        json!({ "body_id": body.clone() }),
     );
-    let faces = all["faces"].as_array().unwrap();
-    let named: Vec<&Value> = faces.iter().filter(|f| f["name"] == "top_face").collect();
-    assert_eq!(named.len(), 1, "exactly one face carries the name: {all}");
-    let z = named[0]["signature"]["centroid"][2].as_f64().unwrap();
-    assert!(
-        (z - 0.02).abs() < 1e-9,
-        "the name is on the new top cap (z = 20 mm), not somewhere else: z = {z}"
-    );
-}
-
-#[test]
-#[ignore = "D0 item 1: content-seeded FACE pids (the F4a reseed) not landed — an incremental rebuild stamps the edited feature's faces fresh, so a name over one of them loses its pid and falls back to the authored reference (pinned by the test above)"]
-fn a_face_name_keeps_its_pid_across_an_edit_to_its_own_feature() {
-    let mut state = EngineState::new();
-    let mut kernel = KernelV2Adapter::new();
-    let (extrude, body) = plate(&mut state, &mut kernel, 0.04, 0.01, 1);
-    let face = top_face_ref(&mut state, &mut kernel, &body);
+    let wall = all["faces"]
+        .as_array()
+        .expect("faces")
+        .iter()
+        .max_by(|a, b| {
+            let x = |f: &Value| f["signature"]["centroid"][0].as_f64().unwrap_or(f64::MIN);
+            x(a).total_cmp(&x(b))
+        })
+        .expect("a wall")["geom_ref"]
+        .clone();
     ok(
         &mut state,
         &mut kernel,
         "entity_name",
-        json!({ "target": { "type": "entity", "geom_ref": face }, "name": "top_face" }),
+        json!({ "target": { "type": "entity", "geom_ref": wall }, "name": "far_wall" }),
     );
-    set_depth(&mut state, &mut kernel, extrude, 0.02);
-    let entry = listed(&mut state, &mut kernel, "top_face");
+
+    set_depth(&mut state, &mut kernel, cut, 0.006);
+
+    let entry = listed(&mut state, &mut kernel, "far_wall");
+    assert_eq!(entry["resolves"], true, "{entry}");
     assert_eq!(entry["resolved_by"], "pid", "{entry}");
+    assert!(
+        entry["warnings"][0]
+            .as_str()
+            .unwrap_or_default()
+            .contains("resolved through its lineage root"),
+        "the agent is told the face's own id was re-minted: {entry}"
+    );
 }
 
 #[test]
@@ -946,22 +1085,22 @@ fn named_face(
 /// A name must never answer `resolved_by: "pid"` for an entity that is not
 /// the one it was given to.
 ///
-/// Measured 2026-10-03. Face pids are a per-arena monotonic COUNTER
-/// (`kernel_v2::arena::BrepArena::alloc_pid`), not content-seeded, so a
-/// reopened document numbers every face again from the recipe. A document
-/// edited ELSEWHERE — here a hexagonal prism that became a pentagonal one,
-/// one face fewer — therefore shifts the numbers of every body built after
-/// it, and the untouched body's stored pid names its NEIGHBOUR. The listing
-/// reports `resolves: true`, `resolved_by: "pid"`, no warnings: a silently
-/// wrong answer of exactly the kind `Selector::Pid`'s refuse-never-rebind
-/// contract exists to prevent (P9/P10).
+/// Before D0 item 1 this was the branch's worst defect, and it is why the
+/// pin exists. Face pids were a per-arena monotonic counter
+/// (`BrepArena::alloc_pid`), so a reopened document numbered every face
+/// again from the recipe: a document edited ELSEWHERE — here a hexagonal
+/// prism that became a pentagonal one, one face fewer — shifted the numbers
+/// of every body built after it, and the untouched body's stored pid named
+/// its NEIGHBOUR, reported `resolves: true`, `resolved_by: "pid"`, no
+/// warnings. Measured 2026-10-03: the name moved from the second body's top
+/// cap (z = 2 mm) to its bottom cap (z = 0).
 ///
-/// In-session the same edit is loud (the counter only climbs, so the stored
-/// pid is simply gone and the authored fallback answers with a warning —
-/// `a_name_over_an_edited_feature_s_own_face_falls_back_and_says_so`). It is
-/// the reload that re-mints the number onto other geometry.
+/// Green since the reseed (`crates/kernel-v2/src/pid.rs::seeded_face_pid`):
+/// a face's id is a function of its step's uuid and its role in that step's
+/// output, so nothing about another feature's face count can reach it.
+/// Re-confirmed by withdrawing the seed in `feature_engine::rebuild` — the
+/// assertion below goes red again.
 #[test]
-#[ignore = "D0 item 1: content-seeded FACE pids (the F4a reseed) not landed — face pids are a per-arena counter, so reopening a document edited elsewhere re-mints a stored pid onto a different face and the name answers `pid` with no warning"]
 fn a_name_does_not_follow_a_reused_pid_onto_another_face_after_a_reload() {
     let mut state = EngineState::new();
     let mut kernel = KernelV2Adapter::new();
@@ -1017,6 +1156,79 @@ fn a_name_does_not_follow_a_reused_pid_onto_another_face_after_a_reload() {
 
     let entry = listed(&mut state, &mut kernel, "b_top");
     let reloaded = named_face(&mut state, &mut kernel, &body_b, "b_top");
+    assert_eq!(
+        reloaded["signature"]["centroid"], authored["signature"]["centroid"],
+        "the name must still be on the face it was given to, or refuse: {entry}"
+    );
+}
+
+/// The same claim as the test above, for the face family the reseed does NOT
+/// cover: a BOOLEAN's own output faces.
+///
+/// Their pids are still counter-allocated — `boolean/from_yang.rs` withdraws
+/// the construct seed around its `finalize_solid`, because a boolean output's
+/// identity is its journal lineage and `pid::solid_pids` reads the root. Only
+/// that root is content-seeded. So the counter is still live for this family,
+/// and a reopened document still re-mints its numbers from the recipe: an
+/// edit that changes an EARLIER boolean's output face count shifts them all.
+///
+/// Measured 2026-10-03 on the model below — one plate, two pockets, the body
+/// being the second cut's output. The name was given to the second pocket's
+/// FLOOR (`pid 22`, centroid `[0.01, -0.03, 0.004]`, normal −z). The first
+/// pocket was then deepened into a through hole, which costs that cut's
+/// output its own floor. After save and reopen the name sat on the second
+/// pocket's SIDE WALL (`[0.005, -0.03, 0.002]`, normal +x) while the floor
+/// it was given to was still there, unnamed — and the listing reported
+/// `resolves: true`, `resolved_by: "pid"`, with no `warnings` key at all.
+/// `resolve_by_pid` matches the pid exactly before it ever looks at the
+/// root, so the stable root cannot save this: step 1 wins with the wrong
+/// face.
+///
+/// Un-ignore when the stamping pass moves after `boolean_op` records the
+/// journal (`H(root, rank within the root's split group)`).
+#[test]
+#[ignore = "D0 item 1b: stamp boolean outputs after the journal — a boolean's OWN output pids are still counter-allocated, so reopening a document whose earlier boolean changed its face count re-mints a stored pid onto a different face of the same body, and the name answers `pid` with no warning"]
+fn a_name_on_a_boolean_output_face_does_not_move_after_a_reload() {
+    let mut state = EngineState::new();
+    let mut kernel = KernelV2Adapter::new();
+    let (_, _) = plate(&mut state, &mut kernel, 0.04, 0.01, 1);
+    // Two pockets in one plate. The body is the SECOND cut's output, so its
+    // counter pids are allocated after the first cut's.
+    let (first_cut, _) = pocket(&mut state, &mut kernel, 0.01, 0.004, 500, 0.005);
+    let (_, body) = pocket(&mut state, &mut kernel, 0.01, 0.004, 900, 0.025);
+    let floor = pocket_floor_ref(&mut state, &mut kernel, &body, -0.02);
+    ok(
+        &mut state,
+        &mut kernel,
+        "entity_name",
+        json!({ "target": { "type": "entity", "geom_ref": floor }, "name": "p2_floor" }),
+    );
+    let authored = named_face(&mut state, &mut kernel, &body, "p2_floor");
+
+    // The FIRST pocket becomes a through hole: its boolean output loses a
+    // face, so every counter pid allocated after it shifts on a full rebuild.
+    set_depth(&mut state, &mut kernel, first_cut, 0.012);
+    let json_data = match dispatch(&mut state, UiToEngine::SaveProject, &mut kernel) {
+        EngineToUi::SaveReady { json_data } => json_data,
+        other => panic!("expected SaveReady, got {other:?}"),
+    };
+
+    let mut state = EngineState::new();
+    let mut kernel = KernelV2Adapter::new();
+    match dispatch(
+        &mut state,
+        UiToEngine::LoadProject { data: json_data },
+        &mut kernel,
+    ) {
+        EngineToUi::ModelUpdated { errors, .. } => {
+            assert!(errors.is_empty(), "the reload rebuilds: {errors:?}")
+        }
+        other => panic!("expected ModelUpdated, got {other:?}"),
+    }
+    wasm_bridge::tessellation_runner::tessellate_missing_meshes(&mut state, &mut kernel);
+
+    let entry = listed(&mut state, &mut kernel, "p2_floor");
+    let reloaded = named_face(&mut state, &mut kernel, &body, "p2_floor");
     assert_eq!(
         reloaded["signature"]["centroid"], authored["signature"]["centroid"],
         "the name must still be on the face it was given to, or refuse: {entry}"
