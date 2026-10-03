@@ -43,6 +43,142 @@ after the reconciliation run (release, 8 jobs, 360 s; wall 577 s, F0085
 regression since 2026-08-01 is outstanding (checked over every commit of
 `results.json`).
 
+## 2026-10-03 (later) — P0012 CONVERTED: a `ThroughAll` depth was measured along the UNREVERSED sketch normal and padded by an ABSOLUTE 1 m, so a cut whose body lay behind its plane swept a 1 m cutter into empty space; the depth is now measured along the direction the extrude ACTUALLY sweeps, with a RELATIVE overshoot — **corpus not re-measured this session** (178 ThroughAll / direction-less-cut cases re-judged singly: 2 moves, both conversions, 0 regressions)
+
+**Anchor (written before any code changed).** `ASSAY_CASE=P0012 … single_case
+--release`, verbatim:
+
+```
+[fe-cut] Extrude: target verts=8 proj=[-1.174176e1, 3.803527e1] sketch_proj=4.370543e1 reverse=true
+P0012: SUPPORTED_WRONG (0.4s) — exact_volume: kernel 7.201600e4 vs exact 6.214623e4 (rel +1.588e-1 outside band 3.979e-2)
+```
+
+The mechanism is the one the seed-2 adjudication read off the code, confirmed
+here at the call site:
+
+1. `resolve_depth(DepthMode::ThroughAll, …)` measured `compute_solid_extent`
+   along the **unreversed** sketch normal. That function returned the far end
+   of the body's projection **clamped at `0.0`**, so a body lying entirely
+   behind the plane and a body touching it both read "extent 0" — the
+   information the depth needed had been thrown away before the depth was
+   computed.
+2. The depth was then `extent + 1.0`, floored at `max(blind, 1.0)` — an
+   **absolute 1 m** in a kernel whose unit is the metre.
+3. `should_reverse_for_cut` ran AFTERWARDS and flipped the sweep to `−n̂`. The
+   1 m cutter spanned projection [42.71, 43.71]; the body's far side is at
+   38.04. It removed nothing, watertight, no error, no warning.
+
+**A second defect found at the anchor: the "exact" 62 146 was wrong too.** The
+oracle (`exact_membership`) mirrored the engine's formula but measured the
+exact chain's **bounding box** instead of its vertices, so its
+`extent_past_plane` read 14.5 where the engine read 0, its cutter was 15.5
+long instead of 1.0, and it clipped a 9 870 slab off the box. Both sides were
+wrong; the case surfaced because they were wrong by different amounts. The
+true swept volume, computed independently of both (pure-Python slice
+integration of the two convex prisms at 4e3 / 2e4 / 1e5 slices, converged to
+70 276.3477): the cutter removes **70 276.35 — 97.6 % of the big box**, leaving
+1 723.65 + the untouched 16. So neither the ledger's 13.7 % nor the kernel's
+0 % was the answer.
+
+**Fix (structural, one metric).** `solids_projection_range` measures the FULL
+interval the material occupies along the extrude axis — on the feature's
+PRIMARY target (its first combine target; the most recent solid when it has
+none) — and feeds BOTH gates that ask that question:
+
+- the cut-direction reversal (unchanged rule, unchanged body: reverse when the
+  primary target's mid-extent lies behind the plane) is decided FIRST, and
+- `ThroughAll` / `UpTo` are then resolved along the direction the extrude
+  ACTUALLY sweeps (`swept_primary` / `swept_second`, the interval re-expressed
+  in the sweep frame), never along the authored normal.
+- The through-all overshoot is `THROUGH_ALL_OVERSHOOT = 1e-2` of the
+  material's own reach along that axis. No absolute margin anywhere: the old
+  `+1.0` and the no-target `max(blind, 100.0)` are both gone (no target body
+  now falls back to the authored depth, which is at least at the model's
+  scale, and refuses when that is non-positive).
+- A `ThroughAll` whose material lies entirely behind the sweep is a LOUD
+  `ResolutionFailed` ("…entirely behind the sketch plane along the sweep
+  direction…"), not a cutter that silently misses — P10.
+
+The oracle was corrected in the same commit and the same way (it still reads
+the bbox, but a bbox depth is now an OUTER bound of the vertex depth, and both
+clear the body entirely, so the swept volumes agree by construction).
+
+**One gate was NOT widened, because the corpus refused it.** Measuring the
+UNION of a multi-target cut's bodies — the cutter does have to clear every
+target it acts on — was implemented first, and it flipped **R0091**
+(`revolve(circle) + box boss + circle cut`, a disjoint revolve sausage
+standing beside the box) from `SUPPORTED_CORRECT` to
+`CurvedGeometryMismatch { face: FaceId(16), reason: "bounded cylinder patch
+must have exactly one material-CCW loop" }`: with DISJOINT targets the union's
+mid-extent belongs to neither body, so the cut aimed between them. Reverted to
+the primary target, R0091 reads `SUPPORTED_CORRECT (1.4s) — all checks passed`
+again and P0012's own numbers are unchanged (its first target is the big box,
+which dominates both readings). **Open, ledgered, not fixed here:** a
+multi-target `ThroughAll` cut is measured on its primary target only, so its
+cutter may stop short of a second, farther target — a silent partial cut with
+no corpus customer today. Fixing it needs a per-target depth (one cutter per
+target) or a loud refusal, not a longer shared cutter.
+
+**After:**
+
+```
+[fe-cut] Extrude: targets=2 proj=[-1.174176e1, 3.803527e1] sketch_proj=4.370543e1 reverse=true
+P0012: SUPPORTED_CORRECT (0.4s) — all checks passed
+```
+
+with the kernel's live volume `1.739652e3` against the independent
+`1739.6523` — six digits, from a model of the geometry that shares no code
+with either side.
+
+**The reversal rule was NOT changed, and here is why** (the ledger asked
+whether the bbox mid-extent proxy is wrong in general). With the depth fixed,
+the mid-extent rule can no longer produce a no-op: `mid < plane` implies
+material behind, `mid ≥ plane` implies material ahead, and the depth now
+clears whichever side was chosen. The alternative rule — "follow the authored
+normal unless it provably removes nothing" — is arguably better CAD (it is
+what would fix the documented ring trap, `memory`
+`session_2026_09_30c_pendant_faithful_rebuild`: a blind cut from inside a bore
+outward reverses on the ring's centre and removes nothing), but it is a
+*one-sided* predicate, and the harness oracle measures a BOUNDING BOX: its
+`hi` exceeds the body's true `hi` on every tilted plane, so engine and oracle
+would disagree on the reversal itself (on P0012's own geometry the bbox says
+"material ahead", the vertices say "none") and the corpus would fill with
+spurious WRONGs. Changing that rule therefore needs an exact support function
+in the oracle first — a separate, ledgered piece of work, not a side effect of
+this conversion. The blind-cut ring trap stands until then.
+
+**Pins.** `crates/test-harness/tests/through_all_depth_kv2.rs` (kernel-v2, at
+×1e-3 / ×1 / ×1e3 each — RED on the pre-fix engine, verified by reverting
+`rebuild.rs` and re-running):
+
+| pin | pre-fix reading | post-fix |
+|---|---|---|
+| `through_all_cut_reaches_a_body_entirely_behind_its_sketch_plane` | left `1.000000e3` of 1000 s³ — removed NOTHING (P0012's own shape) | 640 s³ |
+| `through_all_cut_from_the_top_face_pierces_the_body` | left `9.640000e2` at ×1 — the everyday top-face hole was cut **1 m deep**, not through | 640 s³ |
+| `through_all_boss_overshoots_by_a_relative_margin` | column ended at `1009.9999904632568 s` at ×1e-3 (the absolute 1 m) | the scale-invariant 10.15 s |
+
+plus `feature-engine` unit pins on the extracted arithmetic
+(`depth_mode_tests`: scale invariance, the loud refusal, far-side-not-span,
+the authored-depth fallback, `UpTo` along the sweep) and
+`through_all_aimed_away_from_the_body_is_loud` in `engine_tests.rs`.
+
+**Moves.** All 178 corpus cases whose document carries a `ThroughAll` depth or
+a cut with no explicit direction were re-judged singly (release, `single_case`,
+900 s budget, 6 at a time; the whole sweep was run twice — once on the union
+measurement, which is how R0091 was caught, and once on the landed fix)
+against the committed `results.json`: of the 169 cases the baseline covers,
+**169 unchanged and 0 regressions**; of the 9 promoted after that baseline, 7
+match their just-committed pins and two moved, both conversions — P0012
+`SUPPORTED_WRONG → SUPPORTED_CORRECT`
+and **P0022 `ERROR → SUPPORTED_CORRECT`**. P0022 (`convex5:boss circle:boss
+circle:cut convex4:boss circle:thru`) was promoted hours earlier as the
+smallest example of `malformed B-Rep topology: face 2: interior junction …
+not contained by any lateral triangle`; its last op is a through-all cut, so
+with the depth corrected the document's real geometry no longer reaches that
+wall (its own ×1e3 row already read CORRECT). That loud family has **no
+corpus customer again** — the next document that reaches it must re-promote
+one.
+
 ## 2026-10-03 — prospector seed 2 (200 candidates) adjudicated: **three SILENT WRONGs** (two of them refuted by arithmetic alone), ten loud families with no corpus customer, two Stage-2 arrangement hangs; promoted P0010–P0022; **corpus not re-measured this session**
 
 `PROSPECT_SEED=2 PROSPECT_COUNT=200` (spec `specs/assay_prospector.md`) returned
@@ -66,7 +202,7 @@ in every case, so the 10–29 % gaps are not its noise.
 |---|---|---|---|---|---|
 | seed 2 index 159 (8 ops) | op 6, an explicit `BooleanCombine` Union | 6.664371e-7 | 1.490760e-6 | −55.3 % | **P0010** (hand-reduced to 4 ops) — **CONVERTED 2026-10-03** |
 | seed 2 index 89 (8 ops) | op 7, the THIRD chained `BooleanCombine` Union | 3.798833e4 | 4.421668e4 | −14.1 % | **P0011** (hand-reduced to 5 ops) — **CONVERTED 2026-10-03** |
-| seed 2 index 129 (7 ops) | op 6, a `ThroughAll` cut | 9.721746e4 | 7.580963e4 | +28.2 % | **P0012** (minimized to 3 ops) |
+| seed 2 index 129 (7 ops) | op 6, a `ThroughAll` cut | 9.721746e4 | 7.580963e4 | +28.2 % | **P0012** (minimized to 3 ops) — **CONVERTED 2026-10-03** |
 
 **P0010 / P0011 — a `BooleanCombine` whose operand is a MULTI-BODY output
 emits only one body's worth of material.** Neither needs an oracle: the
@@ -173,7 +309,10 @@ the chord deficit. Its expectation stays the in-line exact-membership lattice,
 which is kernel-independent and now passes.
 
 **P0012 — a `ThroughAll` cut whose target lies entirely behind its sketch
-plane removes nothing. Root cause CONFIRMED BY CODE READING, not inferred.**
+plane removes nothing. Root cause CONFIRMED BY CODE READING, not inferred.
+CONVERTED 2026-10-03 (see the dated section below) — and the "9 870" figure
+in the next paragraph was itself an artifact: the true swept volume is
+70 276.35, 97.6 % of the box, which NEITHER side computed.**
 The 3-op minimum is a 2×2 box boss at the origin (16), a 42.4-side box boss at
 [10, 20, 30] depth 40 (72 000, disjoint from the first), and a ThroughAll cut
 with a 69-side square on a plane at [25, 49, 53], normal [0.67, 0.72, −0.16].
