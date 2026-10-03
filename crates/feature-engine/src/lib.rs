@@ -571,6 +571,10 @@ impl Engine {
     /// `w2`. The incoming table already carries the new name on the renamed
     /// row; the rewrite is what the rest of the document needs. One undo
     /// step covers both the table and the rewritten fields.
+    ///
+    /// A rename whose new name is NOT unambiguously the renamed parameter's
+    /// is skipped — see the check below for why a rewrite is the one thing
+    /// that must not happen in that case.
     pub fn set_parameters(
         &mut self,
         parameters: Vec<types::DesignParameter>,
@@ -581,6 +585,30 @@ impl Engine {
         let mut old_expressions: Vec<params::ExprEdit> = Vec::new();
         for (from, to) in renames {
             if from == to || from.is_empty() || to.is_empty() {
+                continue;
+            }
+            // The rewrite is only safe when the incoming table carries `to`
+            // on exactly one row and carries `from` on none. Otherwise the
+            // dependents are spliced onto a DIFFERENT parameter — one that
+            // resolves, so the geometry silently takes another variable's
+            // value and no feature reports anything. Measured on the panel's
+            // own path: renaming `w` to a name another variable already had
+            // moved an extrude from 20 mm to 198 mm, the only complaint a
+            // `duplicate parameter name` on the shadowed row.
+            //
+            // `parameters_set` refuses this outright (`ParameterNameTaken`);
+            // here there is no answer to refuse into, so the rewrite is
+            // skipped and every dependent keeps reading `from`, which the
+            // table no longer resolves — loud, undoable, and recoverable by
+            // picking a free name.
+            let targets = self
+                .tree
+                .parameters
+                .iter()
+                .filter(|p| p.name == *to)
+                .count();
+            let old_name_still_live = self.tree.parameters.iter().any(|p| p.name == *from);
+            if targets != 1 || old_name_still_live || expr::validate_name(to).is_err() {
                 continue;
             }
             old_expressions.extend(params::rename_parameter(&mut self.tree, from, to));
