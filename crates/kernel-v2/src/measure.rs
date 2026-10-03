@@ -84,7 +84,7 @@ pub enum On {
 
 /// The answer: the distance, where it is realized on each operand, what each
 /// of those points lies on, and whether the number is exact.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct DistanceResult {
     /// The minimum distance in meters (0 when the operands touch or overlap).
     pub value: f64,

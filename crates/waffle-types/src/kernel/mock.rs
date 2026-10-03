@@ -1823,6 +1823,30 @@ impl super::measure::KernelMeasure for MockKernel {
                 .to_string(),
         })
     }
+
+    /// Q2: the mock has no boolean pipeline, so there is nothing to intersect.
+    fn interference(
+        &self,
+        _a: &KernelSolidHandle,
+        _b: &KernelSolidHandle,
+    ) -> Result<super::measure::Interference, KernelError> {
+        Err(KernelError::NotSupported {
+            operation: "interference query (MockKernel has no boolean pipeline to intersect with)"
+                .to_string(),
+        })
+    }
+
+    /// Q3: the mock's box solids carry face lists, not surfaces to integrate
+    /// over — a centroid from them would be invented.
+    fn mass_properties(
+        &self,
+        _solid: &KernelSolidHandle,
+        _density: Option<f64>,
+    ) -> Result<super::measure::MassProperties, KernelError> {
+        Err(KernelError::NotSupported {
+            operation: "mass properties (MockKernel carries no geometry to integrate)".to_string(),
+        })
+    }
 }
 
 impl KernelIntrospect for MockKernel {
@@ -2253,6 +2277,40 @@ mod tests {
                 );
             }
             other => panic!("want a typed capability refusal, got {other:?}"),
+        }
+    }
+
+    /// Q2 and Q3 refuse on the same terms as Q1, each naming itself — so a
+    /// consumer wired to the mock sees a capability wall, never a zero volume
+    /// or an origin centroid it might believe.
+    #[test]
+    fn interference_and_mass_are_typed_refusals_too() {
+        use super::super::measure::KernelMeasure;
+        let mut kernel = MockKernel::new();
+        let (a, solid_a) = kernel.make_box_solid(1.0, 1.0, 1.0);
+        kernel.solids.insert(a.raw(), solid_a);
+        let (b, solid_b) = kernel.make_box_solid(1.0, 1.0, 1.0);
+        kernel.solids.insert(b.raw(), solid_b);
+
+        for (what, err) in [
+            (
+                "interference",
+                kernel.interference(&a, &b).expect_err("no boolean"),
+            ),
+            (
+                "mass properties",
+                kernel.mass_properties(&a, None).expect_err("no geometry"),
+            ),
+        ] {
+            match err {
+                KernelError::NotSupported { operation } => {
+                    assert!(
+                        operation.contains("MockKernel") && operation.contains(what),
+                        "the refusal names itself and the reason: {operation}"
+                    );
+                }
+                other => panic!("want a typed capability refusal for {what}, got {other:?}"),
+            }
         }
     }
 

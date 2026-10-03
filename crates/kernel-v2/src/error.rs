@@ -522,6 +522,44 @@ pub enum KernelV2Error {
     /// error, not a geometry one: nothing about the model is wrong.
     MeasureInvalidRequest { reason: &'static str },
 
+    /// Q3 of `specs/agent_mechanical_design.md` §4.2
+    /// ([`crate::mass::mass_properties`]): the moment integrator and
+    /// [`crate::geom::signed_volume`] both claim an exact volume for this
+    /// solid and they DISAGREE. The two derive a curved lateral's material
+    /// sense differently — `signed_volume` from the rim normals and traversal,
+    /// the moment integrator from `Surface::reversed` — so a mismatch is an
+    /// orientation defect in one of them. It STOPs: a wrong sense moves the
+    /// centroid and the inertia far more than it moves the volume, so a
+    /// volume that merely looked plausible would ship a wrong centroid.
+    ///
+    /// The two volumes are carried as formatted text because this enum is
+    /// `Eq` and an `f64` field would break that for every variant.
+    MassIntegratorDisagreement {
+        solid: crate::arena::SolidId,
+        volumes: String,
+    },
+
+    /// Q2 of `specs/agent_mechanical_design.md` §4.2
+    /// ([`crate::interference::interference`]): the Intersect returned a
+    /// region that does NOT lie inside both operands.
+    ///
+    /// Every point of `A ∩ B` is in `A` and in `B`, so the region's bounding
+    /// box lies inside the intersection of the operands' boxes. That is a
+    /// containment PROOF, not a tolerance: when it fails the boolean handed
+    /// back something that is not the intersection of what it was asked
+    /// about, and the only honest answer is a STOP.
+    ///
+    /// A P10 net, and it has a live customer: two cubes meeting along one
+    /// edge, flush in the third axis, come back from `Intersect` as a copy of
+    /// operand A (measured 2026-10-03 — the live `Union` of the same pair
+    /// drops an operand too, so the defect is in the boolean, not in Q2).
+    /// Without this check Q2 reports a phantom 1000 mm³ collision between two
+    /// bodies that only touch, which is the one wrong answer a clearance
+    /// query must never give.
+    ///
+    /// The boxes are carried as formatted text because this enum is `Eq`.
+    InterferenceRegionOutsideOperands { bounds: String },
+
     // ----- persistent identity (`crate::pid`, D0) -------------------------
     /// A face of the solid whose persistent ids were requested carries no
     /// stamped `Pid`, so there is nothing to seed its edges and vertices
