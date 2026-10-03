@@ -144,8 +144,13 @@ struct Tally {
     not_built: Vec<String>,
     /// Cases that built and projected in all six directions.
     projected: usize,
-    /// `(case, direction)` the kernel could not bound (surface-pair curves).
+    /// `(case, direction)` the kernel could not bound (surface-pair curves),
+    /// where the containment half did not run.
     unbounded: usize,
+    /// `(case, direction)` the containment half DID check. Asserted below:
+    /// without it, a regression that made every solid unboundable would turn
+    /// check 1 vacuous while the sweep still passed.
+    bounded: usize,
     /// Failures, by case id.
     failures: BTreeMap<String, Vec<String>>,
 }
@@ -237,6 +242,7 @@ fn the_projection_oracle_holds_over_the_whole_assay_corpus() {
 
             // 1. Containment in the AABB's projection.
             if let Some((lo, hi)) = bounds {
+                tally.bounded += 1;
                 let want = aabb_projection(&basis, lo, hi);
                 if !got.within(&want, REL_SLACK * extent) {
                     problems.push(format!(
@@ -273,12 +279,13 @@ fn the_projection_oracle_holds_over_the_whole_assay_corpus() {
 
     println!(
         "projection oracle over {} cases: {} projected in all six directions, \
-         {} not built (the assay's own business), {} (case, direction) pairs the \
-         kernel declined to bound, {} failing cases",
+         {} not built (the assay's own business), {} of {} (case, direction) pairs \
+         bounded and containment-checked, {} failing cases",
         ids.len(),
         tally.projected,
         tally.not_built.len(),
-        tally.unbounded,
+        tally.bounded,
+        tally.bounded + tally.unbounded,
         tally.failures.len()
     );
     if !tally.not_built.is_empty() {
@@ -298,6 +305,18 @@ fn the_projection_oracle_holds_over_the_whole_assay_corpus() {
         "only {} of {} sampled cases projected — the sweep proved nothing",
         tally.projected,
         ids.len()
+    );
+    // And so would a sweep where nothing could be BOUNDED: the containment
+    // half runs only on a case `solid_aabb` answers for, and it records no
+    // problem for one it skips, so a regression that made every solid
+    // unboundable would silence check 1 without failing anything. Measured
+    // 2026-10-03 at stride 8: 210 of 246 pairs bounded, 36 not.
+    assert!(
+        tally.bounded > tally.unbounded,
+        "only {} of {} (case, direction) pairs could be bounded — the \
+         containment half of the oracle barely ran",
+        tally.bounded,
+        tally.bounded + tally.unbounded
     );
     assert!(
         tally.failures.is_empty(),
