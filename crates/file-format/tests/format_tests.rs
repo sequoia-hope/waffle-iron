@@ -1810,18 +1810,27 @@ fn the_3d_sketch_operation_did_not_move_the_format_floor() {
 /// document — losing the part tabs it reads perfectly well — where today it
 /// opens the document and keeps the drawing opaque. The forward-compatibility
 /// mechanism of §5.3 exists for exactly this case.
+/// Deliberately NOT a literal version number: the claim is that a drawing tab
+/// does not move the floor, whatever the floor is. The sibling above keeps the
+/// literal pin, so a bump still has to be deliberate somewhere — but it should
+/// have to be deliberate in ONE place, not in every test that mentions a
+/// version.
 #[test]
 fn a_drawing_tab_did_not_move_the_format_floor() {
     use feature_engine::drawing::Drawing;
 
-    assert_eq!(file_format::FORMAT_VERSION, 8);
-    assert_eq!(file_format::MIN_READER_VERSION, 8);
-
-    // And a document WITH a drawing tab still claims the same floor, which is
-    // the claim an older reader acts on.
     let mut doc = WaffleDocument::new("Drawn");
+    let plain: serde_json::Value = serde_json::from_str(&save_document(&doc)).unwrap();
     doc.tabs.push(Tab::drawing("Drawing 1", Drawing::new()));
-    let parsed: serde_json::Value = serde_json::from_str(&save_document(&doc)).unwrap();
-    assert_eq!(parsed["version"], 8);
-    assert_eq!(parsed["min_reader_version"], 8);
+    let drawn: serde_json::Value = serde_json::from_str(&save_document(&doc)).unwrap();
+
+    // A document WITH a drawing tab claims exactly what one without claims —
+    // which is the claim an older reader acts on when it decides whether to
+    // open the file at all.
+    assert_eq!(drawn["version"], plain["version"]);
+    assert_eq!(drawn["min_reader_version"], plain["min_reader_version"]);
+    assert_eq!(drawn["version"], file_format::FORMAT_VERSION);
+    assert_eq!(drawn["min_reader_version"], file_format::MIN_READER_VERSION);
+    // And the tab really is in the file it claims that about.
+    assert_eq!(drawn["tabs"][1]["kind"]["type"], "Drawing");
 }
