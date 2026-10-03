@@ -63,6 +63,16 @@
 //! [`ProjectionDeclines::cross_body`], which is named separately for exactly
 //! that reason.
 //!
+//! ## What D1d adds
+//!
+//! [`KernelProjection::section_with_plane`] (spec §5.2 increment 4): the solid
+//! cut by a plane, as the cap's hatchable boundary loops ([`SectionLoop`]) plus
+//! the cut solid for the caller to run `project` over. The cut is the kernel's
+//! own Intersect boolean against a half-space box — not a separate trimming
+//! routine — so a section and a user's own Subtract against the same plane
+//! cannot disagree. See [`SectionResult`] for the three deviations from §5.1's
+//! sketch and [`KernelProjection::section_with_plane`] for the typed outcomes.
+//!
 //! ## Deviations from the spec's sketch, and why
 //!
 //! - **`ProjectedCurve::source` is a [`KernelId`], not a `GeomRef`.** A
@@ -1046,14 +1056,98 @@ impl ProjectionBody {
     }
 }
 
-/// A planar section cut (D1d).
+/// One boundary loop of a section cap (D1d): the curves, closed as a chain,
+/// plus the signed area the kernel measured while it still had the loop's
+/// traversal direction.
+///
+/// ## Why the area is stored rather than derived
+///
+/// A [`Curve2`] arc is normalized counter-clockwise with `start < end` (see
+/// [`crate::kernel::projection`]'s module docs), so a curve cannot represent a
+/// clockwise traversal — a hole's loop and an outer loop with the same point
+/// set are the SAME curve list. The direction survives only in the B-Rep walk
+/// the loop was read from, which is inside the kernel. A consumer that
+/// re-derived the sign from nesting would be guessing at exactly the
+/// configuration (a cap with several outer loops, each with holes) where
+/// nesting is the thing it wanted to learn. So the kernel reports the number
+/// it measured: **positive for an outer loop, negative for a hole**, in the
+/// cap's own `(u, v)` frame.
+#[derive(Debug, Clone, PartialEq)]
+pub struct SectionLoop {
+    /// The loop's curves in B-Rep walk order. Consecutive curves share an
+    /// endpoint and the last shares one with the first, but each curve's OWN
+    /// direction is the projection's normalization, not the walk's.
+    pub curves: Vec<Curve2>,
+    /// Green's-theorem area in the cap frame: `+` outer, `−` hole. Exact for
+    /// a cap bounded by lines, circular arcs and elliptical arcs; a polyline
+    /// edge contributes its chord polygon's area, which is LOW by the
+    /// polyline's own sagitta deficit.
+    pub signed_area: f64,
+    /// Whether every curve of this loop is an exact analytic arm
+    /// ([`Curve2::Line`], [`Curve2::Circle`], [`Curve2::Ellipse`]) — so
+    /// `signed_area` is exact — or at least one is a sampled
+    /// [`Curve2::Polyline`].
+    pub exact: bool,
+}
+
+/// A planar section cut (D1d): `specs/drawings_and_mbd.md` §5.2 increment 4.
+///
+/// ## Deviations from §5.1's sketch, and why
+///
+/// - **`cut_solid` is an `Option`.** The spec writes a bare handle, but a cut
+///   that removes ALL the material has no solid to name and kernel-v2 has no
+///   empty solid ([`super::types::KernelError`]'s `EmptyBooleanResult` family
+///   exists for exactly that). An empty-but-present handle would be a lie, the
+///   same argument that made [`ViewGeometry::bbox`] an `Option` at D1a.
+/// - **The loops are [`SectionLoop`]s, not bare `Vec<Curve2>`**, so each
+///   carries the signed area the kernel measured — see [`SectionLoop`].
+/// - **`plane_basis` is reported.** The loops are in "the cut plane's own
+///   `(u, v)`" and nothing in the spec's sketch says WHICH `(u, v)`. A
+///   consumer that re-derived a frame from the origin and normal would be free
+///   to pick a different one and silently rotate the hatch against the view.
+///
+/// Not `PartialEq`: [`KernelSolidHandle`] is deliberately not comparable (it is
+/// a session-scoped opaque id), so an equality on the whole result would have
+/// to either ignore the handle or invent an ordering for it.
 #[derive(Debug, Clone)]
 pub struct SectionResult {
-    /// The cap's boundary loops — outer plus inner, hatchable — in the cut
-    /// plane's own `(u, v)`.
-    pub cap_loops: Vec<Vec<Curve2>>,
-    /// The half-space result, for the caller to project.
-    pub cut_solid: KernelSolidHandle,
+    /// The cap's boundary loops — outer plus inner, hatchable — in
+    /// `plane_basis`'s `(u, v)`. Empty when the plane misses the solid.
+    pub cap_loops: Vec<SectionLoop>,
+    /// The half-space result, for the caller to project — `None` when the cut
+    /// keeps no material at all.
+    pub cut_solid: Option<KernelSolidHandle>,
+    /// The frame `cap_loops` is expressed in: `origin` is the plane origin the
+    /// caller passed and the line of sight is the NEGATED plane normal, so the
+    /// viewer stands on the discarded side and looks at the cap with the kept
+    /// material behind it — the drafting convention, and the frame that makes
+    /// an outer loop's `signed_area` positive.
+    pub plane_basis: ViewBasis,
+    /// Whether at least one cap face was identified by its PLANE rather than
+    /// by its descent from the cutting half-space — the §4.5.5 Stage-0
+    /// signature of a cut plane COPLANAR with a model face, whose overlap
+    /// region the overlay replaces with one shared trimmed surface that may
+    /// be attributed to the model operand.
+    ///
+    /// Carried because a coplanar cut is a legitimate section the drawing must
+    /// show, and this is the one configuration where the kernel's own lineage
+    /// cannot name the cap: reporting it is the difference between a section
+    /// that is known to have gone through Stage 0 and one that silently came
+    /// back with no cap at all.
+    pub cap_shared_with_model: bool,
+}
+
+impl SectionResult {
+    /// Net cap area: outer loops minus holes. Zero for an empty section.
+    pub fn cap_area(&self) -> f64 {
+        self.cap_loops.iter().map(|l| l.signed_area).sum()
+    }
+
+    /// Whether every loop's every curve stayed analytic, so [`Self::cap_area`]
+    /// is exact.
+    pub fn exact(&self) -> bool {
+        self.cap_loops.iter().all(|l| l.exact)
+    }
 }
 
 /// Orthographic projection and planar section of B-Rep solids
@@ -1093,8 +1187,29 @@ pub trait KernelProjection {
     }
 
     /// D1d: cut `solid` with the plane through `plane_origin` with unit
-    /// `plane_normal`, keeping the half-space the normal points away from,
-    /// and report the cap's loops plus the cut solid.
+    /// `plane_normal`, keeping the half-space the normal points away from
+    /// (every kept point satisfies `(p − plane_origin)·plane_normal ≤ 0`), and
+    /// report the cap's loops plus the cut solid.
+    ///
+    /// ## The typed outcomes
+    ///
+    /// - The plane cuts the solid ⇒ `cap_loops` non-empty and `cut_solid`
+    ///   `Some`.
+    /// - The plane misses the solid on the KEPT side ⇒ `cap_loops` empty and
+    ///   `cut_solid` `Some` (the whole solid survives). Empty, typed, NOT an
+    ///   error.
+    /// - The plane misses the solid on the DISCARDED side ⇒ `cap_loops` empty
+    ///   and `cut_solid` `None`. Also typed, also not an error.
+    /// - The kernel's boolean DECLINES — a coplanar input face pair that the
+    ///   §4.5.5 Stage-0 overlay cannot resolve, an edge-contact graze, any
+    ///   Stage-3/4/5 STOP ⇒ `Err`, naming the kernel's own error. A cut plane
+    ///   coplanar with a model face is a legitimate section (the cut passes
+    ///   THROUGH a face), so it is attempted and whatever Stage 0 answers is
+    ///   what comes back — a result when it resolves, that refusal when it
+    ///   does not. Never a silent empty section.
+    ///
+    /// Takes `&mut self` because the cut solid is a new body in the kernel's
+    /// arena: a section produces geometry, unlike [`Self::project`].
     fn section_with_plane(
         &mut self,
         _solid: &KernelSolidHandle,
