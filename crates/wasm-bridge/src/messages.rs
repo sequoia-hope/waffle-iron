@@ -1418,6 +1418,14 @@ pub struct ThinnestSite {
     pub opposite: [f64; 3],
     pub from: ThicknessFace,
     pub to: ThicknessFace,
+    /// Whether `from` and `to` are two DISTINCT faces that share an edge — so
+    /// this reading crossed a CORNER rather than a wall.
+    ///
+    /// Two faces meeting at an edge enclose a wedge that goes to zero at the
+    /// edge, so the number measures how close the site got to it. `false` for
+    /// a site that hit its own face: a solid cylinder's diameter, measured
+    /// across its own lateral face, is a wall.
+    pub faces_share_an_edge: bool,
 }
 
 /// One bar of the thickness histogram (Q5). Bins are equal-width over
@@ -1454,16 +1462,32 @@ pub struct ThicknessDeclines {
 /// a wall thinner than `spacing_m` between two sample sites can be missed
 /// entirely, so `min_m` is an upper bound on the body's true minimum wall and
 /// is never presented as the medial-axis answer.
+///
+/// Two minima cross the wire. `min_m` is the shortest cast anywhere, which any
+/// acute edge drives towards zero; `min_wall_m` is the shortest cast between
+/// two faces that do NOT meet at an edge, which is the wall. A rule reads the
+/// second.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct MeasuredThickness {
     pub body_id: String,
+    /// The shortest cast anywhere on the body — §4.2's question as posed.
+    /// Any ACUTE edge drives it towards zero (a 4 mm slot through a 10/7 mm
+    /// tube reports 0.043 mm here), so a WALL decision reads `min_wall_m`.
     pub min_m: f64,
+    /// The shortest cast that did NOT cross a corner — the thinnest wall.
+    /// Absent when every site crossed one, which is a body the sample found
+    /// no wall in rather than a body with a zero wall.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub min_wall_m: Option<f64>,
     /// The unweighted mean over sites. The sites are approximately
     /// area-uniform (every facet is subdivided to `spacing_m`), so this
     /// approximates the area-weighted mean wall.
     pub mean_m: f64,
     pub max_m: f64,
     pub thinnest: ThinnestSite,
+    /// Where `min_wall_m` is. Absent on the same bodies that number is.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub thinnest_wall: Option<ThinnestSite>,
     pub histogram: Vec<ThicknessBin>,
     /// Sites that produced a thickness.
     pub samples: usize,

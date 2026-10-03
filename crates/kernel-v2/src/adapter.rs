@@ -2549,17 +2549,21 @@ impl KernelMeasure for KernelV2Adapter {
             entity: encode_face(f),
             kind: TopoKind::Face,
         };
+        let site = |s: crate::measure::thickness::Site| ThicknessSite {
+            thickness: s.thickness,
+            point: s.point.as_array(),
+            opposite: s.opposite.as_array(),
+            from: face(s.from),
+            to: face(s.to),
+            faces_share_an_edge: s.faces_share_an_edge,
+        };
         Ok(Thickness {
             min: r.min,
+            min_wall: r.min_wall,
             mean: r.mean,
             max: r.max,
-            thinnest: ThicknessSite {
-                thickness: r.thinnest.thickness,
-                point: r.thinnest.point.as_array(),
-                opposite: r.thinnest.opposite.as_array(),
-                from: face(r.thinnest.from),
-                to: face(r.thinnest.to),
-            },
+            thinnest: site(r.thinnest),
+            thinnest_wall: r.thinnest_wall.map(site),
             histogram: r
                 .histogram
                 .iter()

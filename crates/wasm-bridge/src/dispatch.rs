@@ -2542,19 +2542,23 @@ fn measure_thickness(
     let (samples, spacing_m) = match t.method {
         waffle_types::kernel::ThicknessMethod::Sampled { samples, spacing } => (samples, spacing),
     };
+    let site = |s: waffle_types::kernel::ThicknessSite| ThinnestSite {
+        thickness_m: s.thickness,
+        point: s.point,
+        opposite: s.opposite,
+        from: face(s.from),
+        to: face(s.to),
+        faces_share_an_edge: s.faces_share_an_edge,
+    };
     Ok(EngineToUi::ThicknessMeasured {
         result: MeasuredThickness {
             body_id: body_id.to_string(),
             min_m: t.min,
+            min_wall_m: t.min_wall,
             mean_m: t.mean,
             max_m: t.max,
-            thinnest: ThinnestSite {
-                thickness_m: t.thinnest.thickness,
-                point: t.thinnest.point,
-                opposite: t.thinnest.opposite,
-                from: face(t.thinnest.from),
-                to: face(t.thinnest.to),
-            },
+            thinnest: site(t.thinnest),
+            thinnest_wall: t.thinnest_wall.map(site),
             histogram: t
                 .histogram
                 .iter()

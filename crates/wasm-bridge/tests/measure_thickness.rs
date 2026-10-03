@@ -80,11 +80,32 @@ fn plate(
     depth: f64,
     base: u32,
 ) -> String {
+    quad(
+        state,
+        kernel,
+        [(0.0, 0.0), (side, 0.0), (side, side), (0.0, side)],
+        depth,
+        base,
+    )
+}
+
+/// A prism over the sketch QUADRILATERAL `corners`, `depth` tall. Returns its
+/// body id.
+///
+/// The plate is the rectangular case; a trapezoid is how an ACUTE corner
+/// reaches this boundary, which is what the two minima are for.
+fn quad(
+    state: &mut EngineState,
+    kernel: &mut KernelV2Adapter,
+    corners: [(f64, f64); 4],
+    depth: f64,
+    base: u32,
+) -> String {
     let corners = [
-        (base, 0.0, 0.0),
-        (base + 1, side, 0.0),
-        (base + 2, side, side),
-        (base + 3, 0.0, side),
+        (base, corners[0].0, corners[0].1),
+        (base + 1, corners[1].0, corners[1].1),
+        (base + 2, corners[2].0, corners[2].1),
+        (base + 3, corners[3].0, corners[3].1),
     ];
     let solved_positions: HashMap<u32, (f64, f64)> =
         corners.iter().map(|&(id, x, y)| (id, (x, y))).collect();
@@ -260,6 +281,18 @@ fn a_plates_wall_crosses_the_wire_with_its_faces_named_by_persistent_id() {
         f(&out["min_m"]),
         "the thinnest site IS the minimum: {out}"
     );
+    // A right-angled plate has no corner reading, so the WALL minimum is the
+    // same number at the same site — and the flag says so on both.
+    assert_eq!(
+        out["thinnest"]["faces_share_an_edge"],
+        json!(false),
+        "{out}"
+    );
+    assert_eq!(f(&out["min_wall_m"]), 0.005, "the wall is the plate: {out}");
+    assert_eq!(
+        out["thinnest_wall"], out["thinnest"],
+        "with no corner to leave out, the two sites are one: {out}"
+    );
     // Its two ends are 5 mm apart, on the two plate planes.
     let p = out["thinnest"]["point"].as_array().expect("point");
     let q = out["thinnest"]["opposite"].as_array().expect("opposite");
@@ -280,6 +313,85 @@ fn a_plates_wall_crosses_the_wire_with_its_faces_named_by_persistent_id() {
         .map(|b| b["count"].as_u64().unwrap_or(0))
         .sum();
     assert_eq!(total, out["samples"].as_u64().unwrap_or(0), "{out}");
+}
+
+/// A WEDGE crosses the wire with two different minima: `min_m` is its acute
+/// corner and `min_wall_m` is its thin end's wall, each with the site it was
+/// measured at and the flag that says which kind it is.
+///
+/// This is the pair a wall-thickness decision rests on. The plate above cannot
+/// show it — a right-angled body has no corner reading, so both minima are the
+/// same number there — and a tool that published only `min_m` would hand an
+/// agent the corner for every tapered part it ever sees.
+#[test]
+fn a_wedge_reports_the_corner_and_the_wall_as_two_numbers() {
+    let mut state = EngineState::new();
+    let mut kernel = KernelV2Adapter::new();
+    let (l, t0, t1, w) = (0.040, 0.006, 0.002, 0.020);
+    let body = quad(
+        &mut state,
+        &mut kernel,
+        [(0.0, 0.0), (l, 0.0), (l, t1), (0.0, t0)],
+        w,
+        1,
+    );
+    let out = ok(
+        &mut state,
+        &mut kernel,
+        "measure_thickness",
+        json!({ "body_id": body }),
+    );
+
+    let slope = (t0 - t1) / l;
+    let cos_a = 1.0 / (1.0 + slope * slope).sqrt();
+    let (min, wall) = (f(&out["min_m"]), f(&out["min_wall_m"]));
+    // The corner is below every wall this body has; the wall is the thin end's
+    // own, between the base and the slant — two faces that do not meet.
+    assert!(
+        min < t1 * cos_a,
+        "min_m is the acute corner, under the thin end's wall {:e}: {out}",
+        t1 * cos_a
+    );
+    // The wall is the thin end's own, measured at whichever site the
+    // subdivision put nearest the end: at worst one spacing short of it, where
+    // the taper is `slope` thicker, and at best the perpendicular `t1·cos α` a
+    // cast from the slant itself would give. Both bounds are closed forms, and
+    // the band between them is the REPORTED spacing — not one chosen to pass.
+    let spacing = f(&out["spacing_m"]);
+    assert!(
+        wall >= t1 * cos_a * (1.0 - 1e-9) && wall <= t1 + slope * spacing,
+        "min_wall_m is the thin end's wall, between {:e} and {:e} at spacing {:e}: {out}",
+        t1 * cos_a,
+        t1 + slope * spacing,
+        spacing
+    );
+    assert!(wall > min, "the wall is thicker than the corner: {out}");
+    // And each number says which kind of site it came from.
+    assert_eq!(
+        out["thinnest"]["faces_share_an_edge"],
+        json!(true),
+        "the overall minimum crossed a corner: {out}"
+    );
+    assert_eq!(
+        out["thinnest_wall"]["faces_share_an_edge"],
+        json!(false),
+        "the wall minimum did not: {out}"
+    );
+    assert_eq!(
+        f(&out["thinnest_wall"]["thickness_m"]),
+        wall,
+        "thinnest_wall IS min_wall_m: {out}"
+    );
+    // The wall site's two faces are named the same way the thinnest site's
+    // are — persistent ids as decimal STRINGS, not JSON numbers.
+    for side in [&out["thinnest_wall"]["from"], &out["thinnest_wall"]["to"]] {
+        assert!(
+            side["pid"]
+                .as_str()
+                .is_some_and(|p| p.parse::<u64>().is_ok()),
+            "a wall face's pid is a decimal string: {side}"
+        );
+    }
 }
 
 /// An N1 name on one of the thinnest site's faces comes back ON it — so an

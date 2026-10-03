@@ -303,6 +303,15 @@ pub struct ThicknessSite {
     pub from: EntityRef,
     /// The face the inward ray hit.
     pub to: EntityRef,
+    /// Whether [`Self::from`] and [`Self::to`] are two DISTINCT faces that
+    /// share an edge — so this reading crossed a CORNER rather than a wall.
+    ///
+    /// Two faces meeting at an edge enclose a wedge of material that goes to
+    /// zero at the edge, so a cast between them measures how close the site is
+    /// to that edge. A site that hits its OWN face is not such a reading: a
+    /// solid cylinder measures its diameter across its own lateral face, which
+    /// is a wall.
+    pub faces_share_an_edge: bool,
 }
 
 /// One bar of a thickness histogram (Q5): equal-width bins over
@@ -358,7 +367,28 @@ pub enum ThicknessMethod {
 pub struct Thickness {
     /// The smallest thickness found. An UPPER bound on the body's true
     /// minimum wall.
+    ///
+    /// This is §4.2's question answered exactly as posed — the shortest cast
+    /// along an inward normal anywhere on the body — and it is dominated by
+    /// any ACUTE edge, where the material is a sliver: a 4 mm slot through a
+    /// 10/7 mm tube reports 0.043 mm here against a 3 mm wall. For the wall,
+    /// read [`Self::min_wall`].
     pub min: f64,
+    /// The smallest thickness among sites whose two faces do NOT share an
+    /// edge ([`ThicknessSite::faces_share_an_edge`]) — the thinnest WALL,
+    /// with every corner reading left out, and the number a wall-thickness
+    /// rule wants.
+    ///
+    /// `None` when every site crossed a corner, so there is no wall the
+    /// sample found — never a 0 or an infinity standing in for one.
+    ///
+    /// The exclusion is coarse on purpose: it drops every reading between two
+    /// faces that meet ANYWHERE, so a tapered rib whose flanks meet at a tip
+    /// edge does not contribute its own thickness here either. That is the
+    /// conservative direction for a rule, and [`Self::min`] with
+    /// [`Self::thinnest`]'s own faces is what a caller judges such a rib
+    /// from.
+    pub min_wall: Option<f64>,
     /// The unweighted mean over sites. The sites are approximately
     /// area-uniform — every facet is subdivided to the spacing — so this
     /// approximates the area-weighted mean wall.
@@ -366,6 +396,8 @@ pub struct Thickness {
     pub max: f64,
     /// Where [`Self::min`] is, and between which two faces.
     pub thinnest: ThicknessSite,
+    /// Where [`Self::min_wall`] is. `None` on the same bodies that number is.
+    pub thinnest_wall: Option<ThicknessSite>,
     pub histogram: Vec<ThicknessBin>,
     /// The tessellation band the sites were derived at, meters — the same
     /// `RENDER_CHORD_TOLERANCE_REL × extent` band [`Method::Mesh`] carries.
@@ -462,6 +494,11 @@ pub trait KernelMeasure {
     /// [`ThicknessMethod::Sampled`], carrying the site count and the spacing,
     /// so a consumer can see that a feature narrower than the spacing could
     /// have been missed. An exact medial axis is not in scope.
+    ///
+    /// Two minima come back, and a wall-thickness decision belongs to the
+    /// second: [`Thickness::min`] is the shortest cast anywhere, which any
+    /// acute edge drives towards zero, and [`Thickness::min_wall`] is the
+    /// shortest cast that did not cross a corner.
     ///
     /// `Err` when no site produced a thickness at all — a body whose every
     /// cast failed is not a body with no walls, and reporting a `min` of 0 or

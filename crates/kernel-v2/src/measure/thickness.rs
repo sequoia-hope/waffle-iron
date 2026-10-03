@@ -48,6 +48,30 @@
 //! `waffle_types::kernel::ThicknessMethod` has one arm and it is `Sampled`. An
 //! exact medial axis is not in scope and this result never claims to be one.
 //!
+//! ## The corner, and why there are two minima
+//!
+//! Two faces that meet at an edge enclose a wedge of material that goes to
+//! zero AT the edge. A cast between them therefore measures how close its site
+//! got to that edge, not how thick the body is — and if the dihedral is acute,
+//! it measures arbitrarily little. This is not a fixture's problem: a 4 mm
+//! radial slot through a 10/7 mm tube meets its outer cylinder at 78°, and
+//! [`ThicknessResult::min`] there is 0.043 mm against a 3 mm wall.
+//!
+//! `min` is still reported, because it is the answer to the question §4.2
+//! poses. Beside it, [`ThicknessResult::min_wall`] is the same minimum over
+//! only the sites whose two faces do NOT share an edge
+//! ([`Site::faces_share_an_edge`]) — the thinnest WALL, which is what a
+//! wall-thickness rule is asking for. On the slotted tube that is 3.000 mm; on
+//! a plate the two numbers are equal, because a plate has no corner reading to
+//! leave out.
+//!
+//! The exclusion is deliberately coarse: it drops EVERY reading between two
+//! faces that meet anywhere, so a tapered rib whose two flanks meet at a tip
+//! edge does not contribute its own thickness to `min_wall` either. That is
+//! the conservative direction for a rule — a wall it cannot see is not a wall
+//! it reports as thick — and `min` plus the thinnest site's own faces are
+//! there for a caller that wants to judge such a rib itself.
+//!
 //! ## The self-hit, and why its band is LOCAL
 //!
 //! A site on a convex curved face sits OUTSIDE its own chord facets (a chord
@@ -78,7 +102,7 @@
 //! The far side of the SAME face stays measurable: a solid cylinder's diameter
 //! is orders of magnitude past the band.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 use cad_primitives::{Point3, TAU_WORK};
 
@@ -113,6 +137,15 @@ pub struct Site {
     pub opposite: Point3,
     pub from: FaceId,
     pub to: FaceId,
+    /// Whether [`Self::from`] and [`Self::to`] are two DISTINCT faces that
+    /// share an edge — so this reading crossed a corner rather than a wall.
+    ///
+    /// Two faces that meet at an edge enclose a wedge of material that goes to
+    /// zero at the edge, so a cast between them measures how close the site is
+    /// to that edge and not how thick the body is (see the module docs). A
+    /// site that hits its OWN face is NOT such a reading: a solid cylinder's
+    /// lateral face measures its diameter across itself, which is a wall.
+    pub faces_share_an_edge: bool,
 }
 
 /// Sites that produced nothing, by reason.
@@ -135,9 +168,21 @@ pub struct Bin {
 #[derive(Debug, Clone, PartialEq)]
 pub struct ThicknessResult {
     pub min: f64,
+    /// The minimum over sites whose two faces do NOT share an edge — the
+    /// thinnest WALL, with every corner reading left out. `None` when every
+    /// site crossed a corner (a body made only of faces that all meet, a
+    /// tetrahedron the sampler found no wall in).
+    ///
+    /// `min` answers §4.2's question exactly as it is posed and is dominated
+    /// by any acute edge; this one answers "how thick is the material here",
+    /// which is what a wall-thickness rule asks. Both are reported because
+    /// neither is the other's approximation.
+    pub min_wall: Option<f64>,
     pub mean: f64,
     pub max: f64,
     pub thinnest: Site,
+    /// The site [`Self::min_wall`] was measured at.
+    pub thinnest_wall: Option<Site>,
     pub histogram: Vec<Bin>,
     /// Sites that produced a thickness.
     pub samples: usize,
@@ -191,6 +236,38 @@ impl<'a> Facets<'a> {
                 _ => false,
             })
     }
+}
+
+/// Every pair of DISTINCT faces of `solid` that share an edge, each pair
+/// stored once with the smaller id first.
+///
+/// Built in one pass over the solid's loops — a half-edge and its twin are the
+/// two sides of one edge, so their faces are neighbours — and read once per
+/// site, which is what keeps the corner test O(1) on a body with a million
+/// sites. A face paired with ITSELF is deliberately not stored: a cylinder's
+/// lateral face meets itself at its seam, and a cast across its diameter is a
+/// wall, not a corner.
+fn edge_adjacent_faces(
+    arena: &BrepArena,
+    solid: SolidId,
+) -> Result<HashSet<(FaceId, FaceId)>, KernelV2Error> {
+    let mut out = HashSet::new();
+    for &sh in &arena.solid(solid)?.shells {
+        for &f in &arena.shell(sh)?.faces {
+            let face = arena.face(f)?;
+            let loops = std::iter::once(face.outer_loop).chain(face.inner_loops.iter().copied());
+            for lid in loops {
+                for h in arena.loop_half_edges(lid)? {
+                    let twin = arena.half_edge(h)?.twin;
+                    let other = arena.loop_(arena.half_edge(twin)?.loop_id)?.face;
+                    if other != f {
+                        out.insert((f.min(other), f.max(other)));
+                    }
+                }
+            }
+        }
+    }
+    Ok(out)
 }
 
 /// The default sample spacing: the body's bounding diagonal over
@@ -422,6 +499,7 @@ pub fn thickness(
     // the order the sites are laid out in (the tree sorts its own copy), so a
     // tie between two equally thin sites is broken the same way in every run.
     let by_face = super::primitives(arena, Target::Solid(solid))?;
+    let adjacent = edge_adjacent_faces(arena, solid)?;
     let facets = Facets::index(&by_face);
     let bvh = Bvh::build(by_face.clone());
     let chord_bound = super::chord_bound(&bvh, &bvh);
@@ -492,12 +570,14 @@ pub fn thickness(
                         }
                         None => (t, add_scaled(site, inward, t)),
                     };
+                    let (lo, hi) = ((*face).min(hit_face), (*face).max(hit_face));
                     sites.push(Site {
                         thickness: t,
                         point: site,
                         opposite,
                         from: *face,
                         to: hit_face,
+                        faces_share_an_edge: lo != hi && adjacent.contains(&(lo, hi)),
                     });
                 }
             }
@@ -515,6 +595,13 @@ pub fn thickness(
             reason: "thickness: no sample produced a hit (see the decline counts)",
         });
     };
+    // The thinnest WALL: the same reduction over the sites that did not cross
+    // a corner. Same tie-break, so it is the same site in every run.
+    let thinnest_wall = sites
+        .iter()
+        .copied()
+        .filter(|s| !s.faces_share_an_edge)
+        .reduce(|a, b| if b.thickness < a.thickness { b } else { a });
     let max = sites
         .iter()
         .fold(f64::NEG_INFINITY, |m, s| m.max(s.thickness));
@@ -544,6 +631,8 @@ pub fn thickness(
 
     Ok(ThicknessResult {
         min,
+        min_wall: thinnest_wall.map(|s| s.thickness),
+        thinnest_wall,
         mean,
         max,
         thinnest,

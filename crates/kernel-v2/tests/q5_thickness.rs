@@ -8,15 +8,15 @@
 //!
 //! | case | what it proves |
 //! |---|---|
-//! | plate | a planar pair reports its thickness to rounding, and the thinnest site names the two planes |
+//! | plate | a planar pair reports its thickness to rounding, the thinnest site names the two planes, and `min_wall` equals `min` because there is no corner reading to leave out |
 //! | tube | a curved pair reports `r_outer − r_inner`, exactly, because site and hit are both refined onto the analytic surfaces |
 //! | stepped plate | a thin SECTION is found and located, with a closed-form minimum |
 //! | wedge | a taper's thinnest place is its ACUTE CORNER, where the true minimum is 0 — the measured correction to §4.4's "the thin edge", and the clearest case of why `min` is an upper bound |
 //! | rigid motion | the same body moved and turned reports the same minimum and maximum; its SITE SET does not survive, because the render CDT is frame-dependent |
-//! | solid cylinder | the far side of the site's OWN face is measurable (the self band is local, not global) |
+//! | solid cylinder | the far side of the site's OWN face is measurable (the self band is local, not global), and a self-hit is a WALL, not a corner |
 //! | two spacings | a finer spacing finds a THINNER corner — `min` moving with `spacing` is what makes it an upper bound, measured rather than argued |
 //! | tube under a turn | a CURVED wall's value survives a rigid motion to 1e-9 while its site count changes (166 140 → 93 152) |
-//! | slot in a tube | the acute corner where a flat cut meets a cylinder dominates `min` (0.043 mm against a 3 mm wall) — the wedge's lesson on a part someone would draw |
+//! | slot in a tube | the acute corner where a flat cut meets a cylinder dominates `min` (0.043 mm) while `min_wall` reports the 3 mm wall — the wedge's lesson on a part someone would draw, and the reason there are two minima |
 
 use std::f64::consts::PI;
 
@@ -115,6 +115,26 @@ fn a_plate_reports_its_thickness_on_the_planar_pair() {
     assert_ne!(
         r.thinnest.from, r.thinnest.to,
         "a wall is between two faces"
+    );
+    // A plate has no corner reading to leave out, so the two minima are the
+    // SAME number measured at the same kind of site. (The plate's own corners
+    // are all right angles: a ray along one face's inward normal is parallel
+    // to every face it shares an edge with, so it never crosses one.)
+    assert!(
+        !r.thinnest.faces_share_an_edge,
+        "the plate's wall crosses no corner: {:?} → {:?}",
+        r.thinnest.from, r.thinnest.to
+    );
+    assert_eq!(
+        r.min_wall,
+        Some(r.min),
+        "min_wall equals min on a body with no corner reading"
+    );
+    assert_eq!(
+        r.thinnest_wall,
+        Some(r.thinnest),
+        "and it is the same site: {:?}",
+        r.thinnest_wall
     );
     // The widest wall a cast can find on this plate is its 40 mm side, and the
     // diagonal is NOT a wall: a ray along an inward normal is axis-parallel
@@ -382,6 +402,14 @@ fn a_solid_cylinder_measures_across_its_own_lateral_face() {
         r.thinnest.from, r.thinnest.to,
         "the diameter is measured from the lateral face to ITSELF"
     );
+    // A face hitting ITSELF is not a corner reading, even though the lateral
+    // face meets itself at its seam edge: the diameter is a wall, and
+    // `min_wall` must keep it.
+    assert!(
+        !r.thinnest.faces_share_an_edge,
+        "a self-hit across the diameter is a wall, not a corner"
+    );
+    assert_eq!(r.min_wall, Some(r.min), "so the two minima agree");
     assert_eq!(
         r.declines.below_self_band, 0,
         "a wall 24 mm wide is nowhere near the local sagitta band"
@@ -560,9 +588,11 @@ fn a_tube_reports_the_same_wall_after_a_rigid_motion() {
 /// number is CORRECT for the question §4.2 defines (the first hit along the
 /// inward normal) and MISLEADING as "the wall thickness of this part": a
 /// consumer that reads `min` alone on any part with an acute edge — a keyway,
-/// a flat on a shaft, a slot in a tube — is reading a corner, not a wall. The
-/// wall itself is in the answer: it is where the sites actually are, which is
-/// what the histogram and `mean` report.
+/// a flat on a shaft, a slot in a tube — is reading a corner, not a wall.
+///
+/// Which is why `min_wall` exists, and why this test pins BOTH: `min` is the
+/// 0.043 mm corner, `min_wall` is the 3 mm wall, and the site each was
+/// measured at says which kind it is.
 #[test]
 fn a_slot_in_a_tube_is_thinnest_at_the_acute_corner_not_at_the_wall() {
     let (r_out, r_in, h) = (0.010, 0.007, 0.030);
@@ -616,9 +646,38 @@ fn a_slot_in_a_tube_is_thinnest_at_the_acute_corner_not_at_the_wall() {
         half_slot,
         r.spacing
     );
-    // The wall is still the body's own thickest-to-thinnest story: the tube's
-    // height is the widest wall, and the overwhelming majority of sites are
-    // nowhere near the sliver (the first histogram bin holds the corner).
+    assert!(
+        r.thinnest.faces_share_an_edge,
+        "the thinnest site is a CORNER reading, and says so"
+    );
+    // And the WALL is reported beside it: the cylinder pair, 3 mm, measured
+    // between two faces that do not meet at an edge. To ROUNDING, not to the
+    // sampling band — the wall is the same at every point of that pair, so
+    // wherever the subdivision put the site, both ends refine onto the
+    // analytic cylinders and the answer is `r_out − r_in` exactly.
+    let wall_site = r.thinnest_wall.expect("a C has a wall");
+    assert!(
+        !wall_site.faces_share_an_edge,
+        "the wall site crosses no corner"
+    );
+    close(
+        r.min_wall.expect("a C has a wall"),
+        wall,
+        1e-12,
+        "the thinnest WALL is r_out − r_in, with the corner left out",
+    );
+    assert_eq!(
+        r.min_wall.expect("a wall"),
+        wall_site.thickness,
+        "min_wall IS its site's own thickness"
+    );
+    assert!(
+        r.min_wall.expect("a wall") > r.min * 50.0,
+        "the wall is nearly two orders above the corner: {:e} vs {:e}",
+        r.min_wall.expect("a wall"),
+        r.min
+    );
+    // The tube's height is the widest wall.
     close(r.max, h, 1e-9, "the widest wall is the tube's height");
     assert!(
         r.declines.no_hit + r.declines.below_self_band < r.samples / 100,
