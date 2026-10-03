@@ -849,6 +849,190 @@ fn a_zero_length_normal_is_refused() {
     );
 }
 
+/// A name that resolves to a CURVED face is refused where the caller can fix
+/// it — never cut on some tangent plane of it.
+///
+/// `{"name": …}` is the one plane form whose geometry the tool cannot check
+/// from the argument itself: an `{origin, normal}` is a plane by construction
+/// and a datum is one by definition, but a name points at whatever face it was
+/// given to. So the surface type is read before the cut, and a cylinder's
+/// barrel is an `InvalidArguments` naming the surface it found and the form to
+/// use instead.
+#[test]
+fn a_name_on_a_curved_face_is_refused() {
+    let mut state = EngineState::new();
+    let mut kernel = KernelV2Adapter::new();
+    let body = cylinder(
+        &mut state,
+        &mut kernel,
+        (0.0, 0.0),
+        0.010,
+        0.020,
+        1,
+        CombineMode::NewBody,
+    );
+    let all = ok(
+        &mut state,
+        &mut kernel,
+        "face_list",
+        json!({ "body_id": body }),
+    );
+    let barrel = all["faces"]
+        .as_array()
+        .expect("faces")
+        .iter()
+        .find(|face| face["signature"]["surface_type"] == "cylindrical")
+        .unwrap_or_else(|| panic!("a cylinder has a barrel: {all}"))
+        .clone();
+    ok(
+        &mut state,
+        &mut kernel,
+        "entity_name",
+        json!({ "target": { "type": "entity", "geom_ref": barrel["geom_ref"] }, "name": "barrel" }),
+    );
+
+    let (code, message) = refusal(
+        &mut state,
+        &mut kernel,
+        "measure_section",
+        json!({ "body_ids": [body], "plane": { "name": "barrel" } }),
+    );
+    assert_eq!(code, "InvalidArguments");
+    assert!(
+        message.contains("cylindrical") && message.contains("planar"),
+        "the refusal names what the face is and what a plane needs: {message}"
+    );
+}
+
+/// A plane that GRAZES the body — exactly on one of its faces, touching it and
+/// cutting nothing — is a typed empty section on both sides, and which side
+/// keeps the material is the convention `(p − origin)·n̂ ≤ 0` says it is.
+///
+/// This is the boundary case of the two misses already pinned above: the plane
+/// is not clear of the body, it is ON it. The kept half-space CONTAINS the
+/// plane, so a body sitting entirely on the normal's negative side (including
+/// its grazing face) survives whole with no cap, and the same plane turned
+/// around discards all of it. Neither is an error and neither is a decline:
+/// the cut is decided from the body's conservative bounds before any boolean
+/// runs, so a graze cannot reach the Stage-0 coplanar wall by accident.
+#[test]
+fn a_plane_grazing_a_face_is_a_typed_empty_section_on_both_sides() {
+    let mut state = EngineState::new();
+    let mut kernel = KernelV2Adapter::new();
+    let h = 0.01;
+    let body = prism(
+        &mut state,
+        &mut kernel,
+        (0.0, 0.0, 0.04, 0.04),
+        h,
+        1,
+        CombineMode::NewBody,
+        false,
+    );
+
+    // On the top face, looking UP: every point of the plate is at or below the
+    // plane, so the whole plate is kept and there is no cap.
+    let up = ok(
+        &mut state,
+        &mut kernel,
+        "measure_section",
+        json!({
+            "body_ids": [body],
+            "plane": { "origin": [0.0, 0.0, h], "normal": [0.0, 0.0, 1.0] },
+        }),
+    );
+    let b = one_body(&up);
+    assert!(
+        b["loops"].as_array().expect("loops").is_empty(),
+        "a graze cuts nothing: {up}"
+    );
+    assert_eq!(
+        b["kept_material"], true,
+        "the plane's own side is KEPT: {up}"
+    );
+    assert_eq!(f(&b["area_m2"]), 0.0, "{up}");
+    assert!(up["declines"].is_null(), "a graze is not a decline: {up}");
+
+    // The same plane turned around: every point is at or above it, so nothing
+    // survives — and that is still a typed empty section.
+    let down = ok(
+        &mut state,
+        &mut kernel,
+        "measure_section",
+        json!({
+            "body_ids": [body],
+            "plane": { "origin": [0.0, 0.0, h], "normal": [0.0, 0.0, -1.0] },
+        }),
+    );
+    let b = one_body(&down);
+    assert!(b["loops"].as_array().expect("loops").is_empty(), "{down}");
+    assert_eq!(
+        b["kept_material"], false,
+        "the body is entirely on the discarded side: {down}"
+    );
+    assert!(down["declines"].is_null(), "{down}");
+}
+
+/// A section is a QUERY: it leaves the body's own faces exactly where they
+/// were, named by the same persistent ids.
+///
+/// `section_with_plane` cuts with the real Intersect in the LIVE arena, so this
+/// is not free by construction — a cut that renumbered the model's faces would
+/// move every `GeomRef`, name binding and rule an agent had already written,
+/// and nothing in the section's own answer would say so. Pinned over two
+/// sections of a bored plate, the geometry most likely to re-key: the full face
+/// listing must come back byte-identical.
+#[test]
+fn a_section_leaves_the_bodys_faces_where_they_were() {
+    let mut state = EngineState::new();
+    let mut kernel = KernelV2Adapter::new();
+    prism(
+        &mut state,
+        &mut kernel,
+        (0.0, 0.0, 0.04, 0.04),
+        0.01,
+        1,
+        CombineMode::NewBody,
+        false,
+    );
+    let body = cylinder(
+        &mut state,
+        &mut kernel,
+        (0.0, 0.0),
+        0.006,
+        0.02,
+        500,
+        CombineMode::Cut,
+    );
+    let before = ok(
+        &mut state,
+        &mut kernel,
+        "face_list",
+        json!({ "body_id": body }),
+    );
+    for z in [0.005, 0.0075] {
+        ok(
+            &mut state,
+            &mut kernel,
+            "measure_section",
+            json!({
+                "body_ids": [body],
+                "plane": { "origin": [0.0, 0.0, z], "normal": [0.0, 0.0, 1.0] },
+            }),
+        );
+    }
+    let after = ok(
+        &mut state,
+        &mut kernel,
+        "face_list",
+        json!({ "body_id": body }),
+    );
+    assert_eq!(
+        before, after,
+        "two sections moved the body's own face listing"
+    );
+}
+
 /// A non-unit normal is normalized, and the answer reports the normal it
 /// actually cut with rather than echoing the caller's.
 #[test]
