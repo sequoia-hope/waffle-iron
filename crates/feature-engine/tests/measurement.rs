@@ -132,6 +132,25 @@ fn top_face_ref(block: Uuid) -> GeomRef {
     }
 }
 
+/// A SIDE face of an extruded block. Its mock area is `width × depth`, so
+/// unlike the end cap it MOVES when the block's own depth moves — which is
+/// what lets a chain of measurements be built and its pass count measured.
+fn side_face_ref(block: Uuid) -> GeomRef {
+    GeomRef {
+        kind: TopoKind::Face,
+        anchor: Anchor::FeatureOutput {
+            feature_id: block,
+            output_key: OutputKey::Main,
+        },
+        selector: Selector::Role {
+            role: Role::SideFace { index: 0 },
+            index: 0,
+        },
+        policy: ResolvePolicy::BestEffort,
+        scope: None,
+    }
+}
+
 fn user() -> Provenance {
     Provenance {
         origin: ProvenanceOrigin::User,
@@ -446,4 +465,194 @@ fn a_document_with_no_measurement_runs_exactly_one_pass() {
         "nothing in this fixture measures"
     );
     assert!(feature_engine::params::measurement_sites(&mut tree).is_empty());
+    assert_eq!(
+        engine.measure_passes, 1,
+        "one pass, and the measuring loop was never entered"
+    );
+}
+
+/// Name one block's first side face, so an expression can measure it.
+fn name_side(engine: &mut Engine, kernel: &MockKernel, block: Uuid, name: &str) {
+    let named = mint(engine, kernel, &side_face_ref(block));
+    engine
+        .set_entity_name(name, named, None)
+        .unwrap_or_else(|e| panic!("naming {name}: {e:?}"));
+}
+
+/// Set one design parameter's expression and rebuild through a no-op edit,
+/// so the engine's own rebuild path (and its pass counter) runs.
+fn set_param(
+    engine: &mut Engine,
+    kernel: &mut MockKernel,
+    name: &str,
+    expression: &str,
+    reader: Uuid,
+) {
+    engine
+        .tree
+        .parameters
+        .push(DesignParameter::new(name, expression));
+    set_depth_expr(engine, kernel, reader, name);
+}
+
+#[test]
+fn a_parameter_measuring_an_earlier_feature_is_legal_and_costs_one_extra_pass() {
+    // §6's legal direction: a parameter that measures feature #1 and drives
+    // feature #3. The first pass cannot know the measured number (the
+    // geometry is not built when the parameter pass runs), so the loop runs
+    // a SECOND pass — and a third is not needed, because the value it
+    // measured on the second pass is the same one.
+    let (mut engine, mut kernel, blocks) = blocks(3);
+    name_side(&mut engine, &kernel, blocks[0], "first_side");
+    set_param(
+        &mut engine,
+        &mut kernel,
+        "lift",
+        "sqrt(area(first_side))",
+        blocks[2],
+    );
+    assert!(errors(&engine).is_empty(), "{}", errors(&engine));
+    assert_eq!(
+        engine.measure_passes, 2,
+        "one site, one extra pass — not the sites+1 worst case"
+    );
+    let Operation::Extrude { params } = &engine
+        .tree
+        .find_feature(blocks[2])
+        .expect("still there")
+        .operation
+    else {
+        panic!("expected an extrude");
+    };
+    assert_ne!(params.depth, 0.5, "the measurement drove the depth");
+}
+
+#[test]
+fn a_parameter_measuring_a_later_feature_is_refused_at_its_earliest_reader() {
+    // The illegal direction, and the reason a parameter needs
+    // `earliest_readers`: the parameter has no index of its own, so the rule
+    // is stated where it is READ. Measuring feature #5 while feature #3
+    // reads it would make each rebuild's answer depend on the previous
+    // one's.
+    let (mut engine, mut kernel, blocks) = blocks(3);
+    name_side(&mut engine, &kernel, blocks[2], "last_side");
+    set_param(
+        &mut engine,
+        &mut kernel,
+        "drop",
+        "sqrt(area(last_side))",
+        blocks[1],
+    );
+    let msg = errors(&engine);
+    assert!(
+        msg.contains("circular measurement") && msg.contains("built AFTER"),
+        "a parameter measuring a later feature is the same refusal: {msg}"
+    );
+    assert!(
+        msg.contains("\"Block 2\"") && msg.contains("\"Block 1\""),
+        "both features named: {msg}"
+    );
+}
+
+#[test]
+fn two_chained_measuring_fields_settle_at_the_sites_plus_one_bound() {
+    // The worst case the bound exists for, built on purpose. Block 1's depth
+    // measures block 0; block 2's depth measures BLOCK 1 — whose side-face
+    // area is width × that very depth — so block 2's number cannot be right
+    // until block 1's has landed. The chain settles one link per pass: three
+    // passes for two sites, which is exactly sites + 1.
+    let (mut engine, mut kernel, blocks) = blocks(3);
+    name_side(&mut engine, &kernel, blocks[0], "a_side");
+    name_side(&mut engine, &kernel, blocks[1], "b_side");
+    set_depth_expr(&mut engine, &mut kernel, blocks[1], "sqrt(area(a_side)) * 2");
+    set_depth_expr(&mut engine, &mut kernel, blocks[2], "sqrt(area(b_side)) * 2");
+    assert!(errors(&engine).is_empty(), "{}", errors(&engine));
+    assert_eq!(
+        feature_engine::params::measurement_sites(&mut engine.tree.clone()).len(),
+        2,
+        "two sites: the two depths"
+    );
+    // Editing the two depths one at a time already settled the first link,
+    // so the INCREMENTAL rebuild had only the second left to do.
+    assert_eq!(
+        engine.measure_passes, 2,
+        "an incremental rebuild has only the unsettled link left"
+    );
+
+    // The COLD case is the one the bound is about: put both driven depths
+    // back to a stale value and rebuild everything. Now neither link is
+    // settled, and the chain can only settle one link per pass.
+    for block in [blocks[1], blocks[2]] {
+        let Some(feature) = engine.tree.find_feature_mut(block) else {
+            panic!("still there");
+        };
+        if let Operation::Extrude { params } = &mut feature.operation {
+            params.depth = 0.5;
+        }
+    }
+    engine.rebuild_from_scratch(&mut kernel);
+    assert!(errors(&engine).is_empty(), "{}", errors(&engine));
+    assert_eq!(
+        engine.measure_passes, 3,
+        "a cold two-link chain settles one link per pass, at the sites+1 bound"
+    );
+    // And the second link really did read the first link's geometry: block
+    // 2's depth is derived from block 1's driven depth, not from the stored
+    // 0.5 m either block started at.
+    let depth_of = |feature: Uuid| {
+        let Operation::Extrude { params } = &engine
+            .tree
+            .find_feature(feature)
+            .expect("still there")
+            .operation
+        else {
+            panic!("expected an extrude");
+        };
+        params.depth
+    };
+    assert_ne!(depth_of(blocks[1]), 0.5);
+    assert_ne!(depth_of(blocks[2]), 0.5);
+    assert_ne!(
+        depth_of(blocks[1]),
+        depth_of(blocks[2]),
+        "the two links measure different faces"
+    );
+}
+
+#[test]
+fn fifteen_independent_measuring_sites_cost_two_passes_not_sixteen() {
+    // The performance question: `sites + 1` is the BOUND, not the cost. A
+    // document whose measurements do not feed each other settles all of them
+    // in one measuring pass however many there are, because every one of
+    // them reads geometry that the first build already produced.
+    //
+    // Nine feature fields and six parameters, fifteen sites over a
+    // twenty-feature tree, all reading block 0.
+    let (mut engine, mut kernel, blocks) = blocks(10);
+    assert_eq!(engine.tree.features.len(), 20);
+    name_side(&mut engine, &kernel, blocks[0], "datum_side");
+    for (k, block) in blocks.iter().enumerate().skip(1) {
+        let expression = if k <= 6 {
+            // A measuring PARAMETER plus a measuring field, so both kinds of
+            // site are in the count.
+            engine.tree.parameters.push(DesignParameter::new(
+                &format!("p{k}"),
+                "sqrt(area(datum_side))",
+            ));
+            format!("sqrt(area(datum_side)) + p{k} * 0")
+        } else {
+            "sqrt(area(datum_side))".to_string()
+        };
+        set_depth_expr(&mut engine, &mut kernel, *block, &expression);
+    }
+    assert!(errors(&engine).is_empty(), "{}", errors(&engine));
+    assert_eq!(
+        feature_engine::params::measurement_sites(&mut engine.tree.clone()).len(),
+        15,
+        "nine depths and six parameters"
+    );
+    assert_eq!(
+        engine.measure_passes, 2,
+        "fifteen independent sites settle in ONE measuring pass, not fifteen"
+    );
 }

@@ -61,6 +61,13 @@ pub struct Engine {
     /// The same errors, typed (`specs/waffle_mcp_server.md` ICR-2):
     /// `feature_errors[i]` describes `errors[i]`.
     pub feature_errors: Vec<FeatureError>,
+    /// How many build→measure passes the last rebuild ran (D2,
+    /// `specs/drawings_and_mbd.md` §6). One for a document that measures
+    /// nothing; at most (measurement sites + 1) for one that does, which is
+    /// the bound [`Engine::rebuild`]'s termination argument rests on.
+    /// Observable so that bound is a thing a test can measure rather than a
+    /// claim in a comment.
+    pub measure_passes: usize,
     /// Feature IDs consumed by a later boolean (should not be rendered).
     pub consumed_features: std::collections::HashSet<Uuid>,
     /// Which feature consumed which (consumer → consumed, in target order),
@@ -117,6 +124,7 @@ impl Engine {
             feature_references: Vec::new(),
             errors: Vec::new(),
             feature_errors: Vec::new(),
+            measure_passes: 0,
             consumed_features: std::collections::HashSet::new(),
             consumed_by: HashMap::new(),
             rebuild_errors: Vec::new(),
@@ -919,12 +927,14 @@ impl Engine {
         // D2 beyond this walk.
         let budget = params::measurement_sites(&mut self.tree).len();
         if budget == 0 {
+            self.measure_passes = 1;
             self.rebuild_once(kb, from_index, changed, true);
             return;
         }
         let mut from_index = from_index;
         let mut changed = changed;
         for pass in 0..=budget {
+            self.measure_passes = pass + 1;
             // `false`: the measuring pass below re-evaluates EVERY
             // expression, so it is the one reporter of expression errors.
             // Letting both report would duplicate every non-measurement
@@ -932,7 +942,7 @@ impl Engine {
             // provisional anyway.
             self.rebuild_once(kb, from_index, changed.clone(), false);
             let last = pass == budget;
-            let outcome = self.apply_measurements(kb, last);
+            let outcome = self.apply_measurements(kb, last.then_some(budget + 1));
             if outcome.changed.is_empty() || last {
                 // Spliced in FRONT, where `rebuild_once` puts the expression
                 // errors it reports itself: a bad expression is usually the
@@ -962,13 +972,14 @@ impl Engine {
     /// Re-evaluate every measuring expression against the geometry that was
     /// just built, and write what moved back onto the tree (D2).
     ///
-    /// `final_pass` turns a value that is STILL moving into a typed error:
-    /// by then the settle budget is spent, and a number that has not
-    /// converged must say so rather than be quietly used.
+    /// `spent` is `Some(passes)` on the LAST pass — the budget is gone, so a
+    /// value that is still moving becomes a typed error rather than being
+    /// quietly used, and the error reports how many passes were actually
+    /// run.
     fn apply_measurements(
         &mut self,
         kb: &mut dyn KernelBundle,
-        final_pass: bool,
+        spent: Option<usize>,
     ) -> params::ParamOutcome {
         // The measurer holds owned copies of the name tables, so the apply
         // pass below can take `&mut self.tree` while it is alive.
@@ -980,7 +991,7 @@ impl Engine {
             &self.pid_to_feature,
         );
         let mut outcome = params::apply_parameters_with(&mut self.tree, Some(&measurer));
-        if final_pass && !outcome.changed.is_empty() {
+        if let (Some(passes), false) = (spent, outcome.changed.is_empty()) {
             for id in &outcome.changed {
                 let name = self
                     .tree
@@ -989,10 +1000,14 @@ impl Engine {
                     .unwrap_or_else(|| id.to_string());
                 outcome.errors.push((
                     *id,
+                    // `passes` is the budget that was SPENT, not the number
+                    // of features still moving — the two were confused, and
+                    // "did not settle after 1 passes" on a document with one
+                    // runaway field and sixteen passes is not a fact anyone
+                    // can act on.
                     format!(
-                        "{name}: a measured value did not settle after {} passes — the \
-                         measurement and the geometry it reads are feeding each other",
-                        outcome.changed.len().max(1)
+                        "{name}: a measured value did not settle after {passes} passes — the \
+                         measurement and the geometry it reads are feeding each other"
                     ),
                 ));
             }
