@@ -4652,6 +4652,20 @@ pub(crate) fn collapse_subresolution_intersection_segments(
             .chain(q.iter())
             .fold(0.0f64, |m, &c| m.max(c.abs()));
         let band = cad_primitives::TAU_MODEL * (1.0 + scale);
+        if std::env::var_os("YANG_KV15B_PROBE").is_some() && d2 < 100.0 * band * band {
+            eprintln!(
+                "[kv15b] key ({u},{v}) resolved ({ru},{rv}) len={:.3e} band={band:.3e} \
+                 verdict={}",
+                d2.sqrt(),
+                if d2 == 0.0 {
+                    "SKIP exact-zero (B3)"
+                } else if d2 >= band * band {
+                    "SKIP over band"
+                } else {
+                    "COLLAPSE"
+                }
+            );
+        }
         if d2 == 0.0 || d2 >= band * band {
             continue;
         }
@@ -9488,6 +9502,7 @@ pub(crate) fn stage4_relocate_and_correct(
 ) -> Result<(Vec<(u32, f64)>, bool), YangError> {
     star_probe("s4-entry", mesh, attribution);
     nonmanifold_edge_census("s4-entry", mesh, attribution);
+    coincident_vertex_census("s4-entry", mesh);
     // (0) EDGE-PINCH split, at ENTRY (spec `yang_tangency_pinch_split.md` §0a).
     // A face of one operand TANGENT to a face of the other along a whole LINE
     // reaches Stage 4 as a chain of 4-triangle edges — the arrangement's honest
@@ -9652,21 +9667,6 @@ fn stage4_relocate_and_correct_inner(
     // use these).
     let (brep_a, brep_b) = (a, b);
 
-    // I1d probe (read-only): tag every `relocations.push` with its SOURCE LINE
-    // so a relocated vertex's AUTHORITY (circle projection, line foot,
-    // junction closed-form, …) is attributable offline by position match.
-    let i1d_probe = std::env::var_os("YANG_I1D_RELOC_PROBE").is_some();
-    let probe_push = |site: u32, v: u32, t: f64, p: Point3| {
-        if i1d_probe {
-            eprintln!(
-                "[i1d-reloc] site=L{site} v{v} t={t:.6} pos=({:.12}, {:.12}, {:.12})",
-                p.x(),
-                p.y(),
-                p.z()
-            );
-        }
-    };
-
     balance_census(mesh, "s4-entry");
 
     // §4-I9: positions as Stage 4 found them, for the relocation-domain
@@ -9674,6 +9674,36 @@ fn stage4_relocate_and_correct_inner(
     // path — including `apply_boundary_relocations` far below — is covered by
     // one check rather than a dozen.
     let s4_entry_pos: Vec<[f64; 3]> = mesh.verts.iter().map(Point3::as_array).collect();
+
+    // I1d probe (read-only): tag every `relocations.push` with its SOURCE LINE
+    // so a relocated vertex's AUTHORITY (circle projection, line foot,
+    // junction closed-form, …) is attributable offline by position match.
+    // The Stage-4 ENTRY position rides along (P0020): two relocations that
+    // land on one point are a defect only if they STARTED as two distinct
+    // model points, and the destination alone cannot say so.
+    let i1d_probe = std::env::var_os("YANG_I1D_RELOC_PROBE").is_some();
+    if i1d_probe {
+        eprintln!(
+            "[i1d-reloc] STAGE4 ENTRY verts={} tris={}",
+            mesh.verts.len(),
+            mesh.tris.len()
+        );
+    }
+    let probe_push = |site: u32, v: u32, t: f64, p: Point3| {
+        if i1d_probe {
+            let e = s4_entry_pos[v as usize];
+            eprintln!(
+                "[i1d-reloc] site=L{site} v{v} t={t:.6} pos=({:.12}, {:.12}, {:.12}) \
+                 entry=({:.12}, {:.12}, {:.12})",
+                p.x(),
+                p.y(),
+                p.z(),
+                e[0],
+                e[1],
+                e[2],
+            );
+        }
+    };
 
     // §4.5.1 inc-1 census (spec §7): `census` flips every OffCurve gate from
     // abort-at-first-fire to record-and-skip; the post-sweep census then
@@ -13448,6 +13478,7 @@ fn stage4_relocate_and_correct_inner(
 
     star_probe("after-reloc", mesh, attribution);
     nonmanifold_edge_census("after-reloc", mesh, attribution);
+    coincident_vertex_census("after-reloc", mesh);
     // (3) §4.5.3 reversed-intersection correction sweep.
     // (`collapsed_any` starts true when §4.5.1 repairs collapsed vertices
     // above — the post-collapse Phase-A recompute must run for those too.)
@@ -13469,6 +13500,52 @@ fn stage4_relocate_and_correct_inner(
                 .entry([p.x().to_bits(), p.y().to_bits(), p.z().to_bits()])
                 .or_default()
                 .push(v);
+        }
+        // P0020 probe (read-only): the group above is drawn ONLY from the
+        // junction arm's own output, so a junction point that is ALSO
+        // occupied by a vertex another arm placed (or that the arrangement
+        // already put exactly there) is not a "twin" by this population and
+        // is never identified. Report every such outside occupant, with
+        // whether a triangle joins it to the junction vertex.
+        if std::env::var_os("YANG_KV9_TWIN_PROBE").is_some() {
+            for (key, group) in &by_pos {
+                let outside: Vec<u32> = mesh
+                    .verts
+                    .iter()
+                    .enumerate()
+                    .filter(|(v, p)| {
+                        !group.contains(&(*v as u32))
+                            && [p.x().to_bits(), p.y().to_bits(), p.z().to_bits()] == *key
+                    })
+                    .map(|(v, _)| v as u32)
+                    .collect();
+                if outside.is_empty() {
+                    eprintln!(
+                        "[kv9-twin] junction group {group:?} at {:?} has no outside occupant",
+                        mesh.verts[group[0] as usize].as_array(),
+                    );
+                    continue;
+                }
+                let joined: Vec<(u32, u32)> = mesh
+                    .tris
+                    .iter()
+                    .flat_map(|t| {
+                        let g: Vec<u32> = t.iter().copied().filter(|v| group.contains(v)).collect();
+                        let o: Vec<u32> = t
+                            .iter()
+                            .copied()
+                            .filter(|v| outside.contains(v))
+                            .collect::<Vec<_>>();
+                        g.into_iter()
+                            .flat_map(move |a| o.clone().into_iter().map(move |b| (a, b)))
+                    })
+                    .collect();
+                eprintln!(
+                    "[kv9-twin] junction group {group:?} at {:?} shares its exact position \
+                     with non-junction vert(s) {outside:?}; triangles joining them: {joined:?}",
+                    mesh.verts[group[0] as usize].as_array(),
+                );
+            }
         }
         for (_, group) in by_pos {
             if group.len() < 2 {
@@ -13681,6 +13758,7 @@ fn stage4_relocate_and_correct_inner(
     collapsed_any |= any_collapse;
 
     star_probe("before-3c-merge", mesh, attribution);
+    coincident_vertex_census("after-453-sweep", mesh);
     nonmanifold_edge_census("before-3c-merge", mesh, attribution);
     // (3c) §4.4.1(b) sub-feature-size vertex merge (Yang Fig. 11(b): "if an
     // endpoint p of the split edge is too close to q, we merge p with q"). After
@@ -13864,6 +13942,7 @@ fn stage4_relocate_and_correct_inner(
 
     star_probe("after-3c-merge", mesh, attribution);
     nonmanifold_edge_census("after-3c-merge", mesh, attribution);
+    coincident_vertex_census("after-3c-merge", mesh);
     // (3b′) Coincident RELOCATED-vertex weld (spec `yang_n47_coincident_moved_weld`,
     // deviation N47). Two vertices this pipeline RELOCATED (`moved`: pushed onto an
     // analytic circle/ellipse/line/torus/surface-pair) can converge to within the
@@ -14538,6 +14617,7 @@ fn stage4_relocate_and_correct_inner(
     }
 
     star_probe("before-validate", mesh, attribution);
+    coincident_vertex_census("before-validate", mesh);
     nonmanifold_edge_census("before-validate", mesh, attribution);
     // (4) Validate every RELOCATED triangle (one touching a moved vertex) for
     // non-degeneracy (Yang §4.5 step 4). Reversed intersections are handled by
@@ -14575,6 +14655,7 @@ fn stage4_relocate_and_correct_inner(
     if pinch_splits > 0 {
         collapsed_any = true;
     }
+    coincident_vertex_census("after-4a2-pinch-split", mesh);
     if std::env::var_os("YANG_EDGE_PINCH_PROBE").is_some() {
         eprintln!("[edge-pinch] 4a2 split {pinch_splits} vertex copies");
         nonmanifold_edge_census("after-4a2", mesh, attribution);
@@ -15051,6 +15132,77 @@ pub(crate) fn surface_kind_name(s: Surface) -> &'static str {
 ///
 /// Byte-identical when the env is unset (the function returns before touching
 /// anything).
+/// Census (`YANG_COINCIDENT_PROBE`, read-only): DISTINCT mesh vertices at
+/// bit-identical positions, per checkpoint.
+///
+/// Output vertices are 1:1 with `mesh.verts` (Stage 6 §(1)), so such a pair
+/// leaves the pipeline as two B-Rep vertices at one point — a pinch the next
+/// boolean's Stage-1 chart CDT refuses (`duplicate (coincident) loop vertex`,
+/// P0020). Every sub-resolution collapse deliberately EXCLUDES the exact-zero
+/// pair (KV15b B3, #194 B3), so no gate names it; this census is how a pair is
+/// attributed to the checkpoint that minted it.
+pub(crate) fn coincident_vertex_census(tag: &str, mesh: &crate::Mesh) {
+    if std::env::var_os("YANG_COINCIDENT_PROBE").is_none() {
+        return;
+    }
+    let mut by_pos: std::collections::BTreeMap<[u64; 3], Vec<u32>> =
+        std::collections::BTreeMap::new();
+    for (v, p) in mesh.verts.iter().enumerate() {
+        by_pos
+            .entry([p.x().to_bits(), p.y().to_bits(), p.z().to_bits()])
+            .or_default()
+            .push(v as u32);
+    }
+    let groups: Vec<&Vec<u32>> = by_pos.values().filter(|g| g.len() > 1).collect();
+    eprintln!(
+        "[coincident {tag}] {} verts, {} coincident group(s)",
+        mesh.verts.len(),
+        groups.len()
+    );
+    for g in groups {
+        let joined = mesh
+            .tris
+            .iter()
+            .filter(|t| t.iter().filter(|v| g.contains(v)).count() > 1)
+            .count();
+        let p = mesh.verts[g[0] as usize].as_array();
+        eprintln!(
+            "[coincident {tag}]   {g:?} at ({:.17e},{:.17e},{:.17e}) joined_tris={joined}",
+            p[0], p[1], p[2]
+        );
+    }
+    // Sub-`TAU_MODEL` mesh EDGES at the same checkpoint: the pair that is not
+    // yet coincident but is already one model point. Same instrument, because
+    // the two questions are always asked together.
+    let mut short: Vec<((u32, u32), f64)> = Vec::new();
+    let mut seen_edge: std::collections::BTreeSet<(u32, u32)> = std::collections::BTreeSet::new();
+    for t in &mesh.tris {
+        for (i, j) in [(0usize, 1usize), (1, 2), (2, 0)] {
+            let (x, y) = (t[i].min(t[j]), t[i].max(t[j]));
+            if x == y || !seen_edge.insert((x, y)) {
+                continue;
+            }
+            let (p, q) = (
+                mesh.verts[x as usize].as_array(),
+                mesh.verts[y as usize].as_array(),
+            );
+            let d = ((p[0] - q[0]).powi(2) + (p[1] - q[1]).powi(2) + (p[2] - q[2]).powi(2)).sqrt();
+            let scale = p
+                .iter()
+                .chain(q.iter())
+                .fold(0.0f64, |m, &c| m.max(c.abs()));
+            if d < cad_primitives::TAU_MODEL * (1.0 + scale) {
+                short.push(((x, y), d));
+            }
+        }
+    }
+    short.sort_by(|a, b| a.1.total_cmp(&b.1));
+    eprintln!("[coincident {tag}] {} sub-d_p mesh edge(s)", short.len());
+    for ((x, y), d) in short.iter().take(20) {
+        eprintln!("[coincident {tag}]   edge ({x},{y}) len={d:.3e}");
+    }
+}
+
 pub(crate) fn nonmanifold_edge_census(
     tag: &str,
     mesh: &crate::Mesh,

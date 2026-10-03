@@ -3341,6 +3341,127 @@ pub(crate) fn tessellate_lateral_holed_cdt(
         }
     }
 
+    // Self-touching boundary loop (2026-10-03, P0020; deviation N74).
+    //
+    // The chart pool interns by GLOBAL vertex id, so two chart entries can
+    // only collide bit-exactly when two DISTINCT boundary vertices occupy one
+    // point. When they also coincide bit-exactly in WORLD space the loop
+    // genuinely returns to a point: the face is PINCHED, and a
+    // polygon-with-holes chart has no representation for it (the domain is
+    // two closed regions meeting at a point, and the slit between them
+    // carries boundary chains the neighbouring faces also use, so neither
+    // dropping it nor paving it is faithful). `cdt_polygon_with_holes*`
+    // refuses it one crate away as the locus-free `duplicate (coincident)
+    // loop vertex in CDT input`; refuse it HERE, typed, naming the pinch.
+    //
+    // The producer is the Stage-4 edge-pinch split
+    // (`specs/yang_tangency_pinch_split.md` §0a): it correctly gives each
+    // sheet of a tangential contact its own vertex, and Stage 6 then emits
+    // the sheets into ONE face. The remediation is that spec's §0b —
+    // per-SHEET faces with their own edges and loops — which is producer-side
+    // work; P0020 is its first corpus customer. Measured there: a cylinder
+    // lateral pinched along contact edges of 6.155e-6 and 2.507e-6, both
+    // 25-62x the paper's d_p, so this is capability, not tolerance.
+    //
+    // ORDER: this runs AFTER the §4.5.4 crossing scan above, on purpose. A
+    // chart crossing can carry a rim DEMAND the Stage-1 driver retries at, and
+    // a duplicate among arc-CHAIN samples can disappear under that retry; a
+    // pinch between two B-Rep vertices cannot (refinement never merges
+    // vertices). Checking the refinable thing first keeps every pre-existing
+    // retry path byte-identical.
+    //
+    // `YANG_HOLED_DUP_PROBE` adds the loop WINDOW around each colliding
+    // vertex (neighbours and their distances) plus the owner edges, which is
+    // what distinguishes a pinch from a doubled chain or a chart aliasing.
+    {
+        let dup_probe = std::env::var_os("YANG_HOLED_DUP_PROBE").is_some();
+        let owner_of: std::collections::HashMap<u32, u32> = if dup_probe {
+            let mut m = std::collections::HashMap::new();
+            for lp in std::iter::once(&f.outer_loop).chain(f.inner_loops.iter()) {
+                if let Ok(attr) = loop_polyline_attributed(f_idx, lp, edges, chains) {
+                    for (g, e) in attr {
+                        m.entry(g).or_insert(e);
+                    }
+                }
+            }
+            m
+        } else {
+            std::collections::HashMap::new()
+        };
+        let mut seen: std::collections::HashMap<(u64, u64), u32> = std::collections::HashMap::new();
+        let mut referenced = vec![false; local_verts.len()];
+        for lp in std::iter::once(&outer_local).chain(holes_local.iter()) {
+            for &l in lp {
+                referenced[l as usize] = true;
+            }
+        }
+        for (l, p) in local_verts.iter().enumerate() {
+            if !referenced[l] {
+                continue;
+            }
+            let key = (p.x().to_bits(), p.y().to_bits());
+            let l = l as u32;
+            let Some(&first) = seen.get(&key) else {
+                seen.insert(key, l);
+                continue;
+            };
+            let (ga, gb) = (global_of_local[first as usize], global_of_local[l as usize]);
+            let (pa, pb) = (
+                out_verts[ga as usize].as_array(),
+                out_verts[gb as usize].as_array(),
+            );
+            if dup_probe {
+                for lp in std::iter::once(&outer_local).chain(holes_local.iter()) {
+                    for (k, &li) in lp.iter().enumerate() {
+                        if li != first && li != l {
+                            continue;
+                        }
+                        let q = out_verts[global_of_local[li as usize] as usize].as_array();
+                        let win: Vec<String> = (-2i64..=2)
+                            .map(|d| {
+                                let m = (k as i64 + d).rem_euclid(lp.len() as i64) as usize;
+                                let g = global_of_local[lp[m] as usize];
+                                let r = out_verts[g as usize].as_array();
+                                let dist = ((r[0] - q[0]).powi(2)
+                                    + (r[1] - q[1]).powi(2)
+                                    + (r[2] - q[2]).powi(2))
+                                .sqrt();
+                                format!("g{g}@{dist:.3e}")
+                            })
+                            .collect();
+                        eprintln!(
+                            "[holed-dup] face {f_idx} loop window at local {li} (index {k}): {}",
+                            win.join(" ")
+                        );
+                    }
+                }
+                let d =
+                    ((pa[0] - pb[0]).powi(2) + (pa[1] - pb[1]).powi(2) + (pa[2] - pb[2]).powi(2))
+                        .sqrt();
+                eprintln!(
+                    "[holed-dup] face {f_idx} chart ({:?}, {:?}) shared by local {first} \
+                     global {ga} (edge {:?}) and local {l} global {gb} (edge {:?}): \
+                     world {pa:?} vs {pb:?}, |delta| = {d:e}",
+                    p.x(),
+                    p.y(),
+                    owner_of.get(&ga),
+                    owner_of.get(&gb),
+                );
+            }
+            if pa
+                .iter()
+                .zip(pb.iter())
+                .all(|(x, y)| x.to_bits() == y.to_bits())
+            {
+                return Err(YangError::Stage1SelfTouchingLoop {
+                    face: f_idx,
+                    vertices: (ga, gb),
+                    point: pa,
+                });
+            }
+        }
+    }
+
     // ---- KV14 Slice G: the domain triangulation (spec §"Slice G"). ------
     // Yang §4.1 triangulates the u-v domain to d_ε FIRST and CDTs the
     // boundary into it; a boundary-only CDT leaves the azimuthal span of the

@@ -2128,6 +2128,16 @@ pub(crate) fn edge_pinch_sheets(
     Some([(a_fwd, b_rev), (a_rev, b_fwd)])
 }
 
+/// Euclidean length of a candidate pinch edge `(v, u)` — reported by
+/// `YANG_EDGE_PINCH_PROBE` so a certified contact can be read against the
+/// paper's distance tolerance `d_p` (P0020: 2.507e-6 and 6.155e-6, i.e. 25×
+/// and 62× it, which is what refuted the sub-resolution reading of N74).
+pub(crate) fn pinch_edge_len(mesh: &Mesh, v: u32, u: u32) -> f64 {
+    let p = mesh.verts[v as usize].as_array();
+    let q = mesh.verts[u as usize].as_array();
+    ((p[0] - q[0]).powi(2) + (p[1] - q[1]).powi(2) + (p[2] - q[2]).powi(2)).sqrt()
+}
+
 /// Tangency PINCH-VERTEX split (spec `yang_tangency_pinch_split.md`, task
 /// #86): a vertex whose triangle star decomposes into ≥ 2 edge-connected
 /// components, EACH a closed fan, is the mesh weld of a tangency pinch —
@@ -2203,7 +2213,10 @@ pub(crate) fn split_pinch_vertices(
                 4 if edge_pinch => match edge_pinch_sheets(mesh, attribution, v, u, star, l) {
                     Some([a, b]) => {
                         if std::env::var_os("YANG_EDGE_PINCH_PROBE").is_some() {
-                            eprintln!("[edge-pinch] v{v} edge ({v},{u}) CERTIFIED");
+                            eprintln!(
+                                "[edge-pinch] v{v} edge ({v},{u}) CERTIFIED (len={:.3e})",
+                                pinch_edge_len(mesh, v, u)
+                            );
                         }
                         pairs.push(a);
                         pairs.push(b);

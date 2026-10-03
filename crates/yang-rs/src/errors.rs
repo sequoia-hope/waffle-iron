@@ -79,6 +79,25 @@ pub enum YangError {
         crossings: usize,
         demand_n: Option<usize>,
     },
+    /// Stage 1 (2026-10-03, P0020; deviation N74): the boundary loop of
+    /// curved face `face` VISITS ONE POSITION TWICE — global vertices
+    /// `vertices` are distinct but bit-identical in space, so the unrolled
+    /// chart polygon is self-touching and the polygon-with-holes CDT has no
+    /// representation for it.
+    ///
+    /// This is NOT a sampling or tolerance artifact: it is the honest B-Rep
+    /// image of a solid whose boundary PINCHES, produced by the Stage-4
+    /// edge-pinch split (`specs/yang_tangency_pinch_split.md` §0a) giving
+    /// each sheet its own vertex while Stage 6 still emits the sheets into
+    /// ONE face. The remediation is that spec's §0b — per-SHEET faces with
+    /// their own loops — and it belongs to the producer, not here. Typed so
+    /// the wall names the pinch instead of surfacing as cherchi-rs's
+    /// locus-free `duplicate (coincident) loop vertex in CDT input`.
+    Stage1SelfTouchingLoop {
+        face: usize,
+        vertices: (u32, u32),
+        point: [f64; 3],
+    },
     /// Stage-1 chart chord contract (2026-09-11, spec
     /// `yang_stage1_curved_holed_patch` "Slice G"; Yang §4.1 "triangulate the
     /// u-v domain until reaching d_ε"): the seeded chart CDT of a cylinder
@@ -388,6 +407,18 @@ impl fmt::Display for YangError {
                 "yang-rs: Stage-1 chart polygon of face {face} crosses itself {crossings} time(s) \
                  (rim segment demand {demand_n:?}): boundary sampling coarser than the face's \
                  feature size"
+            ),
+            Self::Stage1SelfTouchingLoop {
+                face,
+                vertices,
+                point,
+            } => write!(
+                f,
+                "yang-rs: Stage-1 boundary loop of face {face} touches itself — distinct \
+                 vertices {} and {} occupy the same point ({:e}, {:e}, {:e}), so the unrolled \
+                 chart is self-touching (a PINCHED face: the Stage-4 edge-pinch split's sheets \
+                 were emitted as one face, spec yang_tangency_pinch_split §0b)",
+                vertices.0, vertices.1, point[0], point[1], point[2]
             ),
             Self::Stage1ChartChordBound {
                 face,
