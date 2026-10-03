@@ -369,9 +369,18 @@ pub(crate) fn band_clearance_off_extent_declines() {
 /// unless `YANG_172_EXTENT` is set. Pinned so a careless default flip
 /// cannot land silently.
 #[test]
-pub(crate) fn extent_ladder_is_gated_off_by_default() {
-    assert!(
-        !extent_ladder_enabled() || std::env::var("YANG_172_EXTENT").is_ok(),
-        "the N75 ladder must be off unless YANG_172_EXTENT is set"
-    );
+pub(crate) fn extent_ladder_is_on_by_default_with_a_kill_switch() {
+    // Flipped always-on 2026-10-03 (evening UTC) after the full-corpus
+    // proof (321C / 0W / 10E / 5EE / 0T over 336, one move, zero
+    // regressions). The kill switch is the only way to turn it off.
+    match std::env::var("YANG_172_EXTENT").as_deref() {
+        Ok("0") | Ok("off") => assert!(
+            !extent_ladder_enabled(),
+            "YANG_172_EXTENT=0|off must disable the N75 ladder"
+        ),
+        _ => assert!(
+            extent_ladder_enabled(),
+            "the N75 ladder is always-on unless YANG_172_EXTENT=0|off"
+        ),
+    }
 }

@@ -9,6 +9,8 @@
 
 ## 0. Honest status (refreshed 2026-06-26; addendum 2026-09-04 below)
 
+> **2026-10-03 (evening UTC, second) refresh — MEASURED; P0021 CONVERTED, the N75 ladder is ON.** Canonical corpus **321C / 0W / 10E / 5EE / 0T + 0 UNSUPPORTED over 336 cases** (release, 8 jobs, 900 s; wall 1436.4 s; R0085 853.3 s, F0072 755.2 s). This is the extent-on run the P0021 session asked for: versus the afternoon 320C/11E run, exactly one category move (P0021 → CORRECT) and zero regressions, so `extent_ladder_enabled` is default-on (`YANG_172_EXTENT=0|off` to disable); deviation N75 RESOLVED (P0021's χ meta adjudication via the sidecar still owed). The 10 ERROR rows are the seven loud-by-design C-series walls + P0017 (render-CDT sliver, in progress), P0019 (component-wise seam anchoring), P0020 (N74 per-sheet faces). Also in flight: N69 graze-aware ray selection (gated; flip owes a corpus run).
+
 > **2026-10-03 (late night, second) refresh — P0021 ANCHORED, remediation
 > BUILT and GATED; corpus NOT re-measured this session.** Deviation **N75**,
 > spec `specs/yang_p0021_case_iii_finite_extent_depth.md`. P0021 carries
