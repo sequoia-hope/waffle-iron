@@ -436,12 +436,32 @@ pub fn judge_generated(
 > {
     let recipe = gen3::generate(seed, index);
     let id = recipe.id();
+    let dir = out.join("candidates");
+    std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
+    // The lineage is a function of the RECIPE alone, so write it BEFORE the
+    // build. A candidate whose build spends the whole CPU budget inside a
+    // kernel operation (seed 2 indices 16 and 78: a 586-cone-face gear
+    // revolve whose 0.74 M-triangle Stage-1 mesh enters the Stage-2
+    // arrangement) is killed by the driver before `judge_generated` returns,
+    // and the report line then carries `steps: 0` and an empty summary — the
+    // finding names nothing it can be re-run from. Writing the recipe first
+    // makes a build-phase TIMEOUT re-playable (`PROSPECT_RECIPE`) and
+    // minimizable like any other finding. The build report is appended once
+    // the build completes.
+    std::fs::write(
+        dir.join(format!("{id}.lineage.json")),
+        serde_json::to_string_pretty(&serde_json::json!({
+            "kind": "generated",
+            "recipe": recipe,
+            "build": serde_json::Value::Null,
+        }))
+        .map_err(|e| e.to_string())?,
+    )
+    .map_err(|e| e.to_string())?;
     let (mut builder, report) = gen3::build(&recipe);
     let waffle = builder.save().map_err(|e| format!("save: {e}"))?;
     let doc: Value = serde_json::from_str(&waffle).map_err(|e| format!("parse: {e}"))?;
     let meta = derive_meta(&id, &doc)?;
-    let dir = out.join("candidates");
-    std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
     std::fs::write(dir.join(format!("{id}.waffle")), &waffle).map_err(|e| e.to_string())?;
     std::fs::write(
         dir.join(format!("{id}.meta.json")),
