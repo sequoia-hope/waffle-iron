@@ -1685,9 +1685,24 @@ fn smoke_corpus_boundary_categories() {
         // now the same at its own scale.
         ("P0017", Category::Error),
         ("P0018", Category::SupportedCorrect),
-        // P0019 (3 ops) ⇒ `InvalidBooleanOutput("full-circle edge sense is
-        // underivable …")`: a closed output edge whose traversal sense neither
-        // allowed witness can supply. The wall R0004 once hit.
+        // P0019 (3 ops) was promoted for `InvalidBooleanOutput("full-circle
+        // edge sense is underivable …")` — the wall R0004 once hit. HALF-
+        // converted 2026-10-03 (deviation N73): the body is a genus-1 ring of
+        // FIVE cone bands with no planar cap anywhere, and the derivation had
+        // no `FaceSurf::Cone` arm at all, so neither witness could read a rim
+        // whose two uses are both cone bands. `derive_axis_band` now reads the
+        // rule both curved validators already enforce ("each rim's traversal
+        // axis points TOWARD the opposite rim", AWAY on a cavity wall) off the
+        // band's own two rim centres.
+        //
+        // The case now stops one stage later on an UNMASKED LATENT:
+        // `CurvedGeometryMismatch { face: FaceId(17), reason: "cone face with
+        // inner loops is outside the KV6c vocabulary" }`. Two of the five
+        // bands keep the ANNULAR two-loop form because `recover.rs` anchors
+        // seam feet greedily per face and these rims form a CYCLE — faces 0
+        // and 2 reach PASS 2 with both anchors pinned π/12 (one lattice step)
+        // apart. Remedy = the SI5 spec's own component-wise anchoring; it
+        // moves minted seam feet corpus-wide, so it needs its own cycle.
         ("P0019", Category::Error),
         // P0020 (5 ops, two chained Intersects) ⇒ an INPUT rejection: the
         // FIRST intersect's own output B-Rep carries a holed cylinder-lateral
