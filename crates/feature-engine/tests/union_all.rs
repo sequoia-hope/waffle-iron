@@ -251,8 +251,10 @@ fn box_disjoint_bodies_never_reach_the_kernel_and_stay_separate() {
                     direction: AxisRef::Explicit {
                         origin: [0.0, 0.0, 0.0],
                         direction: [1.0, 0.0, 0.0],
+                        origin_expr: None,
                     },
                     count: 2,
+                    count_expr: None,
                     spacing: 10.0,
                     spacing_expr: None,
                     second: None,

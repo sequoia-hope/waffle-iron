@@ -392,22 +392,50 @@ pub fn apply_parameters_scoped(
     for (idx, feature) in tree.features.iter_mut().enumerate() {
         let mut errs: Vec<String> = Vec::new();
         let changed = match &mut feature.operation {
-            Operation::Extrude { params } => apply_field(
-                "depth",
-                Dimension::Length,
-                &mut params.depth,
-                params.depth_expr.as_deref(),
-                &env,
-                &mut errs,
-            ),
-            Operation::Revolve { params } => apply_field(
-                "angle",
-                Dimension::Angle,
-                &mut params.angle,
-                params.angle_expr.as_deref(),
-                &env,
-                &mut errs,
-            ),
+            Operation::Extrude { params } => {
+                let mut changed = apply_field(
+                    "depth",
+                    Dimension::Length,
+                    &mut params.depth,
+                    params.depth_expr.as_deref(),
+                    &env,
+                    &mut errs,
+                );
+                if let Some(crate::types::SecondDirection::Blind { depth, depth_expr }) =
+                    params.second_direction.as_mut()
+                {
+                    let expression = depth_expr.clone();
+                    changed |= apply_field(
+                        "second depth",
+                        Dimension::Length,
+                        depth,
+                        expression.as_deref(),
+                        &env,
+                        &mut errs,
+                    );
+                }
+                changed
+            }
+            Operation::Revolve { params } => {
+                let mut changed = apply_field(
+                    "angle",
+                    Dimension::Angle,
+                    &mut params.angle,
+                    params.angle_expr.as_deref(),
+                    &env,
+                    &mut errs,
+                );
+                let expressions = params.axis_origin_expr.clone();
+                changed |= apply_vec3_field(
+                    "axis origin",
+                    Dimension::Length,
+                    &mut params.axis_origin,
+                    expressions.as_ref(),
+                    &env,
+                    &mut errs,
+                );
+                changed
+            }
             Operation::Pipe { params } => {
                 let a = apply_field(
                     "radius",
@@ -464,18 +492,43 @@ pub fn apply_parameters_scoped(
                         &mut errs,
                     )
                 }
-                PlaneDefinition::PointNormal { .. } => false,
+                PlaneDefinition::PointNormal {
+                    origin,
+                    origin_expr,
+                    ..
+                } => {
+                    let expressions = origin_expr.clone();
+                    apply_vec3_field(
+                        "origin",
+                        Dimension::Length,
+                        origin,
+                        expressions.as_ref(),
+                        &env,
+                        &mut errs,
+                    )
+                }
             },
             Operation::Sketch { sketch } => apply_sketch(sketch, &env, &mut errs),
             Operation::Sketch3d { sketch } => apply_sketch3d(sketch, &env, &mut errs),
-            Operation::PatternCircular { params } => apply_field(
-                "angle",
-                Dimension::Angle,
-                &mut params.angle_deg,
-                params.angle_expr.as_deref(),
-                &env,
-                &mut errs,
-            ),
+            Operation::PatternCircular { params } => {
+                let mut changed = apply_field(
+                    "angle",
+                    Dimension::Angle,
+                    &mut params.angle_deg,
+                    params.angle_expr.as_deref(),
+                    &env,
+                    &mut errs,
+                );
+                changed |= apply_count_field(
+                    "count",
+                    &mut params.count,
+                    params.count_expr.as_deref(),
+                    &env,
+                    &mut errs,
+                );
+                changed |= apply_axis(&mut params.axis, "axis", &env, &mut errs);
+                changed
+            }
             Operation::Script { params } => {
                 // Expression-driven script arguments: evaluate each into the
                 // raw (mm-space / degrees / plain) cache. The declared type
@@ -507,6 +560,14 @@ pub fn apply_parameters_scoped(
                     &env,
                     &mut errs,
                 );
+                changed |= apply_count_field(
+                    "count",
+                    &mut params.count,
+                    params.count_expr.as_deref(),
+                    &env,
+                    &mut errs,
+                );
+                changed |= apply_axis(&mut params.direction, "direction", &env, &mut errs);
                 if let Some(second) = params.second.as_mut() {
                     let expr = second.spacing_expr.clone();
                     changed |= apply_field(
@@ -517,11 +578,73 @@ pub fn apply_parameters_scoped(
                         &env,
                         &mut errs,
                     );
+                    changed |= apply_count_field(
+                        "second count",
+                        &mut second.count,
+                        second.count_expr.clone().as_deref(),
+                        &env,
+                        &mut errs,
+                    );
+                    changed |=
+                        apply_axis(&mut second.direction, "second direction", &env, &mut errs);
                 }
                 changed
             }
+            Operation::PatternMirror { params } => {
+                apply_axis(&mut params.plane, "plane", &env, &mut errs)
+            }
+            Operation::MateConnector { params } => {
+                let mut changed = apply_field(
+                    "rotation",
+                    Dimension::Angle,
+                    &mut params.rotation_deg,
+                    params.rotation_expr.as_deref(),
+                    &env,
+                    &mut errs,
+                );
+                let expressions = params.offset_m_expr.clone();
+                changed |= apply_vec3_field(
+                    "offset",
+                    Dimension::Length,
+                    &mut params.offset_m,
+                    expressions.as_ref(),
+                    &env,
+                    &mut errs,
+                );
+                changed
+            }
+            Operation::ImportedBody { params } => {
+                let translation = params.translation_m_expr.clone();
+                let mut changed = apply_vec3_field(
+                    "translation",
+                    Dimension::Length,
+                    &mut params.translation_m,
+                    translation.as_ref(),
+                    &env,
+                    &mut errs,
+                );
+                let rotation = params.rotation_deg_expr.clone();
+                changed |= apply_vec3_field(
+                    "rotation",
+                    Dimension::Angle,
+                    &mut params.rotation_deg,
+                    rotation.as_ref(),
+                    &env,
+                    &mut errs,
+                );
+                changed |= apply_field(
+                    "scale",
+                    Dimension::Ratio,
+                    &mut params.scale,
+                    params.scale_expr.as_deref(),
+                    &env,
+                    &mut errs,
+                );
+                changed
+            }
             // Fillet/chamfer/shell are deferred (disabled in the UI);
-            // booleans and imports carry no dimension measurements.
+            // booleans carry no dimension measurements, and a sweep's
+            // section and path are both sketches (which carry their own).
             _ => false,
         };
         if changed {
@@ -625,6 +748,121 @@ fn apply_field(
             errs.push(format!("{label} expression '{expression}': {e}"));
             false
         }
+    }
+}
+
+/// [`apply_field`] per component of a `[f64; 3]` (P3).
+///
+/// Each component is its own optional expression, so `x` can be driven while
+/// `y` and `z` stay as drawn — an author who parameterises one axis has said
+/// nothing about the other two, and filling them in from somewhere would be
+/// inventing geometry. The label names the component (`translation x`), which
+/// is what makes a dimension refusal readable: "translation z expression
+/// '25deg'" says which of three numbers is wrong.
+///
+/// Only POSITION-like vectors go through this. A direction vector (an axis's
+/// `direction`, a plane's `normal`, a sketch's in-plane x) has no sidecar at
+/// all: it is normalized at rebuild, so a per-component expression for it
+/// drives nothing an author can predict — two thirds of what they typed is
+/// scaled away.
+fn apply_vec3_field(
+    label: &str,
+    dimension: Dimension,
+    field: &mut [f64; 3],
+    expressions: Option<&[Option<String>; 3]>,
+    env: &Env,
+    errs: &mut Vec<String>,
+) -> bool {
+    let Some(expressions) = expressions else {
+        return false;
+    };
+    let mut changed = false;
+    for (axis, expression) in expressions.iter().enumerate() {
+        changed |= apply_field(
+            &format!("{label} {}", ["x", "y", "z"][axis]),
+            dimension,
+            &mut field[axis],
+            expression.as_deref(),
+            env,
+            errs,
+        );
+    }
+    changed
+}
+
+/// [`apply_field`] for a `u32` COUNT (P3).
+///
+/// `Dimension::Count` is what makes this safe to parameterise: the boundary
+/// demands a whole, non-negative number, so `teeth / 2` of a 20-tooth gear is
+/// 10 and `teeth / 3` is a loud refusal rather than a silent truncation to 6.
+/// A count that does not fit a `u32` is refused for the same reason — a
+/// saturating cast is a wrong answer with no complaint.
+///
+/// The operation's OWN validator still runs afterwards (`pattern::check_count`
+/// wants ≥ 2): this boundary decides whether the expression produced a count
+/// at all, not whether the count is usable.
+fn apply_count_field(
+    label: &str,
+    field: &mut u32,
+    expression: Option<&str>,
+    env: &Env,
+    errs: &mut Vec<String>,
+) -> bool {
+    let Some(expression) = expression else {
+        return false;
+    };
+    match expr::evaluate_quantity(expression, env).and_then(|q| q.accept(Dimension::Count)) {
+        Ok(v) => {
+            if v > u32::MAX as f64 {
+                errs.push(format!(
+                    "{label} expression '{expression}': {v} is too large for a count"
+                ));
+                return false;
+            }
+            let v = v as u32;
+            if v != *field {
+                *field = v;
+                true
+            } else {
+                false
+            }
+        }
+        Err(e) => {
+            errs.push(format!("{label} expression '{expression}': {e}"));
+            false
+        }
+    }
+}
+
+/// An [`crate::types::AxisRef`]'s driving expressions: the explicit origin's
+/// three components (P3).
+///
+/// An `Entity` axis has none — it is derived from the picked geometry every
+/// rebuild, and an expression beside it would be a second driver that the
+/// resolution overwrites.
+fn apply_axis(
+    axis: &mut crate::types::AxisRef,
+    label: &str,
+    env: &Env,
+    errs: &mut Vec<String>,
+) -> bool {
+    match axis {
+        crate::types::AxisRef::Explicit {
+            origin,
+            origin_expr,
+            ..
+        } => {
+            let expressions = origin_expr.clone();
+            apply_vec3_field(
+                &format!("{label} origin"),
+                Dimension::Length,
+                origin,
+                expressions.as_ref(),
+                env,
+                errs,
+            )
+        }
+        crate::types::AxisRef::Entity { .. } => false,
     }
 }
 
@@ -774,6 +1012,40 @@ pub struct ExprSite<'a> {
 /// so neither can learn about a field the other does not know. Only fields
 /// that actually CARRY an expression are yielded — an absent sidecar is not
 /// a site, and a rewrite must never invent one.
+/// The set components of a `[f64; 3]` sidecar, labelled per axis — the
+/// enumeration half of [`apply_vec3_field`]. An unset component is NOT a
+/// site: an absent sidecar is not an expression, and a rewrite must never
+/// invent one.
+fn push_vec3<'a>(
+    out: &mut Vec<(String, &'a mut String)>,
+    label: &str,
+    expressions: Option<&'a mut [Option<String>; 3]>,
+) {
+    let Some(expressions) = expressions else {
+        return;
+    };
+    for (axis, expression) in expressions.iter_mut().enumerate() {
+        if let Some(e) = expression.as_mut() {
+            out.push((format!("{label} {}", ["x", "y", "z"][axis]), e));
+        }
+    }
+}
+
+/// An axis reference's expression sites — the enumeration half of
+/// [`apply_axis`].
+fn push_axis<'a>(
+    out: &mut Vec<(String, &'a mut String)>,
+    label: &str,
+    axis: &'a mut crate::types::AxisRef,
+) {
+    match axis {
+        crate::types::AxisRef::Explicit { origin_expr, .. } => {
+            push_vec3(out, &format!("{label} origin"), origin_expr.as_mut())
+        }
+        crate::types::AxisRef::Entity { .. } => {}
+    }
+}
+
 fn expression_sites(op: &mut Operation) -> Vec<(String, &mut String)> {
     use waffle_types::sketch3d::Sketch3dEntity;
     let mut out: Vec<(String, &mut String)> = Vec::new();
@@ -782,11 +1054,19 @@ fn expression_sites(op: &mut Operation) -> Vec<(String, &mut String)> {
             if let Some(e) = params.depth_expr.as_mut() {
                 out.push(("depth".to_string(), e));
             }
+            if let Some(crate::types::SecondDirection::Blind {
+                depth_expr: Some(e),
+                ..
+            }) = params.second_direction.as_mut()
+            {
+                out.push(("second depth".to_string(), e));
+            }
         }
         Operation::Revolve { params } => {
             if let Some(e) = params.angle_expr.as_mut() {
                 out.push(("angle".to_string(), e));
             }
+            push_vec3(&mut out, "axis origin", params.axis_origin_expr.as_mut());
         }
         Operation::Pipe { params } => {
             if let Some(e) = params.radius_expr.as_mut() {
@@ -803,7 +1083,9 @@ fn expression_sites(op: &mut Operation) -> Vec<(String, &mut String)> {
                     out.push(("distance".to_string(), e));
                 }
             }
-            PlaneDefinition::PointNormal { .. } => {}
+            PlaneDefinition::PointNormal { origin_expr, .. } => {
+                push_vec3(&mut out, "origin", origin_expr.as_mut());
+            }
         },
         Operation::Sketch { sketch } => {
             for (i, c) in sketch.constraints.iter_mut().enumerate() {
@@ -847,15 +1129,43 @@ fn expression_sites(op: &mut Operation) -> Vec<(String, &mut String)> {
             if let Some(e) = params.angle_expr.as_mut() {
                 out.push(("angle".to_string(), e));
             }
+            if let Some(e) = params.count_expr.as_mut() {
+                out.push(("count".to_string(), e));
+            }
+            push_axis(&mut out, "axis", &mut params.axis);
+        }
+        Operation::PatternMirror { params } => {
+            push_axis(&mut out, "plane", &mut params.plane);
+        }
+        Operation::MateConnector { params } => {
+            if let Some(e) = params.rotation_expr.as_mut() {
+                out.push(("rotation".to_string(), e));
+            }
+            push_vec3(&mut out, "offset", params.offset_m_expr.as_mut());
+        }
+        Operation::ImportedBody { params } => {
+            push_vec3(&mut out, "translation", params.translation_m_expr.as_mut());
+            push_vec3(&mut out, "rotation", params.rotation_deg_expr.as_mut());
+            if let Some(e) = params.scale_expr.as_mut() {
+                out.push(("scale".to_string(), e));
+            }
         }
         Operation::PatternLinear { params } => {
             if let Some(e) = params.spacing_expr.as_mut() {
                 out.push(("spacing".to_string(), e));
             }
+            if let Some(e) = params.count_expr.as_mut() {
+                out.push(("count".to_string(), e));
+            }
+            push_axis(&mut out, "direction", &mut params.direction);
             if let Some(second) = params.second.as_mut() {
                 if let Some(e) = second.spacing_expr.as_mut() {
                     out.push(("second spacing".to_string(), e));
                 }
+                if let Some(e) = second.count_expr.as_mut() {
+                    out.push(("second count".to_string(), e));
+                }
+                push_axis(&mut out, "second direction", &mut second.direction);
             }
         }
         Operation::Script { params } => {
@@ -1205,6 +1515,7 @@ mod tests {
                     profile_index: 0,
                     profile_entity_ids: None,
                     axis_origin: [0.0; 3],
+                    axis_origin_expr: None,
                     axis_direction: [0.0, 0.0, 1.0],
                     angle,
                     angle_expr: angle_expr.map(str::to_string),
@@ -1479,6 +1790,7 @@ mod tests {
                         profile_index: 0,
                         profile_entity_ids: None,
                         axis_origin: [0.0; 3],
+                        axis_origin_expr: None,
                         axis_direction: [0.0, 0.0, 1.0],
                         angle: 360.0,
                         angle_expr: Some("turn * 2".to_string()),
@@ -1840,10 +2152,14 @@ mod tests {
         let ops: Vec<Value> = vec![
             json!({ "type": "Extrude", "params": {
                 "sketch_id": sketch_id, "profile_index": 0, "depth": 0.004,
-                "depth_expr": "a", "symmetric": false, "cut": false }}),
+                "depth_expr": "a", "symmetric": false, "cut": false,
+                "second_direction": { "type": "Blind", "depth": 0.002,
+                                      "depth_expr": "a" } }}),
             json!({ "type": "Revolve", "params": {
                 "sketch_id": sketch_id, "profile_index": 0,
-                "axis_origin": [0.0, 0.0, 0.0], "axis_direction": [0.0, 0.0, 1.0],
+                "axis_origin": [0.0, 0.0, 0.0],
+                "axis_origin_expr": ["a", "a", "a"],
+                "axis_direction": [0.0, 0.0, 1.0],
                 "angle": 90.0, "angle_expr": "a", "cut": false }}),
             json!({ "type": "Pipe", "params": {
                 "sketch_id": sketch_id, "entity_ids": [1, 2], "radius": 0.005,
@@ -1851,18 +2167,43 @@ mod tests {
             json!({ "type": "DatumPlane", "params": { "name": "Datum", "definition": {
                 "method": "offset", "basePlaneId": Uuid::new_v4(),
                 "distance": 0.01, "distance_expr": "a" }}}),
+            json!({ "type": "DatumPlane", "params": { "name": "Datum2", "definition": {
+                "method": "point-normal", "origin": [0.0, 0.0, 0.0],
+                "origin_expr": ["a", "a", "a"], "normal": [0.0, 0.0, 1.0] }}}),
             json!({ "type": "PatternCircular", "params": {
                 "axis": { "method": "explicit", "origin": [0.0, 0.0, 0.0],
+                          "origin_expr": ["a", "a", "a"],
                           "direction": [0.0, 0.0, 1.0] },
-                "count": 4, "angle_deg": 360.0, "angle_expr": "a" }}),
+                "count": 4, "count_expr": "a",
+                "angle_deg": 360.0, "angle_expr": "a" }}),
             json!({ "type": "PatternLinear", "params": {
                 "direction": { "method": "explicit", "origin": [0.0, 0.0, 0.0],
+                               "origin_expr": ["a", "a", "a"],
                                "direction": [1.0, 0.0, 0.0] },
-                "count": 3, "spacing": 0.01, "spacing_expr": "a",
+                "count": 3, "count_expr": "a", "spacing": 0.01, "spacing_expr": "a",
                 "second": { "direction": { "method": "explicit",
                                            "origin": [0.0, 0.0, 0.0],
+                                           "origin_expr": ["a", "a", "a"],
                                            "direction": [0.0, 1.0, 0.0] },
-                            "count": 2, "spacing": 0.02, "spacing_expr": "a" }}}),
+                            "count": 2, "count_expr": "a",
+                            "spacing": 0.02, "spacing_expr": "a" }}}),
+            json!({ "type": "PatternMirror", "params": {
+                "plane": { "method": "explicit", "origin": [0.0, 0.0, 0.0],
+                           "origin_expr": ["a", "a", "a"],
+                           "direction": [1.0, 0.0, 0.0] } }}),
+            json!({ "type": "MateConnector", "params": {
+                "name": "C1",
+                "frame": { "origin": [0.0, 0.0, 0.0], "z_axis": [0.0, 0.0, 1.0],
+                           "x_axis": [1.0, 0.0, 0.0] },
+                "rotation_deg": 0.0, "rotation_expr": "a",
+                "offset_m": [0.0, 0.0, 0.0], "offset_m_expr": ["a", "a", "a"] }}),
+            json!({ "type": "ImportedBody", "params": {
+                "file_name": "x.step", "source_id": Uuid::new_v4(),
+                "translation_m": [0.0, 0.0, 0.0],
+                "translation_m_expr": ["a", "a", "a"],
+                "rotation_deg": [0.0, 0.0, 0.0],
+                "rotation_deg_expr": ["a", "a", "a"],
+                "scale": 1.0, "scale_expr": "a" }}),
             json!({ "type": "Script", "params": {
                 "source_id": Uuid::new_v4(), "args": {},
                 "arg_exprs": { "teeth": "a" }}}),
@@ -1900,11 +2241,16 @@ mod tests {
     fn every_expression_field_is_enumerated() {
         let mut tree = tree_with(Vec::new(), every_expression_feature());
         let sites = field_uses(&mut tree);
-        // Extrude depth, revolve angle, pipe radius + inner_radius, datum
-        // distance, circular angle, linear spacing + second spacing, one
-        // script arg, three 3D-point coordinates, a 3D fillet radius, and
-        // the rectangle sketch's two dimensions.
-        assert_eq!(sites.len(), 15, "{sites:#?}");
+        // Extrude depth + second depth (2); revolve angle + axis origin x/y/z
+        // (4); pipe radius + inner_radius (2); datum offset distance (1);
+        // datum point-normal origin x/y/z (3); circular count + angle + axis
+        // origin x/y/z (5); linear count + spacing + direction origin x/y/z,
+        // and the same four again for the second leg (10); mirror plane
+        // origin x/y/z (3); mate connector rotation + offset x/y/z (4);
+        // imported body translation x/y/z + rotation x/y/z + scale (7); one
+        // script arg (1); three 3D-point coordinates + a 3D fillet radius
+        // (4); the rectangle sketch's two dimensions (2).
+        assert_eq!(sites.len(), 48, "{sites:#?}");
         for site in &sites {
             assert_eq!(site.expression, "a", "{} {}", site.feature_name, site.field);
             assert_eq!(site.reads, vec!["a".to_string()]);

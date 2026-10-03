@@ -132,6 +132,7 @@ fn revolve(sketch_id: Uuid, profile_index: usize, ids: Option<Vec<u32>>) -> Oper
             profile_index,
             profile_entity_ids: ids,
             axis_origin: [-1.0, 0.0, 0.0],
+            axis_origin_expr: None,
             axis_direction: [0.0, 1.0, 0.0],
             angle: 90.0,
             angle_expr: None,

@@ -977,7 +977,7 @@ pub(crate) fn execute_feature(
             // Resolve second depth if bidirectional
             let second_depth = match &effective_second {
                 Some(SecondDirection::Symmetric) => Some(primary_depth),
-                Some(SecondDirection::Blind { depth: d }) => Some(*d),
+                Some(SecondDirection::Blind { depth: d, .. }) => Some(*d),
                 Some(SecondDirection::ThroughAll) => Some(resolve_depth(
                     &DepthMode::ThroughAll,
                     params.depth,
@@ -3120,7 +3120,7 @@ fn resolve_plane_definition(
     introspect: &dyn waffle_types::kernel::KernelIntrospect,
 ) -> Result<([f64; 3], [f64; 3]), EngineError> {
     match def {
-        PlaneDefinition::PointNormal { origin, normal } => {
+        PlaneDefinition::PointNormal { origin, normal, .. } => {
             let len =
                 (normal[0] * normal[0] + normal[1] * normal[1] + normal[2] * normal[2]).sqrt();
             if len < TAU_WORK {
@@ -4009,6 +4009,7 @@ mod tests {
             "Custom Plane",
             PlaneDefinition::PointNormal {
                 origin: [1.0, 2.0, 3.0],
+                origin_expr: None,
                 normal: [0.0, 1.0, 0.0],
             },
         );
@@ -4392,6 +4393,7 @@ mod tests {
             "Bad Plane",
             PlaneDefinition::PointNormal {
                 origin: [0.0, 0.0, 0.0],
+                origin_expr: None,
                 normal: [0.0, 0.0, 0.0],
             },
         );
@@ -4740,6 +4742,7 @@ mod tests {
             "Plane A",
             PlaneDefinition::PointNormal {
                 origin: [0.0, 0.0, 5.0],
+                origin_expr: None,
                 normal: [0.0, 0.0, 1.0],
             },
         );
