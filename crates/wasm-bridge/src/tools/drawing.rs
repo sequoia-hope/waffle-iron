@@ -758,7 +758,7 @@ fn precision_arg(args: &Value) -> Result<Option<u8>, ToolFailure> {
 /// may be a NUMBER or a decimal STRING, and a caller that goes through
 /// JavaScript must use the string: a `u64` above `2^53` is not exact as a
 /// JSON number there, and the rounded value resolves to nothing
-/// (`feature_engine::drawing::pid_string`). `root_pid` equals `pid` — for
+/// (`waffle_types::pid_str`). `root_pid` equals `pid` — for
 /// edges and vertices D0 makes the two the same, and a caller holding a face
 /// pid from `entity_pid` holds its root too.
 fn anchors_arg(args: &Value, arity: usize) -> Result<Vec<DrawingAnchorSpec>, ToolFailure> {
