@@ -1040,6 +1040,234 @@ pub fn distance_along(
     })
 }
 
+// ---------------------------------------------------------------------------
+// Q6 — arc length
+// ---------------------------------------------------------------------------
+
+/// How an arc length was obtained. The kernel-local counterpart of
+/// `waffle_types::kernel::LengthMethod`, which the adapter translates to (and
+/// which carries an `Option` on the chord bound for the imported bodies this
+/// module never sees).
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum LengthTier {
+    /// A closed form in f64: a chord, `2πr`, `rΔθ`.
+    Exact,
+    /// A composite-Simpson quadrature of a closed-form speed whose integral
+    /// is elliptic. `residual` is the MEASURED difference against the same
+    /// quadrature at twice the step count — a convergence witness.
+    Quadrature { residual: f64 },
+    /// The sum of the render polyline's chords, which is a LOWER bound on the
+    /// true length. `chord_bound` is the band on each sample POINT, Q1's
+    /// `RENDER_CHORD_TOLERANCE_REL × extent` at this edge's own extent — not
+    /// a two-sided band on the length, whose deficit accumulates over the
+    /// chords.
+    Chords { chord_bound: f64 },
+}
+
+/// The arc length of one edge (Q6 of `specs/agent_mechanical_design.md`
+/// §4.2).
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct ArcLength {
+    /// Meters, along the curve.
+    pub value: f64,
+    /// The curve family, as one lowercase token.
+    pub curve_type: &'static str,
+    /// Whether the edge closes on itself (a full circle or ellipse, whose two
+    /// endpoints are the one seam vertex).
+    pub closed: bool,
+    pub tier: LengthTier,
+}
+
+/// Simpson intervals for the hyperbola arm, matching
+/// `waffle_types::kernel::projection::ELLIPSE_QUADRATURE_STEPS` so both
+/// elliptic-integral arms are integrated at one density.
+const HYPERBOLA_QUADRATURE_STEPS: usize = 2048;
+
+/// Composite Simpson of `f` over `[t0, t1]` in `n` intervals (`n` even, ≥ 2).
+fn simpson(t0: f64, t1: f64, n: usize, f: &dyn Fn(f64) -> f64) -> f64 {
+    let n = n.max(2) & !1;
+    let h = (t1 - t0) / n as f64;
+    let mut acc = f(t0) + f(t1);
+    for i in 1..n {
+        acc += if i % 2 == 1 { 4.0 } else { 2.0 } * f(t0 + h * i as f64);
+    }
+    acc * h / 3.0
+}
+
+/// The **arc length** of the edge named by half-edge `h`, its curve family,
+/// and the tier the number is (Q6).
+///
+/// This is the length OF THE CURVE, which is a different quantity from the
+/// edge's `TopoSignature::length` (the straight-line distance between its
+/// endpoints — 0 for a full circle, short by the sagitta for every arc).
+///
+/// Per family:
+///
+/// - **line** — the chord. Exact.
+/// - **circle** — `2πr`. Exact.
+/// - **arc** — `r·Δθ` with `Δθ` the CCW sweep between the endpoints
+///   ([`crate::geom::ccw_sweep`], the same sweep the tessellator walks).
+///   Exact.
+/// - **ellipse_arc** — no closed form (an incomplete elliptic integral of
+///   the second kind). The speed `|dP/dt| = √(a²sin²t + b²cos²t)` depends
+///   only on the two radii, not on the frame, so the arc is handed to D1a's
+///   own `Curve2::Ellipse` integrator in a canonical 2D frame with the same
+///   radii and the same parameter interval. That is deliberate reuse: the
+///   number an agent is told here is bit-identical to the length the drawing
+///   layer shows for the same curve, and there is one integrator of an
+///   ellipse in the tree. `Quadrature`, with the doubled-step residual.
+/// - **hyperbola_arc** — the same situation (`√(a²sinh²t + b²cosh²t)`) with
+///   no 2D counterpart to borrow, so it is integrated here, at the same
+///   density. `Quadrature`, with the doubled-step residual.
+/// - **surface_pair** — an SSI curve defined implicitly by two surfaces.
+///   Its exact length is an integral of a curve with no parameterization in
+///   hand; the honest answer is the render polyline's chord sum, labelled
+///   `Chords` and known to be a lower bound.
+///
+/// Computed on the CANONICAL half-edge (`min(h, twin)`), so both sides of an
+/// edge report a bit-identical length rather than two values that differ in
+/// the last bits by summation order. (Arc length is direction-free: a twin
+/// carries the negated normal and the reversed endpoints, which is the same
+/// point set traversed the other way.)
+pub fn edge_length(arena: &BrepArena, h: HalfEdgeId) -> Result<ArcLength, KernelV2Error> {
+    let canon = h.min(arena.half_edge(h)?.twin);
+    let he = arena.half_edge(canon)?;
+    let start = arena.vertex(he.origin)?.point;
+    let dest_vid = arena.half_edge(he.next)?.origin;
+    let end = arena.vertex(dest_vid)?.point;
+    let closed = dest_vid == he.origin;
+    let degenerate = |reason: &'static str| KernelV2Error::EdgeLengthDegenerate {
+        half_edge: canon,
+        reason,
+    };
+
+    let (value, curve_type, tier) = match he.curve {
+        Curve::LineSegment => (dist2(start, end).sqrt(), "line", LengthTier::Exact),
+        Curve::Circle { radius, .. } => {
+            (std::f64::consts::TAU * radius, "circle", LengthTier::Exact)
+        }
+        Curve::Arc {
+            center,
+            normal,
+            radius,
+        } => {
+            let n = [normal.x, normal.y, normal.z];
+            let sweep = crate::geom::ccw_sweep(center, n, start, end)
+                .ok_or_else(|| degenerate("arc endpoint has no radial direction"))?;
+            (radius * sweep, "arc", LengthTier::Exact)
+        }
+        Curve::EllipseArc {
+            center,
+            normal,
+            major_axis,
+            major_radius,
+            minor_radius,
+        } => {
+            use cad_primitives::Point2;
+            use waffle_types::kernel::projection::{Curve2, ELLIPSE_QUADRATURE_STEPS};
+            let nu = [normal.x, normal.y, normal.z];
+            let mr = [major_axis.x, major_axis.y, major_axis.z];
+            let t0 = crate::geom::ellipse_param(center, nu, mr, major_radius, minor_radius, start)
+                .ok_or_else(|| degenerate("ellipse endpoint projects onto the centre"))?;
+            // A closed ellipse half-edge starts and ends at its seam vertex,
+            // where the sweep between the endpoints is 0 — the arena's own
+            // convention is that this IS the full turn (`Curve::EllipseArc`
+            // docs), so it is read as one rather than measured.
+            let sweep = if closed {
+                std::f64::consts::TAU
+            } else {
+                crate::geom::ellipse_ccw_sweep(
+                    center,
+                    nu,
+                    mr,
+                    major_radius,
+                    minor_radius,
+                    start,
+                    end,
+                )
+                .ok_or_else(|| degenerate("ellipse endpoint projects onto the centre"))?
+            };
+            let canonical_2d = Curve2::Ellipse {
+                center: Point2::new(0.0, 0.0),
+                major_axis: [1.0, 0.0],
+                major_radius,
+                minor_radius,
+                start_param: t0,
+                end_param: t0 + sweep,
+            };
+            let value = canonical_2d.length();
+            let residual =
+                (canonical_2d.length_with_steps(2 * ELLIPSE_QUADRATURE_STEPS) - value).abs();
+            (value, "ellipse_arc", LengthTier::Quadrature { residual })
+        }
+        Curve::HyperbolaArc {
+            center,
+            normal,
+            major_axis,
+            semi_transverse,
+            semi_conjugate,
+        } => {
+            let nu = [normal.x, normal.y, normal.z];
+            let mr = [major_axis.x, major_axis.y, major_axis.z];
+            let (t0, t1) = (
+                crate::geom::hyperbola_param(center, nu, mr, semi_conjugate, start)
+                    .ok_or_else(|| degenerate("hyperbola endpoint has no parameter"))?,
+                crate::geom::hyperbola_param(center, nu, mr, semi_conjugate, end)
+                    .ok_or_else(|| degenerate("hyperbola endpoint has no parameter"))?,
+            );
+            let (a, b) = (semi_transverse, semi_conjugate);
+            let speed = move |t: f64| {
+                let (sh, ch) = (t.sinh(), t.cosh());
+                ((a * sh).powi(2) + (b * ch).powi(2)).sqrt()
+            };
+            let value = simpson(t0, t1, HYPERBOLA_QUADRATURE_STEPS, &speed).abs();
+            let finer = simpson(t0, t1, 2 * HYPERBOLA_QUADRATURE_STEPS, &speed).abs();
+            (
+                value,
+                "hyperbola_arc",
+                LengthTier::Quadrature {
+                    residual: (finer - value).abs(),
+                },
+            )
+        }
+        Curve::SurfacePair { .. } => {
+            let pts = edge_polyline(arena, canon)?;
+            let mut value = 0.0;
+            let mut lo = [f64::INFINITY; 3];
+            let mut hi = [f64::NEG_INFINITY; 3];
+            for (i, p) in pts.iter().enumerate() {
+                if i > 0 {
+                    value += dist2(pts[i - 1], *p).sqrt();
+                }
+                for (k, c) in p.as_array().iter().enumerate() {
+                    lo[k] = lo[k].min(*c);
+                    hi[k] = hi[k].max(*c);
+                }
+            }
+            let diag =
+                ((hi[0] - lo[0]).powi(2) + (hi[1] - lo[1]).powi(2) + (hi[2] - lo[2]).powi(2))
+                    .sqrt();
+            (
+                value,
+                "surface_pair",
+                LengthTier::Chords {
+                    chord_bound: RENDER_CHORD_TOLERANCE_REL * diag,
+                },
+            )
+        }
+    };
+
+    if !value.is_finite() || value < 0.0 {
+        return Err(degenerate("the curve's length is not a finite length"));
+    }
+    Ok(ArcLength {
+        value,
+        curve_type,
+        closed,
+        tier,
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

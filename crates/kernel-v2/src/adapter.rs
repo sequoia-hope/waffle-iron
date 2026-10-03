@@ -65,8 +65,9 @@ use waffle_types::kernel::{
     RenderMesh, StepExportBody, SweepSection, TopoKind, TopoSignature, ViewFrame, ViewGeometry,
 };
 use waffle_types::kernel::{
-    ContactEvidence, Distance, DistanceOpts, EntityRef, Interference, InterferenceBody, Kernel,
-    KernelIntrospect, KernelMeasure, MassProperties, MeasureEntity, Method, DEFAULT_DENSITY_KG_M3,
+    ContactEvidence, Distance, DistanceOpts, EdgeLength, EntityRef, Interference, InterferenceBody,
+    Kernel, KernelIntrospect, KernelMeasure, LengthMethod, MassProperties, MeasureEntity, Method,
+    DEFAULT_DENSITY_KG_M3,
 };
 
 mod profile_convert;
@@ -2387,6 +2388,58 @@ impl KernelMeasure for KernelV2Adapter {
             mass: m.mass,
             method: Self::tier(m.exact, m.chord_bound),
         })
+    }
+
+    /// Q6: the arc length of one edge (`crate::measure::edge_length`).
+    ///
+    /// An IMPORTED body's edge is answered, unlike every other `KernelMeasure`
+    /// method: a mesh-backed edge arrives as a polyline, and the chord sum of
+    /// that polyline is a real number the importer already computed — so it
+    /// is reported at the `Chords` tier with NO chord bound, because the
+    /// tolerance the source was tessellated at is not ours to know. Refusing
+    /// here instead would hide a length we have; inventing a band would be
+    /// worse than having none.
+    fn edge_length(&self, edge: KernelId) -> Result<EdgeLength, KernelError> {
+        match decode(edge) {
+            (TAG_EDGE, idx) => {
+                let r = crate::measure::edge_length(&self.arena, HalfEdgeId(idx)).map_err(|e| {
+                    KernelError::Other {
+                        message: format!("edge arc length: {e}"),
+                    }
+                })?;
+                Ok(EdgeLength {
+                    value: r.value,
+                    curve_type: r.curve_type,
+                    closed: r.closed,
+                    method: match r.tier {
+                        crate::measure::LengthTier::Exact => LengthMethod::Exact,
+                        crate::measure::LengthTier::Quadrature { residual } => {
+                            LengthMethod::Quadrature { residual }
+                        }
+                        crate::measure::LengthTier::Chords { chord_bound } => {
+                            LengthMethod::Chords {
+                                chord_bound: Some(chord_bound),
+                            }
+                        }
+                    },
+                })
+            }
+            (TAG_IMPORTED_EDGE, idx) => {
+                let (slot, ei) = decode_imported(idx);
+                let e = self
+                    .imported
+                    .get(slot)
+                    .and_then(|b| b.edges.get(ei))
+                    .ok_or(KernelError::EntityNotFound { id: edge })?;
+                Ok(EdgeLength {
+                    value: e.length,
+                    curve_type: "polyline",
+                    closed: e.endpoints.0 == e.endpoints.1,
+                    method: LengthMethod::Chords { chord_bound: None },
+                })
+            }
+            _ => Err(KernelError::EntityNotFound { id: edge }),
+        }
     }
 }
 
