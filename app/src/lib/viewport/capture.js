@@ -160,7 +160,16 @@ export function buildCaptureCamera({ scene, liveCamera, liveTarget, aspect, args
 		box = fitBoxFor(scene);
 	}
 
-	let frustumHalf = liveOrtho ? /** @type {any} */ (liveCamera).top : 0.2;
+	// With no box to frame, an orthographic capture has to carry the apparent
+	// size over from the live camera: off the live frustum when that camera is
+	// already orthographic, and otherwise from the distance and the fov, which
+	// is the formula CameraControls uses when the USER flips the projection. A
+	// constant framed a fixed 0.4 m window instead — nothing about it is the
+	// model's size, so `projection: "orthographic"` on a perspective viewport
+	// came back at an arbitrary zoom.
+	let frustumHalf = liveOrtho
+		? /** @type {any} */ (liveCamera).top
+		: distance * Math.tan((fov * (Math.PI / 180)) / 2);
 	if (box && !args.camera) {
 		const size = box.getSize(new THREE.Vector3());
 		const fit = fitDistance({ maxDim: Math.max(size.x, size.y, size.z), projection, fov });
