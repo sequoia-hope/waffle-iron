@@ -139,6 +139,7 @@ pub(crate) fn list(
             resolved_by: None,
             resolved_via: None,
             rebound: false,
+            lost_identity: None,
             refusal: None,
             warnings: Vec::new(),
             created: None,
@@ -156,12 +157,22 @@ pub(crate) fn list(
         // classification — so an agent reads the state of each reference off
         // fields instead of out of the warning prose.
         let resolution = names::resolve(named, &state.engine.feature_results, kb.as_introspect());
-        let (resolves, resolved_by, resolved_via, rebound, refusal, warnings) = match resolution {
+        #[allow(clippy::type_complexity)]
+        let (resolves, resolved_by, resolved_via, rebound, lost_identity, refusal, warnings): (
+            bool,
+            Option<names::ResolvedBy>,
+            Option<feature_engine::resolve::ResolvedVia>,
+            bool,
+            Option<feature_engine::types::ResolutionReason>,
+            Option<feature_engine::types::ResolutionReason>,
+            Vec<String>,
+        ) = match resolution {
             Ok(r) => (
                 true,
                 Some(r.resolved_by),
                 Some(r.via),
-                r.via.rebound(),
+                r.rebound,
+                r.lost_identity,
                 None,
                 r.warnings,
             ),
@@ -170,6 +181,7 @@ pub(crate) fn list(
                 None,
                 None,
                 false,
+                None,
                 e.resolution_reason().cloned(),
                 vec![e.to_string()],
             ),
@@ -184,6 +196,7 @@ pub(crate) fn list(
             resolved_by,
             resolved_via,
             rebound,
+            lost_identity,
             refusal,
             warnings,
             created: Some(named.created.clone()),

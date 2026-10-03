@@ -161,6 +161,16 @@ pub struct NameResolution {
     /// the presence of a warning. The resolver reports its own rung now, so
     /// `via` says `pid` or `pid_root` as a fact rather than an inference.
     pub via: crate::resolve::ResolvedVia,
+    /// Set when the stored persistent identity is GONE and the answer came
+    /// from the authored fallback instead — which rebinds by geometry and may
+    /// well be a different entity (N2 §5.3). The name points somewhere, so
+    /// `resolve` returns `Ok`; this is what says it no longer points at what it
+    /// was given to, as a reason a host can branch on rather than a sentence.
+    pub lost_identity: Option<crate::types::ResolutionReason>,
+    /// True when the answer is NOT the identity the name recorded: either the
+    /// fallback supplied it (above) or the rung that answered was a
+    /// `BestEffort` rebind. The one flag worth branching on.
+    pub rebound: bool,
     /// The resolver's own warnings, verbatim (a pid answered through its
     /// lineage root says so here), plus the primary failure when the fallback
     /// was used.
@@ -208,20 +218,28 @@ pub fn resolve(
     introspect: &dyn KernelIntrospect,
 ) -> Result<NameResolution, EngineError> {
     let by_pid = matches!(named.target.selector, Selector::Pid { .. });
-    let (resolved, used_fallback) = crate::resolve::resolve_pinned(
+    let (resolved, primary) = crate::resolve::resolve_pinned(
         &named.target,
         named.fallback.as_ref(),
         feature_results,
         introspect,
     )?;
+    // The primary's own classification, carried through even though something
+    // answered: "the id I was given to is gone" is the fact that decides
+    // whether this name still means what it did (N2 §5.3).
+    let lost_identity = primary
+        .as_ref()
+        .and_then(|e| e.resolution_reason().cloned());
     Ok(NameResolution {
         kernel_id: resolved.kernel_id,
-        resolved_by: match (used_fallback, by_pid) {
+        resolved_by: match (primary.is_some(), by_pid) {
             (true, _) => ResolvedBy::Query,
             (false, true) => ResolvedBy::Pid,
             (false, false) => ResolvedBy::Selector,
         },
         via: resolved.via,
+        lost_identity,
+        rebound: primary.is_some() || resolved.via.rebound(),
         warnings: resolved.warnings,
     })
 }

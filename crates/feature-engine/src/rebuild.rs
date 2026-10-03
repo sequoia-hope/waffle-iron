@@ -3225,7 +3225,7 @@ fn resolve_sketch_plane_face(
         }
     };
 
-    let (resolved, used_fallback) = crate::resolve::resolve_pinned(
+    let (resolved, lost_identity) = crate::resolve::resolve_pinned(
         &face.target,
         face.fallback.as_ref(),
         feature_results,
@@ -3263,7 +3263,7 @@ fn resolve_sketch_plane_face(
             })?;
 
     let mut warnings = Vec::new();
-    if used_fallback {
+    if lost_identity.is_some() {
         warnings.push(format!(
             "this sketch's face lost its persistent identity and was re-found by geometry, which \
              may be a different face: it was {}",

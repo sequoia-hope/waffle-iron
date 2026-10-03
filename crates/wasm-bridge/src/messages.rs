@@ -771,11 +771,19 @@ pub struct ListedName {
     /// lineage root. `null` when the name does not resolve.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub resolved_via: Option<feature_engine::resolve::ResolvedVia>,
-    /// True when the rung that answered is a `BestEffort` REBIND — the name
-    /// points at something, but not at the identity it recorded. The same fact
-    /// as `resolved_via`, as the one flag worth branching on.
+    /// True when the name points at something that is NOT the identity it
+    /// recorded: the stored persistent id was gone and the authored fallback
+    /// answered, or the rung that answered was a `BestEffort` rebind. The one
+    /// flag worth branching on — `resolves: true` alone does not mean the name
+    /// still means what it did.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub rebound: bool,
+    /// Why the recorded identity stopped answering, when something else did
+    /// (N2 §5.3). `PidGone` here with `resolves: true` says: the face this
+    /// name was given to is gone, and the entity reported is whatever the
+    /// authored selector found instead.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub lost_identity: Option<feature_engine::types::ResolutionReason>,
     /// The typed classification of a refusal (N2 §5.3 item 2), so an agent
     /// branches on `NoMatch` / `Ambiguous` / `PidGone` / `ScopeMissing` instead
     /// of reading `warnings`. `null` when the name resolves, and for a refusal

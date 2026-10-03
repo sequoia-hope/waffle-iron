@@ -744,19 +744,24 @@ pub fn pin_identity(
 /// Resolve a stored identity through the full ladder: `target` (a pid, then its
 /// lineage root, inside [`resolve_by_pid`]), then `fallback` — and only then.
 ///
-/// Returns the answer and whether the FALLBACK supplied it. When it did, the
-/// primary failure rides along as the first warning, because "the identity I
-/// recorded is gone and this answer came from geometry instead" is the fact
-/// that decides whether the reference is still trustworthy — and an agent is
-/// told it rather than just handed an entity.
+/// Returns the answer and, when the FALLBACK supplied it, the primary failure
+/// that made it necessary. That failure is the fact which decides whether the
+/// reference is still trustworthy — the identity the caller recorded is gone
+/// and this answer came from geometry instead — so it is handed back rather
+/// than only written into a warning string.
+///
+/// **This path rebinds, deliberately** (N1 §5.2: a name whose entity is gone
+/// still measures through its fallback). §5.3's oracle asks for a refusal
+/// instead; what N2 does is make the rebind machine-visible — see the spec's
+/// "Implementation notes (N2)" for why the softer reading won.
 pub fn resolve_pinned(
     target: &GeomRef,
     fallback: Option<&GeomRef>,
     feature_results: &std::collections::HashMap<Uuid, OpResult>,
     introspect: &dyn KernelIntrospect,
-) -> Result<(ResolvedRef, bool), EngineError> {
+) -> Result<(ResolvedRef, Option<EngineError>), EngineError> {
     match resolve_geom_ref_live(target, feature_results, introspect) {
-        Ok(resolved) => Ok((resolved, false)),
+        Ok(resolved) => Ok((resolved, None)),
         Err(primary) => {
             let Some(fallback) = fallback else {
                 return Err(primary);
@@ -770,7 +775,7 @@ pub fn resolve_pinned(
             )];
             warnings.append(&mut resolved.warnings);
             resolved.warnings = warnings;
-            Ok((resolved, true))
+            Ok((resolved, Some(primary)))
         }
     }
 }
