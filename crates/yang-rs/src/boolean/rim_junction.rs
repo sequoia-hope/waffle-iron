@@ -359,6 +359,130 @@ pub(crate) fn cyl_pair_graze_demand(
     GrazeDemand::Boost(n)
 }
 
+/// Number of circumferential samples the finite-band overlap witness walks.
+/// NOT a tolerance: the witness only ever REPORTS a sample it has verified
+/// lies on A's lateral and inside B's finite extent, so any count yields a
+/// sound result. A coarser count can only FAIL to find a real overlap (the
+/// witness declines and the caller keeps today's behavior); it can never
+/// invent one. 512 is the measured count that finds P0021's lens (whose
+/// feasible θ window is ≈ 1.6 % of the circumference); 64 finds it too but
+/// 32 does not.
+const BAND_WITNESS_SAMPLES: usize = 512;
+
+/// Whether the N75 finite-extent Case-III ladder is enabled (spec
+/// `specs/yang_p0021_case_iii_finite_extent_depth.md`). GATED OFF by
+/// default: the conversion is measured per-case, but flipping it always-on
+/// is a corpus-cost decision that needs the full release categorized assay
+/// (P10), which the session that built it was not permitted to run.
+pub(crate) fn extent_ladder_enabled() -> bool {
+    matches!(
+        std::env::var("YANG_172_EXTENT").as_deref(),
+        Ok("1") | Ok("on")
+    )
+}
+
+/// Deviation **N75** (P0021, 2026-10-03): a SOUND witness that two
+/// cylinder lateral surfaces overlap **within the two faces' own axial
+/// extents** — the quantity [`cyl_pair_graze_demand`]'s closed-form depth
+/// cannot see.
+///
+/// That depth is `r_a + r_b − d_lines`, the penetration of the two
+/// INFINITE cylinders measured at the common perpendicular of their axis
+/// LINES. Where that perpendicular lies off both faces, the figure
+/// describes geometry neither operand owns. Measured on P0021: the
+/// perpendicular foot sits at `s = −3.302106e-3` on a cylinder whose own
+/// span is `[0, 1.68e-3]` — 1.97 lengths off the far end — and the depth it
+/// reports (1.480362e-3) is 59× the clearance the finite bands actually
+/// realize (2.5197e-5). Yang §4.2.1 / Fig. 8 Case III
+/// (`refs/text/yang2025_hybrid_boolean.txt:436-447`) is about the MESHES
+/// missing an intersection the surfaces have; the mesh is of the finite,
+/// capped operand, so the deciding clearance is the finite bands'.
+///
+/// Returns the largest radial clearance `r_b − ρ_b(p)` found over a point
+/// `p` on A's lateral band with `s ∈ span_a` and `t_b(p) ∈ span_b`, or
+/// `None` when no sample is both feasible and strictly inside B.
+///
+/// **Soundness direction.** For fixed θ the squared radial distance to B's
+/// axis is an exact quadratic in `s` and `t_b(p)` is exact and affine in
+/// `s`, so the feasible `s`-interval and the quadratic's clamped minimizer
+/// are closed-form — every reported sample is a REAL point of the overlap.
+/// The value is therefore a LOWER bound on the true maximum clearance, and
+/// a lower bound is the safe direction: it can only derive a FINER `N`
+/// (always chord-valid, governance A14.3), never a coarser one.
+pub(crate) fn cyl_band_overlap_clearance(
+    (pa, da, ra, span_a): (Point3, Vector3, f64, (f64, f64)),
+    (pb, db, rb, span_b): (Point3, Vector3, f64, (f64, f64)),
+) -> Option<f64> {
+    let m = normalize3(da.as_array());
+    let n = normalize3(db.as_array());
+    let dot = |x: [f64; 3], y: [f64; 3]| x[0] * y[0] + x[1] * y[1] + x[2] * y[2];
+    let c = dot(m, n);
+    // An orthonormal frame on A's cross-section plane (deterministic pick,
+    // the same shape `point_surface_signed` relies on).
+    let seed = if m[0].abs() < 0.9 {
+        [1.0, 0.0, 0.0]
+    } else {
+        [0.0, 1.0, 0.0]
+    };
+    let u = normalize3([
+        m[1] * seed[2] - m[2] * seed[1],
+        m[2] * seed[0] - m[0] * seed[2],
+        m[0] * seed[1] - m[1] * seed[0],
+    ]);
+    let w = [
+        m[1] * u[2] - m[2] * u[1],
+        m[2] * u[0] - m[0] * u[2],
+        m[0] * u[1] - m[1] * u[0],
+    ];
+    let (s_lo, s_hi) = span_a;
+    let (t_lo, t_hi) = span_b;
+    if !(s_lo <= s_hi && t_lo <= t_hi) {
+        return None; // degenerate / NaN span
+    }
+    let mut best: Option<f64> = None;
+    for j in 0..BAND_WITNESS_SAMPLES {
+        #[allow(clippy::cast_precision_loss)]
+        let theta = std::f64::consts::TAU * (j as f64) / (BAND_WITNESS_SAMPLES as f64);
+        let (ct, st) = (theta.cos(), theta.sin());
+        // q = (p_a + r_a·e(θ)) − p_b, so the band point is q + s·m.
+        let q = [
+            pa.x() + ra * (ct * u[0] + st * w[0]) - pb.x(),
+            pa.y() + ra * (ct * u[1] + st * w[1]) - pb.y(),
+            pa.z() + ra * (ct * u[2] + st * w[2]) - pb.z(),
+        ];
+        let qm = dot(q, m);
+        let qn = dot(q, n);
+        // t_b(s) = qn + s·c must lie in span_b — an exact interval clip.
+        let (mut lo, mut hi) = (s_lo, s_hi);
+        if c.abs() > 1e-15 {
+            let (a1, a2) = ((t_lo - qn) / c, (t_hi - qn) / c);
+            let (a1, a2) = if a1 <= a2 { (a1, a2) } else { (a2, a1) };
+            lo = lo.max(a1);
+            hi = hi.min(a2);
+        } else if !(t_lo..=t_hi).contains(&qn) {
+            continue; // perpendicular axes: t_b is constant in s and outside
+        }
+        if lo > hi {
+            continue;
+        }
+        // ρ²(s) = (|q|² − qn²) + 2s(qm − c·qn) + s²(1 − c²).
+        let c2 = 1.0 - c * c;
+        let c1 = 2.0 * (qm - c * qn);
+        let c0 = dot(q, q) - qn * qn;
+        let s = if c2 > 1e-15 {
+            (-c1 / (2.0 * c2)).clamp(lo, hi)
+        } else {
+            lo
+        };
+        let rho = (c0 + c1 * s + c2 * s * s).max(0.0).sqrt();
+        let clearance = rb - rho;
+        if clearance > 0.0 && best.is_none_or(|b| clearance > b) {
+            best = Some(clearance);
+        }
+    }
+    best
+}
+
 /// Case-III graze guard scan (spec `yang_172_case_iii_graze_guard`): the
 /// forced minimum rim segment count over all cross A×B cylinder-face
 /// pairs that intersect at a shallow analytic penetration (Yang Fig. 8
@@ -525,10 +649,46 @@ pub(crate) fn graze_min_rim_segments(a: &BRep, b: &BRep) -> Result<Option<usize>
             }
             false
         };
+        // Density at which a demand actually refines BOTH operands — the
+        // ladder's base rung. `natural_rim_n` is `usize::MAX` for an operand
+        // with no circles (nothing to boost), which cannot be a base.
+        let natural_base = [natural_rim_n(a), natural_rim_n(b)]
+            .into_iter()
+            .filter(|&x| x != usize::MAX)
+            .max()
+            .unwrap_or(3)
+            .max(3);
+        // One ladder rung: re-ask the EXACT tri-tri predicate at the rim
+        // density `n_seg`. `min_n_seg = Some(n_seg)` is precisely the mesh
+        // the caller's `rebuilt_with_min_rim_segments(n_seg)` boost produces
+        // (it stores `forced_rim_n` and tessellates with it), so the rung
+        // tests the mesh the demand would actually buy — a plain
+        // `stage1_tessellate` would silently drop the boost and report every
+        // rung untouched.
+        let empty_rim_overrides = std::collections::BTreeMap::new();
+        let touch_at = |n_seg: usize, fa: usize, fb: usize| -> Result<bool, YangError> {
+            let xa = stage1_tessellate_with_rim_overrides(
+                &verts_a,
+                a.edges(),
+                a.faces(),
+                &empty_rim_overrides,
+                Some(n_seg),
+            )?;
+            let xb = stage1_tessellate_with_rim_overrides(
+                &verts_b,
+                b.edges(),
+                b.faces(),
+                &empty_rim_overrides,
+                Some(n_seg),
+            )?;
+            Ok(touches(&xa, xa.face_tri_ranges[fa].clone(), &xb)
+                || touches(&xb, xb.face_tri_ranges[fb].clone(), &xa))
+        };
         for (fa, fb, n) in boosts {
             let meshes_touch = touches(&ta, ta.face_tri_ranges[fa].clone(), &tb)
                 || touches(&tb, tb.face_tri_ranges[fb].clone(), &ta);
-            if std::env::var_os("YANG_SPLIT_PROBE").is_some() {
+            let probe = std::env::var_os("YANG_SPLIT_PROBE").is_some();
+            if probe {
                 eprintln!(
                     "[graze-guard] pair=({fa},{fb}) n={n} meshes_touch={meshes_touch} \
                      tris=({},{})",
@@ -536,9 +696,72 @@ pub(crate) fn graze_min_rim_segments(a: &BRep, b: &BRep) -> Result<Option<usize>
                     tb.face_tri_ranges[fb].len(),
                 );
             }
-            if !meshes_touch {
-                req = Some(req.map_or(n, |r: usize| r.max(n)));
+            if meshes_touch {
+                continue;
             }
+            // The closed-form demand applies: today's path, untouched.
+            if n > natural_rim_n(a) || n > natural_rim_n(b) {
+                req = Some(req.map_or(n, |r: usize| r.max(n)));
+                continue;
+            }
+            // N75: the demand would be ABSORBED by the natural-N gate, yet
+            // the exact predicate above has just PROVEN the natural meshes
+            // miss an intersection the surfaces have — Yang's Case III by
+            // definition. The depth that derived `n` was measured off-face;
+            // witness the overlap on the two faces' OWN extents instead, and
+            // then refine until the predicate flips (§4.2.1's Case-III
+            // elimination, realized by refinement exactly as §4.5.2
+            // prescribes). The acceptance criterion is the exact predicate,
+            // so no sagitta margin is interposed — the measured P0021 ladder
+            // agrees with the verdict at every rung it was swept over.
+            if !extent_ladder_enabled() {
+                continue;
+            }
+            let Some(&(_, pa, da, ra)) = ca.iter().find(|x| x.0 == fa) else {
+                continue;
+            };
+            let Some(&(_, pb, db, rb)) = cb.iter().find(|x| x.0 == fb) else {
+                continue;
+            };
+            let ua = normalize3(da.as_array());
+            let ub = normalize3(db.as_array());
+            // No derivable span ⇒ the band is unbounded and the closed-form
+            // depth is already the right answer: decline (status quo).
+            let (Some(span_a), Some(span_b)) =
+                (axial_span(a, fa, pa, ua), axial_span(b, fb, pb, ub))
+            else {
+                continue;
+            };
+            let witness = cyl_band_overlap_clearance((pa, da, ra, span_a), (pb, db, rb, span_b));
+            if probe {
+                eprintln!(
+                    "[graze-guard]   N75 extent: span_a={span_a:?} span_b={span_b:?} \
+                     witness={witness:?} base={natural_base}"
+                );
+            }
+            // No witnessed overlap inside both extents ⇒ the infinite
+            // surfaces graze OFF-FACE (the adjacent-boss class). Demanding
+            // anything there would climb every rung for nothing.
+            if witness.is_none() {
+                continue;
+            }
+            let mut rung = natural_base.saturating_mul(2);
+            while rung <= 4096 {
+                let touched = touch_at(rung, fa, fb)?;
+                if probe {
+                    eprintln!("[graze-guard]   N75 rung={rung} touched={touched}");
+                }
+                if touched {
+                    req = Some(req.map_or(rung, |r: usize| r.max(rung)));
+                    break;
+                }
+                rung = rung.saturating_mul(2);
+            }
+            // Past the cap nothing is demanded: a genuine sub-resolution
+            // graze no practical mesh observes. No new STOP arm here (the
+            // #195 inc-2 disposition) — kernel-v2's render-resolution selfx
+            // gate is already its loud tripwire, which is how P0021 was
+            // found in the first place.
         }
     }
     Ok(match req {

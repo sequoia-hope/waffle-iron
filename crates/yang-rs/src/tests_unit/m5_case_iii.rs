@@ -275,3 +275,103 @@ pub(crate) fn graze_guard_micro_graze_off_extent_is_silent() {
     let tool = graze_cyl([5.0, 0.8 - 1e-8, 1.0], X, 0.3, 3.5);
     assert!(matches!(graze_min_rim_segments(&boss, &tool), Ok(None)));
 }
+
+// ── N75: the finite-extent Case-III depth (spec
+// `yang_p0021_case_iii_finite_extent_depth`, P0021) ──────────────────
+
+/// P0021's measured pair: the op-2 boss (r 7.1e-4, span [0, 1.68e-3]) and
+/// the op-3 boss (r 2e-3, span [0, 2.8e-3]). The closed-form demand reads
+/// the two INFINITE cylinders at the common perpendicular of their axis
+/// LINES, whose foot sits at `s = -3.302106e-3` — 1.97 lengths off the far
+/// end of a 1.68e-3-long cylinder — and reports depth 1.480362e-3, which
+/// derives N = 5 and is absorbed by the natural-N gate (10/12). The
+/// FINITE bands realize only 2.2238229344616594e-5 of clearance.
+#[test]
+pub(crate) fn band_clearance_p0021_pair_is_orders_below_the_closed_form() {
+    let a = ctup(
+        [0.000477, 0.000265, 0.00102],
+        [
+            0.440_078_120_800_278_5,
+            0.539_095_697_980_341_2,
+            -0.718_127_478_942_272_6,
+        ],
+        0.00071,
+    );
+    let b = ctup(
+        [0.0015, -0.0013, 0.0017],
+        [
+            -0.520_223_483_989_871_5,
+            -0.079_033_952_375_384_33,
+            0.850_365_310_368_059_2,
+        ],
+        0.002,
+    );
+    // The closed form still says "deep" (and so derives a tiny N).
+    assert_eq!(cyl_pair_graze_demand(a, b), GrazeDemand::Boost(5));
+    let witness = cyl_band_overlap_clearance(
+        (a.0, a.1, a.2, (0.0, 0.00168)),
+        (b.0, b.1, b.2, (0.0, 0.0028)),
+    )
+    .expect("the finite bands DO overlap — this is a real intersection");
+    assert!(
+        (witness - 2.223_822_934_461_659_4e-5).abs() < 1e-18,
+        "witness {witness:e} must be the measured finite-band clearance"
+    );
+    // The point of the deviation: 59× apart, and on the safe side.
+    assert!(
+        witness < 1.480_362e-3 / 50.0,
+        "the realized clearance must be orders below the closed form"
+    );
+}
+
+/// Self-limiting property (the byte-identity claim): when the common
+/// perpendicular lies WELL INSIDE both faces' axial spans, the witness
+/// recovers the closed-form infinite-surface depth, so nothing the
+/// existing guard population does can change. C0116's own pair.
+#[test]
+pub(crate) fn band_clearance_in_extent_recovers_the_closed_form() {
+    let a = ctup([0.0, 0.0, 0.0], Z, 0.5);
+    let b = ctup([-1.5, 0.79, 1.0], X, 0.3);
+    // The C0116 boss spans z ∈ [0, 2]; the tool's own axial parameter runs
+    // from its axis point, so the common perpendicular (z = 1, 1.5 along
+    // the tool) is interior to both spans.
+    let witness =
+        cyl_band_overlap_clearance((a.0, a.1, a.2, (0.0, 2.0)), (b.0, b.1, b.2, (0.0, 3.0)))
+            .expect("an in-extent graze must be witnessed");
+    let closed_form = 0.8 - 0.79;
+    assert!(
+        (witness - closed_form).abs() < 1e-9,
+        "in-extent witness {witness:e} must recover the closed form {closed_form:e}"
+    );
+}
+
+/// The off-face declination that keeps the ladder off the adjacent-boss
+/// class: the same pair with the tool displaced along its own axis so the
+/// graze region leaves the tool's span entirely — no witness, no demand.
+#[test]
+pub(crate) fn band_clearance_off_extent_declines() {
+    let a = ctup([0.0, 0.0, 0.0], Z, 0.5);
+    let b = ctup([-1.5, 0.79, 1.0], X, 0.3);
+    assert!(
+        cyl_band_overlap_clearance((a.0, a.1, a.2, (0.0, 2.0)), (b.0, b.1, b.2, (20.0, 23.0)))
+            .is_none(),
+        "a graze outside the partner's axial span must not be witnessed"
+    );
+    // A degenerate (inverted) span is never a witness either.
+    assert!(
+        cyl_band_overlap_clearance((a.0, a.1, a.2, (2.0, 0.0)), (b.0, b.1, b.2, (0.0, 3.0)))
+            .is_none()
+    );
+}
+
+/// The ladder is GATED OFF by default (the flip needs the full release
+/// categorized assay — spec §6), so the whole N75 arm must be inert
+/// unless `YANG_172_EXTENT` is set. Pinned so a careless default flip
+/// cannot land silently.
+#[test]
+pub(crate) fn extent_ladder_is_gated_off_by_default() {
+    assert!(
+        !extent_ladder_enabled() || std::env::var("YANG_172_EXTENT").is_ok(),
+        "the N75 ladder must be off unless YANG_172_EXTENT is set"
+    );
+}

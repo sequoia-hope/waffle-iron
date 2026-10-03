@@ -1119,7 +1119,7 @@ ten give those families customers again, at 2–5 ops.
 | P0018 | `circle:boss circle:sym nonconvex7:cut` | 3 | the cylinder arm of the same postcondition. **CONVERTED 2026-10-03** (N71): chord shoelace −4.575 where the canonical chart polygon reads +18.305. Oracles adjudicated (one body, TWO shells, χ 4, volume 6.738844e6 ± 3e-3), `derived_meta` cleared | ERROR / ERROR (same class) | 8.9e7× | 1.0 s → 3.6 s |
 | P0019 | `convex4:boss nonconvex5:rev convex4:cut` | 3 | `InvalidBooleanOutput "full-circle edge sense is underivable"` (the wall R0004 once hit). **HALF-CONVERTED 2026-10-03 (late night)** (deviation N73, section below): the body is a genus-1 ring of FIVE cone bands with NO planar cap, and the derivation had no `FaceSurf::Cone` arm at all — the rule `validate_cone_face`/`validate_cylinder_face` both ENFORCE ("toward the opposite rim") needs only the band's two rim centres. Sense wall gone; the case now lands one stage later on an UNMASKED LATENT — `CurvedGeometryMismatch "cone face with inner loops is outside the KV6c vocabulary"`, two of the five bands left ANNULAR by `recover.rs`'s greedy per-face seam anchoring in a rim CYCLE (15° = π/12 apart) | ERROR / ERROR (same class) | 1.34e5× | 0.2 s |
 | P0020 | `circle:boss gear12:∩ convex4:∩` | 5 | `malformed B-Rep topology: face 0: holed lateral CDT failed: duplicate (coincident) loop vertex in CDT input` — an INPUT rejection, so the first Intersect's OWN output is malformed | ERROR (a different class: an interior-junction / weld-band ambiguous edge-split) / ERROR (same class) | 83× | 10.6 s |
-| P0021 | `convex4:boss circle:boss circle:boss` | 3 | auto-union `SelfIntersectingBooleanOutput { penetrations: 5 }` — P0007's signature on three plain bosses | ERROR / ERROR (same class) | 710× | 0.4 s |
+| P0021 | `convex4:boss circle:boss circle:boss` | 3 | auto-union `SelfIntersectingBooleanOutput { face_a: FaceId(28), face_b: FaceId(32), penetrations: 3 }` — P0007's error TEXT but **not its family** (anchored 2026-10-03, see below): both faces are CYLINDERS and the curve census reads `plane×curved chords: 0` on every op. **ANCHORED + remediation BUILT and GATED 2026-10-03** (deviation **N75**, spec `yang_p0021_case_iii_finite_extent_depth.md`): the Case-III graze depth is measured at the two INFINITE axes' common perpendicular, whose foot lies 1.97 lengths off the end of one cylinder, so a razor lens reads "deep" and the demand is absorbed. Converts with `YANG_172_EXTENT=1` (SUPPORTED_CORRECT 2.0 s; the un-minimized lineage too); the always-on flip owes the full corpus assay (P10) so **this row stays E and its pin has not moved** | ERROR / ERROR (same class) | 710× | 0.4 s |
 | P0022 | `convex5:boss circle:boss circle:cut convex4:boss circle:thru` | 5 | `malformed B-Rep topology: face 2: interior junction … not contained by any lateral triangle — the mint would be silently dropped` | ERROR (same class) / **CORRECT** | 400× | 0.9 s |
 
 ### The §5 grazing ray — P0023 / P0024 (2026-10-03)
@@ -1162,6 +1162,73 @@ the same disposition as R0044 and F0082; `full_corpus_categorized` and the
 committed `results.json` carried its verdict. **Superseded 2026-10-03
 (night):** its conversion dropped it to 7.9 s release, so it is now pinned
 there as `SupportedCorrect` like every other converted P-row.
+
+#### P0021 — ANCHORED 2026-10-03; remediation BUILT and GATED (deviation **N75**)
+
+Full write-up: `specs/yang_p0021_case_iii_finite_extent_depth.md`. **N75 is
+reserved by this row** (N74 belongs to P0020's session).
+
+**The triage line's family attribution was wrong.** P0021 carries P0007's
+error TEXT but not its mechanism. `KV2_SELFX_SITE_PROBE` names both faces as
+**CYLINDERS** (face 28 = the op-2 boss lateral, r 7.1e-4; face 32 = the op-3
+boss lateral, r 2e-3), and `KV2_OUT_CURVE_CENSUS` reads
+`plane×curved chords: 0` on **every** op of both the minimized case and the
+un-minimized lineage, with half-edge kinds `{Arc, EllipseArc, Line}` and
+**zero `SurfacePair`**. Nothing was left as a chord and nothing was restored
+wrongly — the cylinder×cylinder curve was never derived at all. Face 28's
+loops carry only prism-plane ellipse arcs and its own rim arcs; the union
+trimmed each boss against the prism and the two bosses against each other not
+at all. The penetration is a **true B-Rep self-intersection**, not a
+render-sampler artefact: the probe's face-28 vertices sit exactly on that
+cylinder's base rim (`t_a = ±2.7e-20`, radial deviation 0) and one of them is
+`6.08e-6` INSIDE face 32's cylinder.
+
+**Anchor.** The two finite solids overlap in a razor lens — 11 of 893 040
+samples of solid A lie inside B, deepest interior point **`6.162267e-6`**, at
+`s = 0` on A's axis and `t_b = 6.8e-6` on B's: pinched between the two bosses'
+nearly coincident base cap planes. Max radial clearance of A's lateral inside
+B within both extents: **`2.5714e-5`**. Natural Stage-1 densities 10 / 12,
+combined chord sagitta `9.2e-5` — 3.6× the clearance, so the meshes are simply
+disjoint. The Case-III graze guard measured exactly that and discarded it:
+`[graze-guard] pair=(6,2) n=5 meshes_touch=false`. Its depth
+(`r_a + r_b − d_lines = 1.480362e-3`) is read at the **infinite** axes' common
+perpendicular, whose foot sits at `s* = −3.302106e-3` on a cylinder spanning
+`[0, 1.68e-3]` — **1.97 lengths off the far end** — so it derives N = 5, the
+self-limiting natural-N gate absorbs it, and the realized clearance's demand
+of 33 is never made. Mutation-certified: ignoring A's own span in the new
+finite-band witness returns `1.4803612303380738e-3`, bit-for-bit the number
+the guard uses.
+
+**Density IS the remedy here** (unlike #137's tangential class). Debug
+`YANG_NSEG_FLOOR` sweep — and note the knob is `cfg!(debug_assertions)`-gated,
+so a `--release` sweep is a silent no-op:
+
+| floor | 11 | 12 | 13 | 14 | 16 | 17 | 18 | 19 | 20 | 21 | 22 | 24 | 33 | 48 | 71 | 96 | 128 |
+|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
+| verdict | E | E | **C** | E | E | **C** | E | C | C | C | C | C | C | C | C | C | C |
+
+`meshes_touch == true` ⟺ CORRECT at all 12 floors measured both ways, so the
+guard's own exact predicate is a perfect oracle and the ladder needs no sagitta
+margin. (13 and 17 are chord-phase flukes; the ladder's rungs from base 12 are
+24, 48, … and never land in the lottery band.)
+
+**Measured.** P0021 gate-off ERROR 0.3 s → gate-on **SUPPORTED_CORRECT 2.0 s,
+all checks passed** (one rung: `witness=Some(2.2238229344616594e-5) base=12`,
+`rung=24 touched=true`). The un-minimized 8-op lineage
+(`X00000002-00184`) gate-off ERROR (there the pair is face 56 cylinder ×
+face 62 — the op-3 boss's base cap **PLANE**; 5 bodies, χ 8) → gate-on
+**SUPPORTED_CORRECT**, 4 bodies, χ 6, volume `4.7617355307854375e-5`. The
+minimizer minted no contact: its rounding only changed which of the big boss's
+faces the leak surfaces through. Sharers re-judged under both gates with **zero
+moves**: C0105 C/C, C0116 C/C (136.5 / 125.0 s), C0118 E/E (its designed
+`SubSagittaGrazeIntersection`), C0057 C/C, P0007 C/C.
+
+**Open:** the always-on flip (needs `full_corpus_categorized`, P10 — the cost
+risk is a CORRECT case re-meshed by the ladder, unmeasured here); the meta
+keeps `derived_meta: true` until that PR; and the §4.5.4 retry's trigger
+(`natural_broken` from `output_improper_count` on the boolean-resolution mesh)
+provably cannot see this class — it read 0 improper contacts, so the retry
+never ran.
 
 #### P0013 — ANCHORED 2026-10-03; HALF-LANDED, open step = the §4.3.3 guard flip
 
