@@ -864,3 +864,205 @@ fn a_drawing_survives_a_save_and_reload_with_its_annotation_and_its_cache() {
     assert_eq!(cache.curves.len(), before.curves.len());
     assert_eq!(cache.annotations, before.annotations);
 }
+
+// ── Mirrors ─────────────────────────────────────────────────────────────
+
+/// A view's projected box as `(u_min, u_max, v_min, v_max)` in model meters.
+fn signed_box(layout: &ViewLayout) -> (f64, f64, f64, f64) {
+    let [min, max] = layout.bbox.expect("the view has a box");
+    (min[0], max[0], min[1], max[1])
+}
+
+fn boxes_match(got: (f64, f64, f64, f64), want: (f64, f64, f64, f64)) -> bool {
+    (got.0 - want.0).abs() < 1e-9
+        && (got.1 - want.1).abs() < 1e-9
+        && (got.2 - want.2).abs() < 1e-9
+        && (got.3 - want.3).abs() < 1e-9
+}
+
+#[test]
+fn every_named_view_projects_the_box_to_the_side_of_the_origin_it_is_on() {
+    // The MIRROR pin, and the reason it is a signed box rather than a span.
+    //
+    // `box_and_drawing` authors its box in the POSITIVE octant,
+    // `x ∈ [0, W], y ∈ [0, D], z ∈ [0, H]`, with the world origin on one of
+    // its corners. So each view's projected box says which way its paper
+    // axes point, not merely how big the part is: a top view with `u = −x`
+    // instead of `+x` draws the same four lines over the same span, and
+    // every other test in this file would pass. Only the SIGN catches it —
+    // and a mirrored manufacturing drawing is a part machined the wrong way
+    // round, so it is worth a test of its own.
+    //
+    // The table is read off `NamedView::frame`'s own documented axes, not
+    // derived from it, which is what makes it an independent check rather
+    // than the implementation restated:
+    //
+    // | view   | u    | v    |
+    // |--------|------|------|
+    // | Top    | `+x` | `+y` |
+    // | Bottom | `+x` | `−y` |
+    // | Front  | `+x` | `+z` |
+    // | Back   | `−x` | `+z` |
+    // | Right  | `+y` | `+z` |
+    // | Left   | `−y` | `+z` |
+    //
+    // `Bottom` shares `u = +x` with `Front` and `Top` deliberately — that is
+    // the projection group sharing a paper axis — so it is the `v` flip that
+    // makes it a bottom view rather than a second plan.
+    let expected = [
+        ("top", (0.0, W, 0.0, D)),
+        ("bottom", (0.0, W, -D, 0.0)),
+        ("front", (0.0, W, 0.0, H)),
+        ("back", (-W, 0.0, 0.0, H)),
+        ("right", (0.0, D, 0.0, H)),
+        ("left", (-D, 0.0, 0.0, H)),
+    ];
+    let (mut state, mut kernel, part_tab, drawing_tab) = box_and_drawing();
+    for (view, want) in expected {
+        let view_id = ok(
+            &mut state,
+            &mut kernel,
+            "drawing_view_add",
+            json!({ "tab_id": part_tab, "view": view }),
+        )["view_id"]
+            .as_str()
+            .expect("the view id")
+            .to_string();
+        let got = signed_box(&layout(&state, &drawing_tab, &view_id));
+        assert!(
+            boxes_match(got, want),
+            "the {view} view projects the box to {got:?}, expected {want:?} — \
+             a sign here is a mirrored drawing"
+        );
+    }
+}
+
+#[test]
+fn a_projected_view_shows_the_near_side_in_third_angle_and_the_far_side_in_first() {
+    // The projection standard, pinned against real projected geometry rather
+    // than against the frame algebra `feature_engine::drawing`'s unit tests
+    // already cover. Placed to the RIGHT of the front view, third angle
+    // shows the right-hand side and first angle shows the left — and the two
+    // are mirror images, so the only thing that distinguishes them is the
+    // SIGN of `u` (`+y` for the right side, `−y` for the left), which a span
+    // test cannot see.
+    for (angle, want) in [("Third", (0.0, D, 0.0, H)), ("First", (-D, 0.0, 0.0, H))] {
+        let (mut state, mut kernel, part_tab, drawing_tab) = box_and_drawing();
+        // No tool sets the document's projection angle yet (an open item —
+        // `ProjectionAngle::First` is reachable only from the document
+        // model), so it is set on the session and the next edit
+        // re-evaluates with it.
+        let mut drawing = state
+            .session
+            .drawing(&drawing_tab)
+            .expect("a drawing")
+            .clone();
+        drawing.projection_angle = match angle {
+            "First" => feature_engine::drawing::ProjectionAngle::First,
+            _ => feature_engine::drawing::ProjectionAngle::Third,
+        };
+        state
+            .session
+            .set_drawing(&drawing_tab, drawing)
+            .expect("the angle is set");
+
+        let front = ok(
+            &mut state,
+            &mut kernel,
+            "drawing_view_add",
+            json!({ "tab_id": part_tab, "view": "front" }),
+        )["view_id"]
+            .as_str()
+            .expect("the view id")
+            .to_string();
+        let side = ok(
+            &mut state,
+            &mut kernel,
+            "drawing_view_add",
+            json!({
+                "tab_id": part_tab,
+                "parent_view_id": front,
+                "direction_from_parent": "right",
+            }),
+        )["view_id"]
+            .as_str()
+            .expect("the view id")
+            .to_string();
+        let got = signed_box(&layout(&state, &drawing_tab, &side));
+        assert!(
+            boxes_match(got, want),
+            "{angle} angle, placed right of the front view: projected {got:?}, \
+             expected {want:?}"
+        );
+    }
+}
+
+#[test]
+fn editing_the_part_regenerates_the_drawing_rather_than_leaving_the_cached_view() {
+    // The cache is persisted with the document, so a stale one is a drawing
+    // that shows a part the document no longer holds. Opening the drawing tab
+    // re-evaluates every view, which is what makes the staleness invisible to
+    // a user — pinned here so a future change that reuses a cache has to
+    // decide what keys it.
+    //
+    // (It is NOT regenerated while the drawing tab is in the background: an
+    // edit to the part, then a save with the part tab still active, writes
+    // the previous layout. See the review note.)
+    let (mut state, mut kernel, part_tab, drawing_tab) = box_and_drawing();
+    let view_id = ok(
+        &mut state,
+        &mut kernel,
+        "drawing_view_add",
+        json!({ "tab_id": part_tab, "view": "front" }),
+    )["view_id"]
+        .as_str()
+        .expect("the view id")
+        .to_string();
+    let before = signed_box(&layout(&state, &drawing_tab, &view_id));
+    assert!(boxes_match(before, (0.0, W, 0.0, H)), "{before:?}");
+
+    // Twice the extrude depth on the part tab: a front view's `v` extent IS
+    // that depth, so the drawing has to move or it is showing the old part.
+    ok(
+        &mut state,
+        &mut kernel,
+        "tab_switch",
+        json!({ "tab_id": part_tab }),
+    );
+    let summary = ok(&mut state, &mut kernel, "model_summary", json!({}));
+    let extrude_id = summary["features"]
+        .as_array()
+        .expect("the feature list")
+        .iter()
+        .find(|f| f["kind"] == "Extrude")
+        .map(|f| f["id"].as_str().expect("the feature id").to_string())
+        .expect("the fixture's extrude");
+    let mut extrude = ok(
+        &mut state,
+        &mut kernel,
+        "feature_get",
+        json!({ "feature_id": extrude_id }),
+    )["operation"]
+        .clone();
+    extrude["params"]["depth"] = json!(2.0 * H);
+    ok(
+        &mut state,
+        &mut kernel,
+        "feature_edit",
+        json!({ "feature_id": extrude_id, "operation": extrude }),
+    );
+
+    // Back to the drawing: the view is re-projected, not replayed.
+    ok(
+        &mut state,
+        &mut kernel,
+        "tab_switch",
+        json!({ "tab_id": drawing_tab }),
+    );
+    let after = signed_box(&layout(&state, &drawing_tab, &view_id));
+    assert!(
+        boxes_match(after, (0.0, W, 0.0, 2.0 * H)),
+        "the front view should follow the part to {:?}, drew {after:?}",
+        (0.0, W, 0.0, 2.0 * H)
+    );
+}

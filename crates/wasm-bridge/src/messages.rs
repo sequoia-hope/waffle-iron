@@ -1384,10 +1384,21 @@ fn edge_kind() -> waffle_types::TopoKind {
 /// `specs/drawings_and_mbd.md` §8).
 ///
 /// Carries the whole drawing, caches included, because that is what the sheet
-/// draws: a `ViewLayout` per view, curves and already-measured annotations,
-/// with no `GeomRef` and no kernel handle in it. The app therefore has no
-/// path back to the model and no way to draw a value other than the measured
-/// one, which is the D3 argument this is the producer for.
+/// draws. It is the `ViewLayout` per view — curves and already-measured
+/// annotations — that holds no `GeomRef` and no kernel handle, which is the
+/// D3 argument this is the producer for: the renderer has no path back to the
+/// model and so no way to draw a value other than the measured one.
+///
+/// The AUTHORED annotations beside those layouts do carry their anchors, and
+/// a `Selector::Pid` in one serializes as a JSON **number** — a `u64` a
+/// JavaScript `JSON.parse` rounds above `2^53` (see
+/// `feature_engine::drawing::pid_string` for the measurement). That is
+/// inert, not safe by construction: the page reads the authored annotations
+/// only as a count, draws from the layouts, and writes back exclusively
+/// through [`DrawingEdit`], whose every field is a primitive and whose
+/// annotation deletes address by INDEX. Nothing may start echoing a pid read
+/// from here; a page that needs one reads `anchors` below, which crosses as
+/// a string.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct DrawingStatus {
     pub tab_id: String,
