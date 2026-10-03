@@ -2005,24 +2005,31 @@ impl KernelIntrospect for KernelV2Adapter {
         let Ok(sid) = self.solid_of(solid) else {
             return Vec::new();
         };
-        let Ok(pids) = crate::pid::solid_pids(&self.arena, sid) else {
-            return Vec::new();
-        };
-        match kind {
-            TopoKind::Face => pids
-                .faces
+        // Faces answer from the face pass alone: their identity has been the
+        // kernel's since KV13 F5 and must not be withdrawn because an EDGE
+        // group two kinds away is ambiguous.
+        if kind == TopoKind::Face {
+            let Ok((faces, roots)) = crate::pid::solid_face_pids(&self.arena, sid) else {
+                return Vec::new();
+            };
+            return faces
                 .iter()
-                .map(|(&f, &pid)| {
-                    let root = pids.face_roots.get(&f).copied().unwrap_or(pid);
-                    (
+                .filter_map(|(&f, &pid)| {
+                    let root = roots.get(&f)?;
+                    Some((
                         encode_face(f),
                         EntityPid {
                             pid: pid.0,
                             root_pid: root.0,
                         },
-                    )
+                    ))
                 })
-                .collect(),
+                .collect();
+        }
+        let Ok(pids) = crate::pid::solid_pids(&self.arena, sid) else {
+            return Vec::new();
+        };
+        match kind {
             TopoKind::Edge => pids
                 .edges
                 .iter()

@@ -43,6 +43,21 @@
 //! Vertices rank the same way inside their incident-edge-pid-set group,
 //! ordered by position.
 //!
+//! A rank is a *position*, so it carries the one stability caveat of this
+//! scheme: inside a group of two or more, moving a member past another swaps
+//! their ids even though neither changed its content key. [`rank_groups`]
+//! documents the consequence in full; a group of one is immune.
+//!
+//! # Determinism
+//!
+//! Every input to the derivation is read in a deterministic order — the
+//! arena's `Vec` slots and `BTreeMap`/`BTreeSet` keys, never a `HashMap` —
+//! and the journal walk ([`face_lineage`]) is a reverse scan of a `Vec`.
+//! Nothing reads an address, a clock, or a hash seed, so a rebuild in a
+//! FRESH PROCESS reproduces the same ids as one in the same process. The
+//! hash itself is frozen format: `tests/d0_pid_hash_frozen.rs` pins its
+//! output against literals.
+//!
 //! # Not stored
 //!
 //! These ids are **derived, never stored**: [`solid_pids`] recomputes them
@@ -107,8 +122,11 @@ pub struct SolidPids {
 }
 
 /// Total order on a coordinate triple (`f64::total_cmp`, lexicographic).
-/// Exact — no quantization — so the order is a function of the bits and
-/// cannot flip under a re-run.
+/// Exact — no quantization — so the order is a function of the bits alone and
+/// a re-run that reproduces the geometry reproduces the order. Being exact
+/// cuts both ways: `-0.0` sorts below `+0.0` and a NaN sorts outside the
+/// finite range, both of which are *reorders* rather than errors. That only
+/// reaches an id through a multi-member rank group (see [`rank_groups`]).
 fn point_key(p: Point3) -> [u64; 3] {
     let a = p.as_array();
     [a[0], a[1], a[2]].map(|c| {
@@ -176,11 +194,51 @@ fn edge_endpoint_key(
     Ok(if a <= b { [a, b] } else { [b, a] })
 }
 
+/// Stamp one id per item from its key words, refusing a 64-bit hash collision
+/// between two DISTINCT keys.
+///
+/// `hash` is a parameter only so that refusal is reachable from a test: a
+/// genuine collision of this digest is not constructible, and a branch no
+/// test can enter is a branch nobody knows works. Callers pass
+/// `|w| digest(DOMAIN_…, w)`.
+///
+/// Keys are distinct by construction — two items with equal keys are an
+/// ambiguity [`rank_groups`] has already refused — so a repeated id can only
+/// be a hash collision.
+fn stamp<E: Copy + Ord>(
+    keyed: &[(E, Vec<u64>)],
+    hash: impl Fn(&[u64]) -> Pid,
+    kind: &'static str,
+) -> Result<BTreeMap<E, Pid>, KernelV2Error> {
+    let mut out: BTreeMap<E, Pid> = BTreeMap::new();
+    let mut seen: BTreeSet<Pid> = BTreeSet::new();
+    for (e, words) in keyed {
+        let pid = hash(words);
+        if !seen.insert(pid) {
+            return Err(KernelV2Error::PidCollision { kind });
+        }
+        out.insert(*e, pid);
+    }
+    Ok(out)
+}
+
 /// Rank the members of each equal-key group, loudly refusing a group whose
 /// members cannot be told apart.
 ///
 /// `items` is `(entity, content_key, tie_key)`. Returns the rank of each
 /// entity inside its `content_key` group, with members ordered by `tie_key`.
+///
+/// **The rank is positional, so it is only as stable as the group's internal
+/// order.** A group of one — the overwhelming majority — ranks 0 whatever its
+/// geometry does. In a group of two or more, moving ONE member past another
+/// renumbers both, and the two ids swap: within such a group an id is stable
+/// only while the members' relative order is. (Sign-of-zero counts: `-0.0`
+/// orders below `+0.0` under [`point_key`], as it does under `f64::total_cmp`,
+/// so a coordinate that comes out `-0.0` in one build and `+0.0` in another is
+/// a reorder even though the point did not move.) Making multi-member groups
+/// order-independent needs the content key itself to separate them, which is
+/// the F4a face reseed — see the "Still open" notes in
+/// `specs/drawings_and_mbd.md` §4.
 fn rank_groups<E: Copy + Ord, C: Ord + Clone, T: Ord + Clone>(
     items: &[(E, C, T)],
     kind: &'static str,
@@ -206,8 +264,40 @@ fn rank_groups<E: Copy + Ord, C: Ord + Clone, T: Ord + Clone>(
     Ok(ranks)
 }
 
+/// What [`solid_face_pids`] returns: each face's stamped pid, and each face's
+/// lineage root.
+pub type FacePids = (BTreeMap<FaceId, Pid>, BTreeMap<FaceId, Pid>);
+
+/// The face half of [`solid_pids`]: each face's stamped pid and its lineage
+/// root, with no edge or vertex derivation.
+///
+/// Separate because a face's identity must not depend on the edge pass. Face
+/// pids have been the kernel's answer since KV13 F5 and are what
+/// `face_provenance` reports per face; folding them into the whole-solid
+/// derivation would let one ambiguous EDGE group ([`KernelV2Error::PidAmbiguous`])
+/// silently withdraw every FACE id of the body, so a drawing's face
+/// annotations would go unresolvable because of a quirk two kinds away.
+///
+/// Returns `(pid per face, root per face)`. Errors with
+/// [`KernelV2Error::PidMissing`] if any face of the solid is unstamped.
+pub fn solid_face_pids(arena: &BrepArena, solid: SolidId) -> Result<FacePids, KernelV2Error> {
+    let mut face_pids: BTreeMap<FaceId, Pid> = BTreeMap::new();
+    let mut face_roots: BTreeMap<FaceId, Pid> = BTreeMap::new();
+    for f in solid_faces(arena, solid)? {
+        let pid = arena
+            .face_pid(f)
+            .ok_or(KernelV2Error::PidMissing { face: f })?;
+        face_pids.insert(f, pid);
+        face_roots.insert(f, face_lineage(&arena.journal, pid).root);
+    }
+    Ok((face_pids, face_roots))
+}
+
 /// Every persistent id of `solid`: the stamped face pids, their lineage
 /// roots, and the content-seeded edge and vertex pids.
+///
+/// Ask [`solid_face_pids`] instead when only faces are wanted — this function
+/// refuses as a whole, so an edge-side refusal costs the face ids too.
 ///
 /// Errors loudly rather than inventing an identity:
 /// - [`KernelV2Error::PidMissing`] — a face of the solid carries no stamped
@@ -218,17 +308,7 @@ fn rank_groups<E: Copy + Ord, C: Ord + Clone, T: Ord + Clone>(
 /// - [`KernelV2Error::PidCollision`] — two distinct keys hashed to one id.
 pub fn solid_pids(arena: &BrepArena, solid: SolidId) -> Result<SolidPids, KernelV2Error> {
     let faces = solid_faces(arena, solid)?;
-
-    // --- faces: stamped pid + lineage root --------------------------------
-    let mut face_pids: BTreeMap<FaceId, Pid> = BTreeMap::new();
-    let mut face_roots: BTreeMap<FaceId, Pid> = BTreeMap::new();
-    for &f in &faces {
-        let pid = arena
-            .face_pid(f)
-            .ok_or(KernelV2Error::PidMissing { face: f })?;
-        face_pids.insert(f, pid);
-        face_roots.insert(f, face_lineage(&arena.journal, pid).root);
-    }
+    let (face_pids, face_roots) = solid_face_pids(arena, solid)?;
 
     // --- edges: H(root pair, rank) ----------------------------------------
     let mut canonical: BTreeSet<HalfEdgeId> = BTreeSet::new();
@@ -250,16 +330,14 @@ pub fn solid_pids(arena: &BrepArena, solid: SolidId) -> Result<SolidPids, Kernel
         edge_items.push((e, pair, edge_endpoint_key(arena, e)?));
     }
     let edge_ranks = rank_groups(&edge_items, "edge")?;
-    let mut edges: BTreeMap<HalfEdgeId, Pid> = BTreeMap::new();
-    let mut seen: BTreeSet<Pid> = BTreeSet::new();
+    let mut edge_keys: Vec<(HalfEdgeId, Vec<u64>)> = Vec::with_capacity(edge_items.len());
     for (e, pair, _) in &edge_items {
-        let rank = edge_ranks[e];
-        let pid = digest(DOMAIN_EDGE, &[pair[0], pair[1], rank]);
-        if !seen.insert(pid) {
-            return Err(KernelV2Error::PidCollision { kind: "edge" });
-        }
-        edges.insert(*e, pid);
+        let rank = *edge_ranks
+            .get(e)
+            .ok_or(KernelV2Error::InvalidId { kind: "half_edge" })?;
+        edge_keys.push((*e, vec![pair[0], pair[1], rank]));
     }
+    let edges = stamp(&edge_keys, |w| digest(DOMAIN_EDGE, w), "edge")?;
 
     // --- vertices: H(sorted incident edge pids, rank) ---------------------
     let mut incident: BTreeMap<VertexId, BTreeSet<Pid>> = BTreeMap::new();
@@ -275,17 +353,17 @@ pub fn solid_pids(arena: &BrepArena, solid: SolidId) -> Result<SolidPids, Kernel
         vertex_items.push((v, key, point_key(arena.vertex(v)?.point)));
     }
     let vertex_ranks = rank_groups(&vertex_items, "vertex")?;
-    let mut vertices: BTreeMap<VertexId, Pid> = BTreeMap::new();
-    let mut seen_v: BTreeSet<Pid> = BTreeSet::new();
+    let mut vertex_keys: Vec<(VertexId, Vec<u64>)> = Vec::with_capacity(vertex_items.len());
     for (v, key, _) in &vertex_items {
         let mut words = key.clone();
-        words.push(vertex_ranks[v]);
-        let pid = digest(DOMAIN_VERTEX, &words);
-        if !seen_v.insert(pid) {
-            return Err(KernelV2Error::PidCollision { kind: "vertex" });
-        }
-        vertices.insert(*v, pid);
+        words.push(
+            *vertex_ranks
+                .get(v)
+                .ok_or(KernelV2Error::InvalidId { kind: "vertex" })?,
+        );
+        vertex_keys.push((*v, words));
     }
+    let vertices = stamp(&vertex_keys, |w| digest(DOMAIN_VERTEX, w), "vertex")?;
 
     Ok(SolidPids {
         faces: face_pids,
@@ -399,6 +477,94 @@ mod tests {
         assert_eq!(
             rank_groups(&items, "edge"),
             Err(KernelV2Error::PidAmbiguous { kind: "edge" })
+        );
+    }
+
+    /// A group of two whose members differ only in tie key gets ranks 0/1 by
+    /// that key — so if one member later moves past the other, the two ids
+    /// swap. Pinned because it is the scheme's one stability caveat and a
+    /// reader should be able to see it rather than infer it.
+    #[test]
+    fn rank_groups_renumbers_a_group_when_a_member_moves_past_another() {
+        let before = rank_groups(&[(10u32, "a", 1u32), (11, "a", 3)], "edge").expect("ranked");
+        let after = rank_groups(&[(10u32, "a", 5u32), (11, "a", 3)], "edge").expect("ranked");
+        assert_eq!((before[&10], before[&11]), (0, 1));
+        assert_eq!(
+            (after[&10], after[&11]),
+            (1, 0),
+            "moving one member past the other swaps both ranks"
+        );
+    }
+
+    #[test]
+    fn stamp_gives_one_id_per_key() {
+        let keyed = vec![(10u32, vec![1, 2, 0]), (11, vec![1, 2, 1])];
+        let ids = stamp(&keyed, |w| digest(DOMAIN_EDGE, w), "edge").expect("distinct");
+        assert_eq!(ids[&10], digest(DOMAIN_EDGE, &[1, 2, 0]));
+        assert_ne!(ids[&10], ids[&11]);
+    }
+
+    /// `PidCollision` is not reachable through the real digest — that is the
+    /// point of a 64-bit avalanche hash — so the branch is exercised with a
+    /// degenerate one. Without this the refusal would be code nobody has
+    /// ever seen run.
+    #[test]
+    fn stamp_refuses_two_distinct_keys_that_hash_alike() {
+        let keyed = vec![(10u32, vec![1, 2, 0]), (11, vec![9, 9, 9])];
+        assert_eq!(
+            stamp(&keyed, |_| Pid(42), "vertex"),
+            Err(KernelV2Error::PidCollision { kind: "vertex" })
+        );
+    }
+
+    /// The public single-entity doors agree with the bulk map, and the
+    /// owner-lookup helpers find the solid each entity belongs to.
+    #[test]
+    fn single_entity_doors_agree_with_the_bulk_map() {
+        use crate::{extrude, Profile};
+        use cad_primitives::{Point2, Vector3};
+
+        let mut arena = BrepArena::new();
+        let profile = Profile::new(
+            Point3::new(0.0, 0.0, 0.0),
+            Vector3::new(1.0, 0.0, 0.0),
+            Vector3::new(0.0, 1.0, 0.0),
+            vec![
+                Point2::new(0.0, 0.0),
+                Point2::new(1.0, 0.0),
+                Point2::new(1.0, 1.0),
+                Point2::new(0.0, 1.0),
+            ],
+            vec![],
+        )
+        .expect("rectangle");
+        let r = extrude(&mut arena, &profile, Vector3::new(0.0, 0.0, 1.0), 2.0).expect("box");
+        let pids = solid_pids(&arena, r.solid).expect("solid pids");
+
+        for (&h, &pid) in &pids.edges {
+            assert_eq!(edge_pid(&arena, h).expect("edge pid"), pid);
+            let twin = arena.half_edge(h).expect("half-edge").twin;
+            assert_eq!(
+                edge_pid(&arena, twin).expect("twin pid"),
+                pid,
+                "either half of the pair names the same edge"
+            );
+            assert_eq!(canonical_edge(&arena, twin).expect("canonical"), h);
+            assert_eq!(solid_of_half_edge(&arena, h).expect("owner solid"), r.solid);
+        }
+        for (&v, &pid) in &pids.vertices {
+            assert_eq!(vertex_pid(&arena, v).expect("vertex pid"), pid);
+            assert_eq!(solid_of_vertex(&arena, v).expect("owner solid"), r.solid);
+        }
+        for &f in pids.faces.keys() {
+            assert_eq!(solid_of_face(&arena, f).expect("owner solid"), r.solid);
+        }
+
+        // The face half on its own must agree with the whole-solid pass.
+        let (faces, roots) = solid_face_pids(&arena, r.solid).expect("face pids");
+        assert_eq!(
+            (faces, roots),
+            (pids.faces.clone(), pids.face_roots.clone())
         );
     }
 }

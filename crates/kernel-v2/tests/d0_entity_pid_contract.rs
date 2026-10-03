@@ -155,4 +155,46 @@ fn a_mesh_backed_imported_body_reports_no_identity() {
             "{kind:?}: a mesh-backed body has no persistent identity"
         );
     }
+
+    // The per-entity door must refuse too, and for the right reason: an
+    // imported id carries its own tag, so its index can never be read as an
+    // arena slot. Were the tags shared, an imported edge's index would name
+    // SOME half-edge of the arena and the mesh tier would be handed another
+    // body's id.
+    for (kind, ids) in [
+        (TopoKind::Face, kernel.list_faces(&solid)),
+        (TopoKind::Edge, kernel.list_edges(&solid)),
+        (TopoKind::Vertex, kernel.list_vertices(&solid)),
+    ] {
+        assert!(
+            !ids.is_empty(),
+            "{kind:?}: the imported body lists entities"
+        );
+        for id in ids {
+            assert!(
+                kernel.entity_pid(id, kind).is_none(),
+                "{kind:?} {id:?}: an imported entity must have no identity"
+            );
+        }
+    }
+}
+
+/// The face door answers from the face pass alone, so a body's FACE ids do
+/// not ride on the edge derivation succeeding. Pinned against the bulk form
+/// because the two now take different code paths and must still agree.
+#[test]
+fn the_face_door_does_not_ride_on_the_edge_derivation() {
+    let mut kernel = KernelV2Adapter::new();
+    let solid = box_solid(&mut kernel, 0.02, 0.01, 0.005);
+
+    let bulk = pids_of(&kernel, &solid, TopoKind::Face);
+    assert_eq!(bulk.len(), 6);
+    for (id, pid) in bulk {
+        let fp = kernel.face_provenance(id).expect("face provenance");
+        assert_eq!(
+            (pid.pid, pid.root_pid),
+            (fp.pid, fp.root_pid),
+            "the bulk face door and `face_provenance` read the same pair"
+        );
+    }
 }
