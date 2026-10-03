@@ -1,5 +1,5 @@
 {
-  "manifest_hash": "f6b57592342f06c29d527227f12ce108a75c845364f8c88a77cbface0481cb7d",
+  "manifest_hash": "cb8cbc061af982f766676c8c2c0525ed875f559c05b574e7c1d925af29337dad",
   "protocol": "waffle-agent-link/1",
   "tools": [
     {
@@ -1973,6 +1973,217 @@
           "density_kg_m3",
           "mass_kg",
           "method"
+        ],
+        "type": "object"
+      }
+    },
+    {
+      "annotations": {
+        "readOnlyHint": true,
+        "title": "Measure section"
+      },
+      "description": "Cut bodies with a plane and get the cap as DATA: per body, the cap boundary loops as 2D analytic curves in the cut plane's own frame (line, circle, ellipse — never flattened to chords unless the kernel could not keep the curve analytic, which it says per loop), each loop's signed area (positive outer, negative hole), the net area and the area centroid. The cut is the kernel's own Intersect against a half-space, keeping the side the normal points AWAY from, so a section and a Subtract against the same plane agree. basis is the frame the loops live in (world = origin + u·u_axis + v·v_axis) — use it rather than deriving your own, or the loops will be rotated against it. plane is {origin, normal}, a planar face GeomRef from face_list, {\"plane\":\"XY\"|\"XZ\"|\"YZ\"} for a datum, or {\"name\":\"Plate.top\"} for a named planar face. body_ids defaults to every body. A plane that MISSES a body is an empty loops list with kept_material saying which side it missed on — not an error; a body the kernel REFUSED to cut is named in declines instead, never as an empty section. cap_shared_with_model means at least one cap face came from the coplanar-overlay path rather than from the cut's own lineage — the signature of a plane coplanar with a face of this body; it describes how the KEPT cap was attributed, so it can be true on one side of such a cut and false on the other. Lengths in meters, areas in m².",
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "body_ids": {
+            "description": "Body ids (or display names) from model_summary.bodies. Omit for every body of the open Part.",
+            "items": {
+              "type": "string"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          },
+          "plane": {
+            "description": "{origin:[x,y,z], normal:[x,y,z]} | a planar face GeomRef | {\"plane\":\"XY\"} | {\"name\":\"Plate.top\"}.",
+            "type": "object"
+          }
+        },
+        "required": [
+          "plane"
+        ],
+        "type": "object"
+      },
+      "name": "measure_section",
+      "outputSchema": {
+        "properties": {
+          "basis": {
+            "properties": {
+              "origin": {
+                "items": {
+                  "type": "number"
+                },
+                "type": "array"
+              },
+              "u_axis": {
+                "items": {
+                  "type": "number"
+                },
+                "type": "array"
+              },
+              "v_axis": {
+                "items": {
+                  "type": "number"
+                },
+                "type": "array"
+              },
+              "w_axis": {
+                "items": {
+                  "type": "number"
+                },
+                "type": "array"
+              }
+            },
+            "type": "object"
+          },
+          "bodies": {
+            "items": {
+              "properties": {
+                "area_m2": {
+                  "type": "number"
+                },
+                "body_id": {
+                  "type": "string"
+                },
+                "cap_shared_with_model": {
+                  "type": "boolean"
+                },
+                "centroid": {
+                  "items": {
+                    "type": "number"
+                  },
+                  "type": [
+                    "array",
+                    "null"
+                  ]
+                },
+                "centroid_exact": {
+                  "type": "boolean"
+                },
+                "centroid_uv": {
+                  "items": {
+                    "type": "number"
+                  },
+                  "type": [
+                    "array",
+                    "null"
+                  ]
+                },
+                "kept_material": {
+                  "type": "boolean"
+                },
+                "loops": {
+                  "items": {
+                    "properties": {
+                      "curves": {
+                        "items": {
+                          "type": "object"
+                        },
+                        "type": "array"
+                      },
+                      "exact": {
+                        "type": "boolean"
+                      },
+                      "kind": {
+                        "enum": [
+                          "outer",
+                          "hole"
+                        ],
+                        "type": "string"
+                      },
+                      "signed_area_m2": {
+                        "type": "number"
+                      }
+                    },
+                    "required": [
+                      "signed_area_m2",
+                      "exact",
+                      "kind",
+                      "curves"
+                    ],
+                    "type": "object"
+                  },
+                  "type": "array"
+                },
+                "method": {
+                  "enum": [
+                    "exact",
+                    "mesh"
+                  ],
+                  "type": "string"
+                }
+              },
+              "required": [
+                "body_id",
+                "loops",
+                "area_m2",
+                "centroid_exact",
+                "method",
+                "cap_shared_with_model",
+                "kept_material"
+              ],
+              "type": "object"
+            },
+            "type": "array"
+          },
+          "declines": {
+            "items": {
+              "properties": {
+                "body_id": {
+                  "type": "string"
+                },
+                "kind": {
+                  "enum": [
+                    "not_supported",
+                    "failed"
+                  ],
+                  "type": "string"
+                },
+                "reason": {
+                  "type": "string"
+                }
+              },
+              "type": "object"
+            },
+            "type": "array"
+          },
+          "name_warnings": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "plane": {
+            "properties": {
+              "normal": {
+                "items": {
+                  "type": "number"
+                },
+                "maxItems": 3,
+                "minItems": 3,
+                "type": "array"
+              },
+              "origin": {
+                "items": {
+                  "type": "number"
+                },
+                "maxItems": 3,
+                "minItems": 3,
+                "type": "array"
+              }
+            },
+            "type": "object"
+          },
+          "total_area_m2": {
+            "type": "number"
+          }
+        },
+        "required": [
+          "plane",
+          "bodies",
+          "total_area_m2"
         ],
         "type": "object"
       }

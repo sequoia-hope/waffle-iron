@@ -306,6 +306,119 @@ export const measureMassTool = {
 	annotations: readOnly('Measure mass')
 };
 
+export const measureSectionTool = {
+	name: 'measure_section',
+	description:
+		'Cut bodies with a plane and get the cap as DATA: per body, the cap boundary loops as 2D ' +
+		'analytic curves in the cut plane\'s own frame (line, circle, ellipse — never flattened to ' +
+		'chords unless the kernel could not keep the curve analytic, which it says per loop), each ' +
+		"loop's signed area (positive outer, negative hole), the net area and the area centroid. The " +
+		'cut is the kernel\'s own Intersect against a half-space, keeping the side the normal points ' +
+		'AWAY from, so a section and a Subtract against the same plane agree. basis is the frame the ' +
+		'loops live in (world = origin + u·u_axis + v·v_axis) — use it rather than deriving your own, ' +
+		'or the loops will be rotated against it. plane is {origin, normal}, a planar face GeomRef ' +
+		'from face_list, {"plane":"XY"|"XZ"|"YZ"} for a datum, or {"name":"Plate.top"} for a named ' +
+		'planar face. body_ids defaults to every body. A plane that MISSES a body is an empty loops ' +
+		'list with kept_material saying which side it missed on — not an error; a body the kernel ' +
+		'REFUSED to cut is named in declines instead, never as an empty section. cap_shared_with_model ' +
+		'means at least one cap face came from the coplanar-overlay path rather than from the cut\'s ' +
+		'own lineage — the signature of a plane coplanar with a face of this body; it describes how ' +
+		'the KEPT cap was attributed, so it can be true on one side of such a cut and false on the ' +
+		'other. Lengths in meters, areas in m².',
+	inputSchema: {
+		type: 'object',
+		properties: {
+			body_ids: {
+				type: ['array', 'null'],
+				items: { type: 'string' },
+				description:
+					'Body ids (or display names) from model_summary.bodies. Omit for every body of the open Part.'
+			},
+			plane: {
+				type: 'object',
+				description:
+					'{origin:[x,y,z], normal:[x,y,z]} | a planar face GeomRef | {"plane":"XY"} | {"name":"Plate.top"}.'
+			}
+		},
+		required: ['plane'],
+		additionalProperties: false
+	},
+	outputSchema: {
+		type: 'object',
+		properties: {
+			plane: {
+				type: 'object',
+				properties: {
+					origin: { type: 'array', items: { type: 'number' }, minItems: 3, maxItems: 3 },
+					normal: { type: 'array', items: { type: 'number' }, minItems: 3, maxItems: 3 }
+				}
+			},
+			basis: {
+				type: 'object',
+				properties: {
+					origin: { type: 'array', items: { type: 'number' } },
+					u_axis: { type: 'array', items: { type: 'number' } },
+					v_axis: { type: 'array', items: { type: 'number' } },
+					w_axis: { type: 'array', items: { type: 'number' } }
+				}
+			},
+			total_area_m2: { type: 'number' },
+			bodies: {
+				type: 'array',
+				items: {
+					type: 'object',
+					properties: {
+						body_id: { type: 'string' },
+						area_m2: { type: 'number' },
+						centroid_uv: { type: ['array', 'null'], items: { type: 'number' } },
+						centroid: { type: ['array', 'null'], items: { type: 'number' } },
+						centroid_exact: { type: 'boolean' },
+						method: { type: 'string', enum: ['exact', 'mesh'] },
+						cap_shared_with_model: { type: 'boolean' },
+						kept_material: { type: 'boolean' },
+						loops: {
+							type: 'array',
+							items: {
+								type: 'object',
+								properties: {
+									signed_area_m2: { type: 'number' },
+									exact: { type: 'boolean' },
+									kind: { type: 'string', enum: ['outer', 'hole'] },
+									curves: { type: 'array', items: { type: 'object' } }
+								},
+								required: ['signed_area_m2', 'exact', 'kind', 'curves']
+							}
+						}
+					},
+					required: [
+						'body_id',
+						'loops',
+						'area_m2',
+						'centroid_exact',
+						'method',
+						'cap_shared_with_model',
+						'kept_material'
+					]
+				}
+			},
+			declines: {
+				type: 'array',
+				items: {
+					type: 'object',
+					properties: {
+						body_id: { type: 'string' },
+						kind: { type: 'string', enum: ['not_supported', 'failed'] },
+						reason: { type: 'string' }
+					}
+				}
+			},
+			name_warnings: { type: 'array', items: { type: 'string' } }
+		},
+		required: ['plane', 'bodies', 'total_area_m2']
+	},
+	annotations: readOnly('Measure section')
+};
+
 export const faceListTool = {
 	name: 'face_list',
 	description:

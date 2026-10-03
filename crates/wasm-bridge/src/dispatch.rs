@@ -1158,6 +1158,11 @@ fn handle_message(
             body_id,
             density_kg_m3,
         } => measure_mass(state, kb, &body_id, density_kg_m3),
+        UiToEngine::MeasureSection {
+            body_ids,
+            plane_origin,
+            plane_normal,
+        } => measure_section(state, kb, &body_ids, plane_origin, plane_normal),
         UiToEngine::ListFaces { body_id, filter } => {
             list_faces(state, kb, &body_id, filter.as_ref())
         }
@@ -2249,6 +2254,217 @@ fn measure_mass(
         mass_kg: m.mass,
         method,
         chord_bound_m,
+    })
+}
+
+/// Unit-length `v`, or `None` when it is zero-length or non-finite.
+fn unit3(v: [f64; 3]) -> Option<[f64; 3]> {
+    let n = (v[0] * v[0] + v[1] * v[1] + v[2] * v[2]).sqrt();
+    (n.is_finite() && n > 0.0).then(|| [v[0] / n, v[1] / n, v[2] / n])
+}
+
+/// One cap curve on the wire (Q4). A straight mirror of
+/// `waffle_types::kernel::projection::Curve2`; see `messages::SectionCurve`
+/// for why it is mirrored rather than serialized.
+fn wire_section_curve(
+    c: &waffle_types::kernel::projection::Curve2,
+) -> crate::messages::SectionCurve {
+    use crate::messages::SectionCurve as W;
+    use waffle_types::kernel::projection::Curve2 as C;
+    // `Point2` is `cad_primitives`', which this crate does not depend on, so
+    // every coordinate is read through its accessors and never named.
+    match c {
+        C::Point(q) => W::Point { at: [q.x(), q.y()] },
+        C::Line { start, end } => W::Line {
+            start: [start.x(), start.y()],
+            end: [end.x(), end.y()],
+        },
+        C::Circle {
+            center,
+            radius,
+            start_angle,
+            end_angle,
+        } => W::Circle {
+            center: [center.x(), center.y()],
+            radius: *radius,
+            start_angle_rad: *start_angle,
+            end_angle_rad: *end_angle,
+        },
+        C::Ellipse {
+            center,
+            major_axis,
+            major_radius,
+            minor_radius,
+            start_param,
+            end_param,
+        } => W::Ellipse {
+            center: [center.x(), center.y()],
+            major_axis: *major_axis,
+            major_radius: *major_radius,
+            minor_radius: *minor_radius,
+            start_param: *start_param,
+            end_param: *end_param,
+        },
+        C::Polyline { points, closed } => W::Polyline {
+            points: points.iter().map(|q| [q.x(), q.y()]).collect(),
+            closed: *closed,
+        },
+    }
+}
+
+/// The cap's area centroid in the cap frame, by Green's theorem over every
+/// loop FLATTENED at `kernel_v2::dxf_export::DEFAULT_POLYLINE_SAGITTA`
+/// (1e-5 m) — the same absolute sagitta the DXF writer flattens an ellipse at,
+/// so the one number this layer approximates is approximated at a stated
+/// density rather than at an invented one.
+///
+/// Holes carry their own sign: a clockwise loop's cross products are negative,
+/// so a hole subtracts both area and moment without being special-cased.
+/// `None` when the flattened polygons enclose no area — an empty section, or a
+/// cap so degenerate there is no point to report.
+fn cap_centroid(loops: &[waffle_types::kernel::projection::SectionLoop]) -> Option<[f64; 2]> {
+    let sagitta = kernel_v2::dxf_export::DEFAULT_POLYLINE_SAGITTA;
+    let (mut a2, mut mx, mut my) = (0.0f64, 0.0f64, 0.0f64);
+    for lp in loops {
+        let mut pts: Vec<[f64; 2]> = Vec::new();
+        for c in &lp.curves {
+            for q in c.flatten(sagitta) {
+                // Consecutive curves share an endpoint; the duplicate would
+                // contribute a zero-length edge, which is harmless, but it
+                // doubles the point count on a many-curve loop.
+                if pts.last() != Some(&[q.x(), q.y()]) {
+                    pts.push([q.x(), q.y()]);
+                }
+            }
+        }
+        if pts.len() >= 2 && pts.first() == pts.last() {
+            pts.pop();
+        }
+        for i in 0..pts.len() {
+            let (p0, p1) = (pts[i], pts[(i + 1) % pts.len()]);
+            let cross = p0[0] * p1[1] - p1[0] * p0[1];
+            a2 += cross;
+            mx += (p0[0] + p1[0]) * cross;
+            my += (p0[1] + p1[1]) * cross;
+        }
+    }
+    (a2.is_finite() && a2 != 0.0).then(|| [mx / (3.0 * a2), my / (3.0 * a2)])
+}
+
+/// `MeasureSection` (Q4 of `specs/agent_mechanical_design.md` §4.2): the cap
+/// loops of a planar cut through each body, as 2D curve data.
+///
+/// The kernel does the cutting (D1d `section_with_plane`, the real Intersect
+/// against a half-space box); this handler only turns body ids into handles
+/// and the kernel's answer into the wire shape, and decides what to do with a
+/// body the kernel refused.
+///
+/// **A refusal is a DECLINE, not an empty section.** One body in a multi-body
+/// part hitting the Stage-0 coplanar wall must not make the other bodies'
+/// sections unavailable, and it must not look like a plane that missed. So the
+/// refusal is named in `declines` with its typed kind, and the body simply has
+/// no entry in `bodies`.
+fn measure_section(
+    state: &mut EngineState,
+    kb: &mut dyn KernelBundle,
+    body_ids: &[String],
+    plane_origin: [f64; 3],
+    plane_normal: [f64; 3],
+) -> Result<EngineToUi, BridgeError> {
+    use crate::messages::{
+        SectionBasis, SectionCapLoop, SectionDecline, SectionDeclineKind, SectionLoopKind,
+        SectionedBody,
+    };
+
+    if !plane_origin.iter().all(|v| v.is_finite()) {
+        return Err(BridgeError::InvalidRequest {
+            reason: format!("the section plane origin {plane_origin:?} is not finite"),
+        });
+    }
+    let normal = unit3(plane_normal).ok_or_else(|| BridgeError::InvalidRequest {
+        reason: format!(
+            "the section plane normal {plane_normal:?} is zero-length or not finite; a plane \
+             needs a direction"
+        ),
+    })?;
+
+    let mut bodies = Vec::new();
+    let mut declines = Vec::new();
+    let mut basis: Option<SectionBasis> = None;
+    for body_id in body_ids {
+        let handle = find_body(state, body_id)
+            .map(|b| b.handle.clone())
+            .ok_or_else(|| BridgeError::InvalidRequest {
+                reason: format!("no live body {body_id}"),
+            })?;
+        let cut = match kb.section_with_plane(&handle, plane_origin, normal) {
+            Ok(cut) => cut,
+            Err(waffle_types::kernel::KernelError::NotSupported { operation }) => {
+                declines.push(SectionDecline {
+                    body_id: body_id.clone(),
+                    kind: SectionDeclineKind::NotSupported,
+                    reason: operation,
+                });
+                continue;
+            }
+            Err(other) => {
+                declines.push(SectionDecline {
+                    body_id: body_id.clone(),
+                    kind: SectionDeclineKind::Failed,
+                    reason: other.to_string(),
+                });
+                continue;
+            }
+        };
+        basis.get_or_insert(SectionBasis {
+            origin: cut.plane_basis.origin,
+            u_axis: cut.plane_basis.u,
+            v_axis: cut.plane_basis.v,
+            w_axis: cut.plane_basis.w,
+        });
+        let centroid_uv = cap_centroid(&cut.cap_loops);
+        let b = cut.plane_basis;
+        bodies.push(SectionedBody {
+            body_id: body_id.clone(),
+            area_m2: cut.cap_area(),
+            centroid_uv,
+            centroid: centroid_uv
+                .map(|[u, v]| [0, 1, 2].map(|k| b.origin[k] + u * b.u[k] + v * b.v[k])),
+            centroid_exact: cut.cap_loops.iter().all(|l| {
+                l.curves
+                    .iter()
+                    .all(|c| matches!(c, waffle_types::kernel::projection::Curve2::Line { .. }))
+            }),
+            method: if cut.exact() {
+                MeasureMethod::Exact
+            } else {
+                MeasureMethod::Mesh
+            },
+            cap_shared_with_model: cut.cap_shared_with_model,
+            kept_material: cut.cut_solid.is_some(),
+            loops: cut
+                .cap_loops
+                .iter()
+                .map(|lp| SectionCapLoop {
+                    curves: lp.curves.iter().map(wire_section_curve).collect(),
+                    signed_area_m2: lp.signed_area,
+                    exact: lp.exact,
+                    kind: if lp.signed_area < 0.0 {
+                        SectionLoopKind::Hole
+                    } else {
+                        SectionLoopKind::Outer
+                    },
+                })
+                .collect(),
+        });
+    }
+
+    Ok(EngineToUi::SectionMeasured {
+        plane_origin,
+        plane_normal: normal,
+        basis,
+        bodies,
+        declines,
     })
 }
 

@@ -515,6 +515,22 @@ pub enum UiToEngine {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         density_kg_m3: Option<f64>,
     },
+    /// The cap loops of a planar section through each named body (Q4 of
+    /// `specs/agent_mechanical_design.md` §4.2), as 2D curves in the cut
+    /// plane's own frame.
+    ///
+    /// The plane arrives already resolved to an origin and a unit normal: the
+    /// tool layer owns the shapes a plane can be NAMED by (a face reference, a
+    /// datum, an N1 name), because those are the page's vocabularies. The kept
+    /// half-space is the one the normal points away from, exactly as
+    /// `KernelProjection::section_with_plane` defines it. Query: no rebuild.
+    MeasureSection {
+        /// Already expanded to concrete body ids by the tool — never "all",
+        /// so the engine measures exactly what the answer names.
+        body_ids: Vec<String>,
+        plane_origin: [f64; 3],
+        plane_normal: [f64; 3],
+    },
     /// Every face of a body as the `GeomRef` the viewport's face ranges carry,
     /// with its signature (`specs/waffle_mcp_server.md` ICR-3). `filter` uses
     /// the `TopoQuery` filter rules (`tie_break` is ignored: a listing returns
@@ -1181,6 +1197,176 @@ pub struct Measured {
     pub exact_unavailable: Option<String>,
 }
 
+// ---------------------------------------------------------------------------
+// Q4 — section as data
+// ---------------------------------------------------------------------------
+
+/// One curve of a section cap loop (Q4): the serde-able form of
+/// `waffle_types::kernel::projection::Curve2`.
+///
+/// `Curve2` is built on `cad_primitives::Point2`, which has no serde
+/// implementation, so the kernel's analytic arms cannot cross this boundary as
+/// themselves. This enum is a one-to-one mirror of them — no arm is collapsed
+/// and nothing is flattened to a polyline on the way out, because a cap
+/// bounded by a circle is a different drawing (and a different area) from a
+/// cap bounded by 64 chords, and an agent that re-derives geometry from the
+/// answer must get the circle.
+///
+/// Every coordinate is in the cut plane's `(u, v)` frame
+/// ([`SectionBasis`]) and in meters. Angles and parameters are
+/// counter-clockwise in that frame, and `start < end` always — a cap loop is a
+/// point set to hatch, so the walk direction lives in `curves`' ORDER rather
+/// than in each curve.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(tag = "type", rename_all = "snake_case")]
+pub enum SectionCurve {
+    /// A curve the section degenerated to a single point.
+    Point {
+        at: [f64; 2],
+    },
+    Line {
+        start: [f64; 2],
+        end: [f64; 2],
+    },
+    /// A circular arc, or a full circle when `end_angle_rad − start_angle_rad`
+    /// is 2π. Angles from `+u`.
+    Circle {
+        center: [f64; 2],
+        radius: f64,
+        start_angle_rad: f64,
+        end_angle_rad: f64,
+    },
+    /// An elliptical arc, or a full ellipse when `end_param − start_param` is
+    /// 2π. The point set is
+    /// `center + major_radius·cos t·major_axis + minor_radius·sin t·perp(major_axis)`,
+    /// `perp((x, y)) = (−y, x)`.
+    Ellipse {
+        center: [f64; 2],
+        major_axis: [f64; 2],
+        major_radius: f64,
+        minor_radius: f64,
+        start_param: f64,
+        end_param: f64,
+    },
+    /// What the kernel could not keep analytic, sampled at the render chord
+    /// density. `closed` means the last point joins the first (the list does
+    /// not repeat it).
+    Polyline {
+        points: Vec<[f64; 2]>,
+        closed: bool,
+    },
+}
+
+/// Whether a cap loop bounds material or a hole in it (Q4).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum SectionLoopKind {
+    /// Counter-clockwise in the cap frame: positive signed area.
+    Outer,
+    /// Clockwise: negative signed area, a hole in the cap.
+    Hole,
+}
+
+/// One cap boundary loop of a section (Q4).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct SectionCapLoop {
+    /// The loop's curves in B-Rep walk order: consecutive curves share an
+    /// endpoint and the last shares one with the first.
+    pub curves: Vec<SectionCurve>,
+    /// Green's-theorem area in the cap frame — positive for an outer loop,
+    /// negative for a hole.
+    pub signed_area_m2: f64,
+    /// Whether every curve of this loop stayed analytic, so `signed_area_m2`
+    /// is exact. False means at least one curve is a sampled `polyline`, whose
+    /// chord polygon under-counts the area it bounds by its own sagitta
+    /// deficit.
+    pub exact: bool,
+    pub kind: SectionLoopKind,
+}
+
+/// The frame a section's loops are expressed in (Q4) — the kernel's own, never
+/// re-derived.
+///
+/// `origin` is the plane origin the caller passed and the line of sight `w` is
+/// the NEGATED plane normal: the viewer stands on the discarded side and looks
+/// at the cap, which is the drafting convention and the frame that makes an
+/// outer loop's area positive. A world point is `origin + u·u_axis +
+/// v·v_axis`.
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+pub struct SectionBasis {
+    pub origin: [f64; 3],
+    pub u_axis: [f64; 3],
+    pub v_axis: [f64; 3],
+    /// The line of sight, away from the viewer — the negated plane normal.
+    pub w_axis: [f64; 3],
+}
+
+/// One body's section (Q4).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct SectionedBody {
+    pub body_id: String,
+    /// The cap's boundary loops, outer and holes. EMPTY when the plane misses
+    /// this body — which is a typed answer, not a failure: `kept_material`
+    /// says which side it missed on.
+    pub loops: Vec<SectionCapLoop>,
+    /// Net cap area in m²: outer loops minus holes, the sum of
+    /// `signed_area_m2`.
+    pub area_m2: f64,
+    /// The cap's area centroid in the cap frame `(u, v)`, meters. `null` when
+    /// the cap has no area.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub centroid_uv: Option<[f64; 2]>,
+    /// The same point in world coordinates, meters.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub centroid: Option<[f64; 3]>,
+    /// Whether the centroid is exact. It is computed by Green's theorem over
+    /// each loop FLATTENED at the render chord density — the areas the kernel
+    /// reports are closed-form, but a first moment over a circular arc is not
+    /// a quantity `SectionLoop` carries — so it is exact only when every curve
+    /// of every loop is a `line`, where the flattened polygon IS the cap.
+    pub centroid_exact: bool,
+    /// `exact` when every loop is, else `mesh`: the tier of `area_m2`.
+    pub method: MeasureMethod,
+    /// Whether at least one cap face was identified by its PLANE rather than
+    /// by its descent from the cutting half-space — the §4.5.5 Stage-0
+    /// signature of a cut plane COPLANAR with a face of this body. A coplanar
+    /// cut is a legitimate section, and this is the one configuration where
+    /// the kernel's own lineage cannot name the cap, so it is reported rather
+    /// than left to look like a section that quietly found nothing.
+    pub cap_shared_with_model: bool,
+    /// Whether the cut kept any material at all. `false` with no loops means
+    /// the plane missed the body on the DISCARDED side (the whole body is
+    /// gone); `true` with no loops means it missed on the KEPT side.
+    pub kept_material: bool,
+}
+
+/// Why one body produced no section (Q4).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum SectionDeclineKind {
+    /// A kernel capability wall — a Stage-0 coplanar refusal the overlay
+    /// could not resolve, a curved partial-patch operand, a mesh-backed
+    /// imported body. A caller must not retry it with different numbers.
+    NotSupported,
+    /// The boolean ran and STOPped, or the plane was refused. Loud, and never
+    /// folded into an empty section.
+    Failed,
+}
+
+/// One body the section DECLINED to answer for (Q4).
+///
+/// A decline is never an empty `loops`: "the plane misses this body" and "the
+/// kernel could not cut this body" are different answers, and a wall-thickness
+/// or clearance decision made on the second one read as the first would be
+/// made on no evidence.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct SectionDecline {
+    pub body_id: String,
+    pub kind: SectionDeclineKind,
+    /// The kernel's own refusal, verbatim.
+    pub reason: String,
+}
+
 /// Messages from the engine (WASM Worker) to the UI (JavaScript main thread).
 #[allow(clippy::large_enum_variant)] // see `UiToEngine`
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -1391,6 +1577,25 @@ pub enum EngineToUi {
         /// The tessellation band in meters when `method` is `mesh`; 0 when
         /// the answer is exact, which carries no band.
         chord_bound_m: f64,
+    },
+
+    /// Answer to `MeasureSection` (Q4). Areas in m², coordinates in meters.
+    SectionMeasured {
+        /// The plane as it was cut: the origin passed through, and the
+        /// NORMALIZED normal (a caller's non-unit normal is normalized, and
+        /// the answer says what was used).
+        plane_origin: [f64; 3],
+        plane_normal: [f64; 3],
+        /// The frame `bodies[].loops` are expressed in — the kernel's own.
+        /// `null` only when every body declined, so there is no frame the
+        /// kernel chose to report.
+        #[serde(skip_serializing_if = "Option::is_none")]
+        basis: Option<SectionBasis>,
+        /// One entry per body the kernel sectioned, in the order asked.
+        bodies: Vec<SectionedBody>,
+        /// The bodies it refused, named and typed.
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        declines: Vec<SectionDecline>,
     },
 
     /// Save project is ready.

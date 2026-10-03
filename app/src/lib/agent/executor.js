@@ -335,6 +335,7 @@ const ENGINE_QUERIES = new Set([
 	'measure_distance',
 	'measure_interference',
 	'measure_mass',
+	'measure_section',
 	'face_list',
 	'entity_list',
 	'sketch_regions',

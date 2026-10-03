@@ -482,6 +482,206 @@ pub(super) fn measure_mass(
     Ok(out)
 }
 
+/// The cut plane of `measure_section` (Q4), and the warnings resolving it
+/// produced.
+///
+/// Four shapes, and the first three are not Q4's own: `{origin, normal}`, a
+/// datum plane, and a face `GeomRef` all go through the SAME resolver
+/// `sketch_create` uses ([`super::sketch::resolve_plane`]), so a plane an
+/// agent can sketch on is a plane it can section with and the two tools cannot
+/// drift apart. The fourth is an N1 name.
+///
+/// **A name is resolved the way `names_list` reports it** —
+/// `feature_engine::names::resolve`, the stored persistent id first and the
+/// authored reference as the loud fallback — which is exactly what
+/// `measure_distance` does with a name operand. When that fallback fires, its
+/// warnings come back with the answer rather than being dropped: a section
+/// taken through a face that was re-bound by geometry is a section through a
+/// plane the caller may not have meant, and nothing else in the answer would
+/// say so.
+///
+/// `plane.x_axis` is accepted (the shared resolver validates it) and then
+/// IGNORED: a cap's frame is the kernel's own, reported as `basis`, because a
+/// consumer that re-derived one would be free to rotate the loops against the
+/// view.
+struct SectionPlane {
+    origin: [f64; 3],
+    normal: [f64; 3],
+    /// What resolving the plane warned about — empty unless an N1 name had to
+    /// fall back to its authored reference.
+    name_warnings: Vec<String>,
+}
+
+fn section_plane(
+    state: &EngineState,
+    kb: &mut dyn KernelBundle,
+    args: &Value,
+) -> Result<SectionPlane, ToolFailure> {
+    use waffle_types::TopoKind;
+
+    let invalid = |reason: String| {
+        ToolFailure::new(
+            "InvalidArguments",
+            reason.clone(),
+            json!({ "reason": reason }),
+        )
+    };
+    let plane = args.get("plane").ok_or_else(|| {
+        invalid(
+            "plane is required: {\"origin\":[x,y,z],\"normal\":[x,y,z]}, a planar face's \
+             GeomRef, {\"plane\":\"XY\"} for a datum, or {\"name\":\"Plate.top\"}."
+                .to_string(),
+        )
+    })?;
+
+    if let Some(name) = plane.get("name").and_then(Value::as_str) {
+        let named = state
+            .engine
+            .tree
+            .named_ref(name)
+            .ok_or_else(|| invalid(format!("no entity named \"{name}\".")))?;
+        if named.kind != TopoKind::Face {
+            return Err(invalid(format!(
+                "\"{name}\" names a {:?}, not a face; a section plane needs a PLANAR face.",
+                named.kind
+            )));
+        }
+        let resolved = feature_engine::names::resolve(
+            named,
+            &state.engine.feature_results,
+            kb.as_introspect(),
+        )
+        .map_err(|e| invalid(format!("the name \"{name}\" does not resolve: {e}")))?;
+        let sig = kb
+            .as_introspect()
+            .compute_signature(resolved.kernel_id, TopoKind::Face);
+        if sig.surface_type.as_deref() != Some("planar") {
+            return Err(invalid(format!(
+                "\"{name}\" is a {} face, not a planar one; a section plane needs a planar face \
+                 (pass {{\"origin\":…,\"normal\":…}} to cut anywhere else).",
+                sig.surface_type.as_deref().unwrap_or("unknown")
+            )));
+        }
+        let origin = sig
+            .centroid
+            .ok_or_else(|| invalid(format!("the face named \"{name}\" has no centroid.")))?;
+        let normal = sig
+            .normal
+            .ok_or_else(|| invalid(format!("the face named \"{name}\" has no normal.")))?;
+        return Ok(SectionPlane {
+            origin,
+            normal,
+            name_warnings: resolved.warnings,
+        });
+    }
+
+    // `{"plane": "XY"}` — the datum spelling an agent can type without
+    // knowing the three built-in planes' UUIDs. The shared resolver reads that
+    // legacy key INSIDE the anchor, where `planes.js` puts it, so the short
+    // form is lifted into an anchor here rather than the resolver being taught
+    // a second spelling: `sketch_create`'s own input surface does not change.
+    let lifted = plane
+        .get("plane")
+        .and_then(Value::as_str)
+        .map(|datum| json!({ "anchor": { "type": "DatumPlane", "plane": datum } }));
+    let resolved = super::sketch::resolve_plane(state, kb, Some(lifted.as_ref().unwrap_or(plane)))?;
+    Ok(SectionPlane {
+        origin: resolved.origin,
+        normal: resolved.normal,
+        name_warnings: Vec::new(),
+    })
+}
+
+/// The cap loops of a planar section through one or more bodies (Q4 of
+/// `specs/agent_mechanical_design.md` §4.2/§4.3).
+///
+/// `body_ids` defaults to every body of the open Part, so "section the model"
+/// is one call; each id may equally be a body's display NAME, as every
+/// body-taking tool accepts.
+pub(super) fn measure_section(
+    state: &mut EngineState,
+    kb: &mut dyn KernelBundle,
+    args: &Value,
+) -> Answer {
+    let SectionPlane {
+        origin: plane_origin,
+        normal: plane_normal,
+        name_warnings,
+    } = section_plane(state, kb, args)?;
+
+    let body_ids: Vec<String> = match args.get("body_ids") {
+        None | Some(Value::Null) => {
+            let all = crate::tools::rendered_body_ids(state);
+            if all.is_empty() {
+                return Err(ToolFailure::new(
+                    "BodyNotFound",
+                    "The open Part has no bodies to section.".to_string(),
+                    json!({ "body_ids": [] }),
+                ));
+            }
+            all
+        }
+        Some(Value::Array(ids)) => {
+            let mut out = Vec::with_capacity(ids.len());
+            for id in ids {
+                let id = id.as_str().ok_or_else(|| {
+                    ToolFailure::new(
+                        "InvalidArguments",
+                        "body_ids must be an array of body ids or names.".to_string(),
+                        json!({ "reason": "body_ids holds a non-string" }),
+                    )
+                })?;
+                out.push(require_body(state, id)?);
+            }
+            out
+        }
+        Some(_) => {
+            return Err(ToolFailure::new(
+                "InvalidArguments",
+                "body_ids must be an array of body ids or names.".to_string(),
+                json!({ "reason": "body_ids is not an array" }),
+            ))
+        }
+    };
+
+    let response = engine_call(
+        state,
+        kb,
+        "MeasureSection",
+        UiToEngine::MeasureSection {
+            body_ids,
+            plane_origin,
+            plane_normal,
+        },
+    )?;
+    let EngineToUi::SectionMeasured {
+        plane_origin,
+        plane_normal,
+        basis,
+        bodies,
+        declines,
+    } = &response
+    else {
+        return Err(unexpected("MeasureSection", "SectionMeasured", &response));
+    };
+
+    let mut out = json!({
+        "plane": { "origin": plane_origin, "normal": plane_normal },
+        "bodies": bodies,
+        "total_area_m2": bodies.iter().map(|b| b.area_m2).sum::<f64>(),
+    });
+    if let Some(basis) = basis {
+        out["basis"] = serde_json::to_value(basis).unwrap_or(Value::Null);
+    }
+    if !declines.is_empty() {
+        out["declines"] = serde_json::to_value(declines).unwrap_or(Value::Null);
+    }
+    if !name_warnings.is_empty() {
+        out["name_warnings"] = json!(name_warnings);
+    }
+    Ok(out)
+}
+
 /// The faces of one body, each with the `GeomRef` that names it (ICR-3).
 pub(super) fn face_list(
     state: &mut EngineState,

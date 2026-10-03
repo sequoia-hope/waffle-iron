@@ -130,9 +130,13 @@ pub(super) fn sketch_input_problem(entities: &[Value], constraints: &[Value]) ->
 }
 
 /// The plane a sketch is created on: where it is, and the face it came from.
-struct SketchPlane {
-    origin: [f64; 3],
-    normal: [f64; 3],
+///
+/// `pub(super)` since Q4: `measure_section` resolves its cut plane through
+/// [`resolve_plane`] so that every plane an agent can name for a sketch is a
+/// plane it can section with, in one resolver rather than two.
+pub(super) struct SketchPlane {
+    pub(super) origin: [f64; 3],
+    pub(super) normal: [f64; 3],
     /// The caller's chosen in-plane +u direction, when it gave one.
     x_axis: Option<[f64; 3]>,
     /// The caller's face ref, when it named one — carried into `BeginSketch`
@@ -181,7 +185,7 @@ fn vec3(value: Option<&Value>) -> Option<[f64; 3]> {
 /// A datum plane ref is read from the RAW JSON: the page's `DatumPlane` anchor
 /// is not a `waffle_types::Anchor` variant, so typing it first would refuse
 /// every origin-plane the user can pick.
-fn resolve_plane(
+pub(super) fn resolve_plane(
     state: &EngineState,
     kb: &mut dyn KernelBundle,
     plane: Option<&Value>,
