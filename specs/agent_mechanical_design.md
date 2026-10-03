@@ -389,6 +389,109 @@ solved placement before measuring. `body_measure` stays as it is and gains a
   closed form; rotating a solid rotates its principal axes.
 - **Thickness.** A shelled box (two boxes, Subtract) reports its wall to
   chord tolerance; a plate reports its thickness at every sample.
+- **Listings.** A box lists 6 faces / 12 edges / 8 vertices, with the edge
+  lengths exactly its three side lengths; a cylinder's rim is `2πr` exact; a
+  name assigned with `entity_name` comes back on the entity it was given to;
+  the listing is byte-identical across two from-scratch rebuilds in fresh
+  processes; the filter arms compose.
+
+#### Implementation notes (Q6)
+
+Landed 2026-10-03. Where the plan above left a choice open, this is the choice
+made and why.
+
+**An arc length needs THREE tiers, not Q1's two.** `Method` is
+`Exact | Mesh { chord_bound }`, and an edge has a case neither arm describes
+honestly: a curve whose SPEED has a closed form but whose integral does not.
+An ellipse arc and a hyperbola arc are incomplete elliptic integrals — calling
+such a number `Exact` overclaims, and calling it `Mesh` understates a quantity
+that never went near a tessellation. So `LengthMethod` is its own enum:
+`Exact` (a chord, `2πr`, `rΔθ`), `Quadrature { residual }`, and
+`Chords { chord_bound: Option<f64> }`. The quadrature's `residual` is the
+MEASURED difference against the same quadrature at twice the step count — a
+convergence witness rather than a constant a caller would have to trust — and
+the `Chords` bound is an `Option` because an imported body's polyline was
+sampled by someone else at a tolerance we do not know. `Chords` is documented
+as a LOWER bound: a chord is never longer than the arc it subtends.
+
+**The ellipse arm is D1a's integrator, not a second one.** `|dP/dt| =
+√(a²sin²t + b²cos²t)` depends on the two radii and not on the frame, so a 3D
+`EllipseArc` is handed to `Curve2::Ellipse` in a canonical 2D frame with the
+same radii over the same parameter interval. The length Q6 reports is then
+bit-identical to the length a drawing shows for the same curve, and the
+accuracy census that already exists on `Curve2::length` (relative error by
+aspect ratio, measured) covers both. `Curve2::length_with_steps` was added for
+the residual and `length()` now delegates to it; the hyperbola has no 2D
+counterpart to borrow and is integrated in `kernel_v2::measure` at the same
+density.
+
+**Lengths are taken on the CANONICAL half-edge.** A twin carries the negated
+normal and the reversed endpoints — the same point set the other way round —
+so a per-half-edge quadrature would hand the two sides of one edge numbers
+differing in the last bits by summation order. An agent that lists an edge
+twice must not see two lengths.
+
+**Order is by persistent id, and the ids are the whole reason it is stable.**
+`all_entity_pids` (D0) is content-seeded, so sorting by `(pid, root_pid)`
+survives a rebuild, an incremental edit and a fresh process. An entity with no
+id — a mesh-backed import — sorts after the ones that have them, by its
+canonical signature JSON, because some total order must exist and it must not
+be insertion order. The determinism oracle therefore travels as a saved
+DOCUMENT rather than as fixture code: a feature's uuid is part of its
+geometry's identity (D0 item 1 stamps faces from it), so two freshly authored
+documents legitimately have different pids, while two rebuilds of one document
+must not — which is also the scenario a user cares about, reopening the file.
+
+**The face arm hands out `face_list`'s own reference; edges and vertices get
+`Selector::Pid`.** §4.2 says `face_list` becomes the `face` arm, so the face
+path calls the same `face_refs` builder and the two tools cannot drift (a ref
+a user picks in the viewport, a ref `face_list` lists and a ref `entity_list`
+lists are one ref by construction). Edges and vertices have no such shared
+builder and do have content-seeded ids, so their ref is the `Selector::Pid`
+one D0 landed, minted `Strict` exactly as N1 mints a name's — a pid never
+rebinds, so `BestEffort` would be a policy that cannot apply. Every entity
+carries `pid`/`root_pid` regardless, so a caller who wants the durable handle
+to a face has it without the ref. `face_list` STAYS: it is in the manifest, the
+GUI routing pin and the N1 tests, and nothing is served by breaking it.
+
+**Faces come from `list_faces`, not from the mesh's face ranges.** `face_list`
+iterates the render mesh, so a face that renders no triangles is invisible to
+it; `entity_list` iterates the kernel's own face list and leaves `geom_ref`
+null for such a face. That is strictly more informative and it is honest about
+which half is missing.
+
+**The axis LINE comes from `entity_axis`, because `AxisDescriptor` has no
+point on it.** N0's descriptor is deliberately rotation- and
+position-invariant (direction, radii, extent), which is what a fingerprint
+needs and not what "where is this cylinder's axis" needs. So each entity
+carries both: the descriptor inside `signature.axis`, and `axis` —
+`{kind, origin, direction, radius}` from `KernelIntrospect::entity_axis` — for
+the line itself. A planar face has no `axis` at all: its orientation is
+`signature.normal`, which §4.2 asks for and which N0 already fills in. A
+full-turn curved face has `normal: null` and the descriptor, per N0.
+
+**The body frame is Q3's answer, carried.** `principal_axes`,
+`principal_moments` and `centroid` come from `mass_properties` at the default
+density, with Q3's own `method`, so the axes an agent reads here and from
+`measure_mass` cannot disagree. A kernel refusal (a mesh-backed import) fills
+`unavailable` with the refusal verbatim instead of failing the listing: a
+listing of edges should not die because a body has no closed-form moments.
+
+**The filter is three independent arms, and no new `Filter` variant.** `query`
+is the `TopoQuery` vocabulary `face_list` and `Selector::Query` already share,
+evaluated by the same `passes_all_filters`. `name` (a `*`/`?` glob) and `bbox`
+(containment, boundary included) are evaluated in the handler instead, because
+a `TopoSignature` carries no name and `Filter` is signature vocabulary — a
+`Filter::NameGlob` would be a name concept in a geometry type, reaching into
+feature-engine's table from waffle-types. The arms compose by conjunction, and
+an arm that cannot be evaluated EXCLUDES: an unnamed entity does not pass a
+glob and a signature with no bbox does not pass a bbox. A listing answers
+"which entities satisfy this", and one whose data cannot answer does not.
+
+**Not in Q6.** Assembly instance scoping (the same gap Q2 has: a world-space
+transform step that is not in this increment), and `kind` beyond the three
+listable entities — a shell or a solid is the body, which `body_measure` and
+`measure_mass` already describe.
 
 ## 5. N — Stable semantic references
 
