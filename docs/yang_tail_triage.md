@@ -43,6 +43,176 @@ after the reconciliation run (release, 8 jobs, 360 s; wall 577 s, F0085
 regression since 2026-08-01 is outstanding (checked over every commit of
 `results.json`).
 
+## 2026-10-03 — prospector seed 2 (200 candidates) adjudicated: **three SILENT WRONGs** (two of them refuted by arithmetic alone), ten loud families with no corpus customer, two Stage-2 arrangement hangs; promoted P0010–P0022; **corpus not re-measured this session**
+
+`PROSPECT_SEED=2 PROSPECT_COUNT=200` (spec `specs/assay_prospector.md`) returned
+172 SUPPORTED_CORRECT, 21 ERROR, 3 SUPPORTED_WRONG, 2 TIMEOUT and 2
+UNSUPPORTED(coplanar-boolean) in 991 s at 8 jobs — 17 finding signatures.
+`prospect_minimize` (1572 s, 16 of 17 signatures; the `timeout` row had no
+lineage to minimize — see "The two TIMEOUTs" below) reduced them to 2–5 steps
+each. Grouped by error TEXT with the boolean VERB stripped, the 21 ERROR rows
+are **eleven** families, not fifteen.
+
+### The three SUPPORTED_WRONG rows are three different silent wrongs
+
+All three were localized by bisecting the chain: each prefix of the document
+was judged on its own and the exact-membership lattice read at 192/256/384/512
+cells on two lattice phases, so the first op at which kernel and oracle part
+is named, not guessed. The lattice is stable to < 1 % across all eight rungs
+in every case, so the 10–29 % gaps are not its noise.
+
+| candidate | first divergent op | kernel | exact (stable) | rel | promoted |
+|---|---|---|---|---|---|
+| seed 2 index 159 (8 ops) | op 6, an explicit `BooleanCombine` Union | 6.664371e-7 | 1.490760e-6 | −55.3 % | **P0010** (hand-reduced to 4 ops) |
+| seed 2 index 89 (8 ops) | op 7, the THIRD chained `BooleanCombine` Union | 3.798833e4 | 4.421668e4 | −14.1 % | **P0011** (hand-reduced to 5 ops) |
+| seed 2 index 129 (7 ops) | op 6, a `ThroughAll` cut | 9.721746e4 | 7.580963e4 | +28.2 % | **P0012** (minimized to 3 ops) |
+
+**P0010 / P0011 — a `BooleanCombine` whose operand is a MULTI-BODY output
+emits only one body's worth of material.** Neither needs an oracle: the
+live-volume total DROPS across a union, which is arithmetically impossible.
+
+- P0010 (4 ops): two square bosses that never meet (`merge: true`, so the
+  engine keeps two bodies — 1.273494e-6 and 7.830e-8), a standalone circle
+  boss (6.4706e-7), then a Union of the SECOND boss's `Main` with the
+  standalone. Live set: **3 non-empty bodies totalling 1.998854e-6 → 2
+  totalling 7.253601e-7**, which is exactly the union's own two operands
+  (7.830e-8 + 6.4706e-7). The UNINVOLVED first body — 64 % of the model — is
+  gone, watertight, χ 4, no error and no warning.
+- P0011 (5 ops): box boss (1114.81), standalone box boss (3468.21), Union of
+  the two (they are DISJOINT, so the output is still two bodies and the total
+  is unchanged at 4583.02 — CORRECT), standalone box boss (9563.76; 3 bodies,
+  14146.78 — CORRECT), then a second Union anchored on the FIRST union's
+  `Main`. Result: **2 bodies, 10678.57 = 1114.81 + 9563.76 exactly** — boss 1
+  ∪ boss 3. The second body of the first union's output (3468.21, 25 %) is
+  silently dropped.
+- Both are byte-identical in `rel` at ×1e-3 AND ×1e3, and their smallest
+  authored lengths are 1.24e-3 (1 240× `MIN_FEATURE_SIZE`) and 3.74
+  (3.7e6×) — pure combinatorics, no tolerance in sight.
+
+**P0012 — a `ThroughAll` cut whose target lies entirely behind its sketch
+plane removes nothing. Root cause CONFIRMED BY CODE READING, not inferred.**
+The 3-op minimum is a 2×2 box boss at the origin (16), a 42.4-side box boss at
+[10, 20, 30] depth 40 (72 000, disjoint from the first), and a ThroughAll cut
+with a 69-side square on a plane at [25, 49, 53], normal [0.67, 0.72, −0.16].
+The kernel reads **72 016 = 72 000 + 16 exactly**; the lattice says the cutter
+should sweep 9 870 (13.7 %) out of the big box.
+
+- The target's projections on the cut normal are [−11.74, 38.04] and the
+  sketch plane sits at 43.71 (`FE_CUT_TRACE=1`), so the body is ENTIRELY
+  behind the plane and `should_reverse_for_cut` correctly decides
+  `reverse = true`.
+- But `resolve_depth(DepthMode::ThroughAll, …)`
+  (`crates/feature-engine/src/rebuild.rs:1410`) measures
+  `compute_solid_extent` along the **UNREVERSED** sketch normal — where the
+  extent past the plane is ~0 — and returns `extent + 1.0` floored at an
+  **ABSOLUTE 1.0 m**. The reversal is only computed afterwards
+  (same file, ≈ line 881). The 1 m cutter therefore spans projection
+  [42.71, 43.71] and never reaches 38.04.
+- The scale behaviour matches the diagnosis exactly: ×1e3 keeps the WRONG
+  (rel +1.280e-1), ×1e-3 reads **CORRECT** because the absolute 1 m margin
+  then dwarfs the whole model. Smallest authored length 2.0 = 2e6×
+  `MIN_FEATURE_SIZE`.
+
+An oracle-side defect was found and excluded on the way: on index 159 the
+exact chain's cut auto-reversal — a bbox mid-extent proxy for the engine's
+B-Rep-vertex reading — disagreed with the engine on op 7 and SAID SO in a
+note ("cut auto-reversal decided on the merged body … verify with
+`FE_CUT_TRACE=1`"). Authoring that cut's `direction` explicitly, so neither
+side auto-reverses, left the kernel's volume bit-identical and moved the
+ORACLE from 3.479847e-6 to 3.657886e-6 — the gap WIDENED to −32.2 %. The
+auto-reversal proxy is a real harness weakness (it should DECLINE, not flag,
+when its own note says the two readings differ), but it is not the cause of
+any of the three rows; the promoted prefixes all sit upstream of it.
+
+### Ten loud families with no current corpus customer — P0013–P0022
+
+Each is the smallest example of its error text, re-judged on the current
+kernel at promotion, feature-floor checked, and judged again at ×1e-3 and
+×1e3 (a rescaled `.recipe.json` through `PROSPECT_RECIPE`). CLAUDE.md records
+the Stage-4 relocation walls, the Stage-3 `AmbiguousCurve` class and the
+`ring rejected by CDT` family as having **no corpus customer left** — these
+ten give those families customers again, at 2–5 ops.
+
+| id | minimal recipe | ops | error text | ×1e-3 / ×1e3 | floor | cost |
+|---|---|---|---|---|---|---|
+| P0013 | `circle:boss star7(0.70):cut` | 2 | `TessellationFailed "ring rejected by CDT (degenerate/self-intersecting)"` — P0002's own shape, different needle ratio | ERROR / ERROR (same class) | 5 180× | 0.6 s |
+| P0014 | `convex5:boss gear10:rev-cut` | 2 | Stage-4 `LocalRefinementRequired` around vertex **4294967295** (u32::MAX — a sentinel, not a vertex) | **CORRECT** / ERROR (same class) | 3.09e6× | 77.6 s |
+| P0015 | `convex4:boss gear27:boss convex5:rev-cut` | 3 | Stage-4 `RelocationCrossedCarrierVertex` (the R0085 family) | ERROR / ERROR (same class) | 648× | 13.9 s |
+| P0016 | `convex4:boss convex4:rev-cut convex3:cut` | 3 | Stage-3 `AmbiguousCurve { candidates: 0, matched: 0 }` — **zero** candidates, so no curve was proposed at all | ERROR / ERROR (same class) | 3e4× | 0.4 s |
+| P0017 | `convex4:boss nonconvex10:rev circle:cut` | 3 | `CurvedGeometryMismatch "bounded cone patch must have exactly one material-CCW loop"` | ERROR (a degenerate zero-area input face) / ERROR (a CDT ring reject) — the class MOVES, so judge at its own scale | 91× | 1.1 s |
+| P0018 | `circle:boss circle:sym nonconvex7:cut` | 3 | the cylinder arm of the same postcondition | ERROR / ERROR (same class) | 8.9e7× | 1.0 s |
+| P0019 | `convex4:boss nonconvex5:rev convex4:cut` | 3 | `InvalidBooleanOutput "full-circle edge sense is underivable"` (the wall R0004 once hit) | ERROR / ERROR (same class) | 1.34e5× | 0.2 s |
+| P0020 | `circle:boss gear12:∩ convex4:∩` | 5 | `malformed B-Rep topology: face 0: holed lateral CDT failed: duplicate (coincident) loop vertex in CDT input` — an INPUT rejection, so the first Intersect's OWN output is malformed | ERROR (a different class: an interior-junction / weld-band ambiguous edge-split) / ERROR (same class) | 83× | 10.6 s |
+| P0021 | `convex4:boss circle:boss circle:boss` | 3 | auto-union `SelfIntersectingBooleanOutput { penetrations: 5 }` — P0007's signature on three plain bosses | ERROR / ERROR (same class) | 710× | 0.4 s |
+| P0022 | `convex5:boss circle:boss circle:cut convex4:boss circle:thru` | 5 | `malformed B-Rep topology: face 2: interior junction … not contained by any lateral triangle — the mint would be silently dropped` | ERROR (same class) / **CORRECT** | 400× | 0.9 s |
+
+"floor" is the smallest authored length as a multiple of `MIN_FEATURE_SIZE`
+(1e-6 m) — every promotion is at least 83× above it, so none is the A14.2
+sub-floor wall that retired a seed-1 finding. "cost" is wall time in release
+on this box. **P0014 is the only one NOT pinned in
+`smoke_corpus_boundary_categories`**: at 77.6 s release (≈ 350 s in the debug
+build that gate also runs in) it is beyond the "a pin must be CHEAP" policy,
+the same disposition as R0044 and F0082; `full_corpus_categorized` and the
+committed `results.json` carry its verdict.
+
+### Four findings RETIRED, with reasons
+
+| finding | why it is not promoted |
+|---|---|
+| `cone periodic strip (2 encircling rims) not yet supported (KV14 Slice E holed frustum band)` ×3 (indices 61, 85, 105; minima `convex4:boss convex4:rev convex6:boss convex4:cut` and `convex4:boss convex4:rev-cut convex4:boss`) | a DOCUMENTED deferred sub-slice, retired for the same reason on seed 1 |
+| `GeomRef resolution failed: Output key Main not found` ×1 (index 9; minimum `convex4:boss convex4:boss convex4:∩ convex4:∪`) | not kernel geometry. Its 3-op prefix (the two bosses and the Intersect) judges **SUPPORTED_CORRECT with ZERO bodies**: the Intersect's operands are disjoint, it annihilates the model, and the only loud symptom is the NEXT op's GeomRef failure. See the harness note below |
+| `boolean_union … RelocationCrossedCarrierVertex` ×1 (index 169; minimum `convex4:boss nonconvex9:rev circle:boss`, 3 ops) | same error TEXT as P0015, reached through the auto-union path instead of an explicit subtract. Recorded here so a later session can promote it if P0015's conversion misses it |
+| `boolean_union … TessellationFailed "ring rejected by CDT"` ×2 (indices 86, 140; minimum `circle:boss convex7:cut convex6:boss`, 3 ops) | same error TEXT as P0013, reached through the auto-union path. Recorded for the same reason |
+
+### The two TIMEOUTs are one shape: a 0.74 M-triangle operand in Stage 2
+
+Indices 16 and 78 both burned the whole 900 s CPU budget and left **no
+candidate files at all** — not even a lineage — so the report line carried
+`steps: 0` and an empty summary and named nothing re-runnable. Re-running each
+child by hand under `YANG_FACE_CENSUS=1` (so each tessellation prints) shows
+the identical shape:
+
+- a GEAR REVOLVE operand with **530 (index 16) / 586 (index 78) cone faces**
+  is tessellated twice — once at ≈ 192 tris/face (≈ 0.10 / 0.16 M triangles),
+  then again at ≈ 1 340 / 1 260 tris/face, giving **710 200 / 740 880
+  triangles**;
+- the other operand is a 9- or 6-face plane body of 24 / 12 triangles;
+- `YANG_INPUT_SELFX_PROBE=1` completes on both (`A: tris=740880 improper=0
+  unresolved=0`, `B: tris=12 improper=0 unresolved=0`), and then NOTHING else
+  prints — no coplanar probe, no chart probe, no B-Rep probe.
+
+That input self-intersection scan is the last step before
+`backend.labeled_arrangement(mesh_a, mesh_b)` (`crates/yang-rs/src/boolean.rs`,
+"(1) Stage 2: full labeled arrangement"), so **the spin is inside the Stage-2
+exact labeled arrangement on a 0.74 M-triangle operand**. It is not merely
+"slow by a constant": index 78 re-run with no CPU budget was still inside that
+call at **1 371 s CPU** (23 min wall, this box, lightly loaded).
+
+Neither is promoted into the corpus: a case that cannot be judged inside 900 s
+would add that cost to every assay run, and the right first step is the
+cost of the arrangement on a gear revolve's conical bands, not a pinned
+verdict. The TOOLING gap is fixed in the same commit:
+`judge_generated` now writes `<id>.lineage.json` BEFORE the build, so a
+build-phase timeout is re-playable through `PROSPECT_RECIPE` and minimizable
+like any other finding.
+
+### Two harness defects the run exposed (not kernel findings)
+
+1. **An empty document reads SUPPORTED_CORRECT.** Censusing the live body
+   count of all 172 CORRECT candidates (one `prospect_judge` measurement per
+   candidate) found **4 with ZERO non-empty bodies**: indices 53, 84, 111 and
+   199 — and every one of them ends in an `∩` (Intersect combine) whose
+   operands are disjoint. 2.3 % of the CORRECT column is "the chain
+   annihilated itself", which the categorizer cannot currently distinguish
+   from a correct result. (Index 133 could not be measured inside 120 s.)
+2. **The exact chain's cut auto-reversal is a bbox proxy for a B-Rep-vertex
+   decision**, and when its own `tool_alone` reading would flip the verdict it
+   emits a note and picks one anyway (`crates/test-harness/src/assay/
+   exact_membership.rs`, "cut auto-reversal decided on the merged body").
+   On seed 2 index 159 the engine's `FE_CUT_TRACE` said `reverse=true` and the
+   chain had chosen `false`. It should DECLINE (`indeterminate`) in that case
+   rather than flag a volume verdict it cannot stand behind.
+
 ## 2026-09-30 — P0008 / P0009 CONVERT: a curved face's boundary-only CDT may not carry an interior chord whose two ends lie on the same PLANAR neighbor (kernel-v2 render patch AND yang Stage 1); the seed-1 index-19 lineage re-minimized after P0005 was a SILENT WRONG plus its loud Stage-0 twin; canonical **310C / 0W / 7E / 4EE / 0T + 0 UNSUPPORTED** over 321 cases (release, 8 jobs, 900 s; wall 958.9 s; R0085 595.8 s, F0072 558.5 s, F0085 392.5 s; exactly two category moves — the new P0008 and P0009 rows — and zero detail moves; the first run's R0085 regression is closed by the visible-lift gate)
 
 **The lineage.** P0005 was seed-1 index 19 minimized with a SQUARE revolve.
