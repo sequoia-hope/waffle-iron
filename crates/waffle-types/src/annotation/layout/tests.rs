@@ -186,6 +186,7 @@ fn a_view_layout_mirrors_the_projected_view_including_its_tags_and_box() {
             visibility: Visibility::Visible,
             kind: CurveKind::Edge,
             source: None,
+            depth: None,
         },
         ProjectedCurve {
             geometry: Curve2::Line {
@@ -195,6 +196,7 @@ fn a_view_layout_mirrors_the_projected_view_including_its_tags_and_box() {
             visibility: Visibility::Hidden,
             kind: CurveKind::Silhouette,
             source: None,
+            depth: None,
         },
     ]);
     let layout = ViewLayout::from_view(&view);
@@ -228,6 +230,7 @@ fn a_layout_round_trips_through_json_with_every_annotation_arm() {
         visibility: Visibility::Visible,
         kind: CurveKind::Edge,
         source: None,
+        depth: None,
     }]))
     .with_annotations(vec![
         AnnotationLayout::Dimension {

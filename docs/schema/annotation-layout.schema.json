@@ -604,7 +604,7 @@
       "type": "object"
     },
     "Visibility": {
-      "description": "Whether the viewer can see a curve. D1a and D1b tag everything `Visible` —\na silhouette can be hidden too, and `Hidden` is produced by D1c.\n\nSerde-able (unlike [`Curve2`], which is built on the serde-less\n`cad_primitives::Point2`) so the app's layout record\n([`crate::annotation::layout`]) can carry the tag straight across the\nWASM boundary instead of mirroring it.",
+      "description": "Whether the viewer can see a curve.\n\nD1a and D1b tagged everything `Visible`; since D1c the kernel splits each\nprojected curve at its crossings and classifies each piece, so `Hidden` is\na produced answer and a drawing's HIDDEN layer is populated.\n\nSerde-able (unlike [`Curve2`], which is built on the serde-less\n`cad_primitives::Point2`) so the app's layout record\n([`crate::annotation::layout`]) can carry the tag straight across the\nWASM boundary instead of mirroring it.",
       "enum": [
         "Visible",
         "Hidden"
