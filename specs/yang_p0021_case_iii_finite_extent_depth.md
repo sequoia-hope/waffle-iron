@@ -246,10 +246,25 @@ converted nothing. The same omission is why a `--release`
   gate; the meshes exactly disjoint; an on-face witness), and the five
   sharers above are byte-identical, but that is not a corpus.
 - **P0021's meta keeps `derived_meta: true`** and its
-  `smoke_corpus_boundary_categories` pin stays `Error`. The adjudication
-  the gated-on run supports (the lineage's χ 6 / 4 bodies /
-  `4.7617355307854375e-5`) is recorded here, and moves into the meta in
-  the PR that flips the gate — §8's rule, unchanged.
+  `smoke_corpus_boundary_categories` pin stays `Error` — §8's rule,
+  unchanged. The evidence the flip PR needs is recorded here, and it
+  carries a question the flip PR MUST answer rather than inherit:
+
+  Gated on, P0021 measures **1 body, χ 0, volume `3.922430276348064e-8`**
+  (and the lineage 4 bodies, χ 6, `4.7617355307854375e-5`). **χ 0 is not
+  the meta's `euler_target: 2`** — the run reads "all checks passed" only
+  because `derived_meta: true` suppresses the χ comparison, so
+  SUPPORTED_CORRECT here does NOT certify the genus. χ 0 means genus 1,
+  and genus 1 is what this shape should have: the three solids form an
+  overlap CYCLE (prism ∩ bossA, prism ∩ bossB and bossA ∩ bossB all
+  non-empty with an empty triple intersection), which closes exactly one
+  handle — and bossA ∩ bossB is the `6.162267e-6` lens this fix is about,
+  so the handle exists only once the lens is resolved. That reasoning is
+  a hand argument, not an oracle: the flip PR owes an independent reading
+  (the Cherchi sidecar via `TOPO_SIDECAR=1 adjudicate_case`, or the
+  exact-membership lattice at two rungs) before writing `euler_target: 0`
+  and clearing the flag. Note the standing trap — the lattice's χ
+  diverges on grazing operands, and this case is nothing but a graze.
 - **The §4.5.4 retry trigger** (`natural_broken` from the coarse-mesh
   `output_improper_count`) cannot see this class; §1's second observation.
   Its own follow-up.

@@ -1224,11 +1224,19 @@ moves**: C0105 C/C, C0116 C/C (136.5 / 125.0 s), C0118 E/E (its designed
 `SubSagittaGrazeIntersection`), C0057 C/C, P0007 C/C.
 
 **Open:** the always-on flip (needs `full_corpus_categorized`, P10 — the cost
-risk is a CORRECT case re-meshed by the ladder, unmeasured here); the meta
-keeps `derived_meta: true` until that PR; and the §4.5.4 retry's trigger
-(`natural_broken` from `output_improper_count` on the boolean-resolution mesh)
-provably cannot see this class — it read 0 improper contacts, so the retry
-never ran.
+risk is a CORRECT case re-meshed by the ladder, unmeasured here); the §4.5.4
+retry's trigger (`natural_broken` from `output_improper_count` on the
+boolean-resolution mesh) provably cannot see this class — it read 0 improper
+contacts, so the retry never ran; and the **χ adjudication**. Gated on, P0021
+measures **1 body, χ 0, volume `3.922430276348064e-8`** — χ 0, NOT the meta's
+derived `euler_target: 2`; "all checks passed" only because `derived_meta:
+true` suppresses the χ comparison. Genus 1 is what the shape should have (the
+three solids form an overlap CYCLE whose third edge IS the `6.162267e-6` lens
+this fix resolves), but that is a hand argument: the flip PR owes an
+independent reading before writing `euler_target: 0` and clearing the flag —
+and the standing trap applies, the lattice's χ diverges on grazing operands
+and this case is nothing but a graze, so use the sidecar
+(`TOPO_SIDECAR=1 adjudicate_case`).
 
 #### P0013 — ANCHORED 2026-10-03; HALF-LANDED, open step = the §4.3.3 guard flip
 

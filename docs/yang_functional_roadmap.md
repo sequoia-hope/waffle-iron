@@ -45,7 +45,15 @@
 > — the always-on flip owes `full_corpus_categorized` in release (P10; the
 > cost risk is a CORRECT case the ladder re-meshes), which this session was
 > not permitted to run — so the canonical score is unchanged, P0021 still
-> counts as **E**, and its pin and `derived_meta` have not moved. Recorded
+> counts as **E**, and its pin and `derived_meta` have not moved. One
+> adjudication finding for that PR: gated on, P0021 measures **1 body, χ 0,
+> volume `3.922430276348064e-8`** — χ 0, not the meta's derived
+> `euler_target: 2`; "all checks passed" only because `derived_meta: true`
+> suppresses the χ comparison. Genus 1 is what the shape should have (the
+> three solids form an overlap CYCLE whose third edge is the lens this fix
+> resolves), but that needs an independent reading via the sidecar, not the
+> lattice — whose χ diverges on grazing operands, and this case is nothing
+> but a graze. Recorded
 > en route: the §4.5.4 rim-graze retry could never have rescued this class
 > either, because its `natural_broken` trigger is `output_improper_count` on
 > the **boolean-resolution** mesh — the very mesh whose coarseness is the
