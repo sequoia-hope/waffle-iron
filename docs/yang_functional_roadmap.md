@@ -9,6 +9,55 @@
 
 ## 0. Honest status (refreshed 2026-06-26; addendum 2026-09-04 below)
 
+> **2026-10-03 (night, third) refresh — P0016 CONVERTED; corpus NOT
+> re-measured this session.** Deviation **N71**, and it is a MIRRORED PAIR.
+> Stage 1 sizes every curved chart against one operand-level chord budget
+> (`operand_chord_budget` = `curved_chord_bound`, else
+> `ellipse_rim_chord_bound`), and its own comment there names that value "the
+> operand's chord budget **as Stage 3/4 read it back**". Only the CYLINDER arms
+> read it back. Both CONE arms — Stage-3 `cone_chord_tol_for_owner` and
+> Stage-4 `cone_chord_budget_from_owner` — demanded a `Curve::Circle` rim on
+> the band's own face and called its absence a "producer fault". A cone PATCH
+> re-entering from a prior boolean has no such rim: P0016's cone-owning
+> operand (the output of a square revolve-cut sweeping four cone bands) carries
+> **2 ellipses + 6 hyperbolas + 10 segments and zero circles**, so Stage 3
+> STOPped with `AmbiguousCurve { candidates: 0, matched: 0 }` on edge (6,13)
+> *before* `ssi_rs::intersect` was ever called — neither an ambiguity nor
+> §4.3.3's Case IV, which is a disposition for a solve that RAN
+> (`refs/text/yang2025_hybrid_boolean.txt:518-537`). Localizing it needed the
+> probe first: that one error text has FOUR producers, `Display` labels all of
+> them "Stage-3", and only two were instrumented — the first probe run printed
+> NOTHING, which is what pointed at the unprobed sites. `YANG_S3_AMBIG_PROBE`
+> now covers all four. Fixing the Stage-3 arm alone moved the STOP one stage
+> down to the twin (`LocalRefinementRequired`, site `cone_ellipse_budget`),
+> where the §4.5.2 ladder could not help: `YANG_452_PROBE` shows rungs
+> `[2.0, 4.0]` taking the operand 20 → 20 → 22 triangles before "BUDGET
+> EXHAUSTED", because a missing band is not a resolution problem. Both arms now
+> delegate to one single source, `owner_stage1_chord_budget`; the per-band N38
+> bound still wins wherever a rim Circle exists, so every circle-rimmed cone
+> case — the multi-band gear revolve N38 was written for included — is
+> byte-identical, and the loud producer fault survives for an owner with no
+> curved rim at all. **P0016 ERROR → SUPPORTED_CORRECT (0.8 s)**, meta
+> adjudicated by the exact-membership lattice (two components / `boundary_chi`
+> 4 on all fourteen rungs ⇒ `euler_target` 4 with `expected_shell_count` 2;
+> volume 4.860e-5 ± 1e-2 from the six finest rungs, kernel 4.876074e-5) and
+> `derived_meta` cleared; the corpus pin flips to `SupportedCorrect`. Pins
+> `crates/yang-rs/src/tests_unit/n71_cone_band_readback.rs` (five cases,
+> mutation-checked one arm at a time). 29 sharers re-judged in release
+> `single_case` — every cone / revolve / M5-degree-4 customer and every open C-
+> and P-series ERROR row — with **zero moves besides P0016**; `cargo test -p
+> yang-rs --release` green. **Corpus NOT re-measured** (no full assay this
+> session), so the canonical score stands at the late-night figure with one
+> known ERROR → CORRECT pending: expect 318C / 13E over 336. C0109, the other
+> open row carrying `AmbiguousCurve{0,0}`, was probed and does NOT share the
+> locus (internally tangent spheres, `ssi_rs::intersect` correctly empty) —
+> it stays ERROR. Next: P0017/P0018, P0019, P0020, P0021; N69 graze-aware ray
+> selection. One pre-existing red on this branch, not from N71:
+> `kernel-v2 --test q2_interference ::
+> an_intersect_region_outside_the_operands_stops_instead_of_answering` expects
+> `Ok` where today's N69 netting now raises `InnerLabelOutsideInputBounds`
+> (verified by reverting both N71 hunks — still FAILED).
+
 > **2026-10-03 (late night) refresh — MEASURED.** Canonical corpus **317C / 0W / 14E / 5EE / 0T + 0 UNSUPPORTED over 336 cases** (release, 8 jobs, 900 s; wall 1237.7 s; R0085 746.9 s, F0072 627.8 s, F0085 461.0 s). Versus the night refresh (314C / 16E over 334): exactly four category moves, all conversions/promotions — **P0014 and P0015 CORRECT** (the LPI pencil weld; the §4.5.2 ladder runs past its ceiling), **P0023 CORRECT and P0024 EXPECTED_ERROR** (the edge-contact pair, loud by the N69 containment proof) — and **zero regressions**. The 14 ERROR rows are the seven loud-by-design C-series walls + P0013 (guard off: the guard-on run measured 312C/15E/3T — R0085 regressed, R0003/R0054/R0081 timed out; local-density follow-up in progress) + P0016–P0021. Next: P0017/P0018 (in progress), P0016, P0019, P0020, P0021; N69 graze-aware ray selection.
 
 > **2026-10-03 (night, second) refresh — P0014 CONVERTED; corpus NOT re-measured this session.** The evening anchor's "2-ULP un-relocated ARRANGEMENT twin, owner = the producer-side weld" is now named one layer up, and it is deviation **N70**. `CHERCHI_VERT_PROVENANCE=1e-12` on P0014's failing op (`convex5:boss gear10:rev-cut`) shows the twin is an **LPI PENCIL**: a Stage-1 tessellation vertex on the gear's cone flank (`B#8153`) lies on the boss plane `[A#1,A#0,A#7]` to within 2.73e-13 at coordinate scale 651 (relative 4.2e-16, 2 ULP) but NOT exactly, so the exact arrangement mints one LPI per incident mesh edge — `line[B#8119->B#8153]`, `line[B#8187->B#8153]`, `line[B#8153->B#8188]`, `line[B#8153->B#8154]`, `line[B#8153->B#8120]` — and emits the vertex too (`EXPLICIT B#8153`): six output vertices for one geometric point, and all four sub-floor twins in that mesh have the identical signature (one shared line endpoint, one pierced plane triple). **Stage 2 is the producer and Stage 2 is right**: every pair's EXACT separation is non-zero (`d_exact` 2.822e-13 … 7.410e-15, rationals from the soup's own `VertexCoords`), so an exact de-duplicator — ours or the C++ reference — must emit them all; no sidecar arrangement diff is owed and the port is not diverging. Each existing weld skipped the pencil for a documented reason: the I6 weld is BIT-EXACT for curved operands (it did fuse the two members that round identically, `out(143,148) d=0.000e0` and `out(147,8296) d=0.000e0`) and KV15's near-weld needs every incident triangle planar; (3c) §4.4.1(b)'s degeneracy detector is triangle AREA and the twin triangle is a NEEDLE (`area_d=2.489e-11` >= `floor^2`); (3b') N47 is `moved`x`moved` only and both twins are `moved=false` — its own comment already named this population ("un-relocated arrangement verts needing the Stage-0 fix", R0012/R0098). **The fix splits the decision along the knowledge boundary**: `cherchi-rs` records the exact, tolerance-free half (`LabeledArrangement::lpi_through_vertex` — every emitted LPI paired with each endpoint of its generating LINE that is itself an emitted explicit vertex, the per-VERTEX analog of `source` and `intersection_edges`, with the same "may be empty from a producer that does not track it" contract), and `yang-rs`'s `boolean()` step (2b) applies the band it already owns — the UNCHANGED per-pair KV10 band `TAU_WORK*(1+max|coord|)` — welding the pencil onto the explicit operand vertex's root. No threshold moved, no acceptance widened; generic transversal geometry records pairs and welds none. The exact membership is what makes it safe where the blanket near-weld is not (the curved near-coincidences KV10 preserves are generated by DIFFERENT surfaces and never stand in the relation "this LPI's own generating line ends at that vertex"), and it is not the reverted hazard — the M8 holed-disc increment-3 revert (R0091, Euler -4) was an ABSOLUTE `MIN_FEATURE_SIZE` criterion applied globally in Stage 4, whose own exit condition was "scale-aware or at the producer". Nine welds fire on P0014, exactly the four clusters the provenance probe named. `P0014: ERROR (28.4s) -> SUPPORTED_CORRECT (7.9s)`, meta adjudicated and `derived_meta` cleared (exact-membership lattice, 4 cell counts x 2 phases: `boundary_chi` 2 / 1 component / 1 body on ALL EIGHT rungs; the volume does not converge tightly on a 10-tooth gear, so `expected_volume` 2.701028e8 is the two finest rungs' mean with `tol_rel` 7e-3 = the measured finest-rung half-spread 6.71e-3, and the kernel reads 2.702750856e8, rel +6.38e-4). Pins in `cherchi-rs/src/labeling/native.rs` and `yang-rs/src/tests_unit/p0014_lpi_pencil_weld.rs`, RED->GREEN and mutation-checked in four directions (band removal, min-index survivor, no re-flatten, a band inside the producer's record). Spec `specs/yang_p0014_arrangement_lpi_pencil_weld.md`. Left loud with zero customers, recorded not changed: TPI pencils, the §4.4.1(a) `t ~ 0|1` unzip refusal (Fig-11(b)/(c) would MERGE), and the §4.5.2 ladder's measured inertness on this operand pair (`b 15116 -> 15116` at both rungs). **Corpus not re-measured**; **27 sharers were re-judged singly instead — ALL unchanged SUPPORTED_CORRECT, zero moves** (the named gear / §4.5.1 customers plus every ledger row whose text mentions a twin, a weld, KV10/KV15 or the I6 guard: R0085 818.4 s, F0072 756.2 s, R0044 536.0 s, R0019 487.6 s, F0085 455.7 s, R0081 347.8 s, R0053 342.2 s, R0032 113.7 s, R0003 97.3 s, F0082, F0064, R0070, R0025, R0050, R0012, R0074, R0098, R0004, R0049, F0060, R0095, C0065, R0011, R0100, R0017, R0038, R0099 — CPU times run high across the board because the box was at load 34-44 on 24 cores, and the budget is CPU-based so the verdicts are load-insensitive). `smoke_corpus_boundary_categories` passes with P0014 NEWLY PINNED there (its conversion took it from 77.6 s to 7.9 s, clearing the "a pin must be CHEAP" bar it previously failed). See `docs/yang_tail_triage.md` 2026-10-03 (night). Next: P0013 (CDT ring rejection), then P0016-P0021, then `prospect_run` seed 3.

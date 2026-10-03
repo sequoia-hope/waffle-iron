@@ -500,64 +500,61 @@ pub(crate) fn chord_tol_for_curved_owner(
         InputId::A => a,
         InputId::B => b,
     };
-    match curved_chord_bound(owner.edges()) {
+    // Spec `yang_s3_ellipse_rim_chord_bound` T2: an owner with NO Circle
+    // rim but ellipse rims (obliquely-trimmed cylinder re-entering from a
+    // prior boolean, KV14 vocabulary) gets the Stage-1 ellipse-chain
+    // bound — the guarantee its samples actually carry, not a widening.
+    // M5 K11: an owner bounded by procedural surface-pair edges alone (a
+    // quartic-bounded body re-entering, the vesica-prism shape) carries
+    // the pair chains' own bound — again the guarantee its samples carry.
+    // N71: that ladder is now `owner_stage1_chord_budget`, the SINGLE source
+    // both the cylinder and the cone arms read back (A14.3).
+    match owner_stage1_chord_budget(owner) {
         Some(t) => Ok(t),
-        // Spec `yang_s3_ellipse_rim_chord_bound` T2: an owner with NO Circle
-        // rim but ellipse rims (obliquely-trimmed cylinder re-entering from a
-        // prior boolean, KV14 vocabulary) gets the Stage-1 ellipse-chain
-        // bound — the guarantee its samples actually carry, not a widening.
-        // M5 K11: an owner bounded by procedural surface-pair edges alone (a
-        // quartic-bounded body re-entering, the vesica-prism shape) carries
-        // the pair chains' own bound — again the guarantee its samples carry.
-        None => match ellipse_rim_chord_bound(owner.edges())
-            .or_else(|| surface_pair_chord_bound(owner))
-        {
-            Some(t) => Ok(t),
-            None => {
-                // Stage-3 diagnosis probe (read-only, env-gated): the producer-
-                // fault census — a curved-owning edge whose owner B-Rep carries
-                // NO Circle or Ellipse rim. Prints the owner's censuses.
-                if std::env::var_os("YANG_S3_AMBIG_PROBE").is_some() {
-                    let mut surf_census: std::collections::BTreeMap<&'static str, usize> =
-                        std::collections::BTreeMap::new();
-                    for f in owner.faces() {
-                        let k = match f.surface {
-                            Surface::Plane { .. } => "plane",
-                            Surface::Cylinder { .. } => "cylinder",
-                            Surface::Cone { .. } => "cone",
-                            Surface::Sphere { .. } => "sphere",
-                            Surface::Torus { .. } => "torus",
-                        };
-                        *surf_census.entry(k).or_default() += 1;
-                    }
-                    let mut curve_census: std::collections::BTreeMap<&'static str, usize> =
-                        std::collections::BTreeMap::new();
-                    for e in owner.edges() {
-                        let k = match e.curve {
-                            Curve::LineSegment => "seg",
-                            Curve::Circle { .. } => "circle",
-                            Curve::Ellipse { .. } => "ellipse",
-                            Curve::Parabola { .. } => "parabola",
-                            Curve::Hyperbola { .. } => "hyperbola",
-                            Curve::SurfacePair { .. } => "surface-pair",
-                        };
-                        *curve_census.entry(k).or_default() += 1;
-                    }
-                    eprintln!(
-                        "[s3-ambig-probe] PRODUCER FAULT edge {edge:?}: cylinder-owning input \
-                     {input:?} has NO Circle or Ellipse rim; faces {surf_census:?} edges \
-                     {curve_census:?}"
-                    );
+        None => {
+            // Stage-3 diagnosis probe (read-only, env-gated): the producer-
+            // fault census — a curved-owning edge whose owner B-Rep carries
+            // NO Circle or Ellipse rim. Prints the owner's censuses.
+            if std::env::var_os("YANG_S3_AMBIG_PROBE").is_some() {
+                let mut surf_census: std::collections::BTreeMap<&'static str, usize> =
+                    std::collections::BTreeMap::new();
+                for f in owner.faces() {
+                    let k = match f.surface {
+                        Surface::Plane { .. } => "plane",
+                        Surface::Cylinder { .. } => "cylinder",
+                        Surface::Cone { .. } => "cone",
+                        Surface::Sphere { .. } => "sphere",
+                        Surface::Torus { .. } => "torus",
+                    };
+                    *surf_census.entry(k).or_default() += 1;
                 }
-                Err(YangError::SsiRefinementFailed {
-                    edge,
-                    reason: SsiRefinementError::AmbiguousCurve {
-                        candidates,
-                        matched: 0,
-                    },
-                })
+                let mut curve_census: std::collections::BTreeMap<&'static str, usize> =
+                    std::collections::BTreeMap::new();
+                for e in owner.edges() {
+                    let k = match e.curve {
+                        Curve::LineSegment => "seg",
+                        Curve::Circle { .. } => "circle",
+                        Curve::Ellipse { .. } => "ellipse",
+                        Curve::Parabola { .. } => "parabola",
+                        Curve::Hyperbola { .. } => "hyperbola",
+                        Curve::SurfacePair { .. } => "surface-pair",
+                    };
+                    *curve_census.entry(k).or_default() += 1;
+                }
+                eprintln!(
+                    "[s3-ambig-probe] PRODUCER FAULT edge {edge:?}: curved-owning input \
+                     {input:?} has NO Circle, Ellipse/Hyperbola or surface-pair rim; \
+                     faces {surf_census:?} edges {curve_census:?}"
+                );
             }
-        },
+            Err(YangError::SsiRefinementFailed {
+                edge,
+                reason: SsiRefinementError::AmbiguousCurve {
+                    candidates,
+                    matched: 0,
+                },
+            })
+        }
     }
 }
 
@@ -575,10 +572,28 @@ pub(crate) fn chord_tol_for_curved_owner(
 /// with another's rim → a nonsense height → a too-tight band that UNDERESTIMATES
 /// the band the edge actually lies on, raising a spurious `AmbiguousCurve` on
 /// legitimate chord-error endpoints (R0003). Every single-cone case stays
-/// byte-identical (the matched face is the only cone face). A cone-bearing
-/// input with NO rim Circle is a producer fault → LOUD
-/// `AmbiguousCurve { matched: 0 }` (never silently default to `TAU_WORK` for a
-/// curved selection), mirroring `chord_tol_for_curved_owner`.
+/// byte-identical (the matched face is the only cone face).
+///
+/// **N71 fix (P0016).** A cone band with NO `Curve::Circle` rim of its own — a
+/// cone patch re-entering from a PRIOR boolean, bounded by conic chains alone
+/// (measured: 2 ellipses + 6 hyperbolas + 10 segments, zero circles) — used to
+/// take a "producer fault" exit here and report
+/// `AmbiguousCurve { candidates: 0, matched: 0 }`, which is not an ambiguity at
+/// all: no candidate was proposed because `ssi_rs::intersect` was never
+/// reached. It is also not a producer fault, because Stage 1 DID give that
+/// patch a chord budget — `stage1_tessellate`'s `operand_chord_budget`
+/// (`curved_chord_bound`, else `ellipse_rim_chord_bound`), documented there as
+/// "the operand's chord budget **as Stage 3/4 read it back**". The cylinder arm
+/// reads exactly that ladder back ([`chord_tol_for_curved_owner`], with the
+/// KV14 ellipse/hyperbola and M5 K11 surface-pair rungs); the cone arm never
+/// did, so a re-entering cone patch broke the Stage-1↔Stage-3 readback contract
+/// and STOPped on a band the operand demonstrably carries. The band-less arm
+/// now DELEGATES to that same single source. The per-band bound still wins
+/// wherever it resolves, so every circle-rimmed cone case — N38's multi-band
+/// gear revolve included — stays byte-identical, and
+/// [`chord_tol_for_curved_owner`]'s own loud producer fault remains the final
+/// wall for an owner that carries no curved rim of any kind (P9 — never
+/// silently default to `TAU_WORK` for a curved selection).
 pub(crate) fn cone_chord_tol_for_owner(
     cone_surface: Surface,
     input: InputId,
@@ -594,14 +609,51 @@ pub(crate) fn cone_chord_tol_for_owner(
     match cone_band_chord_bound(cone_surface, owner.faces(), owner.edges()) {
         Some(t) => Ok(t),
         // Not a cone surface, or the cone band carries no `Curve::Circle` rim
-        // → producer fault (never silently default to `TAU_WORK`).
-        None => Err(YangError::SsiRefinementFailed {
-            edge,
-            reason: SsiRefinementError::AmbiguousCurve {
-                candidates,
-                matched: 0,
-            },
-        }),
+        // of its own → read back the OWNER's Stage-1 chord budget (N71), the
+        // single source Stage 1 sized this patch's chart against. That helper
+        // keeps the loud producer fault for an owner with no curved rim at all.
+        None => {
+            // Stage-3 diagnosis probe (read-only, env-gated): this site and
+            // the `chord_tol_for_curved_owner` one BOTH report
+            // `AmbiguousCurve { candidates: 0, matched: 0 }`, which is also
+            // what the selector reports when `ssi_rs` returns nothing — three
+            // indistinguishable producers of one error text. The probe must
+            // cover every one of them or a `{0,0}` cannot be localized
+            // (measured on P0016, 2026-10-03).
+            if std::env::var_os("YANG_S3_AMBIG_PROBE").is_some() {
+                let cone_faces = owner
+                    .faces()
+                    .iter()
+                    .filter(|f| matches!(f.surface, Surface::Cone { .. }))
+                    .count();
+                let exact_match = owner
+                    .faces()
+                    .iter()
+                    .filter(|f| f.surface == cone_surface)
+                    .count();
+                let mut curve_census: std::collections::BTreeMap<&'static str, usize> =
+                    std::collections::BTreeMap::new();
+                for e in owner.edges() {
+                    let k = match e.curve {
+                        Curve::LineSegment => "seg",
+                        Curve::Circle { .. } => "circle",
+                        Curve::Ellipse { .. } => "ellipse",
+                        Curve::Parabola { .. } => "parabola",
+                        Curve::Hyperbola { .. } => "hyperbola",
+                        Curve::SurfacePair { .. } => "surface-pair",
+                    };
+                    *curve_census.entry(k).or_default() += 1;
+                }
+                eprintln!(
+                    "[s3-ambig-probe] CONE BAND-LESS edge {edge:?}: cone-owning input \
+                     {input:?} has no own-band rim; cone faces={cone_faces} \
+                     exact-surface matches={exact_match} owner edges {curve_census:?}\n  \
+                     band={cone_surface:?}\n  N71 readback -> {:?}",
+                    chord_tol_for_curved_owner(input, a, b, candidates, edge).ok()
+                );
+            }
+            chord_tol_for_curved_owner(input, a, b, candidates, edge)
+        }
     }
 }
 
