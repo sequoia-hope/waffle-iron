@@ -32,7 +32,7 @@
 //! | `export_step` / `export_step_bodies` | SUPPORTED | `kernel_v2::step_export::write_step` — ISO 10303-21 AP214 text, every surface and analytic curve written with its exact STEP counterpart (plane, cylinder, cone, sphere, torus; line, circle, ellipse, hyperbola), the M5 procedural surface-pair curve as its certified sample polyline; millimetres; per-body `RigidPlacement` (assembly export); a mesh-backed imported body → `NotSupported` naming it |
 //! | `list_faces` / `list_edges` / `list_vertices` | SUPPORTED | arena walk, tagged `KernelId` encoding |
 //! | `face_edges` / `edge_faces` / `edge_vertices` / `face_neighbors` | SUPPORTED | arena adjacency |
-//! | `compute_signature` / `compute_all_signatures` | SUPPORTED | planar face area/centroid/normal/bbox, edge length/centroid/bbox, vertex point |
+//! | `compute_signature` / `compute_all_signatures` | SUPPORTED | face type/area/centroid/normal/bbox for EVERY arena surface ([`crate::signature`], N0), edge length/centroid/bbox, vertex point |
 //!
 //! ## Handle / id scheme
 //!
@@ -330,64 +330,11 @@ impl KernelV2Adapter {
         }
     }
 
+    /// The face's geometric fingerprint — every surface the arena holds, not
+    /// just planes (N0 of `specs/agent_mechanical_design.md` §5.1). See
+    /// [`crate::signature::face_signature`] for what each field carries.
     fn face_signature(&self, fid: FaceId) -> TopoSignature {
-        let Ok(face) = self.arena.face(fid) else {
-            return TopoSignature::empty();
-        };
-        let Some(Surface::Plane(plane)) = face.surface else {
-            return TopoSignature::empty();
-        };
-        let n = [plane.normal.x, plane.normal.y, plane.normal.z];
-
-        // Area: Σ Newell(loop) · n̂ / 2 over outer + rings (rings wind
-        // opposite, so holes subtract automatically).
-        let mut loops = vec![face.outer_loop];
-        loops.extend(face.inner_loops.iter().copied());
-        // Exact signed area incl. arc-segment corrections (PR-KV6a — the
-        // chord Newell under-counts and SIGN-FLIPS >180° annular sectors).
-        let twice_area =
-            crate::geom::planar_face_signed_area2(&self.arena, fid, face, n).unwrap_or(0.0);
-        let mut bbox = [
-            f64::INFINITY,
-            f64::INFINITY,
-            f64::INFINITY,
-            f64::NEG_INFINITY,
-            f64::NEG_INFINITY,
-            f64::NEG_INFINITY,
-        ];
-        let mut centroid = [0.0f64; 3];
-        let mut outer_count = 0usize;
-        for (li, lid) in loops.iter().enumerate() {
-            let Ok(pts) = self.arena.loop_points(*lid) else {
-                continue;
-            };
-            for p in &pts {
-                let p = p.as_array();
-                for k in 0..3 {
-                    bbox[k] = bbox[k].min(p[k]);
-                    bbox[k + 3] = bbox[k + 3].max(p[k]);
-                }
-                if li == 0 {
-                    for k in 0..3 {
-                        centroid[k] += p[k];
-                    }
-                    outer_count += 1;
-                }
-            }
-        }
-        if outer_count > 0 {
-            for c in centroid.iter_mut() {
-                *c /= outer_count as f64;
-            }
-        }
-        TopoSignature {
-            surface_type: Some("planar".to_string()),
-            area: Some(twice_area / 2.0),
-            centroid: Some(centroid),
-            normal: Some(n),
-            bbox: if outer_count > 0 { Some(bbox) } else { None },
-            ..TopoSignature::empty()
-        }
+        crate::signature::face_signature(&self.arena, fid)
     }
 
     /// KV15b diagnosis probe (read-only, env-gated `KV2_SUBFLOOR_TWIN_PROBE`):

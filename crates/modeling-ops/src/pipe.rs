@@ -150,7 +150,16 @@ fn assign_pipe_roles(
 ) -> Vec<(KernelId, Role)> {
     let faces = introspect.list_faces(solid);
     let dot = |a: [f64; 3], b: [f64; 3]| a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
-    let normal_of = |f: KernelId| introspect.compute_signature(f, TopoKind::Face).normal;
+    // Caps are PLANAR: since N0 (`specs/agent_mechanical_design.md` §5.1) a
+    // curved face reports its outward normal at the centroid too, so a
+    // cylinder wall whose radial normal happens to align with the end
+    // tangent must not be mistaken for a cap. Non-planar faces are invisible
+    // here, exactly as they were when their signature was empty.
+    let normal_of = |f: KernelId| {
+        let sig = introspect.compute_signature(f, TopoKind::Face);
+        sig.normal
+            .filter(|_| sig.surface_type.as_deref() == Some("planar"))
+    };
     let best = |want: [f64; 3]| -> Option<KernelId> {
         faces
             .iter()

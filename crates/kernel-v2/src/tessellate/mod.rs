@@ -198,65 +198,96 @@ pub fn tessellate_with_chord_tolerance(
     let solid_ref = arena.solid(solid)?;
     for &sh in &solid_ref.shells {
         for &f in &arena.shell(sh)?.faces {
-            let face = arena.face(f)?;
-            match face.surface {
-                Some(Surface::Cylinder { .. }) => {
-                    // Canonical full lateral (full-circle rims, KV5a) vs a
-                    // partial boolean-output patch (arc/segment loops, KV5b).
-                    if face_has_circle_edge(arena, f)? {
-                        tessellate_cylinder_lateral(arena, f, n_seg, &mut mesh)?
-                    } else {
-                        tessellate_cylinder_patch(arena, f, n_seg, &mut mesh)?
-                    }
-                }
-                Some(Surface::Plane(_)) => {
-                    if planar_face_is_canonical_cap(arena, f)? {
-                        tessellate_circular_cap(arena, f, n_seg, &mut mesh)?
-                    } else {
-                        tessellate_planar_face(arena, f, n_seg, &mut mesh)?
-                    }
-                }
-                Some(Surface::Cone { .. }) => {
-                    // Canonical full lateral (full-circle rims, KV6c) vs a
-                    // partial arc-bounded patch (the partial-revolve oblique
-                    // wall / boolean outputs — KV6c increment 5).
-                    if face_has_circle_edge(arena, f)? {
-                        tessellate_cone_lateral(arena, f, n_seg, &mut mesh)?
-                    } else {
-                        tessellate_cone_patch(arena, f, n_seg, &mut mesh)?
-                    }
-                }
-                Some(Surface::Torus { axis_dir, .. }) => {
-                    // Three forms, told apart by the full-circle edges. A
-                    // LATITUDE rim (coaxial with the torus) is the SI5 C5a
-                    // fillet band; a profile rim is the canonical modeling
-                    // lateral (structured seam-arc loop, KV6d 1-3); no full
-                    // circle is a boolean-output patch (trimmed polyline
-                    // boundary, KV6d 5b2 — delegated to yang-rs's UV-CDT
-                    // consumer).
-                    if torus_face_is_latitude_band(arena, f, axis_dir)? {
-                        tessellate_torus_latitude_band(arena, f, n_seg, &mut mesh)?
-                    } else if face_has_circle_edge(arena, f)? {
-                        tessellate_torus_lateral(arena, f, n_seg, &mut mesh)?
-                    } else {
-                        tessellate_torus_patch(arena, f, n_seg, &mut mesh)?
-                    }
-                }
-                Some(Surface::Sphere { .. }) => {
-                    // Closed modeling sphere (the seam-arc twin-pair loop, KV6d
-                    // increment 2) vs a boolean-output patch (trimmed loops —
-                    // delegated to yang-rs's lat/long UV-CDT consumer).
-                    if sphere_face_is_closed(arena, f)? {
-                        tessellate_sphere_closed(arena, f, n_seg, &mut mesh)?
-                    } else {
-                        tessellate_sphere_patch(arena, f, n_seg, &mut mesh)?
-                    }
-                }
-                None => return Err(KernelV2Error::FaceWithoutSurface { face: f }),
-            }
+            tessellate_one_face(arena, f, n_seg, &mut mesh)?;
         }
     }
     Ok(mesh)
+}
+
+/// Tessellate ONE face into its own [`RenderMesh`] (a single face range), at
+/// the canonical chord tolerance.
+///
+/// The same per-face routines [`tessellate`] walks, addressed individually —
+/// so a consumer that needs one face's triangles (the N0 face fingerprint's
+/// area and centroid, `specs/agent_mechanical_design.md` §5.1) pays for that
+/// face only and gets triangles identical to the ones in the solid's mesh.
+/// Loud on the same walls, never a silent empty mesh.
+pub fn tessellate_face(arena: &BrepArena, face: FaceId) -> Result<RenderMesh, KernelV2Error> {
+    let mut mesh = RenderMesh::default();
+    tessellate_one_face(
+        arena,
+        face,
+        circle_segment_count(RENDER_CHORD_TOLERANCE_REL),
+        &mut mesh,
+    )?;
+    Ok(mesh)
+}
+
+/// Append `f`'s triangles (one new face range) to `mesh`. The single
+/// per-face dispatch both entry points share (crate hard rule 5).
+fn tessellate_one_face(
+    arena: &BrepArena,
+    f: FaceId,
+    n_seg: u32,
+    mesh: &mut RenderMesh,
+) -> Result<(), KernelV2Error> {
+    let face = arena.face(f)?;
+    match face.surface {
+        Some(Surface::Cylinder { .. }) => {
+            // Canonical full lateral (full-circle rims, KV5a) vs a
+            // partial boolean-output patch (arc/segment loops, KV5b).
+            if face_has_circle_edge(arena, f)? {
+                tessellate_cylinder_lateral(arena, f, n_seg, mesh)?
+            } else {
+                tessellate_cylinder_patch(arena, f, n_seg, mesh)?
+            }
+        }
+        Some(Surface::Plane(_)) => {
+            if planar_face_is_canonical_cap(arena, f)? {
+                tessellate_circular_cap(arena, f, n_seg, mesh)?
+            } else {
+                tessellate_planar_face(arena, f, n_seg, mesh)?
+            }
+        }
+        Some(Surface::Cone { .. }) => {
+            // Canonical full lateral (full-circle rims, KV6c) vs a
+            // partial arc-bounded patch (the partial-revolve oblique
+            // wall / boolean outputs — KV6c increment 5).
+            if face_has_circle_edge(arena, f)? {
+                tessellate_cone_lateral(arena, f, n_seg, mesh)?
+            } else {
+                tessellate_cone_patch(arena, f, n_seg, mesh)?
+            }
+        }
+        Some(Surface::Torus { axis_dir, .. }) => {
+            // Three forms, told apart by the full-circle edges. A
+            // LATITUDE rim (coaxial with the torus) is the SI5 C5a
+            // fillet band; a profile rim is the canonical modeling
+            // lateral (structured seam-arc loop, KV6d 1-3); no full
+            // circle is a boolean-output patch (trimmed polyline
+            // boundary, KV6d 5b2 — delegated to yang-rs's UV-CDT
+            // consumer).
+            if torus_face_is_latitude_band(arena, f, axis_dir)? {
+                tessellate_torus_latitude_band(arena, f, n_seg, mesh)?
+            } else if face_has_circle_edge(arena, f)? {
+                tessellate_torus_lateral(arena, f, n_seg, mesh)?
+            } else {
+                tessellate_torus_patch(arena, f, n_seg, mesh)?
+            }
+        }
+        Some(Surface::Sphere { .. }) => {
+            // Closed modeling sphere (the seam-arc twin-pair loop, KV6d
+            // increment 2) vs a boolean-output patch (trimmed loops —
+            // delegated to yang-rs's lat/long UV-CDT consumer).
+            if sphere_face_is_closed(arena, f)? {
+                tessellate_sphere_closed(arena, f, n_seg, mesh)?
+            } else {
+                tessellate_sphere_patch(arena, f, n_seg, mesh)?
+            }
+        }
+        None => return Err(KernelV2Error::FaceWithoutSurface { face: f }),
+    }
+    Ok(())
 }
 
 mod sampling;

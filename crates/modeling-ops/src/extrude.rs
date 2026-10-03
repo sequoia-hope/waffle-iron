@@ -159,8 +159,16 @@ fn assign_extrude_roles(
         .iter()
         .map(|&face_id| {
             let sig = introspect.compute_signature(face_id, TopoKind::Face);
+            // An extrude's end caps are the PLANAR profile faces. Since N0
+            // (`specs/agent_mechanical_design.md` §5.1) a curved face reports
+            // its outward normal at the centroid too — on a cylinder that is
+            // radial, on a cone it tilts along the axis — so cap detection
+            // must read the surface type rather than treat "has a normal" as
+            // "is planar". Non-planar faces score 0.0, exactly as they did
+            // when their signature was empty.
             let dot = sig
                 .normal
+                .filter(|_| sig.surface_type.as_deref() == Some("planar"))
                 .map(|n| n[0] * norm_dir[0] + n[1] * norm_dir[1] + n[2] * norm_dir[2])
                 .unwrap_or(0.0);
             (face_id, dot)

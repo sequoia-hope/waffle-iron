@@ -90,8 +90,14 @@ fn assign_revolve_roles(
             .iter()
             .map(|&face_id| {
                 let sig = introspect.compute_signature(face_id, TopoKind::Face);
+                // The revolve's start/end faces are the PLANAR profile faces;
+                // since N0 a curved face reports a normal too (a torus
+                // lateral's can be axial), so read the surface type instead
+                // of treating "has a normal" as "is planar". Non-planar faces
+                // score 0.0, as they did when their signature was empty.
                 let dot = sig
                     .normal
+                    .filter(|_| sig.surface_type.as_deref() == Some("planar"))
                     .map(|n| {
                         (n[0] * norm_axis[0] + n[1] * norm_axis[1] + n[2] * norm_axis[2]).abs()
                     })
