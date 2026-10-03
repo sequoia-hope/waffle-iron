@@ -18,6 +18,8 @@
  * same arguments describe the same image, and neither moves the user's camera.
  */
 import { test, expect } from '@playwright/test';
+import { collectCrashErrors, expectNoAnyCrash } from './helpers/state.js';
+import { PALETTE } from '../../src/lib/viewport/capture.js';
 
 /** A 40 mm square centred on (cx, 0) in the sketch plane. */
 const SQUARE = (cx, s = 0.04) => [
@@ -99,6 +101,31 @@ async function twoBoxes(page) {
 }
 
 /**
+ * The live camera once it has STOPPED moving: two identical samples in a row.
+ *
+ * The assertion downstream is exact — the capture must not move the user's
+ * camera by so much as a float — and sampling before the view has settled made
+ * it a question about the app's own damping instead, which fails whenever the
+ * machine is loaded (measured: green at one Playwright worker, red at two).
+ * Waiting for rest keeps the assertion exact and makes it about the capture.
+ * @param {import('@playwright/test').Page} page
+ */
+async function cameraAtRest(page) {
+	await page.waitForFunction(
+		() => {
+			const s = window.__waffle.getCameraState();
+			const key = JSON.stringify([s.position, s.target, s.up, s.zoom]);
+			const previous = window.__captureRestKey;
+			window.__captureRestKey = key;
+			return previous === key;
+		},
+		null,
+		{ timeout: 15000, polling: 150 }
+	);
+	return page.evaluate(() => window.__waffle.getCameraState());
+}
+
+/**
  * One `viewport_capture` through the page's executor.
  * @param {import('@playwright/test').Page} page
  * @param {object} args
@@ -124,6 +151,7 @@ function capture(page, args) {
 
 test.describe('viewport_capture — agent-legible views (V1)', () => {
 	test('size, legend and body labels come back beside the PNG', async ({ page }) => {
+		const crashes = collectCrashErrors(page);
 		const bodies = await twoBoxes(page);
 		expect(bodies).toHaveLength(2);
 
@@ -151,7 +179,9 @@ test.describe('viewport_capture — agent-legible views (V1)', () => {
 		expect(shot.structured.legend.map((l) => l.id)).toEqual(ids);
 		for (const entry of shot.structured.legend) {
 			expect(entry.kind).toBe('body');
-			expect(entry.color).toMatch(/^#[0-9a-f]{6}$/);
+			// From the fixed table, not merely hex-shaped: the palette is the
+			// contract an agent matches a pixel against.
+			expect(PALETTE).toContain(entry.color);
 		}
 		expect(new Set(shot.structured.legend.map((l) => l.color)).size).toBe(2);
 
@@ -170,6 +200,7 @@ test.describe('viewport_capture — agent-legible views (V1)', () => {
 		}
 		const named = bodies.find((b) => b.id === labels[0].body_id);
 		if (named?.name) expect(labels[0].text).toBe(named.name);
+		expectNoAnyCrash(crashes);
 
 		// The capture framed the model: `iso` implies the fit, and the framed box
 		// spans both boxes — 40 mm wide, 100 mm apart — and is 20 mm tall.
@@ -192,6 +223,7 @@ test.describe('viewport_capture — agent-legible views (V1)', () => {
 	});
 
 	test('a face label names a queryable GeomRef, and only the faces the camera sees are drawn', async ({ page }) => {
+		const crashes = collectCrashErrors(page);
 		const bodies = await twoBoxes(page);
 		const target = bodies[0].id;
 
@@ -234,11 +266,13 @@ test.describe('viewport_capture — agent-legible views (V1)', () => {
 			target
 		);
 		expect(faceRanges).toBeGreaterThan(1);
+		expectNoAnyCrash(crashes);
 	});
 
 	test('the capture renders offscreen: the user\'s camera does not move and two calls agree', async ({ page }) => {
+		const crashes = collectCrashErrors(page);
 		await twoBoxes(page);
-		const before = await page.evaluate(() => window.__waffle.getCameraState());
+		const before = await cameraAtRest(page);
 
 		const first = await capture(page, {
 			view: 'front',
@@ -268,9 +302,11 @@ test.describe('viewport_capture — agent-legible views (V1)', () => {
 		expect(second.structured.legend).toEqual(first.structured.legend);
 		expect(second.structured.labels).toEqual(first.structured.labels);
 		expect(second.structured.camera).toEqual(first.structured.camera);
+		expectNoAnyCrash(crashes);
 	});
 
 	test('a capture with no new arguments is the pre-V1 call: the live view, shaded, unlabelled', async ({ page }) => {
+		const crashes = collectCrashErrors(page);
 		await twoBoxes(page);
 		const shot = await capture(page, { max_edge_px: 256 });
 		expect(shot.isError, JSON.stringify(shot.structured)).toBe(false);
@@ -283,9 +319,11 @@ test.describe('viewport_capture — agent-legible views (V1)', () => {
 		expect(shot.structured.labels).toEqual([]);
 		// No `view`, no `frame` ⇒ no fit: the user's framing is kept.
 		expect(shot.structured.framed).toBeNull();
+		expectNoAnyCrash(crashes);
 	});
 
 	test('contradictory and unresolvable arguments are refused, loudly and by name', async ({ page }) => {
+		const crashes = collectCrashErrors(page);
 		const bodies = await twoBoxes(page);
 
 		const both = await capture(page, { view: 'top', camera: { position: [0, 0, 1], target: [0, 0, 0] } });
@@ -308,5 +346,27 @@ test.describe('viewport_capture — agent-legible views (V1)', () => {
 		const clashing = await capture(page, { style: 'agent', isolate: [bodies[0].id], hide: [bodies[0].id] });
 		expect(clashing.isError).toBe(true);
 		expect(clashing.structured.error.code).toBe('InvalidArguments');
+
+		// Out-of-vocabulary values refuse by name too. The relay validates
+		// arguments against `inputSchema`, but this executor does not, and an
+		// unchecked value did not refuse: it drew a shaded image that reported
+		// `style: "wireframe"`, or threw inside the capture component where the
+		// exception cannot reach the caller and the tool blamed a missing
+		// viewport instead.
+		for (const args of [
+			{ view: 'nope' },
+			{ style: 'wireframe' },
+			{ projection: 'fisheye' },
+			{ labels: ['dimensions'] },
+			{ style: 'agent', color_by: 'material' },
+			{ size: { width: 'big', height: 10 } },
+			{ isolate: [7] },
+			{ frame: { point: ['x', 0, 0], radius: 1 } }
+		]) {
+			const refused = await capture(page, args);
+			expect(refused.isError, JSON.stringify(args)).toBe(true);
+			expect(refused.structured.error.code, JSON.stringify(args)).toBe('InvalidArguments');
+		}
+		expectNoAnyCrash(crashes);
 	});
 });
