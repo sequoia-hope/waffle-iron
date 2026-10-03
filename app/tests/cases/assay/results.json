@@ -1,8 +1,8 @@
 {
-  "errored": 16,
+  "errored": 14,
   "failed": 0,
   "generated": "kernel-v2 (assay_kv2 categorized run)",
-  "passed": 314,
+  "passed": 317,
   "results": [
     {
       "category": "SUPPORTED_CORRECT",
@@ -1955,16 +1955,16 @@
       "status": "error"
     },
     {
-      "category": "ERROR",
-      "detail": "1 engine error(s): b28e8879-bf87-4fdc-adea-4e8f9c48bff9: operation error: kernel error: boolean operation failed: kernel-v2 boolean_subtract failed: BooleanFailed(\"yang-rs: Stage-4 relocation region around vertex 4294967295 is invalid: LocalRefinementRequired\")",
+      "category": "SUPPORTED_CORRECT",
+      "detail": "all checks passed",
       "id": "P0014",
-      "status": "error"
+      "status": "pass"
     },
     {
-      "category": "ERROR",
-      "detail": "1 engine error(s): d848d213-03e1-4265-b19b-b44eccc60b9c: operation error: kernel error: boolean operation failed: kernel-v2 boolean_subtract failed: BooleanFailed(\"yang-rs: Stage-4 relocation region around vertex 149 is invalid: RelocationCrossedCarrierVertex\")",
+      "category": "SUPPORTED_CORRECT",
+      "detail": "all checks passed",
       "id": "P0015",
-      "status": "error"
+      "status": "pass"
     },
     {
       "category": "ERROR",
@@ -2007,7 +2007,19 @@
       "detail": "all checks passed",
       "id": "P0022",
       "status": "pass"
+    },
+    {
+      "category": "SUPPORTED_CORRECT",
+      "detail": "all checks passed",
+      "id": "P0023",
+      "status": "pass"
+    },
+    {
+      "category": "EXPECTED_ERROR",
+      "detail": "expected rebuild error: a5ff4e59-d772-5680-ab15-593ac9d6d5a9: operation error: kernel error: boolean operation failed: kernel-v2 boolean_union failed: InvalidBooleanOutput(\"an undirected output edge is not used by exactly two directed edges\")",
+      "id": "P0024",
+      "status": "error"
     }
   ],
-  "total": 334
+  "total": 336
 }
