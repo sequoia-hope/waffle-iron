@@ -1,12 +1,17 @@
-//! The export pair, `export_step` and `export_stl`
+//! The export tools, `export_step` and `export_stl`
 //! (`specs/waffle_mcp_server.md` §2.5 Export, Q5–Q7), ported from
-//! `app/src/lib/agent/export.js` (S3 C6).
+//! `app/src/lib/agent/export.js` (S3 C6), plus `export_dxf`
+//! (`specs/drawings_and_mbd.md` §12, 2026-10-03), which is new here rather
+//! than ported: the page never had a drawing export to port.
 //!
-//! Both are queries — they change nothing — and each wraps one engine
-//! message (`ExportStep`; `ExportStl` or `ExportBodyStl`). What moved here is
-//! everything around that message: the `NothingToExport` / `BodyNotFound`
-//! gates, the file name, the byte count, the Q6 payload cap and the result's
-//! shape, including the embedded resource for `deliver:"agent"`.
+//! All three are queries — they change nothing — and each wraps one engine
+//! message (`ExportStep`; `ExportStl` or `ExportBodyStl`; `ExportDxf`). What
+//! moved here is everything around that message: the `NothingToExport` /
+//! `BodyNotFound` gates, the file name, the byte count, the Q6 payload cap and
+//! the result's shape, including the embedded resource for `deliver:"agent"`.
+//! `export_dxf` adds the view vocabulary — the six named orthographic views,
+//! or an explicit direction — because naming a view is the agent's and the
+//! document's concern, not the kernel's, which takes a direction.
 //!
 //! What did NOT move is handing the file to the user for `deliver:"download"`:
 //! that is a host concern by `specs/waffle_server_mode.md` §3.3 (the browser
@@ -202,6 +207,143 @@ pub(super) fn export_step(
     ))
 }
 
+/// The six named orthographic views (`specs/drawings_and_mbd.md` §8
+/// `Projection::Named`), as `(direction of sight, paper up)`.
+///
+/// Naming a view is a DOCUMENT concern, not a kernel one — the kernel takes a
+/// direction — so the table lives here, where the agent's vocabulary is. Each
+/// is third-angle conventional: `u = dir × up`, so the top view reads `+x`
+/// right / `+y` up, the front `+x` right / `+z` up, the back mirrors `x`.
+const NAMED_VIEWS: &[(&str, [f64; 3], [f64; 3])] = &[
+    ("top", [0.0, 0.0, -1.0], [0.0, 1.0, 0.0]),
+    ("bottom", [0.0, 0.0, 1.0], [0.0, -1.0, 0.0]),
+    ("front", [0.0, 1.0, 0.0], [0.0, 0.0, 1.0]),
+    ("back", [0.0, -1.0, 0.0], [0.0, 0.0, 1.0]),
+    ("right", [-1.0, 0.0, 0.0], [0.0, 0.0, 1.0]),
+    ("left", [1.0, 0.0, 0.0], [0.0, 0.0, 1.0]),
+];
+
+/// `(direction of sight, paper up)` as the `ExportDxf` message carries them:
+/// `None` leaves the choice to the engine.
+type ViewArgs = (Option<[f64; 3]>, Option<[f64; 3]>);
+
+/// The `view` / `direction` / `up` arguments as `(dir, up)`. `view` defaults
+/// to `"top"` — the flat-pattern view §12's deliverable is for. `direction` is
+/// the escape hatch for an axis nothing names; giving both is a refusal, not a
+/// silent precedence rule.
+fn view_arguments(args: &Value) -> Result<ViewArgs, ToolFailure> {
+    let named = args.get("view").filter(|v| !v.is_null());
+    let direction = args.get("direction").filter(|v| !v.is_null());
+    if named.is_some() && direction.is_some() {
+        return Err(ToolFailure::new(
+            "InvalidArgument",
+            "Give either view or direction, not both.",
+            json!({ "path": "/direction" }),
+        ));
+    }
+    let up = match args.get("up").filter(|v| !v.is_null()) {
+        None => None,
+        Some(v) => Some(vector3(v, "/up")?),
+    };
+    if let Some(v) = direction {
+        return Ok((Some(vector3(v, "/direction")?), up));
+    }
+    let name = match named {
+        None => "top",
+        Some(Value::String(s)) => s.as_str(),
+        Some(other) => {
+            return Err(ToolFailure::new(
+                "InvalidArgument",
+                format!("view must be one of the named views, not {other}."),
+                json!({ "path": "/view" }),
+            ))
+        }
+    };
+    let Some((_, dir, default_up)) = NAMED_VIEWS
+        .iter()
+        .find(|(n, _, _)| n.eq_ignore_ascii_case(name))
+    else {
+        return Err(ToolFailure::new(
+            "InvalidArgument",
+            format!(
+                "`{name}` is not a named view; use one of {}.",
+                NAMED_VIEWS
+                    .iter()
+                    .map(|(n, _, _)| *n)
+                    .collect::<Vec<_>>()
+                    .join(", ")
+            ),
+            json!({ "path": "/view" }),
+        ));
+    };
+    Ok((Some(*dir), Some(up.unwrap_or(*default_up))))
+}
+
+/// A `[x, y, z]` argument of three finite numbers, not all zero.
+fn vector3(v: &Value, path: &str) -> Result<[f64; 3], ToolFailure> {
+    let bad = |why: &str| {
+        ToolFailure::new(
+            "InvalidArgument",
+            format!("{path} must be {why}."),
+            json!({ "path": path }),
+        )
+    };
+    let arr = v
+        .as_array()
+        .ok_or_else(|| bad("an array of three numbers"))?;
+    if arr.len() != 3 {
+        return Err(bad("an array of three numbers"));
+    }
+    let mut out = [0.0; 3];
+    for (slot, value) in out.iter_mut().zip(arr) {
+        let n = value.as_f64().ok_or_else(|| bad("three numbers"))?;
+        if !n.is_finite() {
+            return Err(bad("three finite numbers"));
+        }
+        *slot = n;
+    }
+    if out == [0.0; 3] {
+        return Err(bad("a non-zero direction"));
+    }
+    Ok(out)
+}
+
+/// One orthographic view of the whole model as an R12 DXF drawing
+/// (`specs/drawings_and_mbd.md` §12's early deliverable).
+pub(super) fn export_dxf(
+    state: &mut EngineState,
+    kb: &mut dyn KernelBundle,
+    args: &Value,
+) -> Result<ToolResult, ToolFailure> {
+    let deliver = deliver(args)?;
+    let (view_dir, up) = view_arguments(args)?;
+    require_bodies(state)?;
+    let response = engine_call(
+        state,
+        kb,
+        "ExportDxf",
+        UiToEngine::ExportDxf { view_dir, up },
+    )?;
+    let EngineToUi::DxfExportReady { dxf_data, warnings } = response else {
+        return Err(unexpected("ExportDxf", "DxfExportReady", &response));
+    };
+    let file_name = format!("{}.dxf", safe_name(state.project_name()));
+    let bytes = dxf_data.len();
+    check_payload(deliver, &file_name, bytes)?;
+    Ok(export_result(
+        deliver,
+        ExportFile {
+            file_name,
+            // The registered type for DXF (RFC 9287 / IANA `image/vnd.dxf`).
+            mime_type: "image/vnd.dxf".to_string(),
+            text: Some(dxf_data),
+            blob: None,
+        },
+        bytes,
+        warnings,
+    ))
+}
+
 /// One body, or every body merged, as binary STL.
 pub(super) fn export_stl(
     state: &mut EngineState,
@@ -285,6 +427,69 @@ mod tests {
         assert_eq!(encode_uri_component("Bike_frame.step"), "Bike_frame.step");
         assert_eq!(encode_uri_component("a b/c"), "a%20b%2Fc");
         assert_eq!(encode_uri_component("é"), "%C3%A9");
+    }
+
+    /// `ToolFailure` is not `Debug` (it is an MCP payload, not a Rust error),
+    /// so the tests unwrap through its message.
+    fn views(args: Value) -> ViewArgs {
+        match view_arguments(&args) {
+            Ok(v) => v,
+            Err(e) => panic!("{args} refused: {}", e.message),
+        }
+    }
+
+    #[test]
+    fn the_view_defaults_to_top_and_names_the_rest() {
+        assert_eq!(
+            views(json!({})),
+            (Some([0.0, 0.0, -1.0]), Some([0.0, 1.0, 0.0]))
+        );
+        assert_eq!(
+            views(json!({ "view": "FRONT" })),
+            (Some([0.0, 1.0, 0.0]), Some([0.0, 0.0, 1.0])),
+            "a named view is case-insensitive"
+        );
+        // An explicit up overrides the named view's default.
+        assert_eq!(
+            views(json!({ "view": "top", "up": [1.0, 0.0, 0.0] })),
+            (Some([0.0, 0.0, -1.0]), Some([1.0, 0.0, 0.0]))
+        );
+        assert_eq!(
+            views(json!({ "direction": [1.0, 2.0, 3.0] })),
+            (Some([1.0, 2.0, 3.0]), None),
+            "a free direction lets the kernel choose an up"
+        );
+    }
+
+    #[test]
+    fn every_named_view_is_a_distinct_unit_axis_pair() {
+        for (name, dir, up) in NAMED_VIEWS {
+            let len = (dir[0] * dir[0] + dir[1] * dir[1] + dir[2] * dir[2]).sqrt();
+            assert_eq!(len, 1.0, "{name} dir is not a unit axis");
+            let d = dir[0] * up[0] + dir[1] * up[1] + dir[2] * up[2];
+            assert_eq!(d, 0.0, "{name} up is not perpendicular to its direction");
+        }
+        let mut dirs: Vec<[f64; 3]> = NAMED_VIEWS.iter().map(|(_, d, _)| *d).collect();
+        dirs.dedup();
+        assert_eq!(dirs.len(), 6, "the six views look six different ways");
+    }
+
+    #[test]
+    fn a_bad_view_argument_is_refused_rather_than_guessed() {
+        for args in [
+            json!({ "view": "isometric" }),
+            json!({ "view": 3 }),
+            json!({ "view": "top", "direction": [0.0, 0.0, 1.0] }),
+            json!({ "direction": [0.0, 0.0, 0.0] }),
+            json!({ "direction": [1.0, 2.0] }),
+            json!({ "direction": "x" }),
+            json!({ "up": [0.0, 0.0, 0.0] }),
+        ] {
+            match view_arguments(&args) {
+                Ok(v) => panic!("{args} should be refused, got {v:?}"),
+                Err(e) => assert_eq!(e.code, "InvalidArgument", "{args}: {}", e.message),
+            }
+        }
     }
 
     #[test]

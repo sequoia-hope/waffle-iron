@@ -125,6 +125,52 @@ export const exportStepTool = {
 	annotations: { title: 'Export STEP', readOnlyHint: true, openWorldHint: false }
 };
 
+export const exportDxfTool = {
+	name: 'export_dxf',
+	description:
+		'Export ONE orthographic view of the whole model (every live body of the open Part, or an open ' +
+		"assembly's instances at their world placements) as an R12 DXF drawing in millimetres — the " +
+		'flat-pattern file a laser, waterjet or plasma table consumes. Wireframe: every edge of the model is ' +
+		'drawn on the VISIBLE layer, hidden-line removal and curved-face silhouettes are not implemented yet, ' +
+		'so a view with depth shows the far edges too. Lines, circles and arcs are written as true DXF ' +
+		'entities; anything else is a polyline within 0.01 mm of the curve. Refused with NothingToExport when ' +
+		'there are no bodies, InvalidArgument for a view it cannot name, and PayloadTooLarge above 16 MiB for ' +
+		'deliver "agent". specs/drawings_and_mbd.md D1a.',
+	inputSchema: {
+		type: 'object',
+		properties: {
+			view: {
+				type: 'string',
+				enum: ['top', 'bottom', 'front', 'back', 'right', 'left'],
+				default: 'top',
+				description: 'Named orthographic view. Omit for "top", the flat-pattern view.'
+			},
+			direction: {
+				type: 'array',
+				items: { type: 'number' },
+				minItems: 3,
+				maxItems: 3,
+				description:
+					'Direction of SIGHT as [x, y, z], away from the viewer — for an axis no named view covers. ' +
+					'Mutually exclusive with view.'
+			},
+			up: {
+				type: 'array',
+				items: { type: 'number' },
+				minItems: 3,
+				maxItems: 3,
+				description:
+					"Which world direction points up on the paper. Omit to take the named view's own up, or " +
+					'to let the engine pick one for a free direction.'
+			},
+			deliver
+		},
+		additionalProperties: false
+	},
+	outputSchema: exportResultSchema,
+	annotations: { title: 'Export DXF', readOnlyHint: true, openWorldHint: false }
+};
+
 export const exportStlTool = {
 	name: 'export_stl',
 	description:

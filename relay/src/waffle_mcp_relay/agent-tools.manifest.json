@@ -1,5 +1,5 @@
 {
-  "manifest_hash": "aa63e2076b39fd29084d11bb5ac2b1b49404a73c5dfea606dc1c42befe64d302",
+  "manifest_hash": "463b7d68243be20072ae58e7bdca4e9c064a2b656a22c1bdae3cee6b236b9ea3",
   "protocol": "waffle-agent-link/1",
   "tools": [
     {
@@ -16842,6 +16842,97 @@
         "type": "object"
       },
       "name": "export_stl",
+      "outputSchema": {
+        "properties": {
+          "bytes": {
+            "description": "Size of the exported file.",
+            "type": "integer"
+          },
+          "deliver": {
+            "enum": [
+              "agent",
+              "download"
+            ],
+            "type": "string"
+          },
+          "file_name": {
+            "type": "string"
+          },
+          "mime_type": {
+            "type": "string"
+          },
+          "warnings": {
+            "description": "What the exporter left out, verbatim.",
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "deliver",
+          "file_name",
+          "mime_type",
+          "bytes",
+          "warnings"
+        ],
+        "type": "object"
+      }
+    },
+    {
+      "annotations": {
+        "openWorldHint": false,
+        "readOnlyHint": true,
+        "title": "Export DXF"
+      },
+      "description": "Export ONE orthographic view of the whole model (every live body of the open Part, or an open assembly's instances at their world placements) as an R12 DXF drawing in millimetres — the flat-pattern file a laser, waterjet or plasma table consumes. Wireframe: every edge of the model is drawn on the VISIBLE layer, hidden-line removal and curved-face silhouettes are not implemented yet, so a view with depth shows the far edges too. Lines, circles and arcs are written as true DXF entities; anything else is a polyline within 0.01 mm of the curve. Refused with NothingToExport when there are no bodies, InvalidArgument for a view it cannot name, and PayloadTooLarge above 16 MiB for deliver \"agent\". specs/drawings_and_mbd.md D1a.",
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "deliver": {
+            "default": "agent",
+            "description": "\"agent\": the file comes back in this result as an embedded resource. \"download\": the browser downloads it for the user, as the Export menu does, and the result only describes it.",
+            "enum": [
+              "agent",
+              "download"
+            ],
+            "type": "string"
+          },
+          "direction": {
+            "description": "Direction of SIGHT as [x, y, z], away from the viewer — for an axis no named view covers. Mutually exclusive with view.",
+            "items": {
+              "type": "number"
+            },
+            "maxItems": 3,
+            "minItems": 3,
+            "type": "array"
+          },
+          "up": {
+            "description": "Which world direction points up on the paper. Omit to take the named view's own up, or to let the engine pick one for a free direction.",
+            "items": {
+              "type": "number"
+            },
+            "maxItems": 3,
+            "minItems": 3,
+            "type": "array"
+          },
+          "view": {
+            "default": "top",
+            "description": "Named orthographic view. Omit for \"top\", the flat-pattern view.",
+            "enum": [
+              "top",
+              "bottom",
+              "front",
+              "back",
+              "right",
+              "left"
+            ],
+            "type": "string"
+          }
+        },
+        "type": "object"
+      },
+      "name": "export_dxf",
       "outputSchema": {
         "properties": {
           "bytes": {

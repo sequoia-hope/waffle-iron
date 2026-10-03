@@ -836,6 +836,49 @@ fn handle_message(
             })
         }
 
+        UiToEngine::ExportDxf { view_dir, up } => {
+            // The same body collection STEP export uses — every live body of
+            // the part, or every rendered assembly instance's bodies at their
+            // world placements — so one view of an assembly is the whole
+            // assembly, and a mesh-backed body is left out with the same
+            // named warning rather than silently.
+            let (bodies, warnings) = step_export_bodies(state, kb.as_introspect());
+            if bodies.is_empty() {
+                return Err(BridgeError::NoMeshData);
+            }
+            let bodies: Vec<waffle_types::kernel::ProjectionBody> = bodies
+                .into_iter()
+                .map(|b| waffle_types::kernel::ProjectionBody {
+                    handle: b.handle,
+                    name: b.name,
+                    placement: b.placement,
+                })
+                .collect();
+            let frame = match view_dir {
+                None => waffle_types::kernel::ViewFrame::TOP,
+                Some(dir) => {
+                    let mut f = waffle_types::kernel::ViewFrame::looking_along(dir);
+                    if let Some(up) = up {
+                        f.up = up;
+                    }
+                    f
+                }
+            };
+            let dxf_data = kb
+                .export_dxf(
+                    &bodies,
+                    &frame,
+                    &waffle_types::kernel::ProjectOpts::default(),
+                )
+                .map_err(|e| {
+                    BridgeError::Engine(feature_engine::types::EngineError::RebuildFailed {
+                        feature_name: "DXF export".to_string(),
+                        reason: format!("{}", e),
+                    })
+                })?;
+            Ok(EngineToUi::DxfExportReady { dxf_data, warnings })
+        }
+
         // -- Gear generation (stateless) --
         UiToEngine::GenerateGearPreview { params } => {
             let polyline = waffle_types::generate_gear_preview_polyline(&params);
