@@ -43,6 +43,216 @@ after the reconciliation run (release, 8 jobs, 360 s; wall 577 s, F0085
 regression since 2026-08-01 is outstanding (checked over every commit of
 `results.json`).
 
+## 2026-10-03 (late) — **P0018 CONVERTED, P0017 HALF-CONVERTED**: the developable-patch material-CCW postcondition measured its chart winding on CHORDS, so a sliver bounded by a bulging curve read as a hole and the kernel rejected its own correct face (deviation **N71**) — **corpus not re-measured this session**
+
+### The anchor — written before any code changed, both arms, un-minimized lineage first
+
+The two walls are the same postcondition written twice
+(`crates/kernel-v2/src/validate/faces.rs:1203` and
+`crates/kernel-v2/src/validate/faces/cone.rs:419`), so the twin lesson applied:
+anchor both, fix once.
+
+The diagnostic probe `KV2_CYLPATCH_PROBE` existed only on the WRAPPING-COUNT
+wall; it (and a new cone twin `KV2_CONEPATCH_PROBE`) now also dump the
+per-loop `wrap` / `mean_h` / `area2` at the material-CCW wall and for EVERY
+developable patch validated. What they said, verbatim:
+
+```
+[cylpatch-probe] face FaceId(27) MATERIAL-CCW wall: radius=89 axis_point=[-235.0, 130.0, 88.0] axis=[1.0, 0.0, 0.0] reversed=false sense=1 positive=0 loops=1
+  loop LoopId(31) wrap=0 mean_h=146.13306178905623 area2=-4.575297817481767
+[conepatch-probe] face FaceId(28) MATERIAL-CCW wall: apex=[-0.00024969834927697054, 0.000517, -2.7e-5] axis=[1.0, 0.0, -0.0] half_angle=0.8757228702119423 reversed=true sense=-1 positive=0 loops=1
+  loop LoopId(28) wrap=0 mean_tau=0.0003622144869912931 area2=-0.0000006722980363191853
+```
+
+So in BOTH cases the patch has **exactly one** loop, `wrap = 0`, and its
+`area2` is NEGATIVE — every loop reads as a hole, `positive = 0`. Not two
+loops (a face that should have been split), not a misread winding at the seam
+(`wrap = 0`, Δθ = 0.30 and 0.86 rad, nowhere near π).
+
+**The un-minimized lineage says the same thing** (`PROSPECT_CANDIDATE` on
+`target/prospect/seed-2/candidates/X00000002-00027` and `-00076`): one loop,
+`positive = 0`, `reversed = true` / `false`, `area2 = −6.047495055939783e-7`
+and `−4.023620827512482`. The minimizer minted no contact — the same locus at
+both ends of the lineage.
+
+**One locus, not two.** The two arms then look like opposite defects — P0017 is
+`reversed = true` with a loop winding CCW in the true θ frame, P0018
+`reversed = false` with one winding CW — but that is the single statement "the
+loop's measured winding disagrees with its surface sense" seen through the
+mirror `sense`. The `(θ, h)` chart's standard orientation has
+`∂S/∂θ × ∂S/∂h = R·r̂` (outward), so `reversed = false` ⇒ the material loop
+must measure positive; the mirrored frame is the `reversed` case. The
+convention is right. What was wrong is the MEASURE.
+
+### The measure — chart CHORDS where the paper's domain is bounded by CURVES
+
+Both arms push ONE chart point per half-edge (`us.push(u_cur); hs.push(hp)`)
+and shoelace them: every boundary edge is implicitly a straight chart segment.
+Four of the six `Curve` variants a boolean-output patch can carry have chart
+images that are not straight, and the bulge is unbounded relative to the
+patch's own width.
+
+P0018's `FaceId(27)` is the proof. Its eight chart vertices:
+
+| θ | h |
+|---|---|
+| 0 | 147.874 |
+| 0.859 | 147.874 |
+| 0.830 | 147.293 |
+| 0.744 | 145.883 |
+| 0.587 | 144.296 |
+| 0.429 | 143.791 |
+| 0.212 | 144.761 |
+| 0.029 | 147.293 |
+
+One `EllipseArc` from the first to the second, then seven `LineSegment`
+chords back. The chord shoelace is −4.575297817481767. But that ellipse is the
+oblique section of the radius-89 cylinder by a plane through
+`(114.02162587571001, 130, 88)` with normal
+`(0.3732147969789698, −0.9277449624309184, 0)`, and its chart image is exactly
+
+```
+h(θ) = 349.0216 − 221.2497 · cos(θ − 0.42957)
+```
+
+which reaches **127.77 at θ = 0.4296** — twenty chart units below BOTH of its
+own endpoints, and sixteen below the lowest point of the return polyline. The
+arc is the region's LOWER boundary traversed left-to-right, the polyline its
+UPPER boundary right-to-left: counter-clockwise, material, positive. The chord
+replaced a 20-unit dip with a flat lid and inverted the sign.
+
+The planar arm of the same crate never had this gap —
+`geom::planar_loop_signed_area` takes the ring points AND the curves and adds
+each arc's exact circular-segment area, which is why "a ring winds CW about
+the face normal: exact area < 0" is exact there. The developable arms were the
+crate's only orientation rule measured on chords. Paper side: §4.1 triangulates
+a trimmed surface's PARAMETRIC DOMAIN, and that domain is bounded by the images
+of its boundary curves; nothing licenses the chord. Deviation **N71**.
+
+### The fix — one shared rule, the canonical chart polygon, both arms
+
+`developable_chart_edge_samples` (`crates/kernel-v2/src/validate/faces.rs`,
+shared by the cylinder and cone arms) returns one boundary edge's interior
+chart points in walk order. It takes the caller's own `u_p`, `theta_p` and
+`delta` and never re-derives them, so the net-winding analysis, the integrality
+check and the wrap counts are byte-identical; `mean_h` still averages loop
+VERTICES only, so the band and apex-cap rules do not move either. The samples
+come from the SAME per-kind samplers `tessellate/developable.rs` pass 1 uses
+(`arc_interior_samples_frac`, `ellipse_interior_samples`,
+`hyperbola_interior_samples`, `surface_pair_edge_samples`) at the canonical
+chord density `tessellate::RENDER_CHORD_TOLERANCE_REL` — so the winding is read
+off the very polygon the render CDT triangulates (crate hard rule 5, one
+engine). A `LineSegment` contributes nothing: a chord is a straight chart
+segment in the tessellator (`PatchEdgeKind::Chord`) and here alike.
+
+This is not exact the way the planar arm is: a quartic `SurfacePair` chart
+image has no closed form. The conic arms do — `h(θ) = C − A·cos(θ − φ)` on a
+cylinder, `τ(θ) = D/(n·â + tanα·B·cos(θ − φ))` on a cone, both exactly
+integrable — and promoting those two to exact bulge areas is recorded as the
+open refinement in N71, not done here.
+
+### What moved
+
+| case | before | after |
+|---|---|---|
+| P0018 `FaceId(27)` area2 | −4.575297817481767 | **+18.30465761273355** |
+| P0017 `FaceId(28)` area2 | −6.722980363191853e-7 | **+7.175427296555491e-8** |
+| P0018 verdict | `ERROR … "bounded cylinder patch must have exactly one material-CCW loop"` | `SUPPORTED_CORRECT (3.6s) — all checks passed` |
+| P0017 verdict | `ERROR … "bounded cone patch must have exactly one material-CCW loop"` | `ERROR (0.5s) … TessellationFailed { face: FaceId(28), reason: "ring rejected by CDT (degenerate/self-intersecting)" }` |
+
+P0017's new wall is an **unmasked latent**, not a regression: validation used
+to STOP before the render tessellator ever saw that face, and the sliver whose
+canonical chart area is 7.175e-8 is exactly what the CDT declines. Its own
+×1e3 scale judgement had ALREADY read a CDT ring reject — the scale-dependence
+the promotion flagged was pointing at this all along, and the class is now the
+same at its own scale. It belongs to N68's family (P0013) and is its own
+session.
+
+The cut's nine other cone-band remnants in P0017 (`FaceId(22..27, 29)`) and the
+ten bands of the first boolean were all positive under BOTH measures. The
+defect is specific to the sliver — which is how a 310-CORRECT corpus carried it
+unseen.
+
+### Meta adjudicated, `derived_meta` cleared (P0018)
+
+The exact-membership lattice (`assay_exact_membership one_case_ladder`,
+`EXACT_CELLS=128,256,512,1024 EXACT_PHASE=0.5,0.25`) is stable and resolves
+something the ERROR never let anyone see: the 7-vertex non-convex cut **severs
+the body**. `components=2` at every rung, the small piece ≈ 4.4e3 at all four
+resolutions (268 / 2004 / 15744 / 124866 cells — not sub-cell, ~50 cells
+across), so the result is ONE body with TWO shells and χ = **4**, not the
+authored 2.
+
+The kernel keeps BOTH: welding `target/topo_sidecar/P0018/kernel.obj` by exact
+coordinate gives 2 components with divergence-theorem volumes
+**6.730121e6** and **4.297951e3**, sum 6.734419e6 — and the small one matches
+the lattice's speck (4.37–4.49e3) directly. So the 0.065 % piece is not
+dropped; the whole gap to the exact total is the inscribed-mesh chord deficit.
+
+Pinned: `euler_target` 2 → **4**, `expected_shell_count: 2`,
+`expected_solid_count: 1`, `expected_volume` = the 1024-cell two-phase mean
+**6.738844e6** (phase 0.5: 6.735358e6, phase 0.25: 6.742330e6; the 512 rung
+reads 6.731887e6 / 6.725275e6) with `expected_volume_tol_rel` **3e-3**. The
+runner reads 6.734419240e6 — rel **−6.57e-4**, which is the chord deficit on
+its radius-89 and radius-100 cylinders (~1.3e-3 of their own volume at the
+canonical 1e-3 tolerance), not a missing piece.
+
+### Pins (mutation-checked)
+
+The corpus pair carries the rule end to end, both in
+`smoke_corpus_boundary_categories`: `("P0018", Category::SupportedCorrect)`
+and `("P0017", Category::Error)` on its new wall. Three independent mutations
+of P0018, verbatim:
+
+```
+expected_solid_count 1 → 99   ⇒ P0018: SUPPORTED_WRONG (2.5s) — solid count: 1 bodies (meta expects 99)
+tol_rel 3e-3 → 1e-9           ⇒ P0018: SUPPORTED_WRONG (3.6s) — expected_volume: 6.734419240e6 vs expected 6.738844000e6 (rel tol 1.0e-9)
+euler_target 4 → 2            ⇒ P0018: SUPPORTED_WRONG (4.6s) — mesh_euler_characteristic: V(3731) - E(11150) + F(7423) = 4 (expected 2 for 2 shell(s))
+```
+
+And the two arms get one end-to-end test each,
+`crates/test-harness/tests/n71_developable_chart_winding.rs`, RED→GREEN and
+mutation-checked together: neutering `developable_chart_edge_samples` to
+return an empty vector (the pre-N71 chord measure) makes BOTH fail with the
+verbatim walls —
+
+```
+test p0018_cylinder_patch_sliver_is_material ... FAILED
+test p0017_cone_patch_sliver_is_material ... FAILED
+  … CurvedGeometryMismatch { face: FaceId(27), reason: "bounded cylinder patch must have exactly one material-CCW loop" }
+  … CurvedGeometryMismatch { face: FaceId(28), reason: "bounded cone patch must have exactly one material-CCW loop" }
+```
+
+— and both pass with it in place. The cone arm needs this pin because P0017
+stays an ERROR row either way: its CATEGORY cannot detect a cone-arm revert,
+only its error TEXT can.
+
+### Sharers re-judged — 71 cases, zero category moves
+
+`single_case` at `ASSAY_CASE_TIMEOUT_SECS=900`, reconciled against the
+committed `results.json`: the previous customer of this exact error text
+(R0091 — the case P0012's reverted multi-target union measurement had flipped
+into it), the KV14 strip-seam customers (R0063, P0006), the §4.5.1 corridor
+customers (R0003, R0004, R0032, R0049, R0070-adjacent R0038/R0100), every open
+P-series ERROR row (P0013, P0016, P0019, P0020, P0021 — all still ERROR, all
+still their own text) and the whole cone/cylinder-patch-heavy C- and R-series
+(R0002/5/9/11/18/19/20/25/26/27/34/44/45/46/47/50/51/53/54/57/59/60/62/63/65/
+69/71/74/77/80/81/87/91/93/94/96/99/100, C0059–C0070, C0104, C0105, F0073–
+F0075, P0005/6/8/9/13/15/16/19/20/21/22). **Zero moves.** The single
+difference against the snapshot is `P0015 ERROR → SUPPORTED_CORRECT`, which is
+this morning's own merge (the snapshot is equally stale for it). The string
+`material-CCW` appears in NONE of the 71 verdicts.
+
+Cost: the heaviest re-runs (R0019 429.7 s, R0081 299.0 s, R0054 236.9 s,
+R0005 124.9 s, R0003 89.6 s, R0032 87.1 s) sit inside the session-to-session
+load spread for those cases, so the validator's added per-patch sampling has
+no measurable cost at corpus scale. `smoke_corpus_boundary_categories` passes
+in 390.0 s with both rows re-pinned; `cargo test -p kernel-v2 --release` is
+green across 40 test binaries; clippy `--all-targets -p kernel-v2
+-p test-harness -- -D warnings` and `cargo fmt --check` are clean.
+**The corpus was NOT re-measured** (another assay held the box), so the
+committed `results.json` is stale for P0018.
+
 ## 2026-10-03 (night, later) — the §4.3.3 guard-ON corpus run was TAKEN and REFUSED the flip; the refusal is the guard's APPLICATION, not its derivation: a per-site density demand was collapsed into one body-wide rim-N floor forced on BOTH operands. The demand is now spent LOCALLY — the demanding face's own rim closure, over the at-risk arc span. **Corpus not re-measured this session**; the canonical score stands at the 2026-10-03 (night) **314C / 0W / 16E / 4EE / 0T + 0 UNSUPPORTED over 334 cases**
 
 **The measurement the previous session asked for** (release, 8 jobs, 900 s;
@@ -905,8 +1115,8 @@ ten give those families customers again, at 2–5 ops.
 | P0014 | `convex5:boss gear10:rev-cut` | 2 | Stage-4 `LocalRefinementRequired` around vertex **4294967295** (u32::MAX — a sentinel, not a vertex): the §4.4.1(a) unzip at `stage4_correct.rs:14388`, rooted in a 2.73e-13 (2-ULP) un-relocated ARRANGEMENT twin pair — a DIFFERENT locus from P0015. **CONVERTED 2026-10-03 (night)**: the twin is an LPI PENCIL the Stage-2 arrangement mints when a gear tessellation vertex lies 2 ULP off the boss plane (one LPI per incident mesh edge + the vertex itself; exactly distinct, so no exact dedup can fuse them); `cherchi-rs` now records the generator incidence and the I6 weld fuses the pencil inside its own KV10 band (spec `yang_p0014_arrangement_lpi_pencil_weld.md`). Oracles adjudicated, `derived_meta` cleared | **CORRECT** / ERROR (same class) | 3.09e6× | 77.6 s → 7.9 s |
 | P0015 | `convex4:boss gear27:boss convex5:rev-cut` | 3 | Stage-4 `RelocationCrossedCarrierVertex` (the R0085 family). **CONVERTED 2026-10-03 (evening)**: the §4.5.2 certificate's demand (159.37) sat past the ladder's ceiling and was read as a PROOF of futility ⇒ zero rungs; the op converges at `d_ε/32`. Oracles adjudicated, `derived_meta` cleared | ERROR / ERROR (same class) | 648× | 13.9 s |
 | P0016 | `convex4:boss convex4:rev-cut convex3:cut` | 3 | Stage-3 `AmbiguousCurve { candidates: 0, matched: 0 }` — **zero** candidates, so no curve was proposed at all | ERROR / ERROR (same class) | 3e4× | 0.4 s |
-| P0017 | `convex4:boss nonconvex10:rev circle:cut` | 3 | `CurvedGeometryMismatch "bounded cone patch must have exactly one material-CCW loop"` | ERROR (a degenerate zero-area input face) / ERROR (a CDT ring reject) — the class MOVES, so judge at its own scale | 91× | 1.1 s |
-| P0018 | `circle:boss circle:sym nonconvex7:cut` | 3 | the cylinder arm of the same postcondition | ERROR / ERROR (same class) | 8.9e7× | 1.0 s |
+| P0017 | `convex4:boss nonconvex10:rev circle:cut` | 3 | `CurvedGeometryMismatch "bounded cone patch must have exactly one material-CCW loop"`. **HALF-CONVERTED 2026-10-03** (deviation N71, see the dated section below): the postcondition measured its chart winding on a VERTICES-ONLY shoelace and rejected a correct sliver (−6.723e-7 against a canonical-chart +7.175e-8). Both arms fixed; the case now lands one stage later on an UNMASKED LATENT — `TessellationFailed "ring rejected by CDT (degenerate/self-intersecting)"` on the same 7.2e-8-area chart sliver, N68's family | ERROR (a degenerate zero-area input face) / ERROR (a CDT ring reject — **already the class it now reads at its own scale**) | 91× | 1.1 s → 0.5 s |
+| P0018 | `circle:boss circle:sym nonconvex7:cut` | 3 | the cylinder arm of the same postcondition. **CONVERTED 2026-10-03** (N71): chord shoelace −4.575 where the canonical chart polygon reads +18.305. Oracles adjudicated (one body, TWO shells, χ 4, volume 6.738844e6 ± 3e-3), `derived_meta` cleared | ERROR / ERROR (same class) | 8.9e7× | 1.0 s → 3.6 s |
 | P0019 | `convex4:boss nonconvex5:rev convex4:cut` | 3 | `InvalidBooleanOutput "full-circle edge sense is underivable"` (the wall R0004 once hit) | ERROR / ERROR (same class) | 1.34e5× | 0.2 s |
 | P0020 | `circle:boss gear12:∩ convex4:∩` | 5 | `malformed B-Rep topology: face 0: holed lateral CDT failed: duplicate (coincident) loop vertex in CDT input` — an INPUT rejection, so the first Intersect's OWN output is malformed | ERROR (a different class: an interior-junction / weld-band ambiguous edge-split) / ERROR (same class) | 83× | 10.6 s |
 | P0021 | `convex4:boss circle:boss circle:boss` | 3 | auto-union `SelfIntersectingBooleanOutput { penetrations: 5 }` — P0007's signature on three plain bosses | ERROR / ERROR (same class) | 710× | 0.4 s |

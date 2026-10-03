@@ -260,6 +260,9 @@ fn validate_cone_patch(
         }
         let mut us: Vec<f64> = Vec::with_capacity(hes.len());
         let mut vs: Vec<f64> = Vec::with_capacity(hes.len());
+        // Loop-VERTEX axial coordinates only — see the cylinder arm's
+        // `hs_v`: the band/apex-cap `mean_h` rules stay byte-identical.
+        let mut vs_v: Vec<f64> = Vec::with_capacity(hes.len());
         let mut u_cur = f64::NAN; // set from the first vertex below
         let mut total = 0.0f64;
         for (i, &h) in hes.iter().enumerate() {
@@ -274,6 +277,7 @@ fn validate_cone_patch(
             }
             us.push(u_cur);
             vs.push(tau_p);
+            vs_v.push(tau_p);
 
             let delta = match he.curve {
                 Curve::LineSegment => {
@@ -371,6 +375,17 @@ fn validate_cone_patch(
                     geom::wrap_to_pi(theta_q - theta_p)
                 }
             };
+            // N71: the chart image of this edge, not its chord — the cone
+            // arm of the cylinder patch's identical rule (the twin lesson:
+            // a one-sided fix here would silence only one of the pair).
+            for (su, sv) in
+                developable_chart_edge_samples(arena, f, h, u_cur, theta_p, delta, &|p| {
+                    radial_theta_tau(p, e1, e2)
+                })?
+            {
+                us.push(su);
+                vs.push(sv);
+            }
             u_cur += delta;
             total += delta;
         }
@@ -394,12 +409,21 @@ fn validate_cone_patch(
         measures.push(LoopMeasure {
             loop_id: lid,
             wrap: if sense < 0.0 { -wraps } else { wraps },
-            mean_h: vs.iter().sum::<f64>() / m as f64,
+            mean_h: vs_v.iter().sum::<f64>() / vs_v.len() as f64,
             area2: sense * area2,
         });
     }
 
     // ---- face-level orientation rules (material-CCW in the developed frame)
+    if std::env::var_os("KV2_CONEPATCH_PROBE").is_some() {
+        eprintln!(
+            "[conepatch-probe] face {f:?} half_angle={half_angle} reversed={reversed} loops={} \
+             wraps={:?} areas={:?}",
+            measures.len(),
+            measures.iter().map(|m| m.wrap).collect::<Vec<_>>(),
+            measures.iter().map(|m| m.area2).collect::<Vec<_>>()
+        );
+    }
     let wrapping: Vec<&LoopMeasure> = measures.iter().filter(|mm| mm.wrap != 0).collect();
     match wrapping.len() {
         0 => {
@@ -415,6 +439,32 @@ fn validate_cone_patch(
                 }
             }
             if positive != 1 {
+                // Diagnostic probe (env-gated, zero-cost off): the cone twin
+                // of `KV2_CYLPATCH_PROBE`'s per-loop dump, so a material-CCW
+                // wall self-localizes (zero positive = a sense defect
+                // upstream, several = a face that should have been split).
+                if std::env::var_os("KV2_CONEPATCH_PROBE").is_some() {
+                    eprintln!(
+                        "[conepatch-probe] face {f:?} MATERIAL-CCW wall: apex={ap:?} axis={a:?} \
+                         half_angle={half_angle} reversed={reversed} sense={sense} \
+                         positive={positive} loops={}",
+                        measures.len()
+                    );
+                    for mm in &measures {
+                        eprintln!(
+                            "  loop {:?} wrap={} mean_tau={} area2={}",
+                            mm.loop_id, mm.wrap, mm.mean_h, mm.area2
+                        );
+                        if let Ok(hes) = arena.loop_half_edges(mm.loop_id) {
+                            for &h in &hes {
+                                if let Ok(he) = arena.half_edge(h) {
+                                    let p = arena.vertex(he.origin).map(|v| v.point);
+                                    eprintln!("    he {h:?} curve={:?} origin={p:?}", he.curve);
+                                }
+                            }
+                        }
+                    }
+                }
                 return Err(mismatch(
                     "bounded cone patch must have exactly one material-CCW loop",
                 ));
