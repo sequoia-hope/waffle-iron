@@ -521,6 +521,15 @@ fn a_boolean_output_face_pid_names_the_same_face_after_an_upstream_edit_and_a_re
     let mut authored = plate_with_two_pockets(3.0);
     let p2 = authored.feature_id("p2").expect("feature id");
     let floor_pid = face_pid_at(&authored, p2, P2_FLOOR);
+    // Item 1b: a boolean output face's pid is H(op seed, lineage root, rank),
+    // so its root is the cutter's bottom-cap root, NOT its own pid — and N1's
+    // resolver (merged the same day) cross-checks the recorded root before
+    // it accepts a number. Record the root the way a real selector would.
+    let floor_root = face_ids_at(&authored, p2, true)
+        .into_iter()
+        .find(|(_, c)| near(*c, P2_FLOOR))
+        .map(|(root, _)| root)
+        .expect("the floor has a lineage root");
 
     // The edit the hazard was measured under: pocket 1 becomes a through
     // hole, which rebuilds both cuts and every face of the body.
@@ -569,7 +578,7 @@ fn a_boolean_output_face_pid_names_the_same_face_after_an_upstream_edit_and_a_re
 
     // 3. And it resolves, by pid, with no warning.
     let resolved = resolve_geom_ref_live(
-        &pid_face_ref(p2, floor_pid, floor_pid),
+        &pid_face_ref(p2, floor_pid, floor_root),
         &results_for_uuid(&reopened, p2),
         reopened.kernel_ref().as_introspect(),
     )
