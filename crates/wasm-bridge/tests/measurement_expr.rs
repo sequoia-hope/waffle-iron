@@ -100,6 +100,7 @@ fn block(
     let sketch = Sketch {
         id: Uuid::new_v4(),
         plane: datum_xy(),
+        plane_face: None,
         plane_origin: [0.0, 0.0, 0.0],
         plane_normal: [0.0, 0.0, 1.0],
         plane_x_axis: None,
@@ -387,6 +388,25 @@ fn a_measuring_parameter_drives_a_depth_and_reports_its_dimension() {
         row["depends_on"].as_array().expect("a list").is_empty(),
         "an entity name is not a parameter dependency: {row}"
     );
+    // But the row must still SAY it reads the model, in the other namespace.
+    // `depends_on: []` alone would tell an agent this parameter is a
+    // constant it may reorder the tree under.
+    assert_eq!(
+        row["measures"],
+        json!(["wall_a", "wall_b"]),
+        "the entity namespace is reported as its own list: {row}"
+    );
+    // And a parameter that measures nothing carries no such list at all, so
+    // a document that does not measure answers as it did before D2.
+    let plain = table["parameters"]
+        .as_array()
+        .expect("rows")
+        .iter()
+        .find(|p| p["name"] != "gap")
+        .cloned();
+    if let Some(plain) = plain {
+        assert!(plain["measures"].is_null(), "{plain}");
+    }
 }
 
 #[test]
