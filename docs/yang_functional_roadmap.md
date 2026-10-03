@@ -9,6 +9,8 @@
 
 ## 0. Honest status (refreshed 2026-06-26; addendum 2026-09-04 below)
 
+> **2026-10-03 (late evening UTC) refresh — MEASURED; P0017 CONVERTED, N69 and N76 live.** Canonical corpus **322C / 0W / 9E / 5EE / 0T + 0 UNSUPPORTED over 336 cases** (release, 8 jobs, 900 s; wall 1437.5 s; R0085 828.8 s, F0072 767.8 s). First run with the N69 graze-aware ray selection (always-on, `CHERCHI_GRAZE_AWARE_RAY=0|off`) and the N76 output-curve backtrack merge: versus the extent-on run (321C/10E), exactly one category move (P0017 → CORRECT) and zero regressions — P0023 CORRECT and P0024 EXPECTED_ERROR now by the honest boolean answer, not the containment net; **deviation N69 RESOLVED**. The 9 ERROR rows are the seven loud-by-design C-series walls + P0019 (component-wise seam anchoring, gated branch in progress) + P0020 (N74 per-sheet faces). The P-series tail is two cases from EMPTY.
+
 > **2026-10-03 (late night, third) refresh — deviation N69 RESOLVED-pending-corpus:
 > graze-aware §5 ray selection is LANDED ALWAYS-ON with a kill switch;
 > corpus NOT re-measured, FLIP OWED.** Cherchi 2022 §5's in/out classification

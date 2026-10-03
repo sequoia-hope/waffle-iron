@@ -10,6 +10,7 @@ use std::collections::BTreeSet;
 
 use super::dim::{unit_by_name, Unit};
 use super::lex::{tokenize, Lexeme, Tok};
+use super::measure::{measure_fn, EntityArg, MeasureCall};
 use super::{ExprError, Span, FUNCTIONS, MAX_DEPTH};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -58,6 +59,20 @@ pub enum Expr {
         args: Vec<Expr>,
         span: Span,
     },
+    /// A measurement of the model (D2): a function from
+    /// [`super::measure::MEASUREMENTS`] applied to entity NAMES.
+    ///
+    /// A separate node from [`Expr::Call`] because its arguments are a
+    /// different kind of thing — names in the N1 entity namespace, never
+    /// subexpressions — and because that separation is what keeps
+    /// [`Expr::identifiers`] (the design-parameter dependency list) from
+    /// collecting entity names it would then fail to resolve.
+    Measure {
+        /// Borrowed from the table, so the spelling cannot drift.
+        function: &'static str,
+        args: Vec<EntityArg>,
+        span: Span,
+    },
 }
 
 impl Expr {
@@ -67,7 +82,88 @@ impl Expr {
             | Expr::Ident { span, .. }
             | Expr::Unary { span, .. }
             | Expr::Binary { span, .. }
-            | Expr::Call { span, .. } => *span,
+            | Expr::Call { span, .. }
+            | Expr::Measure { span, .. } => *span,
+        }
+    }
+
+    /// Every measurement this expression takes, in source order.
+    ///
+    /// This is the list the rebuild's dependency tracking walks: each call
+    /// names entities, each entity belongs to a feature, and the measuring
+    /// field depends on that feature (D2, `specs/drawings_and_mbd.md` §6).
+    pub fn measurements(&self) -> Vec<MeasureCall<'_>> {
+        let mut out = Vec::new();
+        self.collect_measurements(&mut out);
+        out
+    }
+
+    /// Whether this expression reads the model at all — the cheap question
+    /// the parameter pass asks before it needs a kernel.
+    pub fn measures(&self) -> bool {
+        match self {
+            Expr::Measure { .. } => true,
+            Expr::Number { .. } | Expr::Ident { .. } => false,
+            Expr::Unary { operand, .. } => operand.measures(),
+            Expr::Binary { lhs, rhs, .. } => lhs.measures() || rhs.measures(),
+            Expr::Call { args, .. } => args.iter().any(Expr::measures),
+            // A measurement's own arguments are names, not expressions, so
+            // there is nothing below it to recurse into.
+        }
+    }
+
+    /// Every ENTITY name this expression measures, sorted and deduplicated.
+    ///
+    /// Disjoint from [`Expr::identifiers`] by construction: the two walk
+    /// different node kinds, so a parameter and an entity may share a
+    /// spelling without either becoming the other.
+    pub fn entity_references(&self) -> BTreeSet<String> {
+        let mut out = BTreeSet::new();
+        for call in self.measurements() {
+            for name in call.names() {
+                out.insert(name.to_string());
+            }
+        }
+        out
+    }
+
+    /// The byte spans of every reference to the ENTITY named `name`, in
+    /// source order — the entity-rename counterpart of
+    /// [`Expr::reference_spans`].
+    pub fn entity_reference_spans(&self, name: &str) -> Vec<Span> {
+        let mut out: Vec<Span> = self
+            .measurements()
+            .iter()
+            .flat_map(|c| c.args.iter())
+            .filter(|a| a.name == name)
+            .map(|a| a.span)
+            .collect();
+        out.sort_by_key(|s| s.start);
+        out
+    }
+
+    fn collect_measurements<'a>(&'a self, out: &mut Vec<MeasureCall<'a>>) {
+        match self {
+            Expr::Number { .. } | Expr::Ident { .. } => {}
+            Expr::Unary { operand, .. } => operand.collect_measurements(out),
+            Expr::Binary { lhs, rhs, .. } => {
+                lhs.collect_measurements(out);
+                rhs.collect_measurements(out);
+            }
+            Expr::Call { args, .. } => {
+                for a in args {
+                    a.collect_measurements(out);
+                }
+            }
+            Expr::Measure {
+                function,
+                args,
+                span,
+            } => out.push(MeasureCall {
+                function,
+                args,
+                span: *span,
+            }),
         }
     }
 
@@ -99,7 +195,10 @@ impl Expr {
 
     fn collect_reference_spans(&self, name: &str, out: &mut Vec<Span>) {
         match self {
-            Expr::Number { .. } => {}
+            // A measurement's arguments are ENTITY names, in their own
+            // namespace: a design-parameter rename must not touch them.
+            // `entity_reference_spans` is the other half.
+            Expr::Number { .. } | Expr::Measure { .. } => {}
             Expr::Ident {
                 name: ident, span, ..
             } => {
@@ -125,7 +224,11 @@ impl Expr {
 
     fn collect_identifiers(&self, out: &mut BTreeSet<String>) {
         match self {
-            Expr::Number { .. } => {}
+            // An entity name is NOT a design-parameter dependency. Were it
+            // collected here, the parameter table's fixpoint would wait
+            // forever on an `UnknownIdentifier` that is not a parameter at
+            // all; `entity_references` is where these live.
+            Expr::Number { .. } | Expr::Measure { .. } => {}
             Expr::Ident { name, .. } => {
                 out.insert(name.clone());
             }
@@ -362,6 +465,30 @@ impl<'a> Parser<'a> {
         let is_call = self.peek().is_some_and(|lx| lx.tok == Tok::LParen);
         if is_call {
             self.pos += 1; // consume '('
+                           // D2: a MEASUREMENT's arguments are entity names, not
+                           // expressions, so which parser runs on the argument list is
+                           // decided by the callee. Every measurement takes only names and
+                           // every arithmetic function only numbers, so there is no mixed
+                           // case to disambiguate.
+            if let Some(m) = measure_fn(&name) {
+                let (args, close) = self.parse_entity_args(m.name)?;
+                if args.len() != m.arity {
+                    return Err(ExprError::WrongArity {
+                        function: name,
+                        expected: match m.arity {
+                            1 => "1",
+                            2 => "2",
+                            _ => "a fixed number of",
+                        },
+                        got: args.len(),
+                    });
+                }
+                return Ok(Expr::Measure {
+                    function: m.name,
+                    args,
+                    span: span.join(close),
+                });
+            }
             let (args, close) = self.parse_args()?;
             let Some(arity) = arity_of(&name) else {
                 return Err(ExprError::UnknownFunction(name));
@@ -404,6 +531,111 @@ impl<'a> Parser<'a> {
         Ok(Expr::Ident { name, span })
     }
 
+    /// Comma-separated ENTITY NAMES up to ')' (D2). The '(' is already
+    /// consumed. Returns the names and the closing paren's span.
+    ///
+    /// ```text
+    /// entity_args := path (',' path)*
+    /// path        := ident ('.' ident)?
+    /// ```
+    ///
+    /// The grammar is `crate::names`' own
+    /// (`specs/agent_mechanical_design.md` §5.2): one segment, or
+    /// `body.leaf`. Each segment arrives from the lexer as a `Tok::Ident`,
+    /// which IS `[A-Za-z_][A-Za-z0-9_]*`, so what is left to check here is
+    /// the segment count and the length cap — both at PARSE time, so an
+    /// unwritable name is refused before any environment is consulted.
+    fn parse_entity_args(&mut self, function: &str) -> Result<(Vec<EntityArg>, Span), ExprError> {
+        let mut args: Vec<EntityArg> = Vec::new();
+        if let Some(lx) = self.peek() {
+            if lx.tok == Tok::RParen {
+                let span = lx.span;
+                self.pos += 1;
+                return Ok((args, span));
+            }
+        }
+        loop {
+            args.push(self.parse_entity_path(function)?);
+            let fallback = self.end_pos();
+            let Some(lx) = self.next() else {
+                return Err(ExprError::Parse {
+                    pos: fallback,
+                    message: "expected ',' or ')'".to_string(),
+                });
+            };
+            match lx.tok {
+                Tok::Comma => continue,
+                Tok::RParen => return Ok((args, lx.span)),
+                _ => {
+                    return Err(ExprError::Parse {
+                        pos: lx.span.start,
+                        message: "expected ',' or ')'".to_string(),
+                    })
+                }
+            }
+        }
+    }
+
+    /// One entity name: `leaf` or `body.leaf`.
+    fn parse_entity_path(&mut self, function: &str) -> Result<EntityArg, ExprError> {
+        let end = self.end_pos();
+        let Some(lx) = self.next() else {
+            return Err(ExprError::Parse {
+                pos: end,
+                message: format!("{function}() expects an entity name, and the expression ended"),
+            });
+        };
+        let Tok::Ident(first) = &lx.tok else {
+            return Err(ExprError::Parse {
+                pos: lx.span.start,
+                message: format!(
+                    "{function}() takes entity NAMES, not expressions \
+                     (a name is `top_face` or `plate.top_face`)"
+                ),
+            });
+        };
+        let mut name = first.clone();
+        let mut span = lx.span;
+        let mut segments = 1usize;
+        while self.peek().is_some_and(|lx| lx.tok == Tok::Dot) {
+            let dot = self.next().expect("peeked").span;
+            let end = self.end_pos();
+            let Some(next) = self.next() else {
+                return Err(ExprError::Parse {
+                    pos: end,
+                    message: format!("\"{name}.\" ends in a dot; a name is `body.leaf`"),
+                });
+            };
+            let Tok::Ident(segment) = &next.tok else {
+                return Err(ExprError::Parse {
+                    pos: next.span.start,
+                    message: format!("\"{name}.\" must be followed by a name segment"),
+                });
+            };
+            segments += 1;
+            if segments > 2 {
+                // Refused rather than folded into the leaf, exactly as
+                // `names::parse_name` refuses it.
+                return Err(ExprError::Parse {
+                    pos: dot.start,
+                    message: format!(
+                        "\"{name}.{segment}\" has {segments} segments; a name is `leaf` or `body.leaf`"
+                    ),
+                });
+            }
+            name.push('.');
+            name.push_str(segment);
+            span = span.join(next.span);
+            if segment.len() > crate::names::MAX_SEGMENT_LEN {
+                return Err(too_long(next.span.start, segment));
+            }
+        }
+        if first.len() > crate::names::MAX_SEGMENT_LEN {
+            return Err(too_long(lx.span.start, first));
+        }
+        Ok(EntityArg { name, span })
+    }
+
     /// Comma-separated args up to ')'. The '(' is already consumed. Returns
     /// the args and the closing paren's span.
     fn parse_args(&mut self) -> Result<(Vec<Expr>, Span), ExprError> {
@@ -435,6 +667,20 @@ impl<'a> Parser<'a> {
                 }
             }
         }
+    }
+}
+
+/// A name segment past [`crate::names::MAX_SEGMENT_LEN`] — the same cap the
+/// name table itself enforces, so an expression cannot name something that
+/// could never have been named.
+fn too_long(pos: usize, segment: &str) -> ExprError {
+    ExprError::Parse {
+        pos,
+        message: format!(
+            "name segment is {} characters; at most {} (it could not have been named)",
+            segment.len(),
+            crate::names::MAX_SEGMENT_LEN
+        ),
     }
 }
 
@@ -482,6 +728,10 @@ mod tests {
             Expr::Call { name, args, .. } => {
                 let a: Vec<String> = args.iter().map(sexpr).collect();
                 format!("({name} {})", a.join(" "))
+            }
+            Expr::Measure { function, args, .. } => {
+                let a: Vec<&str> = args.iter().map(|a| a.name.as_str()).collect();
+                format!("(measure:{function} {})", a.join(" "))
             }
         }
     }
@@ -697,6 +947,178 @@ mod tests {
         // Just inside the bound still parses.
         let ok = format!("{}1{}", "(".repeat(MAX_DEPTH), ")".repeat(MAX_DEPTH));
         assert!(parse(&ok).is_ok());
+    }
+
+    // -- D2: measurement functions --
+
+    #[test]
+    fn a_measurement_takes_entity_names_not_expressions() {
+        assert_eq!(
+            tree("distance(wall_a, wall_b)"),
+            "(measure:distance wall_a wall_b)"
+        );
+        assert_eq!(
+            tree("area(plate.top_face)"),
+            "(measure:area plate.top_face)"
+        );
+        assert_eq!(tree("volume(plate)"), "(measure:volume plate)");
+        assert_eq!(
+            tree("distance(a, b) / 2 + 1mm"),
+            "(+ (/ (measure:distance a b) 2) 1[mm])"
+        );
+        // A measurement nests inside an arithmetic call, which is the whole
+        // point of putting it in the grammar.
+        assert_eq!(
+            tree("max(length(rim), 2mm)"),
+            "(max (measure:length rim) 2[mm])"
+        );
+        // An EXPRESSION where a name belongs is refused, naming the function.
+        let err = parse("distance(a, 2 + 2)").unwrap_err();
+        assert_eq!(
+            err,
+            ExprError::Parse {
+                pos: 12,
+                message: "distance() takes entity NAMES, not expressions \
+                          (a name is `top_face` or `plate.top_face`)"
+                    .into()
+            }
+        );
+        assert!(parse("area(1)").is_err());
+    }
+
+    #[test]
+    fn measurement_arity_is_validated_at_parse_time() {
+        assert_eq!(
+            parse("distance(a)"),
+            Err(ExprError::WrongArity {
+                function: "distance".into(),
+                expected: "2",
+                got: 1
+            })
+        );
+        assert_eq!(
+            parse("area(a, b)"),
+            Err(ExprError::WrongArity {
+                function: "area".into(),
+                expected: "1",
+                got: 2
+            })
+        );
+        assert_eq!(
+            parse("volume()"),
+            Err(ExprError::WrongArity {
+                function: "volume".into(),
+                expected: "1",
+                got: 0
+            })
+        );
+        // Every function in the table, at one too few and one too many.
+        for m in super::super::measure::MEASUREMENTS {
+            let args = |n: usize| {
+                (0..n)
+                    .map(|i| format!("e{i}"))
+                    .collect::<Vec<_>>()
+                    .join(", ")
+            };
+            assert!(
+                parse(&format!("{}({})", m.name, args(m.arity))).is_ok(),
+                "{} with {} args",
+                m.name,
+                m.arity
+            );
+            for wrong in [m.arity + 1, m.arity.saturating_sub(1)] {
+                if wrong == m.arity {
+                    continue;
+                }
+                assert!(
+                    matches!(
+                        parse(&format!("{}({})", m.name, args(wrong))),
+                        Err(ExprError::WrongArity { .. })
+                    ),
+                    "{} with {wrong} args",
+                    m.name
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn a_dotted_name_is_two_segments_and_no_more() {
+        assert_eq!(tree("area(plate.top)"), "(measure:area plate.top)");
+        let err = parse("area(a.b.c)").unwrap_err();
+        let ExprError::Parse { message, .. } = &err else {
+            panic!("expected a parse error, got {err:?}");
+        };
+        assert!(message.contains("3 segments"), "{message}");
+        assert!(parse("area(plate.)").is_err());
+        assert!(parse("area(.top)").is_err());
+        let long = "a".repeat(crate::names::MAX_SEGMENT_LEN + 1);
+        let err = parse(&format!("area({long})")).unwrap_err();
+        let ExprError::Parse { message, .. } = &err else {
+            panic!("expected a parse error, got {err:?}");
+        };
+        assert!(message.contains("at most"), "{message}");
+    }
+
+    #[test]
+    fn an_entity_name_is_not_a_parameter_dependency() {
+        // The namespaces are disjoint, and this is what keeps the parameter
+        // table's fixpoint from waiting on a name that is not a parameter.
+        let ast = parse("distance(wall_a, wall_b) / divisor").unwrap();
+        assert_eq!(
+            ast.identifiers().into_iter().collect::<Vec<_>>(),
+            vec!["divisor".to_string()]
+        );
+        assert_eq!(
+            ast.entity_references().into_iter().collect::<Vec<_>>(),
+            vec!["wall_a".to_string(), "wall_b".to_string()]
+        );
+        // The same spelling in both namespaces is two different things.
+        let ast = parse("area(w) * w").unwrap();
+        assert_eq!(
+            ast.identifiers().into_iter().collect::<Vec<_>>(),
+            vec!["w".to_string()]
+        );
+        assert_eq!(
+            ast.entity_references().into_iter().collect::<Vec<_>>(),
+            vec!["w".to_string()]
+        );
+        // A parameter rename touches only the IDENT, never the entity arg.
+        assert_eq!(ast.reference_spans("w"), vec![Span::new(10, 11)]);
+        assert_eq!(ast.entity_reference_spans("w"), vec![Span::new(5, 6)]);
+    }
+
+    #[test]
+    fn measures_says_whether_an_expression_reads_the_model() {
+        assert!(parse("distance(a, b)").unwrap().measures());
+        assert!(parse("1 + max(2, area(f))").unwrap().measures());
+        assert!(parse("-volume(b)").unwrap().measures());
+        assert!(!parse("w * 2 + sqrt(h)").unwrap().measures());
+        assert!(!parse("25mm").unwrap().measures());
+    }
+
+    #[test]
+    fn a_measurement_name_is_callable_only_and_not_reserved() {
+        // A parameter MAY be called `radius` (D2 reserves no new words — see
+        // the module docs); a bare `radius` is that parameter, and
+        // `radius(rim)` is the measurement. Neither reading is ambiguous.
+        assert_eq!(tree("radius * 2"), "(* radius 2)");
+        assert_eq!(tree("radius(rim) * 2"), "(* (measure:radius rim) 2)");
+        assert_eq!(tree("area + area(f)"), "(+ area (measure:area f))");
+        assert!(super::super::validate_name("radius").is_ok());
+        assert!(super::super::validate_name("distance").is_ok());
+    }
+
+    #[test]
+    fn a_dot_outside_a_measurement_argument_is_still_an_error() {
+        // The lexer emits `Tok::Dot` now; the parser must refuse it
+        // everywhere a name is not expected, rather than ignoring it.
+        assert!(parse("a.b").is_err());
+        assert!(parse("1 . 2").is_err());
+        assert!(parse(".").is_err());
+        assert!(parse("sqrt(a.b)").is_err());
+        // And a leading-dot literal still parses as a number.
+        assert_eq!(tree(".5 + 1"), "(+ 0.5 1)");
     }
 
     #[test]
