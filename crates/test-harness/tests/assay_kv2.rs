@@ -1628,16 +1628,63 @@ fn smoke_corpus_boundary_categories() {
         // cleared. The third row carrying this text (seed 2 index 169) reaches
         // it through the AUTO-UNION path and is ledgered, not promoted.
         ("P0015", Category::SupportedCorrect),
-        // P0016 (3 ops) ⇒ Stage-3 `AmbiguousCurve { candidates: 0, matched: 0 }`
-        // — candidates ZERO, so no analytical curve was proposed at all.
-        ("P0016", Category::Error),
+        // P0016 (3 ops) was promoted as Stage-3
+        // `AmbiguousCurve { candidates: 0, matched: 0 }` — candidates ZERO, so
+        // no analytical curve was proposed at all. **CONVERTED 2026-10-03
+        // (night)**: that text was neither an ambiguity nor the producer fault
+        // it claimed. Stage 1 sizes every curved chart against ONE
+        // operand-level budget (`curved_chord_bound`, else
+        // `ellipse_rim_chord_bound`) and its own comment calls that value "the
+        // operand's chord budget as Stage 3/4 read it back" — but only the
+        // CYLINDER arms read it back. Both CONE arms demanded a
+        // `Curve::Circle` rim on the band's own face, and a cone patch
+        // re-entering from a prior boolean has none (measured here: 2
+        // ellipses + 6 hyperbolas + 10 segments, zero circles), so Stage 3
+        // STOPped before `ssi_rs::intersect` was ever called. Fixing that arm
+        // alone moved the STOP to the Stage-4 twin
+        // (`cone_chord_budget_from_owner` → `LocalRefinementRequired`): one
+        // defect, two error texts. Both now delegate to
+        // `owner_stage1_chord_budget`, the single source (deviation N71; pins
+        // `yang-rs/src/tests_unit/n71_cone_band_readback.rs`). The per-band
+        // N38 bound still wins wherever a rim Circle exists, so every
+        // circle-rimmed cone case is byte-identical. Oracles adjudicated at
+        // the conversion by the exact-membership lattice (two components,
+        // boundary_chi 4 on all fourteen rungs, one body, volume 4.86e-5 ±
+        // 1e-2 — the lattice's own finest-rung spread is ±0.5 %, so the tol is
+        // what the oracle resolves) and `derived_meta` cleared.
+        ("P0016", Category::SupportedCorrect),
         // P0017 / P0018: the two arms of kernel-v2's curved-patch
         // postcondition — "bounded cone patch must have exactly one
-        // material-CCW loop" and its cylinder twin. P0017's class MOVES under
-        // scale (×1e-3 a degenerate zero-area input face, ×1e3 a CDT ring
-        // reject), so judge it at its own scale.
+        // material-CCW loop" and its cylinder twin. **CONVERTED 2026-10-03
+        // (deviation N71)**: both arms measured the chart winding on a
+        // VERTICES-ONLY shoelace, so a sliver patch whose boundary CURVE
+        // bulges further across the chart than the patch is wide read the
+        // OPPOSITE sign. Measured on P0018's FaceId(27): an oblique-section
+        // ellipse arc dipping ~20 chart units below BOTH its endpoints
+        // against a 7-chord polyline ~4 units above it — chord shoelace
+        // −4.575 (a hole), canonical chart polygon +18.305 (material). The
+        // planar arm never had this gap (`geom::planar_loop_signed_area`
+        // adds each arc's exact circular-segment area); the developable arms
+        // now sample each boundary curve's chart image with
+        // `tessellate::sampling` at the canonical chord density — the same
+        // polygon the render CDT triangulates (crate hard rule 5).
+        //
+        // P0018 is SUPPORTED_CORRECT and adjudicated (the non-convex cut
+        // SEVERS a 4.298e3 speck, so one body with TWO shells, χ = 4;
+        // exact-membership 1024-cell mean 6.738844e6 ± 3e-3, kernel
+        // 6.734419240e6 = rel −6.57e-4, the cylinder chord deficit).
+        //
+        // P0017 is HALF-converted: its cone postcondition passes (the sliver
+        // remnant of cone band FaceId(16) reads +7.175e-8, not −6.723e-7)
+        // and the case lands one stage later on an UNMASKED LATENT that
+        // validation used to preempt — `TessellationFailed { face:
+        // FaceId(28), reason: "ring rejected by CDT
+        // (degenerate/self-intersecting)" }`, the render CDT declining that
+        // same 7.2e-8-area chart sliver (N68's family, P0013). Its ×1e3
+        // scale judgement ALREADY read a CDT ring reject, so the class is
+        // now the same at its own scale.
         ("P0017", Category::Error),
-        ("P0018", Category::Error),
+        ("P0018", Category::SupportedCorrect),
         // P0019 (3 ops) ⇒ `InvalidBooleanOutput("full-circle edge sense is
         // underivable …")`: a closed output edge whose traversal sense neither
         // allowed witness can supply. The wall R0004 once hit.

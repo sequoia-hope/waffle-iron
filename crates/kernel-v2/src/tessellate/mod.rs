@@ -437,7 +437,7 @@ fn tessellate_one_face(
     Ok(())
 }
 
-mod sampling;
+pub(crate) mod sampling;
 pub(crate) use sampling::{
     arc_interior_samples, arc_interior_samples_frac, boundary_half_edge_samples,
     ellipse_interior_samples, hyperbola_interior_samples, surface_pair_edge_samples,

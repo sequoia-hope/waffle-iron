@@ -10709,6 +10709,19 @@ fn stage4_relocate_and_correct_inner(
                     }
                 }
                 let Some(lr) = (if matched_n == 1 { matched } else { None }) else {
+                    // Stage-4 diagnosis probe (read-only, env-gated): this
+                    // site reports the SAME `AmbiguousCurve` text as Stage 3's
+                    // three producers, and `Display` even labels it "Stage-3",
+                    // so a `{0,0}` is otherwise unlocalizable (measured on
+                    // P0016, 2026-10-03).
+                    if std::env::var_os("YANG_S3_AMBIG_PROBE").is_some() {
+                        eprintln!(
+                            "[s3-ambig-probe] STAGE-4 LINE ARM edge ({s},{e}) \
+                             candidates={} matched={matched_n} line_tol={line_tol:.3e}\n  \
+                             surf_a={surf_a:?}\n  surf_b={surf_b:?}",
+                            returned.len()
+                        );
+                    }
                     return Err(YangError::SsiRefinementFailed {
                         edge: (s, e),
                         reason: SsiRefinementError::AmbiguousCurve {

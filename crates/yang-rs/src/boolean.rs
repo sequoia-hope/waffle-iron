@@ -1232,13 +1232,6 @@ fn boolean_once(
         phantom_min_rim_segments(a, b),
         graze_min_rim_segments(a, b)?,
         rim_plane_req,
-        // §4.3.3 Case-IV corner-phantom guard (spec
-        // `yang_433_case_iv_corner_phantom.md` inc-1, GATED
-        // `YANG_433_GUARD=1|on`): a B-Rep edge passing within an operand's
-        // chord band of a curved face WITHOUT piercing it (both exact roots
-        // outside the segment) demands the rim N that keeps the inscribed
-        // mesh strictly clear of the wedge the surfaces clear.
-        edge_graze_min_rim_segments(a, b),
     ]
     .into_iter()
     .flatten()
@@ -1252,6 +1245,44 @@ fn boolean_once(
     };
     let (a, b): (&BRep, &BRep) = match &boosted {
         Some((ba, bb)) => (ba, bb),
+        None => (a, b),
+    };
+
+    // §4.3.3 Case-IV corner-phantom guard, LOCAL form (spec
+    // `yang_433_case_iv_corner_phantom.md` inc-1 + P0013 §4 P5, GATED
+    // `YANG_433_GUARD=1|on`): a B-Rep edge cluster passing within a curved
+    // face's chord band WITHOUT piercing it (both exact roots outside the
+    // segment) demands a density that keeps that face's inscribed mesh
+    // clear of the wedge the surfaces clear. The demand is spent as EXTRA
+    // RIM SAMPLES over the at-risk arc span of the demanding face's own rim
+    // closure — never as a body-wide rim-N floor on both operands, which is
+    // what the 2026-10-03 guard-on corpus run measured as a 10.8× triangle
+    // explosion on three already-CORRECT gear cases and an outright
+    // regression on a fourth. An empty map leaves both operands
+    // byte-identical.
+    let graze_local: Option<(BRep, BRep)> = if edge_graze_guard_enabled() {
+        let (ma, mb) = edge_graze_local_rim_overrides(a, b);
+        if ma.is_empty() && mb.is_empty() {
+            None
+        } else {
+            Some((
+                if ma.is_empty() {
+                    a.clone()
+                } else {
+                    a.rebuilt_with_rim_overrides(&ma)?
+                },
+                if mb.is_empty() {
+                    b.clone()
+                } else {
+                    b.rebuilt_with_rim_overrides(&mb)?
+                },
+            ))
+        }
+    } else {
+        None
+    };
+    let (a, b): (&BRep, &BRep) = match &graze_local {
+        Some((ga, gb)) => (ga, gb),
         None => (a, b),
     };
 

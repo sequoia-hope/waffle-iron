@@ -1,6 +1,6 @@
 {
   "id": "P0018",
-  "description": "3 ops, scale=3.70e2, extrude(circle,boss)+extrude(circle,symmetric)+extrude(polygon,cut) — prospector seed 2 index 76 minimized 2026-10-03 (7 ops -> 3, 24 verdicts): a circle boss, a SYMMETRIC circle boss, then a 7-vertex non-convex polygon cut. boolean_subtract CurvedGeometryMismatch { face: FaceId(51), reason: \"bounded cylinder patch must have exactly one material-CCW loop\" } — the cylinder arm of the same kernel-v2 curved-patch postcondition P0017 trips on a cone. Smallest authored length 89.0 = 8.9e7 x MIN_FEATURE_SIZE; ERROR at both x1e-3 and x1e3. ERROR-class pin, derived_meta: expectations unadjudicated until conversion.",
+  "description": "3 ops, scale=3.70e2, extrude(circle,boss)+extrude(circle,symmetric)+extrude(polygon,cut) - prospector seed 2 index 76 minimized 2026-10-03 (7 ops -> 3, 24 verdicts): a circle boss, a SYMMETRIC circle boss, then a 7-vertex non-convex polygon cut. CONVERTED 2026-10-03 (deviation N71): the cylinder arm of the developable-patch material-CCW postcondition measured its chart winding on a VERTICES-ONLY shoelace, so FaceId(27) - a sliver between an oblique-section ellipse arc that dips ~20 chart units below BOTH its endpoints and a 7-chord polyline ~4 units above it - read area2 = -4.575 (a hole) where the canonical chart polygon reads +18.305 (material). Now both the cylinder and the cone arm measure the chart image of each boundary curve (tessellate::sampling, canonical chord density) - the same polygon the render CDT triangulates. Adjudicated: the non-convex cut SEVERS a 4.298e3 speck off the body, so the result is ONE body with TWO shells, so euler_target 2 -> 4 (exact-membership lattice at 1024 cells, phases 0.5/0.25: components=2, volumes 6.7345e6 + ~4.4e3, totals 6.735358e6 / 6.742330e6, mean 6.738844e6 pinned with tol_rel 3e-3; 512-cell rung 6.731887e6 / 6.725275e6). The kernel keeps BOTH components (render-mesh components 6.730121e6 + 4.297951e3) and the runner reads the tessellated total 6.734419240e6, rel -6.57e-4 against the pin - the inscribed-mesh chord deficit on the radius-89/radius-100 cylinders (~1.3e-3 of their own volume), not a dropped piece. Smallest authored length 89.0 = 8.9e7 x MIN_FEATURE_SIZE; ERROR at both x1e-3 and x1e3 before the fix. The cone arm of the same postcondition is P0017.",
   "master_seed": 0,
   "test_seed": 0,
   "scale": 370.0,
@@ -39,13 +39,17 @@
     }
   ],
   "oracles": {
-    "euler_target": 2,
+    "euler_target": 4,
     "expect_watertight": true,
     "max_bbox_extent": 37000.0,
     "expect_positive_volume": true,
     "volume_monotonicity": [],
     "expect_rebuild_error": false,
-    "derived_meta": true
+    "derived_meta": false,
+    "expected_solid_count": 1,
+    "expected_shell_count": 2,
+    "expected_volume": 6738844.0,
+    "expected_volume_tol_rel": 0.003
   },
   "generator_version": 100,
   "featured": true

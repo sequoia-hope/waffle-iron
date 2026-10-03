@@ -931,6 +931,100 @@ struct LoopMeasure {
     area2: f64,
 }
 
+/// Interior chart points of one boundary half-edge of a developable patch,
+/// in the half-edge's WALK order, as `(u, v)` in the same accumulated
+/// `(azimuth, axial)` chart the caller walks — `u_p` is the edge's start
+/// azimuth in that accumulated frame, `theta_p` its principal-value azimuth,
+/// and `delta` its signed azimuth advance (all already computed by the
+/// caller; this helper never re-derives them, so the net-winding analysis is
+/// untouched).
+///
+/// WHY (deviation N71, P0017/P0018): a loop's winding is a property of its
+/// boundary CURVES, not of their chart chords. The planar arm has always
+/// known this — [`geom::planar_loop_signed_area`] adds each arc's exact
+/// circular-segment area to the chord polygon's — but the developable arms
+/// measured a vertices-only shoelace. A patch whose boundary curve bulges
+/// further across the chart than the patch is wide then reads the OPPOSITE
+/// sign: measured on P0018, a cylinder patch between an oblique-section
+/// ellipse arc (dipping 20 chart units below both its endpoints) and a
+/// 7-segment chord polyline 4 units above it, chord shoelace −4.575 against
+/// a true area near +22.
+///
+/// The chart image of a quartic [`Curve::SurfacePair`] has no closed form, so
+/// unlike the planar arm this cannot be exact for every curve kind. It is
+/// instead the kernel's CANONICAL chart polygon: the same per-kind samplers
+/// `tessellate::developable`'s pass 1 uses, at the canonical chord density
+/// ([`crate::tessellate::RENDER_CHORD_TOLERANCE_REL`]) — one engine (crate
+/// hard rule 5), and the very polygon the render CDT triangulates, so a face
+/// whose chart polygon the renderer accepts has one well-defined orientation
+/// here too.
+///
+/// A [`Curve::LineSegment`] contributes nothing: a chord is a straight chart
+/// segment in the tessellator (`PatchEdgeKind::Chord`) and here alike.
+fn developable_chart_edge_samples(
+    arena: &BrepArena,
+    f: FaceId,
+    h: HalfEdgeId,
+    u_p: f64,
+    theta_p: f64,
+    delta: f64,
+    chart: &dyn Fn(Point3) -> Option<(f64, f64)>,
+) -> Result<Vec<(f64, f64)>, KernelV2Error> {
+    use crate::tessellate::sampling::{
+        arc_interior_samples_frac, ellipse_interior_samples, hyperbola_interior_samples,
+        surface_pair_edge_samples,
+    };
+    let on_axis = KernelV2Error::CurvedGeometryMismatch {
+        face: f,
+        reason: "patch boundary sample lies on the axis",
+    };
+    let n_seg =
+        crate::tessellate::circle_segment_count(crate::tessellate::RENDER_CHORD_TOLERANCE_REL);
+    let he = arena.half_edge(h)?;
+    let mut out = Vec::new();
+    match he.curve {
+        // Straight in the chart (a ruling, or a chord carried as one).
+        Curve::LineSegment => {}
+        // Unreachable on a patch (the dispatcher routes full-circle faces to
+        // the canonical forms); the caller rejects it loudly.
+        Curve::Circle { .. } => {}
+        // An axis-parallel arc rides one axial coordinate, so its chart image
+        // IS its chord — the samples are kept anyway (they cost nothing and
+        // keep the polygon identical to the tessellator's) and ride the
+        // edge's own signed sweep by walk fraction.
+        Curve::Arc { .. } => {
+            for (frac, sp) in arc_interior_samples_frac(arena, h, n_seg)? {
+                let Some((_, v)) = chart(sp) else {
+                    return Err(on_axis);
+                };
+                out.push((u_p + delta * frac, v));
+            }
+        }
+        // The conic sections and the quartic: each sample's azimuth comes
+        // from its POSITION, advancing the walk by its own small wrapped Δθ
+        // (the tessellator's mechanism verbatim — samples are sag-bound
+        // dense, every step far below the `wrap_to_pi` ambiguity at π).
+        Curve::EllipseArc { .. } | Curve::HyperbolaArc { .. } | Curve::SurfacePair { .. } => {
+            let samples = match he.curve {
+                Curve::EllipseArc { .. } => ellipse_interior_samples(arena, h, n_seg)?,
+                Curve::HyperbolaArc { .. } => hyperbola_interior_samples(arena, h, n_seg)?,
+                _ => surface_pair_edge_samples(arena, h, n_seg)?,
+            };
+            let mut theta_prev = theta_p;
+            let mut u = u_p;
+            for sp in samples {
+                let Some((theta_s, v)) = chart(sp) else {
+                    return Err(on_axis);
+                };
+                u += geom::wrap_to_pi(theta_s - theta_prev);
+                theta_prev = theta_s;
+                out.push((u, v));
+            }
+        }
+    }
+    Ok(out)
+}
+
 /// Invariants 4+5 for a PARTIAL cylinder patch (PR-KV5b): boundary loops
 /// of [`Curve::Arc`] and [`Curve::LineSegment`] edges, as assembled from
 /// yang-rs boolean outputs. See [`validate_cylinder_face`]'s doc comment
@@ -1006,6 +1100,10 @@ fn validate_cylinder_patch(
         }
         let mut us: Vec<f64> = Vec::with_capacity(hes.len());
         let mut hs: Vec<f64> = Vec::with_capacity(hes.len());
+        // Loop-VERTEX axial coordinates only: the band arm's `mean_h` rim
+        // comparison is a statement about the loop's own vertices, so it
+        // stays byte-identical to the pre-N71 measure.
+        let mut hs_v: Vec<f64> = Vec::with_capacity(hes.len());
         let mut u_cur = f64::NAN; // set from the first vertex below
         let mut total = 0.0f64;
         for (i, &h) in hes.iter().enumerate() {
@@ -1020,6 +1118,7 @@ fn validate_cylinder_patch(
             }
             us.push(u_cur);
             hs.push(hp);
+            hs_v.push(hp);
 
             let delta = match he.curve {
                 Curve::LineSegment => {
@@ -1155,6 +1254,18 @@ fn validate_cylinder_patch(
                     geom::wrap_to_pi(theta_q - theta_p)
                 }
             };
+            // N71: the chart image of this edge, not its chord (see
+            // `developable_chart_edge_samples`). Appended between this
+            // vertex and the next, so the shoelace below runs over the
+            // canonical chart polygon.
+            for (su, sv) in
+                developable_chart_edge_samples(arena, f, h, u_cur, theta_p, delta, &|p| {
+                    radial_theta_h(p, e1, e2)
+                })?
+            {
+                us.push(su);
+                hs.push(sv);
+            }
             u_cur += delta;
             total += delta;
         }
@@ -1180,12 +1291,21 @@ fn validate_cylinder_patch(
         measures.push(LoopMeasure {
             loop_id: lid,
             wrap: if sense < 0.0 { -wraps } else { wraps },
-            mean_h: hs.iter().sum::<f64>() / m as f64,
+            mean_h: hs_v.iter().sum::<f64>() / hs_v.len() as f64,
             area2: sense * area2,
         });
     }
 
     // ---- face-level orientation rules (material-CCW in the unrolled frame)
+    if std::env::var_os("KV2_CYLPATCH_PROBE").is_some() {
+        eprintln!(
+            "[cylpatch-probe] face {f:?} radius={radius} reversed={reversed} loops={} \
+             wraps={:?} areas={:?}",
+            measures.len(),
+            measures.iter().map(|m| m.wrap).collect::<Vec<_>>(),
+            measures.iter().map(|m| m.area2).collect::<Vec<_>>()
+        );
+    }
     let wrapping: Vec<&LoopMeasure> = measures.iter().filter(|mm| mm.wrap != 0).collect();
     match wrapping.len() {
         0 => {
@@ -1201,6 +1321,33 @@ fn validate_cylinder_patch(
                 }
             }
             if positive != 1 {
+                // Diagnostic probe (env-gated, zero-cost off): the same
+                // per-loop dump the wrapping-count wall carries, so a
+                // material-CCW wall self-localizes (zero positive = a sense
+                // defect upstream, several = a face that should have been
+                // split).
+                if std::env::var_os("KV2_CYLPATCH_PROBE").is_some() {
+                    eprintln!(
+                        "[cylpatch-probe] face {f:?} MATERIAL-CCW wall: radius={radius} \
+                         axis_point={ap:?} axis={a:?} reversed={reversed} sense={sense} \
+                         positive={positive} loops={}",
+                        measures.len()
+                    );
+                    for mm in &measures {
+                        eprintln!(
+                            "  loop {:?} wrap={} mean_h={} area2={}",
+                            mm.loop_id, mm.wrap, mm.mean_h, mm.area2
+                        );
+                        if let Ok(hes) = arena.loop_half_edges(mm.loop_id) {
+                            for &h in &hes {
+                                if let Ok(he) = arena.half_edge(h) {
+                                    let p = arena.vertex(he.origin).map(|v| v.point);
+                                    eprintln!("    he {h:?} curve={:?} origin={p:?}", he.curve);
+                                }
+                            }
+                        }
+                    }
+                }
                 return Err(mismatch(
                     "bounded cylinder patch must have exactly one material-CCW loop",
                 ));

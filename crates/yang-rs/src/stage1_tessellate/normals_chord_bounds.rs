@@ -231,6 +231,31 @@ pub(crate) fn ellipse_rim_chord_bound(edges: &[BRepEdge]) -> Option<f64> {
         })
 }
 
+/// N71: the OWNER-level Stage-1 chord budget — the single value Stage 1 sized
+/// this operand's curved charts against, read back by every later stage that
+/// needs "the sag this operand's tessellation actually carries".
+///
+/// It is `stage1_tessellate`'s own `operand_chord_budget` ladder
+/// (`curved_chord_bound`, else [`ellipse_rim_chord_bound`] — whose doc comment
+/// there names it "the operand's chord budget **as Stage 3/4 read it back**"),
+/// extended by the M5 K11 [`surface_pair_chord_bound`] rung that Stage 3's
+/// cylinder arm already read. `None` only for an owner with no curved rim of
+/// any kind — an all-planar operand, which carries no chord error at all and
+/// whose callers must STOP rather than invent a band (P9/P10).
+///
+/// A14.3: ONE source. Before N71 the readback existed twice, on the cylinder
+/// arm only — Stage 3's `chord_tol_for_curved_owner` and Stage 4's
+/// `input_curved_chord_bound` — while BOTH cone arms
+/// (`cone_chord_tol_for_owner`, `cone_chord_budget_from_owner`) demanded a
+/// `Curve::Circle` rim and called its absence a producer fault. A cone patch
+/// re-entering from a prior boolean, bounded by conic chains alone, has no such
+/// rim and STOPped on a band the operand demonstrably carried (P0016).
+pub(crate) fn owner_stage1_chord_budget(brep: &BRep) -> Option<f64> {
+    curved_chord_bound(brep.edges())
+        .or_else(|| ellipse_rim_chord_bound(brep.edges()))
+        .or_else(|| surface_pair_chord_bound(brep))
+}
+
 /// PR-YR8 (P2c): the Stage-1 chord-error bound `d_ε = 1e-2 × analytic-AABB-diag`
 /// for a solid, derived from its `Curve::Circle` rim edges (spec §4 Blocker 1).
 ///
