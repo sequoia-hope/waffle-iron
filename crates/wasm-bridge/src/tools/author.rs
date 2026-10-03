@@ -815,70 +815,275 @@ pub(super) fn rollback_set(
     Ok(step.delta)
 }
 
-/// Replace the design-parameter table with the complete list and rebuild.
+/// Resolve a `{id?, name?}` row against the current table, by PARSED id
+/// first and then by name. The id is parsed leniently (`Uuid::parse_str`
+/// accepts braces and upper case), so a non-canonical spelling that still
+/// names a parameter finds it.
+fn find_parameter(table: &[DesignParameter], row: &Value) -> Option<usize> {
+    if let Some(id) = row
+        .get("id")
+        .and_then(Value::as_str)
+        .and_then(|text| Uuid::parse_str(text).ok())
+    {
+        if let Some(i) = table.iter().position(|p| p.id == id) {
+            return Some(i);
+        }
+    }
+    let name = row.get("name").and_then(Value::as_str)?;
+    table.iter().position(|p| p.name == name)
+}
+
+/// A `delete` entry is a name or an id.
+fn find_parameter_by_key(table: &[DesignParameter], key: &str) -> Option<usize> {
+    if let Ok(id) = Uuid::parse_str(key) {
+        if let Some(i) = table.iter().position(|p| p.id == id) {
+            return Some(i);
+        }
+    }
+    table.iter().position(|p| p.name == key)
+}
+
+/// Read a row's declared unit, distinguishing "absent" from "explicitly
+/// null". In `merge` mode an absent `unit` KEEPS what the parameter has —
+/// an agent setting one expression must not silently strip a declared
+/// dimension it never mentioned — while an explicit `null` clears it.
+fn declared_unit(
+    row: &Value,
+    current: Option<Dimension>,
+) -> Result<Option<Dimension>, ToolFailure> {
+    match row.get("unit") {
+        None => Ok(current),
+        Some(Value::Null) => Ok(None),
+        Some(v) => serde_json::from_value::<Dimension>(v.clone())
+            .map(Some)
+            .map_err(|_| {
+                ToolFailure::new(
+                    "InvalidArguments",
+                    format!("`unit` must be one of Length, Angle, Count, Ratio (got {v})"),
+                    json!({ "schema_path": "/parameters/unit" }),
+                )
+            }),
+    }
+}
+
+/// Write the design-parameter table and rebuild (one undo step).
+///
+/// Two modes. By default `parameters` REPLACES the table, which is what the
+/// panel sends and what every pre-P5 caller sent. With `merge: true` the
+/// rows are applied over the current table and `delete` removes parameters,
+/// so an agent can set one value without re-sending twenty
+/// (`specs/agent_mechanical_design.md` §6 P5).
+///
+/// In both modes an incoming row whose ID matches a parameter with a
+/// DIFFERENT name is a rename, and its dependents follow: every other
+/// parameter's expression and every expression field on the tree is
+/// rewritten through the AST (`params::rename_parameter`). The id is the
+/// identity — that is what "keep a parameter's id to preserve it" has always
+/// meant — so a changed name on a kept id cannot be anything else.
 ///
 /// A failing expression is reported per parameter, not rolled back, so the
-/// answer carries the table as the rebuild evaluated it.
+/// answer carries the table as the rebuild evaluated it. A request that
+/// cannot be APPLIED at all (a delete of a parameter something still reads,
+/// a rename onto a name already taken, an invalid name) is refused whole,
+/// with nothing written: half a rename is worse than none.
 pub(super) fn parameters_set(
     state: &mut EngineState,
     kb: &mut dyn KernelBundle,
     args: &Value,
 ) -> Answer {
-    // Keyed by the parsed id, not its text: the id below is parsed leniently
-    // (`Uuid::parse_str` accepts braces and upper case), so a non-canonical
-    // spelling that still names this parameter must find its last value.
-    let current: HashMap<Uuid, f64> = state
-        .engine
-        .tree
-        .parameters
-        .iter()
-        .map(|p| (p.id, p.value))
-        .collect();
+    let merge = args.get("merge").and_then(Value::as_bool).unwrap_or(false);
+    let table = state.engine.tree.parameters.clone();
+    let deletes = args
+        .get("delete")
+        .and_then(Value::as_array)
+        .cloned()
+        .unwrap_or_default();
+    if !merge && !deletes.is_empty() {
+        return Err(ToolFailure::new(
+            "InvalidArguments",
+            "`delete` needs `merge: true`. Without merge, `parameters` is the \
+             complete table and omitting a parameter already removes it."
+                .to_string(),
+            json!({ "schema_path": "/delete" }),
+        ));
+    }
+    if !merge && args.get("parameters").is_none() {
+        return Err(ToolFailure::new(
+            "InvalidArguments",
+            "`parameters` is required: without `merge: true` it is the complete \
+             table that replaces the current one."
+                .to_string(),
+            json!({ "schema_path": "/parameters" }),
+        ));
+    }
 
     let rows = args
         .get("parameters")
         .and_then(Value::as_array)
         .cloned()
         .unwrap_or_default();
-    let mut parameters = Vec::with_capacity(rows.len());
+
+    // Build the new table.
+    let mut parameters: Vec<DesignParameter> = if merge { table.clone() } else { Vec::new() };
+    let mut renames: Vec<(String, String)> = Vec::new();
     for row in &rows {
-        // A parameter with no id is a new one; an id that is not a UUID names
-        // no existing parameter, so it becomes one too.
-        let id = row
-            .get("id")
-            .and_then(Value::as_str)
-            .and_then(|text| Uuid::parse_str(text).ok())
-            .unwrap_or_else(Uuid::new_v4);
-        parameters.push(DesignParameter {
-            id,
-            name: row
-                .get("name")
-                .and_then(Value::as_str)
-                .unwrap_or("")
-                .to_string(),
-            expression: row
-                .get("expression")
-                .and_then(Value::as_str)
-                .unwrap_or("")
-                .to_string(),
+        let existing = find_parameter(&table, row);
+        let base = existing.map(|i| &table[i]);
+        let name = match row.get("name").and_then(Value::as_str) {
+            Some(name) => name.to_string(),
+            // In merge mode a row may name only the id and the expression.
+            None => match base {
+                Some(p) => p.name.clone(),
+                None => String::new(),
+            },
+        };
+        let expression = match row.get("expression").and_then(Value::as_str) {
+            Some(e) => e.to_string(),
+            None => match base {
+                Some(p) => p.expression.clone(),
+                None => String::new(),
+            },
+        };
+        // A rename: the SAME parameter under a different name. Validate the
+        // new name here rather than letting the table report a duplicate —
+        // a rename that lands on a taken name would rewrite every dependent
+        // onto a parameter that is not the one they meant.
+        if let Some(p) = base {
+            if p.name != name {
+                if let Err(why) = feature_engine::expr::validate_name(&name) {
+                    return Err(ToolFailure::new(
+                        "InvalidParameterName",
+                        format!("Cannot rename '{}' to '{name}': {why}.", p.name),
+                        json!({ "parameter": p.name, "new_name": name }),
+                    ));
+                }
+                if table
+                    .iter()
+                    .any(|other| other.id != p.id && other.name == name)
+                {
+                    return Err(ToolFailure::new(
+                        "ParameterNameTaken",
+                        format!(
+                            "Cannot rename '{}' to '{name}': another parameter is \
+                             already called '{name}'.",
+                            p.name
+                        ),
+                        json!({ "parameter": p.name, "new_name": name }),
+                    ));
+                }
+                renames.push((p.name.clone(), name.clone()));
+            }
+        }
+        let built = DesignParameter {
+            // A row with no id (or an id naming nothing) is a NEW parameter.
+            id: base.map(|p| p.id).unwrap_or_else(Uuid::new_v4),
+            name,
+            expression,
             // The last good value is kept so dependents hold their geometry
             // while an expression is being fixed.
-            value: current.get(&id).copied().unwrap_or(0.0),
+            value: base.map(|p| p.value).unwrap_or(0.0),
             error: None,
             // A declared dimension (P1): the expression must produce it, and
             // every field that reads this parameter is checked against it.
             // Absent leaves the parameter a plain number, as before.
-            unit: row
-                .get("unit")
-                .and_then(|v| serde_json::from_value::<Dimension>(v.clone()).ok()),
-            comment: row
-                .get("comment")
-                .and_then(Value::as_str)
-                .map(str::to_string),
+            unit: declared_unit(row, base.and_then(|p| p.unit))?,
+            comment: match row.get("comment") {
+                None if merge => base.and_then(|p| p.comment.clone()),
+                Some(Value::String(c)) => Some(c.clone()),
+                _ => None,
+            },
             // Derived state: the rebuild this step triggers refills every
             // parameter's evaluated dimension.
             tag: None,
-        });
+        };
+        match existing.filter(|_| merge) {
+            // Merge keeps the table's ORDER: an edit must not reshuffle the
+            // panel under the person reading it.
+            Some(_) => {
+                let at = parameters
+                    .iter()
+                    .position(|p| p.id == built.id)
+                    .expect("the merge table starts as the current one");
+                parameters[at] = built;
+            }
+            None => parameters.push(built),
+        }
+    }
+
+    // Deletes, after the sets: a parameter this very call replaced may be
+    // named by id in both lists, and the delete is then the later word.
+    let mut removed: Vec<String> = Vec::new();
+    for key in &deletes {
+        let Some(key) = key.as_str() else {
+            return Err(ToolFailure::new(
+                "InvalidArguments",
+                "`delete` entries must be parameter names or ids.".to_string(),
+                json!({ "schema_path": "/delete" }),
+            ));
+        };
+        let Some(at) = find_parameter_by_key(&parameters, key) else {
+            return Err(ToolFailure::new(
+                "ParameterNotFound",
+                format!("No parameter named '{key}' to delete."),
+                json!({ "parameter": key }),
+            ));
+        };
+        removed.push(parameters[at].name.clone());
+        parameters.remove(at);
+    }
+    // A delete that leaves a reader behind is refused by NAME, not left to
+    // break at the next rebuild: the dependents are the answer the caller
+    // needs, and a loud per-feature "unknown variable" an hour later is not.
+    if !removed.is_empty() {
+        let mut blocked: Vec<Value> = Vec::new();
+        let field_uses = feature_engine::params::field_uses(&mut state.engine.tree);
+        for name in &removed {
+            let mut readers: Vec<String> = parameters
+                .iter()
+                .filter(|p| {
+                    feature_engine::expr::dependencies(&p.expression)
+                        .is_some_and(|ids| ids.contains(name))
+                })
+                .map(|p| format!("parameter '{}'", p.name))
+                .collect();
+            readers.extend(
+                field_uses
+                    .iter()
+                    .filter(|u| u.reads.contains(name))
+                    .map(|u| format!("{} {}", u.feature_name, u.field)),
+            );
+            if !readers.is_empty() {
+                blocked.push(json!({ "parameter": name, "dependents": readers }));
+            }
+        }
+        if !blocked.is_empty() {
+            let detail: Vec<String> = blocked
+                .iter()
+                .map(|b| {
+                    format!(
+                        "'{}' is read by {}",
+                        b["parameter"].as_str().unwrap_or(""),
+                        b["dependents"]
+                            .as_array()
+                            .map(|d| d
+                                .iter()
+                                .filter_map(Value::as_str)
+                                .collect::<Vec<_>>()
+                                .join(", "))
+                            .unwrap_or_default()
+                    )
+                })
+                .collect();
+            return Err(ToolFailure::new(
+                "ParameterInUse",
+                format!(
+                    "Nothing was changed. {}. Change or remove the dependents first, \
+                     or rename instead of deleting.",
+                    detail.join("; ")
+                ),
+                json!({ "blocked": blocked }),
+            ));
+        }
     }
 
     let step = apply_step(
@@ -886,7 +1091,7 @@ pub(super) fn parameters_set(
         kb,
         UiToEngine::SetParameters {
             parameters,
-            renames: Vec::new(),
+            renames,
         },
         OnError::Report,
         "Internal",
@@ -901,6 +1106,9 @@ pub(super) fn parameters_set(
             let mut row = json!({
                 "id": p.id,
                 "name": p.name,
+                // Echoed (P5): after a rename or a merge, the expression the
+                // table now holds is not the one the caller sent.
+                "expression": p.expression,
                 "value_mm": if p.error.is_some() { Value::Null } else { json!(p.value) },
             });
             if let Some(unit) = p.unit {
