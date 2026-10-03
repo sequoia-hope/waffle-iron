@@ -344,8 +344,14 @@ fn a_zero_length_line_is_degenerate_rather_than_a_zero_distance() {
     // it, and the fallback measured 10 mm from its midpoint to the other
     // line's — a plausible number for a malformed anchor.
     for anchors in [
-        [line([0.0, 0.0], [0.0, 0.0]), line([0.01, 0.0], [0.01, 0.02])],
-        [line([0.01, 0.0], [0.01, 0.02]), line([0.0, 0.0], [0.0, 0.0])],
+        [
+            line([0.0, 0.0], [0.0, 0.0]),
+            line([0.01, 0.0], [0.01, 0.02]),
+        ],
+        [
+            line([0.01, 0.0], [0.01, 0.02]),
+            line([0.0, 0.0], [0.0, 0.0]),
+        ],
     ] {
         let err = measure(DimensionKind::Distance, &anchors).unwrap_err();
         assert!(matches!(err, MeasureError::Degenerate { .. }), "{err:?}");

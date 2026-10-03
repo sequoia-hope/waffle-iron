@@ -44,6 +44,13 @@ fn top_view() -> ViewFrame {
 /// A pid that names more than one projected curve is dropped rather than
 /// disambiguated: a dimension must not silently pick one of two.
 fn pid_to_curve(builder: &mut ModelBuilder) -> BTreeMap<u64, LayoutCurve> {
+    pid_to_curve_in(builder, &top_view())
+}
+
+/// [`pid_to_curve`] in an arbitrary view — an oblique one foreshortens, which
+/// is where a radial dimension's "the major radius IS the true radius" claim
+/// has to hold.
+fn pid_to_curve_in(builder: &mut ModelBuilder, frame: &ViewFrame) -> BTreeMap<u64, LayoutCurve> {
     let handles = builder.live_solid_handles();
     assert!(!handles.is_empty(), "the fixture built no live body");
     let bodies: Vec<ProjectionBody> = handles
@@ -52,7 +59,7 @@ fn pid_to_curve(builder: &mut ModelBuilder) -> BTreeMap<u64, LayoutCurve> {
         .collect();
     let view = builder
         .kernel_mut()
-        .project_bodies(&bodies, &top_view(), &ProjectOpts::default())
+        .project_bodies(&bodies, frame, &ProjectOpts::default())
         .expect("the top view projects");
 
     let mut by_pid: BTreeMap<u64, Vec<LayoutCurve>> = BTreeMap::new();
@@ -289,11 +296,7 @@ const CYL_H: f64 = 0.012;
 
 #[test]
 fn a_radial_dimension_on_a_cylinder_rim_in_a_top_view_measures_the_radius() {
-    let mut builder = ModelBuilder::kernel_v2();
-    builder
-        .true_circle_sketch("s", [0.0, 0.0, 0.0], [0.0, 0.0, 1.0], 0.0, 0.0, CYL_R)
-        .expect("sketch");
-    builder.extrude("cyl", "s", CYL_H).expect("extrude");
+    let mut builder = cylinder();
     let map = pid_to_curve(&mut builder);
 
     // A rim seen down its own axis stays an analytic circle — the projection
@@ -315,6 +318,77 @@ fn a_radial_dimension_on_a_cylinder_rim_in_a_top_view_measures_the_radius() {
     for (pid, _) in &rims {
         let r = resolve_and_measure(&dimension(DimensionKind::Radius, &[*pid]), &map);
         assert!((r - CYL_R).abs() < 1e-12, "radius measured {r}, is {CYL_R}");
+        let d = resolve_and_measure(&dimension(DimensionKind::Diameter, &[*pid]), &map);
+        assert!(
+            (d - 2.0 * CYL_R).abs() < 1e-12,
+            "diameter measured {d}, is {}",
+            2.0 * CYL_R
+        );
+    }
+}
+
+/// A cylinder, for the two radial tests.
+fn cylinder() -> ModelBuilder {
+    let mut builder = ModelBuilder::kernel_v2();
+    builder
+        .true_circle_sketch("s", [0.0, 0.0, 0.0], [0.0, 0.0, 1.0], 0.0, 0.0, CYL_R)
+        .expect("sketch");
+    builder.extrude("cyl", "s", CYL_H).expect("extrude");
+    builder
+}
+
+#[test]
+fn a_radial_dimension_on_an_obliquely_seen_rim_reads_the_true_radius_not_the_foreshortened_one() {
+    // `LayoutCurve::radius` returns an ELLIPSE's major radius and claims that
+    // is the hole's true radius. That is a property of orthographic
+    // projection — the circle's diameter along the line of nodes is
+    // unforeshortened, so it survives as the major axis — and until now it was
+    // asserted on a hand-built ellipse in waffle-types. This is the real
+    // thing: a tilted view of a real cylinder, where the minor radius is
+    // visibly wrong and the dimension must not read it.
+    //
+    // Looking along (0, −1, −1): 45° off the rim's own +Z normal, so the
+    // foreshortening factor is cos 45° = 1/√2 and the minor radius is
+    // CYL_R/√2 ≈ 5.657 mm against a true 8 mm.
+    let mut builder = cylinder();
+    let view = ViewFrame::looking_along([0.0, -1.0, -1.0]);
+    let map = pid_to_curve_in(&mut builder, &view);
+
+    let ellipses: Vec<(u64, f64, f64)> = map
+        .iter()
+        .filter_map(|(pid, curve)| match curve {
+            LayoutCurve::Ellipse {
+                major_radius,
+                minor_radius,
+                ..
+            } => Some((*pid, *major_radius, *minor_radius)),
+            _ => None,
+        })
+        .collect();
+    assert!(
+        !ellipses.is_empty(),
+        "a tilted view of a cylinder projects its rims as analytic ellipses; got {:?}",
+        map.values().collect::<Vec<_>>()
+    );
+
+    let foreshortened = CYL_R / 2.0_f64.sqrt();
+    for (pid, major, minor) in &ellipses {
+        // The fixture is only honest if the rim really is foreshortened: a
+        // circular projection would make the assertion below vacuous.
+        assert!(
+            (minor - foreshortened).abs() < 1e-9,
+            "the 45° view should foreshorten the rim to {foreshortened}, got {minor}"
+        );
+        assert!(
+            (major - CYL_R).abs() < 1e-9,
+            "the major radius should survive at {CYL_R}, got {major}"
+        );
+
+        let r = resolve_and_measure(&dimension(DimensionKind::Radius, &[*pid]), &map);
+        assert!(
+            (r - CYL_R).abs() < 1e-12,
+            "radius measured {r}, is {CYL_R} (the foreshortened {foreshortened} is the wrong answer)"
+        );
         let d = resolve_and_measure(&dimension(DimensionKind::Diameter, &[*pid]), &map);
         assert!(
             (d - 2.0 * CYL_R).abs() < 1e-12,
