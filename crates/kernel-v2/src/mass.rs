@@ -599,6 +599,16 @@ pub fn mass_properties(
     // `Surface::reversed`; a disagreement is a defect in one of them, and a
     // wrong sense would move the centroid without moving the volume much, so
     // it must STOP rather than answer.
+    //
+    // The threshold is RELATIVE, and it is a net rather than a measurement
+    // band: both sides integrate the same closed forms, so on every exact
+    // fixture in `tests/q3_mass_properties.rs` they agree to 1e-13 relative
+    // or better (the box, cylinder, cone, frustum and bore cases each pin
+    // their own closed form at that tolerance). 1e-9 is four decades of
+    // headroom over that, which is wide enough that no legitimate rounding
+    // trips it and narrow enough that a FLIPPED lateral sense — which
+    // changes a volume by a whole band's worth, not by rounding — cannot
+    // slip through.
     if exact {
         if let Ok(reference) = crate::geom::signed_volume(arena, solid) {
             let scale = reference.abs().max(acc.v.abs());
