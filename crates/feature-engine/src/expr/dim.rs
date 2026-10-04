@@ -38,6 +38,12 @@
 //! | `1kg`, `250g`, `1lb` | mass (M1) | refuses |
 //! | `2.7g / 1cm^3` | density — mass · length⁻³, composed, not a suffix | refuses |
 //! | `2700 * 1kg / 1m^3 * (10mm*10mm*10mm)` | mass | refuses |
+//! | `2700` in a `Density` field | — | **refused**: a density has no bare spelling ([`density_needs_units`]) |
+//!
+//! That last row is the ONE exception to "an uncommitted number adopts its
+//! field's dimension", and it is there because a density is the one dimension
+//! whose working space (kg/mm³) is not a unit anyone authors in. See
+//! [`density_needs_units`] for the measurement that motivated it.
 //!
 //! The one that is a genuine choice is `25deg / 1deg`, and the choice is to
 //! REFUSE it as a length. A value that never committed to a dimension
@@ -266,6 +272,11 @@ impl Quantity {
     /// field of another kind that reads it is refused. `at` is the
     /// commitment site to blame when the value had none of its own.
     pub fn retag(self, want: Dimension, at: Span) -> Result<Quantity, ExprError> {
+        // Same refusal as `check`, raised here first only so the blame span
+        // is the declaration's rather than empty.
+        if want == Dimension::Density && matches!(self.tag, Tag::Untagged) {
+            return Err(density_needs_units(at));
+        }
         self.check(want)?;
         if want == Dimension::Count && (self.value < 0.0 || self.value.fract() != 0.0) {
             return Err(ExprError::NotACount { value: self.value });
@@ -277,9 +288,18 @@ impl Quantity {
     }
 
     /// Does this quantity's dimension fit `want`? An uncommitted number
-    /// fits anything; a committed one must match exactly.
+    /// fits anything — except a [`Dimension::Density`], which has no bare
+    /// spelling (see [`density_needs_units`]) — and a committed one must
+    /// match exactly.
     pub fn check(self, want: Dimension) -> Result<(), ExprError> {
         match self.tag {
+            // M1 review: refused BEFORE the general untagged-adopts rule,
+            // because a bare number declared a density is the one case where
+            // adopting produces a silently wrong magnitude rather than the
+            // pre-P1 meaning.
+            Tag::Untagged if want == Dimension::Density => {
+                Err(density_needs_units(Span::default()))
+            }
             Tag::Untagged => Ok(()),
             Tag::Tagged { dim, .. } if dim == want.dim() => Ok(()),
             Tag::Tagged { dim, at } => Err(ExprError::DimensionMismatch {
@@ -288,6 +308,41 @@ impl Quantity {
                 span: at,
             }),
         }
+    }
+}
+
+/// Why an UNCOMMITTED number cannot be a density (M1 review).
+///
+/// Every other working space in this evaluator is a unit a person authors in,
+/// so a bare literal adopting the field's dimension means what they wrote:
+/// `25` in a length field is 25 **mm**, in an angle field 25 **degrees**, in a
+/// mass field 2.5 **kg**, in a count or ratio field the plain number. A
+/// DENSITY's working space is **kg/mm³** — the mass axis is kg and the length
+/// axis mm, which is what makes `density × volume` a mass by the arithmetic —
+/// and nobody writes a density in kg/mm³. The material table quotes
+/// `density_kg_m3`, the MCP `material_set` tool takes `density_kg_m3`, and the
+/// `Dimension::Density` schema itself says "model unit kg/m³".
+///
+/// So a bare `2700` declared a density would commit to 2700 kg/mm³, which
+/// [`Quantity::as_density_kg_m3`] reports as **2.7e12 kg/m³** — a silent
+/// factor of 10⁹, with the right variable name and the right printed unit
+/// beside it and nothing to say it is wrong. Measured before this refusal
+/// landed: a `DesignParameter` with `unit: Density` and expression `"2700"`
+/// evaluated with NO error and read back as `2.7e12`.
+///
+/// There is nothing to lose by refusing it, because there is no density
+/// SUFFIX to write instead — the grammar composes one, and `2700kg / 1m^3`
+/// and `2.7g / 1cm^3` both already come back as 2700. A `Mass` is NOT carved
+/// out for the same reason it does not need to be: kg is its working space and
+/// its model unit at once, so a bare `2.5` there means the 2.5 kg it looks
+/// like.
+fn density_needs_units(at: Span) -> ExprError {
+    ExprError::DimensionMismatch {
+        expected: "a density composed from its units (`2700kg / 1m^3`, `2.7g / 1cm^3`)".to_string(),
+        found: "a plain number, which has no density spelling — the working space is kg/mm³, so \
+                a bare 2700 would be 2.7e12 kg/m³"
+            .to_string(),
+        span: at,
     }
 }
 
@@ -646,6 +701,43 @@ mod tests {
         };
         assert_eq!(expected, "a mass");
         assert_eq!(found, "a length");
+    }
+
+    /// The one carve-out in "an uncommitted number adopts anything", pinned
+    /// next to the rule it excepts. See [`density_needs_units`] for why.
+    #[test]
+    fn an_uncommitted_number_adopts_every_dimension_except_a_density() {
+        let n = Quantity::untagged(2700.0);
+        for want in [
+            Dimension::Length,
+            Dimension::Angle,
+            Dimension::Ratio,
+            Dimension::Mass,
+        ] {
+            assert!(n.check(want).is_ok(), "{want:?}");
+            assert!(n.retag(want, at()).is_ok(), "{want:?}");
+        }
+        // A density is refused by name, naming the spelling that works —
+        // not accepted as 2700 kg/mm³ (2.7e12 kg/m³).
+        let Err(ExprError::DimensionMismatch {
+            expected,
+            found,
+            span,
+        }) = n.retag(Dimension::Density, at())
+        else {
+            panic!("a bare 2700 was accepted as a density");
+        };
+        assert!(expected.contains("2700kg / 1m^3"), "{expected}");
+        assert!(found.contains("kg/mm"), "{found}");
+        assert_eq!(span, at(), "the declaration is the blame site");
+        assert!(n.check(Dimension::Density).is_err());
+        assert!(n.as_density_kg_m3().is_err());
+        assert!(n.accept(Dimension::Density).is_err());
+        // A COMMITTED density is unaffected: the refusal is about the
+        // missing units, not about the dimension.
+        let rho = Quantity::tagged(2.7e-6, Dim::DENSITY, at());
+        assert!(rho.check(Dimension::Density).is_ok());
+        assert!(rho.retag(Dimension::Density, at()).is_ok());
     }
 
     #[test]
