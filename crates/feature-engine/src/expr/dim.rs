@@ -35,6 +35,9 @@
 //! | `min(1mm, 1deg)` | — | refused: `min`/`max` unify like `+` |
 //! | `sin(30)`, `sin(30deg)` | uncommitted | accepts (trig returns a plain number) |
 //! | `sin(30mm)` | — | refused: trig takes an angle |
+//! | `1kg`, `250g`, `1lb` | mass (M1) | refuses |
+//! | `2.7g / 1cm^3` | density — mass · length⁻³, composed, not a suffix | refuses |
+//! | `2700 * 1kg / 1m^3 * (10mm*10mm*10mm)` | mass | refuses |
 //!
 //! The one that is a genuine choice is `25deg / 1deg`, and the choice is to
 //! REFUSE it as a length. A value that never committed to a dimension
@@ -48,153 +51,18 @@
 //! There are no comparison or boolean operators in the grammar, so there is
 //! no comparison rule to state.
 
-use serde::{Deserialize, Serialize};
-
 use super::{ExprError, Span, MM_TO_METERS};
 
 /// Degrees per radian — the `rad` suffix's factor into degree working space.
 const DEG_PER_RAD: f64 = 180.0 / std::f64::consts::PI;
 
-/// The kind of quantity a field that consumes an expression asks for.
-///
-/// This is the tag an expression-driven field carries (`specs/
-/// agent_mechanical_design.md` §6 P1): a depth or radius is a
-/// `Length`, a revolve or pattern angle an `Angle`, an instance count a
-/// `Count`, a scale factor a `Ratio`.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
-#[cfg_attr(feature = "json-schema", derive(schemars::JsonSchema))]
-pub enum Dimension {
-    /// A distance. Working space mm; model unit metres.
-    #[serde(alias = "length")]
-    Length,
-    /// A rotation. Working space degrees; also the unit every angle field
-    /// on the feature tree stores.
-    #[serde(alias = "angle")]
-    Angle,
-    /// A whole non-negative number of things (instances, teeth).
-    #[serde(alias = "count")]
-    Count,
-    /// A dimensionless number (a factor, a fraction).
-    #[serde(alias = "ratio")]
-    Ratio,
-}
-
-impl Dimension {
-    /// The exponent vector a value must carry to be accepted here.
-    pub fn dim(self) -> Dim {
-        match self {
-            Dimension::Length => Dim::LENGTH,
-            Dimension::Angle => Dim::ANGLE,
-            Dimension::Count | Dimension::Ratio => Dim::NONE,
-        }
-    }
-
-    /// Name for a diagnostic ("expected a length, got an angle").
-    pub fn label(self) -> &'static str {
-        match self {
-            Dimension::Length => "a length",
-            Dimension::Angle => "an angle",
-            Dimension::Count => "a count (a plain number)",
-            Dimension::Ratio => "a ratio (a plain number)",
-        }
-    }
-}
-
-/// A dimension as exponents: `length^length · angle^angle`.
-///
-/// Exponents, not a closed enum, because arithmetic composes them: `w * h`
-/// is a length², `w * h / t` a length again. A field accepts exactly the
-/// exponent vector it asked for, so a length² never lands in a depth.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Hash)]
-pub struct Dim {
-    pub length: i8,
-    pub angle: i8,
-}
-
-impl Dim {
-    /// Dimensionless.
-    pub const NONE: Dim = Dim {
-        length: 0,
-        angle: 0,
-    };
-    /// A distance.
-    pub const LENGTH: Dim = Dim {
-        length: 1,
-        angle: 0,
-    };
-    /// A rotation.
-    pub const ANGLE: Dim = Dim {
-        length: 0,
-        angle: 1,
-    };
-    /// An area — what `area(face)` measures (D2). No field accepts one, so
-    /// it exists to be composed with (`area(f) / w` is a length) and to be
-    /// refused by name where it does not belong.
-    pub const AREA: Dim = Dim {
-        length: 2,
-        angle: 0,
-    };
-    /// A volume — what `volume(body)` measures (D2).
-    pub const VOLUME: Dim = Dim {
-        length: 3,
-        angle: 0,
-    };
-
-    /// Compose: `self · other^sign`, or `None` when an exponent leaves the
-    /// representable range.
-    ///
-    /// `None` rather than a saturating clamp, because a clamped exponent is
-    /// a *wrong* dimension that can still be accepted: clamp `length^128`
-    /// and `length^127` and their quotient reports `ratio` where the truth
-    /// is `length`. Overflow is loud (P10) instead.
-    pub fn compose(self, other: Dim, sign: i8) -> Option<Dim> {
-        let axis = |a: i8, b: i8| -> Option<i8> { a.checked_add(b.checked_mul(sign)?) };
-        Some(Dim {
-            length: axis(self.length, other.length)?,
-            angle: axis(self.angle, other.angle)?,
-        })
-    }
-
-    /// `self^n`, or `None` on exponent overflow (see [`Dim::compose`]).
-    pub fn scaled(self, n: i32) -> Option<Dim> {
-        let scale = |e: i8| -> Option<i8> { i8::try_from((e as i32).checked_mul(n)?).ok() };
-        Some(Dim {
-            length: scale(self.length)?,
-            angle: scale(self.angle)?,
-        })
-    }
-
-    /// Halve every exponent, or `None` when one of them is odd (`sqrt` of a
-    /// length is not a dimension this system can name).
-    pub fn halved(self) -> Option<Dim> {
-        if self.length % 2 != 0 || self.angle % 2 != 0 {
-            return None;
-        }
-        Some(Dim {
-            length: self.length / 2,
-            angle: self.angle / 2,
-        })
-    }
-
-    /// Name for a diagnostic.
-    pub fn label(self) -> String {
-        match (self.length, self.angle) {
-            (0, 0) => "a plain number".to_string(),
-            (1, 0) => "a length".to_string(),
-            (0, 1) => "an angle".to_string(),
-            (l, a) => {
-                let mut parts = Vec::new();
-                if l != 0 {
-                    parts.push(format!("length^{l}"));
-                }
-                if a != 0 {
-                    parts.push(format!("angle^{a}"));
-                }
-                parts.join("·")
-            }
-        }
-    }
-}
+// `Dimension` and `Dim` live in `waffle_types::dimension` since M1 — the
+// tolerance types in `waffle_types::annotation::tolerance` need the same
+// vocabulary, and that crate is below this one. Re-exported here so every
+// pre-M1 path (`feature_engine::expr::Dimension`, `expr::dim::Dim`) still
+// names the one definition. See that module's docs for why the split falls
+// where it does, and for the mass axis M1 added.
+pub use waffle_types::dimension::{Dim, Dimension};
 
 /// Whether a value's dimension has been committed.
 #[derive(Debug, Clone, Copy)]
@@ -294,6 +162,8 @@ impl Quantity {
             Tag::Tagged { dim, .. } if dim == Dim::LENGTH => Some(Dimension::Length),
             Tag::Tagged { dim, .. } if dim == Dim::ANGLE => Some(Dimension::Angle),
             Tag::Tagged { dim, .. } if dim == Dim::NONE => Some(Dimension::Ratio),
+            Tag::Tagged { dim, .. } if dim == Dim::MASS => Some(Dimension::Mass),
+            Tag::Tagged { dim, .. } if dim == Dim::DENSITY => Some(Dimension::Density),
             Tag::Tagged { .. } => None,
         }
     }
@@ -311,6 +181,10 @@ impl Quantity {
             "angle".to_string()
         } else if dim == Dim::NONE {
             "ratio".to_string()
+        } else if dim == Dim::MASS {
+            "mass".to_string()
+        } else if dim == Dim::DENSITY {
+            "density".to_string()
         } else {
             dim.label()
         }
@@ -351,6 +225,27 @@ impl Quantity {
         Ok(self.value)
     }
 
+    /// Accept as a MASS, returning KILOGRAMS (M1).
+    ///
+    /// Working space and model unit coincide for a mass — there is no
+    /// mm-scale convention to preserve, and kg is what a density is quoted
+    /// against — so this is the identity rather than a conversion.
+    pub fn as_mass_kilograms(self) -> Result<f64, ExprError> {
+        self.check(Dimension::Mass)?;
+        Ok(self.value)
+    }
+
+    /// Accept as a DENSITY, returning kg/m³ (M1).
+    ///
+    /// The working space is kg per CUBIC MILLIMETRE, because the mass axis
+    /// is in kg and the length axis in mm, so the conversion is `1e9` —
+    /// (1000 mm/m)³. That is why `2.7g / 1cm^3` comes back as 2700 and not
+    /// as 2.7e-6.
+    pub fn as_density_kg_m3(self) -> Result<f64, ExprError> {
+        self.check(Dimension::Density)?;
+        Ok(self.value / (MM_TO_METERS * MM_TO_METERS * MM_TO_METERS))
+    }
+
     /// Accept for `want`, returning the value in that field's own unit:
     /// metres for a length, DEGREES for an angle (the stored convention),
     /// the plain number for a count or ratio.
@@ -360,6 +255,8 @@ impl Quantity {
             Dimension::Angle => self.as_angle_degrees(),
             Dimension::Count => self.as_count(),
             Dimension::Ratio => self.as_ratio(),
+            Dimension::Mass => self.as_mass_kilograms(),
+            Dimension::Density => self.as_density_kg_m3(),
         }
     }
 
@@ -407,6 +304,15 @@ pub struct Unit {
 
 /// Every accepted unit suffix. `deg` is an identity factor so an angle
 /// literal can be explicit; `rad` converts into degree working space.
+///
+/// The mass suffixes arrived with M1, and `kg` is the identity for the same
+/// reason `mm` is for a length: the working space is the unit the quantity is
+/// quoted in everywhere else (a material's density is kg/m³, so its mass
+/// numerator is kg). There is no density SUFFIX, and none is needed — the
+/// grammar composes one out of the two axes, so `2.7g / 1cm^3` IS a density
+/// by [`Dim::DENSITY`] and `as_density_kg_m3` converts it. A single
+/// `kg/m^3` token would have to be lexed as one identifier containing a
+/// slash and a caret, which the lexer cannot do and should not learn to.
 pub const UNITS: &[Unit] = &[
     Unit {
         name: "mm",
@@ -443,6 +349,26 @@ pub const UNITS: &[Unit] = &[
         factor: DEG_PER_RAD,
         dim: Dim::ANGLE,
     },
+    Unit {
+        name: "kg",
+        factor: 1.0,
+        dim: Dim::MASS,
+    },
+    Unit {
+        name: "g",
+        factor: 1e-3,
+        dim: Dim::MASS,
+    },
+    Unit {
+        name: "lb",
+        factor: 0.453_592_37,
+        dim: Dim::MASS,
+    },
+    Unit {
+        name: "oz",
+        factor: 0.028_349_523_125,
+        dim: Dim::MASS,
+    },
 ];
 
 pub fn unit_by_name(name: &str) -> Option<&'static Unit> {
@@ -464,7 +390,8 @@ mod tests {
             l.compose(l, 1),
             Some(Dim {
                 length: 2,
-                angle: 0
+                angle: 0,
+                mass: 0
             })
         );
         assert_eq!(l.compose(l, -1), Some(Dim::NONE));
@@ -472,14 +399,16 @@ mod tests {
             Dim::NONE.compose(l, -1),
             Some(Dim {
                 length: -1,
-                angle: 0
+                angle: 0,
+                mass: 0
             })
         );
         assert_eq!(
             l.scaled(3),
             Some(Dim {
                 length: 3,
-                angle: 0
+                angle: 0,
+                mass: 0
             })
         );
         assert_eq!(l.scaled(0), Some(Dim::NONE));
@@ -677,5 +606,60 @@ mod tests {
             serde_json::from_str::<Dimension>("\"Count\"").unwrap(),
             Dimension::Count
         );
+    }
+
+    #[test]
+    fn every_mass_suffix_converts_into_kilogram_working_space() {
+        for (name, kg) in [
+            ("kg", 1.0),
+            ("g", 1e-3),
+            ("lb", 0.453_592_37),
+            ("oz", 0.028_349_523_125),
+        ] {
+            let u = unit_by_name(name).unwrap_or_else(|| panic!("no unit {name}"));
+            assert_eq!(u.dim, Dim::MASS, "{name}");
+            assert_eq!(u.factor, kg, "{name}");
+        }
+        // 16 oz is a pound, to the bit — both factors are exact decimals of
+        // the international avoirdupois definition, not rounded ones.
+        let oz = unit_by_name("oz").unwrap().factor;
+        let lb = unit_by_name("lb").unwrap().factor;
+        assert!((16.0 * oz - lb).abs() < 1e-18, "{} vs {lb}", 16.0 * oz);
+    }
+
+    #[test]
+    fn a_mass_boundary_is_kilograms_and_refuses_a_length() {
+        let kg = Quantity::tagged(2.5, Dim::MASS, at());
+        assert_eq!(kg.as_mass_kilograms().unwrap(), 2.5);
+        assert_eq!(kg.accept(Dimension::Mass).unwrap(), 2.5);
+        assert!(matches!(
+            kg.as_length_meters(),
+            Err(ExprError::DimensionMismatch { .. })
+        ));
+        // ...and a length is refused as a mass, by name.
+        let mm = Quantity::tagged(2.5, Dim::LENGTH, at());
+        let Err(ExprError::DimensionMismatch {
+            expected, found, ..
+        }) = mm.as_mass_kilograms()
+        else {
+            panic!("a length was accepted as a mass");
+        };
+        assert_eq!(expected, "a mass");
+        assert_eq!(found, "a length");
+    }
+
+    #[test]
+    fn a_density_boundary_converts_out_of_kg_per_cubic_millimetre() {
+        // The working space is kg/mm³, so aluminium's 2700 kg/m³ is
+        // 2.7e-6 there — the 1e9 is what makes the number legible again.
+        let d = Quantity::tagged(2.7e-6, Dim::DENSITY, at());
+        let kg_m3 = d.as_density_kg_m3().unwrap();
+        assert!((kg_m3 - 2700.0).abs() < 1e-9, "{kg_m3}");
+        assert_eq!(d.dimension(), Some(Dimension::Density));
+        assert_eq!(d.dimension_label(), "density");
+        assert!(matches!(
+            d.as_mass_kilograms(),
+            Err(ExprError::DimensionMismatch { .. })
+        ));
     }
 }

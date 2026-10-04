@@ -1,5 +1,6 @@
 pub mod annotation;
 pub mod bspline;
+pub mod dimension;
 pub mod gear;
 pub mod gear_planetary;
 pub mod geom_ref;

@@ -73,6 +73,18 @@
 //! resolve. (The arithmetic functions ARE reserved; that is pre-D2
 //! behaviour, not a rule D2 extends.)
 //!
+//! **M1's mass suffixes DO reserve four new words** — `kg`, `g`, `lb`, `oz`
+//! — because a unit suffix is not callable-only: it is read where an
+//! identifier could stand, so a parameter spelling one would be ambiguous.
+//! `g` is the uncomfortable one (a parameter named `g` was legal before M1);
+//! it is kept because a part's mass is quoted in grams as often as in
+//! kilograms, and `0.25kg` is not what a drafter writes. The tonne is
+//! DELIBERATELY absent: `t` is the single most plausible parameter name in
+//! this codebase's domain (thickness), and `1000kg` says the same thing, so
+//! a tonne suffix would cost a real name to buy nothing. Censused the same
+//! way P1 censused `rad`: of 356 tracked `.waffle` files, ZERO have a
+//! non-empty parameter table, so no document in the repo is affected.
+//!
 //! ## Grammar
 //!
 //! ```text
@@ -476,11 +488,16 @@ mod tests {
     #[test]
     fn reserved_words_cover_units_functions_and_pi() {
         for name in [
-            "mm", "cm", "m", "in", "ft", "deg", "rad", "pi", "sqrt", "min",
+            "mm", "cm", "m", "in", "ft", "deg", "rad", "pi", "sqrt", "min", "kg", "g", "lb", "oz",
         ] {
             assert!(is_reserved_word(name), "{name} must be reserved");
             assert!(validate_name(name).is_err(), "{name} must not be a name");
         }
+        // `t` is NOT a unit and must stay a usable parameter name — see the
+        // module docs: a tonne suffix would cost "thickness" to buy what
+        // `1000kg` already says.
+        assert!(!is_reserved_word("t"), "`t` must stay a usable name");
+        assert!(validate_name("t").is_ok());
         assert!(!is_reserved_word("width"));
         assert!(validate_name("width").is_ok());
         assert!(validate_name("_a1").is_ok());

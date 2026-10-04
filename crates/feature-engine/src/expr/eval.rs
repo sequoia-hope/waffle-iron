@@ -347,6 +347,39 @@ mod tests {
         q(s).unwrap().value
     }
 
+    #[test]
+    fn a_mass_literal_is_a_mass_and_a_density_composes_out_of_two_axes() {
+        use waffle_types::dimension::Dim as D;
+        assert_eq!(q("250g").unwrap().dim(), D::MASS);
+        assert_eq!(q("250g").unwrap().as_mass_kilograms().unwrap(), 0.25);
+        assert_eq!(q("1kg + 250g").unwrap().as_mass_kilograms().unwrap(), 1.25);
+        assert_eq!(q("1lb").unwrap().as_mass_kilograms().unwrap(), 0.45359237);
+
+        // There is no density SUFFIX; the grammar makes one. Aluminium:
+        assert_eq!(q("2.7g / 1cm^3").unwrap().dim(), D::DENSITY);
+        let rho = q("2.7g / 1cm^3").unwrap().as_density_kg_m3().unwrap();
+        assert!((rho - 2700.0).abs() < 1e-9, "{rho}");
+        // ...and the same density written in SI reads the same number.
+        let si = q("2700kg / 1m^3").unwrap().as_density_kg_m3().unwrap();
+        assert!((si - 2700.0).abs() < 1e-9, "{si}");
+
+        // density × volume IS a mass, by the exponents and by the number: a
+        // 10 mm aluminium cube is 2.7 g.
+        let m = q("(2.7g / 1cm^3) * (10mm * 10mm * 10mm)").unwrap();
+        assert_eq!(m.dim(), D::MASS);
+        let kg = m.as_mass_kilograms().unwrap();
+        assert!((kg - 0.0027).abs() < 1e-15, "{kg}");
+
+        // A mass in a length field is refused by name, not coerced.
+        let Err(ExprError::DimensionMismatch {
+            expected, found, ..
+        }) = q("250g").unwrap().as_length_meters()
+        else {
+            panic!("a mass was accepted as a length");
+        };
+        assert_eq!((expected.as_str(), found.as_str()), ("a length", "a mass"));
+    }
+
     /// The span of the whole expression, which is where an overflow is
     /// blamed (the operator that composed it, not any one suffix).
     fn q_span(s: &str) -> Span {
@@ -549,7 +582,8 @@ mod tests {
             q("1 / 2mm").unwrap().dim(),
             Dim {
                 length: -1,
-                angle: 0
+                angle: 0,
+                mass: 0
             }
         );
         // An area cannot be a depth.
