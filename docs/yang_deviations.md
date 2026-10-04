@@ -5864,3 +5864,81 @@ doubled excursion reads `(2 edges, area2 = 0.0)` with the complement carrying
 the whole square, a figure-eight reads `(4 edges, |area2| = 2.0)`, and the
 end-to-end spur fixture requires the wall's text to name the SLIT. Mutation-
 checked: a classifier that returns a constant area fails three of the five.
+
+## N79 — Stage 0 welded a near-coplanar pair's VERTICES onto the shared plane but left face B's stored plane and rim circle on its own (`error_oct4.waffle`)
+
+**State: RESOLVED (2026-10-04). `stage0::plane_weld` — always-on, kill switch
+`YANG_PLANE_WELD=off`, spec `specs/yang_455_coplanar_plane_weld.md`. Corpus
+run recorded in the roadmap status header.**
+
+**Paper.** Yang §4.5.5 (`refs/text/yang2025_hybrid_boolean.txt:717-731`)
+replaces the overlap of two coplanar faces by ONE shared trimmed surface with
+identical meshes on both models, whose boundaries "share identical sampling
+points". The paper assumes the faces are coplanar. The implementation's
+near-band (N-#178, `specs/yang_178_subres_coplanar_gap_stop.md`) admits a
+sub-resolution gap (`≤ band/100`) as coincidence-authoring noise and dissolves
+it — an EXTENSION already recorded at the #178 entry above. This entry is the
+consequence that entry did not reach: a dissolved gap must be dissolved
+EVERYWHERE the pair's geometry is read, not only in the mesh vertices.
+
+**Mechanism.** `stage0_preprocess` snaps every loop vertex of a cross pair
+onto the group's canonical plane (face A's; `stage0/mod.rs` snap phase) and
+lifts every overlay vertex onto it (`Frame::lift`). Face B's
+`Surface::Plane` and the `Curve::Circle` centre of a rim on it were never
+rewritten (`PairPlane::face_a`'s doc records the stored plane "up to `band`
+away" as accepted). Two Stage-1 consumers read the stored circle and so place
+their points on B's plane: the uniform rim samples
+(`stage1_tessellate.rs`, `c + r(cosθ·e1 + sinθ·e2)`) and the opposite-rim
+image of a rim crossing (`stage0/rim_chords.rs::opposite_rim_image`, which
+strips the axial component and re-attaches it at the opposite circle's stored
+centre). The seam vertex, the corners and every overlay mint sit on A's. On a
+welded pair each rim ring therefore carried every crossing twice, `gap` apart
+along the normal.
+
+**Measured (2026-10-04, a user document).** A 100 × 85 × 10 mm frame with an
+80 × 75 mm hole; a sketch on its top face; a Ø22.36 mm circle centred on the
+hole's corner vertex (its rim through the frame's outer corner); a 10 mm
+through-cut. The app's `computeFacePlane` reads the sketch origin from the
+render mesh's `Float32Array`, so the cut's caps sit at `f32(0.01)` and
+`f32(0.01) − 0.01`: 2.235e-10 below `y = 0.01` and below `y = 0`. Both pairs
+weld. With the circle centred on the hole corner the top and bottom caps'
+crossings of the hole edges share exact azimuths, one of them exactly 90°
+from the seam; the Stage-1 self-contact refinement reached N = 56, which
+samples 90°:
+
+- `circle edge 0: two distinct rim-crossing overrides claim uniform sample
+  k=14 (n_seg=56): first (−0.04000000003725291, 0.009999999776482582,
+  −0.02631966009687242) then (−0.04000000003725291, 0.01,
+  −0.02631966009687242), 2.235e-10 apart` — the mirrored image on B's plane,
+  the own crossing on A's;
+- with that row (row 5 of `specs/m8_rim_override_uniform_merge.md`) made
+  distance-based instead of bit-based: `Stage-1 mesh of one operand
+  self-intersects: 12 improper triangle contact(s) … between faces 0 and 2`
+  — operand B's cap and lateral meeting in T-junctions between the twins.
+
+**Fix.** `stage0::plane_weld::weld_coplanar_planes` runs in `boolean()`
+after the §4.5.5 edge-in-plane identification and before
+`stage0_preprocess`, on the same scan and plane groups: every participating
+face whose UNIT plane is not the canonical plane bit for bit is rewritten
+onto it (orientation kept), with the in-plane anchor of every curved edge on
+it and its loop vertices `Frame::snap`ped, through
+`BRep::rebuilt_with_geometry`. A group already on its canonical plane is
+skipped, so bit-exact coplanar input is byte-identical (no rebuild). Row 5 of
+the uniform-merge rule now inserts a second sub-TAU twin at its own angle
+(the generic band-close-twin behaviour) after the row-3 real-scale wall.
+
+**Pins.** `tests_unit/plane_weld.rs` (identity on bit-exact and pair-less
+input; the residual cap's plane, rim centre and seam vertex at the canonical
+plane bit for bit with A untouched; the residual through-cut equal to the
+exact cut in face count with every top vertex exactly on the plane);
+`rim_override_same_slot_repeat_dedups_conflict_is_loud` (row 5 both rims).
+The document replays with no engine error, all mesh oracles PASS, volume
+2.301939e-5 m³ against the analytic 2.301865e-5 m³ (render chord deficit).
+
+**Upstream producer, not fixed here.** The app derives face sketch planes
+from f32 render geometry (`store.svelte.js::computeFacePlane`; only ghost
+face ranges carry the engine's exact plane, `render_view.rs`), and the UI
+writes no `plane_face`, so N2's rebuild re-resolution never re-snaps the
+origin. The kernel must tolerate the class regardless (imported STEP carries
+it); the app-side increment is the bridge emitting the exact plane for every
+planar face range.

@@ -912,15 +912,6 @@ pub(crate) fn stage1_tessellate_once(
                                      (B-Rep vertex is authoritative; merge refused)"
                                 )));
                             }
-                            if let Some(prev) = merged_slots.get(&k_slot) {
-                                if *prev == key {
-                                    continue; // bit-identical repeat — dedup
-                                }
-                                return Err(YangError::MalformedTopology(format!(
-                                    "circle edge {e_idx}: two distinct rim-crossing overrides \
-                                     claim uniform sample k={k_slot}"
-                                )));
-                            }
                             // Identity ceiling (A14.2/A14.3, the task-#142
                             // fused-emission constant): only a sub-TAU_MODEL
                             // twin of the uniform sample may merge; a REAL-scale
@@ -944,6 +935,37 @@ pub(crate) fn stage1_tessellate_once(
                                      refused)",
                                     d2.sqrt()
                                 )));
+                            }
+                            if let Some(prev) = merged_slots.get(&k_slot) {
+                                if *prev == key {
+                                    continue; // bit-identical repeat — dedup
+                                }
+                                // A SECOND sub-TAU twin of the same uniform
+                                // sample, distinct in bits from the one the slot
+                                // already took. The generic insertion path below
+                                // keeps band-close twins BOTH, by exact-bit
+                                // identity, so the ring stays conformal with the
+                                // cap overlay that carries both points; this is
+                                // that population landing, by the geometry's own
+                                // symmetry, exactly on a uniform angle. Measured
+                                // 2026-10-04 (`error_oct4.waffle`): a through-cut
+                                // cylinder centred on a frame's hole corner — the
+                                // top rim's OWN crossing (lifted onto the frame's
+                                // face plane) and the crossing MIRRORED from the
+                                // bottom rim (placed on the cylinder's rim plane,
+                                // 2.2e-10 away after the app's f32 sketch-plane
+                                // rounding) share an exact azimuth, 90° from the
+                                // seam, which every 4|N ring samples. The slot is
+                                // taken; the twin enters as an inserted override
+                                // at its own angle, exactly as it would had the
+                                // uniform sample fallen anywhere else. (Was the
+                                // loud `two distinct rim-crossing overrides claim
+                                // uniform sample` wall.)
+                                if !inserted_keys.contains(&key) {
+                                    inserted_keys.push(key);
+                                    slots.push((off, RimSlot::Override(pt)));
+                                }
+                                continue;
                             }
                             // MERGE: the slot keeps its uniform angular key (sort
                             // order + emission theta unchanged) and takes the

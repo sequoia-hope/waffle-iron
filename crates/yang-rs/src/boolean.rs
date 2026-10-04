@@ -1328,6 +1328,23 @@ fn boolean_once(
         None => (a, b),
     };
 
+    // (−1) §4.5.5 shared plane at the B-Rep level (`stage0::plane_weld`):
+    // every face of a near-coplanar cross pair the scan WELDS is rewritten
+    // onto its group's canonical plane — plane, curved-edge anchors, loop
+    // vertices — so everything Stage 1 derives from the stored geometry
+    // (uniform rim samples, opposite-rim images) lands on the same plane
+    // the overlay lifts its vertices onto. Bit-exact coplanar operands are
+    // byte-identical (no rebuild).
+    let welded: Option<(BRep, BRep)> = if stage0::plane_weld::enabled() {
+        stage0::plane_weld::weld_coplanar_planes(a, b)?
+    } else {
+        None
+    };
+    let (a, b): (&BRep, &BRep) = match &welded {
+        Some((na, nb)) => (na, nb),
+        None => (a, b),
+    };
+
     // P3a #146 increment 0 (spec `yang_146_conformal_junction_sampling.md`):
     // dev-only junction-mint measurement probe. Enumerates cross edge×face
     // pierce candidates (X-edge's two incident surfaces + Y-face's surface,

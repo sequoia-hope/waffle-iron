@@ -43,6 +43,7 @@ mod p3b_fan_retriangulation;
 mod p3b_rim_insertion;
 mod p3b_rim_pierce;
 mod p3b_tube_insertion;
+mod plane_weld;
 mod s0_cluster_corner_weld;
 mod s188_envelope;
 mod s194_edge_collapse;

@@ -638,6 +638,41 @@ impl BRep {
         )
     }
 
+    /// Stage-0 plane weld (`stage0::plane_weld`): the same topology with
+    /// `verts`, `edges` and `faces` replacing this B-Rep's (same counts, same
+    /// indices — only positions, curve anchors and face planes change),
+    /// re-tessellated from topology with every standing override carried on.
+    pub(crate) fn rebuilt_with_geometry(
+        &self,
+        verts: Vec<BRepVertex>,
+        edges: Vec<BRepEdge>,
+        faces: Vec<BRepFace>,
+    ) -> Result<Self, YangError> {
+        if verts.len() != self.vertices.len()
+            || edges.len() != self.edges.len()
+            || faces.len() != self.faces.len()
+        {
+            return Err(YangError::MalformedTopology(format!(
+                "rebuilt_with_geometry: {}/{}/{} vertices/edges/faces replace {}/{}/{}",
+                verts.len(),
+                edges.len(),
+                faces.len(),
+                self.vertices.len(),
+                self.edges.len(),
+                self.faces.len()
+            )));
+        }
+        Self::from_topology_with_rim_overrides(
+            verts,
+            edges,
+            faces,
+            self.forced_rim_n,
+            &self.standing_rim,
+            &self.standing_face,
+            &self.standing_face_constraints,
+        )
+    }
+
     /// `extra` composed over this B-Rep's standing rim samples: per rim edge
     /// the standing points first, then every `extra` point not already present
     /// bit-for-bit. Insertion order is immaterial to the rim build (it sorts
