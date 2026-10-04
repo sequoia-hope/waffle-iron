@@ -362,7 +362,7 @@
 				moved: false,
 				placement: null
 			};
-			stackEl?.setPointerCapture?.(e.pointerId);
+			capturePointer(e.pointerId, true);
 			refreshMarks([e.clientX, e.clientY]);
 			return;
 		}
@@ -531,6 +531,26 @@
 		return { type: 'Point', at };
 	}
 
+	/**
+	 * Take or release the pointer for the duration of a drag.
+	 *
+	 * Both calls THROW on a pointer the element does not have (a
+	 * `NotFoundError` from `releasePointerCapture`, an `InvalidStateError` from
+	 * `setPointerCapture` for a pointer that is no longer down) — which can
+	 * happen for an entirely ordinary reason: the pointer left the window
+	 * between the press and the release. A drag that cannot be captured still
+	 * works through the element's own events, so the failure is swallowed
+	 * rather than allowed to abort the commit that follows it.
+	 */
+	function capturePointer(pointerId, take) {
+		try {
+			if (take) stackEl?.setPointerCapture?.(pointerId);
+			else stackEl?.releasePointerCapture?.(pointerId);
+		} catch {
+			/* the pointer is already gone; the drag's own events still fired */
+		}
+	}
+
 	/** Live drag of a selected dimension's placement. */
 	function dragTo(e) {
 		const view = viewById(drag.viewId);
@@ -548,7 +568,7 @@
 		if (!drag) return;
 		const d = drag;
 		drag = null;
-		stackEl?.releasePointerCapture?.(e.pointerId);
+		capturePointer(e.pointerId, false);
 		if (d.moved && d.placement) await moveSheetAnnotation(d.viewId, d.index, d.placement);
 		refreshMarks([e.clientX, e.clientY]);
 	}
