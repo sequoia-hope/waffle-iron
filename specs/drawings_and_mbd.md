@@ -1902,8 +1902,13 @@ parameters, and zero errors from a deferred pass.
 
 Still open:
 
-- *`mass` waits for M1*, with the `Dim` widening and the reader-floor
-  question it brings.
+- ~~*`mass` waits for M1*, with the `Dim` widening and the reader-floor
+  question it brings.~~ **Closed by M1** (2026-10-04): `Dim` gained a mass
+  axis (which moved to `waffle_types::dimension`), the material table gave
+  it a density, and the reader floor moved to v14 — for the
+  `FeatureControlFrame` variant as much as for `Dimension::Mass`. A body
+  with NO material is refused by name rather than measured at density 1,
+  where the mass would be numerically the volume.
 - *A measurement in an ASSEMBLY tab measures nothing.* `TreeMeasurer` is
   built per part engine, and an assembly's instance-scoped references are
   the same gap Q2 and Q6 have (`RefScope.instance_path` + a world-space
@@ -2155,11 +2160,11 @@ so the test predicts rather than records.
   one. Deciding needs a text-width measurement, and §3 forbids text metrics
   in Rust — so it belongs in `layout.js`, with the measurement taken from the
   style's text height rather than from the DOM, to keep the function pure.
-- *No tolerance, precision or dual-unit document SETTING exists.* The
-  renderer takes `documentPrecision` and `unit` as arguments and
-  `drawingStyle(overrides)` takes the rest; wiring them to real document
-  settings is M1's, which is also where the `units.js` formatter gains
-  fractional inches.
+- ~~*No tolerance, precision or dual-unit document SETTING exists.*~~
+  **Closed by M1** (2026-10-04): `document.precision`, `.dual_unit` and
+  `.dual_precision`, written through `SetDisplaySettings` and reported on
+  `document_info`, with the per-annotation override beside them. `units.js`
+  gained fractional inches in the same increment.
 - *An ordinate dimension has no ordinate ORIGIN.* `DimensionKind::Ordinate`
   reads one raw view-plane coordinate, so its number is measured from the
   view frame's origin — which is a property of the projection, not of the
@@ -2174,12 +2179,10 @@ so the test predicts rather than records.
   boundary that rejects one either — no MCP tool, no deserialization guard.
   D4a and M2 own that refusal, at the same seam where they first make an
   `Annotation` reachable from a file.
-- *A dual dimension's two units share one precision.* Two places of
-  millimetres is 0.01 mm; two places of inches is 0.254 mm, so the bracketed
-  value is 25× coarser than the primary it is supposed to restate. ASME
-  Y14.5 §1.6.2 wants the conversion to preserve the implied precision. The
-  rule is stated and pinned in `format.js`; a separate dual precision is
-  M1's, with the rest of the document settings.
+- ~~*A dual dimension's two units share one precision.*~~ **Closed by M1**:
+  `dual_precision` is a document setting with a per-annotation override, and
+  absent, the formatter derives one that preserves the primary's implied
+  resolution (ASME Y14.5 §1.6.2).
 - *`Placement2` is in view-space meters.* For a label nudge, paper
   millimetres would be the natural unit, and a label dragged on a 1:10 view
   would then move the same distance on paper at any scale. It is meters here
@@ -2765,7 +2768,7 @@ their own.
   arithmetic is pinned on a placed-body unit case — but no corpus assembly has
   been sectioned end to end.
 
-## 9. M1 — Tolerance, precision, material
+## 9. M1 — Tolerance, precision, material (LANDED 2026-10-04)
 
 Owner: `waffle-types`, `feature-engine`, `app`.
 
@@ -2802,6 +2805,349 @@ argument, and gains fractional-inch output.
 holds `{ name, density, appearance }`. `mass(body)` in D2 reads it; the
 properties panel shows mass and centre of mass from `solid_volume` and a new
 `solid_centroid` introspection call.
+
+### Implementation notes (M1)
+
+Landed 2026-10-04. Where the plan above left a choice open, this is the choice
+made and why.
+
+**The dimension algebra moved down a crate, and that is what makes a tolerance
+typed.** §9 writes `Symmetric { plus_minus: f64 }`. A bare `f64` there is
+exactly the defect P1 exists to refuse: nothing in the type says whether 0.1 is
+a tenth of a millimetre, of a metre or of a degree, and a tolerance read in the
+wrong unit is a scrapped part. So every magnitude is a
+`waffle_types::annotation::tolerance::ToleranceValue` — the number plus the
+`Dimension` it commits to — read through a NAMED boundary
+(`as_length_meters`, `as_angle_radians`), which is the same discipline
+`feature_engine::expr::Quantity` applies to an evaluated expression and chosen
+for the same stated reason: "so that an angle field cannot accidentally take
+radians".
+
+P1 put `Dimension` and `Dim` in `feature_engine::expr::dim`, which was right
+while the evaluator was their only consumer. `waffle-types` is BELOW
+`feature-engine`, so the shared half moved to `waffle_types::dimension` and
+`expr::dim` re-exports it: one definition, one serialized spelling, one set of
+rules, and not one of the 71 call sites changed. `Quantity`, `Tag` and the
+unit-suffix table stayed put — they are about a parse tree and its working
+space, which `waffle-types` knows nothing about.
+
+**Model units, which are the NEIGHBOUR's units and not the feature tree's.**
+A tolerance magnitude is metres for a length and **radians** for an angle,
+matching `annotation::measure`. That is deliberately not degrees even though
+every angle on the feature tree is stored in degrees: a tolerance sits next to
+its dimension's measured value and is formatted by the same code, so it uses
+that neighbour's unit or the formatter needs two conversions where one will do.
+`ToleranceValue::angle_degrees` is the constructor a degree-thinking caller
+wants, and the MCP boundary takes degrees (below).
+
+**`limits_of` is the one place a tolerance becomes two numbers.** Symmetric,
+bilateral, limits and an ISO 286 fit all describe the same thing in the end —
+the largest and smallest the feature may be — and that conversion lives in
+exactly one function, so the SVG renderer, M2's PMI frame and M3's AP242
+writer cannot each have their own idea of what `H7` means. A renderer is handed
+the resolved pair in the layout record and never computes one; the structural
+test `the_layout_schema_carries_no_geom_ref` now also asserts that the
+DOCUMENT-model `Tolerance` and `FitClass` are unreachable from `ViewLayout`'s
+schema, because a renderer that could look up a fit class is a second
+implementation of ISO 286 and therefore a second answer.
+
+**`Fit`'s two classes are OPTIONAL, against §9's shape.** §9 has both
+mandatory, which only describes a mating-pair callout (`⌀20 H7/g6`). The far
+more common drawing is a single feature carrying its own class — a hole
+`⌀20 H7`, a shaft `⌀20 g6` — and with both mandatory there is no way to write
+one at all. Both absent is refused by name (`FitWithNoClass`), so the pair
+cannot degenerate into a tolerance that tolerances nothing. A pair resolves to
+the ASSEMBLY's extreme sizes (the hole's upper, the shaft's lower), which is
+what a fit callout means.
+
+**`Limits` are absolute SIZES; `Bilateral` are SIGNED DEVIATIONS.** §9 gives
+both arms the same `upper`/`lower` shape without saying which. The distinction
+is ISO 129-1's own — a limit dimension prints `25.021 / 25.000`, a deviation
+dimension prints `25 +0.021 / 0` — and leaving it implicit is how a
+`minus: 0.05` meaning "0.05 smaller" gets read as "0.05 larger". So
+`Bilateral.minus` is documented and validated as normally negative, both arms
+are refused when inverted, and a unilateral tolerance is this arm with one of
+them zero rather than a fifth variant.
+
+**ISO 286 is a table plus the standard's own general rule, and it refuses
+outside its range.** `waffle_types::annotation::iso286` carries the IT grade
+table (IT1–IT18 over the thirteen standard size steps, 0 < D ≤ 500 mm) and the
+SHAFT fundamental deviations, and derives the hole side by the general rule
+rather than by a second table: `EI = −es` for the clearance letters, and
+`ES = −ei + Δ` with `Δ = ITn − IT(n−1)` for K/M/N up to IT8 and P..S up to
+IT7. That Δ is computable from the IT table, which is why the hole side needed
+no data of its own — and it is checkable: Ø30 K7 comes out +6/−15 and Ø30 N7
+−7/−28, both the published rows. A letter the table does not carry, or a
+nominal past 500 mm, is a typed refusal that names what it could not find;
+nothing extrapolates. The deviation table uses the standard's own FINER size
+steps where they differ from the IT steps (r and s split inside four IT steps),
+because a constant-within-IT-step shortcut would be a silent wrong number for
+exactly those letters — pinned by a test that asserts r and s DO differ there
+while p does not, so the shortcut cannot creep back in.
+
+Supported: shafts `d e f g h k m n p r s` and holes `D E F G H K M N P R S` at
+every IT grade the rule admits, plus the symmetric `js`/`JS`. Refused by name:
+shaft `j` outside IT5–IT7 (the IT8 row could not be established to the
+confidence bar, so it refuses rather than guesses); the hole letters at IT1
+(the Δ rule needs IT0, which does not exist); the heavy-clearance and
+heavy-interference letters (`a b c … t u v x y z za zb zc`), naming the set
+that IS carried.
+
+**Hole `J` is refused, and that is a correction to the rule as this spec's own
+brief stated it.** The general rule derives a hole letter by mirroring its
+lower-case shaft, but `J` is one of the few hole letters ISO 286-1 tabulates
+DIRECTLY: mirroring Ø25 j7 (+13/−8) gives +8/−13, which is not the published
+J7 pair. So `J` is absent from `SUPPORTED_HOLE_LETTERS` — a UI will not offer
+it — and asking for one is `NotTabulated`. Shipping the mirror would have been
+a plausible wrong deviation on a manufacturing drawing, which is the one
+outcome this module exists to avoid. Adding `J` needs its own transcribed
+column.
+
+**The oracle earned its keep, and found a real bug.** 83 independently
+published limit pairs are pinned (45 shaft, 38 hole), plus `upper >= lower`
+over every accepting combination (5000+ rows), `width == IT` everywhere except
+`js`/`JS`, the mirror where the mirror rule applies, letter-sequence
+monotonicity, both step-boundary families, and every error arm. Ø25 K8 came
+out +12/−21 against the published +10/−23: the hole rule's `ei(letter)` is the
+letter's TABULATED fundamental deviation, but it had been wired to the SHAFT's
+`ei`, which for `k` is zeroed outside IT4–IT7. That carve-out is shaft-side
+only and must not propagate to hole K. The two readings are now separate
+functions (`fundamental_ei_um` for the table row, `shaft_ei_um` for the
+carve-out) and the hole rule reads the former — the single place the two
+readings diverge, pinned by the published anchor and by a mechanism test across
+every size step. Worth knowing if anything ever reimplements the hole rule.
+
+**`js`/`JS` is the one class whose width is not its IT grade.** An odd whole IT
+halves DOWNWARD, so Ø25 js7 is ±10 and not ±10.5, keeping both limits whole
+micrometres as the standard's tables do. Stated in the module and pinned at
+four grades.
+
+**A geometric tolerance's datum list is checked against ISO 1101.** The four
+FORM characteristics (flatness, straightness, circularity, cylindricity) are
+self-referential — a surface is flat with respect to nothing — so a datum on
+one is a frame no inspector can act on; the orientation and location ones are
+meaningless WITHOUT a datum, because they control a relationship. `Profile` is
+honestly both. `GeometricTolerance::validate` refuses the first two mistakes by
+name, at the authoring boundary and again at the rebuild. The reason to spend a
+check here rather than let it through: M3 exports the frame to AP242 verbatim,
+and a frame malformed by the standard is then rejected by a CMM far from where
+it was typed.
+
+**A geometric tolerance carries no reference, which is what lets it cross into
+the layout verbatim.** `DatumRef` is a LABEL — the string an
+`Annotation::Datum` carries — not a `GeomRef`. Which face datum `A` is, is the
+`Datum` annotation's business. So `GeometricTolerance` is reference-free, the
+layout's "no path back to the model" invariant is unaffected, and
+`AnnotationLayout::FeatureControlFrame` holds the document type itself instead
+of a flattened twin.
+
+**A `FitClass` persists as the string a drafter writes.** `"H7"`, `"g6"` —
+parsed through `TryFrom<String>`, so a malformed one fails DESERIALIZATION of
+the whole document rather than loading as "no tolerance". That is the louder
+choice on purpose: a fit nobody can resolve must not silently become an
+untoleranced dimension. The letter's CASE carries no meaning (the role comes
+from which field of `Fit` the class sits in) and `display_for(role)` prints it
+in the canonical case, so a shaft class authored as `G6` still prints `g6`.
+
+**A tolerance is checked against its dimension's KIND, twice.** An angular band
+on a linear dimension would print 0.0087 as if it were a length; an ISO 286 fit
+needs a nominal SIZE, so a fit on a radius (half a size, which nobody writes),
+on an angle or on an ordinate is refused rather than resolved against a number
+that means something else. `Tolerance::check_for` runs at the MCP authoring
+boundary (so a bad tolerance cannot enter a document) and again in
+`drawing::resolve_annotation` (so one that arrived another way is refused
+before anything draws it) — the same pair `check_measured` forms for
+`Measured::Value`. The refusal is a typed `DrawingError::ToleranceRefused`
+rather than a dropped tolerance: a sheet that silently omits the tolerance it
+was told to print is the same class of defect as one that prints a value the
+model disagrees with — the drawing says less than the author said, and nothing
+tells them.
+
+**`mass(body)` works now, and refuses rather than guessing.** D2 left it in the
+grammar and failing by name for want of a density and of a mass axis. M1 gives
+it both: `Dim` is three exponents, so `Density` is `mass · length⁻³` — the
+composition it actually is — and `density × volume` IS a mass by the arithmetic
+rather than by a special case. The density goes to the KERNEL rather than being
+multiplied in the measurer, so one implementation scales the mass and the
+inertia tensor and `mass(body)` and `measure_mass` cannot disagree.
+
+**A body with no material has no mass, and that is the whole point.** At
+`DEFAULT_DENSITY_KG_M3` (1) the mass is NUMERICALLY THE VOLUME, which is the
+most plausible wrong number this increment could produce — a number with the
+right order of magnitude, the right units printed beside it, and no way to tell
+it is wrong. So `mass(body)` refuses by name and says to assign a material; a
+DANGLING assignment (a body pointing at a material the table no longer has) is
+refused naming the material. `measure_mass` keeps the fallback, because its
+answer always reports the `density_kg_m3` it used, which is what makes the
+three cases distinguishable — and an explicit density still wins, because "what
+would this weigh in brass" is a real question.
+
+**`kg`, `g`, `lb` and `oz` are new reserved words; the tonne deliberately is
+not.** A unit suffix is not callable-only the way a measurement name is — it is
+read where an identifier could stand — so a parameter spelling one would be
+ambiguous, and `is_reserved_word` consults the unit table. `g` is the
+uncomfortable one (a parameter named `g` was legal before M1) and it is kept
+because a part's mass is quoted in grams at least as often as in kilograms.
+`t` is NOT a unit, because it is the single most plausible parameter name in
+this codebase's domain (thickness) and `1000kg` says the same thing, so a tonne
+suffix would cost a real name to buy nothing. Censused the way P1 censused
+`rad`: of 356 tracked `.waffle` files, ZERO have a non-empty parameter table.
+
+There is also no density SUFFIX, and none is needed: the grammar composes one
+out of the two axes, so `2.7g / 1cm^3` is 2700 kg/m³ by `Dim::DENSITY` and
+`as_density_kg_m3` converts it. A single `kg/m^3` token would have to be lexed
+as one identifier containing a slash and a caret, which the lexer cannot do and
+should not learn to.
+
+**The material table is per-PART, not document-level, and the reason is
+plumbing rather than preference.** §9 asks for a document-level table. The
+measurer that answers `mass(body)` is built from one `FeatureTree`
+(`feature_engine::measure::TreeMeasurer`) and there is no document scope it can
+see: `Document.parameters` — P2 of `specs/agent_mechanical_design.md` §6 — is
+the increment that builds one, and it is unlanded. Inventing a second
+document-scope mechanism for materials alone would be the thing P2 then has to
+unify. A per-Part table reads correctly and costs nothing today, and when P2
+lands this becomes the local half of a local-then-document lookup exactly as a
+parameter's is. A part is also the thing that HAS a material, so the shape is
+not obviously wrong; the cost is that two Part tabs each need their own
+"Aluminium" row.
+
+**There is no persisted `Body`, so the assignment is a side table.** §9 says
+"`Body` gains `material: Option<MaterialRef>`". No such struct exists: a body
+is produced by a rebuild and identified by `FeatureTree::body_id`
+(`"{feature_id}/{output_key}"`). So `FeatureTree.body_materials` is keyed by
+that id, exactly as `body_names` is, and `MaterialRef` is the material's NAME —
+not a uuid, because the name is what a title block prints, what an agent types,
+and what a human reading the `.waffle` can make sense of without the table
+beside it. The cost is that a rename must rewrite every body that points at it,
+which `rename_material` does as one operation.
+
+**Three material edits are COUPLED, and that is why there is one undo
+record.** Deleting a material clears every body that pointed at it (leaving
+them would turn each into the dangling reference above, so deleting one
+material would break the mass of bodies the author never touched); renaming one
+rewrites them (restoring the table row alone would silently un-material every
+body made of it); assigning one refuses a material that is not in the table.
+`Engine::edit_materials` takes the whole before/after pair of BOTH tables as a
+single `Command::SetMaterials`, validates the result, and rolls both halves
+back if it does not validate — so a refused edit cannot leave the document
+half-changed. It rebuilds from 0 for the reason a parameter edit does: a
+`mass(body)` measurement may drive any field and the density it reads just
+moved.
+
+**Appearance channels are refused, not clamped.** A clamped 1.2 silently
+becomes a colour nobody authored and the author never hears about the typo.
+
+**Precision and dual units are three fields on `document`, and a dual
+precision is one of them.** D3 recorded that "a dual dimension's two units
+share one precision" was wrong and M1's: two places of millimetres is 0.01 mm,
+two places of inches 0.254 mm, so the bracketed value is 25× coarser than the
+one it restates (ASME Y14.5 §1.6.2). `document.precision`, `.dual_unit` and
+`.dual_precision` are the document settings; `Annotation::Dimension` gains
+`dual_precision` beside its existing `precision` and `dual_unit` as the
+per-annotation override. The bridge message that writes them
+(`SetDisplaySettings`) is COMPLETE-STATE, like `SetParameters`, and not three
+more `Option`s on `SetDocumentMeta`: there, `None` means "leave this alone", so
+there would be no way to say "no dual unit any more" — and turning dual units
+off is exactly the edit a user makes.
+
+**The MCP boundary takes MILLIMETRES, and has nowhere to state a unit.**
+`ToleranceSpec` and `GeometricToleranceSpec` are mirrors of the document types
+rather than the types themselves, for one reason: the document model is in
+model units, and an agent writing `0.0001` where it meant a tenth of a
+millimetre is the units trap this whole increment is about. A spec's magnitudes
+are millimetres on a linear dimension and DEGREES on an angular one — the units
+a drafter quotes and a tool reports — and the conversion happens once, in
+`drawing_view::build_tolerance`, which is the only place that knows the
+dimension's `DimensionKind`. A caller cannot get it wrong because there is
+nowhere to say which unit it meant.
+
+**`body_measure` reports a body's material but NOT its centroid.** §4.3 of
+`specs/agent_mechanical_design.md` says this tool "gains a `centroid` field
+from Q3", and it does not. Volume and area have closed forms the kernel reads
+per face; a centroid needs the first MOMENT over every face parameterization,
+so putting it here would make the cheap listing tool pay for the expensive
+integral on every call — in the tool that gets called in a loop over bodies.
+`measure_mass` is the tool that integrates the moments and it returns the
+centroid, the mass and the inertia tensor together. The material IS here,
+because it is a table lookup and it tells a caller whether `measure_mass` will
+have a density to use at all.
+
+**Format v14, and v12/v13 belong to other branches.** Two wire-breaking
+changes, either of which would move the floor alone:
+
+1. `Annotation::FeatureControlFrame` — a new serde-tagged variant inside a
+   `Drawing` tab. The v11 case over again, and the one D3's notes predicted:
+   "adding the field later is additive; adding the variant is not". A v13
+   reader knows the `Drawing` tag, so it DESERIALIZES the tab and an
+   annotation tag it has never heard of is a `de::Error` for the whole
+   document.
+2. `Dimension::Mass` and `Dimension::Density` — two new variants of the enum
+   `DesignParameter.unit` is written as. A string value, but a serde enum, so
+   `"unit": "Mass"` fails a v13 reader with a raw unknown-variant error. The
+   v8 reasoning with more force: v8 bumped because a reader must not silently
+   IGNORE a declared unit, and this one cannot even read it.
+
+Both are MEASURED, in
+`format_tests.rs::m1s_annotation_variant_and_unit_variant_each_fail_a_pre_m1_reader`,
+with tags no build has — so the test keeps measuring the mechanism once
+`FeatureControlFrame` and `Mass` are old news. The additive half beside them
+(`Dimension.tolerance`, `.dual_precision`, the resolved `ToleranceLayout` on a
+persisted `AnnotationLayout`, both material tables, the three `document`
+settings) reads as absent and would have moved nothing on its own; the same
+test pins that it loads and re-saves. The material table carries the
+v5/v6/v8/v9 SEMANTIC reason independently — a reader that drops it reports a
+different mass for the same file — but only half of it, since `mass(body)`
+refuses outright without a material rather than defaulting its density, so a
+dropping reader produces a loud absence rather than a silent wrong number.
+
+**A finding worth recording: `serde_json`'s parse is not always the exact
+inverse of its print.** `0.021 * 1e-3` is `2.1000000000000002e-5`, prints as
+the 17-digit `0.000021000000000000002`, and reads back as `2.1e-5` — one ULP
+away. That is 3e-21 m on a tolerance and physically nothing, but it is not
+`==`, and it is a property of every `f64` in every `.waffle` file rather than
+of these types. The round-trip test pins what it can actually promise: the same
+arm with the same fields, and a second round trip as a fixed point.
+
+**Still open after this increment:**
+
+- *No `Datum` or `Pmi` FEATURE, so a feature control frame lives only on a
+  drawing sheet.* `Annotation::FeatureControlFrame` and `Annotation::Datum`
+  are authored into a drawing view today; M2 is what puts them in the part
+  tree and renders them in the 3D viewport. A frame's `DatumRef` is a label,
+  so nothing checks that the datum it names EXISTS — M2's PMI panel is where
+  that check belongs, because it is the first increment where a part has a
+  datum list to check against.
+- *An ISO 286 fit does not know which side of the pair its own dimension is.*
+  `Fit { hole, shaft }` resolves to the assembly's extreme sizes, which is
+  right for a `⌀20 H7/g6` callout printed once. A drawing that dimensions the
+  hole on one sheet and the shaft on another wants each to show its OWN zone,
+  and the model cannot say which one this dimension measures. The fix is a
+  `role: FitRole` on the variant and it is additive.
+- *The ISO 286 tables stop at 500 mm and at a practical letter set.* Larger
+  nominals (ISO 286-1 tabulates to 3150 mm) and the heavy-interference letters
+  refuse by name. Adding them is data entry with an oracle, not design.
+- *No `Dimension::Mass` field exists.* The mass axis is in the algebra and
+  `mass(body)` produces one, but no feature field asks for a mass, so
+  `as_mass_kilograms` is exercised by the measurement path and by a declared
+  parameter unit rather than by a field. A mass-driven field would be P3's
+  shape of work.
+- *A material's appearance is stored and never rendered.* The viewport still
+  colours bodies its own way; wiring `Appearance` into the three.js material
+  is app work this increment did not do, and M3 reads it for
+  `STYLED_ITEM`/`COLOUR_RGB`.
+- *A material edit rebuilds from 0.* It must, because a `mass(body)`
+  measurement may drive any field — but on a document with no measurement that
+  is one wasted apply pass. The same cost `set_parameters` pays, for the same
+  reason, and the same fix would serve both: ask the expression sites whether
+  any of them measures a mass before choosing the floor.
+- *There is no `material_rename` separate from `material_set`.* The rename
+  rides on `material_set`'s `rename_to`, which means a caller cannot rename
+  AND change the density in one undo step. Two steps is the honest answer and
+  nobody has asked for one.
+- *An assembly has no materials.* The table is per-Part, so an assembly's mass
+  is the sum nobody computes yet; it needs the same instance-scoped plumbing
+  Q2, Q6 and a measuring expression in an assembly tab all wait on.
 
 ## 10. M2 — Datum and PMI features
 
@@ -2861,7 +3207,7 @@ under both schema settings.
 | D3 | `Annotation` types + SVG dimension renderer | D0 | waffle-types, app — **LANDED 2026-10-03** |
 | D4a | `Drawing` tab kind, named + projected views, DXF/SVG export | D1c, D3 | file-format, feature-engine, app, wasm-bridge — **LANDED 2026-10-03** |
 | D4b | section + detail views, title block, sheet PDF | D1d, D2, D4a | same — **LANDED 2026-10-03** (D2 not yet: the title block takes keys and literal text, not expressions) |
-| M1 | tolerance types, precision, material + mass | D2 | waffle-types, feature-engine, app |
+| M1 | tolerance types, precision, material + mass | D2 | waffle-types, feature-engine, app — **LANDED 2026-10-04** (format v14) |
 | M2 | `Datum` + `Pmi` features, 3D PMI overlay | D0, D3, M1 | feature-engine, app |
 | M3 | AP242 writer with PMI + round-trip oracle | M2 | kernel-v2, wasm-bridge |
 

@@ -427,7 +427,7 @@ export const parametersSetTool = {
 						expression: { type: 'string', minLength: 1 },
 						unit: {
 							type: ['string', 'null'],
-							enum: ['Length', 'Angle', 'Count', 'Ratio', null],
+							enum: ['Length', 'Angle', 'Count', 'Ratio', 'Mass', 'Density', null],
 							description:
 								'Declare the dimension the expression must produce; every field that reads this ' +
 								'parameter is then checked against it. Omitting this keeps what the parameter has ' +
@@ -471,7 +471,7 @@ export const parametersSetTool = {
 							'Echoed, because after a rename or a merge the table holds expressions you did not send.'
 					},
 					value_mm: { type: ['number', 'null'] },
-					unit: { type: 'string', enum: ['Length', 'Angle', 'Count', 'Ratio'] },
+					unit: { type: 'string', enum: ['Length', 'Angle', 'Count', 'Ratio', 'Mass', 'Density'] },
 					comment: { type: 'string' },
 					error: { type: 'string' }
 				}

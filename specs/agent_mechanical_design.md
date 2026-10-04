@@ -1256,9 +1256,15 @@ Owner: `feature-engine` (`expr.rs`, `params.rs`, `types.rs`), `file-format`,
    parameter fixpoint waits forever on a name that is not a parameter), the
    dependency is on the LATER of a reference's anchor feature and its pid's
    lineage root, the cycle is caught ordinally before any number is
-   computed, and `mass` is reserved and refuses until M1 gives it a density
-   and `Dim` a mass axis. `expression_evaluate` and `parameters_set` both
-   describe the functions in their tool text.
+   computed, and `mass` was reserved and refusing until M1 gave it a density
+   and `Dim` a mass axis — **which M1 did** (2026-10-04, format v14): the
+   mass axis moved to `waffle_types::dimension` with `Dimension::Mass` and
+   `Dimension::Density`, `FeatureTree.materials` supplies the density, and
+   `mass(body)` answers in kilograms or refuses by name when the body has no
+   material (at a default density of 1 the mass is numerically the volume,
+   which is the wrong number that refusal exists to prevent).
+   `expression_evaluate` and `parameters_set` both describe the functions in
+   their tool text.
 5. **P5 — read the table as data.** `parameters_get` returns the full table
    (`id, name, expression, unit, value, comment, error, depends_on[],
    used_by[]`), the two dependency lists derived from the parser (which
@@ -1428,14 +1434,20 @@ Found and fixed in review (2026-10-03):
   divergences. A BARE trig argument still means degrees.
 - *`rad` newly reserves a plausible parameter name* (`rad` for a radius was
   legal before P1). No repo file is affected; pinned as a rule.
-- *`Dim` carries only length and angle exponents.* Mass, time and
-  temperature are not modelled; P4's `mass(…)` will need the vector
-  widened. **Still open after P4/D2** (2026-10-03), deliberately: `mass`
-  is in the grammar and refuses by name, because widening `Dim` adds a
-  serialized `Dimension` variant — and with it a reader-floor obligation —
-  for a function that has no density to read until M1. `area` and `volume`
-  needed no widening: they are `length^2` and `length^3`, which the
-  exponents already compose.
+- ~~*`Dim` carries only length and angle exponents.*~~ **Closed by M1**
+  (2026-10-04). `Dim` is three exponents — length, angle, MASS — so
+  `Density` is `mass · length^-3` and `density × volume` is a mass by the
+  arithmetic rather than by a special case. The reader-floor obligation P4
+  declined to pay is paid: `Dimension::Mass` and `::Density` are new
+  variants of the enum `DesignParameter.unit` is written as, and a v13
+  reader given `"unit": "Mass"` fails with an unknown-variant error — one of
+  the two reasons the floor moved to v14. `kg`, `g`, `lb` and `oz` joined
+  the suffixes (and so the reserved words); the tonne deliberately did not,
+  because `t` is this domain's most plausible parameter name. Time and
+  temperature are still not modelled, and nothing asks for them. The whole
+  algebra moved DOWN to `waffle_types::dimension` in the same change, so a
+  tolerance two crates below the evaluator can be typed with the same
+  `Dimension`.
 - *The reader floor is unresolved* (see above): either a v8 row in
   `docs/FILE_FORMAT.md` §4, or an explicit note there that this one is
   additive-and-droppable by design.

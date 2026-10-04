@@ -687,7 +687,7 @@ export const ENGINE_DEFS = {
     "type": "object"
   },
   "Dimension": {
-    "description": "The kind of quantity a field that consumes an expression asks for.\n\nThis is the tag an expression-driven field carries (`specs/\nagent_mechanical_design.md` §6 P1): a depth or radius is a\n`Length`, a revolve or pattern angle an `Angle`, an instance count a\n`Count`, a scale factor a `Ratio`.",
+    "description": "The kind of quantity a field that consumes a number asks for.\n\nThis is the tag an expression-driven field carries (`specs/\nagent_mechanical_design.md` §6 P1): a depth or radius is a\n`Length`, a revolve or pattern angle an `Angle`, an instance count a\n`Count`, a scale factor a `Ratio`, a material density a `Density` (M1).",
     "oneOf": [
       {
         "const": "Length",
@@ -707,6 +707,16 @@ export const ENGINE_DEFS = {
       {
         "const": "Ratio",
         "description": "A dimensionless number (a factor, a fraction).",
+        "type": "string"
+      },
+      {
+        "const": "Mass",
+        "description": "A mass (M1). Working space and model unit both KILOGRAMS — unlike a\nlength, there is no mm-scale convention to preserve here, and kg is\nthe unit the material table's density is quoted against.",
+        "type": "string"
+      },
+      {
+        "const": "Density",
+        "description": "A mass per unit volume (M1), model unit kg/m³. What a material entry\ndeclares; `Density × Length³` is a `Mass` by the exponents.",
         "type": "string"
       }
     ]

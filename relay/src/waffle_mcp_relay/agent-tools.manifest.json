@@ -1,5 +1,5 @@
 {
-  "manifest_hash": "6f26544d6126382ed028ee1dc6c9ae4df02492315d510d367d18bfef9bc03cf7",
+  "manifest_hash": "8e2f6c80b358db532f06498cbffba49cfe3ab5f7546c51fbe23a33ee18b11ff0",
   "protocol": "waffle-agent-link/1",
   "tools": [
     {
@@ -3348,7 +3348,9 @@
               "Length",
               "Angle",
               "Count",
-              "Ratio"
+              "Ratio",
+              "Mass",
+              "Density"
             ],
             "type": "string"
           },
@@ -3440,7 +3442,9 @@
                         "Length",
                         "Angle",
                         "Count",
-                        "Ratio"
+                        "Ratio",
+                        "Mass",
+                        "Density"
                       ],
                       "type": "string"
                     },
@@ -3478,7 +3482,9 @@
                     "Length",
                     "Angle",
                     "Count",
-                    "Ratio"
+                    "Ratio",
+                    "Mass",
+                    "Density"
                   ],
                   "type": "string"
                 },
@@ -17910,6 +17916,8 @@
                     "Angle",
                     "Count",
                     "Ratio",
+                    "Mass",
+                    "Density",
                     null
                   ],
                   "type": [
@@ -18016,7 +18024,9 @@
                     "Length",
                     "Angle",
                     "Count",
-                    "Ratio"
+                    "Ratio",
+                    "Mass",
+                    "Density"
                   ],
                   "type": "string"
                 },

@@ -1149,7 +1149,10 @@ pub(super) fn expression_evaluate(
             Err(_) => {
                 return Err(ToolFailure::new(
                     "InvalidArguments",
-                    format!("`dimension` must be one of Length, Angle, Count, Ratio (got {v})"),
+                    format!(
+                        "`dimension` must be one of Length, Angle, Count, Ratio, Mass, Density \
+                         (got {v})"
+                    ),
                     json!({ "schema_path": "/dimension" }),
                 ))
             }

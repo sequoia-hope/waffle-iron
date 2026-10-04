@@ -806,7 +806,7 @@ export const expressionEvaluateTool = {
 			},
 			dimension: {
 				type: 'string',
-				enum: ['Length', 'Angle', 'Count', 'Ratio'],
+				enum: ['Length', 'Angle', 'Count', 'Ratio', 'Mass', 'Density'],
 				description:
 					'Optional: the kind of field this expression is meant for. A committed unit that does not fit is ' +
 					'refused instead of read as a plain number.'
@@ -871,12 +871,12 @@ export const parametersGetTool = {
 								angle: { type: 'integer' },
 								committed: { type: 'boolean' },
 								label: { type: 'string' },
-								kind: { type: 'string', enum: ['Length', 'Angle', 'Count', 'Ratio'] }
+								kind: { type: 'string', enum: ['Length', 'Angle', 'Count', 'Ratio', 'Mass', 'Density'] }
 							}
 						},
 						unit: {
 							type: 'string',
-							enum: ['Length', 'Angle', 'Count', 'Ratio'],
+							enum: ['Length', 'Angle', 'Count', 'Ratio', 'Mass', 'Density'],
 							description: 'The DECLARED dimension, when the author declared one.'
 						},
 						comment: { type: 'string' },
