@@ -1401,6 +1401,57 @@ fn export_sheet_dxf(
         let Some(geometry) = eval.geometry.get(&view.id) else {
             continue;
         };
+        // A DETAIL view's curves are CLIPPED to its crop disc (D4c), not just
+        // culled to the disc's box as the layout carries them.
+        //
+        // D4b left this open and the SVG and the PDF have always clipped — by
+        // a `clipPath`, which the DXF has no equivalent of. So the export
+        // trimmed nothing and a cutting table given a detail got the
+        // overhang: every curve that merely REACHED the disc, whole. The
+        // trimming happens in VIEW coordinates, before the placement, because
+        // the crop is authored there; and `Curve2::clipped_to_disc` keeps each
+        // piece's kind, so a detail's DXF still carries `LINE` and `ARC`
+        // entities rather than the chord polylines a clip through sampled
+        // geometry would leave.
+        //
+        // Still not clipped in the LAYOUT: the renderer's `clipPath` is exact
+        // and free, and trimming there would make the detail — the one view
+        // that exists to be looked at closely — the only view drawn from
+        // geometry the engine had to cut.
+        let cropped;
+        let geometry = match &view.projection {
+            feature_engine::drawing::Projection::Detail { center, radius, .. } => {
+                let kept: Vec<_> = geometry
+                    .curves
+                    .iter()
+                    .flat_map(|c| {
+                        c.geometry
+                            .clipped_to_disc(
+                                *center,
+                                *radius,
+                                kernel_v2::dxf_export::DEFAULT_POLYLINE_SAGITTA,
+                            )
+                            .into_iter()
+                            .map(|piece| waffle_types::kernel::projection::ProjectedCurve {
+                                geometry: piece,
+                                ..c.clone()
+                            })
+                    })
+                    .collect();
+                // The BOX stays the crop's, which is what `rebuild_view_in`
+                // gave the layout: a detail is laid out on its disc rather
+                // than on whatever survived the cut, so "2:1 doubles the
+                // paper span of the same crop" holds in the file as well as
+                // on the sheet.
+                cropped = waffle_types::kernel::projection::ViewGeometry {
+                    curves: kept,
+                    bbox: geometry.bbox,
+                    declines: geometry.declines,
+                };
+                &cropped
+            }
+            _ => geometry,
+        };
         // One view alone goes at the paper origin: a cutting table given a
         // single part should not have to find it at the sheet coordinates of
         // a drawing it is not reading.

@@ -2745,25 +2745,221 @@ their own.
 - *No PDF reader opened the file.* The structure is asserted and the geometry
   comes from the SVG by construction, but nothing in this environment
   rasterized a page.
-- *Hatching is not in the DXF.* §8 names a `HATCH` layer and the sheet DXF
-  still carries only curves: the cap's BOUNDARY is there (the projection emits
-  it as an ordinary edge), the fill is not. The segments now exist as geometry
-  (`hatchSegments`), so writing them on a `HATCH` layer is a small increment —
-  it needs the DXF writer to take a layer per curve, which it does not today.
-- *A detail view's DXF is culled but not clipped.* The export places the
-  curves the engine kept, which reach past the disc; only the SVG and the PDF
-  clip. A cutting table given a detail would get the overhang.
+- ~~*Hatching is not in the DXF.*~~ **CLOSED by D4c**, and the "small
+  increment" estimate was wrong about where the work was: the segments
+  existed in the APP, so a hatched DXF would have needed a second scanline.
+  The scanline moved into the engine instead.
+- ~~*A detail view's DXF is culled but not clipped.*~~ **CLOSED by D4c**
+  (`Curve2::clipped_to_disc`).
 - *Nothing on the sheet is clickable* — D4a's open item stands. The cutting
   line and the crop circle are authored as numbers in the panel (or as
   millimetres through the tool), where a drafter drags them.
-- *`Ordinate` is still not authorable*, and `Measured::Expr` still refuses:
-  both wait on D2, which is also what the title block's expressions wait on.
+- ~~*`Measured::Expr` still refuses*~~ — **CLOSED by D4c**. It stopped
+  refusing at D2 and became AUTHORABLE at D4c; this line was already half
+  stale when it was written.
+- *`Ordinate` is still not authorable*, and **D2 was never its blocker** —
+  this line was wrong and D4a's own note has it right. Its number is one raw
+  view-plane coordinate measured from the view FRAME's origin, so it cannot
+  be read off the sheet whatever evaluates it; the fix is the `origin:
+  GeomRef` anchor D4a named, which is additive and now has a view frame to be
+  relative to. Nothing about D2 changes that.
+- ~~*The title block's expressions wait on D2.*~~ **CLOSED by D4c.**
 - *The read-only viewer route still shows the 3D viewport on a drawing tab.*
   Unchanged from D4a.
 - *A section of an assembly leaf is implemented but not measured.* The plane
   goes through the placement and the cap's basis comes back through it, and the
   arithmetic is pinned on a placed-body unit case — but no corpus assembly has
   been sectioned end to end.
+
+### Implementation notes (D4c)
+
+Landed 2026-10-04. D4c is the three D4b open items that D2's landing (and
+D4b's own groundwork) unblocked: the title block's expressions, the hatch in
+the DXF, and the detail view's DXF clip. Where D4b left a choice open, this is
+the choice made and why.
+
+**The title block takes EXPRESSIONS, and there is still no `TitleBlockKey::
+Expr`.** §8 asks for "expressions over document metadata and the measurement
+functions, so `mass(part)` and a parameter table work with no special casing".
+`TitleBlockField.expr` holds the SOURCE and `title_block_layout` prints its
+evaluated text, so the document carries what the author wrote and the sheet
+carries what it evaluates to — never the same record, which is what stops a
+reopened file printing last week's number. The reason it is a FIELD and not a
+key variant: every key already names a row, and an expression is how the row
+is FILLED, not what it says. A `Custom { label: "Mass" }` row with
+`expr: "volume(plate) * 0.00785"` is exactly §8's `mass(part)` with a label
+the author chose, and it needed no new variant — where a variant inside a kind
+every reader deserializes would have moved the format floor by D4b's own
+`Projection::Section` argument. `expr` is additive and defaulted, so **the
+floor did not move**, pinned against the CONSTANTS in
+`format_tests.rs::a_title_block_expression_round_trips_and_did_not_move_the_format_floor`
+so the claim survives the next bump. (This is the increment that did NOT need
+a format version; v12 and v13 remain unclaimed by it.)
+
+Four further decisions:
+
+- **Which document a title-block expression measures: the one tab this
+  sheet's views draw.** A sheet of six views of one part is the ordinary case
+  and `volume(plate)` means something in it. A sheet whose views draw TWO
+  parts has no "the part" whose mass to print, and a sheet with no views has
+  no document at all; both refuse BY NAME
+  (`DrawingError::TitleBlockExprNotEvaluated`) rather than picking the first,
+  which is the choice D2 made for an assembly source, having no single engine
+  either. The consequence in `drawing_view::evaluate` is that the title-block
+  fill MOVED to after the sheet's view loop — before it, `out.parts` holds no
+  engine and every expression row would have been handed a `None`.
+- **A row that cannot be evaluated prints NOTHING and is reported.** Not its
+  own source text (a title block reading `mass(part)` is what D4b declined to
+  ship), not the row's `text`, and not the last good value. `TitleBlockFill`
+  carries the errors beside the layout for the reason
+  `ViewRebuild::annotation_errors` does: a title block of eight rows losing
+  seven because one expression broke is worse than one blank row and a named
+  error.
+- **The unit comes from the expression's OWN dimension**
+  (`expr::Quantity::display_text`): mm, mm², mm³, degrees, or the exponents
+  for a composite, at four decimals with trailing zeros trimmed. A length² no
+  FIELD accepts prints perfectly well on paper, so `area(top)` is offered
+  rather than refused — a title block is text, not a field. The unit is the
+  WORKING space's, not the author's: a row reading `12.7` where the author
+  typed `0.5in` is a number nobody can check.
+- **The renderer needed no change**, and that is the D3 division working. A
+  row arrives already evaluated and the source is not in the record
+  `sheet.js` is handed, so it cannot print the source by mistake. The SVG and
+  the PDF (which is scanned out of the SVG) both got expression rows for
+  free.
+
+**`Measured::Expr` became AUTHORABLE, and D4b's open list was wrong about
+`Ordinate`.** D2 made `Expr` evaluable and `check_measured` stopped refusing
+it then — but nothing could author one: `build_annotation` always wrote
+`Measured::FromGeometry` and the tool had no argument. It has `expr` now, and
+the anchors stay REQUIRED, because they are where the dimension is drawn and
+the expression only what it says. `value` is now refused by NAME rather than
+ignored: before `expr` there was nothing to offer instead, and an argument
+read by nobody is the silent-ignore the derived title-block rows are already
+refused by. `Ordinate` is NOT in this increment — its blocker was never D2
+(see the corrected line above) but the missing `origin: GeomRef`.
+
+**The hatch SCANLINE moved into `waffle-types`, and that is what made the
+DXF possible at all.** D4b's note called the DXF hatch "a small increment"
+needing only a layer per curve. The layer per curve was the easy half; the
+hard half was that the segments existed only in the APP (`svg.js`'s
+`hatchSegments`), and the DXF is written in Rust. Writing it from there would
+have meant a SECOND scanline — two implementations of one fill, which is
+precisely what computing segments instead of an SVG `<pattern>` exists to
+avoid, and the mistake `DrawingView.svelte` and `export_svg` both refuse for
+the curves. So `waffle_types::annotation::hatch` owns the scanline, the
+layout record carries `hatch_segments` in the view's own `(u, v)`, and
+`svg.js` strokes them. That is also §3 as written: "Rust produces curves and
+numbers; the app draws them."
+
+What is unchanged: even-odd by a scanline, the half-open crossing test
+`(y0 ≤ y) != (y1 ≤ y)` so a scanline through a vertex counts once, the loops
+kept beside the segments for a renderer that fills regions, and 3 mm at 45°.
+Three things are different and each is deliberate:
+
+- **The grid is anchored at the VIEW frame's origin, not the paper's.** The
+  property D4b named — "two caps on one sheet, a section of two bodies, carry
+  one continuous pattern instead of two that nearly line up" — is a property
+  of ONE view's caps, and it is preserved exactly (pinned in
+  `hatch::tests::the_grid_is_anchored_at_the_origin_so_two_caps_of_one_view_line_up`).
+  What is given up is alignment between two DIFFERENT section views on one
+  sheet, which no standard asks for and no reader can see; anchoring on the
+  paper would make a view's layout depend on where the view was dragged to.
+- **The angle's sign flips at the boundary.** `HATCH_ANGLE_DEG` is measured
+  on the PAPER, whose `y` runs down; a view's `v` runs up. `drawing::
+  hatch_fill` negates, which is the one place the two frames meet and the
+  reason the drawn lean is the one D4b shipped.
+- **The spacing divides by the view's SCALE**, so it is 3 mm of paper at 2:1
+  as well as at 1:1. The alternative — a fixed model spacing — would print a
+  detail view's hatch at twice the pitch of the view it was cropped from.
+  The boundary is flattened at `HATCH_BOUNDARY_SAGITTA_MM` (20 µm of paper, a
+  tenth of a narrow line) through `Curve2::flatten`'s proved bound, which is
+  what `LayoutCurve::to_curve2` was added for.
+
+The half-open rule has one visible asymmetry worth recording because a reader
+will meet it: a scanline exactly on a shape's BOTTOM edge belongs to the shape
+and one on its TOP edge does not, so a hole's bottom-edge row is split in two
+and its top-edge row is one span. Which end is included is a convention;
+counting each vertex exactly ONCE is not, and that is the property the tests
+assert. The GUI spec that used to pin the fill rule now pins the renderer's
+own half — that the loops ALONE draw nothing, which is the regression guard
+against a renderer-side scanline growing back.
+
+**The DXF writer takes a layer per curve** (`write_dxf_layers`, `DxfCurve`).
+`write_dxf` is unchanged in behaviour and is now a thin call into it, so the
+one-view flat-pattern path writes exactly the bytes it did. The `LAYER` table
+is the set of layers actually USED, with `VISIBLE` and `HIDDEN` always
+declared — their records were written unconditionally before D1c filled
+`HIDDEN`, for the reason that a reader's layer list should not change shape
+with the drawing's content. The extents cover the hatch, because a reader
+zooms to `$EXTMAX` and a chord-sampled cap boundary can put a hatch line a
+sagitta past the outline it fills. `SECTION`, `DIMENSION` and `TEXT` — the
+other layers §8 names — are still unused; the writer can carry them now, and
+what they need is a producer (a `CurveKind::SectionOutline` routing decision,
+and annotations in the DXF at all), not a writer change.
+
+**A detail view's DXF is CLIPPED, by `Curve2::clipped_to_disc`.** The layout
+is still culled and not clipped, and that stays: the renderer's `clipPath` is
+exact and free, and trimming in the layout would make the detail — the one
+view that exists to be looked at closely — the only view drawn from geometry
+the engine had to cut. The DXF has no `clipPath`, so the export trims, in VIEW
+coordinates before the placement (the crop is authored there). Each piece
+keeps its KIND: the crossing parameters are closed-form (a quadratic for a
+chord, `A cos t + B sin t = K` for a circle) and `Curve2::subcurve` does the
+cutting, so a detail's DXF carries true `LINE` and `ARC` entities rather than
+the chord polylines a clip through sampled geometry would leave.
+
+Three choices inside it:
+
+- **The midpoint decides whether an interval is inside**, never an endpoint:
+  an endpoint of a piece sits exactly on the boundary by construction, where
+  the comparison is a coin toss.
+- **An ELLIPSE is flattened first.** Its intersection with a circle is a
+  quartic, and R12 has no `ELLIPSE` entity, so the writer flattens every
+  ellipse anyway — nothing a reader of the file could have had is lost, where
+  solving the quartic would be a new root-finder for one arm with no customer.
+  Done by RECURSION onto the polyline arm rather than by a second clipper, so
+  the two cannot disagree about which pieces are inside.
+- **A non-positive or non-finite radius clips everything away**, rather than
+  meaning "no crop". The caller that authored the disc is the one that can say
+  what a bad radius means (`DrawingError::BadCropRadius`); treating it as no
+  crop would put the whole part inside a detail view.
+- A closed curve crossing the boundary comes back as separate open pieces,
+  including the two that meet at its own seam. Two entities where one would
+  do; joining them would mean reasoning about the seam for the sake of a
+  file's entity count.
+
+**Still open after this increment:**
+
+- *The projection-angle GLYPH.* Unchanged from D4b, and **not attempted
+  here**: the handedness of ISO 5456-2's truncated-cone pair is a convention,
+  not derivable from the projection rule, and no copy of the standard was
+  available in this environment either. A symbol that might be mirrored is
+  worse than the words, because a drafter reads it and believes it. The row
+  still prints `Third angle` / `First angle`, which ASME Y14.3 permits as a
+  note.
+- *`Ordinate` is still not authorable*, waiting on `origin: GeomRef` — not on
+  D2.
+- *The DXF carries no `SECTION`, `DIMENSION` or `TEXT` layer.* The writer can
+  now put a curve on any layer; what is missing is a producer. A
+  `CurveKind::SectionOutline` curve still lands on `VISIBLE`, which is a
+  routing decision rather than a capability gap, and annotations are not in
+  the DXF at all (they are text and arrowheads, which R12 can carry but which
+  nothing composes yet).
+- *A detail of a SECTION exports its curves clipped and its hatch unclipped.*
+  A detail view's own `hatch_segments` are empty (only a section view has a
+  cap), and a detail OF a section draws its parent's curves, not its parent's
+  hatch — so the case does not arise today. It would the moment a detail
+  inherited a parent's hatch.
+- *No title-block ROW editor in the panel.* The engine, the format and the
+  tool all take an expression row; `DrawingPanel` still offers only the
+  show/hide checkbox, so a person authors rows through the agent door. The
+  same gap D4b shipped, now with more to author.
+- *No PDF reader opened the file.* Unchanged from D4b.
+- *The read-only viewer route still shows the 3D viewport on a drawing tab.*
+  Unchanged from D4a.
+- *A section of an assembly leaf is implemented but not measured.* Unchanged
+  from D4b.
 
 ## 9. M1 — Tolerance, precision, material
 
@@ -2860,7 +3056,8 @@ under both schema settings.
 | D2 | measurement functions in expressions | D0 | feature-engine — **LANDED 2026-10-03** |
 | D3 | `Annotation` types + SVG dimension renderer | D0 | waffle-types, app — **LANDED 2026-10-03** |
 | D4a | `Drawing` tab kind, named + projected views, DXF/SVG export | D1c, D3 | file-format, feature-engine, app, wasm-bridge — **LANDED 2026-10-03** |
-| D4b | section + detail views, title block, sheet PDF | D1d, D2, D4a | same — **LANDED 2026-10-03** (D2 not yet: the title block takes keys and literal text, not expressions) |
+| D4b | section + detail views, title block, sheet PDF | D1d, D2, D4a | same — **LANDED 2026-10-03** (without D2: the title block took keys and literal text) |
+| D4c | title-block expressions, authorable `Measured::Expr`, hatch + detail clip in the DXF | D2, D4b | waffle-types, feature-engine, kernel-v2, wasm-bridge, app — **LANDED 2026-10-04** |
 | M1 | tolerance types, precision, material + mass | D2 | waffle-types, feature-engine, app |
 | M2 | `Datum` + `Pmi` features, 3D PMI overlay | D0, D3, M1 | feature-engine, app |
 | M3 | AP242 writer with PMI + round-trip oracle | M2 | kernel-v2, wasm-bridge |

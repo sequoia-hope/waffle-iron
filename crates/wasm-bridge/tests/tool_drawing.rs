@@ -1020,6 +1020,120 @@ fn a_sections_hatch_reaches_the_dxf_on_the_hatch_layer() {
 }
 
 #[test]
+fn a_detail_views_dxf_is_clipped_to_its_disc_and_not_merely_culled() {
+    // D4c, closing D4b's "a detail view's DXF is culled but not clipped". The
+    // layout carries every curve that REACHES the disc, whole — that is
+    // deliberate, because the renderer's `clipPath` is exact and free. The
+    // DXF has no `clipPath`, so it trimmed nothing and a cutting table given
+    // a detail got the overhang.
+    //
+    // The fixture is a 5 mm disc at the centre of one 20 mm edge of the
+    // plate's top view. That edge is 20 mm long and CROSSES the disc
+    // boundary, so the claim has a number: in the file it must be 10 mm (the
+    // chord of a 5 mm-radius disc through its centre), not 20.
+    let (mut state, mut kernel, part_tab, drawing_tab) = box_and_drawing();
+    let top = ok(
+        &mut state,
+        &mut kernel,
+        "drawing_view_add",
+        json!({ "tab_id": part_tab, "view": "top" }),
+    )["view_id"]
+        .as_str()
+        .expect("an id")
+        .to_string();
+    // The top view's (u, v) is the sketch plane, so the plate spans
+    // 0…W by 0…D. A disc on the middle of the v = 0 edge.
+    const R_MM: f64 = 5.0;
+    let detail = ok(
+        &mut state,
+        &mut kernel,
+        "drawing_view_add",
+        json!({ "tab_id": part_tab, "parent_view_id": top,
+                "detail_mm": [W * 1000.0 / 2.0, 0.0, R_MM] }),
+    )["view_id"]
+        .as_str()
+        .expect("an id")
+        .to_string();
+
+    // The LAYOUT is unchanged: still culled, not clipped. The edge it keeps
+    // is the authored 20 mm one, whole.
+    let laid_out = layout(&state, &drawing_tab, &detail);
+    let longest_in_layout = laid_out
+        .curves
+        .iter()
+        .filter_map(|c| match &c.geometry {
+            LayoutCurve::Line { start, end } => {
+                Some(((end[0] - start[0]).powi(2) + (end[1] - start[1]).powi(2)).sqrt())
+            }
+            _ => None,
+        })
+        .fold(0.0, f64::max);
+    assert!(
+        (longest_in_layout - W).abs() < 1e-9,
+        "the layout must still carry the whole edge for the renderer to clip: {longest_in_layout}"
+    );
+
+    let dxf = exported_dxf(&tool(
+        &mut state,
+        &mut kernel,
+        "export_dxf",
+        json!({ "deliver": "agent", "view_id": detail }),
+    ));
+    let entities = dxf_entities(&dxf);
+    let lines: Vec<f64> = entities
+        .iter()
+        .filter(|(kind, _, _)| kind == "LINE")
+        .map(|(_, _, groups)| {
+            let g = |code: i32| -> f64 { groups[&code][0].parse().expect("a coordinate") };
+            ((g(11) - g(10)).powi(2) + (g(21) - g(20)).powi(2)).sqrt()
+        })
+        .collect();
+    assert!(!lines.is_empty(), "the detail must draw something: {dxf}");
+    let longest = lines.iter().fold(0.0_f64, |a, b| a.max(*b));
+    assert!(
+        (longest - 2.0 * R_MM).abs() < 1e-6,
+        "the clipped edge must be the disc's 10 mm chord, got {longest} mm from {lines:?}"
+    );
+    // And it is still a LINE: the clip keeps each piece's kind, so a detail's
+    // DXF is not the one view flattened to polylines.
+    assert!(
+        entities
+            .iter()
+            .any(|(kind, _, _)| kind == "LINE" || kind == "ARC"),
+        "{entities:?}"
+    );
+    // Nothing reaches past the disc. A single view exports with NO sheet
+    // offset (that is what "at the paper origin" means — the view's own
+    // coordinates in mm), so the disc is still centred where it was authored
+    // and the file's extents must be exactly its box. Measured rather than
+    // assumed, because getting the clip's FRAME wrong is how this silently
+    // keeps working: a clip applied after the placement, or against the
+    // view's box centre instead of the authored centre, both still shorten
+    // the edge to 10 mm while trimming the wrong 10 mm.
+    let (min_x, min_y, max_x, max_y) = dxf_extents(&dxf);
+    let cu = W * 1000.0 / 2.0;
+    assert!(
+        (min_x - (cu - R_MM)).abs() < 1e-6
+            && (max_x - (cu + R_MM)).abs() < 1e-6
+            && (min_y + R_MM).abs() < 1e-6
+            && (max_y - R_MM).abs() < 1e-6,
+        "the extents must be the crop's own box around ({cu}, 0): \
+         ({min_x}, {min_y})–({max_x}, {max_y})"
+    );
+    for (_, _, groups) in entities.iter().filter(|(kind, _, _)| kind == "LINE") {
+        for (xc, yc) in [(10, 20), (11, 21)] {
+            let x: f64 = groups[&xc][0].parse().expect("an x");
+            let y: f64 = groups[&yc][0].parse().expect("a y");
+            let r = ((x - cu).powi(2) + y.powi(2)).sqrt();
+            assert!(
+                r <= R_MM + 1e-6,
+                "a clipped endpoint at ({x}, {y}) is {r} mm from the crop centre"
+            );
+        }
+    }
+}
+
+#[test]
 fn one_view_exports_alone_at_the_paper_origin() {
     let (mut state, mut kernel, part_tab, _drawing_tab) = box_and_drawing();
     let view_id = ok(
