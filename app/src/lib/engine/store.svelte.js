@@ -1394,6 +1394,7 @@ export async function initEngine() {
 			getSheetPicks: () => JSON.parse(JSON.stringify(sheetPicks)),
 			getSheetHover: () => (sheetHover ? JSON.parse(JSON.stringify(sheetHover)) : null),
 			getSheetSelection: () => (sheetSelection ? { ...sheetSelection } : null),
+			setSheetSelection: (selection) => setSheetSelection(selection),
 			getDrawingAnchors: (viewId) => JSON.parse(JSON.stringify(getDrawingAnchors(viewId))),
 			getDrawingHistoryDepth: () => getDrawingHistoryDepth(),
 			// D4b: the sheet's own door and the projection standard.
@@ -8398,45 +8399,74 @@ export async function deleteSheetAnnotation(viewId, index) {
 }
 
 /**
- * Move the annotation at `index` to a new `Placement2`, as ONE undoable step.
+ * Change one field of the annotation at `index` — its placement, its
+ * precision, its dual unit, a note's text, a datum's letter — as ONE undoable
+ * step.
  *
  * Two edits, because `DrawingEdit` has no `EditAnnotation`: delete, then
- * re-add with the new placement. Recorded as one history entry, so one Ctrl+Z
- * puts the old placement back rather than leaving the annotation deleted.
+ * re-add with the field changed. Recorded as ONE history entry, so a single
+ * Ctrl+Z puts the old value back rather than leaving the annotation deleted.
  *
- * The annotation moves to the END of the view's list, which is a real cost of
- * doing it this way: a sheet with three dimensions has their order changed by
- * dragging the first. Nothing on the paper depends on that order (the
- * renderer draws them all, and an index is not an identity a user sees), but
- * it is why an `EditAnnotation` edit is the right fix and is named as an open
+ * The annotation moves to the END of the view's list, which is the real cost
+ * of doing it this way: a sheet with three dimensions has their order changed
+ * by dragging the first. Nothing on the paper depends on that order (the
+ * renderer draws them all, and an index is not an identity a drafter sees),
+ * but it is why an `EditAnnotation` edit is the right fix — named as an open
  * item rather than worked around here.
+ *
+ * There is deliberately no `value` and no `kind` among the changes: a
+ * dimension's number is measured from the model on every rebuild, and changing
+ * the kind would re-interpret anchors picked for a different measurement.
  *
  * @param {string} viewId
  * @param {number} index
- * @param {[number, number]} placement view-space meters, `[dx, dy]`
+ * @param {{ placement?: [number, number], precision?: number | null,
+ *           dualUnit?: string | null, text?: string, label?: string }} changes
  */
-export async function moveSheetAnnotation(viewId, index, placement) {
+export async function editSheetAnnotation(viewId, index, changes = {}) {
 	const view = drawingViewById(viewId);
 	const stored = (view?.annotations ?? [])[index];
 	if (!stored) return false;
 	const before = annotationRespec(stored);
-	if (!before) return false;
-	const moved = { ...before, placement: [Number(placement[0]), Number(placement[1])] };
-	const forwardAdd = addAnnotationEdit(viewId, moved);
+	if (!before) {
+		showToast('error', 'That annotation cannot be edited undoably.');
+		return false;
+	}
+	const after = { ...before };
+	if (Array.isArray(changes.placement)) {
+		after.placement = [Number(changes.placement[0]), Number(changes.placement[1])];
+	}
+	if ('precision' in changes) {
+		after.precision = Number.isInteger(changes.precision) ? changes.precision : null;
+	}
+	if ('dualUnit' in changes) after.dualUnit = changes.dualUnit || null;
+	if ('text' in changes) after.text = changes.text ?? null;
+	if ('label' in changes) after.label = changes.label ?? null;
+	const forwardAdd = addAnnotationEdit(viewId, after);
 	const inverseAdd = addAnnotationEdit(viewId, before);
 	if (!forwardAdd || !inverseAdd) {
-		showToast('error', 'That annotation cannot be moved undoably.');
+		showToast('error', 'That annotation cannot be edited undoably.');
 		return false;
 	}
 	// The re-added annotation lands last, so the inverse deletes THAT index.
 	const lastIndex = (view.annotations ?? []).length - 1;
 	const ok = await applyDrawingStep(
-		'move annotation',
+		Array.isArray(changes.placement) ? 'move annotation' : 'edit annotation',
 		[{ type: 'DeleteAnnotation', view_id: viewId, index }, forwardAdd],
 		[{ type: 'DeleteAnnotation', view_id: viewId, index: lastIndex }, inverseAdd]
 	);
 	if (ok) sheetSelection = { viewId, index: lastIndex };
 	return ok;
+}
+
+/**
+ * Move the annotation at `index` to a new `Placement2` — the drag's commit.
+ * @param {string} viewId
+ * @param {number} index
+ * @param {[number, number]} placement view-space meters, `[dx, dy]`
+ */
+export async function moveSheetAnnotation(viewId, index, placement) {
+	return editSheetAnnotation(viewId, index, { placement });
 }
 
 /**

@@ -164,30 +164,53 @@ export function anchorKindLabel(anchor) {
  *
  * - `{ anchor, distance }` — one nearest candidate.
  * - `null` — nothing in range.
- * - `{ tie: [...] }` — two or more candidates equally near (within
- *   [`PICK_TIE_MM`]). REFUSED rather than resolved: the drawing cannot say
- *   which the drafter meant, and a dimension bound to the wrong edge prints a
- *   plausible number for the wrong feature. The caller shows the candidates
- *   as a hint so the gesture can be repeated somewhere less ambiguous.
+ * - `{ tie: [{ anchor, distance }, …] }` — two or more candidates equally near
+ *   (within [`PICK_TIE_MM`]). REFUSED rather than resolved: the drawing cannot
+ *   say which the drafter meant, and a dimension bound to the wrong edge
+ *   prints a plausible number for the wrong feature. The caller shows the
+ *   candidates as a hint so the gesture can be repeated somewhere less
+ *   ambiguous.
  *
  * @param {{ anchor: any, paper: [number, number] }[]} candidates
  * @param {[number, number]} paper
  * @param {{ radiusMm?: number, tieMm?: number }} [opts]
- * @returns {{ anchor: any, distance: number } | { tie: any[] } | null}
+ * @returns {{ anchor: any, distance: number } | { tie: { anchor: any, distance: number }[] } | null}
  */
 export function pickAnchor(candidates, paper, opts) {
+	const scored = (candidates ?? []).map((c) => ({
+		anchor: c.anchor,
+		distance: Math.hypot(c.paper[0] - paper[0], c.paper[1] - paper[1])
+	}));
+	return resolveNearest(scored, opts);
+}
+
+/**
+ * The nearest/tie rule over entries whose distance is ALREADY measured —
+ * `pickAnchor`'s decision, separated from its measurement.
+ *
+ * It is separate because a sheet carries several views and the cursor is a
+ * different point in each view's own frame, so the caller measures per view
+ * and merges; the decision has to be made once over the merged list or two
+ * views' nearest anchors would each win locally. The distances are comparable
+ * because every one of them is a PAPER millimetre.
+ *
+ * Entries keep whatever other fields the caller put on them (a `viewId`, for
+ * instance), so the winner carries its view with it.
+ *
+ * @template {{ distance: number }} T
+ * @param {T[]} scored
+ * @param {{ radiusMm?: number, tieMm?: number }} [opts]
+ * @returns {T | { tie: T[] } | null}
+ */
+export function resolveNearest(scored, opts) {
 	const radius = opts?.radiusMm ?? PICK_RADIUS_MM;
 	const tie = opts?.tieMm ?? PICK_TIE_MM;
-	const inRange = [];
-	for (const c of candidates ?? []) {
-		const distance = Math.hypot(c.paper[0] - paper[0], c.paper[1] - paper[1]);
-		if (distance <= radius) inRange.push({ anchor: c.anchor, distance });
-	}
+	const inRange = (scored ?? []).filter((c) => c.distance <= radius);
 	if (inRange.length === 0) return null;
 	inRange.sort((a, b) => a.distance - b.distance);
 	const best = inRange[0];
 	const tied = inRange.filter((c) => c.distance - best.distance <= tie);
-	if (tied.length > 1) return { tie: tied.map((c) => c.anchor) };
+	if (tied.length > 1) return { tie: tied };
 	return best;
 }
 
@@ -290,7 +313,13 @@ export function annotationGrabHandles(view, opts) {
  * two edges' own intersection and reads no placement, so a third click would
  * store a number nothing draws (see `placementForPoint`).
  *
- * @type {Record<string, { anchors: number, placement: boolean, optional?: boolean }>}
+ * A NOTE's leader is optional to the ENGINE and required here: the sheet's
+ * tool is note-WITH-leader (§8 D4d names it that), and a free note has
+ * nothing to hit-test — it would be authored by a click on blank paper, which
+ * is the same gesture as "I missed". An agent authors a free note through
+ * `drawing_annotation_add` with no anchors.
+ *
+ * @type {Record<string, { anchors: number, placement: boolean }>}
  */
 export const TOOL_FLOW = {
 	'dimension-distance': { anchors: 2, placement: true },
@@ -300,7 +329,7 @@ export const TOOL_FLOW = {
 	'dimension-angle': { anchors: 2, placement: false },
 	'dimension-radius': { anchors: 1, placement: true },
 	'dimension-diameter': { anchors: 1, placement: true },
-	note: { anchors: 1, placement: true, optional: true },
+	note: { anchors: 1, placement: true },
 	datum: { anchors: 1, placement: true }
 };
 
