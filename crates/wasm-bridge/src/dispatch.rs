@@ -1419,11 +1419,13 @@ fn export_sheet_dxf(
     let document_parameters = state.session.document_parameters().to_vec();
     let eval = crate::drawing_view::evaluate(
         &drawing,
-        &document_name,
-        &part_trees,
-        &assembly_trees,
-        &state.engine.sources,
-        &document_parameters,
+        crate::drawing_view::DocumentInputs {
+            name: &document_name,
+            part_trees: &part_trees,
+            assembly_trees: &assembly_trees,
+            sources: &state.engine.sources,
+            document_parameters: &document_parameters,
+        },
         kb,
         &mut reuse,
     );
@@ -1503,11 +1505,13 @@ fn open_drawing(
     let document_parameters = state.session.document_parameters().to_vec();
     let eval = crate::drawing_view::evaluate(
         &drawing,
-        &document_name,
-        &part_trees,
-        &assembly_trees,
-        &state.engine.sources,
-        &document_parameters,
+        crate::drawing_view::DocumentInputs {
+            name: &document_name,
+            part_trees: &part_trees,
+            assembly_trees: &assembly_trees,
+            sources: &state.engine.sources,
+            document_parameters: &document_parameters,
+        },
         kb,
         &mut reuse,
     );

@@ -586,15 +586,19 @@ impl ExprDimensions for ViewExprs<'_> {
 ///
 /// Four borrows that always travel together and never change during a pass:
 /// the tabs it can draw, the source store, and (P2) the document parameter
-/// table every part resolves through. One struct rather than four parameters
-/// because they were threaded through three call levels and the next addition
-/// would have made a seven-argument function an eight-argument one at each.
+/// table every part resolves through, plus the document's NAME for the title
+/// block. One struct rather than five parameters because they were threaded
+/// through three call levels and the next addition would have made a
+/// seven-argument function an eight-argument one at each — which is exactly
+/// what D4b's `document_name` did when the two branches met, so it joins the
+/// struct rather than widening the signature again.
 #[derive(Clone, Copy)]
-struct DocumentInputs<'a> {
-    part_trees: &'a HashMap<String, FeatureTree>,
-    assembly_trees: &'a HashMap<String, AssemblyTree>,
-    sources: &'a feature_engine::sources::SourceStore,
-    document_parameters: &'a [feature_engine::types::DesignParameter],
+pub struct DocumentInputs<'a> {
+    pub name: &'a str,
+    pub part_trees: &'a HashMap<String, FeatureTree>,
+    pub assembly_trees: &'a HashMap<String, AssemblyTree>,
+    pub sources: &'a feature_engine::sources::SourceStore,
+    pub document_parameters: &'a [feature_engine::types::DesignParameter],
 }
 
 /// `reuse` is the part-engine pool (`EngineState::take_part_engines`);
@@ -603,20 +607,10 @@ struct DocumentInputs<'a> {
 /// other seven, because a drawing is useful incomplete and useless absent.
 pub fn evaluate(
     drawing: &Drawing,
-    document_name: &str,
-    part_trees: &HashMap<String, FeatureTree>,
-    assembly_trees: &HashMap<String, AssemblyTree>,
-    sources: &feature_engine::sources::SourceStore,
-    document_parameters: &[feature_engine::types::DesignParameter],
+    doc: DocumentInputs<'_>,
     kb: &mut dyn KernelBundle,
     reuse: &mut Vec<(PartBuild, Engine)>,
 ) -> DrawingEval {
-    let doc = DocumentInputs {
-        part_trees,
-        assembly_trees,
-        sources,
-        document_parameters,
-    };
     let mut out = DrawingEval::default();
     out.warnings.extend(drawing.validate());
 
@@ -636,7 +630,7 @@ pub fn evaluate(
                 &sheet.title_block,
                 sheet,
                 &TitleBlockContext {
-                    document_name,
+                    document_name: doc.name,
                     sheet_number: sheet_index + 1,
                     sheet_count,
                     angle: drawing.projection_angle,
@@ -661,7 +655,7 @@ pub fn evaluate(
                 };
                 recipe_of_tab.insert(
                     view.source.tab_id.clone(),
-                    source_recipe(&view.source.tab_id, part_trees, assembly_trees),
+                    source_recipe(&view.source.tab_id, doc.part_trees, doc.assembly_trees),
                 );
                 by_tab.insert(view.source.tab_id.clone(), bodies);
             }
@@ -997,6 +991,7 @@ fn bodies_of_tab(
         assembly_trees,
         sources,
         document_parameters,
+        ..
     } = *doc;
     let part = PartRef {
         source_id: None,
