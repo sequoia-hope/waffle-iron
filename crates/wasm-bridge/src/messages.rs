@@ -2238,6 +2238,11 @@ pub struct DrawingAnnotationSpec {
     pub text: Option<String>,
     #[serde(default)]
     pub label: Option<String>,
+    /// A dimension's value as an EXPRESSION (D4c): `Measured::Expr`, which
+    /// D2 made evaluable and this is the authoring half of. Still no
+    /// `value`: a literal number is not expressible at this boundary at all.
+    #[serde(default)]
+    pub expr: Option<String>,
     #[serde(default)]
     pub precision: Option<u8>,
     #[serde(default)]

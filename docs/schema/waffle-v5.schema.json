@@ -7392,7 +7392,7 @@
     },
     "TitleBlock": {
       "additionalProperties": true,
-      "description": "A sheet's title block (`specs/drawings_and_mbd.md` §8, D4b): the data\nfields printed in the frame's bottom-right corner.\n\n**The fields are KEYS and authored text, not expressions.** §8 writes\n\"title block fields are expressions over document metadata and the\nmeasurement functions, so `mass(part)` and a parameter table work with no\nspecial casing\" — and that is right once D2 lands. It has not, and the\nchoice is the same one D4a made for `Measured::Expr`: an unevaluated\nexpression printed as a number would be a different number from the one\nauthored, and printed as its own source text would be a title block\nreading `mass(part)`. So this increment offers the keys the engine can\nactually fill plus literal text for the ones only a person knows, and\n[`TitleBlockKey::Expr`] is deliberately absent — a variant that exists and\ncannot be filled is a document a user can author and the engine cannot\ndraw (the D4a argument for leaving `Section` out until it worked).",
+      "description": "A sheet's title block (`specs/drawings_and_mbd.md` §8, D4b/D4c): the data\nfields printed in the frame's bottom-right corner.\n\n**A field is a KEY plus either authored text or an EXPRESSION** (D4c). §8\nwants \"expressions over document metadata and the measurement functions,\nso `mass(part)` and a parameter table work with no special casing\", and\nD4b could not offer them because D2 had not landed — an unevaluated\nexpression printed as a number would be a different number from the one\nauthored, and printed as its own source text would be a title block\nreading `mass(part)`. D2 landed, so [`TitleBlockField::expr`] now holds the\nSOURCE and [`title_block_layout`] prints its evaluated text.\n\nThere is still no `TitleBlockKey::Expr` VARIANT, and that is a choice:\nevery key already names a row, and an expression is how the row is\nFILLED, not what it says. A `Custom { label }` row with an expression is\n`mass(part)` beside a label the author chose, which is what §8 asks for,\nand a new key variant would have moved the format floor (the D4b\n`Projection::Section` argument) to buy nothing.",
       "properties": {
         "fields": {
           "default": [
@@ -7445,6 +7445,13 @@
       "additionalProperties": true,
       "description": "One title-block row.",
       "properties": {
+        "expr": {
+          "description": "An EXPRESSION whose evaluated text fills this row (D4c) — the source,\nkept, so the document carries what the author wrote and the sheet\ncarries what it evaluates to.\n\nAdditive and defaulted, so it moved no format floor: a reader that\ndoes not know the field keeps it in [`TitleBlockField::extra`] and\nre-emits it, and prints the row's `text` (or nothing) meanwhile —\nwhich is a visible gap rather than a wrong number.\n\nTakes precedence over `text` when both are present, and the authoring\ndoor refuses that pair by name rather than letting one silently win.\nIgnored for a derived key, on the same terms as `text`.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
         "key": {
           "$ref": "#/$defs/TitleBlockKey"
         },

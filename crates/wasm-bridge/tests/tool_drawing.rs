@@ -621,6 +621,114 @@ fn a_linear_dimension_on_a_top_view_measures_the_authored_box() {
 }
 
 #[test]
+fn an_expression_dimension_is_authorable_and_prints_the_expression_not_the_anchors() {
+    // D4c: `Measured::Expr` became EVALUABLE with D2 and the rebuild stopped
+    // refusing it then — but nothing could author one, because
+    // `build_annotation` always wrote `Measured::FromGeometry` and the tool
+    // had no `expr` argument. This is the authoring half.
+    //
+    // The pin is that the printed number is the EXPRESSION's and not the
+    // anchors': the dimension is anchored on the same wall pair the test
+    // above measures, and the expression asks for half of it, so one number
+    // cannot be mistaken for the other.
+    let (mut state, mut kernel, part_tab, drawing_tab) = box_and_drawing();
+    let (lo, hi, span) = wall_pids(&mut state, &mut kernel, &part_tab, &drawing_tab);
+    ok(
+        &mut state,
+        &mut kernel,
+        "tab_switch",
+        json!({ "tab_id": part_tab }),
+    );
+    ok(
+        &mut state,
+        &mut kernel,
+        "parameters_set",
+        json!({ "parameters": [{ "name": "half_span", "expression": format!("{}", span * 500.0) }] }),
+    );
+    ok(
+        &mut state,
+        &mut kernel,
+        "tab_switch",
+        json!({ "tab_id": drawing_tab }),
+    );
+    let view_id = ok(
+        &mut state,
+        &mut kernel,
+        "drawing_view_add",
+        json!({ "tab_id": part_tab, "view": "top" }),
+    )["view_id"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    ok(
+        &mut state,
+        &mut kernel,
+        "drawing_annotation_add",
+        json!({
+            "view_id": view_id,
+            "annotation": "Dimension",
+            "kind": "Distance",
+            // The anchors are still required — they are WHERE it is drawn.
+            "anchors": [lo, hi],
+            "expr": "half_span",
+        }),
+    );
+    let laid_out = layout(&state, &drawing_tab, &view_id);
+    let AnnotationLayout::Dimension { value, .. } = &laid_out.annotations[0] else {
+        panic!("not a dimension: {:?}", laid_out.annotations[0]);
+    };
+    // The layout carries METERS, and the expression was written in mm.
+    assert!(
+        (value - span / 2.0).abs() < 1e-12,
+        "the expression asked for {} m, the layout says {value}",
+        span / 2.0
+    );
+    assert!(
+        (value - span).abs() > 1e-6,
+        "it printed what the anchors measure, so the expression did nothing"
+    );
+
+    // A `value` is STILL not expressible at this door, which is §7's refusal
+    // and the reason an expression is allowed where a literal is not: an
+    // expression is re-measured on every rebuild and cannot go stale.
+    let err = refused(
+        &mut state,
+        &mut kernel,
+        "drawing_annotation_add",
+        json!({
+            "view_id": view_id,
+            "annotation": "Dimension",
+            "kind": "Distance",
+            "anchors": [lo, hi],
+            "value": 0.123,
+        }),
+    );
+    assert_eq!(err["code"], "InvalidArgument", "{err}");
+
+    // An expression that does not resolve takes the annotation down loudly
+    // and leaves nothing behind.
+    let err = refused(
+        &mut state,
+        &mut kernel,
+        "drawing_annotation_add",
+        json!({
+            "view_id": view_id,
+            "annotation": "Dimension",
+            "kind": "Distance",
+            "anchors": [lo, hi],
+            "expr": "no_such_parameter",
+        }),
+    );
+    let message = serde_json::to_string(&err).unwrap_or_default();
+    assert!(message.contains("no_such_parameter"), "{err}");
+    assert_eq!(
+        layout(&state, &drawing_tab, &view_id).annotations.len(),
+        1,
+        "the refused annotation was rolled back"
+    );
+}
+
+#[test]
 fn an_annotation_whose_anchor_is_absent_refuses_rather_than_dimensioning_a_neighbour() {
     // D0's never-rebinding `Selector::Pid`, at the drawing boundary: an
     // anchor on a pid this view does not draw has no geometry at all, so it
@@ -1442,6 +1550,127 @@ fn a_detail_of_the_whole_part_keeps_every_curve_and_one_of_a_corner_keeps_fewer(
     );
     // The crop rides on the layout so the renderer can clip to it exactly.
     assert!(layout(&state, &drawing_tab, &corner).clip.is_some());
+}
+
+#[test]
+fn a_title_block_expression_row_prints_the_measured_model_and_keeps_its_source() {
+    // D4c, §8: "title block fields are expressions over document metadata and
+    // the measurement functions, so `mass(part)` and a parameter table work
+    // with no special casing". The plate is 20 × 10 × 5 mm, so its volume is
+    // 1000 mm³ and a 7.85 g/cm³ steel plate weighs 7.85 g — which is the
+    // `mass(part)` row §8 names, written in the language that exists rather
+    // than waiting for M1's material table.
+    let (mut state, mut kernel, part_tab, _drawing) = box_and_drawing();
+    ok(
+        &mut state,
+        &mut kernel,
+        "tab_switch",
+        json!({ "tab_id": part_tab }),
+    );
+    let body = ok(&mut state, &mut kernel, "model_summary", json!({}))["bodies"][0]["body_id"]
+        .as_str()
+        .expect("the plate's body id")
+        .to_string();
+    ok(
+        &mut state,
+        &mut kernel,
+        "body_rename",
+        json!({ "body_id": body, "new_name": "plate" }),
+    );
+    ok(
+        &mut state,
+        &mut kernel,
+        "parameters_set",
+        json!({ "parameters": [{ "name": "lot", "expression": "42" }] }),
+    );
+    let drawing_tab = state
+        .session
+        .tabs()
+        .into_iter()
+        .find(|t| t.kind == "Drawing")
+        .expect("the drawing tab")
+        .id;
+    ok(
+        &mut state,
+        &mut kernel,
+        "tab_switch",
+        json!({ "tab_id": drawing_tab }),
+    );
+    ok(
+        &mut state,
+        &mut kernel,
+        "drawing_view_add",
+        json!({ "tab_id": part_tab, "view": "top" }),
+    );
+    let answer = ok(
+        &mut state,
+        &mut kernel,
+        "drawing_sheet_edit",
+        json!({
+            "title_block_fields": [
+                { "label": "Mass", "expr": "volume(plate) * 0.00785" },
+                { "label": "Lot", "expr": "lot" },
+                { "label": "Stock", "expr": "20mm * 10mm" },
+                { "key": "Material", "text": "AISI 304" },
+            ],
+        }),
+    );
+    let rows = answer["sheets"][0]["title_block"]["rows"]["rows"]
+        .as_array()
+        .cloned()
+        .unwrap_or_else(|| panic!("the filled rows: {answer}"));
+    let value = |i: usize| rows[i]["value"].as_str().unwrap_or_default().to_string();
+    // A measurement: 1000 mm³ × 0.00785 — the unit is the expression's own
+    // dimension, printed, which is what makes the row checkable.
+    assert_eq!(value(0), "7.85 mm³", "{answer}");
+    // A design PARAMETER, through the same environment.
+    assert_eq!(value(1), "42", "{answer}");
+    // Arithmetic with unit literals: a length² prints its exponent rather
+    // than being refused, because a title block is text, not a field.
+    assert_eq!(value(2), "200 mm²", "{answer}");
+    // And a literal row is untouched by any of it.
+    assert_eq!(value(3), "AISI 304");
+    // The SOURCE is what the document carries — never the evaluated text, or
+    // a reopened document would print a number nothing recomputes.
+    let fields = answer["sheets"][0]["title_block"]["fields"]
+        .as_array()
+        .cloned()
+        .unwrap_or_else(|| panic!("the authored fields: {answer}"));
+    assert_eq!(fields[0]["expr"], "volume(plate) * 0.00785");
+    assert!(fields[0]["text"].is_null());
+
+    // An expression that cannot be evaluated BLANKS its row and is reported.
+    // Not its own source text on the paper, and not the last good number.
+    let answer = ok(
+        &mut state,
+        &mut kernel,
+        "drawing_sheet_edit",
+        json!({ "title_block_fields": [{ "label": "Mass", "expr": "volume(gone)" }] }),
+    );
+    assert_eq!(
+        answer["sheets"][0]["title_block"]["rows"]["rows"][0]["value"],
+        ""
+    );
+    let errors = serde_json::to_string(&answer["errors"]).unwrap_or_default();
+    assert!(errors.contains("volume(gone)"), "{answer}");
+
+    // `expr` on a DERIVED key is refused by name, like `text` is: an agent
+    // that wrote a sheet number must be told the engine fills it.
+    let error = refused(
+        &mut state,
+        &mut kernel,
+        "drawing_sheet_edit",
+        json!({ "title_block_fields": [{ "key": "Scale", "expr": "1" }] }),
+    );
+    assert_eq!(error["code"], "InvalidArgument");
+    // And both at once is refused rather than resolved by precedence.
+    let error = refused(
+        &mut state,
+        &mut kernel,
+        "drawing_sheet_edit",
+        json!({ "title_block_fields": [{ "key": "Revision", "text": "A", "expr": "1" }] }),
+    );
+    assert_eq!(error["code"], "InvalidArgument");
 }
 
 #[test]

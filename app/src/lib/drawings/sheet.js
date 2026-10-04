@@ -235,6 +235,12 @@ export function renderSheetSvg({ sheet, unit = 'mm', documentPrecision = 2, styl
  * worked out the sheet number itself would be a second source of truth for a
  * number the document already knows.
  *
+ * That division is also why D4c's EXPRESSION rows needed no change here: a
+ * row whose value is `volume(plate) * 0.00785` arrives already evaluated to
+ * `7.85 mm³`, and the one thing this renderer must never do is print the
+ * source text instead. It cannot, because the source is not in the record it
+ * is handed.
+ *
  * ## The projection standard is printed as WORDS
  *
  * ISO 5456-2's projection symbol is a truncated cone shown in two views, and

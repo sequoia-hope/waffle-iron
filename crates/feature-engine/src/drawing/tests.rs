@@ -453,6 +453,11 @@ fn an_expression_dimension_whose_expression_fails_is_loud_and_draws_nothing() {
                 "radius(\"rim\"): the name does not resolve ({expression})"
             ))
         }
+        fn text_of(&self, expression: &str) -> Result<String, String> {
+            Err(format!(
+                "radius(\"rim\"): the name does not resolve ({expression})"
+            ))
+        }
     }
     let kernel = waffle_types::kernel::MockKernel::new();
     let mut view = DrawingView::new(
@@ -1271,7 +1276,9 @@ fn the_title_block_fills_the_rows_the_engine_knows_and_leaves_the_rest_to_be_typ
             sheet_count: 3,
             angle: ProjectionAngle::First,
         },
-    );
+        None,
+    )
+    .layout;
     let rows: Vec<(&str, &str)> = layout
         .rows
         .iter()
@@ -1314,11 +1321,148 @@ fn a_derived_row_ignores_authored_text_rather_than_printing_a_second_truth() {
             sheet_count: 1,
             angle: ProjectionAngle::Third,
         },
-    );
+        None,
+    )
+    .layout;
     assert_eq!(layout.rows[0].value, "1 / 1");
     assert_eq!(layout.rows[1].value, "1:1");
     assert!(TitleBlockKey::SheetNumber.is_derived());
     assert!(!TitleBlockKey::Date.is_derived());
+}
+
+/// An expression environment that answers one spelling and refuses the rest,
+/// so a test can tell "the row was evaluated" from "the row was filled some
+/// other way".
+struct OneExpr(&'static str, &'static str);
+
+impl ExprDimensions for OneExpr {
+    fn value_of(&self, _expression: &str, _kind: DimensionKind) -> Result<f64, String> {
+        Err("this double answers title blocks only".to_string())
+    }
+    fn text_of(&self, expression: &str) -> Result<String, String> {
+        if expression == self.0 {
+            Ok(self.1.to_string())
+        } else {
+            Err(format!("`{expression}` does not resolve"))
+        }
+    }
+}
+
+#[test]
+fn a_title_block_expression_row_prints_its_evaluated_text_and_keeps_its_source() {
+    // D4c: §8's "title block fields are expressions over document metadata
+    // and the measurement functions". The ROW prints the value; the DOCUMENT
+    // keeps what was written, so the two are never the same record.
+    let (sheet, _) = sheet_with_front();
+    let block = TitleBlock {
+        show: true,
+        fields: vec![TitleBlockField::with_expr(
+            TitleBlockKey::Custom {
+                label: "Mass".into(),
+            },
+            "volume(plate) * 0.00000785",
+        )],
+        extra: Map::new(),
+    };
+    let fill = title_block_layout(
+        &block,
+        &sheet,
+        &TitleBlockContext {
+            document_name: "D",
+            sheet_number: 1,
+            sheet_count: 1,
+            angle: ProjectionAngle::Third,
+        },
+        Some(&OneExpr("volume(plate) * 0.00000785", "7.85 mm³")),
+    );
+    assert!(fill.errors.is_empty(), "{:?}", fill.errors);
+    assert_eq!(fill.layout.rows[0].label, "Mass");
+    assert_eq!(fill.layout.rows[0].value, "7.85 mm³");
+    // The source survives in the document, unevaluated.
+    assert_eq!(
+        block.fields[0].expr.as_deref(),
+        Some("volume(plate) * 0.00000785")
+    );
+}
+
+#[test]
+fn a_title_block_expression_that_cannot_be_evaluated_blanks_its_row_and_is_named() {
+    // Two ways a row fails and both print NOTHING rather than their own
+    // source text: a title block reading `mass(part)` is the failure D4b
+    // declined to ship, and a title block reading the LAST rebuild's number
+    // is the failure the whole spec exists to prevent.
+    let (sheet, _) = sheet_with_front();
+    let block = TitleBlock {
+        show: true,
+        fields: vec![
+            TitleBlockField::with_expr(TitleBlockKey::Material, "volume(gone)"),
+            // A row whose text and expr are BOTH set: the expression wins,
+            // and the authoring door refuses the pair outright so this is
+            // only reachable from a hand-edited file.
+            TitleBlockField {
+                text: Some("AISI 304".into()),
+                expr: Some("volume(gone)".into()),
+                ..TitleBlockField::new(TitleBlockKey::Revision)
+            },
+        ],
+        extra: Map::new(),
+    };
+    let ctx = TitleBlockContext {
+        document_name: "D",
+        sheet_number: 1,
+        sheet_count: 1,
+        angle: ProjectionAngle::Third,
+    };
+    // An environment that refuses the spelling.
+    let fill = title_block_layout(&block, &sheet, &ctx, Some(&OneExpr("other", "x")));
+    assert_eq!(fill.layout.rows[0].value, "");
+    assert_eq!(fill.layout.rows[1].value, "");
+    assert_eq!(fill.errors.len(), 2);
+    let message = fill.errors[0].to_string();
+    assert!(message.contains("Material"), "{message}");
+    assert!(message.contains("volume(gone)"), "{message}");
+
+    // NO environment at all — a sheet whose views draw no single source tab.
+    let fill = title_block_layout(&block, &sheet, &ctx, None);
+    assert_eq!(fill.layout.rows[0].value, "");
+    assert!(matches!(
+        fill.errors[0],
+        DrawingError::TitleBlockExprNotEvaluated { .. }
+    ));
+    assert!(
+        fill.errors[0].to_string().contains("no single source tab"),
+        "{}",
+        fill.errors[0]
+    );
+}
+
+#[test]
+fn a_derived_row_ignores_an_expression_the_same_way_it_ignores_text() {
+    // The derived rows stay the document's own, whichever way someone tries
+    // to overrule them — and an ignored expression is NOT reported, because
+    // nothing was asked of the evaluator.
+    let (sheet, _) = sheet_with_front();
+    let block = TitleBlock {
+        show: true,
+        fields: vec![TitleBlockField::with_expr(
+            TitleBlockKey::SheetNumber,
+            "1 + 1",
+        )],
+        extra: Map::new(),
+    };
+    let fill = title_block_layout(
+        &block,
+        &sheet,
+        &TitleBlockContext {
+            document_name: "D",
+            sheet_number: 1,
+            sheet_count: 4,
+            angle: ProjectionAngle::Third,
+        },
+        Some(&OneExpr("1 + 1", "2")),
+    );
+    assert_eq!(fill.layout.rows[0].value, "1 / 4");
+    assert!(fill.errors.is_empty());
 }
 
 #[test]

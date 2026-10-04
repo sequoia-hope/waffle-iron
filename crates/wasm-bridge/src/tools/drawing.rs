@@ -577,7 +577,9 @@ fn projection_angle_arg(args: &Value) -> Result<Option<ProjectionAngle>, ToolFai
     }
 }
 
-/// The title block's rows, as `[{key, text?}, …]`. The whole list, replaced.
+/// The title block's rows, as `[{key, text?, expr?}, …]`. The whole list,
+/// replaced. `expr` is D4c's expression row: its evaluated text is printed
+/// and its source is kept.
 fn title_block_fields_arg(args: &Value) -> Result<Option<Vec<TitleBlockField>>, ToolFailure> {
     let Some(v) = args.get("title_block_fields").filter(|v| !v.is_null()) else {
         return Ok(None);
@@ -602,6 +604,11 @@ fn title_block_fields_arg(args: &Value) -> Result<Option<Vec<TitleBlockField>>, 
             .and_then(Value::as_str)
             .map(str::to_string)
             .filter(|t| !t.is_empty());
+        let expr = row
+            .get("expr")
+            .and_then(Value::as_str)
+            .map(str::to_string)
+            .filter(|t| !t.trim().is_empty());
         let label = row.get("label").and_then(Value::as_str);
         let key = match (TitleBlockKey::from_tag(&tag), label) {
             (Some(key), _) => key,
@@ -623,7 +630,7 @@ fn title_block_fields_arg(args: &Value) -> Result<Option<Vec<TitleBlockField>>, 
                 ))
             }
         };
-        if key.is_derived() && text.is_some() {
+        if key.is_derived() && (text.is_some() || expr.is_some()) {
             // Named, not quietly dropped: an agent that typed a sheet number
             // must be told the engine fills it, or it will believe the number
             // it typed is on the paper.
@@ -631,7 +638,21 @@ fn title_block_fields_arg(args: &Value) -> Result<Option<Vec<TitleBlockField>>, 
                 "InvalidArgument",
                 format!(
                     "`{tag}` is filled from the document (the name, the sheet number, the scale, \
-                     the projection standard), so it takes no text."
+                     the projection standard), so it takes neither text nor an expression."
+                ),
+                json!({ "path": path }),
+            ));
+        }
+        if text.is_some() && expr.is_some() {
+            // Refused rather than resolved by precedence (D4c). Both given is
+            // an author who does not know which one the paper will show, and
+            // silently picking the expression would print a number where the
+            // caller believes its own text is.
+            return Err(ToolFailure::new(
+                "InvalidArgument",
+                format!(
+                    "the `{tag}` row was given both `text` and `expr`; a row prints one or the \
+                     other, so send only the one you mean."
                 ),
                 json!({ "path": path }),
             ));
@@ -639,6 +660,7 @@ fn title_block_fields_arg(args: &Value) -> Result<Option<Vec<TitleBlockField>>, 
         out.push(TitleBlockField {
             key,
             text,
+            expr,
             extra: serde_json::Map::new(),
         });
     }
@@ -1059,8 +1081,25 @@ fn vector3(v: &Value, path: &str) -> Result<[f64; 3], ToolFailure> {
 ///
 /// Note what it cannot express: a dimension's `value`. There is no such
 /// argument, so a literal number cannot enter a document through this door —
-/// the authoring half of §7's refusal.
+/// the authoring half of §7's refusal. `expr` (D4c) is the one that IS
+/// offered, because an expression is re-measured on every rebuild and so
+/// cannot go stale.
 fn annotation_arg(args: &Value) -> Result<DrawingAnnotationSpec, ToolFailure> {
+    // `value` is REFUSED by name rather than ignored (D4c). Before `expr`
+    // existed there was nothing to offer instead, and an unread argument was
+    // at least not a literal in the document; but an agent that sent a number
+    // and heard nothing believes that number is on the paper — the same
+    // argument the derived title-block rows are refused by.
+    if args.get("value").is_some_and(|v| !v.is_null()) {
+        return Err(ToolFailure::new(
+            "InvalidArgument",
+            "A drawing dimension is measured from the model, never typed in. Omit `value` to \
+             measure the anchors, or pass `expr` for an expression the engine re-measures on \
+             every rebuild."
+                .to_string(),
+            json!({ "path": "/value" }),
+        ));
+    }
     let annotation = args
         .get("annotation")
         .and_then(Value::as_str)
@@ -1113,6 +1152,11 @@ fn annotation_arg(args: &Value) -> Result<DrawingAnnotationSpec, ToolFailure> {
         label: args
             .get("label")
             .and_then(Value::as_str)
+            .map(str::to_string),
+        expr: args
+            .get("expr")
+            .and_then(Value::as_str)
+            .filter(|s| !s.trim().is_empty())
             .map(str::to_string),
         precision: precision_arg(args)?,
         dual_unit: args
@@ -1274,20 +1318,60 @@ mod tests {
     #[test]
     fn a_dimension_never_takes_a_value_from_an_argument() {
         // The authoring half of §7's refusal: there is no `value` argument,
-        // so a literal cannot enter a document through this door even when
-        // the caller sends one.
-        let args = json!({
+        // so a literal cannot enter a document through this door. Since D4c
+        // it is refused BY NAME rather than ignored — an agent that sent a
+        // number and heard nothing believes that number is on the paper —
+        // and the refusal names `expr`, which is the thing that does work.
+        let err = annotation_arg(&json!({
             "annotation": "Dimension",
             "kind": "Radius",
             "anchors": [7],
             "value": 0.123,
-        });
-        let spec = annotation_arg(&args).unwrap();
+        }))
+        .expect_err("a typed-in value is refused");
+        assert_eq!(err.code, "InvalidArgument");
+        assert!(err.message.contains("expr"), "{}", err.message);
+
+        // With no `value` and no `expr`, the dimension measures its anchors.
+        let spec =
+            annotation_arg(&json!({ "annotation": "Dimension", "kind": "Radius", "anchors": [7] }))
+                .unwrap();
         let built = crate::drawing_view::build_annotation(&spec).unwrap();
         let waffle_types::annotation::Annotation::Dimension { value, .. } = built else {
             panic!("not a dimension");
         };
         assert_eq!(value, waffle_types::annotation::Measured::FromGeometry);
+
+        // `expr` builds a `Measured::Expr` — D4c's authoring half of D2's
+        // evaluator. An empty or whitespace `expr` is NOT one: it would be an
+        // expression nothing can evaluate, where measuring the anchors is
+        // what the caller plainly meant.
+        let spec = annotation_arg(&json!({
+            "annotation": "Dimension",
+            "kind": "Radius",
+            "anchors": [7],
+            "expr": " radius(rim) / 2 ",
+        }))
+        .unwrap();
+        let waffle_types::annotation::Annotation::Dimension { value, .. } =
+            crate::drawing_view::build_annotation(&spec).unwrap()
+        else {
+            panic!("not a dimension");
+        };
+        assert_eq!(
+            value,
+            waffle_types::annotation::Measured::Expr {
+                expr: "radius(rim) / 2".to_string()
+            }
+        );
+        let spec = annotation_arg(&json!({
+            "annotation": "Dimension",
+            "kind": "Radius",
+            "anchors": [7],
+            "expr": "   ",
+        }))
+        .unwrap();
+        assert!(spec.expr.is_none());
     }
 
     #[test]
