@@ -10,12 +10,39 @@ const PLANE_IDS = {
 };
 
 /**
- * Click a modeling or sketch TOOL by id at any window width. The toolbar
- * collapses its tool groups into a dropdown when they do not fit (mobile, or
- * a narrow desktop window), so a tool is either an inline button or a
- * dropdown item; both carry `toolbar-btn-<id>` and never coexist.
+ * The testid of the trigger that opens the FULLY collapsed tool group, for
+ * whichever toolbar is mounted.
+ *
+ * Three, because there are three tool groups and each collapses to its own
+ * dropdown: the sketch tools, the modelling tools, and — since D4d — the
+ * drawing tab's dimension tools, which live in `DrawingToolbar.svelte` (a
+ * Drawing tab replaces the modelling toolbar outright, the way it already
+ * replaces the sidebar and the viewport). Resolved by asking the DOM which
+ * one is there rather than by asking the store what the tab is: the toolbar's
+ * own presence is the fact the helper needs, and a tab kind read a moment
+ * before a switch settles is not.
+ *
  * @param {import('@playwright/test').Page} page
- * @param {string} id  e.g. 'sketch', 'extrude', 'line'
+ */
+async function modeDropdownTrigger(page) {
+	for (const id of [
+		'toolbar-btn-drawing-tools-dropdown',
+		'toolbar-btn-sketch-tools-dropdown',
+		'toolbar-btn-modeling-dropdown'
+	]) {
+		const t = page.locator(`[data-testid="${id}"]`);
+		if (await t.isVisible()) return t;
+	}
+	return null;
+}
+
+/**
+ * Click a modeling, sketch or drawing TOOL by id at any window width. The
+ * toolbar collapses its tool groups into a dropdown when they do not fit
+ * (mobile, or a narrow desktop window), so a tool is either an inline button
+ * or a dropdown item; both carry `toolbar-btn-<id>` and never coexist.
+ * @param {import('@playwright/test').Page} page
+ * @param {string} id  e.g. 'sketch', 'extrude', 'line', 'dim-distance'
  */
 export async function clickTool(page, id) {
 	const btn = page.locator(`[data-testid="toolbar-btn-${id}"]`);
@@ -29,9 +56,9 @@ export async function clickTool(page, id) {
 	if (await more.isVisible()) {
 		await more.click();
 	} else {
-		const inSketch = await page.evaluate(() => window.__waffle?.getState()?.sketchMode?.active === true);
-		const trigger = inSketch ? 'toolbar-btn-sketch-tools-dropdown' : 'toolbar-btn-modeling-dropdown';
-		await page.locator(`[data-testid="${trigger}"]`).click();
+		const trigger = await modeDropdownTrigger(page);
+		if (!trigger) throw new Error(`no tool group offers toolbar-btn-${id} at this width`);
+		await trigger.click();
 	}
 	await btn.waitFor({ state: 'visible', timeout: 3000 });
 	await btn.click();
@@ -49,9 +76,7 @@ export async function isToolOffered(page, id) {
 	const btn = page.locator(`[data-testid="toolbar-btn-${id}"]`);
 	if (await btn.isVisible()) return true;
 	const more = page.locator('[data-testid="toolbar-btn-more-tools"]');
-	const inSketch = await page.evaluate(() => window.__waffle?.getState()?.sketchMode?.active === true);
-	const modeTrigger = page.locator(`[data-testid="${inSketch ? 'toolbar-btn-sketch-tools-dropdown' : 'toolbar-btn-modeling-dropdown'}"]`);
-	const trigger = (await more.isVisible()) ? more : (await modeTrigger.isVisible()) ? modeTrigger : null;
+	const trigger = (await more.isVisible()) ? more : await modeDropdownTrigger(page);
 	if (!trigger) return false;
 	await trigger.click();
 	const offered = await btn.isVisible();
