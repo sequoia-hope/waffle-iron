@@ -605,13 +605,23 @@ test.describe('the drawing tab, D4b', () => {
 		// (`title_block.fields[i].expr`); keeping it off the paper is a
 		// discipline rather than an impossibility, which is why it is measured
 		// here instead of argued in a comment.
+		// The store door takes the ENGINE's field shape (`{key, text?, expr?}`),
+		// not the agent tool's `{label, expr}` sugar — `editDrawingSheet` passes
+		// the array straight through to a typed `Vec<TitleBlockField>`.
 		const source = '7mm * 1.1';
 		await page.evaluate(
 			(expr) =>
 				window.__waffle.editDrawingSheet({
-					titleBlockFields: [{ label: 'Stock', expr }]
+					titleBlockFields: [{ key: { type: 'Custom', label: 'Stock' }, expr }]
 				}),
 			source
+		);
+		await page.waitForFunction(
+			() =>
+				(window.__waffle?.getDrawingStatus()?.drawing?.sheets?.[0]?.title_block_cache?.rows ?? [])
+					.length === 1,
+			null,
+			{ timeout: 15000 }
 		);
 		const block = page.locator('[data-testid="drawing-sheet"] .wi-title-block');
 		await expect(block.locator('text.wi-title-label')).toHaveText(['Stock']);

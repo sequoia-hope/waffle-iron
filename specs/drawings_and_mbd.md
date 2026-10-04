@@ -2973,6 +2973,9 @@ Three choices inside it:
   Unchanged from D4a.
 - *A section of an assembly leaf is implemented but not measured.* Unchanged
   from D4b.
+- *`title_block_cache` has no validity key*, so a saved document can carry an
+  expression row's stale number where a view in the same sheet is detectably
+  stale. Found by the review and measured; see the corrections below.
 
 ### D4c review corrections (2026-10-04)
 
@@ -3029,6 +3032,35 @@ is handed the whole sheet, and `title_block.fields[i].expr` is one property
 away. The discipline is real and the comment now says so honestly, with a GUI
 spec asserting the evaluated text reaches the paper and the exported SVG while
 the source string reaches neither.
+
+**The one finding NOT fixed here, because the fix is a design call rather
+than a correction: `title_block_cache` has no validity key, and D4c is what
+made that matter.** Every view carries `DrawingView.cache_key` precisely so a
+reader with no engine can tell a current layout from a stored one. The sheet's
+title block carries no equivalent — and until D4c it needed none, because
+nothing in that cache depended on the MODEL: a document name, a sheet number,
+a scale and typed text all travel with the document and cannot go stale
+against geometry. An expression row can.
+
+Measured, through the tools: a sheet whose row reads `volume(plate)` fills with
+`1000 mm³`; switching to the part tab and doubling the extrude's depth to
+10 mm (so the volume is 2000 mm³) leaves the persisted
+`title_block_cache` reading `1000 mm³`, while the view beside it carries
+`cache_key` `d4b-…` whose inputs have changed. The drawing is re-evaluated
+only by `OpenDrawing` and `EditDrawing`, so a document saved without returning
+to the drawing tab carries that number, and the read-only viewer route — which
+has no engine and draws the cache — prints it. A reader can see the VIEWS are
+stale and cannot see that the title block is.
+
+The fix is the mirror of what the views already have: a
+`title_block_cache_key` over the same inputs (`CacheInputs::for_sheet`, the
+single source tab's recipe digest, and that tab's body pid digest), additive
+and `skip_serializing_if`, so it moves no floor. It is left to its own
+increment because choosing a cache key's input set is a design decision and
+not a review correction, and because D4d/D4e are in flight on the same
+records. **Until it lands, a title-block expression row is trustworthy on the
+screen and in an export taken from a visited drawing tab, and NOT trustworthy
+in a `.waffle` saved without visiting one.**
 
 **One claim is still unmeasured, and saying so is the correction.** The bbox
 fold that makes the DXF's `$EXTMIN`/`$EXTMAX` cover the hatch cannot be
