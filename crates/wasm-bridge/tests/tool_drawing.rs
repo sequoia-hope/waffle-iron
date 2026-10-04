@@ -1830,3 +1830,220 @@ fn curve_extent_points(curve: &LayoutCurve) -> Vec<[f64; 2]> {
         LayoutCurve::Polyline { points, .. } => points.clone(),
     }
 }
+
+// ------------------------------------------- D4e: the view probe (no mutation)
+
+/// Send one `UiToEngine` and get the answer as JSON — the page's door, which
+/// the probe is on (it is not a tool: an agent adds the view and reads the
+/// answer, where a pointer tool has to know where the view WOULD go first).
+fn message(state: &mut EngineState, kernel: &mut kernel_v2::KernelV2Adapter, msg: Value) -> Value {
+    let text = wasm_bridge::process::process_message_json(
+        state,
+        kernel,
+        &msg.to_string(),
+        &|| 0.0,
+        &|_| {},
+    );
+    serde_json::from_str(&text).expect("the engine answered JSON")
+}
+
+#[test]
+fn the_probe_answers_the_placement_an_add_would_use_and_adds_nothing() {
+    let (mut state, mut kernel, part_tab, drawing_tab) = box_and_drawing();
+    let front = ok(
+        &mut state,
+        &mut kernel,
+        "drawing_view_add",
+        json!({ "tab_id": part_tab, "view": "front" }),
+    );
+    let front_id = front["view_id"].as_str().expect("a view id").to_string();
+    let views_before = state
+        .session
+        .drawing(&drawing_tab)
+        .expect("a drawing")
+        .sheets[0]
+        .views
+        .len();
+
+    let probed = message(
+        &mut state,
+        &mut kernel,
+        json!({
+            "type": "ProbeDrawingView",
+            "tab_id": drawing_tab,
+            "source_tab": part_tab,
+            "projections": [
+                { "type": "ProjectedFrom", "parent": front_id, "direction": { "type": "Right" } },
+                { "type": "ProjectedFrom", "parent": front_id, "direction": { "type": "UpRight" } },
+            ]
+        }),
+    );
+    assert_eq!(probed["type"], "DrawingViewProbed", "{probed}");
+    // Nothing was added: a probe is a query.
+    assert_eq!(
+        state
+            .session
+            .drawing(&drawing_tab)
+            .expect("a drawing")
+            .sheets[0]
+            .views
+            .len(),
+        views_before,
+        "the probe added a view"
+    );
+
+    // The bounds are the authored box, in meters.
+    let bounds = &probed["bounds"];
+    for (i, want) in [0.0, 0.0, 0.0].iter().enumerate() {
+        assert!(
+            (bounds[0][i].as_f64().expect("a number") - want).abs() < 1e-9,
+            "bounds min is {bounds}"
+        );
+    }
+    for (i, want) in [W, D, H].iter().enumerate() {
+        assert!(
+            (bounds[1][i].as_f64().expect("a number") - want).abs() < 1e-9,
+            "bounds max is {bounds}"
+        );
+    }
+
+    // Third angle: a view placed right SHOWS the right side, and the corner
+    // shows its own corner.
+    assert_eq!(probed["views"][0]["shows"]["type"], "Right");
+    assert_eq!(probed["views"][1]["shows"]["type"], "UpRight");
+    assert_eq!(probed["views"][1]["name"], "Iso (up-right) of parent");
+    // The corner's frame is the isometric, not an orthographic: all three of
+    // the parent's axes have a non-zero depth component.
+    let dir: Vec<f64> = probed["views"][1]["dir"]
+        .as_array()
+        .expect("a direction")
+        .iter()
+        .map(|v| v.as_f64().expect("a number"))
+        .collect();
+    assert!(
+        dir.iter().all(|c| c.abs() > 0.5),
+        "the up-right corner's dir is {dir:?}, not an isometric"
+    );
+
+    // And the placement IS the one an add with no `placement_mm` produces.
+    for (i, direction) in ["right", "up_right"].iter().enumerate() {
+        let added = ok(
+            &mut state,
+            &mut kernel,
+            "drawing_view_add",
+            json!({
+                "tab_id": part_tab,
+                "parent_view_id": front_id,
+                "direction_from_parent": direction,
+            }),
+        );
+        let id = Uuid::parse_str(added["view_id"].as_str().expect("a view id")).expect("a uuid");
+        let placed = state
+            .session
+            .drawing(&drawing_tab)
+            .expect("a drawing")
+            .find_view(id)
+            .expect("the added view")
+            .1
+            .placement_mm;
+        for k in 0..2 {
+            let p = probed["views"][i]["placement_mm"][k]
+                .as_f64()
+                .expect("a number");
+            assert!(
+                (p - placed[k]).abs() < 1e-12,
+                "{direction}: the probe said {p} and the add placed at {}",
+                placed[k]
+            );
+        }
+    }
+}
+
+#[test]
+fn first_angle_flips_what_the_probe_says_a_sector_shows_but_not_where_it_goes() {
+    // The projected-view tool reads BOTH out of the probe, so this is the
+    // whole of what the first-angle setting does to the tool: the ghost keeps
+    // the sector the cursor is in (`ProjectedDirection` is named by the paper
+    // placement) and the view it previews becomes the opposite side's. A tool
+    // that had to know which is which would be a second copy of the standard.
+    let (mut state, mut kernel, part_tab, drawing_tab) = box_and_drawing();
+    let front = ok(
+        &mut state,
+        &mut kernel,
+        "drawing_view_add",
+        json!({ "tab_id": part_tab, "view": "front" }),
+    );
+    let front_id = front["view_id"].as_str().expect("a view id").to_string();
+    let ask = json!({
+        "type": "ProbeDrawingView",
+        "tab_id": drawing_tab,
+        "source_tab": part_tab,
+        "projections": [
+            { "type": "ProjectedFrom", "parent": front_id, "direction": { "type": "Right" } },
+            { "type": "ProjectedFrom", "parent": front_id, "direction": { "type": "UpRight" } },
+        ]
+    });
+    let third = message(&mut state, &mut kernel, ask.clone());
+    ok(
+        &mut state,
+        &mut kernel,
+        "drawing_sheet_edit",
+        json!({ "projection_angle": "first" }),
+    );
+    let first = message(&mut state, &mut kernel, ask);
+
+    assert_eq!(third["views"][0]["shows"]["type"], "Right");
+    assert_eq!(first["views"][0]["shows"]["type"], "Left");
+    assert_eq!(third["views"][1]["shows"]["type"], "UpRight");
+    assert_eq!(first["views"][1]["shows"]["type"], "DownLeft");
+    for i in 0..2 {
+        assert_eq!(
+            third["views"][i]["placement_mm"], first["views"][i]["placement_mm"],
+            "the standard moved the placement, which is the content's job"
+        );
+        assert_ne!(
+            third["views"][i]["dir"], first["views"][i]["dir"],
+            "the standard did not change what the view looks at"
+        );
+    }
+}
+
+#[test]
+fn a_probe_of_an_unknown_parent_names_that_one_projection_and_answers_the_rest() {
+    let (mut state, mut kernel, part_tab, drawing_tab) = box_and_drawing();
+    let probed = message(
+        &mut state,
+        &mut kernel,
+        json!({
+            "type": "ProbeDrawingView",
+            "tab_id": drawing_tab,
+            "source_tab": part_tab,
+            "projections": [
+                { "type": "Named", "view": { "type": "Iso" } },
+                { "type": "ProjectedFrom", "parent": Uuid::nil(), "direction": { "type": "Left" } },
+            ]
+        }),
+    );
+    assert!(probed["views"][0]["error"].is_null(), "{probed}");
+    assert!(
+        probed["views"][1]["error"]
+            .as_str()
+            .unwrap_or_default()
+            .contains("not on this sheet"),
+        "{probed}"
+    );
+    // A named view of a source with nothing on the sheet yet lands in the
+    // middle of the paper — which is where the dialog's ghost starts.
+    let extent = state
+        .session
+        .drawing(&drawing_tab)
+        .expect("a drawing")
+        .sheets[0]
+        .extent_mm();
+    for k in 0..2 {
+        let p = probed["views"][0]["placement_mm"][k]
+            .as_f64()
+            .expect("a number");
+        assert!((p - extent[k] / 2.0).abs() < 1e-9, "{probed}");
+    }
+}

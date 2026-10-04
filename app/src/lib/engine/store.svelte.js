@@ -7775,8 +7775,24 @@ async function sendDrawingEdit(edit) {
 /** The named view directions a drawing view can take (D4a). */
 export const DRAWING_NAMED_VIEWS = ['Front', 'Back', 'Left', 'Right', 'Top', 'Bottom', 'Iso'];
 
-/** Where a projected view can sit relative to its parent on the paper. */
-export const DRAWING_PROJECTED_DIRECTIONS = ['Left', 'Right', 'Up', 'Down'];
+/**
+ * Where a projected view can sit relative to its parent on the paper, as the
+ * engine tags the variants (`ProjectedDirection::ALL`).
+ *
+ * The four CORNERS are isometrics of that corner's octant (D4e), not
+ * orthographic views — which is why the panel and the projected-view tool
+ * label them `Iso (up-right)` rather than by the placement alone.
+ */
+export const DRAWING_PROJECTED_DIRECTIONS = [
+	'Left',
+	'Right',
+	'Up',
+	'Down',
+	'UpLeft',
+	'UpRight',
+	'DownLeft',
+	'DownRight'
+];
 
 /**
  * Add a view of `sourceTabId` to the open drawing's sheet.
@@ -7859,6 +7875,59 @@ export async function addDrawingView(sourceTabId, options = {}) {
 	// would be a view the engine cannot be asked about.
 	const after = getDrawingSheet(sheet.id)?.views ?? [];
 	return after.find((v) => !before.has(v.id))?.id ?? null;
+}
+
+/**
+ * What one or more views WOULD be, without adding any of them (D4e): where the
+ * engine would auto-place each, the frame it would project with, what a
+ * projected one SHOWS under the document's standard, and the source's world
+ * bounds for a ghost box's size.
+ *
+ * The placement-tool door. It exists so the ghost the user sees is the
+ * placement the view will have — the engine answers with the same
+ * `default_placement` an `addDrawingView` with no `placementMm` uses — and so
+ * the first-angle flip stays the engine's one table instead of becoming a
+ * second copy of the projection standard in JavaScript.
+ *
+ * Several projections per call because the projected-view tool needs all eight
+ * sectors around a parent before the pointer moves.
+ *
+ * @param {string} sourceTabId the Part or Assembly tab the view would draw
+ * @param {any[]} projections `Projection` records, as `addDrawingView` builds them
+ * @param {{ sheetId?: string, bodies?: string[] }} [options]
+ * @returns {Promise<{ bounds: number[][] | null, views: any[], warnings: string[] } | null>}
+ */
+export async function probeDrawingView(sourceTabId, projections, options = {}) {
+	if (!bridge || !engineReady || !drawingStatus) return null;
+	if (typeof sourceTabId !== 'string' || !sourceTabId) return null;
+	if (!Array.isArray(projections) || projections.length === 0) return null;
+	try {
+		const answer = await bridge.send({
+			type: 'ProbeDrawingView',
+			tab_id: drawingStatus.tab_id,
+			sheet_id: options.sheetId ?? getDrawingSheet(null)?.id ?? null,
+			source_tab: sourceTabId,
+			bodies: options.bodies ?? [],
+			// Structurally cloned: a `$state` proxy throws `DataCloneError` at
+			// `bridge.send` (the trap recorded in the 2026-09-26 notes), and a
+			// projection built from panel state is exactly such a proxy.
+			projections: JSON.parse(JSON.stringify(projections))
+		});
+		if (answer?.type !== 'DrawingViewProbed') {
+			log('error', 'The engine could not probe a view placement', answer?.message ?? answer);
+			return null;
+		}
+		return {
+			bounds: answer.bounds ?? null,
+			views: answer.views ?? [],
+			warnings: answer.warnings ?? []
+		};
+	} catch (err) {
+		// No toast: a probe runs on a pointer move, and a toast per frame would
+		// bury the page. The tool shows no ghost, which is the visible failure.
+		log('error', `Probing a view placement failed: ${err?.message || err}`);
+		return null;
+	}
 }
 
 /**

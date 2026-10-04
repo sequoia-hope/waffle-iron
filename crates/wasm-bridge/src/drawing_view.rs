@@ -454,7 +454,13 @@ fn default_view_name(projection: &Projection, count: usize) -> String {
     match projection {
         Projection::Named { view } => view.tag().to_string(),
         Projection::Custom { .. } => format!("View {}", count + 1),
-        Projection::ProjectedFrom { direction, .. } => format!("{direction:?} of parent"),
+        // `direction.label()` rather than the variant's `Debug`: a corner
+        // placement is an ISOMETRIC, and `UpRight of parent` names the paper
+        // position where a drafter needs to read what the view is (D4e).
+        // Unchanged for the four axis placements, whose label IS their name.
+        Projection::ProjectedFrom { direction, .. } => {
+            format!("{} of parent", direction.label())
+        }
         // The standard titles, which is what the sheet prints over the view:
         // a cut is `SECTION A-A` (the letter twice, once per arrow) and a crop
         // is `DETAIL A`. The scale a detail is drawn at is NOT in the name —
@@ -1108,4 +1114,193 @@ fn build_part(
             engine
         }
     }
+}
+
+// --------------------------------------------- D4e: probing a view not added
+
+/// What one hypothetical view would be: the answer
+/// [`crate::messages::EngineToUi::DrawingViewProbed`] carries.
+pub struct ProbedViews {
+    /// The source bodies' world AABB in meters, `[min, max]`.
+    pub bounds: Option<[[f64; 3]; 2]>,
+    pub views: Vec<crate::messages::ProbedDrawingView>,
+    pub warnings: Vec<String>,
+    /// The part engines the probe built or took from the pool, on the same
+    /// contract as `DrawingEval::parts`: the caller parks them, so a second
+    /// probe of the same source (the next hover) builds nothing.
+    pub parts: Vec<(PartBuild, Engine)>,
+}
+
+/// Answer `projections` for a view of `source` on `sheet`, WITHOUT adding
+/// anything (D4e, `specs/drawings_and_mbd.md` §8).
+///
+/// Three things per projection, and each is the same expression the add path
+/// uses rather than a second copy of it:
+///
+/// - the placement, from [`default_placement`] — which is exactly what an
+///   `AddView` with no `placement_mm` calls, so a tool that probes and then
+///   adds with the answer produces the view the panel would have produced;
+/// - the frame, from [`Sheet::view_frame`] over a TEMPORARY view pushed onto a
+///   clone of the sheet. A clone rather than a second frame derivation: a
+///   `ProjectedFrom` chain, a section's cut and a detail's inheritance are all
+///   already in that one function, and re-deriving any of them here is how a
+///   ghost comes to disagree with the view it previews;
+/// - what a projected view SHOWS, from `shown_side` — the first-angle flip,
+///   answered rather than re-implemented in the UI.
+///
+/// The bounds are the source's, once, because a UI sizes its ghost from them
+/// and they do not depend on the projection.
+pub fn probe_views(
+    drawing: &Drawing,
+    sheet_id: Option<Uuid>,
+    source: &ViewSource,
+    projections: &[Projection],
+    doc: DocumentInputs<'_>,
+    kb: &mut dyn KernelBundle,
+    reuse: &mut Vec<(PartBuild, Engine)>,
+) -> Result<ProbedViews, String> {
+    let sheet = match sheet_id {
+        Some(id) => drawing
+            .sheets
+            .iter()
+            .find(|s| s.id == id)
+            .ok_or_else(|| format!("this drawing has no sheet {id}"))?,
+        None => drawing
+            .sheets
+            .first()
+            .ok_or_else(|| "this drawing has no sheets".to_string())?,
+    };
+    let angle = drawing.projection_angle;
+
+    // The bodies, through the same door the evaluation uses — so a source tab
+    // already built for this drawing comes out of the pool rather than being
+    // rebuilt for a hover.
+    let mut out = DrawingEval::default();
+    let bodies = bodies_of_tab(source, &doc, kb, reuse, &mut out)?;
+    let bounds = bodies_bounds(&bodies, kb);
+    let mut warnings = std::mem::take(&mut out.warnings);
+    if bounds.is_none() && !bodies.is_empty() {
+        warnings.push(format!(
+            "tab `{}` has no body the kernel will bound, so a placement ghost has no size",
+            source.tab_id
+        ));
+    }
+
+    let mut views = Vec::with_capacity(projections.len());
+    for projection in projections {
+        let placement_mm = default_placement(sheet, projection, angle);
+        let shows = match projection {
+            Projection::ProjectedFrom { direction, .. } => {
+                Some(feature_engine::drawing::shown_side(*direction, angle))
+            }
+            _ => None,
+        };
+        let name = default_view_name(projection, sheet.views.len());
+        // The temporary view: the one call that knows every projection kind.
+        let mut probe_sheet = sheet.clone();
+        let temp = DrawingView::new("probe", source.clone(), projection.clone());
+        let temp_id = temp.id;
+        probe_sheet.views.push(temp);
+        let (dir, up, error) = match probe_sheet.view_frame(temp_id, angle) {
+            Ok(frame) => (frame.dir, frame.up, None),
+            // `[0, 0, 0]` rather than a guessed frame: a caller must not be
+            // able to draw a ghost from a frame the engine refused, and a
+            // zero direction has no basis, which every consumer already
+            // handles.
+            Err(e) => ([0.0; 3], [0.0; 3], Some(e.to_string())),
+        };
+        views.push(crate::messages::ProbedDrawingView {
+            placement_mm,
+            dir,
+            up,
+            name,
+            shows,
+            error,
+        });
+    }
+    Ok(ProbedViews {
+        bounds,
+        views,
+        warnings,
+        parts: out.parts,
+    })
+}
+
+/// The world AABB of `bodies` in meters, or `None` when nothing bounds.
+///
+/// `solid_aabb` first — it is analytic and documented CONSERVATIVE, so it
+/// bounds the solid from above, which is the direction a layout ghost must err
+/// in. It declines a solid carrying a surface-pair curve (D1a's note), and for
+/// those the render tessellation's own vertices are used instead: INSCRIBED,
+/// so short of the true extent by the chord deficit, which is the one caveat
+/// `ghostExtentMm` records on the app side.
+///
+/// A placed body (an assembly leaf) is bounded by transforming its box's eight
+/// CORNERS and taking their extent — transforming the min and max alone gives
+/// a box that is not even a box under a rotation.
+fn bodies_bounds(bodies: &[ProjectionBody], kb: &mut dyn KernelBundle) -> Option<[[f64; 3]; 2]> {
+    let mut lo = [f64::INFINITY; 3];
+    let mut hi = [f64::NEG_INFINITY; 3];
+    let mut any = false;
+    for body in bodies {
+        let box3 = match kb.as_introspect().solid_aabb(&body.handle) {
+            Some((min, max)) => Some((min, max)),
+            None => mesh_bounds(body, kb),
+        };
+        let Some((min, max)) = box3 else { continue };
+        if ![min, max].iter().all(|p| p.iter().all(|x| x.is_finite())) {
+            continue;
+        }
+        for i in 0..8 {
+            let corner = [
+                if i & 1 == 0 { min[0] } else { max[0] },
+                if i & 2 == 0 { min[1] } else { max[1] },
+                if i & 4 == 0 { min[2] } else { max[2] },
+            ];
+            let p = match &body.placement {
+                Some(place) => {
+                    let r = &place.rotation;
+                    [
+                        r[0][0] * corner[0]
+                            + r[0][1] * corner[1]
+                            + r[0][2] * corner[2]
+                            + place.translation[0],
+                        r[1][0] * corner[0]
+                            + r[1][1] * corner[1]
+                            + r[1][2] * corner[2]
+                            + place.translation[1],
+                        r[2][0] * corner[0]
+                            + r[2][1] * corner[1]
+                            + r[2][2] * corner[2]
+                            + place.translation[2],
+                    ]
+                }
+                None => corner,
+            };
+            for k in 0..3 {
+                lo[k] = lo[k].min(p[k]);
+                hi[k] = hi[k].max(p[k]);
+            }
+            any = true;
+        }
+    }
+    any.then_some([lo, hi])
+}
+
+/// A body's render-tessellation bounds, for a solid `solid_aabb` declines.
+fn mesh_bounds(body: &ProjectionBody, kb: &mut dyn KernelBundle) -> Option<([f64; 3], [f64; 3])> {
+    // 0.1 mm, the chord tolerance `tessellation_runner` renders at: the ghost
+    // is then bounded by the same mesh the viewport shows.
+    let mesh = kb.tessellate(&body.handle, 0.0001).ok()?;
+    let mut lo = [f64::INFINITY; 3];
+    let mut hi = [f64::NEG_INFINITY; 3];
+    let mut any = false;
+    for v in mesh.vertices.chunks_exact(3) {
+        for k in 0..3 {
+            lo[k] = lo[k].min(v[k] as f64);
+            hi[k] = hi[k].max(v[k] as f64);
+        }
+        any = true;
+    }
+    any.then_some((lo, hi))
 }

@@ -4039,7 +4039,7 @@
       "type": "object"
     },
     "ProjectedDirection": {
-      "description": "Which way a projected view sits from its parent ON PAPER.\n\nNamed by the paper placement rather than by what is seen, because the\nplacement is what is fixed and the content is what the projection standard\ndecides: `Right` is the right-hand view in third angle and the left-hand\nview in first angle.",
+      "description": "Which way a projected view sits from its parent ON PAPER.\n\nNamed by the paper placement rather than by what is seen, because the\nplacement is what is fixed and the content is what the projection standard\ndecides: `Right` is the right-hand view in third angle and the left-hand\nview in first angle.\n\nThe four DIAGONALS are isometrics (D4e): where an axis placement turns the\nparent's line of sight by a quarter turn about a paper axis, a corner\nplacement steps toward BOTH paper axes at once, which is the standard\nisometric of that corner — see [`projected_frame`] for the frame and\n`specs/drawings_and_mbd.md` §8 D4e for why the corners belong on this\nenum rather than on a second one.",
       "oneOf": [
         {
           "properties": {
@@ -4081,6 +4081,54 @@
           "properties": {
             "type": {
               "const": "Down",
+              "type": "string"
+            }
+          },
+          "required": [
+            "type"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "type": {
+              "const": "UpLeft",
+              "type": "string"
+            }
+          },
+          "required": [
+            "type"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "type": {
+              "const": "UpRight",
+              "type": "string"
+            }
+          },
+          "required": [
+            "type"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "type": {
+              "const": "DownLeft",
+              "type": "string"
+            }
+          },
+          "required": [
+            "type"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "type": {
+              "const": "DownRight",
               "type": "string"
             }
           },

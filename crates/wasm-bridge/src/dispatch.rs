@@ -858,6 +858,63 @@ fn handle_message(
             )
         }
 
+        UiToEngine::ProbeDrawingView {
+            tab_id,
+            sheet_id,
+            source_tab,
+            bodies,
+            projections,
+        } => {
+            // A query: nothing is written, nothing re-evaluated, and the
+            // drawing is read from the session like every other drawing read
+            // (the tab is the one copy of the sheets). The part engines go
+            // through the pool exactly as an evaluation's do, so probing the
+            // source a drawing already draws builds nothing.
+            let drawing = state.session.drawing(&tab_id)?.clone();
+            let part_trees = state.session.part_trees(&state.engine);
+            let assembly_trees = state.session.assembly_trees();
+            let document_name = state.session.document().name.clone();
+            let document_parameters = state.session.document_parameters().to_vec();
+            let source = feature_engine::drawing::ViewSource {
+                tab_id: source_tab,
+                bodies,
+            };
+            let mut reuse = state.take_part_engines();
+            let probed = crate::drawing_view::probe_views(
+                &drawing,
+                sheet_id,
+                &source,
+                &projections,
+                crate::drawing_view::DocumentInputs {
+                    name: &document_name,
+                    part_trees: &part_trees,
+                    assembly_trees: &assembly_trees,
+                    sources: &state.engine.sources,
+                    document_parameters: &document_parameters,
+                },
+                kb,
+                &mut reuse,
+            );
+            // Park in two steps, through the one door: first the engines the
+            // probe did not take (retiring any the probe rebuilt), then the
+            // ones it built or reused — so the next hover over the same source
+            // builds nothing. A refusal parks too, because it took nothing and
+            // the pool must come back whole either way.
+            let mut probed = probed;
+            let built = match probed.as_mut() {
+                Ok(p) => std::mem::take(&mut p.parts),
+                Err(_) => Vec::new(),
+            };
+            state.park_unused_part_engines(reuse, &built);
+            state.park_unused_part_engines(built, &[]);
+            let probed = probed.map_err(|reason| BridgeError::InvalidRequest { reason })?;
+            Ok(EngineToUi::DrawingViewProbed {
+                bounds: probed.bounds,
+                views: probed.views,
+                warnings: probed.warnings,
+            })
+        }
+
         UiToEngine::OpenAssembly { tab_id } => {
             open_assembly(state, &tab_id, kb)?;
             Ok(model_updated_response(state))

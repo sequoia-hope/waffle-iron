@@ -1811,13 +1811,18 @@ fn a_3d_sketch_round_trips() {
 /// v12 is P2's two parameter scopes — `DocumentMetadata.parameters` and an
 /// applied `Instance.parameter_overrides` — where a reader that drops either
 /// builds a different solid from the same file
-/// (`crates/file-format/tests/param_scope_floor.rs`).
+/// (`crates/file-format/tests/param_scope_floor.rs`); v15 is D4e's four
+/// ISOMETRIC `ProjectedDirection` variants (`specs/drawings_and_mbd.md` §8),
+/// v11's case one level deeper — new variants inside a `Projection` inside a
+/// tab kind every reader since D4a deserializes (v13 and v14 went to two
+/// branches dispatched alongside D4e, and a skipped version costs nothing
+/// where a shared one costs a file two builds disagree about).
 /// What this test holds is that the writer and the floor move together and
 /// only deliberately.
 #[test]
 fn the_3d_sketch_operation_did_not_move_the_format_floor() {
-    assert_eq!(file_format::FORMAT_VERSION, 12);
-    assert_eq!(file_format::MIN_READER_VERSION, 12);
+    assert_eq!(file_format::FORMAT_VERSION, 15);
+    assert_eq!(file_format::MIN_READER_VERSION, 15);
 }
 
 /// v10: a pre-v10 file wrote its `Selector::Pid` ids as JSON NUMBERS, and it

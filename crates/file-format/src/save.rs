@@ -101,7 +101,27 @@ use crate::sources::SourceEntry;
 ///     the part's default size instead of the size the instance was given.
 ///     Measured in
 ///     `crates/file-format/tests/param_scope_floor.rs`.
-pub const FORMAT_VERSION: u32 = 12;
+///   - **v15** (2026-10-04): the four ISOMETRIC `ProjectedDirection`
+///     variants — `UpLeft`, `UpRight`, `DownLeft`, `DownRight`
+///     (`specs/drawings_and_mbd.md` §8, D4e) — new serde-tagged variants
+///     inside a `Drawing` tab's `Projection::ProjectedFrom`.
+///
+///     **The v11 shape of the problem, one level deeper.** A reader that
+///     knows the `Drawing` tag deserializes the whole tab, so a
+///     `ProjectedDirection` tag it has never heard of is a `de::Error` for
+///     the WHOLE DOCUMENT — not an opaque tab — and the floor moves for the
+///     same reason v11's new `Projection` variants moved it. With the bump a
+///     v12 build refuses the file up front with `LoadError::FutureVersion`,
+///     which names the remedy, instead of failing inside a tab with a raw
+///     serde message about a variant.
+///
+///     v13 and v14 are deliberately skipped: D4e was dispatched alongside two
+///     other branches that were assigned those numbers, and reusing one would
+///     have two different changes claiming the same version. A gap in the
+///     sequence costs nothing — readers compare with `<=`, and nothing
+///     enumerates the versions — where a collision costs a file that two
+///     builds disagree about.
+pub const FORMAT_VERSION: u32 = 15;
 
 /// Oldest reader (by its `FORMAT_VERSION`) that can parse files we write.
 ///
@@ -116,7 +136,7 @@ pub const FORMAT_VERSION: u32 = 12;
 /// opaquely. Purely additive defaulted fields never require a bump. Files
 /// without the field (all pre-2026-08-28 files, including the assay corpus)
 /// default to 0 and always pass. See `docs/FILE_FORMAT.md` §13.
-pub const MIN_READER_VERSION: u32 = 12;
+pub const MIN_READER_VERSION: u32 = 15;
 
 // Keep the constants coherent: we can never require a reader newer than the
 // version we claim to write.

@@ -1530,3 +1530,279 @@ fn the_d4b_additions_round_trip_through_serde_and_cost_an_untouched_sheet_nothin
     assert_eq!(back.sheets[0].title_block.fields.len(), 6);
     assert!(back.sheets[0].title_block_cache.is_none());
 }
+
+// ---------------------------------------------------- D4e: isometric corners
+
+/// Dot product of two world directions.
+fn dot3_test(a: [f64; 3], b: [f64; 3]) -> f64 {
+    a[0] * b[0] + a[1] * b[1] + a[2] * b[2]
+}
+
+#[test]
+fn the_four_corner_placements_are_standard_isometrics_of_the_parents_corner() {
+    // The two numbers that DEFINE an isometric (ISO 5456-3), measured off the
+    // frame rather than recorded from it: the eye sits atan(1/√2) above the
+    // parent's horizontal plane and 45° round from its line of sight. Checked
+    // against the PARENT's own axes, so the property holds for a parent that
+    // is itself a projection and not only for the front view.
+    for parent_named in [NamedView::Front, NamedView::Top, NamedView::Right] {
+        let parent = parent_named.frame().basis().unwrap();
+        for corner in ProjectedDirection::ALL
+            .iter()
+            .copied()
+            .filter(ProjectedDirection::is_isometric)
+        {
+            let frame = projected_frame(&parent, corner, ProjectionAngle::Third);
+            let basis = frame
+                .basis()
+                .unwrap_or_else(|| panic!("{corner:?} of {} has no basis", parent_named.tag()));
+            // The eye direction is −w (w points away from the viewer).
+            let eye = [-basis.w[0], -basis.w[1], -basis.w[2]];
+            let up = dot3_test(eye, parent.v);
+            let right = dot3_test(eye, parent.u);
+            let out = dot3_test(eye, [-parent.w[0], -parent.w[1], -parent.w[2]]);
+            let elevation = up.asin();
+            assert!(
+                (elevation.abs() - (1f64 / 2f64.sqrt()).atan()).abs() < 1e-12,
+                "{corner:?} of {}: elevation {}° is not atan(1/√2)",
+                parent_named.tag(),
+                elevation.to_degrees()
+            );
+            // 45° azimuth: the two horizontal components are equal in size.
+            assert!(
+                (right.abs() - out.abs()).abs() < 1e-12,
+                "{corner:?} of {}: azimuth is not 45° ({right} across, {out} out)",
+                parent_named.tag()
+            );
+            // And it looks from the corner the placement names.
+            let want_up = match corner {
+                ProjectedDirection::UpLeft | ProjectedDirection::UpRight => 1.0,
+                _ => -1.0,
+            };
+            let want_right = match corner {
+                ProjectedDirection::UpRight | ProjectedDirection::DownRight => 1.0,
+                _ => -1.0,
+            };
+            assert!(
+                up * want_up > 0.0 && right * want_right > 0.0 && out > 0.0,
+                "{corner:?} of {}: eye at (right {right}, up {up}, out {out})",
+                parent_named.tag()
+            );
+        }
+    }
+}
+
+#[test]
+fn every_projected_frame_is_right_handed_and_shares_a_paper_axis_with_its_parent() {
+    // Right-handed in the sense `ViewBasis` documents — `(u, v, −w)` — which
+    // is what keeps a projected view from coming out mirrored. And the D4a
+    // group rule extended to the corners: a corner view's paper up is the
+    // parent's paper up, so the parent's vertical draws vertically in it.
+    let parent = ViewFrame::FRONT.basis().unwrap();
+    let cross = |a: [f64; 3], b: [f64; 3]| {
+        [
+            a[1] * b[2] - a[2] * b[1],
+            a[2] * b[0] - a[0] * b[2],
+            a[0] * b[1] - a[1] * b[0],
+        ]
+    };
+    for angle in [ProjectionAngle::Third, ProjectionAngle::First] {
+        for direction in ProjectedDirection::ALL {
+            let frame = projected_frame(&parent, direction, angle);
+            let basis = frame
+                .basis()
+                .unwrap_or_else(|| panic!("{direction:?} ({angle:?}) has no basis"));
+            let handed = cross(basis.u, basis.v);
+            assert!(
+                (0..3).all(|i| (handed[i] + basis.w[i]).abs() < 1e-12),
+                "{direction:?} ({angle:?}): u × v is {handed:?}, not −w {:?}",
+                basis.w
+            );
+            // The shared axis: an axis placement shares one of the parent's
+            // paper axes exactly; a corner shares the paper UP direction,
+            // which is the parent's v Gram-Schmidted into the oblique plane.
+            let shared = if direction.is_isometric() {
+                dot3_test(basis.v, parent.v) > 0.0
+            } else {
+                let close = |p: [f64; 3], q: [f64; 3]| (0..3).all(|i| (p[i] - q[i]).abs() < 1e-12);
+                [parent.u, parent.v]
+                    .iter()
+                    .any(|a| close(basis.u, *a) || close(basis.v, *a))
+            };
+            assert!(
+                shared,
+                "{direction:?} ({angle:?}) shares no paper axis with its parent: \
+                 u {:?} v {:?} against parent u {:?} v {:?}",
+                basis.u, basis.v, parent.u, parent.v
+            );
+        }
+    }
+}
+
+#[test]
+fn opposite_is_an_involution_over_all_eight_placements() {
+    for direction in ProjectedDirection::ALL {
+        assert_eq!(
+            direction.opposite().opposite(),
+            direction,
+            "{direction:?} is not its own opposite's opposite"
+        );
+        assert_ne!(
+            direction.opposite(),
+            direction,
+            "{direction:?} is its own opposite"
+        );
+        // A corner's opposite is the corner ACROSS the parent, not a mirror
+        // in one axis — which is what makes the first-angle flip one rule for
+        // all eight: the paper step reverses exactly.
+        let step = direction.paper_step();
+        let back = direction.opposite().paper_step();
+        assert!(
+            (0..2).all(|i| (step[i] + back[i]).abs() < 1e-12),
+            "{direction:?}: steps {step:?} and {back:?} are not opposite"
+        );
+    }
+    // And first angle IS that involution, which is why `projected_frame`
+    // reads one table backwards (D4a).
+    for direction in ProjectedDirection::ALL {
+        assert_eq!(
+            shown_side(direction, ProjectionAngle::First),
+            shown_side(direction, ProjectionAngle::Third).opposite()
+        );
+    }
+}
+
+#[test]
+fn a_corner_placement_is_auto_placed_at_the_diagonal() {
+    // The iso goes to the corner, clear of both boxes along the diagonal —
+    // which is `auto_placement_step_mm`'s support function, the same one a 45°
+    // section uses. Taking the dominant axis' half-extent instead would
+    // overlap the parent's corner.
+    let square = [20.0, 20.0];
+    let d = std::f64::consts::FRAC_1_SQRT_2;
+    let p = auto_placement_mm([0.0, 0.0], square, square, ProjectedDirection::UpRight, 0.0);
+    // A 20 mm square's support along the 45° diagonal is 10·(1/√2) per axis,
+    // so 20/√2 per box and 40/√2 for the two: the placement lands at
+    // (1/√2)·40/√2 = 20 mm each way, which is exactly the two squares'
+    // corners touching at the parent's own corner (10, 10). Taking the
+    // dominant axis' half-extent (10 + 10 = 20 along the diagonal, i.e. 14.1
+    // per axis) would overlap it.
+    let reach = 2.0 * 20.0 * d;
+    assert!(
+        (p[0] - d * reach).abs() < 1e-12 && (p[1] - p[0]).abs() < 1e-12,
+        "up-right of a 20 mm square went to {p:?}, not {:?}",
+        [d * reach, d * reach]
+    );
+    assert!(
+        (p[0] - 20.0).abs() < 1e-9,
+        "the corners should touch: {p:?}"
+    );
+    // The eight go eight ways, and no two of them land in the same place.
+    let mut seen: Vec<[f64; 2]> = Vec::new();
+    for direction in ProjectedDirection::ALL {
+        let at = auto_placement_mm([100.0, 100.0], square, square, direction, 15.0);
+        assert!(
+            !seen
+                .iter()
+                .any(|q| (q[0] - at[0]).abs() < 1e-9 && (q[1] - at[1]).abs() < 1e-9),
+            "{direction:?} lands on top of another placement at {at:?}"
+        );
+        // Clear of the parent box in the direction it stepped.
+        let step = direction.paper_step();
+        let along = (at[0] - 100.0) * step[0] + (at[1] - 100.0) * step[1];
+        assert!(
+            along > 15.0,
+            "{direction:?} is {along} mm along its own step"
+        );
+        seen.push(at);
+    }
+}
+
+#[test]
+fn every_placement_tag_round_trips_and_the_corners_are_labelled_iso() {
+    for direction in ProjectedDirection::ALL {
+        assert_eq!(
+            ProjectedDirection::from_tag(direction.tag()),
+            Some(direction),
+            "{direction:?} does not round-trip through `{}`",
+            direction.tag()
+        );
+        assert_eq!(
+            direction.is_isometric(),
+            direction.label().starts_with("Iso"),
+            "{direction:?}: `is_isometric` and the label disagree"
+        );
+    }
+    // The spellings an author types.
+    assert_eq!(
+        ProjectedDirection::from_tag("Up-Right"),
+        Some(ProjectedDirection::UpRight)
+    );
+    assert_eq!(
+        ProjectedDirection::from_tag(" down left "),
+        Some(ProjectedDirection::DownLeft)
+    );
+    assert_eq!(ProjectedDirection::from_tag("sideways"), None);
+}
+
+#[test]
+fn a_corner_view_projects_its_parents_three_axes_with_equal_foreshortening() {
+    // What "isometric" MEANS, measured on the projection rather than on the
+    // frame: the parent's three axes come out the same length on paper. The
+    // ratio is √(2/3) ≈ 0.8165, the isometric foreshortening.
+    let parent = ViewFrame::FRONT.basis().unwrap();
+    let basis = projected_frame(&parent, ProjectedDirection::UpRight, ProjectionAngle::Third)
+        .basis()
+        .unwrap();
+    let len = |d: [f64; 3]| {
+        let p = basis.project_dir(d);
+        p[0].hypot(p[1])
+    };
+    let want = (2.0f64 / 3.0).sqrt();
+    for axis in [parent.u, parent.v, parent.w] {
+        assert!(
+            (len(axis) - want).abs() < 1e-12,
+            "axis {axis:?} foreshortens to {}, not √(2/3)",
+            len(axis)
+        );
+    }
+}
+
+#[test]
+fn a_corner_view_of_a_corner_view_still_has_a_frame() {
+    // A chain through a diagonal: an iso's own iso. Not a drawing anyone
+    // wants, but `view_frame` follows the chain and must not produce a
+    // degenerate frame on the way — paper up is the parent's v, and the
+    // parent's v is never parallel to the corner's line of sight (the dot is
+    // 1/√3).
+    let mut sheet = Sheet::new("S");
+    let front = DrawingView::new(
+        "Front",
+        ViewSource::whole_tab("t"),
+        Projection::Named {
+            view: NamedView::Front,
+        },
+    );
+    let iso = DrawingView::new(
+        "Iso",
+        ViewSource::whole_tab("t"),
+        Projection::ProjectedFrom {
+            parent: front.id,
+            direction: ProjectedDirection::UpRight,
+        },
+    );
+    let iso2 = DrawingView::new(
+        "Iso of iso",
+        ViewSource::whole_tab("t"),
+        Projection::ProjectedFrom {
+            parent: iso.id,
+            direction: ProjectedDirection::DownLeft,
+        },
+    );
+    let last = iso2.id;
+    sheet.views = vec![front, iso, iso2];
+    let frame = sheet
+        .view_frame(last, ProjectionAngle::Third)
+        .expect("a chain through two corners still has a frame");
+    assert!(frame.basis().is_some());
+}
