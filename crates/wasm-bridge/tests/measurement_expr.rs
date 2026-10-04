@@ -9,8 +9,11 @@
 //! answers `KernelMeasure` with `NotSupported`.
 //!
 //! Also pinned here: `expression_evaluate` on a measurement (the preview and
-//! the rebuild must agree, so they go through one measurer), and that `mass`
-//! refuses by name until M1.
+//! the rebuild must agree, so they go through one measurer), and M1's mass —
+//! that `mass(body)` is density × volume in kilograms once a material is
+//! assigned, and that a body WITHOUT one has no mass at all rather than a
+//! mass computed at a default density of 1, where the number would be the
+//! volume wearing kilograms.
 
 use std::collections::HashMap;
 
@@ -510,21 +513,31 @@ fn mass_measures_the_material_and_refuses_without_one() {
     assert!(err.contains("no material"), "{err}");
 
     // ...and `measure_mass` says which density it used, so the fallback is
-    // never mistakable for a real one.
+    // ...and `measure_mass` reports NO MASS rather than a mass at a default
+    // density: the four density-scaled fields are null together and
+    // `mass_unavailable` says why. Before M1's review this reported
+    // `mass_kg == volume_m3` — a number with the right magnitude, the right
+    // printed units, and nothing to tell a reader it is not a mass.
     let m = ok(
         &mut state,
         &mut kernel,
         "measure_mass",
         json!({ "body_id": body }),
     );
-    assert_eq!(m["density_kg_m3"].as_f64(), Some(1.0));
     let volume = m["volume_m3"].as_f64().expect("a volume");
-    assert_eq!(
-        m["mass_kg"].as_f64(),
-        Some(volume),
-        "the fallback IS the volume"
-    );
-    assert_eq!(m["material"].as_f64(), None);
+    assert!(volume > 0.0);
+    assert!(m["density_kg_m3"].is_null(), "{m}");
+    assert!(m["mass_kg"].is_null(), "{m}");
+    assert!(m["inertia_at_centroid"].is_null(), "{m}");
+    assert!(m["principal_moments"].is_null(), "{m}");
+    let why = m["mass_unavailable"].as_str().expect("a reason");
+    assert!(why.contains("no material"), "{why}");
+    // The density-FREE quantities are still there, because a volume, an
+    // area, a centroid and a set of principal axes are properties of the
+    // shape rather than of its material.
+    assert!(m["surface_area_m2"].as_f64().expect("an area") > 0.0);
+    assert_eq!(m["centroid"].as_array().expect("a centroid").len(), 3);
+    assert_eq!(m["principal_axes"].as_array().expect("axes").len(), 3);
 
     // Assign a material a body cannot be made of yet: refused, not created.
     let r = call(
@@ -574,6 +587,12 @@ fn mass_measures_the_material_and_refuses_without_one() {
     );
     assert_eq!(m["density_kg_m3"].as_f64(), Some(2700.0));
     assert_eq!(m["mass_kg"].as_f64(), Some(kg));
+    assert!(
+        m["mass_unavailable"].is_null(),
+        "no reason when there IS a mass"
+    );
+    assert!(m["inertia_at_centroid"].is_array(), "{m}");
+    assert!(m["principal_moments"].is_array(), "{m}");
     // ...and an EXPLICIT density still wins, for "what would this weigh in
     // brass".
     let brass = ok(

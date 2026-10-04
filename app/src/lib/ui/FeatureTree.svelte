@@ -39,6 +39,11 @@
 		exportBodyStl,
 		isBodyVisible,
 		toggleBodyVisibility,
+		measureBodyMass,
+		measureBodyGeometry,
+		getDocumentDisplaySettings,
+		getMaterials,
+		setBodyMaterial,
 		getParameters,
 		setParameters,
 		getSources,
@@ -54,6 +59,7 @@
 	} from '$lib/engine/store.svelte.js';
 	import { showImportLinkDialog } from '$lib/engine/store.svelte.js';
 	import { BUILTIN_PLANES, makePlaneRef } from '$lib/engine/planes.js';
+	import { internalToDisplay, UNITS } from '$lib/units.js';
 	import { describeLocator } from '$lib/storage/git/locator.js';
 	import { longPressContextMenu } from './longPressContextMenu.js';
 
@@ -234,6 +240,219 @@
 	function handleBodyVisibilityToggle(e, bodyId) {
 		e.stopPropagation();
 		toggleBodyVisibility(bodyId);
+	}
+
+	// ─────────────────────────── Body properties (M1, specs/drawings_and_mbd.md §9)
+	//
+	// "The properties panel shows mass and centre of mass." There is no
+	// properties panel: bodies are listed here, so the properties are a
+	// disclosure on the body's own row — the same shape the assembly panel's
+	// per-instance `pos` disclosure has, and for the same reason: the numbers
+	// belong to one row, and a separate panel would need a selection model of
+	// its own to say which row it is showing.
+	//
+	// Measured on OPEN rather than on every rebuild. `MeasureMass` is an
+	// integration over a body's faces; running it for every body on every
+	// rebuild would cost the whole tree's geometry to show numbers nobody
+	// asked to see.
+
+	/** Which bodies' properties are disclosed. @type {Set<string>} */
+	let propsOpen = $state(new Set());
+	/**
+	 * The last `MassMeasured` per body, or `{ error }`. Keyed by bodyId so a
+	 * body whose row moved keeps its own numbers.
+	 * @type {Record<string, any>}
+	 */
+	let bodyProps = $state({});
+
+	async function handleBodyPropsToggle(e, bodyId) {
+		e.stopPropagation();
+		const next = new Set(propsOpen);
+		if (next.has(bodyId)) {
+			next.delete(bodyId);
+			propsOpen = next;
+			return;
+		}
+		next.add(bodyId);
+		propsOpen = next;
+		// Re-measured on each open: the body may have been rebuilt since.
+		const { [bodyId]: _drop, ...rest } = bodyProps;
+		bodyProps = rest;
+		bodyProps = { ...bodyProps, [bodyId]: await readProps(bodyId) };
+	}
+
+	/**
+	 * One body's properties, by one measurement where possible.
+	 *
+	 * `MeasureMass` integrates everything at once, so its numbers are
+	 * guaranteed to be at one tier. When it refuses — a body with no material
+	 * has no mass, and the engine says so rather than defaulting the density —
+	 * the geometry is still measurable: `MeasureBody` fills the volume and
+	 * area rows and the mass row names what is missing. Losing the volume
+	 * because the mass is unavailable would be the worse answer.
+	 */
+	async function readProps(bodyId) {
+		try {
+			const measured = await measureBodyMass(bodyId);
+			if (measured) return measured;
+		} catch (err) {
+			const refusal = String(err?.message ?? err);
+			try {
+				const geometry = await measureBodyGeometry(bodyId);
+				if (geometry) {
+					return {
+						volume_m3: geometry.volume_m3?.value,
+						surface_area_m2: geometry.surface_area_m2?.value,
+						method: geometry.volume_m3?.method ?? 'mesh',
+						chord_bound_m: 0,
+						centroid: null,
+						massRefusal: refusal
+					};
+				}
+			} catch {
+				// Both refused: report the FIRST refusal, which is the one
+				// about the measurement that was asked for.
+			}
+			// Named, not swallowed: a body the kernel cannot integrate is a
+			// capability gap worth seeing, not an empty row.
+			return { error: refusal };
+		}
+		return { error: 'the engine did not measure this body' };
+	}
+
+	/** The engine's material table, for the per-body picker. */
+	let materials = $derived(getMaterials());
+	/** The body whose material assignment is in flight. @type {string|null} */
+	let busyBody = $state(null);
+
+	async function assignMaterial(bodyId, name) {
+		busyBody = bodyId;
+		try {
+			await setBodyMaterial(bodyId, name || null);
+			// The assignment changes the density, so the mass is a different
+			// number: re-measure rather than leaving the old one on screen.
+			const measured = await measureBodyMass(bodyId);
+			if (measured) bodyProps = { ...bodyProps, [bodyId]: measured };
+		} catch (err) {
+			bodyProps = { ...bodyProps, [bodyId]: { error: String(err?.message ?? err) } };
+		} finally {
+			busyBody = null;
+		}
+	}
+
+	/** Six significant digits is a measured quantity's honest width here. */
+	function sig(x, digits = 6) {
+		if (!Number.isFinite(x)) return '—';
+		return String(parseFloat(x.toPrecision(digits)));
+	}
+
+	/**
+	 * The NAME of the material a body is made of, or null.
+	 *
+	 * Read off the feature tree's own `body_materials` side table — the
+	 * engine's assignment, mirrored into this store already, so there is no
+	 * material list in JavaScript and no second answer to "what is this body
+	 * made of". `MeasureMass` reports the DENSITY it used but not the name,
+	 * which is why the name comes from here and the number from there.
+	 *
+	 * @param {string} bodyId
+	 */
+	function materialOf(bodyId) {
+		const name = tree?.body_materials?.[bodyId];
+		return typeof name === 'string' && name.length > 0 ? name : null;
+	}
+
+	/** Whether this body carries a material. */
+	function hasMaterial(p, bodyId) {
+		if (materialOf(bodyId)) return true;
+		// The ENGINE decides, and it says so explicitly: since M1's review a
+		// body with no material comes back with `density_kg_m3` and `mass_kg`
+		// null and `mass_unavailable` naming the remedy, rather than measured
+		// at a default density of 1 where `mass_kg` would be the volume in m³.
+		// So a density present AT ALL means the mass is a real one — which
+		// also covers a density supplied some other way (a caller's explicit
+		// one), where there is a real mass but no assignment on the tree.
+		//
+		// `typeof` and not `Number.isFinite(Number(x))`: `Number(null)` is
+		// ZERO, which is finite, so the coercing form reads the engine's
+		// explicit "no density" as a density of 0 and calls it a material.
+		return typeof p?.density_kg_m3 === 'number' && Number.isFinite(p.density_kg_m3);
+	}
+
+	function propMethod(p) {
+		return p?.method === 'exact' ? 'exact' : `mesh (±${sig(lenOf(p?.chord_bound_m), 3)})`;
+	}
+	function propMethodTitle(p) {
+		return p?.method === 'exact'
+			? 'Integrated over the analytic faces: exact.'
+			: 'Integrated over the TESSELLATION. Every number below carries the ' +
+					`chord band ${sig(p?.chord_bound_m, 3)} m, so none of them is exact.`;
+	}
+
+	/** A length in meters, in the document's display unit. */
+	function lenOf(meters) {
+		const s = getDocumentDisplaySettings();
+		return internalToDisplay(Number(meters), s.unit);
+	}
+	function unitLabel() {
+		const s = getDocumentDisplaySettings();
+		return UNITS[s.unit]?.label ?? s.unit;
+	}
+	/** The display unit's own factor, for the squared and cubed quantities. */
+	function perMeter() {
+		const s = getDocumentDisplaySettings();
+		return UNITS[s.unit]?.fromMeters ?? 1;
+	}
+
+	function propVolume(p) {
+		const k = perMeter();
+		return `${sig(Number(p?.volume_m3) * k * k * k)} ${unitLabel()}³`;
+	}
+	function propArea(p) {
+		const k = perMeter();
+		return `${sig(Number(p?.surface_area_m2) * k * k)} ${unitLabel()}²`;
+	}
+	function propMaterial(p, bodyId) {
+		const name = materialOf(bodyId);
+		if (name) return `${name} (${sig(p?.density_kg_m3)} kg/m³)`;
+		if (hasMaterial(p, bodyId)) return `${sig(p?.density_kg_m3)} kg/m³`;
+		return 'none';
+	}
+	function propMass(p, bodyId) {
+		// The engine refused the whole measurement. Its own words, because
+		// the reason is the kernel's to give.
+		if (p?.massRefusal) return p.massRefusal;
+		// Or it measured the geometry and reported that there is no MASS:
+		// `mass_unavailable` is the engine saying this body has no material,
+		// which it does instead of handing back a density of 1 (where
+		// `mass_kg` would be numerically the volume in m³ — a number that is
+		// not the mass of anything).
+		if (p?.mass_unavailable || !hasMaterial(p, bodyId)) return 'no material assigned';
+		const kg = Number(p?.mass_kg);
+		if (!Number.isFinite(kg)) return '—';
+		return kg < 1 ? `${sig(kg * 1000)} g` : `${sig(kg)} kg`;
+	}
+	function propMassTitle(p, bodyId) {
+		// The engine's own sentence when it has one — it names the remedy
+		// (`body_material_set`) more precisely than this component can.
+		if (p?.mass_unavailable) return p.mass_unavailable;
+		return hasMaterial(p, bodyId)
+			? `At ${sig(p?.density_kg_m3)} kg/m³.`
+			: 'Assign a material to this body and its mass follows from the volume.';
+	}
+	function propCentroid(p) {
+		const c = p?.centroid;
+		// The geometry-only fallback has no centroid to report; `MeasureBody`
+		// does not compute one, and inventing the bbox centre instead would
+		// be a different quantity under the same label.
+		if (!Array.isArray(c) || c.length !== 3) return '—';
+		const s = getDocumentDisplaySettings();
+		return `${c.map((v) => fixedAt(lenOf(v), s.precision)).join(', ')} ${unitLabel()}`;
+	}
+	function fixedAt(x, places) {
+		if (!Number.isFinite(x)) return '—';
+		const t = x.toFixed(places);
+		return Number(t) === 0 ? (0).toFixed(places) : t;
 	}
 
 	function handleBodyContextMenu(e, body) {
@@ -873,6 +1092,7 @@
 					{#each bodies as body, i (body.bodyId)}
 						<div
 							class="body-item"
+							class:with-props={propsOpen.has(body.bodyId)}
 							class:selected={selectedBodyId === body.bodyId}
 							class:hidden-item={!isBodyVisible(body.bodyId)}
 							data-testid="body-item-{i}"
@@ -897,6 +1117,14 @@
 							{/if}
 							<button
 								class="visibility-toggle"
+								title="Volume, mass and centre of mass"
+								data-testid="body-props-toggle-{i}"
+								onclick={(e) => handleBodyPropsToggle(e, body.bodyId)}
+							>
+								{propsOpen.has(body.bodyId) ? '▾' : '▸'}&#8201;ƒ
+							</button>
+							<button
+								class="visibility-toggle"
 								title={isBodyVisible(body.bodyId) ? 'Hide body' : 'Show body'}
 								data-testid="body-visibility-{i}"
 								onclick={(e) => handleBodyVisibilityToggle(e, body.bodyId)}
@@ -904,6 +1132,73 @@
 								{isBodyVisible(body.bodyId) ? '◉' : '◎'}
 							</button>
 						</div>
+						{#if propsOpen.has(body.bodyId)}
+							<!-- The body's measured properties (M1). Every number here
+							     came from the engine's one integration, and the row
+							     says which TIER it came from: an exact answer and a
+							     mesh approximation must never look alike. -->
+							<dl class="body-props" data-testid="body-props-{i}">
+								{#if bodyProps[body.bodyId]?.error}
+									<div class="prop-error" data-testid="body-props-error-{i}">
+										{bodyProps[body.bodyId].error}
+									</div>
+								{:else if !bodyProps[body.bodyId]}
+									<div class="prop-pending" data-testid="body-props-pending-{i}">measuring…</div>
+								{:else}
+									{@const p = bodyProps[body.bodyId]}
+									<div class="prop">
+										<dt>method</dt>
+										<dd data-testid="body-prop-method-{i}" title={propMethodTitle(p)}>
+											{propMethod(p)}
+										</dd>
+									</div>
+									<div class="prop">
+										<dt>volume</dt>
+										<dd data-testid="body-prop-volume-{i}">{propVolume(p)}</dd>
+									</div>
+									<div class="prop">
+										<dt>area</dt>
+										<dd data-testid="body-prop-area-{i}">{propArea(p)}</dd>
+									</div>
+									<div class="prop">
+										<dt>material</dt>
+										<dd data-testid="body-prop-material-{i}">
+											{#if materials.length > 0}
+												<!-- The options are the ENGINE's material table off the
+												     feature tree, never a list invented here. With an
+												     empty table there is nothing to choose between, so
+												     the row reads rather than offers. -->
+												<select
+													class="material-select"
+													data-testid="body-material-select-{i}"
+													disabled={busyBody === body.bodyId}
+													value={materialOf(body.bodyId) ?? ''}
+													onclick={(e) => e.stopPropagation()}
+													onchange={(e) => assignMaterial(body.bodyId, e.currentTarget.value)}
+												>
+													<option value="">none</option>
+													{#each materials as m (m.name)}
+														<option value={m.name}>{m.name}</option>
+													{/each}
+												</select>
+											{:else}
+												{propMaterial(p, body.bodyId)}
+											{/if}
+										</dd>
+									</div>
+									<div class="prop">
+										<dt>mass</dt>
+										<dd data-testid="body-prop-mass-{i}" title={propMassTitle(p, body.bodyId)}>
+											{propMass(p, body.bodyId)}
+										</dd>
+									</div>
+									<div class="prop">
+										<dt>centre of mass</dt>
+										<dd data-testid="body-prop-centroid-{i}">{propCentroid(p)}</dd>
+									</div>
+								{/if}
+							</dl>
+						{/if}
 					{/each}
 				{/if}
 			</div>
@@ -1260,6 +1555,48 @@
 
 	.body-item.hidden-item {
 		opacity: 0.45;
+	}
+	/* An open disclosure keeps its own row highlighted, so the numbers below
+	   read as belonging to it rather than to the next body down. */
+	.body-item.with-props {
+		background: var(--bg-hover);
+	}
+	/* The body's measured properties (M1). Scrolls rather than overflows if a
+	   narrow panel cannot fit a value, per CLAUDE.md's chrome rule. */
+	.body-props {
+		margin: 0;
+		padding: 2px 12px 6px 30px;
+		font-size: 11px;
+		color: var(--text-secondary);
+		overflow-x: auto;
+	}
+	.body-props .prop {
+		display: flex;
+		gap: 6px;
+		justify-content: space-between;
+		white-space: nowrap;
+	}
+	.body-props dt {
+		opacity: 0.75;
+	}
+	.body-props dd {
+		margin: 0;
+		font-variant-numeric: tabular-nums;
+	}
+	.body-props .material-select {
+		font: inherit;
+		color: inherit;
+		background: var(--bg-primary);
+		border: 1px solid var(--border);
+		border-radius: 3px;
+		max-width: 140px;
+	}
+	.body-props .prop-pending {
+		opacity: 0.7;
+	}
+	.body-props .prop-error {
+		color: var(--error, #d33);
+		white-space: normal;
 	}
 
 	/* Rollback bar: a horizontal marker drawn just below the active feature.

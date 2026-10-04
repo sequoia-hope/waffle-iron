@@ -36,8 +36,13 @@
  * drawing block.
  */
 
+import { INCH_DENOMINATORS, resolveDisplay } from '$lib/units.js';
 import { DRAWING_TOKENS, drawingStyle } from './style.js';
-import { formatDimension, isKnownUnit } from './format.js';
+import {
+	formatDimensionText,
+	formatGeometricTolerance,
+	isKnownUnit
+} from './format.js';
 import { layoutAnnotation, paperTransform } from './layout.js';
 
 /** Decimals kept on every emitted coordinate. 0.1 µm on paper — plenty. */
@@ -464,7 +469,15 @@ function renderPrimitive(p, style) {
 			return `<circle class="wi-dim-${esc(p.role)}" cx="${n(p.at[0])}" cy="${n(p.at[1])}" r="${n(p.radius)}" fill="${DRAWING_TOKENS.annotation}" />`;
 		case 'box': {
 			const s = primitiveStroke(p.role, style);
-			return `<rect class="wi-dim-${esc(p.role)}" x="${n(p.at[0])}" y="${n(p.at[1])}" width="${n(p.width)}" height="${n(p.height)}" fill="none" stroke="${s.stroke}" stroke-width="${n(s.width)}" />`;
+			// A box around ALIGNED text (a basic dimension on a slanted
+			// dimension line) turns with it, about the box's own centre —
+			// which is where the text it encloses was rotated about.
+			const cx = p.at[0] + p.width / 2;
+			const cy = p.at[1] + p.height / 2;
+			const rot = !p.rotateDeg
+				? ''
+				: ` transform="rotate(${n(p.rotateDeg)} ${n(cx)} ${n(cy)})"`;
+			return `<rect class="wi-dim-${esc(p.role)}" x="${n(p.at[0])}" y="${n(p.at[1])}" width="${n(p.width)}" height="${n(p.height)}" fill="none" stroke="${s.stroke}" stroke-width="${n(s.width)}"${rot} />`;
 		}
 		case 'text': {
 			const rot =
@@ -491,8 +504,14 @@ function viewBounds(layout) {
  * @param {any} input.layout  a `ViewLayout` (curves, bbox, annotations)
  * @param {number} [input.scale] drawing scale as a ratio; 1 = 1:1
  * @param {Partial<import('./style.js').DrawingStyle>} [input.style]
- * @param {string} [input.unit] display unit for dimension text
- * @param {number} [input.documentPrecision]
+ * @param {string} [input.unit] display unit for dimension text; default: the
+ *   document's display settings
+ * @param {number} [input.documentPrecision] decimals; default: as above
+ * @param {Partial<import('$lib/units.js').DisplaySettings>} [input.display] M1:
+ *   the document's display settings — precision, dual unit and its own
+ *   precision, fractional inches, whether a fit prints its resolved band.
+ *   `unit` and `documentPrecision` are the older names for two of these and
+ *   override this object when given, so a D3-era caller is unaffected.
  * @param {number} [input.margin] paper mm of blank around the drawing
  * @param {string|null} [input.title] an `<title>` for accessibility
  * @param {boolean} [input.paper] paint the paper rectangle behind the drawing
@@ -525,8 +544,9 @@ export function renderViewSvg({
 	layout,
 	scale = 1,
 	style: styleOverrides,
-	unit = 'mm',
-	documentPrecision = 2,
+	unit = undefined,
+	documentPrecision = undefined,
+	display: displayOverrides = undefined,
 	margin = 20,
 	title = null,
 	paper = true,
@@ -534,6 +554,14 @@ export function renderViewSvg({
 	caption = null
 }) {
 	const style = drawingStyle(styleOverrides);
+	// The document's display settings, resolved ONCE for the whole view, so
+	// every annotation on it rounds and converts the same way (`units.js`
+	// holds the single set of fallbacks).
+	const display = resolveDisplay({
+		...(displayOverrides ?? {}),
+		...(unit !== undefined ? { unit } : {}),
+		...(documentPrecision !== undefined ? { precision: documentPrecision } : {})
+	});
 	const warnings = [];
 	const curves = layout?.curves ?? [];
 	const annotations = layout?.annotations ?? [];
@@ -586,17 +614,43 @@ export function renderViewSvg({
 	// print a 40 mm feature as "0.04" and label it with whatever was asked
 	// for. `formatDimension` withholds the number instead; say why, because a
 	// dash with no explanation is a bug report waiting to happen.
-	if (!isKnownUnit(unit)) {
-		warnings.push(`unknown display unit "${unit}" — dimension values withheld`);
+	if (!isKnownUnit(display.unit)) {
+		warnings.push(`unknown display unit "${display.unit}" — dimension values withheld`);
+	}
+	// A fractional-inch document whose denominator is not a drafting fraction
+	// falls back to decimals. Said out loud: the sheet would otherwise print
+	// at a precision nobody chose. Once per view, not once per dimension.
+	if (
+		display.inchFraction &&
+		display.unit === 'in' &&
+		!INCH_DENOMINATORS.includes(display.inchDenominator)
+	) {
+		warnings.push(
+			`1/${display.inchDenominator} is not a drafting fraction — inch values printed as decimals`
+		);
 	}
 
 	const annEls = [];
 	for (const a of annotations) {
-		if (a?.dual_unit && !isKnownUnit(a.dual_unit)) {
-			warnings.push(`unknown dual unit "${a.dual_unit}" — omitted`);
+		const dual = a?.dual_unit ?? display.dualUnit;
+		if (dual && !isKnownUnit(dual)) {
+			warnings.push(`unknown dual unit "${dual}" — omitted`);
 		}
-		const text = annotationText(a, { unit, documentPrecision });
-		const primitives = layoutAnnotation({ ...a, text }, style, tf, centrePaper, boundsPaper);
+		const parts = annotationTextParts(a, display);
+		warnings.push(...parts.warnings);
+		const primitives = layoutAnnotation(
+			{
+				...a,
+				text: parts.text,
+				textBelow: parts.textBelow,
+				textBoxed: parts.textBoxed,
+				cells: parts.cells
+			},
+			style,
+			tf,
+			centrePaper,
+			boundsPaper
+		);
 		if (primitives.length === 0) {
 			warnings.push(
 				`an annotation of type ${a?.type ?? '?'}${a?.kind?.type ? `/${a.kind.type}` : ''} laid out nothing`
@@ -694,25 +748,50 @@ export function renderViewSvg({
 	return { svg, widthMm, heightMm, warnings };
 }
 
-/** The formatted text an annotation shows, or `''` where it shows none. */
-export function annotationText(a, { unit = 'mm', documentPrecision = 2 } = {}) {
+/**
+ * Everything an annotation PRINTS: the first line, a stacked second line, the
+ * basic-dimension box, and a feature control frame's compartments.
+ *
+ * @param {any} a an `AnnotationLayout`
+ * @param {Partial<import('$lib/units.js').DisplaySettings>} display resolved
+ *   document display settings
+ * @returns {{ text: string, textBelow: string|null, textBoxed: boolean,
+ *             cells: string[]|null, warnings: string[] }}
+ */
+export function annotationTextParts(a, display) {
+	const none = { text: '', textBelow: null, textBoxed: false, cells: null, warnings: [] };
 	switch (a?.type) {
-		case 'Dimension':
-			return formatDimension({
-				value: a.value,
-				kind: a.kind,
-				unit,
-				precision: a.precision ?? null,
-				documentPrecision,
-				dualUnit: a.dual_unit ?? null
-			});
+		case 'Dimension': {
+			const got = formatDimensionText(a, display);
+			return {
+				text: got.lines[0] ?? '',
+				textBelow: got.lines[1] ?? null,
+				textBoxed: got.boxed,
+				cells: null,
+				warnings: got.warnings
+			};
+		}
 		case 'Note':
-			return a.text ?? '';
+			return { ...none, text: a.text ?? '' };
 		case 'Datum':
-			return a.label ?? '';
+			return { ...none, text: a.label ?? '' };
+		case 'FeatureControlFrame': {
+			const got = formatGeometricTolerance(a.tolerance, display);
+			return { ...none, cells: got.cells, warnings: got.warnings };
+		}
 		default:
-			return '';
+			return none;
 	}
+}
+
+/**
+ * The formatted text an annotation shows, or `''` where it shows none — the
+ * FIRST line of [`annotationTextParts`], kept for a caller that wants one
+ * string (a tooltip, a list).
+ */
+export function annotationText(a, { unit = 'mm', documentPrecision = 2, display } = {}) {
+	return annotationTextParts(a, resolveDisplay({ ...(display ?? {}), unit, precision: documentPrecision }))
+		.text;
 }
 
 /** The names of any non-finite numbers in a primitive — a NaN tripwire. */

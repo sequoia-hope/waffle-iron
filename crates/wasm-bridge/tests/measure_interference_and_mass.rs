@@ -339,7 +339,7 @@ fn interference_refuses_a_body_it_cannot_find_and_names_it() {
 }
 
 #[test]
-fn mass_reports_the_density_it_used_and_the_tier_it_is() {
+fn mass_reports_the_density_it_used_or_refuses_to_report_a_mass_at_all() {
     let mut state = EngineState::new();
     let mut kernel = KernelV2Adapter::new();
     let s = 0.01;
@@ -358,33 +358,39 @@ fn mass_reports_the_density_it_used_and_the_tier_it_is() {
         (out["surface_area_m2"].as_f64().unwrap() - 6.0 * s * s).abs() < 1e-18,
         "{out}"
     );
-    // The default density is REPORTED, not assumed silently — the document
-    // model has no material table to read one from.
-    assert_eq!(out["density_kg_m3"], json!(1.0), "{out}");
+    // The body has no MATERIAL, so it has no mass — the four density-scaled
+    // fields are null together and `mass_unavailable` says why.
+    //
+    // This is M1's review correction, and it is the point of the test. Before
+    // it, a body with no material was measured at
+    // `DEFAULT_DENSITY_KG_M3` and reported `mass_kg` equal to the volume, and
+    // the tensor in m⁵ under a field documented as kg·m². "The default
+    // density is reported, not assumed silently" was not enough: a reader who
+    // does not check `density_kg_m3` sees a plausible mass with the right
+    // magnitude and the right printed units, which is the silent wrong answer
+    // P9/P10 forbids.
+    assert!(out["density_kg_m3"].is_null(), "{out}");
+    assert!(out["mass_kg"].is_null(), "{out}");
+    assert!(out["inertia_at_centroid"].is_null(), "{out}");
+    assert!(out["principal_moments"].is_null(), "{out}");
     assert!(
-        (out["mass_kg"].as_f64().unwrap() - v).abs() < 1e-21,
-        "at density 1 the mass is numerically the volume: {out}"
+        out["mass_unavailable"]
+            .as_str()
+            .is_some_and(|w| w.contains("no material")),
+        "{out}"
     );
-    // I_xx = m(b² + c²)/12 for a cube of side s.
-    let want_i = v * (s * s + s * s) / 12.0;
-    for k in 0..3 {
-        let got = out["inertia_at_centroid"][k][k].as_f64().expect("a tensor");
-        assert!(
-            (got - want_i).abs() <= 1e-10 * want_i,
-            "I[{k}][{k}] = {got:e}, want {want_i:e}: {out}"
-        );
-        assert!(
-            (out["principal_moments"][k].as_f64().unwrap() - want_i).abs() <= 1e-10 * want_i,
-            "{out}"
-        );
-    }
+    // The density-FREE quantities are unaffected: a volume, an area, a
+    // centroid and the principal AXES are properties of the shape. (The axes
+    // are the tensor's eigenvectors, and scaling a tensor by a positive
+    // scalar does not move an eigenvector.)
     assert_eq!(
         out["principal_axes"].as_array().map(Vec::len),
         Some(3),
         "{out}"
     );
 
-    // Density scales mass and inertia, and nothing else.
+    // Pass a density and everything appears. Density scales the mass and the
+    // inertia, and nothing else.
     let steel = ok(mass(
         &mut state,
         &mut kernel,
@@ -392,11 +398,34 @@ fn mass_reports_the_density_it_used_and_the_tier_it_is() {
     ));
     assert_eq!(steel["density_kg_m3"], json!(7850.0), "{steel}");
     assert!(
+        steel["mass_unavailable"].is_null(),
+        "no reason when there IS a mass: {steel}"
+    );
+    assert!(
         (steel["mass_kg"].as_f64().unwrap() - 7850.0 * v).abs() <= 1e-12 * 7850.0 * v,
         "{steel}"
     );
+    // I_xx = m(b² + c²)/12 for a cube of side s, at the density asked for.
+    let want_i = 7850.0 * v * (s * s + s * s) / 12.0;
+    for k in 0..3 {
+        let got = steel["inertia_at_centroid"][k][k]
+            .as_f64()
+            .expect("a tensor");
+        assert!(
+            (got - want_i).abs() <= 1e-10 * want_i,
+            "I[{k}][{k}] = {got:e}, want {want_i:e}: {steel}"
+        );
+        assert!(
+            (steel["principal_moments"][k].as_f64().unwrap() - want_i).abs() <= 1e-10 * want_i,
+            "{steel}"
+        );
+    }
     assert_eq!(steel["volume_m3"], out["volume_m3"], "{steel}");
     assert_eq!(steel["centroid"], out["centroid"], "{steel}");
+    assert_eq!(
+        steel["principal_axes"], out["principal_axes"],
+        "the axes do not depend on the density: {steel}"
+    );
 
     // A density that cannot scale anything is refused, not used.
     for bad in [json!(0.0), json!(-1.0), json!("heavy")] {

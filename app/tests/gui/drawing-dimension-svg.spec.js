@@ -218,7 +218,13 @@ test.describe('D3 SVG dimension renderer', () => {
 			},
 			{ texts: 'text.wi-dim-value' }
 		);
-		expect(r.texts).toEqual(['40.00 [1.57 in]']);
+		// FOUR places of inches, not the primary's two. D3 gave both units one
+		// precision and this test pinned `[1.57 in]`, which is the defect D3's
+		// own notes recorded: two places of inches is 0.254 mm, 25× coarser
+		// than the 0.01 mm it restates (ASME Y14.5 §1.6.2). M1 derives the
+		// dual's places instead — see "the dual value has its own precision"
+		// below for the three sources and their order.
+		expect(r.texts).toEqual(['40.00 [1.5748 in]']);
 	});
 
 	test('the dimension line that is drawn is as long as the number that is printed', async ({
@@ -767,18 +773,18 @@ test.describe('D3 SVG dimension renderer', () => {
 		// Forward compatibility: a record from a newer build. A placeholder
 		// glyph on a manufacturing drawing is worse than a visible absence,
 		// so nothing is drawn — but the omission is reported, never silent.
+		//
+		// The stand-in used to be `FeatureControlFrame`, which M1 implements;
+		// a kind this build genuinely does not know has to be one no version
+		// has (a balloon / item-number callout is the plausible next one).
 		const r = await renderAndQuery(
 			page,
-			{
-				layout: plateLayout([
-					{ type: 'FeatureControlFrame', anchor: { type: 'Point', at: [0, 0] } }
-				])
-			},
+			{ layout: plateLayout([{ type: 'Balloon', anchor: { type: 'Point', at: [0, 0] } }]) },
 			{ counts: { ann: 'g.wi-annotations > *' } }
 		);
 		expect(r.counts.ann).toBe(0);
 		expect(r.warnings.length).toBe(1);
-		expect(r.warnings[0]).toContain('FeatureControlFrame');
+		expect(r.warnings[0]).toContain('Balloon');
 	});
 
 	test("a section cap's hole is not hatched, which is what even-odd buys", async ({
@@ -900,5 +906,651 @@ test.describe('D3 SVG dimension renderer', () => {
 		expect(r.counts.curves).toBe(0);
 		expect(r.widthMm).toBeGreaterThan(0);
 		expect(r.heightMm).toBeGreaterThan(0);
+	});
+});
+
+/**
+ * M1 — tolerance types, precision, material (`specs/drawings_and_mbd.md` §9).
+ *
+ * The same discipline as the D3 suite above: the SVG DOM, never pixels, and
+ * every number arrives already resolved in the layout record.
+ *
+ * ## The assertion that matters most
+ *
+ * `a fit prints the ENGINE resolved band` feeds the renderer a fit whose
+ * deviations are deliberately NOT what ISO 286 gives for H7/g6 at ⌀25 (the
+ * real union band is +0.021 / −0.020). A JavaScript lookup table would print
+ * the real one and fail. That is the only way a test can prove the ABSENCE of
+ * a second implementation of what `H7` means.
+ */
+
+/** A `ToleranceLayout`, in METRES as the engine emits it. */
+function tolerance(type, { deviations = null, limits = null, hole, shaft } = {}) {
+	const display = { type };
+	if (hole !== undefined) display.hole = hole;
+	if (shaft !== undefined) display.shaft = shaft;
+	const out = { display };
+	if (deviations) out.deviations = deviations;
+	if (limits) out.limits = limits;
+	return out;
+}
+
+/** The plate's width dimension carrying `tol`. */
+function toleranced(tol, extra = {}) {
+	return { ...WIDTH_DIMENSION, tolerance: tol, ...extra };
+}
+
+/** A ⌀25 bore, for the ISO 286 fit cases — a fit needs a nominal SIZE. */
+const BORE_R = 0.0125;
+const BORE_CIRCLE = {
+	type: 'Circle',
+	center: [0.02, 0.0125],
+	radius: BORE_R,
+	start_angle: 0,
+	end_angle: Math.PI * 2
+};
+function boreLayout(annotation) {
+	return {
+		curves: [edge(BORE_CIRCLE)],
+		bbox: [
+			[0.0075, 0],
+			[0.0325, 0.025]
+		],
+		annotations: [annotation]
+	};
+}
+function boreDiameter(extra) {
+	return {
+		type: 'Dimension',
+		kind: { type: 'Diameter' },
+		anchors: [{ type: 'Curve', curve: BORE_CIRCLE }],
+		value: 2 * BORE_R,
+		precision: 2,
+		placement: { dx: 0, dy: 0 },
+		...extra
+	};
+}
+
+test.describe('M1 tolerance, precision and material', () => {
+	test('a symmetric tolerance prints one ± magnitude at the band precision', async ({
+		page,
+		waffle
+	}) => {
+		await waffle.waitForReady();
+		const r = await renderAndQuery(
+			page,
+			{
+				layout: plateLayout([
+					toleranced(
+						tolerance('Symmetric', { deviations: [1e-4, -1e-4], limits: [0.0401, 0.0399] })
+					)
+				])
+			},
+			{ texts: 'text.wi-dim-value' }
+		);
+		expect(r.warnings).toEqual([]);
+		// 0.1 mm is exact at the dimension's own two places, so the band does
+		// not widen the precision.
+		expect(r.texts).toEqual(['40.00 ±0.10']);
+	});
+
+	test('a bilateral tolerance prints both deviations, finer than the dimension', async ({
+		page,
+		waffle
+	}) => {
+		await waffle.waitForReady();
+		const r = await renderAndQuery(
+			page,
+			{
+				layout: plateLayout([
+					toleranced(
+						tolerance('Deviations', {
+							deviations: [2.1e-5, -5e-6],
+							limits: [0.040021, 0.039995]
+						})
+					)
+				])
+			},
+			{ texts: 'text.wi-dim-value' }
+		);
+		expect(r.warnings).toEqual([]);
+		// THE assertion of the band-precision rule: a ±0.021 band under a
+		// two-place dimension must not print as ±0.02, which is a different
+		// tolerance. And a true minus sign, not a hyphen.
+		expect(r.texts).toEqual(['40.00 +0.021 / −0.005']);
+	});
+
+	test('a zero deviation prints as a bare 0 (ASME Y14.5 §2.3.2)', async ({ page, waffle }) => {
+		await waffle.waitForReady();
+		const r = await renderAndQuery(
+			page,
+			{
+				layout: plateLayout([
+					toleranced(
+						tolerance('Deviations', { deviations: [2.1e-5, 0], limits: [0.040021, 0.04] })
+					)
+				])
+			},
+			{ texts: 'text.wi-dim-value' }
+		);
+		expect(r.warnings).toEqual([]);
+		expect(r.texts).toEqual(['40.00 +0.021 / 0']);
+	});
+
+	test('a limits tolerance stacks the two sizes, upper above lower', async ({ page, waffle }) => {
+		await waffle.waitForReady();
+		const r = await renderAndQuery(
+			page,
+			{
+				layout: plateLayout([
+					toleranced(
+						tolerance('Limits', {
+							deviations: [2.1e-5, -5e-6],
+							limits: [0.040021, 0.039995]
+						})
+					)
+				])
+			},
+			{ texts: 'text.wi-dim-value', attrs: { y: ['text.wi-dim-value', 'y'] } }
+		);
+		expect(r.warnings).toEqual([]);
+		// A limit dimension prints the two SIZES and no nominal, both at the
+		// precision the finer of them needs.
+		expect(r.texts).toEqual(['40.021', '39.995']);
+		// And the upper limit reads ABOVE the lower on the paper: SVG y runs
+		// down, so the first line's y must be the smaller.
+		expect(Number(r.attrs.y[0])).toBeLessThan(Number(r.attrs.y[1]));
+	});
+
+	test('a fit prints its class text after the value', async ({ page, waffle }) => {
+		await waffle.waitForReady();
+		const r = await renderAndQuery(
+			page,
+			{
+				layout: boreLayout(
+					boreDiameter({
+						tolerance: tolerance('Fit', {
+							hole: 'H7',
+							shaft: 'g6',
+							deviations: [2.1e-5, -2e-5],
+							limits: [0.025021, 0.02498]
+						})
+					})
+				)
+			},
+			{ texts: 'text.wi-dim-value' }
+		);
+		expect(r.warnings).toEqual([]);
+		expect(r.texts).toEqual(['⌀25.00 H7/g6']);
+	});
+
+	test('a fit prints the ENGINE resolved band, not an ISO 286 table of its own', async ({
+		page,
+		waffle
+	}) => {
+		await waffle.waitForReady();
+		// Deliberately NOT the ISO 286 band for H7/g6 at ⌀25, which is
+		// +0.021 / −0.020. A JavaScript lookup table would print that, and
+		// this assertion would fail — which is the point: the renderer must
+		// have no way to answer "what does H7 mean" for itself.
+		const r = await renderAndQuery(
+			page,
+			{
+				layout: boreLayout(
+					boreDiameter({
+						tolerance: tolerance('Fit', {
+							hole: 'H7',
+							shaft: 'g6',
+							deviations: [1.23e-4, -4.56e-4],
+							limits: [0.025123, 0.024544]
+						})
+					})
+				),
+				display: { fitBand: true }
+			},
+			{ texts: 'text.wi-dim-value' }
+		);
+		expect(r.warnings).toEqual([]);
+		expect(r.texts).toEqual(['⌀25.00 H7/g6 (+0.123 / −0.456)']);
+	});
+
+	test('a single-sided fit prints only the class it has', async ({ page, waffle }) => {
+		await waffle.waitForReady();
+		const r = await renderAndQuery(
+			page,
+			{
+				layout: boreLayout(
+					boreDiameter({
+						tolerance: tolerance('Fit', {
+							hole: 'H7',
+							deviations: [2.1e-5, 0],
+							limits: [0.025021, 0.025]
+						})
+					})
+				)
+			},
+			{ texts: 'text.wi-dim-value' }
+		);
+		expect(r.warnings).toEqual([]);
+		expect(r.texts).toEqual(['⌀25.00 H7']);
+	});
+
+	test('a basic dimension is drawn in a box', async ({ page, waffle }) => {
+		await waffle.waitForReady();
+		const r = await renderAndQuery(
+			page,
+			{ layout: plateLayout([toleranced(tolerance('Basic'))]) },
+			{ counts: { box: 'rect.wi-dim-basic' }, texts: 'text.wi-dim-value' }
+		);
+		expect(r.warnings).toEqual([]);
+		// The value, unchanged — a basic dimension is the theoretically exact
+		// size, its variation controlled by a feature control frame instead.
+		expect(r.texts).toEqual(['40.00']);
+		expect(r.counts.box).toBe(1);
+	});
+
+	test('a tolerance form this build does not know still prints the value, and says so', async ({
+		page,
+		waffle
+	}) => {
+		await waffle.waitForReady();
+		const r = await renderAndQuery(
+			page,
+			{ layout: plateLayout([toleranced(tolerance('Statistical'))]) },
+			{ texts: 'text.wi-dim-value' }
+		);
+		expect(r.texts).toEqual(['40.00']);
+		expect(r.warnings).toEqual(['a tolerance of display type Statistical was not printed']);
+	});
+
+	test('a feature control frame draws its compartments, symbol and datum letters', async ({
+		page,
+		waffle
+	}) => {
+		await waffle.waitForReady();
+		const r = await renderAndQuery(
+			page,
+			{
+				layout: plateLayout([
+					{
+						type: 'FeatureControlFrame',
+						tolerance: {
+							characteristic: { type: 'Position' },
+							value: { magnitude: 0.0002, dimension: 'Length' },
+							modifier: { type: 'Mmc' },
+							datums: [{ label: 'A' }, { label: 'B', modifier: { type: 'Mmc' } }],
+							zone: { type: 'Diametral' }
+						},
+						anchor: { type: 'Point', at: [0.02, 0.0125] },
+						placement: { dx: 0, dy: 0 }
+					}
+				])
+			},
+			{
+				counts: {
+					cells: 'rect.wi-dim-frame',
+					leader: 'line.wi-dim-leader',
+					dot: 'circle.wi-dim-leader'
+				},
+				texts: 'text.wi-dim-frame',
+				attrs: {
+					x: ['rect.wi-dim-frame', 'x'],
+					w: ['rect.wi-dim-frame', 'width'],
+					h: ['rect.wi-dim-frame', 'height']
+				}
+			}
+		);
+		expect(r.warnings).toEqual([]);
+		// Four compartments: symbol | zone + value + modifier | datum A | datum B.
+		expect(r.counts.cells).toBe(4);
+		expect(r.texts).toEqual(['⌖', '⌀0.20Ⓜ', 'A', 'BⓂ']);
+		// A leader with a dot, because the anchor is a POINT (a vertex or a
+		// face's representative point) rather than a curve — ISO 128-22.
+		expect(r.counts.leader).toBe(2);
+		expect(r.counts.dot).toBe(1);
+		// The compartments abut, and share one height.
+		for (let i = 1; i < 4; i++) {
+			expect(Number(r.attrs.x[i])).toBeCloseTo(
+				Number(r.attrs.x[i - 1]) + Number(r.attrs.w[i - 1]),
+				3
+			);
+			expect(Number(r.attrs.h[i])).toBeCloseTo(Number(r.attrs.h[0]), 6);
+		}
+	});
+
+	test('a form characteristic frame has no datum compartment', async ({ page, waffle }) => {
+		await waffle.waitForReady();
+		const r = await renderAndQuery(
+			page,
+			{
+				layout: plateLayout([
+					{
+						type: 'FeatureControlFrame',
+						tolerance: {
+							characteristic: { type: 'Flatness' },
+							value: { magnitude: 5e-5, dimension: 'Length' },
+							zone: { type: 'Width' }
+						},
+						anchor: { type: 'Curve', curve: line([0, 0], [PLATE_W, 0]) },
+						placement: { dx: 0, dy: 0 }
+					}
+				])
+			},
+			{
+				counts: { cells: 'rect.wi-dim-frame', arrow: 'polygon.wi-dim-arrow' },
+				texts: 'text.wi-dim-frame'
+			}
+		);
+		expect(r.warnings).toEqual([]);
+		expect(r.counts.cells).toBe(2);
+		// A width zone prints no prefix, and 0.05 mm is exact at the
+		// document's own two places, so the band rule adds none.
+		expect(r.texts).toEqual(['⏥', '0.05']);
+		// A curve anchor terminates in an arrowhead, not a dot.
+		expect(r.counts.arrow).toBe(1);
+	});
+
+	test('a frame with no characteristic draws nothing and names it', async ({ page, waffle }) => {
+		await waffle.waitForReady();
+		// A feature control frame says "this characteristic, within this
+		// zone". Without the characteristic there is no control to draw, so
+		// the frame is omitted rather than drawn with an empty compartment —
+		// the same rule an unknown annotation kind follows. Rust's
+		// `GeometricTolerance` cannot be built this way; a record that is
+		// came from something that did not go through it.
+		const r = await renderAndQuery(
+			page,
+			{
+				layout: plateLayout([
+					{
+						type: 'FeatureControlFrame',
+						tolerance: { value: { magnitude: 0.0002, dimension: 'Length' } },
+						anchor: { type: 'Point', at: [0.02, 0.0125] },
+						placement: { dx: 0, dy: 0 }
+					}
+				])
+			},
+			{ counts: { ann: 'g.wi-annotations > *' } }
+		);
+		expect(r.counts.ann).toBe(0);
+		expect(r.warnings).toEqual([
+			'a geometric tolerance characteristic ? has no symbol',
+			'an annotation of type FeatureControlFrame laid out nothing'
+		]);
+	});
+
+	test('the dual value has its own precision, independent of the primary', async ({
+		page,
+		waffle
+	}) => {
+		await waffle.waitForReady();
+		// DERIVED, nobody having said: two places of millimetres is 0.01 mm,
+		// so the inch value needs four to be no coarser (ASME Y14.5 §1.6.2).
+		// Printing it at the primary's two places — D3's behaviour — restated
+		// a 0.01 mm value to 0.254 mm.
+		const derived = await renderAndQuery(
+			page,
+			{ layout: plateLayout([{ ...WIDTH_DIMENSION, dual_unit: 'in' }]) },
+			{ texts: 'text.wi-dim-value' }
+		);
+		expect(derived.warnings).toEqual([]);
+		expect(derived.texts).toEqual(['40.00 [1.5748 in]']);
+
+		// The annotation's own `dual_precision` wins over the derivation.
+		const annotated = await renderAndQuery(
+			page,
+			{ layout: plateLayout([{ ...WIDTH_DIMENSION, dual_unit: 'in', dual_precision: 1 }]) },
+			{ texts: 'text.wi-dim-value' }
+		);
+		expect(annotated.texts).toEqual(['40.00 [1.6 in]']);
+
+		// The document's setting wins over the derivation, and moves neither
+		// the primary's places nor the annotation's own three.
+		const fromDocument = await renderAndQuery(
+			page,
+			{
+				layout: plateLayout([{ ...WIDTH_DIMENSION, precision: 3, dual_unit: 'in' }]),
+				display: { dualPrecision: 2 }
+			},
+			{ texts: 'text.wi-dim-value' }
+		);
+		expect(fromDocument.texts).toEqual(['40.000 [1.57 in]']);
+	});
+
+	test('a document dual unit applies to an annotation that names none', async ({
+		page,
+		waffle
+	}) => {
+		await waffle.waitForReady();
+		const r = await renderAndQuery(
+			page,
+			{
+				layout: plateLayout([{ ...WIDTH_DIMENSION, dual_unit: null }]),
+				display: { dualUnit: 'in' }
+			},
+			{ texts: 'text.wi-dim-value' }
+		);
+		expect(r.warnings).toEqual([]);
+		expect(r.texts).toEqual(['40.00 [1.5748 in]']);
+	});
+
+	test('inch values print as whole-plus-fraction when the document asks', async ({
+		page,
+		waffle
+	}) => {
+		await waffle.waitForReady();
+		const atInches = async (meters, display) =>
+			(
+				await renderAndQuery(
+					page,
+					{
+						layout: plateLayout([{ ...WIDTH_DIMENSION, value: meters }]),
+						unit: 'in',
+						display: { inchFraction: true, ...display }
+					},
+					{ texts: 'text.wi-dim-value' }
+				)
+			).texts[0];
+
+		// 1.5 in exactly: whole plus fraction, joined by an ASCII hyphen.
+		expect(await atInches(1.5 * 0.0254)).toBe('1-1/2');
+		// Under one inch there is no whole part.
+		expect(await atInches(0.375 * 0.0254)).toBe('3/8');
+		// 8/16 reduces to 1/2 — the denominator is a power of two, so the
+		// reduction is by halving.
+		expect(await atInches(2.5 * 0.0254)).toBe('2-1/2');
+		// THE carry: 15.99/16 rounds to 16/16, which is one whole inch. It
+		// must not print `1-16/16` or `0-16/16`.
+		expect(await atInches((15.99 / 16) * 0.0254)).toBe('1');
+		// A finer denominator resolves what 1/16 cannot …
+		expect(await atInches((5 / 64) * 0.0254, { inchDenominator: 64 })).toBe('5/64');
+		// … and at 1/16 the same value rounds to the nearest sixteenth.
+		expect(await atInches((5 / 64) * 0.0254)).toBe('1/16');
+	});
+
+	test('a negative fractional inch carries a true minus, distinct from the separator', async ({
+		page,
+		waffle
+	}) => {
+		await waffle.waitForReady();
+		const r = await renderAndQuery(
+			page,
+			{
+				layout: plateLayout([
+					{
+						type: 'Dimension',
+						kind: { type: 'Ordinate', axis: { type: 'U' } },
+						anchors: [{ type: 'Point', at: [-0.0381, 0.0125] }],
+						value: -1.5 * 0.0254,
+						precision: 2,
+						placement: { dx: 0, dy: 0 }
+					}
+				]),
+				unit: 'in',
+				display: { inchFraction: true }
+			},
+			{ texts: 'text.wi-dim-value' }
+		);
+		expect(r.warnings).toEqual([]);
+		// U+2212 for the sign, an ASCII hyphen between the whole and the
+		// fraction: the two look alike and must not BE alike.
+		expect(r.texts).toEqual(['−1-1/2']);
+	});
+
+	test('a negative decimal value carries the same true minus', async ({ page, waffle }) => {
+		await waffle.waitForReady();
+		const r = await renderAndQuery(
+			page,
+			{
+				layout: plateLayout([
+					{
+						type: 'Dimension',
+						kind: { type: 'Ordinate', axis: { type: 'U' } },
+						anchors: [{ type: 'Point', at: [-0.012, 0.0125] }],
+						value: -0.012,
+						precision: 2,
+						placement: { dx: 0, dy: 0 }
+					}
+				])
+			},
+			{ texts: 'text.wi-dim-value' }
+		);
+		expect(r.warnings).toEqual([]);
+		// U+2212, not `toFixed`'s ASCII hyphen: one minus sign across the
+		// module, so the one in a deviation, in a fractional inch and in an
+		// ordinate is the same character, and the hyphen keeps its one job of
+		// joining `1-1/2`.
+		expect(r.texts).toEqual(['−12.00']);
+	});
+
+	test('a denominator that is not a drafting fraction falls back to a decimal, loudly', async ({
+		page,
+		waffle
+	}) => {
+		await waffle.waitForReady();
+		const r = await renderAndQuery(
+			page,
+			{
+				layout: plateLayout([{ ...WIDTH_DIMENSION, precision: 3 }]),
+				unit: 'in',
+				display: { inchFraction: true, inchDenominator: 10 }
+			},
+			{ texts: 'text.wi-dim-value' }
+		);
+		expect(r.texts).toEqual(['1.575']);
+		expect(r.warnings).toEqual([
+			'1/10 is not a drafting fraction — inch values printed as decimals'
+		]);
+	});
+
+	test('a tolerance band stays a decimal in a fractional-inch document', async ({
+		page,
+		waffle
+	}) => {
+		await waffle.waitForReady();
+		const r = await renderAndQuery(
+			page,
+			{
+				layout: plateLayout([
+					toleranced(
+						tolerance('Symmetric', { deviations: [1e-4, -1e-4], limits: [0.0401, 0.0399] }),
+						{ value: 1.5 * 0.0254 }
+					)
+				]),
+				unit: 'in',
+				display: { inchFraction: true }
+			},
+			{ texts: 'text.wi-dim-value' }
+		);
+		expect(r.warnings).toEqual([]);
+		// The coarsest drafting fraction is 1/64 inch = 0.4 mm, larger than
+		// any band a drawing carries: a ±0.1 mm band rounded to a fraction
+		// would print as 0. So the nominal is a fraction and the band is not.
+		//
+		// Six places because that is the cap: ±0.1 mm is 0.003937007874… in,
+		// which no decimal count represents exactly, and the rule is "the
+		// fewest that do, else the cap". Verbose, and the honest conversion —
+		// rounding it to ±0.004 would be a band 2 % wider than the one the
+		// engine resolved.
+		expect(r.texts).toEqual(['1-1/2 ±0.003937']);
+	});
+
+	test('a non-finite tolerance number prints an em dash, never NaN', async ({ page, waffle }) => {
+		await waffle.waitForReady();
+		// `null` for a deviation is what a record built by something other
+		// than `ToleranceLayout::resolve` would carry.
+		const r = await renderAndQuery(
+			page,
+			{
+				layout: plateLayout([
+					toleranced({ display: { type: 'Deviations' }, deviations: [null, null] })
+				])
+			},
+			{ texts: 'text.wi-dim-value' }
+		);
+		expect(r.texts).toEqual(['40.00 —']);
+		expect(r.warnings).toEqual(['a deviation tolerance carries no finite pair of deviations']);
+		// And nothing anywhere in the document is a NaN.
+		for (const pair of r.allNumbers) expect(pair).not.toContain('NaN');
+	});
+
+	test('an angular tolerance is read in degrees, like its dimension', async ({ page, waffle }) => {
+		await waffle.waitForReady();
+		const r = await renderAndQuery(
+			page,
+			{
+				layout: {
+					curves: [],
+					bbox: [
+						[0, 0],
+						[0.02, 0.02]
+					],
+					annotations: [
+						{
+							type: 'Dimension',
+							kind: { type: 'Angle' },
+							anchors: [
+								{ type: 'Curve', curve: line([0, 0], [0.02, 0]) },
+								{ type: 'Curve', curve: line([0, 0], [0, 0.02]) }
+							],
+							value: Math.PI / 2,
+							precision: 1,
+							// ±0.5°, in RADIANS — the unit the dimension's own
+							// value is in, which is the unit its tolerance shares.
+							tolerance: tolerance('Symmetric', {
+								deviations: [(0.5 * Math.PI) / 180, (-0.5 * Math.PI) / 180],
+								limits: [(90.5 * Math.PI) / 180, (89.5 * Math.PI) / 180]
+							}),
+							placement: { dx: 0, dy: 0 }
+						}
+					]
+				}
+			},
+			{ texts: 'text.wi-dim-value' }
+		);
+		expect(r.warnings).toEqual([]);
+		expect(r.texts).toEqual(['90.0° ±0.5']);
+	});
+
+	test('a toleranced render is still byte-identical under a key reordering', async ({
+		page,
+		waffle
+	}) => {
+		await waffle.waitForReady();
+		const input = {
+			layout: plateLayout([
+				toleranced(
+					tolerance('Deviations', {
+						deviations: [2.1e-5, -5e-6],
+						limits: [0.040021, 0.039995]
+					})
+				)
+			]),
+			display: { dualUnit: 'in' }
+		};
+		const a = await render(page, input);
+		const b = await render(page, reverseKeys(input));
+		expect(b.svg).toBe(a.svg);
+		expect(a.warnings).toEqual([]);
 	});
 });

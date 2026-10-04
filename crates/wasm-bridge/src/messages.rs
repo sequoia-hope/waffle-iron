@@ -1029,6 +1029,15 @@ pub struct DisplaySettings {
     /// separate.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub dual_precision: Option<u8>,
+    /// Print inch sizes as whole-plus-fraction rather than as a decimal.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub inch_fraction: Option<bool>,
+    /// The drafting denominator those fractions round to (2…64).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub inch_denominator: Option<u8>,
+    /// Print an ISO 286 fit's resolved band beside its class.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub fit_band: Option<bool>,
 }
 
 /// One face of a `FacesListed` answer (ICR-3).
@@ -1954,19 +1963,50 @@ pub enum EngineToUi {
     /// integration over the same faces, so they cannot be at different tiers.
     MassMeasured {
         body_id: String,
+        // The DENSITY-FREE quantities. These are always present: a volume, an
+        // area, a centroid and a set of principal AXES are properties of the
+        // shape. (The axes are the tensor's eigenvectors, and scaling a
+        // tensor by a positive scalar does not move an eigenvector, so they
+        // are the same at any density.)
         volume_m3: f64,
         surface_area_m2: f64,
         centroid: [f64; 3],
-        /// About the centroid, in the world axes, scaled by `density_kg_m3`.
-        inertia_at_centroid: [[f64; 3]; 3],
-        /// The tensor's eigenvalues, ascending.
-        principal_moments: [f64; 3],
-        /// The unit eigenvector of each, as rows, right-handed.
+        /// The unit eigenvector of each principal moment, as rows,
+        /// right-handed. Density-free; see above.
         principal_axes: [[f64; 3]; 3],
-        /// The density used — 1 unless the caller passed one, because the
-        /// document model has no material table.
-        density_kg_m3: f64,
-        mass_kg: f64,
+
+        // The DENSITY-SCALED quantities, and `None` means there is no density
+        // to scale them by (M1).
+        //
+        // Before M1 these were always numbers, because a body with no
+        // material was measured at `DEFAULT_DENSITY_KG_M3` — at which
+        // `mass_kg` is NUMERICALLY THE VOLUME and the tensor is in m⁵ under a
+        // field name that says kg·m². That is a silent wrong answer of
+        // exactly the shape P9/P10 forbids: right order of magnitude, right
+        // units printed beside it, nothing to tell a reader it is not a mass.
+        // So a body with no material reports no mass at all, and
+        // `mass_unavailable` says why.
+        // These four are serialized as explicit NULLS rather than omitted
+        // (no `skip_serializing_if`), deliberately: a reader checking
+        // `mass_kg` must see an absence it cannot mistake for a field it
+        // forgot to read, and `undefined` in JavaScript is falsy exactly
+        // like `0`. The `null` is the answer; the key going missing is not.
+        /// About the centroid, in the world axes, kg·m². `None` when there is
+        /// no density.
+        inertia_at_centroid: Option<[[f64; 3]; 3]>,
+        /// The tensor's eigenvalues, ascending. `None` with the tensor.
+        principal_moments: Option<[f64; 3]>,
+        /// The density used, kg/m³: the caller's if it passed one, else the
+        /// body's own material's. `None` when the body has no material — the
+        /// kernel's fallback of 1 is NOT substituted here.
+        density_kg_m3: Option<f64>,
+        /// `density × volume`, kg. `None` with the density.
+        mass_kg: Option<f64>,
+        /// Why there is no mass, when there is none — "this body has no
+        /// material", naming the remedy. Absent when the mass is present.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        mass_unavailable: Option<String>,
+
         method: MeasureMethod,
         /// The tessellation band in meters when `method` is `mesh`; 0 when
         /// the answer is exact, which carries no band.

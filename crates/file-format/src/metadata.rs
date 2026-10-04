@@ -132,6 +132,32 @@ pub struct DocumentMetadata {
     /// derives one that preserves the primary's implied resolution.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub dual_precision: Option<u8>,
+    /// Print inch sizes as a whole number plus a vulgar fraction (`1-1/2`)
+    /// rather than as a decimal (M1).
+    ///
+    /// A document SETTING and not a session preference: a drawing authored in
+    /// fractional inches IS a fractional-inch drawing, and reopening it in
+    /// decimals would print different text for the same geometry — the same
+    /// reason `display_unit` is persisted. Absent ⇒ decimals.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub inch_fraction: Option<bool>,
+    /// The denominator those fractions round to — one of the drafting set
+    /// 2, 4, 8, 16, 32, 64 (M1). Absent ⇒ 16.
+    ///
+    /// Not validated here: the formatter refuses a denominator outside the
+    /// set and falls back to a decimal, loudly, rather than this reader
+    /// quietly substituting 16 and printing a dimension at a precision
+    /// nobody chose.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub inch_denominator: Option<u8>,
+    /// Print an ISO 286 fit's resolved band beside its class
+    /// (`⌀25.00 H7 (+0.021/0)`) rather than the class alone (M1).
+    ///
+    /// Both forms are legal under ISO 129-1 and the choice is the drafter's,
+    /// which is why it is stored rather than decided by the renderer.
+    /// Absent ⇒ the class alone.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub fit_band: Option<bool>,
     /// Unknown keys preserved across load → save (v4 §2.6).
     #[serde(flatten)]
     pub extra: Map<String, Value>,
@@ -155,6 +181,9 @@ impl DocumentMetadata {
             precision: None,
             dual_unit: None,
             dual_precision: None,
+            inch_fraction: None,
+            inch_denominator: None,
+            fit_band: None,
             extra: Map::new(),
         }
     }
@@ -179,6 +208,9 @@ impl From<&ProjectMetadata> for DocumentMetadata {
             precision: None,
             dual_unit: None,
             dual_precision: None,
+            inch_fraction: None,
+            inch_denominator: None,
+            fit_band: None,
             extra: Map::new(),
         }
     }

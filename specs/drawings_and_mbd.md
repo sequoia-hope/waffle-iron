@@ -3109,6 +3109,137 @@ away. That is 3e-21 m on a tolerance and physically nothing, but it is not
 of these types. The round-trip test pins what it can actually promise: the same
 arm with the same fields, and a second round trip as a fixed point.
 
+#### Found in review, and what changed
+
+**A body with no material now has no MASS, not a mass at density 1.** The
+first cut of `measure_mass` kept the kernel's `DEFAULT_DENSITY_KG_M3`
+fallback and reported which density it used — the reasoning being that an
+honest label makes the number safe. It does not. At a density of 1 `mass_kg`
+is numerically the volume in m³, the inertia tensor is in m⁵ under a field
+documented as kg·m², and a reader who does not check `density_kg_m3` sees a
+plausible mass with the right magnitude and the right printed units. That is
+the silent wrong answer P9/P10 forbids, published by a tool. So the four
+DENSITY-SCALED quantities — `mass_kg`, `density_kg_m3`,
+`inertia_at_centroid`, `principal_moments` — are `null` together, with
+`mass_unavailable` naming the remedy, while the density-FREE ones stay: a
+volume, an area, a centroid and the principal AXES are properties of the
+shape. (The axes are the tensor's eigenvectors, and scaling a tensor by a
+positive scalar does not move an eigenvector, so they are the same at any
+density.) The kernel is still called, with 1.0 as an arithmetic placeholder
+whose scaled outputs are discarded — not an assumed material.
+
+Those four serialize as explicit `null`s rather than being omitted, on the
+message AND in the tool's JSON. A missing key is `undefined` in JavaScript
+and `undefined` is falsy exactly like `0`; the `null` is the answer, the key
+going missing is not. The panel's own check learned the same lesson one layer
+down: `Number.isFinite(Number(x))` reads `null` as a density of ZERO, because
+`Number(null)` is 0, so the test for "is there a density" has to be `typeof
+x === 'number'`.
+
+**The inch-fraction pair and the fit-band flag are DOCUMENT settings.** They
+began as session state in `units.js`, which cannot be right: a drawing
+authored in fractional inches IS a fractional-inch drawing, and reopening it
+in decimals prints different text for the same geometry — the same reason
+`display_unit` has always been persisted. `document.inch_fraction`,
+`.inch_denominator` and `.fit_band` join `.precision`, `.dual_unit` and
+`.dual_precision`; all six are additive and defaulted, so they ride the v14
+bump rather than needing one. The denominator is deliberately NOT validated
+on the way in: the formatter refuses one outside the drafting set and falls
+back to a decimal, loudly, where a reader that quietly substituted 16 would
+print a dimension at a precision nobody chose.
+
+#### The renderer and the display settings (the app half)
+
+**`units.js` grew a display-settings record, and the unit is deliberately not
+in the mutable part of it.** `DEFAULT_DISPLAY` states every fallback once —
+unit, precision, input precision, dual unit, dual precision, the inch-fraction
+flag and its denominator — and `resolveDisplay(overrides)` is THE one place
+they are supplied, so a renderer, a dialog and the sheet cannot each decide
+what "two decimal places" means. The precision family is mirrored into the
+module from the store on every `ModelUpdated` (`mirrorSessionDocument` →
+`setDisplay`), unconditionally and not `??`-defaulted, for the reason the
+display UNIT is already mirrored that way: an absent field means "this
+document has none", never "keep the last document's". The engine is the single
+writer; the module is a mirror, and the unit stays out of the mutable record
+so this module cannot become a second copy of the store's.
+
+**Fractional inches, with every rule stated** — because a drawing's reader has
+to be able to predict them. Rounding is to the nearest `1/denominator` with
+ties away from zero (the direction `toFixed` takes, so a fractional sheet and
+a decimal sheet round a half the same way); reduction is by the common factor
+of two, the only factor a power-of-two denominator has; the CARRY happens
+before the whole/fraction split, so 15.99/16 prints `1` and never `1-16/16`;
+a negative value takes a leading U+2212 while the whole-fraction separator
+stays an ASCII hyphen, so the two are distinguishable in the markup even
+though they read alike; and the fraction is ASCII `1/2` rather than U+2044 or
+`½`, because `drawings/pdf.js` encodes WinAnsi and either of those would print
+as `?` in the exported file while looking right on screen. A denominator
+outside the drafting set returns `null` and the caller falls back to a decimal
+AND reports it, rather than printing a number at a precision nobody chose.
+
+**Fractional inches apply to the NOMINAL only.** The coarsest drafting
+fraction, 1/64 inch, is 0.4 mm — larger than any tolerance band a drawing
+carries. A ±0.021 mm band rounded to a fraction would print as `0` and a
+0.2 mm position zone would vanish. So a size and its bracketed dual may be
+fractions; a deviation, a limit of size and a geometric tolerance's zone width
+are always decimals.
+
+**The dual precision has three sources, in order, and the third is derived.**
+The annotation's `dual_precision`, then the document's, then: the fewest
+decimals of the dual unit whose resolution is no coarser than the primary's,
+`q = ceil(p + log10(metres(dual) / metres(primary)))` clamped to 0..6. From
+millimetres at two places that is four places of inches — 0.0025 mm, finer and
+never coarser, which is the direction ASME Y14.5 §1.6.2 cares about. (The
+`− 1e-9` in that expression keeps an exact power of ten, mm ↔ m, from rounding
+up by a float hair and printing a decimal the primary does not imply.)
+
+**A tolerance band prints at its OWN resolution, not the dimension's.** A
+±0.021 band under a two-place dimension must not print `±0.02` — that is a
+different tolerance. A band member prints at the fewest decimals, never below
+the dimension's own and never above six, that represent it exactly; both
+members of a pair share the finer of the two, because ISO 129-1 aligns a
+deviation pair's decimals. "Exactly" is to a relative 1e-9, because the
+numbers arrive as doubles that went through a unit conversion. A zero
+deviation prints as a bare `0`, which is ASME Y14.5 §2.3.2's rule for a
+unilateral tolerance (`25.00 +0.021 / 0`).
+
+**The five forms' arrangement, and why only one is stacked.**
+`formatDimensionText` returns LINES rather than a string, because two forms
+break and a single string cannot say where. `Symmetric` (`25.00 ±0.10`),
+`Deviations` (`25.00 +0.021 / −0.005`) and `Fit` (`⌀25.00 H7/g6`) are inline:
+they are short, and stacking every band costs twice the vertical room for no
+gain in clarity. `Limits` is stacked — `25.021` over `25.000` — because it has
+no nominal to be inline WITH, and printing the pair as `25.021 / 25.000`
+invites reading the second as a deviation. `Basic` is the value with the
+renderer's box around it. A dual unit is appended to EVERY line that carries a
+size, which for the stacked form means both, because each of those lines is a
+size in its own right.
+
+**The renderer decides glyphs and nothing else.** The ISO 1101 characteristic
+symbols, the material-condition circles and the zone prefixes live in
+`format.js` because they are presentation. What it never does is resolve a
+tolerance: `H7` became two numbers in Rust and arrives as `deviations` /
+`limits`, and there is no ISO 286 table in JavaScript — a GUI spec asserts the
+printed band equals the engine's resolved numbers, so it cannot pass against a
+JavaScript table. The same non-invention rule D3 set still holds downstream: a
+tolerance form this build does not know still prints the VALUE and reports the
+omission in `warnings`, rather than drawing a placeholder or nothing.
+
+**Body properties went on the feature tree's body rows, not in a new panel.**
+There is no properties panel in this app and inventing one is a chrome
+decision M1 does not need to make; a per-row disclosure is how
+`AssemblyPanel.svelte` already shows an instance's transform. The disclosure
+shows volume, surface area, mass, centre of mass, the material and the
+`method` the engine reported, and it never presents a mesh number as exact.
+`measureBodyMass` sends `MeasureMass` with NO density, so the material table
+has exactly one reader (the engine) and the panel reads back which density was
+used — a body with no material comes back at 1 kg/m³, where `mass_kg` is
+numerically the volume, and the panel says so rather than printing a
+meaningless mass. `window.__waffle.measureBodyMass(bodyId)` is the door a spec
+uses to compare what the panel PRINTS against what the engine reported, which
+is the only way to pin the m³ → mm³ conversion; getting a factor of 1e9 wrong
+is invisible when you only look at one of the two.
+
 **Still open after this increment:**
 
 - *No `Datum` or `Pmi` FEATURE, so a feature control frame lives only on a
@@ -3145,6 +3276,26 @@ arm with the same fields, and a second round trip as a fixed point.
   rides on `material_set`'s `rename_to`, which means a caller cannot rename
   AND change the density in one undo step. Two steps is the honest answer and
   nobody has asked for one.
+- *There is no settings DIALOG for the six display settings.* They are
+  persisted, mirrored and writable (`SetDisplaySettings`, complete-state, and
+  `window.__waffle.setDisplaySettings`), and the agent link and the console
+  reach them — but nothing in the chrome offers them, so a user cannot turn a
+  document into a fractional-inch one without a tool call. The seam is in
+  place; the dialog is chrome work.
+- *Nothing creates a MATERIAL from the UI.* The per-body picker chooses from
+  the document's table, and the table is filled by `material_set` over the
+  MCP. A new document's table is empty, so the picker has nothing to offer
+  until an agent or the console adds a row. Deliberately not invented in
+  JavaScript: a starter list of materials in the app would be a second source
+  of truth for a density, which is the one number this increment exists to
+  make unambiguous.
+- *Two test-harness cases are red on this branch's base and stay red.*
+  `f11_disjoint_cut_on_r14_bore_succeeds` ("cylinder face with inner loops is
+  outside the KV5a vocabulary") and `gear_flange_union_builds_full_height`
+  are kernel boolean-capability failures. M1's diff touches NO geometry crate
+  — `git diff main...HEAD -- crates/kernel-v2 crates/yang-rs crates/cherchi-rs
+  crates/ssi-rs crates/cad-primitives crates/modeling-ops` is empty — so they
+  are not this increment's, and this increment is not the place to fix them.
 - *An assembly has no materials.* The table is per-Part, so an assembly's mass
   is the sum nobody computes yet; it needs the same instance-scoped plumbing
   Q2, Q6 and a measuring expression in an assembly tab all wait on.

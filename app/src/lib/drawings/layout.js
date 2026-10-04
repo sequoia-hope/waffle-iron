@@ -45,9 +45,36 @@
  *             baseline: 'auto' | 'middle' | 'hanging',
  *             rotateDeg: number, role: string }} TextP
  * @typedef {{ kind: 'box', at: [number, number], width: number, height: number,
- *             role: string }} BoxP
+ *             role: string, rotateDeg?: number }} BoxP
  * @typedef {LineP | ArcP | PolygonP | DotP | TextP | BoxP} Primitive
  */
+
+/**
+ * Line pitch as a multiple of the text height, for the stacked forms (M1).
+ * ISO 3098 sets the minimum line spacing of lettering at 1.4 × the character
+ * height, which is what a stacked limit pair needs to stay legible.
+ */
+export const LINE_SPACING = 1.4;
+
+/**
+ * The nominal advance width of `text` at `textHeight`, in paper mm.
+ *
+ * 0.6 em per character — above Helvetica's digit advance (0.556 em) and above
+ * every glyph a dimension uses except a few letters, so a box sized from this
+ * never clips the number it encloses.
+ *
+ * An ESTIMATE on purpose. `layout.js` is a pure function with no DOM, and §3
+ * of the spec forbids text metrics in Rust, so the only honest source for a
+ * box's width is the style's own text height. A box 10 % too wide is a
+ * cosmetic matter; a measured width that needs the DOM would make the
+ * renderer unusable as a byte oracle.
+ *
+ * @param {string} text
+ * @param {number} textHeight paper mm
+ */
+export function textWidthMm(text, textHeight) {
+	return String(text ?? '').length * textHeight * 0.6;
+}
 
 /**
  * The view-space → paper-space map for a view.
@@ -234,15 +261,14 @@ function layoutLinear(a, style, tf, centrePaper, boundsPaper) {
 	// Text above the dimension line (on the side away from the part), rotated
 	// with it so it reads along the dimension — ISO 129-1's aligned method.
 	const textAt = add(mul(add(f0, f1), 0.5), mul(n, side * (style.textGap + style.textHeight / 2)));
-	out.push({
-		kind: 'text',
-		at: textAt,
-		text: a.text,
-		anchor: 'middle',
-		baseline: 'middle',
-		rotateDeg: readableAngleDeg(d),
-		role: 'value'
-	});
+	out.push(
+		...valueTexts(a, style, textAt, {
+			anchor: 'middle',
+			baseline: 'middle',
+			rotateDeg: readableAngleDeg(d),
+			away: mul(n, side)
+		})
+	);
 	return out;
 }
 
@@ -296,15 +322,13 @@ function layoutRadial(a, style, tf, isDiameter) {
 	}
 	out.push(...arrowhead(onRim, dir, style));
 	out.push({ kind: 'line', from: knee, to: shoulderEnd, role: 'leader' });
-	out.push({
-		kind: 'text',
-		at: add(shoulderEnd, [shoulderSign * style.textGap, -style.textGap]),
-		text: a.text,
-		anchor: shoulderSign > 0 ? 'start' : 'end',
-		baseline: 'auto',
-		rotateDeg: 0,
-		role: 'value'
-	});
+	out.push(
+		...valueTexts(a, style, add(shoulderEnd, [shoulderSign * style.textGap, -style.textGap]), {
+			anchor: shoulderSign > 0 ? 'start' : 'end',
+			baseline: 'auto',
+			rotateDeg: 0
+		})
+	);
 	return out;
 }
 
@@ -365,19 +389,21 @@ function layoutAngular(a, style, tf) {
 	out.push(...arrowhead(at(a0), tangent(a0, -1), style));
 	out.push(...arrowhead(at(a0 + sweep), tangent(a0 + sweep, 1), style));
 	const midDeg = a0 + sweep / 2;
-	const textAt = add(apex, [
-		(radius + style.textGap + style.textHeight / 2) * Math.cos((midDeg * Math.PI) / 180),
-		(radius + style.textGap + style.textHeight / 2) * Math.sin((midDeg * Math.PI) / 180)
+	const outward = /** @type {[number, number]} */ ([
+		Math.cos((midDeg * Math.PI) / 180),
+		Math.sin((midDeg * Math.PI) / 180)
 	]);
-	out.push({
-		kind: 'text',
-		at: textAt,
-		text: a.text,
-		anchor: 'middle',
-		baseline: 'middle',
-		rotateDeg: 0,
-		role: 'value'
-	});
+	const textAt = add(apex, mul(outward, radius + style.textGap + style.textHeight / 2));
+	out.push(
+		...valueTexts(a, style, textAt, {
+			anchor: 'middle',
+			baseline: 'middle',
+			rotateDeg: 0,
+			// Away from the arc is radially outward, so a stacked pair that
+			// would grow back onto the arc is pushed clear of it instead.
+			away: outward
+		})
+	);
 	return out;
 }
 
@@ -399,15 +425,12 @@ function layoutOrdinate(a, style, tf) {
 			to: end,
 			role: 'extension'
 		},
-		{
-			kind: 'text',
-			at: add(end, mul(away, style.textGap)),
-			text: a.text,
+		...valueTexts(a, style, add(end, mul(away, style.textGap)), {
 			anchor: axisU ? 'middle' : 'start',
 			baseline: axisU ? 'auto' : 'middle',
 			rotateDeg: 0,
-			role: 'value'
-		}
+			away
+		})
 	];
 }
 
@@ -519,6 +542,172 @@ function layoutDatum(a, style, tf) {
 			role: 'datum'
 		}
 	];
+}
+
+/**
+ * The text primitives for an annotation's value: one line, or two for the
+ * stacked forms, plus the basic-dimension box when the format asks (M1).
+ *
+ * ## Which way "down" is for the second line
+ *
+ * The second line must read BELOW the first, and the first line's rotation is
+ * whatever `readableAngleDeg` chose. Rotating the text's own local down,
+ * `[0, 1]`, by that angle gives `[−sin θ, cos θ]`; because the readable angle
+ * is always within ±90°, `cos θ ≥ 0`, so that vector always points down the
+ * paper. Deriving it from the rotation rather than from the dimension's side
+ * is what keeps a dimension above the part and one below it both stacking the
+ * same way round.
+ *
+ * ## And why the block sometimes shifts
+ *
+ * The anchor a single line uses is one text gap clear of the dimension line.
+ * Stacking from there puts the second line ON the dimension line whenever the
+ * stack happens to run toward it. So when it does (`down` points back toward
+ * the line), the whole block is pushed one line further out — which leaves
+ * the line NEAREST the dimension line exactly where a single line would have
+ * sat, whichever way round the pair ends up.
+ *
+ * @param {any} a the annotation, carrying `text`, `textBelow`, `textBoxed`
+ * @param {[number, number]} at where a single line would go
+ * @param {object} opts
+ * @param {[number, number]|null} [opts.away] the paper direction away from the
+ *   dimension line; omit for a leadered form, which has nothing to collide with
+ * @returns {Primitive[]}
+ */
+function valueTexts(a, style, at, { anchor, baseline, rotateDeg, away = null, role = 'value' }) {
+	const theta = (rotateDeg * Math.PI) / 180;
+	const down = /** @type {[number, number]} */ ([-Math.sin(theta), Math.cos(theta)]);
+	const lineHeight = style.textHeight * LINE_SPACING;
+	const second = a?.textBelow ? String(a.textBelow) : '';
+
+	let first = at;
+	if (second && away && dot(down, away) < 0) first = add(at, mul(down, -lineHeight));
+
+	const out = /** @type {Primitive[]} */ ([]);
+	// The box goes FIRST so the text is painted over it, not under it.
+	if (a?.textBoxed) out.push(basicBox(first, a.text, style, { anchor, baseline, rotateDeg }));
+	out.push({
+		kind: 'text',
+		at: first,
+		text: a?.text ?? '',
+		anchor,
+		baseline,
+		rotateDeg,
+		role
+	});
+	if (second) {
+		out.push({
+			kind: 'text',
+			at: add(first, mul(down, lineHeight)),
+			text: second,
+			anchor,
+			baseline,
+			rotateDeg,
+			role
+		});
+	}
+	return out;
+}
+
+/**
+ * The rectangle around a BASIC dimension (ISO 129-1 / ASME Y14.5 §2.11: a
+ * theoretically exact dimension is enclosed in a box, its variation being
+ * controlled by a feature control frame instead).
+ *
+ * Sized from the style's text height via [`textWidthMm`] and placed to match
+ * the text's own anchor and baseline, so the box lands around the glyphs
+ * rather than beside them. The baseline cases are approximations of the
+ * font's ascent — `middle` is exact by construction, `auto` (alphabetic) puts
+ * the glyphs above the anchor, `hanging` below.
+ */
+function basicBox(at, text, style, { anchor, baseline, rotateDeg }) {
+	const pad = style.textGap;
+	const width = textWidthMm(text, style.textHeight) + 2 * pad;
+	const height = style.textHeight * LINE_SPACING;
+	const x = anchor === 'middle' ? at[0] - width / 2 : anchor === 'end' ? at[0] - width + pad : at[0] - pad;
+	const y = baseline === 'middle' ? at[1] - height / 2 : baseline === 'hanging' ? at[1] : at[1] - height * 0.8;
+	return {
+		kind: 'box',
+		at: /** @type {[number, number]} */ ([x, y]),
+		width,
+		height,
+		role: 'basic',
+		rotateDeg
+	};
+}
+
+/**
+ * A feature control frame (M1, ISO 1101 §6): a leader with an arrowhead on
+ * the toleranced feature, and a compartmented rectangle holding the
+ * characteristic symbol, the zone and value, and one compartment per datum.
+ *
+ * The frame is two character heights tall, which is ISO 1101's own
+ * proportion, and each compartment is as wide as its text needs plus a gap
+ * each side — never narrower than the frame is tall, so the symbol
+ * compartment stays square-ish rather than collapsing onto its single glyph.
+ *
+ * The frame grows in the direction the leader's shoulder runs, so a frame
+ * placed to the left of its feature is not drawn back across it.
+ */
+function layoutFeatureControlFrame(a, style, tf) {
+	const p = witnessPoint(a.anchor);
+	const cells = Array.isArray(a.cells) ? a.cells.map((c) => String(c ?? '')) : [];
+	if (!p || cells.length === 0) return [];
+	const q = tf.toPaper(p);
+	const placement = paperPlacement(a.placement, tf);
+	const dir =
+		Math.hypot(placement[0], placement[1]) > 0
+			? norm(placement)
+			: /** @type {[number, number]} */ ([
+					Math.cos((style.leaderAngleDeg * Math.PI) / 180),
+					Math.sin((style.leaderAngleDeg * Math.PI) / 180)
+				]);
+	const knee = add(q, mul(dir, style.dimensionOffset));
+	const shoulderSign = dir[0] >= 0 ? 1 : -1;
+	const shoulder = add(knee, [shoulderSign * style.leaderShoulder, 0]);
+
+	const out = /** @type {Primitive[]} */ ([
+		{ kind: 'line', from: q, to: knee, role: 'leader' },
+		{ kind: 'line', from: knee, to: shoulder, role: 'leader' }
+	]);
+	// A frame leader terminates on the feature the same way a dimension does:
+	// an arrow on an edge or a vertex, a dot on a face (ISO 128-22), which the
+	// anchor's own shape tells us.
+	if (a.anchor?.type === 'Point') {
+		out.push({ kind: 'dot', at: q, radius: style.dotRadius, role: 'leader' });
+	} else {
+		out.push(...arrowhead(q, mul(dir, -1), style));
+	}
+
+	const height = style.textHeight * 2;
+	const pad = style.textGap;
+	const widths = cells.map((c) =>
+		Math.max(height * 0.8, textWidthMm(c, style.textHeight) + 2 * pad)
+	);
+	const total = widths.reduce((s, w) => s + w, 0);
+	let x = shoulderSign > 0 ? shoulder[0] : shoulder[0] - total;
+	const y = shoulder[1] - height / 2;
+	for (let i = 0; i < cells.length; i++) {
+		out.push({
+			kind: 'box',
+			at: /** @type {[number, number]} */ ([x, y]),
+			width: widths[i],
+			height,
+			role: 'frame',
+			rotateDeg: 0
+		});
+		out.push({
+			kind: 'text',
+			at: /** @type {[number, number]} */ ([x + widths[i] / 2, y + height / 2]),
+			text: cells[i],
+			anchor: 'middle',
+			baseline: 'middle',
+			rotateDeg: 0,
+			role: 'frame'
+		});
+		x += widths[i];
+	}
+	return out;
 }
 
 /**
@@ -634,7 +823,9 @@ function lineIntersection(a0, a1, b0, b1) {
  *
  * `a.text` must already be the formatted value — formatting is `format.js`'s
  * job and happens before layout, so this function never sees a number it
- * could round differently from the one printed.
+ * could round differently from the one printed. M1 adds three companions on
+ * the same terms: `textBelow` (the second line of a stacked form), `textBoxed`
+ * (a basic dimension) and `cells` (a feature control frame's compartments).
  *
  * @param {any} a an `AnnotationLayout` with a `text` field added
  * @param {import('./style.js').DrawingStyle} style
@@ -667,6 +858,8 @@ export function layoutAnnotation(a, style, tf, centrePaper, boundsPaper) {
 			return layoutCentreLine(a, style, tf);
 		case 'Datum':
 			return layoutDatum(a, style, tf);
+		case 'FeatureControlFrame':
+			return layoutFeatureControlFrame(a, style, tf);
 		default:
 			// An annotation kind this build does not know. Drawing nothing is
 			// the only honest option — a placeholder glyph on a manufacturing

@@ -1,5 +1,5 @@
 {
-  "manifest_hash": "8e2f6c80b358db532f06498cbffba49cfe3ab5f7546c51fbe23a33ee18b11ff0",
+  "manifest_hash": "44dffa91e5db32635b58f19e758c2c9761a163a541617d2133dc5671b8c597b8",
   "protocol": "waffle-agent-link/1",
   "tools": [
     {
@@ -1894,7 +1894,7 @@
         "readOnlyHint": true,
         "title": "Measure mass"
       },
-      "description": "Volume, surface area, centroid and the inertia tensor about the centroid of one body, in SI (m³, m², meters, kg·m²). method is \"exact\" when every face was integrated in closed form (planar faces, cylinder and cone bands, and the circular caps and bore walls a boolean leaves behind), else \"mesh\" and chord_bound_m is the tessellation band — a mesh volume is LOW by the chord deficit, never high. Omit density_kg_m3 and the BODY'S OWN MATERIAL supplies it (material_set / body_material_set, M1); a body with no material falls back to 1, where mass_kg is numerically the volume rather than a mass — the answer always says which density it used, which is how you tell. A body naming a material that has been deleted is REFUSED rather than measured at the fallback. Pass density_kg_m3 explicitly to ask what it would weigh in something else.",
+      "description": "Volume, surface area, centroid and the inertia tensor about the centroid of one body, in SI (m³, m², meters, kg·m²). method is \"exact\" when every face was integrated in closed form (planar faces, cylinder and cone bands, and the circular caps and bore walls a boolean leaves behind), else \"mesh\" and chord_bound_m is the tessellation band — a mesh volume is LOW by the chord deficit, never high. Omit density_kg_m3 and the BODY'S OWN MATERIAL supplies it (material_set / body_material_set, M1). A body with NO material has no mass: density_kg_m3, mass_kg, inertia_at_centroid and principal_moments all come back null with mass_unavailable saying why, rather than being measured at a default density of 1 where mass_kg would be numerically the volume. The density-free quantities — volume, surface area, centroid and the principal AXES — are always present. A body naming a material that has been deleted is refused outright. Pass density_kg_m3 explicitly to ask what it would weigh in something else.",
       "inputSchema": {
         "additionalProperties": false,
         "properties": {
@@ -1933,9 +1933,14 @@
             "type": "number"
           },
           "density_kg_m3": {
-            "type": "number"
+            "description": "The density used. Null when the body has no material.",
+            "type": [
+              "number",
+              "null"
+            ]
           },
           "inertia_at_centroid": {
+            "description": "kg·m². Null when the body has no material (M1).",
             "items": {
               "items": {
                 "type": "number"
@@ -1944,10 +1949,21 @@
             },
             "maxItems": 3,
             "minItems": 3,
-            "type": "array"
+            "type": [
+              "array",
+              "null"
+            ]
           },
           "mass_kg": {
-            "type": "number"
+            "description": "Null when there is no density.",
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "mass_unavailable": {
+            "description": "Present instead of a mass when the body has no material; names the remedy.",
+            "type": "string"
           },
           "method": {
             "enum": [
@@ -1957,6 +1973,7 @@
             "type": "string"
           },
           "principal_axes": {
+            "description": "Density-free: always present (eigenvectors do not move under scaling).",
             "items": {
               "items": {
                 "type": "number"
@@ -1968,12 +1985,16 @@
             "type": "array"
           },
           "principal_moments": {
+            "description": "Null with the tensor.",
             "items": {
               "type": "number"
             },
             "maxItems": 3,
             "minItems": 3,
-            "type": "array"
+            "type": [
+              "array",
+              "null"
+            ]
           },
           "surface_area_m2": {
             "type": "number"

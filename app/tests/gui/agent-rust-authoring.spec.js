@@ -280,7 +280,16 @@ test.describe('Authoring tools run in the engine and still answer as the page di
 				// title block, and the drawing's projection standard, which
 				// D4a had no setter for at all. export_pdf joins export_svg in
 				// the PAGE, so like it, it is in neither routing table.
-				'drawing_sheet_edit'
+				'drawing_sheet_edit',
+				// M1's material trio (`specs/drawings_and_mbd.md` §9,
+				// 2026-10-04). All three are authoring tools: each is one
+				// undo step and each changes what is in the file — the table
+				// and the per-body assignment both persist, and a material
+				// change re-measures, because `mass(body)` is a quantity an
+				// expression may read. `material_list` is read-only and lives
+				// in the other spec.
+				'material_set',
+				'body_material_set'
 			].sort()
 		);
 	});

@@ -22,7 +22,7 @@
  * executor delivers the engine's, so an agent cannot tell the two apart.
  */
 import {
-	getDocumentDisplayUnit,
+	getDocumentDisplaySettings,
 	getDrawingSheet,
 	getDrawingStatus,
 	triggerFileDownload,
@@ -76,11 +76,10 @@ function renderedSheet(args, what) {
 			{ sheet_id: args.sheet_id ?? null }
 		);
 	}
-	const rendered = renderSheetSvg({
-		sheet,
-		unit: getDocumentDisplayUnit(),
-		documentPrecision: 2
-	});
+	// The SAME display settings the sheet on screen uses (M1): an exported
+	// drawing that rounded differently from the one a user approved would be a
+	// different drawing under the same name.
+	const rendered = renderSheetSvg({ sheet, display: getDocumentDisplaySettings() });
 	if (rendered.views === 0) {
 		// An empty sheet is not a drawing. Refused rather than delivered: a
 		// blank page is indistinguishable from a successful export of a part

@@ -24,6 +24,7 @@ import { getSetting, getSettings, updateSettings } from '$lib/ui/settings.svelte
 import { deleteDraft, getDraft, listDrafts, pruneDrafts, putDraft, rememberTabKey, tabKey } from '$lib/storage/drafts.js';
 import { isDatumPlaneRef, getPlaneIdFromRef, getPlaneById, resolvePlane, BUILTIN_PLANES } from './planes.js';
 import { renderViewSvg } from '$lib/drawings/svg.js';
+import { DEFAULT_DISPLAY, resolveDisplay, setDisplay } from '$lib/units.js';
 import { FORMAT_VERSION, MIN_READER_VERSION, fileTooNew, editDocumentMeta } from './format.js';
 import { fetchTestCases, fetchTestCase, createTestCase as apiCreateTestCase, deleteTestCase as apiDeleteTestCase } from './testCaseApi.js';
 
@@ -490,6 +491,24 @@ let projectName = $state('Untitled');
 
 /** @type {string} Document display unit (mm, cm, m, in, ft) */
 let documentDisplayUnit = $state('mm');
+/**
+ * The document's other DISPLAY settings (M1): precision, the dual unit and
+ * its own precision, as the engine reports them on every `ModelUpdated`.
+ *
+ * `$state` so a sheet re-renders when they change, and mirrored into
+ * `units.js` (the one place the fallbacks live) so a formatter called without
+ * them still reads the document's. The engine is authoritative: this is a
+ * mirror of `DocumentInfo.display`, never a second writer.
+ * @type {{ precision: number, dualUnit: string|null, dualPrecision: number|null }}
+ */
+let documentDisplay = $state({
+	precision: DEFAULT_DISPLAY.precision,
+	dualUnit: DEFAULT_DISPLAY.dualUnit,
+	dualPrecision: DEFAULT_DISPLAY.dualPrecision,
+	inchFraction: DEFAULT_DISPLAY.inchFraction,
+	inchDenominator: DEFAULT_DISPLAY.inchDenominator,
+	fitBand: DEFAULT_DISPLAY.fitBand
+});
 
 // -- Document model state --
 
@@ -1241,6 +1260,17 @@ export async function initEngine() {
 			// then this is how the renderer is exercised against the layout
 			// records `waffle_types::annotation::layout` defines.
 			renderDrawingSvg: (input) => renderViewSvg(input ?? {}),
+			// M1: the raw `MassMeasured` for one body — the same accessor the
+			// body-properties disclosure reads. A door so a spec can compare
+			// what the panel PRINTS against the numbers the engine reported,
+			// which is the only way to pin the unit conversion (m³ → mm³ is a
+			// factor of 1e9, and getting it wrong is invisible in isolation).
+			measureBodyMass: (bodyId) => measureBodyMass(bodyId),
+			// M1: the document's display settings, read and written. There is
+			// no settings dialog yet, so this is also how a spec puts a
+			// document into fractional inches and sees the sheet follow.
+			getDisplaySettings: () => getDocumentDisplaySettings(),
+			setDisplaySettings: (patch) => setDocumentDisplaySettings(patch),
 			getMeshes: () => meshes.map(m => ({
 				featureId: m.featureId,
 				bodyId: m.bodyId ?? null,
@@ -7231,6 +7261,126 @@ export function setDocumentDisplayUnit(unit) {
 	}
 }
 
+/**
+ * The document's DISPLAY SETTINGS (M1): the unit this store owns, plus the
+ * precision family `units.js` holds the fallbacks for.
+ *
+ * One function so a renderer, a dialog and the drawing sheet cannot each
+ * decide what two decimal places means. The unit travels on
+ * `SetDocumentMeta.display_unit`; the precision family travels on
+ * `DocumentInfo.display` (`SetDisplaySettings` is the engine-side writer), and
+ * both are mirrors of what the engine reports. `units.js` supplies whatever
+ * neither names.
+ *
+ * @param {Partial<import('$lib/units.js').DisplaySettings>} [overrides]
+ */
+export function getDocumentDisplaySettings(overrides) {
+	return resolveDisplay({
+		unit: documentDisplayUnit,
+		...documentDisplay,
+		...(overrides ?? {})
+	});
+}
+
+/**
+ * Volume, area, mass and centre of mass of one body (M1's properties
+ * disclosure), from the engine's `MeasureMass` query.
+ *
+ * `density_kg_m3` is deliberately NOT sent: the engine reads the body's
+ * assigned material and reports back which density it used, so the material
+ * table has exactly one reader. A body with no material measures at 1 kg/m³,
+ * which makes `mass_kg` numerically the volume — the caller tells them apart
+ * by the returned `density_kg_m3`, not by guessing.
+ *
+ * @param {string} bodyId
+ * @returns {Promise<any|null>} the `MassMeasured` response, or null when the
+ *   engine declined (it reports its own error through the usual toast path)
+ */
+export async function measureBodyMass(bodyId) {
+	if (!bridge || !engineReady || !bodyId) return null;
+	const response = await bridge.send({ type: 'MeasureMass', body_id: bodyId });
+	if (response?.type !== 'MassMeasured') return null;
+	return response;
+}
+
+/**
+ * Volume, area and topology counts of one body, WITHOUT a density
+ * (`MeasureBody`, ICR-1).
+ *
+ * The fallback for a body whose mass cannot be measured: a body with no
+ * material still has a volume, and losing the geometry rows because the mass
+ * is unavailable would be a worse answer than naming the one missing number.
+ *
+ * @param {string} bodyId
+ */
+export async function measureBodyGeometry(bodyId) {
+	if (!bridge || !engineReady || !bodyId) return null;
+	const response = await bridge.send({ type: 'MeasureBody', body_id: bodyId });
+	if (response?.type !== 'BodyMeasured') return null;
+	return response;
+}
+
+/**
+ * The document's material table (M1) — the engine's own, off the feature
+ * tree. There is no material list in JavaScript: a second one would be a
+ * second answer to what a density is.
+ */
+export function getMaterials() {
+	return featureTree?.materials ?? [];
+}
+
+/**
+ * Write the document's dimension display settings (M1): precision, the dual
+ * unit and its precision, the inch-fraction pair and the fit-band flag.
+ *
+ * COMPLETE STATE, like the engine message it sends: `patch` is merged over
+ * what the document has now and the whole record goes across, so an absent
+ * field CLEARS. That is what makes "no dual unit any more" expressible —
+ * with per-field optionality there would be no way to say it.
+ *
+ * Persisted on the document (`document.precision` and friends), so a
+ * fractional-inch drawing reopens as one. There is no settings DIALOG yet;
+ * this is the seam one would call, and the console and the agent link reach
+ * it today.
+ *
+ * @param {Partial<import('$lib/units.js').DisplaySettings>} patch
+ */
+export async function setDocumentDisplaySettings(patch) {
+	if (!bridge || !engineReady) return false;
+	const next = { ...documentDisplay, ...(patch ?? {}) };
+	log('action', 'Set display settings', next);
+	const response = await bridge.send({
+		type: 'SetDisplaySettings',
+		settings: {
+			precision: next.precision ?? null,
+			dual_unit: next.dualUnit ?? null,
+			dual_precision: next.dualPrecision ?? null,
+			inch_fraction: next.inchFraction ?? null,
+			inch_denominator: next.inchDenominator ?? null,
+			fit_band: next.fitBand ?? null
+		}
+	});
+	return response?.type === 'ModelUpdated';
+}
+
+/**
+ * Assign `material` (a name from [`getMaterials`]) to one body, or clear it
+ * with `null`. Undoable, and re-measures — `mass(body)` is a quantity an
+ * expression may read.
+ *
+ * @param {string} bodyId
+ * @param {string|null} material
+ */
+export async function setBodyMaterial(bodyId, material) {
+	if (!bridge || !engineReady || !bodyId) return false;
+	log('action', 'Assign body material', { bodyId, material });
+	const response = await bridge.send({
+		type: 'EditMaterials',
+		edit: { type: 'assign_body', body_id: bodyId, material: material ?? null }
+	});
+	return response?.type === 'ModelUpdated';
+}
+
 // -- Document model --
 
 export function getActiveDocId() { return activeDocId; }
@@ -8428,6 +8578,25 @@ function mirrorSessionDocument(info) {
 	// means mm — not "keep whatever the previous document used". (This used to
 	// lean on a second `.waffle` parser in the load path to do the reset.)
 	documentDisplayUnit = info.display_unit ?? 'mm';
+	// The rest of the display settings (M1), on the same unconditional terms
+	// and for the same reason: the session reports `display` on every
+	// `DocumentInfo`, so an absent field means "this document has none", not
+	// "keep the last document's". `null` is how `resolveDisplay` is told to
+	// fall back to its own default, which is why these are not `??`-defaulted
+	// here — one place states the fallbacks and it is `units.js`.
+	documentDisplay = {
+		precision: info.display?.precision ?? DEFAULT_DISPLAY.precision,
+		dualUnit: info.display?.dual_unit ?? null,
+		dualPrecision: info.display?.dual_precision ?? null,
+		// M1 review: the inch-fraction pair and the fit-band flag are
+		// DOCUMENT settings too, not session preferences — a drawing authored
+		// in fractional inches IS one, and reopening it in decimals would
+		// print different text for the same geometry.
+		inchFraction: info.display?.inch_fraction ?? DEFAULT_DISPLAY.inchFraction,
+		inchDenominator: info.display?.inch_denominator ?? DEFAULT_DISPLAY.inchDenominator,
+		fitBand: info.display?.fit_band ?? DEFAULT_DISPLAY.fitBand
+	};
+	setDisplay(documentDisplay);
 	// `created` is NOT mirrored. It is the host's to latch (C3c) and the
 	// engine only echoes it back — through a serializer that drops the
 	// milliseconds, so mirroring it rewrites "…:05.000Z" as "…:05Z" and the

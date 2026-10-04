@@ -130,12 +130,21 @@ export function placedIn(svg, { x, y, widthMm, heightMm }) {
  *   with each view carrying its `cache` (a `ViewLayout`)
  * @param {string} [input.unit] display unit for dimension text
  * @param {number} [input.documentPrecision]
+ * @param {Partial<import('$lib/units.js').DisplaySettings>} [input.display] M1:
+ *   the document's display settings, passed through to every view unchanged
  * @param {Partial<import('./style.js').DrawingStyle>} [input.style]
  * @param {boolean} [input.border] draw the sheet's border frame (default true)
  * @returns {{ svg: string, widthMm: number, heightMm: number, views: number,
  *            warnings: string[] }}
  */
-export function renderSheetSvg({ sheet, unit = 'mm', documentPrecision = 2, style, border = true }) {
+export function renderSheetSvg({
+	sheet,
+	unit = undefined,
+	documentPrecision = undefined,
+	display = undefined,
+	style,
+	border = true
+}) {
 	const warnings = [];
 	const [widthMm, heightMm] = sheetExtentMm(sheet);
 	const views = sheet?.views ?? [];
@@ -157,6 +166,7 @@ export function renderSheetSvg({ sheet, unit = 'mm', documentPrecision = 2, styl
 			style,
 			unit,
 			documentPrecision,
+			display,
 			title: view.name ?? null,
 			caption: viewCaption(view),
 			paper: false,

@@ -26,15 +26,17 @@
 		/** Partial `DrawingStyle` overrides — the document-settings seam. */
 		style = undefined,
 		/** Display unit for dimension text. */
-		unit = 'mm',
-		documentPrecision = 2,
+		unit = undefined,
+		documentPrecision = undefined,
+		/** M1: the document's display settings (precision, dual unit, …). */
+		display = undefined,
 		title = null,
 		/** Called with the render's warnings, if any. */
 		onwarnings = undefined
 	} = $props();
 
 	let rendered = $derived(
-		renderViewSvg({ layout, scale, style, unit, documentPrecision, title })
+		renderViewSvg({ layout, scale, style, unit, documentPrecision, display, title })
 	);
 
 	$effect(() => {

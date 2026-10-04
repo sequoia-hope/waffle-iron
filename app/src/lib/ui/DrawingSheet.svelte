@@ -13,7 +13,11 @@
 	 * does: the open Drawing tab's evaluation is store state, and a second
 	 * copy passed down would be the next thing to go stale.
 	 */
-	import { getDocumentDisplayUnit, getDrawingSheet, getDrawingStatus } from '$lib/engine/store.svelte.js';
+	import {
+		getDocumentDisplaySettings,
+		getDrawingSheet,
+		getDrawingStatus
+	} from '$lib/engine/store.svelte.js';
 	import { renderSheetSvg } from '$lib/drawings/sheet.js';
 
 	let { sheetId = null } = $props();
@@ -22,11 +26,9 @@
 	let sheet = $derived(getDrawingSheet(sheetId));
 	let rendered = $derived(
 		sheet
-			? renderSheetSvg({
-					sheet,
-					unit: getDocumentDisplayUnit(),
-					documentPrecision: 2
-				})
+			? // M1: one display-settings record for the whole sheet — the
+				// document's unit and precision rather than a `2` written here.
+				renderSheetSvg({ sheet, display: getDocumentDisplaySettings() })
 			: null
 	);
 </script>

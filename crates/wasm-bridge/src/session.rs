@@ -536,6 +536,9 @@ impl DocumentSession {
         self.document.precision = settings.precision;
         self.document.dual_unit = settings.dual_unit.clone();
         self.document.dual_precision = settings.dual_precision;
+        self.document.inch_fraction = settings.inch_fraction;
+        self.document.inch_denominator = settings.inch_denominator;
+        self.document.fit_band = settings.fit_band;
         self.commit();
     }
 
@@ -545,6 +548,9 @@ impl DocumentSession {
             precision: self.document.precision,
             dual_unit: self.document.dual_unit.clone(),
             dual_precision: self.document.dual_precision,
+            inch_fraction: self.document.inch_fraction,
+            inch_denominator: self.document.inch_denominator,
+            fit_band: self.document.fit_band,
         }
     }
 

@@ -1626,10 +1626,34 @@
             "null"
           ]
         },
+        "fit_band": {
+          "description": "Print an ISO 286 fit's resolved band beside its class\n(`⌀25.00 H7 (+0.021/0)`) rather than the class alone (M1).\n\nBoth forms are legal under ISO 129-1 and the choice is the drafter's,\nwhich is why it is stored rather than decided by the renderer.\nAbsent ⇒ the class alone.",
+          "type": [
+            "boolean",
+            "null"
+          ]
+        },
         "id": {
           "description": "Stable identity of the document (v4 §2.1): survives rename, provider\nmove and fork. Writers always emit it; a reader that finds it absent\nmints one (this serde default) and the loader warns.",
           "format": "uuid",
           "type": "string"
+        },
+        "inch_denominator": {
+          "description": "The denominator those fractions round to — one of the drafting set\n2, 4, 8, 16, 32, 64 (M1). Absent ⇒ 16.\n\nNot validated here: the formatter refuses a denominator outside the\nset and falls back to a decimal, loudly, rather than this reader\nquietly substituting 16 and printing a dimension at a precision\nnobody chose.",
+          "format": "uint8",
+          "maximum": 255,
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "inch_fraction": {
+          "description": "Print inch sizes as a whole number plus a vulgar fraction (`1-1/2`)\nrather than as a decimal (M1).\n\nA document SETTING and not a session preference: a drawing authored in\nfractional inches IS a fractional-inch drawing, and reopening it in\ndecimals would print different text for the same geometry — the same\nreason `display_unit` is persisted. Absent ⇒ decimals.",
+          "type": [
+            "boolean",
+            "null"
+          ]
         },
         "modified": {
           "format": "date-time",

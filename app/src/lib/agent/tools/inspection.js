@@ -259,10 +259,12 @@ export const measureMassTool = {
 		'(planar faces, cylinder and cone bands, and the circular caps and bore walls a boolean ' +
 		'leaves behind), else "mesh" and chord_bound_m is the tessellation band — a mesh volume is ' +
 		'LOW by the chord deficit, never high. Omit density_kg_m3 and the BODY\'S OWN MATERIAL supplies ' +
-		'it (material_set / body_material_set, M1); a body with no material falls back to 1, where mass_kg ' +
-		'is numerically the volume rather than a mass — the answer always says which density it used, which ' +
-		'is how you tell. A body naming a material that has been deleted is REFUSED rather than measured at ' +
-		'the fallback. Pass density_kg_m3 explicitly to ask what it would weigh in something else.',
+		'it (material_set / body_material_set, M1). A body with NO material has no mass: density_kg_m3, ' +
+		'mass_kg, inertia_at_centroid and principal_moments all come back null with mass_unavailable saying ' +
+		'why, rather than being measured at a default density of 1 where mass_kg would be numerically the ' +
+		'volume. The density-free quantities — volume, surface area, centroid and the principal AXES — are ' +
+		'always present. A body naming a material that has been deleted is refused outright. Pass ' +
+		'density_kg_m3 explicitly to ask what it would weigh in something else.',
 	inputSchema: {
 		type: 'object',
 		properties: {
@@ -285,20 +287,35 @@ export const measureMassTool = {
 			surface_area_m2: { type: 'number' },
 			centroid: { type: 'array', items: { type: 'number' }, minItems: 3, maxItems: 3 },
 			inertia_at_centroid: {
-				type: 'array',
+				type: ['array', 'null'],
 				items: { type: 'array', items: { type: 'number' } },
 				minItems: 3,
-				maxItems: 3
+				maxItems: 3,
+				description: 'kg·m². Null when the body has no material (M1).'
 			},
-			principal_moments: { type: 'array', items: { type: 'number' }, minItems: 3, maxItems: 3 },
+			principal_moments: {
+				type: ['array', 'null'],
+				items: { type: 'number' },
+				minItems: 3,
+				maxItems: 3,
+				description: 'Null with the tensor.'
+			},
 			principal_axes: {
 				type: 'array',
 				items: { type: 'array', items: { type: 'number' } },
 				minItems: 3,
-				maxItems: 3
+				maxItems: 3,
+				description: 'Density-free: always present (eigenvectors do not move under scaling).'
 			},
-			density_kg_m3: { type: 'number' },
-			mass_kg: { type: 'number' },
+			density_kg_m3: {
+				type: ['number', 'null'],
+				description: "The density used. Null when the body has no material."
+			},
+			mass_kg: { type: ['number', 'null'], description: 'Null when there is no density.' },
+			mass_unavailable: {
+				type: 'string',
+				description: 'Present instead of a mass when the body has no material; names the remedy.'
+			},
 			method: { type: 'string', enum: ['exact', 'mesh'] },
 			chord_bound_m: { type: 'number' }
 		},

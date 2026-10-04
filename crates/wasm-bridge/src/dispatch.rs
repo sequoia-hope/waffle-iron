@@ -2326,24 +2326,37 @@ fn measure_mass(
             .density_of_body(body_id)
             .map_err(|reason| BridgeError::InvalidRequest { reason })?,
     };
+    // With no density, the kernel is still asked for the geometry — the
+    // volume, the area, the centroid and the principal AXES are properties of
+    // the shape and a caller wants them. 1.0 is an arithmetic placeholder
+    // whose density-scaled outputs are DISCARDED below, not an assumed
+    // material: reporting them would be reporting a volume as a mass.
     let m = kb
         .as_measure()
-        .mass_properties(&handle, density_kg_m3)
+        .mass_properties(&handle, Some(density_kg_m3.unwrap_or(1.0)))
         .map_err(measure_error)?;
     let (method, chord_bound_m) = match m.method {
         Method::Exact => (MeasureMethod::Exact, 0.0),
         Method::Mesh { chord_bound } => (MeasureMethod::Mesh, chord_bound),
     };
+    let mass_unavailable = density_kg_m3.is_none().then(|| {
+        format!(
+            "body \"{body_id}\" has no material, so it has no mass; assign one \
+             (body_material_set) — at a default density the mass would be the volume \
+             wearing kilograms"
+        )
+    });
     Ok(EngineToUi::MassMeasured {
         body_id: body_id.to_string(),
         volume_m3: m.volume,
         surface_area_m2: m.surface_area,
         centroid: m.centroid,
-        inertia_at_centroid: m.inertia_at_centroid,
-        principal_moments: m.principal_moments,
         principal_axes: m.principal_axes,
-        density_kg_m3: m.density,
-        mass_kg: m.mass,
+        inertia_at_centroid: density_kg_m3.map(|_| m.inertia_at_centroid),
+        principal_moments: density_kg_m3.map(|_| m.principal_moments),
+        density_kg_m3,
+        mass_kg: density_kg_m3.map(|_| m.mass),
+        mass_unavailable,
         method,
         chord_bound_m,
     })

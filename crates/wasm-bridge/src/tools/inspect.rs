@@ -496,6 +496,7 @@ pub(super) fn measure_mass(
         principal_axes,
         density_kg_m3,
         mass_kg,
+        mass_unavailable,
         method,
         chord_bound_m,
     } = &response
@@ -503,18 +504,25 @@ pub(super) fn measure_mass(
         return Err(unexpected("MeasureMass", "MassMeasured", &response));
     };
     let exact = matches!(method, crate::messages::MeasureMethod::Exact);
+    // The density-scaled four are `null` together when the body has no
+    // material (M1), with `mass_unavailable` saying why. Published as nulls
+    // rather than omitted, so a caller reading `mass_kg` sees an explicit
+    // absence instead of an undefined it might treat as zero.
     let mut out = json!({
         "body_id": body_id,
         "volume_m3": volume_m3,
         "surface_area_m2": surface_area_m2,
         "centroid": centroid,
+        "principal_axes": principal_axes,
         "inertia_at_centroid": inertia_at_centroid,
         "principal_moments": principal_moments,
-        "principal_axes": principal_axes,
         "density_kg_m3": density_kg_m3,
         "mass_kg": mass_kg,
         "method": if exact { "exact" } else { "mesh" },
     });
+    if let Some(why) = mass_unavailable {
+        out["mass_unavailable"] = json!(why);
+    }
     if !exact {
         out["chord_bound_m"] = json!(chord_bound_m);
     }

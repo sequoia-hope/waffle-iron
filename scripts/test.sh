@@ -150,6 +150,15 @@ GUI_FAST_SPECS=(
   agent-script-tools.spec.js
   # The Examples panel: opens the shipped gravel bike as a new document.
   examples.spec.js
+  # Drawings D3 + M1: the SVG dimension renderer, its tolerance forms and the
+  # feature control frame, driven through `window.__waffle.renderDrawingSvg`
+  # — a pure function over a layout record, so no document authoring and no
+  # relay. Asserts on the SVG DOM, never on pixels.
+  drawing-dimension-svg.spec.js
+  # M1: the body-properties disclosure — volume, area, mass, centre of mass
+  # and the material — against what `MeasureMass` actually reported, which is
+  # the only way to pin the unit conversion.
+  body-list.spec.js
 )
 
 # ---------------------------------------------------------------------------
