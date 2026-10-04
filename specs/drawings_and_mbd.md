@@ -2876,6 +2876,19 @@ Three things are different and each is deliberate:
   tenth of a narrow line) through `Curve2::flatten`'s proved bound, which is
   what `LayoutCurve::to_curve2` was added for.
 
+A FOURTH difference was found by the review rather than declared by the move,
+and it is recorded here because it changes what a reader measures: the
+boundary's FLATTENING DENSITY. The JS scanline sampled a conic at a fixed 16
+segments per quadrant; the Rust one asks `Curve2::flatten` for
+`HATCH_BOUNDARY_SAGITTA_MM`. On a large cap the Rust sampling is finer; on a
+SMALL one it is coarser — measured, a 0.5 mm-radius hole flattens to 13 points
+where the old code gave 65 — so the ends of the hatch lines around a small bore
+move by up to the sagitta, 20 µm of paper. That is a tenth of a narrow line and
+below what a drafter can see, and a sagitta bound is the right contract (it is
+the one the DXF writer and every other flattening in the tree use, where "16
+per quadrant" is a number with no error bound attached). But it is a change,
+and the move's own notes claimed only three.
+
 The half-open rule has one visible asymmetry worth recording because a reader
 will meet it: a scanline exactly on a shape's BOTTOM edge belongs to the shape
 and one on its TOP edge does not, so a hole's bottom-edge row is split in two
@@ -2960,6 +2973,80 @@ Three choices inside it:
   Unchanged from D4a.
 - *A section of an assembly leaf is implemented but not measured.* Unchanged
   from D4b.
+
+### D4c review corrections (2026-10-04)
+
+Reviewed on the merge of `main` at format v12. One real defect, one refusal
+that named nothing, and five properties the increment argued for in prose and
+left unmeasured. All fixed on the branch; what follows is what a later reader
+needs to know.
+
+**A TANGENCY is now a cut, because the midpoint rule cannot decide one.**
+`Curve2::clipped_to_disc` reads each candidate interval's verdict at its
+MIDPOINT — correctly, since an endpoint sits on the boundary by construction
+and `|p − c| ≤ r` is a coin toss there. But the crossing set deliberately
+EXCLUDED tangencies ("a tangency touches without crossing, so it splits
+nothing"), and that is the one case the midpoint cannot answer: an interval
+that touches the boundary at exactly its own midpoint and lies outside
+everywhere else reads as INSIDE, and the whole curve survives. Measured: a
+line from (−2, 1) to (2, 1), tangent to the unit disc at its own `t = 0.5`,
+came back whole — four units of line inside a crop of radius one, as a true
+`LINE` on the right layer at the right coordinates, and simply not belonging
+in the file. Not exotic: the touch point IS the parameter midpoint whenever a
+full circle is written from its own start angle, which is the form
+`kernel_v2::projection` produces, so a hole whose rim is tangent to an
+authored crop circle hits it. The fix is the crossing set and not a band —
+`disc == 0` returns its double root, `|ratio| == 1` its tangency angle — so
+the touch point lands on an interval boundary where it decides nothing. That
+alone would put a SEAM in a curve that merely grazes from inside, so
+consecutive kept intervals are rejoined; the run never spans the parameter
+range's ends, so a closed curve cut at its OWN seam still comes back as two
+pieces, which stays the documented answer. The existing test asserted
+`clip(&tangent).len() <= 1` and called either answer "a single answer" — it is
+not, and that inequality is what let the defect through.
+
+**A refusal that names nothing is a silent drop in a refusal's clothes.** The
+title-block row refusals (`expr` on a derived key; `text` and `expr` together)
+built their message from the raw `key` string, which is EMPTY for a custom row
+— so `{label: "Mass", text: …, expr: …}`, the very row this increment's own
+example uses, was refused with "the `` row was given both `text` and `expr`".
+They now name the row by its label where it has one.
+
+**A fourth difference in the hatch move**, found rather than declared: see the
+flattening-density paragraph above.
+
+**Five claims were prose only, and three of them would have survived their own
+negation.** `hatch_fill` — the wrapper whose entire reason for existing is the
+two conversions at the paper/view boundary — had NO test: removing the angle's
+negation or the division by the view's scale broke nothing. Both are now
+mutation-checked (the negation case fails with the lean reversed; the scale
+case reports 1.5 mm of paper at 2:1). The "one source tab" refusal was
+unpinned in all three of its cases, and is now measured with the disagreeing
+view added LAST, so a check that compared only the first two views fails.
+`renderTitleBlock`'s claim that it "cannot" print an expression's source
+"because the source is not in the record it is handed" was simply FALSE — it
+is handed the whole sheet, and `title_block.fields[i].expr` is one property
+away. The discipline is real and the comment now says so honestly, with a GUI
+spec asserting the evaluated text reaches the paper and the exported SVG while
+the source string reaches neither.
+
+**One claim is still unmeasured, and saying so is the correction.** The bbox
+fold that makes the DXF's `$EXTMIN`/`$EXTMAX` cover the hatch cannot be
+exercised: deleting it leaves every assertion passing, because a section's cap
+boundary is among the view's drawn curves and the hatch lies inside it. It
+earns its keep only where a cap loop is NOT drawn (culled by a detail's crop,
+or declined), which no fixture reaches. Left in place as insurance and named
+in the test, so the next reader is not misled into thinking it is pinned.
+
+Also: `hatch_segments` had two paths that returned no segments and no warning
+— a boundary of three or more distinct points enclosing no area, and a cap
+narrower than the hatch pitch — against the module's own contract that "a cap
+that came back unhatched should say why". Both now warn, with the measurable
+reason, and the rule is silent on a cap that did hatch. And no test had
+assembled the PRODUCTION configuration (45°, a curved boundary, and a hole);
+one does now, checking the bore's clearance along each segment rather than at
+its ends, because a span that bridged the hole would have both ends in the
+annulus.
 
 ### D4d — Dimensioning on the sheet (specified 2026-10-04)
 
