@@ -630,6 +630,15 @@ fn title_block_fields_arg(args: &Value) -> Result<Option<Vec<TitleBlockField>>, 
                 ))
             }
         };
+        // What to CALL this row in a refusal. `tag` is the raw `key` string and
+        // is EMPTY for a custom row — which is named by its `label`, and which
+        // is the row D4c's own example uses (`{label: "Mass", expr: …}`). A
+        // message reading "the `` row" names nothing, and naming the row is the
+        // whole difference between these refusals and a silent drop.
+        let named = match &key {
+            TitleBlockKey::Custom { label } => label.as_str(),
+            known => known.tag(),
+        };
         if key.is_derived() && (text.is_some() || expr.is_some()) {
             // Named, not quietly dropped: an agent that typed a sheet number
             // must be told the engine fills it, or it will believe the number
@@ -637,8 +646,8 @@ fn title_block_fields_arg(args: &Value) -> Result<Option<Vec<TitleBlockField>>, 
             return Err(ToolFailure::new(
                 "InvalidArgument",
                 format!(
-                    "`{tag}` is filled from the document (the name, the sheet number, the scale, \
-                     the projection standard), so it takes neither text nor an expression."
+                    "`{named}` is filled from the document (the name, the sheet number, the \
+                     scale, the projection standard), so it takes neither text nor an expression."
                 ),
                 json!({ "path": path }),
             ));
@@ -651,7 +660,7 @@ fn title_block_fields_arg(args: &Value) -> Result<Option<Vec<TitleBlockField>>, 
             return Err(ToolFailure::new(
                 "InvalidArgument",
                 format!(
-                    "the `{tag}` row was given both `text` and `expr`; a row prints one or the \
+                    "the `{named}` row was given both `text` and `expr`; a row prints one or the \
                      other, so send only the one you mean."
                 ),
                 json!({ "path": path }),

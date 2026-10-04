@@ -995,6 +995,32 @@ fn a_sections_hatch_reaches_the_dxf_on_the_hatch_layer() {
             "a hatch line at ({x}, {y}) is nowhere near the view at {placement:?}"
         );
     }
+    // The file's EXTENTS contain the hatch: a reader zooms to `$EXTMAX`, and a
+    // hatch line outside the box the file declares is a line the reader never
+    // sees. Every hatch coordinate in the file is checked, both ends of every
+    // line.
+    //
+    // This is a consistency check on the FILE, not a pin on the bbox fold in
+    // `dispatch::export_dxf` that exists for it. MEASURED: deleting that fold
+    // leaves this assertion passing, because the cap's own boundary is among
+    // the drawn curves and the hatch lies inside it — so on this fixture, and
+    // on any section whose cap boundary is drawn, the fold is a no-op. It
+    // earns its keep only where a cap loop is NOT among the view's curves
+    // (culled by a detail's crop, or declined), and no fixture reaches that
+    // today. Left in place as insurance, and named here so the next reader is
+    // not misled into thinking it is measured.
+    let (min_x, min_y, max_x, max_y) = dxf_extents(&dxf);
+    for (_, _, groups) in hatched.iter() {
+        for (gx, gy) in [(10, 20), (11, 21)] {
+            let x: f64 = groups[&gx][0].parse().expect("an x");
+            let y: f64 = groups[&gy][0].parse().expect("a y");
+            assert!(
+                x >= min_x && x <= max_x && y >= min_y && y <= max_y,
+                "a hatch line reaches ({x}, {y}), outside the file's own extents \
+                 ({min_x}, {min_y})…({max_x}, {max_y})"
+            );
+        }
+    }
     // And the layer TABLE declares it, so a reader can switch it off. VISIBLE
     // and HIDDEN stay declared whatever the drawing holds.
     let layers = dxf_layers(&dxf);
@@ -1956,7 +1982,8 @@ fn a_title_block_expression_row_prints_the_measured_model_and_keeps_its_source()
         json!({ "title_block_fields": [{ "key": "Scale", "expr": "1" }] }),
     );
     assert_eq!(error["code"], "InvalidArgument");
-    // And both at once is refused rather than resolved by precedence.
+    // And both at once is refused rather than resolved by precedence — BY
+    // NAME, which for a known key is its tag.
     let error = refused(
         &mut state,
         &mut kernel,
@@ -1964,6 +1991,136 @@ fn a_title_block_expression_row_prints_the_measured_model_and_keeps_its_source()
         json!({ "title_block_fields": [{ "key": "Revision", "text": "A", "expr": "1" }] }),
     );
     assert_eq!(error["code"], "InvalidArgument");
+    assert!(
+        error["message"]
+            .as_str()
+            .unwrap_or_default()
+            .contains("Revision"),
+        "{error}"
+    );
+    // A CUSTOM row is named by its LABEL, and that is the row this increment's
+    // own example uses (`{label: "Mass", expr: "volume(plate) * …"}`). A custom
+    // row carries no `key`, so a message built from the raw `key` string reads
+    // "the `` row was given both" and names nothing — which is a silent drop
+    // wearing a refusal's clothes.
+    let error = refused(
+        &mut state,
+        &mut kernel,
+        "drawing_sheet_edit",
+        json!({ "title_block_fields": [{ "label": "Mass", "text": "7 g", "expr": "1" }] }),
+    );
+    assert_eq!(error["code"], "InvalidArgument");
+    assert!(
+        error["message"].as_str().unwrap_or_default().contains("Mass"),
+        "{error}"
+    );
+    assert_eq!(error["details"]["path"], "/title_block_fields/0");
+}
+
+#[test]
+fn a_title_block_expression_needs_exactly_one_source_tab_and_says_so_by_name() {
+    // D4c's choice: a title-block expression measures "the one tab this
+    // sheet's views draw". A sheet of six views of one part is the ordinary
+    // case and `volume(plate)` means something in it; a sheet whose views draw
+    // TWO parts has no "the part" whose mass to print, and a sheet with NO
+    // views has no document at all. Both refuse by name rather than picking
+    // the first, and none of the three was measured.
+    let (mut state, mut kernel, part_tab, drawing_tab) = box_and_drawing();
+    ok(
+        &mut state,
+        &mut kernel,
+        "tab_switch",
+        json!({ "tab_id": part_tab }),
+    );
+    let body = ok(&mut state, &mut kernel, "model_summary", json!({}))["bodies"][0]["body_id"]
+        .as_str()
+        .expect("the plate's body id")
+        .to_string();
+    ok(
+        &mut state,
+        &mut kernel,
+        "body_rename",
+        json!({ "body_id": body, "new_name": "plate" }),
+    );
+    ok(
+        &mut state,
+        &mut kernel,
+        "tab_switch",
+        json!({ "tab_id": drawing_tab }),
+    );
+
+    let row = json!({ "title_block_fields": [{ "label": "Mass", "expr": "volume(plate)" }] });
+    let value_and_errors = |answer: &Value| {
+        (
+            answer["sheets"][0]["title_block"]["rows"]["rows"][0]["value"]
+                .as_str()
+                .unwrap_or_default()
+                .to_string(),
+            serde_json::to_string(&answer["errors"]).unwrap_or_default(),
+        )
+    };
+
+    // (a) NO views: there is no document to measure.
+    let answer = ok(&mut state, &mut kernel, "drawing_sheet_edit", row.clone());
+    let (value, errors) = value_and_errors(&answer);
+    assert_eq!(value, "", "an unmeasurable row prints nothing: {answer}");
+    assert!(
+        errors.contains("volume(plate)"),
+        "the refusal must name the expression: {answer}"
+    );
+
+    // (b) SIX views of the one tab: the ordinary case, and it evaluates. Six
+    // rather than one, because the refusal walks every view and a check
+    // against only the second would pass with one.
+    for view in ["top", "front", "right", "left", "back", "bottom"] {
+        ok(
+            &mut state,
+            &mut kernel,
+            "drawing_view_add",
+            json!({ "tab_id": part_tab, "view": view }),
+        );
+    }
+    let answer = ok(&mut state, &mut kernel, "drawing_sheet_edit", row.clone());
+    let (value, _) = value_and_errors(&answer);
+    assert_eq!(
+        value, "1000 mm\u{b3}",
+        "six views of one part are one document: {answer}"
+    );
+
+    // (c) A SEVENTH view drawing a DIFFERENT tab, added LAST — so a check that
+    // compared the first two views, or that stopped at the first disagreement
+    // it happened to reach, would still say "one tab".
+    let other = ok(
+        &mut state,
+        &mut kernel,
+        "tab_add",
+        json!({ "kind": "Part", "name": "Other" }),
+    )["tab_id"]
+        .as_str()
+        .expect("the new part tab")
+        .to_string();
+    ok(
+        &mut state,
+        &mut kernel,
+        "tab_switch",
+        json!({ "tab_id": drawing_tab }),
+    );
+    ok(
+        &mut state,
+        &mut kernel,
+        "drawing_view_add",
+        json!({ "tab_id": other, "view": "top" }),
+    );
+    let answer = ok(&mut state, &mut kernel, "drawing_sheet_edit", row);
+    let (value, errors) = value_and_errors(&answer);
+    assert_eq!(
+        value, "",
+        "a sheet of two parts has no `the part` to measure: {answer}"
+    );
+    assert!(
+        errors.contains("volume(plate)"),
+        "the refusal must name the expression: {answer}"
+    );
 }
 
 #[test]
