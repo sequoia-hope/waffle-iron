@@ -25,6 +25,7 @@
 		getFeatureTree,
 		getFeatureErrors,
 		evaluateExpression,
+		touchParameterTables,
 		getDocumentDisplayUnit,
 		SCRIPT_LIBRARY
 	} from '$lib/engine/store.svelte.js';
@@ -149,6 +150,8 @@
 	$effect(() => {
 		const spec = iface;
 		if (!spec) return;
+		// See `touchParameterTables`.
+		touchParameterTables();
 		for (const p of spec.params) {
 			if (!NUMERIC.has(p.type)) continue;
 			const text = values[p.name];

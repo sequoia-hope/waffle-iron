@@ -251,8 +251,10 @@ export const instanceEditTool = {
 	name: 'instance_edit',
 	description:
 		'Change an instance of the open assembly: its name, placement transform (only the fields given change), ' +
-		'grounding (fixed) or suppression. The assembly is re-solved. An instance derived from a source (a linked ' +
-		'KiCad footprint) accepts only name and suppressed; transform or fixed on one is DerivedFeatureReadOnly. ' +
+		'grounding (fixed), suppression, or the design-parameter overrides it builds its part with. The ' +
+		'assembly is re-solved. An instance derived from a source (a linked ' +
+		'KiCad footprint) accepts only name and suppressed; transform, fixed or parameter_overrides on one ' +
+		'is DerivedFeatureReadOnly. ' +
 		REQUIRES_ASSEMBLY_TAB +
 		' ' +
 		NOT_AN_UNDO_STEP,
@@ -263,7 +265,24 @@ export const instanceEditTool = {
 			name: { type: 'string', minLength: 1 },
 			transform: transformInput,
 			fixed: { type: 'boolean' },
-			suppressed: { type: 'boolean' }
+			suppressed: { type: 'boolean' },
+			parameter_overrides: {
+				type: ['object', 'null'],
+				description:
+					'{parameter name: working-space magnitude} (mm for a length, degrees for an angle), pinning ' +
+					"parameters of this instance's part so it builds its own solid. The DIMENSION comes from " +
+					"the part's parameter, not from the number, so a Count parameter still refuses a fraction. " +
+					'Omitting this key KEEPS the current overrides; null clears them all; with merge:true the ' +
+					'given names are applied over the current map and a name set to null removes just that one. ' +
+					'A name the part does not declare is a loud rebuild error naming the part and the name.',
+				additionalProperties: { type: ['number', 'null'] }
+			},
+			merge: {
+				type: 'boolean',
+				description:
+					'Apply parameter_overrides over the current map instead of replacing it, so one override ' +
+					'can be set without re-sending the rest.'
+			}
 		},
 		required: ['instance_id'],
 		additionalProperties: false

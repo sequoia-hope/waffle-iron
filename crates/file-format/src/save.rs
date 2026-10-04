@@ -90,7 +90,18 @@ use crate::sources::SourceEntry;
 ///     `Sheet.title_block_cache`, `DrawingView.cache_key`, and the `hatch`,
 ///     `marks` and `clip` fields of a persisted `ViewLayout` — and none of
 ///     those would have moved anything on their own.
-pub const FORMAT_VERSION: u32 = 11;
+///   - **v12** (2026-10-03): `DocumentMetadata.parameters` — the
+///     DOCUMENT-level design-parameter table, and
+///     `Instance.parameter_overrides` becoming load-bearing (P2,
+///     `specs/agent_mechanical_design.md` §6). Both are additive and
+///     defaulted, and an old reader does not FAIL on either — it DROPS them,
+///     which is the v8/v9 harm exactly: one file, two solids. Without the
+///     document table a tab's expression reading a document variable loses
+///     its driver, and without the overrides every instance of a part builds
+///     the part's default size instead of the size the instance was given.
+///     Measured in
+///     `crates/file-format/tests/param_scope_floor.rs`.
+pub const FORMAT_VERSION: u32 = 12;
 
 /// Oldest reader (by its `FORMAT_VERSION`) that can parse files we write.
 ///
@@ -105,7 +116,7 @@ pub const FORMAT_VERSION: u32 = 11;
 /// opaquely. Purely additive defaulted fields never require a bump. Files
 /// without the field (all pre-2026-08-28 files, including the assay corpus)
 /// default to 0 and always pass. See `docs/FILE_FORMAT.md` §13.
-pub const MIN_READER_VERSION: u32 = 11;
+pub const MIN_READER_VERSION: u32 = 12;
 
 // Keep the constants coherent: we can never require a reader newer than the
 // version we claim to write.

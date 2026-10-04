@@ -12,6 +12,7 @@
 		getAssembly,
 		getAssemblyStatus,
 		getDocumentTabs,
+		getPartParameters,
 		addInstance,
 		updateInstance,
 		removeInstance,
@@ -69,6 +70,83 @@
 		const next = new Set(positionsOpen);
 		if (!next.delete(id)) next.add(id);
 		positionsOpen = next;
+	}
+
+	/**
+	 * Instances whose parameter-override row is open (P2,
+	 * `specs/agent_mechanical_design.md` §6). Same reason as `positionsOpen`:
+	 * one field per parameter of the part, revealed per row.
+	 * @type {Set<string>}
+	 */
+	let overridesOpen = $state(new Set());
+	function toggleOverrides(id) {
+		const next = new Set(overridesOpen);
+		if (!next.delete(id)) next.add(id);
+		overridesOpen = next;
+	}
+
+	/**
+	 * The parameters of the PART an instance is of, so the row can offer one
+	 * field per parameter rather than asking for a name.
+	 *
+	 * Read from the document's tabs: only the OPEN tab's tree is live, and an
+	 * assembly tab is the open one here, so every part's table comes from the
+	 * session's tab list. A linked source's part is not reachable from there,
+	 * which is why such an instance shows the names it already overrides and
+	 * nothing more.
+	 */
+	function partParameters(inst) {
+		// From `ModelUpdated.document.part_parameters`, NOT from the tab list:
+		// only the OPEN tab's tree is on the wire, and the open tab is the
+		// assembly whenever this panel is showing, so every part tab's entry
+		// in `documentTabs` is a placeholder with an empty table. A linked
+		// source's part is not in the document's tabs at all.
+		if (inst.source?.source_id) return null;
+		return getPartParameters()[inst.source?.tab_id] ?? null;
+	}
+
+	/**
+	 * The override rows to show for an instance: one per parameter of the
+	 * part, or — when the part's table is not reachable — one per name the
+	 * instance already overrides, so an existing override is never hidden by
+	 * the panel's inability to list the part.
+	 */
+	function overrideRows(inst) {
+		const declared = partParameters(inst);
+		const overrides = inst.parameter_overrides ?? {};
+		if (declared) {
+			return declared.map((p) => ({
+				name: p.name,
+				fallback: p.value ?? 0,
+				override: overrides[p.name]
+			}));
+		}
+		return Object.keys(overrides)
+			.sort()
+			.map((name) => ({ name, fallback: null, override: overrides[name] }));
+	}
+
+	/**
+	 * Set or clear one override. An empty field CLEARS it, so the instance
+	 * goes back to the part's own value for that parameter — which is why the
+	 * placeholder shows what the part says.
+	 */
+	function setOverride(inst, name, raw) {
+		const text = String(raw ?? '').trim();
+		const patch = { ...(inst.parameter_overrides ?? {}) };
+		if (text === '') {
+			delete patch[name];
+		} else {
+			const value = Number(text);
+			if (!Number.isFinite(value)) return;
+			patch[name] = value;
+		}
+		run(() => updateInstance(inst.id, { parameter_overrides: patch }));
+	}
+
+	/** How many parameters this instance pins, for the collapsed label. */
+	function overrideCount(inst) {
+		return Object.keys(inst.parameter_overrides ?? {}).length;
 	}
 
 	let selectedInstance = $derived(getSelectedInstanceId());
@@ -278,8 +356,45 @@
 						>
 							{positionsOpen.has(inst.id) ? '▾' : '▸'} pos
 						</button>
+						<button
+							class="act"
+							title={overridesOpen.has(inst.id)
+								? 'Hide the design-parameter overrides'
+								: "Override this instance's design parameters, so it builds its own size from the same part"}
+							data-testid="asm-instance-overrides-toggle-{i}"
+							onclick={() => toggleOverrides(inst.id)}
+						>
+							{overridesOpen.has(inst.id) ? '▾' : '▸'} vars{overrideCount(inst) > 0 ? ` (${overrideCount(inst)})` : ''}
+						</button>
 						<button class="act" title="Connector at this instance's origin" data-testid="asm-instance-origin-connector-{i}" disabled={busy} onclick={() => handleAddOriginConnector(inst)}>+ frame</button>
 					</div>
+					{#if overridesOpen.has(inst.id)}
+						<div class="row-sub overrides" data-testid="asm-instance-overrides-{i}">
+							{#if overrideRows(inst).length === 0}
+								<span class="meta">
+									{partParameters(inst)
+										? 'the part declares no variables'
+										: "a linked part's variables are not listed here"}
+								</span>
+							{:else}
+								{#each overrideRows(inst) as row (row.name)}
+									<label class="override" title="Blank = use the part's own value ({row.fallback ?? '?'}). Working space: mm for a length, degrees for an angle.">
+										<span class="override-name">{row.name}</span>
+										<input
+											class="num"
+											type="number"
+											step="any"
+											placeholder={row.fallback === null ? '' : String(row.fallback)}
+											data-testid="asm-instance-override-{row.name}-{i}"
+											value={row.override ?? ''}
+											disabled={busy}
+											onchange={(e) => setOverride(inst, row.name, e.currentTarget.value)}
+										/>
+									</label>
+								{/each}
+							{/if}
+						</div>
+					{/if}
 					{#if positionsOpen.has(inst.id)}
 						<div class="row-sub" data-testid="asm-instance-position-{i}">
 							<span class="xyz">
@@ -532,6 +647,26 @@
 	}
 	.unit {
 		font-size: 10px;
+	}
+	/* The per-instance override row: wraps rather than overflowing, because
+	   a part with eight variables must not push the panel past the window
+	   (`tests/gui/layout-overflow.spec.js` is the oracle for that). */
+	.overrides {
+		flex-wrap: wrap;
+		gap: 4px 8px;
+	}
+	.override {
+		display: inline-flex;
+		gap: 3px;
+		align-items: center;
+	}
+	.override-name {
+		font-size: 10px;
+		color: var(--text-secondary, #999);
+		max-width: 80px;
+		overflow: hidden;
+		text-overflow: ellipsis;
+		white-space: nowrap;
 	}
 	.act {
 		padding: 0 6px;

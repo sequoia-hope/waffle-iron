@@ -569,7 +569,7 @@ pub(crate) fn instance_edit(
     // regenerates everything but `name` and `suppressed`, so those are the
     // only fields an edit may set.
     if current.extra.contains_key(feature_engine::kicad::X_DERIVED) {
-        let refused: Vec<&str> = ["transform", "fixed"]
+        let refused: Vec<&str> = ["transform", "fixed", "parameter_overrides"]
             .into_iter()
             .filter(|k| args.get(*k).is_some())
             .collect();
@@ -602,6 +602,67 @@ pub(crate) fn instance_edit(
     }
     if let Some(t) = transform {
         inst.transform = t;
+    }
+    // P2: the design-parameter overrides this instance is built with. The
+    // rule is the same one `unit`/`comment` follow on `parameters_set` —
+    // omitting the key KEEPS what is there, `null` clears it all — and
+    // `merge: true` edits individual names instead of replacing the map,
+    // so setting one override does not silently drop the others.
+    //
+    // A name the part does not declare is NOT refused here: it is a loud
+    // rebuild error naming the part and the name, which is the answer the
+    // caller needs. Refusing here would mean resolving the part in this
+    // tool and duplicating the check the parameter pass already makes.
+    match args.get("parameter_overrides") {
+        None => {}
+        Some(Value::Null) => inst.parameter_overrides = None,
+        Some(Value::Object(map)) => {
+            let merge = args.get("merge").and_then(Value::as_bool).unwrap_or(false);
+            let mut next = if merge {
+                inst.parameter_overrides.clone().unwrap_or_default()
+            } else {
+                std::collections::BTreeMap::new()
+            };
+            for (name, value) in map {
+                match value {
+                    // In merge mode `null` removes one override, which is
+                    // how an instance goes back to the part's own value for
+                    // one parameter without re-sending the rest.
+                    Value::Null => {
+                        next.remove(name);
+                    }
+                    v => match v.as_f64().filter(|f| f.is_finite()) {
+                        Some(f) => {
+                            next.insert(name.clone(), f);
+                        }
+                        None => {
+                            return Err(ToolFailure::new(
+                                "InvalidArguments",
+                                format!(
+                                    "parameter_overrides.{name} must be a finite number \
+                                     (a working-space magnitude: mm for a length, \
+                                     degrees for an angle), or null to clear it."
+                                ),
+                                json!({ "schema_path": "/parameter_overrides",
+                                        "parameter": name }),
+                            ))
+                        }
+                    },
+                }
+            }
+            // An empty map is no overrides at all, so the instance is the
+            // part's own build and the file carries no key (format v12).
+            inst.parameter_overrides = (!next.is_empty()).then_some(next);
+        }
+        Some(other) => {
+            return Err(ToolFailure::new(
+                "InvalidArguments",
+                "parameter_overrides must be an object of {name: number}, or null \
+                 to clear every override."
+                    .to_string(),
+                json!({ "schema_path": "/parameter_overrides", "got": other }),
+            ))
+        }
     }
     commit(state, kb, &tab.id, asm)?;
     assembly_state(state, kb)

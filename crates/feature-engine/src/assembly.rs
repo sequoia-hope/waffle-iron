@@ -419,6 +419,55 @@ pub struct PartRef {
     pub tab_id: String,
 }
 
+/// Which BUILD of a part an instance needs: the part, plus the parameter
+/// overrides applied to it (P2, `specs/agent_mechanical_design.md` §6).
+///
+/// This is the identity a geometry cache must key on, and [`PartRef`] is not
+/// it. Two instances of one Part tab with different `parameter_overrides` are
+/// two different solids from one definition — the whole point of the
+/// increment — so a cache keyed on the part alone hands the second instance
+/// the first one's bodies. Overrides are part of the key; the document
+/// parameter table is not, because it is the same for every build in one
+/// pass (a cache that outlives the pass compares it separately — see
+/// `Engine::document_parameters`).
+///
+/// `PartialEq` only, no `Eq`/`Hash`: an override magnitude is an `f64`. Every
+/// site that keys on this compares with `==` over a `Vec`, and a `BTreeMap`
+/// is already ordered, so the comparison is canonical without needing a
+/// total order on the values.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "json-schema", derive(schemars::JsonSchema))]
+pub struct PartBuild {
+    pub part: PartRef,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub overrides: Option<BTreeMap<String, f64>>,
+}
+
+impl PartBuild {
+    /// The build an instance asks for. An empty override map is the same
+    /// build as none — otherwise `{}` and absent would be two cache entries
+    /// for one solid.
+    pub fn of(instance: &Instance) -> Self {
+        PartBuild {
+            part: instance.source.clone(),
+            overrides: instance
+                .parameter_overrides
+                .as_ref()
+                .filter(|o| !o.is_empty())
+                .cloned(),
+        }
+    }
+
+    /// The part's default build: no overrides. What a Drawing view of a part
+    /// tab, or any caller with no instance in hand, asks for.
+    pub fn plain(part: PartRef) -> Self {
+        PartBuild {
+            part,
+            overrides: None,
+        }
+    }
+}
+
 /// One placed occurrence of a part.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[cfg_attr(feature = "json-schema", derive(schemars::JsonSchema))]
@@ -439,8 +488,19 @@ pub struct Instance {
     /// Identity in an external tool (a KiCad footprint UUID, Phase 3b).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub external_key: Option<String>,
-    /// Design-parameter overrides for this instance (reserved; not applied
-    /// in Phase 3).
+    /// Design-parameter overrides for this instance (P2,
+    /// `specs/agent_mechanical_design.md` §6): `name → working-space
+    /// magnitude` (mm for a length, degrees for an angle — the space
+    /// `parameters_get` reports as `value_mm`).
+    ///
+    /// An override PINS that parameter of the part for this instance: the
+    /// row's own expression is not evaluated, everything that reads it
+    /// follows, and the instance is built as its own solid. The dimension
+    /// comes from the part's parameter, not from the override, so a `Count`
+    /// parameter still refuses a fractional override.
+    ///
+    /// A name the part does not declare is a loud error, not a new
+    /// parameter. See `params::apply_parameters_scoped`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub parameter_overrides: Option<BTreeMap<String, f64>>,
     #[serde(flatten)]

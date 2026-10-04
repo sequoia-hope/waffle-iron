@@ -17,7 +17,8 @@
 		setExtrudeTargetIds,
 		toggleExtrudeTargetId,
 		clearExtrudeTargets,
-		evaluateExpression
+		evaluateExpression,
+		touchParameterTables
 	} from '$lib/engine/store.svelte.js';
 	import { untrack } from 'svelte';
 	import { showToast } from '$lib/ui/toast.svelte.js';
@@ -108,7 +109,12 @@
 				if (ep.symmetric) secondDir = 'Symmetric';
 				else if (ep.second_direction) secondDir = ep.second_direction.type ?? 'None';
 				else secondDir = 'None';
-				secondDepthInput = ep.second_direction?.depth != null ? formatForInput(ep.second_direction.depth, displayUnit) : '10';
+				// The expression WINS over the number, exactly as the primary depth
+				// does above: the number is only what the expression last evaluated
+				// to, so showing it would hide the driver and the next apply would
+				// send it back as a literal (P3's second Blind `depth_expr`).
+				secondDepthInput = ep.second_direction?.depth_expr
+					?? (ep.second_direction?.depth != null ? formatForInput(ep.second_direction.depth, displayUnit) : '10');
 				flipDirection = ep.direction != null;
 			} else {
 				depthInput = '10';
@@ -131,6 +137,9 @@
 	let depthEvalToken = 0;
 	$effect(() => {
 		const text = depthInput.trim();
+		// Depend on the parameter tables, not only on the text: see
+		// `touchParameterTables`.
+		touchParameterTables();
 		if (!depthIsExpr) {
 			depthEval = { value: null, error: null };
 			return;
@@ -148,7 +157,31 @@
 			? (depthEval.value != null ? depthEval.value * 0.001 : NaN)
 			: parseAndConvert(depthInput, displayUnit)
 	);
-	let secondDepth = $derived(parseAndConvert(secondDepthInput, displayUnit));
+	// The second Blind depth takes an expression too (P3). Same shape as the
+	// primary depth: not a plain measurement ⇒ the engine evaluates it, and
+	// the mm-space result is what both the preview and the apply use.
+	let secondDepthIsExpr = $derived(
+		secondDepthInput.trim() !== '' && !isPlainMeasurement(secondDepthInput)
+	);
+	let secondDepthEval = $state({ value: null, error: null });
+	let secondDepthEvalToken = 0;
+	$effect(() => {
+		const text = secondDepthInput.trim();
+		touchParameterTables();
+		if (!secondDepthIsExpr) {
+			secondDepthEval = { value: null, error: null };
+			return;
+		}
+		const token = ++secondDepthEvalToken;
+		evaluateExpression(text).then((result) => {
+			if (token === secondDepthEvalToken) secondDepthEval = result;
+		});
+	});
+	let secondDepth = $derived(
+		secondDepthIsExpr
+			? (secondDepthEval.value != null ? secondDepthEval.value * 0.001 : NaN)
+			: parseAndConvert(secondDepthInput, displayUnit)
+	);
 
 	// Drive ghost preview params whenever dialog state changes
 	$effect(() => {
@@ -218,6 +251,17 @@
 			showToast('error', 'Depth must be a positive number or expression');
 			return;
 		}
+		// The second Blind depth gets the SAME two gates. Without them a bad
+		// expression sent NaN down as the depth, which is a number the engine
+		// has no reason to refuse by name.
+		if (showSecondDepthInput && secondDepthIsExpr && (secondDepthEval.error != null || secondDepthEval.value == null)) {
+			showToast('error', `Second depth expression: ${secondDepthEval.error ?? 'still evaluating'}`);
+			return;
+		}
+		if (showSecondDepthInput && (isNaN(secondDepth) || secondDepth <= 0)) {
+			showToast('error', 'Second depth must be a positive number or expression');
+			return;
+		}
 
 		const opts = {
 			depthMode,
@@ -226,7 +270,8 @@
 			flipDirection,
 			combine,
 			targets,
-			depthExpr: depthIsExpr ? depthInput.trim() : null
+			depthExpr: depthIsExpr ? depthInput.trim() : null,
+			secondDepthExpr: secondDepthIsExpr ? secondDepthInput.trim() : null
 		};
 		applyExtrude(depth, firstRegion.profileIndex ?? 0, cut, opts)
 			.catch(err => log('error', `Extrude dialog apply failed: ${err}`));
@@ -465,10 +510,18 @@
 						id="extrude-second-depth"
 						data-testid="extrude-second-depth"
 						type="text"
-						inputmode="decimal"
 						bind:value={secondDepthInput}
 						placeholder={unitLabel}
 					/>
+					{#if secondDepthIsExpr}
+						<div
+							class="expr-hint"
+							class:expr-error={!!secondDepthEval.error}
+							data-testid="extrude-second-depth-eval"
+						>
+							{secondDepthEval.error ? secondDepthEval.error : secondDepthEval.value != null ? `= ${parseFloat(secondDepthEval.value.toFixed(4))} mm` : '…'}
+						</div>
+					{/if}
 				</div>
 			{/if}
 			<div class="field">

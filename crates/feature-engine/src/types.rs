@@ -609,13 +609,30 @@ pub struct ImportedBodyParams {
     /// Placement: translation in METERS, applied after rotation.
     #[serde(default)]
     pub translation_m: [f64; 3],
+    /// Optional driving expressions for `translation_m`, one per component
+    /// (mm-space → meters). `None` for a component leaves the stored
+    /// number alone — an author who parameterises x only has not said
+    /// anything about y and z. See `ExtrudeParams::depth_expr`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub translation_m_expr: Option<[Option<String>; 3]>,
     /// Placement: intrinsic X→Y→Z Euler angles in DEGREES, about the
     /// imported model's origin.
     #[serde(default)]
     pub rotation_deg: [f64; 3],
+    /// Optional driving expressions for `rotation_deg`, one per component
+    /// (evaluates to DEGREES). `None` for a component leaves the stored
+    /// number alone — an author who parameterises x only has not said
+    /// anything about y and z. See `ExtrudeParams::depth_expr`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub rotation_deg_expr: Option<[Option<String>; 3]>,
     /// Extra uniform scale on top of the file's unit conversion (1.0 = none).
     #[serde(default = "default_scale")]
     pub scale: f64,
+    /// Optional driving expression for `scale`. Evaluates as a RATIO: a
+    /// dimensionless number, so `25mm / 1in` is a scale and `25mm` is a
+    /// loud refusal (P3).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub scale_expr: Option<String>,
     /// One product of a multi-product STEP, by its product name
     /// (`step_import::StepProduct::name`), imported ALONE and in the
     /// product's own frame — how a component of a board STEP becomes a Part
@@ -637,8 +654,11 @@ impl ImportedBodyParams {
             blob_encoding: None,
             blob: None,
             translation_m: [0.0; 3],
+            translation_m_expr: None,
             rotation_deg: [0.0; 3],
+            rotation_deg_expr: None,
             scale: 1.0,
+            scale_expr: None,
             product: None,
         }
     }
@@ -663,8 +683,11 @@ impl ImportedBodyParams {
             blob_encoding: Some(step_import::STEP_BLOB_ENCODING.to_string()),
             blob: Some(step_import::encode_step_blob(step_text)),
             translation_m: [0.0; 3],
+            translation_m_expr: None,
             rotation_deg: [0.0; 3],
+            rotation_deg_expr: None,
             scale: 1.0,
+            scale_expr: None,
             product: None,
         }
     }
@@ -704,7 +727,15 @@ pub enum SecondDirection {
     /// Same depth as primary direction.
     Symmetric,
     /// Independent blind depth in second direction.
-    Blind { depth: f64 },
+    Blind {
+        depth: f64,
+        /// Optional driving expression for `depth` (mm-space → meters), the
+        /// twin of `ExtrudeParams::depth_expr` for the second direction.
+        /// Without it a symmetric-but-unequal extrude could only be driven
+        /// on one side (P3).
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        depth_expr: Option<String>,
+    },
     /// Through all in second direction.
     ThroughAll,
     /// Up to a reference in second direction.
@@ -1054,6 +1085,12 @@ pub struct RevolveParams {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub profile_entity_ids: Option<Vec<u32>>,
     pub axis_origin: [f64; 3],
+    /// Optional driving expressions for `axis_origin`, one per component
+    /// (mm-space → meters). `None` for a component leaves the stored
+    /// number alone — an author who parameterises x only has not said
+    /// anything about y and z. See `ExtrudeParams::depth_expr`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub axis_origin_expr: Option<[Option<String>; 3]>,
     pub axis_direction: [f64; 3],
     pub angle: f64,
     /// Optional driving expression for `angle` (evaluates to DEGREES).
@@ -1098,6 +1135,12 @@ pub enum AxisRef {
     Explicit {
         origin: [f64; 3],
         direction: [f64; 3],
+        /// Optional driving expressions for `origin`, one per component
+        /// (mm-space → meters). P3; `direction` deliberately has none — it
+        /// is a direction, normalized at rebuild, so a per-component
+        /// expression for it names no measurement anyone draws.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        origin_expr: Option<[Option<String>; 3]>,
     },
     /// The axis a picked entity carries, resolved through the same derivation
     /// mate connectors use (`connector::resolve_connector_frame`): a
@@ -1248,6 +1291,12 @@ pub struct PatternCircularParams {
     pub axis: AxisRef,
     /// Total instances INCLUDING the seed (≥ 2).
     pub count: u32,
+    /// Optional driving expression for `count` (P3). Evaluates as a COUNT:
+    /// whole and non-negative, so `teeth / 2` is a count and `teeth / 3` of
+    /// a 20-tooth gear is a loud refusal rather than a silent truncation.
+    /// `pattern::check_count`'s `≥ 2` still applies afterwards.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub count_expr: Option<String>,
     /// Total sweep in degrees (see the struct docs). Default: a full turn.
     #[serde(default = "default_full_turn")]
     pub angle_deg: f64,
@@ -1284,6 +1333,10 @@ pub struct LinearSecondDirection {
     pub direction: AxisRef,
     /// Instances along this direction INCLUDING the seed row (≥ 2).
     pub count: u32,
+    /// Optional driving expression for `count`. See
+    /// `PatternCircularParams::count_expr`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub count_expr: Option<String>,
     /// Centre-to-centre spacing in meters (negative reverses the direction).
     pub spacing: f64,
     /// Optional driving expression for `spacing` (mm-space → meters).
@@ -1308,6 +1361,10 @@ pub struct PatternLinearParams {
     pub direction: AxisRef,
     /// Total instances along `direction` INCLUDING the seed (≥ 2).
     pub count: u32,
+    /// Optional driving expression for `count`. See
+    /// `PatternCircularParams::count_expr`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub count_expr: Option<String>,
     /// Centre-to-centre spacing in meters (negative reverses the direction).
     pub spacing: f64,
     /// Optional driving expression for `spacing` (mm-space → meters).
@@ -1499,7 +1556,15 @@ pub enum UnionTargets {
 pub enum PlaneDefinition {
     /// Explicit origin + normal.
     #[serde(rename = "point-normal")]
-    PointNormal { origin: [f64; 3], normal: [f64; 3] },
+    PointNormal {
+        origin: [f64; 3],
+        /// Optional driving expressions for `origin`, one per component
+        /// (mm-space → meters). P3; `normal` has none, for the reason
+        /// `AxisRef::Explicit::direction` has none.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        origin_expr: Option<[Option<String>; 3]>,
+        normal: [f64; 3],
+    },
     /// Parallel offset from another plane.
     #[serde(rename = "offset")]
     Offset {
@@ -1571,9 +1636,21 @@ pub struct MateConnectorParams {
     /// Turn about z in degrees, after the flip.
     #[serde(default, skip_serializing_if = "crate::assembly::is_zero")]
     pub rotation_deg: f64,
+    /// Optional driving expression for `rotation_deg` (evaluates to
+    /// DEGREES). P3; the FRAME itself has none — it is the derived or
+    /// explicit basis, and `rotation_deg`/`offset_m` are the authored
+    /// adjustment to it, so this is the half worth parameterising.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub rotation_expr: Option<String>,
     /// Move along the frame's own axes after the turn, meters `[x, y, z]`.
     #[serde(default, skip_serializing_if = "crate::assembly::is_zero3")]
     pub offset_m: [f64; 3],
+    /// Optional driving expressions for `offset_m`, one per component
+    /// (mm-space → meters). `None` for a component leaves the stored
+    /// number alone — an author who parameterises x only has not said
+    /// anything about y and z. See `ExtrudeParams::depth_expr`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub offset_m_expr: Option<[Option<String>; 3]>,
 }
 
 /// Why the reference ladder refused a `GeomRef` — the machine-readable half of

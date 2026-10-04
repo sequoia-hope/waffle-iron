@@ -204,6 +204,7 @@ fn sketch3d_get_refuses_a_feature_of_another_kind() {
                 name: "P".into(),
                 definition: PlaneDefinition::PointNormal {
                     origin: [0.0, 0.0, 0.0],
+                    origin_expr: None,
                     normal: [0.0, 0.0, 1.0],
                 },
             },

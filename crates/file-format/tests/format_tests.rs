@@ -321,6 +321,7 @@ fn save_all_operation_types() {
                 profile_index: 0,
                 profile_entity_ids: None,
                 axis_origin: [0.0, 0.0, 0.0],
+                axis_origin_expr: None,
                 axis_direction: [0.0, 1.0, 0.0],
                 angle: std::f64::consts::PI,
                 cut: false,
@@ -1806,13 +1807,17 @@ fn a_3d_sketch_round_trips() {
 /// variants INSIDE a tab kind every reader since D4a knows — so unlike D4a's
 /// new tab kind they are deserialized rather than kept opaque, and an older
 /// reader fails on them
-/// (`a_projection_variant_an_older_reader_does_not_know_fails_the_whole_document`).
+/// (`a_projection_variant_an_older_reader_does_not_know_fails_the_whole_document`);
+/// v12 is P2's two parameter scopes — `DocumentMetadata.parameters` and an
+/// applied `Instance.parameter_overrides` — where a reader that drops either
+/// builds a different solid from the same file
+/// (`crates/file-format/tests/param_scope_floor.rs`).
 /// What this test holds is that the writer and the floor move together and
 /// only deliberately.
 #[test]
 fn the_3d_sketch_operation_did_not_move_the_format_floor() {
-    assert_eq!(file_format::FORMAT_VERSION, 11);
-    assert_eq!(file_format::MIN_READER_VERSION, 11);
+    assert_eq!(file_format::FORMAT_VERSION, 12);
+    assert_eq!(file_format::MIN_READER_VERSION, 12);
 }
 
 /// v10: a pre-v10 file wrote its `Selector::Pid` ids as JSON NUMBERS, and it
@@ -2117,4 +2122,124 @@ fn a_projection_variant_an_older_reader_does_not_know_fails_the_whole_document()
         round_tripped["tabs"][0]["kind"]["type"], "Schematic",
         "an unknown tab kind is re-emitted verbatim"
     );
+}
+
+/// P3's ten `*_expr` sidecars survive a save and a load — the leg §13.3's
+/// no-bump argument stands on.
+///
+/// `param_p3_fields.rs` pins the ABSENT case (a document using none of them
+/// writes the bytes it always wrote) and the rename. Neither says a sidecar
+/// that IS set reaches the file: a `#[serde(skip)]` where
+/// `skip_serializing_if` was meant would pass both, write the evaluated
+/// number and drop the driver on every save, which is the silent data loss
+/// §13.3 argues cannot happen because the plain field carries the value. The
+/// geometry would indeed be right; the parameter would have stopped driving
+/// it.
+///
+/// Compared by document form rather than field by field, so a sidecar added
+/// later is covered by the fixture that carries it rather than by a list
+/// here.
+#[test]
+fn every_p3_expression_sidecar_round_trips_through_a_file() {
+    let ops = [
+        serde_json::json!({ "type": "Extrude", "params": {
+            "sketch_id": Uuid::nil(), "profile_index": 0, "depth": 0.004,
+            "symmetric": false, "cut": false, "depth_expr": "front",
+            "second_direction": { "type": "Blind", "depth": 0.002, "depth_expr": "back" } }}),
+        serde_json::json!({ "type": "Revolve", "params": {
+            "sketch_id": Uuid::nil(), "profile_index": 0,
+            "axis_origin": [0.001, 0.0, 0.0], "axis_direction": [0.0, 1.0, 0.0],
+            "axis_origin_expr": ["lift", null, null],
+            "angle": 360.0, "angle_expr": "turn" }}),
+        serde_json::json!({ "type": "DatumPlane", "params": { "name": "Datum", "definition": {
+            "method": "point-normal", "origin": [0.0, 0.0, 0.005],
+            "origin_expr": [null, null, "height"], "normal": [0.0, 0.0, 1.0] }}}),
+        serde_json::json!({ "type": "PatternCircular", "params": {
+            "seeds": { "type": "All" },
+            "axis": { "method": "explicit", "origin": [0.002, 0.0, 0.0],
+                      "origin_expr": ["hub", null, null], "direction": [0.0, 0.0, 1.0] },
+            "count": 4, "count_expr": "teeth", "angle_deg": 360.0, "angle_expr": "sweep" }}),
+        serde_json::json!({ "type": "PatternLinear", "params": {
+            "seeds": { "type": "All" },
+            "direction": { "method": "explicit", "origin": [0.0, 0.0, 0.0], "direction": [1.0, 0.0, 0.0] },
+            "count": 2, "count_expr": "rows", "spacing": 0.01, "spacing_expr": "pitch",
+            "second": { "direction": { "method": "explicit", "origin": [0.0, 0.0, 0.0], "direction": [0.0, 1.0, 0.0] },
+                        "count": 3, "count_expr": "cols", "spacing": 0.02, "spacing_expr": "pitch * 2" } }}),
+        serde_json::json!({ "type": "MateConnector", "params": {
+            "frame": { "origin": [0.0, 0.0, 0.0], "z_axis": [0.0, 0.0, 1.0], "x_axis": [1.0, 0.0, 0.0] },
+            "rotation_deg": 15.0, "rotation_expr": "twist",
+            "offset_m": [0.0, 0.0, 0.001], "offset_m_expr": [null, null, "clear"] }}),
+        serde_json::json!({ "type": "ImportedBody", "params": {
+            "file_name": "part.step", "step_text": "ISO-10303-21;\nEND-ISO-10303-21;\n",
+            "translation_m": [0.001, 0.0, 0.0], "translation_m_expr": ["dx", null, null],
+            "rotation_deg": [0.0, 0.0, 30.0], "rotation_deg_expr": [null, null, "yaw"],
+            "scale": 0.5, "scale_expr": "shrink" }}),
+    ];
+
+    let mut tree = FeatureTree::new();
+    for op in &ops {
+        let operation: Operation =
+            serde_json::from_value(op.clone()).unwrap_or_else(|e| panic!("{}: {e}", op["type"]));
+        tree.features.push(Feature {
+            id: Uuid::new_v4(),
+            name: op["type"].as_str().unwrap().to_string(),
+            operation,
+            suppressed: false,
+            references: Default::default(),
+        });
+    }
+    let json = save_project(&tree, &ProjectMetadata::new("P3 sidecars"));
+    let (loaded, _) = load_project(&json).unwrap();
+    assert_eq!(loaded.features.len(), ops.len());
+
+    // The FIXTURE is the oracle, not the struct. Comparing the loaded
+    // operation against the original re-serialized would pass for a
+    // `#[serde(skip)]` field, because both sides would then omit it — the
+    // comparison would be the struct agreeing with itself. So every `*_expr`
+    // the fixture states is looked up by its own path in what came back.
+    let mut checked = 0usize;
+    for (back, original) in loaded.features.iter().zip(ops.iter()) {
+        let got = serde_json::to_value(&back.operation).unwrap();
+        checked += compare_expr_keys(original, &got, &back.name, &back.name);
+    }
+    assert_eq!(
+        checked, 17,
+        "the fixtures state 17 sidecar values across the seven operations; a renamed or mistyped key would quietly lower this instead of failing"
+    );
+}
+
+/// Every `*_expr` key `want` states, found at the same path in `got` with the
+/// same value. Returns how many were checked, so a fixture that states none
+/// cannot pass by vacuity.
+fn compare_expr_keys(
+    want: &serde_json::Value,
+    got: &serde_json::Value,
+    name: &str,
+    at: &str,
+) -> usize {
+    let mut n = 0;
+    match want {
+        serde_json::Value::Object(map) => {
+            for (key, value) in map {
+                let here = format!("{at}.{key}");
+                let mine = got.get(key);
+                if key.ends_with("_expr") {
+                    assert_eq!(mine, Some(value), "{name}: {here} did not survive the file");
+                    n += 1;
+                }
+                if let Some(mine) = mine {
+                    n += compare_expr_keys(value, mine, name, &here);
+                }
+            }
+        }
+        serde_json::Value::Array(items) => {
+            for (i, item) in items.iter().enumerate() {
+                if let Some(mine) = got.get(i) {
+                    n += compare_expr_keys(item, mine, name, &format!("{at}[{i}]"));
+                }
+            }
+        }
+        _ => {}
+    }
+    n
 }

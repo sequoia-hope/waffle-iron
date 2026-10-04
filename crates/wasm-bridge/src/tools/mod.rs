@@ -316,7 +316,7 @@ fn run(
         "entity_list" => inspect::entity_list(state, kb, args),
         "sketch_regions" => inspect::sketch_regions(state, kb, args),
         "expression_evaluate" => inspect::expression_evaluate(state, kb, args),
-        "parameters_get" => inspect::parameters_get(state),
+        "parameters_get" => inspect::parameters_get(state, Some(args)),
         "feature_add" => author::feature_add(state, kb, args, context),
         "feature_edit" => author::feature_edit(state, kb, args, context),
         "feature_delete" => author::feature_delete(state, kb, args),

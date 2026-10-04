@@ -2961,6 +2961,101 @@ Three choices inside it:
 - *A section of an assembly leaf is implemented but not measured.* Unchanged
   from D4b.
 
+### D4d — Dimensioning on the sheet (specified 2026-10-04)
+
+Owner: `app` only. Nothing below the store changes: the engine stores
+annotations on views (D3), the tools add them, `addDrawingAnnotation` is the
+store door, the renderer draws whatever is in the document, and every view
+already ships `Vec<ViewAnchor>` (pid, kind, witness point, radius) for exactly
+this purpose. D4d is the top layer that D4a and D4b both left open as "nothing
+on the sheet is clickable".
+
+**Toolbar.** The drawing tab gets its own toolbar, built on the same collapse
+ladder as the modelling toolbar (`Toolbar.svelte`; `layout-overflow.spec.js`
+is the oracle), with one tool per authorable `DIMENSION_TAGS` entry — linear,
+aligned, radial, diametral, angular — plus note-with-leader and datum label.
+`Ordinate` joins when §7's open item closes, not before. Tools are reached in
+specs through `clickTool`/`clickToolbarAction`, never by raw testid.
+
+**Picking.** A sheet click hit-tests against the anchors of every view, in
+paper space: witness points within a pick radius that is a paper distance
+(say 2 mm at the current zoom), never a model distance, so a 1:10 view and a
+2:1 view pick alike. The nearest anchor wins; a tie inside the radius is a
+refusal, shown as a hover hint listing the candidates, because binding a
+dimension to the wrong edge is the silent wrong this whole spec exists to
+prevent. Anchors are per view, so a two-point dimension whose points come from
+different views is refused with a hint — the measurement would have no frame.
+Hover highlights the anchor it would pick, with its kind (edge, vertex, arc
+centre, circle) so the user sees what the tool will bind to before clicking.
+
+**Flow.** Linear and aligned take two anchors then a placement click; radial
+and diametral take one arc anchor then a placement click; angular takes two
+edge anchors; note takes an optional anchor then a placement. The placement
+click sets `Placement2` from the paper offset divided by the view scale (it is
+view-space meters, §7's open item). Escape backs out one pick; a completed
+dimension calls `addDrawingAnnotation` and the engine measures it (D2), so the
+printed value is the measured one and never a typed one.
+
+**Editing.** Clicking an existing dimension selects it; drag moves its
+placement; Delete removes it; the panel shows its precision, tolerance (M1)
+and dual unit for that selection. Undo covers all of it through the document.
+
+**Oracles.** A GUI spec draws a part, places a view, dimensions an edge pair
+with real pointer events and reads the annotation back from the feature tree
+with the expected pids; a second spec dimensions at two zoom levels and two
+view scales and asserts the pick radius is paper-constant; a third asserts the
+tie refusal. `expectNoAnyCrash` throughout.
+
+### D4e — Visual view placement (specified 2026-10-04)
+
+Owner: `app`, `wasm-bridge` (one query), `feature-engine`, `file-format`.
+
+Today a view is added from the panel: pick a source tab, a named view or a
+parent plus a direction, and the engine auto-places it. Two visual tools
+replace the panel as the primary path; the panel stays as the numeric one.
+
+**Place-view dialog with a hover ghost.** A `+ view` toolbar tool opens a
+dialog: source part or assembly instance (the existing `sources` list), named
+view, scale (the standard ISO 5455 series as choices plus a free field). On
+OK the dialog closes and the sheet enters a placement mode: as the mouse moves,
+a dashed bounding box shows where the view would land, centred on the cursor,
+snapped to the sheet grid and to alignment with existing views' centres
+(projection-group alignment is what a drafter wants from the snap). Click
+places it; Escape cancels. The box's size is the source's extent projected
+through the named view's frame, times the scale — computed in the app from
+the render-mesh bounds already in the store, which is an upper bound on the
+true drawn extent and therefore safe for layout. Placing a view then calls
+`addDrawingView` with an explicit `placement_mm`, which the door already
+takes. No kernel work and no format change; the ghost is an app-side
+derivation.
+
+**Projected-view tool.** A second tool: click a parent view, then hover. The
+cursor's position relative to the parent's bounding box selects the
+projection: the four axis sectors (beyond the box's left, right, top or
+bottom edge) give `ProjectedFrom { Left | Right | Up | Down }` and draw the
+ghost of that view at the projection standard's placement for the active
+standard (the first-angle flip is the engine's `projected_frame`, not the
+tool's — the ghost asks the engine which side). The four corner sectors give
+an **isometric** of the corresponding octant, which is the new part: a
+`ProjectedDirection` gains `UpLeft | UpRight | DownLeft | DownRight`, each
+derived from the parent's frame as the standard isometric that looks from
+that corner (`atan(1/√2)` elevation, 45° azimuth, paper up shared with the
+parent per the D4a rule that every view in a group shares a paper axis). The
+diagonal variants are a format change — assign the version at dispatch — and
+`paper_step` and `opposite` extend to them. Hovering shows the ghost
+bounding box and a label (`Right of Front`, `Iso (up-right) of Front`); click
+adds the view with the auto-placement the engine already computes, so a
+visually placed projected view and a panel-added one are byte-identical.
+
+**Oracles.** Unit: the four diagonal frames are right-handed, share a paper
+axis with the parent, and the eight directions' `opposite` is an involution.
+GUI: hover each of the eight sectors around a placed front view and assert
+the ghost label and the resulting view's projection type; place a view with
+the dialog at two scales and assert the ghost box equals the placed view's
+drawn extent to within the mesh-vs-analytic deficit; assert the first-angle
+document setting moves the ghost to the opposite side without the tool
+knowing why.
+
 ## 9. M1 — Tolerance, precision, material
 
 Owner: `waffle-types`, `feature-engine`, `app`.
@@ -3058,11 +3153,13 @@ under both schema settings.
 | D4a | `Drawing` tab kind, named + projected views, DXF/SVG export | D1c, D3 | file-format, feature-engine, app, wasm-bridge — **LANDED 2026-10-03** |
 | D4b | section + detail views, title block, sheet PDF | D1d, D2, D4a | same — **LANDED 2026-10-03** (without D2: the title block took keys and literal text) |
 | D4c | title-block expressions, authorable `Measured::Expr`, hatch + detail clip in the DXF | D2, D4b | waffle-types, feature-engine, kernel-v2, wasm-bridge, app — **LANDED 2026-10-04** |
-| M1 | tolerance types, precision, material + mass | D2 | waffle-types, feature-engine, app |
+| D4d | dimensioning toolbar on the drawing tab; anchor hit-test with paper-constant pick radius; select/drag/delete | D4b | app |
+| D4e | place-view dialog with hover ghost box; projected-view tool with eight hover sectors incl. isometric corners (`ProjectedDirection` diagonals, format bump) | D4b | app, feature-engine, file-format, wasm-bridge |
+| M1 | tolerance types, precision, material + mass | D2 | waffle-types, feature-engine, app — in flight 2026-10-04 |
 | M2 | `Datum` + `Pmi` features, 3D PMI overlay | D0, D3, M1 | feature-engine, app |
 | M3 | AP242 writer with PMI + round-trip oracle | M2 | kernel-v2, wasm-bridge |
 
-D0 and D1 are independent and can run in parallel. D1 is the only piece that
+D4d and D4e are app-side and independent of each other; both can start the moment D4c merges, and D4e is the only one with a format bump. D0 and D1 are independent and can run in parallel. D1 is the only piece that
 is hard kernel work and it sits in the Yang stack's area (half-space booleans,
 cherchi-rs in/out predicates, SSI silhouettes), so it belongs on the kernel
 priority list rather than competing with it. Everything from D3 outward is

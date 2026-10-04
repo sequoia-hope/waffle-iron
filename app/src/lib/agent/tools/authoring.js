@@ -297,10 +297,30 @@ export const parametersSetTool = {
 		'name is a rename: every expression that reads it — other parameters and feature fields alike — is ' +
 		'rewritten, so use this rather than deleting and re-adding. A failing expression is reported per ' +
 		'parameter, not rolled back; a delete of a parameter something still reads is refused naming the ' +
-		'dependents (read them first with parameters_get).',
+		'dependents (read them first with parameters_get). scope chooses which table: tab (the default) ' +
+		'the open Part tab\'s, document the document-wide one that every tab resolves through after its ' +
+		'own (NOT an undo step, and a RENAME there is refused — the rewrite would have to reach every ' +
+		'tab and this call can only reach the open one), or instance, which with instance_id and ' +
+		'overrides pins magnitudes on one placed instance of a part so it builds its own solid.',
 	inputSchema: {
 		type: 'object',
 		properties: {
+			scope: {
+				type: 'string',
+				enum: ['tab', 'document', 'instance'],
+				description: 'Which table to write. Default tab.'
+			},
+			instance_id: uuid('Required for scope instance: the assembly instance to parameterise.'),
+			overrides: {
+				type: ['object', 'null'],
+				description:
+					'scope instance only: {parameter name: working-space magnitude} (mm for a length, degrees ' +
+					'for an angle). The DIMENSION comes from the part\'s parameter, not from the number, so a ' +
+					'Count parameter still refuses a fraction. With merge:true a name set to null removes just ' +
+					'that override; null here clears them all. A name the part does not declare is a loud ' +
+					'rebuild error naming it.',
+				additionalProperties: { type: ['number', 'null'] }
+			},
 			parameters: {
 				type: 'array',
 				description:

@@ -424,6 +424,9 @@ fn axis_ref(d: &Dynamic, what: &str) -> Result<AxisRef, Box<EvalAltResult>> {
         return Ok(AxisRef::Explicit {
             origin,
             direction: vec3(dir, &format!("{what}.direction"))?,
+            // A script computes its numbers itself; a stored expression on a
+            // script-authored axis would be a second, unreachable driver.
+            origin_expr: None,
         });
     }
     if let Some(q) = d.clone().try_cast::<Query>() {
@@ -440,6 +443,7 @@ fn axis_ref(d: &Dynamic, what: &str) -> Result<AxisRef, Box<EvalAltResult>> {
         return Ok(AxisRef::Explicit {
             origin: [0.0; 3],
             direction: vec3(d, what)?,
+            origin_expr: None,
         });
     }
     rt(format!(
@@ -1065,6 +1069,9 @@ impl Ctx {
                     profile_index: region.0.index,
                     profile_entity_ids: Some(region.0.entity_ids.clone()),
                     axis_origin,
+                    // A script authors its numbers; an expression sidecar
+                    // here would be a second driver nothing can reach.
+                    axis_origin_expr: None,
                     axis_direction,
                     angle,
                     angle_expr: None,
@@ -1312,6 +1319,7 @@ impl Ctx {
                     seeds: PatternSeeds::Selected(seeds),
                     axis,
                     count,
+                    count_expr: None,
                     angle_deg,
                     angle_expr: None,
                     skip: skip_list(opts)?,
@@ -1351,6 +1359,7 @@ impl Ctx {
                 Some(LinearSecondDirection {
                     direction,
                     count,
+                    count_expr: None,
                     spacing,
                     spacing_expr: None,
                 })
@@ -1366,6 +1375,7 @@ impl Ctx {
                     seeds: PatternSeeds::Selected(seeds),
                     direction,
                     count,
+                    count_expr: None,
                     spacing,
                     spacing_expr: None,
                     second,
@@ -1541,7 +1551,9 @@ impl Ctx {
                     anchor,
                     flip_z,
                     rotation_deg,
+                    rotation_expr: None,
                     offset_m,
+                    offset_m_expr: None,
                 },
             },
             suppressed: false,
