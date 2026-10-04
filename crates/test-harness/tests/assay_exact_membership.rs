@@ -343,12 +343,40 @@ fn p0004_reads_two_balls_through_the_feature_id_key() {
 // ---- instruments -----------------------------------------------------------
 
 /// One case on a ladder (`ASSAY_CASE`, `EXACT_CELLS`, `EXACT_PHASE`,
-/// `EXACT_PREFIX=k` for the first `k` ops).
+/// `EXACT_PREFIX=k` for the first `k` ops, or `EXACT_PREFIX=all` for every
+/// prefix — which is how a chain's first divergent op is NAMED rather than
+/// guessed).
+///
+/// `EXACT_STEM=<absolute stem>` reads `<stem>.waffle` + `<stem>.meta.json`
+/// from anywhere instead of the corpus, so a prospector candidate can be
+/// adjudicated without being copied into the corpus directory (which is
+/// count-pinned by `assay_kv2::full_corpus_categorized`).
 #[test]
 #[ignore = "manual instrument"]
 fn one_case_ladder() {
-    let id = std::env::var("ASSAY_CASE").unwrap_or_else(|_| "R0053".into());
-    let (waffle, meta) = read_case(&id);
+    let (id, waffle, meta) = match std::env::var("EXACT_STEM") {
+        Ok(stem) => {
+            let stem = PathBuf::from(stem);
+            let id = stem
+                .file_name()
+                .map(|s| s.to_string_lossy().into_owned())
+                .unwrap_or_else(|| "stem".into());
+            let waffle = serde_json::from_str(
+                &fs::read_to_string(stem.with_extension("waffle")).expect("<stem>.waffle"),
+            )
+            .expect("waffle json");
+            let meta = serde_json::from_str(
+                &fs::read_to_string(stem.with_extension("meta.json")).expect("<stem>.meta.json"),
+            )
+            .expect("meta json");
+            (id, waffle, meta)
+        }
+        Err(_) => {
+            let id = std::env::var("ASSAY_CASE").unwrap_or_else(|_| "R0053".into());
+            let (waffle, meta) = read_case(&id);
+            (id, waffle, meta)
+        }
+    };
     let c = match ExactChain::from_waffle(&waffle) {
         Ok(c) => c,
         Err(e) => {
@@ -371,10 +399,19 @@ fn one_case_ladder() {
         }
         None => c,
     };
-    let prefix = std::env::var("EXACT_PREFIX")
-        .ok()
-        .and_then(|s| s.parse().ok())
-        .unwrap_or(c.ops.len());
+    let prefixes: Vec<usize> = match std::env::var("EXACT_PREFIX").as_deref() {
+        Ok("all") => (1..=c.ops.len()).collect(),
+        Ok(s) => s
+            .split(',')
+            .filter_map(|p| p.trim().parse().ok())
+            .collect::<Vec<usize>>(),
+        Err(_) => vec![c.ops.len()],
+    };
+    let prefixes = if prefixes.is_empty() {
+        vec![c.ops.len()]
+    } else {
+        prefixes
+    };
     let target = meta
         .pointer("/oracles/euler_target")
         .and_then(|v| v.as_i64());
@@ -387,19 +424,21 @@ fn one_case_ladder() {
             None => eprintln!("[exact] {id} kernel volume: no scale in meta"),
         }
     }
-    for phase in phases_env() {
-        for cells in cells_env(&[64, 128, 256]) {
-            let r = readout_exact(&c, prefix, cells, phase).expect("bbox");
-            eprintln!(
-                "[exact] {id} ops=0..{prefix} cells={cells} phase={phase} n={:?} h={:.4e} chi_solid={} boundary_chi={} components={} sizes={:?} volume={:.6e} bodies={} body_volumes={:?} (authored euler_target {:?})",
-                r.n, r.h, r.readout.chi, r.boundary_chi(), r.readout.components,
-                r.component_sizes.iter().take(8).collect::<Vec<_>>(), r.volume,
-                r.bodies, r.body_volumes.iter().map(|v| format!("{v:.4e}")).collect::<Vec<_>>(), target
-            );
-            eprintln!(
-                "[exact] {id}   centroid=({:.6e}, {:.6e}, {:.6e})",
-                r.centroid[0], r.centroid[1], r.centroid[2]
-            );
+    for &prefix in &prefixes {
+        for phase in phases_env() {
+            for cells in cells_env(&[64, 128, 256]) {
+                let r = readout_exact(&c, prefix, cells, phase).expect("bbox");
+                eprintln!(
+                    "[exact] {id} ops=0..{prefix} cells={cells} phase={phase} n={:?} h={:.4e} chi_solid={} boundary_chi={} components={} sizes={:?} volume={:.6e} bodies={} body_volumes={:?} (authored euler_target {:?})",
+                    r.n, r.h, r.readout.chi, r.boundary_chi(), r.readout.components,
+                    r.component_sizes.iter().take(8).collect::<Vec<_>>(), r.volume,
+                    r.bodies, r.body_volumes.iter().map(|v| format!("{v:.4e}")).collect::<Vec<_>>(), target
+                );
+                eprintln!(
+                    "[exact] {id}   centroid=({:.6e}, {:.6e}, {:.6e})",
+                    r.centroid[0], r.centroid[1], r.centroid[2]
+                );
+            }
         }
     }
 }

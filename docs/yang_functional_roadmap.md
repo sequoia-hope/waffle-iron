@@ -9,6 +9,47 @@
 
 ## 0. Honest status (refreshed 2026-06-26; addendum 2026-09-04 below)
 
+> **2026-10-04 refresh — MEASURED; a USER document converted (`error_oct4.waffle`), deviation N79.** Canonical corpus **324C / 0W / 22E / 5EE / 0T + 0 UNSUPPORTED over 351 cases** (release, 8 jobs, 900 s; wall 1398.5 s) — byte-identical to the 2026-10-03 run, zero category or detail moves. The change: Stage 0's near-coplanar weld (`gap ≤ band/100`) snapped a pair's loop VERTICES onto the canonical plane but left face B's stored plane and rim-circle centre on its own, so every uniform rim sample and opposite-rim image sat `gap` below every snapped vertex and overlay mint — twin rim points, a bit-identity refusal when the twin azimuth was a uniform slot (4|N), then an improper cap×lateral self-contact. `stage0::plane_weld` (spec `specs/yang_455_coplanar_plane_weld.md`) rewrites the participating faces' planes, curved-edge anchors and loop vertices before `stage0_preprocess`, the identity on bit-exact input (hence zero corpus moves — the corpus is bit-exact coplanar); row 5 of the uniform-merge rule is now distance-based. The upstream producer is the app: `computeFacePlane` reads face sketch origins from f32 render geometry (spec §7) — an app increment still open. New recipe: `WAFFLE_PATH=… user_case_probe replay_waffle_env` replays any user document (`docs/TESTING.md`).
+
+> **2026-10-03 (night UTC) refresh — MEASURED; P0019 and P0020 CONVERTED, the seed-2 P-series tail is EMPTY.** Canonical corpus **324C / 0W / 22E / 5EE / 0T + 0 UNSUPPORTED over 351 cases** (release, 8 jobs, 900 s; wall 1129.6 s; R0085 662.5 s, F0072 567.2 s). The two-gate run (N77 component-wise seam anchoring + N78 entry-only pinch split): versus the 322C/9E run over 336, exactly two category moves (P0019, P0020 → CORRECT) plus the fifteen seed-3 promotions (P0025–P0039, all ERROR at promotion) and zero regressions, so both gates are default-on (`YANG_SEAM_COMPONENT=0|off`, `YANG_EDGE_PINCH_ENTRY_ONLY=0|off`); N77 and N78 RESOLVED. The 22 ERROR rows are the seven loud-by-design C-series walls + P0025–P0039 (seed 3; P0025 is the 14-row locus — `stage4_correct.rs:12318`, the PR-KV9 ellipse×ellipse junction with PARALLEL cutting planes — the obvious first conversion). Also open: seed-3 index 48 (a 3-of-12 440 degenerate-triangle WRONG that costs more than the budget — a cost, not a hang; the two seed-2 "Stage-2 hangs" owe the same no-budget re-read), the two oracle holes (cut auto-reversal proxy; the exact chain cutting a dead body), P0021's χ meta via the sidecar.
+
+> **2026-10-03 (late night, seventh) refresh — prospector seed 3 adjudicated;
+> the P-series ERROR tail goes from two cases to seventeen. CORPUS NOT
+> RE-MEASURED THIS SESSION.** `PROSPECT_SEED=3 PROSPECT_COUNT=200` returned
+> 164 SUPPORTED_CORRECT, 32 ERROR, 3 SUPPORTED_WRONG, 1 TIMEOUT and 0
+> UNSUPPORTED (1291 s at 8 jobs). Triage promoted **P0025–P0039** — corpus
+> **336 → 351 cases** — and the committed pins say ERROR for all fifteen, so
+> the next measured run should read **nine ERROR rows plus these fifteen**
+> (the seven loud-by-design C-series walls + P0019 + P0020 + P0025–P0039),
+> with 322C unchanged. Seed 3's lesson is that a FAMILY is not a finding: the
+> 32 ERROR rows are twelve families by error text but **fifteen distinct
+> raising sites**, and promotion is now one case per SITE (`YANG_LRR_PROBE`
+> prints `loc=<file>:<line> reason=… v=<vertex>` at every Stage-4
+> region-invalid return; `NONMANIFOLD_SITE_PROBE` and `KV2_SELFX_SITE_PROBE`
+> do the same for reassembly and the output gate). The largest single site is
+> **P0025** — 14 of the 32 rows raise at `stage4_correct.rs:12318`, the PR-KV9
+> ellipse×ellipse junction relocation whose two cutting planes are PARALLEL,
+> so the plane-pair line it derives the junction from does not exist. Three
+> texts whose families CLAUDE.md records as having no customer left have one
+> again at a NEW site: `ring rejected by CDT` (P0036, after P0002 and P0013),
+> `patch triangle collapsed at render precision` (P0035, after P0001) and
+> `RelocationCrossedCarrierVertex` (P0039, after P0015, on the auto-union
+> path). All three `wrong[exact_volume]` rows are **ORACLE** defects, not
+> kernel ones — the reverse of seed 2 — two of them the ledgered cut
+> auto-reversal hole and one a NEW harness defect (after a cut annihilates a
+> body, the exact chain applies the next cut to the dead body), so none of
+> those three was promoted and the corpus keeps **0 W** from them. The seed's
+> one TIMEOUT, however, is **not a hang**: run with no CPU budget index 48
+> completes (1255 s wall on a loaded box) and reads **SUPPORTED_WRONG —
+> `no_degenerate_triangles: 3 of 12440 triangles are degenerate`**, so Stage 2
+> is merely expensive on a gear revolve's conical bands and the seed's honest
+> histogram is 164 C / 32 E / **4 W** / 0 T. That is a FOURTH silent wrong, and
+> the rule it teaches is to re-run a lone TIMEOUT with NO budget before
+> recording it (the two seed-2 "Stage-2 hangs" owe the same re-reading). Full
+> narrative, per-case evidence and the duplicates table:
+> `docs/yang_tail_triage.md` §"2026-10-03 (late night)". Next: `prospect_run`
+> seed 4, and a conversion session per site starting with P0025.
+
 > **2026-10-03 (late evening UTC) refresh — MEASURED; P0017 CONVERTED, N69 and N76 live.** Canonical corpus **322C / 0W / 9E / 5EE / 0T + 0 UNSUPPORTED over 336 cases** (release, 8 jobs, 900 s; wall 1437.5 s; R0085 828.8 s, F0072 767.8 s). First run with the N69 graze-aware ray selection (always-on, `CHERCHI_GRAZE_AWARE_RAY=0|off`) and the N76 output-curve backtrack merge: versus the extent-on run (321C/10E), exactly one category move (P0017 → CORRECT) and zero regressions — P0023 CORRECT and P0024 EXPECTED_ERROR now by the honest boolean answer, not the containment net; **deviation N69 RESOLVED**. The 9 ERROR rows are the seven loud-by-design C-series walls + P0019 (component-wise seam anchoring, gated branch in progress) + P0020 (N74 per-sheet faces). The P-series tail is two cases from EMPTY.
 
 > **2026-10-03 (late night, third) refresh — deviation N69 RESOLVED-pending-corpus:
@@ -222,6 +263,55 @@
 > `YANG_NSEG_FLOOR` is `cfg!(debug_assertions)`-gated, so a `--release` density
 > sweep is a silent no-op.
 
+> **2026-10-03 (night, sixth) refresh — P0020 CONVERTED behind a gate;
+> deviation **N78** opened and **N74's corpus customer WITHDRAWN**; corpus
+> NOT re-measured, **flip owed**.** The session was asked to implement
+> `specs/yang_tangency_pinch_split.md` §0b (per-SHEET faces at Stage 6) with
+> P0020 as its first corpus customer. P0020 is not that case, and measuring
+> instead of inferring is the conversion. (i) The face's contact encloses
+> EXACTLY zero chart area — a new `[holed-dup-census]` line reports each
+> coincident pair's two sub-loops with their exact doubled shoelace area, and
+> all four of P0020's pairs read `inner sub-loop 2 edges area2=0e0` / `4 edges
+> area2=0e0` against an `outer sub-loop … area2=1.7395573469680094e-2`. The
+> loop runs `g41 → g583 → g42 → g584 → g43` with `g583 ≡ g584` and
+> `g41 ≡ g43`: a NESTED DOUBLED POLYLINE, a hairline SLIT two mesh edges deep
+> into ONE region. One region has no second SHEET, so §0b has nothing to
+> split. (ii) The pinch is not the solid's own: `YANG_NM_EDGE_PROBE`, bisected
+> across the previously unexamined `after-reloc` → `before-3c-merge` stretch
+> with three new checkpoints, reads **0 over-2 edges at `s4-entry` AND at
+> `after-reloc`** and 2 at `before-3c-merge` — minted inside Stage 4 by
+> §4.5.3's `sweep_reversed_intersections` edge collapse, the exact inverse of
+> F0060, whose 14 are in the arrangement at `s4-entry` (§0a.1). So the `(4a2)`
+> site reads the §0a certificate at a placement the spec itself fixes twice
+> (§0a.3 and §0b "The placement": Stage-4 ENTRY). Restricting the arm there
+> (`YANG_EDGE_PINCH_ENTRY_ONLY=1|on`, **gated OFF**) gives
+> `P0020: SUPPORTED_CORRECT (12.3s)` from `ERROR (7.9s)`, and converts the
+> un-minimized seed-2 lineage too (`X00000002-00196`: ERROR → SUPPORTED_CORRECT,
+> 1 body, χ 2). Adjudicated by DIFFERENTIAL, because the exact-membership and
+> sidecar oracles do not cover explicit Intersect combines: the first
+> Intersect's own output dumped to OBJ at `S453_KEEP_OPS=3` and integrated
+> outside the kernel reads 2.967214873285e-04 (gate off) vs 2.967214873279e-04
+> (gate on) — **2.0e-12 relative**, i.e. the gate deletes the slit's 16 render
+> vertices and 8 triangles and changes no geometry. `derived_meta: true` stays
+> on P0020's meta. Sharers re-judged by `single_case` (release, 900 s; host
+> load 38–76, so wall times are inflated), **gate ON: 25 cases, ZERO moves** —
+> every CORRECT case stays CORRECT, including C0058 (65.9 s) and F0060
+> (4.4 s), the two cases the pinch split exists FOR, plus F0072 (973.0 s),
+> F0085 (642.2 s),
+> R0053 (476.2 s), F0064, R0070, R0063, R0004, R0026, R0074 and every open
+> P-series row. **Gate OFF (the committed default): 10 spot cases, all
+> unchanged.** `cargo test -p yang-rs --release`: 76 binaries, 1512 passed, 0
+> failed (lib 1073 / 2 ignored). With the gate OFF the default path is
+> unchanged in verdict and better localized: the wall now carries
+> `inner_edges` + the exact `inner_area2` and names "a zero-width SLIT
+> (2-edge sub-loop, exact chart area 0e0) cut into ONE region … deviation
+> N78" instead of blaming §0b. **Not fixed, and next:** §4.5.3's collapse
+> still mints a non-manifold edge on a manifold mesh (P0020's first Intersect
+> keeps two tolerated over-2 edges) — the §4.4.1 mesh-updating half, N78's
+> second remediation. **The corpus was NOT re-measured; the flip is owed.**
+> Full anchor: ledger `docs/yang_tail_triage.md` §"P0020 — CONVERTED
+> 2026-10-03 (night, later)".
+
 > **2026-10-03 (night, fourth) refresh — P0020 ANCHORED and netted loud, NOT
 > converted; deviation **N74**; corpus NOT re-measured this session.** P0020's
 > `holed lateral CDT failed: duplicate (coincident) loop vertex in CDT input`
@@ -273,6 +363,116 @@
 > the KV14 holed-lateral customers, the pinch-split customers
 > (C0058/F0058/F0060/R0038), the M8 coplanar rows and every open P/C ERROR row
 > — see `docs/yang_tail_triage.md`. **Corpus not re-measured.**
+> **2026-10-03 (night) refresh — P0019 CONVERTED, GATED; corpus not re-measured, flip owed.**
+> Deviation **N77**. The rim-cycle anchoring N73 unmasked is fixed with the rule
+> the OTHER copy of this machinery already states: SI5's STEP ingest
+> (`specs/step_import_si5_exact_analytic_ingestion.md`, "Alignment is not
+> pairwise") anchors **per connected component of rims-joined-by-bands**, one
+> direction per component, because two bands sharing a full-circle rim are
+> necessarily coaxial — a shared full circle is each surface's own rim. It is
+> admissible for the reason that paragraph gives and §4.4.2 implies
+> (`refs/text/yang2025_hybrid_boolean.txt:574-605`): a closed edge's anchor is
+> pure representation gauge — Stroud's fake edge — so sliding it along its own
+> circle changes no boundary point, and the paper restores a face from the
+> surfaces and curves it bounds, never from a seam's phase.
+> **Scope correction worth recording:** the defect is NOT specific to a rim
+> CYCLE. `recover.rs`'s PASS 1 pins BOTH rims of every pair it resolves, and
+> PASS 2 never moves a pinned anchor, so any band reaching PASS 2 with both
+> rims pinned at different azimuths keeps the annular form — which happens
+> whenever the pairing faces INTERLEAVE with the non-pairing ones along a run
+> of rim-sharing bands. P0019's five-band ring is the extreme case; the new
+> pin's **four-band CHAIN reproduces it** (PASS 1 pairs faces 0 and 2, pins
+> four rims, face 1 then sees |Δaz| = 2.51327412287182916e-1 rad between two
+> pinned anchors and stays annular).
+> **PASS 1C** (`crates/kernel-v2/src/recover.rs`, after PASS 2, one gated
+> block): union the two rim chains of every lateral whose rims are verifiably
+> coaxial with its own axis (both normals ∥ axis, both centres on one
+> axis-parallel line — a band that fails joins nothing and keeps the greedy
+> path); then per component fix ONE seam DIRECTION — a frame-free unit radial
+> vector, deliberately not an azimuth, because the bands of one component may
+> report their axis with EITHER sign (P0019's five cones alternate ±ẑ) and
+> `ortho_basis(+ẑ)`/`ortho_basis(−ẑ)` are different frames — chosen from, in
+> order, (1) a PINNED rim (PASS 0's torus bands), two pinned rims disagreeing
+> being a component refusal verbatim per the SI5 rule, (2) an already-anchored
+> COAXIAL lateral of the same output, which keeps PASS 2's C0117 cross-lateral
+> phase coherence, (3) the component's FIRST NATURAL SEAM — the lowest-face-index
+> band whose rims already retain an azimuth-aligned pair, at that pair's rim-a
+> vertex, so a band PASS 1 would have paired keeps its own feet exactly — else
+> (4) that scan's smallest-|Δaz| vertex; anchor every rim of the component
+> there (an existing vertex within `band`, else the exact minted `c + r·dir`);
+> and VERIFY each band's two feet are one ruling to the validator's own
+> `cyl-seam-not-ruling` bound 1e-12 (the F11 lesson), a band that still
+> disagrees being refused to the arc fallback. Recovery has no error channel by
+> design (P9 — `from_yang_brep` is the single authority on a malformed output),
+> so that refusal is conservative here and loud one layer down where
+> `validate_*_face` names the face; `KV2_RECOVER_PROBE` prints the measured
+> offset and the component for every band either way.
+> **Verdict.** `P0019: ERROR (0.1 s) → SUPPORTED_CORRECT (0.3 s)`, all five
+> bands seamed at ruling offsets `0`, `3.64200648169714843e-17`,
+> `3.64200648169714843e-17`, `2.88796976369154685e-17`,
+> `1.27195530643449169e-17`. Oracles **adjudicated** by the exact-membership
+> lattice, stable at every rung and both phases (`EXACT_CELLS=128,256,512,1024
+> EXACT_PHASE=0.5,0.25 EXACT_KERNEL=1`): components 2, `boundary_chi` 2, two
+> bodies on all eight readings; 1024-cell totals 1.216869e0 (phase 0.5) and
+> 1.216863e0 (0.25), mean **1.2168660e0**, against the kernel's tessellated
+> **1.214852e0** = rel **−1.66e-3**, the inscribed-lathe chord deficit.
+> `euler_target` is hand-adjudicated to **0**, not the generator's 2: the χ
+> oracle reads the MAIN body's mesh only and Main IS the genus-1 cone-band ring
+> (one shell, V 355 − E 1065 + F 710 = 0) — the lattice's 2 is the SUM over
+> both components (0 + 2), which is what `expected_volume` compares against.
+> `derived_meta` cleared.
+> **GATED on `YANG_SEAM_COMPONENT=1|on`.** It moves minted seam feet, and
+> therefore render phase, for every canonical band with a rim-sharing
+> neighbour, so the `full_corpus_categorized` proof and the flip to
+> always-on-with-a-kill-switch (the N75 shape) are **OWED**; until then the
+> P0019 category pin stays `Error`, which is what the default build measures.
+> **Evidence in lieu of a corpus run (corpus NOT re-measured; flip owed):**
+> every revolve customer in the corpus (87 cases — `"kind": "revolve"` in the
+> metas, plus the named sharer set R0004 / P0004 / P0005 / R0003 / R0049 /
+> C0107 / C0108, all already in it) re-judged by `single_case` at 900 s, ONCE
+> PER MODE, through the compiled assay binary at 6-way parallelism.
+> **Gate OFF: identical to the committed ledger** — 81 SUPPORTED_CORRECT,
+> 2 EXPECTED_ERROR (F0074, R0027), 4 ERROR (C0107, C0108, C0109 holding their
+> texts verbatim, plus P0019). **Gate ON: 82 / 2 / 3 — exactly ONE move, P0019
+> `ERROR → SUPPORTED_CORRECT`, and zero regressions**; every ERROR row keeps
+> its text verbatim and the named rows read R0004 4 s, P0004 2 s, P0005 14 s,
+> R0003 120 s, R0049 5 s, all SUPPORTED_CORRECT, with the four heaviest
+> (R0085 1083 s, R0044 714 s, R0019 575 s, R0053 547 s) inside the OFF run's
+> own spread (983 / 760 / 604 / 587 s at the same 6-way parallelism), so the
+> component pass has no measurable cost at corpus scale.
+> Byte-identity with the gate off is structural, not sampled: `component_mode`
+> false leaves `in_component` all-false (so PASS 1's loop is unchanged) and
+> `seam_components` empty (so PASS 1C does not execute).
+> `cargo test -p kernel-v2 --release` green (66 binaries, 823 passed, 0 failed),
+> `smoke_corpus_boundary_categories` PASSES in 646.4 s with the P0019 row still
+> pinned `Error` (the gate-off default), clippy
+> `--all-targets -p kernel-v2 -p test-harness -- -D warnings` clean,
+> `cargo fmt --check` clean.
+> **Pins.** `crates/kernel-v2/tests/n77_component_seam_anchoring.rs`, both
+> fixtures a lathe through a REAL boolean (an end-shave subtract of the
+> `axial < 0.1` slab — a strictly AABB-disjoint union will NOT do: task #134's
+> passthrough skips yang entirely, so recover is never called, which is how an
+> earlier draft of this pin proved nothing). The four-band external-axis ring
+> is RED→GREEN (gate off: P0019's wall verbatim on `FaceId(11)`; on: assembles,
+> validates, exactly ONE ring — the shaved cap's inner rim, a still-annular
+> band would add one — and the closed-form Pappus volume `21.5π −
+> π·4.796296296296296e-2`). The barrel washer is the rim-CHAIN no-regression
+> half and is deliberately NOT bitwise: the component rule picks a different
+> representational azimuth, so minted feet DO move; what may not move is the
+> SOLID (same V/E/F/R census, volume to 1e-9 relative, against `(8/3)π −
+> π·8.008333333333333e-2`). Mutation-checked both ways — neutering
+> `seam_component_mode()` fails the GREEN half with the verbatim KV6c wall, and
+> widening the per-rim reuse band to `1e9·band` so a rim reuses a far-off
+> vertex instead of minting makes the ruling check refuse and BOTH fixtures
+> fail with the same wall.
+> **Recorded, no customer left.** `yang_rs::BRep::new` REFUSES the annular cone
+> band as INPUT (`MalformedTopology("… cone periodic strip (2 encircling rims)
+> not yet supported (KV14 Slice E …)")`) while yang's own Stage 5 EMITS exactly
+> that form, and `BRep`'s fields are `pub(crate)` — which is why neither the
+> N73 pin nor this one can hand-build P0019's face and both go through
+> `boolean_op`. With component anchoring on, every band reaching kernel-v2 is
+> seamed, so the asymmetry has no customer; it stays a latent of the gate-off
+> path and of any future producer of a 2-encircling-rim input.
 > **2026-10-03 (late night) refresh — P0019's sense wall CONVERTED, the case
 > HALF-converted; corpus NOT re-measured this session (another assay held the
 > box).** Deviation **N73**. P0019's body is a **genus-1 ring of FIVE cone

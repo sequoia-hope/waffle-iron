@@ -1802,11 +1802,15 @@ fn a_3d_sketch_round_trips() {
 /// (`crates/feature-engine/tests/sketch_plane_face.rs` measures it); v10 is
 /// the pid REPRESENTATION flip — a `Selector::Pid`'s ids are decimal strings,
 /// because a JSON number in JavaScript is an `f64` and a rounded id is a
-/// different entity (`waffle_types::pid_str`); v11 is D4b's section and
-/// detail projections; v12 is P2's two parameter
-/// scopes — `DocumentMetadata.parameters` and an applied
-/// `Instance.parameter_overrides` — where a reader that drops either builds a
-/// different solid from the same file
+/// different entity (`waffle_types::pid_str`); v11 is D4b's
+/// `Projection::Section`/`Detail` (`specs/drawings_and_mbd.md` §8), two new
+/// variants INSIDE a tab kind every reader since D4a knows — so unlike D4a's
+/// new tab kind they are deserialized rather than kept opaque, and an older
+/// reader fails on them
+/// (`a_projection_variant_an_older_reader_does_not_know_fails_the_whole_document`);
+/// v12 is P2's two parameter scopes — `DocumentMetadata.parameters` and an
+/// applied `Instance.parameter_overrides` — where a reader that drops either
+/// builds a different solid from the same file
 /// (`crates/file-format/tests/param_scope_floor.rs`).
 /// What this test holds is that the writer and the floor move together and
 /// only deliberately.
@@ -1900,4 +1904,160 @@ fn a_drawing_tab_did_not_move_the_format_floor() {
     assert_eq!(drawn["min_reader_version"], file_format::MIN_READER_VERSION);
     // And the tab really is in the file it claims that about.
     assert_eq!(drawn["tabs"][1]["kind"]["type"], "Drawing");
+}
+
+// ───────────────────────────────────────────────────────────────── D4b
+
+#[test]
+fn a_section_and_a_detail_view_survive_a_save_and_a_load_with_everything_on_them() {
+    use feature_engine::drawing::{
+        Drawing, DrawingView, NamedView, Projection, TitleBlockField, TitleBlockKey, ViewSource,
+    };
+
+    let mut drawing = Drawing::new();
+    let sheet = &mut drawing.sheets[0];
+    let front = DrawingView::new(
+        "Front",
+        ViewSource::whole_tab("part-1"),
+        Projection::Named {
+            view: NamedView::Front,
+        },
+    );
+    let parent = front.id;
+    sheet.views.push(front);
+    sheet.views.push(DrawingView::new(
+        "SECTION A-A",
+        ViewSource::whole_tab("part-1"),
+        Projection::Section {
+            parent,
+            from: [-0.002, 0.0025],
+            to: [0.042, 0.0025],
+            flip: true,
+            label: "A".to_string(),
+        },
+    ));
+    let mut detail = DrawingView::new(
+        "DETAIL B",
+        ViewSource::whole_tab("part-1"),
+        Projection::Detail {
+            parent,
+            center: [0.01, 0.002],
+            radius: 0.004,
+            label: "B".to_string(),
+        },
+    );
+    detail.scale = 2.0;
+    detail.cache_key = Some("d4b-0123456789abcdef".to_string());
+    sheet.views.push(detail);
+    sheet.title_block.fields.push(TitleBlockField::with_text(
+        TitleBlockKey::Material,
+        "AISI 304",
+    ));
+    drawing.projection_angle = feature_engine::drawing::ProjectionAngle::First;
+
+    let mut doc = WaffleDocument::new("Sectioned");
+    doc.tabs.push(Tab::drawing("Drawing 1", drawing));
+    let json = save_document(&doc);
+    let back = load_document(&json).expect("a D4b drawing loads").document;
+    let reloaded = save_document(&back);
+    assert_eq!(
+        reloaded, json,
+        "a section, a detail, a title block and a cache key must all survive the round trip \
+         byte for byte"
+    );
+
+    let drawn = back.tabs[1].drawing_tree().expect("the drawing");
+    assert_eq!(
+        drawn.projection_angle,
+        feature_engine::drawing::ProjectionAngle::First
+    );
+    let sheet = &drawn.sheets[0];
+    assert_eq!(sheet.views.len(), 3);
+    match &sheet.views[1].projection {
+        Projection::Section {
+            from,
+            to,
+            flip,
+            label,
+            ..
+        } => {
+            assert_eq!((*from, *to), ([-0.002, 0.0025], [0.042, 0.0025]));
+            assert!(*flip);
+            assert_eq!(label, "A");
+        }
+        other => panic!("expected a section, got {other:?}"),
+    }
+    match &sheet.views[2].projection {
+        Projection::Detail { radius, label, .. } => {
+            assert_eq!(*radius, 0.004);
+            assert_eq!(label, "B");
+        }
+        other => panic!("expected a detail, got {other:?}"),
+    }
+    assert_eq!(
+        sheet.views[2].cache_key.as_deref(),
+        Some("d4b-0123456789abcdef")
+    );
+    assert_eq!(sheet.title_block.fields.len(), 7);
+    assert!(drawn.validate().is_empty(), "{:?}", drawn.validate());
+}
+
+#[test]
+fn a_projection_variant_an_older_reader_does_not_know_fails_the_whole_document() {
+    // WHY D4b moved the floor where D4a did not — as a measurement, not as an
+    // assertion about intent.
+    //
+    // D4a's reason for not moving it was that a tab KIND a reader does not
+    // know is kept opaque: `known_or_unknown` takes the unknown branch,
+    // nothing inside the tab is deserialized, and nothing can fail. A
+    // `Drawing` tab's own tag IS known to every reader since D4a, so the
+    // known branch runs, the drawing IS deserialized, and a `Projection` tag
+    // the reader has never heard of fails the WHOLE DOCUMENT.
+    //
+    // `Projection` has no opaque arm, deliberately: a view whose projection
+    // cannot be read is a view that cannot be drawn, re-aimed or deleted
+    // sensibly, and keeping it as a blob would put a view on the sheet that
+    // nothing can do anything with. So this is what a v10 reader does in
+    // front of a v11 section — and the floor bump turns it into a
+    // `FutureVersion` refusal that names the remedy.
+    //
+    // Written with a variant NO build has, so it keeps measuring the
+    // mechanism once `Section` and `Detail` are old news.
+    let json = r#"{
+      "format": "waffle-iron",
+      "version": 11,
+      "min_reader_version": 11,
+      "document": { "id": "00000000-0000-4000-8000-000000000001", "name": "Future",
+        "created": "2026-10-03T00:00:00Z", "modified": "2026-10-03T00:00:00Z" },
+      "sources": [],
+      "tabs": [
+        { "id": "t1", "name": "Drawing 1", "kind": { "type": "Drawing", "drawing": {
+            "sheets": [ { "id": "00000000-0000-4000-8000-000000000002", "name": "S",
+              "views": [ { "id": "00000000-0000-4000-8000-000000000003", "name": "V",
+                 "source": { "tab_id": "p" },
+                 "projection": { "type": "Perspective", "eye": [1, 2, 3] } } ] } ] } } }
+      ],
+      "active_tab": "t1"
+    }"#;
+    let err = load_document(json).expect_err("an unknown projection cannot be read");
+    let message = err.to_string();
+    assert!(
+        message.contains("Perspective")
+            || message.contains("projection")
+            || message.contains("tab kind"),
+        "the refusal should name what it could not read, got: {message}"
+    );
+
+    // Where an unknown TAB KIND in the same position is kept whole — the D4a
+    // case, still true, which is exactly what makes the two different.
+    let opaque = json.replace("\"type\": \"Drawing\"", "\"type\": \"Schematic\"");
+    let loaded = load_document(&opaque)
+        .expect("an unknown tab kind is preserved, not refused")
+        .document;
+    let round_tripped: serde_json::Value =
+        serde_json::from_str(&save_document(&loaded)).expect("it re-saves");
+    assert_eq!(
+        round_tripped["tabs"][0]["kind"]["type"], "Schematic",
+        "an unknown tab kind is re-emitted verbatim"
+    );
 }

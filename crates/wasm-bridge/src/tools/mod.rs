@@ -54,6 +54,8 @@ pub const MIGRATED: &[&str] = &[
     "measure_distance",
     "measure_interference",
     "measure_mass",
+    "measure_section",
+    "measure_thickness",
     "face_list",
     "entity_list",
     "sketch_regions",
@@ -98,6 +100,7 @@ pub const MIGRATED: &[&str] = &[
     "drawing_view_add",
     "drawing_view_edit",
     "drawing_annotation_add",
+    "drawing_sheet_edit",
     "mate_add",
     "mate_edit",
     "mate_delete",
@@ -149,6 +152,7 @@ pub fn mutates(name: &str) -> bool {
             | "drawing_view_add"
             | "drawing_view_edit"
             | "drawing_annotation_add"
+            | "drawing_sheet_edit"
             | "mate_add"
             | "mate_edit"
             | "mate_delete"
@@ -306,6 +310,8 @@ fn run(
         "measure_distance" => inspect::measure_distance(state, kb, args),
         "measure_interference" => inspect::measure_interference(state, kb, args),
         "measure_mass" => inspect::measure_mass(state, kb, args),
+        "measure_section" => inspect::measure_section(state, kb, args),
+        "measure_thickness" => inspect::measure_thickness(state, kb, args),
         "face_list" => inspect::face_list(state, kb, args),
         "entity_list" => inspect::entity_list(state, kb, args),
         "sketch_regions" => inspect::sketch_regions(state, kb, args),
@@ -349,6 +355,7 @@ fn run(
         "drawing_view_add" => drawing::drawing_view_add(state, kb, args),
         "drawing_view_edit" => drawing::drawing_view_edit(state, kb, args),
         "drawing_annotation_add" => drawing::drawing_annotation_add(state, kb, args),
+        "drawing_sheet_edit" => drawing::drawing_sheet_edit(state, kb, args),
         "mate_add" => assembly::mate_add(state, kb, args),
         "mate_edit" => assembly::mate_edit(state, kb, args),
         "mate_delete" => assembly::mate_delete(state, kb, args),

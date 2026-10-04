@@ -40,6 +40,143 @@ mod u32_key_map {
     }
 }
 
+/// The sketch state the UI is holding, as it travels with a sketch-operation
+/// request (S1).
+///
+/// It is a `Sketch` minus the identity and the plane reference, which an
+/// in-progress sketch does not have yet and no operation reads. Positions
+/// come along because the operations run on the geometry the user is LOOKING
+/// at — the solved positions — and not on the entities' declared
+/// coordinates.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct LiveSketch {
+    pub entities: Vec<SketchEntity>,
+    #[serde(default)]
+    pub constraints: Vec<SketchConstraint>,
+    #[serde(default, with = "u32_key_map")]
+    pub solved_positions: HashMap<u32, (f64, f64)>,
+    #[serde(default)]
+    pub projected: Vec<ProjectedEntity>,
+    #[serde(default = "default_origin")]
+    pub plane_origin: [f64; 3],
+    #[serde(default = "default_normal")]
+    pub plane_normal: [f64; 3],
+    #[serde(default)]
+    pub plane_x_axis: Option<[f64; 3]>,
+}
+
+impl LiveSketch {
+    /// This state as a `Sketch` the solver and the operations accept. The id
+    /// and plane reference are placeholders: nothing in `sketch_solver::ops`
+    /// reads either, and an in-progress sketch has no committed identity.
+    pub fn to_sketch(&self) -> waffle_types::Sketch {
+        waffle_types::Sketch {
+            id: Uuid::nil(),
+            plane: GeomRef {
+                kind: waffle_types::TopoKind::Face,
+                anchor: waffle_types::Anchor::Datum {
+                    datum_id: Uuid::nil(),
+                },
+                selector: waffle_types::Selector::Role {
+                    role: waffle_types::Role::ProfileFace,
+                    index: 0,
+                },
+                policy: waffle_types::ResolvePolicy::BestEffort,
+                scope: None,
+            },
+            plane_face: None,
+            plane_origin: self.plane_origin,
+            plane_normal: self.plane_normal,
+            plane_x_axis: self.plane_x_axis,
+            entities: self.entities.clone(),
+            constraints: self.constraints.clone(),
+            solve_status: waffle_types::SolveStatus::Unsolved,
+            solved_positions: self.solved_positions.clone(),
+            solved_profiles: Vec::new(),
+            projected: self.projected.clone(),
+        }
+    }
+}
+
+/// A read-only question about sketch geometry (S1 previews).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(tag = "type")]
+pub enum SketchQuery {
+    /// The connected run of curves through `seed`. `only_seed` is the
+    /// Alt-click case: this entity alone.
+    Chain {
+        seed: u32,
+        #[serde(default)]
+        only_seed: bool,
+    },
+    /// The piece of a line a trim would take, and whether it has any cut at
+    /// all (no intersection ⇒ the whole entity goes).
+    TrimPreview { entity: u32, at: [f64; 2] },
+    /// Where a fillet of `radius` would land; `radius` absent ⇒ the tool's
+    /// default for that corner.
+    FilletPreview {
+        corner: u32,
+        #[serde(default)]
+        radius: Option<f64>,
+    },
+    /// The offset of a chain, as a polyline to draw. `cursor` derives the
+    /// signed distance from a pointer position (the hover case); `distance`
+    /// and `side` give it exactly (the typed-value case). Neither ⇒ the
+    /// chain's own polyline, which is the unarmed hover ghost.
+    OffsetPreview {
+        chain: Vec<u32>,
+        #[serde(default)]
+        cursor: Option<[f64; 2]>,
+        #[serde(default)]
+        distance: Option<f64>,
+        #[serde(default)]
+        side: Option<waffle_types::Side>,
+    },
+}
+
+/// The answer to a [`SketchQuery`]. `Refused` carries the typed reason's tag
+/// (`"branching"`, `"radius-collapse"`, …) — the same vocabulary the
+/// operations refuse with, so a caller never has to map two sets of strings.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(tag = "type")]
+pub enum SketchQueryResult {
+    Chain {
+        ids: Vec<u32>,
+        /// Whether the run closes on itself; `None` when it does not order
+        /// at all (a branch), which is still a valid selection.
+        closed: Option<bool>,
+    },
+    TrimPreview {
+        /// Endpoints of the piece under the cursor.
+        start: [f64; 2],
+        end: [f64; 2],
+        /// Cuts found on the entity. Zero ⇒ a trim removes it whole.
+        cuts: u32,
+    },
+    FilletPreview {
+        center: [f64; 2],
+        radius: f64,
+        tangent_a: [f64; 2],
+        tangent_b: [f64; 2],
+        /// The default radius for this corner, so the tool's popup can
+        /// pre-fill it without a second round trip.
+        default_radius: f64,
+    },
+    OffsetPreview {
+        polyline: Vec<[f64; 2]>,
+        closed: bool,
+        /// Signed distance from `cursor` to the chain, when one was given:
+        /// magnitude is the distance, sign is the side.
+        #[serde(default)]
+        signed_distance: Option<f64>,
+        /// Entities in the chain — the hover hint's count.
+        size: u32,
+    },
+    Refused {
+        reason: String,
+    },
+}
+
 fn default_origin() -> [f64; 3] {
     [0.0, 0.0, 0.0]
 }
@@ -515,6 +652,33 @@ pub enum UiToEngine {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         density_kg_m3: Option<f64>,
     },
+    /// The cap loops of a planar section through each named body (Q4 of
+    /// `specs/agent_mechanical_design.md` §4.2), as 2D curves in the cut
+    /// plane's own frame.
+    ///
+    /// The plane arrives already resolved to an origin and a unit normal: the
+    /// tool layer owns the shapes a plane can be NAMED by (a face reference, a
+    /// datum, an N1 name), because those are the page's vocabularies. The kept
+    /// half-space is the one the normal points away from, exactly as
+    /// `KernelProjection::section_with_plane` defines it. Query: no rebuild.
+    MeasureSection {
+        /// Already expanded to concrete body ids by the tool — never "all",
+        /// so the engine measures exactly what the answer names.
+        body_ids: Vec<String>,
+        plane_origin: [f64; 3],
+        plane_normal: [f64; 3],
+    },
+    /// Sampled wall thickness of one body (Q5 of
+    /// `specs/agent_mechanical_design.md` §4.2): rays cast inward from points
+    /// on every face to the first face opposite.
+    ///
+    /// `spacing_m` asks for a denser sample than the default; the answer
+    /// always reports the spacing it used. Query: no rebuild.
+    MeasureThickness {
+        body_id: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        spacing_m: Option<f64>,
+    },
     /// Every face of a body as the `GeomRef` the viewport's face ranges carry,
     /// with its signature (`specs/waffle_mcp_server.md` ICR-3). `filter` uses
     /// the `TopoQuery` filter rules (`tie_break` is ignored: a listing returns
@@ -723,6 +887,35 @@ pub enum UiToEngine {
         /// Relative chord tolerance for tessellating curved boundaries.
         #[serde(default)]
         chord_tolerance: Option<f64>,
+    },
+
+    /// Apply sketch operations (S1, `specs/agent_mechanical_design.md` §10.1)
+    /// to the sketch state the UI is holding, and answer with the result.
+    ///
+    /// The live state travels WITH the request, exactly as `SolveSketch`'s
+    /// does, because the UI is the owner of the in-progress sketch and the
+    /// engine's `active_sketch` lags it by a round trip. The engine is the
+    /// owner of the GEOMETRY: what the operations decide, not where the
+    /// pointer was.
+    ApplySketchOps {
+        live: LiveSketch,
+        ops: Vec<waffle_types::SketchOp>,
+        /// The UI's own entity-id counter, so minted ids cannot collide with
+        /// one it has already handed out. `0` ⇒ derive the floor from the
+        /// sketch.
+        #[serde(default)]
+        next_id: u32,
+    },
+
+    /// Ask about sketch geometry without changing anything: the connected
+    /// chain through an entity, and the trim / fillet / offset previews.
+    ///
+    /// A preview computed by different code from the commit is a preview that
+    /// can lie, so the hover feedback and the operation answer come from one
+    /// implementation (§10.1).
+    QuerySketch {
+        live: LiveSketch,
+        query: SketchQuery,
     },
 
     // -- Agent tools --
@@ -1227,6 +1420,312 @@ pub struct Measured {
     pub exact_unavailable: Option<String>,
 }
 
+// ---------------------------------------------------------------------------
+// Q4 — section as data
+// ---------------------------------------------------------------------------
+
+/// One curve of a section cap loop (Q4): the serde-able form of
+/// `waffle_types::kernel::projection::Curve2`.
+///
+/// `Curve2` is built on `cad_primitives::Point2`, which has no serde
+/// implementation, so the kernel's analytic arms cannot cross this boundary as
+/// themselves. This enum is a one-to-one mirror of them — no arm is collapsed
+/// and nothing is flattened to a polyline on the way out, because a cap
+/// bounded by a circle is a different drawing (and a different area) from a
+/// cap bounded by 64 chords, and an agent that re-derives geometry from the
+/// answer must get the circle.
+///
+/// Every coordinate is in the cut plane's `(u, v)` frame
+/// ([`SectionBasis`]) and in meters. Angles and parameters are
+/// counter-clockwise in that frame, and `start < end` always — a cap loop is a
+/// point set to hatch, so the walk direction lives in `curves`' ORDER rather
+/// than in each curve.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(tag = "type", rename_all = "snake_case")]
+pub enum SectionCurve {
+    /// A curve the section degenerated to a single point.
+    Point {
+        at: [f64; 2],
+    },
+    Line {
+        start: [f64; 2],
+        end: [f64; 2],
+    },
+    /// A circular arc, or a full circle when `end_angle_rad − start_angle_rad`
+    /// is 2π. Angles from `+u`.
+    Circle {
+        center: [f64; 2],
+        radius: f64,
+        start_angle_rad: f64,
+        end_angle_rad: f64,
+    },
+    /// An elliptical arc, or a full ellipse when `end_param − start_param` is
+    /// 2π. The point set is
+    /// `center + major_radius·cos t·major_axis + minor_radius·sin t·perp(major_axis)`,
+    /// `perp((x, y)) = (−y, x)`.
+    Ellipse {
+        center: [f64; 2],
+        major_axis: [f64; 2],
+        major_radius: f64,
+        minor_radius: f64,
+        start_param: f64,
+        end_param: f64,
+    },
+    /// What the kernel could not keep analytic, sampled at the render chord
+    /// density. `closed` means the last point joins the first (the list does
+    /// not repeat it).
+    Polyline {
+        points: Vec<[f64; 2]>,
+        closed: bool,
+    },
+}
+
+/// Whether a cap loop bounds material or a hole in it (Q4).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum SectionLoopKind {
+    /// Counter-clockwise in the cap frame: positive signed area.
+    Outer,
+    /// Clockwise: negative signed area, a hole in the cap.
+    Hole,
+}
+
+/// One cap boundary loop of a section (Q4).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct SectionCapLoop {
+    /// The loop's curves in B-Rep walk order: consecutive curves share an
+    /// endpoint and the last shares one with the first.
+    pub curves: Vec<SectionCurve>,
+    /// Green's-theorem area in the cap frame — positive for an outer loop,
+    /// negative for a hole.
+    pub signed_area_m2: f64,
+    /// Whether every curve of this loop stayed analytic, so `signed_area_m2`
+    /// is exact. False means at least one curve is a sampled `polyline`, whose
+    /// chord polygon under-counts the area it bounds by its own sagitta
+    /// deficit.
+    pub exact: bool,
+    pub kind: SectionLoopKind,
+}
+
+/// The frame a section's loops are expressed in (Q4) — the kernel's own, never
+/// re-derived.
+///
+/// `origin` is the plane origin the caller passed and the line of sight `w` is
+/// the NEGATED plane normal: the viewer stands on the discarded side and looks
+/// at the cap, which is the drafting convention and the frame that makes an
+/// outer loop's area positive. A world point is `origin + u·u_axis +
+/// v·v_axis`.
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+pub struct SectionBasis {
+    pub origin: [f64; 3],
+    pub u_axis: [f64; 3],
+    pub v_axis: [f64; 3],
+    /// The line of sight, away from the viewer — the negated plane normal.
+    pub w_axis: [f64; 3],
+}
+
+/// One body's section (Q4).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct SectionedBody {
+    pub body_id: String,
+    /// The cap's boundary loops, outer and holes. EMPTY when the plane misses
+    /// this body — which is a typed answer, not a failure: `kept_material`
+    /// says which side it missed on.
+    pub loops: Vec<SectionCapLoop>,
+    /// Net cap area in m²: outer loops minus holes, the sum of
+    /// `signed_area_m2`.
+    pub area_m2: f64,
+    /// The cap's area centroid in the cap frame `(u, v)`, meters. `null` when
+    /// the cap has no area.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub centroid_uv: Option<[f64; 2]>,
+    /// The same point in world coordinates, meters.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub centroid: Option<[f64; 3]>,
+    /// Whether the centroid is exact. It is computed by Green's theorem over
+    /// each loop FLATTENED at the render chord density — the areas the kernel
+    /// reports are closed-form, but a first moment over a circular arc is not
+    /// a quantity `SectionLoop` carries — so it is exact only when every curve
+    /// of every loop is a `line`, where the flattened polygon IS the cap.
+    pub centroid_exact: bool,
+    /// `exact` when every loop is, else `mesh`: the tier of `area_m2`.
+    pub method: MeasureMethod,
+    /// Whether at least one cap face was identified by its PLANE rather than
+    /// by its descent from the cutting half-space — the §4.5.5 Stage-0
+    /// signature of a cut plane COPLANAR with a face of this body. A coplanar
+    /// cut is a legitimate section, and this is the one configuration where
+    /// the kernel's own lineage cannot name the cap, so it is reported rather
+    /// than left to look like a section that quietly found nothing.
+    pub cap_shared_with_model: bool,
+    /// Whether the cut kept any material at all. `false` with no loops means
+    /// the plane missed the body on the DISCARDED side (the whole body is
+    /// gone); `true` with no loops means it missed on the KEPT side.
+    pub kept_material: bool,
+}
+
+/// Why one body produced no section (Q4).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum SectionDeclineKind {
+    /// A kernel capability wall — a Stage-0 coplanar refusal the overlay
+    /// could not resolve, a curved partial-patch operand, a mesh-backed
+    /// imported body. A caller must not retry it with different numbers.
+    NotSupported,
+    /// The boolean ran and STOPped, or the plane was refused. Loud, and never
+    /// folded into an empty section.
+    Failed,
+}
+
+/// One body the section DECLINED to answer for (Q4).
+///
+/// A decline is never an empty `loops`: "the plane misses this body" and "the
+/// kernel could not cut this body" are different answers, and a wall-thickness
+/// or clearance decision made on the second one read as the first would be
+/// made on no evidence.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct SectionDecline {
+    pub body_id: String,
+    pub kind: SectionDeclineKind,
+    /// The kernel's own refusal, verbatim.
+    pub reason: String,
+}
+
+// ---------------------------------------------------------------------------
+// Q5 — sampled wall thickness
+// ---------------------------------------------------------------------------
+
+/// One end of a measured thickness (Q5): the face it sits on, and how that
+/// face can be named.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ThicknessFace {
+    /// The kernel's TRANSIENT face id — stable within this kernel session
+    /// only, never to be persisted.
+    pub kernel_id: u64,
+    /// The face's persistent id, as a DECIMAL STRING (`waffle_types::pid_str`):
+    /// content-seeded `u64`s above `2^53` do not survive a JSON number.
+    #[serde(
+        default,
+        with = "waffle_types::pid_str::option",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub pid: Option<u64>,
+    #[serde(
+        default,
+        with = "waffle_types::pid_str::option",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub root_pid: Option<u64>,
+    /// The N1 name pointing at this face, when one does.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub name: Option<String>,
+}
+
+/// The thinnest site a thickness sample found (Q5).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ThinnestSite {
+    pub thickness_m: f64,
+    /// Where the ray started, on `from` — in meters, world frame.
+    pub point: [f64; 3],
+    /// Where it landed, on `to`.
+    pub opposite: [f64; 3],
+    pub from: ThicknessFace,
+    pub to: ThicknessFace,
+    /// Whether `from` and `to` are two DISTINCT faces that share an edge — so
+    /// this reading crossed a CORNER rather than a wall.
+    ///
+    /// Two faces meeting at an edge enclose a wedge that goes to zero at the
+    /// edge, so the number measures how close the site got to it. `false` for
+    /// a site that hit its own face: a solid cylinder's diameter, measured
+    /// across its own lateral face, is a wall.
+    pub faces_share_an_edge: bool,
+}
+
+/// One bar of the thickness histogram (Q5). Bins are equal-width over
+/// `[min, max]`; `count` is sites, not area.
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+pub struct ThicknessBin {
+    pub lo_m: f64,
+    pub hi_m: f64,
+    pub count: usize,
+}
+
+/// Sites that produced no thickness, by reason (Q5).
+///
+/// Counted rather than dropped: a body whose casts mostly fail has a thickness
+/// answer covering less of it than the sample count suggests, and nothing else
+/// in the answer would say so.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+pub struct ThicknessDeclines {
+    /// The inward ray left the body without hitting a face — a non-closed
+    /// shell, or a cast that grazed out along a tangency.
+    pub no_hit: usize,
+    /// The only hit was on the site's OWN face within the local sagitta of
+    /// the facet the site came from, so it could not be told from the ray's
+    /// own start. A thickness that small is below what a render-density cast
+    /// can resolve.
+    pub below_self_band: usize,
+    /// The face carries no analytic surface to take an inward normal from.
+    pub no_surface: usize,
+}
+
+/// Answer to [`UiToEngine::MeasureThickness`] (Q5).
+///
+/// **Every number here is SAMPLED.** `method` is `sampled` and nothing else:
+/// a wall thinner than `spacing_m` between two sample sites can be missed
+/// entirely, so `min_m` is an upper bound on the body's true minimum wall and
+/// is never presented as the medial-axis answer.
+///
+/// Two minima cross the wire. `min_m` is the shortest cast anywhere, which any
+/// acute edge drives towards zero; `min_wall_m` is the shortest cast between
+/// two faces that do NOT meet at an edge, which is the wall. A rule reads the
+/// second.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct MeasuredThickness {
+    pub body_id: String,
+    /// The shortest cast anywhere on the body — §4.2's question as posed.
+    /// Any ACUTE edge drives it towards zero (a 4 mm slot through a 10/7 mm
+    /// tube reports 0.043 mm here), so a WALL decision reads `min_wall_m`.
+    pub min_m: f64,
+    /// The shortest cast that did NOT cross a corner — the thinnest wall.
+    /// Absent when every site crossed one, which is a body the sample found
+    /// no wall in rather than a body with a zero wall.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub min_wall_m: Option<f64>,
+    /// The unweighted mean over sites. The sites are approximately
+    /// area-uniform (every facet is subdivided to `spacing_m`), so this
+    /// approximates the area-weighted mean wall.
+    pub mean_m: f64,
+    pub max_m: f64,
+    pub thinnest: ThinnestSite,
+    /// Where `min_wall_m` is. Absent on the same bodies that number is.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub thinnest_wall: Option<ThinnestSite>,
+    pub histogram: Vec<ThicknessBin>,
+    /// Sites that produced a thickness.
+    pub samples: usize,
+    /// The sample spacing used, meters — the largest gap between neighbouring
+    /// sites on one face.
+    pub spacing_m: f64,
+    /// The tessellation band the sites were derived at, meters.
+    pub chord_bound_m: f64,
+    /// Sites whose refined hit was certified on the analytic surface pair.
+    /// The rest kept their facet hit, which is inside the true surface by at
+    /// most `chord_bound_m`.
+    pub refined: usize,
+    pub declines: ThicknessDeclines,
+    /// `sampled`, always. The field exists so the tier is read rather than
+    /// assumed, and so a later exact method has somewhere to say it is one.
+    pub method: ThicknessMethod,
+}
+
+/// How a thickness was obtained (Q5). One arm today, deliberately: a sampled
+/// answer must never be able to serialize as an exact one.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ThicknessMethod {
+    Sampled,
+}
+
 /// Messages from the engine (WASM Worker) to the UI (JavaScript main thread).
 #[allow(clippy::large_enum_variant)] // see `UiToEngine`
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -1439,6 +1938,33 @@ pub enum EngineToUi {
         chord_bound_m: f64,
     },
 
+    /// Answer to `MeasureSection` (Q4). Areas in m², coordinates in meters.
+    SectionMeasured {
+        /// The plane as it was cut: the origin passed through, and the
+        /// NORMALIZED normal (a caller's non-unit normal is normalized, and
+        /// the answer says what was used).
+        plane_origin: [f64; 3],
+        plane_normal: [f64; 3],
+        /// The frame `bodies[].loops` are expressed in — the kernel's own.
+        /// `null` only when every body declined, so there is no frame the
+        /// kernel chose to report.
+        #[serde(skip_serializing_if = "Option::is_none")]
+        basis: Option<SectionBasis>,
+        /// One entry per body the kernel sectioned, in the order asked.
+        bodies: Vec<SectionedBody>,
+        /// The bodies it refused, named and typed.
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        declines: Vec<SectionDecline>,
+    },
+
+    /// Answer to `MeasureThickness` (Q5). Lengths in meters.
+    ///
+    /// Nested in a `result` field, as `InterferenceMeasured` nests its own:
+    /// the enum is internally tagged, so a newtype variant would have to
+    /// flatten its struct into the message and a field named `type` anywhere
+    /// inside it would collide with the tag.
+    ThicknessMeasured { result: MeasuredThickness },
+
     /// Save project is ready.
     SaveReady { json_data: String },
 
@@ -1539,6 +2065,31 @@ pub enum EngineToUi {
 
     /// Minimal closed faces of a sketch, in selection order.
     RegionsComputed { regions: Vec<Region> },
+
+    /// Result of `ApplySketchOps`: the sketch AFTER the batch, plus what
+    /// changed and the pins the following solve should see.
+    ///
+    /// The full entity and constraint lists come back rather than only the
+    /// edit, because adopting a whole state is one assignment in the UI while
+    /// replaying an edit is three loops that can disagree with the engine's
+    /// idea of the result. The `edit` is still here: it is what an undo entry
+    /// and a tool's answer are made of.
+    SketchOpsApplied {
+        entities: Vec<SketchEntity>,
+        constraints: Vec<SketchConstraint>,
+        #[serde(default)]
+        projected: Vec<ProjectedEntity>,
+        edit: waffle_types::SketchEdit,
+        /// Constraints for the NEXT solve only — a `MovePoint`'s pin. Never
+        /// persisted (`waffle_types::SketchOp::MovePoint`).
+        #[serde(default)]
+        transient_constraints: Vec<SketchConstraint>,
+        /// The next free entity id: the UI advances its counter to this.
+        next_id: u32,
+    },
+
+    /// Answer to `QuerySketch`.
+    SketchQueried { result: SketchQueryResult },
 
     /// Result of `EvaluateExpression`: exactly one of `value` (mm-space
     /// number) or `error` (user-facing message) is set. `dimension` names
@@ -1674,6 +2225,47 @@ pub enum DrawingEdit {
     DeleteAnnotation {
         view_id: Uuid,
         index: usize,
+    },
+    /// Change one sheet — its name, paper, title block — and the DRAWING's
+    /// projection standard (D4b).
+    ///
+    /// The standard rides on the sheet door because that is where it is
+    /// authored and read (a title block prints it), but it is the drawing's
+    /// own setting per §8: sheets that disagreed about which side a projected
+    /// view shows would be two standards in one document.
+    EditSheet {
+        #[serde(default)]
+        sheet_id: Option<Uuid>,
+        #[serde(default)]
+        name: Option<String>,
+        #[serde(default)]
+        size: Option<feature_engine::drawing::SheetSize>,
+        #[serde(default)]
+        orientation: Option<feature_engine::drawing::Orientation>,
+        #[serde(default)]
+        projection_angle: Option<feature_engine::drawing::ProjectionAngle>,
+        #[serde(default)]
+        title_block_show: Option<bool>,
+        /// The whole row list, replaced. Not a per-row edit: the rows are an
+        /// ORDER as well as a set (a title block is read top to bottom), and
+        /// an index-addressed edit of a list the caller did not just read is
+        /// how the wrong row gets changed.
+        #[serde(default)]
+        title_block_fields: Option<Vec<feature_engine::drawing::TitleBlockField>>,
+    },
+    AddSheet {
+        #[serde(default)]
+        name: Option<String>,
+        #[serde(default)]
+        size: Option<feature_engine::drawing::SheetSize>,
+        #[serde(default)]
+        orientation: Option<feature_engine::drawing::Orientation>,
+    },
+    /// Delete a sheet and the views on it. Refused for the LAST sheet: a
+    /// drawing with no sheet shows nothing and refuses every export by name,
+    /// which reads as a broken tab rather than an empty one.
+    DeleteSheet {
+        sheet_id: Uuid,
     },
 }
 

@@ -1,8 +1,8 @@
 {
-  "errored": 9,
+  "errored": 22,
   "failed": 0,
   "generated": "kernel-v2 (assay_kv2 categorized run)",
-  "passed": 322,
+  "passed": 324,
   "results": [
     {
       "category": "SUPPORTED_CORRECT",
@@ -1985,16 +1985,16 @@
       "status": "pass"
     },
     {
-      "category": "ERROR",
-      "detail": "1 engine error(s): f7e48d14-5a87-4797-aa12-f4e513054acd: operation error: kernel error: boolean operation failed: kernel-v2 boolean_subtract failed: CurvedGeometryMismatch { face: FaceId(17), reason: \"cone face with inner loops is outside the KV6c vocabulary\" }",
+      "category": "SUPPORTED_CORRECT",
+      "detail": "all checks passed",
       "id": "P0019",
-      "status": "error"
+      "status": "pass"
     },
     {
-      "category": "ERROR",
-      "detail": "1 engine error(s): 08bce8a9-133b-4de5-aafe-ab4f76bae438: operation error: kernel error: boolean operation failed: kernel-v2 boolean_intersect failed: BooleanFailed(\"yang-rs rejected the converted input B-Rep: yang-rs: Stage-1 boundary loop of face 0 touches itself — distinct vertices 583 and 584 occupy the same point (4.271228925179577e-2, 8.75879753493436e-2, 3.536204720973056e-2), so the unrolled chart is self-touching (a PINCHED face: the Stage-4 edge-pinch split's sheets were emitted as one face, spec yang_tangency_pinch_split §0b)\")",
+      "category": "SUPPORTED_CORRECT",
+      "detail": "all checks passed",
       "id": "P0020",
-      "status": "error"
+      "status": "pass"
     },
     {
       "category": "SUPPORTED_CORRECT",
@@ -2019,7 +2019,97 @@
       "detail": "expected rebuild error: a5ff4e59-d772-5680-ab15-593ac9d6d5a9: operation error: kernel error: boolean operation failed: kernel-v2 boolean_union failed: InvalidBooleanOutput(\"an undirected output edge is not used by exactly two directed edges\")",
       "id": "P0024",
       "status": "error"
+    },
+    {
+      "category": "ERROR",
+      "detail": "1 engine error(s): 4a2ed8af-0245-4504-967e-347af76eb787: operation error: kernel error: boolean operation failed: kernel-v2 boolean_intersect failed: BooleanFailed(\"yang-rs: Stage-4 relocation region around vertex 3 is invalid: LocalRefinementRequired\")",
+      "id": "P0025",
+      "status": "error"
+    },
+    {
+      "category": "ERROR",
+      "detail": "1 engine error(s): 7e948a3a-d88d-448a-a357-51d638ee51b0: operation error: kernel error: boolean operation failed: kernel-v2 boolean_subtract failed: BooleanFailed(\"yang-rs: Stage-4 relocation region around vertex 9 is invalid: LocalRefinementRequired\")",
+      "id": "P0026",
+      "status": "error"
+    },
+    {
+      "category": "ERROR",
+      "detail": "2 engine error(s): b2bac087-ad45-447c-9bd8-e62b2e50b253: operation error: kernel error: boolean operation failed: kernel-v2 boolean_subtract failed: BooleanFailed(\"yang-rs: Stage-4 relocation region around vertex 50 is invalid: LocalRefinementRequired\"); 2324f35a-6a18-4f5c-a728-d75c0a1bcb5f: operation error: kernel error: boolean operation failed: kernel-v2 boolean_subtract failed: BooleanFailed(\"yang-rs: Stage-4 relocation region around vertex 8 is invalid: LocalRefinementRequired\")",
+      "id": "P0027",
+      "status": "error"
+    },
+    {
+      "category": "ERROR",
+      "detail": "1 engine error(s): e92cd0d3-e014-43d4-a5a3-3332448b5c73: operation error: kernel error: boolean operation failed: kernel-v2 boolean_subtract failed: BooleanFailed(\"yang-rs: reassembled output would be non-2-manifold\")",
+      "id": "P0028",
+      "status": "error"
+    },
+    {
+      "category": "ERROR",
+      "detail": "1 engine error(s): f38bd753-edea-4de2-9133-efadb2ddd170: operation error: kernel error: boolean operation failed: kernel-v2 boolean_subtract failed: BooleanFailed(\"yang-rs: reassembled output would be non-2-manifold\")",
+      "id": "P0029",
+      "status": "error"
+    },
+    {
+      "category": "ERROR",
+      "detail": "1 auto-union failure(s): Extrude: Auto-union failed: kernel error: boolean operation failed: kernel-v2 boolean_union failed: BooleanFailed(\"yang-rs: reassembled output would be non-2-manifold\"). Body created as standalone.",
+      "id": "P0030",
+      "status": "error"
+    },
+    {
+      "category": "ERROR",
+      "detail": "1 engine error(s): 12e9b9f7-3db6-4ac7-ad78-0a537dbf59e3: operation error: kernel error: boolean operation failed: kernel-v2 boolean_subtract failed: SelfIntersectingBooleanOutput { face_a: FaceId(32), face_b: FaceId(55), penetrations: 1 }",
+      "id": "P0031",
+      "status": "error"
+    },
+    {
+      "category": "ERROR",
+      "detail": "1 engine error(s): caf7e883-853a-4d32-b4f4-ac0fe9bde426: operation error: kernel error: boolean operation failed: kernel-v2 boolean_subtract failed: SelfIntersectingBooleanOutput { face_a: FaceId(10), face_b: FaceId(13), penetrations: 11 }",
+      "id": "P0032",
+      "status": "error"
+    },
+    {
+      "category": "ERROR",
+      "detail": "1 engine error(s): aefe5698-081e-4da0-9493-c423796be40f: operation error: kernel error: boolean operation failed: kernel-v2 boolean_subtract failed: TessellationFailed { face: FaceId(45), reason: \"patch triangulation folded (inverted triangle) — KV9-F2: the                          unrolled ear-clip/refinement produced inward-facing geometry;                          loud instead of silently-wrong render output\" }",
+      "id": "P0033",
+      "status": "error"
+    },
+    {
+      "category": "ERROR",
+      "detail": "1 engine error(s): 6389bc2a-93dc-4da9-8375-a367a4847d20: operation error: kernel error: boolean operation failed: kernel-v2 boolean_subtract failed: TessellationFailed { face: FaceId(27), reason: \"surface-pair projection left the chord neighborhood\" }",
+      "id": "P0034",
+      "status": "error"
+    },
+    {
+      "category": "ERROR",
+      "detail": "1 auto-union failure(s): Extrude: Auto-union failed: kernel error: boolean operation failed: kernel-v2 boolean_union failed: TessellationFailed { face: FaceId(16), reason: \"patch triangle collapsed at render precision\" }. Body created as standalone.",
+      "id": "P0035",
+      "status": "error"
+    },
+    {
+      "category": "ERROR",
+      "detail": "1 engine error(s): c66f81b5-d91e-468a-92fd-2412bc708f1f: operation error: kernel error: boolean operation failed: kernel-v2 boolean_subtract failed: TessellationFailed { face: FaceId(12), reason: \"ring rejected by CDT (degenerate/self-intersecting)\" }",
+      "id": "P0036",
+      "status": "error"
+    },
+    {
+      "category": "ERROR",
+      "detail": "1 auto-union failure(s): Extrude: Auto-union failed: kernel error: boolean operation failed: kernel-v2 boolean_union failed: BooleanFailed(\"yang-rs rejected the converted input B-Rep: yang-rs: Stage-1 mesh of one operand self-intersects: 16 improper triangle contact(s) (0 unresolved; first between faces 0 and 2) after 4 refinement round(s): a face's chord band reaches another face of the same solid\"). Body created as standalone.",
+      "id": "P0037",
+      "status": "error"
+    },
+    {
+      "category": "ERROR",
+      "detail": "1 engine error(s): e9336930-d402-4032-8b99-606239ddfa1f: operation error: kernel error: boolean operation failed: kernel-v2 boolean_subtract failed: BooleanFailed(\"yang-rs rejected the converted input B-Rep: yang-rs: malformed B-Rep topology: face 15: bounded lateral patch spans 7.5551 rad of azimuth unwrapped (≥ 2π): no seam wedge for a single-sheet unroll\")",
+      "id": "P0038",
+      "status": "error"
+    },
+    {
+      "category": "ERROR",
+      "detail": "1 auto-union failure(s): Extrude: Auto-union failed: kernel error: boolean operation failed: kernel-v2 boolean_union failed: BooleanFailed(\"yang-rs: Stage-4 relocation region around vertex 139 is invalid: RelocationCrossedCarrierVertex\"). Body created as standalone.",
+      "id": "P0039",
+      "status": "error"
     }
   ],
-  "total": 336
+  "total": 351
 }

@@ -62,7 +62,7 @@ vertex.
 | 2 | Coincides with interior slot k≠0, 3D distance < TAU_MODEL, slot not already merged | **MERGE**: slot k's point becomes the override's exact bits; slot keeps its uniform angular key + theta; ring length unchanged; NOT added to `inserted_rims` |
 | 3 | Coincides with interior slot k≠0, 3D distance ≥ TAU_MODEL | Loud `MalformedTopology` (unchanged wall, message now includes the distance) |
 | 4 | Coincides with slot k already merged, bit-identical to the merged point | Dedup — skip |
-| 5 | Coincides with slot k already merged, DIFFERENT bits | Loud `MalformedTopology` (two distinct overrides claim one sample) |
+| 5 | Coincides with slot k already merged, DIFFERENT bits, 3D distance to the sample < TAU_MODEL | **INSERT** at its own angle (the slot keeps the first twin's bits; ring length +1; added to `inserted_rims`) — the band-close twin population of row 1 landing, by the geometry's symmetry, exactly on a uniform angle (2026-10-04, `error_oct4.waffle`: a crossing lifted onto the frame plane and its opposite-rim image on the cylinder's own plane, 2.2e-10 apart, at 90° from the seam on a 56-gon). Was a loud `MalformedTopology` ("two distinct overrides claim one sample"); the row-3 wall still refuses a real-scale second claimant first |
 | 6 | Coincides with the seam / an arc endpoint, bit-identical to that B-Rep vertex's point | Dedup — skip (the point is already in the ring) |
 | 7 | Coincides with the seam / an arc endpoint, different bits | Loud `MalformedTopology` (B-Rep vertex is authoritative; no corpus driver, fail closed) |
 | 8 | Bit-identical to an already-INSERTED override | Dedup — skip (existing path; dedup keys for insertions stay separate from merge bookkeeping so a pure merge never sets `inserted_rims`) |
@@ -101,8 +101,9 @@ Unit (in-crate, `tests_unit/boolean_functional.rs`, driving
 - Real-scale coincidence refused (row 3): large-radius rim where
   `r · Δangle` at the trigger band exceeds TAU_MODEL → still
   `MalformedTopology` (I4).
-- Same-slot conflict (row 5) loud; same-slot bit-identical repeat (row 4)
-  dedups.
+- Same-slot sub-TAU second twin (row 5) inserted, ring length +1, both
+  twins present once, a real-scale second claimant still loud; same-slot
+  bit-identical repeat (row 4) dedups.
 - Seam bit-exact dedup (row 6) + seam ULP-off refusal (row 7).
 - Arc-chain interior-slot merge (row 2, arc site): chain length unchanged,
   twin bits present.

@@ -560,6 +560,227 @@ transform step that is not in this increment), and `kind` beyond the three
 listable entities — a shell or a solid is the body, which `body_measure` and
 `measure_mass` already describe.
 
+#### Implementation notes (Q4/Q5)
+
+Landed 2026-10-03. Where the plan above left a choice open, this is the choice
+made and why — and where a measurement contradicted the plan, this is the
+measurement.
+
+##### Q4 — `measure_section`
+
+**It is a reader, so what it decided is the WIRE.** D1d
+(`KernelProjection::section_with_plane`) already cuts the solid with the real
+Intersect against a half-space box; the tool adds no geometry. Three wire
+decisions carry it.
+
+**The analytic arms survive serialization, in a mirrored type.** `Curve2` is
+built on `cad_primitives::Point2`, which has no serde and which `wasm-bridge`
+does not even depend on, so `messages::SectionCurve` is a one-to-one mirror of
+`Curve2`'s five arms. Nothing is collapsed and nothing is pre-flattened: a
+bore's cap must arrive as a `circle`, because a cap bounded by 71 chords is a
+different area and a different drawing. (D1a's DXF writer never needed such a
+type — it consumes `Curve2` kernel-side and emits entities — so Q4 is the first
+consumer that had to publish one.)
+
+**A kernel refusal is a typed DECLINE, never an empty section.** `body_ids`
+takes many bodies (defaulting to every body of the open Part, so "section the
+model" is one call), and one body hitting the §4.5.5 Stage-0 coplanar wall must
+not take the others' sections with it. So a refused body appears in `declines`
+with `not_supported` / `failed` and the kernel's own sentence, and has no entry
+in `bodies` at all. `loops: []` means the plane MISSED, which is a different
+answer, and `kept_material` says which side it missed on — the three outcomes
+`section_with_plane` documents, each distinguishable on the wire.
+
+**`cap_shared_with_model` describes how the KEPT cap was attributed, not
+whether a face is coplanar with the plane.** Measured on a pocket: cutting at
+the pocket ceiling's plane reports `true` keeping the material above it and
+`false` keeping the slab below it (where every cap face descended from the
+cutting half-space and the kernel's own lineage could name it). Both sides are
+pinned in `tests/measure_section.rs`, because an agent reading the flag as "a
+face is coplanar here" would read the two sides of one cut as two different
+geometries.
+
+**The plane goes through `sketch_create`'s resolver, plus an N1 name.**
+`{origin, normal}`, a datum, and a face `GeomRef` are all resolved by
+`tools::sketch::resolve_plane` — so a plane an agent can sketch on is a plane
+it can section with, by construction. `{"plane": "XY"}` is lifted into the
+anchor shape that resolver reads (the short form an agent can type without
+knowing the three built-in planes' UUIDs; `sketch_create`'s own input surface
+is unchanged). The fourth form, `{"name": "..."}`, resolves through
+`feature_engine::names::resolve` — the same ladder `names_list` reports and
+`measure_distance` uses for a name operand — and the cut takes the face's OWN
+outward normal, so the kept side is the material behind the face. When the
+loud fallback fires, its warnings come back as `name_warnings`: a section
+through a face that re-bound by geometry is a section through a plane the
+caller may not have meant. `plane.x_axis` is accepted and ignored, because the
+cap's frame is the kernel's (`basis`) and a consumer that re-derived one could
+rotate the loops against it.
+
+**The centroid is the one approximated number, and it says so.** The areas the
+kernel reports are closed-form, but a first MOMENT over a circular arc is not a
+quantity `SectionLoop` carries, so the centroid is Green's theorem over each
+loop flattened at `kernel_v2::dxf_export::DEFAULT_POLYLINE_SAGITTA` (1e-5 m
+absolute — the same sagitta the DXF writer flattens an ellipse at, rather than
+an invented one). `centroid_exact` is true exactly when every curve of every
+loop is a `line`, where the flattened polygon IS the cap.
+
+**A graze is decided before any boolean, and a section moves nothing.** Two
+boundary cases reviewed 2026-10-03. A plane lying exactly ON a face is settled
+from the solid's conservative bounds (`dmax ≤ 0` keeps everything, `dmin ≥ 0`
+keeps nothing), so it is a typed empty section with `kept_material` saying
+which side — it cannot reach the §4.5.5 Stage-0 coplanar wall by accident, and
+the kept half-space is the one that CONTAINS the plane
+(`a_plane_grazing_a_face_is_a_typed_empty_section_on_both_sides`). And a
+section is a query in the sense that matters to a caller: `section_with_plane`
+runs its Intersect in the LIVE arena, but the sectioned body's own face
+listing — ids, pids, signatures — comes back byte-identical across two cuts of
+a bored plate (`a_section_leaves_the_bodys_faces_where_they_were`), so no
+`GeomRef`, name binding or rule written before the cut moves. What the cut does
+leave behind is the half-space box and the cut solid, in the arena, until the
+session ends; that is a footprint, not a correctness bug, and Q2's scratch-arena
+pattern is what would retire it.
+
+**A name is the one plane form whose geometry must be checked.** An
+`{origin, normal}` is a plane by construction and a datum is one by
+definition, but a name points at whatever face it was given to — so the tool
+reads the face's surface type first and refuses a curved one as
+`InvalidArguments`, naming what it found and the form to use instead
+(`a_name_on_a_curved_face_is_refused`). Cutting on some tangent plane of a
+barrel would be a section the caller could not have meant.
+
+**Not in Q4.** The loop edges' SOURCE FACES, which §4.3's table asks for:
+`SectionLoop` carries `curves`, `signed_area` and `exact` and no provenance, so
+there is nothing to publish without a D1d change. And no `chord_bound_m`: the
+kernel exposes the per-loop `exact` flag but no band, and a fabricated band
+would be worse than the flag. Assembly instance scoping, as for Q2 and Q6.
+
+##### Q5 — `measure_thickness`
+
+**Sites are sub-facet CENTROIDS, not tessellation vertices.** §4.2 says "every
+vertex of the render tessellation (and the centroid of every triangle above a
+size threshold)". A vertex sits on a face's rim or on the shared edge of two
+facets, where the inward normal is not the face's alone and the cast is
+degenerate or grazing; a centroid is strictly inside one facet of the face's
+own CDT. Barycentric subdivision to the requested spacing replaces the size
+threshold, and covers a large facet's middle — exactly where a plate's thin
+spot would be. The reported `spacing_m` is the largest sub-facet edge actually
+used, so a request the subdivision cap could not meet comes back as a looser
+spacing rather than as a false one.
+
+**Both ends of every cast are refined onto the analytic surfaces.** The site is
+projected onto its own face's surface and the facet hit is Newton-refined along
+the ray on the hit surface's signed distance (`signature::signed_offset_at`,
+added for this), then certified on the surface and on the hit face's trim.
+Without both, a tube's wall reads low by two sagittas; with them it is
+`r_outer − r_inner` to 1e-12 relative and a plate's wall is exact. `refined`
+counts the sites that certified.
+
+**The self-hit band is LOCAL.** A site on a convex curved face sits outside its
+own chords, so the inward ray crosses them within the snap distance. That is
+rejected by `4·|p − c|` — the site's own local sagitta — and only for a hit on
+the site's own face. A band on the whole body would have thrown away every site
+of a 1 mm plate 100 mm across, whose chord band exceeds the wall being
+measured; a solid cylinder still measures its own diameter across its lateral
+face. A wall under the local band is counted in `declines.below_self_band`
+rather than reported.
+
+**§4.4's wedge oracle is wrong as stated, and the correction is the point of
+the increment.** A real taper is NOT thinnest at its thin end: its slant makes
+one base angle acute (84.3° on the pinned fixture), and a body is arbitrarily
+thin near an acute corner — the wall along `+x` from the end face at height `y`
+is `(t0 − y)/slope`, which goes to zero at the corner. Measured 1.333 mm on a
+taper whose thin end's perpendicular wall is 1.990 mm, with the thinnest site
+AT the corner. Every right trapezoid has exactly one such corner, so the
+closed-form case is a STEPPED plate (`min` is exactly the thin section, and the
+site is inside it); the wedge is pinned as the clearest demonstration that
+`min` is an upper bound on a body that has no minimum wall at all.
+
+**Thickness is invariant in VALUE under a rigid motion, not in its site set.**
+The render CDT is computed from the body's own coordinates, so a 30° turn of
+one plate took it from 8528 sites to 4744 while `min` and `max` held to 1e-12.
+A planar wall is the same everywhere on it, so the values survive; on a body
+whose thin spot is a corner a rotation can move the reported minimum by up to
+the spacing — which is what `Sampled` means, and why the invariance test
+asserts the values and the wall's own span rather than the site's identity.
+
+**`ThicknessMethod` has one arm and `mass`-style tiers were not reused.**
+`Method` is `Exact | Mesh { chord_bound }` and neither describes this: the
+individual casts are exact and the SAMPLE is not, so the honest statement is
+`Sampled { samples, spacing }` with no sibling. An exact medial axis would add
+its own arm. A body where no site produced a thickness is an `Err` naming the
+decline counts, not a `min` of 0 or of infinity.
+
+**The thinnest site's faces are named durably.** Each arrives as its persistent
+id (a DECIMAL STRING, like every pid on this boundary) plus its N1 name, from
+the same `all_entity_pids` and `name_bindings` the Q6 listing reads. A site
+that names a transient kernel id alone is not an answer a caller can act on
+tomorrow.
+
+**A bad `spacing_m` is refused in the tool.** Measured: passed through to the
+kernel, a spacing of 0 returns as an `Internal` engine error carrying a kernel
+sentence — the wrong shape for a caller's typo. The tool validates it as
+`InvalidArguments` with the fix in the message and the kernel keeps its own
+refusal as the backstop.
+
+**The acute corner is not an exotic case, so there are TWO minima.** Reviewed
+2026-10-03: the wedge above is a fixture, but the same sliver appears on any
+part with an acute dihedral. A 4 mm radial slot through a 10/7 mm tube — a C —
+has its slot face meeting the outer cylinder at 78°, and the thinnest inward
+cast lands in that corner at 0.043 mm where the wall is 3 mm. The number is
+right for the question §4.2 defines — the first hit along the inward normal —
+and useless as "how thick is this part", which is the question a rule asks.
+
+So the answer carries both. `min` is unchanged and still §4.2's. Beside it,
+`min_wall` is the same minimum over only the sites whose two faces do NOT
+share an edge, with `thinnest_wall` as its site, and every site says which it
+is through `faces_share_an_edge`. On that C: `min` 0.0434 mm, `min_wall`
+2.99999999999999703e-3 — `r_outer − r_inner` to rounding, because the wall is
+the same at every point of the cylinder pair and both ends of the cast refine
+onto the analytic surfaces. On a plate the two numbers and the two SITES are
+identical, because a right-angled body has no corner reading to leave out: a
+cast along one face's inward normal is parallel to every face it shares an
+edge with. A face hitting ITSELF is not a corner either, so a solid cylinder's
+diameter survives into `min_wall` (`faces_share_an_edge` is about two distinct
+faces that meet, and a cylinder's lateral face meets itself at its seam).
+Pinned in `a_slot_in_a_tube_is_thinnest_at_the_acute_corner_not_at_the_wall`,
+`a_plate_reports_its_thickness_on_the_planar_pair`,
+`a_solid_cylinder_measures_across_its_own_lateral_face` and, on the wire,
+`a_wedge_reports_the_corner_and_the_wall_as_two_numbers`.
+
+The exclusion is coarse ON PURPOSE: it drops every reading between two faces
+that meet anywhere, so a tapered rib whose flanks meet at a tip edge does not
+contribute its own thickness to `min_wall` either. For a rule that is the
+conservative direction — a wall it cannot see is not a wall it calls thick —
+and `min` with the thinnest site's own faces is what a caller judges such a
+rib from. The adjacency itself is one pass over the solid's loops (a half-edge
+and its twin are the two sides of one edge), read O(1) per site, so it does
+not move the cost below.
+
+**`min` moving with `spacing` is measured, not argued.** The same wedge at
+4 mm / 1 mm / 0.25 mm reports 2.111 mm / 0.952 mm / 0.625 mm — at 4 mm the
+thinnest site is out on the base casting up to the slant (`t0 − slope·x`), and
+from 1 mm down it is the corner itself (`(t0 − y)/slope`). Each is exact as a
+measurement; they are answers to three questions about one body
+(`a_finer_spacing_finds_a_thinner_corner_because_min_is_an_upper_bound`). The
+0.25 mm run also shows the subdivision cap binding: the reported spacing comes
+back at 1.4 mm, LOOSER than the request, which is the honest direction.
+
+**The cost, measured.** F0061 — the 339-face assay gear with a through bore —
+takes **77 ms** at the default spacing (48 884 sites, every one refined, no
+declines) and 2.9 s at a requested 2 mm (1.52 M sites). The default is cheap
+enough to call per body in a rule pass; a spacing an order under the body is
+what costs, and it is the caller's choice.
+
+**Not in Q5.** `Thickness` is per BODY: no face-restricted or region-restricted
+sampling (a rule that cares about one web filters the sites itself from the
+thinnest site and the histogram, or asks for a denser spacing). No medial axis.
+No area-weighted mean — the mean is unweighted over sites, which are
+approximately area-uniform by construction, and the answer says so. And no
+third minimum: `mean`, `max` and the histogram stay over ALL sites, corner
+readings included, because they describe the sample and only the two minima
+answer a question about the body. Assembly instance scoping, as for Q2, Q4 and
+Q6.
+
 ## 5. N — Stable semantic references
 
 Owner: `waffle-types`, `feature-engine`, `wasm-bridge`, `kernel-v2` (N0).
@@ -2362,3 +2583,205 @@ with the FDM set**: the pass/fail loop exists.
   estimate can be a K4 script when someone wants it.
 - Not a fillet, chamfer or shell dependency. The machining rule and the
   sketch fillet op are written for a kernel without them.
+
+## Implementation notes (S1/S2)
+
+Landed 2026-10-03. What the tree does now, where it differs from §10.1/§10.2
+above, and why.
+
+### S1 — the operations
+
+`sketch_solver::ops` (`crates/sketch-solver/src/ops/`) holds `trim`, `extend`,
+`offset`, `fillet`, `mirror` and `project` as pure functions on a `Sketch`,
+each returning a `SketchEdit`, plus `remove_entities` (the cascade rule, which
+was browser-only) and `apply_ops`, which applies a batch in order against the
+running state. `geom.rs`, `chain.rs` and `offset.rs` are ports of the three
+deleted JS modules — `geometry-utils.js` (204 lines), `chain.js` (199),
+`offset.js` (380) — tolerance for tolerance.
+
+The wire types are `waffle_types::sketch_ops`: `SketchOp` (the §10.3 enum, all
+thirteen variants, implemented now so S3 is a tool definition and a dispatch
+arm), `SketchEdit`, `End`, `Side`, `ProjectedPoint`, `ProjectShape` and a typed
+`SketchOpError`. Two bridge messages carry them: `ApplySketchOps { live, ops,
+next_id }` → `SketchOpsApplied { entities, constraints, projected, edit,
+transient_constraints, next_id }`, and `QuerySketch { live, query }` →
+`SketchQueried { result }` for the previews (`Chain`, `TrimPreview`,
+`FilletPreview`, `OffsetPreview`). The live sketch travels with the request,
+exactly as `SolveSketch`'s does, because the UI owns the in-progress sketch and
+the engine's `active_sketch` lags it by a round trip.
+
+Four decisions that are not in §10.1:
+
+1. **The previews come from the same functions as the commits.**
+   `fillet_geometry`, `trim_preview` and `resolve_offset_chain` are public for
+   that reason. A hover highlight computed by different code from the click is
+   a highlight that can lie, which is what the JS had.
+2. **Operations keep ids where the geometry survives.** The JS deleted and
+   re-created, which dropped every constraint on the affected entities
+   (`removeSketchEntities` cascades). A trim now keeps the surviving half's far
+   endpoint and the line's own id; a fillet repoints the two lines rather than
+   re-creating them, so a `Vertical` on a filleted leg outlives the fillet
+   (pinned: `a_fillet_keeps_the_dimension_on_the_line_it_shortens`). Points the
+   operation releases are pruned, so a trim leaves no invisible free vertex.
+3. **Snapping stays in the UI.** The ops weld only on exact coincidence
+   (`POINT_WELD_TOL = 1e-9`); which nearby vertex a cursor meant is an
+   interaction decision and the caller passes the position it decided on.
+4. **Undo is a snapshot for engine-applied edits.** One `SketchEdit` can add,
+   remove AND change entities at once, which the store's add-list undo entries
+   cannot express, so `applySketchOps` records the sketch on both sides of
+   itself (`_isSnapshot`).
+
+Two inherited limitations, named rather than hidden: a trim on a circle or arc
+removes it WHOLE (piece-wise curve trimming needs an angular bracket and is not
+implemented), and `mirror` adds independent geometry rather than a
+`Symmetric`-constrained pattern.
+
+Three further divergences from the deleted JS, found in review and recorded
+here because a port's divergences have to be decisions:
+
+1. **The fillet no longer folds obtuse corners onto their acute supplement.**
+   The JS computed the corner's interior angle as `acos(|dot|)`, which maps a
+   135° corner onto 45°, so the arc centre landed at `r / sin(22.5°)` instead
+   of `r / sin(67.5°)` and the committed arc came out **2.41× the radius the
+   user typed** — tangent to both legs, so nothing looked broken, but not the
+   radius asked for. The shallower the corner the worse it got (a 170° corner
+   overshot by 11×), and the same folded angle drove the fit check, so shallow
+   fillets that fit were refused. `ops::fillet_geometry` uses `acos(dot)`.
+   Right angles and acute corners are bit-identical: there `|dot| == dot`.
+   Pinned: `a_fillet_on_an_obtuse_corner_has_the_radius_it_was_asked_for`.
+   This is the one place the port deliberately does NOT reproduce the shipped
+   behaviour, because the shipped behaviour was arithmetically wrong.
+2. **A trim's cut point is never welded onto an existing vertex.** The JS put
+   its cut points through `findOrCreatePoint(x, y, screenPixelSize)`, which
+   snapped to any existing vertex within **8 screen pixels**. At a T-junction —
+   where the crossing entity's own endpoint sits exactly on the intersection —
+   that produced ONE shared vertex and a closed region. `ops::trim` mints a
+   fresh point unconditionally, so the same trim now leaves two coincident but
+   distinct vertices. Note this is narrower than decision 3 above claims: the
+   cut position is computed inside the op from the intersection, not passed by
+   the caller, so the UI has no opportunity to snap it, and `POINT_WELD_TOL` is
+   not applied here either. Whether downstream profile extraction welds by
+   position or by id decides whether a user sees this; it is unmeasured.
+3. **Degenerate directions are an absence, not `(1, 0)`.** `Point2::unit`
+   returns `None` where the JS fell back to a unit x-axis via `|| 1`, so ops
+   refuse by name instead of proceeding on a fabricated direction. It also
+   rejects a non-finite length: at coordinates near ±1e308 the endpoint
+   difference overflows and `inf * 0.0` is NaN, which the JS would have written
+   into the sketch as a point at NaN. `ops::reject_non_finite` is the batch-level
+   net behind that, returning `SketchOpError::NonFiniteResult`
+   (pinned: `an_overflowing_mirror_is_refused_rather_than_minting_a_nan_point`,
+   `an_offset_distance_that_overflows_is_refused_rather_than_minting_nan`).
+
+**The UI keeps pointer handling and rendering only.** `tools.js` lost
+`buildOffsetChain`, `armOffset`'s segment resolution, `offsetCursorDistance`,
+`computeArmedOffset`, `createEntitiesFromSegments`, `findEntityIntersections`,
+`executeTrimLine`, `findCornerAtPoint`, `lineLength`, `computeFilletPreview`
+and `executeSketchFillet`; `store.svelte.js` lost its `computeChainOffset` and
+`findConnectedChain` JS implementations (both now engine queries) and its
+driving→local conflict remap. Every geometry query is asynchronous, so each
+tool's POINTERDOWN path is self-sufficient: a click never depends on a hover
+answer having arrived (`clickAt` in the GUI specs moves and clicks in the same
+tick, and that is the real interaction too).
+
+One behaviour pinned while porting: a lone circle's offset is
+OUTWARD-positive, unlike a chain's left-of-traversal convention, because that
+is what the shipped tool did and what a user reads off the screen
+(`a_circles_signed_distance_is_positive_outside_it`).
+
+### S2 — solver state
+
+`SolvedSketch.report: SketchSolveReport` (`waffle_types::sketch_state`) carries
+`dof`, `params`, `rank`, `rows`, per-constraint `residuals` (unweighted,
+`Option<f64>` so an unevaluable reference dimension is an absence rather than a
+fabricated zero), `conflicts` (always populated, not only on
+`OverConstrained`), `redundant`, `moved`, `free` and a typed `convergence`.
+It is kept on `ActiveSketch.solve_report` and reaches the UI on `SketchSolved`.
+
+Deviation from §10.2: **`Redundant` is a field, not a `SolveStatus` variant.**
+Every consumer of `SolveStatus` treats "satisfied, zero dof" as the green
+state; a new variant would silently un-green every fully constrained sketch
+that happens to carry a duplicate constraint. The verdict is
+`report.redundant`, non-empty exactly when the system is satisfied with
+`rank < rows`, naming the dependent constraints by a greedy declaration-order
+rank walk (the later duplicate is the one the author just added).
+
+`free` is the `dof` smallest eigenvectors of `JᵗJ`, not an SVD of `J`: with
+fewer constraint rows than parameters — every under-constrained sketch —
+nalgebra's thin `v_t` cannot span the null space. The COUNT comes from the
+same column-pivoted QR rank the verdict uses, which is what keeps
+`free.len() == dof` instead of two rank decisions disagreeing at the
+tolerance.
+
+**Reference dimensions are filtered inside `solve_sketch`.** The filter used to
+live in three places (the sketch UI, `sketch_create`, `feature_engine::params`)
+and conflict indices came back in the FILTERED space, so each consumer undid a
+mapping it had applied itself — and the UI's remap shifted badge highlighting
+onto the wrong constraint whenever a reference dimension preceded a conflict.
+Now every index the solver reports indexes the caller's own full constraint
+array, `feature_engine::params` has dropped its copy, and `triggerSolve` sends
+the whole list.
+
+V2's half of §10.2 is NOT done: the UI's over-constrained badge is still the
+constraint-COUNT heuristic and the under-constrained marker still flags
+unreferenced points. The report they need is now on `sketchSolveStatus.report`.
+
+**NaN propagates into the verdict.** Found in review: three reductions dropped
+it, so a sketch carrying a non-finite residual came back GREEN. `f64::max`
+returns the non-NaN operand, so the per-constraint `worst` fold reported a NaN
+row as `Some(0.0)` with `satisfied: true` — the fabricated zero this field's
+`Option` exists to avoid; nalgebra's `max` behind `residual_inf` drops a NaN
+followed by any finite row, so an otherwise over-constrained sketch read as
+`UnderConstrained` purely on declaration ORDER; and `v.abs() > tol` is false
+for NaN, so `find_conflict_constraints` returned an EMPTY conflict set under an
+`OverConstrained` verdict, which is the one outcome `conflicts` exists to rule
+out. All three now treat a non-finite row as unsatisfied and as an offender.
+Reachable without hostility: a zero-length line under an `OnEntity` divides by
+its own length, and both the bridge and the MCP accept caller-supplied
+geometry. Pinned: `a_non_finite_residual_is_never_reported_as_satisfied`.
+
+Still open, measured in the same review and NOT fixed here:
+
+- **`MOVED_EPS` is absolute (1e-9).** A satisfied rectangle authored at 1000 m
+  settles ~4e-7 and lists its own PINNED origin as `moved`, which the constant's
+  comment says cannot happen. The threshold has to scale with the parameter
+  magnitude. `SOLVE_TOL` is absolute for the same reason and already flips the
+  same rectangle to `SolveFailed` at 1e4 m — pre-existing, but `satisfied` and
+  `conflicts` now inherit it.
+- **The redundancy rank walk is super-cubic and runs on the interactive solve.**
+  `solver.rs` recomputes a full column-pivoted QR on a growing matrix once per
+  constraint whenever `satisfied && rank < rows` — true for any sketch carrying
+  both rails and dimensions. Measured native release: 6.1 ms at 25 points,
+  79.8 ms at 50, **669 ms at 100** (~180× the no-walk path, still climbing).
+  In WASM that is on every `pointermove` of a drag. It needs an incremental
+  rank or a row ceiling.
+- **`conflicts` is computed on WEIGHTED rows while `residuals` are unweighted**,
+  so an ordinary drag names the transient pin PLUS two innocent stored
+  constraints that LM split the error across. The UI is shielded by an index
+  filter; MCP consumers are not.
+- **Duplicate point ids break `free.len() == dof`.** `ParamLayout::build` pushes
+  two params per `Point` declaration but keeps only the last id, so the orphaned
+  parameters count toward `dof` and name nothing. `sketch_create` rejects
+  duplicates; `set_sketch_entities` and the `.waffle` rebuild path do not.
+- **`failed_result` returns an EMPTY `residuals`**, against the field's "one
+  entry per constraint" contract, so on the one path that most needs it the
+  offending constraint is named only in a prose string.
+
+### The 1,172 corpus sketches with zero constraints (§2.2 item 11)
+
+Measured, not assumed: `crates/wasm-bridge/tests/sketch_constraint_persistence.rs`
+drives a fully constrained rectangle (reference dimension included) through
+`sketch_create` AND through the UI's `BeginSketch`/`SolveSketch`/`FinishSketch`
+path, saves the document and loads it back. Both keep every constraint, and so
+does a fillet's pair of `Tangent`s. **The cause is authoring**: the corpus
+generator's own case records (`app/tests/cases/assay/*.meta.json`,
+`generator_version` 4) describe operations by profile type and size and carry
+no constraint field at all, and `docs/notes/planetary_gearbox/Planetary
+gearbox.waffle.json` — 26 sketches, 0 constraints — was authored the same way.
+Nothing drops them; none were ever written. Constrained sketches come from S4's
+corpus.
+
+One real bug fell out of that measurement and is fixed:
+`window.__waffle.addSketchEntity` did not allocate an id when the caller
+omitted one, so a GUI test's setup fixture was added locally, REFUSED by the
+engine ("missing field `id`", logged and swallowed) and then invisible to
+anything addressing geometry by id.

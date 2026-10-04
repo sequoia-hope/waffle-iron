@@ -88,6 +88,7 @@ mod nary;
 #[allow(unused_imports)]
 pub(crate) use nary::*;
 pub(crate) mod edge_in_plane;
+pub(crate) mod plane_weld;
 
 use cad_primitives::Point3;
 use dashu::rational::RBig;

@@ -793,7 +793,12 @@ pub(crate) fn rim_override_real_scale_uniform_coincidence_stays_loud() {
 }
 
 /// Spec rows 4+5: a bit-identical repeat of a merged override dedups; a
-/// DISTINCT second override claiming the same uniform slot is loud.
+/// DISTINCT second sub-TAU twin claiming the same uniform slot enters the
+/// ring as an inserted override — the slot keeps the first twin's bits, the
+/// second sits at its own angle, exactly as the generic band-close-twin path
+/// keeps both (2026-10-04, `error_oct4.waffle`: a crossing lifted onto the
+/// frame plane and its opposite-rim image on the cylinder's own plane,
+/// 2.2e-10 apart, sharing an azimuth a 4|N ring samples). Was a loud wall.
 #[test]
 pub(crate) fn rim_override_same_slot_repeat_dedups_conflict_is_loud() {
     let (verts, edges, faces) = rt_cylinder(0.0, 1.0, 0.5);
@@ -817,16 +822,52 @@ pub(crate) fn rim_override_same_slot_repeat_dedups_conflict_is_loud() {
         "exactly one copy of the merged point"
     );
 
-    // Row 5: two DISTINCT points claiming one slot → loud.
+    // Row 5: two DISTINCT sub-TAU twins claiming one slot → the slot takes
+    // the first, the second is INSERTED at its own angle: ring length n+1,
+    // both points present exactly once, and the rim is marked inserted.
     let twin2 = rot_z(up, 2e-15);
     assert_ne!(bits(&twin), bits(&twin2));
+    // Both rims carry the pair (as the Stage-0 opposite-rim mirror makes them
+    // in production): the lateral's azimuth-merge needs matched counts.
+    let lift = |q: &Point3| {
+        let a = q.as_array();
+        Point3::new(a[0], a[1], 1.0)
+    };
     let mut ov2: std::collections::BTreeMap<u32, Vec<Point3>> = Default::default();
     ov2.insert(0, vec![twin, twin2]);
-    let Err(err) = stage1_tessellate_inner(&verts, &edges, &faces, &ov2, None) else {
-        panic!("distinct overrides on one slot must be loud");
+    ov2.insert(1, vec![lift(&twin), lift(&twin2)]);
+    let (t2, _) = stage1_tessellate_inner(&verts, &edges, &faces, &ov2, None)
+        .expect("a second sub-TAU twin of a merged slot enters the ring");
+    assert_eq!(
+        t2.chains[&0].len(),
+        n + 1,
+        "the twin is one inserted sample"
+    );
+    assert_eq!(t2.chains[&1].len(), n + 1, "the opposite rim matches");
+    for q in [&twin, &twin2, &lift(&twin), &lift(&twin2)] {
+        assert_eq!(
+            t2.verts.iter().filter(|v| bits(v) == bits(q)).count(),
+            1,
+            "each twin present exactly once"
+        );
+    }
+    // A second claimant that is NOT a sub-TAU twin of the sample is still the
+    // row-3 wall (checked before the slot bookkeeping, so the order of the
+    // two claimants cannot smuggle a real-scale graze in as a "twin").
+    let delta = 0.9 * (2.0 * std::f64::consts::PI / (n as f64)) * 1.0e-6;
+    assert!(
+        0.5 * delta > cad_primitives::TAU_MODEL,
+        "fixture precondition: r·δ = {} must be real-scale",
+        0.5 * delta
+    );
+    let far = rot_z(up, delta);
+    let mut ov3: std::collections::BTreeMap<u32, Vec<Point3>> = Default::default();
+    ov3.insert(0, vec![twin, far]);
+    let Err(err) = stage1_tessellate_inner(&verts, &edges, &faces, &ov3, None) else {
+        panic!("a real-scale second claimant must stay loud");
     };
     assert!(
-        format!("{err:?}").contains("distinct"),
+        format!("{err:?}").contains("merge refused"),
         "wrong error: {err:?}"
     );
 }

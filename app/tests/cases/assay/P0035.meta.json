@@ -1,0 +1,45 @@
+{
+  "id": "P0035",
+  "description": "prospector seed 3 index 90, minimized 6->2 ops (convex4:sym circle:boss): auto-union TessellationFailed 'patch triangle collapsed at render precision' on FaceId(12) — P0001's error text at a new locus (P0001 CONVERTED 2026-09-27 via the 4.5.5 edge-in-plane rule). x1e3 identical; x1e-3 (segment 1.28e-6, 1.3x the feature floor) reads 'malformed B-Rep topology: interior junction'. derived_meta; the pin IS the expectation.",
+  "master_seed": 0,
+  "test_seed": 0,
+  "scale": 0.0016280706406172692,
+  "log_scale": -2.7883267553653037,
+  "plane_origin": [
+    0.0,
+    0.0,
+    0.0
+  ],
+  "plane_normal": [
+    1.0,
+    0.0,
+    0.0
+  ],
+  "operations": [
+    {
+      "kind": "extrude",
+      "profile_type": "unknown",
+      "profile_size": 0.0,
+      "depth_or_angle": 0.00028198367872469935,
+      "is_cut": false
+    },
+    {
+      "kind": "extrude",
+      "profile_type": "unknown",
+      "profile_size": 0.0,
+      "depth_or_angle": 0.0016280706406172692,
+      "is_cut": false
+    }
+  ],
+  "oracles": {
+    "euler_target": 2,
+    "expect_watertight": true,
+    "max_bbox_extent": 0.16280706406172693,
+    "expect_positive_volume": true,
+    "volume_monotonicity": [],
+    "expect_rebuild_error": false,
+    "derived_meta": true
+  },
+  "generator_version": 100,
+  "featured": true
+}

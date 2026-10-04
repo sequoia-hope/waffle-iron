@@ -1,0 +1,52 @@
+{
+  "id": "P0039",
+  "description": "prospector seed 3 index 42, minimized 7->3 ops (nonconvex9:boss circle:boss gear23:boss): auto-union Stage-4 'relocation region around vertex 197 is invalid: RelocationCrossedCarrierVertex' raised at stage4_correct.rs:8605 — P0015's error text (CONVERTED 2026-10-03 by letting the 4.5.2 ladder run past its ceiling) with a residual customer on the auto-union path. Same class at x1e-3 and x1e3. Smallest authored segment 2.3862e-5 = 23.9 x MIN_FEATURE_SIZE, the tightest of the seed-3 promotions. derived_meta; the pin IS the expectation.",
+  "master_seed": 0,
+  "test_seed": 0,
+  "scale": 0.04458874424288559,
+  "log_scale": -1.3507747585556396,
+  "plane_origin": [
+    0.0,
+    0.0,
+    0.0
+  ],
+  "plane_normal": [
+    0.0,
+    0.0,
+    1.0
+  ],
+  "operations": [
+    {
+      "kind": "extrude",
+      "profile_type": "unknown",
+      "profile_size": 0.0,
+      "depth_or_angle": 0.0208,
+      "is_cut": false
+    },
+    {
+      "kind": "extrude",
+      "profile_type": "unknown",
+      "profile_size": 0.0,
+      "depth_or_angle": 0.011446428286135443,
+      "is_cut": false
+    },
+    {
+      "kind": "extrude",
+      "profile_type": "unknown",
+      "profile_size": 0.0,
+      "depth_or_angle": 0.04458874424288559,
+      "is_cut": false
+    }
+  ],
+  "oracles": {
+    "euler_target": 2,
+    "expect_watertight": true,
+    "max_bbox_extent": 4.45887442428856,
+    "expect_positive_volume": true,
+    "volume_monotonicity": [],
+    "expect_rebuild_error": false,
+    "derived_meta": true
+  },
+  "generator_version": 100,
+  "featured": true
+}

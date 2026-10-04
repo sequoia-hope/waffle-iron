@@ -476,6 +476,21 @@ your core count on a full parallel corpus run to avoid oversubscription. See
 `ASSAY_CASE=<ID> … single_case` is also the go-to for debugging or
 byte-stability spot-checks of one case (fast, deterministic, generous budget).
 
+**Replaying a user's `.waffle` that is not a corpus case** (an error document
+saved from the app — `error_oct4.waffle`, 2026-10-04):
+
+```
+WAFFLE_PATH=/path/to/doc.waffle \
+  cargo test -p test-harness --release --test user_case_probe replay_waffle_env -- --ignored --nocapture
+```
+
+It prints every engine error and warning, the render-mesh volume and every
+mesh oracle verdict (`oracle::run_all_mesh_checks`), so "it no longer errors"
+and "the result is right" are read from one run. Add `YANG_SPLIT_PROBE=1` for
+the Stage-0/1 ring-build and rim-crossing traces, `YANG_PLANE_WELD_PROBE=1`
+for the near-coplanar plane weld. Capture with `> log 2>&1` — the traces are
+on stderr.
+
 **Zero-regression gate for a kernel change:** run the full `--release` corpus
 before and after (or lean on the byte-stability argument for the unchanged
 paths, then confirm on the full run). Compare the category table; investigate

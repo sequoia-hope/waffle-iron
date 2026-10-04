@@ -466,18 +466,29 @@ impl DocumentSession {
         &mut self,
         id: &str,
         caches: &HashMap<uuid::Uuid, waffle_types::annotation::layout::ViewLayout>,
+        keys: &HashMap<uuid::Uuid, String>,
+        title_blocks: &std::collections::BTreeMap<
+            uuid::Uuid,
+            feature_engine::drawing::TitleBlockLayout,
+        >,
     ) {
         let Ok(index) = self.index_of(id) else {
             return;
         };
         if let TabKind::Drawing { drawing, .. } = &mut self.tabs[index].kind {
             for sheet in &mut drawing.sheets {
+                sheet.title_block_cache = title_blocks.get(&sheet.id).cloned();
                 for view in &mut sheet.views {
                     // A view the rebuild could not produce has its stale
                     // cache CLEARED rather than kept: a drawing showing the
                     // last layout that worked, beside an error about the one
                     // that did not, is a sheet that looks right and is not.
                     view.cache = caches.get(&view.id).cloned();
+                    // And the key goes with it, both ways (D4b): a key
+                    // outliving its cache would say a layout that is not
+                    // there is current, and a cache outliving its key would
+                    // be a layout nothing can date.
+                    view.cache_key = view.cache.as_ref().and(keys.get(&view.id).cloned());
                 }
             }
         }

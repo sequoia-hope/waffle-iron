@@ -43,6 +43,246 @@ after the reconciliation run (release, 8 jobs, 360 s; wall 577 s, F0085
 regression since 2026-08-01 is outstanding (checked over every commit of
 `results.json`).
 
+## 2026-10-03 (late night) — prospector seed 3 (200 candidates) adjudicated: the 32 ERROR rows are **twelve** families at **fifteen distinct STOP sites**; all **three** `wrong[exact_volume]` rows are ORACLE defects (one of them NEW); promoted P0025–P0039; **corpus not re-measured this session**
+
+`PROSPECT_SEED=3 PROSPECT_COUNT=200 PROSPECT_JOBS=8 PROSPECT_BUDGET_SECS=900`
+(spec `specs/assay_prospector.md`) returned **164 SUPPORTED_CORRECT, 32 ERROR,
+3 SUPPORTED_WRONG, 1 TIMEOUT** in 1291 s at 8 jobs — 17 report signatures, 0
+UNSUPPORTED. Every verdict in this section was measured with test binaries
+built at **HEAD `cd2f067f`** (another session's yang-rs edits reached the
+working tree at 20:54, after the 19:55 build, so none of them is in these
+numbers); the fifteen promoted cases were then re-measured on the tree that
+included that session's committed P0020 / N78 work and all fifteen are still
+ERROR, so nothing here depends on which of the two kernels you read it against.
+
+**The one TIMEOUT is not a timeout** — see the last section: run with no CPU
+budget it completes and reads SUPPORTED_WRONG, so the seed's honest histogram
+is **164 C / 32 E / 4 W / 0 T**.
+
+Grouped by error TEXT with the boolean VERB and the "Body created as
+standalone" suffix stripped, the 32 ERROR rows are **twelve** families — the
+seed-2 lesson again, and this time the signature string also split one family
+three ways purely by where it was TRUNCATED. But the families are not the unit
+of promotion: probing each row for its raising SITE (`YANG_LRR_PROBE`, which
+prints `loc=<file>:<line> reason=… v=<vertex>` at every Stage-4
+region-invalid return; `NONMANIFOLD_SITE_PROBE`; `KV2_SELFX_SITE_PROBE`) split
+the twelve families into **fifteen distinct sites**, and that is what was
+promoted — one case per site.
+
+### The three SUPPORTED_WRONG rows are all ORACLE defects — the kernel is right in every one
+
+This is the opposite of seed 2, where all three were real engine defects
+(P0010–P0012). The lesson stands either way: `wrong[exact_volume]` is a bucket
+to open, not a finding, and the oracle invalidates in both directions.
+
+| candidate | kernel | exact | rel | verdict |
+|---|---|---|---|---|
+| index 29 (3 ops, `star4(0.71):boss convex6:boss circle:cut`) | 4.880578e-9 | 4.584818e-9 | +6.451e-2 (band 5.825e-2) | **ORACLE** — the ledgered cut-auto-reversal hole |
+| index 146 (5 ops, `gear17:boss gear26:boss nonconvex8:cut nonconvex8:boss convex7:cut`) | 5.709784e-6 | 7.246707e-6 | −2.121e-1 (band 8.830e-2) | **ORACLE** — the same hole, on the second of two cuts |
+| index 76 (8 ops, `circle:sym convex4:solo convex8:cut circle:thru nonconvex9:thru convex7:boss circle:cut circle:cut`) | 3.336931e-6 | 3.959683e-6 | −1.573e-1 (band 5.121e-2) | **ORACLE** — a NEW harness defect, reduced to 4 ops |
+
+**Indices 29 and 146 — the cut auto-reversal hole, caught by the chain's own
+note.** Both documents make `ExactChain::from_waffle` emit
+`Extrude: cut auto-reversal decided on the merged body (reverse=false); if the
+previous merge's solids never met, the engine measures the tool body alone and
+decides reverse=true`, which is the harness defect seed 2 ledgered (the chain's
+bbox proxy for a B-Rep-vertex decision, `exact_membership.rs`, "cut
+auto-reversal decided on the merged body"). `FE_CUT_TRACE=1` shows the engine
+traced `reverse=true` on index 29's only cut and on the SECOND of index 146's
+two cuts, i.e. the opposite of the chain's choice in both. Authoring that cut's
+`direction` explicitly — the engine's own traced direction, so neither side
+auto-reverses — leaves the kernel's volume **byte-identical** (4.8805777621034e-9
+and 5.70978370927196e-6) and flips both documents to **SUPPORTED_CORRECT**.
+Authoring the opposite direction on index 29 gives 4.596457e-9, which is the
+chain's own reading to five digits (4.5962e-9 at 512 cells): the two sides were
+modelling different solids, and the chain was modelling the one the engine did
+not build.
+
+**Index 76 — a NEW oracle defect: after a cut ANNIHILATES a body, the exact
+chain applies the next cut to the dead body.** Localized by judging every
+prefix of the document on its own (kernel) against the exact prefix ladder at
+256 and 384 cells:
+
+| prefix | kernel | exact | |
+|---|---|---|---|
+| 0..4 | 1.536624e-6 (1 body) | 1.535010e-6 | agree |
+| 0..5 | 1.442368e-6 | 1.535010e-6 | **first divergence**, −6.0 % |
+
+The op-5 cut is a ThroughAll, so the obvious suspect was depth resolution —
+refuted: re-authoring op 5 as a **Blind** cut with an explicit direction and
+the oracle's own resolved depth (0.010775) keeps the disagreement exactly
+(kernel 1.442026e-6 vs exact 1.535010e-6, the exact reading bit-identical to
+prefix 4 at two resolutions, so its cut removes literally zero cells).
+
+Who is right was then settled **independently of both**, because the geometry
+is closed-form: the prefix-4 body is op 1 alone (a circle r = 7.807911916073907e-3
+on z = 0 extruded symmetrically to |z| ≤ 4.016843214343727e-3 — kernel 1.536624e-6
+= πr²·2d to six digits, and ops 3 and 4 leave it untouched), and the op-5 tool
+is a nonconvex-9 prism whose kernel mesh and oracle reading AGREE on placement
+(volume 3.060112e-7 vs lattice 3.067886e-7; centroid (−3.525e-3, −5.021e-3,
+−3.711e-3) vs (−3.525949e-3, −5.025476e-3, −3.712651e-3)). Ray-cast
+integration of that prism against the analytic cylinder (one ray per (y, z)
+sample on a 400 × 400 grid, exact x-intervals) gives the overlap as
+**9.463250e-8**, against the kernel's removal of **9.4598e-8** — 0.04 % apart,
+the residual being the mesh's chord deficit on the cylinder. The oracle's zero
+is wrong.
+
+The mechanism, reduced to **4 ops** (each judged on the current kernel):
+
+| document | verdict |
+|---|---|
+| cylinder + the same explicit blind cut (2 ops) | **SUPPORTED_CORRECT** — the oracle removes the 9.46e-8 |
+| cylinder + standalone box + that cut (3 ops) | **SUPPORTED_CORRECT**, 2 bodies |
+| cylinder + standalone box + the ThroughAll cut that ANNIHILATES the box + that cut (4 ops) | **SUPPORTED_WRONG** — the oracle removes nothing |
+
+The chain's body list keeps the annihilated body (its prefix-4 readout is
+`bodies=2 body_volumes=["1.5350e-6","0.0000e0"]`) and the next cut lands on it.
+This is the same shape as the already-ledgered "a disjoint Intersect leaves no
+solid and reads CORRECT" hole: a dead body left in the chain's list. Not
+promoted — it is harness, not kernel. The reproducer documents are in the
+session scratchpad (`X76A/B/C.waffle`); re-create them by truncating
+`target/prospect/seed-3/candidates/X00000003-00076.waffle` to features
+[0,1,2,3,6,7,8,9] and authoring feature 9's `direction` and a Blind depth.
+
+### Fifteen promotions, one per distinct STOP site
+
+All fifteen are ERROR-class pins with `derived_meta: true` — the categorizer
+returns before any oracle runs, so **the pin IS the expectation** and a
+conversion moves it. Every one was re-judged under the corpus runner
+(`ASSAY_CASE=<id> single_case`) and is CHEAP: 0.1 s to 10.2 s.
+
+| case | source | ops | error text | SITE (the thing that distinguishes it) | single_case |
+|---|---|---|---|---|---|
+| **P0025** | #126, min 5→4 `convex4:boss circle:boss circle:boss convex3:∩` | 4 | Stage-4 `LocalRefinementRequired` | `stage4_correct.rs:12318` — the PR-KV9 ellipse×ellipse junction relocation, whose two cutting planes are PARALLEL, so `|n₁ × n₂| < MIN_FEATURE_SIZE` and the plane-pair line is underivable. **14 of the 32 ERROR rows raise here** | ERROR 4.5 s |
+| **P0026** | #54, min 5→3 `circle:boss circle:cut convex4:cut` | 3 | Stage-4 `LocalRefinementRequired` | `stage4_correct.rs:13065` — the `surface_pair_endpoint_mix` decline | ERROR 0.8 s |
+| **P0027** | #54 **UN-MINIMIZED** `circle:boss circle:cut convex5:thru circle:cut convex8:thru` | 5 | Stage-4 `LocalRefinementRequired` | `stage4_correct.rs:10805` — `line_line_junction`, a vertex claimed by two DIFFERENT plane-pair line relocations, which the comment there calls out of scope | ERROR 5.2 s |
+| **P0028** | #109, min 5→2 `convex4:boss circle:cut` | 2 | `reassembled output would be non-2-manifold` | `s6-planar-loop-nonplanar` — face 5 vertex 0 sits **3.604e-1** off its own plane against a **3.500e-6** band | ERROR 0.2 s |
+| **P0029** | #109 **UN-MINIMIZED** `convex4:sym convex8:cut convex3:∪ circle:cut nonconvex6:rev-cut` | 5 | the same text | `s4-dc-attr` — a doubled directed edge (17,18) **fwd=2 rev=2** between an A plane and a B plane | ERROR 1.4 s |
+| **P0030** | #72, min 7→3 `convex4:boss circle:rev convex4:boss` | 3 | the same text, auto-union | `s6-curved-empty-cycles: face 0` — a curved face whose reassembly cycle set is EMPTY. A third site for one text | ERROR 0.3 s |
+| **P0031** | #57, min 3→3 `circle:boss nonconvex6:boss star3(0.15):cut` | 3 | `SelfIntersectingBooleanOutput { penetrations: 3 }` | `FaceId(32)` **CYLINDER** × `FaceId(55)` **PLANE**. Not P0021's family (cylinder × cylinder) and not P0007's (the cylinder's rim here IS an `EllipseArc`, so §4.4.2 carried it) | ERROR 1.6 s |
+| **P0032** | #80, min 6→2 `convex5:boss circle:rev-cut` | 2 | `SelfIntersectingBooleanOutput { penetrations: 9 }` | `FaceId(10)` **PLANE** × `FaceId(13)` **TORUS** — the torus arm of the output gate | ERROR 0.3 s |
+| **P0033** | #166, min 5→4 `convex4:boss convex8:rev circle:boss convex4:cut` | 4 | `TessellationFailed "patch triangulation folded (inverted triangle) — KV9-F2"`, `FaceId(45)` | kernel-v2's render tessellator. **This is the signature the un-minimized P0004 lineage was left STOPping on (2026-09-28) with no corpus customer since** | ERROR 2.0 s |
+| **P0034** | #71, min 7→4 `convex4:boss convex6:rev circle:boss circle:thru` | 4 | `TessellationFailed "surface-pair projection left the chord neighborhood"`, `FaceId(29)` | — | ERROR 1.1 s |
+| **P0035** | #90, min 6→2 `convex4:sym circle:boss` | 2 | auto-union `TessellationFailed "patch triangle collapsed at render precision"` | P0001's error text (CONVERTED 2026-09-27 by the §4.5.5 edge-in-plane rule) at a new locus — **two plain bosses** | ERROR 0.1 s |
+| **P0036** | #102, min 7→3 `convex4:boss circle:rev circle:cut` | 3 | `TessellationFailed "ring rejected by CDT (degenerate/self-intersecting)"`, `FaceId(51)` | the text of P0002 AND P0013, both CONVERTED — a third locus | ERROR 0.4 s |
+| **P0037** | #189, min 5→3 `circle:boss circle:cut convex4:boss` | 3 | input rejection `Stage-1 mesh of one operand self-intersects: 17 improper triangle contact(s) (0 unresolved; first between faces 0 and 2) after 4 refinement round(s)` | a face's chord band reaches another face of the SAME solid | ERROR 1.1 s |
+| **P0038** | #129, min 8→4 `convex4:boss convex4:boss circle:boss convex4:cut` | 4 | `malformed B-Rep topology: face 328: bounded lateral patch spans 6.9927 rad of azimuth unwrapped (≥ 2π): no seam wedge for a single-sheet unroll` | a cylinder patch whose own boundary wraps past a full turn | ERROR 7.8 s |
+| **P0039** | #42, min 7→3 `nonconvex9:boss circle:boss gear23:boss` | 3 | `RelocationCrossedCarrierVertex` | `stage4_correct.rs:8605` — P0015's error text (CONVERTED 2026-10-03 evening by letting the §4.5.2 ladder run past its ceiling) with a residual customer on the AUTO-UNION path | ERROR 10.2 s |
+
+**Adjudication, per case** (spec §8): each minimum re-judged on the current
+kernel; its smallest authored 2D segment measured against `MIN_FEATURE_SIZE`;
+the recipe re-judged at ×1e-3 and ×1e3; and the minimum's SITE compared against
+the un-minimized lineage's.
+
+Feature floor — **every promotion is above it**, the tightest being P0039 at
+23.9 × `MIN_FEATURE_SIZE` (2.3862e-5): P0025 2.83e7×, P0026 4.24e6×, P0027
+4.24e6×, P0028 2.97e7×, P0029 2.97e7×, P0030 424×, P0031 4e6×, P0032 2.35e4×,
+P0033 153×, P0034 100×, P0035 1.28e3×, P0036 141×, P0037 2.83e7×, P0038 9.9e5×,
+P0039 23.9×. No seed-3 finding is an A14.2 input-floor artifact.
+
+Scale — **×1e3 keeps the class on all fifteen**. ×1e-3 keeps it on P0025,
+P0026, P0027, P0028, P0029, P0031, P0032, P0033, P0038 and P0039; it changes
+class on four, and on three of those four the change is explained by the input
+itself dropping through the floor (P0030 4.2e-7 ⇒ `face 0 is degenerate
+(zero-area / collinear)`, the A14.2 wall by contract; P0034 1.0e-7 ⇒ `OnAxis`;
+P0036 1.41e-7 ⇒ Stage-3 `AmbiguousCurve`). The fourth is **P0035 at 1.28e-6,
+1.3× the floor** ⇒ `malformed B-Rep topology: interior junction`, a genuine
+near-floor sensitivity. **P0037 reads SUPPORTED_CORRECT at ×1e-3** with its
+smallest segment at 2.83e-2, far above the floor — a scale-SENSITIVE contact,
+recorded, not explained.
+
+**Two minima changed SITE, so both halves are promoted.** The minimizer keeps a
+reduction when the signature string is byte-identical, and a signature string
+does not see the raising site:
+
+- #54's un-minimized lineage STOPs at `10805` (`line_line_junction`); its
+  3-op minimum STOPs at `13065` (`surface_pair_endpoint_mix`). Promoted as
+  **P0027** (un-minimized, 5 ops / 5.2 s) and **P0026** (minimum) respectively.
+- #109's un-minimized lineage STOPs at `s4-dc-attr` (fwd=2 rev=2); its 2-op
+  minimum STOPs at `s6-planar-loop-nonplanar`. Promoted as **P0029** and
+  **P0028**. (#98's own minimum also lands on the `s6-planar-loop` site —
+  face 15 vertex 44, 7.482e-3 off plane against a 1.129e-7 band — so #98 is a
+  duplicate of P0028, not a sixteenth site.)
+
+This is the minimizer hazard from a new direction: seed 1's lesson was that
+ROUNDING can mint a contact that keeps a number-stripped signature; here
+DROPPING STEPS kept the signature and moved the site. **Probe the minimum's
+site, not just its text, before calling it the same finding.**
+
+### Duplicates and retirements, with reasons
+
+| rows | why not promoted |
+|---|---|
+| Stage-4 `LocalRefinementRequired` ×13 (indices 0, 3, 36, 56, 66, 86, 87, 100, 103, 112, 153, 156, 159) | every one raises at `stage4_correct.rs:12318`, P0025's site, measured per row. Three report signatures (subtract ×7, union ×7, intersect ×1) and one site. Index 112 is also the run's most expensive honest ERROR at 861 s CPU — a second reason not to promote it |
+| `patch triangulation folded — KV9-F2` ×1 (index 85) | P0033's site; 621 s CPU, so the 4-op minimum is the representative |
+| `cone periodic strip (2 encircling rims) not yet supported (KV14 Slice E holed frustum band)` ×2 (indices 84, 130; minimum `convex4:boss convex4:rev convex4:cut convex4:cut`, same class at ×1e-3 and ×1e3) | a DOCUMENTED deferred sub-slice — retired for the same reason on seeds 1 and 2 |
+| `Stage-1 boundary loop of face N touches itself … (a PINCHED face …)` ×2 (indices 53, 197; minimum 4→3 `gear11:boss circle:∩ convex4:cut`, same class at ×1e-3 and ×1e3) | **P0020's family** — N74's new typed net reaching generic geometry. P0020 is an open corpus ERROR with a conversion session in flight (N78), so this is a duplicate, not a new finding. Worth re-judging when that lands: a 3-op reproducer is much cheaper than P0020's five |
+| reassembly non-2-manifold ×1 (index 98; minimum 7→6, budget exhausted) | its minimum lands on P0028's `s6-planar-loop-nonplanar` site |
+| `wrong[exact_volume]` ×3 | all three ORACLE defects (above) |
+| TIMEOUT ×1 (index 48) | **not a retirement** — it is a fourth SILENT WRONG whose cost exceeded the budget (below) |
+
+### The TIMEOUT is NOT a hang — it is a FOURTH silent wrong, clipped by the budget
+
+Index 48 burned the whole 900 s CPU budget, and the first reading looked like
+seed 2's pair: unlike them it left a full lineage AND document (the tooling fix
+from that session — `judge_generated` writes the lineage BEFORE the build) and
+the lineage records `steps_applied: 5, stopped_by: null`, so the build
+completed; `YANG_FACE_CENSUS=1` shows a **250-cone-face** gear revolve operand
+tessellated twice (156 tris/face = 39,812 triangles, then 1,026 tris/face =
+**259,052 triangles**) against a **12-triangle**, 6-plane body, and
+`YANG_INPUT_SELFX_PROBE=1` completes (`A: tris=259052 improper=0 unresolved=0`,
+`B: tris=12`) with nothing printing after it — and that scan is the last step
+before `backend.labeled_arrangement(mesh_a, mesh_b)`
+(`crates/yang-rs/src/boolean.rs`, "(1) Stage 2: full labeled arrangement"). At
+705 s CPU it was still in there.
+
+**Then it finished.** Run without a CPU budget it completes twice over, in
+1255.4 s and 1276.0 s wall on this loaded box, with a verdict:
+
+```
+SUPPORTED_WRONG — no_degenerate_triangles: 3 of 12440 triangles are degenerate
+(3 bodies, χ 4, volume 6.555629199576313e-4)
+```
+
+So Stage 2 is merely EXPENSIVE on a gear revolve's conical bands, not stuck,
+and seed 3's `timeout` row was a budget artifact over an honest **fourth silent
+wrong** — three degenerate triangles in a 12,440-triangle render mesh, which no
+loud check caught. This is the F0072 / R0085 rule arriving from a new
+direction: **re-run a lone TIMEOUT with NO budget before recording it as a
+TIMEOUT**, not merely as `single_case`. The seed-2 pair deserves the same
+re-reading; its "still inside that call at 2 542 s CPU" may likewise have been
+a cost, not a hang.
+
+The row is therefore a WRONG, not a TIMEOUT, and the seed's honest histogram is
+**164 CORRECT / 32 ERROR / 4 WRONG / 0 TIMEOUT**.
+
+**NOT promoted, and what is owed.** Its judging cost sits between the 705 s CPU
+observed mid-flight and the ~1276 s the two complete runs took in wall time on
+a box at load 40–66 (no `/usr/bin/time` on this box, so the exact CPU total was
+not captured) — above the 900 s assay budget and far above the smoke gate's
+300 s, so the un-minimized document is not a corpus case. Bisecting it by
+prefix got as far as **ops 1, 2 and 3 all SUPPORTED_CORRECT** — including the
+250-cone-face 248° gear revolve, whose body reads 3 bodies / χ 4 / volume
+3.4400650555974064e-5 — so the degeneracy enters at **op 4 or op 5**, the two
+plain extrude bosses onto that body. Prefixes 4 and 5 were still running when
+the box reached load 84 and were stopped; finishing that bisection and
+minimizing is the first thing the next session should do. The minimizer needs
+one trick to work on it: the report row's signature is the literal string
+`timeout`, which no verdict can reproduce once the budget is lifted, so rewrite
+the one-row `report.jsonl` to `{"category":"SUPPORTED_WRONG","signature":
+"wrong[no_degenerate_triangles]"}` (keeping the id, so the lineage still
+resolves) and run `prospect_minimize` against that with
+`PROSPECT_BUDGET_SECS=3000`.
+
+### One instrument added
+
+`assay_exact_membership::one_case_ladder` now takes `EXACT_STEM=<absolute
+stem>` (reads `<stem>.waffle` + `<stem>.meta.json` from anywhere instead of the
+corpus, so a prospector candidate can be laddered without being copied into the
+count-pinned corpus directory) and `EXACT_PREFIX=all` (every prefix in one run,
+which is how a chain's first divergent op is NAMED rather than guessed). Both
+are read-only and the default behaviour is unchanged.
+
 ## 2026-10-03 (night) — **P0017 CONVERTED**: the output loop of a cone sliver traversed ONE intersection curve TWICE — a zero-width outward spur the straight-edge backtrack normalizer could not see, because its collinearity test is written for `LineSegment` (deviation **N76**) — **corpus not re-measured this session**
 
 ### The anchor — written before any code changed
@@ -1363,8 +1603,8 @@ ten give those families customers again, at 2–5 ops.
 | P0016 | `convex4:boss convex4:rev-cut convex3:cut` | 3 | Stage-3 `AmbiguousCurve { candidates: 0, matched: 0 }` — **zero** candidates, so no curve was proposed at all. **CONVERTED 2026-10-03 (night)**: neither an ambiguity nor a producer fault — the CONE arms never read the owner's Stage-1 chord budget back, at BOTH stages (deviation N72, section below). Oracles adjudicated, `derived_meta` cleared | ERROR / ERROR (same class) | 3e4× | 0.4 s → 0.8 s |
 | ~~P0017~~ | `convex4:boss nonconvex10:rev circle:cut` | 3 | ~~`CurvedGeometryMismatch "bounded cone patch must have exactly one material-CCW loop"`~~ ~~`TessellationFailed "ring rejected by CDT (degenerate/self-intersecting)"`~~ **CONVERTED 2026-10-03 in two steps.** (1) **N71**: the postcondition measured its chart winding on a VERTICES-ONLY shoelace and rejected a correct sliver (−6.723e-7 against a canonical-chart +7.175e-8); both arms fixed, and the case landed on a SECOND wall. (2) **N76** (the conversion, see the 2026-10-03 night section): that wall was NOT a chord artifact — all nine chart points of `FaceId(28)`'s ring sit on the cone to machine precision and its four proper self-crossings are in the declared geometry. Half-edges 137 and 138 carry the SAME cyl×cone `SurfacePair` and 138's span `[0, 0.2999498]` CONTAINS 137's `[0.1420979, 0.2999498]`: a zero-width spur pointing OUT of the material. `BRep::normalize_output_curve_backtracks` merges it — the curved twin of the straight backtrack spike task #146 already removes on the INPUT side — leaving the exactly-correct two-edge LENS | ERROR (a degenerate zero-area input face) / ERROR (a CDT ring reject) | 91× | 1.1 s → **SUPPORTED_CORRECT 1.2 s** |
 | P0018 | `circle:boss circle:sym nonconvex7:cut` | 3 | the cylinder arm of the same postcondition. **CONVERTED 2026-10-03** (N71): chord shoelace −4.575 where the canonical chart polygon reads +18.305. Oracles adjudicated (one body, TWO shells, χ 4, volume 6.738844e6 ± 3e-3), `derived_meta` cleared | ERROR / ERROR (same class) | 8.9e7× | 1.0 s → 3.6 s |
-| P0019 | `convex4:boss nonconvex5:rev convex4:cut` | 3 | `InvalidBooleanOutput "full-circle edge sense is underivable"` (the wall R0004 once hit). **HALF-CONVERTED 2026-10-03 (late night)** (deviation N73, section below): the body is a genus-1 ring of FIVE cone bands with NO planar cap, and the derivation had no `FaceSurf::Cone` arm at all — the rule `validate_cone_face`/`validate_cylinder_face` both ENFORCE ("toward the opposite rim") needs only the band's two rim centres. Sense wall gone; the case now lands one stage later on an UNMASKED LATENT — `CurvedGeometryMismatch "cone face with inner loops is outside the KV6c vocabulary"`, two of the five bands left ANNULAR by `recover.rs`'s greedy per-face seam anchoring in a rim CYCLE (15° = π/12 apart) | ERROR / ERROR (same class) | 1.34e5× | 0.2 s |
-| P0020 | `circle:boss gear12:∩ convex4:∩` | 5 | `malformed B-Rep topology: face 0: holed lateral CDT failed: duplicate (coincident) loop vertex in CDT input` — an INPUT rejection, so the first Intersect's OWN output is malformed. **ANCHORED 2026-10-03 (see the dated section below): NOT a twin / mirrored-split-point defect — the first Intersect's output face is honestly PINCHED, and the wall is the `yang_tangency_pinch_split` §0b capability gap (per-SHEET faces) reaching Stage 1 one boolean later. Deviation N74; the wall is now the typed, localizing `Stage1SelfTouchingLoop`** | ERROR (a different class: an interior-junction / weld-band ambiguous edge-split) / ERROR (same class) | 83× | 10.6 s |
+| P0019 | `convex4:boss nonconvex5:rev convex4:cut` | 3 | `InvalidBooleanOutput "full-circle edge sense is underivable"` (the wall R0004 once hit). **HALF-CONVERTED 2026-10-03 (late night)** (deviation N73, section below): the body is a genus-1 ring of FIVE cone bands with NO planar cap, and the derivation had no `FaceSurf::Cone` arm at all — the rule `validate_cone_face`/`validate_cylinder_face` both ENFORCE ("toward the opposite rim") needs only the band's two rim centres. Sense wall gone; the case then landed one stage later on an UNMASKED LATENT — `CurvedGeometryMismatch "cone face with inner loops is outside the KV6c vocabulary"`, two of the five bands left ANNULAR by `recover.rs`'s greedy per-face seam anchoring in a rim CYCLE (15° = π/12 apart). **CONVERTED 2026-10-03 (night)** (deviation N77, section below) by the SI5 spec's own component-wise seam anchoring — PASS 1C fixes ONE seam direction per connected component of rims-joined-by-bands, from a pinned rim, else a coaxial already-anchored lateral, else the component's first natural seam — and all five bands seam (measured ruling offsets 0, 3.642e-17, 3.642e-17, 2.888e-17, 1.272e-17 against the 1e-12 `cyl-seam-not-ruling` bound), SUPPORTED_CORRECT in 0.3 s with fully adjudicated oracles. **GATED on `YANG_SEAM_COMPONENT=1|on`**: it moves minted seam feet corpus-wide, so the `full_corpus_categorized` proof and the flip to always-on are OWED and the category pin stays `Error`, which is what the default build measures | ERROR / **SUPPORTED_CORRECT with the gate on** (ERROR off) | 1.34e5× | 0.3 s — **CONVERTED 2026-10-03 (night UTC)**: gate flipped always-on after the two-gate corpus proof (324C/0W/22E/5EE/0T over 351, exactly two moves, zero regressions) |
+| P0020 | `circle:boss gear12:∩ convex4:∩` | 5 | `malformed B-Rep topology: face 0: holed lateral CDT failed: duplicate (coincident) loop vertex in CDT input` — an INPUT rejection, so the first Intersect's OWN output is malformed. **CONVERTED 2026-10-03 (night, later) — deviation N78.** The 2026-10-03 night anchor (kept below) read the pinch as HONEST and the wall as `yang_tangency_pinch_split` §0b (per-SHEET faces). Both halves are REFUTED by measurement: the face's contact encloses EXACTLY zero chart area (`[holed-dup-census]`: `inner sub-loop 2 edges area2=0e0` / `4 edges area2=0e0` vs `outer … 1.7395573469680094e-2`) — a nested doubled polyline, a hairline SLIT into ONE region, so there is no second SHEET for §0b to split; and `YANG_NM_EDGE_PROBE` bisected across `after-reloc` → `before-3c-merge` reads **0 over-2 edges at `s4-entry` AND at `after-reloc`**, so the 4-valent edges are MINTED inside Stage 4 (by §4.5.3's `sweep_reversed_intersections` edge collapse), not handed over by the arrangement the way F0060's 14 are (spec §0a.1). The `(4a2)` call site therefore reads the §0a certificate at a placement the spec itself forbids twice. Restricting the arm to Stage-4 ENTRY (`YANG_EDGE_PINCH_ENTRY_ONLY=1`) gives **`P0020: SUPPORTED_CORRECT (12.3s)`** and converts the un-minimized lineage too, with the first Intersect's own volume unchanged to 2e-12 relative. GATED OFF pending the corpus flip; N74's corpus customer WITHDRAWN | ERROR (a different class: an interior-junction / weld-band ambiguous edge-split) / ERROR (same class) | 83× | 10.6 s — **CONVERTED 2026-10-03 (night UTC)**: gate flipped always-on after the two-gate corpus proof (324C/0W/22E/5EE/0T over 351, exactly two moves, zero regressions) |
 | P0021 | `convex4:boss circle:boss circle:boss` | 3 | auto-union `SelfIntersectingBooleanOutput { face_a: FaceId(28), face_b: FaceId(32), penetrations: 3 }` — P0007's error TEXT but **not its family** (anchored 2026-10-03, see below): both faces are CYLINDERS and the curve census reads `plane×curved chords: 0` on every op. **ANCHORED + remediation BUILT and GATED 2026-10-03** (deviation **N75**, spec `yang_p0021_case_iii_finite_extent_depth.md`): the Case-III graze depth is measured at the two INFINITE axes' common perpendicular, whose foot lies 1.97 lengths off the end of one cylinder, so a razor lens reads "deep" and the demand is absorbed. Converts with `YANG_172_EXTENT=1` (SUPPORTED_CORRECT 2.0 s; the un-minimized lineage too); the always-on flip owes the full corpus assay (P10) so **this row stays E and its pin has not moved** | ERROR / ERROR (same class) | 710× | 0.4 s — **CONVERTED 2026-10-03 (evening UTC)**: `YANG_172_EXTENT` flipped always-on after the full-corpus proof (321C/10E over 336, one move, zero regressions); the meta's χ (kernel reads 1 body, χ 0 vs derived euler_target 2) still owes a sidecar adjudication |
 | P0022 | `convex5:boss circle:boss circle:cut convex4:boss circle:thru` | 5 | `malformed B-Rep topology: face 2: interior junction … not contained by any lateral triangle — the mint would be silently dropped` | ERROR (same class) / **CORRECT** | 400× | 0.9 s |
 
@@ -1770,7 +2010,7 @@ this branch at HEAD — two cubes sharing one edge now raise the N69 netting
 pre-existing by reverting both N71 hunks and re-running (still FAILED); no
 cone is involved. It belongs to today's P0023/P0024 landing.
 
-#### P0019 — ANCHORED and HALF-CONVERTED 2026-10-03 (late night): the sense wall is gone; the case now stops on the rim-cycle anchoring behind it
+#### P0019 — CONVERTED 2026-10-03 (night), GATED: the sense wall went first (N73), then the per-face seam anchoring behind it (N77)
 
 **The body.** `convex4:boss nonconvex5:rev convex4:cut` revolves a 5-vertex
 non-convex profile about an axis OUTSIDE the profile, so the revolve body is a
@@ -1903,6 +2143,303 @@ failed, 5 ignored), which covers the SI5 ingest fixtures, the KV6c/KV6d cone
 and torus recovery suites, and `s434_typed_rim_seam_mint` — the other customer
 of the seam-minting pass this cycle probed. Clippy `--all-targets -D warnings`
 and `cargo fmt --check` clean. **Corpus NOT re-measured.**
+#### P0020 — CONVERTED 2026-10-03 (night, later): the contact is a zero-area SLIT and the pinch is MINTED — deviation N78, not §0b
+
+**The session was asked to implement `yang_tangency_pinch_split` §0b
+(per-SHEET faces at Stage 6) with P0020 as its first corpus customer. It is
+not that case.** Both halves of the night anchor below are refuted by
+measurement, and the refutation is the conversion. Every number here comes
+from a command that ran, in this worktree, `--release`.
+
+**1. The structure: a SLIT, not two sheets (new census).** The night anchor
+inferred "two closed regions meeting at a point" from the symptom — a
+boundary loop visiting one position twice. The symptom has two possible
+structures, and nothing had measured which. `YANG_HOLED_DUP_PROBE` now
+reports, per coincident pair, BOTH sub-loops with their exact doubled
+shoelace area (`sub_loop_area2` / `loop_self_contact`, pure, no tolerance):
+
+```
+[holed-dup-census] face 0 loop 0 (n=468) coincident at indices 82 and 86: inner sub-loop 4 edges area2=0e0, outer sub-loop 464 edges area2=1.739557346968009e-2, globals (41, 43)
+[holed-dup-census] face 0 loop 0 (n=468) coincident at indices 83 and 85: inner sub-loop 2 edges area2=0e0, outer sub-loop 466 edges area2=1.7395573469680094e-2, globals (583, 584)
+[holed-dup-census] face 0 loop 0 (n=468) coincident at indices 92 and 96: inner sub-loop 4 edges area2=0e0, outer sub-loop 464 edges area2=1.739557346968009e-2, globals (46, 48)
+[holed-dup-census] face 0 loop 0 (n=468) coincident at indices 93 and 95: inner sub-loop 2 edges area2=0e0, outer sub-loop 466 edges area2=1.7395573469680094e-2, globals (588, 589)
+```
+
+FOUR coincident pairs, not two, and they NEST: the loop runs
+`g41 → g583 → g42 → g584 → g43` with `g583 ≡ g584` and `g41 ≡ g43` (the
+window probe confirms: `g582@2.227e-5 g41@3.077e-6 g583@0.000e0 g42@3.077e-6
+g584@0.000e0`). Every inner sub-loop encloses **exactly zero** area while the
+complement carries the whole `1.7395573469680094e-2`. That is a DOUBLED
+POLYLINE — a hairline slit two mesh edges deep, out to the tip `g42` and
+back — so the domain is ONE region with a cut, not two regions at a point.
+**One region has no second SHEET, and §0b's "one face per sheet" has nothing
+to split.** The (a)/(b) question the brief posed ("two faces sharing a vertex,
+or a typed refusal") therefore has a third answer: neither — the premise is
+wrong one layer earlier.
+
+**2. The provenance: the pinch is MINTED inside Stage 4 (bisect).** §0a.1's
+certificate rests on an explicit premise: "The pinch is already in the
+ARRANGEMENT… no Stage-4 pass creates it; the exact mesh boolean hands it over,
+which is the honest output for a line-pinched solid" — measured on F0060 as
+**14 over-2 edges already at `s4-entry`**. `YANG_NM_EDGE_PROBE` gained three
+checkpoints bisecting the `after-reloc` → `before-3c-merge` region (the only
+unexamined stretch), and P0020 reads the exact inverse:
+
+```
+[nm-edge s4-entry] 3022 tris, 0 open edge(s), 0 over-2 edge(s)
+[nm-edge after-reloc] 3022 tris, 0 open edge(s), 0 over-2 edge(s)
+[nm-edge after-moved-mint-weld] 3020 tris, 0 open edge(s), 2 over-2 edge(s)
+[nm-edge after-beyond-corner-trim] 2508 tris, 0 open edge(s), 4 over-2 edge(s)
+[nm-edge after-fan-retriangulation] 2498 tris, 0 open edge(s), 0 over-2 edge(s)
+[nm-edge before-3c-merge] 2488 tris, 0 open edge(s), 2 over-2 edge(s)
+[nm-edge before-3c-merge]   (1012,1015) n=4 u=(0.042848983,0.087727423,0.035196288) v=(0.042847645,0.087726066,0.035197917) tris=[775, 780, 1974, 1978] attrs=[Some((A, 2)), Some((A, 2)), Some((B, 229)), Some((B, 229))]
+[nm-edge before-3c-merge]   (1033,1036) n=4 u=(0.042714025,0.087589411,0.035359951) v=(0.042710553,0.087586539,0.035364144) tris=[785, 790, 1968, 1972] attrs=[Some((A, 2)), Some((A, 2)), Some((B, 228)), Some((B, 228))]
+```
+
+The arrangement hands over a MANIFOLD mesh. The moved×minted weld mints two
+non-manifold edges elsewhere `(341,851)` / `(1192,1201)`; the beyond-corner
+trim leaves four; the §4.4.1 fan re-triangulation clears **all** of them; and
+`sweep_reversed_intersections` (§4.5.3, which corrects reversed points by
+edge-COLLAPSING the offending next-point) mints the two that reach `(4a2)`.
+They carry textbook-looking `2 × (A, 2) + 2 × (B, 22x)` certificates, so the
+certificate cannot refuse them — and no band can either: at 2.507e-6 and
+6.155e-6 they are 25× and 62× the paper's d_p
+(`refs/text/yang2025_hybrid_boolean.txt:745-748`), exactly like F0060's honest
+ones. **The discriminator is PROVENANCE, and provenance is what the
+PLACEMENT encodes.**
+
+**3. The deviation.** `specs/yang_tangency_pinch_split.md` fixes that
+placement twice, both times by measurement — §0a.3 ("**Therefore the split
+must run at Stage-4 ENTRY, before the §4.4.1(b) merge**") and §0b ("**The
+placement.** It must run at Stage-4 ENTRY. Run at the existing (4a2) site it
+is inert on F0060"). The code arms the edge-pinch arm at BOTH sites. The late
+one is where P0020's minted pinch is split, cutting the slit into the output
+face; Stage 6 emits it; the next boolean's Stage-1 chart has no
+representation for a doubled boundary polyline and refuses it. Deviation
+**N78** (N74's §0b claim on P0020 is withdrawn, and §0b is left with no
+corpus customer: F0060 and C0058 are SUPPORTED_CORRECT with their pinches
+tolerated downstream).
+
+**4. The fix, gated.** `YANG_EDGE_PINCH_ENTRY_ONLY=1|on` restricts the arm to
+entry — the spec's own conclusion, applied, with no new tolerance and no new
+band. `(4a2)` then reads `v1012 edge (1012,1015) star-valence 4 — bail` and
+splits 0 copies; the minted edges stay in the mesh (tolerated by the fwd=rev
+pairing rule, §0's documented behaviour); no slit is emitted. Verbatim:
+
+```
+before: P0020: ERROR (7.9s) — … Stage-1 boundary loop of face 0 touches itself …
+after:  P0020: SUPPORTED_CORRECT (12.3s) — all checks passed
+```
+
+The UN-MINIMIZED lineage converts with it (anchored first, per the minimizer
+hazard — the minimum kept the mechanism, not a minted coincidence; its site
+is a different one, vertices 672/673 at
+`(-2.885406885814262e-2, 9.028477067277516e-2, 4.735247349739869e-2)`):
+
+```
+OFF: PROSPECT_OUTCOME {"category":"ERROR", … "chi":4, … "volume":0.0027313019490987807}   (X00000002-00196)
+ON:  PROSPECT_OUTCOME {"category":"SUPPORTED_CORRECT","detail":"all checks passed","measurement":{"bodies":1,"category":"SUPPORTED_CORRECT","chi":2,"detail":"all checks passed","volume":0.0001479270400469786}}
+```
+
+**5. Adjudication of the CORRECT.** The independent topology oracles do not
+cover this document: `[exact] P0020: NOT COVERED — feature 4 (Boolean
+Combine): operation BooleanCombine ("Intersect" — only Union composes)`, and
+the sidecar route is NotCovered for Intersect combines the same way. The
+adjudication is therefore a DIFFERENTIAL on the first Intersect's own output
+(`S453_KEEP_OPS=3`, OBJ dumped and integrated by the divergence theorem
+outside the kernel):
+
+| gate | kernel render topology | volume |
+|---|---|---|
+| OFF | `vertices: 1573, edges: 4713, faces: 3134, chi: -6, shells: 1, boundary_edges: 24, nonmanifold_edges: 0` | 2.967214873285e-04 |
+| ON  | `vertices: 1569, edges: 4701, faces: 3126, chi: -6, shells: 1, boundary_edges: 24, nonmanifold_edges: 0` | 2.967214873279e-04 |
+
+**2.0e-12 relative agreement** — summation-order noise. The gate deletes the
+slit's 16 render vertices and 8 triangles and changes NO geometry, so the
+downstream `SUPPORTED_CORRECT` (χ 2, one body, watertight, positive volume)
+rests on the same solid the ERROR path was already building. The meta keeps
+`derived_meta: true`: χ and volume stay un-adjudicated independently until the
+exact-membership reader covers Intersect, and that is recorded rather than
+papered over.
+
+**6. The default path is still correctly localized.** With the gate OFF the
+wall now names the measured structure instead of blaming §0b — the error
+carries `inner_edges` and the exact `inner_area2` and branches on them:
+
+```
+[off] P0020: ERROR (13.3s) — … "yang-rs: Stage-1 boundary loop of face 0 touches itself — distinct vertices 583 and 584 occupy the same point (4.271228925179577e-2, 8.75879753493436e-2, 3.536204720973056e-2), so the unrolled chart is self-touching: a zero-width SLIT (2-edge sub-loop, exact chart area 0e0) cut into ONE region — the Stage-4 edge-pinch split ran on a pinch Stage 4 itself minted, not one the arrangement handed over (deviation N78; YANG_EDGE_PINCH_ENTRY_ONLY=1 restricts the arm to its spec'd Stage-4-ENTRY placement)"
+```
+
+**7. What is NOT fixed.** §4.5.3's edge collapse still mints a non-manifold
+edge on a manifold mesh, and P0020's first Intersect still carries the two
+tolerated over-2 edges. That is the §4.4.1 mesh-updating half, it is the next
+session's work, and it is recorded in N78's "Remediation" as the second half.
+
+**Sharers re-judged, BOTH gate states** (release `single_case`,
+`ASSAY_CASE_TIMEOUT_SECS=900`; host load 38-76 across the window, so wall
+times are inflated and are not comparable between the two columns). **Gate
+ON: 25 cases, ZERO moves** — C0058 65.9 s, F0060 4.4 s (the two cases the
+pinch split exists FOR, the decisive controls), R0063 17.7 s, P0006 4.2 s,
+R0070 40.5 s, F0064 72.5 s, R0038 1.2 s, R0021 2.0 s, R0053 476.2 s, R0004
+9.2 s, R0100 2.4 s, C0065 3.5 s, P0005 16.3 s, P0007 30.2 s, P0013 1.2 s,
+P0022 7.5 s, F0058 6.0 s, C0063 0.6 s, R0026 16.8 s, R0046 1.5 s, R0051
+2.3 s, R0074 19.8 s, R0095 5.2 s, **F0072 973.0 s**, **F0085 642.2 s** — every one
+`SUPPORTED_CORRECT`, "all checks passed", plus P0020 itself
+`SUPPORTED_CORRECT (12.3s)`. **Gate OFF (the committed default): 10 spot
+cases, all unchanged** — C0058 109.7 s, F0060 6.4 s, R0063 57.6 s, P0006
+8.3 s, R0038 1.6 s, R0021 3.3 s, P0013 1.6 s, P0022 2.9 s, C0065 4.3 s all
+`SUPPORTED_CORRECT`, and P0020 `ERROR (13.3s)` with the new honest text. The
+default path's only change is the wall's wording and the read-only probes.
+
+`cargo test -p yang-rs --release --no-fail-fast`: **76 binaries, 1512 passed,
+0 failed** (lib 1073 passed / 2 ignored). **Corpus NOT re-measured; the flip
+is owed.**
+
+**Pins.** `crates/yang-rs/src/tests_unit/s1_self_touching_loop.rs` — the
+production classifier on both shapes it must tell apart: a doubled excursion
+reads `(2 edges, area2 = 0.0)` with the complement carrying the whole square;
+a figure-eight reads `(4 edges, |area2| = 2.0)`; a vertex off the loop reads
+`None`; and the end-to-end spur fixture requires the wall's text to name the
+SLIT. Mutation-checked — a classifier returning a constant area fails three of
+the five (`a_doubled_excursion_classifies_as_a_zero_area_slit`,
+`a_figure_eight_classifies_as_a_two_region_pinch`,
+`a_loop_that_returns_to_one_point_is_a_typed_pinch_stop` all FAILED). The
+corpus pin keeps `("P0020", Category::Error)` while the gate is off; the flip
+moves it.
+
+
+---
+
+**The second half — N77, the per-face seam anchoring (2026-10-03 night).**
+The "open step" above is closed, and the framing in it was slightly wrong in a
+way worth correcting: the defect is **not** specific to a rim CYCLE. PASS 1
+pins BOTH rims of every pair it resolves (a rim shared by two laterals must
+emit ONE closed edge), and PASS 2 never moves a pinned anchor, so ANY band
+reaching PASS 2 with both rims pinned at different azimuths keeps the annular
+form — which happens whenever the pairing faces INTERLEAVE with the
+non-pairing ones along a run of rim-sharing bands. P0019's five-band genus-1
+ring is the extreme case; a four-band CHAIN reproduces it (the new pin's `ring`
+fixture: PASS 1 pairs faces 0 and 2, pins four rims, and face 1 then sees
+|Δaz| = 2.51327412287182916e-1 rad between two pinned anchors).
+
+**PASS 1C** (`crates/kernel-v2/src/recover.rs`, inserted after PASS 2 as one
+gated block, so with the gate off nothing above it changed):
+
+1. **Union** the two rim chains of every lateral candidate whose rims are
+   verifiably coaxial with its own axis — both rim normals ∥ the axis, both rim
+   centres on one axis-parallel line. That is what makes "the component's seam
+   direction" a well-defined radial direction for every rim in it; a band
+   failing the check joins nothing and keeps the ordinary greedy path.
+2. **One seam DIRECTION per component**, as a frame-free unit radial vector ⊥
+   the component axis — not an azimuth, because the bands of one component may
+   report their axis with EITHER sign (P0019's five cones alternate ±ẑ) and
+   `ortho_basis(+ẑ)` / `ortho_basis(−ẑ)` are different frames. Chosen, in
+   order: (1) a PINNED rim's anchor (PASS 0's torus bands), two pinned rims
+   disagreeing being a component refusal, verbatim per the SI5 rule; (2) an
+   already-anchored COAXIAL lateral of the same output, keeping PASS 2's C0117
+   cross-lateral phase coherence; (3) the component's FIRST NATURAL SEAM — the
+   lowest-face-index band whose rims already retain an azimuth-aligned vertex
+   pair (PASS 1's own predicate), at that pair's rim-a vertex, so a band PASS 1
+   would have paired keeps its own existing feet exactly; (4) else that scan's
+   smallest-|Δaz| rim-a vertex.
+3. **Anchor every rim of the component there** — an existing vertex within
+   `band` (`existing_foot`'s own predicate) or the exact minted foot
+   `c + r·dir`, which lies on the circle both adjacent surfaces declare.
+4. **Per band, verify the ruling** to the validator's own
+   `cyl-seam-not-ruling` bound (`SEAM_RULING_TOLERANCE` = 1e-12, the F11
+   lesson). A band whose two rims still disagree is REFUSED and keeps the arc
+   fallback: recovery is a pure rewrite with no error channel by design (P9 —
+   `from_yang_brep` is the single authority on a malformed output), so the
+   refusal is conservative here and loud one layer down where
+   `validate_*_face` names the face. `KV2_RECOVER_PROBE` prints the measured
+   offset and the component for every band either way.
+
+Measured on P0019 (`KV2_RECOVER_PROBE=1 YANG_SEAM_COMPONENT=1`, release) — all
+five bands seam, every one of them a ruling three orders inside the bound:
+
+```
+[recover-probe] pass1c component 4 face 0: off=0.00000000000000000e0 tol=9.99999999999999980e-13 -> seamed
+[recover-probe] pass1c component 4 face 1: off=3.64200648169714843e-17 tol=9.99999999999999980e-13 -> seamed
+[recover-probe] pass1c component 4 face 2: off=3.64200648169714843e-17 tol=9.99999999999999980e-13 -> seamed
+[recover-probe] pass1c component 4 face 3: off=2.88796976369154685e-17 tol=9.99999999999999980e-13 -> seamed
+[recover-probe] pass1c component 4 face 4: off=1.27195530643449169e-17 tol=9.99999999999999980e-13 -> seamed
+P0019: SUPPORTED_CORRECT (0.3s) — all checks passed
+```
+
+**Oracles adjudicated** (`EXACT_CELLS=128,256,512,1024 EXACT_PHASE=0.5,0.25
+EXACT_KERNEL=1 … one_case_ladder`): the lattice is stable at every rung and
+both phases — components 2, `boundary_chi` 2, two bodies on all eight readings
+— and the 1024-cell totals are 1.216869e0 (phase 0.5) and 1.216863e0 (0.25),
+mean **1.2168660e0**, against the kernel's tessellated **1.214852e0** = rel
+**−1.66e-3**, the inscribed-lathe chord deficit. `euler_target` is
+hand-adjudicated to **0**, NOT the generator's 2: the χ oracle reads the MAIN
+body's mesh only and Main IS the genus-1 cone-band ring (one shell,
+V 355 − E 1065 + F 710 = 0) — the lattice's 2 is the SUM over both components
+(0 + 2), which is what `expected_volume` compares against. `derived_meta`
+cleared; `expected_volume` 1.216866 at `expected_volume_tol_rel` 3e-3.
+
+**GATED on `YANG_SEAM_COMPONENT=1|on`** — it moves minted seam feet, and
+therefore render phase, for every canonical band with a rim-sharing neighbour,
+so the `full_corpus_categorized` proof and the flip to
+always-on-with-a-kill-switch (the N75 shape) are OWED. The category pin in
+`assay_kv2.rs` therefore stays `Error`, which is what the default build
+measures; the flip moves it.
+
+**Sharers re-judged, ONCE PER MODE** (release `single_case`,
+`ASSAY_CASE_TIMEOUT_SECS=900`, through the compiled assay binary at 6-way
+parallelism; **no corpus run** — the orchestrator owns the flip proof). The set
+is EVERY revolve customer in the corpus (87 cases, `"kind": "revolve"` in the
+metas), which already contains the whole named sharer set (R0004, P0004, P0005,
+R0003, R0049, C0107, C0108).
+
+| mode | SUPPORTED_CORRECT | EXPECTED_ERROR | ERROR |
+|---|---|---|---|
+| gate OFF | 81 | 2 (F0074, R0027) | 4 (C0107, C0108, C0109, P0019) |
+| gate ON | 82 | 2 (F0074, R0027) | 3 (C0107, C0108, C0109) |
+
+**Exactly one move: P0019 `ERROR → SUPPORTED_CORRECT`. Zero regressions, and
+every ERROR row keeps its text verbatim.** Named rows, both modes:
+R0004 SUPPORTED_CORRECT (6 s off / 4 s on), P0004 (2 / 2), P0005 (18 / 14),
+R0003 (105 / 120), R0049 (9 / 5), C0107 ERROR (1 / 0), C0108 ERROR (0 / 0),
+C0109 ERROR (0 / 0). The four heaviest rows sit inside the OFF run's own
+spread — R0085 983 → 1083 s, R0044 760 → 714 s, R0019 604 → 575 s,
+R0053 587 → 547 s at the same 6-way parallelism — so the component pass has no
+measurable cost at corpus scale. Byte-identity with the gate off is **structural, not sampled**:
+`component_mode` false leaves `in_component` all-false (PASS 1's loop
+unchanged) and `seam_components` empty (PASS 1C does not execute).
+
+**Pins.** `crates/kernel-v2/tests/n77_component_seam_anchoring.rs`. Both
+fixtures are a lathe through a REAL boolean — an end-shave subtract of the
+`axial < 0.1` slab — because a strictly AABB-disjoint union does NOT reach
+recover at all: task #134's passthrough skips yang entirely, which is how an
+earlier draft of this pin passed while proving nothing.
+
+* `a_rim_run_that_defeats_the_greedy_order_converts_under_component_anchoring`
+  — a 4-edge all-oblique closed profile revolved a full turn about an external
+  axis. RED→GREEN: gate off it raises P0019's wall VERBATIM
+  (`CurvedGeometryMismatch { face: FaceId(11), reason: "cone face with inner
+  loops is outside the KV6c vocabulary" }`); gate on it assembles, validates,
+  carries exactly ONE ring (the shaved cap's inner rim — a band still annular
+  would add one), and its faceted volume sits just below the closed-form
+  Pappus `21.5π − π·4.796296296296296e-2`.
+* `a_rim_chain_the_greedy_order_already_handles_keeps_its_solid` — the barrel
+  washer (two cone bands at a shared rim, inner cylinder, two annular caps),
+  the rim-CHAIN no-regression half. Deliberately NOT bitwise: the component
+  rule picks a different representational azimuth, so minted feet DO move.
+  What may not move is the SOLID — identical V/E/F/R census, volume within
+  1e-9 relative, both just below `(8/3)π − π·8.008333333333333e-2`.
+
+Mutation-checked both ways: neutering `seam_component_mode()` to `false` fails
+the GREEN half with the verbatim KV6c wall; widening the per-rim reuse band
+from `band` to `1e9·band` (so a rim reuses a far-off vertex instead of minting
+the exact foot) makes the step-4 ruling check refuse and BOTH fixtures fail
+with the same wall — the designed refusal firing, not a silent pass.
+
+`cargo test -p kernel-v2 --release` green (66 binaries, 823 passed, 0 failed);
+`smoke_corpus_boundary_categories` PASSES in 646.4 s with the P0019 row still
+pinned `Error`, which is the gate-off default this commit ships. Clippy
+`--all-targets -p kernel-v2 -p test-harness -- -D warnings` and
+`cargo fmt --check` clean. **Corpus NOT re-measured; the flip is owed.**
 #### P0020 — ANCHORED 2026-10-03 (night): the face is honestly PINCHED; the wall is `yang_tangency_pinch_split` §0b, not a twin
 
 **Anchor, written before any code changed.** The triage row's reading ("two

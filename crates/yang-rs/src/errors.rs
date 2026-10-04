@@ -97,6 +97,23 @@ pub enum YangError {
         face: usize,
         vertices: (u32, u32),
         point: [f64; 3],
+        /// Edges on the SHORTER of the two sub-loops the contact splits the
+        /// boundary into, and that sub-loop's EXACT doubled chart area
+        /// (shoelace). This is the discriminator between the two structures
+        /// the same symptom can mean, and it is what P0020's anchor got wrong
+        /// for a day (deviation N78, 2026-10-03):
+        ///
+        /// * `inner_area2 == 0` — a **SLIT**: a zero-width excursion out and
+        ///   back along one curve. The domain is ONE region with a hairline
+        ///   cut, so there is no second SHEET and
+        ///   `yang_tangency_pinch_split` §0b (one face per sheet) has nothing
+        ///   to split. Measured on P0020: both contacts read exactly `0e0`
+        ///   over 2- and 4-edge sub-loops while the complement carries the
+        ///   whole `1.7395573469680094e-2`.
+        /// * `inner_area2 != 0` — a **two-region pinch**: two closed regions
+        ///   meeting at a point, which is §0b's case.
+        inner_edges: u32,
+        inner_area2: f64,
     },
     /// Stage-1 chart chord contract (2026-09-11, spec
     /// `yang_stage1_curved_holed_patch` "Slice G"; Yang §4.1 "triangulate the
@@ -412,13 +429,42 @@ impl fmt::Display for YangError {
                 face,
                 vertices,
                 point,
+                inner_edges,
+                inner_area2,
             } => write!(
                 f,
                 "yang-rs: Stage-1 boundary loop of face {face} touches itself — distinct \
                  vertices {} and {} occupy the same point ({:e}, {:e}, {:e}), so the unrolled \
-                 chart is self-touching (a PINCHED face: the Stage-4 edge-pinch split's sheets \
-                 were emitted as one face, spec yang_tangency_pinch_split §0b)",
-                vertices.0, vertices.1, point[0], point[1], point[2]
+                 chart is self-touching: {}",
+                vertices.0,
+                vertices.1,
+                point[0],
+                point[1],
+                point[2],
+                if inner_area2.is_nan() {
+                    // The two entries are on DIFFERENT loops (an outer/hole
+                    // contact), so there is no single sub-loop pair to measure
+                    // and neither structure is claimed. No corpus case has
+                    // reached this branch.
+                    "a contact between TWO different loops of the face, which neither the SLIT \
+                     nor the two-region reading covers — unclassified, measure before assuming \
+                     a family"
+                        .to_string()
+                } else if *inner_area2 == 0.0 {
+                    format!(
+                        "a zero-width SLIT ({inner_edges}-edge sub-loop, exact chart area \
+                         {inner_area2:e}) cut into ONE region — the Stage-4 edge-pinch split \
+                         ran on a pinch Stage 4 itself minted, not one the arrangement handed \
+                         over (deviation N78; YANG_EDGE_PINCH_ENTRY_ONLY=0 re-enables the second site of the arm \
+                         to its spec'd Stage-4-ENTRY placement)"
+                    )
+                } else {
+                    format!(
+                        "a two-region PINCH ({inner_edges}-edge sub-loop, exact chart area \
+                         {inner_area2:e}) — two closed regions meeting at a point, the \
+                         per-SHEET face case of spec yang_tangency_pinch_split §0b"
+                    )
+                }
             ),
             Self::Stage1ChartChordBound {
                 face,

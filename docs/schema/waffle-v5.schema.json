@@ -883,6 +883,29 @@
       ],
       "type": "object"
     },
+    "ClipCircle": {
+      "description": "A detail view's crop (`specs/drawings_and_mbd.md` §8, D4b): the disc of its\nparent's projection that the detail shows.\n\nA detail view carries every curve of its parent that REACHES this disc and\nleaves the clipping to the renderer, which can do it exactly with a clip\npath. Clipping the curves themselves in the engine would mean trimming an\nanalytic arc against a circle — a new intersection problem whose answer\nwould be a polyline, so the detail (the view that exists to be looked at\nclosely) would be the one view drawn from sampled geometry.",
+      "properties": {
+        "center": {
+          "items": {
+            "format": "double",
+            "type": "number"
+          },
+          "maxItems": 2,
+          "minItems": 2,
+          "type": "array"
+        },
+        "radius": {
+          "format": "double",
+          "type": "number"
+        }
+      },
+      "required": [
+        "center",
+        "radius"
+      ],
+      "type": "object"
+    },
     "ClosedProfile": {
       "description": "A closed loop of sketch entities suitable for extrusion or revolution.",
       "properties": {
@@ -1357,6 +1380,13 @@
             }
           ],
           "description": "The last rebuild's layout — a derived hint (see the module docs), so a\nreader with no kernel can still draw the sheet."
+        },
+        "cache_key": {
+          "description": "What `cache` was built FROM ([`view_cache_key`]) — D4b, closing D4a's\n\"the cache has no validity key\".\n\nWithout it a persisted layout is indistinguishable from a current one,\nso a document opened in a build with no kernel (or opened and not yet\nrebuilt) draws last week's sheet with no sign that it is last week's.\nWith it the same document says so. It is written beside the cache on\nevery rebuild and is `None` exactly when `cache` is.",
+          "type": [
+            "string",
+            "null"
+          ]
         },
         "id": {
           "format": "uuid",
@@ -1973,6 +2003,31 @@
           "type": "object"
         }
       ]
+    },
+    "HatchLoop": {
+      "description": "One closed boundary loop of a section cap, ready to fill\n(`specs/drawings_and_mbd.md` §8, D4b): the serde-able twin of\n[`SectionLoop`](crate::kernel::projection::SectionLoop), expressed in the\nSECTION VIEW's `(u, v)` rather than the cut plane's own.\n\nThe curves are the loop's walk order and consecutive curves share an\nendpoint, so a renderer can chain them into one subpath. `hole` is the\nkernel's measured traversal direction, which a curve list cannot carry\n(`SectionLoop`'s own argument): negative signed area is a hole. A renderer\nfilling with an even-odd rule does not need it; one filling each loop\nseparately does, and a test asserting \"one outer loop and one hole\" needs\nit most of all.",
+      "properties": {
+        "curves": {
+          "items": {
+            "$ref": "#/$defs/LayoutCurve"
+          },
+          "type": "array"
+        },
+        "exact": {
+          "default": true,
+          "description": "Whether every curve of the loop stayed analytic, so the region's area\nis exact. A sampled loop is hatched the same way; the flag says the\nboundary is a chord polygon.",
+          "type": "boolean"
+        },
+        "hole": {
+          "default": false,
+          "description": "`true` when the kernel measured this loop clockwise — a hole in the\ncap, not an outer boundary.",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "curves"
+      ],
+      "type": "object"
     },
     "ImportedBodyParams": {
       "description": "Parameters for an imported (STEP) body feature — task #138,\n`docs/step_import_roadmap.md` §3.3; v4 `specs/waffle_v4_document_model.md`\n§2.11. Since v4 the STEP content lives in the document's `sources` table\nand reaches the engine through its [`crate::sources::SourceStore`]; the\nfeature names its source by `source_id`. The v3 in-feature payload\n(`blob_encoding` + `blob`) is still accepted as a legacy read path and is\nwhat the single-tree API inlines for consumers that have no store. The\nimport replays on every rebuild (a process-wide parse cache makes\ntransform edits cheap).\n\nContent resolution order at rebuild: the source store (embed or\nhost-provided), then the legacy inline blob; neither ⇒ a loud\n`SourceUnavailable` feature error.",
@@ -4111,7 +4166,7 @@
       "type": "object"
     },
     "Projection": {
-      "description": "How a view is oriented.\n\n`Section` and `Detail` (§8) are D4b's and are deliberately absent rather\nthan present-and-refusing: a serde-tagged variant that exists cannot be\nremoved, and one that exists but cannot be rebuilt is a document a user can\nauthor and the engine cannot draw.",
+      "description": "How a view is oriented.",
       "oneOf": [
         {
           "description": "One of the standard directions.",
@@ -4184,6 +4239,94 @@
             "type",
             "parent",
             "direction"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "A cut (D4b): a CUTTING LINE drawn on `parent`, which with the parent's\nline of sight determines the cut plane, and a view looking along that\nplane's normal at the material the cut keeps.\n\n**The line is the authored thing, not the plane.** §8 sketches\n`Section { parent, plane: Plane }`. A plane in world coordinates can be\nauthored to miss the parent view entirely, or to lie oblique to its\nline of sight — and then the cutting line drawn on the parent is a\nprojection of the plane rather than the plane itself, so dragging the\nline on the sheet would not be an edit of the view. A line in the\nparent's own `(u, v)` is exactly what a drafter draws and exactly what\na UI drags, and the plane follows from it with no degrees of freedom\nleft over: it is the line swept along the parent's sight direction.",
+          "properties": {
+            "flip": {
+              "default": false,
+              "description": "Keep the other half. Without it the half kept is fixed by the\norder of `from`/`to`, which is not something a drafter chooses:\nthe arrows have to be reversible without redrawing the line.",
+              "type": "boolean"
+            },
+            "from": {
+              "description": "The cutting line's ends, in the parent view's `(u, v)` in meters.",
+              "items": {
+                "format": "double",
+                "type": "number"
+              },
+              "maxItems": 2,
+              "minItems": 2,
+              "type": "array"
+            },
+            "label": {
+              "default": "A",
+              "description": "The letter the cut is known by: `A` prints at each arrow on the\nparent and the view is titled `SECTION A-A`.",
+              "type": "string"
+            },
+            "parent": {
+              "format": "uuid",
+              "type": "string"
+            },
+            "to": {
+              "items": {
+                "format": "double",
+                "type": "number"
+              },
+              "maxItems": 2,
+              "minItems": 2,
+              "type": "array"
+            },
+            "type": {
+              "const": "Section",
+              "type": "string"
+            }
+          },
+          "required": [
+            "type",
+            "parent",
+            "from",
+            "to"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "A magnified crop of `parent` (D4b): the disc the detail shows, drawn on\nthe parent as a circle, and the detail's own scale.\n\n**A disc, not §8's `rect: Aabb2`.** ISO 128-30's detail boundary is a\ncircle (a rectangle is the alternative the standard allows for a\nbroken-out view), and a circle has no orientation to disagree with the\nview frame — a rectangle authored in the parent's `(u, v)` would have\nto be re-derived if the parent's paper up ever changed. §5.4 rules out\ndetail views \"beyond cropping a parent view's `ViewGeometry`\", which is\nwhat this is.",
+          "properties": {
+            "center": {
+              "description": "The crop's centre, in the parent view's `(u, v)` in meters.",
+              "items": {
+                "format": "double",
+                "type": "number"
+              },
+              "maxItems": 2,
+              "minItems": 2,
+              "type": "array"
+            },
+            "label": {
+              "default": "A",
+              "type": "string"
+            },
+            "parent": {
+              "format": "uuid",
+              "type": "string"
+            },
+            "radius": {
+              "description": "In meters, in the parent's own units — NOT paper millimetres: the\ncircle is a region of the model's projection, so it has to scale\nwith the part and not with the paper.",
+              "format": "double",
+              "type": "number"
+            },
+            "type": {
+              "const": "Detail",
+              "type": "string"
+            }
+          },
+          "required": [
+            "type",
+            "parent",
+            "center",
+            "radius"
           ],
           "type": "object"
         }
@@ -5176,6 +5319,56 @@
           "default": {
             "type": "A3"
           }
+        },
+        "title_block": {
+          "$ref": "#/$defs/TitleBlock",
+          "default": {
+            "fields": [
+              {
+                "key": {
+                  "type": "DocumentName"
+                }
+              },
+              {
+                "key": {
+                  "type": "SheetNumber"
+                }
+              },
+              {
+                "key": {
+                  "type": "Scale"
+                }
+              },
+              {
+                "key": {
+                  "type": "ProjectionAngle"
+                }
+              },
+              {
+                "key": {
+                  "type": "Date"
+                }
+              },
+              {
+                "key": {
+                  "type": "Author"
+                }
+              }
+            ],
+            "show": true
+          },
+          "description": "The sheet's title block (D4b)."
+        },
+        "title_block_cache": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/TitleBlockLayout"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "The last rebuild's title-block rows — a derived hint on exactly the\nterms a view's `cache` is one (see the module docs): recomputed every\nrebuild, persisted so a reader with no engine can draw the paper\ncomplete, never authoritative."
         },
         "views": {
           "items": {
@@ -7336,6 +7529,229 @@
         }
       ]
     },
+    "TitleBlock": {
+      "additionalProperties": true,
+      "description": "A sheet's title block (`specs/drawings_and_mbd.md` §8, D4b): the data\nfields printed in the frame's bottom-right corner.\n\n**The fields are KEYS and authored text, not expressions.** §8 writes\n\"title block fields are expressions over document metadata and the\nmeasurement functions, so `mass(part)` and a parameter table work with no\nspecial casing\" — and that is right once D2 lands. It has not, and the\nchoice is the same one D4a made for `Measured::Expr`: an unevaluated\nexpression printed as a number would be a different number from the one\nauthored, and printed as its own source text would be a title block\nreading `mass(part)`. So this increment offers the keys the engine can\nactually fill plus literal text for the ones only a person knows, and\n[`TitleBlockKey::Expr`] is deliberately absent — a variant that exists and\ncannot be filled is a document a user can author and the engine cannot\ndraw (the D4a argument for leaving `Section` out until it worked).",
+      "properties": {
+        "fields": {
+          "default": [
+            {
+              "key": {
+                "type": "DocumentName"
+              }
+            },
+            {
+              "key": {
+                "type": "SheetNumber"
+              }
+            },
+            {
+              "key": {
+                "type": "Scale"
+              }
+            },
+            {
+              "key": {
+                "type": "ProjectionAngle"
+              }
+            },
+            {
+              "key": {
+                "type": "Date"
+              }
+            },
+            {
+              "key": {
+                "type": "Author"
+              }
+            }
+          ],
+          "description": "The rows, in print order.",
+          "items": {
+            "$ref": "#/$defs/TitleBlockField"
+          },
+          "type": "array"
+        },
+        "show": {
+          "default": true,
+          "description": "Draw it. On by default: a drawing without a title block is not a\ncontrolled document, and a sheet that has one is the ordinary case.",
+          "type": "boolean"
+        }
+      },
+      "type": "object"
+    },
+    "TitleBlockField": {
+      "additionalProperties": true,
+      "description": "One title-block row.",
+      "properties": {
+        "key": {
+          "$ref": "#/$defs/TitleBlockKey"
+        },
+        "text": {
+          "description": "The authored value, for a key the engine cannot derive. Ignored for a\nderived key — see [`TitleBlockKey::is_derived`].",
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "key"
+      ],
+      "type": "object"
+    },
+    "TitleBlockKey": {
+      "description": "What a title-block row says.",
+      "oneOf": [
+        {
+          "description": "The document's own name — derived.",
+          "properties": {
+            "type": {
+              "const": "DocumentName",
+              "type": "string"
+            }
+          },
+          "required": [
+            "type"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "`2 / 5` — derived from the sheet's position in the drawing.",
+          "properties": {
+            "type": {
+              "const": "SheetNumber",
+              "type": "string"
+            }
+          },
+          "required": [
+            "type"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "The views' scale as a ratio, or the standard `AS SHOWN` when they\ndiffer — derived.",
+          "properties": {
+            "type": {
+              "const": "Scale",
+              "type": "string"
+            }
+          },
+          "required": [
+            "type"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "`First angle` / `Third angle` — derived from the drawing's own setting.",
+          "properties": {
+            "type": {
+              "const": "ProjectionAngle",
+              "type": "string"
+            }
+          },
+          "required": [
+            "type"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "type": {
+              "const": "Date",
+              "type": "string"
+            }
+          },
+          "required": [
+            "type"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "type": {
+              "const": "Author",
+              "type": "string"
+            }
+          },
+          "required": [
+            "type"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "type": {
+              "const": "Material",
+              "type": "string"
+            }
+          },
+          "required": [
+            "type"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "type": {
+              "const": "Revision",
+              "type": "string"
+            }
+          },
+          "required": [
+            "type"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "A row whose label a person chose.",
+          "properties": {
+            "label": {
+              "type": "string"
+            },
+            "type": {
+              "const": "Custom",
+              "type": "string"
+            }
+          },
+          "required": [
+            "type",
+            "label"
+          ],
+          "type": "object"
+        }
+      ]
+    },
+    "TitleBlockLayout": {
+      "description": "The title block's rows, filled — the record the renderer draws (D4b).\n\nFlat label/value pairs for the same reason [`ViewLayout`] is flat: a\nrenderer holding one cannot reach the document, so it has no way to print a\nvalue other than the one the engine resolved.",
+      "properties": {
+        "rows": {
+          "items": {
+            "$ref": "#/$defs/TitleBlockRow"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "rows"
+      ],
+      "type": "object"
+    },
+    "TitleBlockRow": {
+      "properties": {
+        "label": {
+          "type": "string"
+        },
+        "value": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "label",
+        "value"
+      ],
+      "type": "object"
+    },
     "TopoKind": {
       "description": "The kind of topological entity.",
       "oneOf": [
@@ -7631,9 +8047,34 @@
             "null"
           ]
         },
+        "clip": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ClipCircle"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "A detail view's crop disc (D4b). The curves are the parent's, culled\nto the ones that reach this disc; the renderer clips to it."
+        },
         "curves": {
           "items": {
             "$ref": "#/$defs/LayoutCurveEntry"
+          },
+          "type": "array"
+        },
+        "hatch": {
+          "description": "The cap regions to hatch — a section view's, empty for every other\nkind (D4b).",
+          "items": {
+            "$ref": "#/$defs/HatchLoop"
+          },
+          "type": "array"
+        },
+        "marks": {
+          "description": "What is marked on THIS view because another view was derived from it: a\nchild section's cutting line, a child detail's circle (D4b).",
+          "items": {
+            "$ref": "#/$defs/ViewMark"
           },
           "type": "array"
         }
@@ -7642,6 +8083,91 @@
         "curves"
       ],
       "type": "object"
+    },
+    "ViewMark": {
+      "description": "A mark drawn ON a view because ANOTHER view was derived from it\n(`specs/drawings_and_mbd.md` §8, D4b): a section's cutting line, a detail's\ncrop circle.\n\nIt lives on the PARENT's layout rather than on the child's, because that is\nwhere it is drawn — a section view's cutting line belongs to the view it\ncuts. The engine puts a child's mark on its parent during the rebuild, so a\nrenderer never walks the sheet to find out what is marked on the view it\nholds.\n\nCoordinates are the parent view's own `(u, v)` in meters, like every other\ngeometry in a [`ViewLayout`]. The `label` is the letter the child view\ncarries (\"A\"), so the parent prints `A` at each end of its cutting line and\nthe child is titled `SECTION A-A`.",
+      "oneOf": [
+        {
+          "description": "A cutting line with an arrow at each end pointing the way the section\nis viewed — which is INTO the material the section keeps.",
+          "properties": {
+            "from": {
+              "items": {
+                "format": "double",
+                "type": "number"
+              },
+              "maxItems": 2,
+              "minItems": 2,
+              "type": "array"
+            },
+            "label": {
+              "type": "string"
+            },
+            "sight": {
+              "description": "Unit direction of sight, in the parent's `(u, v)`: where the\narrowheads point. Perpendicular to `to − from`.",
+              "items": {
+                "format": "double",
+                "type": "number"
+              },
+              "maxItems": 2,
+              "minItems": 2,
+              "type": "array"
+            },
+            "to": {
+              "items": {
+                "format": "double",
+                "type": "number"
+              },
+              "maxItems": 2,
+              "minItems": 2,
+              "type": "array"
+            },
+            "type": {
+              "const": "Section",
+              "type": "string"
+            }
+          },
+          "required": [
+            "type",
+            "from",
+            "to",
+            "sight",
+            "label"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "A detail view's crop boundary.",
+          "properties": {
+            "center": {
+              "items": {
+                "format": "double",
+                "type": "number"
+              },
+              "maxItems": 2,
+              "minItems": 2,
+              "type": "array"
+            },
+            "label": {
+              "type": "string"
+            },
+            "radius": {
+              "format": "double",
+              "type": "number"
+            },
+            "type": {
+              "const": "Detail",
+              "type": "string"
+            }
+          },
+          "required": [
+            "type",
+            "center",
+            "radius",
+            "label"
+          ],
+          "type": "object"
+        }
+      ]
     },
     "ViewSource": {
       "description": "Which bodies a view projects.",

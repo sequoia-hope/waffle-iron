@@ -1,0 +1,59 @@
+{
+  "id": "P0038",
+  "description": "prospector seed 3 index 129, minimized 8->4 ops (convex4:boss convex4:boss circle:boss convex4:cut): yang-rs input rejection 'malformed B-Rep topology: face 328: bounded lateral patch spans 6.9927 rad of azimuth unwrapped (>= 2pi): no seam wedge for a single-sheet unroll' — a cylinder patch whose own boundary wraps past a full turn, so Stage 1 has no wedge to cut the single-sheet unroll at. Same class at x1e-3 and x1e3. derived_meta; the pin IS the expectation.",
+  "master_seed": 0,
+  "test_seed": 0,
+  "scale": 2.0,
+  "log_scale": 0.3010299956639812,
+  "plane_origin": [
+    0.0,
+    0.0,
+    0.0
+  ],
+  "plane_normal": [
+    0.0,
+    0.0,
+    1.0
+  ],
+  "operations": [
+    {
+      "kind": "extrude",
+      "profile_type": "unknown",
+      "profile_size": 0.0,
+      "depth_or_angle": 0.8,
+      "is_cut": false
+    },
+    {
+      "kind": "extrude",
+      "profile_type": "unknown",
+      "profile_size": 0.0,
+      "depth_or_angle": 2.0,
+      "is_cut": false
+    },
+    {
+      "kind": "extrude",
+      "profile_type": "unknown",
+      "profile_size": 0.0,
+      "depth_or_angle": 1.4,
+      "is_cut": false
+    },
+    {
+      "kind": "extrude",
+      "profile_type": "unknown",
+      "profile_size": 0.0,
+      "depth_or_angle": 2.0,
+      "is_cut": true
+    }
+  ],
+  "oracles": {
+    "euler_target": 2,
+    "expect_watertight": true,
+    "max_bbox_extent": 200.0,
+    "expect_positive_volume": true,
+    "volume_monotonicity": [],
+    "expect_rebuild_error": false,
+    "derived_meta": true
+  },
+  "generator_version": 100,
+  "featured": true
+}

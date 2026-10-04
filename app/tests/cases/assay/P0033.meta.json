@@ -1,0 +1,59 @@
+{
+  "id": "P0033",
+  "description": "prospector seed 3 index 166, minimized 5->4 ops (convex4:boss convex8:rev circle:boss convex4:cut): kernel-v2 TessellationFailed 'patch triangulation folded (inverted triangle) — KV9-F2' on FaceId(45) — the render tessellator's unrolled ear-clip produced inward-facing geometry. This is the signature the un-minimized P0004 lineage was left STOPping on (2026-09-28), with no corpus customer since. Same class at x1e-3 and x1e3. derived_meta; the pin IS the expectation.",
+  "master_seed": 0,
+  "test_seed": 0,
+  "scale": 0.00143,
+  "log_scale": -2.844663962534938,
+  "plane_origin": [
+    0.0,
+    0.0,
+    0.0
+  ],
+  "plane_normal": [
+    0.0,
+    0.0,
+    1.0
+  ],
+  "operations": [
+    {
+      "kind": "extrude",
+      "profile_type": "unknown",
+      "profile_size": 0.0,
+      "depth_or_angle": 0.0001,
+      "is_cut": false
+    },
+    {
+      "kind": "revolve",
+      "profile_type": "unknown",
+      "profile_size": 0.0,
+      "depth_or_angle": 200.0,
+      "is_cut": false
+    },
+    {
+      "kind": "extrude",
+      "profile_type": "unknown",
+      "profile_size": 0.0,
+      "depth_or_angle": 0.00143,
+      "is_cut": false
+    },
+    {
+      "kind": "extrude",
+      "profile_type": "unknown",
+      "profile_size": 0.0,
+      "depth_or_angle": 0.0009,
+      "is_cut": true
+    }
+  ],
+  "oracles": {
+    "euler_target": 2,
+    "expect_watertight": true,
+    "max_bbox_extent": 0.14300000000000002,
+    "expect_positive_volume": true,
+    "volume_monotonicity": [],
+    "expect_rebuild_error": false,
+    "derived_meta": true
+  },
+  "generator_version": 100,
+  "featured": true
+}

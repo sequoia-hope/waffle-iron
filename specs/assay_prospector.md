@@ -417,6 +417,61 @@ adjudication evidence and the retirements live in
   kernel's volume bit-identical and moved the ORACLE by 5 %. It should push
   an `indeterminate` entry in that case, not a volume verdict.
 
+**Seed 3 (`prospect_run`, 200 candidates, 1291 s at 8 jobs, 2026-10-03 late
+night):** 164 SUPPORTED_CORRECT, 32 ERROR, 3 SUPPORTED_WRONG, 1 TIMEOUT, 0
+UNSUPPORTED over 17 report signatures — and the TIMEOUT turned out to be a
+FOURTH silent wrong whose cost merely exceeded the budget, so the honest
+histogram is 164 C / 32 E / 4 W / 0 T. Adjudicated and promoted the same night
+as **P0025–P0039** (corpus 336 → 351). The narrative and per-case evidence live
+in `docs/yang_tail_triage.md` §"2026-10-03 (late night)". Five lessons for this
+spec, all of which sharpen seed 2's:
+
+1. **Dedupe by SITE, not by error text.** Seed 2 taught that the signature is
+   finer than the family; seed 3 shows the family is coarser than the finding.
+   The 32 ERROR rows are twelve families by text and **fifteen distinct raising
+   sites**, and a site is what a conversion session can act on. One error text
+   (`reassembled output would be non-2-manifold`) covered THREE sites;
+   another (Stage-4 `LocalRefinementRequired`) presented as three signatures
+   and resolved to two sites, one of them holding 14 of the 32 rows. Probe
+   every row: `YANG_LRR_PROBE` prints `loc=<file>:<line> reason=… v=<vertex>`
+   at every Stage-4 region-invalid return, `NONMANIFOLD_SITE_PROBE` names the
+   reassembly site, `KV2_SELFX_SITE_PROBE` names the colliding face pair and
+   its surfaces.
+2. **The minimizer can keep a signature and MOVE the site.** Seed 1's hazard
+   was that rounding mints a contact; this is the same hazard through dropped
+   steps, and the signature string cannot see it. Two of seed 3's minima
+   landed at a different site from their lineage (indices 54 and 109), so both
+   halves were promoted (P0026/P0027 and P0028/P0029). **Probe the minimum's
+   site before calling it the same finding.**
+3. **`wrong[exact_volume]` invalidates in both directions.** Seed 2's three
+   WRONGs were all engine defects; seed 3's three are all ORACLE defects. Two
+   are the cut-auto-reversal hole seed 2 ledgered — and the chain now NOTES it
+   itself, so the first question on any WRONG row is whether that note is
+   present and what `FE_CUT_TRACE=1` says the engine chose; authoring the
+   engine's own traced `direction` leaves the kernel volume byte-identical and
+   flips the document to CORRECT. The third is new: after a cut ANNIHILATES a
+   body, the chain's body list keeps the dead body and the NEXT cut lands on
+   it, removing nothing (reduced to 4 ops; the kernel was confirmed right by
+   ray-cast integration of the authored prism against the analytic cylinder,
+   9.463250e-8 against the kernel's 9.4598e-8).
+4. **A lone TIMEOUT must be re-run with NO budget before it is recorded.**
+   Seed 2 established that a build-phase timeout names nothing and fixed the
+   lineage write; seed 3 shows the verdict itself can be wrong. Index 48 burned
+   the whole 900 s CPU budget and every probe pointed at a Stage-2
+   `labeled_arrangement` hang (the input self-intersection scan completes on a
+   259,052-triangle gear-revolve operand and nothing prints after it, which is
+   exactly the last print before that call) — but run without a budget it
+   COMPLETES, twice, and reads `SUPPORTED_WRONG — no_degenerate_triangles: 3 of
+   12440 triangles are degenerate`. A CPU budget makes the TIMEOUT verdict
+   load-insensitive; it does not make it a diagnosis. The two seed-2 "Stage-2
+   hangs" owe the same re-reading.
+5. **Minimizing per signature is embarrassingly parallel.** `prospect_minimize`
+   walks the signatures SERIALLY and re-does the ones already in `findings/`,
+   which on a loaded box cost ~80 s per verdict and would have run for hours.
+   Giving each signature its own `PROSPECT_OUT` directory — a one-row
+   `report.jsonl` plus a symlink to the shared `candidates/` — minimized 13
+   signatures six-at-a-time in minutes. Worth building into the entry point.
+
 The FIRST promotion candidate exists already: the needle star (4 points,
 r_in = 2, r_out = 22) on the X plane unioned with an octagon prism on the Y
 plane, `TessellationFailed{FaceId, "planar triangle collapsed at render

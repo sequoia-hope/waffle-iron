@@ -21,8 +21,15 @@
  * `mime_type`, `bytes`, `warnings`) and delivers a download the way the
  * executor delivers the engine's, so an agent cannot tell the two apart.
  */
-import { getDocumentDisplayUnit, getDrawingSheet, getDrawingStatus, triggerStepDownload } from '$lib/engine/store.svelte.js';
+import {
+	getDocumentDisplayUnit,
+	getDrawingSheet,
+	getDrawingStatus,
+	triggerFileDownload,
+	triggerStepDownload
+} from '$lib/engine/store.svelte.js';
 import { renderSheetSvg } from '$lib/drawings/sheet.js';
+import { renderSheetPdf } from '$lib/drawings/pdf.js';
 import { fail, toolOk } from './results.js';
 
 /** Q6: the largest file returned inline to the agent (16 MiB), as in Rust. */
@@ -37,51 +44,70 @@ function safeName(name) {
 	return cleaned || 'Drawing';
 }
 
+/**
+ * The open Drawing tab's chosen sheet, rendered, or a refusal — the half
+ * `export_svg` and `export_pdf` share.
+ *
+ * One place, so the two exports cannot disagree about which sheet they are
+ * exporting or about what counts as an empty one.
+ *
+ * @param {{ sheet_id?: string }} args
+ */
+function renderedSheet(args, what) {
+	const status = getDrawingStatus();
+	if (!status) {
+		throw fail(
+			'TabKindNotSupported',
+			`${what} exports a drawing sheet; the active tab is not a Drawing tab ` +
+				'(tab_add kind:"Drawing" or tab_switch).',
+			{}
+		);
+	}
+	const sheet = getDrawingSheet(args.sheet_id ?? null);
+	if (!sheet) {
+		// Named-but-absent is refused, not quietly answered with the first
+		// sheet: a caller that asked for one sheet and got another would
+		// export the wrong drawing under the right name.
+		throw fail(
+			'NotFound',
+			args.sheet_id
+				? `This drawing has no sheet ${args.sheet_id}.`
+				: 'This drawing has no sheet to export.',
+			{ sheet_id: args.sheet_id ?? null }
+		);
+	}
+	const rendered = renderSheetSvg({
+		sheet,
+		unit: getDocumentDisplayUnit(),
+		documentPrecision: 2
+	});
+	if (rendered.views === 0) {
+		// An empty sheet is not a drawing. Refused rather than delivered: a
+		// blank page is indistinguishable from a successful export of a part
+		// with no edges.
+		throw fail('NothingToExport', 'No view of this sheet produced a drawing.', {
+			warnings: rendered.warnings
+		});
+	}
+	return { sheet, rendered };
+}
+
+function deliverArg(args) {
+	const deliver = args.deliver ?? 'agent';
+	if (deliver !== 'agent' && deliver !== 'download') {
+		throw fail('InvalidArguments', 'deliver must be "agent" or "download".', { deliver });
+	}
+	return deliver;
+}
+
 export const DRAWING_QUERIES = {
 	export_svg: {
 		/**
 		 * @param {{ sheet_id?: string, deliver?: string }} args
 		 */
 		run: (args = {}) => {
-			const deliver = args.deliver ?? 'agent';
-			if (deliver !== 'agent' && deliver !== 'download') {
-				throw fail('InvalidArguments', 'deliver must be "agent" or "download".', { deliver });
-			}
-			const status = getDrawingStatus();
-			if (!status) {
-				throw fail(
-					'TabKindNotSupported',
-					'export_svg exports a drawing sheet; the active tab is not a Drawing tab ' +
-						'(tab_add kind:"Drawing" or tab_switch).',
-					{}
-				);
-			}
-			const sheet = getDrawingSheet(args.sheet_id ?? null);
-			if (!sheet) {
-				// Named-but-absent is refused, not quietly answered with the
-				// first sheet: a caller that asked for one sheet and got
-				// another would export the wrong drawing under the right name.
-				throw fail(
-					'NotFound',
-					args.sheet_id
-						? `This drawing has no sheet ${args.sheet_id}.`
-						: 'This drawing has no sheet to export.',
-					{ sheet_id: args.sheet_id ?? null }
-				);
-			}
-			const rendered = renderSheetSvg({
-				sheet,
-				unit: getDocumentDisplayUnit(),
-				documentPrecision: 2
-			});
-			if (rendered.views === 0) {
-				// An empty sheet is not a drawing. Refused rather than
-				// delivered: a blank SVG is indistinguishable from a
-				// successful export of a part with no edges.
-				throw fail('NothingToExport', 'No view of this sheet produced a drawing.', {
-					warnings: rendered.warnings
-				});
-			}
+			const deliver = deliverArg(args);
+			const { sheet, rendered } = renderedSheet(args, 'export_svg');
 			const fileName = `${safeName(sheet.name)}.svg`;
 			// UTF-8 length, the number the engine's exports report.
 			const bytes = new TextEncoder().encode(rendered.svg).length;
@@ -114,5 +140,81 @@ export const DRAWING_QUERIES = {
 			});
 			return result;
 		}
+	},
+	export_pdf: {
+		/**
+		 * The sheet as a one-page PDF (D4b).
+		 *
+		 * It is written FROM the SVG this module already renders
+		 * (`$lib/drawings/pdf.js`), so the PDF is provably the drawing on the
+		 * screen rather than a second rendering of the same geometry — and it
+		 * carries the SVG's warnings as well as its own, because a view that
+		 * did not draw is the same gap in both files.
+		 *
+		 * The bytes ride back base64 in a `blob` resource, as a PDF is not
+		 * text. An agent that only wants the file on disk passes
+		 * `deliver: "download"`, which is cheaper by a third (no base64).
+		 *
+		 * @param {{ sheet_id?: string, deliver?: string }} args
+		 */
+		run: (args = {}) => {
+			const deliver = deliverArg(args);
+			const { sheet, rendered } = renderedSheet(args, 'export_pdf');
+			const pdf = renderSheetPdf({
+				svg: rendered.svg,
+				widthMm: rendered.widthMm,
+				heightMm: rendered.heightMm
+			});
+			const fileName = `${safeName(sheet.name)}.pdf`;
+			const bytes = pdf.bytes.length;
+			// Base64 is 4 bytes per 3, so the INLINE size is the one that has
+			// to clear the limit — a 12 MiB PDF is a 16 MiB payload.
+			if (deliver === 'agent' && Math.ceil(bytes / 3) * 4 > MAX_AGENT_PAYLOAD_BYTES) {
+				throw fail(
+					'PayloadTooLarge',
+					`${fileName} is ${bytes} bytes, which does not fit the 16 MiB inline limit once ` +
+						'base64-encoded; use deliver "download".',
+					{ file_name: fileName, bytes }
+				);
+			}
+			const structured = {
+				deliver,
+				file_name: fileName,
+				mime_type: 'application/pdf',
+				bytes,
+				pages: pdf.pages,
+				warnings: [...rendered.warnings, ...pdf.warnings]
+			};
+			if (deliver === 'download') {
+				triggerFileDownload(pdf.bytes, fileName, 'application/pdf');
+				return toolOk(structured);
+			}
+			const result = toolOk(structured);
+			result.content.push({
+				type: 'resource',
+				resource: {
+					uri: `waffle://export/${encodeURIComponent(fileName)}`,
+					mimeType: 'application/pdf',
+					blob: base64(pdf.bytes)
+				}
+			});
+			return result;
+		}
 	}
 };
+
+/**
+ * Bytes as base64, in 3 KiB chunks.
+ *
+ * `String.fromCharCode(...bytes)` passes every byte as an argument and
+ * overflows the call stack somewhere around 100 kB — which a sheet's PDF
+ * passes comfortably — so the string is built in pieces.
+ */
+function base64(bytes) {
+	let binary = '';
+	const CHUNK = 3072;
+	for (let i = 0; i < bytes.length; i += CHUNK) {
+		binary += String.fromCharCode(...bytes.subarray(i, i + CHUNK));
+	}
+	return btoa(binary);
+}

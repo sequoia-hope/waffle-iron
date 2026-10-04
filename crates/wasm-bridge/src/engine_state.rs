@@ -2,7 +2,8 @@ use std::collections::HashMap;
 
 use feature_engine::Engine;
 use waffle_types::{
-    ClosedProfile, GeomRef, ProjectedEntity, Sketch, SketchConstraint, SketchEntity, SolveStatus,
+    ClosedProfile, GeomRef, ProjectedEntity, Sketch, SketchConstraint, SketchEntity,
+    SketchSolveReport, SolveStatus,
 };
 
 use crate::session::DocumentSession;
@@ -104,6 +105,15 @@ pub struct ActiveSketch {
     pub constraints: Vec<SketchConstraint>,
     /// Last solve status.
     pub solve_status: SolveStatus,
+    /// Last solve's state report (S2, `specs/agent_mechanical_design.md`
+    /// §10.2): residuals, conflicts, redundancy, what moved, the null-space
+    /// basis of the remaining freedoms, convergence. Kept on the engine state
+    /// so a reader does not have to re-solve to ask — `sketch_solve_state`
+    /// (S3) and the UI's constraint-state colouring (V2) both read THIS,
+    /// rather than each deriving their own guess from the geometry.
+    ///
+    /// Every index in it is an index into [`Self::constraints`].
+    pub solve_report: SketchSolveReport,
 }
 
 impl EngineState {
@@ -240,6 +250,7 @@ impl EngineState {
         plane_face: Option<waffle_types::SketchFaceRef>,
     ) {
         self.active_sketch = Some(ActiveSketch {
+            solve_report: SketchSolveReport::default(),
             plane,
             plane_face,
             entities: Vec::new(),

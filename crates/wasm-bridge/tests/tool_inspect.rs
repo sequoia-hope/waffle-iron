@@ -460,7 +460,10 @@ fn the_migrated_list_is_exactly_what_this_checkpoint_implements() {
     // every dotted entity name, so the four are one namespace. `entity_list`
     // (Q6, §4.2/§4.3, 2026-10-03) sits next to `face_list`: it is the same
     // listing widened to edges and vertices, and the spec says `face_list`
-    // becomes its `face` arm.
+    // becomes its `face` arm. `measure_section` (Q4, §4.2/§4.3, 2026-10-03)
+    // and `measure_thickness` (Q5, same day) join the measurement run for the
+    // same reason: they are geometric queries over a body, answered by the
+    // kernel, and an agent looking for one looks among these.
     assert_eq!(
         wasm_bridge::tools::MIGRATED,
         &[
@@ -470,6 +473,8 @@ fn the_migrated_list_is_exactly_what_this_checkpoint_implements() {
             "measure_distance",
             "measure_interference",
             "measure_mass",
+            "measure_section",
+            "measure_thickness",
             "face_list",
             "entity_list",
             "sketch_regions",
@@ -520,6 +525,10 @@ fn the_migrated_list_is_exactly_what_this_checkpoint_implements() {
             "drawing_view_add",
             "drawing_view_edit",
             "drawing_annotation_add",
+            // D4b (2026-10-03): the sheet's own door — its paper, its title
+            // block, and the drawing's projection standard, which D4a had no
+            // setter for at all.
+            "drawing_sheet_edit",
             "mate_add",
             "mate_edit",
             "mate_delete",

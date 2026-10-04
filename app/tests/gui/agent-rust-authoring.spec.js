@@ -275,7 +275,12 @@ test.describe('Authoring tools run in the engine and still answer as the page di
 				// the app's), so it is in neither routing table.
 				'drawing_view_add',
 				'drawing_view_edit',
-				'drawing_annotation_add'
+				'drawing_annotation_add',
+				// D4b (2026-10-03): the sheet's own door — its paper, its
+				// title block, and the drawing's projection standard, which
+				// D4a had no setter for at all. export_pdf joins export_svg in
+				// the PAGE, so like it, it is in neither routing table.
+				'drawing_sheet_edit'
 			].sort()
 		);
 	});

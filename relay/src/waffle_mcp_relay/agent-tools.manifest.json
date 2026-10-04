@@ -1,5 +1,5 @@
 {
-  "manifest_hash": "7e6012ac51317c6f15bf2634666e1523a8b7326d42f7060a9d3c8c1088f99a61",
+  "manifest_hash": "723a6b99013b825d79022401b7e542d7c520c361f56cec4b2d207da6f7f617aa",
   "protocol": "waffle-agent-link/1",
   "tools": [
     {
@@ -1972,6 +1972,405 @@
           "principal_axes",
           "density_kg_m3",
           "mass_kg",
+          "method"
+        ],
+        "type": "object"
+      }
+    },
+    {
+      "annotations": {
+        "readOnlyHint": true,
+        "title": "Measure section"
+      },
+      "description": "Cut bodies with a plane and get the cap as DATA: per body, the cap boundary loops as 2D analytic curves in the cut plane's own frame (line, circle, ellipse — never flattened to chords unless the kernel could not keep the curve analytic, which it says per loop), each loop's signed area (positive outer, negative hole), the net area and the area centroid. The cut is the kernel's own Intersect against a half-space, keeping the side the normal points AWAY from, so a section and a Subtract against the same plane agree. basis is the frame the loops live in (world = origin + u·u_axis + v·v_axis) — use it rather than deriving your own, or the loops will be rotated against it. plane is {origin, normal}, a planar face GeomRef from face_list, {\"plane\":\"XY\"|\"XZ\"|\"YZ\"} for a datum, or {\"name\":\"Plate.top\"} for a named planar face. body_ids defaults to every body. A plane that MISSES a body is an empty loops list with kept_material saying which side it missed on — not an error; a body the kernel REFUSED to cut is named in declines instead, never as an empty section. cap_shared_with_model means at least one cap face came from the coplanar-overlay path rather than from the cut's own lineage — the signature of a plane coplanar with a face of this body; it describes how the KEPT cap was attributed, so it can be true on one side of such a cut and false on the other. Lengths in meters, areas in m².",
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "body_ids": {
+            "description": "Body ids (or display names) from model_summary.bodies. Omit for every body of the open Part.",
+            "items": {
+              "type": "string"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          },
+          "plane": {
+            "description": "{origin:[x,y,z], normal:[x,y,z]} | a planar face GeomRef | {\"plane\":\"XY\"} | {\"name\":\"Plate.top\"}.",
+            "type": "object"
+          }
+        },
+        "required": [
+          "plane"
+        ],
+        "type": "object"
+      },
+      "name": "measure_section",
+      "outputSchema": {
+        "properties": {
+          "basis": {
+            "properties": {
+              "origin": {
+                "items": {
+                  "type": "number"
+                },
+                "type": "array"
+              },
+              "u_axis": {
+                "items": {
+                  "type": "number"
+                },
+                "type": "array"
+              },
+              "v_axis": {
+                "items": {
+                  "type": "number"
+                },
+                "type": "array"
+              },
+              "w_axis": {
+                "items": {
+                  "type": "number"
+                },
+                "type": "array"
+              }
+            },
+            "type": "object"
+          },
+          "bodies": {
+            "items": {
+              "properties": {
+                "area_m2": {
+                  "type": "number"
+                },
+                "body_id": {
+                  "type": "string"
+                },
+                "cap_shared_with_model": {
+                  "type": "boolean"
+                },
+                "centroid": {
+                  "items": {
+                    "type": "number"
+                  },
+                  "type": [
+                    "array",
+                    "null"
+                  ]
+                },
+                "centroid_exact": {
+                  "type": "boolean"
+                },
+                "centroid_uv": {
+                  "items": {
+                    "type": "number"
+                  },
+                  "type": [
+                    "array",
+                    "null"
+                  ]
+                },
+                "kept_material": {
+                  "type": "boolean"
+                },
+                "loops": {
+                  "items": {
+                    "properties": {
+                      "curves": {
+                        "items": {
+                          "type": "object"
+                        },
+                        "type": "array"
+                      },
+                      "exact": {
+                        "type": "boolean"
+                      },
+                      "kind": {
+                        "enum": [
+                          "outer",
+                          "hole"
+                        ],
+                        "type": "string"
+                      },
+                      "signed_area_m2": {
+                        "type": "number"
+                      }
+                    },
+                    "required": [
+                      "signed_area_m2",
+                      "exact",
+                      "kind",
+                      "curves"
+                    ],
+                    "type": "object"
+                  },
+                  "type": "array"
+                },
+                "method": {
+                  "enum": [
+                    "exact",
+                    "mesh"
+                  ],
+                  "type": "string"
+                }
+              },
+              "required": [
+                "body_id",
+                "loops",
+                "area_m2",
+                "centroid_exact",
+                "method",
+                "cap_shared_with_model",
+                "kept_material"
+              ],
+              "type": "object"
+            },
+            "type": "array"
+          },
+          "declines": {
+            "items": {
+              "properties": {
+                "body_id": {
+                  "type": "string"
+                },
+                "kind": {
+                  "enum": [
+                    "not_supported",
+                    "failed"
+                  ],
+                  "type": "string"
+                },
+                "reason": {
+                  "type": "string"
+                }
+              },
+              "type": "object"
+            },
+            "type": "array"
+          },
+          "name_warnings": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "plane": {
+            "properties": {
+              "normal": {
+                "items": {
+                  "type": "number"
+                },
+                "maxItems": 3,
+                "minItems": 3,
+                "type": "array"
+              },
+              "origin": {
+                "items": {
+                  "type": "number"
+                },
+                "maxItems": 3,
+                "minItems": 3,
+                "type": "array"
+              }
+            },
+            "type": "object"
+          },
+          "total_area_m2": {
+            "type": "number"
+          }
+        },
+        "required": [
+          "plane",
+          "bodies",
+          "total_area_m2"
+        ],
+        "type": "object"
+      }
+    },
+    {
+      "annotations": {
+        "readOnlyHint": true,
+        "title": "Measure thickness"
+      },
+      "description": "The wall thickness of a body, SAMPLED: points are laid out on every face and a ray is cast inward from each one to the first face opposite. **For a wall, read min_wall_m, not min_m.** min_m is the shortest cast ANYWHERE on the body, and every ACUTE edge is a sliver of material — a 4 mm slot through a 10/7 mm tube reports min_m 0.043 mm where its wall is 3 mm, and a taper approaches zero at its sharp corner. min_wall_m is the shortest cast between two faces that do NOT meet at an edge, so it leaves every corner reading out: 3.000 mm on that same tube, and equal to min_m on a plate, which has no corner to leave out. Each site says which it is with faces_share_an_edge. min_wall_m is absent only when every site crossed a corner. Also reports mean_m, max_m, a histogram of the sites, and the thinnest site of each kind — where it is and the two faces it spans, each with its persistent id (DECIMAL STRINGS: ids above 2^53 are not exact as JSON numbers) and its entity_name if it has one. method is always \"sampled\": both minima are UPPER BOUNDS, because a wall thinner than spacing_m between two sites is never looked at. Pass spacing_m under the width of the web you care about to be sure it was sampled; the answer always reports the spacing_m it used and how many samples it took. Each individual cast is refined onto the analytic surfaces (a plate reports its thickness, and a tube r_outer − r_inner, to rounding), and refined says how many were; declines counts the sites that produced nothing, so an answer covering little of the body says so. Neither number is the body's medial axis. Lengths in meters.",
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "body_id": {
+            "description": "Body id (or name) from model_summary.bodies.",
+            "type": "string"
+          },
+          "spacing_m": {
+            "description": "Largest gap between neighbouring sample sites on one face, in meters. Omit for the default (the body's bounding diagonal / 32).",
+            "type": [
+              "number",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "body_id"
+        ],
+        "type": "object"
+      },
+      "name": "measure_thickness",
+      "outputSchema": {
+        "properties": {
+          "body_id": {
+            "type": "string"
+          },
+          "chord_bound_m": {
+            "type": "number"
+          },
+          "declines": {
+            "properties": {
+              "below_self_band": {
+                "type": "integer"
+              },
+              "no_hit": {
+                "type": "integer"
+              },
+              "no_surface": {
+                "type": "integer"
+              }
+            },
+            "type": "object"
+          },
+          "histogram": {
+            "items": {
+              "properties": {
+                "count": {
+                  "type": "integer"
+                },
+                "hi_m": {
+                  "type": "number"
+                },
+                "lo_m": {
+                  "type": "number"
+                }
+              },
+              "type": "object"
+            },
+            "type": "array"
+          },
+          "max_m": {
+            "type": "number"
+          },
+          "mean_m": {
+            "type": "number"
+          },
+          "method": {
+            "enum": [
+              "sampled"
+            ],
+            "type": "string"
+          },
+          "min_m": {
+            "type": "number"
+          },
+          "min_wall_m": {
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "refined": {
+            "type": "integer"
+          },
+          "samples": {
+            "type": "integer"
+          },
+          "spacing_m": {
+            "type": "number"
+          },
+          "thinnest": {
+            "properties": {
+              "faces_share_an_edge": {
+                "type": "boolean"
+              },
+              "from": {
+                "type": "object"
+              },
+              "opposite": {
+                "items": {
+                  "type": "number"
+                },
+                "maxItems": 3,
+                "minItems": 3,
+                "type": "array"
+              },
+              "point": {
+                "items": {
+                  "type": "number"
+                },
+                "maxItems": 3,
+                "minItems": 3,
+                "type": "array"
+              },
+              "thickness_m": {
+                "type": "number"
+              },
+              "to": {
+                "type": "object"
+              }
+            },
+            "required": [
+              "thickness_m",
+              "point",
+              "opposite",
+              "from",
+              "to",
+              "faces_share_an_edge"
+            ],
+            "type": "object"
+          },
+          "thinnest_wall": {
+            "properties": {
+              "faces_share_an_edge": {
+                "type": "boolean"
+              },
+              "from": {
+                "type": "object"
+              },
+              "opposite": {
+                "items": {
+                  "type": "number"
+                },
+                "maxItems": 3,
+                "minItems": 3,
+                "type": "array"
+              },
+              "point": {
+                "items": {
+                  "type": "number"
+                },
+                "maxItems": 3,
+                "minItems": 3,
+                "type": "array"
+              },
+              "thickness_m": {
+                "type": "number"
+              },
+              "to": {
+                "type": "object"
+              }
+            },
+            "type": [
+              "object",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "body_id",
+          "min_m",
+          "mean_m",
+          "max_m",
+          "thinnest",
+          "histogram",
+          "samples",
+          "spacing_m",
           "method"
         ],
         "type": "object"
@@ -19434,6 +19833,74 @@
     },
     {
       "annotations": {
+        "openWorldHint": false,
+        "readOnlyHint": true,
+        "title": "Export PDF"
+      },
+      "description": "Export the open DRAWING tab's sheet as a one-page PDF at paper size — the printable deliverable. It is written from the same markup export_svg returns, so it is the drawing on the screen rather than a second rendering of it, and it is true to scale: a 1:1 view measures its real size on the printed page. Ink is BLACK ON WHITE whatever the UI theme, because a sheet is paper. Text is Helvetica (a base-14 font, so nothing is embedded) and a diameter sign prints as Ø, which is reported in warnings. Answers with bytes and pages; the file rides back base64 for deliver \"agent\". Refused with TabKindNotSupported off a Drawing tab, NothingToExport when no view of the sheet rebuilt, and PayloadTooLarge above the 16 MiB inline limit. specs/drawings_and_mbd.md §8 D4b.",
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "deliver": {
+            "default": "agent",
+            "description": "\"agent\": the file comes back in this result as an embedded resource. \"download\": the browser downloads it for the user, as the Export menu does, and the result only describes it.",
+            "enum": [
+              "agent",
+              "download"
+            ],
+            "type": "string"
+          },
+          "sheet_id": {
+            "description": "Which sheet. Omit for the first one.",
+            "type": "string"
+          }
+        },
+        "type": "object"
+      },
+      "name": "export_pdf",
+      "outputSchema": {
+        "properties": {
+          "bytes": {
+            "description": "Size of the exported file.",
+            "type": "integer"
+          },
+          "deliver": {
+            "enum": [
+              "agent",
+              "download"
+            ],
+            "type": "string"
+          },
+          "file_name": {
+            "type": "string"
+          },
+          "mime_type": {
+            "type": "string"
+          },
+          "pages": {
+            "description": "Pages written. One sheet is one page.",
+            "type": "integer"
+          },
+          "warnings": {
+            "description": "What the exporter left out, verbatim.",
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "deliver",
+          "file_name",
+          "mime_type",
+          "bytes",
+          "warnings"
+        ],
+        "type": "object"
+      }
+    },
+    {
+      "annotations": {
         "readOnlyHint": true,
         "title": "Get assembly"
       },
@@ -25500,6 +25967,15 @@
             },
             "type": "array"
           },
+          "detail_mm": {
+            "description": "Make this a DETAIL view: [centre_u, centre_v, radius], the crop disc drawn on parent_view_id, in THAT view's own plane in millimetres. The detail shows that disc of the parent's projection at its own scale (pass scale 2 for 2:1). Needs parent_view_id; mutually exclusive with view, direction and section_mm.",
+            "items": {
+              "type": "number"
+            },
+            "maxItems": 3,
+            "minItems": 3,
+            "type": "array"
+          },
           "direction": {
             "description": "Direction of SIGHT as [x, y, z], away from the viewer. Mutually exclusive with view.",
             "items": {
@@ -25520,10 +25996,19 @@
             ],
             "type": "string"
           },
+          "flip": {
+            "default": false,
+            "description": "Section only: keep the other half — the arrows reverse, the line does not move.",
+            "type": "boolean"
+          },
           "include_anchors": {
             "default": false,
             "description": "Also list, per view, the PERSISTENT IDS an annotation can anchor on (anchor_list): every entity the view drew, each with its shape on the drawing (Point, Line, Circle, Ellipse, Polyline), its witness point in view-plane meters and its radius where it has one. The shape is what tells a wall from a corner — picking two anchors by position alone can take two corners and measure the diagonal. Each pid is a decimal STRING, because a persistent id is a 64-bit number and JSON numbers in JavaScript are not exact above 2^53; pass it back verbatim. Omitted by default — a real part's view has thousands of edges — but it is where the anchors for drawing_annotation_add come from.",
             "type": "boolean"
+          },
+          "label": {
+            "description": "Section or detail only: the letter it is known by (SECTION A-A, DETAIL A). Omit for the next free letter on the sheet.",
+            "type": "string"
           },
           "name": {
             "description": "The view's label. Omit for the projection's own name.",
@@ -25547,6 +26032,15 @@
             "description": "Paper length per model length: 1 is 1:1, 0.1 is 1:10.",
             "exclusiveMinimum": 0,
             "type": "number"
+          },
+          "section_mm": {
+            "description": "Make this a SECTION view: [from_u, from_v, to_u, to_v], the cutting line drawn on parent_view_id, in THAT view's own plane in millimetres (u right, v up, from the parent's own origin — the bbox in this answer says where the part is). The cut plane is that line swept back along the parent's line of sight, and the view looks along the plane's normal at the material the cut KEEPS; flip reverses which half. The cap is hatched, and the cutting line with its arrows and letter is drawn on the parent. Needs parent_view_id; mutually exclusive with view, direction and detail_mm.",
+            "items": {
+              "type": "number"
+            },
+            "maxItems": 4,
+            "minItems": 4,
+            "type": "array"
           },
           "sheet_id": {
             "description": "Which sheet. Omit for the first one.",
@@ -25889,6 +26383,158 @@
         },
         "required": [
           "annotation_index",
+          "tab_id",
+          "sheets",
+          "errors",
+          "warnings"
+        ],
+        "type": "object"
+      }
+    },
+    {
+      "annotations": {
+        "destructiveHint": false,
+        "openWorldHint": false,
+        "readOnlyHint": false,
+        "title": "Edit drawing sheet"
+      },
+      "description": "Change one sheet of the open DRAWING tab — its name, its paper size and orientation, and its TITLE BLOCK — add or remove sheets, or set the drawing's PROJECTION STANDARD. The standard is the drawing's rather than one sheet's (sheets that disagreed about which side a projected view shows would be two standards in one document), and it decides both what a projected or section view SHOWS and which side of its parent a freshly added one is placed on. The title block's derived rows — document name, sheet number, scale, projection standard — are filled from the document and take no text; giving one text is refused rather than ignored, because an agent that typed a sheet number would otherwise believe the number it typed is on the paper. Answers with the whole evaluated drawing, the filled title block rows included. Refused with TabKindNotSupported off a Drawing tab, NotFound for a sheet the drawing does not have or for the last sheet, and InvalidArgument for an unknown size or standard. specs/drawings_and_mbd.md §8 D4b.",
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "add_sheet": {
+            "description": "Add a sheet (taking name, size and orientation) instead of editing one.",
+            "type": "boolean"
+          },
+          "delete_sheet": {
+            "description": "Delete the sheet sheet_id names, and the views on it. Refused for the last sheet: a drawing with no sheet shows nothing and refuses every export by name.",
+            "type": "boolean"
+          },
+          "name": {
+            "type": "string"
+          },
+          "orientation": {
+            "enum": [
+              "landscape",
+              "portrait"
+            ],
+            "type": "string"
+          },
+          "projection_angle": {
+            "description": "The DRAWING's projection standard. Third angle (the ISO/ASME default) places a view on the side it is viewed from, so the view to the right of its parent shows the right-hand side; first angle places it on the opposite side.",
+            "enum": [
+              "third",
+              "first"
+            ],
+            "type": "string"
+          },
+          "sheet_id": {
+            "description": "Which sheet. Omit for the first one.",
+            "type": "string"
+          },
+          "size": {
+            "description": "A4 … A0, Letter, Tabloid, or [width_mm, height_mm] for a custom sheet.",
+            "oneOf": [
+              {
+                "enum": [
+                  "A4",
+                  "A3",
+                  "A2",
+                  "A1",
+                  "A0",
+                  "Letter",
+                  "Tabloid"
+                ],
+                "type": "string"
+              },
+              {
+                "items": {
+                  "type": "number"
+                },
+                "maxItems": 2,
+                "minItems": 2,
+                "type": "array"
+              }
+            ]
+          },
+          "title_block": {
+            "description": "Draw the title block at all.",
+            "type": "boolean"
+          },
+          "title_block_fields": {
+            "description": "The title block's rows in print order — the whole list, replaced. A row is {key} for a derived one, {key, text} for one a person types, or {label, text} for a row of your own.",
+            "items": {
+              "additionalProperties": false,
+              "properties": {
+                "key": {
+                  "enum": [
+                    "DocumentName",
+                    "SheetNumber",
+                    "Scale",
+                    "ProjectionAngle",
+                    "Date",
+                    "Author",
+                    "Material",
+                    "Revision"
+                  ],
+                  "type": "string"
+                },
+                "label": {
+                  "description": "For a row this build has no name for.",
+                  "type": "string"
+                },
+                "text": {
+                  "description": "The value. Only for Date, Author, Material, Revision and a labelled row: the first four keys are filled from the document.",
+                  "type": "string"
+                }
+              },
+              "type": "object"
+            },
+            "type": "array"
+          }
+        },
+        "type": "object"
+      },
+      "name": "drawing_sheet_edit",
+      "outputSchema": {
+        "properties": {
+          "declines": {
+            "description": "What the projections declined to decide, by counter name (D1c). Every counter but cross_body means a line the drawing does not carry, so a large count is a degenerate view rather than a clean one.",
+            "type": "object"
+          },
+          "errors": {
+            "description": "Per-view failures, each naming its view.",
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "projection_angle": {
+            "description": "Third or First angle.",
+            "type": "object"
+          },
+          "sheet_id": {
+            "type": "string"
+          },
+          "sheets": {
+            "description": "Each sheet with its size and its views (ids, projections, scales, placements, how many curves each drew and how many anchors it offers — anchor_list with include_anchors).",
+            "items": {
+              "type": "object"
+            },
+            "type": "array"
+          },
+          "tab_id": {
+            "type": "string"
+          },
+          "warnings": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "sheet_id",
           "tab_id",
           "sheets",
           "errors",

@@ -1857,6 +1857,22 @@ impl super::measure::KernelMeasure for MockKernel {
                 .to_string(),
         })
     }
+
+    /// Q5: the thickness sampler casts rays against a render tessellation and
+    /// refines the hits on analytic surfaces. The mock has neither, and the
+    /// one number it COULD produce from a box's face list — the gap between
+    /// two opposite faces — would be a wall thickness for a box and a
+    /// fabrication for anything else.
+    fn thickness(
+        &self,
+        _solid: &KernelSolidHandle,
+        _opts: &super::measure::ThicknessOpts,
+    ) -> Result<super::measure::Thickness, KernelError> {
+        Err(KernelError::NotSupported {
+            operation: "wall thickness (MockKernel has no tessellation to sample or cast against)"
+                .to_string(),
+        })
+    }
 }
 
 impl KernelIntrospect for MockKernel {
@@ -2290,9 +2306,10 @@ mod tests {
         }
     }
 
-    /// Q2, Q3 and Q6 refuse on the same terms as Q1, each naming itself — so
-    /// a consumer wired to the mock sees a capability wall, never a zero
-    /// volume, an origin centroid or a chord-for-an-arc it might believe.
+    /// Q2, Q3, Q5 and Q6 refuse on the same terms as Q1, each naming itself —
+    /// so a consumer wired to the mock sees a capability wall, never a zero
+    /// volume, an origin centroid, a box's face gap called a wall thickness,
+    /// or a chord-for-an-arc it might believe.
     #[test]
     fn interference_and_mass_are_typed_refusals_too() {
         use super::super::measure::KernelMeasure;
@@ -2317,6 +2334,14 @@ mod tests {
             (
                 "edge arc length",
                 kernel.edge_length(edge).expect_err("no curves"),
+            ),
+            // Q5: no tessellation to sample sites on and nothing to cast a
+            // ray against.
+            (
+                "wall thickness",
+                kernel
+                    .thickness(&a, &super::super::measure::ThicknessOpts::default())
+                    .expect_err("no tessellation"),
             ),
         ] {
             match err {

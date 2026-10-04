@@ -91,22 +91,30 @@ function curveStroke(entry, style) {
 	return { stroke: DRAWING_TOKENS.visible, width: style.visibleWidth, dash: null };
 }
 
-/** An SVG `d` for one `LayoutCurve`, in paper mm. */
-function curvePath(curve, tf) {
+/**
+ * One `LayoutCurve` as a PAPER-SPACE polyline: `{ points, closed, dot }`.
+ *
+ * The geometry half of [`curvePath`], split out at D4b so the PDF writer and
+ * the hatch generator read the same points the SVG path is built from rather
+ * than re-deriving them. Nothing here is a second source of truth: `curvePath`
+ * is now a formatter over this, so a change to the sampling moves both.
+ *
+ * `dot` marks a line seen end-on — one point, which a path has to emit
+ * specially (see `curvePath`). `null` for a curve kind this build does not
+ * know, which the caller reports.
+ */
+export function curvePoints(curve, tf) {
 	switch (curve?.type) {
-		case 'Point': {
-			// A line seen end-on. A zero-length path renders nothing with a
-			// butt cap, so it is emitted as a round dot-sized segment.
-			const p = tf.toPaper(curve.at);
-			return `M ${n(p[0])} ${n(p[1])} l 0 0`;
-		}
-		case 'Line': {
-			const a = tf.toPaper(curve.start);
-			const b = tf.toPaper(curve.end);
-			return `M ${n(a[0])} ${n(a[1])} L ${n(b[0])} ${n(b[1])}`;
-		}
+		case 'Point':
+			return { points: [tf.toPaper(curve.at)], closed: false, dot: true };
+		case 'Line':
+			return {
+				points: [tf.toPaper(curve.start), tf.toPaper(curve.end)],
+				closed: false,
+				dot: false
+			};
 		case 'Circle':
-			return conicPath(
+			return conicPoints(
 				curve.center,
 				curve.radius,
 				curve.radius,
@@ -116,7 +124,7 @@ function curvePath(curve, tf) {
 				tf
 			);
 		case 'Ellipse':
-			return conicPath(
+			return conicPoints(
 				curve.center,
 				curve.major_radius,
 				curve.minor_radius,
@@ -127,23 +135,42 @@ function curvePath(curve, tf) {
 			);
 		case 'Polyline': {
 			const pts = curve.points ?? [];
-			if (pts.length === 0) return '';
-			const head = tf.toPaper(pts[0]);
-			let d = `M ${n(head[0])} ${n(head[1])}`;
-			for (let i = 1; i < pts.length; i++) {
-				const p = tf.toPaper(pts[i]);
-				d += ` L ${n(p[0])} ${n(p[1])}`;
-			}
-			return curve.closed ? `${d} Z` : d;
+			if (pts.length === 0) return { points: [], closed: false, dot: false };
+			return {
+				points: pts.map((p) => tf.toPaper(p)),
+				closed: !!curve.closed,
+				dot: false
+			};
 		}
 		default:
-			return '';
+			return null;
 	}
 }
 
+/** An SVG `d` for one `LayoutCurve`, in paper mm. */
+function curvePath(curve, tf) {
+	const got = curvePoints(curve, tf);
+	if (!got || got.points.length === 0) return '';
+	if (got.dot) {
+		// A line seen end-on. A zero-length path renders nothing with a butt
+		// cap, so it is emitted as a round dot-sized segment.
+		const [p] = got.points;
+		return `M ${n(p[0])} ${n(p[1])} l 0 0`;
+	}
+	return polylinePath(got.points, got.closed);
+}
+
+/** `M … L … [Z]` over paper-space points. */
+function polylinePath(points, closed) {
+	let d = `M ${n(points[0][0])} ${n(points[0][1])}`;
+	for (let i = 1; i < points.length; i++) {
+		d += ` L ${n(points[i][0])} ${n(points[i][1])}`;
+	}
+	return closed ? `${d} Z` : d;
+}
+
 /**
- * A circle or ellipse arc as a polyline-free SVG path, sampled on its own
- * parameter.
+ * A circle or ellipse arc sampled on its own parameter, in paper space.
  *
  * Why sampled rather than `A` (elliptical arc) commands: an `A` needs the
  * ellipse's rotation and the large-arc/sweep flags derived from a
@@ -153,7 +180,7 @@ function curvePath(curve, tf) {
  * revolution, and at 16 segments per quadrant the chord error on a 50 mm
  * radius is under 1 µm on paper — below what the rounding keeps.
  */
-function conicPath(center, rMajor, rMinor, majorAxis, t0, t1, tf) {
+function conicPoints(center, rMajor, rMinor, majorAxis, t0, t1, tf) {
 	const span = Math.abs(t1 - t0);
 	const segments = Math.max(8, Math.ceil((span / (Math.PI / 2)) * 16));
 	const [ax, ay] = majorAxis ?? [1, 0];
@@ -161,18 +188,251 @@ function conicPath(center, rMajor, rMinor, majorAxis, t0, t1, tf) {
 	const u = [ax / alen, ay / alen];
 	// perp((x, y)) = (−y, x), as `Curve2::Ellipse` documents.
 	const w = [-u[1], u[0]];
-	let d = '';
+	const points = [];
 	for (let i = 0; i <= segments; i++) {
 		const t = t0 + ((t1 - t0) * i) / segments;
 		const c = Math.cos(t) * rMajor;
 		const s = Math.sin(t) * rMinor;
-		const p = tf.toPaper([center[0] + c * u[0] + s * w[0], center[1] + c * u[1] + s * w[1]]);
-		d += `${i === 0 ? 'M' : ' L'} ${n(p[0])} ${n(p[1])}`;
+		points.push(tf.toPaper([center[0] + c * u[0] + s * w[0], center[1] + c * u[1] + s * w[1]]));
 	}
-	// A closed conic: join the last sample back to the first so the outline
-	// has no hairline gap at the seam.
-	if (Math.abs(span - 2 * Math.PI) < 1e-9) d += ' Z';
-	return d;
+	// A closed conic: the last sample joins the first, so the outline has no
+	// hairline gap at the seam.
+	return { points, closed: Math.abs(span - 2 * Math.PI) < 1e-9, dot: false };
+}
+
+/** A circular arc in PAPER space already, as a path — the annotation arcs. */
+function paperArcPath(center, radius, startDeg, endDeg) {
+	const got = conicPoints([0, 0], radius, radius, [1, 0], (startDeg * Math.PI) / 180, (endDeg * Math.PI) / 180, {
+		mmPerMeter: 1,
+		toPaper: ([x, y]) => [x + center[0], y + center[1]],
+		dirToPaper: (d) => d
+	});
+	return polylinePath(got.points, got.closed);
+}
+
+// ─────────────────────────────────────────────── D4b: hatch, marks, crop
+
+/**
+ * A section cap's hatching, as PAPER-SPACE line segments
+ * (`specs/drawings_and_mbd.md` §8, D4b).
+ *
+ * ## Why segments and not a pattern or a clip path
+ *
+ * An SVG `<pattern>` fill, or a `<clipPath>` with a family of long lines
+ * through it, would both be shorter — and neither survives the trip to PDF
+ * (and to DXF, whose `HATCH` entity is a different thing again). Computing
+ * the segments means the hatch is the same geometry in every output, and the
+ * line a reader measures on the screen is the line in the file.
+ *
+ * ## The fill rule
+ *
+ * Even-odd, by a scanline. The loops are rotated so the hatch direction
+ * becomes horizontal, each scanline's crossings with every loop edge are
+ * collected and sorted, and consecutive pairs are the inside. A crossing is
+ * counted with the half-open test `(y0 <= y) !== (y1 <= y)`, which is what
+ * makes a scanline passing exactly through a VERTEX count once rather than
+ * twice — the classic even-odd bug, and the one a cap with a hole in it would
+ * hit at the hole's extremes.
+ *
+ * Even-odd rather than the loops' own winding because a cap's loops already
+ * carry their direction as `hole`, and an outer loop nested inside another
+ * outer loop (two bodies, one inside a hollow of the other) is hatched
+ * correctly by even-odd without anyone having to work out the nesting.
+ *
+ * @param {any[]} loops `HatchLoop`s: `{ curves, hole }`
+ * @param {{ toPaper: (p: number[]) => number[] }} tf
+ * @param {{ spacing: number, angleDeg: number }} options
+ * @returns {{ segments: number[][][], warnings: string[] }}
+ */
+export function hatchSegments(loops, tf, { spacing, angleDeg }) {
+	const warnings = [];
+	const segments = [];
+	if (!(spacing > 0) || !Number.isFinite(spacing)) {
+		return { segments, warnings: ['the hatch spacing is not a positive length'] };
+	}
+	const theta = (angleDeg * Math.PI) / 180;
+	const [c, s] = [Math.cos(theta), Math.sin(theta)];
+	// Rotate BY −θ so the hatch lines lie along the x axis.
+	const into = ([x, y]) => [x * c + y * s, -x * s + y * c];
+	const back = ([x, y]) => [x * c - y * s, x * s + y * c];
+
+	/** @type {number[][][]} */
+	const rings = [];
+	for (const loop of loops ?? []) {
+		const ring = [];
+		for (const curve of loop?.curves ?? []) {
+			const got = curvePoints(curve, tf);
+			if (!got || got.points.length === 0) {
+				warnings.push(`a hatch boundary curve of type ${curve?.type ?? '?'} produced no points`);
+				continue;
+			}
+			for (const p of got.points) {
+				const q = into(p);
+				// Consecutive curves of a loop SHARE an endpoint, so the join
+				// would otherwise be a duplicate vertex — and a duplicate
+				// vertex is a zero-length edge, which the crossing test counts
+				// as neither in nor out.
+				const last = ring[ring.length - 1];
+				if (last && Math.abs(last[0] - q[0]) < 1e-12 && Math.abs(last[1] - q[1]) < 1e-12) {
+					continue;
+				}
+				ring.push(q);
+			}
+		}
+		if (ring.length >= 3) rings.push(ring);
+		else if (ring.length > 0) {
+			warnings.push('a hatch boundary loop had fewer than three distinct points');
+		}
+	}
+	if (rings.length === 0) return { segments, warnings };
+
+	let minY = Infinity;
+	let maxY = -Infinity;
+	for (const ring of rings) {
+		for (const [, y] of ring) {
+			if (!Number.isFinite(y)) {
+				return { segments, warnings: [...warnings, 'a hatch boundary point is not finite'] };
+			}
+			minY = Math.min(minY, y);
+			maxY = Math.max(maxY, y);
+		}
+	}
+	// The scanlines are laid on a GLOBAL grid (multiples of the spacing from
+	// the paper origin) rather than from the cap's own minimum, so two caps on
+	// one sheet — a section of two bodies — carry one continuous hatch
+	// pattern instead of two that nearly line up.
+	const first = Math.ceil(minY / spacing) * spacing;
+	// A cap larger than this many lines is a degenerate input (a spacing of
+	// nothing, a cap the size of a building); reported rather than hung on.
+	const MAX_LINES = 20000;
+	let lines = 0;
+	for (let y = first; y <= maxY; y += spacing) {
+		if (++lines > MAX_LINES) {
+			warnings.push(`the hatch stopped at ${MAX_LINES} lines; the cap is too large for the spacing`);
+			break;
+		}
+		/** @type {number[]} */
+		const crossings = [];
+		for (const ring of rings) {
+			for (let i = 0; i < ring.length; i++) {
+				const [x0, y0] = ring[i];
+				const [x1, y1] = ring[(i + 1) % ring.length];
+				if (y0 <= y !== y1 <= y) {
+					crossings.push(x0 + ((y - y0) / (y1 - y0)) * (x1 - x0));
+				}
+			}
+		}
+		crossings.sort((a, b) => a - b);
+		for (let i = 0; i + 1 < crossings.length; i += 2) {
+			if (crossings[i + 1] - crossings[i] <= 1e-9) continue;
+			segments.push([back([crossings[i], y]), back([crossings[i + 1], y])]);
+		}
+	}
+	return { segments, warnings };
+}
+
+/** The hatch as SVG, or `''`. */
+function renderHatch(loops, tf, style) {
+	const { segments, warnings } = hatchSegments(loops, tf, {
+		spacing: style.hatchSpacing,
+		angleDeg: style.hatchAngleDeg
+	});
+	if (segments.length === 0) return { svg: '', warnings };
+	const lines = segments
+		.map(
+			([a, b]) =>
+				`<line class="wi-hatch" x1="${n(a[0])}" y1="${n(a[1])}" x2="${n(b[0])}" y2="${n(b[1])}" ` +
+				`stroke="${DRAWING_TOKENS.hatch}" stroke-width="${n(style.thinWidth)}" />`
+		)
+		.join('');
+	return { svg: `<g class="wi-hatches" data-hatch-lines="${segments.length}">${lines}</g>`, warnings };
+}
+
+/**
+ * The marks a view carries because other views derive from it (D4b): a child
+ * section's cutting line with its arrows and letter, a child detail's circle
+ * with its letter.
+ *
+ * Drawn on the PARENT, which is where the engine put them — a cutting line
+ * belongs to the view it cuts.
+ */
+function renderMarks(marks, tf, style) {
+	const warnings = [];
+	const out = [];
+	for (const mark of marks ?? []) {
+		if (mark?.type === 'Section') {
+			const a = tf.toPaper(mark.from);
+			const b = tf.toPaper(mark.to);
+			// The sight direction is a DIRECTION, so it flips with the paper's
+			// y the same way a vector does — `dirToPaper`, not `toPaper`,
+			// which would add the origin offset and point the arrows at the
+			// corner of the sheet.
+			const sight = tf.dirToPaper(mark.sight ?? [0, -1]);
+			const slen = Math.hypot(sight[0], sight[1]) || 1;
+			const dir = [sight[0] / slen, sight[1] / slen];
+			if (![...a, ...b, ...dir].every(Number.isFinite)) {
+				warnings.push('a section mark has a non-finite point');
+				continue;
+			}
+			out.push(
+				`<line class="wi-mark-cut" x1="${n(a[0])}" y1="${n(a[1])}" x2="${n(b[0])}" y2="${n(b[1])}" ` +
+					`stroke="${DRAWING_TOKENS.annotation}" stroke-width="${n(style.cutLineWidth)}" ` +
+					`stroke-dasharray="${esc(style.centreDash.join(' '))}" />`
+			);
+			for (const at of [a, b]) {
+				out.push(arrowAt(at, dir, style));
+				// The letter sits BEHIND the arrow (against the sight
+				// direction), which is where the standard puts it: outside the
+				// part, not over the view.
+				const label = [
+					at[0] - dir[0] * style.arrowLength * 2.2,
+					at[1] - dir[1] * style.arrowLength * 2.2
+				];
+				out.push(
+					`<text class="wi-mark-label" x="${n(label[0])}" y="${n(label[1])}" ` +
+						`font-size="${n(style.textHeight)}" font-family="${esc(style.fontFamily)}" ` +
+						`fill="${DRAWING_TOKENS.text}" text-anchor="middle" dominant-baseline="middle">` +
+						`${esc(mark.label ?? '')}</text>`
+				);
+			}
+		} else if (mark?.type === 'Detail') {
+			const centre = tf.toPaper(mark.center);
+			const r = Number(mark.radius) * tf.mmPerMeter;
+			if (!Number.isFinite(r) || r <= 0 || !centre.every(Number.isFinite)) {
+				warnings.push('a detail mark has no drawable circle');
+				continue;
+			}
+			out.push(
+				`<circle class="wi-mark-detail" cx="${n(centre[0])}" cy="${n(centre[1])}" r="${n(r)}" ` +
+					`fill="none" stroke="${DRAWING_TOKENS.annotation}" stroke-width="${n(style.thinWidth)}" />`
+			);
+			out.push(
+				`<text class="wi-mark-label" x="${n(centre[0] + r)}" y="${n(centre[1] - r)}" ` +
+					`font-size="${n(style.textHeight)}" font-family="${esc(style.fontFamily)}" ` +
+					`fill="${DRAWING_TOKENS.text}" text-anchor="start" dominant-baseline="auto">` +
+					`${esc(mark.label ?? '')}</text>`
+			);
+		} else {
+			// A mark kind this build does not know. Named rather than skipped:
+			// a drawing silently missing a cutting line looks complete.
+			warnings.push(`a view mark of type ${mark?.type ?? '?'} was not drawn`);
+		}
+	}
+	return { svg: out.join(''), warnings };
+}
+
+/** A filled arrowhead at `at`, pointing along the unit `dir` (paper space). */
+function arrowAt(at, dir, style) {
+	const len = style.arrowLength;
+	const half = (len * style.arrowWidthRatio) / 2;
+	const perp = [-dir[1], dir[0]];
+	const tip = [at[0] + dir[0] * len, at[1] + dir[1] * len];
+	const base = [
+		[at[0] + perp[0] * half, at[1] + perp[1] * half],
+		[at[0] - perp[0] * half, at[1] - perp[1] * half]
+	];
+	const points = [tip, base[0], base[1]].map(([x, y]) => `${n(x)},${n(y)}`).join(' ');
+	return `<polygon class="wi-mark-arrow" points="${points}" fill="${DRAWING_TOKENS.annotation}" />`;
 }
 
 /** Paint for an annotation primitive, by its role. */
@@ -191,22 +451,9 @@ function renderPrimitive(p, style) {
 		}
 		case 'arc': {
 			const s = primitiveStroke(p.role, style);
-			const d = conicPath(
-				[0, 0],
-				p.radius,
-				p.radius,
-				[1, 0],
-				(p.startDeg * Math.PI) / 180,
-				(p.endDeg * Math.PI) / 180,
-				// The arc is already in paper space, so the transform is the
-				// identity apart from the centre offset — and must NOT flip
-				// again.
-				{
-					mmPerMeter: 1,
-					toPaper: ([x, y]) => [x + p.center[0], y + p.center[1]],
-					dirToPaper: (dd) => dd
-				}
-			);
+			// The arc is already in paper space, so the transform is the
+			// identity apart from the centre offset — and must NOT flip again.
+			const d = paperArcPath(p.center, p.radius, p.startDeg, p.endDeg);
 			return `<path class="wi-dim-${esc(p.role)}" d="${d}" fill="none" stroke="${s.stroke}" stroke-width="${n(s.width)}" />`;
 		}
 		case 'polygon': {
@@ -252,6 +499,26 @@ function viewBounds(layout) {
  *   (default true). A view composed onto a SHEET (D4a) passes false: the sheet
  *   paints one piece of paper, and a rectangle per view would read as a stack
  *   of cards rather than as one drawing.
+ * @param {string} [input.idPrefix] D4b: namespaces the `clipPath` id a detail
+ *   view needs. A sheet nests several views in one document, so two details
+ *   would otherwise declare the same id and the browser would clip both to
+ *   whichever came first. The sheet passes the view's uuid.
+ * @param {string|null} [input.caption] The designation DRAWN under the view —
+ *   `SECTION A-A`, `DETAIL B (2:1)`.
+ *
+ *   Distinct from `title`, which is the accessibility `<title>` and reaches no
+ *   printed output: a `<title>` is not rendered by any SVG painter, the PDF
+ *   writer skips it by name, and the DXF has nowhere to put it. A section view
+ *   with no visible designation is an unidentified view — ISO 128-30 requires
+ *   the letters on the view as well as on its cutting line, and a detail has
+ *   to print its own scale because it is the one view that does not share the
+ *   sheet's.
+ *
+ *   Supplied per view rather than taken from `title`, because only the DERIVED
+ *   kinds are captioned. An orthographic view in a projection group is
+ *   identified by where it sits, and labelling six views FRONT/TOP/RIGHT is
+ *   clutter the standard does not ask for — so `sheet.js` decides, and this
+ *   function only draws what it is given.
  * @returns {{ svg: string, widthMm: number, heightMm: number, warnings: string[] }}
  */
 export function renderViewSvg({
@@ -262,7 +529,9 @@ export function renderViewSvg({
 	documentPrecision = 2,
 	margin = 20,
 	title = null,
-	paper = true
+	paper = true,
+	idPrefix = 'v',
+	caption = null
 }) {
 	const style = drawingStyle(styleOverrides);
 	const warnings = [];
@@ -342,6 +611,37 @@ export function renderViewSvg({
 		}
 	}
 
+	// D4b. The cap's fill goes BEHIND the curves, so the cap's own boundary
+	// edges stay the heaviest lines in the view; the marks a child view put
+	// on this one go in front of both, because a cutting line crossing the
+	// part has to be readable where it crosses.
+	const hatch = renderHatch(layout?.hatch ?? [], tf, style);
+	warnings.push(...hatch.warnings);
+	const marks = renderMarks(layout?.marks ?? [], tf, style);
+	warnings.push(...marks.warnings);
+
+	// A detail view's crop: the renderer clips, which is what keeps the
+	// detail's geometry analytic (the engine culls to the disc's box and
+	// leaves the trimming here — see `ClipCircle`). The boundary circle is
+	// drawn too: ISO 128-30 draws a detail's edge, and without it a crop
+	// looks like a view whose part happens to end mid-air.
+	const crop = layout?.clip ?? null;
+	const cropCentre = crop ? tf.toPaper(crop.center) : null;
+	const cropR = crop ? Number(crop.radius) * tf.mmPerMeter : 0;
+	const cropOk = !!crop && Number.isFinite(cropR) && cropR > 0 && cropCentre.every(Number.isFinite);
+	if (crop && !cropOk) warnings.push("a detail view's crop circle is not drawable");
+	const clipId = `wi-crop-${String(idPrefix).replace(/[^A-Za-z0-9_-]/g, '')}`;
+	const defs = cropOk
+		? `<defs><clipPath id="${esc(clipId)}" clipPathUnits="userSpaceOnUse">` +
+			`<circle cx="${n(cropCentre[0])}" cy="${n(cropCentre[1])}" r="${n(cropR)}" />` +
+			`</clipPath></defs>`
+		: '';
+	const clipAttr = cropOk ? ` clip-path="url(#${esc(clipId)})"` : '';
+	const cropEdge = cropOk
+		? `<circle class="wi-crop-edge" cx="${n(cropCentre[0])}" cy="${n(cropCentre[1])}" r="${n(cropR)}" ` +
+			`fill="none" stroke="${DRAWING_TOKENS.visible}" stroke-width="${n(style.thinWidth)}" />`
+		: '';
+
 	// The drawing plus its margin. Annotations legitimately sit outside the
 	// part's own box (that is what a dimension offset IS), so the margin has
 	// to be at least the dimension offset plus a text height, or the leftmost
@@ -351,17 +651,44 @@ export function renderViewSvg({
 	const heightMm = round4(drawnH + 2 * pad);
 	const titleEl = title ? `<title>${esc(title)}</title>` : '';
 
+	// The designation DRAWN under the view (D4b review): centred on the
+	// drawing's own width and below its bottom edge, inside the margin the
+	// view already reserves — `pad` is at least `dimensionOffset + 2 ×
+	// textHeight`, which is 17 mm at the defaults against the 1.4 × 3.5 mm
+	// the caption needs, so it cannot push the view off its own sheet.
+	//
+	// Larger than dimension text by the ISO 3098 step, because it names the
+	// view rather than measuring it, and by SIZE rather than by weight: a
+	// bolder stroke is a line-width group on a plotter, where a bigger
+	// character is just geometry.
+	const captionText = String(caption ?? '').trim();
+	const captionSize = style.textHeight * 1.4;
+	const captionEl = captionText
+		? `<text class="wi-view-caption" x="${n(drawnW / 2)}" ` +
+			`y="${n(drawnH + style.dimensionOffset + captionSize)}" ` +
+			`font-size="${n(captionSize)}" font-family="${esc(style.fontFamily)}" ` +
+			`fill="${DRAWING_TOKENS.text}" text-anchor="middle" dominant-baseline="auto">` +
+			`${esc(captionText)}</text>`
+		: '';
+
 	const svg =
 		`<svg xmlns="http://www.w3.org/2000/svg" class="wi-drawing" ` +
 		`width="${n(widthMm)}mm" height="${n(heightMm)}mm" ` +
 		`viewBox="${n(-pad)} ${n(-pad)} ${n(widthMm)} ${n(heightMm)}" ` +
 		`data-scale="${n(scale)}" data-curves="${curves.length}" data-annotations="${annotations.length}">` +
 		titleEl +
+		defs +
 		(paper
 			? `<rect class="wi-paper" x="${n(-pad)}" y="${n(-pad)}" width="${n(widthMm)}" height="${n(heightMm)}" fill="${DRAWING_TOKENS.paper}" />`
 			: '') +
-		`<g class="wi-curves">${curveEls.join('')}</g>` +
+		`<g class="wi-section"${clipAttr}>${hatch.svg}</g>` +
+		`<g class="wi-curves"${clipAttr}>${curveEls.join('')}</g>` +
+		cropEdge +
 		`<g class="wi-annotations">${annEls.join('')}</g>` +
+		`<g class="wi-marks">${marks.svg}</g>` +
+		// Last, and OUTSIDE the clip: a detail's caption is the one piece of
+		// its markup that must survive the crop it describes.
+		captionEl +
 		`</svg>`;
 
 	return { svg, widthMm, heightMm, warnings };

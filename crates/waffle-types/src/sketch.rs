@@ -4,6 +4,7 @@ use uuid::Uuid;
 
 use crate::gear::{generate_gear_profile, GearParams};
 use crate::geom_ref::GeomRef;
+use crate::sketch_state::SketchSolveReport;
 use crate::sprocket::{generate_sprocket_profile, SprocketError, SprocketParams};
 
 /// Serde helper for HashMap<u32, (f64, f64)>.
@@ -754,6 +755,42 @@ pub enum DimensionUnit {
 }
 
 impl SketchConstraint {
+    /// This constraint's serde tag — the same string `#[serde(tag = "type")]`
+    /// writes. Spelled out rather than derived through `serde_json` so a
+    /// WASM-bound consumer (the solver's state report, §10.2) can label a
+    /// constraint without pulling a JSON writer into the solve path.
+    pub fn kind(&self) -> &'static str {
+        match self {
+            SketchConstraint::Coincident { .. } => "Coincident",
+            SketchConstraint::Horizontal { .. } => "Horizontal",
+            SketchConstraint::Vertical { .. } => "Vertical",
+            SketchConstraint::HorizontalPoints { .. } => "HorizontalPoints",
+            SketchConstraint::VerticalPoints { .. } => "VerticalPoints",
+            SketchConstraint::Parallel { .. } => "Parallel",
+            SketchConstraint::Perpendicular { .. } => "Perpendicular",
+            SketchConstraint::Tangent { .. } => "Tangent",
+            SketchConstraint::Equal { .. } => "Equal",
+            SketchConstraint::Symmetric { .. } => "Symmetric",
+            SketchConstraint::SymmetricH { .. } => "SymmetricH",
+            SketchConstraint::SymmetricV { .. } => "SymmetricV",
+            SketchConstraint::Midpoint { .. } => "Midpoint",
+            SketchConstraint::Distance { .. } => "Distance",
+            SketchConstraint::PointLineDistance { .. } => "PointLineDistance",
+            SketchConstraint::HDistance { .. } => "HDistance",
+            SketchConstraint::VDistance { .. } => "VDistance",
+            SketchConstraint::Angle { .. } => "Angle",
+            SketchConstraint::Radius { .. } => "Radius",
+            SketchConstraint::Diameter { .. } => "Diameter",
+            SketchConstraint::OnEntity { .. } => "OnEntity",
+            SketchConstraint::Dragged { .. } => "Dragged",
+            SketchConstraint::Pinned { .. } => "Pinned",
+            SketchConstraint::EqualAngle { .. } => "EqualAngle",
+            SketchConstraint::Ratio { .. } => "Ratio",
+            SketchConstraint::EqualPointToLine { .. } => "EqualPointToLine",
+            SketchConstraint::SameOrientation { .. } => "SameOrientation",
+        }
+    }
+
     /// The driving expression, if this is an expression-driven dimension.
     /// `None` for plain-valued dimensions and all non-dimension constraints.
     pub fn expression(&self) -> Option<&str> {
@@ -887,6 +924,16 @@ pub struct SolvedSketch {
     pub profiles: Vec<ClosedProfile>,
     /// Solve status.
     pub status: SolveStatus,
+    /// Solver state as data: residuals, conflicts, redundancy, what moved, the
+    /// null-space basis of the remaining freedoms, and why LM stopped
+    /// (`specs/agent_mechanical_design.md` §10.2, S2). Every index is in the
+    /// SOLVED SKETCH's constraint index space — reference dimensions included,
+    /// mapped back here so no consumer repeats the filter.
+    ///
+    /// `#[serde(default)]`: a payload written before S2 deserializes with an
+    /// empty report rather than failing.
+    #[serde(default)]
+    pub report: SketchSolveReport,
 }
 
 /// A closed loop of sketch entities suitable for extrusion or revolution.
@@ -1741,6 +1788,7 @@ mod tests {
                 arc_segments: vec![],
             }],
             status: SolveStatus::UnderConstrained { dof: 1 },
+            report: SketchSolveReport::default(),
         };
         let json = serde_json::to_string(&ss).unwrap();
         let d: SolvedSketch = serde_json::from_str(&json).unwrap();

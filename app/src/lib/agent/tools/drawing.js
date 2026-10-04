@@ -120,6 +120,44 @@ export const drawingViewAddTool = {
 					'corner. Omit to have it placed clear of its parent (a projected view) or in the middle ' +
 					'of the sheet.'
 			},
+			section_mm: {
+				type: 'array',
+				items: { type: 'number' },
+				minItems: 4,
+				maxItems: 4,
+				description:
+					'Make this a SECTION view: [from_u, from_v, to_u, to_v], the cutting line drawn on ' +
+					"parent_view_id, in THAT view's own plane in millimetres (u right, v up, from the " +
+					"parent's own origin — the bbox in this answer says where the part is). The cut " +
+					"plane is that line swept back along the parent's line of sight, and the view looks " +
+					"along the plane's normal at the material the cut KEEPS; flip reverses which half. " +
+					'The cap is hatched, and the cutting line with its arrows and letter is drawn on ' +
+					'the parent. Needs parent_view_id; mutually exclusive with view, direction and ' +
+					'detail_mm.'
+			},
+			flip: {
+				type: 'boolean',
+				default: false,
+				description:
+					'Section only: keep the other half — the arrows reverse, the line does not move.'
+			},
+			detail_mm: {
+				type: 'array',
+				items: { type: 'number' },
+				minItems: 3,
+				maxItems: 3,
+				description:
+					'Make this a DETAIL view: [centre_u, centre_v, radius], the crop disc drawn on ' +
+					"parent_view_id, in THAT view's own plane in millimetres. The detail shows that " +
+					"disc of the parent's projection at its own scale (pass scale 2 for 2:1). Needs " +
+					'parent_view_id; mutually exclusive with view, direction and section_mm.'
+			},
+			label: {
+				type: 'string',
+				description:
+					'Section or detail only: the letter it is known by (SECTION A-A, DETAIL A). Omit ' +
+					'for the next free letter on the sheet.'
+			},
 			include_anchors: {
 				type: 'boolean',
 				default: false,
@@ -268,6 +306,107 @@ export const drawingAnnotationAddTool = {
 	},
 	annotations: {
 		title: 'Add drawing annotation',
+		readOnlyHint: false,
+		destructiveHint: false,
+		openWorldHint: false
+	}
+};
+
+/**
+ * `drawing_sheet_edit` (D4b) — the sheet's own door, and the one place the
+ * drawing's projection standard is set. D4a shipped `projection_angle` in the
+ * document model with nothing to set it; this is that setter.
+ */
+export const drawingSheetEditTool = {
+	name: 'drawing_sheet_edit',
+	description:
+		"Change one sheet of the open DRAWING tab — its name, its paper size and orientation, and its " +
+		"TITLE BLOCK — add or remove sheets, or set the drawing's PROJECTION STANDARD. The standard is " +
+		"the drawing's rather than one sheet's (sheets that disagreed about which side a projected view " +
+		'shows would be two standards in one document), and it decides both what a projected or ' +
+		"section view SHOWS and which side of its parent a freshly added one is placed on. The title " +
+		"block's derived rows — document name, sheet number, scale, projection standard — are filled " +
+		'from the document and take no text; giving one text is refused rather than ignored, because ' +
+		'an agent that typed a sheet number would otherwise believe the number it typed is on the ' +
+		'paper. Answers with the whole evaluated drawing, the filled title block rows included. ' +
+		'Refused with TabKindNotSupported off a Drawing tab, NotFound for a sheet the drawing does not ' +
+		'have or for the last sheet, and InvalidArgument for an unknown size or standard. ' +
+		'specs/drawings_and_mbd.md §8 D4b.',
+	inputSchema: {
+		type: 'object',
+		properties: {
+			sheet_id: { type: 'string', description: 'Which sheet. Omit for the first one.' },
+			name: { type: 'string' },
+			size: {
+				description: 'A4 … A0, Letter, Tabloid, or [width_mm, height_mm] for a custom sheet.',
+				oneOf: [
+					{ type: 'string', enum: ['A4', 'A3', 'A2', 'A1', 'A0', 'Letter', 'Tabloid'] },
+					{ type: 'array', items: { type: 'number' }, minItems: 2, maxItems: 2 }
+				]
+			},
+			orientation: { type: 'string', enum: ['landscape', 'portrait'] },
+			projection_angle: {
+				type: 'string',
+				enum: ['third', 'first'],
+				description:
+					"The DRAWING's projection standard. Third angle (the ISO/ASME default) places a view " +
+					'on the side it is viewed from, so the view to the right of its parent shows the ' +
+					'right-hand side; first angle places it on the opposite side.'
+			},
+			title_block: { type: 'boolean', description: 'Draw the title block at all.' },
+			title_block_fields: {
+				type: 'array',
+				description:
+					"The title block's rows in print order — the whole list, replaced. A row is {key} " +
+					'for a derived one, {key, text} for one a person types, or {label, text} for a row ' +
+					'of your own.',
+				items: {
+					type: 'object',
+					properties: {
+						key: {
+							type: 'string',
+							enum: [
+								'DocumentName',
+								'SheetNumber',
+								'Scale',
+								'ProjectionAngle',
+								'Date',
+								'Author',
+								'Material',
+								'Revision'
+							]
+						},
+						label: { type: 'string', description: 'For a row this build has no name for.' },
+						text: {
+							type: 'string',
+							description:
+								'The value. Only for Date, Author, Material, Revision and a labelled row: ' +
+								'the first four keys are filled from the document.'
+						}
+					},
+					additionalProperties: false
+				}
+			},
+			add_sheet: {
+				type: 'boolean',
+				description: 'Add a sheet (taking name, size and orientation) instead of editing one.'
+			},
+			delete_sheet: {
+				type: 'boolean',
+				description:
+					'Delete the sheet sheet_id names, and the views on it. Refused for the last sheet: a ' +
+					'drawing with no sheet shows nothing and refuses every export by name.'
+			}
+		},
+		additionalProperties: false
+	},
+	outputSchema: {
+		type: 'object',
+		properties: { sheet_id: { type: 'string' }, ...drawingStateSchema.properties },
+		required: ['sheet_id', ...drawingStateSchema.required]
+	},
+	annotations: {
+		title: 'Edit drawing sheet',
 		readOnlyHint: false,
 		destructiveHint: false,
 		openWorldHint: false
