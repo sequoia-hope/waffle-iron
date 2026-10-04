@@ -33,6 +33,9 @@
 //! standard writes it "up to and including 3"; a nominal of exactly 0 has no
 //! row and refuses).
 //!
+//! The first step is also the one where the hole rule's Δ is zero — see
+//! §"Δ is zero in the first size step" below.
+//!
 //! The IT table uses 13 steps (upper bounds 3, 6, 10, 18, 30, 50, 80, 120,
 //! 180, 250, 315, 400, 500 mm). The deviation table for `r` and `s` is
 //! **finer** than that — it splits 50–80 into 50–65 and 65–80, 80–120 into
@@ -62,7 +65,37 @@
 //!
 //! `Δ = IT(n) − IT(n−1)` needs an `IT(n−1)`, and there is no IT0 in the
 //! standard, so a Δ-bearing hole letter at IT1 is [`Iso286Error::NotTabulated`]
-//! rather than a guess.
+//! rather than a guess — except in the first size step, where Δ is zero at
+//! every grade and IT1 therefore needs nothing subtracted.
+//!
+//! ### Δ is zero in the first size step, `0 < D <= 3`
+//!
+//! The standard's Δ row for `0 < D <= 3` is **all zeros**, so every Δ-bearing
+//! hole letter there is the plain mirror of its shaft. This is not something
+//! the `IT(n) − IT(n−1)` arithmetic produces — at Ø2, `IT7 − IT6 = 10 − 6 = 4`
+//! — so it is a carve-out this module has to apply, exactly as the `k`
+//! carve-out is one.
+//!
+//! What settles it is that four published hole columns reproduce from the
+//! Δ arithmetic across every size step **except** the first, where all four
+//! instead equal the mirror:
+//!
+//! | class | Ø2 published | mirror of the shaft | Δ arithmetic would give |
+//! |---|---|---|---|
+//! | `K7` | `0/−10`   | `−(+10/0)`   = `0/−10`   | `+4/−6`  |
+//! | `K8` | `0/−14`   | `−(+14/0)`   = `0/−14`   | `+4/−10` |
+//! | `M7` | `−2/−12`  | `−(+12/+2)`  = `−2/−12`  | `+2/−8`  |
+//! | `N7` | `−4/−14`  | `−(+14/+4)`  = `−4/−14`  | `0/−10`  |
+//! | `P6` | `−6/−12`  | `−(+12/+6)`  = `−6/−12`  | `−4/−10` |
+//! | `P7` | `−6/−16`  | `−(+16/+6)`  = `−6/−16`  | `−2/−12` |
+//! | `R7` | `−10/−20` | `−(+20/+10)` = `−10/−20` | `−6/−16` |
+//! | `S7` | `−14/−24` | `−(+24/+14)` = `−14/−24` | `−10/−20` |
+//!
+//! Eight classes, each wrong by exactly its own Δ without the carve-out, and
+//! the same four columns (`K7 K8 N7 P6`) land on the published value at every
+//! one of the other twelve size steps — so the arithmetic is right and the
+//! first row is the exception. Pinned by `PUBLISHED_HOLE` and by
+//! `the_first_size_step_has_no_delta_so_its_holes_are_plain_mirrors`.
 //!
 //! ### `ei(letter)` is the table row, not the shaft's value at that grade
 //!
@@ -105,16 +138,20 @@
 //! ## js / JS and an odd IT
 //!
 //! `js`/`JS` is the symmetric class: `es = +IT/2`, `ei = −IT/2`. Where `ITn` is
-//! an **odd whole number of micrometres** the standard keeps both limits whole
-//! by using `±(ITn − 1)/2`, so `Ø25 js7 = ±10` (not ±10.5) because
-//! `IT7 = 21 µm`. This module implements exactly that, and
-//! `js_symmetric_halves_an_odd_it_by_rounding_down` pins it. A fractional IT
-//! (IT1 at Ø≤3 is 0.8 µm) is halved as-is — it is already not a whole
-//! micrometre, so there is nothing to preserve.
+//! an **odd whole number of micrometres** ISO 286-1's note keeps both limits
+//! whole by using `±(ITn − 1)/2` — **for grades js7 to js11 only**. So
+//! `Ø25 js7 = ±10` (not ±10.5) because `IT7 = 21 µm`, while `Ø25 js6 = ±6.5`
+//! and `Ø25 js5 = ±4.5`, the half micrometres ISO 286-2 prints in its
+//! fine-grade JS columns. [`symmetric`] carries the reasoning for the scope
+//! and the one thing that would settle it; `js_symmetric_halves_an_odd_it_by_rounding_down`
+//! and `the_odd_it_replacement_is_scoped_to_js7_through_js11` pin both halves.
+//! A fractional IT (IT1 at Ø≤3 is 0.8 µm) is halved as-is at every grade — it
+//! is already not a whole micrometre, so there is nothing to preserve.
 //!
 //! Consequence worth stating: `js`/`JS` is the only class whose zone width is
-//! not exactly its IT grade. It is `IT − 1` for an odd whole IT, `IT`
-//! otherwise, and `zone_width_equals_the_it_grade` asserts that split.
+//! not exactly its IT grade. It is `IT − 1` for an odd whole IT **in
+//! js7..=js11**, `IT` otherwise, and `zone_width_equals_the_it_grade` asserts
+//! that split.
 
 /// Limit deviations from the nominal size, in **micrometres**.
 ///
@@ -249,9 +286,10 @@ const IT_TABLE_UM: [[f64; 18]; 13] = [
 ];
 
 /// Upper bounds in mm of the **fine** deviation size steps, used by `r` and
-/// `s`. A superset of [`IT_STEPS_MM`]: the eight extra boundaries (65, 100,
-/// 140, 160, 200, 225, 280, 355, 450) split IT steps that `r` and `s` do not
-/// hold constant across.
+/// `s`. A superset of [`IT_STEPS_MM`]: the nine extra boundaries (65, 100,
+/// 140, 160, 200, 225, 280, 355, 450) split seven IT steps that `r` and `s` do
+/// not hold constant across (50–80, 80–120, 120–180, 180–250, 250–315,
+/// 315–400 and 400–500).
 #[rustfmt::skip]
 const FINE_STEPS_MM: [f64; 22] = [
     3.0, 6.0, 10.0, 18.0, 30.0, 50.0, 65.0, 80.0, 100.0, 120.0, 140.0,
@@ -346,6 +384,10 @@ const J_WHY: &str = "ISO 286-1 tabulates j only for a few grades; this table car
 const DELTA_AT_IT1_WHY: &str =
     "the hole rule needs Δ = IT(n) − IT(n−1), and ISO 286-1 has no IT0 to subtract";
 
+/// Upper bound in mm of the first size step, which is the one whose Δ row is
+/// all zeros. See the module docs §"Δ is zero in the first size step".
+const FIRST_STEP_UPPER_MM: f64 = IT_STEPS_MM[0];
+
 // ---------------------------------------------------------------------------
 // Lookup
 // ---------------------------------------------------------------------------
@@ -391,14 +433,51 @@ fn normalize(letter: &str) -> String {
     letter.trim().to_ascii_lowercase()
 }
 
-/// The symmetric (`js` / `JS`) zone for an IT width.
+/// Grades over which the odd-IT replacement of [`symmetric`] applies —
+/// ISO 286-1's js note is scoped to **js7 to js11**, and this module applies
+/// it nowhere else. See [`symmetric`].
+const JS_ODD_REPLACEMENT_GRADES: std::ops::RangeInclusive<u8> = 7..=11;
+
+/// The symmetric (`js` / `JS`) zone for an IT width at `grade`.
 ///
-/// `±IT/2`, except that an odd whole number of micrometres is halved as
-/// `±(IT − 1)/2` so both limits stay whole µm — the standard's own note. See
-/// the module docs.
-fn symmetric(it_um: f64) -> Deviations {
+/// The class is `±IT/2` — that is its definition, and it needs no table.
+///
+/// **The one exception is grade-scoped, and that scope is load-bearing.**
+/// ISO 286-1's note on `js` replaces an ODD whole number of micrometres with
+/// the even number below it, so that `±(ITn − 1)/2` is a whole micrometre —
+/// and it states that for **js7 to js11** only. This module applies it over
+/// exactly that range: `Ø25 js7 = ±10` (not ±10.5), because IT7 at 18–30 mm
+/// is 21 µm.
+///
+/// Outside the range the general rule stands, half micrometres and all:
+/// `Ø25 js6 = ±6.5` (IT6 = 13 µm) and `Ø25 js5 = ±4.5` (IT5 = 9 µm), which is
+/// how ISO 286-2 prints its fine-grade JS columns. Two arguments say the
+/// restriction is real rather than editorial. The note's stated PURPOSE is to
+/// keep the printed limits whole, which is only a purpose where the table is
+/// printed whole. And the range would be pointless otherwise: odd IT values
+/// occur at IT5 and IT6 (9 and 13 µm at 18–30 mm), so a lower bound at js7
+/// only means anything if those are left alone — while the upper bound at
+/// js11 is there because IT12–IT18 have no odd value at any size step, so
+/// above it the rule would be vacuous. An unbounded rule would have been
+/// written "where ITn is odd", with no range at all.
+///
+/// **This scope is the one thing in this module resting on recollection of
+/// the note's wording rather than on a transcribed table** (found in the M1
+/// review, 2026-10-04: the rule had been applied at every grade, and the two
+/// `PUBLISHED_SHAFT` rows for Ø25 js5/js6 had been back-filled from the
+/// implementation, so the oracle agreed with the code by construction rather
+/// than by publication). Applying an exception OUTSIDE its stated range is
+/// the extrapolation this module refuses everywhere else, which is why the
+/// narrower reading wins on less evidence than the wider one needs. What
+/// would settle it beyond doubt is a transcription of ISO 286-2's JS5 and JS6
+/// columns; if they print whole micrometres at 18–30 mm, widen
+/// [`JS_ODD_REPLACEMENT_GRADES`] and say so here.
+///
+/// A fractional IT (IT1 at Ø≤3 is 0.8 µm) is halved as-is at every grade — it
+/// is already not a whole micrometre, so there is nothing to preserve.
+fn symmetric(it_um: f64, grade: u8) -> Deviations {
     let whole_and_odd = it_um.fract() == 0.0 && (it_um as i64) % 2 != 0;
-    let half = if whole_and_odd {
+    let half = if whole_and_odd && JS_ODD_REPLACEMENT_GRADES.contains(&grade) {
         (it_um - 1.0) / 2.0
     } else {
         it_um / 2.0
@@ -507,7 +586,7 @@ pub fn shaft_deviations(
     let it = it_grade_um(nominal_mm, grade)?;
     let key = normalize(letter);
     match key.as_str() {
-        "js" => Ok(symmetric(it)),
+        "js" => Ok(symmetric(it, grade)),
         "d" | "e" | "f" | "g" | "h" => {
             let es = shaft_es_um(nominal_mm, &key)?;
             Ok(Deviations {
@@ -551,7 +630,7 @@ pub fn hole_deviations(
     let it = it_grade_um(nominal_mm, grade)?;
     let key = normalize(letter);
     match key.as_str() {
-        "js" => Ok(symmetric(it)),
+        "js" => Ok(symmetric(it, grade)),
         // `H` is the mirror of `h` (es = 0), written out because EI = 0 exactly
         // is the definition of the basic hole and not something to compute.
         "h" => Ok(Deviations {
@@ -575,11 +654,17 @@ pub fn hole_deviations(
             // `k`'s zero-outside-IT4..IT7 carve-out is a shaft-side rule.
             let ei_letter = fundamental_ei_um(nominal_mm, &key)?;
             // Δ applies only up to IT8 for K M N and up to IT7 for P R S;
-            // above that the plain mirror rule stands.
-            let delta_applies = match key.as_str() {
-                "k" | "m" | "n" => grade <= 8,
-                _ => grade <= 7,
-            };
+            // above that the plain mirror rule stands. And the standard's Δ row
+            // for the first size step is all zeros, so inside `0 < D <= 3` the
+            // plain mirror stands at every grade — the `IT(n) − IT(n−1)`
+            // arithmetic does NOT yield that (it gives 4 µm at Ø2 IT7), so it
+            // has to be carved out. Eight published Ø2 classes settle it; see
+            // the module docs.
+            let delta_applies = nominal_mm > FIRST_STEP_UPPER_MM
+                && match key.as_str() {
+                    "k" | "m" | "n" => grade <= 8,
+                    _ => grade <= 7,
+                };
             let delta = if delta_applies {
                 if grade < 2 {
                     return Err(Iso286Error::NotTabulated {
@@ -669,9 +754,16 @@ mod tests {
         (25.0,  "j",  7,   13.0,   -8.0),
         (50.0,  "j",  6,   11.0,   -5.0),
         (100.0, "j",  7,   20.0,  -15.0),
-        // js — symmetric
-        (25.0,  "js", 5,    4.0,   -4.0),
-        (25.0,  "js", 6,    6.0,   -6.0),
+        // js — symmetric. Only js7 is an anchor here: it is the grade where
+        // ISO 286-1's odd-IT note applies, so ±10 against IT7's 21 µm is a
+        // published value that disagrees with the general rule and therefore
+        // tests something. js5 and js6 USED to sit here as ±4 and ±6, but
+        // those were the module's own output copied into the oracle (M1
+        // review, 2026-10-04) — the note is scoped to js7..=js11 and below it
+        // the general ±IT/2 stands, giving ±4.5 and ±6.5. They are asserted
+        // now by `the_odd_it_replacement_is_scoped_to_js7_through_js11`,
+        // which states its provenance as the general rule rather than
+        // claiming a published row.
         (25.0,  "js", 7,   10.0,  -10.0),
         // k m n p — the ei-tabulated interference letters, coarse steps
         (25.0,  "k",  6,   15.0,    2.0),
@@ -745,6 +837,21 @@ mod tests {
         // IT9 — above both Δ limits, so the plain mirror
         (25.0,  "N",  9,  -15.0,  -67.0),
         (25.0,  "P",  9,  -22.0,  -74.0),
+        // The FIRST size step, where the standard's Δ row is all zeros, so
+        // every one of these is the plain mirror even at a grade where Δ would
+        // otherwise apply. Without the carve-out each is wrong by its own Δ:
+        // K7 would be +4/−6, N7 would be 0/−10, S7 would be −10/−20.
+        (2.0,   "K",  7,    0.0,  -10.0),
+        (2.0,   "K",  8,    0.0,  -14.0),
+        (2.0,   "M",  7,   -2.0,  -12.0),
+        (2.0,   "N",  7,   -4.0,  -14.0),
+        (2.0,   "P",  6,   -6.0,  -12.0),
+        (2.0,   "P",  7,   -6.0,  -16.0),
+        (2.0,   "R",  7,  -10.0,  -20.0),
+        (2.0,   "S",  7,  -14.0,  -24.0),
+        // …and the same at the step's upper boundary, which belongs to it.
+        (3.0,   "M",  6,   -2.0,   -8.0),
+        (3.0,   "N",  6,   -4.0,  -10.0),
     ];
 
     #[test]
@@ -837,9 +944,15 @@ mod tests {
         for (kind, letter, grade, nominal, dev, it) in accepted_combinations() {
             let width = dev.upper_um - dev.lower_um;
             let expected = if letter.eq_ignore_ascii_case("js") {
-                // The one documented exception: an odd whole IT is halved
-                // downwards so both limits stay whole µm, costing 1 µm of zone.
-                if it.fract() == 0.0 && (it as i64) % 2 != 0 {
+                // The one documented exception, and it is GRADE-SCOPED: an odd
+                // whole IT is halved downwards so both limits stay whole µm,
+                // costing 1 µm of zone — for js7..=js11 only (see
+                // `symmetric`). Below js7 the general ±IT/2 stands and the
+                // zone is exactly IT, half micrometres and all.
+                if it.fract() == 0.0
+                    && (it as i64) % 2 != 0
+                    && JS_ODD_REPLACEMENT_GRADES.contains(&grade)
+                {
                     it - 1.0
                 } else {
                     it
@@ -890,6 +1003,49 @@ mod tests {
             }
         }
         assert!(checked > 1_000, "only {checked} mirror pairs checked");
+    }
+
+    #[test]
+    fn the_first_size_step_has_no_delta_so_its_holes_are_plain_mirrors() {
+        // The Δ row for `0 < D <= 3` is all zeros, so EVERY Δ-bearing hole
+        // letter there is the exact mirror of its shaft, at every grade —
+        // including the grades where Δ otherwise applies, and including IT1,
+        // which needs no IT(n−1) once Δ is zero. The `PUBLISHED_HOLE` rows at
+        // Ø2/Ø3 are the independent anchors; this is the mechanism across the
+        // whole step.
+        let mut checked = 0usize;
+        for nominal in [0.5, 1.0, 2.0, 3.0] {
+            for grade in 1..=18u8 {
+                for letter in ["k", "m", "n", "p", "r", "s"] {
+                    let hole = hole_deviations(nominal, letter, grade)
+                        .unwrap_or_else(|e| panic!("Ø{nominal} {letter}{grade} refused: {e}"));
+                    // The mirror is taken against the LETTER's tabulated `ei`,
+                    // not the shaft's, so `k`'s grade carve-out does not enter.
+                    let ei = fundamental_ei_um(nominal, letter).unwrap();
+                    let it = it_grade_um(nominal, grade).unwrap();
+                    assert!(
+                        close(hole.upper_um, -ei) && close(hole.lower_um, -ei - it),
+                        "Ø{nominal} {letter}{grade}: got {:+}/{:+}, the mirror is {:+}/{:+}",
+                        hole.upper_um,
+                        hole.lower_um,
+                        -ei,
+                        -ei - it
+                    );
+                    checked += 1;
+                }
+            }
+        }
+        assert!(checked == 4 * 18 * 6, "only {checked} rows checked");
+
+        // And the step BOUNDARY is where it stops: Ø3.0001 is the next step,
+        // whose Δ is live, so K7 there is NOT the mirror.
+        let past = hole_deviations(3.0001, "K", 7).unwrap();
+        let ei = fundamental_ei_um(3.0001, "k").unwrap();
+        assert!(
+            !close(past.upper_um, -ei),
+            "Ø3.0001 K7 = {:+} is still the mirror, so the carve-out leaked past the step",
+            past.upper_um
+        );
     }
 
     #[test]
@@ -1146,6 +1302,83 @@ mod tests {
         assert_eq!(shaft_deviations(25.0, "JS", 7).unwrap(), js);
         assert_eq!(hole_deviations(25.0, "js", 7).unwrap(), js);
         assert_eq!(hole_deviations(25.0, "JS", 7).unwrap(), js);
+    }
+
+    /// The odd-IT replacement applies over js7..=js11 and NOWHERE ELSE.
+    ///
+    /// Found in the M1 review (2026-10-04): the rule had been applied at every
+    /// grade, so `Ø25 js5` came out ±4 and `js6` ±6, and the two
+    /// `PUBLISHED_SHAFT` rows that agreed were the module's own output copied
+    /// into the oracle — the one way an anchor table can confirm a defect.
+    /// ISO 286-1's note is scoped to js7–js11, and below it the class's
+    /// DEFINITION (`±IT/2`) stands with no rounding, which is how ISO 286-2
+    /// prints its fine-grade JS columns.
+    ///
+    /// The provenance of the numbers below is stated rather than implied:
+    /// every one is `±IT/2` read off this module's own IT table, so this test
+    /// pins the SCOPE of an exception, not a published row. `symmetric`'s doc
+    /// comment says what would settle the scope beyond recollection.
+    #[test]
+    fn the_odd_it_replacement_is_scoped_to_js7_through_js11() {
+        // Ø25 is the 18–30 mm step. IT5 = 9 µm and IT6 = 13 µm are both ODD,
+        // so this is exactly where an unscoped rule and a scoped one differ.
+        for (grade, it) in [(5u8, 9.0), (6, 13.0)] {
+            assert_eq!(
+                it_grade_um(25.0, grade).unwrap(),
+                it,
+                "the premise: IT{grade} at Ø25 is an odd whole µm"
+            );
+            let half = it / 2.0;
+            assert_eq!(
+                shaft_deviations(25.0, "js", grade).unwrap(),
+                Deviations {
+                    upper_um: half,
+                    lower_um: -half
+                },
+                "js{grade} is the general ±IT/2 = ±{half}, NOT the js7 note's ±{}",
+                (it - 1.0) / 2.0
+            );
+            // And the hole side, which reads the same function.
+            assert_eq!(
+                hole_deviations(25.0, "JS", grade).unwrap(),
+                shaft_deviations(25.0, "js", grade).unwrap()
+            );
+        }
+
+        // The boundary from both sides, at a size step where every grade in
+        // the range has an odd IT to replace. Inside the range the zone is
+        // 1 µm narrow; outside it the zone is exactly IT.
+        for grade in 1u8..=18 {
+            let it = it_grade_um(25.0, grade).unwrap();
+            let dev = shaft_deviations(25.0, "js", grade).unwrap();
+            let width = dev.upper_um - dev.lower_um;
+            let replaced = it.fract() == 0.0 && (it as i64) % 2 != 0;
+            if replaced && (7..=11).contains(&grade) {
+                assert!(
+                    close(width, it - 1.0),
+                    "js{grade} (IT = {it}) is in the note's range, so its zone is IT − 1; got {width}"
+                );
+            } else {
+                assert!(
+                    close(width, it),
+                    "js{grade} (IT = {it}) is outside the note's range, so its zone is IT; got {width}"
+                );
+            }
+        }
+
+        // The upper bound costs nothing, which is why it is safe: no size step
+        // has an odd IT above IT11, so widening or narrowing the range there
+        // could not change an answer. Measured rather than asserted.
+        for &nominal in &[1.0, 25.0, 100.0, 400.0] {
+            for grade in 12u8..=18 {
+                let it = it_grade_um(nominal, grade).unwrap();
+                assert!(
+                    it.fract() != 0.0 || (it as i64) % 2 == 0,
+                    "Ø{nominal} IT{grade} = {it} µm is an odd whole µm above IT11, which this \
+                     reasoning says does not happen — the js range's upper bound now matters"
+                );
+            }
+        }
     }
 
     #[test]
