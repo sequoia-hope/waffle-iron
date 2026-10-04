@@ -378,6 +378,15 @@ run_rust_fast() {
   # moved here from the deleted legacy crates/kernel at the Phase 6 migration)
   run_cargo_test waffle-types --features mock-kernel
 
+  # The ANNOTATION schema goldens, behind the off-by-default `json-schema`
+  # feature. Its own feature, so the `mock-kernel` run above reaches none of
+  # it: the M1 review (2026-10-04) found that no tier and no CI job passed
+  # `--features json-schema` to this crate, so all four tests in the binary
+  # — including the structural guard that a document-model `Tolerance` or
+  # `FitClass` stays unreachable from `ViewLayout`'s schema — reported
+  # "running 0 tests" everywhere and both goldens could go stale unnoticed.
+  run_cargo_test waffle-types --features json-schema --test annotation_schema_golden
+
   # test-harness fast binaries
   for binary in "${TEST_HARNESS_FAST_BINS[@]}"; do
     run_cargo_test_binary test-harness "$binary"
@@ -439,6 +448,10 @@ run_rust_full() {
 
   # waffle-types with the MockKernel feature (kernel contract + test double)
   run_cargo_test waffle-types --features mock-kernel
+
+  # The annotation schema goldens — see the fast tier for why this needs
+  # its own `--features json-schema` run.
+  run_cargo_test waffle-types --features json-schema --test annotation_schema_golden
 
   # All crates except wasm-bridge (run with default features).
   #

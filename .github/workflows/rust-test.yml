@@ -126,6 +126,17 @@ jobs:
       - name: .waffle JSON Schema golden
         run: cargo test -p file-format --features json-schema --test schema_golden
 
+      # The ANNOTATION schema goldens (docs/schema/annotation.schema.json and
+      # annotation-layout.schema.json), behind the same off-by-default feature
+      # in a different crate — so the step above does not reach them. Added
+      # 2026-10-04 in the M1 review, which found that NO tier and NO CI job
+      # passed `--features json-schema` to waffle-types: all four tests in
+      # that binary, including the structural guard that a document-model
+      # `Tolerance` or `FitClass` stays unreachable from `ViewLayout`'s
+      # schema, were silently reporting "running 0 tests" everywhere.
+      - name: Annotation JSON Schema goldens
+        run: cargo test -p waffle-types --features json-schema --test annotation_schema_golden
+
       # RELEASE, matching `scripts/test.sh` (corpus replay is release-only
       # policy, docs/TESTING.md): the gate replays 100 pinned corpus cases
       # sequentially, and unoptimized they burn ~4.5× the CPU. In debug the
