@@ -4928,6 +4928,11 @@ export async function applyExtrude(depth, profileIndex, cut = false, opts = {}) 
 		// Optional driving expression for the depth (mm-space; see the
 		// engine's design-parameter docs). null = plain numeric depth.
 		depthExpr = null,
+		// Same for the SECOND Blind depth (P3). Sent on the variant rather
+		// than beside it, because that is where the sidecar lives — and
+		// omitting it here used to DROP an agent-set expression the first
+		// time a user touched the dialog.
+		secondDepthExpr = null,
 		// New-style optional-boolean combine (N-mb-*). `combine` is one of
 		// 'NewBody' | 'Add' | 'Cut' | 'Intersect' (or null = legacy). `targets` is
 		// an array of body GeomRefs, [] to force a new body, or null = Auto
@@ -4945,7 +4950,7 @@ export async function applyExtrude(depth, profileIndex, cut = false, opts = {}) 
 
 	let second_direction = null;
 	if (secondDir === 'Symmetric') second_direction = { type: 'Symmetric' };
-	else if (secondDir === 'Blind') second_direction = { type: 'Blind', depth: secondDepth };
+	else if (secondDir === 'Blind') second_direction = { type: 'Blind', depth: secondDepth, depth_expr: secondDepthExpr };
 	else if (secondDir === 'ThroughAll') second_direction = { type: 'ThroughAll' };
 
 	// When flipDirection is true, send an explicit direction to override the engine default.
