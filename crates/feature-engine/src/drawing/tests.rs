@@ -1674,3 +1674,111 @@ fn the_d4b_additions_round_trip_through_serde_and_cost_an_untouched_sheet_nothin
     assert_eq!(back.sheets[0].title_block.fields.len(), 6);
     assert!(back.sheets[0].title_block_cache.is_none());
 }
+
+// ──────────────────────────── D4c review: the hatch wrapper's two conversions
+
+/// A square cap loop in the view's own `(u, v)`, in METERS — the units a
+/// `HatchLoop` carries. 20 mm on a side, which at any of the scales below is
+/// several hatch lines wide.
+fn square_cap_mm(side_mm: f64) -> Vec<HatchLoop> {
+    let s = side_mm / 1000.0;
+    vec![HatchLoop {
+        curves: vec![waffle_types::annotation::layout::LayoutCurve::Polyline {
+            points: vec![[0.0, 0.0], [s, 0.0], [s, s], [0.0, s]],
+            closed: true,
+        }],
+        hole: false,
+        exact: true,
+    }]
+}
+
+/// The perpendicular distances between neighbouring hatch lines, in PAPER
+/// millimetres at `scale` — which is what a reader measures with a rule.
+///
+/// Each line is `u·sin θ − v·cos θ = c` for the one `θ` the fill used, so the
+/// offset `c` identifies the line and the gap between neighbouring `c`s is the
+/// perpendicular spacing. Taken from the segment MIDPOINTS projected on the
+/// normal, so a line's length plays no part.
+fn line_pitches_mm(segments: &[[[f64; 2]; 2]], scale: f64) -> Vec<f64> {
+    assert!(segments.len() >= 3, "need several lines: {segments:?}");
+    let d = [
+        segments[0][1][0] - segments[0][0][0],
+        segments[0][1][1] - segments[0][0][1],
+    ];
+    let len = (d[0] * d[0] + d[1] * d[1]).sqrt();
+    let n = [-d[1] / len, d[0] / len];
+    let mut offsets: Vec<f64> = segments
+        .iter()
+        .map(|s| {
+            let mid = [0.5 * (s[0][0] + s[1][0]), 0.5 * (s[0][1] + s[1][1])];
+            (mid[0] * n[0] + mid[1] * n[1]) * 1000.0 * scale
+        })
+        .collect();
+    offsets.sort_by(f64::total_cmp);
+    offsets
+        .windows(2)
+        .map(|w| (w[1] - w[0]).abs())
+        .filter(|g| *g > 1e-9)
+        .collect()
+}
+
+#[test]
+fn a_views_hatch_is_three_millimetres_of_paper_at_every_scale() {
+    // The wrapper's first conversion, and the one no fixture reached because
+    // every hatched fixture runs at 1:1, where dividing by the scale is a
+    // no-op. A fixed MODEL spacing would print a detail view's hatch at twice
+    // the pitch of the view it was cropped from; what the division buys is
+    // that a reader's rule measures 3 mm on every view of the sheet.
+    let cap = square_cap_mm(20.0);
+    for scale in [0.5, 1.0, 2.0, 5.0] {
+        let mut warnings = Vec::new();
+        let segments = hatch_fill(&cap, scale, &mut warnings);
+        assert!(warnings.is_empty(), "scale {scale}: {warnings:?}");
+        for pitch in line_pitches_mm(&segments, scale) {
+            assert!(
+                (pitch - waffle_types::annotation::hatch::HATCH_SPACING_MM).abs() < 1e-9,
+                "at scale {scale} the lines are {pitch} mm of paper apart, not 3"
+            );
+        }
+    }
+}
+
+#[test]
+fn a_views_hatch_leans_the_way_the_paper_does_because_the_wrapper_negates() {
+    // The wrapper's second conversion. `HATCH_ANGLE_DEG` is measured on the
+    // PAPER, whose `y` runs down; a view's `v` runs up, and the renderer maps
+    // `paper_y = −v · scale · 1000`. So a segment that leans right-and-DOWN on
+    // paper — the lean D4b shipped — must lean right-and-UP in `v`, i.e. `Δu`
+    // and `Δv` carry the SAME sign once `Δv` is read through that flip.
+    //
+    // Concretely: in the view's own frame the direction is
+    // `(cos(−45°), sin(−45°))`, so `Δu > 0` and `Δv < 0`; through the flip
+    // that is `Δu > 0` and `Δpaper_y > 0`, which is right-and-down. Dropping
+    // the negation would send every hatch line the other way, and nothing
+    // measured it.
+    let mut warnings = Vec::new();
+    let segments = hatch_fill(&square_cap_mm(20.0), 1.0, &mut warnings);
+    assert!(warnings.is_empty(), "{warnings:?}");
+    assert!(segments.len() >= 3, "{segments:?}");
+    for s in &segments {
+        // Read each segment left to right, as a renderer draws it.
+        let (a, b) = if s[0][0] <= s[1][0] {
+            (s[0], s[1])
+        } else {
+            (s[1], s[0])
+        };
+        let du = b[0] - a[0];
+        let dv = b[1] - a[1];
+        assert!(du > 0.0, "a degenerate hatch line: {s:?}");
+        assert!(
+            dv < 0.0,
+            "the hatch leans right-and-up in v ({du}, {dv}), which draws \
+             right-and-UP on paper — the negation in `hatch_fill` is gone"
+        );
+        // 45°, so the two components match in magnitude.
+        assert!(
+            (du + dv).abs() < 1e-9 * du,
+            "the lean is not 45°: ({du}, {dv})"
+        );
+    }
+}

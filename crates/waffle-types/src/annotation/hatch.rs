@@ -218,6 +218,34 @@ pub fn hatch_segments(loops: &[HatchLoop], params: &HatchParams) -> HatchFill {
             out.segments.push([back([pair[0], y]), back([pair[1], y])]);
         }
     }
+    // The last of this module's "a cap that came back unhatched should say
+    // why". Every refusal above names itself, but two paths reached here
+    // quietly: a ring of three or more distinct points enclosing NO AREA (a
+    // collinear boundary), which yields crossings that never pair into a span,
+    // and a grid that stepped over the cap entirely because no multiple of the
+    // spacing fell between its extremes. Both answer "no hatch" with nothing
+    // said, and a section view whose cap is unhatched for an unnamed reason
+    // reads as a cap nobody sectioned.
+    //
+    // A warning rather than an error: an unhatched cap is a drawing a reader
+    // can still use, and the third case this catches — a cap genuinely
+    // narrower than the hatch pitch — is a legitimate drawing and not a
+    // defect. What it must not be is unexplained.
+    if out.segments.is_empty() && out.warnings.is_empty() {
+        out.warnings.push(if lines == 0 {
+            format!(
+                "no hatch line fell inside the cap: its extent across the hatch direction is \
+                 {:.3e}, narrower than the {:.3e} spacing",
+                max_y - min_y,
+                params.spacing
+            )
+        } else {
+            format!(
+                "{lines} hatch lines crossed the cap and none found an interior span; the \
+                 boundary encloses no area"
+            )
+        });
+    }
     out
 }
 

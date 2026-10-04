@@ -213,3 +213,106 @@ fn degenerate_inputs_are_named_rather_than_drawn_or_hung_on() {
     assert!(fill.segments.is_empty());
     assert_eq!(fill.warnings.len(), 1, "{:?}", fill.warnings);
 }
+
+#[test]
+fn a_cap_that_came_back_unhatched_says_why_even_when_nothing_was_malformed() {
+    // The module's own contract: "a cap that came back unhatched should say
+    // why". Two paths used to reach the end QUIETLY — zero segments, zero
+    // warnings — and a section view whose cap is unhatched for an unnamed
+    // reason reads as a cap nobody sectioned.
+
+    // (a) A boundary of three DISTINCT points enclosing no area. It passes the
+    // `>= 3` ring test, so none of the earlier refusals fires; its crossings
+    // never pair into a span.
+    let collinear = ring(&[[0.0, 0.0], [5.0, 0.0], [10.0, 0.0]]);
+    let fill = hatch_segments(std::slice::from_ref(&collinear), &params(2.0, 0.0));
+    assert!(fill.segments.is_empty(), "{:?}", fill.segments);
+    assert_eq!(fill.warnings.len(), 1, "{:?}", fill.warnings);
+    assert!(
+        fill.warnings[0].contains("encloses no area"),
+        "{:?}",
+        fill.warnings
+    );
+
+    // (b) A cap narrower than the hatch pitch, with no grid multiple between
+    // its extremes. A legitimate drawing — a thin web sections to a cap thinner
+    // than 3 mm of paper — so it is a WARNING and not an error; what it must
+    // not be is unexplained, because the reader of the sheet sees a blank cap.
+    let sliver = ring(&[[0.0, 10.1], [10.0, 10.1], [10.0, 11.4], [0.0, 11.4]]);
+    let fill = hatch_segments(std::slice::from_ref(&sliver), &params(2.0, 0.0));
+    assert!(fill.segments.is_empty(), "{:?}", fill.segments);
+    assert_eq!(fill.warnings.len(), 1, "{:?}", fill.warnings);
+    assert!(
+        fill.warnings[0].contains("narrower than"),
+        "{:?}",
+        fill.warnings
+    );
+
+    // And the rule does not fire on a cap that DID hatch: a warning on every
+    // ordinary section would be noise nobody reads.
+    let square = ring(&[[0.0, 0.0], [10.0, 0.0], [10.0, 10.0], [0.0, 10.0]]);
+    let fill = hatch_segments(std::slice::from_ref(&square), &params(2.0, 45.0));
+    assert!(!fill.segments.is_empty());
+    assert!(fill.warnings.is_empty(), "{:?}", fill.warnings);
+}
+
+#[test]
+fn a_holed_circular_cap_hatched_at_forty_five_degrees_leaves_its_bore_clear() {
+    // The PRODUCTION configuration, which no other test here assembles: the
+    // real angle (45°), a CURVED boundary (so `Curve2::flatten` is in the
+    // path), and a HOLE (so even-odd has to work on a chord polygon rather
+    // than on exact vertices). The existing tests take these one at a time —
+    // the hole case is an axis-aligned square at 0°, the circular case has no
+    // hole — and a bore that filled in would be the most visible wrong thing
+    // this module can produce.
+    let disc = |radius: f64, hole: bool| HatchLoop {
+        curves: vec![LayoutCurve::Circle {
+            center: [0.0, 0.0],
+            radius,
+            start_angle: 0.0,
+            end_angle: std::f64::consts::TAU,
+        }],
+        hole,
+        exact: true,
+    };
+    let fill = hatch_segments(&[disc(10.0, false), disc(4.0, true)], &params(1.0, 45.0));
+    assert!(fill.warnings.is_empty(), "{:?}", fill.warnings);
+    assert!(!fill.segments.is_empty());
+
+    // Nothing drawn crosses the bore. Checked along each segment rather than at
+    // its ends, because a span that bridged the hole would have both ends in
+    // the annulus — which is exactly how a hole comes to be filled in.
+    for s in &fill.segments {
+        for i in 0..=40 {
+            let t = i as f64 / 40.0;
+            let p = [
+                s[0][0] + t * (s[1][0] - s[0][0]),
+                s[0][1] + t * (s[1][1] - s[0][1]),
+            ];
+            let r = (p[0] * p[0] + p[1] * p[1]).sqrt();
+            assert!(
+                r > 4.0 - 0.01,
+                "a hatch line reaches r = {r}, inside the 4-radius bore"
+            );
+            assert!(r < 10.0 + 0.01, "a hatch line reaches r = {r}, outside the cap");
+        }
+    }
+    // And the bore really is bridged by the SCANLINE, so the clearance above is
+    // the fill rule working and not an artefact of no line reaching the middle:
+    // the rows through the bore come back as TWO spans, one per side.
+    let through_middle = fill
+        .segments
+        .iter()
+        .filter(|s| {
+            // The scanline's own coordinate is `−x sin θ + y cos θ`; a row
+            // through the centre has it near zero.
+            let (c, s_) = (45.0_f64.to_radians().cos(), 45.0_f64.to_radians().sin());
+            (-s[0][0] * s_ + s[0][1] * c).abs() < 0.5
+        })
+        .count();
+    assert!(
+        through_middle >= 2,
+        "a scanline through the bore must be two spans, got {through_middle}: {:?}",
+        fill.segments
+    );
+}
