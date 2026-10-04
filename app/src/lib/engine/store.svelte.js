@@ -5290,6 +5290,9 @@ export async function applyRevolve(angleDeg, axisOrigin, axisDir, profileIndex, 
 			axis_direction: axisDir,
 			angle: angleDeg,
 			angle_expr: angleExpr,
+			// P3 gave `axis_origin` a per-component expression sidecar, and this
+			// dialog has no input for it: it shows the axis as a PICK, so an
+			// apply that did not re-pick must not drop a driver it cannot show.
 			combine: combineObj,
 			targets
 		}
@@ -6684,6 +6687,25 @@ export async function setParameters(parameters, renames = []) {
  */
 export function getDocumentParameters() {
 	return sessionDocument?.parameters ?? [];
+}
+
+/**
+ * Read both parameter tables for their REACTIVITY alone, so a dialog's
+ * live-evaluation `$effect` depends on the tables its expression is evaluated
+ * against.
+ *
+ * Every expression hint used to depend on the typed TEXT only, which is stale
+ * in the two cases that matter: re-opening a feature for edit re-seeds the
+ * same expression text, so the effect did not re-run and the hint showed the
+ * value from before the variable moved (measured: `back * 2` over `back = 11`
+ * still read "= 14 mm"); and a variable edited while a dialog is open left its
+ * hint behind. Six hints across four dialogs each had their own copy of that
+ * effect, so each needed the dependency — hence one call rather than six
+ * copies of this comment.
+ * @returns {number} meaningless; the READ is the point
+ */
+export function touchParameterTables() {
+	return (getParameters()?.length ?? 0) + (getDocumentParameters()?.length ?? 0);
 }
 
 /**

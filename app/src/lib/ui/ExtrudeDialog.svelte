@@ -17,7 +17,8 @@
 		setExtrudeTargetIds,
 		toggleExtrudeTargetId,
 		clearExtrudeTargets,
-		evaluateExpression
+		evaluateExpression,
+		touchParameterTables
 	} from '$lib/engine/store.svelte.js';
 	import { untrack } from 'svelte';
 	import { showToast } from '$lib/ui/toast.svelte.js';
@@ -136,6 +137,9 @@
 	let depthEvalToken = 0;
 	$effect(() => {
 		const text = depthInput.trim();
+		// Depend on the parameter tables, not only on the text: see
+		// `touchParameterTables`.
+		touchParameterTables();
 		if (!depthIsExpr) {
 			depthEval = { value: null, error: null };
 			return;
@@ -163,6 +167,7 @@
 	let secondDepthEvalToken = 0;
 	$effect(() => {
 		const text = secondDepthInput.trim();
+		touchParameterTables();
 		if (!secondDepthIsExpr) {
 			secondDepthEval = { value: null, error: null };
 			return;

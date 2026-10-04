@@ -13,6 +13,7 @@
 		toggleExtrudeTargetId,
 		clearExtrudeTargets,
 		evaluateExpression,
+		touchParameterTables,
 		getDocumentDisplayUnit
 	} from '$lib/engine/store.svelte.js';
 	import { showToast } from '$lib/ui/toast.svelte.js';
@@ -39,6 +40,8 @@
 	let wallEvalToken = 0;
 	$effect(() => {
 		const text = radiusInput.trim();
+		// See `touchParameterTables`.
+		touchParameterTables();
 		if (!radiusIsExpr) {
 			radiusEval = { value: null, error: null };
 			return;
@@ -50,6 +53,7 @@
 	});
 	$effect(() => {
 		const text = wallInput.trim();
+		touchParameterTables();
 		if (!wallIsExpr) {
 			wallEval = { value: null, error: null };
 			return;
