@@ -28,7 +28,13 @@
 import { test, expect } from './helpers/waffle-test.js';
 import { collectCrashErrors, expectNoAnyCrash } from './helpers/state.js';
 import { clickTool } from './helpers/toolbar.js';
-import { anchorScreenPoints, plateAndDrawing, wallPair } from './helpers/drawing.js';
+import {
+	anchorScreenPoints,
+	authoredAnnotations,
+	plateAndDrawing,
+	waitForAnnotationCount,
+	wallPair
+} from './helpers/drawing.js';
 
 let crashes = null;
 test.beforeEach(({ waffle }) => {
@@ -148,5 +154,72 @@ test.describe('The pick radius is a paper distance (D4d)', () => {
 		// And the pid is the same entity in both: the view was re-scaled, not
 		// re-projected onto different geometry.
 		expect(half.pid).toBe(full.pid);
+	});
+
+	test('a window resize BETWEEN the two picks does not move the anchors', async ({ waffle }) => {
+		const page = waffle.page;
+		await waffle.waitForReady();
+		const { viewId } = await plateAndDrawing(page);
+		await page.setViewportSize({ width: 1600, height: 760 });
+
+		const wide = await anchorScreenPoints(page, viewId);
+		const pairWide = wallPair(wide);
+		expect(pairWide, 'the view offers a wall pair at the wide size').toBeTruthy();
+
+		await clickTool(page, 'dim-distance');
+		// First pick at the wide size.
+		await page.mouse.move(pairWide[0].x, pairWide[0].y);
+		await page.mouse.down();
+		await page.mouse.up();
+		await expect(page.getByTestId('toolbar')).toHaveAttribute('data-sheet-picks', '1');
+
+		// The paper is re-scaled under a half-finished pick. Every screen
+		// position the flow has yet to use is now somewhere else, which is why
+		// the hit test reads its transform from the DOM on every event rather
+		// than caching one: a cached CTM would bind the second anchor to
+		// whatever entity now sits where the old pixels pointed.
+		await page.setViewportSize({ width: 900, height: 760 });
+		const narrow = await anchorScreenPoints(page, viewId);
+		expect(narrow.pxPerMm, 'the resize really did change the zoom').toBeLessThan(
+			wide.pxPerMm - 0.05
+		);
+		const second = narrow.anchors.find((a) => a.pid === pairWide[1].pid);
+		expect(second, 'the second wall is still in the anchor list').toBeTruthy();
+
+		await page.mouse.move(second.x, second.y);
+		await page.mouse.down();
+		await page.mouse.up();
+		await expect(page.getByTestId('toolbar')).toHaveAttribute('data-sheet-picks', '2');
+		await page.mouse.move(second.x, second.y - 10 * narrow.pxPerMm);
+		await page.mouse.down();
+		await page.mouse.up();
+
+		await waitForAnnotationCount(page, viewId, 1);
+		const named = (await authoredAnnotations(page, viewId))[0].anchors.map((r) => r.selector?.pid);
+		expect(new Set(named)).toEqual(new Set([pairWide[0].pid, pairWide[1].pid]));
+	});
+});
+
+/**
+ * The same property at a device scale factor of 2.
+ *
+ * `getScreenCTM()` maps user units to CSS pixels, not to device pixels, so a
+ * retina display must change nothing here — and the whole conversion going
+ * through that one matrix is what makes that true for free. Pinned because
+ * the plausible wrong version (multiplying by `devicePixelRatio` anywhere on
+ * the path) passes every other test in this file.
+ */
+test.describe('The pick radius at devicePixelRatio 2 (D4d)', () => {
+	test.use({ deviceScaleFactor: 2 });
+
+	test('2 mm of paper is still 2 mm of paper', async ({ waffle }) => {
+		const page = waffle.page;
+		await waffle.waitForReady();
+		expect(await page.evaluate(() => window.devicePixelRatio)).toBe(2);
+		const { viewId } = await plateAndDrawing(page);
+		await clickTool(page, 'dim-distance');
+		const r = await probe(page, viewId);
+		expect(r.inside, '1.4 mm of paper away is inside the radius').toBe(r.pid);
+		expect(r.outside, '2.6 mm of paper away is outside it').toBeNull();
 	});
 });

@@ -19,9 +19,12 @@ import {
 	PLATE_D_MM,
 	PLATE_W_MM,
 	addView,
+	anchorPids,
 	anchorScreenPoints,
 	authoredAnnotations,
 	clickAt,
+	crossWallPair,
+	dimensionPair,
 	plateAndDrawing,
 	waitForAnnotationCount,
 	wallPair
@@ -363,6 +366,165 @@ test.describe('Dimensioning on the sheet (D4d)', () => {
 		// differently. That is the only kind of change this panel can make.
 		expect(printedAfter[0].split('.')[1]).toHaveLength(3);
 		expect(Number(printedAfter[0])).toBeCloseTo(Number(printedBefore[0]), 2);
+	});
+
+	test('a redo deletes what the delete deleted, on a view with TWO dimensions', async ({
+		waffle
+	}) => {
+		const page = waffle.page;
+		await waffle.waitForReady();
+		const { viewId } = await plateAndDrawing(page);
+		const points = await anchorScreenPoints(page, viewId);
+		const across = wallPair(points);
+		const along = crossWallPair(points);
+		expect(across, 'the top view offers an opposite wall pair').toBeTruthy();
+		expect(along, 'the top view offers the other wall pair').toBeTruthy();
+
+		await dimensionPair(page, viewId, points, across, { y: -10 });
+		await waitForAnnotationCount(page, viewId, 1);
+		await dimensionPair(page, viewId, points, along, { x: 12, y: 0 });
+		await waitForAnnotationCount(page, viewId, 2);
+
+		const both = await authoredAnnotations(page, viewId);
+		const first = anchorPids(both[0]);
+		const second = anchorPids(both[1]);
+		expect(first, 'the two dimensions name different entities').not.toEqual(second);
+
+		// Delete the FIRST, undo, redo. This is the property an inverse built
+		// out of `DrawingEdit` cannot have: `AddAnnotation` only appends, so
+		// the undo puts the restored dimension LAST, and a recorded forward
+		// step that deletes "index 0" then deletes the OTHER dimension. It
+		// was measured doing exactly that before the drawing's history moved
+		// into the engine as whole-drawing snapshots
+		// (`DocumentSession::drawing_histories`).
+		await clickTool(page, 'select');
+		await page.evaluate((v) => window.__waffle.setSheetSelection({ viewId: v, index: 0 }), viewId);
+		await page.keyboard.press('Delete');
+		await waitForAnnotationCount(page, viewId, 1);
+		expect(anchorPids((await authoredAnnotations(page, viewId))[0])).toEqual(second);
+
+		await page.keyboard.press('Control+z');
+		await waitForAnnotationCount(page, viewId, 2);
+		// The undo restores the ORDER too, not just the count: a snapshot has
+		// no index in it, so there is nothing to shift.
+		const back = await authoredAnnotations(page, viewId);
+		expect(anchorPids(back[0])).toEqual(first);
+		expect(anchorPids(back[1])).toEqual(second);
+
+		await page.keyboard.press('Control+Shift+z');
+		await waitForAnnotationCount(page, viewId, 1);
+		const survivor = await authoredAnnotations(page, viewId);
+		expect(
+			anchorPids(survivor[0]),
+			'the redo must delete the dimension the delete deleted'
+		).toEqual(second);
+	});
+
+	test('one Ctrl+Z undoes a placement drag, which the engine takes as one step', async ({
+		waffle
+	}) => {
+		const page = waffle.page;
+		await waffle.waitForReady();
+		const { viewId } = await plateAndDrawing(page);
+		const points = await anchorScreenPoints(page, viewId);
+		const across = wallPair(points);
+		const along = crossWallPair(points);
+		await dimensionPair(page, viewId, points, across, { y: -10 });
+		await waitForAnnotationCount(page, viewId, 1);
+		await dimensionPair(page, viewId, points, along, { x: 12, y: 0 });
+		await waitForAnnotationCount(page, viewId, 2);
+		const before = await authoredAnnotations(page, viewId);
+		const pidsBefore = before.map(anchorPids).sort();
+		const placedBefore = before.map((a) => a.placement?.dy ?? 0).sort();
+
+		// The first dimension's line is the HORIZONTAL one (its two walls
+		// share a `v`); the second's is vertical. Grab it by that, which is
+		// how a drafter tells them apart as well.
+		const line = await page.evaluate(() => {
+			const els = Array.from(
+				document.querySelectorAll(
+					'[data-testid="drawing-sheet"] svg.wi-sheet line.wi-dim-dimension'
+				)
+			).map((el) => el.getBoundingClientRect());
+			const r = els.find((b) => b.width > b.height);
+			return r ? { x: r.x + r.width / 2, y: r.y + r.height / 2 } : null;
+		});
+		expect(line, 'the first dimension drew a horizontal line to grab').toBeTruthy();
+
+		// A move is a delete and an add — two edits, ONE `Batch`, so ONE
+		// snapshot. Sent singly they would be two steps and the single Ctrl+Z
+		// below would leave the dimension deleted.
+		await clickTool(page, 'select');
+		await page.mouse.move(line.x, line.y);
+		await page.mouse.down();
+		await page.mouse.move(line.x, line.y - 4 * points.pxPerMm);
+		await page.mouse.move(line.x, line.y - 8 * points.pxPerMm);
+		await page.mouse.up();
+		await page.waitForFunction(
+			([id, was]) => {
+				const sheets = window.__waffle?.getDrawingStatus()?.drawing?.sheets ?? [];
+				const view = sheets.flatMap((s) => s.views ?? []).find((v) => v.id === id);
+				if ((view?.annotations?.length ?? 0) !== 2) return false;
+				const now = view.annotations.map((a) => a.placement?.dy ?? 0).sort();
+				return now.some((d, i) => Math.abs(d - was[i]) > 1e-6);
+			},
+			[viewId, placedBefore],
+			{ timeout: 20000 }
+		);
+
+		await page.keyboard.press('Control+z');
+		await page.waitForFunction(
+			([id, was]) => {
+				const sheets = window.__waffle?.getDrawingStatus()?.drawing?.sheets ?? [];
+				const view = sheets.flatMap((s) => s.views ?? []).find((v) => v.id === id);
+				if ((view?.annotations?.length ?? 0) !== 2) return false;
+				const now = view.annotations.map((a) => a.placement?.dy ?? 0).sort();
+				return now.every((d, i) => Math.abs(d - was[i]) < 1e-9);
+			},
+			[viewId, placedBefore],
+			{ timeout: 20000 }
+		);
+		// BOTH dimensions still there, naming the same entities — the move's
+		// delete and add did not survive as half a step.
+		const after = await authoredAnnotations(page, viewId);
+		expect(after).toHaveLength(2);
+		expect(after.map(anchorPids).sort()).toEqual(pidsBefore);
+	});
+
+	test('Delete and Escape do nothing while a panel text field has the focus', async ({
+		waffle
+	}) => {
+		const page = waffle.page;
+		await waffle.waitForReady();
+		const { viewId } = await plateAndDrawing(page);
+		const points = await anchorScreenPoints(page, viewId);
+		const pair = wallPair(points);
+		await dimensionPair(page, viewId, points, pair, { y: -10 });
+		await waitForAnnotationCount(page, viewId, 1);
+		// Authoring selects what it made, so the panel is showing it and
+		// Delete is armed.
+		await expect(page.getByTestId('dwg-annotation')).toBeVisible();
+
+		// The shortcuts are on a WINDOW keydown, so a field that happens to
+		// contain the text "3" would have its Delete key eat the dimension
+		// instead of a character. The handler's own guard is what stops that;
+		// this is the oracle for it.
+		const field = page.getByTestId('dwg-annotation-precision');
+		await field.focus();
+		await page.keyboard.press('Delete');
+		await page.keyboard.press('Backspace');
+		await page.keyboard.press('Escape');
+		expect(
+			await authoredAnnotations(page, viewId),
+			'the dimension survived a Delete typed into a panel field'
+		).toHaveLength(1);
+
+		// And with the focus back on the page, the same key does delete it —
+		// so the test above is a guard working, not a shortcut that never ran.
+		await page.getByTestId('drawing-sheet').click({ position: { x: 4, y: 4 } });
+		await page.evaluate((v) => window.__waffle.setSheetSelection({ viewId: v, index: 0 }), viewId);
+		await page.keyboard.press('Delete');
+		await waitForAnnotationCount(page, viewId, 0);
 	});
 
 	test('the radius tool refuses a straight edge by name, before anything is authored', async ({

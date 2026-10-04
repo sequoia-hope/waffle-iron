@@ -169,6 +169,44 @@ export function wallPair(points) {
 	return null;
 }
 
+/**
+ * The OTHER wall pair — the two whose witness points share an `u` — so a spec
+ * can author a SECOND dimension anchored on different entities.
+ *
+ * A second dimension is what makes an index bug visible: with one annotation
+ * on a view, every index is 0 and an inverse that addresses the wrong one
+ * addresses the right one anyway.
+ */
+export function crossWallPair(points) {
+	const walls = points.anchors.filter((a) => a.shape === 'Line');
+	for (const a of walls) {
+		for (const b of walls) {
+			if (a.pid === b.pid) continue;
+			if (Math.abs(a.at[0] - b.at[0]) > 1e-12) continue;
+			if (Math.abs(b.at[1] - a.at[1]) > 1e-9) return [a, b];
+		}
+	}
+	return null;
+}
+
+/** One annotation's anchor pids, sorted — its identity for a comparison. */
+export function anchorPids(annotation) {
+	return (annotation?.anchors ?? []).map((r) => r.selector?.pid).sort();
+}
+
+/** Author a `Distance` dimension between `pair`, placed `offsetMm` away. */
+export async function dimensionPair(page, viewId, points, pair, offset) {
+	const { clickTool } = await import('./toolbar.js');
+	await clickTool(page, 'dim-distance');
+	await clickAt(page, pair[0].x, pair[0].y);
+	await clickAt(page, pair[1].x, pair[1].y);
+	await clickAt(
+		page,
+		pair[0].x + (offset?.x ?? 0) * points.pxPerMm,
+		pair[0].y + (offset?.y ?? -10) * points.pxPerMm
+	);
+}
+
 /** Click at a client point with a real move first, so hover runs. */
 export async function clickAt(page, x, y) {
 	await page.mouse.move(x, y);
