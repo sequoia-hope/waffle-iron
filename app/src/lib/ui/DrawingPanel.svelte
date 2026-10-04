@@ -32,6 +32,18 @@
 	// The one copy on this side (D4b review): the panel, the detail caption and
 	// the title block's `Scale` row must all read a scale the same way.
 	import { scaleRatioLabel } from '$lib/drawings/sheet.js';
+	// D4e's two visual tools. They live in their own module and component, so
+	// moving them onto D4d's drawing toolbar is one import there and the
+	// deletion of the two buttons here — see `VIEW_PLACEMENT_TOOLS`.
+	import PlaceViewDialog from './PlaceViewDialog.svelte';
+	import { VIEW_PLACEMENT_TOOLS, directionLabel } from '$lib/drawings/viewPlacement.js';
+	import {
+		cancelPlacement,
+		placementMode,
+		placementParentId,
+		startPlaceView,
+		startProjectView
+	} from '$lib/drawings/placementMode.svelte.js';
 
 	let status = $derived(getDrawingStatus());
 	let drawing = $derived(getDrawing());
@@ -60,6 +72,11 @@
 	let cutFlip = $state(false);
 	let cropAt = $state([0, 0]);
 	let cropRadius = $state(5);
+
+	/** Whether the place-view dialog is open (D4e). */
+	let placing = $state(false);
+	let mode = $derived(placementMode());
+	let modeParent = $derived(placementParentId());
 
 	function toggle(id) {
 		const next = new Set(open);
@@ -236,6 +253,57 @@
 
 		<div class="section">
 			<div class="section-header">Views ({views.length})</div>
+			<!-- D4e: the two VISUAL tools. The numeric form below stays — a
+			     placement typed in is sometimes exactly what is wanted — but
+			     these are the primary path, and they are here only until D4d's
+			     drawing toolbar exists to carry them. -->
+			<div class="row-main">
+				{#each VIEW_PLACEMENT_TOOLS as t (t.id)}
+					<button
+						class="act"
+						class:primary={mode === t.mode}
+						title={t.title}
+						data-testid={t.testid}
+						disabled={busy || !sources.length || (t.id === 'project-view' && !views.length)}
+						onclick={() => {
+							if (mode === t.mode) {
+								cancelPlacement();
+								placing = false;
+								return;
+							}
+							if (t.id === 'place-view') {
+								cancelPlacement();
+								placing = true;
+							} else {
+								placing = false;
+								startProjectView();
+							}
+						}}>{t.label}</button
+					>
+				{/each}
+				{#if mode === 'place-view'}
+					<span class="meta" data-testid="dwg-placement-hint">click the sheet · Escape cancels</span>
+				{:else if mode === 'project-view'}
+					<span class="meta" data-testid="dwg-placement-hint">
+						{modeParent
+							? 'hover a side or a corner, then click'
+							: 'click the view to project from'} · Escape cancels
+					</span>
+				{/if}
+			</div>
+			{#if placing}
+				<PlaceViewDialog
+					{sources}
+					onplace={(spec) => {
+						placing = false;
+						startPlaceView(spec);
+					}}
+					oncancel={() => {
+						placing = false;
+						cancelPlacement();
+					}}
+				/>
+			{/if}
 			{#each views as view, i (view.id)}
 				<div class="row" data-testid="dwg-view-{i}">
 					<div class="row-main">
@@ -358,7 +426,9 @@
 						{#if derived === 'projected'}
 							<select data-testid="dwg-add-direction" bind:value={direction} disabled={busy}>
 								{#each DRAWING_PROJECTED_DIRECTIONS as d}
-									<option value={d}>{d.toLowerCase()} of it</option>
+									<!-- The engine's own label (D4e): a corner is an ISO,
+									     which `UpRight` does not say. -->
+									<option value={d}>{directionLabel(d)} of it</option>
 								{/each}
 							</select>
 						{/if}

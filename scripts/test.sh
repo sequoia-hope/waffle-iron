@@ -150,6 +150,11 @@ GUI_FAST_SPECS=(
   agent-script-tools.spec.js
   # The Examples panel: opens the shipped gravel bike as a new document.
   examples.spec.js
+  # D4e: the two visual view-placement tools on the drawing sheet. In the fast
+  # tier because they are the oracle for a POINTER path — a ghost box that
+  # stops matching where the view lands is invisible to every Rust test, and
+  # the whole spec runs in about twelve seconds.
+  drawing-view-placement.spec.js
 )
 
 # ---------------------------------------------------------------------------

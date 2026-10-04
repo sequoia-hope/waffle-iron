@@ -14,7 +14,18 @@
 	 * copy passed down would be the next thing to go stale.
 	 */
 	import { getDocumentDisplayUnit, getDrawingSheet, getDrawingStatus } from '$lib/engine/store.svelte.js';
-	import { renderSheetSvg } from '$lib/drawings/sheet.js';
+	import { renderSheetSvg, sheetExtentMm } from '$lib/drawings/sheet.js';
+	// D4e. The two placement tools' mode lives in its own module (the tool is
+	// started in the panel, or in D4d's toolbar, and runs here), so what the
+	// sheet owns is the pointer events and nothing else.
+	import {
+		cancelPlacement,
+		placementGhostSvg,
+		placementMode,
+		placementPointerDown,
+		placementPointerMove
+	} from '$lib/drawings/placementMode.svelte.js';
+	import { paperPointMm, withGhost } from '$lib/drawings/viewPlacement.js';
 
 	let { sheetId = null } = $props();
 
@@ -29,14 +40,71 @@
 				})
 			: null
 	);
+	let mode = $derived(placementMode());
+	/** The ghost is spliced INTO the sheet's markup rather than overlaid: in
+	 *  the sheet's own user units it cannot be out by a pixel, where an
+	 *  absolutely positioned overlay would have to re-measure the CSS-scaled
+	 *  paper on every frame. */
+	let markup = $derived(
+		rendered ? withGhost(rendered.svg, mode ? placementGhostSvg(sheet) : '') : null
+	);
+
+	/** @type {HTMLDivElement | null} */
+	let host = null;
+
+	/** The `<svg class="wi-sheet">` inside the injected markup. */
+	function sheetEl() {
+		return host?.querySelector('svg.wi-sheet') ?? null;
+	}
+
+	function pointAt(event) {
+		const el = sheetEl();
+		if (!el || !sheet) return null;
+		return paperPointMm(el.getBoundingClientRect(), event, sheetExtentMm(sheet));
+	}
+
+	function move(event) {
+		if (!mode) return;
+		const at = pointAt(event);
+		if (at) placementPointerMove(at);
+	}
+
+	function down(event) {
+		if (!mode) return;
+		const at = pointAt(event);
+		if (!at) return;
+		// The sheet swallows the click while a tool is running: a placement
+		// click must not also reach whatever is under it.
+		event.preventDefault();
+		placementPointerDown(at);
+	}
+
+	function keydown(event) {
+		if (mode && event.key === 'Escape') {
+			event.stopPropagation();
+			cancelPlacement();
+		}
+	}
 </script>
+
+<svelte:window onkeydown={keydown} />
 
 <!-- The wrapper scrolls rather than overflows: an A3 sheet at 1:1 is wider
      than the viewport at most window sizes, and the page itself cannot scroll
      (CLAUDE.md, "Chrome must scroll or collapse, never overflow"). -->
-<div class="drawing-sheet" data-testid="drawing-sheet" data-views={rendered?.views ?? 0}>
+<!-- svelte-ignore a11y_no_static_element_interactions -->
+<div
+	class="drawing-sheet"
+	class:placing={!!mode}
+	data-testid="drawing-sheet"
+	data-views={rendered?.views ?? 0}
+	data-placement-mode={mode ?? ''}
+	bind:this={host}
+	onpointermove={move}
+	onpointerdown={down}
+>
 	{#if rendered}
-		{@html rendered.svg}
+		{@html markup}
 	{:else}
 		<p class="empty" data-testid="drawing-sheet-empty">This drawing has no sheet.</p>
 	{/if}
@@ -72,6 +140,13 @@
 		height: auto;
 		flex: 0 0 auto;
 		box-shadow: 0 1px 6px rgba(0, 0, 0, 0.25);
+	}
+
+	/* A placement tool is running: the cursor says so, and the paper does not
+	   select under the drag. */
+	.drawing-sheet.placing {
+		cursor: crosshair;
+		user-select: none;
 	}
 
 	.empty {
