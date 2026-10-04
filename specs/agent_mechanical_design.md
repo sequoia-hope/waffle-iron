@@ -1889,6 +1889,91 @@ oracle went 16 → 49 without D2 being told about any of the ten new fields.
 `count_expr = "length(rail) / 50"` works and defers like every other field
 on a pass with no model. That is what sharing the enumeration was for.
 
+#### The UI round trip (review, 2026-10-04)
+
+P3 twinned ten fields in the engine. The review asked the next question — does
+every path that WRITES one of those fields carry the expression back? — and the
+answer was no in five places, each silent in one of two directions.
+
+**DROPPED.** A dialog that rebuilds its whole params object from the evaluated
+numbers sends the number as a literal and the driver is gone. The geometry
+stays right, which is why nothing reports it: the plain field always holds the
+last evaluated value, so there is no symptom until someone moves the variable
+and nothing follows. Four fields were in this state —
+`ExtrudeParams.second_direction.Blind.depth_expr` (which got a real expression
+input, a live `= N mm` hint and the two apply gates the primary depth has),
+`RevolveParams.axis_origin_expr`, and `MateConnectorParams.rotation_expr` /
+`offset_m_expr`.
+
+**STUCK.** The mirror defect, and the one easy to introduce while fixing the
+first: a sidecar left over a value the apply REPLACED is re-evaluated at the
+next rebuild and overwrites it, so the edit reverts with nothing said.
+`applyImportPlacement` spreads the existing params, so all three placement
+sidecars were in this state, and the property panel's detach list named
+`depth_expr` and `angle_expr` only while six twinned numbers are reachable
+from it (a pipe's radius and bore, both pattern counts, a circular pattern's
+angle, a linear pattern's spacing).
+
+**The rule, for every dialog that has no input for a sidecar it carries:** a
+value the apply did not change keeps its driver, and a value it replaced loses
+it. `carriedExpr` / `carriedComponentExpr` in `store.svelte.js` are that rule,
+per component for a `[Option<String>; 3]` sidecar — matching P3's own rule
+that an author who parameterised x has said nothing about y and z. A dialog
+whose field is quantized on the way in compares against what it can
+REPRESENT, not against the stored `f64`: the connector's offset is seeded
+through micrometres, and against the raw value that rounding reads as a user
+edit and drops the driver on every apply.
+
+In the property panel, which fires on an actual input event, the detach is
+unconditional — but the twin now travels on the FIELD descriptor beside the
+value it drives, so a field added to `getFields` without its `expr` is one
+edit away from showing it rather than one name missing from a list elsewhere.
+
+Two defects found underneath, neither about parameters:
+
+- **Every numeric and boolean edit in the property panel was a no-op.**
+  `handleChange` did `structuredClone(feature.operation)`, and that operation
+  comes off the `$state` feature tree, so it is a reactive Proxy —
+  `structuredClone` of a Proxy is a DataCloneError in V8. It threw before
+  `editFeature` was reached, inside a `setTimeout` callback, so the failure was
+  an unhandled rejection and the input kept the typed value. Typing 25 into an
+  extrude's depth left the feature at 10 mm. `$state.snapshot` first. The
+  spec that was supposed to cover this asserted only that a mesh still
+  existed, which is true of an edit that does nothing at all; the oracle is
+  the tree.
+- **Every expression hint was stale on re-open.** All six, across four
+  dialogs, depended on the typed TEXT alone. Re-opening a feature for edit
+  re-seeds the same text, so the effect does not re-run: `back * 2` over a
+  `back` since changed from 7 to 11 went on reading "= 14 mm" while the field
+  and the engine were both right. `touchParameterTables` reads both tables for
+  their reactivity alone, and each effect calls it.
+
+Pinned in `app/tests/gui/expression-sidecar-carry.spec.js` (both directions
+per field, through the real round trip), `parameterized-designs.spec.js` (the
+second depth, including the apply gates) and
+`property-editor-advanced.spec.js`. Each is RED with its own fix removed.
+
+Two notes for anyone writing in this area: an `ImportedBody` refuses
+`feature_edit` by name (`UseImportTool`), so a test sets its sidecar through
+the document and reloads, which is how a saved parameterised import arrives
+anyway; and a revolve axis must lie IN the sketch plane, so a driven axis
+origin can only move within it.
+
+The save path got the pin it was missing too
+(`format_tests.rs::every_p3_expression_sidecar_round_trips_through_a_file`):
+`param_p3_fields.rs` pinned the absent case and the rename, and neither says
+a sidecar that IS set reaches the file. The first version of that test
+compared the loaded operation against the original re-serialized and was
+green under exactly the mutation it was written for — with the field skipped
+both sides omit it, and the comparison is the struct agreeing with itself. The
+fixture is the oracle instead.
+
+And `an_overridden_instance_does_not_cost_its_siblings_their_parked_engines`
+claimed the park half of keying on the BUILD and could not see it: its
+assertions were instance depths, and a rebuilt sibling renders the same solid
+as a reused one. Re-keying `park_unused_part_engines` on `PartBuild::part`
+left it green. It now reads `part_cache`, where the distinction lives.
+
 #### Still open
 
 - *A document rename does not rewrite the other tabs.* Refused loudly
@@ -1962,6 +2047,10 @@ on a pass with no model. That is what sharing the enumeration was for.
   expressions over every tab's tree on a document edit, which is the same
   session-level pass the document rename wants; §13.3 now bounds the claim
   rather than overstating it.
+- *The assembly-level `MateConnector` numbers still have no UI carry rule*,
+  because they have no sidecars (above). When they get them, the connector
+  editor's patch path (`updateConnector`) needs the same `carriedExpr` rule
+  the part-level dialog now has, and for the same reason.
 - *`bench_rebuild_50_features` is a wall-clock budget and flaked once under
   load.* Measured alone it is 607 ms – 1.12 s against a 2 s assertion, and
   the whole `engine_tests` binary runs in 0.98 s; it exceeded the budget only
