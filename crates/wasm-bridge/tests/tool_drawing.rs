@@ -2011,7 +2011,10 @@ fn a_title_block_expression_row_prints_the_measured_model_and_keeps_its_source()
     );
     assert_eq!(error["code"], "InvalidArgument");
     assert!(
-        error["message"].as_str().unwrap_or_default().contains("Mass"),
+        error["message"]
+            .as_str()
+            .unwrap_or_default()
+            .contains("Mass"),
         "{error}"
     );
     assert_eq!(error["details"]["path"], "/title_block_fields/0");

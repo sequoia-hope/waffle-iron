@@ -294,7 +294,10 @@ fn a_holed_circular_cap_hatched_at_forty_five_degrees_leaves_its_bore_clear() {
                 r > 4.0 - 0.01,
                 "a hatch line reaches r = {r}, inside the 4-radius bore"
             );
-            assert!(r < 10.0 + 0.01, "a hatch line reaches r = {r}, outside the cap");
+            assert!(
+                r < 10.0 + 0.01,
+                "a hatch line reaches r = {r}, outside the cap"
+            );
         }
     }
     // And the bore really is bridged by the SCANLINE, so the clearance above is
