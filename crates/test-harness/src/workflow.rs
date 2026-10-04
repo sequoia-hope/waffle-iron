@@ -892,6 +892,7 @@ impl ModelBuilder {
                         depth_mode: DepthMode::Blind,
                         second_direction: Some(SecondDirection::Blind {
                             depth: second_depth,
+                            depth_expr: None,
                         }),
                         region: None,
                         regions: Vec::new(),
@@ -975,6 +976,7 @@ impl ModelBuilder {
                         cut: false,
                         merge: false,
                         angle_expr: None,
+                        axis_origin_expr: None,
                     },
                 },
             },
@@ -1014,6 +1016,7 @@ impl ModelBuilder {
                         cut: true,
                         merge: true,
                         angle_expr: None,
+                        axis_origin_expr: None,
                     },
                 },
             },
