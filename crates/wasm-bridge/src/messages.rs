@@ -2267,6 +2267,22 @@ pub enum DrawingEdit {
     DeleteSheet {
         sheet_id: Uuid,
     },
+    /// Several edits as ONE undoable step, applied in order (D4d).
+    ///
+    /// It exists because a drawing's undo is a whole-drawing snapshot taken
+    /// per committed edit (`DocumentSession::set_drawing`) and some single
+    /// user actions are two edits here: moving a dimension's label is a
+    /// `DeleteAnnotation` and an `AddAnnotation`, because this vocabulary has
+    /// no `EditAnnotation`. Sent one at a time they would be two steps, and a
+    /// single Ctrl+Z after a drag would leave the dimension deleted.
+    ///
+    /// All or nothing: the edits are applied to a scratch copy and the batch
+    /// is refused whole if any of them is, so a half-applied pair cannot
+    /// reach the document. A batch inside a batch is refused by name rather
+    /// than recursed into.
+    Batch {
+        edits: Vec<DrawingEdit>,
+    },
 }
 
 /// An annotation to author, in primitives (D4a).
@@ -2353,6 +2369,14 @@ pub struct DrawingStatus {
     pub errors: Vec<String>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub warnings: Vec<String>,
+    /// How deep this tab's own drawing undo and redo stacks are (D4d).
+    ///
+    /// A count, not the stacks: the history is whole-drawing snapshots and
+    /// sending one over the wire would carry annotation pids back through
+    /// JavaScript, which is what this whole message refuses. The page needs
+    /// the depth to say whether Undo has anything to do on this tab.
+    #[serde(default)]
+    pub history: (usize, usize),
 }
 
 /// One named mate connector of a part (`specs/part_mate_connectors.md`), as

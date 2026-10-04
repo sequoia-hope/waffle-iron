@@ -8191,99 +8191,70 @@ export function setSheetHover(hover) {
 }
 
 /**
- * Drawing edits are NOT on the feature engine's undo stack, and that is the
- * whole reason this history exists.
+ * Drawing edits are NOT on the feature engine's undo stack, and the ENGINE is
+ * where they are undone.
  *
  * `UiToEngine::Undo` pops `FeatureEngine::undo_stack`, which holds `Command`s
- * over the open part's FEATURE TREE. A drawing lives on its tab in the
- * session, reached through `set_drawing`, which only bumps the revision — so
- * before D4d, adding a dimension and pressing Ctrl+Z undid the last FEATURE
- * edit instead, silently, and the dimension stayed. Measured by reading
- * `dispatch.rs`'s `DrawingEdit` arm against `feature-engine`'s `undo`.
+ * over the open part's FEATURE TREE; a drawing lives on its tab in the
+ * session. So before D4d, adding a dimension and pressing Ctrl+Z undid the
+ * last FEATURE edit instead, silently, and the dimension stayed.
  *
- * So the drawing tab keeps its own history, in the page, of edits expressed
- * in the SAME `DrawingEdit` vocabulary the forward path uses: an entry is a
- * list of edits and the list of edits that undoes them, and undo/redo replay
- * them through `sendDrawingEdit`. Nothing is reconstructed from a snapshot —
- * a stored drawing would carry `u64` anchor pids through JavaScript and round
- * them (`sendDrawingEdit`), which is the one thing this door must never do.
+ * D4d first answered that with a history in this file: `DrawingEdit` lists
+ * paired with the lists that undo them, replayed through `sendDrawingEdit`.
+ * That could not be made correct, and the measurement is worth keeping.
+ * `DrawingEdit` can only APPEND an annotation (`AddAnnotation` pushes; there
+ * is no insert and no `EditAnnotation`), so every inverse built from the
+ * forward vocabulary restores its annotation to the END of the view's list —
+ * and the recorded forward step's indices then address a DIFFERENT
+ * annotation. A view with two dimensions, the first deleted, undone and
+ * redone, had the redo delete the SECOND one and keep the first
+ * (`probe` → `drawing-dimension-tools.spec.js`, "a redo deletes what the
+ * delete deleted"). No revision check can catch it, because the shift is
+ * caused by the page's own undo rather than by anything else touching the
+ * document.
  *
- * Scope, deliberately: ONLY the annotation edits D4d authors. A view's or a
- * sheet's inverse is not expressible through the existing doors —
- * `DeleteView`'s would have to put the view's annotations back, and
- * `AddAnnotation` appends rather than inserting, so re-adding a deleted view's
- * dimensions cannot restore their order. Those stay un-undoable until a
- * `DrawingEdit` that can express them exists; the panel is the place they are
- * authored and it is explicit about what it did.
+ * So the history is `DocumentSession::drawing_histories` (wasm-bridge), as
+ * whole-drawing snapshots with their derived layouts stripped, taken inside
+ * `set_drawing` — which every committed drawing mutation passes through, so
+ * an annotation authored from the sheet, a view added from the panel and an
+ * agent's `drawing_view_add` are all on one stack in the order they happened.
+ * A snapshot carries no index, so there is nothing to shift; `Undo` tries the
+ * active drawing's stack first and falls through to the tree's when it is
+ * empty.
  *
- * @type {{ tabId: string, label: string, forward: any[], inverse: any[] }[]}
+ * Nothing of the drawing comes back through JavaScript to make this work,
+ * which is the constraint that killed the page-side snapshot alternative: a
+ * stored drawing would carry `u64` anchor pids through a JSON round trip and
+ * round them (see `sendDrawingEdit`).
  */
-let drawingHistory = [];
-let drawingRedo = [];
 
-/** How deep the drawing history is, for a spec and for the console. */
+/** How deep the open drawing's engine-side history is: `{ undo, redo }`. */
 export function getDrawingHistoryDepth() {
-	return { undo: drawingHistory.length, redo: drawingRedo.length };
-}
-
-/** Is a Drawing tab the active one? */
-function drawingTabActive() {
-	return documentTabs.find((t) => t.id === activeTabId)?.kind?.type === 'Drawing';
+	const [undo, redo] = drawingStatus?.history ?? [0, 0];
+	return { undo, redo };
 }
 
 /**
- * Apply `forward` as one undoable step, recording `inverse` as what undoes it.
+ * Apply `edits` as ONE undoable step. Undoability is the ENGINE's:
+ * `set_drawing` snapshots the previous drawing, so there is nothing to record
+ * here — but a step has to arrive as one message to BE one snapshot.
  *
- * The edits in a step are applied IN ORDER and each is a round trip, because
- * `DrawingEdit` carries one change: a placement move is a delete and an add,
- * and the two have to be one history entry or a single Ctrl+Z would leave the
- * annotation deleted.
+ * A list rather than a single edit because `DrawingEdit` carries one change
+ * and a placement move is a delete and an add (there is no `EditAnnotation`).
+ * Sent one at a time those would be two steps, and a single Ctrl+Z after a
+ * drag would leave the dimension deleted — so more than one goes as a
+ * `Batch`, which the engine applies to a scratch copy and commits once.
  *
  * @param {string} label what the step did, for the log
- * @param {any[]} forward
- * @param {any[]} inverse
+ * @param {any[]} edits
  */
-async function applyDrawingStep(label, forward, inverse) {
-	const tabId = drawingStatus?.tab_id;
-	if (!tabId) return false;
-	for (const edit of forward) {
-		const ok = await sendDrawingEdit(edit);
-		if (!ok) return false;
-	}
-	drawingHistory.push({ tabId, label, forward, inverse });
-	// A new edit invalidates the redo branch, as every undo stack does.
-	drawingRedo = [];
-	return true;
-}
-
-/**
- * Undo the last drawing edit. `false` when there is nothing to undo, which is
- * what lets `undo()` fall through to the feature engine's own stack.
- */
-export async function undoDrawing() {
-	const entry = drawingHistory[drawingHistory.length - 1];
-	if (!entry || entry.tabId !== drawingStatus?.tab_id) return false;
-	drawingHistory.pop();
-	for (const edit of entry.inverse) {
-		if (!(await sendDrawingEdit(edit))) return false;
-	}
-	drawingRedo.push(entry);
-	sheetSelection = null;
-	log('action', `Undo drawing: ${entry.label}`);
-	return true;
-}
-
-/** Redo the last undone drawing edit. */
-export async function redoDrawing() {
-	const entry = drawingRedo[drawingRedo.length - 1];
-	if (!entry || entry.tabId !== drawingStatus?.tab_id) return false;
-	drawingRedo.pop();
-	for (const edit of entry.forward) {
-		if (!(await sendDrawingEdit(edit))) return false;
-	}
-	drawingHistory.push(entry);
-	log('action', `Redo drawing: ${entry.label}`);
-	return true;
+async function applyDrawingStep(label, edits) {
+	if (!drawingStatus?.tab_id || edits.length === 0) return false;
+	const ok = await sendDrawingEdit(
+		edits.length === 1 ? edits[0] : { type: 'Batch', edits }
+	);
+	if (ok) log('action', `Drawing: ${label}`);
+	return ok;
 }
 
 /** One view of the open drawing, by id. */
@@ -8335,10 +8306,11 @@ function addAnnotationEdit(viewId, spec) {
 }
 
 /**
- * Author one annotation from the sheet, as an UNDOABLE step.
+ * Author one annotation from the sheet.
  *
- * The inverse is a `DeleteAnnotation` at the index the add lands on, which is
- * the view's annotation count before it: `AddAnnotation` appends.
+ * The index it lands on is the view's annotation count before it:
+ * `AddAnnotation` appends. That is read here only to SELECT what was just
+ * made — the undo is the engine's and needs no index.
  *
  * @param {string} viewId
  * @param {Record<string, any>} spec as `addDrawingAnnotation` takes it
@@ -8350,11 +8322,7 @@ export async function addSheetAnnotation(viewId, spec) {
 	const edit = addAnnotationEdit(viewId, spec);
 	if (!edit) return false;
 	const index = (view.annotations ?? []).length;
-	const ok = await applyDrawingStep(
-		`add ${spec.annotation ?? 'Dimension'}`,
-		[edit],
-		[{ type: 'DeleteAnnotation', view_id: viewId, index }]
-	);
+	const ok = await applyDrawingStep(`add ${spec.annotation ?? 'Dimension'}`, [edit]);
 	if (ok) {
 		sheetPicks = [];
 		sheetSelection = { viewId, index };
@@ -8363,37 +8331,24 @@ export async function addSheetAnnotation(viewId, spec) {
 }
 
 /**
- * Delete the annotation at `index`, as an undoable step.
+ * Delete the annotation at `index`.
  *
- * The inverse re-AUTHORS it from the stored annotation, which is why this
- * reads the authored annotation rather than the layout: the layout has no
- * anchors in it by design. An annotation whose anchors are not persistent
- * ids cannot be re-authored, and the delete is REFUSED up front rather than
- * done un-undoably — a dimension that cannot come back is a dimension the
- * drafter has to re-pick from the model.
+ * One edit, and the undo is the engine's snapshot — so there is no
+ * re-authoring here and no refusal for an annotation whose anchors are not
+ * persistent ids. The page-side history needed both (it rebuilt the deleted
+ * annotation from its stored anchors to put it back, and had to refuse a
+ * `TopoQuery` anchor it could not echo); a whole-drawing snapshot restores
+ * whatever was there, selector kind included.
  *
  * @param {string} viewId
  * @param {number} index
  */
 export async function deleteSheetAnnotation(viewId, index) {
 	const view = drawingViewById(viewId);
-	const stored = (view?.annotations ?? [])[index];
-	if (!stored) return false;
-	const respec = annotationRespec(stored);
-	const inverse = respec ? addAnnotationEdit(viewId, respec) : null;
-	if (!inverse) {
-		log('error', 'That annotation cannot be re-authored, so deleting it would not be undoable', {
-			viewId,
-			index
-		});
-		showToast('error', 'That annotation cannot be deleted undoably.');
-		return false;
-	}
-	const ok = await applyDrawingStep(
-		'delete annotation',
-		[{ type: 'DeleteAnnotation', view_id: viewId, index }],
-		[inverse]
-	);
+	if (!(view?.annotations ?? [])[index]) return false;
+	const ok = await applyDrawingStep('delete annotation', [
+		{ type: 'DeleteAnnotation', view_id: viewId, index }
+	]);
 	if (ok) sheetSelection = null;
 	return ok;
 }
@@ -8404,14 +8359,17 @@ export async function deleteSheetAnnotation(viewId, index) {
  * step.
  *
  * Two edits, because `DrawingEdit` has no `EditAnnotation`: delete, then
- * re-add with the field changed. Recorded as ONE history entry, so a single
- * Ctrl+Z puts the old value back rather than leaving the annotation deleted.
+ * re-add with the field changed. Sent as ONE `Batch`, so the engine takes one
+ * snapshot and a single Ctrl+Z puts the old value back rather than leaving the
+ * annotation deleted.
  *
  * The annotation moves to the END of the view's list, which is the real cost
  * of doing it this way: a sheet with three dimensions has their order changed
- * by dragging the first. Nothing on the paper depends on that order (the
- * renderer draws them all, and an index is not an identity a drafter sees),
- * but it is why an `EditAnnotation` edit is the right fix — named as an open
+ * by dragging the first. Nothing anywhere depends on that order — the DXF
+ * export never sees annotations at all, the SVG and PDF emit them as
+ * non-overlapping siblings, no golden or fixture pins an annotation, and no
+ * tool reads one back by index (measured 2026-10-04) — but it is why an
+ * `EditAnnotation` edit is still the right fix, and it is named as an open
  * item rather than worked around here.
  *
  * There is deliberately no `value` and no `kind` among the changes: a
@@ -8443,17 +8401,15 @@ export async function editSheetAnnotation(viewId, index, changes = {}) {
 	if ('text' in changes) after.text = changes.text ?? null;
 	if ('label' in changes) after.label = changes.label ?? null;
 	const forwardAdd = addAnnotationEdit(viewId, after);
-	const inverseAdd = addAnnotationEdit(viewId, before);
-	if (!forwardAdd || !inverseAdd) {
-		showToast('error', 'That annotation cannot be edited undoably.');
+	if (!forwardAdd) {
+		showToast('error', 'That annotation cannot be re-authored, so it cannot be edited.');
 		return false;
 	}
-	// The re-added annotation lands last, so the inverse deletes THAT index.
+	// The re-added annotation lands last, which is where the selection goes.
 	const lastIndex = (view.annotations ?? []).length - 1;
 	const ok = await applyDrawingStep(
 		Array.isArray(changes.placement) ? 'move annotation' : 'edit annotation',
-		[{ type: 'DeleteAnnotation', view_id: viewId, index }, forwardAdd],
-		[{ type: 'DeleteAnnotation', view_id: viewId, index: lastIndex }, inverseAdd]
+		[{ type: 'DeleteAnnotation', view_id: viewId, index }, forwardAdd]
 	);
 	if (ok) sheetSelection = { viewId, index: lastIndex };
 	return ok;
@@ -10160,15 +10116,14 @@ export async function undo() {
 		undoSketchAction();
 		return;
 	}
-	// D4d: a Drawing tab's edits are not on the feature engine's stack (that
-	// stack holds the part tree's commands), so the drawing's own history is
-	// tried FIRST while one is open. Falling through when it is empty is
-	// deliberate: Ctrl+Z on a drawing tab with no drawing edits left should
-	// undo the part edit behind it rather than do nothing, which is what the
-	// single Undo button means.
-	if (drawingTabActive() && (await undoDrawing())) return;
 	log('action', 'Undo feature');
 	if (!bridge || !engineReady) return;
+	// D4d: one message, and the ENGINE decides which stack it comes off. On a
+	// Drawing tab it tries that tab's drawing history first and falls through
+	// to the tree's when it is empty, which is what one Undo button means.
+	// The selection is an INDEX into the view's annotation list, so it cannot
+	// survive a step that may have changed that list.
+	sheetSelection = null;
 	try {
 		await sendRebuild({ type: 'Undo' });
 	} catch { /* NothingToUndo — no-op */ }
@@ -10184,9 +10139,9 @@ export async function redo() {
 		redoSketchAction();
 		return;
 	}
-	if (drawingTabActive() && (await redoDrawing())) return;
 	log('action', 'Redo feature');
 	if (!bridge || !engineReady) return;
+	sheetSelection = null;
 	try {
 		await sendRebuild({ type: 'Redo' });
 	} catch { /* NothingToRedo — no-op */ }
