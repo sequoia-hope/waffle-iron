@@ -5266,6 +5266,44 @@ export function showRevolveDialogForEdit(featureId) {
 }
 
 /**
+ * Carry a scalar `*_expr` sidecar across a dialog apply that has no input for
+ * it.
+ *
+ * A dialog that rebuilds its whole params object cannot tell "I changed this"
+ * from "I pressed Apply", so the value decides: unchanged ⇒ the user said
+ * nothing about this field and its driver survives; changed ⇒ the user
+ * replaced the driven value and the driver goes, exactly as a numeric edit
+ * detaches one in the property panel. Dropping it unconditionally is the P2
+ * silent-data-loss defect (the extrude second depth), and keeping it
+ * unconditionally is the mirror defect: the next rebuild would overwrite the
+ * number the user just typed.
+ * @param {string | null | undefined} expr - the stored sidecar
+ * @param {number | null | undefined} stored - the value it last evaluated to
+ * @param {number} applied - the value this apply is sending
+ * @returns {string | null}
+ */
+function carriedExpr(expr, stored, applied) {
+	if (!expr) return null;
+	return stored === applied ? expr : null;
+}
+
+/**
+ * The same rule per component, for a `[Option<String>; 3]` sidecar: an author
+ * who parameterised x has said nothing about y and z, so each component is
+ * carried or dropped on its own. All-empty collapses to null so an untouched
+ * feature's params stay byte-identical.
+ * @param {(string | null)[] | null | undefined} exprs
+ * @param {number[] | null | undefined} storedVec
+ * @param {number[]} appliedVec
+ * @returns {(string | null)[] | null}
+ */
+function carriedComponentExpr(exprs, storedVec, appliedVec) {
+	if (!Array.isArray(exprs)) return null;
+	const out = [0, 1, 2].map((k) => carriedExpr(exprs[k], storedVec?.[k], appliedVec?.[k]));
+	return out.some((e) => e != null) ? out : null;
+}
+
+/**
  * Apply a revolve operation from the dialog.
  * @param {number} angleDeg - angle in degrees
  * @param {[number,number,number]} axisOrigin
@@ -5293,6 +5331,11 @@ export async function applyRevolve(angleDeg, axisOrigin, axisDir, profileIndex, 
 			// P3 gave `axis_origin` a per-component expression sidecar, and this
 			// dialog has no input for it: it shows the axis as a PICK, so an
 			// apply that did not re-pick must not drop a driver it cannot show.
+			axis_origin_expr: carriedComponentExpr(
+				revolveDialogState.editParams?.axis_origin_expr,
+				revolveDialogState.editParams?.axis_origin,
+				axisOrigin
+			),
 			combine: combineObj,
 			targets
 		}
@@ -6080,6 +6123,28 @@ export async function applyMateConnector(choice = {}) {
 	if (!bridge || !engineReady) return null;
 	const editing = mateConnectorDialogState?.editingFeatureId ?? null;
 	const operation = mateConnectorOperation(choice);
+	if (editing) {
+		// P3 gave `rotation_deg` and `offset_m` expression sidecars, and this
+		// dialog has plain number inputs for both. Carry a driver the apply did
+		// not change and detach one it did (see `carriedExpr`).
+		//
+		// The comparison is against what the dialog could REPRESENT, not the
+		// stored f64: the offset is seeded through micrometres
+		// (`Math.round(m * 1e6) / 1e3` mm) and sent back as `mm / 1000`, so an
+		// untouched field returns the stored value quantized to a micrometre.
+		// Comparing against the raw f64 would read that rounding as a user edit
+		// and drop the driver on every apply.
+		const p = featureTree?.features?.find(f => f.id === editing)?.operation?.params ?? {};
+		const rotExpr = carriedExpr(p.rotation_expr, p.rotation_deg ?? 0, operation.params.rotation_deg ?? 0);
+		if (rotExpr) operation.params.rotation_expr = rotExpr;
+		const storedOffsetUm = [0, 1, 2].map(k => Math.round((p.offset_m?.[k] ?? 0) * 1e6) / 1e6);
+		const offExpr = carriedComponentExpr(
+			p.offset_m_expr,
+			storedOffsetUm,
+			[0, 1, 2].map(k => operation.params.offset_m?.[k] ?? 0)
+		);
+		if (offExpr) operation.params.offset_m_expr = offExpr;
+	}
 	log('action', editing ? 'Edit mate connector' : 'Add mate connector', { name: operation.params.name });
 	const before = new Set((featureTree?.features ?? []).map(f => f.id));
 	try {
@@ -10492,12 +10557,31 @@ export function hideImportDialog() {
 export async function applyImportPlacement(featureId, placement, opts = {}) {
 	const feature = featureTree?.features?.find(f => f.id === featureId);
 	if (!feature || feature.operation?.type !== 'ImportedBody') return false;
+	const current = feature.operation.params;
 	const params = {
-		...feature.operation.params,
+		...current,
 		translation_m: placement.translation_m,
 		rotation_deg: placement.rotation_deg,
 		scale: placement.scale ?? 1.0,
 	};
+	// The spread above carries P3's three placement sidecars, which is right
+	// for an apply that moved nothing and WRONG for one that did: a sidecar
+	// left over a replaced number is re-evaluated at the next rebuild and
+	// overwrites it, so the drag reverts with nothing said. Each component
+	// detaches on its own (`carriedComponentExpr`).
+	const carried = {
+		translation_m_expr: carriedComponentExpr(
+			current.translation_m_expr, current.translation_m, params.translation_m
+		),
+		rotation_deg_expr: carriedComponentExpr(
+			current.rotation_deg_expr, current.rotation_deg, params.rotation_deg
+		),
+		scale_expr: carriedExpr(current.scale_expr, current.scale ?? 1.0, params.scale),
+	};
+	for (const [key, value] of Object.entries(carried)) {
+		if (value) params[key] = value;
+		else delete params[key];
+	}
 	log('action', 'Edit STEP import placement', { featureId, live: opts.close === false });
 	await editFeature(featureId, { type: 'ImportedBody', params });
 	if (opts.close !== false) hideImportDialog();
