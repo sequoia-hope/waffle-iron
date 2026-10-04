@@ -1708,6 +1708,69 @@ pub fn section_paper_step(cut: &CutPlane, angle: ProjectionAngle) -> [f64; 2] {
     }
 }
 
+/// Where a view with NO parent goes, in sheet millimetres: the middle of an
+/// empty sheet, and beside what is already drawn otherwise (D4e).
+///
+/// `occupied` is `(centre, drawn extent)` per view already on the sheet; a
+/// view whose extent is not known yet is passed as `[0, 0]`, which still
+/// claims its own centre.
+///
+/// **A named view has no parent to step clear of, and that used to mean the
+/// sheet centre every time** — so a second `Front` landed exactly on top of
+/// the first, two drawings in one place and nothing saying so. Found by D4d
+/// (2026-10-04) while adding views to dimension.
+///
+/// The rule: step RIGHT of everything drawn, keeping the row the drawn views
+/// sit in, and if that would leave the paper, start a new row BELOW them at
+/// the left-hand edge. Rightwards first because a drawing is read left to
+/// right and because the sheet is landscape by default; the row is the
+/// occupied box's own vertical centre rather than the sheet's, so two named
+/// views come out side by side and aligned, which is what a projection group
+/// wants anyway.
+///
+/// The new view's own extent is not known when it is placed (it has not been
+/// projected yet) — the same gap `auto_placement_mm` has, where the parent's
+/// extent stands in. Here the LARGEST drawn view's extent stands in, which is
+/// an estimate and not a promise: a view much wider than anything on the
+/// sheet can still overhang the paper, and the author moves it. What it is
+/// not allowed to do is land on another view.
+pub fn free_placement_mm(
+    sheet_extent_mm: [f64; 2],
+    occupied: &[([f64; 2], [f64; 2])],
+    gap_mm: f64,
+) -> [f64; 2] {
+    let centre = [sheet_extent_mm[0] / 2.0, sheet_extent_mm[1] / 2.0];
+    let finite = |p: [f64; 2]| p.iter().all(|x| x.is_finite());
+    let mut lo = [f64::INFINITY; 2];
+    let mut hi = [f64::NEG_INFINITY; 2];
+    let mut largest = [0.0f64; 2];
+    let mut any = false;
+    for (at, extent) in occupied {
+        if !finite(*at) || !finite(*extent) {
+            continue;
+        }
+        for k in 0..2 {
+            lo[k] = lo[k].min(at[k] - extent[k].abs() / 2.0);
+            hi[k] = hi[k].max(at[k] + extent[k].abs() / 2.0);
+        }
+        if extent[0].abs() * extent[1].abs() >= largest[0] * largest[1] {
+            largest = [extent[0].abs(), extent[1].abs()];
+        }
+        any = true;
+    }
+    if !any {
+        return centre;
+    }
+    let own = largest;
+    let x = hi[0] + gap_mm + own[0] / 2.0;
+    let row = (lo[1] + hi[1]) / 2.0;
+    if x + own[0] / 2.0 <= sheet_extent_mm[0] {
+        return [x, row];
+    }
+    // No room to the right: a new row under everything, at the left edge.
+    [own[0] / 2.0, lo[1] - gap_mm - own[1] / 2.0]
+}
+
 /// Where a projected view's centre goes, in sheet millimetres: clear of the
 /// parent's drawn extent, clear of its own, plus `gap_mm` between them.
 ///

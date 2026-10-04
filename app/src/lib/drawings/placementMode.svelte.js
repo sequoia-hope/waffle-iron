@@ -48,7 +48,11 @@ let ghost = $state(null);
 /** The last probe for the running mode, keyed by what it was asked about. */
 let probe = $state(null);
 let probeKey = null;
-let busy = false;
+/** The probe in flight, as `{ key, promise }`, so two pointer moves asking
+ *  the same question wait on ONE round trip instead of racing. */
+let inflight = null;
+/** Pointer-move sequence, so a slow answer cannot overwrite a newer ghost. */
+let moveSeq = 0;
 
 /** The mode the sheet's pointer handlers are in (`null` when idle). */
 export function placementMode() {
@@ -97,6 +101,8 @@ function reset() {
 	ghost = null;
 	probe = null;
 	probeKey = null;
+	inflight = null;
+	moveSeq += 1;
 }
 
 /**
@@ -108,21 +114,30 @@ function reset() {
  * to draw. The key is the question; any document edit leaves the mode (every
  * entry point calls `reset`), so a stale answer cannot outlive the geometry it
  * describes.
+ *
+ * A second move asking the same question while the first is in flight AWAITS
+ * that round trip rather than giving up on it. Bailing out with whatever was
+ * cached was this module's one real race: under load the ghost was built from
+ * `null` — no box at all — and nothing recomputed it, because no further
+ * pointer move was coming. Measured as a 1-in-3 flake in the GUI spec at four
+ * workers.
  */
 async function askProbe(key, sourceTab, projections) {
 	if (probeKey === key && probe) return probe;
-	if (busy) return probe;
-	busy = true;
-	try {
-		const answer = await probeDrawingView(sourceTab, projections);
-		if (answer) {
-			probe = answer;
-			probeKey = key;
-		}
-		return answer;
-	} finally {
-		busy = false;
-	}
+	if (inflight && inflight.key === key) return await inflight.promise;
+	const promise = probeDrawingView(sourceTab, projections)
+		.then((answer) => {
+			if (answer) {
+				probe = answer;
+				probeKey = key;
+			}
+			return answer;
+		})
+		.finally(() => {
+			if (inflight?.key === key) inflight = null;
+		});
+	inflight = { key, promise };
+	return await promise;
 }
 
 /**
@@ -132,6 +147,11 @@ async function askProbe(key, sourceTab, projections) {
 export async function placementPointerMove(atMm) {
 	const sheet = getDrawingSheet(null);
 	if (!mode || !sheet || !Array.isArray(atMm)) return;
+	// This move's turn. A probe is a round trip, so two moves can be in the
+	// air at once; the LAST one the pointer made is the one whose ghost is
+	// true, and an older answer landing afterwards must not overwrite it.
+	const seq = ++moveSeq;
+	const stale = () => seq !== moveSeq || !mode;
 	if (mode === 'place-view') {
 		const answer = await askProbe(`named:${pending.sourceTab}:${pending.view}`, pending.sourceTab, [
 			{ type: 'Named', view: { type: pending.view } }
@@ -145,6 +165,7 @@ export async function placementPointerMove(atMm) {
 					scale: pending.scale
 				})
 			: null;
+		if (stale()) return;
 		const snapped = snapPlacementMm({ atMm, views: sheet.views ?? [] });
 		ghost = {
 			centreMm: snapped.mm,
@@ -186,6 +207,7 @@ export async function placementPointerMove(atMm) {
 		sourceTab,
 		directionProjections(parent.id)
 	);
+	if (stale()) return;
 	const index = DIRECTION_ORDER.indexOf(sector);
 	const probed = answer?.views?.[index];
 	if (!probed || probed.error) {

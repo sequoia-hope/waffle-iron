@@ -2047,3 +2047,47 @@ fn a_probe_of_an_unknown_parent_names_that_one_projection_and_answers_the_rest()
         assert!((p - extent[k] / 2.0).abs() < 1e-9, "{probed}");
     }
 }
+
+#[test]
+fn a_second_named_view_is_not_added_on_top_of_the_first() {
+    // The defect D4d found and D4e owns: a named view has no parent to step
+    // clear of, so the auto-placement answered the sheet centre for every one
+    // of them and the second drawing landed exactly on the first — two views
+    // in one place, and nothing on the sheet saying so.
+    //
+    // Measured on the DOCUMENT rather than on the function, because the thing
+    // that was wrong was which placement the ADD path asked for.
+    let (mut state, mut kernel, part_tab, drawing_tab) = box_and_drawing();
+    let mut boxes: Vec<([f64; 2], [f64; 2])> = Vec::new();
+    for view in ["front", "top", "right", "left"] {
+        ok(
+            &mut state,
+            &mut kernel,
+            "drawing_view_add",
+            json!({ "tab_id": part_tab, "view": view }),
+        );
+        let sheet = &state
+            .session
+            .drawing(&drawing_tab)
+            .expect("a drawing")
+            .sheets[0];
+        let added = sheet.views.last().expect("the added view");
+        let extent = match added.cache.as_ref().and_then(|c| c.bbox) {
+            Some([min, max]) => [
+                (max[0] - min[0]) * 1000.0 * added.scale,
+                (max[1] - min[1]) * 1000.0 * added.scale,
+            ],
+            None => panic!("view `{view}` has no drawn extent"),
+        };
+        let at = added.placement_mm;
+        for (other, other_extent) in &boxes {
+            let clear_x = (at[0] - other[0]).abs() - (extent[0] + other_extent[0]) / 2.0;
+            let clear_y = (at[1] - other[1]).abs() - (extent[1] + other_extent[1]) / 2.0;
+            assert!(
+                clear_x > -1e-9 || clear_y > -1e-9,
+                "`{view}` at {at:?} ({extent:?}) overlaps a view at {other:?} ({other_extent:?})"
+            );
+        }
+        boxes.push((at, extent));
+    }
+}

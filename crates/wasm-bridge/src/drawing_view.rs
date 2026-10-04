@@ -471,6 +471,22 @@ fn default_view_name(projection: &Projection, count: usize) -> String {
     }
 }
 
+/// A view's DRAWN extent in sheet millimetres, from the layout the last
+/// evaluation cached — `[0, 0]` for a view that has none yet.
+///
+/// The layout's `bbox` is in view-plane meters, so the two factors are the
+/// unit and the view's own scale. One copy, because the auto-placement reads
+/// it for the parent and for every view already on the sheet.
+fn drawn_extent_mm(view: &DrawingView) -> [f64; 2] {
+    match view.cache.as_ref().and_then(|c| c.bbox) {
+        Some([min, max]) => [
+            (max[0] - min[0]) * 1000.0 * view.scale,
+            (max[1] - min[1]) * 1000.0 * view.scale,
+        ],
+        None => [0.0, 0.0],
+    }
+}
+
 /// Where a freshly added view goes when the caller gives no placement: clear
 /// of its parent's DRAWN extent for a projected view, the middle of the sheet
 /// otherwise.
@@ -482,19 +498,32 @@ fn default_view_name(projection: &Projection, count: usize) -> String {
 fn default_placement(sheet: &Sheet, projection: &Projection, angle: ProjectionAngle) -> [f64; 2] {
     let extent = sheet.extent_mm();
     let centre = [extent[0] / 2.0, extent[1] / 2.0];
+    // A view with no parent has nothing to step clear OF, which used to mean
+    // the sheet centre every time — so a second named view landed exactly on
+    // the first (found by D4d, 2026-10-04). `free_placement_mm` steps clear of
+    // everything drawn instead.
+    let occupied = || -> Vec<([f64; 2], [f64; 2])> {
+        sheet
+            .views
+            .iter()
+            .map(|v| (v.placement_mm, drawn_extent_mm(v)))
+            .collect()
+    };
     let Some(parent_id) = projection.parent() else {
-        return centre;
+        return feature_engine::drawing::free_placement_mm(
+            extent,
+            &occupied(),
+            DEFAULT_VIEW_GAP_MM,
+        );
     };
     let Some(parent_view) = sheet.view(parent_id) else {
-        return centre;
+        return feature_engine::drawing::free_placement_mm(
+            extent,
+            &occupied(),
+            DEFAULT_VIEW_GAP_MM,
+        );
     };
-    let parent_extent = match parent_view.cache.as_ref().and_then(|c| c.bbox) {
-        Some([min, max]) => [
-            (max[0] - min[0]) * 1000.0 * parent_view.scale,
-            (max[1] - min[1]) * 1000.0 * parent_view.scale,
-        ],
-        None => [0.0, 0.0],
-    };
+    let parent_extent = drawn_extent_mm(parent_view);
     // The child's own extent is unknown until it is projected; a projected
     // view of the same part matches its parent in one axis by construction,
     // so the parent's is the best estimate available.

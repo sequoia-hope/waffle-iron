@@ -1806,3 +1806,66 @@ fn a_corner_view_of_a_corner_view_still_has_a_frame() {
         .expect("a chain through two corners still has a frame");
     assert!(frame.basis().is_some());
 }
+
+#[test]
+fn a_parentless_view_is_placed_beside_what_is_drawn_and_never_on_it() {
+    // D4e, found by D4d: a named view has no parent to step clear of, and the
+    // sheet centre for every one of them means the second lands ON the first.
+    let sheet = [420.0, 297.0];
+    // Nothing drawn: the middle of the paper.
+    assert_eq!(
+        free_placement_mm(sheet, &[], DEFAULT_VIEW_GAP_MM),
+        [210.0, 148.5]
+    );
+
+    // One 40 × 25 view in the middle: the next goes to its right, clear by
+    // the gap, in the same row.
+    let first = ([210.0, 148.5], [40.0, 25.0]);
+    let second = free_placement_mm(sheet, &[first], DEFAULT_VIEW_GAP_MM);
+    assert_eq!(second[1], 148.5, "the row is kept");
+    let gap = (second[0] - 40.0 / 2.0) - (210.0 + 40.0 / 2.0);
+    assert!(
+        (gap - DEFAULT_VIEW_GAP_MM).abs() < 1e-12,
+        "the boxes are {gap} mm apart, not {DEFAULT_VIEW_GAP_MM}"
+    );
+
+    // Three in a row, each clear of the one before — and no two in the same
+    // place, which is the property the defect broke.
+    let mut placed = vec![first];
+    for _ in 0..3 {
+        let at = free_placement_mm(sheet, &placed, DEFAULT_VIEW_GAP_MM);
+        assert!(
+            !placed
+                .iter()
+                .any(|(p, _)| (p[0] - at[0]).abs() < 1e-9 && (p[1] - at[1]).abs() < 1e-9),
+            "a view was placed on top of another at {at:?}"
+        );
+        for (p, e) in &placed {
+            let dx = (at[0] - p[0]).abs() - (40.0 + e[0]) / 2.0;
+            let dy = (at[1] - p[1]).abs() - (25.0 + e[1]) / 2.0;
+            assert!(
+                dx >= -1e-9 || dy >= -1e-9,
+                "the box at {at:?} overlaps the one at {p:?}"
+            );
+        }
+        placed.push((at, [40.0, 25.0]));
+    }
+
+    // A row that runs out of paper wraps BELOW what is drawn rather than
+    // walking off the sheet.
+    let wide = ([380.0, 148.5], [60.0, 25.0]);
+    let wrapped = free_placement_mm(sheet, &[wide], DEFAULT_VIEW_GAP_MM);
+    assert!(
+        wrapped[0] < wide.0[0] && wrapped[1] < 148.5 - 25.0 / 2.0,
+        "a full row should wrap below, not step off the sheet: {wrapped:?}"
+    );
+
+    // A view with no cached extent still claims its own centre, so the next
+    // one does not land on it.
+    let unknown = ([210.0, 148.5], [0.0, 0.0]);
+    let after = free_placement_mm(sheet, &[unknown], DEFAULT_VIEW_GAP_MM);
+    assert!(
+        (after[0] - 210.0).abs() > 1e-9 || (after[1] - 148.5).abs() > 1e-9,
+        "placed on top of a view whose extent is unknown"
+    );
+}

@@ -57,9 +57,35 @@
 		return host?.querySelector('svg.wi-sheet') ?? null;
 	}
 
+	/**
+	 * The paper point under a pointer event, in sheet millimetres from the
+	 * BOTTOM-left corner.
+	 *
+	 * `getScreenCTM()` when the browser gives one — the element's own mapping
+	 * from its user units (paper mm, y DOWN) to the screen, so any letterboxing
+	 * `preserveAspectRatio` introduces is already in it, and D4d's anchor hit
+	 * test reads its nested view `<svg>` the same way. `paperPointMm`'s
+	 * rect-and-viewBox ratio is the fallback for a context with no CTM (jsdom,
+	 * a detached node), and it agrees with the CTM exactly while the sheet's
+	 * `width`/`height` in mm match its `viewBox`, which is how `sheet.js`
+	 * writes it.
+	 */
 	function pointAt(event) {
 		const el = sheetEl();
 		if (!el || !sheet) return null;
+		const [, heightMm] = sheetExtentMm(sheet);
+		const ctm = el.getScreenCTM?.();
+		if (ctm && typeof el.createSVGPoint === 'function') {
+			const p = el.createSVGPoint();
+			p.x = event.clientX;
+			p.y = event.clientY;
+			const user = p.matrixTransform(ctm.inverse());
+			// The one flip: user units measure y down from the top, a placement
+			// measures it up from the bottom (`sheet.js`'s own expression).
+			if (Number.isFinite(user.x) && Number.isFinite(user.y)) {
+				return [user.x, heightMm - user.y];
+			}
+		}
 		return paperPointMm(el.getBoundingClientRect(), event, sheetExtentMm(sheet));
 	}
 
