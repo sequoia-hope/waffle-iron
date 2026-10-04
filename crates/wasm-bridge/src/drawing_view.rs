@@ -355,6 +355,11 @@ pub fn apply_edit(
 /// such field, so a literal number is not expressible at this boundary at all
 /// — which is the authoring half of §7's refusal (the rebuild refuses one
 /// that arrives another way, `drawing::check_measured`).
+///
+/// It CAN build a `Measured::Expr` since D4c, from `spec.expr`. The
+/// distinction that makes one authorable and the other not is that an
+/// expression is re-evaluated against the model on every rebuild, so it
+/// cannot go stale; a literal is a number that was once true.
 pub fn build_annotation(
     spec: &crate::messages::DrawingAnnotationSpec,
 ) -> Result<Annotation, String> {
@@ -386,7 +391,20 @@ pub fn build_annotation(
             Ok(Annotation::Dimension {
                 kind,
                 anchors,
-                value: Measured::FromGeometry,
+                // An expression dimension still anchors: the anchors are
+                // WHERE it is drawn, and the expression only what it says.
+                // That is why the arity check above is unconditional.
+                value: match spec
+                    .expr
+                    .as_deref()
+                    .map(str::trim)
+                    .filter(|e| !e.is_empty())
+                {
+                    Some(expr) => Measured::Expr {
+                        expr: expr.to_string(),
+                    },
+                    None => Measured::FromGeometry,
+                },
                 precision: spec.precision,
                 dual_unit: spec.dual_unit.clone().filter(|u| !u.is_empty()),
                 placement,
@@ -578,6 +596,19 @@ impl ExprDimensions for ViewExprs<'_> {
         }
         .map_err(|e| e.to_string())
     }
+
+    fn text_of(&self, expression: &str) -> Result<String, String> {
+        // No typed boundary: a title-block row is TEXT, so the dimension is
+        // PRINTED rather than accepted — `area(top)` is a length² that no
+        // field takes and that a title block prints perfectly well. The unit
+        // is the working space's (mm, degrees), which is the space the
+        // expression was written in.
+        Ok(
+            feature_engine::expr::evaluate_measured(expression, &self.env, &self.measurer)
+                .map_err(|e| e.to_string())?
+                .display_text(),
+        )
+    }
 }
 
 /// Rebuild every view of `drawing`.
@@ -624,19 +655,6 @@ pub fn evaluate(
     let sheet_count = drawing.sheets.len();
     for (sheet_index, sheet) in drawing.sheets.iter().enumerate() {
         let sheet_inputs = CacheInputs::for_sheet(sheet, drawing.projection_angle);
-        out.title_blocks.insert(
-            sheet.id,
-            title_block_layout(
-                &sheet.title_block,
-                sheet,
-                &TitleBlockContext {
-                    document_name: doc.name,
-                    sheet_number: sheet_index + 1,
-                    sheet_count,
-                    angle: drawing.projection_angle,
-                },
-            ),
-        );
         for view in &sheet.views {
             let frame = match sheet.view_frame(view.id, drawing.projection_angle) {
                 Ok(frame) => frame,
@@ -746,6 +764,12 @@ pub fn evaluate(
             match built {
                 Ok(built) => {
                     out.declines.merge(&built.declines);
+                    out.warnings.extend(
+                        built
+                            .warnings
+                            .iter()
+                            .map(|w| format!("view `{}`: {w}", view.name)),
+                    );
                     for (index, e) in &built.annotation_errors {
                         out.errors.push(describe(view.name.as_str(), e));
                         out.annotation_errors.push((view.id, *index));
@@ -766,6 +790,58 @@ pub fn evaluate(
                 Err(e) => out.errors.push(describe(view.name.as_str(), &e)),
             }
         }
+
+        // The title block is filled AFTER this sheet's views, which is what
+        // D4c's expression rows need: the environment they measure is a
+        // SOURCE TAB's engine, and `bodies_of_tab` is what put one in
+        // `out.parts`. Filling it first — as D4b did, when no row could
+        // measure anything — would have handed every expression row a
+        // `None`.
+        //
+        // **Which document a title-block expression measures: the one tab
+        // this sheet's views draw.** A sheet of six views of one part is the
+        // ordinary case and `volume(plate)` means something in it. A sheet
+        // whose views draw TWO parts has no "the part" whose mass to print,
+        // and a sheet with no views has no document at all, so both refuse by
+        // name rather than picking the first — the same choice D2 made for an
+        // assembly source, which has no single engine either.
+        let fill = {
+            let kernel: &dyn KernelBundle = &*kb;
+            let mut tabs = sheet.views.iter().map(|v| v.source.tab_id.as_str());
+            let single = match (tabs.next(), tabs.next()) {
+                (Some(first), None) => Some(first),
+                (Some(first), Some(_)) => sheet
+                    .views
+                    .iter()
+                    .all(|v| v.source.tab_id == first)
+                    .then_some(first),
+                _ => None,
+            };
+            let engine = single.and_then(|tab| {
+                out.parts
+                    .iter()
+                    .find(|(p, _)| p.part.tab_id == tab)
+                    .map(|(_, e)| e)
+            });
+            let exprs = engine.map(|e| ViewExprs::new(e, kernel));
+            title_block_layout(
+                &sheet.title_block,
+                sheet,
+                &TitleBlockContext {
+                    document_name: doc.name,
+                    sheet_number: sheet_index + 1,
+                    sheet_count,
+                    angle: drawing.projection_angle,
+                },
+                exprs.as_ref().map(|x| x as &dyn ExprDimensions),
+            )
+        };
+        out.title_blocks.insert(sheet.id, fill.layout);
+        out.errors.extend(
+            fill.errors
+                .iter()
+                .map(|e| format!("sheet `{}`: {e}", sheet.name)),
+        );
     }
     out
 }

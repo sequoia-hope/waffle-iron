@@ -43,12 +43,16 @@
 //! choice [`crate::step_export`] makes); `ViewGeometry` is in the kernel's
 //! meters and is scaled here at the boundary.
 //!
-//! Curves land on the layers §8 names: `VISIBLE` and `HIDDEN`. D1a and D1b
-//! tag everything visible — edges and silhouettes alike — so `HIDDEN` is
-//! empty today; its layer record is written
-//! anyway, so the file's layer table does not change shape when D1c starts
-//! filling it. Both are `CONTINUOUS` — a dashed hidden-line type needs an
-//! `LTYPE` table and belongs with the increment that produces hidden lines.
+//! Curves land on the layers §8 names: `VISIBLE` and `HIDDEN` from a view's
+//! own visibility, and — since D4c — any layer the CALLER names, which is how
+//! a section cap's hatch reaches `HATCH`. [`write_dxf`] is the view-only form
+//! and still writes exactly `VISIBLE` and `HIDDEN`; [`write_dxf_layers`] is
+//! the general one, and the `LAYER` table it writes is the set of layers
+//! actually used (`VISIBLE` and `HIDDEN` always, so a reader's layer list
+//! does not change shape between a hatched sheet and a plain one).
+//!
+//! Every layer is `CONTINUOUS` — a dashed hidden-line type needs an `LTYPE`
+//! table and belongs with the increment that produces hidden lines.
 
 use waffle_types::kernel::projection::{Aabb2, Curve2, ViewGeometry, Visibility};
 
@@ -82,22 +86,54 @@ pub const LAYER_VISIBLE: &str = "VISIBLE";
 /// Layer for [`Visibility::Hidden`] curves — populated since D1c.
 pub const LAYER_HIDDEN: &str = "HIDDEN";
 
+/// Layer for a section cap's hatching (`specs/drawings_and_mbd.md` §8, D4c).
+pub const LAYER_HATCH: &str = "HATCH";
+
+/// One curve and the layer it lands on — [`write_dxf_layers`]'s unit.
+#[derive(Debug, Clone, Copy)]
+pub struct DxfCurve<'a> {
+    pub geometry: &'a Curve2,
+    pub layer: &'a str,
+}
+
 /// Write one view as an R12 DXF drawing.
 ///
 /// `polyline_sagitta` is the chord deviation allowed when flattening a curve
 /// R12 cannot carry, in model units; [`DEFAULT_POLYLINE_SAGITTA`] is the
 /// usual choice.
 pub fn write_dxf(view: &ViewGeometry, polyline_sagitta: f64) -> String {
-    let mut out = String::new();
-    header(&mut out, view.bbox);
-    tables(&mut out);
-    out.push_str("  0\nSECTION\n  2\nENTITIES\n");
-    for curve in &view.curves {
-        let layer = match curve.visibility {
+    let curves: Vec<DxfCurve> = view.curves.iter().map(dxf_curve).collect();
+    write_dxf_layers(&curves, view.bbox, polyline_sagitta)
+}
+
+/// The layer a projected curve lands on, from its visibility.
+pub fn dxf_curve(curve: &waffle_types::kernel::projection::ProjectedCurve) -> DxfCurve<'_> {
+    DxfCurve {
+        geometry: &curve.geometry,
+        layer: match curve.visibility {
             Visibility::Visible => LAYER_VISIBLE,
             Visibility::Hidden => LAYER_HIDDEN,
-        };
-        entity(&mut out, &curve.geometry, layer, polyline_sagitta);
+        },
+    }
+}
+
+/// Write an R12 DXF drawing of curves that each name their own layer (D4c).
+///
+/// The general form of [`write_dxf`], and what a sheet needs: the sheet's
+/// geometry is not one `ViewGeometry` — a section cap's hatch is not a
+/// projected curve at all and has no visibility to derive a layer from, so
+/// the layer has to be the caller's to say.
+///
+/// `bbox` is the drawing's extents in MODEL units, written to `$EXTMIN` /
+/// `$EXTMAX`; pass the box of everything written, hatch included, since that
+/// is what a reader zooms to.
+pub fn write_dxf_layers(curves: &[DxfCurve], bbox: Option<Aabb2>, polyline_sagitta: f64) -> String {
+    let mut out = String::new();
+    header(&mut out, bbox);
+    tables(&mut out, curves);
+    out.push_str("  0\nSECTION\n  2\nENTITIES\n");
+    for curve in curves {
+        entity(&mut out, curve.geometry, curve.layer, polyline_sagitta);
     }
     out.push_str("  0\nENDSEC\n  0\nEOF\n");
     out
@@ -126,12 +162,36 @@ fn header(out: &mut String, bbox: Option<Aabb2>) {
 }
 
 /// The LAYER table. R12 wants a `TABLE`/`ENDTAB` pair with a count.
-fn tables(out: &mut String) {
+///
+/// `VISIBLE` and `HIDDEN` are always declared, even when empty — their
+/// records were written unconditionally before D1c filled `HIDDEN`, for the
+/// reason that a reader's layer list should not change shape with the
+/// drawing's content. Any further layer the curves name is appended in FIRST
+/// USE order, which is deterministic for a deterministic curve list.
+fn tables(out: &mut String, curves: &[DxfCurve]) {
+    let mut names: Vec<&str> = vec![LAYER_VISIBLE, LAYER_HIDDEN];
+    for curve in curves {
+        if !names.contains(&curve.layer) {
+            names.push(curve.layer);
+        }
+    }
     out.push_str("  0\nSECTION\n  2\nTABLES\n");
-    out.push_str("  0\nTABLE\n  2\nLAYER\n 70\n     2\n");
-    layer(out, LAYER_VISIBLE, 7);
-    layer(out, LAYER_HIDDEN, 8);
+    out.push_str(&format!("  0\nTABLE\n  2\nLAYER\n 70\n{:6}\n", names.len()));
+    for name in names {
+        layer(out, name, layer_colour(name));
+    }
     out.push_str("  0\nENDTAB\n  0\nENDSEC\n");
+}
+
+/// The AutoCAD colour index a layer is declared with. White/black (7) for the
+/// outline, grey (8) for what is behind it and for the hatch — ISO 128's line
+/// hierarchy, as far as a colour index can carry it; anything unrecognized
+/// takes 7, so a caller inventing a layer gets an ordinary visible one.
+fn layer_colour(name: &str) -> i32 {
+    match name {
+        LAYER_HIDDEN | LAYER_HATCH => 8,
+        _ => 7,
+    }
 }
 
 fn layer(out: &mut String, name: &str, color: i32) {
