@@ -110,6 +110,7 @@ fn make_revolve(
             profile_index: 0,
             profile_entity_ids: None,
             axis_origin: [0.0, 0.0, 0.0],
+            axis_origin_expr: None,
             axis_direction: [0.0, 1.0, 0.0],
             angle: 360.0,
             cut,

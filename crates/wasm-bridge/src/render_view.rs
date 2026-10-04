@@ -691,8 +691,8 @@ pub fn body_metadata_for(state: &EngineState, bodies: &[BodyAddr]) -> Vec<serde_
                 // The LEAF's part (differs from `partTabId` for a member
                 // of a sub-assembly instance): what "edit in context" opens.
                 if let Some((part, _)) = view.parts.get(leaf.part) {
-                    entry["leafPartTabId"] = serde_json::json!(part.tab_id);
-                    entry["leafPartSourceId"] = serde_json::json!(part.source_id);
+                    entry["leafPartTabId"] = serde_json::json!(part.part.tab_id);
+                    entry["leafPartSourceId"] = serde_json::json!(part.part.source_id);
                 }
                 // A ghost's geometry is baked into the edited part's frame:
                 // no renderer-side placement.

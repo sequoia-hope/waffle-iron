@@ -16,6 +16,7 @@ import {
 	waitForFeatureCount,
 	hasMeshWithGeometry,
 	waitForMeshWithGeometry,
+	getFeatureTree,
 } from './helpers/state.js';
 
 /**
@@ -56,26 +57,44 @@ test.describe('property editor feature display', () => {
 		await expect(featureType).toHaveText('Extrude');
 	});
 
-	test('editing depth triggers rebuild', async ({ waffle }) => {
+	test('editing depth reaches the FEATURE, not just the input', async ({ waffle }) => {
+		// This asserted only that a mesh still existed, which is true of a panel
+		// edit that does nothing at all — and that is what it was: `handleChange`
+		// cloned the `$state` feature tree's Proxy, `structuredClone` refused it
+		// (DataCloneError, swallowed as an unhandled rejection in a timeout), and
+		// `editFeature` was never called. The input kept the typed value and the
+		// model kept the old one. The oracle has to be the TREE.
 		await createSketchAndExtrude(waffle);
 
-		// Select extrude feature
 		const extrudeItem = waffle.page.locator('[data-testid="feature-item-1"]');
 		await extrudeItem.click();
 		await waffle.page.waitForTimeout(300);
 
-		// Find the depth input
 		const depthInput = waffle.page.locator('[data-testid="prop-input-params.depth"]');
 		await expect(depthInput).toBeVisible();
+		// The panel edits the stored value directly (meters), so read the old
+		// one rather than assuming it.
+		const before = (await getFeatureTree(waffle.page)).features.find(
+			(f) => f.operation?.type === 'Extrude'
+		).operation.params.depth;
+		expect(before).toBeGreaterThan(0);
 
-		// Change depth value
-		await depthInput.fill('25');
+		await depthInput.fill('0.025');
 		await waffle.page.keyboard.press('Tab');
 
-		// Wait for debounce + rebuild
-		await waffle.page.waitForTimeout(800);
+		// The debounce is 300 ms, then a rebuild.
+		await waffle.page.waitForFunction(
+			() => {
+				const e = window.__waffle
+					.getFeatureTree()
+					.features.find((f) => f.operation?.type === 'Extrude');
+				return e && Math.abs(e.operation.params.depth - 0.025) < 1e-12;
+			},
+			null,
+			{ timeout: 10000 }
+		);
 
-		// Mesh should still exist (rebuild didn't crash)
+		// And the rebuild really happened.
 		const hasMesh = await hasMeshWithGeometry(waffle.page);
 		expect(hasMesh).toBe(true);
 	});

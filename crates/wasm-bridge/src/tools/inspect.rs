@@ -1161,114 +1161,291 @@ pub(super) fn expression_evaluate(
 /// (`feature_engine::expr::dependencies`), not from evaluation, so a
 /// parameter whose expression FAILS still reports what it was trying to
 /// read — which is usually the thing that needs fixing.
-pub(super) fn parameters_get(state: &mut EngineState) -> Answer {
+///
+/// `scope` (P2) chooses which table (default `"tab"`):
+///
+/// - `"tab"` — the open Part tab's own table, PLUS every document row it
+///   inherits, each marked with its `scope` and, for a document row the tab
+///   redeclares, `shadowed: true`. One answer for "what can an expression
+///   here read", because that is the question, and splitting it would make
+///   an agent issue two calls and reimplement the shadowing rule to merge
+///   them.
+/// - `"document"` — the document table alone, which is also the only scope
+///   available while an Assembly or Drawing tab is open (such a tab has no
+///   table of its own).
+/// - `"instance"` — with `instance_id`, the part's table as that instance
+///   builds it: each row carries `override` when the instance pins it and
+///   `value_mm` is the pinned magnitude.
+pub(super) fn parameters_get(state: &mut EngineState, args: Option<&Value>) -> Answer {
+    let scope = args
+        .and_then(|a| a.get("scope"))
+        .and_then(Value::as_str)
+        .unwrap_or("tab");
+    match scope {
+        "tab" => parameters_get_tab(state),
+        "document" => parameters_get_document(state),
+        "instance" => parameters_get_instance(state, args),
+        other => Err(ToolFailure::new(
+            "InvalidArguments",
+            format!("scope: unknown scope `{other}`; expected `tab`, `document` or `instance`."),
+            json!({ "reason": format!("unknown scope `{other}`"),
+                    "expected": ["tab", "document", "instance"] }),
+        )),
+    }
+}
+
+/// The document table alone. No `used_by_fields`: the readers of a document
+/// parameter are spread over every tab, and this call holds only the open
+/// one's tree — answering from it would report a subset as if it were the
+/// whole, which is worse than not answering. `used_by` within the document
+/// table itself is exact and is reported.
+fn parameters_get_document(state: &mut EngineState) -> Answer {
+    let params = state.engine.document_parameters.clone();
+    let cycles = feature_engine::params::cycles(&params);
+    let rows: Vec<Value> = params
+        .iter()
+        .map(|p| {
+            let mut row = parameter_row(p, &params, &[]);
+            row["scope"] = json!("document");
+            row
+        })
+        .collect();
+    Ok(json!({
+        "scope": "document",
+        "parameters": rows,
+        "cycles": cycles,
+        // Said plainly rather than left to be inferred from an empty list.
+        "used_by_fields_scope": "not reported for a document parameter: its \
+            readers span every tab, and this call holds only the open tab's tree",
+    }))
+}
+
+/// The part's table as one instance builds it.
+fn parameters_get_instance(state: &mut EngineState, args: Option<&Value>) -> Answer {
+    let instance_id: uuid::Uuid = args
+        .and_then(|a| a.get("instance_id"))
+        .and_then(Value::as_str)
+        .and_then(|s| s.parse().ok())
+        .ok_or_else(|| {
+            ToolFailure::new(
+                "InvalidArguments",
+                "instance_id is required (a UUID) for scope `instance`.",
+                json!({ "reason": "instance_id is required for scope `instance`." }),
+            )
+        })?;
+    let view = state.assembly.as_ref().ok_or_else(|| {
+        ToolFailure::new(
+            "InvalidArguments",
+            "scope `instance` needs an open Assembly tab.",
+            json!({ "reason": "no assembly is open" }),
+        )
+    })?;
+    let inst = view
+        .tree
+        .instances
+        .iter()
+        .find(|i| i.id == instance_id)
+        .ok_or_else(|| {
+            ToolFailure::new(
+                "InvalidArguments",
+                format!("no instance {instance_id} in the open assembly."),
+                json!({ "reason": "unknown instance_id", "instance_id": instance_id }),
+            )
+        })?;
+    let overrides = inst.parameter_overrides.clone().unwrap_or_default();
+    // The instance's own ENGINE, so every value is the one that built this
+    // instance's geometry rather than one recomputed here.
+    let engine = view.engine_for_instance(instance_id).ok_or_else(|| {
+        ToolFailure::new(
+            "InvalidArguments",
+            format!(
+                "instance {instance_id} has no built part (suppressed, a \
+                     sub-assembly, or its part failed to resolve)."
+            ),
+            json!({ "reason": "no built part for this instance",
+                        "instance_id": instance_id }),
+        )
+    })?;
+    let params = engine.tree.parameters.clone();
+    let document = engine.document_parameters.clone();
+    let cycles = feature_engine::params::cycles(&params);
+    let mut rows: Vec<Value> = params
+        .iter()
+        .map(|p| {
+            let mut row = parameter_row(p, &params, &[]);
+            row["scope"] = json!("tab");
+            if let Some(v) = overrides.get(&p.name) {
+                row["override"] = json!(v);
+                row["scope"] = json!("instance");
+            }
+            row
+        })
+        .collect();
+    rows.extend(inherited_document_rows(&document, &params));
+    // An override naming nothing is already a loud rebuild error; naming it
+    // here too is what lets an agent FIND it without reading the error list.
+    let unmatched: Vec<&String> = overrides
+        .keys()
+        .filter(|name| !params.iter().any(|p| p.name == **name))
+        .collect();
+    Ok(json!({
+        "scope": "instance",
+        "instance_id": instance_id,
+        "parameters": rows,
+        "cycles": cycles,
+        "overrides_matching_no_parameter": unmatched,
+    }))
+}
+
+/// Document rows a tab INHERITS: every document row, marked `shadowed` when
+/// the tab declares the same name. A shadowed row is reported rather than
+/// dropped, because "why is my document variable not driving this" is
+/// answered by seeing it listed as shadowed.
+fn inherited_document_rows(
+    document: &[feature_engine::types::DesignParameter],
+    tab: &[feature_engine::types::DesignParameter],
+) -> Vec<Value> {
+    document
+        .iter()
+        .map(|p| {
+            let mut row = parameter_row(p, document, &[]);
+            row["scope"] = json!("document");
+            if tab.iter().any(|t| t.name == p.name) {
+                row["shadowed"] = json!(true);
+            }
+            row
+        })
+        .collect()
+}
+
+fn parameters_get_tab(state: &mut EngineState) -> Answer {
     let params = state.engine.tree.parameters.clone();
+    let document = state.engine.document_parameters.clone();
     // Who reads what, from the one enumeration of expression fields.
     let field_uses = feature_engine::params::field_uses(&mut state.engine.tree);
     // Cycles come off the GRAPH, so the answer names the loop rather than
     // leaving an agent to infer one from several "does not resolve" errors.
     let cycles = feature_engine::params::cycles(&params);
 
-    let rows: Vec<Value> = params
+    let mut rows: Vec<Value> = params
         .iter()
         .map(|p| {
-            let depends_on: Vec<String> = feature_engine::expr::dependencies(&p.expression)
-                .map(|ids| ids.into_iter().collect())
-                .unwrap_or_default();
-            // A dependent is another parameter whose expression names this
-            // one. Derived here rather than stored: one table, one source of
-            // truth, and no index to fall out of date.
-            let used_by: Vec<String> = params
-                .iter()
-                .filter(|other| {
-                    other.name != p.name
-                        && feature_engine::expr::dependencies(&other.expression)
-                            .is_some_and(|ids| ids.contains(&p.name))
-                })
-                .map(|other| other.name.clone())
-                .collect();
-            let used_by_fields: Vec<Value> = field_uses
-                .iter()
-                .filter(|u| u.reads.contains(&p.name))
-                .map(|u| {
-                    json!({
-                        "feature_id": u.feature,
-                        "feature": u.feature_name,
-                        "field": u.field,
-                        "expression": u.expression,
-                    })
-                })
-                .collect();
-
-            let mut row = json!({
-                "id": p.id,
-                "name": p.name,
-                "expression": p.expression,
-                // The WORKING-SPACE magnitude — mm for a length, degrees
-                // for an angle — the same convention `expression_evaluate`
-                // and `parameters_set` answer in. Null when the expression
-                // does not evaluate: a stale number presented as the answer
-                // is worse than no number.
-                "value_mm": if p.error.is_some() { Value::Null } else { json!(p.value) },
-                "depends_on": depends_on,
-                "used_by": used_by,
-                "used_by_fields": used_by_fields,
-            });
-            // D2: a measuring parameter depends on GEOMETRY as well as on
-            // other parameters, and the two are different namespaces — an
-            // entity name is not a parameter name and `depends_on` must not
-            // claim it is. Reported as its own list rather than folded in,
-            // because an agent that reads `depends_on: []` off a parameter
-            // spelled `volume(plate) / 1000` would conclude the row is a
-            // constant and reorder the tree under it. Absent when the
-            // expression measures nothing, so a document that does not
-            // measure answers exactly as it did before D2.
-            let measures: Vec<String> = feature_engine::expr::entity_references(&p.expression)
-                .map(|names| names.into_iter().collect())
-                .unwrap_or_default();
-            if !measures.is_empty() {
-                row["measures"] = json!(measures);
-            }
-            // The dimension the expression PRODUCED (P1), not the declared
-            // one: `width = "2cm"` is a length whether or not anyone said
-            // so, and a depth reading an undeclared `angle_expr` is refused
-            // on this basis. `committed` is the asymmetry that makes every
-            // pre-P1 document still work — a bare number commits to
-            // nothing and adopts whatever field consumes it.
-            if let Some(tag) = p.tag {
-                let q = feature_engine::expr::Quantity {
-                    value: p.value,
-                    tag,
-                };
-                let dim = tag.dim();
-                let mut dimension = json!({
-                    "length": dim.length,
-                    "angle": dim.angle,
-                    "committed": tag.at().is_some(),
-                    "label": q.dimension_label(),
-                });
-                // The named `Dimension` when the exponents are one of the
-                // four a field can ask for; absent for `length^2` and
-                // friends, which no field accepts.
-                if let Some(named) = q.dimension() {
-                    dimension["kind"] = json!(named);
-                }
-                row["dimension"] = dimension;
-            }
-            if let Some(unit) = p.unit {
-                row["unit"] = json!(unit);
-            }
-            if let Some(comment) = &p.comment {
-                row["comment"] = json!(comment);
-            }
-            // Per PARAMETER, never a whole-table failure: one bad
-            // expression must not hide the twenty that are fine.
-            if let Some(error) = &p.error {
-                row["error"] = json!(error);
-            }
+            let mut row = parameter_row(p, &params, &field_uses);
+            row["scope"] = json!("tab");
             row
         })
         .collect();
+    // The document rows this tab inherits, in the same list and marked.
+    rows.extend(inherited_document_rows(&document, &params));
 
-    Ok(json!({ "parameters": rows, "cycles": cycles }))
+    Ok(json!({ "scope": "tab", "parameters": rows, "cycles": cycles }))
+}
+
+/// One row of a `parameters_get` answer.
+///
+/// `siblings` is the table the parameter lives in — `used_by` is a relation
+/// WITHIN a table, so a document row's dependents are other document rows
+/// and a tab row's are other tab rows; crossing the two would claim a
+/// document parameter is read by a tab parameter of the same name it is in
+/// fact shadowed by. `field_uses` is empty for a table whose readers this
+/// call cannot see (see `parameters_get_document`).
+fn parameter_row(
+    p: &feature_engine::types::DesignParameter,
+    siblings: &[feature_engine::types::DesignParameter],
+    field_uses: &[feature_engine::params::FieldUse],
+) -> Value {
+    let depends_on: Vec<String> = feature_engine::expr::dependencies(&p.expression)
+        .map(|ids| ids.into_iter().collect())
+        .unwrap_or_default();
+    // A dependent is another parameter whose expression names this one.
+    // Derived here rather than stored: one table, one source of truth, and
+    // no index to fall out of date.
+    let used_by: Vec<String> = siblings
+        .iter()
+        .filter(|other| {
+            other.name != p.name
+                && feature_engine::expr::dependencies(&other.expression)
+                    .is_some_and(|ids| ids.contains(&p.name))
+        })
+        .map(|other| other.name.clone())
+        .collect();
+    let used_by_fields: Vec<Value> = field_uses
+        .iter()
+        .filter(|u| u.reads.contains(&p.name))
+        .map(|u| {
+            json!({
+                "feature_id": u.feature,
+                "feature": u.feature_name,
+                "field": u.field,
+                "expression": u.expression,
+            })
+        })
+        .collect();
+
+    let mut row = json!({
+        "id": p.id,
+        "name": p.name,
+        "expression": p.expression,
+        // The WORKING-SPACE magnitude — mm for a length, degrees for an
+        // angle — the same convention `expression_evaluate` and
+        // `parameters_set` answer in. Null when the expression does not
+        // evaluate: a stale number presented as the answer is worse than no
+        // number.
+        "value_mm": if p.error.is_some() { Value::Null } else { json!(p.value) },
+        "depends_on": depends_on,
+        "used_by": used_by,
+        "used_by_fields": used_by_fields,
+    });
+    // D2: a measuring parameter depends on GEOMETRY as well as on other
+    // parameters, and the two are different namespaces — an entity name is
+    // not a parameter name and `depends_on` must not claim it is. Reported as
+    // its own list rather than folded in, because an agent that reads
+    // `depends_on: []` off a parameter spelled `volume(plate) / 1000` would
+    // conclude the row is a constant and reorder the tree under it. Absent
+    // when the expression measures nothing, so a document that does not
+    // measure answers exactly as it did before D2.
+    let measures: Vec<String> = feature_engine::expr::entity_references(&p.expression)
+        .map(|names| names.into_iter().collect())
+        .unwrap_or_default();
+    if !measures.is_empty() {
+        row["measures"] = json!(measures);
+    }
+    // The dimension the expression PRODUCED (P1), not the declared one:
+    // `width = "2cm"` is a length whether or not anyone said so, and a depth
+    // reading an undeclared `angle_expr` is refused on this basis.
+    // `committed` is the asymmetry that makes every pre-P1 document still
+    // work — a bare number commits to nothing and adopts whatever field
+    // consumes it.
+    if let Some(tag) = p.tag {
+        let q = feature_engine::expr::Quantity {
+            value: p.value,
+            tag,
+        };
+        let dim = tag.dim();
+        let mut dimension = json!({
+            "length": dim.length,
+            "angle": dim.angle,
+            "committed": tag.at().is_some(),
+            "label": q.dimension_label(),
+        });
+        // The named `Dimension` when the exponents are one of the four a
+        // field can ask for; absent for `length^2` and friends, which no
+        // field accepts.
+        if let Some(named) = q.dimension() {
+            dimension["kind"] = json!(named);
+        }
+        row["dimension"] = dimension;
+    }
+    if let Some(unit) = p.unit {
+        row["unit"] = json!(unit);
+    }
+    if let Some(comment) = &p.comment {
+        row["comment"] = json!(comment);
+    }
+    // Per PARAMETER, never a whole-table failure: one bad expression must
+    // not hide the twenty that are fine.
+    if let Some(error) = &p.error {
+        row["error"] = json!(error);
+    }
+    row
 }

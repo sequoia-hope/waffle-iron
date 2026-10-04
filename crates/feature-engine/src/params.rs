@@ -21,7 +21,7 @@ use std::collections::HashMap;
 
 use uuid::Uuid;
 
-use crate::expr::{self, Dimension, Env, ExprError, Measurer, Quantity, Span};
+use crate::expr::{self, Dimension, Env, ExprError, Measurer, Quantity, Span, Tag};
 use crate::types::{DesignParameter, FeatureTree, Operation, PlaneDefinition};
 use waffle_types::{DimensionUnit, SketchEntity, SolveStatus};
 
@@ -74,7 +74,62 @@ pub fn evaluate_parameters_with(
     measurer: Option<&crate::measure::TreeMeasurer<'_>>,
     floors: &HashMap<String, usize>,
 ) -> Env {
-    let mut env: Env = Env::new();
+    evaluate_table(params, &Env::new(), &HashMap::new(), measurer, floors)
+}
+
+/// [`evaluate_parameters`] inside an OUTER scope — P2's document table seen
+/// from a Part's table.
+///
+/// A name the local table declares SHADOWS the outer one, and the shadowing
+/// is total: the outer value is not visible to the local table at all, not
+/// even to the shadowing row's own expression. `w = "w * 2"` over a document
+/// `w` is therefore a self-reference and a loud cycle, not a silent doubling
+/// of a value from a table the author cannot see from here. Half-visibility
+/// is the alternative and it is worse: `w` would mean the document's `w` in
+/// one row of this table and the local `w` in every other.
+///
+/// Returns the COMBINED environment — the outer names the local table does
+/// not shadow, plus every local name that resolved — which is what the
+/// feature fields read.
+pub fn evaluate_parameters_in(params: &mut [DesignParameter], outer: &Env) -> Env {
+    evaluate_table(params, outer, &HashMap::new(), None, &HashMap::new())
+}
+
+/// Every parameter whose magnitude an instance override replaces, with the
+/// dimension the parameter itself carries. See [`pin_overrides`].
+pub type Pinned = HashMap<String, Quantity>;
+
+/// Evaluate a parameter table: the one fixpoint, with every scope and every
+/// deferral the two increments added.
+///
+/// - `outer` is P2's enclosing scope (the document table seen from a Part's).
+///   A name this table declares SHADOWS an outer one, totally.
+/// - `pinned` is P2's instance overrides. A pinned parameter's own expression
+///   is not evaluated — the override IS its value — and the pin enters the
+///   environment before the fixpoint starts rather than being patched into it
+///   afterwards, so everything that reads it follows.
+/// - `measurer`/`floors` are D2's model access. Without a measurer an
+///   expression that MEASURES is deferred at its last-good value rather than
+///   refused.
+///
+/// A pin beats a deferral: an overridden parameter's value comes from the
+/// instance whether or not its expression would have measured anything.
+fn evaluate_table(
+    params: &mut [DesignParameter],
+    outer: &Env,
+    pinned: &Pinned,
+    measurer: Option<&crate::measure::TreeMeasurer<'_>>,
+    floors: &HashMap<String, usize>,
+) -> Env {
+    // Shadowed outer names are removed before the fixpoint starts, so an
+    // unresolved local name never falls back to an outer one.
+    let declared: std::collections::HashSet<String> =
+        params.iter().map(|p| p.name.clone()).collect();
+    let mut env: Env = outer
+        .iter()
+        .filter(|(name, _)| !declared.contains(name.as_str()))
+        .map(|(name, q)| (name.clone(), *q))
+        .collect();
 
     // The dependency cycles, read off the graph BEFORE any evaluation: the
     // fixpoint below can only report that a parameter never resolved, which
@@ -96,6 +151,17 @@ pub fn evaluate_parameters_with(
             continue;
         }
         seen.insert(p.name.clone(), i);
+        // A pinned name resolves to the pin, not to its expression: the
+        // override replaces the row's value for this build. BEFORE the
+        // deferral check, because an overridden parameter's value comes from
+        // the instance whether or not its expression measures anything.
+        if let Some(q) = pinned.get(&p.name) {
+            env.insert(p.name.clone(), *q);
+            p.value = q.value;
+            p.tag = Some(q.tag);
+            p.error = None;
+            continue;
+        }
         if measurer.is_none() && expr::measures(&p.expression) {
             // D2, deferred: this pass has no model. The parameter enters the
             // environment at its LAST-GOOD value so its dependents still
@@ -218,6 +284,22 @@ fn evaluate_declared(
 /// bridge's stateless expression preview, which must match what the next
 /// rebuild will compute without mutating anything.
 pub fn cached_env(params: &[DesignParameter]) -> Env {
+    cached_env_in(params, &[])
+}
+
+/// [`cached_env`] over both scopes (P2): the document table's cached values
+/// first, then the tab's, which SHADOW them — the same precedence the
+/// rebuild applies, so the preview still refuses exactly what the rebuild
+/// refuses.
+pub fn cached_env_in(params: &[DesignParameter], document: &[DesignParameter]) -> Env {
+    let mut env = cached_env_rows(document);
+    for (name, q) in cached_env_rows(params) {
+        env.insert(name, q);
+    }
+    env
+}
+
+fn cached_env_rows(params: &[DesignParameter]) -> Env {
     let mut env = Env::new();
     for p in params {
         if p.error.is_some() {
@@ -249,11 +331,79 @@ pub fn cached_env(params: &[DesignParameter]) -> Env {
     env
 }
 
+/// Turn an instance's `name → magnitude` overrides into pins for
+/// [`evaluate_table`], and name every override that addresses nothing.
+///
+/// The magnitude is a working-space number (mm for a length, degrees for an
+/// angle — the same space `value_mm` reports), because that is what
+/// `Instance.parameter_overrides` has always been declared to hold. Its
+/// DIMENSION comes from the parameter being overridden, never from the
+/// override: a declared `unit` commits it (and a `Count` override of `20.5`
+/// is refused by name, through the same `retag` the table itself uses), and
+/// otherwise the dimension the row's own expression produces is kept, so
+/// overriding `width = "2cm"` with `30` still yields a length.
+///
+/// An override naming a parameter the part does not declare is a loud error,
+/// not a new parameter. An instance cannot introduce a variable the part has
+/// no field reading, so the only thing such an override can be is a typo or a
+/// name the part has since renamed — and silently accepting it would leave
+/// the instance looking parameterised while building the default geometry.
+fn pin_overrides(
+    params: &mut [DesignParameter],
+    outer: &Env,
+    overrides: &std::collections::BTreeMap<String, f64>,
+) -> (Pinned, Vec<String>) {
+    // Pass one, as written: a row with no declared unit only reveals its
+    // dimension by evaluating. Cheap (a parse per row) and it also leaves
+    // `value`/`error` correct for the rows no override touches.
+    let plain = evaluate_table(params, outer, &HashMap::new(), None, &HashMap::new());
+    let mut pinned = Pinned::new();
+    let mut errs = Vec::new();
+    for (name, value) in overrides {
+        let Some(p) = params.iter().find(|p| p.name == *name) else {
+            errs.push(format!(
+                "override of '{name}': this part declares no parameter of that name"
+            ));
+            continue;
+        };
+        let q = Quantity::untagged(*value);
+        let tag = match p.unit {
+            Some(unit) => match q.retag(unit, Span::new(0, 0)) {
+                Ok(q) => q.tag,
+                Err(e) => {
+                    errs.push(format!("override of '{name}': {e}"));
+                    continue;
+                }
+            },
+            // No declared unit: keep whatever the row's own expression
+            // committed, and nothing if it committed nothing.
+            None => plain.get(name).map(|q| q.tag).unwrap_or(Tag::Untagged),
+        };
+        pinned.insert(name.clone(), Quantity { value: *value, tag });
+    }
+    (pinned, errs)
+}
+
+/// What a parameter table SAYS, with every derived field left out: name,
+/// expression and declared unit, in table order.
+///
+/// Two tables with the same signature drive identical geometry, and that is
+/// the question a geometry cache has to answer. `value`, `error` and `tag`
+/// are the last evaluation's output, so comparing whole rows would call two
+/// identical tables different (and, worse, call a table that has since been
+/// re-evaluated the same as one that has not).
+pub fn table_signature(params: &[DesignParameter]) -> Vec<(String, String, Option<Dimension>)> {
+    params
+        .iter()
+        .map(|p| (p.name.clone(), p.expression.clone(), p.unit))
+        .collect()
+}
+
 /// What an apply pass evaluates against: the parameter values, plus the
 /// model when there is one to measure (D2).
 ///
 /// One struct rather than two arguments through five functions, and it is
-/// the place the `Option<&TreeMeasurer>` → `Option<&dyn Measurer>` coercion
+/// the place the `Option<&TreeMeasurer>` to `Option<&dyn Measurer>` coercion
 /// happens, so no call site repeats it.
 pub struct ApplyEnv<'a> {
     pub env: Env,
@@ -311,7 +461,57 @@ pub fn apply_parameters_with(
     tree: &mut FeatureTree,
     measurer: Option<&crate::measure::TreeMeasurer<'_>>,
 ) -> ParamOutcome {
+    apply_parameters_scoped(tree, &mut [], None, measurer)
+}
+
+/// [`apply_parameters_with`] with the two outer scopes P2 adds.
+///
+/// `document` is the document-level table (`DocumentMetadata.parameters`):
+/// evaluated first, in its own scope, and seen by the tree's table and by
+/// every expression field. Its rows' `value`/`error` are refreshed in place,
+/// so the caller holding the document table reads the same answer the
+/// rebuild computed rather than evaluating it a second time.
+///
+/// A document parameter gets NO measurer, deliberately, even on a measuring
+/// pass: a measurement resolves through entity NAMES, which are per-tab
+/// (`FeatureTree.names`), and the document scope sits above the tabs — there
+/// is no answer to which tab's `plate.top_face` it would mean. So `volume(…)`
+/// in a document parameter is the same typed refusal it is in any pass with
+/// no model, and the place to write it is the tab that owns the geometry.
+///
+/// `overrides` is the instance's `parameter_overrides` when this tree is
+/// being built as one placed occurrence of a part (`None` for the Part tab
+/// itself). It pins magnitudes on the tree's OWN table, so one part
+/// definition builds N different solids.
+pub fn apply_parameters_scoped(
+    tree: &mut FeatureTree,
+    document: &mut [DesignParameter],
+    overrides: Option<&std::collections::BTreeMap<String, f64>>,
+    measurer: Option<&crate::measure::TreeMeasurer<'_>>,
+) -> ParamOutcome {
     let mut outcome = ParamOutcome::default();
+
+    // The document scope first and on its own: it is ABOVE the tabs, so it
+    // cannot read a Part's parameters (which Part would it mean?) and it
+    // cannot measure one either (see the note above).
+    let doc_env = evaluate_parameters(document);
+    for p in document.iter() {
+        if let Some(err) = &p.error {
+            outcome
+                .errors
+                .push((p.id, format!("document parameter '{}': {}", p.name, err)));
+        }
+    }
+
+    let mut override_errors: Vec<String> = Vec::new();
+    let pinned = match overrides.filter(|o| !o.is_empty()) {
+        Some(o) => {
+            let (pinned, errs) = pin_overrides(&mut tree.parameters, &doc_env, o);
+            override_errors = errs;
+            pinned
+        }
+        None => Pinned::new(),
+    };
 
     // Where each parameter is first read, so a MEASURING parameter can be
     // positioned (it has no index of its own). Computed before anything is
@@ -322,7 +522,7 @@ pub fn apply_parameters_with(
         HashMap::new()
     };
     let env = ApplyEnv {
-        env: evaluate_parameters_with(&mut tree.parameters, measurer, &floors),
+        env: evaluate_table(&mut tree.parameters, &doc_env, &pinned, measurer, &floors),
         measurer,
     };
     for p in &tree.parameters {
@@ -332,6 +532,12 @@ pub fn apply_parameters_with(
                 .push((p.id, format!("parameter '{}': {}", p.name, err)));
         }
     }
+    // An override that addresses nothing belongs to no parameter and no
+    // feature, so it is reported against the nil id — the same channel the
+    // apply pass already uses for a table-level complaint.
+    for e in override_errors {
+        outcome.errors.push((Uuid::nil(), e));
+    }
 
     for (idx, feature) in tree.features.iter_mut().enumerate() {
         let mut errs: Vec<String> = Vec::new();
@@ -339,22 +545,50 @@ pub fn apply_parameters_with(
         // only geometry EARLIER than this index.
         env.at_feature(idx);
         let changed = match &mut feature.operation {
-            Operation::Extrude { params } => apply_field(
-                "depth",
-                Dimension::Length,
-                &mut params.depth,
-                params.depth_expr.as_deref(),
-                &env,
-                &mut errs,
-            ),
-            Operation::Revolve { params } => apply_field(
-                "angle",
-                Dimension::Angle,
-                &mut params.angle,
-                params.angle_expr.as_deref(),
-                &env,
-                &mut errs,
-            ),
+            Operation::Extrude { params } => {
+                let mut changed = apply_field(
+                    "depth",
+                    Dimension::Length,
+                    &mut params.depth,
+                    params.depth_expr.as_deref(),
+                    &env,
+                    &mut errs,
+                );
+                if let Some(crate::types::SecondDirection::Blind { depth, depth_expr }) =
+                    params.second_direction.as_mut()
+                {
+                    let expression = depth_expr.clone();
+                    changed |= apply_field(
+                        "second depth",
+                        Dimension::Length,
+                        depth,
+                        expression.as_deref(),
+                        &env,
+                        &mut errs,
+                    );
+                }
+                changed
+            }
+            Operation::Revolve { params } => {
+                let mut changed = apply_field(
+                    "angle",
+                    Dimension::Angle,
+                    &mut params.angle,
+                    params.angle_expr.as_deref(),
+                    &env,
+                    &mut errs,
+                );
+                let expressions = params.axis_origin_expr.clone();
+                changed |= apply_vec3_field(
+                    "axis origin",
+                    Dimension::Length,
+                    &mut params.axis_origin,
+                    expressions.as_ref(),
+                    &env,
+                    &mut errs,
+                );
+                changed
+            }
             Operation::Pipe { params } => {
                 let a = apply_field(
                     "radius",
@@ -411,18 +645,43 @@ pub fn apply_parameters_with(
                         &mut errs,
                     )
                 }
-                PlaneDefinition::PointNormal { .. } => false,
+                PlaneDefinition::PointNormal {
+                    origin,
+                    origin_expr,
+                    ..
+                } => {
+                    let expressions = origin_expr.clone();
+                    apply_vec3_field(
+                        "origin",
+                        Dimension::Length,
+                        origin,
+                        expressions.as_ref(),
+                        &env,
+                        &mut errs,
+                    )
+                }
             },
             Operation::Sketch { sketch } => apply_sketch(sketch, &env, &mut errs),
             Operation::Sketch3d { sketch } => apply_sketch3d(sketch, &env, &mut errs),
-            Operation::PatternCircular { params } => apply_field(
-                "angle",
-                Dimension::Angle,
-                &mut params.angle_deg,
-                params.angle_expr.as_deref(),
-                &env,
-                &mut errs,
-            ),
+            Operation::PatternCircular { params } => {
+                let mut changed = apply_field(
+                    "angle",
+                    Dimension::Angle,
+                    &mut params.angle_deg,
+                    params.angle_expr.as_deref(),
+                    &env,
+                    &mut errs,
+                );
+                changed |= apply_count_field(
+                    "count",
+                    &mut params.count,
+                    params.count_expr.as_deref(),
+                    &env,
+                    &mut errs,
+                );
+                changed |= apply_axis(&mut params.axis, "axis", &env, &mut errs);
+                changed
+            }
             Operation::Script { params } => {
                 // Expression-driven script arguments: evaluate each into the
                 // raw (mm-space / degrees / plain) cache. The declared type
@@ -457,6 +716,14 @@ pub fn apply_parameters_with(
                     &env,
                     &mut errs,
                 );
+                changed |= apply_count_field(
+                    "count",
+                    &mut params.count,
+                    params.count_expr.as_deref(),
+                    &env,
+                    &mut errs,
+                );
+                changed |= apply_axis(&mut params.direction, "direction", &env, &mut errs);
                 if let Some(second) = params.second.as_mut() {
                     let expr = second.spacing_expr.clone();
                     changed |= apply_field(
@@ -467,11 +734,73 @@ pub fn apply_parameters_with(
                         &env,
                         &mut errs,
                     );
+                    changed |= apply_count_field(
+                        "second count",
+                        &mut second.count,
+                        second.count_expr.clone().as_deref(),
+                        &env,
+                        &mut errs,
+                    );
+                    changed |=
+                        apply_axis(&mut second.direction, "second direction", &env, &mut errs);
                 }
                 changed
             }
+            Operation::PatternMirror { params } => {
+                apply_axis(&mut params.plane, "plane", &env, &mut errs)
+            }
+            Operation::MateConnector { params } => {
+                let mut changed = apply_field(
+                    "rotation",
+                    Dimension::Angle,
+                    &mut params.rotation_deg,
+                    params.rotation_expr.as_deref(),
+                    &env,
+                    &mut errs,
+                );
+                let expressions = params.offset_m_expr.clone();
+                changed |= apply_vec3_field(
+                    "offset",
+                    Dimension::Length,
+                    &mut params.offset_m,
+                    expressions.as_ref(),
+                    &env,
+                    &mut errs,
+                );
+                changed
+            }
+            Operation::ImportedBody { params } => {
+                let translation = params.translation_m_expr.clone();
+                let mut changed = apply_vec3_field(
+                    "translation",
+                    Dimension::Length,
+                    &mut params.translation_m,
+                    translation.as_ref(),
+                    &env,
+                    &mut errs,
+                );
+                let rotation = params.rotation_deg_expr.clone();
+                changed |= apply_vec3_field(
+                    "rotation",
+                    Dimension::Angle,
+                    &mut params.rotation_deg,
+                    rotation.as_ref(),
+                    &env,
+                    &mut errs,
+                );
+                changed |= apply_field(
+                    "scale",
+                    Dimension::Ratio,
+                    &mut params.scale,
+                    params.scale_expr.as_deref(),
+                    &env,
+                    &mut errs,
+                );
+                changed
+            }
             // Fillet/chamfer/shell are deferred (disabled in the UI);
-            // booleans and imports carry no dimension measurements.
+            // booleans carry no dimension measurements, and a sweep's
+            // section and path are both sketches (which carry their own).
             _ => false,
         };
         if changed {
@@ -578,6 +907,129 @@ fn apply_field(
             errs.push(format!("{label} expression '{expression}': {e}"));
             false
         }
+    }
+}
+
+/// [`apply_field`] per component of a `[f64; 3]` (P3).
+///
+/// Each component is its own optional expression, so `x` can be driven while
+/// `y` and `z` stay as drawn — an author who parameterises one axis has said
+/// nothing about the other two, and filling them in from somewhere would be
+/// inventing geometry. The label names the component (`translation x`), which
+/// is what makes a dimension refusal readable: "translation z expression
+/// '25deg'" says which of three numbers is wrong.
+///
+/// Only POSITION-like vectors go through this. A direction vector (an axis's
+/// `direction`, a plane's `normal`, a sketch's in-plane x) has no sidecar at
+/// all: it is normalized at rebuild, so a per-component expression for it
+/// drives nothing an author can predict — two thirds of what they typed is
+/// scaled away.
+fn apply_vec3_field(
+    label: &str,
+    dimension: Dimension,
+    field: &mut [f64; 3],
+    expressions: Option<&[Option<String>; 3]>,
+    env: &ApplyEnv<'_>,
+    errs: &mut Vec<String>,
+) -> bool {
+    let Some(expressions) = expressions else {
+        return false;
+    };
+    let mut changed = false;
+    for (axis, expression) in expressions.iter().enumerate() {
+        changed |= apply_field(
+            &format!("{label} {}", ["x", "y", "z"][axis]),
+            dimension,
+            &mut field[axis],
+            expression.as_deref(),
+            env,
+            errs,
+        );
+    }
+    changed
+}
+
+/// [`apply_field`] for a `u32` COUNT (P3).
+///
+/// `Dimension::Count` is what makes this safe to parameterise: the boundary
+/// demands a whole, non-negative number, so `teeth / 2` of a 20-tooth gear is
+/// 10 and `teeth / 3` is a loud refusal rather than a silent truncation to 6.
+/// A count that does not fit a `u32` is refused for the same reason — a
+/// saturating cast is a wrong answer with no complaint.
+///
+/// The operation's OWN validator still runs afterwards (`pattern::check_count`
+/// wants ≥ 2): this boundary decides whether the expression produced a count
+/// at all, not whether the count is usable.
+fn apply_count_field(
+    label: &str,
+    field: &mut u32,
+    expression: Option<&str>,
+    env: &ApplyEnv<'_>,
+    errs: &mut Vec<String>,
+) -> bool {
+    let Some(expression) = expression else {
+        return false;
+    };
+    // A count can measure the model too (D2): `count_expr = "length(rail) /
+    // 50"`. Deferred on a pass with no model, like every other field.
+    if env.defers(expression) {
+        return false;
+    }
+    match env
+        .eval(expression)
+        .and_then(|q| q.accept(Dimension::Count))
+    {
+        Ok(v) => {
+            if v > u32::MAX as f64 {
+                errs.push(format!(
+                    "{label} expression '{expression}': {v} is too large for a count"
+                ));
+                return false;
+            }
+            let v = v as u32;
+            if v != *field {
+                *field = v;
+                true
+            } else {
+                false
+            }
+        }
+        Err(e) => {
+            errs.push(format!("{label} expression '{expression}': {e}"));
+            false
+        }
+    }
+}
+
+/// An [`crate::types::AxisRef`]'s driving expressions: the explicit origin's
+/// three components (P3).
+///
+/// An `Entity` axis has none — it is derived from the picked geometry every
+/// rebuild, and an expression beside it would be a second driver that the
+/// resolution overwrites.
+fn apply_axis(
+    axis: &mut crate::types::AxisRef,
+    label: &str,
+    env: &ApplyEnv<'_>,
+    errs: &mut Vec<String>,
+) -> bool {
+    match axis {
+        crate::types::AxisRef::Explicit {
+            origin,
+            origin_expr,
+            ..
+        } => {
+            let expressions = origin_expr.clone();
+            apply_vec3_field(
+                &format!("{label} origin"),
+                Dimension::Length,
+                origin,
+                expressions.as_ref(),
+                env,
+                errs,
+            )
+        }
+        crate::types::AxisRef::Entity { .. } => false,
     }
 }
 
@@ -735,6 +1187,40 @@ pub struct ExprSite<'a> {
 /// so neither can learn about a field the other does not know. Only fields
 /// that actually CARRY an expression are yielded — an absent sidecar is not
 /// a site, and a rewrite must never invent one.
+/// The set components of a `[f64; 3]` sidecar, labelled per axis — the
+/// enumeration half of [`apply_vec3_field`]. An unset component is NOT a
+/// site: an absent sidecar is not an expression, and a rewrite must never
+/// invent one.
+fn push_vec3<'a>(
+    out: &mut Vec<(String, &'a mut String)>,
+    label: &str,
+    expressions: Option<&'a mut [Option<String>; 3]>,
+) {
+    let Some(expressions) = expressions else {
+        return;
+    };
+    for (axis, expression) in expressions.iter_mut().enumerate() {
+        if let Some(e) = expression.as_mut() {
+            out.push((format!("{label} {}", ["x", "y", "z"][axis]), e));
+        }
+    }
+}
+
+/// An axis reference's expression sites — the enumeration half of
+/// [`apply_axis`].
+fn push_axis<'a>(
+    out: &mut Vec<(String, &'a mut String)>,
+    label: &str,
+    axis: &'a mut crate::types::AxisRef,
+) {
+    match axis {
+        crate::types::AxisRef::Explicit { origin_expr, .. } => {
+            push_vec3(out, &format!("{label} origin"), origin_expr.as_mut())
+        }
+        crate::types::AxisRef::Entity { .. } => {}
+    }
+}
+
 fn expression_sites(op: &mut Operation) -> Vec<(String, &mut String)> {
     use waffle_types::sketch3d::Sketch3dEntity;
     let mut out: Vec<(String, &mut String)> = Vec::new();
@@ -743,11 +1229,19 @@ fn expression_sites(op: &mut Operation) -> Vec<(String, &mut String)> {
             if let Some(e) = params.depth_expr.as_mut() {
                 out.push(("depth".to_string(), e));
             }
+            if let Some(crate::types::SecondDirection::Blind {
+                depth_expr: Some(e),
+                ..
+            }) = params.second_direction.as_mut()
+            {
+                out.push(("second depth".to_string(), e));
+            }
         }
         Operation::Revolve { params } => {
             if let Some(e) = params.angle_expr.as_mut() {
                 out.push(("angle".to_string(), e));
             }
+            push_vec3(&mut out, "axis origin", params.axis_origin_expr.as_mut());
         }
         Operation::Pipe { params } => {
             if let Some(e) = params.radius_expr.as_mut() {
@@ -764,7 +1258,9 @@ fn expression_sites(op: &mut Operation) -> Vec<(String, &mut String)> {
                     out.push(("distance".to_string(), e));
                 }
             }
-            PlaneDefinition::PointNormal { .. } => {}
+            PlaneDefinition::PointNormal { origin_expr, .. } => {
+                push_vec3(&mut out, "origin", origin_expr.as_mut());
+            }
         },
         Operation::Sketch { sketch } => {
             for (i, c) in sketch.constraints.iter_mut().enumerate() {
@@ -808,15 +1304,43 @@ fn expression_sites(op: &mut Operation) -> Vec<(String, &mut String)> {
             if let Some(e) = params.angle_expr.as_mut() {
                 out.push(("angle".to_string(), e));
             }
+            if let Some(e) = params.count_expr.as_mut() {
+                out.push(("count".to_string(), e));
+            }
+            push_axis(&mut out, "axis", &mut params.axis);
+        }
+        Operation::PatternMirror { params } => {
+            push_axis(&mut out, "plane", &mut params.plane);
+        }
+        Operation::MateConnector { params } => {
+            if let Some(e) = params.rotation_expr.as_mut() {
+                out.push(("rotation".to_string(), e));
+            }
+            push_vec3(&mut out, "offset", params.offset_m_expr.as_mut());
+        }
+        Operation::ImportedBody { params } => {
+            push_vec3(&mut out, "translation", params.translation_m_expr.as_mut());
+            push_vec3(&mut out, "rotation", params.rotation_deg_expr.as_mut());
+            if let Some(e) = params.scale_expr.as_mut() {
+                out.push(("scale".to_string(), e));
+            }
         }
         Operation::PatternLinear { params } => {
             if let Some(e) = params.spacing_expr.as_mut() {
                 out.push(("spacing".to_string(), e));
             }
+            if let Some(e) = params.count_expr.as_mut() {
+                out.push(("count".to_string(), e));
+            }
+            push_axis(&mut out, "direction", &mut params.direction);
             if let Some(second) = params.second.as_mut() {
                 if let Some(e) = second.spacing_expr.as_mut() {
                     out.push(("second spacing".to_string(), e));
                 }
+                if let Some(e) = second.count_expr.as_mut() {
+                    out.push(("second count".to_string(), e));
+                }
+                push_axis(&mut out, "second direction", &mut second.direction);
             }
         }
         Operation::Script { params } => {
@@ -1388,6 +1912,7 @@ mod tests {
                     profile_index: 0,
                     profile_entity_ids: None,
                     axis_origin: [0.0; 3],
+                    axis_origin_expr: None,
                     axis_direction: [0.0, 0.0, 1.0],
                     angle,
                     angle_expr: angle_expr.map(str::to_string),
@@ -1662,6 +2187,7 @@ mod tests {
                         profile_index: 0,
                         profile_entity_ids: None,
                         axis_origin: [0.0; 3],
+                        axis_origin_expr: None,
                         axis_direction: [0.0, 0.0, 1.0],
                         angle: 360.0,
                         angle_expr: Some("turn * 2".to_string()),
@@ -2023,10 +2549,14 @@ mod tests {
         let ops: Vec<Value> = vec![
             json!({ "type": "Extrude", "params": {
                 "sketch_id": sketch_id, "profile_index": 0, "depth": 0.004,
-                "depth_expr": "a", "symmetric": false, "cut": false }}),
+                "depth_expr": "a", "symmetric": false, "cut": false,
+                "second_direction": { "type": "Blind", "depth": 0.002,
+                                      "depth_expr": "a" } }}),
             json!({ "type": "Revolve", "params": {
                 "sketch_id": sketch_id, "profile_index": 0,
-                "axis_origin": [0.0, 0.0, 0.0], "axis_direction": [0.0, 0.0, 1.0],
+                "axis_origin": [0.0, 0.0, 0.0],
+                "axis_origin_expr": ["a", "a", "a"],
+                "axis_direction": [0.0, 0.0, 1.0],
                 "angle": 90.0, "angle_expr": "a", "cut": false }}),
             json!({ "type": "Pipe", "params": {
                 "sketch_id": sketch_id, "entity_ids": [1, 2], "radius": 0.005,
@@ -2034,18 +2564,43 @@ mod tests {
             json!({ "type": "DatumPlane", "params": { "name": "Datum", "definition": {
                 "method": "offset", "basePlaneId": Uuid::new_v4(),
                 "distance": 0.01, "distance_expr": "a" }}}),
+            json!({ "type": "DatumPlane", "params": { "name": "Datum2", "definition": {
+                "method": "point-normal", "origin": [0.0, 0.0, 0.0],
+                "origin_expr": ["a", "a", "a"], "normal": [0.0, 0.0, 1.0] }}}),
             json!({ "type": "PatternCircular", "params": {
                 "axis": { "method": "explicit", "origin": [0.0, 0.0, 0.0],
+                          "origin_expr": ["a", "a", "a"],
                           "direction": [0.0, 0.0, 1.0] },
-                "count": 4, "angle_deg": 360.0, "angle_expr": "a" }}),
+                "count": 4, "count_expr": "a",
+                "angle_deg": 360.0, "angle_expr": "a" }}),
             json!({ "type": "PatternLinear", "params": {
                 "direction": { "method": "explicit", "origin": [0.0, 0.0, 0.0],
+                               "origin_expr": ["a", "a", "a"],
                                "direction": [1.0, 0.0, 0.0] },
-                "count": 3, "spacing": 0.01, "spacing_expr": "a",
+                "count": 3, "count_expr": "a", "spacing": 0.01, "spacing_expr": "a",
                 "second": { "direction": { "method": "explicit",
                                            "origin": [0.0, 0.0, 0.0],
+                                           "origin_expr": ["a", "a", "a"],
                                            "direction": [0.0, 1.0, 0.0] },
-                            "count": 2, "spacing": 0.02, "spacing_expr": "a" }}}),
+                            "count": 2, "count_expr": "a",
+                            "spacing": 0.02, "spacing_expr": "a" }}}),
+            json!({ "type": "PatternMirror", "params": {
+                "plane": { "method": "explicit", "origin": [0.0, 0.0, 0.0],
+                           "origin_expr": ["a", "a", "a"],
+                           "direction": [1.0, 0.0, 0.0] } }}),
+            json!({ "type": "MateConnector", "params": {
+                "name": "C1",
+                "frame": { "origin": [0.0, 0.0, 0.0], "z_axis": [0.0, 0.0, 1.0],
+                           "x_axis": [1.0, 0.0, 0.0] },
+                "rotation_deg": 0.0, "rotation_expr": "a",
+                "offset_m": [0.0, 0.0, 0.0], "offset_m_expr": ["a", "a", "a"] }}),
+            json!({ "type": "ImportedBody", "params": {
+                "file_name": "x.step", "source_id": Uuid::new_v4(),
+                "translation_m": [0.0, 0.0, 0.0],
+                "translation_m_expr": ["a", "a", "a"],
+                "rotation_deg": [0.0, 0.0, 0.0],
+                "rotation_deg_expr": ["a", "a", "a"],
+                "scale": 1.0, "scale_expr": "a" }}),
             json!({ "type": "Script", "params": {
                 "source_id": Uuid::new_v4(), "args": {},
                 "arg_exprs": { "teeth": "a" }}}),
@@ -2083,11 +2638,16 @@ mod tests {
     fn every_expression_field_is_enumerated() {
         let mut tree = tree_with(Vec::new(), every_expression_feature());
         let sites = field_uses(&mut tree);
-        // Extrude depth, revolve angle, pipe radius + inner_radius, datum
-        // distance, circular angle, linear spacing + second spacing, one
-        // script arg, three 3D-point coordinates, a 3D fillet radius, and
-        // the rectangle sketch's two dimensions.
-        assert_eq!(sites.len(), 15, "{sites:#?}");
+        // Extrude depth + second depth (2); revolve angle + axis origin x/y/z
+        // (4); pipe radius + inner_radius (2); datum offset distance (1);
+        // datum point-normal origin x/y/z (3); circular count + angle + axis
+        // origin x/y/z (5); linear count + spacing + direction origin x/y/z,
+        // and the same four again for the second leg (10); mirror plane
+        // origin x/y/z (3); mate connector rotation + offset x/y/z (4);
+        // imported body translation x/y/z + rotation x/y/z + scale (7); one
+        // script arg (1); three 3D-point coordinates + a 3D fillet radius
+        // (4); the rectangle sketch's two dimensions (2).
+        assert_eq!(sites.len(), 48, "{sites:#?}");
         for site in &sites {
             assert_eq!(site.expression, "a", "{} {}", site.feature_name, site.field);
             assert_eq!(site.reads, vec!["a".to_string()]);
@@ -2112,9 +2672,14 @@ mod tests {
     #[test]
     fn every_expression_field_can_measure_and_is_enumerated_as_one() {
         // D2's half of the drift oracle above: `measurement_sites` must see
-        // the same fifteen fields `field_uses` does, plus the parameters. A
-        // field added to `expression_sites` is a measurement site for free;
-        // one added only to the apply pass is caught by the oracle above.
+        // the same fields `field_uses` does, plus the parameters. A field
+        // added to `expression_sites` is a measurement site for free; one
+        // added only to the apply pass is caught by the oracle above.
+        //
+        // The count tracks the oracle above (48 since P3 added ten
+        // sidecars), plus the one measuring parameter — which is the whole
+        // claim: P3's ten fields became measurement sites without D2 being
+        // told about any of them.
         let mut tree = tree_with(
             vec![DesignParameter::new("a", "area(f)")],
             every_expression_feature(),
@@ -2128,8 +2693,8 @@ mod tests {
         let sites = measurement_sites(&mut tree);
         assert_eq!(
             sites.len(),
-            16,
-            "fifteen fields and one parameter: {sites:#?}"
+            49,
+            "the 48 enumerated fields and one parameter: {sites:#?}"
         );
         assert_eq!(
             sites.iter().filter(|s| s.feature.is_none()).count(),

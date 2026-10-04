@@ -1,5 +1,5 @@
 {
-  "manifest_hash": "fbb649fd2d3938eac69fe937a014a29eda90436dc29b46684811d675f6a5bf22",
+  "manifest_hash": "723a6b99013b825d79022401b7e542d7c520c361f56cec4b2d207da6f7f617aa",
   "protocol": "waffle-agent-link/1",
   "tools": [
     {
@@ -3374,10 +3374,25 @@
         "readOnlyHint": true,
         "title": "Read parameters"
       },
-      "description": "Read the design-parameter table. Each parameter carries its expression, the value and dimension the last rebuild evaluated, which PARAMETERS it reads (depends_on), which ENTITIES it measures (measures), which parameters read it (used_by) and which FEATURE FIELDS read it (used_by_fields) — so you can see what a change will move before making it. An expression that does not evaluate reports its own error with value_mm null; the rest of the table still answers. Dependency cycles are listed in cycles, each as the names around the loop.",
+      "description": "Read the design-parameter table. Each parameter carries its expression, the value and dimension the last rebuild evaluated, which PARAMETERS it reads (depends_on), which ENTITIES it measures (measures), which parameters read it (used_by) and which FEATURE FIELDS read it (used_by_fields) — so you can see what a change will move before making it. An expression that does not evaluate reports its own error with value_mm null; the rest of the table still answers. Dependency cycles are listed in cycles, each as the names around the loop. scope chooses which table: tab (the default) answers the open Part tab's rows PLUS every DOCUMENT row it inherits, each marked with its own scope and shadowed:true on a document row the tab redeclares — one answer to what an expression here can read. document answers the document-wide table alone (the only scope an Assembly or Drawing tab has). instance, with instance_id, answers a part's table as that placed instance builds it: an overridden row carries override and its value_mm is the pinned magnitude.",
       "inputSchema": {
         "additionalProperties": false,
-        "properties": {},
+        "properties": {
+          "instance_id": {
+            "description": "Required for scope instance: the assembly instance to read.",
+            "format": "uuid",
+            "type": "string"
+          },
+          "scope": {
+            "description": "Which table to read. Default tab.",
+            "enum": [
+              "tab",
+              "document",
+              "instance"
+            ],
+            "type": "string"
+          }
+        },
         "type": "object"
       },
       "name": "parameters_get",
@@ -3390,6 +3405,17 @@
                 "type": "string"
               },
               "type": "array"
+            },
+            "type": "array"
+          },
+          "instance_id": {
+            "description": "scope instance only.",
+            "type": "string"
+          },
+          "overrides_matching_no_parameter": {
+            "description": "scope instance only: override names the part declares no parameter for. Each is also a loud rebuild error; named here so you can find them without reading the error list.",
+            "items": {
+              "type": "string"
             },
             "type": "array"
           },
@@ -3452,6 +3478,23 @@
                 "name": {
                   "type": "string"
                 },
+                "override": {
+                  "description": "scope instance only: the working-space magnitude this instance pins the parameter to. The row's own expression is not evaluated.",
+                  "type": "number"
+                },
+                "scope": {
+                  "description": "Where this row lives. instance marks a row this instance OVERRIDES; tab a row of the part's own table; document a row inherited from the document-wide table.",
+                  "enum": [
+                    "tab",
+                    "document",
+                    "instance"
+                  ],
+                  "type": "string"
+                },
+                "shadowed": {
+                  "description": "A document row the open tab redeclares, so the tab's row wins. Listed anyway: this is the answer to \"why is my document variable not driving this\".",
+                  "type": "boolean"
+                },
                 "unit": {
                   "description": "The DECLARED dimension, when the author declared one.",
                   "enum": [
@@ -3463,7 +3506,7 @@
                   "type": "string"
                 },
                 "used_by": {
-                  "description": "Parameters whose expressions read this one.",
+                  "description": "Parameters whose expressions read this one, WITHIN the same table. A document row and a tab row of the same name are two parameters, and the tab one shadows the document one rather than depending on it.",
                   "items": {
                     "type": "string"
                   },
@@ -3511,6 +3554,19 @@
               "type": "object"
             },
             "type": "array"
+          },
+          "scope": {
+            "description": "The scope that was read.",
+            "enum": [
+              "tab",
+              "document",
+              "instance"
+            ],
+            "type": "string"
+          },
+          "used_by_fields_scope": {
+            "description": "scope document only: says that field readers are NOT reported, because a document parameter's readers span every tab and this call holds only the open one's tree.",
+            "type": "string"
           }
         },
         "required": [
@@ -6786,6 +6842,21 @@
                     "maxItems": 3,
                     "minItems": 3,
                     "type": "array"
+                  },
+                  "origin_expr": {
+                    "description": "Optional driving expressions for `origin`, one per component\n(mm-space → meters). P3; `direction` deliberately has none — it\nis a direction, normalized at rebuild, so a per-component\nexpression for it names no measurement anyone draws.",
+                    "items": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "maxItems": 3,
+                    "minItems": 3,
+                    "type": [
+                      "array",
+                      "null"
+                    ]
                   }
                 },
                 "required": [
@@ -7533,11 +7604,33 @@
                 "minItems": 3,
                 "type": "array"
               },
+              "rotation_deg_expr": {
+                "description": "Optional driving expressions for `rotation_deg`, one per component\n(evaluates to DEGREES). `None` for a component leaves the stored\nnumber alone — an author who parameterises x only has not said\nanything about y and z. See `ExtrudeParams::depth_expr`.",
+                "items": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "maxItems": 3,
+                "minItems": 3,
+                "type": [
+                  "array",
+                  "null"
+                ]
+              },
               "scale": {
                 "default": 1,
                 "description": "Extra uniform scale on top of the file's unit conversion (1.0 = none).",
                 "format": "double",
                 "type": "number"
+              },
+              "scale_expr": {
+                "description": "Optional driving expression for `scale`. Evaluates as a RATIO: a\ndimensionless number, so `25mm / 1in` is a scale and `25mm` is a\nloud refusal (P3).",
+                "type": [
+                  "string",
+                  "null"
+                ]
               },
               "source_id": {
                 "description": "v4: the `sources[]` entry holding the STEP content.",
@@ -7561,6 +7654,21 @@
                 "maxItems": 3,
                 "minItems": 3,
                 "type": "array"
+              },
+              "translation_m_expr": {
+                "description": "Optional driving expressions for `translation_m`, one per component\n(mm-space → meters). `None` for a component leaves the stored\nnumber alone — an author who parameterises x only has not said\nanything about y and z. See `ExtrudeParams::depth_expr`.",
+                "items": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "maxItems": 3,
+                "minItems": 3,
+                "type": [
+                  "array",
+                  "null"
+                ]
               }
             },
             "required": [
@@ -7576,6 +7684,13 @@
                 "format": "uint32",
                 "minimum": 0,
                 "type": "integer"
+              },
+              "count_expr": {
+                "description": "Optional driving expression for `count`. See\n`PatternCircularParams::count_expr`.",
+                "type": [
+                  "string",
+                  "null"
+                ]
               },
               "direction": {
                 "$ref": "#/$defs/AxisRef"
@@ -7657,10 +7772,32 @@
                 "minItems": 3,
                 "type": "array"
               },
+              "offset_m_expr": {
+                "description": "Optional driving expressions for `offset_m`, one per component\n(mm-space → meters). `None` for a component leaves the stored\nnumber alone — an author who parameterises x only has not said\nanything about y and z. See `ExtrudeParams::depth_expr`.",
+                "items": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "maxItems": 3,
+                "minItems": 3,
+                "type": [
+                  "array",
+                  "null"
+                ]
+              },
               "rotation_deg": {
                 "description": "Turn about z in degrees, after the flip.",
                 "format": "double",
                 "type": "number"
+              },
+              "rotation_expr": {
+                "description": "Optional driving expression for `rotation_deg` (evaluates to\nDEGREES). P3; the FRAME itself has none — it is the derived or\nexplicit basis, and `rotation_deg`/`offset_m` are the authored\nadjustment to it, so this is the half worth parameterising.",
+                "type": [
+                  "string",
+                  "null"
+                ]
               }
             },
             "type": "object"
@@ -8120,6 +8257,13 @@
                 "minimum": 0,
                 "type": "integer"
               },
+              "count_expr": {
+                "description": "Optional driving expression for `count` (P3). Evaluates as a COUNT:\nwhole and non-negative, so `teeth / 2` is a count and `teeth / 3` of\na 20-tooth gear is a loud refusal rather than a silent truncation.\n`pattern::check_count`'s `≥ 2` still applies afterwards.",
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
               "seeds": {
                 "$ref": "#/$defs/PatternSeeds",
                 "default": [],
@@ -8171,6 +8315,13 @@
                 "format": "uint32",
                 "minimum": 0,
                 "type": "integer"
+              },
+              "count_expr": {
+                "description": "Optional driving expression for `count`. See\n`PatternCircularParams::count_expr`.",
+                "type": [
+                  "string",
+                  "null"
+                ]
               },
               "direction": {
                 "$ref": "#/$defs/AxisRef",
@@ -8395,6 +8546,21 @@
                     "maxItems": 3,
                     "minItems": 3,
                     "type": "array"
+                  },
+                  "origin_expr": {
+                    "description": "Optional driving expressions for `origin`, one per component\n(mm-space → meters). P3; `normal` has none, for the reason\n`AxisRef::Explicit::direction` has none.",
+                    "items": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "maxItems": 3,
+                    "minItems": 3,
+                    "type": [
+                      "array",
+                      "null"
+                    ]
                   }
                 },
                 "required": [
@@ -8849,6 +9015,21 @@
                 "minItems": 3,
                 "type": "array"
               },
+              "axis_origin_expr": {
+                "description": "Optional driving expressions for `axis_origin`, one per component\n(mm-space → meters). `None` for a component leaves the stored\nnumber alone — an author who parameterises x only has not said\nanything about y and z. See `ExtrudeParams::depth_expr`.",
+                "items": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "maxItems": 3,
+                "minItems": 3,
+                "type": [
+                  "array",
+                  "null"
+                ]
+              },
               "combine": {
                 "anyOf": [
                   {
@@ -9188,6 +9369,13 @@
                   "depth": {
                     "format": "double",
                     "type": "number"
+                  },
+                  "depth_expr": {
+                    "description": "Optional driving expression for `depth` (mm-space → meters), the\ntwin of `ExtrudeParams::depth_expr` for the second direction.\nWithout it a symmetric-but-unequal extrude could only be driven\non one side (P3).",
+                    "type": [
+                      "string",
+                      "null"
+                    ]
                   },
                   "type": {
                     "const": "Blind",
@@ -11818,6 +12006,21 @@
                     "maxItems": 3,
                     "minItems": 3,
                     "type": "array"
+                  },
+                  "origin_expr": {
+                    "description": "Optional driving expressions for `origin`, one per component\n(mm-space → meters). P3; `direction` deliberately has none — it\nis a direction, normalized at rebuild, so a per-component\nexpression for it names no measurement anyone draws.",
+                    "items": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "maxItems": 3,
+                    "minItems": 3,
+                    "type": [
+                      "array",
+                      "null"
+                    ]
                   }
                 },
                 "required": [
@@ -12565,11 +12768,33 @@
                 "minItems": 3,
                 "type": "array"
               },
+              "rotation_deg_expr": {
+                "description": "Optional driving expressions for `rotation_deg`, one per component\n(evaluates to DEGREES). `None` for a component leaves the stored\nnumber alone — an author who parameterises x only has not said\nanything about y and z. See `ExtrudeParams::depth_expr`.",
+                "items": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "maxItems": 3,
+                "minItems": 3,
+                "type": [
+                  "array",
+                  "null"
+                ]
+              },
               "scale": {
                 "default": 1,
                 "description": "Extra uniform scale on top of the file's unit conversion (1.0 = none).",
                 "format": "double",
                 "type": "number"
+              },
+              "scale_expr": {
+                "description": "Optional driving expression for `scale`. Evaluates as a RATIO: a\ndimensionless number, so `25mm / 1in` is a scale and `25mm` is a\nloud refusal (P3).",
+                "type": [
+                  "string",
+                  "null"
+                ]
               },
               "source_id": {
                 "description": "v4: the `sources[]` entry holding the STEP content.",
@@ -12593,6 +12818,21 @@
                 "maxItems": 3,
                 "minItems": 3,
                 "type": "array"
+              },
+              "translation_m_expr": {
+                "description": "Optional driving expressions for `translation_m`, one per component\n(mm-space → meters). `None` for a component leaves the stored\nnumber alone — an author who parameterises x only has not said\nanything about y and z. See `ExtrudeParams::depth_expr`.",
+                "items": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "maxItems": 3,
+                "minItems": 3,
+                "type": [
+                  "array",
+                  "null"
+                ]
               }
             },
             "required": [
@@ -12608,6 +12848,13 @@
                 "format": "uint32",
                 "minimum": 0,
                 "type": "integer"
+              },
+              "count_expr": {
+                "description": "Optional driving expression for `count`. See\n`PatternCircularParams::count_expr`.",
+                "type": [
+                  "string",
+                  "null"
+                ]
               },
               "direction": {
                 "$ref": "#/$defs/AxisRef"
@@ -12689,10 +12936,32 @@
                 "minItems": 3,
                 "type": "array"
               },
+              "offset_m_expr": {
+                "description": "Optional driving expressions for `offset_m`, one per component\n(mm-space → meters). `None` for a component leaves the stored\nnumber alone — an author who parameterises x only has not said\nanything about y and z. See `ExtrudeParams::depth_expr`.",
+                "items": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "maxItems": 3,
+                "minItems": 3,
+                "type": [
+                  "array",
+                  "null"
+                ]
+              },
               "rotation_deg": {
                 "description": "Turn about z in degrees, after the flip.",
                 "format": "double",
                 "type": "number"
+              },
+              "rotation_expr": {
+                "description": "Optional driving expression for `rotation_deg` (evaluates to\nDEGREES). P3; the FRAME itself has none — it is the derived or\nexplicit basis, and `rotation_deg`/`offset_m` are the authored\nadjustment to it, so this is the half worth parameterising.",
+                "type": [
+                  "string",
+                  "null"
+                ]
               }
             },
             "type": "object"
@@ -13152,6 +13421,13 @@
                 "minimum": 0,
                 "type": "integer"
               },
+              "count_expr": {
+                "description": "Optional driving expression for `count` (P3). Evaluates as a COUNT:\nwhole and non-negative, so `teeth / 2` is a count and `teeth / 3` of\na 20-tooth gear is a loud refusal rather than a silent truncation.\n`pattern::check_count`'s `≥ 2` still applies afterwards.",
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
               "seeds": {
                 "$ref": "#/$defs/PatternSeeds",
                 "default": [],
@@ -13203,6 +13479,13 @@
                 "format": "uint32",
                 "minimum": 0,
                 "type": "integer"
+              },
+              "count_expr": {
+                "description": "Optional driving expression for `count`. See\n`PatternCircularParams::count_expr`.",
+                "type": [
+                  "string",
+                  "null"
+                ]
               },
               "direction": {
                 "$ref": "#/$defs/AxisRef",
@@ -13427,6 +13710,21 @@
                     "maxItems": 3,
                     "minItems": 3,
                     "type": "array"
+                  },
+                  "origin_expr": {
+                    "description": "Optional driving expressions for `origin`, one per component\n(mm-space → meters). P3; `normal` has none, for the reason\n`AxisRef::Explicit::direction` has none.",
+                    "items": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "maxItems": 3,
+                    "minItems": 3,
+                    "type": [
+                      "array",
+                      "null"
+                    ]
                   }
                 },
                 "required": [
@@ -13881,6 +14179,21 @@
                 "minItems": 3,
                 "type": "array"
               },
+              "axis_origin_expr": {
+                "description": "Optional driving expressions for `axis_origin`, one per component\n(mm-space → meters). `None` for a component leaves the stored\nnumber alone — an author who parameterises x only has not said\nanything about y and z. See `ExtrudeParams::depth_expr`.",
+                "items": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "maxItems": 3,
+                "minItems": 3,
+                "type": [
+                  "array",
+                  "null"
+                ]
+              },
               "combine": {
                 "anyOf": [
                   {
@@ -14220,6 +14533,13 @@
                   "depth": {
                     "format": "double",
                     "type": "number"
+                  },
+                  "depth_expr": {
+                    "description": "Optional driving expression for `depth` (mm-space → meters), the\ntwin of `ExtrudeParams::depth_expr` for the second direction.\nWithout it a symmetric-but-unequal extrude could only be driven\non one side (P3).",
+                    "type": [
+                      "string",
+                      "null"
+                    ]
                   },
                   "type": {
                     "const": "Blind",
@@ -17460,7 +17780,7 @@
         "readOnlyHint": false,
         "title": "Set parameters"
       },
-      "description": "Write the design-parameter table and rebuild (one undo step). By default parameters REPLACES the table, so an omitted parameter is removed; with merge:true the rows are applied over the current table and delete removes parameters by name or id, so you can set one value without re-sending the rest. Expressions are mm-space and may reference other parameters by name, and may MEASURE the model by entity name (distance, angle, length, radius, area, volume — see expression_evaluate); a parameter that measures acquires a rebuild dependency on the feature that owns the measured entity, and may only measure geometry earlier in the tree than the first feature that reads it. Keep a parameter's id to preserve it; omit id for a new one. A row whose id names an existing parameter with a DIFFERENT name is a rename: every expression that reads it — other parameters and feature fields alike — is rewritten, so use this rather than deleting and re-adding. A failing expression is reported per parameter, not rolled back; a delete of a parameter something still reads is refused naming the dependents (read them first with parameters_get).",
+      "description": "Write the design-parameter table and rebuild (one undo step). By default parameters REPLACES the table, so an omitted parameter is removed; with merge:true the rows are applied over the current table and delete removes parameters by name or id, so you can set one value without re-sending the rest. Expressions are mm-space and may reference other parameters by name, and may MEASURE the model by entity name (distance, angle, length, radius, area, volume — see expression_evaluate); a parameter that measures acquires a rebuild dependency on the feature that owns the measured entity, and may only measure geometry earlier in the tree than the first feature that reads it. Keep a parameter's id to preserve it; omit id for a new one. A row whose id names an existing parameter with a DIFFERENT name is a rename: every expression that reads it — other parameters and feature fields alike — is rewritten, so use this rather than deleting and re-adding. A failing expression is reported per parameter, not rolled back; a delete of a parameter something still reads is refused naming the dependents (read them first with parameters_get). scope chooses which table: tab (the default) the open Part tab's, document the document-wide one that every tab resolves through after its own (NOT an undo step, and a RENAME there is refused — the rewrite would have to reach every tab and this call can only reach the open one), or instance, which with instance_id and overrides pins magnitudes on one placed instance of a part so it builds its own solid.",
       "inputSchema": {
         "additionalProperties": false,
         "properties": {
@@ -17471,9 +17791,27 @@
             },
             "type": "array"
           },
+          "instance_id": {
+            "description": "Required for scope instance: the assembly instance to parameterise.",
+            "format": "uuid",
+            "type": "string"
+          },
           "merge": {
             "description": "Apply parameters over the current table instead of replacing it. Required for delete.",
             "type": "boolean"
+          },
+          "overrides": {
+            "additionalProperties": {
+              "type": [
+                "number",
+                "null"
+              ]
+            },
+            "description": "scope instance only: {parameter name: working-space magnitude} (mm for a length, degrees for an angle). The DIMENSION comes from the part's parameter, not from the number, so a Count parameter still refuses a fraction. With merge:true a name set to null removes just that override; null here clears them all. A name the part does not declare is a loud rebuild error naming it.",
+            "type": [
+              "object",
+              "null"
+            ]
           },
           "parameters": {
             "description": "The complete table, or (with merge:true) just the rows to set. Required without merge.",
@@ -17518,6 +17856,15 @@
               "type": "object"
             },
             "type": "array"
+          },
+          "scope": {
+            "description": "Which table to write. Default tab.",
+            "enum": [
+              "tab",
+              "document",
+              "instance"
+            ],
+            "type": "string"
           }
         },
         "type": "object"
@@ -20557,7 +20904,7 @@
         "readOnlyHint": false,
         "title": "Edit instance"
       },
-      "description": "Change an instance of the open assembly: its name, placement transform (only the fields given change), grounding (fixed) or suppression. The assembly is re-solved. An instance derived from a source (a linked KiCad footprint) accepts only name and suppressed; transform or fixed on one is DerivedFeatureReadOnly. Requires an Assembly tab to be active (tab_add kind:\"Assembly\", or tab_switch to one); on a Part tab it is refused with TabKindNotSupported. An assembly edit is not an undo step (undo/redo act on the feature tree of a Part tab); reverse it with the matching delete or edit tool.",
+      "description": "Change an instance of the open assembly: its name, placement transform (only the fields given change), grounding (fixed), suppression, or the design-parameter overrides it builds its part with. The assembly is re-solved. An instance derived from a source (a linked KiCad footprint) accepts only name and suppressed; transform, fixed or parameter_overrides on one is DerivedFeatureReadOnly. Requires an Assembly tab to be active (tab_add kind:\"Assembly\", or tab_switch to one); on a Part tab it is refused with TabKindNotSupported. An assembly edit is not an undo step (undo/redo act on the feature tree of a Part tab); reverse it with the matching delete or edit tool.",
       "inputSchema": {
         "additionalProperties": false,
         "properties": {
@@ -20569,9 +20916,26 @@
             "format": "uuid",
             "type": "string"
           },
+          "merge": {
+            "description": "Apply parameter_overrides over the current map instead of replacing it, so one override can be set without re-sending the rest.",
+            "type": "boolean"
+          },
           "name": {
             "minLength": 1,
             "type": "string"
+          },
+          "parameter_overrides": {
+            "additionalProperties": {
+              "type": [
+                "number",
+                "null"
+              ]
+            },
+            "description": "{parameter name: working-space magnitude} (mm for a length, degrees for an angle), pinning parameters of this instance's part so it builds its own solid. The DIMENSION comes from the part's parameter, not from the number, so a Count parameter still refuses a fraction. Omitting this key KEEPS the current overrides; null clears them all; with merge:true the given names are applied over the current map and a name set to null removes just that one. A name the part does not declare is a loud rebuild error naming the part and the name.",
+            "type": [
+              "object",
+              "null"
+            ]
           },
           "suppressed": {
             "type": "boolean"

@@ -19,18 +19,34 @@
 	 * @param {string} paramPath - dot-separated path into operation params
 	 * @param {any} value
 	 */
-	function handleChange(paramPath, value) {
+	function handleChange(paramPath, value, exprPath = null) {
 		if (!feature || !ready) return;
 
 		if (debounceTimer) clearTimeout(debounceTimer);
 		debounceTimer = setTimeout(() => {
-			const op = structuredClone(feature.operation);
+			// `$state.snapshot` FIRST: `feature` comes off the `$state` feature
+			// tree, so `feature.operation` is a reactive Proxy and
+			// `structuredClone` of a Proxy is a DataCloneError in V8. It threw
+			// here on every edit, so `editFeature` below was never reached and
+			// every number and checkbox in this panel was a silent no-op —
+			// measured, typing 25 into an extrude's depth left it at 10 mm.
+			// Nothing reported it: the throw is an unhandled rejection inside a
+			// timeout callback, and the input keeps the typed value.
+			const op = structuredClone($state.snapshot(feature.operation));
 			setNestedValue(op, paramPath, value);
 			// A plain numeric edit detaches any driving expression — otherwise
 			// the next rebuild would silently re-evaluate the expression over
-			// the typed value (same rule as sketch dimension edits).
-			if (paramPath === 'params.depth' && op.params) op.params.depth_expr = null;
-			if (paramPath === 'params.angle' && op.params) op.params.angle_expr = null;
+			// the typed value, which reads as an edit that did nothing (same
+			// rule as sketch dimension edits).
+			//
+			// The twin travels on the FIELD (`getFields`), not in a list here:
+			// this used to name `depth_expr` and `angle_expr` only, so the six
+			// other twinned numbers reachable from this panel — a pipe's two
+			// radii, both pattern counts, a circular pattern's angle and a
+			// linear pattern's spacing — kept their expression and silently
+			// reverted. A field added to `getFields` without its `expr` is now
+			// one edit away from showing it.
+			if (exprPath) setNestedValue(op, exprPath, null);
 			editFeature(feature.id, op);
 		}, 300);
 	}
@@ -63,18 +79,18 @@
 		switch (operation.type) {
 			case 'Extrude':
 				return [
-					{ key: 'params.depth', label: 'Depth', type: 'number', value: operation.params?.depth },
+					{ key: 'params.depth', label: 'Depth', type: 'number', value: operation.params?.depth, expr: 'params.depth_expr' },
 					{ key: 'params.symmetric', label: 'Symmetric', type: 'boolean', value: operation.params?.symmetric },
 					{ key: 'params.cut', label: 'Cut', type: 'boolean', value: operation.params?.cut },
 				];
 			case 'Revolve':
 				return [
-					{ key: 'params.angle', label: 'Angle (°)', type: 'number', value: operation.params?.angle },
+					{ key: 'params.angle', label: 'Angle (°)', type: 'number', value: operation.params?.angle, expr: 'params.angle_expr' },
 				];
 			case 'Pipe':
 				return [
-					{ key: 'params.radius', label: 'Radius', type: 'number', value: operation.params?.radius },
-					{ key: 'params.inner_radius', label: 'Bore radius', type: 'number', value: operation.params?.inner_radius },
+					{ key: 'params.radius', label: 'Radius', type: 'number', value: operation.params?.radius, expr: 'params.radius_expr' },
+					{ key: 'params.inner_radius', label: 'Bore radius', type: 'number', value: operation.params?.inner_radius, expr: 'params.inner_radius_expr' },
 				];
 			case 'Sweep':
 				return [
@@ -95,15 +111,15 @@
 				];
 			case 'PatternCircular':
 				return [
-					{ key: 'params.count', label: 'Count', type: 'number', value: operation.params?.count },
-					{ key: 'params.angle_deg', label: 'Angle (°)', type: 'number', value: operation.params?.angle_deg },
+					{ key: 'params.count', label: 'Count', type: 'number', value: operation.params?.count, expr: 'params.count_expr' },
+					{ key: 'params.angle_deg', label: 'Angle (°)', type: 'number', value: operation.params?.angle_deg, expr: 'params.angle_expr' },
 					{ key: '_info', label: 'Seeds', type: 'info', value: seedCount(operation.params?.seeds) },
 					{ key: '_info2', label: 'Combine', type: 'info', value: operation.params?.combine?.type ?? 'NewBody' },
 				];
 			case 'PatternLinear':
 				return [
-					{ key: 'params.count', label: 'Count', type: 'number', value: operation.params?.count },
-					{ key: 'params.spacing', label: 'Spacing', type: 'number', value: operation.params?.spacing },
+					{ key: 'params.count', label: 'Count', type: 'number', value: operation.params?.count, expr: 'params.count_expr' },
+					{ key: 'params.spacing', label: 'Spacing', type: 'number', value: operation.params?.spacing, expr: 'params.spacing_expr' },
 					{ key: '_info', label: 'Seeds', type: 'info', value: seedCount(operation.params?.seeds) },
 					{ key: '_info2', label: 'Combine', type: 'info', value: operation.params?.combine?.type ?? 'NewBody' },
 				];
@@ -233,7 +249,7 @@
 									data-testid="prop-input-{field.key}"
 									value={field.value}
 									disabled={!ready}
-									onchange={(e) => handleChange(field.key, parseFloat(e.target.value))}
+									onchange={(e) => handleChange(field.key, parseFloat(e.target.value), field.expr)}
 								/>
 							{:else if field.type === 'boolean'}
 								<input

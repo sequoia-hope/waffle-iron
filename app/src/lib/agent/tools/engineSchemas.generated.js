@@ -321,6 +321,21 @@ export const ENGINE_DEFS = {
             "maxItems": 3,
             "minItems": 3,
             "type": "array"
+          },
+          "origin_expr": {
+            "description": "Optional driving expressions for `origin`, one per component\n(mm-space → meters). P3; `direction` deliberately has none — it\nis a direction, normalized at rebuild, so a per-component\nexpression for it names no measurement anyone draws.",
+            "items": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "maxItems": 3,
+            "minItems": 3,
+            "type": [
+              "array",
+              "null"
+            ]
           }
         },
         "required": [
@@ -1148,11 +1163,33 @@ export const ENGINE_DEFS = {
         "minItems": 3,
         "type": "array"
       },
+      "rotation_deg_expr": {
+        "description": "Optional driving expressions for `rotation_deg`, one per component\n(evaluates to DEGREES). `None` for a component leaves the stored\nnumber alone — an author who parameterises x only has not said\nanything about y and z. See `ExtrudeParams::depth_expr`.",
+        "items": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "maxItems": 3,
+        "minItems": 3,
+        "type": [
+          "array",
+          "null"
+        ]
+      },
       "scale": {
         "default": 1,
         "description": "Extra uniform scale on top of the file's unit conversion (1.0 = none).",
         "format": "double",
         "type": "number"
+      },
+      "scale_expr": {
+        "description": "Optional driving expression for `scale`. Evaluates as a RATIO: a\ndimensionless number, so `25mm / 1in` is a scale and `25mm` is a\nloud refusal (P3).",
+        "type": [
+          "string",
+          "null"
+        ]
       },
       "source_id": {
         "description": "v4: the `sources[]` entry holding the STEP content.",
@@ -1176,6 +1213,21 @@ export const ENGINE_DEFS = {
         "maxItems": 3,
         "minItems": 3,
         "type": "array"
+      },
+      "translation_m_expr": {
+        "description": "Optional driving expressions for `translation_m`, one per component\n(mm-space → meters). `None` for a component leaves the stored\nnumber alone — an author who parameterises x only has not said\nanything about y and z. See `ExtrudeParams::depth_expr`.",
+        "items": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "maxItems": 3,
+        "minItems": 3,
+        "type": [
+          "array",
+          "null"
+        ]
       }
     },
     "required": [
@@ -1191,6 +1243,13 @@ export const ENGINE_DEFS = {
         "format": "uint32",
         "minimum": 0,
         "type": "integer"
+      },
+      "count_expr": {
+        "description": "Optional driving expression for `count`. See\n`PatternCircularParams::count_expr`.",
+        "type": [
+          "string",
+          "null"
+        ]
       },
       "direction": {
         "$ref": "#/$defs/AxisRef"
@@ -1272,10 +1331,32 @@ export const ENGINE_DEFS = {
         "minItems": 3,
         "type": "array"
       },
+      "offset_m_expr": {
+        "description": "Optional driving expressions for `offset_m`, one per component\n(mm-space → meters). `None` for a component leaves the stored\nnumber alone — an author who parameterises x only has not said\nanything about y and z. See `ExtrudeParams::depth_expr`.",
+        "items": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "maxItems": 3,
+        "minItems": 3,
+        "type": [
+          "array",
+          "null"
+        ]
+      },
       "rotation_deg": {
         "description": "Turn about z in degrees, after the flip.",
         "format": "double",
         "type": "number"
+      },
+      "rotation_expr": {
+        "description": "Optional driving expression for `rotation_deg` (evaluates to\nDEGREES). P3; the FRAME itself has none — it is the derived or\nexplicit basis, and `rotation_deg`/`offset_m` are the authored\nadjustment to it, so this is the half worth parameterising.",
+        "type": [
+          "string",
+          "null"
+        ]
       }
     },
     "type": "object"
@@ -1735,6 +1816,13 @@ export const ENGINE_DEFS = {
         "minimum": 0,
         "type": "integer"
       },
+      "count_expr": {
+        "description": "Optional driving expression for `count` (P3). Evaluates as a COUNT:\nwhole and non-negative, so `teeth / 2` is a count and `teeth / 3` of\na 20-tooth gear is a loud refusal rather than a silent truncation.\n`pattern::check_count`'s `≥ 2` still applies afterwards.",
+        "type": [
+          "string",
+          "null"
+        ]
+      },
       "seeds": {
         "$ref": "#/$defs/PatternSeeds",
         "default": [],
@@ -1786,6 +1874,13 @@ export const ENGINE_DEFS = {
         "format": "uint32",
         "minimum": 0,
         "type": "integer"
+      },
+      "count_expr": {
+        "description": "Optional driving expression for `count`. See\n`PatternCircularParams::count_expr`.",
+        "type": [
+          "string",
+          "null"
+        ]
       },
       "direction": {
         "$ref": "#/$defs/AxisRef",
@@ -2010,6 +2105,21 @@ export const ENGINE_DEFS = {
             "maxItems": 3,
             "minItems": 3,
             "type": "array"
+          },
+          "origin_expr": {
+            "description": "Optional driving expressions for `origin`, one per component\n(mm-space → meters). P3; `normal` has none, for the reason\n`AxisRef::Explicit::direction` has none.",
+            "items": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "maxItems": 3,
+            "minItems": 3,
+            "type": [
+              "array",
+              "null"
+            ]
           }
         },
         "required": [
@@ -2464,6 +2574,21 @@ export const ENGINE_DEFS = {
         "minItems": 3,
         "type": "array"
       },
+      "axis_origin_expr": {
+        "description": "Optional driving expressions for `axis_origin`, one per component\n(mm-space → meters). `None` for a component leaves the stored\nnumber alone — an author who parameterises x only has not said\nanything about y and z. See `ExtrudeParams::depth_expr`.",
+        "items": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "maxItems": 3,
+        "minItems": 3,
+        "type": [
+          "array",
+          "null"
+        ]
+      },
       "combine": {
         "anyOf": [
           {
@@ -2803,6 +2928,13 @@ export const ENGINE_DEFS = {
           "depth": {
             "format": "double",
             "type": "number"
+          },
+          "depth_expr": {
+            "description": "Optional driving expression for `depth` (mm-space → meters), the\ntwin of `ExtrudeParams::depth_expr` for the second direction.\nWithout it a symmetric-but-unequal extrude could only be driven\non one side (P3).",
+            "type": [
+              "string",
+              "null"
+            ]
           },
           "type": {
             "const": "Blind",

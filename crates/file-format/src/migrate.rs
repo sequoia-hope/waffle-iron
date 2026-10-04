@@ -102,7 +102,12 @@ fn migrate_feature_v1_to_v2(feature: &mut Feature) {
             params.thickness *= MM_TO_METERS;
         }
         Operation::DatumPlane { params } => match &mut params.definition {
-            PlaneDefinition::PointNormal { origin, normal: _ } => {
+            // `origin_expr` (P3) is NOT scaled, and not because v1 documents
+            // happen to have none: an expression is written in the working
+            // space (mm for a length), which is version-independent by
+            // construction, so `25` evaluated under either reader is 25 mm.
+            // Scaling the TEXT is the one thing that would break it.
+            PlaneDefinition::PointNormal { origin, .. } => {
                 for v in origin.iter_mut() {
                     *v *= MM_TO_METERS;
                 }
@@ -221,7 +226,10 @@ fn migrate_profile(profile: &mut ClosedProfile) {
 
 fn migrate_extrude(params: &mut ExtrudeParams) {
     params.depth *= MM_TO_METERS;
-    if let Some(SecondDirection::Blind { depth }) = &mut params.second_direction {
+    // `depth_expr` is left alone for the reason given at `PointNormal` above:
+    // an expression is mm-space in every version, so there is nothing to
+    // convert.
+    if let Some(SecondDirection::Blind { depth, .. }) = &mut params.second_direction {
         *depth *= MM_TO_METERS;
     }
 }
@@ -444,7 +452,10 @@ mod tests {
                         merge: true,
                         target_body: None,
                         depth_mode: DepthMode::Blind,
-                        second_direction: Some(SecondDirection::Blind { depth: 5.0 }),
+                        second_direction: Some(SecondDirection::Blind {
+                            depth: 5.0,
+                            depth_expr: None,
+                        }),
                         region: None,
                         regions: Vec::new(),
                         depth_expr: None,
@@ -464,7 +475,7 @@ mod tests {
                 "depth: expected 0.010, got {}",
                 params.depth
             );
-            if let Some(SecondDirection::Blind { depth }) = &params.second_direction {
+            if let Some(SecondDirection::Blind { depth, .. }) = &params.second_direction {
                 assert!(
                     (depth - 0.005).abs() < 1e-10,
                     "second depth: expected 0.005, got {depth}"
@@ -489,6 +500,7 @@ mod tests {
                         profile_index: 0,
                         profile_entity_ids: None,
                         axis_origin: [10.0, 20.0, 30.0],
+                        axis_origin_expr: None,
                         axis_direction: [0.0, 1.0, 0.0],
                         angle: 360.0,
                         cut: false,
