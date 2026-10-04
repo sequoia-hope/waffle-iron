@@ -624,6 +624,33 @@ fn an_overridden_instance_does_not_cost_its_siblings_their_parked_engines() {
     assert!((instance_depth(&state, a) - 0.0025).abs() < 1e-15, "A held");
     assert!((instance_depth(&state, b) - 0.015).abs() < 1e-15, "B moved");
 
+    // The depths above are NOT the park claim: a rebuilt sibling renders the
+    // same solid as a reused one, so geometry cannot tell reuse from rebuild.
+    // The cache is what can. `park_unused_part_engines` saw A's build live and
+    // B's 40 mm build retired, so exactly the retired build is parked — and A's
+    // engine, which the pass took, is not evicted along with it. Keyed on the
+    // PART rather than the BUILD this is empty, because B's new build makes
+    // every build of that part look stale.
+    let parked: Vec<_> = state
+        .part_cache
+        .iter()
+        .map(|(build, _)| build.overrides.clone())
+        .collect();
+    assert_eq!(
+        parked.len(),
+        1,
+        "exactly the retired build is parked, not every build of the part: {parked:?}"
+    );
+    assert_eq!(
+        parked[0]
+            .as_ref()
+            .and_then(|o| o.get("height"))
+            .copied()
+            .unwrap(),
+        40.0,
+        "and the parked one is B's PREVIOUS override, not A's plain build"
+    );
+
     // And an instance with NO overrides never becomes a second cache entry:
     // a third plain instance joins A's build.
     let c = add_instance(&mut state, &part);
