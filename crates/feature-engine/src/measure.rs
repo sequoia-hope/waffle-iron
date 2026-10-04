@@ -73,6 +73,12 @@ struct Resolved {
     owners: Vec<Uuid>,
     /// What kind of thing it is, for a diagnostic.
     what: &'static str,
+    /// The body's `FeatureTree::body_id`, when this resolved to a whole
+    /// body. `None` for a face, edge or vertex. M1's `mass` needs it: the
+    /// density is a property of the BODY (through its material), not of the
+    /// kernel handle, and the handle is the only thing `MeasureEntity`
+    /// carries.
+    body_id: Option<String>,
 }
 
 /// A body the document has given a name, and what produced it.
@@ -108,6 +114,16 @@ pub struct TreeMeasurer<'a> {
     /// Persistent id → the feature that introduced it
     /// (`Engine::pid_to_feature`). The ordering check's only source.
     pid_to_feature: &'a HashMap<u64, Uuid>,
+    /// Body id → the density `mass(body)` should use, kg/m³, or the reason
+    /// there is none (M1).
+    ///
+    /// Resolved ONCE, in [`TreeMeasurer::new`], rather than per call: it is
+    /// a map lookup over two small tables and holding the answer keeps the
+    /// tree out of this struct, which is the same reason `names` and
+    /// `bodies` are owned copies. `None` for a body with no material at
+    /// all; `Some(Err)` for a dangling or invalid assignment, so the
+    /// refusal names it.
+    densities: HashMap<String, Result<f64, String>>,
     /// The feature index whose expression is being evaluated right now.
     ///
     /// **The ordering rule**: a measurement may only read geometry from a
@@ -173,6 +189,23 @@ impl<'a> TreeMeasurer<'a> {
         // that one override name belongs to one body, and a measurement must
         // not answer from a different one in the next process.
         bodies.sort_by(|a, b| a.body_id.cmp(&b.body_id));
+        // Only the bodies that HAVE an assignment get an entry; a body with
+        // none is absent, and `mass` refuses on absence rather than
+        // substituting a density.
+        let densities = bodies
+            .iter()
+            .filter(|b| tree.body_materials.contains_key(&b.body_id))
+            .map(|b| {
+                let answer = match tree.density_of_body(&b.body_id) {
+                    Ok(Some(rho)) => Ok(rho),
+                    // Unreachable given the filter, and reported rather than
+                    // asserted: this is a library.
+                    Ok(None) => Err(format!("body \"{}\" has no material", b.body_id)),
+                    Err(why) => Err(why),
+                };
+                (b.body_id.clone(), answer)
+            })
+            .collect();
         Self {
             names: tree.names.clone(),
             bodies,
@@ -182,6 +215,7 @@ impl<'a> TreeMeasurer<'a> {
             introspect,
             kernel,
             pid_to_feature,
+            densities,
             floor: Cell::new(None),
             high_water: Cell::new(None),
             read: RefCell::new(Reads::default()),
@@ -271,6 +305,7 @@ impl<'a> TreeMeasurer<'a> {
                     TopoKind::Edge => "an edge",
                     _ => "a vertex",
                 },
+                body_id: None,
             });
         }
 
@@ -278,27 +313,31 @@ impl<'a> TreeMeasurer<'a> {
         // `body_rename` / `entity_name`, or inherited) can be named here,
         // which costs nothing: a derived name ("Extrude (2)") is not an
         // identifier and the grammar could not have carried it.
-        let (feature_id, handle) = self
-            .body_named(name)
-            .ok_or_else(|| MeasureRefusal::Entity {
-                name: name.to_string(),
-                reason: "this document has no entity or body with that name".to_string(),
-            })?;
+        let (feature_id, handle, body_id) =
+            self.body_named(name)
+                .ok_or_else(|| MeasureRefusal::Entity {
+                    name: name.to_string(),
+                    reason: "this document has no entity or body with that name".to_string(),
+                })?;
         Ok(Resolved {
             entity: MeasureEntity::Solid(handle),
             id: None,
             owners: vec![feature_id],
             what: "a body",
+            body_id: Some(body_id),
         })
     }
 
     /// The live body whose display-name override is `name`, with the feature
-    /// that produced it.
-    fn body_named(&self, name: &str) -> Option<(Uuid, waffle_types::kernel::KernelSolidHandle)> {
+    /// that produced it and its body id.
+    fn body_named(
+        &self,
+        name: &str,
+    ) -> Option<(Uuid, waffle_types::kernel::KernelSolidHandle, String)> {
         self.bodies
             .iter()
             .find(|b| b.name == name)
-            .map(|b| (b.feature, b.handle.clone()))
+            .map(|b| (b.feature, b.handle.clone(), b.body_id.clone()))
     }
 
     /// Record a resolved operand's owning feature, and apply the ordering
@@ -444,6 +483,54 @@ impl<'a> TreeMeasurer<'a> {
             })
     }
 
+    /// `mass(body)` — the kernel's volume times the body's material's
+    /// density (M1, `specs/drawings_and_mbd.md` §9). KILOGRAMS, which is the
+    /// evaluator's working space for a mass.
+    ///
+    /// Three refusals, and none of them is a number. A body with NO material
+    /// is refused by name: at `DEFAULT_DENSITY_KG_M3` the mass would be
+    /// numerically the volume, which is the most plausible wrong answer this
+    /// function could give. A DANGLING material is refused naming it. And a
+    /// name that is not a body is refused like every other wrong kind.
+    ///
+    /// The density goes to the KERNEL rather than being multiplied in here,
+    /// so one implementation scales the mass and the inertia tensor, and
+    /// `mass(body)` and `measure_mass` cannot disagree.
+    fn mass(&self, name: &str, r: &Resolved) -> Result<f64, MeasureRefusal> {
+        let MeasureEntity::Solid(handle) = &r.entity else {
+            return Err(wrong_kind("mass", name, r.what, "a body"));
+        };
+        let body_id = r.body_id.as_deref().ok_or_else(|| MeasureRefusal::Entity {
+            name: name.to_string(),
+            reason: "this body has no identity to read a material from".to_string(),
+        })?;
+        let density = match self.densities.get(body_id) {
+            None => {
+                return Err(MeasureRefusal::Entity {
+                    name: name.to_string(),
+                    reason: "this body has no material, so it has no mass; assign one \
+                             (material_set) — at a default density a mass is just the \
+                             volume wearing kilograms"
+                        .to_string(),
+                })
+            }
+            Some(Err(why)) => {
+                return Err(MeasureRefusal::Entity {
+                    name: name.to_string(),
+                    reason: why.clone(),
+                })
+            }
+            Some(Ok(rho)) => *rho,
+        };
+        self.kernel
+            .mass_properties(handle, Some(density))
+            .map(|m| m.mass)
+            .map_err(|e| MeasureRefusal::Entity {
+                name: name.to_string(),
+                reason: format!("the kernel refused the mass properties: {e}"),
+            })
+    }
+
     /// `distance(a, b)` — the minimum distance, through `KernelMeasure`
     /// (Q1), which reports whether it is exact or mesh-bounded. m → mm.
     fn distance(&self, call: &MeasureCall<'_>) -> Result<f64, MeasureRefusal> {
@@ -563,9 +650,8 @@ impl Measurer for TreeMeasurer<'_> {
                     "radius" => self.radius(name, &r),
                     "length" => self.length(name, &r),
                     "volume" => self.volume(name, &r),
-                    // `mass` is refused by the evaluator before it reaches a
-                    // measurer (it has no nameable dimension until M1), and
-                    // every other name was rejected at parse time. Reported
+                    "mass" => self.mass(name, &r),
+                    // Every other name was rejected at parse time. Reported
                     // rather than `unreachable!`: this is a library.
                     other => Err(MeasureRefusal::Unavailable {
                         reason: format!("{other}() is not implemented by this measurer"),

@@ -30,6 +30,7 @@
 
 use serde::{Deserialize, Serialize};
 
+use super::tolerance::{FitRole, GeometricTolerance, Tolerance, ToleranceError};
 use super::{DimensionKind, Placement2};
 use crate::kernel::projection::{
     Aabb2, Curve2, CurveKind, ProjectedCurve, ViewGeometry, Visibility,
@@ -228,10 +229,18 @@ pub enum AnnotationLayout {
         /// The measured value — meters, or radians when
         /// [`DimensionKind::is_angular`].
         value: f64,
+        /// The tolerance, RESOLVED (M1): every arm has already become two
+        /// numbers in the dimension's own model unit, an ISO 286 fit
+        /// included. A renderer therefore cannot look up `H7` for itself and
+        /// cannot get a different answer than the engine did.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        tolerance: Option<ToleranceLayout>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         precision: Option<u8>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         dual_unit: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        dual_precision: Option<u8>,
         #[serde(default)]
         placement: Placement2,
     },
@@ -259,6 +268,101 @@ pub enum AnnotationLayout {
         #[serde(default)]
         placement: Placement2,
     },
+    /// A feature control frame (M1). The [`GeometricTolerance`] crosses
+    /// VERBATIM rather than being flattened, because it holds no reference:
+    /// its datums are the labels a [`AnnotationLayout::Datum`] carries, not
+    /// `GeomRef`s, so the layout's "no path back to the model" invariant is
+    /// unaffected (and `the_layout_schema_carries_no_geom_ref` proves it).
+    FeatureControlFrame {
+        tolerance: GeometricTolerance,
+        anchor: AnchorGeometry,
+        #[serde(default)]
+        placement: Placement2,
+    },
+}
+
+/// A tolerance resolved for a renderer (M1).
+///
+/// The split from [`Tolerance`] is the layout invariant applied to M1: the
+/// document model says `H7`, and only the engine may turn that into
+/// +0.021/0, because the ISO 286 tables live in Rust and a second
+/// implementation in JavaScript is a second answer. So a renderer gets the
+/// NUMBERS, plus whatever text the standard wants printed alongside them.
+///
+/// Both the deviations and the limits are present on every toleranced arm,
+/// because ISO 129-1 lets a drawing print either form and the choice is the
+/// drafter's, not the resolver's. `deviations` are signed offsets from the
+/// nominal; `limits` are absolute sizes. Model units throughout: metres, or
+/// radians for an angular dimension.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "json-schema", derive(schemars::JsonSchema))]
+pub struct ToleranceLayout {
+    /// How this tolerance should READ.
+    pub display: ToleranceDisplay,
+    /// `[upper, lower]` as signed deviations from the nominal. Absent for
+    /// [`ToleranceDisplay::Basic`], which has no band.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub deviations: Option<[f64; 2]>,
+    /// `[upper, lower]` as absolute limits of size. Absent for
+    /// [`ToleranceDisplay::Basic`].
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub limits: Option<[f64; 2]>,
+}
+
+/// Which form a resolved tolerance prints in.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(tag = "type")]
+#[cfg_attr(feature = "json-schema", derive(schemars::JsonSchema))]
+pub enum ToleranceDisplay {
+    /// `25 ±0.1` — one magnitude, printed once.
+    Symmetric,
+    /// `25 +0.021 / −0.005` — the two deviations.
+    Deviations,
+    /// `25.021 / 25.000` — the two sizes.
+    Limits,
+    /// `⌀25 H7/g6` — the class text, with the band available beside it for a
+    /// drawing that prints both.
+    Fit {
+        /// The hole class in its canonical case, when there is one.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        hole: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        shaft: Option<String>,
+    },
+    /// A boxed basic dimension: no band, and the renderer draws the box.
+    Basic,
+}
+
+impl ToleranceLayout {
+    /// Resolve `tolerance` at `nominal` (the dimension's measured value, in
+    /// its own model unit).
+    ///
+    /// This is the single conversion from the document model to what gets
+    /// drawn, and it goes through [`Tolerance::limits_of`], so there is no
+    /// second place that decides what a fit means.
+    pub fn resolve(
+        tolerance: &Tolerance,
+        kind: DimensionKind,
+        nominal: f64,
+    ) -> Result<ToleranceLayout, ToleranceError> {
+        tolerance.check_for(kind)?;
+        let limits = tolerance.limits_of(nominal)?;
+        let display = match tolerance {
+            Tolerance::Symmetric { .. } => ToleranceDisplay::Symmetric,
+            Tolerance::Bilateral { .. } => ToleranceDisplay::Deviations,
+            Tolerance::Limits { .. } => ToleranceDisplay::Limits,
+            Tolerance::Fit { hole, shaft } => ToleranceDisplay::Fit {
+                hole: hole.as_ref().map(|c| c.display_for(FitRole::Hole)),
+                shaft: shaft.as_ref().map(|c| c.display_for(FitRole::Shaft)),
+            },
+            Tolerance::Basic => ToleranceDisplay::Basic,
+        };
+        Ok(ToleranceLayout {
+            display,
+            deviations: limits.map(|l| [l.upper - nominal, l.lower - nominal]),
+            limits: limits.map(|l| [l.upper, l.lower]),
+        })
+    }
 }
 
 /// One projected curve of the view, serde-able.

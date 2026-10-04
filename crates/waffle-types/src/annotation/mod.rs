@@ -53,10 +53,12 @@
 //!   ordinary case directly; `Expr` stays for a derived value (D2's measure
 //!   functions, a title-block `mass(part)`), and `Value` is documented as a
 //!   cache / imported nominal, not something the UI offers.
-//! - **No `tolerance` field and no `FeatureControlFrame` variant.** Both need
-//!   M1's `Tolerance` / `GeometricTolerance`, which this increment does not
-//!   invent. Adding the field later is additive (`#[serde(default)]`); adding
-//!   the variant is not — see the note on persistence below.
+//! - ~~**No `tolerance` field and no `FeatureControlFrame` variant.**~~ Both
+//!   landed with **M1** (2026-10-04): [`tolerance::Tolerance`] on
+//!   [`Annotation::Dimension`] and [`Annotation::FeatureControlFrame`]
+//!   carrying a [`tolerance::GeometricTolerance`]. D3's prediction held in
+//!   both directions — the field was additive and the VARIANT was not, which
+//!   is the reader-floor bump M1 carries (format v14).
 //! - **`Dimension` carries `anchors: Vec<GeomRef>`, as §7 says, and
 //!   [`DimensionKind::arity`] states what each kind needs.** A fixed-size
 //!   array per kind would be tighter, but the kinds disagree on arity (one
@@ -65,17 +67,19 @@
 //!
 //! ## Persistence
 //!
-//! Nothing here is persisted *by this increment*. `Annotation` becomes
-//! reachable from a `.waffle` file when D4a adds `TabKind::Drawing` and M2
-//! adds the `Pmi` feature, and that is when the reader floor moves: these are
-//! serde-tagged enums, so a new variant is unreadable by an older build
-//! (`docs/FILE_FORMAT.md` §13 rule 3 — the same rule that made v7 of N1 a
-//! bump because its additive `names` field carried a `Selector::Pid`). The
-//! schema is pinned regardless, by `tests/annotation_schema_golden.rs`, so
-//! the shape cannot drift between now and then unnoticed.
+//! `Annotation` has been reachable from a `.waffle` file since D4a added
+//! `TabKind::Drawing`: a v11 reader knows the `Drawing` tag, so it
+//! DESERIALIZES the tab rather than keeping it opaque, and an annotation tag
+//! it has never heard of is a `de::Error` for the whole document. That is why
+//! M1's [`Annotation::FeatureControlFrame`] moves the reader floor to v14
+//! (`docs/FILE_FORMAT.md` §4, §13 rule 3) while the `tolerance` field beside
+//! it would not have on its own. The schema is pinned by
+//! `tests/annotation_schema_golden.rs`, so the shape cannot drift unnoticed.
 
+pub mod iso286;
 pub mod layout;
 pub mod measure;
+pub mod tolerance;
 
 use serde::{Deserialize, Serialize};
 
@@ -107,6 +111,15 @@ pub enum Annotation {
         anchors: Vec<GeomRef>,
         #[serde(default)]
         value: Measured,
+        /// The size tolerance on this dimension (M1). `None` is an untoleranced
+        /// dimension, governed by the drawing's general tolerance note — not a
+        /// zero tolerance.
+        ///
+        /// Checked against `kind` by [`tolerance::Tolerance::check_for`] when
+        /// the annotation is resolved: an angular band cannot sit on a linear
+        /// dimension, and an ISO 286 fit needs a nominal size.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        tolerance: Option<tolerance::Tolerance>,
         /// Decimal places to show. `None` ⇒ the document setting.
         #[serde(default, skip_serializing_if = "Option::is_none")]
         precision: Option<u8>,
@@ -115,6 +128,16 @@ pub enum Annotation {
         /// document setting, which may itself be none.
         #[serde(default, skip_serializing_if = "Option::is_none")]
         dual_unit: Option<String>,
+        /// Decimal places for the DUAL value (M1). `None` ⇒ the document
+        /// setting, which falls back to `precision`'s places.
+        ///
+        /// Separate from `precision` because the two units do not carry the
+        /// same resolution at the same number of places: two places of
+        /// millimetres is 0.01 mm, two places of inches is 0.254 mm, so a
+        /// bracketed restatement at the primary's precision is 25× coarser
+        /// than the value it restates (ASME Y14.5 §1.6.2).
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        dual_precision: Option<u8>,
         #[serde(default)]
         placement: Placement2,
     },
@@ -137,6 +160,19 @@ pub enum Annotation {
         #[serde(default)]
         placement: Placement2,
     },
+    /// A feature control frame: one geometric tolerance, with a leader to the
+    /// entity it controls (M1, §9).
+    ///
+    /// This is the variant D3 could not add — §7 names it, but it needs
+    /// [`tolerance::GeometricTolerance`], and a new variant of a serde-tagged
+    /// enum is not additive: an older reader given one fails the whole
+    /// document. That is the reader-floor bump M1 carries.
+    FeatureControlFrame {
+        tolerance: tolerance::GeometricTolerance,
+        anchor: GeomRef,
+        #[serde(default)]
+        placement: Placement2,
+    },
 }
 
 impl Annotation {
@@ -147,7 +183,9 @@ impl Annotation {
         match self {
             Annotation::Dimension { anchors, .. } => anchors.iter().collect(),
             Annotation::Note { leader, .. } => leader.iter().collect(),
-            Annotation::CentreMark { anchor } | Annotation::Datum { anchor, .. } => vec![anchor],
+            Annotation::CentreMark { anchor }
+            | Annotation::Datum { anchor, .. }
+            | Annotation::FeatureControlFrame { anchor, .. } => vec![anchor],
             Annotation::CentreLine { anchors } => anchors.iter().collect(),
         }
     }
@@ -157,7 +195,8 @@ impl Annotation {
         match self {
             Annotation::Dimension { placement, .. }
             | Annotation::Note { placement, .. }
-            | Annotation::Datum { placement, .. } => Some(*placement),
+            | Annotation::Datum { placement, .. }
+            | Annotation::FeatureControlFrame { placement, .. } => Some(*placement),
             Annotation::CentreMark { .. } | Annotation::CentreLine { .. } => None,
         }
     }
@@ -221,6 +260,22 @@ impl DimensionKind {
     /// (meters). A formatter must know this before it converts units.
     pub fn is_angular(&self) -> bool {
         matches!(self, DimensionKind::Angle)
+    }
+
+    /// A name for a diagnostic ("an ISO 286 fit needs a nominal size, which
+    /// an ordinate dimension is not"). The serde tag's spelling, lower
+    /// cased, so an error message and a persisted document agree.
+    pub fn name(&self) -> &'static str {
+        match self {
+            DimensionKind::Distance => "distance",
+            DimensionKind::PointLineDistance => "point-line distance",
+            DimensionKind::HDistance => "horizontal distance",
+            DimensionKind::VDistance => "vertical distance",
+            DimensionKind::Angle => "angle",
+            DimensionKind::Radius => "radius",
+            DimensionKind::Diameter => "diameter",
+            DimensionKind::Ordinate { .. } => "ordinate",
+        }
     }
 }
 

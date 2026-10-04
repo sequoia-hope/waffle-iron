@@ -357,7 +357,8 @@ const ENGINE_QUERIES = new Set([
 	'script_run_check',
 	'script_source_get',
 	'assembly_get',
-	'entity_meta'
+	'entity_meta',
+	'material_list'
 ]);
 
 const ENGINE_COMMANDS = new Set([
@@ -368,6 +369,8 @@ const ENGINE_COMMANDS = new Set([
 	'feature_reorder',
 	'feature_rename',
 	'body_rename',
+	'material_set',
+	'body_material_set',
 	'entity_name',
 	'entity_unname',
 	'rollback_set',

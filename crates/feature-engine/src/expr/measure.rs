@@ -57,22 +57,33 @@ pub struct MeasureFn {
     /// The dimension of the answer, attached by the evaluator so that every
     /// caller of this function agrees about it.
     ///
-    /// `None` for a function whose answer this evaluator cannot dimension:
-    /// [`Dim`] carries length and angle exponents only, so `mass` has no
-    /// axis to live on — and there is no density to produce one from until
-    /// M1's material table lands. Such a function parses (its name and
-    /// arity are checked, so the spelling cannot drift) and refuses at
-    /// evaluation, naming why.
+    /// `None` for a function whose answer this evaluator cannot dimension.
+    /// Such a function parses (its name and arity are checked, so the
+    /// spelling cannot drift) and refuses at evaluation, naming why.
+    ///
+    /// **Every entry has one since M1.** `mass` was the one that did not:
+    /// `Dim` carried length and angle exponents only, so a mass had no axis
+    /// to live on, and the document model had no density to read. M1 added
+    /// the mass axis (`waffle_types::dimension`) and the material table
+    /// (`crate::types::Material`). The `None` arm stays because the
+    /// evaluator must handle it — this is a library and the table is public
+    /// — and because the next function whose answer has no nameable
+    /// dimension should refuse the same way rather than inventing one.
     pub dim: Option<Dim>,
     /// What it measures, for a diagnostic and for the schema.
     pub what: &'static str,
 }
 
-/// Why [`MeasureFn::dim`] is `None` for `mass`, said once.
-pub const MASS_NEEDS_M1: &str = "a mass has no dimension this evaluator can \
-    name (length and angle exponents only) and the document model has no \
-    material table to read a density from; `volume(...)` measures the solid \
-    today and `mass(...)` lands with M1";
+/// What a [`MeasureFn`] with no `dim` refuses with, said once.
+///
+/// No entry in [`MEASUREMENTS`] is in that state since M1 — `mass` was, and
+/// now carries [`Dim::MASS`] — so this is the message for a future function
+/// that measures something this dimension system cannot name. It is still
+/// reachable (the table is public and a caller can build a `MeasureFn`), and
+/// the evaluator must not panic on it.
+pub const NO_NAMEABLE_DIMENSION: &str = "this measurement has no dimension the \
+    evaluator can name, so there is no number it could return that the rest of \
+    the expression could carry honestly";
 
 /// The measurement functions, in the order §6 of the drawings spec lists
 /// them.
@@ -121,8 +132,8 @@ pub const MEASUREMENTS: &[MeasureFn] = &[
     MeasureFn {
         name: "mass",
         arity: 1,
-        dim: None,
-        what: "the mass of a solid (M1)",
+        dim: Some(Dim::MASS),
+        what: "the mass of a solid, from its material's density (M1)",
     },
 ];
 
@@ -242,8 +253,14 @@ mod tests {
         assert_eq!(measure_fn("angle").and_then(|m| m.dim), Some(Dim::ANGLE));
         assert_eq!(measure_fn("area").and_then(|m| m.dim), Some(Dim::AREA));
         assert_eq!(measure_fn("volume").and_then(|m| m.dim), Some(Dim::VOLUME));
-        // `mass` has no dimension until M1 widens `Dim`.
-        assert_eq!(measure_fn("mass").and_then(|m| m.dim), None);
+        // `mass` has one since M1 widened `Dim` with the mass axis.
+        assert_eq!(measure_fn("mass").and_then(|m| m.dim), Some(Dim::MASS));
+        // EVERY entry carries a dimension now, which is the property worth
+        // pinning: a measurement whose answer the evaluator cannot
+        // dimension can only refuse, and none of these do.
+        for m in MEASUREMENTS {
+            assert!(m.dim.is_some(), "{} has no dimension", m.name);
+        }
         assert_eq!(measure_fn("nope"), None);
     }
 

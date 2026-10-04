@@ -456,8 +456,9 @@ fn expression_evaluate_measures_the_live_model() {
         "the function and the name: {err}"
     );
 
-    // `mass` is in the grammar (so the spelling cannot drift) and refuses
-    // until M1 gives it a density.
+    // `mass` measures a BODY. A face is refused by name, like every other
+    // wrong kind — before M1 this refused for want of a dimension, which
+    // hid the kind error behind it.
     let out = ok(
         &mut state,
         &mut kernel,
@@ -465,7 +466,247 @@ fn expression_evaluate_measures_the_live_model() {
         json!({ "expression": "mass(wall_a)" }),
     );
     let err = out["error"].as_str().expect("an error");
-    assert!(err.contains("M1") && err.contains("mass"), "{err}");
+    assert!(
+        err.contains("mass") && err.contains("a body") && err.contains("a face"),
+        "{err}"
+    );
+}
+
+/// M1: `mass(body)` is the kernel's volume times the material's density, in
+/// kilograms — and refuses rather than guessing one.
+///
+/// The three refusals are the point. A body with NO material has no mass; at
+/// the kernel's fallback density of 1 the number would be the VOLUME wearing
+/// kilograms, which is the most plausible wrong answer this function could
+/// give. A body whose material has been deleted is a document defect, not a
+/// default. And both are loud in the same expression that works the moment a
+/// material is assigned.
+#[test]
+fn mass_measures_the_material_and_refuses_without_one() {
+    let mut state = EngineState::new();
+    let mut kernel = KernelV2Adapter::new();
+    // A 10 mm cube: 1e-6 m³, so aluminium's 2700 kg/m³ is 2.7 g.
+    let s = 0.01;
+    let (_, body) = block(&mut state, &mut kernel, 0.0, s, s, None, 1);
+    ok(
+        &mut state,
+        &mut kernel,
+        "body_rename",
+        json!({ "body_id": body, "new_name": "cube" }),
+    );
+
+    // No material: refused BY NAME, with no number at all.
+    let out = ok(
+        &mut state,
+        &mut kernel,
+        "expression_evaluate",
+        json!({ "expression": "mass(cube)" }),
+    );
+    assert!(
+        out["value_mm"].is_null(),
+        "no number before a material: {out}"
+    );
+    let err = out["error"].as_str().expect("an error");
+    assert!(err.contains("no material"), "{err}");
+
+    // ...and `measure_mass` says which density it used, so the fallback is
+    // never mistakable for a real one.
+    let m = ok(
+        &mut state,
+        &mut kernel,
+        "measure_mass",
+        json!({ "body_id": body }),
+    );
+    assert_eq!(m["density_kg_m3"].as_f64(), Some(1.0));
+    let volume = m["volume_m3"].as_f64().expect("a volume");
+    assert_eq!(
+        m["mass_kg"].as_f64(),
+        Some(volume),
+        "the fallback IS the volume"
+    );
+    assert_eq!(m["material"].as_f64(), None);
+
+    // Assign a material a body cannot be made of yet: refused, not created.
+    let r = call(
+        &mut state,
+        &mut kernel,
+        "body_material_set",
+        json!({ "body_id": body, "material": "Aluminium" }),
+    );
+    assert!(r.is_error, "an unknown material is refused: {r:?}");
+
+    ok(
+        &mut state,
+        &mut kernel,
+        "material_set",
+        json!({ "name": "Aluminium", "density_kg_m3": 2700.0 }),
+    );
+    ok(
+        &mut state,
+        &mut kernel,
+        "body_material_set",
+        json!({ "body_id": body, "material": "Aluminium" }),
+    );
+
+    // Now it measures, in KILOGRAMS, and it is density × volume exactly.
+    let out = ok(
+        &mut state,
+        &mut kernel,
+        "expression_evaluate",
+        json!({ "expression": "mass(cube)" }),
+    );
+    assert!(out["error"].is_null(), "{out}");
+    let kg = out["value_mm"].as_f64().expect("a mass");
+    let expect = 2700.0 * volume;
+    assert!(
+        (kg - expect).abs() < 1e-12,
+        "mass(cube) = {kg}, density x volume = {expect}"
+    );
+    assert_eq!(out["dimension"].as_str(), Some("mass"), "{out}");
+
+    // `measure_mass` with no density now reads the material, and agrees to
+    // the bit — the two must not be able to answer differently.
+    let m = ok(
+        &mut state,
+        &mut kernel,
+        "measure_mass",
+        json!({ "body_id": body }),
+    );
+    assert_eq!(m["density_kg_m3"].as_f64(), Some(2700.0));
+    assert_eq!(m["mass_kg"].as_f64(), Some(kg));
+    // ...and an EXPLICIT density still wins, for "what would this weigh in
+    // brass".
+    let brass = ok(
+        &mut state,
+        &mut kernel,
+        "measure_mass",
+        json!({ "body_id": body, "density_kg_m3": 8500.0 }),
+    );
+    assert_eq!(brass["density_kg_m3"].as_f64(), Some(8500.0));
+
+    // `body_measure` reports the material without integrating the moments.
+    let b = ok(
+        &mut state,
+        &mut kernel,
+        "body_measure",
+        json!({ "body_id": body }),
+    );
+    assert_eq!(b["material"].as_str(), Some("Aluminium"));
+    assert_eq!(b["density_kg_m3"].as_f64(), Some(2700.0));
+
+    // Delete the material: the assignment goes with it, so the body is
+    // material-LESS rather than dangling, and the refusal says so.
+    ok(
+        &mut state,
+        &mut kernel,
+        "material_set",
+        json!({ "name": "Aluminium", "delete": true }),
+    );
+    let listed = ok(&mut state, &mut kernel, "material_list", json!({}));
+    assert!(listed["materials"].as_array().expect("a list").is_empty());
+    assert!(
+        listed["dangling"].as_array().expect("a list").is_empty(),
+        "a delete clears the assignments rather than leaving them dangling: {listed}"
+    );
+    let out = ok(
+        &mut state,
+        &mut kernel,
+        "expression_evaluate",
+        json!({ "expression": "mass(cube)" }),
+    );
+    assert!(out["value_mm"].is_null(), "{out}");
+
+    // Undo restores both halves at once.
+    ok(&mut state, &mut kernel, "undo", json!({}));
+    let out = ok(
+        &mut state,
+        &mut kernel,
+        "expression_evaluate",
+        json!({ "expression": "mass(cube)" }),
+    );
+    assert!(out["error"].is_null(), "undo restores the material: {out}");
+    assert!((out["value_mm"].as_f64().expect("a mass") - expect).abs() < 1e-12);
+
+    // A rename carries the body with it.
+    ok(
+        &mut state,
+        &mut kernel,
+        "material_set",
+        json!({ "name": "Aluminium", "rename_to": "6061-T6" }),
+    );
+    let listed = ok(&mut state, &mut kernel, "material_list", json!({}));
+    assert!(
+        listed["dangling"].as_array().expect("a list").is_empty(),
+        "{listed}"
+    );
+    assert_eq!(
+        listed["bodies"][0]["material"].as_str(),
+        Some("6061-T6"),
+        "{listed}"
+    );
+    let out = ok(
+        &mut state,
+        &mut kernel,
+        "expression_evaluate",
+        json!({ "expression": "mass(cube)" }),
+    );
+    assert!(
+        (out["value_mm"].as_f64().expect("a mass") - expect).abs() < 1e-12,
+        "{out}"
+    );
+}
+
+/// M1: a density is a measurement a FIELD can read, which is the whole
+/// reason `mass` needed a dimension rather than a number.
+#[test]
+fn a_depth_can_be_driven_by_a_mass_and_an_area_still_cannot() {
+    let mut state = EngineState::new();
+    let mut kernel = KernelV2Adapter::new();
+    let s = 0.01;
+    let (_, body) = block(&mut state, &mut kernel, 0.0, s, s, None, 1);
+    ok(
+        &mut state,
+        &mut kernel,
+        "body_rename",
+        json!({ "body_id": body, "new_name": "cube" }),
+    );
+    ok(
+        &mut state,
+        &mut kernel,
+        "material_set",
+        json!({ "name": "Water", "density_kg_m3": 1000.0 }),
+    );
+    ok(
+        &mut state,
+        &mut kernel,
+        "body_material_set",
+        json!({ "body_id": body, "material": "Water" }),
+    );
+
+    // A mass is not a length: a depth refuses it by name rather than
+    // reading 0.001 as a millimetre.
+    let out = ok(
+        &mut state,
+        &mut kernel,
+        "expression_evaluate",
+        json!({ "expression": "mass(cube)", "dimension": "Length" }),
+    );
+    let err = out["error"].as_str().expect("an error");
+    assert!(err.contains("length") && err.contains("mass"), "{err}");
+
+    // ...but a mass over a density is a volume, and its cube root a length.
+    let out = ok(
+        &mut state,
+        &mut kernel,
+        "expression_evaluate",
+        json!({ "expression": "mass(cube) / (1000kg / 1m^3)" }),
+    );
+    assert!(out["error"].is_null(), "{out}");
+    // 1e-6 m^3 in the evaluator's mm^3 working space.
+    let mm3 = out["value_mm"].as_f64().expect("a volume");
+    assert!((mm3 - 1000.0).abs() < 1e-6, "{mm3}");
+    // The mass axis cancelled: what is left is a pure length^3.
+    assert_eq!(out["dimension"].as_str(), Some("length^3"), "{out}");
 }
 
 #[test]

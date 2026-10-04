@@ -1,5 +1,5 @@
 {
-  "manifest_hash": "fbb649fd2d3938eac69fe937a014a29eda90436dc29b46684811d675f6a5bf22",
+  "manifest_hash": "6f26544d6126382ed028ee1dc6c9ae4df02492315d510d367d18bfef9bc03cf7",
   "protocol": "waffle-agent-link/1",
   "tools": [
     {
@@ -1548,6 +1548,13 @@
           "closed": {
             "type": "boolean"
           },
+          "density_kg_m3": {
+            "description": "The material's density, or null.",
+            "type": [
+              "number",
+              "null"
+            ]
+          },
           "edge_count": {
             "type": "integer"
           },
@@ -1556,6 +1563,17 @@
           },
           "face_count": {
             "type": "integer"
+          },
+          "material": {
+            "description": "What the body is made of (M1), or null.",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "material_error": {
+            "description": "Present when the body names a material the table no longer has.",
+            "type": "string"
           },
           "method": {
             "enum": [
@@ -1589,6 +1607,8 @@
           "body_id",
           "volume_m3",
           "surface_area_m2",
+          "material",
+          "density_kg_m3",
           "method",
           "bbox_min",
           "bbox_max",
@@ -1874,7 +1894,7 @@
         "readOnlyHint": true,
         "title": "Measure mass"
       },
-      "description": "Volume, surface area, centroid and the inertia tensor about the centroid of one body, in SI (m³, m², meters, kg·m²). method is \"exact\" when every face was integrated in closed form (planar faces, cylinder and cone bands, and the circular caps and bore walls a boolean leaves behind), else \"mesh\" and chord_bound_m is the tessellation band — a mesh volume is LOW by the chord deficit, never high. density_kg_m3 defaults to 1 because the document carries no material table, so mass_kg is then numerically the volume; pass the density to scale mass and inertia. The answer always says which density it used.",
+      "description": "Volume, surface area, centroid and the inertia tensor about the centroid of one body, in SI (m³, m², meters, kg·m²). method is \"exact\" when every face was integrated in closed form (planar faces, cylinder and cone bands, and the circular caps and bore walls a boolean leaves behind), else \"mesh\" and chord_bound_m is the tessellation band — a mesh volume is LOW by the chord deficit, never high. Omit density_kg_m3 and the BODY'S OWN MATERIAL supplies it (material_set / body_material_set, M1); a body with no material falls back to 1, where mass_kg is numerically the volume rather than a mass — the answer always says which density it used, which is how you tell. A body naming a material that has been deleted is REFUSED rather than measured at the fallback. Pass density_kg_m3 explicitly to ask what it would weigh in something else.",
       "inputSchema": {
         "additionalProperties": false,
         "properties": {
@@ -1883,7 +1903,7 @@
             "type": "string"
           },
           "density_kg_m3": {
-            "description": "Material density in kg/m³. Defaults to 1.",
+            "description": "Material density in kg/m³. Omit (or null) to use the body's own material; 1 when it has none.",
             "type": [
               "number",
               "null"
@@ -3318,7 +3338,7 @@
         "readOnlyHint": true,
         "title": "Evaluate expression"
       },
-      "description": "Evaluate an expression against the design parameters AND the live model, as a dimension field would. mm-space: a bare number means millimeters for lengths (degrees for angles); unit suffixes (mm, cm, m, in, ft, deg, rad) and parameter names are allowed. Measurement functions read the model by ENTITY NAME (entity_name / body_rename): distance(a, b), angle(a, b), length(edge), radius(entity), area(face), volume(body) — mm, degrees, mm^2 and mm^3 respectively, so sqrt(area(top)) is a length a depth takes and area(top) is not. mass(body) is reserved and refuses until a material table exists. Returns value_mm plus the dimension the expression produced, or value_mm null with the evaluation error. Pass dimension to have it judged as that kind of field would judge it: \"25deg\" asked for as a Length is an error, not 25 mm.",
+      "description": "Evaluate an expression against the design parameters AND the live model, as a dimension field would. mm-space: a bare number means millimeters for lengths (degrees for angles); unit suffixes (mm, cm, m, in, ft, deg, rad) and parameter names are allowed. Measurement functions read the model by ENTITY NAME (entity_name / body_rename): distance(a, b), angle(a, b), length(edge), radius(entity), area(face), volume(body) — mm, degrees, mm^2 and mm^3 respectively, so sqrt(area(top)) is a length a depth takes and area(top) is not. mass(body) is KILOGRAMS, from the body material's density (M1): a body with no material refuses by name rather than reporting the volume in kilograms, so assign one with body_material_set first. Returns value_mm plus the dimension the expression produced, or value_mm null with the evaluation error. Pass dimension to have it judged as that kind of field would judge it: \"25deg\" asked for as a Length is an error, not 25 mm.",
       "inputSchema": {
         "additionalProperties": false,
         "properties": {
@@ -17086,6 +17106,389 @@
     },
     {
       "annotations": {
+        "readOnlyHint": true,
+        "title": "List materials"
+      },
+      "description": "Read the open Part's material table and which body is made of what. Each material is {name, density_kg_m3, appearance?}; bodies lists {body_id, material, resolves}; dangling lists assignments whose material has been deleted — those bodies have NO mass and measure_mass refuses them by name rather than reporting the volume in kilograms. The table is per-Part (a document-level table arrives with P2 of specs/agent_mechanical_design.md §6).",
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {},
+        "type": "object"
+      },
+      "name": "material_list",
+      "outputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "bodies": {
+            "items": {
+              "properties": {
+                "body_id": {
+                  "type": "string"
+                },
+                "material": {
+                  "type": "string"
+                },
+                "resolves": {
+                  "type": "boolean"
+                }
+              },
+              "required": [
+                "body_id",
+                "material",
+                "resolves"
+              ],
+              "type": "object"
+            },
+            "type": "array"
+          },
+          "dangling": {
+            "items": {
+              "properties": {
+                "body_id": {
+                  "type": "string"
+                },
+                "material": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "body_id",
+                "material"
+              ],
+              "type": "object"
+            },
+            "type": "array"
+          },
+          "materials": {
+            "items": {
+              "properties": {
+                "appearance": {
+                  "additionalProperties": false,
+                  "description": "How the material looks, for the viewport and for a future AP242 STYLED_ITEM.",
+                  "properties": {
+                    "color": {
+                      "description": "sRGB, each channel 0..1.",
+                      "items": {
+                        "maximum": 1,
+                        "minimum": 0,
+                        "type": "number"
+                      },
+                      "maxItems": 3,
+                      "minItems": 3,
+                      "type": "array"
+                    },
+                    "metalness": {
+                      "maximum": 1,
+                      "minimum": 0,
+                      "type": "number"
+                    },
+                    "roughness": {
+                      "maximum": 1,
+                      "minimum": 0,
+                      "type": "number"
+                    }
+                  },
+                  "required": [
+                    "color"
+                  ],
+                  "type": "object"
+                },
+                "density_kg_m3": {
+                  "type": "number"
+                },
+                "name": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "name",
+                "density_kg_m3"
+              ],
+              "type": "object"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "materials",
+          "bodies",
+          "dangling"
+        ],
+        "type": "object"
+      }
+    },
+    {
+      "annotations": {
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": false,
+        "readOnlyHint": false,
+        "title": "Set material"
+      },
+      "description": "Add, change, rename or delete a material in the open Part's table (one undo step). Exactly one mode per call: rename_to renames (every body made of it follows), delete:true removes it (every body made of it is left with no material, which is loud rather than silent), and otherwise the call is an upsert needing density_kg_m3 — a positive number of kg/m³ (aluminium 2700, steel 7850, brass 8500, ABS 1040, PLA 1240). Materials are referred to BY NAME, so two with one name is refused and a rename is the only way to change one. Assign a material to a body with body_material_set.",
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "appearance": {
+            "additionalProperties": false,
+            "description": "How the material looks, for the viewport and for a future AP242 STYLED_ITEM.",
+            "properties": {
+              "color": {
+                "description": "sRGB, each channel 0..1.",
+                "items": {
+                  "maximum": 1,
+                  "minimum": 0,
+                  "type": "number"
+                },
+                "maxItems": 3,
+                "minItems": 3,
+                "type": "array"
+              },
+              "metalness": {
+                "maximum": 1,
+                "minimum": 0,
+                "type": "number"
+              },
+              "roughness": {
+                "maximum": 1,
+                "minimum": 0,
+                "type": "number"
+              }
+            },
+            "required": [
+              "color"
+            ],
+            "type": "object"
+          },
+          "delete": {
+            "description": "Delete mode.",
+            "type": "boolean"
+          },
+          "density_kg_m3": {
+            "description": "Required for an upsert.",
+            "exclusiveMinimum": 0,
+            "type": "number"
+          },
+          "name": {
+            "description": "The material to add, change, rename or delete.",
+            "minLength": 1,
+            "type": "string"
+          },
+          "rename_to": {
+            "description": "Rename mode: the new name.",
+            "minLength": 1,
+            "type": "string"
+          }
+        },
+        "required": [
+          "name"
+        ],
+        "type": "object"
+      },
+      "name": "material_set",
+      "outputSchema": {
+        "properties": {
+          "bodies_added": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "bodies_removed": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "errors": {
+            "description": "Every current rebuild error in tree order, verbatim from the engine; kind is the typed class when known.",
+            "items": {
+              "properties": {
+                "feature_id": {
+                  "type": "string"
+                },
+                "kind": {
+                  "description": "Engine ErrorKind, e.g. {\"type\":\"NotSupported\",\"operation\":\"…\"}.",
+                  "type": "object"
+                },
+                "message": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "feature_id",
+                "message"
+              ],
+              "type": "object"
+            },
+            "type": "array"
+          },
+          "features_added": {
+            "description": "Feature ids added, in tree order.",
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "features_changed": {
+            "description": "Feature ids whose definition or provenance changed.",
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "features_removed": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "kept_with_error": {
+            "description": "Present and true when on_error was \"keep\" and the step left features failing.",
+            "type": "boolean"
+          },
+          "order_changed": {
+            "description": "The relative order of surviving features changed.",
+            "type": "boolean"
+          },
+          "warnings": {
+            "description": "Rebuild warnings, verbatim.",
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "features_added",
+          "features_changed",
+          "features_removed",
+          "bodies_added",
+          "bodies_removed",
+          "errors",
+          "warnings"
+        ],
+        "type": "object"
+      }
+    },
+    {
+      "annotations": {
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": false,
+        "readOnlyHint": false,
+        "title": "Set body material"
+      },
+      "description": "Say what a body is made of (one undo step). material names an entry in the table (add it with material_set first — an unknown name is refused, not created); material:null clears it. A body with no material has no mass: measure_mass and a mass(body) expression both refuse by name rather than defaulting the density to 1, where the mass would be numerically the volume.",
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "body_id": {
+            "description": "Body id or name from model_summary.bodies.",
+            "type": "string"
+          },
+          "material": {
+            "description": "A material name, or null to clear.",
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "body_id",
+          "material"
+        ],
+        "type": "object"
+      },
+      "name": "body_material_set",
+      "outputSchema": {
+        "properties": {
+          "bodies_added": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "bodies_removed": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "errors": {
+            "description": "Every current rebuild error in tree order, verbatim from the engine; kind is the typed class when known.",
+            "items": {
+              "properties": {
+                "feature_id": {
+                  "type": "string"
+                },
+                "kind": {
+                  "description": "Engine ErrorKind, e.g. {\"type\":\"NotSupported\",\"operation\":\"…\"}.",
+                  "type": "object"
+                },
+                "message": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "feature_id",
+                "message"
+              ],
+              "type": "object"
+            },
+            "type": "array"
+          },
+          "features_added": {
+            "description": "Feature ids added, in tree order.",
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "features_changed": {
+            "description": "Feature ids whose definition or provenance changed.",
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "features_removed": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "kept_with_error": {
+            "description": "Present and true when on_error was \"keep\" and the step left features failing.",
+            "type": "boolean"
+          },
+          "order_changed": {
+            "description": "The relative order of surviving features changed.",
+            "type": "boolean"
+          },
+          "warnings": {
+            "description": "Rebuild warnings, verbatim.",
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "features_added",
+          "features_changed",
+          "features_removed",
+          "bodies_added",
+          "bodies_removed",
+          "errors",
+          "warnings"
+        ],
+        "type": "object"
+      }
+    },
+    {
+      "annotations": {
         "destructiveHint": false,
         "readOnlyHint": false,
         "title": "Name entity"
@@ -25868,12 +26271,12 @@
         "readOnlyHint": false,
         "title": "Add drawing annotation"
       },
-      "description": "Add an annotation to one view of the open DRAWING tab: a Dimension, a Note, a CentreMark, a CentreLine or a Datum. A dimension takes NO value — its number is measured from the model on every rebuild, which is what keeps a drawing from disagreeing with the part it is of. Anchors are PERSISTENT ids of the entities measured (edges, faces, vertices), so an annotation never silently rebinds to a different edge; an anchor whose entity this view does not draw is refused with AnnotationNotMeasurable and nothing is added. Refused with NotFound for a view the drawing does not have and InvalidArgument for the wrong number of anchors for the kind. specs/drawings_and_mbd.md §7 + §8 D4a.",
+      "description": "Add an annotation to one view of the open DRAWING tab: a Dimension, a Note, a CentreMark, a CentreLine, a Datum or a FeatureControlFrame. A dimension takes NO value — its number is measured from the model on every rebuild, which is what keeps a drawing from disagreeing with the part it is of. Anchors are PERSISTENT ids of the entities measured (edges, faces, vertices), so an annotation never silently rebinds to a different edge; an anchor whose entity this view does not draw is refused with AnnotationNotMeasurable and nothing is added. Refused with NotFound for a view the drawing does not have and InvalidArgument for the wrong number of anchors for the kind. A dimension may carry a size TOLERANCE and a FeatureControlFrame carries a GEOMETRIC tolerance (M1, §9); both state their magnitudes in MILLIMETRES (degrees on an Angle dimension), never in model metres, and an ISO 286 fit class is resolved to limits by the engine against the measured nominal — so a tolerance the dimension cannot carry (an angular band on a linear dimension, a fit on a radius, a nominal outside the ISO 286 tables) is refused here rather than silently dropped from the sheet. specs/drawings_and_mbd.md §7 + §8 D4a + §9 M1.",
       "inputSchema": {
         "additionalProperties": false,
         "properties": {
           "anchors": {
-            "description": "The entities measured, in the order the kind expects: 1 for Radius, Diameter, CentreMark and Datum, 2 for the distances, Angle and CentreLine. Each is a persistent id — a number or a decimal STRING (use the string: an id above 2^53 is not exact as a JSON number) meaning an edge — or {pid, kind} with kind Edge, Face or Vertex. The ids come from anchor_list on drawing_view_add / _edit with include_anchors.",
+            "description": "The entities measured, in the order the kind expects: 1 for Radius, Diameter, CentreMark, Datum and FeatureControlFrame, 2 for the distances, Angle and CentreLine. Each is a persistent id — a number or a decimal STRING (use the string: an id above 2^53 is not exact as a JSON number) meaning an edge — or {pid, kind} with kind Edge, Face or Vertex. The ids come from anchor_list on drawing_view_add / _edit with include_anchors.",
             "items": {
               "oneOf": [
                 {
@@ -25925,13 +26328,94 @@
               "Note",
               "CentreMark",
               "CentreLine",
-              "Datum"
+              "Datum",
+              "FeatureControlFrame"
             ],
             "type": "string"
+          },
+          "dual_precision": {
+            "description": "Decimal places for the BRACKETED value. Separate from precision because the same number of places is not the same resolution in two units: two places of mm is 0.01 mm, two places of inches 0.254 mm. Omit for the document setting.",
+            "maximum": 9,
+            "minimum": 0,
+            "type": "integer"
           },
           "dual_unit": {
             "description": "A second unit shown in brackets beneath the primary one (\"in\", \"mm\", …).",
             "type": "string"
+          },
+          "geometric": {
+            "additionalProperties": false,
+            "description": "FeatureControlFrame only: the geometric tolerance (ISO 1101). The zone width is in MILLIMETRES. The four FORM characteristics (Flatness, Straightness, Circularity, Cylindricity) take NO datums and are refused with any; the orientation and location ones (Perpendicularity, Parallelism, Angularity, Position, Concentricity, Symmetry, Runout) need at least one; Profile takes either.",
+            "properties": {
+              "characteristic": {
+                "enum": [
+                  "Flatness",
+                  "Straightness",
+                  "Circularity",
+                  "Cylindricity",
+                  "Perpendicularity",
+                  "Parallelism",
+                  "Angularity",
+                  "Position",
+                  "Concentricity",
+                  "Symmetry",
+                  "Profile",
+                  "Runout"
+                ],
+                "type": "string"
+              },
+              "datums": {
+                "description": "Primary, secondary, tertiary — in order.",
+                "items": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "label": {
+                      "minLength": 1,
+                      "type": "string"
+                    },
+                    "modifier": {
+                      "enum": [
+                        "MMC",
+                        "LMC",
+                        "RFS"
+                      ],
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "label"
+                  ],
+                  "type": "object"
+                },
+                "type": "array"
+              },
+              "modifier": {
+                "enum": [
+                  "MMC",
+                  "LMC",
+                  "RFS"
+                ],
+                "type": "string"
+              },
+              "value_mm": {
+                "exclusiveMinimum": 0,
+                "type": "number"
+              },
+              "zone": {
+                "description": "Default Width (two parallel planes). Diametral prints ⌀.",
+                "enum": [
+                  "Diametral",
+                  "Width",
+                  "Spherical"
+                ],
+                "type": "string"
+              }
+            },
+            "required": [
+              "characteristic",
+              "value_mm"
+            ],
+            "type": "object"
           },
           "kind": {
             "default": "Distance",
@@ -25969,6 +26453,46 @@
           "text": {
             "description": "Note only: the text.",
             "type": "string"
+          },
+          "tolerance": {
+            "additionalProperties": false,
+            "description": "Dimension only: the size tolerance. Magnitudes are MILLIMETRES, or DEGREES on an Angle dimension. symmetric needs plus (the ± magnitude); bilateral needs plus and minus, both SIGNED deviations from the nominal, so minus is normally negative and a unilateral tolerance is one of them zero; limits needs upper and lower, which are absolute SIZES rather than deviations; fit needs hole and/or shaft as ISO 286 classes (\"H7\", \"g6\") and the engine resolves them against the measured nominal; basic takes nothing and boxes the value, its variation controlled by a FeatureControlFrame instead.",
+            "properties": {
+              "hole": {
+                "description": "An ISO 286 hole class, e.g. \"H7\".",
+                "type": "string"
+              },
+              "kind": {
+                "enum": [
+                  "symmetric",
+                  "bilateral",
+                  "limits",
+                  "fit",
+                  "basic"
+                ],
+                "type": "string"
+              },
+              "lower": {
+                "type": "number"
+              },
+              "minus": {
+                "type": "number"
+              },
+              "plus": {
+                "type": "number"
+              },
+              "shaft": {
+                "description": "An ISO 286 shaft class, e.g. \"g6\".",
+                "type": "string"
+              },
+              "upper": {
+                "type": "number"
+              }
+            },
+            "required": [
+              "kind"
+            ],
+            "type": "object"
           },
           "view_id": {
             "type": "string"

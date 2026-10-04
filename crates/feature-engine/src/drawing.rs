@@ -76,7 +76,8 @@ use uuid::Uuid;
 
 use modeling_ops::KernelBundle;
 use waffle_types::annotation::layout::{
-    AnchorGeometry, AnnotationLayout, ClipCircle, HatchLoop, LayoutCurve, ViewLayout, ViewMark,
+    AnchorGeometry, AnnotationLayout, ClipCircle, HatchLoop, LayoutCurve, ToleranceLayout,
+    ViewLayout, ViewMark,
 };
 use waffle_types::annotation::measure::{measure, MeasureError};
 use waffle_types::annotation::{Annotation, DimensionKind, Measured};
@@ -162,6 +163,21 @@ pub enum DrawingError {
         view: Uuid,
         index: usize,
         expr: String,
+        reason: String,
+    },
+    /// A tolerance this annotation cannot carry (M1): an angular band on a
+    /// linear dimension, an ISO 286 fit on something that is not a size or
+    /// is outside the tables, an inverted band, a feature control frame
+    /// malformed by ISO 1101.
+    ///
+    /// A typed error rather than a dropped tolerance. A sheet that silently
+    /// omits the tolerance it was told to print is the same class of defect
+    /// as one that prints a value the model disagrees with — the drawing
+    /// says less than the author said, and nothing tells them.
+    #[error("annotation {index} of view {view}: its tolerance was refused: {reason}")]
+    ToleranceRefused {
+        view: Uuid,
+        index: usize,
         reason: String,
     },
     /// An anchor whose selector is not a persistent id.
@@ -2013,8 +2029,10 @@ fn resolve_annotation(
             kind,
             anchors: refs,
             value,
+            tolerance,
             precision,
             dual_unit,
+            dual_precision,
             placement,
         } => {
             check_measured(view, index, value)?;
@@ -2064,12 +2082,30 @@ fn resolve_annotation(
                     })?
                 }
             };
+            // M1: the tolerance is resolved HERE, against the measured
+            // nominal, because an ISO 286 fit is only two numbers once it
+            // has a size. A tolerance the dimension cannot carry — an
+            // angular band on a linear dimension, a fit on a radius — is a
+            // typed error naming the annotation, not a tolerance silently
+            // dropped from the sheet.
+            let tolerance = match tolerance {
+                None => None,
+                Some(t) => Some(ToleranceLayout::resolve(t, *kind, measured).map_err(
+                    |source| DrawingError::ToleranceRefused {
+                        view,
+                        index,
+                        reason: source.to_string(),
+                    },
+                )?),
+            };
             Ok(AnnotationLayout::Dimension {
                 kind: *kind,
                 anchors: resolved,
                 value: measured,
+                tolerance,
                 precision: *precision,
                 dual_unit: dual_unit.clone(),
+                dual_precision: *dual_precision,
                 placement: *placement,
             })
         }
@@ -2145,6 +2181,29 @@ fn resolve_annotation(
             anchor: resolve_anchor(view, index, anchor, anchors, basis)?,
             placement: *placement,
         }),
+        // M1. The frame's content needs no measurement — a geometric
+        // tolerance is authored, not derived — but it IS validated here, so
+        // a frame that ISO 1101 calls malformed (flatness with a datum,
+        // perpendicularity without one) is refused at the rebuild rather
+        // than printed and exported.
+        Annotation::FeatureControlFrame {
+            tolerance,
+            anchor,
+            placement,
+        } => {
+            tolerance
+                .validate()
+                .map_err(|source| DrawingError::ToleranceRefused {
+                    view,
+                    index,
+                    reason: source.to_string(),
+                })?;
+            Ok(AnnotationLayout::FeatureControlFrame {
+                tolerance: tolerance.clone(),
+                anchor: resolve_anchor(view, index, anchor, anchors, basis)?,
+                placement: *placement,
+            })
+        }
     }
 }
 
@@ -2264,6 +2323,7 @@ pub fn annotation_tag(annotation: &Annotation) -> &'static str {
         Annotation::CentreMark { .. } => "CentreMark",
         Annotation::CentreLine { .. } => "CentreLine",
         Annotation::Datum { .. } => "Datum",
+        Annotation::FeatureControlFrame { .. } => "FeatureControlFrame",
     }
 }
 

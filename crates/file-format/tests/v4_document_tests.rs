@@ -79,7 +79,11 @@ fn v4_envelope_round_trip_keeps_identity_sources_and_tabs() {
     // variants inside a tab kind every reader since D4a DESERIALIZES, so
     // unlike D4a's new tab kind they are not kept opaque — see
     // `format_tests.rs::a_projection_variant_an_older_reader_does_not_know_fails_the_whole_document`).
-    assert_eq!(FORMAT_VERSION, 11);
+    // v14 since 2026-10-04 (M1): `Annotation::FeatureControlFrame` is the
+    // same shape of new variant inside the `Drawing` tab, and
+    // `Dimension::Mass`/`Density` are two more on the enum a parameter's
+    // `unit` is written as. v12 and v13 went to other branches.
+    assert_eq!(FORMAT_VERSION, 14);
     assert_eq!(parsed["document"]["id"], doc.document.id.to_string());
     assert_eq!(parsed["sources"].as_array().unwrap().len(), 1);
     // `.git` is normalized away on the way in; host is inferred, not written.

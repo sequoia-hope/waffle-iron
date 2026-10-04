@@ -14,7 +14,26 @@
 
 const NAMED_VIEWS = ['front', 'back', 'left', 'right', 'top', 'bottom', 'iso'];
 const PROJECTED_DIRECTIONS = ['left', 'right', 'up', 'down'];
-const ANNOTATIONS = ['Dimension', 'Note', 'CentreMark', 'CentreLine', 'Datum'];
+const ANNOTATIONS = ['Dimension', 'Note', 'CentreMark', 'CentreLine', 'Datum', 'FeatureControlFrame'];
+
+/** The ISO 1101 geometric characteristics a feature control frame controls (M1). */
+const CHARACTERISTICS = [
+	'Flatness',
+	'Straightness',
+	'Circularity',
+	'Cylindricity',
+	'Perpendicularity',
+	'Parallelism',
+	'Angularity',
+	'Position',
+	'Concentricity',
+	'Symmetry',
+	'Profile',
+	'Runout'
+];
+
+/** M1's size-tolerance kinds. */
+const TOLERANCE_KINDS = ['symmetric', 'bilateral', 'limits', 'fit', 'basic'];
 const DIMENSION_KINDS = [
 	'Distance',
 	'PointLineDistance',
@@ -227,13 +246,19 @@ export const drawingAnnotationAddTool = {
 	name: 'drawing_annotation_add',
 	description:
 		'Add an annotation to one view of the open DRAWING tab: a Dimension, a Note, a CentreMark, a ' +
-		'CentreLine or a Datum. A dimension takes NO value — its number is measured from the model on ' +
+		'CentreLine, a Datum or a FeatureControlFrame. A dimension takes NO value — its number is measured from the model on ' +
 		'every rebuild, which is what keeps a drawing from disagreeing with the part it is of. Anchors are ' +
 		'PERSISTENT ids of the entities measured (edges, faces, vertices), so an annotation never ' +
 		'silently rebinds to a different edge; an anchor whose entity this view does not draw is refused ' +
 		'with AnnotationNotMeasurable and nothing is added. Refused with NotFound for a view the drawing ' +
 		'does not have and InvalidArgument for the wrong number of anchors for the kind. ' +
-		'specs/drawings_and_mbd.md §7 + §8 D4a.',
+		'A dimension may carry a size TOLERANCE and a FeatureControlFrame carries a GEOMETRIC tolerance ' +
+		'(M1, §9); both state their magnitudes in MILLIMETRES (degrees on an Angle dimension), never in ' +
+		'model metres, and an ISO 286 fit class is resolved to limits by the engine against the measured ' +
+		'nominal — so a tolerance the dimension cannot carry (an angular band on a linear dimension, a fit ' +
+		'on a radius, a nominal outside the ISO 286 tables) is refused here rather than silently dropped ' +
+		'from the sheet. ' +
+		'specs/drawings_and_mbd.md §7 + §8 D4a + §9 M1.',
 	inputSchema: {
 		type: 'object',
 		properties: {
@@ -253,7 +278,8 @@ export const drawingAnnotationAddTool = {
 				type: 'array',
 				description:
 					'The entities measured, in the order the kind expects: 1 for Radius, Diameter, ' +
-					'CentreMark and Datum, 2 for the distances, Angle and CentreLine. Each is a ' +
+					'CentreMark, Datum and FeatureControlFrame, 2 for the distances, Angle and ' +
+					'CentreLine. Each is a ' +
 					'persistent id — a number or a decimal STRING (use the string: an id above 2^53 ' +
 					'is not exact as a JSON number) meaning an edge — or {pid, kind} with kind Edge, ' +
 					'Face or Vertex. The ids come from anchor_list on drawing_view_add / _edit with ' +
@@ -287,6 +313,72 @@ export const drawingAnnotationAddTool = {
 			dual_unit: {
 				type: 'string',
 				description: 'A second unit shown in brackets beneath the primary one ("in", "mm", …).'
+			},
+			dual_precision: {
+				type: 'integer',
+				minimum: 0,
+				maximum: 9,
+				description:
+					'Decimal places for the BRACKETED value. Separate from precision because the same ' +
+					'number of places is not the same resolution in two units: two places of mm is ' +
+					'0.01 mm, two places of inches 0.254 mm. Omit for the document setting.'
+			},
+			tolerance: {
+				type: 'object',
+				description:
+					'Dimension only: the size tolerance. Magnitudes are MILLIMETRES, or DEGREES on an ' +
+					'Angle dimension. symmetric needs plus (the ± magnitude); bilateral needs plus and ' +
+					'minus, both SIGNED deviations from the nominal, so minus is normally negative and a ' +
+					'unilateral tolerance is one of them zero; limits needs upper and lower, which are ' +
+					'absolute SIZES rather than deviations; fit needs hole and/or shaft as ISO 286 ' +
+					'classes ("H7", "g6") and the engine resolves them against the measured nominal; ' +
+					'basic takes nothing and boxes the value, its variation controlled by a ' +
+					'FeatureControlFrame instead.',
+				properties: {
+					kind: { type: 'string', enum: TOLERANCE_KINDS },
+					plus: { type: 'number' },
+					minus: { type: 'number' },
+					upper: { type: 'number' },
+					lower: { type: 'number' },
+					hole: { type: 'string', description: 'An ISO 286 hole class, e.g. "H7".' },
+					shaft: { type: 'string', description: 'An ISO 286 shaft class, e.g. "g6".' }
+				},
+				required: ['kind'],
+				additionalProperties: false
+			},
+			geometric: {
+				type: 'object',
+				description:
+					'FeatureControlFrame only: the geometric tolerance (ISO 1101). The zone width is in ' +
+					'MILLIMETRES. The four FORM characteristics (Flatness, Straightness, Circularity, ' +
+					'Cylindricity) take NO datums and are refused with any; the orientation and location ' +
+					'ones (Perpendicularity, Parallelism, Angularity, Position, Concentricity, Symmetry, ' +
+					'Runout) need at least one; Profile takes either.',
+				properties: {
+					characteristic: { type: 'string', enum: CHARACTERISTICS },
+					value_mm: { type: 'number', exclusiveMinimum: 0 },
+					modifier: { type: 'string', enum: ['MMC', 'LMC', 'RFS'] },
+					datums: {
+						type: 'array',
+						description: 'Primary, secondary, tertiary — in order.',
+						items: {
+							type: 'object',
+							properties: {
+								label: { type: 'string', minLength: 1 },
+								modifier: { type: 'string', enum: ['MMC', 'LMC', 'RFS'] }
+							},
+							required: ['label'],
+							additionalProperties: false
+						}
+					},
+					zone: {
+						type: 'string',
+						enum: ['Diametral', 'Width', 'Spherical'],
+						description: 'Default Width (two parallel planes). Diametral prints ⌀.'
+					}
+				},
+				required: ['characteristic', 'value_mm'],
+				additionalProperties: false
 			},
 			placement: {
 				type: 'array',

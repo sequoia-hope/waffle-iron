@@ -140,8 +140,10 @@ fn dimension(kind: DimensionKind, pids: &[u64]) -> Annotation {
             .map(|p| pid_anchor(TopoKind::Edge, *p))
             .collect(),
         value: Measured::FromGeometry,
+        tolerance: None,
         precision: Some(2),
         dual_unit: None,
+        dual_precision: None,
         placement: Placement2::default(),
     }
 }

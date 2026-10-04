@@ -243,6 +243,8 @@ fn a_layout_round_trips_through_json_with_every_annotation_arm() {
             })],
             value: 0.01,
             precision: Some(2),
+            tolerance: None,
+            dual_precision: None,
             dual_unit: Some("in".into()),
             placement: Placement2::new(0.001, 0.002),
         },
@@ -285,6 +287,8 @@ fn the_layout_record_carries_no_geom_ref_and_no_expression() {
         ],
         value: 0.04,
         precision: None,
+        tolerance: None,
+        dual_precision: None,
         dual_unit: None,
         placement: Placement2::default(),
     }]);
@@ -370,4 +374,119 @@ fn a_view_layout_without_the_d4b_fields_still_loads_and_omits_them_when_empty() 
     assert!(back.hatch.is_empty() && back.marks.is_empty() && back.clip.is_none());
     let json = serde_json::to_string(&back).unwrap();
     assert_eq!(json, r#"{"curves":[],"annotations":[]}"#);
+}
+
+// -------------------------------------------------------------- M1 additions
+
+#[test]
+fn a_resolved_tolerance_carries_numbers_and_never_a_class_to_look_up() {
+    use super::super::tolerance::{FitClass, ToleranceValue};
+
+    const MM: f64 = 1e-3;
+    let nominal = 25.0 * MM;
+
+    // A fit arrives as the class TEXT plus the band the engine resolved —
+    // the renderer has the string to print and the numbers to print, and no
+    // table of its own.
+    let fit = Tolerance::Fit {
+        hole: Some(FitClass::parse("H7").unwrap()),
+        shaft: Some(FitClass::parse("G6").unwrap()),
+    };
+    let r = ToleranceLayout::resolve(&fit, DimensionKind::Diameter, nominal).unwrap();
+    let ToleranceDisplay::Fit { hole, shaft } = &r.display else {
+        panic!("expected a fit display, got {:?}", r.display);
+    };
+    // The authored case was upper on both; the ROLE decides how each prints.
+    assert_eq!(hole.as_deref(), Some("H7"));
+    assert_eq!(shaft.as_deref(), Some("g6"));
+    let [upper, lower] = r.limits.expect("a fit has limits");
+    assert!((upper - (nominal + 21e-6)).abs() < 1e-15, "{upper}");
+    let [dev_up, dev_down] = r.deviations.expect("a fit has deviations");
+    assert!((dev_up - 21e-6).abs() < 1e-15, "{dev_up}");
+    assert!((dev_down - (lower - nominal)).abs() < 1e-18);
+
+    // Both forms are always present, because ISO 129-1 lets the drafter
+    // print either and the resolver must not choose for them.
+    let sym = Tolerance::Symmetric {
+        plus_minus: ToleranceValue::length_meters(0.1 * MM),
+    };
+    let r = ToleranceLayout::resolve(&sym, DimensionKind::Distance, nominal).unwrap();
+    assert_eq!(r.display, ToleranceDisplay::Symmetric);
+    assert_eq!(r.deviations.map(|d| d[0] > 0.0 && d[1] < 0.0), Some(true));
+    assert!(r.limits.is_some());
+
+    // `Basic` resolves to no band at all, and the absence is explicit.
+    let r = ToleranceLayout::resolve(&Tolerance::Basic, DimensionKind::Distance, nominal).unwrap();
+    assert_eq!(r.display, ToleranceDisplay::Basic);
+    assert_eq!(r.deviations, None);
+    assert_eq!(r.limits, None);
+    // ...and it serializes without the two absent keys.
+    assert_eq!(
+        serde_json::to_string(&r).unwrap(),
+        r#"{"display":{"type":"Basic"}}"#
+    );
+
+    // A mismatch is refused HERE, before anything reaches a renderer: an
+    // angular band on a linear dimension, and a fit on a radius.
+    let ang = Tolerance::Symmetric {
+        plus_minus: ToleranceValue::angle_degrees(0.5),
+    };
+    assert!(ToleranceLayout::resolve(&ang, DimensionKind::Distance, nominal).is_err());
+    assert!(ToleranceLayout::resolve(&fit, DimensionKind::Radius, nominal).is_err());
+}
+
+#[test]
+fn a_dimension_layout_written_before_m1_still_reads() {
+    // The resolved record is written by the rebuild, so a record from a
+    // build before M1 has neither key. Both must read as absent rather than
+    // failing — the same promise the pre-D4b fields made above.
+    let old = r#"{"type":"Dimension","kind":{"type":"Distance"},
+        "anchors":[{"type":"Point","at":[0.0,0.0]},{"type":"Point","at":[0.04,0.0]}],
+        "value":0.04}"#;
+    let back: AnnotationLayout = serde_json::from_str(old).unwrap();
+    let AnnotationLayout::Dimension {
+        tolerance,
+        dual_precision,
+        value,
+        ..
+    } = &back
+    else {
+        panic!("expected a dimension");
+    };
+    assert_eq!(*tolerance, None);
+    assert_eq!(*dual_precision, None);
+    assert_eq!(*value, 0.04);
+}
+
+#[test]
+fn a_feature_control_frame_reaches_the_renderer_with_no_reference_in_it() {
+    use super::super::tolerance::{
+        Characteristic, DatumRef, GeometricTolerance, MaterialCondition, ToleranceValue,
+    };
+
+    let frame = AnnotationLayout::FeatureControlFrame {
+        tolerance: GeometricTolerance::new(
+            Characteristic::Position,
+            ToleranceValue::length_meters(0.2e-3),
+        )
+        .with_datums(vec![
+            DatumRef::new("A"),
+            DatumRef {
+                label: "B".to_string(),
+                modifier: Some(MaterialCondition::Mmc),
+            },
+        ])
+        .diametral(),
+        anchor: AnchorGeometry::point([0.01, 0.02]),
+        placement: Placement2::default(),
+    };
+    let json = serde_json::to_string(&frame).unwrap();
+    let back: AnnotationLayout = serde_json::from_str(&json).unwrap();
+    assert_eq!(back, frame);
+    // The frame's datums are LABELS, so nothing in it is a model reference —
+    // the invariant the whole layout record rests on.
+    for forbidden in ["selector", "FeatureOutput", "pid", "signature"] {
+        assert!(!json.contains(forbidden), "{forbidden} in {json}");
+    }
+    assert!(json.contains("\"label\":\"A\""), "{json}");
 }

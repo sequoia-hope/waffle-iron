@@ -32,7 +32,11 @@ use feature_engine::Engine;
 use modeling_ops::KernelBundle;
 use uuid::Uuid;
 use waffle_types::annotation::layout::{ClipCircle, HatchLoop, ViewLayout};
-use waffle_types::annotation::{Annotation, Measured, Placement2};
+use waffle_types::annotation::tolerance::{
+    Characteristic, DatumRef, FitClass, GeometricTolerance, MaterialCondition, Tolerance,
+    ToleranceValue, ZoneShape,
+};
+use waffle_types::annotation::{Annotation, DimensionKind, Measured, Placement2};
 use waffle_types::geom_ref::{Anchor, GeomRef, OutputKey, ResolvePolicy, Selector};
 use waffle_types::kernel::projection::{ProjectionBody, ProjectionDeclines, ViewBasis};
 
@@ -383,12 +387,27 @@ pub fn build_annotation(
             let kind = dimension_kind_from_tag(tag)
                 .ok_or_else(|| format!("`{tag}` is not a dimension kind"))?;
             need(kind.arity())?;
+            // M1: the spec's magnitudes are mm (or degrees), and THIS is
+            // where that becomes model units — the one place that knows the
+            // dimension's kind. Checked against the kind straight away, so
+            // an angular band on a linear dimension is refused at the
+            // authoring boundary rather than at the next rebuild.
+            let tolerance = match &spec.tolerance {
+                None => None,
+                Some(t) => {
+                    let t = build_tolerance(t, kind)?;
+                    t.check_for(kind).map_err(|e| e.to_string())?;
+                    Some(t)
+                }
+            };
             Ok(Annotation::Dimension {
                 kind,
                 anchors,
                 value: Measured::FromGeometry,
+                tolerance,
                 precision: spec.precision,
                 dual_unit: spec.dual_unit.clone().filter(|u| !u.is_empty()),
+                dual_precision: spec.dual_precision,
                 placement,
             })
         }
@@ -426,8 +445,136 @@ pub fn build_annotation(
                 placement,
             })
         }
+        "FeatureControlFrame" => {
+            need(1)?;
+            let spec_g = spec.geometric.as_ref().ok_or_else(|| {
+                "a feature control frame needs a `geometric` tolerance".to_string()
+            })?;
+            let tolerance = build_geometric_tolerance(spec_g)?;
+            // Validated HERE too, not only at the rebuild: a frame ISO 1101
+            // calls malformed must not enter a document in the first place
+            // (the same authoring/rebuild pair `check_measured` forms).
+            tolerance.validate().map_err(|e| e.to_string())?;
+            Ok(Annotation::FeatureControlFrame {
+                tolerance,
+                anchor: anchors.into_iter().next().expect("checked"),
+                placement,
+            })
+        }
         other => Err(format!("`{other}` is not an annotation kind")),
     }
+}
+
+/// One [`ToleranceSpec`] as a document tolerance.
+///
+/// `kind` decides the unit: a linear dimension's magnitudes are millimetres,
+/// an angular one's are degrees. `Limits` is the exception that is NOT a
+/// deviation — its two numbers are absolute sizes — and it converts the same
+/// way.
+fn build_tolerance(
+    spec: &crate::messages::ToleranceSpec,
+    kind: DimensionKind,
+) -> Result<Tolerance, String> {
+    let value = |v: f64| -> ToleranceValue {
+        if kind.is_angular() {
+            ToleranceValue::angle_degrees(v)
+        } else {
+            ToleranceValue::length_meters(v * 1e-3)
+        }
+    };
+    let need = |field: &str, v: Option<f64>| -> Result<f64, String> {
+        v.ok_or_else(|| format!("a `{}` tolerance needs `{field}`", spec.kind))
+    };
+    let class = |text: &Option<String>| -> Result<Option<FitClass>, String> {
+        match text.as_deref().map(str::trim).filter(|t| !t.is_empty()) {
+            None => Ok(None),
+            Some(t) => FitClass::parse(t).map(Some).map_err(|e| e.to_string()),
+        }
+    };
+    Ok(match spec.kind.to_ascii_lowercase().as_str() {
+        "symmetric" => Tolerance::Symmetric {
+            plus_minus: value(need("plus", spec.plus)?),
+        },
+        "bilateral" => Tolerance::Bilateral {
+            plus: value(need("plus", spec.plus)?),
+            minus: value(need("minus", spec.minus)?),
+        },
+        "limits" => Tolerance::Limits {
+            upper: value(need("upper", spec.upper)?),
+            lower: value(need("lower", spec.lower)?),
+        },
+        "fit" => Tolerance::Fit {
+            hole: class(&spec.hole)?,
+            shaft: class(&spec.shaft)?,
+        },
+        "basic" => Tolerance::Basic,
+        other => {
+            return Err(format!(
+                "`{other}` is not a tolerance kind; use symmetric, bilateral, limits, fit or basic"
+            ))
+        }
+    })
+}
+
+/// One [`GeometricToleranceSpec`] as a document geometric tolerance.
+fn build_geometric_tolerance(
+    spec: &crate::messages::GeometricToleranceSpec,
+) -> Result<GeometricTolerance, String> {
+    let characteristic = match spec.characteristic.as_str() {
+        "Flatness" => Characteristic::Flatness,
+        "Straightness" => Characteristic::Straightness,
+        "Circularity" => Characteristic::Circularity,
+        "Cylindricity" => Characteristic::Cylindricity,
+        "Perpendicularity" => Characteristic::Perpendicularity,
+        "Parallelism" => Characteristic::Parallelism,
+        "Angularity" => Characteristic::Angularity,
+        "Position" => Characteristic::Position,
+        "Concentricity" => Characteristic::Concentricity,
+        "Symmetry" => Characteristic::Symmetry,
+        "Profile" => Characteristic::Profile,
+        "Runout" => Characteristic::Runout,
+        other => return Err(format!("`{other}` is not a geometric characteristic")),
+    };
+    let modifier = |text: &Option<String>| -> Result<Option<MaterialCondition>, String> {
+        match text.as_deref().map(str::trim).filter(|t| !t.is_empty()) {
+            None => Ok(None),
+            Some(t) => match t.to_ascii_uppercase().as_str() {
+                "MMC" => Ok(Some(MaterialCondition::Mmc)),
+                "LMC" => Ok(Some(MaterialCondition::Lmc)),
+                "RFS" => Ok(Some(MaterialCondition::Rfs)),
+                other => Err(format!("`{other}` is not MMC, LMC or RFS")),
+            },
+        }
+    };
+    let zone = match spec
+        .zone
+        .as_deref()
+        .map(str::trim)
+        .filter(|z| !z.is_empty())
+    {
+        None | Some("Width") => ZoneShape::Width,
+        Some("Diametral") => ZoneShape::Diametral,
+        Some("Spherical") => ZoneShape::Spherical,
+        Some(other) => return Err(format!("`{other}` is not Diametral, Width or Spherical")),
+    };
+    let mut datums = Vec::with_capacity(spec.datums.len());
+    for d in &spec.datums {
+        let label = d.label.trim();
+        if label.is_empty() {
+            return Err("a datum reference needs a label".to_string());
+        }
+        datums.push(DatumRef {
+            label: label.to_string(),
+            modifier: modifier(&d.modifier)?,
+        });
+    }
+    Ok(GeometricTolerance {
+        characteristic,
+        value: ToleranceValue::length_meters(spec.value_mm * 1e-3),
+        modifier: modifier(&spec.modifier)?,
+        datums,
+        zone,
+    })
 }
 
 /// An annotation anchor on a persistent id — the only selector a drawing

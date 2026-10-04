@@ -67,6 +67,23 @@ pub enum Command {
         old: Option<Box<NamedRef>>,
         new: Option<Box<NamedRef>>,
     },
+    /// Whole-table material replacement (M1, `specs/drawings_and_mbd.md`
+    /// §9): the material table AND the per-body assignments, together.
+    ///
+    /// One record for upsert, rename, delete and assign, for the reason
+    /// `SetParameters` is one record for the parameter table: the two halves
+    /// are coupled (deleting a material clears every body that pointed at
+    /// it, renaming one rewrites them) and a per-operation record would have
+    /// to reconstruct that coupling in both directions. Neither direction
+    /// rebuilds geometry — a density is not a dimension — but `mass(body)`
+    /// is a measurement a parameter may read, so the ENGINE re-measures; see
+    /// `changed_by`.
+    SetMaterials {
+        old_materials: Vec<crate::types::Material>,
+        new_materials: Vec<crate::types::Material>,
+        old_body_materials: crate::types::BodyMaterials,
+        new_body_materials: crate::types::BodyMaterials,
+    },
     /// Whole-table design-parameter replacement (the UI always sends the full
     /// list). Undo restores `old`, redo re-applies `new`; both rebuild from 0
     /// since any feature may consume any parameter.

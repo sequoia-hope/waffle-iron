@@ -90,7 +90,39 @@ use crate::sources::SourceEntry;
 ///     `Sheet.title_block_cache`, `DrawingView.cache_key`, and the `hatch`,
 ///     `marks` and `clip` fields of a persisted `ViewLayout` — and none of
 ///     those would have moved anything on their own.
-pub const FORMAT_VERSION: u32 = 11;
+///   - **v14** (2026-10-04): M1's tolerances, materials and dimension units
+///     (`specs/drawings_and_mbd.md` §9). **v12 and v13 were taken by other
+///     branches in flight; this increment was assigned v14 at dispatch.**
+///
+///     TWO wire-breaking changes, either of which would move the floor on its
+///     own:
+///
+///     1. `Annotation::FeatureControlFrame` — a new variant of a
+///        serde-tagged enum inside a `Drawing` tab. Exactly the case v11's
+///        note describes: a v13 reader KNOWS the `Drawing` tag, so it
+///        deserializes the tab and an annotation tag it has never heard of
+///        is a `de::Error` for the whole document. (`Dimension.tolerance`,
+///        `.dual_precision` and the `materials` / `body_materials` tables
+///        beside it are additive and defaulted, and would have moved
+///        nothing alone.)
+///     2. `Dimension::Mass` and `Dimension::Density` — two new variants of
+///        the enum `DesignParameter.unit` is written as
+///        (`waffle_types::dimension`). A string value, but a serde enum
+///        rather than a free-form one, so a v13 reader given
+///        `"unit": "Mass"` fails with a raw unknown-variant error. The v8
+///        row's own reasoning applies with more force: v8 bumped because a
+///        reader must not silently IGNORE a declared unit, and this one
+///        cannot even read it.
+///
+///     The material table is also the semantic reason of the v5/v6/v8/v9
+///     kind, independently: a reader that drops `materials` and
+///     `body_materials` reports a different MASS for the same file — or,
+///     worse, reports the volume wearing kilograms. `mass(body)` refuses
+///     outright without a material rather than defaulting its density, so a
+///     reader that drops the table produces a loud absence rather than a
+///     silent wrong number; the floor moves anyway, because the two wire
+///     breaks above require it.
+pub const FORMAT_VERSION: u32 = 14;
 
 /// Oldest reader (by its `FORMAT_VERSION`) that can parse files we write.
 ///
@@ -105,7 +137,7 @@ pub const FORMAT_VERSION: u32 = 11;
 /// opaquely. Purely additive defaulted fields never require a bump. Files
 /// without the field (all pre-2026-08-28 files, including the assay corpus)
 /// default to 0 and always pass. See `docs/FILE_FORMAT.md` §13.
-pub const MIN_READER_VERSION: u32 = 11;
+pub const MIN_READER_VERSION: u32 = 14;
 
 // Keep the constants coherent: we can never require a reader newer than the
 // version we claim to write.

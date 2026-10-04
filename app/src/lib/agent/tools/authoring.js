@@ -266,6 +266,120 @@ export const bodyRenameTool = {
 	annotations: edit('Rename body', { idempotentHint: true })
 };
 
+const APPEARANCE_SCHEMA = {
+	type: 'object',
+	description: 'How the material looks, for the viewport and for a future AP242 STYLED_ITEM.',
+	properties: {
+		color: {
+			type: 'array',
+			items: { type: 'number', minimum: 0, maximum: 1 },
+			minItems: 3,
+			maxItems: 3,
+			description: 'sRGB, each channel 0..1.'
+		},
+		metalness: { type: 'number', minimum: 0, maximum: 1 },
+		roughness: { type: 'number', minimum: 0, maximum: 1 }
+	},
+	required: ['color'],
+	additionalProperties: false
+};
+
+export const materialListTool = {
+	name: 'material_list',
+	description:
+		'Read the open Part\'s material table and which body is made of what. Each material is ' +
+		'{name, density_kg_m3, appearance?}; bodies lists {body_id, material, resolves}; dangling lists ' +
+		'assignments whose material has been deleted — those bodies have NO mass and measure_mass refuses ' +
+		'them by name rather than reporting the volume in kilograms. The table is per-Part (a document-level ' +
+		'table arrives with P2 of specs/agent_mechanical_design.md §6).',
+	inputSchema: { type: 'object', properties: {}, additionalProperties: false },
+	outputSchema: {
+		type: 'object',
+		properties: {
+			materials: {
+				type: 'array',
+				items: {
+					type: 'object',
+					properties: {
+						name: { type: 'string' },
+						density_kg_m3: { type: 'number' },
+						appearance: APPEARANCE_SCHEMA
+					},
+					required: ['name', 'density_kg_m3']
+				}
+			},
+			bodies: {
+				type: 'array',
+				items: {
+					type: 'object',
+					properties: {
+						body_id: { type: 'string' },
+						material: { type: 'string' },
+						resolves: { type: 'boolean' }
+					},
+					required: ['body_id', 'material', 'resolves']
+				}
+			},
+			dangling: {
+				type: 'array',
+				items: {
+					type: 'object',
+					properties: { body_id: { type: 'string' }, material: { type: 'string' } },
+					required: ['body_id', 'material']
+				}
+			}
+		},
+		required: ['materials', 'bodies', 'dangling'],
+		additionalProperties: false
+	},
+	annotations: { title: 'List materials', readOnlyHint: true }
+};
+
+export const materialSetTool = {
+	name: 'material_set',
+	description:
+		'Add, change, rename or delete a material in the open Part\'s table (one undo step). ' +
+		'Exactly one mode per call: rename_to renames (every body made of it follows), delete:true removes it ' +
+		'(every body made of it is left with no material, which is loud rather than silent), and otherwise ' +
+		'the call is an upsert needing density_kg_m3 — a positive number of kg/m³ (aluminium 2700, steel 7850, ' +
+		'brass 8500, ABS 1040, PLA 1240). Materials are referred to BY NAME, so two with one name is refused ' +
+		'and a rename is the only way to change one. Assign a material to a body with body_material_set.',
+	inputSchema: {
+		type: 'object',
+		properties: {
+			name: { type: 'string', minLength: 1, description: 'The material to add, change, rename or delete.' },
+			density_kg_m3: { type: 'number', exclusiveMinimum: 0, description: 'Required for an upsert.' },
+			appearance: APPEARANCE_SCHEMA,
+			rename_to: { type: 'string', minLength: 1, description: 'Rename mode: the new name.' },
+			delete: { type: 'boolean', description: 'Delete mode.' }
+		},
+		required: ['name'],
+		additionalProperties: false
+	},
+	outputSchema: commandOutputSchema(),
+	annotations: edit('Set material', { idempotentHint: true })
+};
+
+export const bodyMaterialSetTool = {
+	name: 'body_material_set',
+	description:
+		'Say what a body is made of (one undo step). material names an entry in the table (add it with ' +
+		'material_set first — an unknown name is refused, not created); material:null clears it. A body with ' +
+		'no material has no mass: measure_mass and a mass(body) expression both refuse by name rather than ' +
+		'defaulting the density to 1, where the mass would be numerically the volume.',
+	inputSchema: {
+		type: 'object',
+		properties: {
+			body_id: { type: 'string', description: 'Body id or name from model_summary.bodies.' },
+			material: { type: ['string', 'null'], description: 'A material name, or null to clear.' }
+		},
+		required: ['body_id', 'material'],
+		additionalProperties: false
+	},
+	outputSchema: commandOutputSchema(),
+	annotations: edit('Set body material', { idempotentHint: true })
+};
+
 export const rollbackSetTool = {
 	name: 'rollback_set',
 	description:

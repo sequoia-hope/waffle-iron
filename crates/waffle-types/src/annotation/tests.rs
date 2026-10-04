@@ -27,6 +27,8 @@ fn linear(a: u64, b: u64) -> Annotation {
         anchors: vec![pid_ref(TopoKind::Edge, a), pid_ref(TopoKind::Edge, b)],
         value: Measured::FromGeometry,
         precision: Some(2),
+        tolerance: None,
+        dual_precision: None,
         dual_unit: None,
         placement: Placement2::default(),
     }
@@ -201,6 +203,8 @@ fn an_annotation_round_trips_through_json() {
                 expr: "distance(a, b) * 2".into(),
             },
             precision: None,
+            tolerance: None,
+            dual_precision: None,
             dual_unit: Some("in".into()),
             placement: Placement2::new(0.001, 0.002),
         },

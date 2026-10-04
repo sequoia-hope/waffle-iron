@@ -674,14 +674,23 @@ mod tests {
     }
 
     #[test]
-    fn mass_is_parsed_and_refused_by_name_until_m1() {
-        // Its name and arity are checked at parse time, so the spelling
-        // cannot drift before M1 fills in a density.
+    fn mass_is_a_mass_since_m1_and_refuses_only_for_want_of_geometry() {
+        // Name and arity are still checked at parse time.
         assert!(parse("mass(plate)").is_ok());
         assert!(matches!(
             parse("mass(a, b)"),
             Err(ExprError::WrongArity { .. })
         ));
+        // Before M1 this refused because a mass had no dimension this
+        // evaluator could name. It now has one, so the only refusal left in
+        // a measurer-less context is the one EVERY measurement gets there:
+        // there is no model to read. (The density's own refusals — a body
+        // with no material, a dangling one — are the measurer's, pinned in
+        // `crate::measure`.)
+        assert_eq!(
+            measure::measure_fn("mass").and_then(|m| m.dim),
+            Some(waffle_types::dimension::Dim::MASS)
+        );
         let err = evaluate_quantity("mass(plate)", &Env::new()).unwrap_err();
         let ExprError::MeasurementUnavailable {
             function, reason, ..
@@ -690,8 +699,7 @@ mod tests {
             panic!("expected MeasurementUnavailable, got {err:?}");
         };
         assert_eq!(function, "mass");
-        assert!(reason.contains("M1"), "{reason}");
-        assert!(reason.contains("volume("), "{reason}");
+        assert!(reason.contains("no model geometry"), "{reason}");
     }
 
     #[test]

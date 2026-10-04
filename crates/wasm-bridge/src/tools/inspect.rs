@@ -215,11 +215,24 @@ pub(super) fn entity_meta(
     }))
 }
 
-/// Volume, area, bounding box and topology counts of one body (ICR-1).
+/// Volume, area, bounding box, topology counts and material of one body
+/// (ICR-1; the material since M1).
 ///
 /// `method` is `exact` only when BOTH quantities were integrated from the
 /// B-Rep; a mesh value is never presented as exact, and the kernel's reason
 /// for falling back is reported verbatim.
+///
+/// **No centroid, no mass, deliberately.** §4.3 of
+/// `specs/agent_mechanical_design.md` says this tool "gains a `centroid`
+/// field from Q3", and it does not, because the two numbers come from
+/// different integrals: volume and area have closed forms the kernel reads
+/// per face, while a centroid needs the first MOMENT over every face
+/// parameterization. Putting it here would make the cheap listing tool pay
+/// for the expensive integral on every call, in a tool that gets called in
+/// a loop over bodies. `measure_mass` is the tool that integrates the
+/// moments and it returns the centroid, the mass and the inertia tensor
+/// together; `material` is here because it is a table lookup, and it tells
+/// a caller whether `measure_mass` will have a density to use.
 pub(super) fn body_measure(
     state: &mut EngineState,
     kb: &mut dyn KernelBundle,
@@ -261,10 +274,33 @@ pub(super) fn body_measure(
             crate::messages::MeasureMethod::Exact
         );
 
+    // M1: what it is made of, and so whether a mass can be computed at all.
+    // `Err` is a DANGLING assignment — a body pointing at a material the
+    // table does not have — reported as the reason rather than as silence,
+    // because `measure_mass` will refuse it and a caller needs to know why.
+    let (material, density_kg_m3, material_error) =
+        match state.engine.tree.material_of_body(body_id) {
+            Ok(Some(m)) => (Value::String(m.name.clone()), json!(m.density_kg_m3), None),
+            Ok(None) => (Value::Null, Value::Null, None),
+            Err(why) => (
+                state
+                    .engine
+                    .tree
+                    .body_materials
+                    .get(body_id)
+                    .map(|n| Value::String(n.clone()))
+                    .unwrap_or(Value::Null),
+                Value::Null,
+                Some(why),
+            ),
+        };
+
     let mut out = json!({
         "body_id": body_id,
         "volume_m3": volume_m3.value,
         "surface_area_m2": surface_area_m2.value,
+        "material": material,
+        "density_kg_m3": density_kg_m3,
         "method": if exact { "exact" } else { "mesh" },
         "methods": {
             "volume": method_of(volume_m3.method),
@@ -287,6 +323,9 @@ pub(super) fn body_measure(
     }
     if !unavailable.is_empty() {
         out["exact_unavailable"] = Value::Object(unavailable);
+    }
+    if let Some(why) = material_error {
+        out["material_error"] = json!(why);
     }
     Ok(out)
 }

@@ -4,6 +4,7 @@
  * relay's bundled manifest from this list. Plain data — no store imports.
  */
 import {
+	bodyMaterialSetTool,
 	bodyRenameTool,
 	featureAddTool,
 	featureDeleteTool,
@@ -11,6 +12,8 @@ import {
 	featureRenameTool,
 	featureReorderTool,
 	featureSuppressTool,
+	materialListTool,
+	materialSetTool,
 	parametersSetTool,
 	redoTool,
 	rollbackSetTool,
@@ -122,6 +125,9 @@ export const TOOLS = [
 	featureReorderTool,
 	featureRenameTool,
 	bodyRenameTool,
+	materialListTool,
+	materialSetTool,
+	bodyMaterialSetTool,
 	entityNameTool,
 	entityUnnameTool,
 	rollbackSetTool,

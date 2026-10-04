@@ -952,6 +952,33 @@ fn handle_message(
             Ok(model_updated_response(state))
         }
 
+        UiToEngine::EditMaterials { edit } => {
+            use crate::messages::MaterialEdit as M;
+            // One undo step per edit, and the engine rolls both tables back
+            // if the result does not validate — so a refusal leaves the
+            // document exactly as it was.
+            let outcome: Result<(), String> = state.engine.edit_materials(kb, |tree| match &edit {
+                M::Upsert { material } => tree.upsert_material(material.clone()).map(|_| ()),
+                M::Rename { from, to } => tree.rename_material(from, to).map(|_| ()),
+                M::Delete { name } => tree
+                    .remove_material(name)
+                    .map(|_| ())
+                    .ok_or_else(|| format!("this part has no material called \"{name}\"")),
+                M::AssignBody { body_id, material } => tree
+                    .set_body_material(body_id.clone(), material.as_deref())
+                    .map(|_| ()),
+            });
+            if let Err(reason) = outcome {
+                return Err(BridgeError::InvalidRequest { reason });
+            }
+            Ok(model_updated_response(state))
+        }
+
+        UiToEngine::SetDisplaySettings { settings } => {
+            state.session.set_display_settings(&settings);
+            Ok(model_updated_response(state))
+        }
+
         // -- Design parameters (variables) --
         UiToEngine::SetParameters {
             parameters,
@@ -2265,8 +2292,20 @@ fn measure_interference(
 }
 
 /// `MeasureMass` (Q3): volume, area, centroid and the inertia tensor about the
-/// centroid, at the density the caller named (1 by default — see the message
-/// docs).
+/// centroid.
+///
+/// **The density, since M1.** An explicit `density_kg_m3` still wins — a
+/// caller asking "what would this weigh in brass" must get that answer. With
+/// `None` the body's own MATERIAL supplies it (`FeatureTree::density_of_body`),
+/// and only a body with no material at all falls back to
+/// `DEFAULT_DENSITY_KG_M3`, where `mass_kg` is numerically the volume. The
+/// answer always reports the `density_kg_m3` it used, which is how a caller
+/// tells the three cases apart.
+///
+/// A DANGLING material assignment is a hard refusal, not a fallback: a body
+/// pointing at a material the table does not have is a document defect, and
+/// answering it at density 1 would report a mass 2700× light for aluminium
+/// with nothing to say so.
 fn measure_mass(
     state: &mut EngineState,
     kb: &mut dyn KernelBundle,
@@ -2279,6 +2318,14 @@ fn measure_mass(
         .ok_or_else(|| BridgeError::InvalidRequest {
             reason: format!("no live body {body_id}"),
         })?;
+    let density_kg_m3 = match density_kg_m3 {
+        Some(explicit) => Some(explicit),
+        None => state
+            .engine
+            .tree
+            .density_of_body(body_id)
+            .map_err(|reason| BridgeError::InvalidRequest { reason })?,
+    };
     let m = kb
         .as_measure()
         .mass_properties(&handle, density_kg_m3)
@@ -3293,6 +3340,7 @@ pub fn document_info(state: &EngineState) -> DocumentInfo {
         id: meta.id,
         name: meta.name.clone(),
         display_unit: meta.display_unit.clone(),
+        display: state.session.display_settings(),
         created: meta.created,
         tabs: state.session.tabs(),
         active_tab: state.session.active_tab_id().to_string(),

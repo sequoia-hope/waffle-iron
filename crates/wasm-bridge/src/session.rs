@@ -530,6 +530,24 @@ impl DocumentSession {
         self.commit();
     }
 
+    /// Replace the document's display settings (M1). Complete state: every
+    /// field is written, so an absent one CLEARS rather than preserves.
+    pub fn set_display_settings(&mut self, settings: &crate::messages::DisplaySettings) {
+        self.document.precision = settings.precision;
+        self.document.dual_unit = settings.dual_unit.clone();
+        self.document.dual_precision = settings.dual_precision;
+        self.commit();
+    }
+
+    /// The document's display settings as the UI reads them (M1).
+    pub fn display_settings(&self) -> crate::messages::DisplaySettings {
+        crate::messages::DisplaySettings {
+            precision: self.document.precision,
+            dual_unit: self.document.dual_unit.clone(),
+            dual_precision: self.document.dual_precision,
+        }
+    }
+
     /// The document as it would be saved: the live tree stashed into the
     /// active tab, `modified` stamped, `sources` supplied by the caller (the
     /// engine's source store owns their content, not the session).

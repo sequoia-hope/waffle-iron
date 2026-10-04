@@ -104,12 +104,20 @@ export const bodyMeasureTool = {
 			face_count: { type: 'integer' },
 			edge_count: { type: 'integer' },
 			vertex_count: { type: 'integer' },
-			closed: { type: 'boolean' }
+			closed: { type: 'boolean' },
+			material: { type: ['string', 'null'], description: 'What the body is made of (M1), or null.' },
+			density_kg_m3: { type: ['number', 'null'], description: "The material's density, or null." },
+			material_error: {
+				type: 'string',
+				description: 'Present when the body names a material the table no longer has.'
+			}
 		},
 		required: [
 			'body_id',
 			'volume_m3',
 			'surface_area_m2',
+			'material',
+			'density_kg_m3',
 			'method',
 			'bbox_min',
 			'bbox_max',
@@ -250,16 +258,20 @@ export const measureMassTool = {
 		'(m³, m², meters, kg·m²). method is "exact" when every face was integrated in closed form ' +
 		'(planar faces, cylinder and cone bands, and the circular caps and bore walls a boolean ' +
 		'leaves behind), else "mesh" and chord_bound_m is the tessellation band — a mesh volume is ' +
-		'LOW by the chord deficit, never high. density_kg_m3 defaults to 1 because the document ' +
-		'carries no material table, so mass_kg is then numerically the volume; pass the density to ' +
-		'scale mass and inertia. The answer always says which density it used.',
+		'LOW by the chord deficit, never high. Omit density_kg_m3 and the BODY\'S OWN MATERIAL supplies ' +
+		'it (material_set / body_material_set, M1); a body with no material falls back to 1, where mass_kg ' +
+		'is numerically the volume rather than a mass — the answer always says which density it used, which ' +
+		'is how you tell. A body naming a material that has been deleted is REFUSED rather than measured at ' +
+		'the fallback. Pass density_kg_m3 explicitly to ask what it would weigh in something else.',
 	inputSchema: {
 		type: 'object',
 		properties: {
 			body_id: { type: 'string', description: 'Body id from model_summary.bodies.' },
 			density_kg_m3: {
 				type: ['number', 'null'],
-				description: 'Material density in kg/m³. Defaults to 1.'
+				description:
+					"Material density in kg/m³. Omit (or null) to use the body's own material; 1 when " +
+					'it has none.'
 			}
 		},
 		required: ['body_id'],
@@ -779,7 +791,9 @@ export const expressionEvaluateTool = {
 		'in, ft, deg, rad) and parameter names are allowed. Measurement functions read the model by ENTITY NAME ' +
 		'(entity_name / body_rename): distance(a, b), angle(a, b), length(edge), radius(entity), area(face), ' +
 		'volume(body) — mm, degrees, mm^2 and mm^3 respectively, so sqrt(area(top)) is a length a depth takes ' +
-		'and area(top) is not. mass(body) is reserved and refuses until a material table exists. Returns ' +
+		'and area(top) is not. mass(body) is KILOGRAMS, from the body material\'s density (M1): a body with ' +
+		'no material refuses by name rather than reporting the volume in kilograms, so assign one with ' +
+		'body_material_set first. Returns ' +
 		'value_mm plus the dimension the expression produced, or value_mm null with the evaluation error. Pass ' +
 		'dimension to have it judged as that kind of field would judge it: "25deg" asked for as a Length is an ' +
 		'error, not 25 mm.',

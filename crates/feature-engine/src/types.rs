@@ -43,6 +43,105 @@ pub struct Provenance {
 /// Feature id → provenance. Only non-`User` origins are worth recording.
 pub type ProvenanceTable = HashMap<Uuid, Provenance>;
 
+/// A material a body can be made of (M1, `specs/drawings_and_mbd.md` §9).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "json-schema", derive(schemars::JsonSchema))]
+pub struct Material {
+    /// How it is referred to — by [`BodyMaterials`], by a title block, by a
+    /// tool. Unique within the table, case-sensitively.
+    ///
+    /// A NAME and not a UUID, deliberately. The name is what a title block
+    /// prints, what an agent types, and what a human reading the `.waffle`
+    /// can make sense of without the table beside it; a uuid would be a
+    /// second identifier for a table that holds a handful of rows. The cost
+    /// is that a rename must rewrite every body that points at it, which
+    /// [`FeatureTree::rename_material`] does as one operation.
+    pub name: String,
+    /// Density in kg/m³ — the SI unit, and the one
+    /// `KernelMeasure::mass_properties` takes. Must be positive and finite;
+    /// [`FeatureTree::density_of_body`] refuses one that is not rather than
+    /// handing out a mass computed from it.
+    pub density_kg_m3: f64,
+    /// How it looks. The viewport reads it today; M3's AP242 writer reads it
+    /// for `STYLED_ITEM` / `COLOUR_RGB`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub appearance: Option<Appearance>,
+}
+
+impl Material {
+    pub fn new(name: impl Into<String>, density_kg_m3: f64) -> Self {
+        Self {
+            name: name.into(),
+            density_kg_m3,
+            appearance: None,
+        }
+    }
+
+    /// A positive, finite density, or the reason it is not one.
+    pub fn check(&self) -> Result<(), String> {
+        if self.name.trim().is_empty() {
+            return Err("a material needs a name".to_string());
+        }
+        if !self.density_kg_m3.is_finite() || self.density_kg_m3 <= 0.0 {
+            return Err(format!(
+                "material \"{}\": a density is a positive number of kg/m³, not {}",
+                self.name, self.density_kg_m3
+            ));
+        }
+        if let Some(a) = &self.appearance {
+            a.check()?;
+        }
+        Ok(())
+    }
+}
+
+/// A material's appearance (M1).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "json-schema", derive(schemars::JsonSchema))]
+pub struct Appearance {
+    /// sRGB, each channel in `0.0..=1.0`.
+    pub color: [f64; 3],
+    /// PBR metalness, `0.0..=1.0`. Absent ⇒ the viewport's own default.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub metalness: Option<f64>,
+    /// PBR roughness, `0.0..=1.0`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub roughness: Option<f64>,
+}
+
+impl Appearance {
+    /// Channels in range. Checked rather than clamped: a clamped colour is a
+    /// colour nobody authored, and the author should hear about the typo.
+    pub fn check(&self) -> Result<(), String> {
+        let unit = |v: f64| v.is_finite() && (0.0..=1.0).contains(&v);
+        if !self.color.iter().copied().all(unit) {
+            return Err(format!(
+                "an appearance colour is three sRGB channels in 0..=1, not {:?}",
+                self.color
+            ));
+        }
+        for (what, v) in [("metalness", self.metalness), ("roughness", self.roughness)] {
+            if let Some(v) = v {
+                if !unit(v) {
+                    return Err(format!("{what} is in 0..=1, not {v}"));
+                }
+            }
+        }
+        Ok(())
+    }
+}
+
+/// Body identity (`"{feature_id}/{output_key.tag()}"`) → the NAME of the
+/// material in [`FeatureTree::materials`] it is made of (M1).
+///
+/// §9 says "`Body` gains `material: Option<MaterialRef>`". There is no
+/// persisted `Body` struct in this tree — a body is produced by a rebuild and
+/// identified by [`FeatureTree::body_id`] — so the assignment lives in a
+/// side table keyed by that id, exactly as [`BodyNames`] does. A body with no
+/// entry has no material, which is NOT the same as a material of density 1:
+/// see [`FeatureTree::density_of_body`].
+pub type BodyMaterials = HashMap<String, String>;
+
 /// A named design variable (parameter) on the feature tree.
 ///
 /// `expression` is evaluated in mm-space (see `crate::expr`): bare numeric
@@ -148,6 +247,24 @@ pub struct FeatureTree {
     /// an older reader cannot parse, so this field arrived with format v7.
     #[serde(default, skip_serializing_if = "NameTable::is_empty")]
     pub names: NameTable,
+    /// The material table (M1, `specs/drawings_and_mbd.md` §9).
+    ///
+    /// §9 asks for a DOCUMENT-level table. This one is per-Part, and the
+    /// reason is plumbing rather than preference: the measurer that answers
+    /// `mass(body)` is built from one `FeatureTree`
+    /// ([`crate::measure::TreeMeasurer`]) and there is no document scope it
+    /// can see — `Document.parameters` (P2 of
+    /// `specs/agent_mechanical_design.md` §6) is the increment that builds
+    /// one, and it is unlanded. A per-Part table reads correctly and costs
+    /// nothing today; when P2 lands, resolution becomes local-then-document
+    /// exactly as a parameter's does, and this field becomes the local half.
+    /// A part is also the thing that HAS a material, so the per-part table is
+    /// not obviously the wrong shape.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub materials: Vec<Material>,
+    /// Which material each body is made of (M1). See [`BodyMaterials`].
+    #[serde(default, skip_serializing_if = "HashMap::is_empty")]
+    pub body_materials: BodyMaterials,
     /// Unknown keys preserved across load → save (v4 §2.6). Tool-added
     /// metadata should use an `x-` prefix so a future official field cannot
     /// collide.
@@ -164,8 +281,189 @@ impl FeatureTree {
             parameters: Vec::new(),
             provenance: HashMap::new(),
             names: NameTable::new(),
+            materials: Vec::new(),
+            body_materials: HashMap::new(),
             extra: serde_json::Map::new(),
         }
+    }
+
+    // ------------------------------------------------- materials (M1, §9)
+
+    /// The material table entry called `name`.
+    pub fn material(&self, name: &str) -> Option<&Material> {
+        self.materials.iter().find(|m| m.name == name)
+    }
+
+    /// The material a body is made of, resolved through
+    /// [`FeatureTree::body_materials`].
+    ///
+    /// `Ok(None)` is a body with no material assigned. `Err` is a body
+    /// pointing at a material the table does not have, or one whose density
+    /// is not a positive number — a DANGLING assignment, which is loud
+    /// because the alternative is a mass computed from a density nobody
+    /// wrote.
+    pub fn material_of_body(&self, body_id: &str) -> Result<Option<&Material>, String> {
+        let Some(name) = self.body_materials.get(body_id) else {
+            return Ok(None);
+        };
+        let material = self.material(name).ok_or_else(|| {
+            format!(
+                "body \"{body_id}\" is made of \"{name}\", which is not in this part's \
+                 material table"
+            )
+        })?;
+        material.check()?;
+        Ok(Some(material))
+    }
+
+    /// A body's density in kg/m³, or the reason there is none.
+    ///
+    /// `Ok(None)` means no material is assigned. A caller that needs a mass
+    /// must refuse on `None` rather than substituting
+    /// `waffle_types::kernel::DEFAULT_DENSITY_KG_M3`: at a density of 1 the
+    /// mass is NUMERICALLY THE VOLUME, which is the most plausible wrong
+    /// number this increment could produce.
+    pub fn density_of_body(&self, body_id: &str) -> Result<Option<f64>, String> {
+        Ok(self.material_of_body(body_id)?.map(|m| m.density_kg_m3))
+    }
+
+    /// Add `material`, or replace the entry with the same name. Returns what
+    /// it replaced, for undo.
+    pub fn upsert_material(&mut self, material: Material) -> Result<Option<Material>, String> {
+        material.check()?;
+        match self.materials.iter_mut().find(|m| m.name == material.name) {
+            Some(slot) => Ok(Some(std::mem::replace(slot, material))),
+            None => {
+                self.materials.push(material);
+                Ok(None)
+            }
+        }
+    }
+
+    /// Remove the material called `name`, and with it every body assignment
+    /// that pointed at it — captured for undo as `(material, body ids)`.
+    ///
+    /// Clearing the assignments is the point: leaving them would turn every
+    /// one into the dangling reference `density_of_body` refuses, so deleting
+    /// a material would break the mass of bodies the author did not touch.
+    pub fn remove_material(&mut self, name: &str) -> Option<(Material, Vec<String>)> {
+        let at = self.materials.iter().position(|m| m.name == name)?;
+        let material = self.materials.remove(at);
+        let mut orphaned: Vec<String> = self
+            .body_materials
+            .iter()
+            .filter(|(_, m)| m.as_str() == name)
+            .map(|(b, _)| b.clone())
+            .collect();
+        orphaned.sort();
+        for body in &orphaned {
+            self.body_materials.remove(body);
+        }
+        Some((material, orphaned))
+    }
+
+    /// Rename a material, carrying every body that points at it.
+    ///
+    /// Both halves or neither: a rename that moved the table row and left the
+    /// assignments spelling the old name would silently un-material every
+    /// body made of it. Returns the bodies that were rewritten.
+    pub fn rename_material(&mut self, from: &str, to: &str) -> Result<Vec<String>, String> {
+        if to.trim().is_empty() {
+            return Err("a material needs a name".to_string());
+        }
+        if from == to {
+            return Ok(Vec::new());
+        }
+        if self.material(to).is_some() {
+            return Err(format!("this part already has a material called \"{to}\""));
+        }
+        let slot = self
+            .materials
+            .iter_mut()
+            .find(|m| m.name == from)
+            .ok_or_else(|| format!("this part has no material called \"{from}\""))?;
+        slot.name = to.to_string();
+        let mut moved: Vec<String> = self
+            .body_materials
+            .iter()
+            .filter(|(_, m)| m.as_str() == from)
+            .map(|(b, _)| b.clone())
+            .collect();
+        moved.sort();
+        for body in &moved {
+            self.body_materials.insert(body.clone(), to.to_string());
+        }
+        Ok(moved)
+    }
+
+    /// Assign `material` to `body_id`, or clear it with `None`. Returns the
+    /// previous assignment, for undo.
+    ///
+    /// A material that is not in the table is refused HERE rather than
+    /// becoming the dangling reference `density_of_body` would then have to
+    /// report on every rebuild.
+    pub fn set_body_material(
+        &mut self,
+        body_id: impl Into<String>,
+        material: Option<&str>,
+    ) -> Result<Option<String>, String> {
+        let body_id = body_id.into();
+        match material {
+            None => Ok(self.body_materials.remove(&body_id)),
+            Some(name) => {
+                if self.material(name).is_none() {
+                    return Err(format!(
+                        "this part has no material called \"{name}\"; add it to the material \
+                         table first"
+                    ));
+                }
+                Ok(self.body_materials.insert(body_id, name.to_string()))
+            }
+        }
+    }
+
+    /// The material tables' own invariants: every entry valid, no duplicate
+    /// names, and every assignment naming a material that exists.
+    ///
+    /// Checked at the editing boundary rather than on load: a document whose
+    /// tables are broken must still OPEN (the rest of it is fine, and
+    /// `density_of_body` refuses loudly per body), but an edit must not be
+    /// the thing that broke them.
+    pub fn check_materials(&self) -> Result<(), String> {
+        let mut seen: Vec<&str> = Vec::with_capacity(self.materials.len());
+        for m in &self.materials {
+            m.check()?;
+            if seen.contains(&m.name.as_str()) {
+                return Err(format!(
+                    "this part has two materials called \"{}\"; a material is referred to by \
+                     name, so the second would be unreachable",
+                    m.name
+                ));
+            }
+            seen.push(&m.name);
+        }
+        if let Some((body, name)) = self.dangling_material_refs().first() {
+            return Err(format!(
+                "body \"{body}\" is made of \"{name}\", which is not in this part's material \
+                 table"
+            ));
+        }
+        Ok(())
+    }
+
+    /// Every body assignment that names a material the table does not have,
+    /// as `(body id, material name)`, sorted. A report, not an error: a
+    /// panel can show which bodies lost their material without the rebuild
+    /// failing.
+    pub fn dangling_material_refs(&self) -> Vec<(String, String)> {
+        let mut out: Vec<(String, String)> = self
+            .body_materials
+            .iter()
+            .filter(|(_, name)| self.material(name).is_none())
+            .map(|(b, m)| (b.clone(), m.clone()))
+            .collect();
+        out.sort();
+        out
     }
 
     /// Record a name, returning the entry it replaced (there should be none;

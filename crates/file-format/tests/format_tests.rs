@@ -1811,8 +1811,8 @@ fn a_3d_sketch_round_trips() {
 /// only deliberately.
 #[test]
 fn the_3d_sketch_operation_did_not_move_the_format_floor() {
-    assert_eq!(file_format::FORMAT_VERSION, 11);
-    assert_eq!(file_format::MIN_READER_VERSION, 11);
+    assert_eq!(file_format::FORMAT_VERSION, 14);
+    assert_eq!(file_format::MIN_READER_VERSION, 14);
 }
 
 /// v10: a pre-v10 file wrote its `Selector::Pid` ids as JSON NUMBERS, and it
@@ -2054,5 +2054,116 @@ fn a_projection_variant_an_older_reader_does_not_know_fails_the_whole_document()
     assert_eq!(
         round_tripped["tabs"][0]["kind"]["type"], "Schematic",
         "an unknown tab kind is re-emitted verbatim"
+    );
+}
+
+/// Why M1 moved the floor to v14, measured on both of its wire breaks.
+///
+/// The ANNOTATION half is the v11 case over again — a new serde-tagged
+/// variant inside a tab kind every reader since D4a deserializes — and D3's
+/// own notes predicted it: "adding the field later is additive; adding the
+/// variant is not". The UNIT half is the v8 case with more force: v8 bumped
+/// because a reader must not silently ignore a declared unit, and a reader
+/// that has never heard of `"Mass"` cannot read it at all.
+///
+/// Both are written with the tags a PRE-M1 build would have choked on, which
+/// is the only way to measure the mechanism rather than assert the intent.
+#[test]
+fn m1s_annotation_variant_and_unit_variant_each_fail_a_pre_m1_reader() {
+    // 1. The annotation variant. `Annotation` has no opaque arm, for the
+    //    reason `Projection` has none: an annotation that cannot be read is
+    //    one that cannot be drawn, measured or deleted sensibly, and keeping
+    //    it as a blob would put a frame on the sheet nothing can act on.
+    //    Written with a variant NO build has, so it keeps measuring the
+    //    mechanism once `FeatureControlFrame` is old news.
+    let drawing = r#"{
+      "format": "waffle-iron",
+      "version": 14,
+      "min_reader_version": 14,
+      "document": { "id": "00000000-0000-4000-8000-000000000001", "name": "Future",
+        "created": "2026-10-04T00:00:00Z", "modified": "2026-10-04T00:00:00Z" },
+      "sources": [],
+      "tabs": [
+        { "id": "t1", "name": "Drawing 1", "kind": { "type": "Drawing", "drawing": {
+            "sheets": [ { "id": "00000000-0000-4000-8000-000000000002", "name": "S",
+              "views": [ { "id": "00000000-0000-4000-8000-000000000003", "name": "V",
+                 "source": { "tab_id": "p" },
+                 "projection": { "type": "Named", "view": { "type": "Top" } },
+                 "annotations": [ { "type": "SurfaceFinish", "ra_um": 1.6 } ] } ] } ] } } }
+      ],
+      "active_tab": "t1"
+    }"#;
+    let err = load_document(drawing).expect_err("an unknown annotation cannot be read");
+    let message = err.to_string();
+    assert!(
+        message.contains("SurfaceFinish")
+            || message.contains("annotation")
+            || message.contains("variant"),
+        "the refusal should name what it could not read, got: {message}"
+    );
+
+    // 2. The unit variant. `DesignParameter.unit` is `Option<Dimension>` — a
+    //    string value, but a serde ENUM, so an unknown one is a hard parse
+    //    error rather than a dropped key. Measured with a dimension no build
+    //    has, for the same reason as above.
+    let params = r#"{
+      "format": "waffle-iron",
+      "version": 14,
+      "min_reader_version": 14,
+      "document": { "id": "00000000-0000-4000-8000-000000000001", "name": "Future",
+        "created": "2026-10-04T00:00:00Z", "modified": "2026-10-04T00:00:00Z" },
+      "sources": [],
+      "tabs": [
+        { "id": "t1", "name": "Part 1", "kind": { "type": "Part", "features": {
+            "features": [], "active_index": null,
+            "parameters": [ { "id": "00000000-0000-4000-8000-00000000000a",
+              "name": "glow", "expression": "4", "unit": "Luminance" } ] } } }
+      ],
+      "active_tab": "t1"
+    }"#;
+    let err = load_document(params).expect_err("an unknown dimension cannot be read");
+    let message = err.to_string();
+    assert!(
+        message.contains("Luminance") || message.contains("variant"),
+        "the refusal should name what it could not read, got: {message}"
+    );
+
+    // And the halves that are genuinely ADDITIVE read as absent rather than
+    // failing, which is why they would not have moved the floor alone: a
+    // document with a tolerance, a dual precision and a material table reads
+    // on a build that has them, and the same document WITHOUT them reads too.
+    let additive = r#"{
+      "format": "waffle-iron",
+      "version": 14,
+      "min_reader_version": 14,
+      "document": { "id": "00000000-0000-4000-8000-000000000001", "name": "M1",
+        "created": "2026-10-04T00:00:00Z", "modified": "2026-10-04T00:00:00Z",
+        "precision": 3, "dual_unit": "in", "dual_precision": 4 },
+      "sources": [],
+      "tabs": [
+        { "id": "t1", "name": "Part 1", "kind": { "type": "Part", "features": {
+            "features": [], "active_index": null,
+            "materials": [ { "name": "Aluminium", "density_kg_m3": 2700.0 } ],
+            "body_materials": { "f/main": "Aluminium" } } } }
+      ],
+      "active_tab": "t1"
+    }"#;
+    let loaded = load_document(additive)
+        .expect("the additive half reads")
+        .document;
+    assert_eq!(loaded.document.precision, Some(3));
+    assert_eq!(loaded.document.dual_unit.as_deref(), Some("in"));
+    assert_eq!(loaded.document.dual_precision, Some(4));
+    let file_format::metadata::TabKind::Part { features, .. } = &loaded.tabs[0].kind else {
+        panic!("expected a part tab");
+    };
+    assert_eq!(features.density_of_body("f/main"), Ok(Some(2700.0)));
+    // Re-saved, it carries both tables and all three settings.
+    let again: serde_json::Value =
+        serde_json::from_str(&save_document(&loaded)).expect("it re-saves");
+    assert_eq!(again["document"]["precision"], 3);
+    assert_eq!(
+        again["tabs"][0]["kind"]["features"]["materials"][0]["density_kg_m3"],
+        2700.0
     );
 }

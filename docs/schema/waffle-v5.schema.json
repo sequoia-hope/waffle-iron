@@ -103,6 +103,16 @@
               },
               "type": "array"
             },
+            "dual_precision": {
+              "description": "Decimal places for the DUAL value (M1). `None` ⇒ the document\nsetting, which falls back to `precision`'s places.\n\nSeparate from `precision` because the two units do not carry the\nsame resolution at the same number of places: two places of\nmillimetres is 0.01 mm, two places of inches is 0.254 mm, so a\nbracketed restatement at the primary's precision is 25× coarser\nthan the value it restates (ASME Y14.5 §1.6.2).",
+              "format": "uint8",
+              "maximum": 255,
+              "minimum": 0,
+              "type": [
+                "integer",
+                "null"
+              ]
+            },
             "dual_unit": {
               "description": "A second unit shown in brackets beneath the primary one (a unit key\nof `app/src/lib/units.js`: `\"mm\"`, `\"in\"`, …). `None` ⇒ the\ndocument setting, which may itself be none.",
               "type": [
@@ -129,6 +139,17 @@
                 "integer",
                 "null"
               ]
+            },
+            "tolerance": {
+              "anyOf": [
+                {
+                  "$ref": "#/$defs/Tolerance"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "The size tolerance on this dimension (M1). `None` is an untoleranced\ndimension, governed by the drawing's general tolerance note — not a\nzero tolerance.\n\nChecked against `kind` by [`tolerance::Tolerance::check_for`] when\nthe annotation is resolved: an angular band cannot sit on a linear\ndimension, and an ISO 286 fit needs a nominal size."
             },
             "type": {
               "const": "Dimension",
@@ -248,6 +269,34 @@
             "anchor"
           ],
           "type": "object"
+        },
+        {
+          "description": "A feature control frame: one geometric tolerance, with a leader to the\nentity it controls (M1, §9).\n\nThis is the variant D3 could not add — §7 names it, but it needs\n[`tolerance::GeometricTolerance`], and a new variant of a serde-tagged\nenum is not additive: an older reader given one fails the whole\ndocument. That is the reader-floor bump M1 carries.",
+          "properties": {
+            "anchor": {
+              "$ref": "#/$defs/GeomRef"
+            },
+            "placement": {
+              "$ref": "#/$defs/Placement2",
+              "default": {
+                "dx": 0.0,
+                "dy": 0.0
+              }
+            },
+            "tolerance": {
+              "$ref": "#/$defs/GeometricTolerance"
+            },
+            "type": {
+              "const": "FeatureControlFrame",
+              "type": "string"
+            }
+          },
+          "required": [
+            "type",
+            "tolerance",
+            "anchor"
+          ],
+          "type": "object"
         }
       ]
     },
@@ -262,6 +311,15 @@
                 "$ref": "#/$defs/AnchorGeometry"
               },
               "type": "array"
+            },
+            "dual_precision": {
+              "format": "uint8",
+              "maximum": 255,
+              "minimum": 0,
+              "type": [
+                "integer",
+                "null"
+              ]
             },
             "dual_unit": {
               "type": [
@@ -287,6 +345,17 @@
                 "integer",
                 "null"
               ]
+            },
+            "tolerance": {
+              "anyOf": [
+                {
+                  "$ref": "#/$defs/ToleranceLayout"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "The tolerance, RESOLVED (M1): every arm has already become two\nnumbers in the dimension's own model unit, an ISO 286 fit\nincluded. A renderer therefore cannot look up `H7` for itself and\ncannot get a different answer than the engine did."
             },
             "type": {
               "const": "Dimension",
@@ -425,8 +494,71 @@
             "anchor"
           ],
           "type": "object"
+        },
+        {
+          "description": "A feature control frame (M1). The [`GeometricTolerance`] crosses\nVERBATIM rather than being flattened, because it holds no reference:\nits datums are the labels a [`AnnotationLayout::Datum`] carries, not\n`GeomRef`s, so the layout's \"no path back to the model\" invariant is\nunaffected (and `the_layout_schema_carries_no_geom_ref` proves it).",
+          "properties": {
+            "anchor": {
+              "$ref": "#/$defs/AnchorGeometry"
+            },
+            "placement": {
+              "$ref": "#/$defs/Placement2",
+              "default": {
+                "dx": 0.0,
+                "dy": 0.0
+              }
+            },
+            "tolerance": {
+              "$ref": "#/$defs/GeometricTolerance"
+            },
+            "type": {
+              "const": "FeatureControlFrame",
+              "type": "string"
+            }
+          },
+          "required": [
+            "type",
+            "tolerance",
+            "anchor"
+          ],
+          "type": "object"
         }
       ]
+    },
+    "Appearance": {
+      "description": "A material's appearance (M1).",
+      "properties": {
+        "color": {
+          "description": "sRGB, each channel in `0.0..=1.0`.",
+          "items": {
+            "format": "double",
+            "type": "number"
+          },
+          "maxItems": 3,
+          "minItems": 3,
+          "type": "array"
+        },
+        "metalness": {
+          "description": "PBR metalness, `0.0..=1.0`. Absent ⇒ the viewport's own default.",
+          "format": "double",
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "roughness": {
+          "description": "PBR roughness, `0.0..=1.0`.",
+          "format": "double",
+          "type": [
+            "number",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "color"
+      ],
+      "type": "object"
     },
     "ArcSegment": {
       "description": "An arc segment within a polygon profile, used to assign cylindrical face geometry on extrude.",
@@ -845,6 +977,155 @@
       ],
       "type": "object"
     },
+    "Characteristic": {
+      "description": "The geometric characteristic a feature control frame controls (ISO 1101).",
+      "oneOf": [
+        {
+          "properties": {
+            "type": {
+              "const": "Flatness",
+              "type": "string"
+            }
+          },
+          "required": [
+            "type"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "type": {
+              "const": "Straightness",
+              "type": "string"
+            }
+          },
+          "required": [
+            "type"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "type": {
+              "const": "Circularity",
+              "type": "string"
+            }
+          },
+          "required": [
+            "type"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "type": {
+              "const": "Cylindricity",
+              "type": "string"
+            }
+          },
+          "required": [
+            "type"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "type": {
+              "const": "Perpendicularity",
+              "type": "string"
+            }
+          },
+          "required": [
+            "type"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "type": {
+              "const": "Parallelism",
+              "type": "string"
+            }
+          },
+          "required": [
+            "type"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "type": {
+              "const": "Angularity",
+              "type": "string"
+            }
+          },
+          "required": [
+            "type"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "type": {
+              "const": "Position",
+              "type": "string"
+            }
+          },
+          "required": [
+            "type"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "type": {
+              "const": "Concentricity",
+              "type": "string"
+            }
+          },
+          "required": [
+            "type"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "type": {
+              "const": "Symmetry",
+              "type": "string"
+            }
+          },
+          "required": [
+            "type"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "type": {
+              "const": "Profile",
+              "type": "string"
+            }
+          },
+          "required": [
+            "type"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "type": {
+              "const": "Runout",
+              "type": "string"
+            }
+          },
+          "required": [
+            "type"
+          ],
+          "type": "object"
+        }
+      ]
+    },
     "CircleProfile": {
       "description": "Circle profile data in sketch-local UV coordinates.",
       "properties": {
@@ -1041,6 +1322,28 @@
       ],
       "type": "object"
     },
+    "DatumRef": {
+      "description": "A reference to a datum, by the label a `Datum` annotation (§7) carries.\n\nA LABEL and not a [`crate::geom_ref::GeomRef`]: a datum feature control\nframe references datum `A`, and which face `A` is, is the `Datum`\nannotation's business. That also keeps a `GeometricTolerance` free of\nreferences, which is what lets the layout record carry one verbatim —\n`layout`'s invariant is that it holds no path back to the model.",
+      "properties": {
+        "label": {
+          "type": "string"
+        },
+        "modifier": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/MaterialCondition"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "required": [
+        "label"
+      ],
+      "type": "object"
+    },
     "DepthMode": {
       "description": "Depth mode for extrude operations.",
       "oneOf": [
@@ -1145,7 +1448,7 @@
       "type": "object"
     },
     "Dimension": {
-      "description": "The kind of quantity a field that consumes an expression asks for.\n\nThis is the tag an expression-driven field carries (`specs/\nagent_mechanical_design.md` §6 P1): a depth or radius is a\n`Length`, a revolve or pattern angle an `Angle`, an instance count a\n`Count`, a scale factor a `Ratio`.",
+      "description": "The kind of quantity a field that consumes a number asks for.\n\nThis is the tag an expression-driven field carries (`specs/\nagent_mechanical_design.md` §6 P1): a depth or radius is a\n`Length`, a revolve or pattern angle an `Angle`, an instance count a\n`Count`, a scale factor a `Ratio`, a material density a `Density` (M1).",
       "oneOf": [
         {
           "const": "Length",
@@ -1165,6 +1468,16 @@
         {
           "const": "Ratio",
           "description": "A dimensionless number (a factor, a fraction).",
+          "type": "string"
+        },
+        {
+          "const": "Mass",
+          "description": "A mass (M1). Working space and model unit both KILOGRAMS — unlike a\nlength, there is no mm-scale convention to preserve here, and kg is\nthe unit the material table's density is quoted against.",
+          "type": "string"
+        },
+        {
+          "const": "Density",
+          "description": "A mass per unit volume (M1), model unit kg/m³. What a material entry\ndeclares; `Density × Length³` is a `Mass` by the exponents.",
           "type": "string"
         }
       ]
@@ -1296,6 +1609,23 @@
             "null"
           ]
         },
+        "dual_precision": {
+          "description": "Decimal places for the DUAL value (M1).\n\nSeparate from `precision` because the same number of places is not\nthe same resolution in two units: two places of millimetres is\n0.01 mm, two places of inches 0.254 mm, so restating a dimension at\nthe primary's precision makes the bracketed value 25× coarser than\nthe one it restates (ASME Y14.5 §1.6.2). Absent ⇒ the formatter\nderives one that preserves the primary's implied resolution.",
+          "format": "uint8",
+          "maximum": 255,
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "dual_unit": {
+          "description": "A second unit every dimension restates in brackets — a unit key of\n`app/src/lib/units.js` (`\"mm\"`, `\"in\"`, …). Absent ⇒ no dual unit.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
         "id": {
           "description": "Stable identity of the document (v4 §2.1): survives rename, provider\nmove and fork. Writers always emit it; a reader that finds it absent\nmints one (this serde default) and the loader warns.",
           "format": "uuid",
@@ -1307,6 +1637,16 @@
         },
         "name": {
           "type": "string"
+        },
+        "precision": {
+          "description": "Decimal places a dimension shows by default (M1,\n`specs/drawings_and_mbd.md` §9: \"Precision and dual units become\ndocument settings with per-annotation override\").\n\nAbsent ⇒ the renderer's own default (two places). The per-annotation\n`Annotation::Dimension::precision` overrides it.",
+          "format": "uint8",
+          "maximum": 255,
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
         }
       },
       "required": [
@@ -1616,6 +1956,13 @@
             "null"
           ]
         },
+        "body_materials": {
+          "additionalProperties": {
+            "type": "string"
+          },
+          "description": "Which material each body is made of (M1). See [`BodyMaterials`].",
+          "type": "object"
+        },
         "body_names": {
           "additionalProperties": {
             "type": "string"
@@ -1627,6 +1974,13 @@
           "description": "Ordered list of features. Index 0 is the first feature.",
           "items": {
             "$ref": "#/$defs/Feature"
+          },
+          "type": "array"
+        },
+        "materials": {
+          "description": "The material table (M1, `specs/drawings_and_mbd.md` §9).\n\n§9 asks for a DOCUMENT-level table. This one is per-Part, and the\nreason is plumbing rather than preference: the measurer that answers\n`mass(body)` is built from one `FeatureTree`\n([`crate::measure::TreeMeasurer`]) and there is no document scope it\ncan see — `Document.parameters` (P2 of\n`specs/agent_mechanical_design.md` §6) is the increment that builds\none, and it is unlanded. A per-Part table reads correctly and costs\nnothing today; when P2 lands, resolution becomes local-then-document\nexactly as a parameter's does, and this field becomes the local half.\nA part is also the thing that HAS a material, so the per-part table is\nnot obviously the wrong shape.",
+          "items": {
+            "$ref": "#/$defs/Material"
           },
           "type": "array"
         },
@@ -1778,6 +2132,10 @@
         }
       ]
     },
+    "FitClass": {
+      "description": "An ISO 286 tolerance class: a deviation letter and an IT grade.\n\nPersisted and displayed as the string a drafter writes — `\"H7\"`, `\"g6\"` —\nbecause that is the only spelling anyone reading the file or the drawing\nrecognises. A malformed one fails deserialization loudly rather than\nbecoming a fit nobody can resolve.\n\nThe CASE in `letter` is whatever was authored; it carries no meaning,\nbecause the role comes from which field of [`Tolerance::Fit`] the class\nsits in. [`FitClass::display_for`] prints it in the canonical case for its\nrole, so a shaft class authored as `G6` still prints `g6`.",
+      "type": "string"
+    },
     "Frame": {
       "description": "A coordinate frame on part geometry: origin, primary (z) axis and\nsecondary (x) axis, in the PART's coordinates. `x_axis` is orthogonalized\nagainst `z_axis`; a zero `x_axis` means \"any perpendicular\" (chosen\ndeterministically).",
       "properties": {
@@ -1913,6 +2271,46 @@
         "kind",
         "anchor",
         "selector"
+      ],
+      "type": "object"
+    },
+    "GeometricTolerance": {
+      "description": "A geometric tolerance — the content of a feature control frame (§9).",
+      "properties": {
+        "characteristic": {
+          "$ref": "#/$defs/Characteristic"
+        },
+        "datums": {
+          "description": "Ordered — primary, secondary, tertiary.",
+          "items": {
+            "$ref": "#/$defs/DatumRef"
+          },
+          "type": "array"
+        },
+        "modifier": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/MaterialCondition"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "value": {
+          "$ref": "#/$defs/ToleranceValue",
+          "description": "The zone's width (or diameter, per `zone`). Always a LENGTH — every\nISO 1101 zone is a distance, angularity included, which controls a\nsurface's position within two planes rather than an angle directly."
+        },
+        "zone": {
+          "$ref": "#/$defs/ZoneShape",
+          "default": {
+            "type": "Width"
+          }
+        }
+      },
+      "required": [
+        "characteristic",
+        "value"
       ],
       "type": "object"
     },
@@ -2806,6 +3204,80 @@
                   "Ball"
                 ]
               },
+              "type": "string"
+            }
+          },
+          "required": [
+            "type"
+          ],
+          "type": "object"
+        }
+      ]
+    },
+    "Material": {
+      "description": "A material a body can be made of (M1, `specs/drawings_and_mbd.md` §9).",
+      "properties": {
+        "appearance": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Appearance"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "How it looks. The viewport reads it today; M3's AP242 writer reads it\nfor `STYLED_ITEM` / `COLOUR_RGB`."
+        },
+        "density_kg_m3": {
+          "description": "Density in kg/m³ — the SI unit, and the one\n`KernelMeasure::mass_properties` takes. Must be positive and finite;\n[`FeatureTree::density_of_body`] refuses one that is not rather than\nhanding out a mass computed from it.",
+          "format": "double",
+          "type": "number"
+        },
+        "name": {
+          "description": "How it is referred to — by [`BodyMaterials`], by a title block, by a\ntool. Unique within the table, case-sensitively.\n\nA NAME and not a UUID, deliberately. The name is what a title block\nprints, what an agent types, and what a human reading the `.waffle`\ncan make sense of without the table beside it; a uuid would be a\nsecond identifier for a table that holds a handful of rows. The cost\nis that a rename must rewrite every body that points at it, which\n[`FeatureTree::rename_material`] does as one operation.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "name",
+        "density_kg_m3"
+      ],
+      "type": "object"
+    },
+    "MaterialCondition": {
+      "description": "A material condition modifier (ASME Y14.5 / ISO 2692).",
+      "oneOf": [
+        {
+          "description": "Maximum material condition, Ⓜ.",
+          "properties": {
+            "type": {
+              "const": "Mmc",
+              "type": "string"
+            }
+          },
+          "required": [
+            "type"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "Least material condition, Ⓛ.",
+          "properties": {
+            "type": {
+              "const": "Lmc",
+              "type": "string"
+            }
+          },
+          "required": [
+            "type"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "Regardless of feature size — the default, written explicitly.",
+          "properties": {
+            "type": {
+              "const": "Rfs",
               "type": "string"
             }
           },
@@ -7613,6 +8085,259 @@
       ],
       "type": "object"
     },
+    "Tolerance": {
+      "description": "A size tolerance on a dimension (§9).",
+      "oneOf": [
+        {
+          "description": "`25 ±0.1`. `plus_minus` must not be negative.",
+          "properties": {
+            "plus_minus": {
+              "$ref": "#/$defs/ToleranceValue"
+            },
+            "type": {
+              "const": "Symmetric",
+              "type": "string"
+            }
+          },
+          "required": [
+            "type",
+            "plus_minus"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "`25 +0.021 / −0.005`. Both are SIGNED deviations from the nominal, so\n`minus` is normally NEGATIVE and a unilateral tolerance is this arm\nwith one of them zero. `plus >= minus` is required.",
+          "properties": {
+            "minus": {
+              "$ref": "#/$defs/ToleranceValue",
+              "description": "The lower deviation, normally ≤ 0."
+            },
+            "plus": {
+              "$ref": "#/$defs/ToleranceValue",
+              "description": "The upper deviation, normally ≥ 0."
+            },
+            "type": {
+              "const": "Bilateral",
+              "type": "string"
+            }
+          },
+          "required": [
+            "type",
+            "plus",
+            "minus"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "`25.021 / 25.000` — the two absolute SIZES, not deviations. The\nnominal plays no part in resolving this arm. `upper >= lower`.",
+          "properties": {
+            "lower": {
+              "$ref": "#/$defs/ToleranceValue"
+            },
+            "type": {
+              "const": "Limits",
+              "type": "string"
+            },
+            "upper": {
+              "$ref": "#/$defs/ToleranceValue"
+            }
+          },
+          "required": [
+            "type",
+            "upper",
+            "lower"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "An ISO 286 class on one or both sides of a fit: `⌀20 H7`,\n`⌀20 H7/g6`. At least one must be present.",
+          "properties": {
+            "hole": {
+              "anyOf": [
+                {
+                  "$ref": "#/$defs/FitClass"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "shaft": {
+              "anyOf": [
+                {
+                  "$ref": "#/$defs/FitClass"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "type": {
+              "const": "Fit",
+              "type": "string"
+            }
+          },
+          "required": [
+            "type"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "A boxed basic dimension: the theoretically exact size, with the\nvariation controlled by a geometric tolerance instead. It has no\nlimits of its own, which is why [`Tolerance::limits_of`] returns\n`None` for it rather than a zero-width band.",
+          "properties": {
+            "type": {
+              "const": "Basic",
+              "type": "string"
+            }
+          },
+          "required": [
+            "type"
+          ],
+          "type": "object"
+        }
+      ]
+    },
+    "ToleranceDisplay": {
+      "description": "Which form a resolved tolerance prints in.",
+      "oneOf": [
+        {
+          "description": "`25 ±0.1` — one magnitude, printed once.",
+          "properties": {
+            "type": {
+              "const": "Symmetric",
+              "type": "string"
+            }
+          },
+          "required": [
+            "type"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "`25 +0.021 / −0.005` — the two deviations.",
+          "properties": {
+            "type": {
+              "const": "Deviations",
+              "type": "string"
+            }
+          },
+          "required": [
+            "type"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "`25.021 / 25.000` — the two sizes.",
+          "properties": {
+            "type": {
+              "const": "Limits",
+              "type": "string"
+            }
+          },
+          "required": [
+            "type"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "`⌀25 H7/g6` — the class text, with the band available beside it for a\ndrawing that prints both.",
+          "properties": {
+            "hole": {
+              "description": "The hole class in its canonical case, when there is one.",
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "shaft": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "type": {
+              "const": "Fit",
+              "type": "string"
+            }
+          },
+          "required": [
+            "type"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "A boxed basic dimension: no band, and the renderer draws the box.",
+          "properties": {
+            "type": {
+              "const": "Basic",
+              "type": "string"
+            }
+          },
+          "required": [
+            "type"
+          ],
+          "type": "object"
+        }
+      ]
+    },
+    "ToleranceLayout": {
+      "description": "A tolerance resolved for a renderer (M1).\n\nThe split from [`Tolerance`] is the layout invariant applied to M1: the\ndocument model says `H7`, and only the engine may turn that into\n+0.021/0, because the ISO 286 tables live in Rust and a second\nimplementation in JavaScript is a second answer. So a renderer gets the\nNUMBERS, plus whatever text the standard wants printed alongside them.\n\nBoth the deviations and the limits are present on every toleranced arm,\nbecause ISO 129-1 lets a drawing print either form and the choice is the\ndrafter's, not the resolver's. `deviations` are signed offsets from the\nnominal; `limits` are absolute sizes. Model units throughout: metres, or\nradians for an angular dimension.",
+      "properties": {
+        "deviations": {
+          "description": "`[upper, lower]` as signed deviations from the nominal. Absent for\n[`ToleranceDisplay::Basic`], which has no band.",
+          "items": {
+            "format": "double",
+            "type": "number"
+          },
+          "maxItems": 2,
+          "minItems": 2,
+          "type": [
+            "array",
+            "null"
+          ]
+        },
+        "display": {
+          "$ref": "#/$defs/ToleranceDisplay",
+          "description": "How this tolerance should READ."
+        },
+        "limits": {
+          "description": "`[upper, lower]` as absolute limits of size. Absent for\n[`ToleranceDisplay::Basic`].",
+          "items": {
+            "format": "double",
+            "type": "number"
+          },
+          "maxItems": 2,
+          "minItems": 2,
+          "type": [
+            "array",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "display"
+      ],
+      "type": "object"
+    },
+    "ToleranceValue": {
+      "description": "A tolerance magnitude: the number AND the dimension it commits to.\n\nMetres for a [`Dimension::Length`], RADIANS for a [`Dimension::Angle`] —\nsee the module docs. No other dimension is a tolerance, and\n[`ToleranceValue::validate`] refuses one.",
+      "properties": {
+        "dimension": {
+          "$ref": "#/$defs/Dimension",
+          "description": "Which of those two this is. Not optional and not inferred: a\ntolerance whose dimension has to be guessed from its neighbour is the\nbare float this type replaces."
+        },
+        "magnitude": {
+          "description": "Metres for a length, radians for an angle.",
+          "format": "double",
+          "type": "number"
+        }
+      },
+      "required": [
+        "magnitude",
+        "dimension"
+      ],
+      "type": "object"
+    },
     "TopoKind": {
       "description": "The kind of topological entity.",
       "oneOf": [
@@ -8073,6 +8798,50 @@
         "Hidden"
       ],
       "type": "string"
+    },
+    "ZoneShape": {
+      "description": "The shape of a tolerance zone.",
+      "oneOf": [
+        {
+          "description": "A cylinder of the stated diameter, printed `⌀`.",
+          "properties": {
+            "type": {
+              "const": "Diametral",
+              "type": "string"
+            }
+          },
+          "required": [
+            "type"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "Two parallel planes the stated distance apart — the default.",
+          "properties": {
+            "type": {
+              "const": "Width",
+              "type": "string"
+            }
+          },
+          "required": [
+            "type"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "A sphere of the stated diameter, printed `S⌀`.",
+          "properties": {
+            "type": {
+              "const": "Spherical",
+              "type": "string"
+            }
+          },
+          "required": [
+            "type"
+          ],
+          "type": "object"
+        }
+      ]
     }
   },
   "$schema": "https://json-schema.org/draft/2020-12/schema",

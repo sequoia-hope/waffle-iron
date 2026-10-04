@@ -463,7 +463,13 @@ fn the_migrated_list_is_exactly_what_this_checkpoint_implements() {
     // becomes its `face` arm. `measure_section` (Q4, §4.2/§4.3, 2026-10-03)
     // and `measure_thickness` (Q5, same day) join the measurement run for the
     // same reason: they are geometric queries over a body, answered by the
-    // kernel, and an agent looking for one looks among these.
+    // kernel, and an agent looking for one looks among these. M1's material
+    // trio (`material_list`, `material_set`, `body_material_set`,
+    // `specs/drawings_and_mbd.md` §9, 2026-10-04) sits after the name
+    // quartet for the same reason they sit together: a material is referred
+    // to BY NAME, `body_material_set` is keyed by the same body id
+    // `body_rename` is, and an agent that just named a body is the one about
+    // to say what it is made of.
     assert_eq!(
         wasm_bridge::tools::MIGRATED,
         &[
@@ -490,6 +496,9 @@ fn the_migrated_list_is_exactly_what_this_checkpoint_implements() {
             "feature_reorder",
             "feature_rename",
             "body_rename",
+            "material_list",
+            "material_set",
+            "body_material_set",
             "entity_name",
             "entity_unname",
             "names_list",

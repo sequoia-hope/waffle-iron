@@ -26,14 +26,16 @@
 //!   failure, not an engine answer. A host detects its own crashed engine.
 
 use feature_engine::expr::Dimension;
-use feature_engine::types::{DesignParameter, Operation, Provenance, ProvenanceOrigin};
+use feature_engine::types::{
+    Appearance, DesignParameter, Material, Operation, Provenance, ProvenanceOrigin,
+};
 use modeling_ops::KernelBundle;
 use serde_json::{json, Value};
 use std::collections::{HashMap, HashSet};
 use uuid::Uuid;
 
 use crate::engine_state::EngineState;
-use crate::messages::{EngineToUi, UiToEngine};
+use crate::messages::{EngineToUi, MaterialEdit, UiToEngine};
 use crate::tools::{require_body, require_feature, Answer, ToolFailure};
 
 /// Fillet, chamfer and shell are deferred project-wide (A5, I11).
@@ -1303,6 +1305,181 @@ pub(super) fn with_feature_id(step: Step) -> Value {
     let mut out = step.delta;
     merge_first(&mut out, json!({ "feature_id": step.feature_id }));
     out
+}
+
+// ------------------------------------------------------- materials (M1, §9)
+
+/// The part's material table, the per-body assignments, and any assignment
+/// that no longer resolves (M1, `specs/drawings_and_mbd.md` §9).
+///
+/// `dangling` is reported rather than hidden: a body whose material was
+/// deleted out from under it has no mass, and `measure_mass` refuses it by
+/// name, so a caller needs to be able to see which bodies are in that state
+/// without measuring each one.
+pub(super) fn material_list(state: &EngineState) -> Answer {
+    let tree = &state.engine.tree;
+    let materials: Vec<Value> = tree
+        .materials
+        .iter()
+        .map(|m| serde_json::to_value(m).unwrap_or(Value::Null))
+        .collect();
+    // Ordered by body id, like every other listing this crate emits, so two
+    // reads of one document agree.
+    let mut bodies: Vec<(&String, &String)> = tree.body_materials.iter().collect();
+    bodies.sort();
+    let bodies: Vec<Value> = bodies
+        .into_iter()
+        .map(|(body_id, material)| {
+            json!({
+                "body_id": body_id,
+                "material": material,
+                "resolves": tree.material(material).is_some(),
+            })
+        })
+        .collect();
+    let dangling: Vec<Value> = tree
+        .dangling_material_refs()
+        .into_iter()
+        .map(|(body_id, material)| json!({ "body_id": body_id, "material": material }))
+        .collect();
+    Ok(json!({
+        "materials": materials,
+        "bodies": bodies,
+        "dangling": dangling,
+    }))
+}
+
+/// Add, change, rename or delete a material in the part's table (M1).
+///
+/// Exactly one of the three modes per call, decided by the arguments:
+/// `rename_to` renames, `delete: true` deletes, and otherwise the call is an
+/// upsert that needs `density_kg_m3`. Sending more than one is refused rather
+/// than ordered by some precedence this tool invented.
+pub(super) fn material_set(
+    state: &mut EngineState,
+    kb: &mut dyn KernelBundle,
+    args: &Value,
+) -> Answer {
+    let name = args
+        .get("name")
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|n| !n.is_empty())
+        .ok_or_else(|| {
+            ToolFailure::new(
+                "InvalidArguments",
+                "name is required: the material to add, change, rename or delete.".to_string(),
+                json!({ "path": "/name" }),
+            )
+        })?
+        .to_string();
+    let rename_to = args
+        .get("rename_to")
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|n| !n.is_empty())
+        .map(str::to_string);
+    let delete = args.get("delete").and_then(Value::as_bool).unwrap_or(false);
+    if rename_to.is_some() && delete {
+        return Err(ToolFailure::new(
+            "InvalidArguments",
+            "rename_to and delete are two different edits; make one call each.".to_string(),
+            json!({ "path": "/delete" }),
+        ));
+    }
+    let edit = if let Some(to) = rename_to {
+        MaterialEdit::Rename { from: name, to }
+    } else if delete {
+        MaterialEdit::Delete { name }
+    } else {
+        let density_kg_m3 = args
+            .get("density_kg_m3")
+            .and_then(Value::as_f64)
+            .filter(|d| d.is_finite() && *d > 0.0)
+            .ok_or_else(|| {
+                ToolFailure::new(
+                    "InvalidArguments",
+                    "density_kg_m3 is required and is a positive number of kg/m³ \
+                     (aluminium 2700, steel 7850, ABS 1040)."
+                        .to_string(),
+                    json!({ "path": "/density_kg_m3" }),
+                )
+            })?;
+        let appearance = match args.get("appearance").filter(|v| !v.is_null()) {
+            None => None,
+            Some(v) => Some(
+                serde_json::from_value::<Appearance>(v.clone()).map_err(|e| {
+                    ToolFailure::new(
+                        "InvalidArguments",
+                        format!(
+                            "appearance: {e}. It is {{\"color\": [r, g, b], \"metalness\"?: n, \
+                         \"roughness\"?: n}}, each channel in 0..=1."
+                        ),
+                        json!({ "path": "/appearance" }),
+                    )
+                })?,
+            ),
+        };
+        MaterialEdit::Upsert {
+            material: Material {
+                name,
+                density_kg_m3,
+                appearance,
+            },
+        }
+    };
+    let step = apply_step(
+        state,
+        kb,
+        UiToEngine::EditMaterials { edit },
+        OnError::Report,
+        "InvalidArguments",
+    )?;
+    Ok(step.delta)
+}
+
+/// Say what a body is made of, or clear it (M1).
+///
+/// `material: null` clears the assignment, which leaves the body with no
+/// mass rather than with a default one — `measure_mass` and `mass(body)`
+/// both say so instead of reporting the volume wearing kilograms.
+pub(super) fn body_material_set(
+    state: &mut EngineState,
+    kb: &mut dyn KernelBundle,
+    args: &Value,
+) -> Answer {
+    let body_id = require_body(
+        state,
+        args.get("body_id").and_then(Value::as_str).unwrap_or(""),
+    )?;
+    let material = match args.get("material") {
+        None | Some(Value::Null) => None,
+        Some(v) => Some(
+            v.as_str()
+                .map(str::trim)
+                .filter(|m| !m.is_empty())
+                .ok_or_else(|| {
+                    ToolFailure::new(
+                        "InvalidArguments",
+                        "material is the name of an entry in the material table, or null to \
+                         clear the body's material."
+                            .to_string(),
+                        json!({ "path": "/material" }),
+                    )
+                })?
+                .to_string(),
+        ),
+    };
+    let step = apply_step(
+        state,
+        kb,
+        UiToEngine::EditMaterials {
+            edit: MaterialEdit::AssignBody { body_id, material },
+        },
+        OnError::Report,
+        "InvalidArguments",
+    )?;
+    Ok(step.delta)
 }
 
 /// Insert `extra`'s entries into `target`. The result is one flat object, as

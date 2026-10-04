@@ -509,8 +509,10 @@ fn dimension_with(selector: Selector) -> Annotation {
             scope: None,
         }],
         value: Measured::FromGeometry,
+        tolerance: None,
         precision: None,
         dual_unit: None,
+        dual_precision: None,
         placement: Placement2::default(),
     }
 }

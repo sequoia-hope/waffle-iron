@@ -110,6 +110,28 @@ pub struct DocumentMetadata {
     pub modified: DateTime<Utc>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub display_unit: Option<String>,
+    /// Decimal places a dimension shows by default (M1,
+    /// `specs/drawings_and_mbd.md` §9: "Precision and dual units become
+    /// document settings with per-annotation override").
+    ///
+    /// Absent ⇒ the renderer's own default (two places). The per-annotation
+    /// `Annotation::Dimension::precision` overrides it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub precision: Option<u8>,
+    /// A second unit every dimension restates in brackets — a unit key of
+    /// `app/src/lib/units.js` (`"mm"`, `"in"`, …). Absent ⇒ no dual unit.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub dual_unit: Option<String>,
+    /// Decimal places for the DUAL value (M1).
+    ///
+    /// Separate from `precision` because the same number of places is not
+    /// the same resolution in two units: two places of millimetres is
+    /// 0.01 mm, two places of inches 0.254 mm, so restating a dimension at
+    /// the primary's precision makes the bracketed value 25× coarser than
+    /// the one it restates (ASME Y14.5 §1.6.2). Absent ⇒ the formatter
+    /// derives one that preserves the primary's implied resolution.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub dual_precision: Option<u8>,
     /// Unknown keys preserved across load → save (v4 §2.6).
     #[serde(flatten)]
     pub extra: Map<String, Value>,
@@ -130,6 +152,9 @@ impl DocumentMetadata {
             created: now,
             modified: now,
             display_unit: None,
+            precision: None,
+            dual_unit: None,
+            dual_precision: None,
             extra: Map::new(),
         }
     }
@@ -148,6 +173,12 @@ impl From<&ProjectMetadata> for DocumentMetadata {
             created: m.created,
             modified: m.modified,
             display_unit: m.display_unit.clone(),
+            // `ProjectMetadata` is the single-tree API's shape and carries no
+            // display settings of its own, so a document built from one
+            // starts at the defaults.
+            precision: None,
+            dual_unit: None,
+            dual_precision: None,
             extra: Map::new(),
         }
     }

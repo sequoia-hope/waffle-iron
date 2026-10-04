@@ -799,6 +799,26 @@ pub enum UiToEngine {
         created: Option<chrono::DateTime<chrono::Utc>>,
     },
 
+    /// One edit to the material table or to a body's material (M1,
+    /// `specs/drawings_and_mbd.md` §9). Undoable; re-measures, because
+    /// `mass(body)` is a measurement a parameter may read.
+    EditMaterials {
+        edit: MaterialEdit,
+    },
+
+    /// Replace the document's DISPLAY settings (M1,
+    /// `specs/drawings_and_mbd.md` §9: "Precision and dual units become
+    /// document settings with per-annotation override").
+    ///
+    /// A complete-state message, like `SetParameters`, and not three more
+    /// `Option`s on `SetDocumentMeta`: there, `None` means "leave this
+    /// alone", so there would be no way to say "no dual unit any more" —
+    /// turning dual units OFF is exactly the edit a user makes. Here every
+    /// field is sent every time and `None` means absent.
+    SetDisplaySettings {
+        settings: DisplaySettings,
+    },
+
     // -- Design parameters (variables) --
     /// Replace the design-parameter table (the UI always sends the complete
     /// list) and rebuild. Undoable. Evaluated values/errors come back on the
@@ -930,6 +950,10 @@ pub struct DocumentInfo {
     pub name: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub display_unit: Option<String>,
+    /// The document's dimension display settings (M1). Always reported, so
+    /// a reader does not have to know the defaults to render a dimension.
+    #[serde(default)]
+    pub display: DisplaySettings,
     /// Preserved from the file the document was opened from, never re-stamped
     /// (S2 C4): the store used to parse it out of the `.waffle` itself, and
     /// that second parser is what C4 deletes.
@@ -948,6 +972,58 @@ pub struct DocumentInfo {
     /// Increments on every committed mutation, so a host can name the state a
     /// viewer holds (spec §4.1).
     pub revision: u64,
+}
+
+/// One change to the material tables (M1).
+///
+/// Four named operations rather than one whole-table replacement, because
+/// three of them are COUPLED edits the engine must make atomically: deleting
+/// a material clears every body that pointed at it, renaming one rewrites
+/// them, and assigning one refuses a material that is not in the table. A
+/// caller sending whole tables would have to reproduce that coupling, and a
+/// caller that got it wrong would leave a document whose bodies point at
+/// nothing.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(tag = "type", rename_all = "snake_case")]
+pub enum MaterialEdit {
+    /// Add a material, or replace the entry with the same name.
+    Upsert {
+        material: feature_engine::types::Material,
+    },
+    /// Rename a material, carrying every body made of it.
+    Rename { from: String, to: String },
+    /// Remove a material, and with it every body assignment to it.
+    Delete { name: String },
+    /// Assign a material to one body, or clear it with `None`.
+    AssignBody {
+        body_id: String,
+        #[serde(default)]
+        material: Option<String>,
+    },
+}
+
+/// How a document displays a dimension's number (M1,
+/// `specs/drawings_and_mbd.md` §9).
+///
+/// Every field is a DOCUMENT default that a per-annotation field overrides
+/// (`Annotation::Dimension::{precision, dual_unit, dual_precision}`). Absent
+/// means the renderer's own default, which `app/src/lib/drawings/format.js`
+/// states; it is NOT zero places, and nothing here substitutes a number for
+/// an absence.
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+pub struct DisplaySettings {
+    /// Decimal places for the primary value.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub precision: Option<u8>,
+    /// A second unit restated in brackets — a unit key of
+    /// `app/src/lib/units.js`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub dual_unit: Option<String>,
+    /// Decimal places for the bracketed value. See
+    /// `file_format::DocumentMetadata::dual_precision` for why it is
+    /// separate.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub dual_precision: Option<u8>,
 }
 
 /// One face of a `FacesListed` answer (ICR-3).
@@ -2174,7 +2250,12 @@ pub enum DrawingEdit {
     },
     AddAnnotation {
         view_id: Uuid,
-        annotation: DrawingAnnotationSpec,
+        /// Boxed since M1: the spec grew a tolerance and a geometric
+        /// tolerance (with its datum list), and at 432 bytes it made every
+        /// other `DrawingEdit` variant pay for it — `clippy::
+        /// large_enum_variant`. One allocation per authored annotation, on
+        /// a path that already does several.
+        annotation: Box<DrawingAnnotationSpec>,
     },
     DeleteAnnotation {
         view_id: Uuid,
@@ -2226,7 +2307,8 @@ pub enum DrawingEdit {
 /// An annotation to author, in primitives (D4a).
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct DrawingAnnotationSpec {
-    /// `Dimension` | `Note` | `CentreMark` | `CentreLine` | `Datum`.
+    /// `Dimension` | `Note` | `CentreMark` | `CentreLine` | `Datum` |
+    /// `FeatureControlFrame`.
     pub annotation: String,
     /// The dimension kind, for `Dimension`.
     #[serde(default)]
@@ -2242,8 +2324,90 @@ pub struct DrawingAnnotationSpec {
     pub precision: Option<u8>,
     #[serde(default)]
     pub dual_unit: Option<String>,
+    /// Decimal places for the bracketed dual value (M1). Absent ⇒ the
+    /// document setting, which falls back to `precision`.
+    #[serde(default)]
+    pub dual_precision: Option<u8>,
+    /// The size tolerance, for a `Dimension` (M1).
+    #[serde(default)]
+    pub tolerance: Option<ToleranceSpec>,
+    /// The geometric tolerance, for a `FeatureControlFrame` (M1).
+    #[serde(default)]
+    pub geometric: Option<GeometricToleranceSpec>,
     #[serde(default)]
     pub placement: Option<[f64; 2]>,
+}
+
+/// A size tolerance as an agent or dialog writes one (M1).
+///
+/// **Units are MILLIMETRES on a linear dimension and DEGREES on an angular
+/// one** — the units a drafter quotes and a tool reports, not the model's
+/// metres and radians. The conversion happens once, in
+/// `drawing_view::build_annotation`, where the dimension's own
+/// `DimensionKind` is known; a caller cannot get it wrong because there is
+/// nowhere to state a unit.
+///
+/// A mirror of `waffle_types::annotation::tolerance::Tolerance` rather than
+/// that type itself, for exactly that reason: the document model is in model
+/// units, and a `0.0001` where someone meant a tenth of a millimetre is the
+/// units trap this spec exists to close.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ToleranceSpec {
+    /// `symmetric` | `bilateral` | `limits` | `fit` | `basic`
+    /// (case-insensitive).
+    pub kind: String,
+    /// `symmetric`: the ± magnitude. `bilateral`: the upper deviation.
+    #[serde(default)]
+    pub plus: Option<f64>,
+    /// `bilateral`: the lower deviation, normally NEGATIVE.
+    #[serde(default)]
+    pub minus: Option<f64>,
+    /// `limits`: the upper limit of SIZE (not a deviation).
+    #[serde(default)]
+    pub upper: Option<f64>,
+    /// `limits`: the lower limit of size.
+    #[serde(default)]
+    pub lower: Option<f64>,
+    /// `fit`: the hole's ISO 286 class, e.g. `"H7"`.
+    #[serde(default)]
+    pub hole: Option<String>,
+    /// `fit`: the shaft's ISO 286 class, e.g. `"g6"`.
+    #[serde(default)]
+    pub shaft: Option<String>,
+}
+
+/// A geometric tolerance as an agent or dialog writes one (M1).
+///
+/// The zone width is in **millimetres**, for the same reason
+/// [`ToleranceSpec`]'s magnitudes are.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct GeometricToleranceSpec {
+    /// `Flatness` | `Straightness` | `Circularity` | `Cylindricity` |
+    /// `Perpendicularity` | `Parallelism` | `Angularity` | `Position` |
+    /// `Concentricity` | `Symmetry` | `Profile` | `Runout`.
+    pub characteristic: String,
+    /// The tolerance zone's width (or diameter, per `zone`), in MILLIMETRES.
+    pub value_mm: f64,
+    /// `MMC` | `LMC` | `RFS`. Absent means RFS without saying so, which is
+    /// the standard's own default.
+    #[serde(default)]
+    pub modifier: Option<String>,
+    /// The datum references, in order: primary, secondary, tertiary.
+    #[serde(default)]
+    pub datums: Vec<DatumRefSpec>,
+    /// `Diametral` | `Width` | `Spherical`. Absent ⇒ `Width`.
+    #[serde(default)]
+    pub zone: Option<String>,
+}
+
+/// One datum reference in a feature control frame (M1).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DatumRefSpec {
+    /// The datum's label, as a `Datum` annotation carries it: `"A"`.
+    pub label: String,
+    /// `MMC` | `LMC` | `RFS`, when the reference carries one.
+    #[serde(default)]
+    pub modifier: Option<String>,
 }
 
 /// One anchor of an authored annotation: a persistent id and what kind of

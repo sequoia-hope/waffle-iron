@@ -374,6 +374,60 @@ impl Engine {
         // every measured value is unchanged by construction.
     }
 
+    /// Replace the material table and the per-body assignments in one
+    /// undoable step (M1, `specs/drawings_and_mbd.md` §9).
+    ///
+    /// `edit` is handed the tree's own tables to change however it likes;
+    /// whatever it leaves is validated, and a refusal restores both halves
+    /// so a rejected edit cannot leave the document half-changed. The whole
+    /// before/after pair becomes one undo record, which is what lets a
+    /// delete (which also clears every body that pointed at the material)
+    /// and a rename (which rewrites them) undo as single actions.
+    ///
+    /// Rebuilds from 0 on success, because a `mass(body)` measurement may
+    /// drive any field and the density it reads just moved.
+    pub fn edit_materials<F, T, E>(&mut self, kb: &mut dyn KernelBundle, edit: F) -> Result<T, E>
+    where
+        F: FnOnce(&mut types::FeatureTree) -> Result<T, E>,
+        E: From<String>,
+    {
+        let old_materials = self.tree.materials.clone();
+        let old_body_materials = self.tree.body_materials.clone();
+        let restore = |tree: &mut types::FeatureTree| {
+            tree.materials = old_materials.clone();
+            tree.body_materials = old_body_materials.clone();
+        };
+        let out = match edit(&mut self.tree) {
+            Ok(out) => out,
+            Err(e) => {
+                restore(&mut self.tree);
+                return Err(e);
+            }
+        };
+        // The invariants the tables must satisfy TOGETHER, checked after the
+        // edit rather than inside it: duplicate names, a bad density, and an
+        // assignment naming a material that is not there. A caller that
+        // broke one gets its edit rolled back whole.
+        if let Err(why) = self.tree.check_materials() {
+            restore(&mut self.tree);
+            return Err(E::from(why));
+        }
+        self.undo_stack.push(undo::Command::SetMaterials {
+            old_materials,
+            new_materials: self.tree.materials.clone(),
+            old_body_materials,
+            new_body_materials: self.tree.body_materials.clone(),
+        });
+        // From 0, exactly as a parameter edit rebuilds: a `mass(body)`
+        // measurement may drive any field and the density it reads just
+        // moved. The apply pass refreshes every expression and only the
+        // features whose values actually changed re-execute, so a material
+        // edit on a document with no measurement costs one pass and no
+        // geometry.
+        self.rebuild(kb, 0, nothing_changed());
+        Ok(out)
+    }
+
     /// Give one entity a name (N1, `specs/agent_mechanical_design.md` §5.2).
     /// One undo step; no rebuild — a name affects no geometry.
     ///
@@ -791,6 +845,17 @@ impl Engine {
                 };
                 0 // A name affects no geometry.
             }
+            Command::SetMaterials {
+                old_materials,
+                old_body_materials,
+                ..
+            } => {
+                self.tree.materials = old_materials.clone();
+                self.tree.body_materials = old_body_materials.clone();
+                // From 0: a `mass(body)` expression may drive any field, and
+                // the density it reads just changed.
+                0
+            }
             Command::SetParameters {
                 old,
                 old_expressions,
@@ -889,6 +954,15 @@ impl Engine {
                     None => self.tree.take_name(name),
                 };
                 0 // A name affects no geometry.
+            }
+            Command::SetMaterials {
+                new_materials,
+                new_body_materials,
+                ..
+            } => {
+                self.tree.materials = new_materials.clone();
+                self.tree.body_materials = new_body_materials.clone();
+                0
             }
             Command::SetParameters {
                 new,
@@ -1217,6 +1291,12 @@ fn changed_by(cmd: &Command) -> rebuild::Changed {
         | Command::RenameBody { .. }
         | Command::SetEntityName { .. }
         | Command::SetParameters { .. } => nothing_changed(),
+        // A material changes no geometry, but it changes what `mass(body)`
+        // measures, and a parameter may read one — so every feature is
+        // potentially affected, exactly as for a parameter edit. (That edit
+        // reports `nothing_changed` for the same reason: the rebuild index
+        // it returns above is what actually drives the work.)
+        Command::SetMaterials { .. } => rebuild::Changed::All,
     }
 }
 

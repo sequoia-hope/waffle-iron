@@ -14,7 +14,9 @@
 use std::collections::HashMap;
 
 use super::dim::{Dim, Dimension, Quantity, Tag};
-use super::measure::{measure_fn, EntityArg, MeasureCall, MeasureRefusal, Measurer, MASS_NEEDS_M1};
+use super::measure::{
+    measure_fn, EntityArg, MeasureCall, MeasureRefusal, Measurer, NO_NAMEABLE_DIMENSION,
+};
 use super::parse::{BinOp, Expr, UnOp};
 use super::{ExprError, Span};
 
@@ -103,12 +105,14 @@ fn measure(
 ) -> Result<Quantity, ExprError> {
     let m = measure_fn(function).ok_or_else(|| ExprError::UnknownFunction(function.to_string()))?;
     let Some(dim) = m.dim else {
-        // A function whose answer has no nameable dimension here (`mass`).
-        // Refused BEFORE the measurer runs: there is no number it could
-        // return that this evaluator could carry honestly.
+        // A function whose answer has no nameable dimension. No entry in
+        // `MEASUREMENTS` is in that state since M1 (`mass` was), but the
+        // table is public and the arm must not panic — refused BEFORE the
+        // measurer runs, because there is no number it could return that
+        // this evaluator could carry honestly.
         return Err(ExprError::MeasurementUnavailable {
             function: function.to_string(),
-            reason: MASS_NEEDS_M1.to_string(),
+            reason: NO_NAMEABLE_DIMENSION.to_string(),
             span,
         });
     };

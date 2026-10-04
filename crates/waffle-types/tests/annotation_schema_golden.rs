@@ -92,8 +92,19 @@ fn the_annotation_schema_has_the_shape_section_7_describes() {
         .collect();
     assert_eq!(
         variants,
-        vec!["Dimension", "Note", "CentreMark", "CentreLine", "Datum"],
-        "the §7 variants, minus M1's FeatureControlFrame"
+        vec![
+            "Dimension",
+            "Note",
+            "CentreMark",
+            "CentreLine",
+            "Datum",
+            // M1 (2026-10-04). Adding this VARIANT is what moved the reader
+            // floor to v14 — a v11 reader knows the `Drawing` tab tag, so it
+            // deserializes the tab and fails the whole document on a tag it
+            // has never heard of.
+            "FeatureControlFrame",
+        ],
+        "the §7 variants, with M1's FeatureControlFrame"
     );
 
     let defs = schema["$defs"].as_object().expect("definitions");
@@ -103,6 +114,19 @@ fn the_annotation_schema_has_the_shape_section_7_describes() {
         "Placement2",
         "GeomRef",
         "Selector",
+        // M1's tolerance vocabulary, reachable from `Dimension.tolerance`
+        // and from the frame.
+        "Tolerance",
+        "ToleranceValue",
+        "FitClass",
+        "GeometricTolerance",
+        "Characteristic",
+        "MaterialCondition",
+        "DatumRef",
+        "ZoneShape",
+        // `waffle_types::dimension::Dimension` — what makes a tolerance
+        // magnitude a typed quantity rather than a bare float.
+        "Dimension",
     ] {
         assert!(
             defs.contains_key(name),
@@ -165,7 +189,20 @@ fn the_layout_schema_carries_no_geom_ref() {
     // as structure.
     let schema = serde_json::to_value(schema_for!(ViewLayout)).unwrap();
     let defs = schema["$defs"].as_object().expect("definitions");
-    for forbidden in ["GeomRef", "Selector", "TopoSignature", "Anchor", "Measured"] {
+    for forbidden in [
+        "GeomRef",
+        "Selector",
+        "TopoSignature",
+        "Anchor",
+        "Measured",
+        // M1: the DOCUMENT-model tolerance must not reach the renderer
+        // either. `Tolerance` holds a `FitClass`, which is a class the
+        // renderer would have to look up in the ISO 286 tables to turn into
+        // numbers — a second implementation and therefore a second answer.
+        // Only `ToleranceLayout`, already resolved, crosses.
+        "Tolerance",
+        "FitClass",
+    ] {
         assert!(
             !defs.contains_key(forbidden),
             "{forbidden} reachable from ViewLayout: {:?}",
@@ -189,6 +226,12 @@ fn the_layout_schema_carries_no_geom_ref() {
         "DimensionKind",
         "Visibility",
         "CurveKind",
+        // M1: the RESOLVED tolerance and the geometric tolerance DO cross —
+        // the first is numbers, the second holds only datum labels.
+        "ToleranceLayout",
+        "ToleranceDisplay",
+        "GeometricTolerance",
+        "DatumRef",
     ] {
         assert!(
             defs.contains_key(name),

@@ -65,7 +65,33 @@ pub const DRAWING_TOOLS: &[&str] = &[
 ];
 
 /// The annotation kinds these tools author, as their `type` tags.
-pub const ANNOTATION_TAGS: &[&str] = &["Dimension", "Note", "CentreMark", "CentreLine", "Datum"];
+pub const ANNOTATION_TAGS: &[&str] = &[
+    "Dimension",
+    "Note",
+    "CentreMark",
+    "CentreLine",
+    "Datum",
+    "FeatureControlFrame",
+];
+
+/// The geometric characteristics a frame may control (ISO 1101, M1).
+pub const CHARACTERISTIC_TAGS: &[&str] = &[
+    "Flatness",
+    "Straightness",
+    "Circularity",
+    "Cylindricity",
+    "Perpendicularity",
+    "Parallelism",
+    "Angularity",
+    "Position",
+    "Concentricity",
+    "Symmetry",
+    "Profile",
+    "Runout",
+];
+
+/// The size-tolerance kinds (M1).
+pub const TOLERANCE_KINDS: &[&str] = &["symmetric", "bilateral", "limits", "fit", "basic"];
 
 /// The dimension kinds, as their tags. `Ordinate` is absent: it reads one raw
 /// view-plane coordinate measured from the view frame's origin, which is a
@@ -389,7 +415,7 @@ pub(crate) fn drawing_annotation_add(
         &tab.id,
         DrawingEdit::AddAnnotation {
             view_id,
-            annotation: spec,
+            annotation: Box::new(spec),
         },
     )?;
 
@@ -1114,25 +1140,105 @@ fn annotation_arg(args: &Value) -> Result<DrawingAnnotationSpec, ToolFailure> {
             .get("label")
             .and_then(Value::as_str)
             .map(str::to_string),
-        precision: precision_arg(args)?,
+        precision: precision_arg(args, "precision")?,
         dual_unit: args
             .get("dual_unit")
             .and_then(Value::as_str)
             .filter(|s| !s.is_empty())
             .map(str::to_string),
+        dual_precision: precision_arg(args, "dual_precision")?,
+        tolerance: tolerance_arg(args)?,
+        geometric: geometric_arg(args)?,
         placement: placement_arg(args, "placement")?,
     })
 }
 
-fn precision_arg(args: &Value) -> Result<Option<u8>, ToolFailure> {
-    let Some(v) = args.get("precision").filter(|v| !v.is_null()) else {
+/// The size tolerance an argument set describes (M1), as the primitive spec.
+///
+/// Magnitudes are MILLIMETRES on a linear dimension and DEGREES on an
+/// angular one — stated in the tool's description and converted once, in
+/// `drawing_view::build_tolerance`, which is the only place that knows the
+/// dimension's kind. There is nowhere here to state a unit, so a caller
+/// cannot state the wrong one.
+fn tolerance_arg(args: &Value) -> Result<Option<crate::messages::ToleranceSpec>, ToolFailure> {
+    let Some(v) = args.get("tolerance").filter(|v| !v.is_null()) else {
+        return Ok(None);
+    };
+    let spec: crate::messages::ToleranceSpec = serde_json::from_value(v.clone()).map_err(|e| {
+        ToolFailure::new(
+            "InvalidArgument",
+            format!(
+                "tolerance: {e}. It is {{\"kind\": one of {}, ...}} \u{2014} see the tool                  description for each kind's fields.",
+                TOLERANCE_KINDS.join(" | ")
+            ),
+            json!({ "path": "/tolerance" }),
+        )
+    })?;
+    if !TOLERANCE_KINDS.contains(&spec.kind.to_ascii_lowercase().as_str()) {
+        return Err(ToolFailure::new(
+            "InvalidArgument",
+            format!(
+                "`{}` is not a tolerance kind; use one of {}.",
+                spec.kind,
+                TOLERANCE_KINDS.join(", ")
+            ),
+            json!({ "path": "/tolerance/kind" }),
+        ));
+    }
+    Ok(Some(spec))
+}
+
+/// The geometric tolerance an argument set describes (M1).
+fn geometric_arg(
+    args: &Value,
+) -> Result<Option<crate::messages::GeometricToleranceSpec>, ToolFailure> {
+    let Some(v) = args.get("geometric").filter(|v| !v.is_null()) else {
+        return Ok(None);
+    };
+    let spec: crate::messages::GeometricToleranceSpec = serde_json::from_value(v.clone())
+        .map_err(|e| {
+            ToolFailure::new(
+                "InvalidArgument",
+                format!(
+                    "geometric: {e}. It is {{\"characteristic\": one of {}, \"value_mm\":                      number, \"datums\": [{{\"label\": \"A\"}}], ...}}.",
+                    CHARACTERISTIC_TAGS.join(" | ")
+                ),
+                json!({ "path": "/geometric" }),
+            )
+        })?;
+    if !CHARACTERISTIC_TAGS.contains(&spec.characteristic.as_str()) {
+        return Err(ToolFailure::new(
+            "InvalidArgument",
+            format!(
+                "`{}` is not a geometric characteristic; use one of {}.",
+                spec.characteristic,
+                CHARACTERISTIC_TAGS.join(", ")
+            ),
+            json!({ "path": "/geometric/characteristic" }),
+        ));
+    }
+    if !spec.value_mm.is_finite() || spec.value_mm <= 0.0 {
+        return Err(ToolFailure::new(
+            "InvalidArgument",
+            format!(
+                "a tolerance zone is a positive width in millimetres, not {}.",
+                spec.value_mm
+            ),
+            json!({ "path": "/geometric/value_mm" }),
+        ));
+    }
+    Ok(Some(spec))
+}
+
+fn precision_arg(args: &Value, field: &str) -> Result<Option<u8>, ToolFailure> {
+    let Some(v) = args.get(field).filter(|v| !v.is_null()) else {
         return Ok(None);
     };
     let n = v.as_u64().filter(|n| *n <= 9).ok_or_else(|| {
         ToolFailure::new(
             "InvalidArgument",
-            format!("precision is a whole number of decimal places, 0 to 9, not {v}."),
-            json!({ "path": "/precision" }),
+            format!("{field} is a whole number of decimal places, 0 to 9, not {v}."),
+            json!({ "path": format!("/{field}") }),
         )
     })?;
     Ok(Some(n as u8))
@@ -1248,27 +1354,122 @@ mod tests {
                 Err(e) => assert_eq!(e.details["path"], "/anchors", "{tag}"),
             }
         }
-        let err = annotation_arg(&json!({ "annotation": "FeatureControlFrame" })).unwrap_err();
+        // A tag the tool does NOT offer is refused naming the set. (Before
+        // M1 `FeatureControlFrame` was that tag; it is a real one now, so
+        // the refusal is pinned on a tag nothing will ever add.)
+        let err = annotation_arg(&json!({ "annotation": "Hieroglyph" })).unwrap_err();
         assert_eq!(err.code, "InvalidArgument");
-        assert!(err.message.contains("FeatureControlFrame"));
+        assert!(err.message.contains("Hieroglyph"), "{}", err.message);
+        assert!(
+            err.message.contains("FeatureControlFrame"),
+            "the refusal lists the tags that ARE offered: {}",
+            err.message
+        );
         // And every tag the tool offers builds a real annotation, which is
         // the half the spec alone does not prove.
-        for (tag, anchors) in [
-            ("Dimension", vec![json!(11), json!(12)]),
-            ("Note", vec![json!(11)]),
-            ("CentreMark", vec![json!(11)]),
-            ("CentreLine", vec![json!(11), json!(12)]),
-            ("Datum", vec![json!(11)]),
+        for (tag, anchors, extra) in [
+            ("Dimension", vec![json!(11), json!(12)], json!({})),
+            ("Note", vec![json!(11)], json!({})),
+            ("CentreMark", vec![json!(11)], json!({})),
+            ("CentreLine", vec![json!(11), json!(12)], json!({})),
+            ("Datum", vec![json!(11)], json!({})),
+            (
+                "FeatureControlFrame",
+                vec![json!(11)],
+                json!({ "geometric": { "characteristic": "Flatness", "value_mm": 0.05 } }),
+            ),
         ] {
-            let spec = annotation_arg(&json!({
+            let mut args = json!({
                 "annotation": tag, "kind": "Distance", "anchors": anchors,
                 "text": "note", "label": "A",
-            }))
-            .unwrap_or_else(|e| panic!("{tag}: {}", e.message));
+            });
+            for (k, v) in extra.as_object().expect("an object") {
+                args[k] = v.clone();
+            }
+            let spec = annotation_arg(&args).unwrap_or_else(|e| panic!("{tag}: {}", e.message));
             let built = crate::drawing_view::build_annotation(&spec)
                 .unwrap_or_else(|e| panic!("{tag}: {e}"));
             assert_eq!(feature_engine::drawing::annotation_tag(&built), tag);
         }
+        // A frame with no `geometric` is refused rather than built empty.
+        let err = crate::drawing_view::build_annotation(
+            &annotation_arg(&json!({
+                "annotation": "FeatureControlFrame", "anchors": [11],
+            }))
+            .unwrap(),
+        )
+        .unwrap_err();
+        assert!(err.contains("geometric"), "{err}");
+    }
+
+    #[test]
+    fn a_tolerance_argument_is_millimetres_on_a_length_and_degrees_on_an_angle() {
+        use waffle_types::annotation::tolerance::Tolerance;
+        use waffle_types::annotation::Annotation;
+
+        // M1: the spec's magnitudes are the ones a drafter quotes, and the
+        // conversion to model units happens where the KIND is known. A
+        // caller cannot state a unit, so it cannot state the wrong one.
+        let built = crate::drawing_view::build_annotation(
+            &annotation_arg(&json!({
+                "annotation": "Dimension", "kind": "Distance", "anchors": [11, 12],
+                "tolerance": { "kind": "symmetric", "plus": 0.1 },
+            }))
+            .unwrap(),
+        )
+        .unwrap();
+        let Annotation::Dimension {
+            tolerance: Some(Tolerance::Symmetric { plus_minus }),
+            ..
+        } = &built
+        else {
+            panic!("expected a symmetric tolerance, got {built:?}");
+        };
+        // 0.1 mm, in metres.
+        assert!(
+            (plus_minus.as_length_meters().unwrap() - 1e-4).abs() < 1e-18,
+            "{plus_minus:?}"
+        );
+
+        let built = crate::drawing_view::build_annotation(
+            &annotation_arg(&json!({
+                "annotation": "Dimension", "kind": "Angle", "anchors": [11, 12],
+                "tolerance": { "kind": "symmetric", "plus": 0.5 },
+            }))
+            .unwrap(),
+        )
+        .unwrap();
+        let Annotation::Dimension {
+            tolerance: Some(Tolerance::Symmetric { plus_minus }),
+            ..
+        } = &built
+        else {
+            panic!("expected a symmetric tolerance");
+        };
+        // 0.5 DEGREES, in radians.
+        assert!(
+            (plus_minus.as_angle_degrees().unwrap() - 0.5).abs() < 1e-12,
+            "{plus_minus:?}"
+        );
+
+        // A fit on a radius is refused at this boundary, not at the rebuild.
+        let err = crate::drawing_view::build_annotation(
+            &annotation_arg(&json!({
+                "annotation": "Dimension", "kind": "Radius", "anchors": [11],
+                "tolerance": { "kind": "fit", "hole": "H7" },
+            }))
+            .unwrap(),
+        )
+        .unwrap_err();
+        assert!(err.contains("nominal SIZE"), "{err}");
+
+        // A kind this tool does not know is refused naming the set.
+        let err = annotation_arg(&json!({
+            "annotation": "Dimension", "kind": "Distance", "anchors": [11, 12],
+            "tolerance": { "kind": "snug" },
+        }))
+        .unwrap_err();
+        assert_eq!(err.details["path"], "/tolerance/kind");
     }
 
     #[test]
