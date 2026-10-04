@@ -2869,32 +2869,88 @@ dimension and pressing Ctrl+Z undid the last feature edit instead, silently,
 and the dimension stayed — a gap D4a and D4b both left because neither had an
 authoring gesture to undo.
 
-The fix is app-side and in the same vocabulary as the forward path: the store
-keeps a history of `DrawingEdit` lists, each with the list that undoes it, and
-replays them through `sendDrawingEdit`. Nothing is reconstructed from a
-snapshot of the drawing — a stored drawing would carry `u64` anchor pids
-through JavaScript and round them, which is the one thing that door must never
-do (D4a's own argument for the targeted edit path). `undo()` tries the
-drawing's history first on a drawing tab and FALLS THROUGH when it is empty,
-so Ctrl+Z still reaches the part edit behind it: one Undo button means one
-stack to the user.
+D4d's first answer was a history in the page, in the same vocabulary as the
+forward path: the store kept `DrawingEdit` lists, each with the list that
+undoes it, and replayed them through `sendDrawingEdit`. **It could not be made
+correct, and the measurement is the useful part.** `AddAnnotation` only
+APPENDS — there is no insert and no `EditAnnotation` — so every inverse built
+out of the forward vocabulary restores its annotation to the END of the view's
+list, and the recorded forward step's indices then address a DIFFERENT
+annotation. On a view with two dimensions, deleting the first, undoing and
+redoing had the redo delete the SECOND one and keep the first; the same
+mechanism applied to a placement move LOST one dimension and duplicated the
+other. Every D4d test authored exactly one annotation, where every index is 0
+and addressing the wrong one addresses the right one anyway, which is why it
+took a second dimension to see.
 
-Scope, deliberately: only the annotation edits D4d authors. `DeleteView`'s
-inverse would have to put the view's annotations back and `AddAnnotation`
-appends rather than inserts, so a view's deletion is not expressible as a pair
-of existing edits. The panel is where views are authored and it says what it
-did.
+No revision check could have caught it either, which is the reason it is a
+structural defect and not a missing guard: the shift is caused by the page's
+own undo, not by anything else touching the document, so "refuse when the
+document changed under us" refuses nothing. The order-preserving inverse is
+expressible only as "delete every annotation on the view and re-add them all",
+which is 2N round trips and a rebuild each.
 
-**A placement MOVE is a delete and an add, recorded as ONE history entry.**
-`DrawingEdit` has no `EditAnnotation`, and inventing one is Rust — which this
-increment is not. Two edits in one entry is what makes a single Ctrl+Z put the
-old placement back instead of leaving the annotation deleted. The cost is
-real and is not hidden: the annotation moves to the END of the view's list, so
-dragging the first of three dimensions reorders them. Nothing on the paper
-depends on that order and an index is not an identity a drafter sees, but it
-is why `EditAnnotation` is the right fix and is named below rather than worked
-around. The same mechanism carries the panel's precision, dual-unit, note-text
-and datum-letter edits, so there is one re-author path and not four.
+**So the history is the ENGINE's**, as whole-drawing SNAPSHOTS:
+`DocumentSession::drawing_histories`, a `(undo, redo)` pair of `Drawing`s per
+Drawing tab, taken inside `set_drawing` — which every committed drawing
+mutation passes through, so an annotation authored from the sheet, a view added
+from the panel and an agent's `drawing_view_add` all land on one stack in the
+order they happened, with no caller able to forget to record one. A snapshot
+carries no index, so there is nothing to shift. The derived `cache` is stripped
+from each one (a view's layout is "a megabyte of them on a real part", and the
+evaluation after a restore rebuilds it), and the stack is bounded at 128 steps.
+Nothing of the drawing comes back through JavaScript to make this work, which
+is the constraint that ruled out a page-side snapshot: a stored drawing would
+carry `u64` anchor pids through a JSON round trip and round them (D4a's own
+argument for the targeted edit path).
+
+`UiToEngine::Undo` now reaches either stack and the ENGINE decides which, so
+one Undo button is still one stack to the user. It asks the FEATURE stack
+first, and the order is not arbitrary: for a drafter the two orders are the
+same thing (a Drawing tab's feature history is its own parked one and a drawing
+has no tree to edit, so it is empty), but `Undo` has a second caller — the
+agent authoring layer's ROLLBACK in `tools::author`, which sends it to take
+back a feature it just added and must never be handed a drawing snapshot
+instead. Asking the feature stack first makes that caller exact without it
+having to name a scope. A refused tool edit rolls back through
+`restore_drawing`, which writes without recording, so a refusal leaves no step
+on the stack.
+
+What this bought beyond the defect: **view and sheet edits are undoable too**,
+for free. A `DeleteView`'s inverse is not expressible as a pair of existing
+edits — it would have to put the view's annotations back in order — and a
+snapshot does not have to express anything.
+
+**A placement MOVE is a delete and an add, sent as ONE `Batch`.**
+`DrawingEdit` has no `EditAnnotation`, so changing a placement is a
+`DeleteAnnotation` and an `AddAnnotation`. With the history per committed edit,
+sending them one at a time would make them two steps and a single Ctrl+Z after
+a drag would leave the dimension deleted — so `DrawingEdit::Batch` applies a
+list of edits to a scratch copy and commits once. All or nothing: a batch is
+refused whole if any edit in it is, because the thing that makes one Ctrl+Z
+undo it is the same thing that must make one refusal undo it. A batch inside a
+batch is refused by name rather than recursed into.
+
+The remaining cost of having no `EditAnnotation` is a reorder, and it was
+measured rather than assumed: the annotation moves to the END of the view's
+list, so dragging the first of three reorders them. **Nothing in the tree
+depends on that order.** The DXF export never sees annotations at all (it is
+driven by projected curves and its two byte goldens carry none); the SVG and
+PDF emit them as non-overlapping siblings, and no golden, snapshot, byte hash
+or document fixture pins either; no MCP tool reads an annotation back — the
+agent-facing readback carries `view.annotations.len()` and nothing more — and
+no tool consumes an annotation index. Two things do move and neither is load
+bearing: a view's `cache_key` (a staleness signal, already moved by any add or
+delete), and the index baked into a `DrawingError`'s prose. So `EditAnnotation`
+stays the right fix for the round trips and the churn, named below, rather than
+being conflated with the undo fix.
+
+The same `Batch` carries the panel's precision, dual-unit, note-text and
+datum-letter edits, so there is one re-author path and not four. The delete
+path no longer re-authors anything: it is one edit, and the snapshot restores
+whatever was there, selector kind included — so a dimension anchored by
+something other than a `Selector::Pid` is now deletable and undoable, where the
+page-side history had to refuse it because it could not echo the anchor back.
 
 **The placement rule gained its INVERSE, next to the rule.**
 `layout::placementForPoint` answers "what `Placement2` puts this dimension
@@ -3054,24 +3110,75 @@ drag-and-undo round trip and the delete-and-undo round trip.
 tier: the pick radius and the tie refusal are properties of a click, and a
 regression in either binds a dimension to the wrong edge silently.
 
+**The oracles the review added, and what each would have caught.** Every one
+of them is a case the original eleven could not express, and the first is the
+one that found a defect.
+
+- *A view with TWO dimensions.* `drawing-dimension-tools.spec.js`, "a redo
+  deletes what the delete deleted". Every earlier test authored one
+  annotation, where every index is 0. This one authors a second from the
+  OTHER wall pair (`crossWallPair`), deletes the first, undoes and redoes, and
+  compares anchor pids rather than counts — which is how a redo that deletes
+  the wrong dimension is visible at all, since the count is right either way.
+- *One Ctrl+Z after a drag, with two dimensions on the view.* The batch's
+  oracle: without it a move is two steps and the undo leaves the dimension
+  deleted, with the count still plausible.
+- *Delete and Escape while a panel field has the focus.* The shortcuts are a
+  WINDOW keydown, so a Delete typed into the precision field would otherwise
+  eat the dimension. The test presses the keys in the field and then, with the
+  focus back on the sheet, presses the same key and watches it work — so a
+  passing guard cannot be confused with a shortcut that never ran.
+- *A resize BETWEEN the two picks.* The reason the hit test reads its
+  transform from the DOM on every event instead of caching one: a cached CTM
+  binds the second anchor to whatever entity now sits where the old pixels
+  pointed. Pinned in `drawing-pick-radius.spec.js`, which asserts the zoom
+  actually moved first.
+- *The pick radius at a device scale factor of 2.* `getScreenCTM()` maps user
+  units to CSS pixels, not device pixels, so a retina display changes nothing
+  — and the plausible wrong version, multiplying by `devicePixelRatio`
+  anywhere on the path, passes every other test in the file.
+
+Two review questions came back as "no change needed", with the measurement:
+the tie refusal cannot make a short edge undimensionable, because
+`AnchorIndex::offered` emits at most ONE anchor per `(kind, pid)` (it drops a
+pid naming several drawn curves outright), so an edge contributes one witness
+point and cannot tie with itself; and nothing types a numeric value into a
+dimension on any path, because `annotationSpecFor` builds no `value` field,
+`addAnnotationEdit` sends none, the panel offers no control for one, and the
+engine refuses a literal (`check_measured`).
+
 **Still open after this increment:**
 
 - *No `EditAnnotation` edit.* Every change to an existing annotation is a
-  delete and an add, so it moves to the end of the view's list. One `DrawingEdit`
-  variant removes the reordering and halves the round trips; it is Rust and a
-  format-neutral addition (the edit enum is a message, not a persisted type).
-- *The drawing's undo history is the PAGE's, and dies with the page.* It is
-  correct within a session and covers nothing a reload crosses, where the
-  feature tree's own stack is the engine's. Putting drawing edits on a real
-  document-level stack is the fix and it is Rust.
-- *View and sheet edits are still not undoable.* Adding, re-aiming or deleting
-  a view, and every sheet change, are outside the history for the reason above:
-  `DeleteView`'s inverse is not expressible as a pair of existing edits.
+  delete and an add in one `Batch`, so it moves to the end of the view's list.
+  One `DrawingEdit` variant removes the reordering and halves the round trips;
+  it is Rust and a format-neutral addition (the edit enum is a message, not a
+  persisted type). It is no longer a correctness item — the undo is a snapshot
+  — and the reorder was measured to have no customer (see above).
+- *The drawing's undo history dies with the SESSION.* It is the engine's now
+  rather than the page's, so it survives a tab switch and an agent edit
+  interleaved with a user one, and it covers views and sheets as well as
+  annotations. It is not persisted: `UndoStack` is not written to `.waffle`
+  either, so a drawing's history is exactly as durable as a part's, which is
+  the right place for the limit to sit. Making either survive a reload is one
+  change to the format, not two to the engine.
 - *A view with an unresolvable annotation cannot have its dimensions
   selected.* Named loudly rather than selected by a mismatched index; the fix
   is an index on the layout record.
 - *A vertex cannot be picked.* `ViewAnchor.at` is `None` for the vertex arm.
   The corners a plan view actually offers are the end-on edges, which can.
+  The arithmetic to fill it in is six lines and the projection is already in
+  scope (`AnchorIndex::offered` sits twenty lines below the `basis` binding
+  `resolve_anchor` uses for exactly this), but it is NOT a one-line fix, and
+  the in-code comment's stated reason ("resolved per annotation rather than
+  projected a second way") is not the real one. The real one is that
+  `AnchorIndex::vertices` is built from `all_entity_pids` over ALL bodies with
+  no style filter and no depth test, where `curves` is built only from the
+  `drawn` set — so filling `at` would offer pickable points for vertices on
+  the hidden back face and for vertices a detail view cropped away, which is
+  the failure the curve index is written to avoid. A vertex pick needs a
+  visibility rule and the crop filter with the projection, or it is worse than
+  no vertex pick.
 - *No placement PREVIEW during the placement click.* The picked anchors are
   marked and the cursor is tracked, but the dimension is not drawn in ghost
   before it exists — that needs the annotation laid out against resolved
