@@ -193,14 +193,26 @@ fn build_face_entries(
                 g.scoped(serde_json::from_value(entry["geom_ref"].clone()).expect("round-trip")),
             )
             .unwrap_or(serde_json::Value::Null);
-            let sig = introspect.compute_signature(range.face_id, TopoKind::Face);
-            if sig.surface_type.as_deref() == Some("planar") {
-                if let (Some(c), Some(n)) = (sig.centroid, sig.normal) {
-                    entry["plane"] = serde_json::json!({
-                        "origin": g.relative.apply(c),
-                        "normal": g.relative.apply_dir(n),
-                    });
-                }
+        }
+        // Every PLANAR face reports the engine's exact plane (face centroid +
+        // normal in f64, the same `planar_face_plane` definition the engine
+        // re-derives on rebuild), in the edited part's frame for a ghost.
+        // Until 2026-10-04 only ghosts carried it, and `computeFacePlane` in
+        // the app fell back to the first rendered triangle's centroid — f32
+        // positions — so every sketch drawn on a model face started an f32
+        // rounding off it (2.235e-10 at y = 0.01, `error_oct4.waffle`: the
+        // through-cut's caps missed the frame's faces by that much and the
+        // kernel welded two nearly coplanar planes — spec
+        // `yang_455_coplanar_plane_weld.md` §7). Render geometry is for
+        // looking at; the plane a sketch sits on comes from here.
+        let sig = introspect.compute_signature(range.face_id, TopoKind::Face);
+        if sig.surface_type.as_deref() == Some("planar") {
+            if let (Some(c), Some(n)) = (sig.centroid, sig.normal) {
+                let (origin, normal) = match ghost {
+                    Some(g) => (g.relative.apply(c), g.relative.apply_dir(n)),
+                    None => (c, n),
+                };
+                entry["plane"] = serde_json::json!({ "origin": origin, "normal": normal });
             }
         }
         entries.push(entry);

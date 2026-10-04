@@ -110,18 +110,22 @@ replay_waffle_env`): no engine error; 142 render triangles; all mesh oracles
 PASS; volume 2.301939e-5 m³ against the analytic 2.301865e-5 m³ (the
 difference is the render chord deficit on the cut's concave arc).
 
-## 7. The upstream producer (app, not fixed here)
+## 7. The upstream producer (app — FIXED 2026-10-04, same day)
 
-`app/src/lib/engine/store.svelte.js::computeFacePlane` derives a face's plane
+`app/src/lib/engine/store.svelte.js::computeFacePlane` derived a face's plane
 from the FIRST rendered triangle of the face range — `Float32Array`
-positions — so every sketch started on a model face carries an f32-rounded
-origin, and every extrude from it starts a sub-TAU distance off the face.
-Only ghost (in-context) face ranges carry the engine's exact plane
-(`wasm-bridge/src/render_view.rs`). N2's rebuild re-resolution
-(`feature-engine/src/rebuild.rs::resolve_sketch_plane_face`) deliberately
-keeps the cached origin when it is within 1e-9 of the face, and this document
-has no `plane_face` at all (the UI does not write one). The kernel must
-tolerate this input class regardless (imported STEP carries it too), which is
-what this spec lands; the app-side fix — the bridge emitting the engine's
-exact plane for every planar face range, as it already does for ghosts — is
-a separate increment.
+positions — so every sketch started on a model face carried an f32-rounded
+origin, and every extrude from it started a sub-TAU distance off the face.
+Only ghost (in-context) face ranges carried the engine's exact plane.
+
+Fix: `wasm-bridge/src/render_view.rs::build_face_entries` now emits
+`plane: { origin, normal }` (the engine's f64 face centroid + normal, the
+same `planar_face_plane` definition the rebuild re-derives) for EVERY planar
+face range, ghost or not; `computeFacePlane` already preferred it, and the
+f32 triangle path is left only as a fallback for a range without a plane.
+Pinned by `app/tests/gui/face-sketch-exact-plane.spec.js`: a 61.3 mm
+extrusion (not f32-representable), every face range carries a unit-normal
+plane, the +Z cap's origin is 61.3 to f64 rounding and NOT an f32 value, the
+sketch started on it takes that origin bit for bit, and the stored sketch
+keeps it. The kernel weld stays: imported STEP and other producers carry the
+same class.

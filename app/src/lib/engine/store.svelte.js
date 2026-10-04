@@ -6194,14 +6194,22 @@ export function computeFacePlane(geomRef) {
 			if (!range.geom_ref) continue;
 			if (!geomRefEquals(range.geom_ref, geomRef)) continue;
 
-			// A ghost face (in-context editing) carries the engine's plane —
-			// face centroid + normal in this part's frame — which is exactly
-			// what the engine re-derives on rebuild, so a sketch started here
-			// does not slide when its plane is re-resolved.
+			// Every planar face range carries the engine's EXACT plane — face
+			// centroid + normal in f64 (a ghost's in this part's frame) — which
+			// is what the engine re-derives on rebuild, so a sketch started here
+			// sits ON the face and does not slide when its plane is re-resolved.
+			// Never derive a sketch plane from the render mesh: its positions
+			// are Float32, and a sketch origin rounded through them put a
+			// through-cut's caps 2.235e-10 off the frame's faces
+			// (`error_oct4.waffle`, 2026-10-04; kernel side: spec
+			// `yang_455_coplanar_plane_weld.md`).
 			if (range.plane?.origin && range.plane?.normal) {
 				return { origin: [...range.plane.origin], normal: [...range.plane.normal] };
 			}
 
+			// Fallback for a range without a plane (a bundle older than the
+			// `plane` field, or a non-planar face): the first rendered
+			// triangle, f32 — approximate, kept so the UI still orients.
 			// Get first triangle from this face range
 			// start_index is already an index into the indices array
 			const triStart = range.start_index;

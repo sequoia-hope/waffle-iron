@@ -5935,10 +5935,9 @@ exact cut in face count with every top vertex exactly on the plane);
 The document replays with no engine error, all mesh oracles PASS, volume
 2.301939e-5 m³ against the analytic 2.301865e-5 m³ (render chord deficit).
 
-**Upstream producer, not fixed here.** The app derives face sketch planes
-from f32 render geometry (`store.svelte.js::computeFacePlane`; only ghost
-face ranges carry the engine's exact plane, `render_view.rs`), and the UI
-writes no `plane_face`, so N2's rebuild re-resolution never re-snaps the
-origin. The kernel must tolerate the class regardless (imported STEP carries
-it); the app-side increment is the bridge emitting the exact plane for every
-planar face range.
+**Upstream producer — fixed the same day.** The app derived face sketch
+planes from f32 render geometry (`store.svelte.js::computeFacePlane`; only
+ghost face ranges carried the engine's exact plane). `render_view.rs` now
+emits the engine's f64 plane for every planar face range and the UI takes
+it; pinned by `app/tests/gui/face-sketch-exact-plane.spec.js` (spec §7). The
+kernel weld stays — imported STEP carries the same class.
