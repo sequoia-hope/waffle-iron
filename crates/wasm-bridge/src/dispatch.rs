@@ -1389,6 +1389,11 @@ fn export_sheet_dxf(
     state.park_unused_part_engines(reuse, &eval.parts);
 
     let mut composed = ViewGeometry::default();
+    // The hatch, placed into paper space beside the curves (D4c). Kept apart
+    // from `composed` because a hatch line is NOT a projected curve — it has
+    // no source entity and no visibility to derive a layer from, which is
+    // exactly why the writer now takes a layer per curve.
+    let mut hatch: Vec<waffle_types::kernel::projection::Curve2> = Vec::new();
     let mut warnings = eval.warnings.clone();
     warnings.extend(eval.errors.iter().cloned());
     let mut drawn = 0usize;
@@ -1422,13 +1427,51 @@ fn export_sheet_dxf(
             continue;
         };
         composed.extend(placed);
+        // A section view's hatch, through the same similarity as its curves
+        // (D4c). The segments are the ENGINE's — one scanline for the screen,
+        // the PDF and this file — so a reader measuring a hatch line on the
+        // sheet measures the line in the DXF.
+        if let Some(layout) = eval.layouts.get(&view.id) {
+            for line in waffle_types::annotation::hatch::segments_as_curves(&layout.hatch_segments)
+            {
+                // The SAME similarity the curves went through, so the hatch
+                // cannot drift off the cap it fills. `None` is impossible
+                // here — the scale was already accepted above for the
+                // curves — and skipping rather than unwrapping keeps the
+                // export from panicking if that ever stops being true.
+                if let Some(placed) = line.transformed(view.scale, offset) {
+                    hatch.push(placed);
+                }
+            }
+        }
         drawn += 1;
     }
     if drawn == 0 {
         return Err(BridgeError::NoMeshData);
     }
-    let dxf_data = kernel_v2::dxf_export::write_dxf(
-        &composed,
+    let mut curves: Vec<kernel_v2::DxfCurve> = composed
+        .curves
+        .iter()
+        .map(kernel_v2::dxf_export::dxf_curve)
+        .collect();
+    curves.extend(hatch.iter().map(|c| kernel_v2::DxfCurve {
+        geometry: c,
+        layer: kernel_v2::LAYER_HATCH,
+    }));
+    // The extents cover the hatch too: a reader zooms to `$EXTMAX`, and a
+    // hatch line reaching past the outline it fills (a chord-sampled cap
+    // boundary can, by its sagitta) would otherwise fall outside the box the
+    // file declares.
+    let bbox = hatch.iter().fold(composed.bbox, |box_, curve| {
+        let own = curve.bbox();
+        Some(match box_ {
+            Some(b) => b.united(own),
+            None => own,
+        })
+    });
+    let dxf_data = kernel_v2::write_dxf_layers(
+        &curves,
+        bbox,
         kernel_v2::dxf_export::DEFAULT_POLYLINE_SAGITTA,
     );
     warnings.extend(decline_warning(&composed.declines));

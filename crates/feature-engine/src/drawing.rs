@@ -1788,6 +1788,11 @@ pub struct ViewRebuild {
     /// drawing where the information was. The view draws, the annotations
     /// that resolved are on it, and the ones that did not are named.
     pub annotation_errors: Vec<(usize, DrawingError)>,
+    /// What the rebuild could still DRAW but had to compromise on (D4c) —
+    /// today, a hatch boundary that came back degenerate. Beside the layout
+    /// for the reason `annotation_errors` is: a cap that came back unhatched
+    /// should say why rather than look like a cap nobody sectioned.
+    pub warnings: Vec<String>,
 }
 
 /// Project `bodies` into `frame` and resolve `view`'s annotations against the
@@ -1954,6 +1959,8 @@ pub fn rebuild_view_in(
     }
     layout.annotations = resolved;
     layout.hatch = extras.hatch.clone();
+    let mut warnings = Vec::new();
+    layout.hatch_segments = hatch_fill(&extras.hatch, view.scale, &mut warnings);
     layout.marks = extras.marks.clone();
     layout.clip = extras.clip;
 
@@ -1972,7 +1979,42 @@ pub fn rebuild_view_in(
         geometry: drawn,
         anchors: anchors.offered(),
         annotation_errors,
+        warnings,
     })
+}
+
+/// A section cap's hatch, in the view's own `(u, v)` (D4c).
+///
+/// Two conversions happen here and both are the whole reason this wrapper
+/// exists rather than the scanline being called directly:
+///
+/// - **The spacing is a PAPER quantity**, 3 mm whatever the view's scale, so
+///   it is divided by the scale on the way in. A view drawn at 2:1 therefore
+///   hatches at 1.5 mm of model, which is 3 mm of paper — the alternative, a
+///   fixed model spacing, would print a detail view's hatch at twice the
+///   pitch of the view it was cropped from.
+/// - **The angle's SIGN flips.** [`hatch::HATCH_ANGLE_DEG`] is measured on
+///   the paper, whose `y` runs DOWN; a view's `v` runs up. Negating here is
+///   what keeps the drawn lean the one D4b shipped, and it is the one place
+///   the two frames meet.
+fn hatch_fill(loops: &[HatchLoop], scale: f64, warnings: &mut Vec<String>) -> Vec<[[f64; 2]; 2]> {
+    use waffle_types::annotation::hatch;
+    if loops.is_empty() {
+        return Vec::new();
+    }
+    // Meters per paper millimetre at this view's scale. `scale` is already
+    // known finite and positive (checked at the top of `rebuild_view_in`).
+    let per_mm = 1.0 / (1000.0 * scale);
+    let fill = hatch::hatch_segments(
+        loops,
+        &hatch::HatchParams {
+            spacing: hatch::HATCH_SPACING_MM * per_mm,
+            angle_rad: (-hatch::HATCH_ANGLE_DEG).to_radians(),
+            sagitta: hatch::HATCH_BOUNDARY_SAGITTA_MM * per_mm,
+        },
+    );
+    warnings.extend(fill.warnings);
+    fill.segments
 }
 
 /// Every drawn curve of a view, indexed by the persistent id of the entity it

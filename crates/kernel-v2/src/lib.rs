@@ -105,7 +105,10 @@ pub use construct::{
     PipeResult, RevolveResult, SweepFrame, SweepPath, SweepResult, SweepSegment, SweepSegmentKind,
     SweepStation,
 };
-pub use dxf_export::{write_dxf, DEFAULT_POLYLINE_SAGITTA, LAYER_HIDDEN, LAYER_VISIBLE};
+pub use dxf_export::{
+    dxf_curve, write_dxf, write_dxf_layers, DxfCurve, DEFAULT_POLYLINE_SAGITTA, LAYER_HATCH,
+    LAYER_HIDDEN, LAYER_VISIBLE,
+};
 pub use error::KernelV2Error;
 pub use euler::{
     kemr, kfmrh, mef, mev, mev_lone, mvfs, KemrResult, MefResult, MevResult, MvfsResult,

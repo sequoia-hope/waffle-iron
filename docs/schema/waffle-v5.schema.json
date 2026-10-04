@@ -7939,6 +7939,24 @@
           },
           "type": "array"
         },
+        "hatch_segments": {
+          "description": "The hatch itself, as `[[u0, v0], [u1, v1]]` line segments in this\nview's own `(u, v)` (D4c) — computed by\n[`crate::annotation::hatch::hatch_segments`] from `hatch` above.\n\nD4b left the scanline in the app, which gave the SVG and the PDF one\ngeometry and gave the DXF none: a hatched DXF would have needed a\nsecond implementation of the same fill. Computing it here is what\nmakes the line a reader measures on the screen the line in every file.\n\nThe LOOPS stay beside it, because a renderer that fills regions rather\nthan stroking lines needs them, and because a test asserting \"one\nouter boundary and one hole\" needs them most of all.",
+          "items": {
+            "items": {
+              "items": {
+                "format": "double",
+                "type": "number"
+              },
+              "maxItems": 2,
+              "minItems": 2,
+              "type": "array"
+            },
+            "maxItems": 2,
+            "minItems": 2,
+            "type": "array"
+          },
+          "type": "array"
+        },
         "marks": {
           "description": "What is marked on THIS view because another view was derived from it: a\nchild section's cutting line, a child detail's circle (D4b).",
           "items": {

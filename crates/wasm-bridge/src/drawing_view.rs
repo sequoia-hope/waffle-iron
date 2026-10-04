@@ -756,6 +756,12 @@ pub fn evaluate(
             match built {
                 Ok(built) => {
                     out.declines.merge(&built.declines);
+                    out.warnings.extend(
+                        built
+                            .warnings
+                            .iter()
+                            .map(|w| format!("view `{}`: {w}", view.name)),
+                    );
                     for (index, e) in &built.annotation_errors {
                         out.errors.push(describe(view.name.as_str(), e));
                         out.annotation_errors.push((view.id, *index));

@@ -840,6 +840,185 @@ fn a_sheet_exports_every_view_placed_in_paper_millimetres() {
     );
 }
 
+/// Every DXF entity in the `ENTITIES` section, as `(type, layer, groups)`,
+/// where `groups` maps a group code to its values in order.
+///
+/// A real walk of the group-code stream rather than a substring search: the
+/// claim "the hatch is on the HATCH layer" is about which `8` group each
+/// entity carries, and a `grep` for `HATCH` would be satisfied by the layer
+/// TABLE alone — which is exactly the bug a writer could have.
+fn dxf_entities(dxf: &str) -> Vec<(String, String, std::collections::BTreeMap<i32, Vec<String>>)> {
+    use std::collections::BTreeMap;
+    let lines: Vec<&str> = dxf.lines().map(str::trim).collect();
+    let start = lines
+        .windows(3)
+        .position(|w| w[0] == "0" && w[1] == "SECTION" && w[2] == "2")
+        .map(|i| i + 3)
+        .filter(|i| lines.get(*i).copied() == Some("ENTITIES"))
+        .or_else(|| {
+            // The ENTITIES section is not the first; walk for it.
+            lines
+                .iter()
+                .enumerate()
+                .find(|(i, l)| **l == "ENTITIES" && lines.get(i.wrapping_sub(1)) == Some(&"2"))
+                .map(|(i, _)| i)
+        })
+        .expect("the DXF has an ENTITIES section");
+    let mut out = Vec::new();
+    let mut current: Option<(String, String, BTreeMap<i32, Vec<String>>)> = None;
+    let mut i = start + 1;
+    while i + 1 < lines.len() {
+        let code: i32 = match lines[i].parse() {
+            Ok(c) => c,
+            Err(_) => {
+                i += 2;
+                continue;
+            }
+        };
+        let value = lines[i + 1];
+        i += 2;
+        if code == 0 {
+            if let Some(entity) = current.take() {
+                out.push(entity);
+            }
+            if value == "ENDSEC" || value == "EOF" {
+                break;
+            }
+            current = Some((value.to_string(), String::new(), BTreeMap::new()));
+        } else if let Some((_, layer, groups)) = current.as_mut() {
+            if code == 8 {
+                *layer = value.to_string();
+            }
+            groups.entry(code).or_default().push(value.to_string());
+        }
+    }
+    out
+}
+
+/// The declared `LAYER` records, in order.
+fn dxf_layers(dxf: &str) -> Vec<String> {
+    let lines: Vec<&str> = dxf.lines().map(str::trim).collect();
+    let mut out = Vec::new();
+    for i in 0..lines.len().saturating_sub(3) {
+        if lines[i] == "0" && lines[i + 1] == "LAYER" && lines[i + 2] == "2" {
+            out.push(lines[i + 3].to_string());
+        }
+    }
+    out
+}
+
+#[test]
+fn a_sections_hatch_reaches_the_dxf_on_the_hatch_layer() {
+    // D4c, closing D4b's "hatching is not in the DXF". §8 names a `HATCH`
+    // layer and the sheet DXF carried only curves: the cap's BOUNDARY was
+    // there (the projection emits it as an ordinary edge), the fill was not.
+    //
+    // The fill is the ENGINE's scanline now — one implementation for the
+    // screen, the PDF and this file — so the pin is that the same segment
+    // count the layout carries reaches the file, on the layer the standard
+    // names, as LINE entities a cutting table understands.
+    let (mut state, mut kernel, part_tab, drawing_tab) = bored_box_and_drawing();
+    let front = ok(
+        &mut state,
+        &mut kernel,
+        "drawing_view_add",
+        json!({ "tab_id": part_tab, "view": "front", "placement_mm": [100.0, 100.0] }),
+    )["view_id"]
+        .as_str()
+        .expect("the front view's id")
+        .to_string();
+    let section = ok(
+        &mut state,
+        &mut kernel,
+        "drawing_view_add",
+        json!({
+            "tab_id": part_tab,
+            "parent_view_id": front,
+            "section_mm": [-2.0, H * 1000.0 / 2.0, W * 1000.0 + 2.0, H * 1000.0 / 2.0],
+            "label": "A",
+        }),
+    )["view_id"]
+        .as_str()
+        .expect("the section's id")
+        .to_string();
+
+    let laid_out = layout(&state, &drawing_tab, &section);
+    let segments = laid_out.hatch_segments.len();
+    // A 20 × 10 mm cap at 3 mm spacing and 45°: enough lines to read as
+    // hatched, which is the whole point of the 3 mm choice.
+    assert!(
+        segments >= 5,
+        "a 20 × 10 mm cap must carry a readable hatch, got {segments} line(s)"
+    );
+
+    let dxf = exported_dxf(&tool(
+        &mut state,
+        &mut kernel,
+        "export_dxf",
+        json!({ "deliver": "agent" }),
+    ));
+    let entities = dxf_entities(&dxf);
+    let hatched: Vec<_> = entities
+        .iter()
+        .filter(|(_, layer, _)| layer == "HATCH")
+        .collect();
+    assert_eq!(
+        hatched.len(),
+        segments,
+        "every hatch line the layout carries must be in the file, and no others"
+    );
+    for (kind, _, groups) in &hatched {
+        // R12 `LINE`: group 10/20 the first point, 11/21 the second. Not a
+        // POLYLINE and not an `HATCH` entity (which R12 does not have).
+        assert_eq!(kind, "LINE", "a hatch line is an R12 LINE");
+        for code in [10, 20, 11, 21] {
+            assert_eq!(groups.get(&code).map(Vec::len), Some(1), "group {code}");
+        }
+    }
+    // The hatch lines land INSIDE the section view's own paper box, which is
+    // what says the placement went through the same similarity the curves
+    // did. (A hatch left in view coordinates would sit at the origin.)
+    let section_view = state
+        .session
+        .drawing(&drawing_tab)
+        .expect("the drawing")
+        .find_view(Uuid::parse_str(&section).unwrap())
+        .expect("the section")
+        .1
+        .clone();
+    let placement = section_view.placement_mm;
+    for (_, _, groups) in &hatched {
+        let x: f64 = groups[&10][0].parse().expect("an x");
+        let y: f64 = groups[&20][0].parse().expect("a y");
+        assert!(
+            (x - placement[0]).abs() < 30.0 && (y - placement[1]).abs() < 30.0,
+            "a hatch line at ({x}, {y}) is nowhere near the view at {placement:?}"
+        );
+    }
+    // And the layer TABLE declares it, so a reader can switch it off. VISIBLE
+    // and HIDDEN stay declared whatever the drawing holds.
+    let layers = dxf_layers(&dxf);
+    assert_eq!(layers, vec!["VISIBLE", "HIDDEN", "HATCH"], "{layers:?}");
+    // A sheet with no section declares the two and no HATCH entity.
+    let (mut state, mut kernel, part_tab, _) = box_and_drawing();
+    ok(
+        &mut state,
+        &mut kernel,
+        "drawing_view_add",
+        json!({ "tab_id": part_tab, "view": "top" }),
+    );
+    let plain = exported_dxf(&tool(
+        &mut state,
+        &mut kernel,
+        "export_dxf",
+        json!({ "deliver": "agent" }),
+    ));
+    assert_eq!(dxf_layers(&plain), vec!["VISIBLE", "HIDDEN"]);
+    assert!(dxf_entities(&plain)
+        .iter()
+        .all(|(_, layer, _)| layer != "HATCH"));
+}
+
 #[test]
 fn one_view_exports_alone_at_the_paper_origin() {
     let (mut state, mut kernel, part_tab, _drawing_tab) = box_and_drawing();
