@@ -7449,10 +7449,16 @@ export function getDocumentDisplaySettings(overrides) {
  * disclosure), from the engine's `MeasureMass` query.
  *
  * `density_kg_m3` is deliberately NOT sent: the engine reads the body's
- * assigned material and reports back which density it used, so the material
- * table has exactly one reader. A body with no material measures at 1 kg/m³,
- * which makes `mass_kg` numerically the volume — the caller tells them apart
- * by the returned `density_kg_m3`, not by guessing.
+ * assigned material, so the material table has exactly one reader.
+ *
+ * A body with no material comes back with NO mass — `mass_kg`,
+ * `density_kg_m3`, `inertia_at_centroid` and `principal_moments` are all
+ * `null` together and `mass_unavailable` names the remedy, while the
+ * density-free rows (volume, area, centroid) are answered as always. The
+ * caller must test for the ABSENCE and not coerce it: `Number(null)` is `0`,
+ * so a `Number.isFinite(Number(x))` check reads "no material" as "a density
+ * of zero". The panel's own guard is `typeof x === 'number'` for exactly that
+ * reason.
  *
  * @param {string} bodyId
  * @returns {Promise<any|null>} the `MassMeasured` response, or null when the
@@ -8768,9 +8774,16 @@ function mirrorSessionDocument(info) {
 	// The rest of the display settings (M1), on the same unconditional terms
 	// and for the same reason: the session reports `display` on every
 	// `DocumentInfo`, so an absent field means "this document has none", not
-	// "keep the last document's". `null` is how `resolveDisplay` is told to
-	// fall back to its own default, which is why these are not `??`-defaulted
-	// here — one place states the fallbacks and it is `units.js`.
+	// "keep the last document's".
+	//
+	// The fallbacks are named here AND honoured by `units.js` for an absent
+	// value, which is belt and braces on purpose. `units.js` is the one place
+	// that STATES them; writing them again here is what makes this record a
+	// complete `DisplaySettings` rather than a sparse patch, so a later reader
+	// of `documentDisplay` cannot mistake an absence for a zero. (The two did
+	// disagree until the M1 review: `clampPlaces` coerced a `null` precision
+	// to ZERO places, so dropping a `??` here would have printed every
+	// dimension in the document as a whole number.)
 	documentDisplay = {
 		precision: info.display?.precision ?? DEFAULT_DISPLAY.precision,
 		dualUnit: info.display?.dual_unit ?? null,

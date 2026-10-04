@@ -2343,16 +2343,27 @@ fn measure_interference(
 ///
 /// **The density, since M1.** An explicit `density_kg_m3` still wins — a
 /// caller asking "what would this weigh in brass" must get that answer. With
-/// `None` the body's own MATERIAL supplies it (`FeatureTree::density_of_body`),
-/// and only a body with no material at all falls back to
-/// `DEFAULT_DENSITY_KG_M3`, where `mass_kg` is numerically the volume. The
-/// answer always reports the `density_kg_m3` it used, which is how a caller
-/// tells the three cases apart.
+/// `None` the body's own MATERIAL supplies it
+/// (`FeatureTree::density_of_body`).
 ///
-/// A DANGLING material assignment is a hard refusal, not a fallback: a body
-/// pointing at a material the table does not have is a document defect, and
-/// answering it at density 1 would report a mass 2700× light for aluminium
-/// with nothing to say so.
+/// **There is no fallback density, and that absence is the point.** A body
+/// with no material has NO MASS: the four density-scaled answers (`mass_kg`,
+/// `density_kg_m3`, `inertia_at_centroid`, `principal_moments`) are `None`
+/// together and `mass_unavailable` names the remedy. `DEFAULT_DENSITY_KG_M3`
+/// is 1, so reporting the scaled numbers would publish the volume in m³ under
+/// a field spelled `mass_kg` and the tensor in m⁵ under one documented kg·m² —
+/// the right magnitude, the right printed units and no way for a reader who
+/// does not check the density to tell. The density-FREE answers are
+/// unaffected: a volume, an area, a centroid and the principal AXES are
+/// properties of the shape (the axes are eigenvectors, and a positive scalar
+/// does not move an eigenvector). **Do not reinstate the fallback here** —
+/// `an_absent_material_nulls_every_density_scaled_field` is the test that
+/// refuses it.
+///
+/// A DANGLING material assignment is a hard refusal, which is neither of the
+/// two cases above: a body pointing at a material the table does not have is a
+/// document defect, and answering it at all would report an aluminium part's
+/// mass 2700× light with nothing to say so.
 fn measure_mass(
     state: &mut EngineState,
     kb: &mut dyn KernelBundle,

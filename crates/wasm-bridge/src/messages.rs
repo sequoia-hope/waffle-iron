@@ -645,13 +645,19 @@ pub enum UiToEngine {
     /// centroid of one body (Q3 of `specs/agent_mechanical_design.md` §4.2).
     ///
     /// Absent, `density_kg_m3` comes from the body's own MATERIAL (M1,
-    /// `FeatureTree::density_of_body`), and only a body with no material at
-    /// all falls back to [`waffle_types::kernel::DEFAULT_DENSITY_KG_M3`] — at
-    /// which `mass_kg` is numerically the volume. The answer always reports
-    /// the density it used, which is how a caller tells the two apart; a
-    /// DANGLING material (a body naming one the table no longer has) is
-    /// refused rather than measured at the fallback. An explicit value still
-    /// wins, for "what would this weigh in brass". Query: no rebuild.
+    /// `FeatureTree::density_of_body`). A body with no material at all has
+    /// **no mass**: there is no fallback to
+    /// [`waffle_types::kernel::DEFAULT_DENSITY_KG_M3`], because at a density
+    /// of 1 `mass_kg` is numerically the volume in m³ and the tensor is in m⁵
+    /// under a field documented as kg·m² — a plausible wrong number with the
+    /// right magnitude and the right printed units. So the four
+    /// DENSITY-SCALED answers come back `null` together and
+    /// `MassMeasured::mass_unavailable` names the remedy, while the
+    /// density-FREE ones (volume, area, centroid, principal AXES) are
+    /// answered as always. A DANGLING material (a body naming one the table
+    /// no longer has) is a hard refusal rather than either of those. An
+    /// explicit value still wins, for "what would this weigh in brass".
+    /// Query: no rebuild.
     MeasureMass {
         body_id: String,
         #[serde(default, skip_serializing_if = "Option::is_none")]

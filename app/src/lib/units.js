@@ -114,8 +114,24 @@ export const DEFAULT_DISPLAY = Object.freeze({
  */
 let documentDisplay = { ...DEFAULT_DISPLAY };
 
-/** `places`, as a whole number of decimals in `0 .. max`, or `fallback`. */
+/**
+ * `places`, as a whole number of decimals in `0 .. max`, or `fallback`.
+ *
+ * `null` and `undefined` are ABSENCE and take the fallback — they are not a
+ * precision of zero. `Number(null)` is `0`, and `0` is a legal precision, so
+ * the obvious `Number.isFinite(Number(p))` reads "this document states no
+ * precision" as "print this dimension to no decimal places": 25.40 mm becomes
+ * `25`, silently, on every dimension in the document. It is the same
+ * `Number(null) === 0` trap the mass panel hit one layer down, and the reason
+ * the test is on the RAW value's type.
+ *
+ * It also makes the contract `mirrorSessionDocument` states true: that an
+ * absent setting may be passed through as `null` and this module supplies the
+ * fallback. That comment and this function disagreed, and the `??` defaults at
+ * the mirror were all that stood between them.
+ */
 function clampPlaces(p, fallback, max = MAX_PLACES) {
+	if (p == null) return fallback;
 	const n = Number(p);
 	if (!Number.isFinite(n)) return fallback;
 	return Math.min(max, Math.max(0, Math.trunc(n)));

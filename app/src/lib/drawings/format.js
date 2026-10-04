@@ -544,7 +544,16 @@ export function fixed(x, places) {
 	return s.startsWith('-') ? `${MINUS}${s.slice(1)}` : s;
 }
 
+/**
+ * `p` as a whole number of decimals in `0 .. 6`, or [`DEFAULT_PRECISION`].
+ *
+ * `null` and `undefined` are ABSENCE, not a precision of zero — the same
+ * `Number(null) === 0` trap as `units.js`'s `clampPlaces` and the band
+ * guards above. Zero IS a legal precision, so an absence that coerces to it
+ * is indistinguishable from an author who asked for whole millimetres.
+ */
 function clampPrecision(p) {
+	if (p == null) return DEFAULT_PRECISION;
 	const n = Number(p);
 	if (!Number.isFinite(n)) return DEFAULT_PRECISION;
 	return Math.min(6, Math.max(0, Math.trunc(n)));

@@ -1317,6 +1317,53 @@ test.describe('M1 tolerance, precision and material', () => {
 		expect(fromDocument.texts).toEqual(['40.000 [1.57 in]']);
 	});
 
+	test('a null precision is an ABSENCE and not zero decimal places', async ({
+		page,
+		waffle
+	}) => {
+		await waffle.waitForReady();
+
+		// The M1 review's fourth defect. Both precision clamps tested
+		// `Number.isFinite(Number(p))`, and `Number(null)` is 0 — which is a
+		// LEGAL precision, so an absent setting was indistinguishable from an
+		// author asking for whole millimetres. A 40 mm plate printed `40`.
+		//
+		// `renderDrawingSvg`'s `display` is a public door (the agent link and
+		// the console both reach it), so a null arriving here is not
+		// hypothetical; and `mirrorSessionDocument` documented the contract
+		// that a null means "fall back", three lines above the `??` defaults
+		// that were the only thing making it true.
+		const nulled = await renderAndQuery(
+			page,
+			{
+				layout: plateLayout([{ ...WIDTH_DIMENSION, precision: null }]),
+				display: { precision: null }
+			},
+			{ texts: 'text.wi-dim-value' }
+		);
+		expect(nulled.texts).toEqual(['40.00']);
+
+		// Zero IS a legal precision, and still means zero — the fix must not
+		// have turned the absence check into a falsiness check.
+		const zero = await renderAndQuery(
+			page,
+			{ layout: plateLayout([{ ...WIDTH_DIMENSION, precision: 0 }]) },
+			{ texts: 'text.wi-dim-value' }
+		);
+		expect(zero.texts).toEqual(['40']);
+
+		// And a document-level zero reaches a dimension that names none.
+		const zeroDocument = await renderAndQuery(
+			page,
+			{
+				layout: plateLayout([{ ...WIDTH_DIMENSION, precision: null }]),
+				display: { precision: 0 }
+			},
+			{ texts: 'text.wi-dim-value' }
+		);
+		expect(zeroDocument.texts).toEqual(['40']);
+	});
+
 	test('a document dual unit applies to an annotation that names none', async ({
 		page,
 		waffle
