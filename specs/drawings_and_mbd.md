@@ -2975,7 +2975,8 @@ no data of its own — and it is checkable: Ø30 K7 comes out +6/−15 and Ø30 
 −7/−28, both the published rows. A letter the table does not carry, or a
 nominal past 500 mm, is a typed refusal that names what it could not find;
 nothing extrapolates. The deviation table uses the standard's own FINER size
-steps where they differ from the IT steps (r and s split inside four IT steps),
+steps where they differ from the IT steps (r and s split inside seven IT
+steps — the M1 review counted them; this sentence said four),
 because a constant-within-IT-step shortcut would be a silent wrong number for
 exactly those letters — pinned by a test that asserts r and s DO differ there
 while p does not, so the shortcut cannot creep back in.
@@ -3072,10 +3073,12 @@ most plausible wrong number this increment could produce — a number with the
 right order of magnitude, the right units printed beside it, and no way to tell
 it is wrong. So `mass(body)` refuses by name and says to assign a material; a
 DANGLING assignment (a body pointing at a material the table no longer has) is
-refused naming the material. `measure_mass` keeps the fallback, because its
-answer always reports the `density_kg_m3` it used, which is what makes the
-three cases distinguishable — and an explicit density still wins, because "what
-would this weigh in brass" is a real question.
+refused naming the material. **`measure_mass` has no fallback either** — the
+first cut kept one on the reasoning that an honest `density_kg_m3` label makes
+the number safe, and the review below records why it does not: the four
+density-scaled answers are `null` together with `mass_unavailable` naming the
+remedy, while the density-free ones are answered as always. An explicit density
+still wins, because "what would this weigh in brass" is a real question.
 
 **`kg`, `g`, `lb` and `oz` are new reserved words; the tonne deliberately is
 not.** A unit suffix is not callable-only the way a measurement name is — it is
@@ -3243,6 +3246,132 @@ on the way in: the formatter refuses one outside the drafting set and falls
 back to a decimal, loudly, where a reader that quietly substituted 16 would
 print a dimension at a precision nobody chose.
 
+#### Found in the second review (2026-10-04), after the merge of P2/P3
+
+An adversarial pass over the whole increment. Four real defects, each with a
+pinning test; three of the four were SILENT WRONG NUMBERS reaching a drawing
+or a quoted part mass.
+
+**ISO 286's first size step has no Δ, and every Δ-bearing hole letter below
+Ø3 was wrong by its own Δ.** The hole rule `ES = −ei + Δ` was applied in
+`0 < D ≤ 3` too, where the standard's Δ is zero. At Ø2 IT7 that is 4 µm, so
+K7 came out +4/−6 against the published 0/−10, and M7, N7, P6, P7, R7 and S7
+were each off by the same mechanism. What settles it rather than leaving it a
+recollection contest: the Δ arithmetic reproduces the complete published K7,
+K8, N7 and P6 columns at all twelve OTHER size steps, and at the first step
+all eight letters instead equal the exact mirror of their shaft — eight
+classes agreeing on the mirror is the Δ = 0 row. The oracle missed it because
+`PUBLISHED_HOLE` had no row below Ø10, and both sweeps beside it (`upper ≥
+lower`, `width == IT`) are satisfied by the wrong value. Fixed by gating the Δ
+term on the first step's upper bound; pinned by ten new published anchors
+below Ø3 and by a 432-row mechanism test asserting the plain mirror across
+every letter, grade and nominal in the step. A deliberate side effect: K/M/N/
+P/R/S at IT1 now RESOLVE for D ≤ 3 instead of refusing for want of IT0 —
+with Δ = 0 there is nothing to subtract.
+
+**The `js` odd-IT replacement is GRADE-SCOPED, and the two anchors that
+agreed with the unscoped rule were the module's own output.** ISO 286-1's note
+replaces an odd ITn with the even number below it so `±(ITn − 1)/2` is a whole
+micrometre — for **js7 to js11**. The module applied it at every grade, so
+Ø25 js5 came out ±4 and js6 ±6 where the class's own definition gives ±4.5 and
+±6.5, the half micrometres ISO 286-2 prints in its fine-grade JS columns. The
+`PUBLISHED_SHAFT` rows for those two had been back-filled from the
+implementation, which is the one way an anchor table can confirm a defect
+instead of catching it. Two arguments carry the scope: the note's stated
+purpose is to keep PRINTED limits whole, which is only a purpose where the
+table is printed whole; and a RANGE would be pointless otherwise, since odd IT
+values do occur at IT5 and IT6 while IT12–IT18 have none at any size step (so
+the upper bound at js11 is there to make the rule non-vacuous, and is measured
+to cost nothing). Applying an exception outside its stated range is the
+extrapolation this module refuses everywhere else, so the narrow reading needs
+less evidence than the wide one. **This is the one thing in `iso286.rs`
+resting on recollection of a note's wording rather than a transcribed table**,
+and `symmetric`'s doc comment says so and names what would settle it: a
+transcription of the JS5 and JS6 columns. The two contaminated rows are gone
+and the behaviour is pinned by
+`the_odd_it_replacement_is_scoped_to_js7_through_js11`, which states its
+numbers' provenance as the general rule rather than claiming publication.
+
+**A bare number could adopt `Dimension::Density` and be 10⁹ too large.** Every
+other working space is a unit a person authors in — mm, degrees, kg, a plain
+number — so "an uncommitted number adopts its field's dimension" means what
+the author wrote. A density's working space is kg/mm³, so a `DesignParameter`
+declared `Density` with the expression `2700` was accepted silently and read
+back as 2.7e12 kg/m³. And `2700` is exactly what gets written, because the
+material table's field is `density_kg_m3`, the `material_set` tool takes
+`density_kg_m3`, and the schema description an agent reads says kg/m³.
+Reachable through a declared parameter unit, an instance override (a bare
+magnitude by construction) and `expression_evaluate`'s `dimension` argument.
+Fixed by refusing an uncommitted number for `Density` alone, in `Quantity::check`
+and one step earlier in `retag` so the blame span is the declaration's, with a
+refusal that names the spellings that work (`2700kg / 1m^3`, `2.7g / 1cm^3` —
+both of which already returned 2700). `Mass` is deliberately NOT carved out,
+and the asymmetry is pinned: kg is its working space and its model unit at
+once, so a bare `2.5` there means the 2.5 kg it looks like.
+
+**A `null` precision was ZERO decimal places, in two clamps.** `units.js`'s
+`clampPlaces` and `drawings/format.js`'s `clampPrecision` both tested
+`Number.isFinite(Number(p))`, and `Number(null)` is `0` — which is a LEGAL
+precision, so an absent setting was indistinguishable from an author asking
+for whole millimetres. A 25.40 mm dimension prints `25`, on every dimension in
+the document, silently. It is the `Number(null) === 0` trap the mass panel had
+already been corrected for, one layer down, and `resolveDisplay`'s own
+`dualPrecision` arm had the explicit `== null` check its two neighbours
+lacked. Worse, `mirrorSessionDocument` documented the opposite contract — "`null`
+is how `resolveDisplay` is told to fall back to its own default, which is why
+these are not `??`-defaulted here" — three lines above code that DOES
+`??`-default all six. Those `??`s were the only thing standing between the
+comment and a document-wide wrong precision, and the comment told the next
+reader to remove them. Both clamps now treat `null` and `undefined` as
+absence, which makes the stated contract true and leaves the mirror's
+defaults as belt and braces.
+
+**Two guards were weaker than the notes claimed.**
+
+- *Nothing ran the annotation schema goldens.* `annotation_schema_golden.rs`
+  is `#![cfg(feature = "json-schema")]` and NO tier and NO CI job passed that
+  feature to `waffle-types` — `scripts/test.sh` passes `--features
+  mock-kernel`, CI runs the crate bare, and the one `json-schema` CI step is
+  `-p file-format`. So all four tests reported "running 0 tests" everywhere,
+  including the structural guard this section leans on (that the
+  document-model `Tolerance` and `FitClass` stay unreachable from
+  `ViewLayout`'s schema, which is what stops a renderer from becoming a second
+  implementation of ISO 286). The guard's CONTENT is real — it iterates a
+  forbidden list and then asserts every `$ref` resolves inside `$defs`, so the
+  key set really is the whole reachable set — it simply had no executor. Added
+  to the fast and full tiers and to the CI job beside the `.waffle` schema
+  step.
+- *The GUI spec proves the absence of a JavaScript ISO 286 table differently
+  than claimed.* Corrected in place above.
+
+**Verified and left alone**, so the next reader does not re-derive it:
+`limits_of` really is the only site that turns a tolerance into two numbers —
+the single-source claim was attacked across the renderer, the layout, the PDF
+writer, the DXF writer, the MCP read path and every Rust caller, and the only
+other arithmetic on a deviation is `ToleranceLayout::resolve` subtracting
+`limits_of`'s OWN output to publish `deviations` beside `limits`. The DXF and
+PDF paths cannot resolve one structurally: the DXF writer takes a
+`ViewGeometry` and emits no annotation entity at all, and `pdf.js` is handed
+the finished SVG string rather than the layout record. The mass absence is
+complete — the four density-scaled answers are `mass_kg`, `density_kg_m3`,
+`inertia_at_centroid` and `principal_moments`, products of inertia being the
+tensor's off-diagonals — and the persistence round trip holds for all five
+tolerance arms, a feature control frame's datum ORDER, both material tables
+with non-ASCII names, each of the six display settings travelling alone with
+the other five coming back absent, `Some(false)` surviving as distinct from
+unset, one-step undo of a coupled material edit, a refused edit moving
+neither table, and a v11 or v12 document opening at the defaults with no
+warning naming any M1 field.
+
+**Three doc comments described the fallback the first review had already
+removed**, each on the path a future reader would change: `UiToEngine::
+MeasureMass`'s, `dispatch::measure_mass`'s, and `measureBodyMass`'s in the
+store. All three said a body with no material measures at 1 kg/m³ and the
+caller tells the cases apart by the reported density. A stale comment on
+exactly the silent-wrong path is how the silent wrong comes back, so all three
+now state the absence and the dispatch one says outright not to reinstate the
+fallback, naming the test that refuses it.
+
 #### The renderer and the display settings (the app half)
 
 **`units.js` grew a display-settings record, and the unit is deliberately not
@@ -3314,9 +3443,17 @@ size in its own right.
 symbols, the material-condition circles and the zone prefixes live in
 `format.js` because they are presentation. What it never does is resolve a
 tolerance: `H7` became two numbers in Rust and arrives as `deviations` /
-`limits`, and there is no ISO 286 table in JavaScript — a GUI spec asserts the
-printed band equals the engine's resolved numbers, so it cannot pass against a
-JavaScript table. The same non-invention rule D3 set still holds downstream: a
+`limits`, and there is no ISO 286 table in JavaScript. A GUI spec proves that
+absence, though the M1 review corrected how: it does NOT compare against
+numbers the engine produced at run time (the layout record is built in the
+spec, and the expected text is a literal). It feeds a band that is
+DELIBERATELY not ISO 286's — `⌀25 H7/g6` with +0.123/−0.456 where the real
+union is +0.021/−0.020 — and asserts the sheet prints what it was handed. A
+JavaScript table would print the real band and the assertion would fail, which
+is a genuine absence-proof and arguably the stronger one; it is simply not the
+round trip the earlier wording claimed. What is still uncovered is the seam
+between the two sides: nothing authors a fit through the bridge and checks that
+the engine's PUBLISHED band reaches the renderer. The same non-invention rule D3 set still holds downstream: a
 tolerance form this build does not know still prints the VALUE and reports the
 omission in `warnings`, rather than drawing a placeholder or nothing.
 
@@ -3328,9 +3465,15 @@ shows volume, surface area, mass, centre of mass, the material and the
 `method` the engine reported, and it never presents a mesh number as exact.
 `measureBodyMass` sends `MeasureMass` with NO density, so the material table
 has exactly one reader (the engine) and the panel reads back which density was
-used — a body with no material comes back at 1 kg/m³, where `mass_kg` is
-numerically the volume, and the panel says so rather than printing a
-meaningless mass. `window.__waffle.measureBodyMass(bodyId)` is the door a spec
+used — and a body with no material comes back with `density_kg_m3` and
+`mass_kg` both `null`, so the mass row names the ABSENCE rather than printing a
+number. The panel's test for "is there a density" is `typeof x === 'number'`
+and not `Number.isFinite(Number(x))`, because `Number(null)` is `0`: the
+coercing form reads "no material" as "a density of zero". The M1 review found
+two more sites of that same trap one layer down, in the precision clamps of
+`units.js` and `drawings/format.js`, where a `null` precision was becoming
+ZERO decimal places — 25.40 mm printing as `25` on every dimension in the
+document. Both now treat `null` as absence. `window.__waffle.measureBodyMass(bodyId)` is the door a spec
 uses to compare what the panel PRINTS against what the engine reported, which
 is the only way to pin the m³ → mm³ conversion; getting a factor of 1e9 wrong
 is invisible when you only look at one of the two.

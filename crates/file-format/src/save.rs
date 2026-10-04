@@ -113,9 +113,15 @@ use crate::sources::SourceEntry;
 ///        note describes: a v13 reader KNOWS the `Drawing` tag, so it
 ///        deserializes the tab and an annotation tag it has never heard of
 ///        is a `de::Error` for the whole document. (`Dimension.tolerance`,
-///        `.dual_precision` and the `materials` / `body_materials` tables
-///        beside it are additive and defaulted, and would have moved
-///        nothing alone.)
+///        `.dual_precision`, the `materials` / `body_materials` tables and
+///        ALL SIX `document` display settings — `precision`, `dual_unit`,
+///        `dual_precision`, `inch_fraction`, `inch_denominator`, `fit_band`
+///        — are additive and defaulted, and would have moved nothing alone.
+///        Their round trip through this writer and `load::load_document` is
+///        measured field by field in `tests/rev_persist_m1.rs`, including
+///        that each travels alone and that an explicit `false` does not
+///        collapse to absent: "explicitly decimal" and "unset" are different
+///        states for a formatter that has its own default.)
 ///     2. `Dimension::Mass` and `Dimension::Density` — two new variants of
 ///        the enum `DesignParameter.unit` is written as
 ///        (`waffle_types::dimension`). A string value, but a serde enum
