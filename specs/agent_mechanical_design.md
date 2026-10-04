@@ -158,10 +158,17 @@ Listed in the order the increments repair them.
    an Assembly has none and tabs cannot share. Gear and sprocket parameters,
    second-direction depth, sketch-region boundaries and assembly transforms
    take no expressions. `parameter_overrides` on an instance is declared and
-   not applied. *(The dimension half of this is FIXED — P1, 2026-10-03: both
-   coercions are typed errors now, and the parser produces an AST. The table
-   is still per Part and the remaining fields still take no expressions:
-   P2 and P3.)*
+   not applied. *(FIXED — P1, P2 and P3, 2026-10-03. Both coercions
+   are typed errors and the parser produces an AST (P1). There is a
+   DOCUMENT-level table every tab resolves through after its own, and
+   `parameter_overrides` is APPLIED, so one Part tab builds a solid per
+   instance (P2, format v12). Second-direction depth, revolve and datum and
+   pattern-axis origins, all three pattern counts, connector rotation and
+   offset, and an imported body's translation, rotation and scale take
+   expressions with their own dimensions (P3). Still outstanding:
+   gear/sprocket parameters, sketch-region re-derivation, and the assembly
+   tree's own transforms — see the P2/P3 implementation notes' open items
+   for why each needs more than a sidecar.)*
 6. **No rule check of any kind.** A whole-repo search found no DFM,
    interference, fastener, thread, hole, wall-thickness or keep-out code. The
    only shipped checks are two closed-form planetary gear rules and the
@@ -1610,15 +1617,458 @@ Still open:
 - *`parameters_get` takes no arguments.* No filter, no single-parameter
   form. A table large enough to want one does not exist yet, and the
   answer is cheap.
-- *A rename does not reach `Instance.parameter_overrides` or a document
-  table*, because neither exists yet (P2). When P2 lands, its tables join
-  `expression_sites`' callers — the drift oracle will not catch a table
-  the rename does not know about, only a FIELD it does not know about.
+- ~~*A rename does not reach `Instance.parameter_overrides` or a document
+  table*, because neither exists yet (P2).~~ Both exist now. A TAB rename
+  still does not touch either, and that is now a decision rather than an
+  absence: an override key names a parameter of the part, so a tab rename
+  SHOULD rewrite it, and does not — see the P2/P3 notes' open items. A
+  DOCUMENT rename is refused whole for a different reason (the rewrite
+  would have to reach every tab).
 - *`field_uses` takes `&mut FeatureTree`* so one enumeration serves both
   the index and the rewrite. A read-only caller does not write through the
   site, but the signature does not say so. Splitting it would mean two
   near-identical traversals, which is the drift this increment spent its
   design on avoiding.
+
+### Implementation notes (P2/P3)
+
+Landed 2026-10-03 (`crates/feature-engine/src/{params,lib,assembly,types}.rs`,
+`crates/file-format/src/metadata.rs`, `crates/wasm-bridge/src/`,
+`app/src/lib/`). Where the plan above left a choice open, this is the choice
+made and why.
+
+#### P2 — the scoping model
+
+**Three scopes, one evaluator.** `params::evaluate_table(params, outer,
+pinned, measurer, floors)` is the only fixpoint. A Part's table evaluates
+with the DOCUMENT table's environment as `outer`; an instance's overrides
+arrive as `pinned`; D2's measurer rides along. There is deliberately no
+second code path for "the document table" — a second evaluator of the same
+grammar is how a preview and a rebuild come to disagree, which is the
+mistake P1 spent its design avoiding.
+
+**Shadowing is TOTAL, and that is the one real design call.** A tab-local
+`w` hides a document `w` from the whole local table, *including its own
+row*, so `w = "w * 2"` over a document `w` is a loud cycle rather than a
+silent doubling. The alternative — letting the shadowing row alone see
+through to the outer value — makes `w` mean the document's `w` in one row of
+a table and the local `w` in every other, which no reader of that table
+could predict. Shadowed outer names are therefore removed from the seed
+environment before the fixpoint starts, not patched out afterwards.
+
+A shadowed document row is still REPORTED, by `parameters_get` (`scope:
+"document"`, `shadowed: true`) and by the panel (struck through, with a
+SHADOWED title). "Why is my document variable not driving this" has to be
+answerable without reading code.
+
+**The document table is on `DocumentMetadata`, and reaches the engine the
+way `sources` does.** `Engine::document_parameters` is document-scoped
+derived state: not in the tree, not in the tab's undo history, pushed in by
+`DocumentSession::switch_tab` and at load. The session holds the persisted
+copy; the engine's is the working one whose `value`/`error` the parameter
+pass refreshes, and `parameters_get` reads the engine's so the number an
+agent sees is the number the rebuild computed.
+
+**A document-table edit is NOT an undo step.** An `UndoStack` is per-tab
+(`DocumentSession::histories`), and a document-wide edit recorded in one
+tab's history would offer to undo it from that tab while every other tab
+kept the new values. A half-undo is worse than none, and this is the same
+call `sources` already makes. `SetDocumentParameters` says so in its doc
+comment and the tool says so in its description.
+
+**A document RENAME is refused whole.** The rewrite a rename needs reaches
+every tab's expressions, and the message carries one table; the engine holds
+only the open tab's tree. Rewriting one tab and leaving the rest is exactly
+the harm `ParameterNameTaken` exists to prevent, so `parameters_set` answers
+`ParameterRenameNotSupported` and names the three-step workaround (add the
+new name, repoint the readers, delete the old). The panel refuses it the
+same way rather than sending an edit that silently keeps the old name.
+Reaching every tab is possible in principle — the session has the trees —
+and is left as the open item below.
+
+**A document DELETE checks every tab, not the open one.** `field_uses` runs
+over every Part tab's tree and prefixes each reader with its tab name
+(`Part 1 › Extrude1 depth`), because "Extrude1 depth" alone does not say
+which tab to go and fix, and checking only the open tab would let a delete
+through that breaks a Part the caller is not looking at.
+
+**A document parameter cannot MEASURE (D2).** A measurement resolves through
+entity names, which live in `FeatureTree.names` and are therefore per-tab.
+The document scope sits above the tabs, so `volume(plate)` there has no
+answer to "which tab's `plate`". It is the same typed refusal a measurement
+gets in any pass without a model, and the place to write it is the tab that
+owns the geometry.
+
+#### P2 — overrides and the cache key
+
+**The override field already existed, and its shape was already right.**
+`Instance.parameter_overrides: Option<BTreeMap<String, f64>>` has been
+persisted since Phase 3 as "reserved; not applied". P2 applies it rather
+than replacing it with an expression map, because §6's own wording is "is
+rebuilt with those values" and a magnitude is what an instance of a part
+actually wants to say. An expression map would also need a scope to evaluate
+in — the assembly's? the part's? — and that question has no good answer.
+
+**An override PINS the row; it does not patch the result.** The pin enters
+the environment before the fixpoint starts, so `wall = od / 4` follows an
+override of `od`. Patching values in afterwards would leave every dependent
+on the part's own numbers, which is the failure mode that makes
+parameterised instances useless.
+
+**The dimension comes from the PARAMETER, not from the override.** The
+magnitude is working-space (what `value_mm` reports). Its dimension is the
+row's declared `unit` when it has one — through the same `retag` the table
+uses, so a `Count` parameter still refuses `20.5` — and otherwise the
+dimension the row's own expression committed, so overriding `width = "2cm"`
+with `30` still yields a length that an angle field refuses. This needs a
+two-pass evaluation (`pin_overrides` evaluates the table as written to learn
+each row's dimension, then the real pass runs with the pins), which costs a
+parse per row and is the only way to know an undeclared row's dimension
+without asking the expression.
+
+**An override naming nothing is a loud error.** An instance cannot introduce
+a variable the part has no field reading, so such an override is a typo or a
+name the part has since renamed. Accepting it silently would leave the
+instance *looking* parameterised while building the part's default. The
+error is reported against `Uuid::nil()` (the apply pass's channel for a
+table-level complaint) and `parameters_get(scope: "instance")` also lists it
+under `overrides_matching_no_parameter`, so an agent can find it without
+parsing the error list.
+
+**`assembly::PartBuild` is the cache key, and `PartRef` never was.** The
+dangerous site was the intra-pass dedup in `assembly_view::evaluate_tree`:
+`ctx.parts.position(|(p, _)| *p == inst.source)` collapsed N instances of one
+Part tab to one engine, so the second instance would have rendered the
+first's bodies the moment their overrides differed. Four sites now key on
+`PartBuild { part, overrides }` — the dedup, the cross-pass reuse hit,
+`EngineState::part_cache` and `park_unused_part_engines`. An empty override
+map is the plain build, so `{}` and absent are not two cache entries for one
+solid. `PartialEq` only, no `Eq`/`Hash`: an override magnitude is an `f64`,
+every site compares with `==` over a `Vec`, and a `BTreeMap` is already
+ordered, so the comparison is canonical without needing a total order on the
+values.
+
+**The document table is NOT in that key, and is compared separately.** It is
+the same for every build within one pass, so it has no place in a per-build
+identity — but a pooled engine can outlive an edit to it. The cross-pass
+reuse hit therefore compares `params::table_signature(&engine
+.document_parameters)`, which is `(name, expression, unit)` per row:
+`value`/`error`/`tag` are the last evaluation's output, so comparing whole
+rows would reject a table that had merely been re-evaluated and accept one
+that had not been.
+
+Keying on builds improved the park semantics as a side effect: editing one
+instance's overrides retires that build's engine and leaves its siblings'
+parked, where a `PartRef` comparison declared every build of the part stale
+at once.
+
+**Body ids needed no change.** An assembly body id is already
+`<instance uuid>/…/<feature uuid>/<key>` (`render_view::body_id_of`), so the
+prefix is per-instance and two builds of one part cannot collide. Only the
+geometry cache was wrong.
+
+**`ModelUpdated.document.part_parameters` is new, and the panel needed it.**
+Only the OPEN tab's tree is on the wire, and the open tab is the assembly
+whenever the override row is showing, so every Part tab in `documentTabs` is
+a placeholder with an empty table — the panel could not have offered a field
+per parameter without this. Names and values only: an override is a
+magnitude, so the panel needs to know which names exist and what the part
+says and nothing more. Read off each tab's stored tree rather than through
+`session::part_trees`, which clones every tree, because this runs on every
+`ModelUpdated`.
+
+**`updateInstance`'s key list is a WHITELIST**, which is why
+`parameter_overrides` had to be added there as well as to the engine.
+Without it the panel's edit looked like it worked and changed nothing —
+found by the GUI spec, not by reading.
+
+#### P2 — the format
+
+**v12** (`docs/FILE_FORMAT.md` §4). D4b took v11, so P2 is v12. Both halves
+are measured in `crates/file-format/tests/param_scope_floor.rs`, with the
+solid tessellated rather than the field read back:
+
+- `DocumentMetadata.parameters` is additive and defaulted, and an old reader
+  DROPS it — so a tab expression reading a document variable loses its
+  driver and builds the stale stored value. The test also BOUNDS that claim
+  rather than overstating it: a document row the tab shadows is inert in
+  both readers, so the document table is harmful in the documents that read
+  it, not in every document.
+- `Instance.parameter_overrides` is the sharper case and the reason the bump
+  is not arguable: the key has been WRITTEN since Phase 3 as "reserved; not
+  applied", so P2 reinterprets bytes that already exist. The identical
+  document builds one solid per override set in a v12 reader and the part's
+  own single solid in a v11 one. §13.3 gained a sentence for this shape — a
+  field whose MEANING changes while its bytes do not — which is the same
+  clause v10 moved under for the pid representation flip.
+
+Both fields are omitted when empty, pinned so a future edit cannot quietly
+start emitting `"parameters": []`.
+
+#### P3 — the census
+
+Every authored number on an `Operation` that had no `*_expr`, with the
+dimension it now takes:
+
+| Field | Dimension |
+|---|---|
+| `ExtrudeParams.second_direction.Blind.depth` | Length |
+| `RevolveParams.axis_origin` (×3) | Length |
+| `PlaneDefinition::PointNormal.origin` (×3) | Length |
+| `AxisRef::Explicit.origin` (×3) | Length |
+| `PatternCircularParams.count` | Count |
+| `PatternLinearParams.count` | Count |
+| `LinearSecondDirection.count` | Count |
+| `MateConnectorParams.rotation_deg` | Angle |
+| `MateConnectorParams.offset_m` (×3) | Length |
+| `ImportedBodyParams.translation_m` (×3) | Length |
+| `ImportedBodyParams.rotation_deg` (×3) | Angle |
+| `ImportedBodyParams.scale` | Ratio |
+
+`AxisRef::Explicit.origin` is reached by the circular pattern's axis, both
+linear legs' directions and the mirror plane, so the three components are
+nine sites. `count` is the first `Count` field on the tree and `scale` the
+first `Ratio`, which until now were exercised only by declared units and
+script arguments.
+
+And what was deliberately EXCLUDED, because a census that lists only what it
+did is half a census:
+
+- **Direction vectors** — an axis's `direction`, a plane's `normal`, a
+  sketch's `plane_normal`/`plane_x_axis`, a connector `Frame`'s axes. They
+  are normalized at rebuild, so a per-component expression drives nothing an
+  author can predict: two thirds of what they typed is scaled away.
+- **`Transform.rotation_quat`** on an assembly instance. No single
+  `Dimension` fits a quaternion component and the authored intent is an angle
+  and an axis. Parameterising instance rotation needs an authored rotation
+  field first (the shape `ImportedBodyParams.rotation_deg` has) — a design
+  call, not a mechanical twin.
+- **A connector `Frame`.** It is the derived or explicit basis;
+  `rotation_deg` and `offset_m` are the authored adjustment to it, and that
+  is the half worth driving.
+- **Fillet radius, chamfer distance, shell thickness.** Deferred
+  project-wide.
+- **Selectors, indices, ids** (`profile_index`, `profile_entity_ids`, pattern
+  `skip`, every `Uuid` and `GeomRef`) and everything **DERIVED** (gear and
+  sprocket profile outputs, solved placements, `Region.area`, every
+  `kicad.rs` record — a KiCad-derived extrude sets `depth_expr: None`
+  deliberately, since a re-sync replaces it).
+- **`Sketch.plane_origin`**, derived from the plane reference each rebuild.
+- **`GearParams` / `SprocketParams`** and the 3D-sketch `Attachment` fields —
+  named in P3's sketch but still open; see the open items.
+
+#### P3 — the three new boundaries
+
+Each exists because the obvious implementation would be silently wrong.
+
+**`apply_count_field` goes through `Dimension::Count`.** `teeth / 2` of 24 is
+12; `teeth / 7` of 20 is a loud refusal. An `as u32` cast would have made it
+2 with nothing to notice, which is the pre-P1 coercion in a new place. A
+count past `u32::MAX` is refused for the same reason: a saturating cast is a
+wrong answer without a complaint. The operation's own validator
+(`pattern::check_count`'s `≥ 2`) still runs afterwards — this boundary
+decides whether the expression produced a count at all, not whether the
+count is usable.
+
+**`apply_vec3_field` drives each component independently.** An unset
+component is left alone: an author who parameterised x has said nothing
+about y and z, and filling them in would invent geometry. The label names
+the axis, so a refusal reads `translation z expression '25deg'` — which of
+three numbers is wrong is the first thing you need to know.
+
+**`apply_axis` covers an `Explicit` axis only.** An `Entity` axis is derived
+from the pick every rebuild, and an expression beside it would be a second
+driver the resolution overwrites.
+
+**The drift oracle moves 15 → 48 sites** and keeps its job:
+`expression_sites` and the apply pass are still two traversals, and a field
+added to one and not the other still fails it. `param_p3_fields.rs` is
+per-site RED→GREEN — each field driven through its own boundary, and each
+refusing the wrong dimension with the value left alone, which is the half
+that stops P3 from reintroducing the P1 coercion ten fields at a time.
+
+**No floor bump for the sidecars.** An `*_expr` has been additive since
+`depth_expr` predated v5, because the apply pass writes its evaluated result
+into the plain field before any save: a correctly written file has `value ==
+eval(expr)`, so dropping the expression loses the DRIVER and not the
+geometry. §13.3 now states that rule rather than leaving it implicit, since
+ten more just landed. The v1→v2 migration says why it does not scale
+expression TEXT: an expression is mm-space in every version.
+
+**P3's sidecars became D2 measurement sites for free.** Because
+`measurement_sites` walks the same `expression_sites` enumeration, D2's
+oracle went 16 → 49 without D2 being told about any of the ten new fields.
+`count_expr = "length(rail) / 50"` works and defers like every other field
+on a pass with no model. That is what sharing the enumeration was for.
+
+#### The UI round trip (review, 2026-10-04)
+
+P3 twinned ten fields in the engine. The review asked the next question — does
+every path that WRITES one of those fields carry the expression back? — and the
+answer was no in five places, each silent in one of two directions.
+
+**DROPPED.** A dialog that rebuilds its whole params object from the evaluated
+numbers sends the number as a literal and the driver is gone. The geometry
+stays right, which is why nothing reports it: the plain field always holds the
+last evaluated value, so there is no symptom until someone moves the variable
+and nothing follows. Four fields were in this state —
+`ExtrudeParams.second_direction.Blind.depth_expr` (which got a real expression
+input, a live `= N mm` hint and the two apply gates the primary depth has),
+`RevolveParams.axis_origin_expr`, and `MateConnectorParams.rotation_expr` /
+`offset_m_expr`.
+
+**STUCK.** The mirror defect, and the one easy to introduce while fixing the
+first: a sidecar left over a value the apply REPLACED is re-evaluated at the
+next rebuild and overwrites it, so the edit reverts with nothing said.
+`applyImportPlacement` spreads the existing params, so all three placement
+sidecars were in this state, and the property panel's detach list named
+`depth_expr` and `angle_expr` only while six twinned numbers are reachable
+from it (a pipe's radius and bore, both pattern counts, a circular pattern's
+angle, a linear pattern's spacing).
+
+**The rule, for every dialog that has no input for a sidecar it carries:** a
+value the apply did not change keeps its driver, and a value it replaced loses
+it. `carriedExpr` / `carriedComponentExpr` in `store.svelte.js` are that rule,
+per component for a `[Option<String>; 3]` sidecar — matching P3's own rule
+that an author who parameterised x has said nothing about y and z. A dialog
+whose field is quantized on the way in compares against what it can
+REPRESENT, not against the stored `f64`: the connector's offset is seeded
+through micrometres, and against the raw value that rounding reads as a user
+edit and drops the driver on every apply.
+
+In the property panel, which fires on an actual input event, the detach is
+unconditional — but the twin now travels on the FIELD descriptor beside the
+value it drives, so a field added to `getFields` without its `expr` is one
+edit away from showing it rather than one name missing from a list elsewhere.
+
+Two defects found underneath, neither about parameters:
+
+- **Every numeric and boolean edit in the property panel was a no-op.**
+  `handleChange` did `structuredClone(feature.operation)`, and that operation
+  comes off the `$state` feature tree, so it is a reactive Proxy —
+  `structuredClone` of a Proxy is a DataCloneError in V8. It threw before
+  `editFeature` was reached, inside a `setTimeout` callback, so the failure was
+  an unhandled rejection and the input kept the typed value. Typing 25 into an
+  extrude's depth left the feature at 10 mm. `$state.snapshot` first. The
+  spec that was supposed to cover this asserted only that a mesh still
+  existed, which is true of an edit that does nothing at all; the oracle is
+  the tree.
+- **Every expression hint was stale on re-open.** All six, across four
+  dialogs, depended on the typed TEXT alone. Re-opening a feature for edit
+  re-seeds the same text, so the effect does not re-run: `back * 2` over a
+  `back` since changed from 7 to 11 went on reading "= 14 mm" while the field
+  and the engine were both right. `touchParameterTables` reads both tables for
+  their reactivity alone, and each effect calls it.
+
+Pinned in `app/tests/gui/expression-sidecar-carry.spec.js` (both directions
+per field, through the real round trip), `parameterized-designs.spec.js` (the
+second depth, including the apply gates) and
+`property-editor-advanced.spec.js`. Each is RED with its own fix removed.
+
+Two notes for anyone writing in this area: an `ImportedBody` refuses
+`feature_edit` by name (`UseImportTool`), so a test sets its sidecar through
+the document and reloads, which is how a saved parameterised import arrives
+anyway; and a revolve axis must lie IN the sketch plane, so a driven axis
+origin can only move within it.
+
+The save path got the pin it was missing too
+(`format_tests.rs::every_p3_expression_sidecar_round_trips_through_a_file`):
+`param_p3_fields.rs` pinned the absent case and the rename, and neither says
+a sidecar that IS set reaches the file. The first version of that test
+compared the loaded operation against the original re-serialized and was
+green under exactly the mutation it was written for — with the field skipped
+both sides omit it, and the comparison is the struct agreeing with itself. The
+fixture is the oracle instead.
+
+And `an_overridden_instance_does_not_cost_its_siblings_their_parked_engines`
+claimed the park half of keying on the BUILD and could not see it: its
+assertions were instance depths, and a rebuilt sibling renders the same solid
+as a reused one. Re-keying `park_unused_part_engines` on `PartBuild::part`
+left it green. It now reads `part_cache`, where the distinction lives.
+
+#### Still open
+
+- *A document rename does not rewrite the other tabs.* Refused loudly
+  instead, with the workaround named. The session HAS every tab's tree, so
+  the rewrite is possible; what it needs is a decision about undo (a
+  document edit is not an undo step, but rewriting ten tabs' expressions
+  arguably should be recoverable) and about the half-applied case if one
+  tab's rewrite fails. Until then the refusal is the honest answer.
+- *`GearParams` and `SprocketParams` have no sidecars yet*, and they are
+  named in P3's sketch. Two things stand in the way, neither mechanical.
+  (1) `rotation_offset` on both is stored in RADIANS — undocumented on the
+  gear, documented on the sprocket — while every other angle on the tree is
+  degrees and `apply_field(Dimension::Angle)` writes degrees; a naive
+  sidecar would be wrong by 57×, so these two fields need an explicit
+  radians boundary (`Quantity::as_angle_radians`) rather than the shared
+  one. (2) They are fields of a `SketchEntity`, so driving them has to
+  re-run the profile generator and the sketch solve, which is
+  `apply_sketch`'s re-solve path rather than `apply_field`'s. The four
+  `Option<f64>` sprocket overrides also need `PipeParams::inner_radius_expr`'s
+  shape (an expression present with the value absent must materialize the
+  `Some`).
+- *The 3D-sketch `Attachment` fields are not driven.*
+  `AlongAxis::distance` and `Offset::delta` are plainly authored lengths and
+  would be easy; `EdgePoint::t` is a `Ratio` and `OnPlane::uv` has no clean
+  dimension (metres on a plane, a surface parameterization on anything
+  else). Attachments also resolve in the rebuild WALK rather than in the
+  apply pass, because they can need model geometry, so a sidecar there wants
+  the same deferral D2 built for measurements.
+- *The assembly tree's own numbers are not driven.* `Instance.transform
+  .translation_m` and the assembly-level `MateConnector.rotation_deg` /
+  `offset_m` / `MateKind::Fastened.rotation_deg` live on `AssemblyTree`, not
+  on a `FeatureTree`, so they need their own apply pass with the document
+  env — the plumbing P2 added to `assembly_view` is where it would go. The
+  PART-level `MateConnectorParams` twins landed; the assembly-level ones did
+  not.
+- *P3's sketch also asks for region re-derivation* ("Sketch `region`
+  boundaries re-derive from the solved sketch when a variable changes"),
+  which is not an `*_expr` and is untouched here.
+- *`parameters_set(scope: "instance")` is not an undo step*, because no
+  assembly edit is. `undo.rs` has no `Command` variant for an instance at
+  all, and adding one needs session-level plumbing that does not exist.
+- *The override row cannot list a LINKED part's variables.* They are not in
+  this document's tabs, so `part_parameters` has no entry; the row falls
+  back to the names the instance already overrides, so an existing override
+  is never hidden, but a new one on a linked part has to go through the
+  tool.
+- *A parameter RENAME does not move an instance's override KEY* (review,
+  2026-10-03). P5's rename rewrites every expression that reads the
+  parameter, on the tree the engine holds; an override key is not an
+  expression and lives on the `AssemblyTree` in the session, so it keeps the
+  old name. The result is loud rather than silent — the override then names a
+  parameter the part does not declare, which is already a reported error and
+  already listed under `overrides_matching_no_parameter`, and the instance
+  falls back to the part's own build. It does NOT re-attach to the renamed
+  row. Pinned in
+  `crates/wasm-bridge/tests/tool_param_instances.rs::renaming_a_parameter_an_instance_overrides_does_not_move_the_override_key`.
+  Moving the key needs the same session-level reach the document rename
+  needs, and the same decision about the half-applied case.
+- *A document-table edit leaves every UNOPENED tab's stored value stale*
+  (review, 2026-10-03). `SetDocumentParameters` rebuilds the open tab and
+  re-evaluates an open Assembly or Drawing; no other Part tab is touched
+  until `switch_tab` rebuilds it. The geometry a v12 reader builds is always
+  right (a load rebuilds the active tab, a switch rebuilds the rest), but a
+  SAVE taken in that window writes `value != eval(expr)` for those tabs,
+  which is the one invariant §13.3 leans on to argue that an `*_expr`
+  sidecar needs no floor bump. A v11 reader of such a file — which drops the
+  document table — then builds the PRE-edit size rather than the size the
+  document was saved with. Measured in
+  `crates/wasm-bridge/tests/tool_param_instances.rs::a_document_edit_leaves_an_unopened_tab_s_stored_value_stale`,
+  which also pins that the switch repairs it. The fix is to re-apply
+  expressions over every tab's tree on a document edit, which is the same
+  session-level pass the document rename wants; §13.3 now bounds the claim
+  rather than overstating it.
+- *The assembly-level `MateConnector` numbers still have no UI carry rule*,
+  because they have no sidecars (above). When they get them, the connector
+  editor's patch path (`updateConnector`) needs the same `carriedExpr` rule
+  the part-level dialog now has, and for the same reason.
+- *`bench_rebuild_50_features` is a wall-clock budget and flaked once under
+  load.* Measured alone it is 607 ms – 1.12 s against a 2 s assertion, and
+  the whole `engine_tests` binary runs in 0.98 s; it exceeded the budget only
+  while four crates' test binaries ran concurrently at load ≈ 50. Recorded
+  rather than widened — the budget is not the defect, and widening it is
+  exactly the tolerance tuning the constitution forbids.
 
 ## 7. K — Mechanical rule check
 

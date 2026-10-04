@@ -7,7 +7,7 @@
 
 use std::collections::{BTreeMap, HashMap};
 
-use feature_engine::assembly::{AssemblyTree, Frame, PartRef, Transform};
+use feature_engine::assembly::{AssemblyTree, Frame, PartBuild, PartRef, Transform};
 use feature_engine::assembly_solver::solve_mates;
 use feature_engine::connector::{resolve_connector_frame, ConnectorGeometry};
 use feature_engine::context::{ContextInstance, EditContext};
@@ -29,8 +29,13 @@ pub struct Leaf {
 /// The evaluated state of the open assembly tab.
 pub struct AssemblyView {
     pub tree: AssemblyTree,
-    /// Distinct parts in first-use order, each built in its own engine.
-    pub parts: Vec<(PartRef, Engine)>,
+    /// Distinct part BUILDS in first-use order, each in its own engine.
+    ///
+    /// The key is a `PartBuild`, not a `PartRef`: two instances of one Part
+    /// tab with different `parameter_overrides` are two different solids
+    /// (P2), and keying on the part alone handed the second instance the
+    /// first one's bodies.
+    pub parts: Vec<(PartBuild, Engine)>,
     /// Every rendered part instance with its world placement, in instance
     /// order (sub-assembly members after their instance).
     pub leaves: Vec<Leaf>,
@@ -49,8 +54,18 @@ pub struct AssemblyView {
 }
 
 impl AssemblyView {
+    /// The index of the part's DEFAULT build (no overrides). Callers asking
+    /// by `PartRef` mean "the part as its own tab defines it"; an
+    /// override-carrying build is addressed through its instance's leaf.
     pub fn part_index(&self, part: &PartRef) -> Option<usize> {
-        self.parts.iter().position(|(p, _)| p == part)
+        self.parts
+            .iter()
+            .position(|(p, _)| p.part == *part && p.overrides.is_none())
+    }
+
+    /// The index of one specific build.
+    pub fn build_index(&self, build: &PartBuild) -> Option<usize> {
+        self.parts.iter().position(|(p, _)| p == build)
     }
 
     /// The part engine of a leaf by its full path.
@@ -129,7 +144,7 @@ impl ContextView {
                         .join(" › ")
                 )
             })?;
-        let part = &view.parts[leaf.part].0;
+        let part = &view.parts[leaf.part].0.part;
         if part.source_id.is_some() {
             return Err(format!(
                 "instance `{}` is of a linked document's part (tab `{}`); linked parts are read-only and cannot be edited in context",
@@ -147,12 +162,12 @@ impl ContextView {
                 continue;
             }
             let relative = inverse.compose(&other.transform);
-            let (part, engine) = &view.parts[other.part];
+            let (build, engine) = &view.parts[other.part];
             context.instances.push(ContextInstance::new(
                 other.path.clone(),
                 view.leaf_name(&other.path),
-                part.tab_id.clone(),
-                part.source_id,
+                build.part.tab_id.clone(),
+                build.part.source_id,
                 relative,
                 &engine.feature_results,
             ));
@@ -178,13 +193,19 @@ struct Ctx<'a> {
     part_trees: &'a HashMap<String, FeatureTree>,
     assembly_trees: &'a HashMap<String, AssemblyTree>,
     sources: &'a feature_engine::sources::SourceStore,
-    parts: Vec<(PartRef, Engine)>,
+    parts: Vec<(PartBuild, Engine)>,
+    /// The DOCUMENT's design-parameter table (P2): every part built here
+    /// resolves its expressions through it, after its own table. Constant
+    /// for the whole pass, which is why it is not part of the build key —
+    /// a cache that outlives the pass compares it separately, off the
+    /// engine (`Engine::document_parameters`).
+    document_parameters: &'a [feature_engine::types::DesignParameter],
     /// Part engines of an earlier evaluation, offered for reuse: one whose
     /// tree is still the part's current tree is taken as is (its kernel
     /// bodies and render meshes included) instead of being rebuilt. What is
     /// left when the evaluation ends is what it did not want; the caller
     /// decides whether to park it (see `EngineState::park_unused_part_engines`).
-    reuse: &'a mut Vec<(PartRef, Engine)>,
+    reuse: &'a mut Vec<(PartBuild, Engine)>,
     errors: Vec<String>,
     warnings: Vec<String>,
 }
@@ -227,14 +248,16 @@ pub fn evaluate(
     part_trees: &HashMap<String, FeatureTree>,
     assembly_trees: &HashMap<String, AssemblyTree>,
     sources: &feature_engine::sources::SourceStore,
+    document_parameters: &[feature_engine::types::DesignParameter],
     kb: &mut dyn KernelBundle,
-    reuse: &mut Vec<(PartRef, Engine)>,
+    reuse: &mut Vec<(PartBuild, Engine)>,
 ) -> AssemblyView {
     let mut ctx = Ctx {
         part_trees,
         assembly_trees,
         sources,
         parts: Vec::new(),
+        document_parameters,
         reuse,
         errors: Vec::new(),
         warnings: Vec::new(),
@@ -267,21 +290,35 @@ fn evaluate_tree(
     let mut part_of: HashMap<Uuid, usize> = HashMap::new();
 
     for inst in tree.instances.iter().filter(|i| !i.suppressed) {
-        if let Some(idx) = ctx.parts.iter().position(|(p, _)| *p == inst.source) {
+        // The BUILD, not the part: two instances of one Part tab under
+        // different overrides must not collapse to one engine (P2).
+        let build = PartBuild::of(inst);
+        if let Some(idx) = ctx.parts.iter().position(|(p, _)| *p == build) {
             part_of.insert(inst.id, idx);
             continue;
         }
         match resolve_source(&inst.source, ctx) {
             Ok(Resolved::Part(part_tree)) => {
-                // An earlier evaluation's engine for this very tree is the
+                // An earlier evaluation's engine for this very build is the
                 // same build: keep it, bodies and meshes included. Trees are
                 // compared by their document form (`FeatureTree` carries no
                 // equality of its own); serializing one is nothing next to
                 // rebuilding it.
+                //
+                // The document table is compared too, and off the ENGINE
+                // rather than off the key: it is constant within a pass, so
+                // it has no place in the build key, but a cached engine can
+                // outlive an edit to it and would otherwise be reused stale.
+                // Only what the table SAYS counts
+                // (`params::table_signature`) — its rows' `value`/`error`
+                // are the last evaluation's output.
                 let wanted = serde_json::to_value(&part_tree).ok();
+                let doc_sig = feature_engine::params::table_signature(ctx.document_parameters);
                 let cached = wanted.and_then(|wanted| {
                     ctx.reuse.iter().position(|(p, e)| {
-                        *p == inst.source
+                        *p == build
+                            && feature_engine::params::table_signature(&e.document_parameters)
+                                == doc_sig
                             && serde_json::to_value(&e.tree).ok() == Some(wanted.clone())
                     })
                 });
@@ -298,6 +335,8 @@ fn evaluate_tree(
                         // content; a linked document's own sources are not
                         // resolved here (loud per feature).
                         engine.sources = ctx.sources.clone();
+                        engine.document_parameters = ctx.document_parameters.to_vec();
+                        engine.parameter_overrides = build.overrides.clone();
                         engine.rebuild_from_scratch(kb);
                         engine
                     }
@@ -315,7 +354,7 @@ fn evaluate_tree(
                         part_label(&inst.source)
                     ));
                 }
-                ctx.parts.push((inst.source.clone(), engine));
+                ctx.parts.push((build, engine));
                 part_of.insert(inst.id, ctx.parts.len() - 1);
             }
             Ok(Resolved::Assembly(sub)) => {

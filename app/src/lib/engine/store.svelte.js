@@ -1249,6 +1249,12 @@ export async function initEngine() {
 			getSelectedFeatureId: () => selectedFeatureId,
 			getParameters: () => JSON.parse(JSON.stringify(getParameters())),
 			setParameters: (params) => setParameters(params),
+			// P2's second scope. Exposed beside the tab table because a test
+			// asserting the shadowing rule has to read both.
+			getDocumentParameters: () => JSON.parse(JSON.stringify(getDocumentParameters())),
+			setDocumentParameters: (params) => setDocumentParameters(params),
+			getPartParameters: () => JSON.parse(JSON.stringify(getPartParameters())),
+			getDocumentTabs: () => JSON.parse(JSON.stringify(getDocumentTabs())),
 			// The optional second argument is the dimension the caller means
 			// the expression for (P1); forwarded so a test can exercise the
 			// refusal path, not only the number.
@@ -5125,6 +5131,11 @@ export async function applyExtrude(depth, profileIndex, cut = false, opts = {}) 
 		// Optional driving expression for the depth (mm-space; see the
 		// engine's design-parameter docs). null = plain numeric depth.
 		depthExpr = null,
+		// Same for the SECOND Blind depth (P3). Sent on the variant rather
+		// than beside it, because that is where the sidecar lives — and
+		// omitting it here used to DROP an agent-set expression the first
+		// time a user touched the dialog.
+		secondDepthExpr = null,
 		// New-style optional-boolean combine (N-mb-*). `combine` is one of
 		// 'NewBody' | 'Add' | 'Cut' | 'Intersect' (or null = legacy). `targets` is
 		// an array of body GeomRefs, [] to force a new body, or null = Auto
@@ -5142,7 +5153,7 @@ export async function applyExtrude(depth, profileIndex, cut = false, opts = {}) 
 
 	let second_direction = null;
 	if (secondDir === 'Symmetric') second_direction = { type: 'Symmetric' };
-	else if (secondDir === 'Blind') second_direction = { type: 'Blind', depth: secondDepth };
+	else if (secondDir === 'Blind') second_direction = { type: 'Blind', depth: secondDepth, depth_expr: secondDepthExpr };
 	else if (secondDir === 'ThroughAll') second_direction = { type: 'ThroughAll' };
 
 	// When flipDirection is true, send an explicit direction to override the engine default.
@@ -5285,6 +5296,44 @@ export function showRevolveDialogForEdit(featureId) {
 }
 
 /**
+ * Carry a scalar `*_expr` sidecar across a dialog apply that has no input for
+ * it.
+ *
+ * A dialog that rebuilds its whole params object cannot tell "I changed this"
+ * from "I pressed Apply", so the value decides: unchanged ⇒ the user said
+ * nothing about this field and its driver survives; changed ⇒ the user
+ * replaced the driven value and the driver goes, exactly as a numeric edit
+ * detaches one in the property panel. Dropping it unconditionally is the P2
+ * silent-data-loss defect (the extrude second depth), and keeping it
+ * unconditionally is the mirror defect: the next rebuild would overwrite the
+ * number the user just typed.
+ * @param {string | null | undefined} expr - the stored sidecar
+ * @param {number | null | undefined} stored - the value it last evaluated to
+ * @param {number} applied - the value this apply is sending
+ * @returns {string | null}
+ */
+function carriedExpr(expr, stored, applied) {
+	if (!expr) return null;
+	return stored === applied ? expr : null;
+}
+
+/**
+ * The same rule per component, for a `[Option<String>; 3]` sidecar: an author
+ * who parameterised x has said nothing about y and z, so each component is
+ * carried or dropped on its own. All-empty collapses to null so an untouched
+ * feature's params stay byte-identical.
+ * @param {(string | null)[] | null | undefined} exprs
+ * @param {number[] | null | undefined} storedVec
+ * @param {number[]} appliedVec
+ * @returns {(string | null)[] | null}
+ */
+function carriedComponentExpr(exprs, storedVec, appliedVec) {
+	if (!Array.isArray(exprs)) return null;
+	const out = [0, 1, 2].map((k) => carriedExpr(exprs[k], storedVec?.[k], appliedVec?.[k]));
+	return out.some((e) => e != null) ? out : null;
+}
+
+/**
  * Apply a revolve operation from the dialog.
  * @param {number} angleDeg - angle in degrees
  * @param {[number,number,number]} axisOrigin
@@ -5309,6 +5358,14 @@ export async function applyRevolve(angleDeg, axisOrigin, axisDir, profileIndex, 
 			axis_direction: axisDir,
 			angle: angleDeg,
 			angle_expr: angleExpr,
+			// P3 gave `axis_origin` a per-component expression sidecar, and this
+			// dialog has no input for it: it shows the axis as a PICK, so an
+			// apply that did not re-pick must not drop a driver it cannot show.
+			axis_origin_expr: carriedComponentExpr(
+				revolveDialogState.editParams?.axis_origin_expr,
+				revolveDialogState.editParams?.axis_origin,
+				axisOrigin
+			),
 			combine: combineObj,
 			targets
 		}
@@ -6096,6 +6153,28 @@ export async function applyMateConnector(choice = {}) {
 	if (!bridge || !engineReady) return null;
 	const editing = mateConnectorDialogState?.editingFeatureId ?? null;
 	const operation = mateConnectorOperation(choice);
+	if (editing) {
+		// P3 gave `rotation_deg` and `offset_m` expression sidecars, and this
+		// dialog has plain number inputs for both. Carry a driver the apply did
+		// not change and detach one it did (see `carriedExpr`).
+		//
+		// The comparison is against what the dialog could REPRESENT, not the
+		// stored f64: the offset is seeded through micrometres
+		// (`Math.round(m * 1e6) / 1e3` mm) and sent back as `mm / 1000`, so an
+		// untouched field returns the stored value quantized to a micrometre.
+		// Comparing against the raw f64 would read that rounding as a user edit
+		// and drop the driver on every apply.
+		const p = featureTree?.features?.find(f => f.id === editing)?.operation?.params ?? {};
+		const rotExpr = carriedExpr(p.rotation_expr, p.rotation_deg ?? 0, operation.params.rotation_deg ?? 0);
+		if (rotExpr) operation.params.rotation_expr = rotExpr;
+		const storedOffsetUm = [0, 1, 2].map(k => Math.round((p.offset_m?.[k] ?? 0) * 1e6) / 1e6);
+		const offExpr = carriedComponentExpr(
+			p.offset_m_expr,
+			storedOffsetUm,
+			[0, 1, 2].map(k => operation.params.offset_m?.[k] ?? 0)
+		);
+		if (offExpr) operation.params.offset_m_expr = offExpr;
+	}
 	log('action', editing ? 'Edit mate connector' : 'Add mate connector', { name: operation.params.name });
 	const before = new Set((featureTree?.features ?? []).map(f => f.id));
 	try {
@@ -6688,6 +6767,89 @@ export async function setParameters(parameters, renames = []) {
 	} catch (err) {
 		log('error', `Set parameters failed: ${err.message}`);
 		showToast('error', `Variables update failed: ${err.message}`);
+	}
+}
+
+/**
+ * The DOCUMENT-level design-parameter table, as the last rebuild evaluated it
+ * (P2, `specs/agent_mechanical_design.md` §6).
+ *
+ * Read from `document`, not from the feature tree: it is the same table
+ * whichever tab is open, including an Assembly or Drawing tab, which has no
+ * feature tree at all. Nothing here evaluates anything — `value` and `error`
+ * are the engine's, which is what keeps a preview and the geometry agreeing.
+ * @returns {Array<object>}
+ */
+export function getDocumentParameters() {
+	return sessionDocument?.parameters ?? [];
+}
+
+/**
+ * Read both parameter tables for their REACTIVITY alone, so a dialog's
+ * live-evaluation `$effect` depends on the tables its expression is evaluated
+ * against.
+ *
+ * Every expression hint used to depend on the typed TEXT only, which is stale
+ * in the two cases that matter: re-opening a feature for edit re-seeds the
+ * same expression text, so the effect did not re-run and the hint showed the
+ * value from before the variable moved (measured: `back * 2` over `back = 11`
+ * still read "= 14 mm"); and a variable edited while a dialog is open left its
+ * hint behind. Six hints across four dialogs each had their own copy of that
+ * effect, so each needed the dependency — hence one call rather than six
+ * copies of this comment.
+ * @returns {number} meaningless; the READ is the point
+ */
+export function touchParameterTables() {
+	return (getParameters()?.length ?? 0) + (getDocumentParameters()?.length ?? 0);
+}
+
+/**
+ * Each Part tab's parameter names and values, by tab id (P2) — what the
+ * assembly panel offers an override field for.
+ *
+ * On the wire rather than read off the tab list, because only the OPEN tab's
+ * tree is mirrored and the open tab is the assembly whenever that panel is
+ * showing (see `ModelUpdated.document.part_parameters`).
+ * @returns {Record<string, Array<{name: string, value: number}>>}
+ */
+export function getPartParameters() {
+	return sessionDocument?.part_parameters ?? {};
+}
+
+/**
+ * Replace the DOCUMENT-level parameter table (send the COMPLETE list) and
+ * rebuild everything that reads it, in every tab.
+ *
+ * **Not an undo step**, unlike {@link setParameters}: an undo stack is
+ * per-tab, and a document-wide edit undone from one tab while the others kept
+ * the new values is a half-undo. There is no `renames` argument for the same
+ * reason the tool refuses one — the rewrite would have to reach every tab's
+ * expressions, and this message carries one table.
+ *
+ * @param {Array<{id?: string, name: string, expression: string}>} parameters
+ */
+export async function setDocumentParameters(parameters) {
+	if (!bridge || !engineReady) return;
+	log('action', 'Set document parameters', { count: parameters.length });
+	const payload = parameters.map((p) => ({
+		id: p.id || crypto.randomUUID(),
+		name: p.name,
+		expression: p.expression,
+		value: typeof p.value === 'number' ? p.value : 0,
+		// Same rule as the tab table: an edit to one row sends the whole
+		// table, so dropping these would strip the author's declared
+		// dimension from every other row.
+		...(p.unit ? { unit: p.unit } : {}),
+		...(p.comment ? { comment: p.comment } : {})
+	}));
+	try {
+		await sendRebuild({
+			type: 'SetDocumentParameters',
+			parameters: JSON.parse(JSON.stringify(payload))
+		});
+	} catch (err) {
+		log('error', `Set document parameters failed: ${err.message}`);
+		showToast('error', `Document variables update failed: ${err.message}`);
 	}
 }
 
@@ -8218,13 +8380,33 @@ export async function addInstance({ tabId, sourceId = null, name, transform, fix
 	});
 }
 
-/** Patch an instance (`name`, `transform`, `fixed`, `suppressed`). */
+/**
+ * Patch an instance (`name`, `transform`, `fixed`, `suppressed`,
+ * `parameter_overrides`).
+ *
+ * The key list is a WHITELIST, so a field missing from it is silently
+ * dropped — which is why `parameter_overrides` (P2) had to be added here as
+ * well as to the engine: without it the panel's override edit would look
+ * like it worked and change nothing.
+ *
+ * `parameter_overrides: null` clears every override, and an empty map is the
+ * same as none (the engine writes no key at all), so `{}` and absent are not
+ * two different builds of one part.
+ */
 export async function updateInstance(instanceId, patch) {
 	return editAssembly((asm) => {
 		const inst = asm.instances.find(i => i.id === instanceId);
 		if (!inst) return false;
 		for (const k of ['name', 'transform', 'fixed', 'suppressed', 'external_key']) {
 			if (k in patch) inst[k] = JSON.parse(JSON.stringify(patch[k]));
+		}
+		if ('parameter_overrides' in patch) {
+			const map = patch.parameter_overrides;
+			const next = map && Object.keys(map).length > 0
+				? JSON.parse(JSON.stringify(map))
+				: undefined;
+			if (next) inst.parameter_overrides = next;
+			else delete inst.parameter_overrides;
 		}
 		return true;
 	});
@@ -8526,9 +8708,14 @@ export async function moveTab(tabId, index) {
 /**
  * The session's tab list as of the last `ModelUpdated` (S2 C4). `{id, name,
  * kind}` per tab; never a tree.
+ *
+ * `$state`, because the document-level parameter table rides on it (P2) and
+ * a panel reading `getDocumentParameters()` has to re-render when the engine
+ * re-evaluates it. The fields the tab bar reads were already mirrored into
+ * their own `$state` below; this one is read straight off the message.
  * @type {any}
  */
-let sessionDocument = null;
+let sessionDocument = $state(null);
 
 /**
  * Mirror the session's document into the store's `$state` (S2 C4, A2.1).
@@ -10539,12 +10726,31 @@ export function hideImportDialog() {
 export async function applyImportPlacement(featureId, placement, opts = {}) {
 	const feature = featureTree?.features?.find(f => f.id === featureId);
 	if (!feature || feature.operation?.type !== 'ImportedBody') return false;
+	const current = feature.operation.params;
 	const params = {
-		...feature.operation.params,
+		...current,
 		translation_m: placement.translation_m,
 		rotation_deg: placement.rotation_deg,
 		scale: placement.scale ?? 1.0,
 	};
+	// The spread above carries P3's three placement sidecars, which is right
+	// for an apply that moved nothing and WRONG for one that did: a sidecar
+	// left over a replaced number is re-evaluated at the next rebuild and
+	// overwrites it, so the drag reverts with nothing said. Each component
+	// detaches on its own (`carriedComponentExpr`).
+	const carried = {
+		translation_m_expr: carriedComponentExpr(
+			current.translation_m_expr, current.translation_m, params.translation_m
+		),
+		rotation_deg_expr: carriedComponentExpr(
+			current.rotation_deg_expr, current.rotation_deg, params.rotation_deg
+		),
+		scale_expr: carriedExpr(current.scale_expr, current.scale ?? 1.0, params.scale),
+	};
+	for (const [key, value] of Object.entries(carried)) {
+		if (value) params[key] = value;
+		else delete params[key];
+	}
 	log('action', 'Edit STEP import placement', { featureId, live: opts.close === false });
 	await editFeature(featureId, { type: 'ImportedBody', params });
 	if (opts.close !== false) hideImportDialog();

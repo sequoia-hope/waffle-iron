@@ -858,8 +858,25 @@ export const parametersGetTool = {
 		'(measures), which parameters read it (used_by) and which ' +
 		'FEATURE FIELDS read it (used_by_fields) — so you can see what a change will move before making it. ' +
 		'An expression that does not evaluate reports its own error with value_mm null; the rest of the table ' +
-		'still answers. Dependency cycles are listed in cycles, each as the names around the loop.',
-	inputSchema: { type: 'object', properties: {}, additionalProperties: false },
+		'still answers. Dependency cycles are listed in cycles, each as the names around the loop. ' +
+		'scope chooses which table: tab (the default) answers the open Part tab\'s rows PLUS every ' +
+		'DOCUMENT row it inherits, each marked with its own scope and shadowed:true on a document row the ' +
+		'tab redeclares — one answer to what an expression here can read. document answers the ' +
+		'document-wide table alone (the only scope an Assembly or Drawing tab has). instance, with ' +
+		'instance_id, answers a part\'s table as that placed instance builds it: an overridden row carries ' +
+		'override and its value_mm is the pinned magnitude.',
+	inputSchema: {
+		type: 'object',
+		properties: {
+			scope: {
+				type: 'string',
+				enum: ['tab', 'document', 'instance'],
+				description: 'Which table to read. Default tab.'
+			},
+			instance_id: uuid('Required for scope instance: the assembly instance to read.')
+		},
+		additionalProperties: false
+	},
 	outputSchema: {
 		type: 'object',
 		properties: {
@@ -898,6 +915,25 @@ export const parametersGetTool = {
 						},
 						comment: { type: 'string' },
 						error: { type: 'string' },
+						scope: {
+							type: 'string',
+							enum: ['tab', 'document', 'instance'],
+							description:
+								'Where this row lives. instance marks a row this instance OVERRIDES; tab a row of ' +
+								'the part\'s own table; document a row inherited from the document-wide table.'
+						},
+						shadowed: {
+							type: 'boolean',
+							description:
+								'A document row the open tab redeclares, so the tab\'s row wins. Listed anyway: ' +
+								'this is the answer to "why is my document variable not driving this".'
+						},
+						override: {
+							type: 'number',
+							description:
+								'scope instance only: the working-space magnitude this instance pins the parameter ' +
+								'to. The row\'s own expression is not evaluated.'
+						},
 						depends_on: {
 							type: 'array',
 							items: { type: 'string' },
@@ -917,7 +953,10 @@ export const parametersGetTool = {
 						used_by: {
 							type: 'array',
 							items: { type: 'string' },
-							description: 'Parameters whose expressions read this one.'
+							description:
+								'Parameters whose expressions read this one, WITHIN the same table. A document row ' +
+								'and a tab row of the same name are two parameters, and the tab one shadows the ' +
+								'document one rather than depending on it.'
 						},
 						used_by_fields: {
 							type: 'array',
@@ -945,6 +984,25 @@ export const parametersGetTool = {
 					'Each dependency cycle as the names around the loop with the first repeated at the end, ' +
 					'e.g. ["a","b","a"]. Empty when the table is acyclic.',
 				items: { type: 'array', items: { type: 'string' } }
+			},
+			scope: {
+				type: 'string',
+				enum: ['tab', 'document', 'instance'],
+				description: 'The scope that was read.'
+			},
+			instance_id: { type: 'string', description: 'scope instance only.' },
+			overrides_matching_no_parameter: {
+				type: 'array',
+				items: { type: 'string' },
+				description:
+					'scope instance only: override names the part declares no parameter for. Each is also a ' +
+					'loud rebuild error; named here so you can find them without reading the error list.'
+			},
+			used_by_fields_scope: {
+				type: 'string',
+				description:
+					'scope document only: says that field readers are NOT reported, because a document ' +
+					"parameter's readers span every tab and this call holds only the open one's tree."
 			}
 		},
 		required: ['parameters', 'cycles']

@@ -89,6 +89,25 @@ pub struct Engine {
     /// keyed by source id. Document-scoped: not part of the tree, not
     /// undoable, survives tab switches. See [`crate::sources::SourceStore`].
     pub sources: SourceStore,
+    /// The DOCUMENT's design-parameter table (P2,
+    /// `specs/agent_mechanical_design.md` §6), as the host last pushed it.
+    /// Document-scoped, exactly like [`Engine::sources`]: not part of the
+    /// tree, not in this engine's undo history, survives tab switches.
+    ///
+    /// Every expression on this tree resolves against it AFTER the tree's own
+    /// table, so a local name shadows a document one. Each row's `value` and
+    /// `error` are refreshed by the parameter pass, so the host reads the
+    /// evaluated table back from here rather than evaluating it twice.
+    pub document_parameters: Vec<types::DesignParameter>,
+    /// The parameter overrides this build of the part was made with (P2),
+    /// when it is one placed occurrence of a part rather than the Part tab
+    /// itself. Pins magnitudes on [`Engine::tree`]'s own table, which is how
+    /// one part definition yields N differently-sized solids.
+    ///
+    /// Part of this engine's geometry identity: a cache offering an engine
+    /// for reuse must compare it (see `assembly_view`'s
+    /// `feature_engine::assembly::PartBuild`).
+    pub parameter_overrides: Option<std::collections::BTreeMap<String, f64>>,
     /// The assembly context this part is being edited in (v4 §2.8, in-context
     /// editing), if any. Runtime-only: set by the host when the part is opened
     /// in context, dropped on tab switch. Scoped `GeomRef`s resolve through it;
@@ -131,6 +150,8 @@ impl Engine {
             pid_to_feature: HashMap::new(),
             inherited_body_names: HashMap::new(),
             sources: SourceStore::new(),
+            document_parameters: Vec::new(),
+            parameter_overrides: None,
             context: None,
             connectors: Vec::new(),
             script_connectors: HashMap::new(),
@@ -722,6 +743,31 @@ impl Engine {
         self.rebuild(kb, 0, nothing_changed());
     }
 
+    /// Replace the DOCUMENT-level parameter table and rebuild everything on
+    /// this tree that reads it (P2). **Not undoable**, deliberately.
+    ///
+    /// The document table is above the tabs and every tab's expressions
+    /// resolve through it, so one edit reaches trees this engine does not
+    /// hold. An undo stack is per-tab (`DocumentSession::histories`), so
+    /// recording the edit here would offer to undo a document-wide change
+    /// from one tab while the other tabs kept the new values — a half-undo,
+    /// which is worse than none. This is the same call `sources` makes:
+    /// document-scoped state is not in the tree's history.
+    ///
+    /// The host keeps the persisted copy (`DocumentMetadata.parameters`);
+    /// what lands here is the working copy whose `value`/`error` the
+    /// parameter pass refreshes.
+    pub fn set_document_parameters(
+        &mut self,
+        parameters: Vec<types::DesignParameter>,
+        kb: &mut dyn KernelBundle,
+    ) {
+        self.document_parameters = parameters;
+        // Rebuild from 0: any feature on this tree may read any document
+        // parameter, and the apply pass reports which values actually moved.
+        self.rebuild(kb, 0, nothing_changed());
+    }
+
     /// Set rollback index and rebuild. Not undoable.
     pub fn set_rollback(&mut self, index: Option<usize>, kb: &mut dyn KernelBundle) {
         self.tree.set_rollback(index);
@@ -1116,7 +1162,12 @@ impl Engine {
         // No measurer here, ever: the geometry a measurement reads does not
         // exist yet on the first pass, and `report_expressions` is false
         // whenever a measuring pass will follow and report these instead.
-        let param_outcome = params::apply_parameters(&mut self.tree);
+        let param_outcome = params::apply_parameters_scoped(
+            &mut self.tree,
+            &mut self.document_parameters,
+            self.parameter_overrides.as_ref(),
+            None,
+        );
         let from_index = param_outcome
             .first_changed
             .map_or(from_index, |c| c.min(from_index));

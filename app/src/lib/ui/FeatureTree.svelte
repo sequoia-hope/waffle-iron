@@ -46,6 +46,8 @@
 		setBodyMaterial,
 		getParameters,
 		setParameters,
+		getDocumentParameters,
+		setDocumentParameters,
 		getSources,
 		setSourcePack,
 		packAllSources,
@@ -58,6 +60,7 @@
 		AGENT_WORKING_HINT
 	} from '$lib/engine/store.svelte.js';
 	import { showImportLinkDialog } from '$lib/engine/store.svelte.js';
+	import { showToast } from '$lib/ui/toast.svelte.js';
 	import { BUILTIN_PLANES, makePlaneRef } from '$lib/engine/planes.js';
 	import { internalToDisplay, UNITS } from '$lib/units.js';
 	import { describeLocator } from '$lib/storage/git/locator.js';
@@ -106,25 +109,45 @@
 	// Origin section state
 	let originExpanded = $state(true);
 
-	// Variables (design parameters) section state
+	// Variables (design parameters) section state. TWO scopes since P2
+	// (`specs/agent_mechanical_design.md` §6): the tab's own table and the
+	// DOCUMENT table above it, which every tab resolves through after its
+	// own. One set of handlers drives both — the scope travels on the edit —
+	// because the row shape, the rename rule and the delete are identical and
+	// a second copy would be a second place for them to drift.
 	let variablesExpanded = $state(true);
+	let documentVariablesExpanded = $state(false);
 	let parameters = $derived(getParameters());
-	/** Inline edit state: null | { id: string|null, name: string, expression: string }.
-	 *  id === null means a new row being created. */
+	let documentParameters = $derived(getDocumentParameters());
+	/** Tab-local names, so a shadowed document row can be marked as such. */
+	let shadowedNames = $derived(new Set(parameters.map((p) => p.name)));
+	/** Inline edit state: null | { id: string|null, name, expression, scope }.
+	 *  id === null means a new row being created; scope is 'tab' | 'document'. */
 	let editingVariable = $state(/** @type {any} */ (null));
 
-	function startAddVariable(e) {
-		e.stopPropagation();
-		variablesExpanded = true;
-		// Suggest the first free varN name.
-		let n = 1;
-		const names = new Set(parameters.map((p) => p.name));
-		while (names.has(`var${n}`)) n++;
-		editingVariable = { id: null, name: `var${n}`, expression: '10' };
+	/** The rows of one scope. */
+	function rowsOf(scope) {
+		return scope === 'document' ? documentParameters : parameters;
 	}
 
-	function startEditVariable(param) {
-		editingVariable = { id: param.id, name: param.name, expression: param.expression };
+	function startAddVariable(e, scope = 'tab') {
+		e.stopPropagation();
+		if (scope === 'document') documentVariablesExpanded = true;
+		else variablesExpanded = true;
+		// Suggest the first free varN name, free in BOTH scopes: a document
+		// name a tab also declares is legal but shadowed, which is not what
+		// someone pressing + is asking for.
+		let n = 1;
+		const names = new Set([
+			...parameters.map((p) => p.name),
+			...documentParameters.map((p) => p.name)
+		]);
+		while (names.has(`var${n}`)) n++;
+		editingVariable = { id: null, name: `var${n}`, expression: '10', scope };
+	}
+
+	function startEditVariable(param, scope = 'tab') {
+		editingVariable = { id: param.id, name: param.name, expression: param.expression, scope };
 	}
 
 	async function commitVariableEdit() {
@@ -138,7 +161,8 @@
 		const name = edit.name.trim();
 		const expression = edit.expression.trim();
 		if (!name || !expression) return;
-		const list = parameters.map((p) => ({ ...p }));
+		const scope = edit.scope ?? 'tab';
+		const list = rowsOf(scope).map((p) => ({ ...p }));
 		/** @type {Array<[string, string]>} */
 		const renames = [];
 		if (edit.id === null) {
@@ -155,6 +179,23 @@
 			row.name = name;
 			row.expression = expression;
 		}
+		if (scope === 'document') {
+			// A DOCUMENT rename is refused by the engine, because the rewrite
+			// would have to reach every tab's expressions and this message
+			// carries one table (P2). Say so here rather than sending an edit
+			// that silently keeps the old name.
+			if (renames.length > 0) {
+				showToast(
+					'error',
+					`A document variable cannot be renamed in place: '${renames[0][0]}' is read by every ` +
+						`tab. Add '${name}' alongside it, repoint the expressions that read ` +
+						`'${renames[0][0]}', then delete it.`
+				);
+				return;
+			}
+			await setDocumentParameters(list);
+			return;
+		}
 		await setParameters(list, renames);
 	}
 
@@ -162,10 +203,12 @@
 		editingVariable = null;
 	}
 
-	async function deleteVariable(e, param) {
+	async function deleteVariable(e, param, scope = 'tab') {
 		e.stopPropagation();
 		if (blockedByAgent()) return;
-		await setParameters(parameters.filter((p) => p.id !== param.id).map((p) => ({ ...p })));
+		const kept = rowsOf(scope).filter((p) => p.id !== param.id).map((p) => ({ ...p }));
+		if (scope === 'document') await setDocumentParameters(kept);
+		else await setParameters(kept);
 	}
 
 	function handleVariableKeydown(e) {
@@ -768,6 +811,120 @@
 <div class="feature-tree">
 	<div class="panel-header">Features</div>
 	<div class="tree-content" use:longPressContextMenu>
+	{#snippet variableRows(rows, scope)}
+		{#each rows as param (param.id)}
+			{#if editingVariable && editingVariable.id === param.id}
+				<div class="variable-row variable-editing" data-testid="variable-edit-row">
+					<!-- svelte-ignore a11y_autofocus -->
+					<input
+						class="variable-input variable-name-input"
+						bind:value={editingVariable.name}
+						onkeydown={handleVariableKeydown}
+						data-testid="variable-name-input"
+						autofocus
+					/>
+					<span class="variable-eq">=</span>
+					<input
+						class="variable-input variable-expr-input"
+						bind:value={editingVariable.expression}
+						onkeydown={handleVariableKeydown}
+						onblur={commitVariableEdit}
+						data-testid="variable-expr-input"
+					/>
+				</div>
+			{:else}
+				<div
+					class="variable-row"
+					class:variable-error={!!param.error}
+					class:variable-shadowed={scope === 'document' && shadowedNames.has(param.name)}
+					role="treeitem"
+					tabindex="0"
+					title={param.error
+						? param.error
+						: scope === 'document' && shadowedNames.has(param.name)
+							? `${param.name} = ${param.expression} → ${formatVariableValue(param)} — SHADOWED: this tab declares its own '${param.name}', which is what its expressions read`
+							: `${param.name} = ${param.expression} → ${formatVariableValue(param)}`}
+					onclick={() => startEditVariable(param, scope)}
+					onkeydown={(e) => { if (e.key === 'Enter') startEditVariable(param, scope); }}
+					data-testid={scope === 'document'
+						? `document-variable-row-${param.name}`
+						: `variable-row-${param.name}`}
+				>
+					<span class="variable-name">{param.name}</span>
+					<span class="variable-eq">=</span>
+					<span class="variable-expr">{param.expression}</span>
+					<span
+						class="variable-value"
+						data-testid={scope === 'document'
+							? `document-variable-value-${param.name}`
+							: `variable-value-${param.name}`}
+					>{param.error ? '⚠' : formatVariableValue(param)}</span>
+					<button
+						class="variable-delete"
+						title="Delete variable"
+						onclick={(e) => deleteVariable(e, param, scope)}
+						data-testid={scope === 'document'
+							? `document-variable-delete-${param.name}`
+							: `variable-delete-${param.name}`}
+					>×</button>
+				</div>
+			{/if}
+		{/each}
+		{#if editingVariable && editingVariable.id === null && (editingVariable.scope ?? 'tab') === scope}
+			<div class="variable-row variable-editing" data-testid="variable-edit-row">
+				<!-- svelte-ignore a11y_autofocus -->
+				<input
+					class="variable-input variable-name-input"
+					bind:value={editingVariable.name}
+					onkeydown={handleVariableKeydown}
+					data-testid="variable-name-input"
+					autofocus
+				/>
+				<span class="variable-eq">=</span>
+				<input
+					class="variable-input variable-expr-input"
+					bind:value={editingVariable.expression}
+					onkeydown={handleVariableKeydown}
+					onblur={commitVariableEdit}
+					data-testid="variable-expr-input"
+				/>
+			</div>
+		{/if}
+		{#if rows.length === 0 && !(editingVariable && (editingVariable.scope ?? 'tab') === scope)}
+			<div class="variable-empty">
+				{scope === 'document' ? 'No document variables — press + to add' : 'No variables — press + to add'}
+			</div>
+		{/if}
+	{/snippet}
+
+		<!-- Document variables (P2): above the tabs, read by every tab after
+		     its own table. Collapsed by default — a document with none should
+		     not grow a second empty section in front of the tree. -->
+		<div class="origin-section" data-testid="document-variables-section">
+			<div class="origin-header variables-header">
+				<button
+					class="origin-header variables-toggle"
+					onclick={() => documentVariablesExpanded = !documentVariablesExpanded}
+					data-testid="document-variables-toggle"
+				>
+					<span class="expand-icon">{documentVariablesExpanded ? '▾' : '▸'}</span>
+					<span class="origin-label">Document variables</span>
+					{#if documentParameters.length > 0 && !documentVariablesExpanded}
+						<span class="variable-count">{documentParameters.length}</span>
+					{/if}
+				</button>
+				<button
+					class="variable-add"
+					title="Add a DOCUMENT variable — every tab resolves it after its own table, so one value can drive two Parts. Not an undo step."
+					onclick={(e) => startAddVariable(e, 'document')}
+					data-testid="document-variable-add"
+				>+</button>
+			</div>
+			{#if documentVariablesExpanded}
+				{@render variableRows(documentParameters, 'document')}
+			{/if}
+		</div>
+
 		<!-- Variables (design parameters) section -->
 		<div class="origin-section" data-testid="variables-section">
 			<div class="origin-header variables-header">
@@ -782,78 +939,12 @@
 				<button
 					class="variable-add"
 					title="Add variable (lengths in mm, angles in degrees; expressions may reference other variables, e.g. width / 2)"
-					onclick={startAddVariable}
+					onclick={(e) => startAddVariable(e, 'tab')}
 					data-testid="variable-add"
 				>+</button>
 			</div>
 			{#if variablesExpanded}
-				{#each parameters as param (param.id)}
-					{#if editingVariable && editingVariable.id === param.id}
-						<div class="variable-row variable-editing" data-testid="variable-edit-row">
-							<!-- svelte-ignore a11y_autofocus -->
-							<input
-								class="variable-input variable-name-input"
-								bind:value={editingVariable.name}
-								onkeydown={handleVariableKeydown}
-								data-testid="variable-name-input"
-								autofocus
-							/>
-							<span class="variable-eq">=</span>
-							<input
-								class="variable-input variable-expr-input"
-								bind:value={editingVariable.expression}
-								onkeydown={handleVariableKeydown}
-								onblur={commitVariableEdit}
-								data-testid="variable-expr-input"
-							/>
-						</div>
-					{:else}
-						<div
-							class="variable-row"
-							class:variable-error={!!param.error}
-							role="treeitem"
-							tabindex="0"
-							title={param.error ? param.error : `${param.name} = ${param.expression} → ${formatVariableValue(param)}`}
-							onclick={() => startEditVariable(param)}
-							onkeydown={(e) => { if (e.key === 'Enter') startEditVariable(param); }}
-							data-testid="variable-row-{param.name}"
-						>
-							<span class="variable-name">{param.name}</span>
-							<span class="variable-eq">=</span>
-							<span class="variable-expr">{param.expression}</span>
-							<span class="variable-value" data-testid="variable-value-{param.name}">{param.error ? '⚠' : formatVariableValue(param)}</span>
-							<button
-								class="variable-delete"
-								title="Delete variable"
-								onclick={(e) => deleteVariable(e, param)}
-								data-testid="variable-delete-{param.name}"
-							>×</button>
-						</div>
-					{/if}
-				{/each}
-				{#if editingVariable && editingVariable.id === null}
-					<div class="variable-row variable-editing" data-testid="variable-edit-row">
-						<!-- svelte-ignore a11y_autofocus -->
-						<input
-							class="variable-input variable-name-input"
-							bind:value={editingVariable.name}
-							onkeydown={handleVariableKeydown}
-							data-testid="variable-name-input"
-							autofocus
-						/>
-						<span class="variable-eq">=</span>
-						<input
-							class="variable-input variable-expr-input"
-							bind:value={editingVariable.expression}
-							onkeydown={handleVariableKeydown}
-							onblur={commitVariableEdit}
-							data-testid="variable-expr-input"
-						/>
-					</div>
-				{/if}
-				{#if parameters.length === 0 && !editingVariable}
-					<div class="variable-empty">No variables — press + to add</div>
-				{/if}
+				{@render variableRows(parameters, 'tab')}
 			{/if}
 		</div>
 
@@ -1406,6 +1497,26 @@
 	.variable-error .variable-value,
 	.variable-error .variable-name {
 		color: var(--error-color, #f66);
+	}
+
+	/* A document row this tab redeclares. Shown struck through rather than
+	   hidden: "why is my document variable not driving this" is answered by
+	   seeing it listed and visibly overridden. */
+	.variable-shadowed .variable-name,
+	.variable-shadowed .variable-expr,
+	.variable-shadowed .variable-value {
+		opacity: 0.55;
+		text-decoration: line-through;
+	}
+
+	/* How many document variables a collapsed section is hiding. */
+	.variable-count {
+		margin-left: 4px;
+		padding: 0 4px;
+		border-radius: 6px;
+		background: var(--bg-tertiary, #333);
+		color: var(--text-secondary, #999);
+		font-size: 9px;
 	}
 
 	.variable-delete {

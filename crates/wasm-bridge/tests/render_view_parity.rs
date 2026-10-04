@@ -100,6 +100,7 @@ fn parity_document(part: &FeatureTree, assembly: &AssemblyTree) -> Value {
             inch_fraction: None,
             inch_denominator: None,
             fit_band: None,
+            parameters: Vec::new(),
             extra: Map::new(),
         },
         sources: Vec::new(),

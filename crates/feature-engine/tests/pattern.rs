@@ -104,6 +104,7 @@ fn z_axis() -> AxisRef {
     AxisRef::Explicit {
         origin: [0.0, 0.0, 0.0],
         direction: [0.0, 0.0, 1.0],
+        origin_expr: None,
     }
 }
 
@@ -117,6 +118,7 @@ fn circular(seed: Uuid, count: u32, angle_deg: f64) -> Operation {
             )]),
             axis: z_axis(),
             count,
+            count_expr: None,
             angle_deg,
             angle_expr: None,
             skip: vec![],
@@ -137,8 +139,10 @@ fn linear(seed: Uuid, count: u32, spacing: f64) -> Operation {
             direction: AxisRef::Explicit {
                 origin: [0.0; 3],
                 direction: [1.0, 0.0, 0.0],
+                origin_expr: None,
             },
             count,
+            count_expr: None,
             spacing,
             spacing_expr: None,
             second: None,
@@ -279,8 +283,10 @@ fn linear_places_by_spacing_and_grid_indexes_row_major() {
             direction: AxisRef::Explicit {
                 origin: [0.0; 3],
                 direction: [0.0, 1.0, 0.0],
+                origin_expr: None,
             },
             count: 2,
+            count_expr: None,
             spacing: 5.0,
             spacing_expr: None,
         });
@@ -362,8 +368,10 @@ fn invalid_parameters_are_loud_typed_errors_with_no_output() {
                         axis: AxisRef::Explicit {
                             origin: [0.0; 3],
                             direction: [0.0; 3],
+                            origin_expr: None,
                         },
                         count: 4,
+                        count_expr: None,
                         angle_deg: 360.0,
                         angle_expr: None,
                         skip: vec![],
@@ -424,8 +432,10 @@ fn parallel_second_direction_is_refused() {
             direction: AxisRef::Explicit {
                 origin: [0.0; 3],
                 direction: [-2.0, 0.0, 0.0],
+                origin_expr: None,
             },
             count: 2,
+            count_expr: None,
             spacing: 5.0,
             spacing_expr: None,
         });
@@ -684,6 +694,7 @@ fn mirror(seed: Uuid, origin: [f64; 3], normal: [f64; 3]) -> Operation {
             plane: AxisRef::Explicit {
                 origin,
                 direction: normal,
+                origin_expr: None,
             },
             combine: None,
             targets: None,

@@ -133,7 +133,9 @@ pub(crate) fn resolve_axis(
     what: &str,
 ) -> Result<([f64; 3], [f64; 3]), EngineError> {
     let (origin, direction) = match axis {
-        AxisRef::Explicit { origin, direction } => (*origin, *direction),
+        AxisRef::Explicit {
+            origin, direction, ..
+        } => (*origin, *direction),
         AxisRef::Entity { geom_ref } => {
             let (frame, _geometry) =
                 resolve_connector_frame(geom_ref, feature_results, introspect, AxialAnchor::Middle)

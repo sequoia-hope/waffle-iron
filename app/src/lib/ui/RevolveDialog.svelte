@@ -14,7 +14,8 @@
 		setExtrudeTargetIds,
 		toggleExtrudeTargetId,
 		clearExtrudeTargets,
-		evaluateExpression
+		evaluateExpression,
+		touchParameterTables
 	} from '$lib/engine/store.svelte.js';
 	import { showToast } from '$lib/ui/toast.svelte.js';
 	import { log } from '$lib/engine/logger.js';
@@ -30,6 +31,8 @@
 	let angleEvalToken = 0;
 	$effect(() => {
 		const text = angleInput.trim();
+		// See `touchParameterTables`: the hint is evaluated against the tables.
+		touchParameterTables();
 		if (!angleIsExpr) {
 			angleEval = { value: null, error: null };
 			return;

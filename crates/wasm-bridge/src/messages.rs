@@ -840,6 +840,21 @@ pub enum UiToEngine {
         #[serde(default)]
         renames: Vec<(String, String)>,
     },
+    /// Replace the DOCUMENT-level parameter table (P2,
+    /// `specs/agent_mechanical_design.md` §6) and rebuild. The sender always
+    /// sends the complete list.
+    ///
+    /// **Not undoable**, unlike [`UiToEngine::SetParameters`]. The document
+    /// table is above the tabs and an undo stack is per-tab, so recording
+    /// this edit in the active tab's history would offer to undo a
+    /// document-wide change from one tab while every other tab kept the new
+    /// values. Document-scoped state is not in a tree's history — the same
+    /// call `sources` makes.
+    ///
+    /// Evaluated values/errors come back on `ModelUpdated.document`.
+    SetDocumentParameters {
+        parameters: Vec<DesignParameter>,
+    },
     /// Stateless: evaluate one expression against the current parameter
     /// table's cached values (mm-space result). Used by dialogs and the
     /// dimension input for live validation/preview.
@@ -974,6 +989,28 @@ pub struct DocumentInfo {
     /// supplies it to every message that needs it.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub assembly_tree: Option<feature_engine::assembly::AssemblyTree>,
+    /// The DOCUMENT's design-parameter table, as the last rebuild evaluated
+    /// it (P2, format v12): rows with their `value` and `error` filled.
+    ///
+    /// Carried here and not only on `feature_tree.parameters` because it is
+    /// not the tab's: it is the same table whichever tab is open, including
+    /// an Assembly or Drawing tab, which has no `feature_tree` at all. The
+    /// panel reads it from here the way it reads the tab's table off the
+    /// tree, and nothing client-side evaluates either.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub parameters: Vec<DesignParameter>,
+    /// Each Part tab's design-parameter names and last-evaluated values, by
+    /// tab id (P2).
+    ///
+    /// The assembly panel needs this to offer one override field per
+    /// parameter of the part an instance is of — and it cannot get it
+    /// anywhere else: only the OPEN tab's tree is on the wire, and an
+    /// assembly tab is the open one whenever that panel is showing. Names
+    /// and values only, not the tables: an override is a magnitude, so the
+    /// panel needs to know which names exist and what the part says, and
+    /// nothing more.
+    #[serde(default, skip_serializing_if = "std::collections::BTreeMap::is_empty")]
+    pub part_parameters: std::collections::BTreeMap<String, Vec<PartParameter>>,
     /// Increments on every committed mutation, so a host can name the state a
     /// viewer holds (spec §4.1).
     pub revision: u64,
@@ -1038,6 +1075,15 @@ pub struct DisplaySettings {
     /// Print an ISO 286 fit's resolved band beside its class.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub fit_band: Option<bool>,
+}
+
+/// One design parameter of a Part tab as [`DocumentInfo::part_parameters`]
+/// reports it: the name an override addresses and the value the part itself
+/// evaluates it to (the placeholder an empty override field shows).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PartParameter {
+    pub name: String,
+    pub value: f64,
 }
 
 /// One face of a `FacesListed` answer (ICR-3).

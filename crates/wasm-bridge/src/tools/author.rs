@@ -896,8 +896,33 @@ pub(super) fn parameters_set(
     kb: &mut dyn KernelBundle,
     args: &Value,
 ) -> Answer {
-    let merge = args.get("merge").and_then(Value::as_bool).unwrap_or(false);
-    let table = state.engine.tree.parameters.clone();
+    let scope = args
+        .get("scope")
+        .and_then(Value::as_str)
+        .unwrap_or("tab")
+        .to_string();
+    // An instance's overrides are MAGNITUDES, not expression rows (P2), so
+    // they take a different payload and a different path. Routed from here
+    // rather than from a separate tool name so that "set a parameter" is one
+    // tool whichever scope the caller means.
+    if scope == "instance" {
+        return parameters_set_instance(state, kb, args, merge_flag(args));
+    }
+    if scope != "tab" && scope != "document" {
+        return Err(ToolFailure::new(
+            "InvalidArguments",
+            format!("scope: unknown scope `{scope}`; expected `tab`, `document` or `instance`."),
+            json!({ "schema_path": "/scope",
+                    "expected": ["tab", "document", "instance"] }),
+        ));
+    }
+    let document_scope = scope == "document";
+    let merge = merge_flag(args);
+    let table = if document_scope {
+        state.engine.document_parameters.clone()
+    } else {
+        state.engine.tree.parameters.clone()
+    };
     let deletes = args
         .get("delete")
         .and_then(Value::as_array)
@@ -974,6 +999,29 @@ pub(super) fn parameters_set(
                             p.name
                         ),
                         json!({ "parameter": p.name, "new_name": name }),
+                    ));
+                }
+                if document_scope {
+                    // The rewrite a rename needs reaches every TAB's
+                    // expressions, and this call holds only the open tab's
+                    // tree — the others live in the session. Rewriting one
+                    // tab and not the rest is the half-rename
+                    // `ParameterNameTaken` exists to prevent, so the rename
+                    // is refused rather than half-applied. Repointing by
+                    // hand is three loud steps: add the new name, change the
+                    // readers, delete the old.
+                    return Err(ToolFailure::new(
+                        "ParameterRenameNotSupported",
+                        format!(
+                            "Cannot rename the document parameter '{}' to '{name}': a \
+                             document parameter is read by every tab, and this call \
+                             can only rewrite the open one. Nothing was changed. Add \
+                             '{name}' as a new document parameter, repoint the \
+                             expressions that read '{}', then delete '{}'.",
+                            p.name, p.name, p.name
+                        ),
+                        json!({ "parameter": p.name, "new_name": name,
+                                "scope": "document" }),
                     ));
                 }
                 renames.push((p.name.clone(), name.clone()));
@@ -1072,7 +1120,32 @@ pub(super) fn parameters_set(
     // needs, and a loud per-feature "unknown variable" an hour later is not.
     if !removed.is_empty() {
         let mut blocked: Vec<Value> = Vec::new();
-        let field_uses = feature_engine::params::field_uses(&mut state.engine.tree);
+        // A DOCUMENT parameter is read by every tab, so the check walks every
+        // part tab's tree, not just the open one. Checking only the open tab
+        // would let a delete through that breaks a Part the caller is not
+        // looking at — the exact harm this refusal exists to prevent, moved
+        // one tab away.
+        let field_uses = if document_scope {
+            let mut uses = Vec::new();
+            for (tab_id, mut tree) in state.session.part_trees(&state.engine) {
+                let tab_name = state
+                    .session
+                    .tab(&tab_id)
+                    .map(|t| t.name.clone())
+                    .unwrap_or(tab_id);
+                uses.extend(
+                    feature_engine::params::field_uses(&mut tree)
+                        .into_iter()
+                        .map(|mut u| {
+                            u.feature_name = format!("{tab_name} › {}", u.feature_name);
+                            u
+                        }),
+                );
+            }
+            uses
+        } else {
+            feature_engine::params::field_uses(&mut state.engine.tree)
+        };
         for name in &removed {
             let mut readers: Vec<String> = parameters
                 .iter()
@@ -1122,21 +1195,22 @@ pub(super) fn parameters_set(
         }
     }
 
-    let step = apply_step(
-        state,
-        kb,
+    let message = if document_scope {
+        UiToEngine::SetDocumentParameters { parameters }
+    } else {
         UiToEngine::SetParameters {
             parameters,
             renames,
-        },
-        OnError::Report,
-        "Internal",
-    )?;
+        }
+    };
+    let step = apply_step(state, kb, message, OnError::Report, "Internal")?;
 
-    let evaluated: Vec<Value> = state
-        .engine
-        .tree
-        .parameters
+    let answered = if document_scope {
+        state.engine.document_parameters.clone()
+    } else {
+        state.engine.tree.parameters.clone()
+    };
+    let evaluated: Vec<Value> = answered
         .iter()
         .map(|p| {
             let mut row = json!({
@@ -1161,8 +1235,62 @@ pub(super) fn parameters_set(
         .collect();
 
     let mut out = step.delta;
-    merge_first(&mut out, json!({ "parameters": evaluated }));
+    merge_first(&mut out, json!({ "scope": scope, "parameters": evaluated }));
     Ok(out)
+}
+
+/// `merge`, read the same way wherever `parameters_set` needs it.
+fn merge_flag(args: &Value) -> bool {
+    args.get("merge").and_then(Value::as_bool).unwrap_or(false)
+}
+
+/// `parameters_set {scope: "instance", instance_id, overrides}` (P2): the
+/// magnitudes one placed instance pins on its part.
+///
+/// Delegates to `instance_edit`, which is the one place an instance is
+/// written: an override is a field of the instance, and a second writer for
+/// it would be a second set of preconditions (the derived-instance refusal,
+/// the assembly commit, the re-evaluation) to keep in step. The argument is
+/// spelled `overrides` here and `parameter_overrides` there because this
+/// call's scope already said what is being set.
+fn parameters_set_instance(
+    state: &mut EngineState,
+    kb: &mut dyn KernelBundle,
+    args: &Value,
+    merge: bool,
+) -> Answer {
+    let instance_id = args
+        .get("instance_id")
+        .and_then(Value::as_str)
+        .ok_or_else(|| {
+            ToolFailure::new(
+                "InvalidArguments",
+                "instance_id is required for scope `instance`.",
+                json!({ "schema_path": "/instance_id" }),
+            )
+        })?;
+    let overrides = args
+        .get("overrides")
+        .or_else(|| args.get("parameter_overrides"))
+        .ok_or_else(|| {
+            ToolFailure::new(
+                "InvalidArguments",
+                "`overrides` is required for scope `instance`: an object of \
+                 {name: number} (working-space magnitudes), or null to clear \
+                 every override."
+                    .to_string(),
+                json!({ "schema_path": "/overrides" }),
+            )
+        })?;
+    crate::tools::assembly::instance_edit(
+        state,
+        kb,
+        &json!({
+            "instance_id": instance_id,
+            "parameter_overrides": overrides,
+            "merge": merge,
+        }),
+    )
 }
 
 /// Import a STEP body as a feature (one undo step).

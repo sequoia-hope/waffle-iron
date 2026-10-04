@@ -144,6 +144,68 @@ test.describe('expression-driven extrude depth', () => {
 		expectNoAnyCrash(crashes);
 	});
 
+	test('the SECOND Blind depth takes an expression, and a dialog edit keeps it', async ({ waffle }) => {
+		// P3 gave the second direction's Blind depth an `*_expr` sidecar. The
+		// dialog had no input for it, which is worse than missing: it read the
+		// evaluated NUMBER back and sent it as a literal, so an expression set
+		// through the tools was dropped the first time a user touched Edit.
+		const page = waffle.page;
+		const crashes = collectCrashErrors(page);
+
+		await addVariable(page, 'back', '7');
+
+		await clickSketch(page);
+		await clickRectangle(page);
+		await drawRectangle(page, -80, -60, 80, 60);
+		await waitForEntityCount(page, 8, 5000);
+		await clickFinishSketch(page);
+		await waitForFeatureCount(page, 1, 10000);
+
+		await clickExtrude(page);
+		await page.locator('[data-testid="extrude-depth"]').fill('10');
+		await page.locator('[data-testid="extrude-second-dir"]').selectOption('Blind');
+		const second = page.locator('[data-testid="extrude-second-depth"]');
+		await second.fill('back * 2');
+		// The engine evaluates it, like the primary depth's hint.
+		await expect(page.locator('[data-testid="extrude-second-depth-eval"]')).toHaveText('= 14 mm');
+		await page.locator('[data-testid="extrude-apply"]').click();
+		await waitForFeatureCount(page, 2, 10000);
+
+		let tree = await getFeatureTree(page);
+		let extrude = tree.features.find((f) => f.operation?.type === 'Extrude');
+		expect(extrude.operation.params.second_direction.type).toBe('Blind');
+		expect(extrude.operation.params.second_direction.depth_expr).toBe('back * 2');
+		expect(extrude.operation.params.second_direction.depth).toBeCloseTo(0.014, 12);
+
+		// Editing the variable moves the second depth with it.
+		await editVariable(page, 'back', '11');
+		await page.waitForFunction(() => {
+			const t = window.__waffle.getFeatureTree();
+			const e = t.features.find((f) => f.operation?.type === 'Extrude');
+			return e && Math.abs(e.operation.params.second_direction.depth - 0.022) < 1e-12;
+		}, { timeout: 10000 });
+
+		// Re-open the feature for EDIT (the toolbar button would start a new
+		// extrude and never read `editParams`): the input shows the
+		// EXPRESSION, not 22, and applying unchanged leaves the sidecar in
+		// place. This is the exact round trip that used to drop it.
+		const extrudeId = extrude.id;
+		await page.evaluate((id) => window.__waffle.showEditFeatureDialog(id), extrudeId);
+		await page.locator('[data-testid="extrude-dialog"]').waitFor({ state: 'visible', timeout: 5000 });
+		await expect(page.locator('[data-testid="extrude-second-depth"]')).toHaveValue('back * 2');
+		await expect(page.locator('[data-testid="extrude-second-depth-eval"]')).toHaveText('= 22 mm');
+		await page.locator('[data-testid="extrude-apply"]').click();
+		await page.locator('[data-testid="extrude-dialog"]').waitFor({ state: 'hidden', timeout: 10000 });
+		tree = await getFeatureTree(page);
+		// An EDIT, not a second extrude.
+		expect(tree.features.length).toBe(2);
+		extrude = tree.features.find((f) => f.id === extrudeId);
+		expect(extrude.operation.params.second_direction.depth_expr).toBe('back * 2');
+		expect(extrude.operation.params.second_direction.depth).toBeCloseTo(0.022, 12);
+
+		expectNoAnyCrash(crashes);
+	});
+
 	test('bad depth expression blocks apply with an error toast', async ({ waffle }) => {
 		const page = waffle.page;
 		await clickSketch(page);
@@ -162,6 +224,31 @@ test.describe('expression-driven extrude depth', () => {
 		await page.waitForTimeout(500);
 		const tree = await getFeatureTree(page);
 		expect(tree.features.length).toBe(1);
+	});
+
+	test('bad SECOND depth expression blocks apply too', async ({ waffle }) => {
+		// The second depth had no gate at all, so a failed expression sent NaN
+		// down as the depth instead of refusing by name.
+		const page = waffle.page;
+		await clickSketch(page);
+		await clickRectangle(page);
+		await drawRectangle(page, -80, -60, 80, 60);
+		await waitForEntityCount(page, 8, 5000);
+		await clickFinishSketch(page);
+		await waitForFeatureCount(page, 1, 10000);
+
+		await clickExtrude(page);
+		await page.locator('[data-testid="extrude-depth"]').fill('10');
+		await page.locator('[data-testid="extrude-second-dir"]').selectOption('Blind');
+		await page.locator('[data-testid="extrude-second-depth"]').fill('missing_var');
+		await expect(page.locator('[data-testid="extrude-second-depth-eval"]')).toContainText(
+			'unknown variable'
+		);
+		await page.locator('[data-testid="extrude-apply"]').click();
+		await page.waitForTimeout(500);
+		const tree = await getFeatureTree(page);
+		expect(tree.features.length).toBe(1);
+		await expect(page.locator('[data-testid="extrude-dialog"]')).toBeVisible();
 	});
 });
 

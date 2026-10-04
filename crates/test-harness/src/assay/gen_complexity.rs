@@ -481,6 +481,7 @@ impl CCase {
                     cut,
                     merge: true,
                     angle_expr: None,
+                    axis_origin_expr: None,
                 },
             },
             suppressed: false,
@@ -2816,7 +2817,12 @@ fn family_depth_modes(dir: &Path) -> Vec<ManifestEntry> {
             0.3,
             0.3,
             false,
-            |p| p.second_direction = Some(SecondDirection::Blind { depth: 0.5 }),
+            |p| {
+                p.second_direction = Some(SecondDirection::Blind {
+                    depth: 0.5,
+                    depth_expr: None,
+                })
+            },
         );
         c.vops.push(VOp::Add(tool_box(
             [0.0, 0.0, 0.35],

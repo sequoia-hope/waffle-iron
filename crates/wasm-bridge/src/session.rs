@@ -104,6 +104,23 @@ impl DocumentSession {
         &self.document
     }
 
+    /// The DOCUMENT's design-parameter table (P2, format v12). The session is
+    /// the STORE; `Engine::document_parameters` is the working copy, pushed
+    /// in by [`Self::switch_tab`] and written back after an edit.
+    pub fn document_parameters(&self) -> &[feature_engine::types::DesignParameter] {
+        &self.document.parameters
+    }
+
+    /// Replace the document table. Bumps the revision: this is a committed
+    /// mutation of the document even though it changes no tab.
+    pub fn set_document_parameters(
+        &mut self,
+        parameters: Vec<feature_engine::types::DesignParameter>,
+    ) {
+        self.document.parameters = parameters;
+        self.commit();
+    }
+
     pub fn active_tab_id(&self) -> &str {
         &self.active_tab
     }
@@ -270,6 +287,15 @@ impl DocumentSession {
             .unwrap_or_else(FeatureTree::new);
         let history = self.histories.remove(id).unwrap_or_default();
         engine.set_history(history);
+        // The document table travels with the tab switch, like `sources`
+        // does: it is document-scoped, so every tab resolves through the
+        // same one. Here rather than at each call site because this is the
+        // one place every tab change passes through.
+        engine.document_parameters = self.document.parameters.clone();
+        // The live engine is never an INSTANCE of a part, so it carries no
+        // overrides: a part tab (including one opened in context) shows the
+        // part's own values, because that is what an edit there changes.
+        engine.parameter_overrides = None;
         self.commit();
         Ok(())
     }
