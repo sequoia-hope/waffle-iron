@@ -644,9 +644,14 @@ pub enum UiToEngine {
     /// Volume, surface area, centroid and the inertia tensor about the
     /// centroid of one body (Q3 of `specs/agent_mechanical_design.md` §4.2).
     ///
-    /// `density_kg_m3` defaults to 1 — the document model carries no material
-    /// table, so the answer reports which density it used rather than
-    /// inventing a material. Query: no rebuild.
+    /// Absent, `density_kg_m3` comes from the body's own MATERIAL (M1,
+    /// `FeatureTree::density_of_body`), and only a body with no material at
+    /// all falls back to [`waffle_types::kernel::DEFAULT_DENSITY_KG_M3`] — at
+    /// which `mass_kg` is numerically the volume. The answer always reports
+    /// the density it used, which is how a caller tells the two apart; a
+    /// DANGLING material (a body naming one the table no longer has) is
+    /// refused rather than measured at the fallback. An explicit value still
+    /// wins, for "what would this weigh in brass". Query: no rebuild.
     MeasureMass {
         body_id: String,
         #[serde(default, skip_serializing_if = "Option::is_none")]
