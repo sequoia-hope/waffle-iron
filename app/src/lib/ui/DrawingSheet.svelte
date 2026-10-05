@@ -54,8 +54,21 @@
 		setSheetHover,
 		setSheetSelection
 	} from '$lib/engine/store.svelte.js';
-	import { renderSheetSvg } from '$lib/drawings/sheet.js';
+	import { renderSheetSvg, sheetExtentMm } from '$lib/drawings/sheet.js';
 	import { placementForPoint } from '$lib/drawings/layout.js';
+	// D4e's two placement tools. Their MODE is the store's `sheetMode` like
+	// every other tool here; what the module owns is the dialog's answers, the
+	// picked parent and the ghost.
+	import {
+		cancelPlacement,
+		placementGhostSvg,
+		placementMode,
+		placementPointerDown,
+		placementPointerMove,
+		startPlaceView,
+		startProjectView,
+		__setProbeForTest
+	} from '$lib/drawings/placementMode.svelte.js';
 	import { drawingStyle } from '$lib/drawings/style.js';
 	import {
 		PICK_RADIUS_MM,
@@ -95,6 +108,17 @@
 	let hover = $derived(getSheetHover());
 	let selection = $derived(getSheetSelection());
 	let style = drawingStyle();
+	/**
+	 * D4e's placement ghost, as markup for the OVERLAY.
+	 *
+	 * In the overlay rather than spliced into the paper string, which is where
+	 * D4e first put it: the overlay already shares the sheet's `viewBox`, so
+	 * its user units ARE paper millimetres and the ghost is still exact to the
+	 * pixel — and D4d's rule holds, that the markup the user sees is the
+	 * markup `export_svg` writes. A placement preview is not part of the
+	 * drawing.
+	 */
+	let ghostMarkup = $derived(placementMode() ? placementGhostSvg(sheet) : '');
 
 	/** @type {HTMLDivElement | null} */
 	let stackEl = $state(null);
@@ -137,6 +161,24 @@
 		if (!m) return null;
 		const p = new DOMPoint(clientX, clientY).matrixTransform(m.inverse());
 		return Number.isFinite(p.x) && Number.isFinite(p.y) ? [p.x, p.y] : null;
+	}
+
+	/**
+	 * A client point in SHEET paper millimetres measured up from the
+	 * bottom-left corner — `DrawingView.placement_mm`'s own convention, which
+	 * is what D4e's placement tools work in.
+	 *
+	 * Through the overlay's CTM, so it is the same mapping every mark on this
+	 * surface is placed with; the one flip is that the overlay's user units
+	 * measure y DOWN from the top, as `sheet.js` writes the paper.
+	 */
+	function clientToSheetMm(clientX, clientY) {
+		const m = overlayEl?.getScreenCTM?.();
+		if (!m || !sheet) return null;
+		const p = new DOMPoint(clientX, clientY).matrixTransform(m.inverse());
+		if (!Number.isFinite(p.x) || !Number.isFinite(p.y)) return null;
+		const [, heightMm] = sheetExtentMm(sheet);
+		return [p.x, heightMm - p.y];
 	}
 
 	/** A view-space paper point in the OVERLAY's units (the sheet's paper mm). */
@@ -283,6 +325,17 @@
 			dragTo(e);
 			return;
 		}
+		if (placementMode()) {
+			// D4e: the cursor IS the answer in both placement tools, so there
+			// is nothing to hit-test. The hover is CLEARED rather than left
+			// alone — `setSheetMode` drops the picks and the selection but not
+			// the hover, so a mark and a hint from the tool before this one
+			// would otherwise sit under the ghost.
+			if (hover) setSheetHover(null);
+			const at = clientToSheetMm(e.clientX, e.clientY);
+			if (at) placementPointerMove(at);
+			return;
+		}
 		if (mode === 'select') {
 			const hit = annotationUnder(e.clientX, e.clientY);
 			setSheetHover(
@@ -344,6 +397,16 @@
 
 	async function onPointerDown(e) {
 		if (e.button !== 0 || !status) return;
+		if (placementMode()) {
+			// D4e. The click places the view and the tool ends, so the sheet
+			// swallows it: a placement click must not also reach whatever is
+			// under it.
+			const at = clientToSheetMm(e.clientX, e.clientY);
+			if (!at) return;
+			e.preventDefault();
+			await placementPointerDown(at);
+			return;
+		}
 		if (mode === 'select') {
 			const hit = annotationUnder(e.clientX, e.clientY);
 			if (!hit) {
@@ -590,6 +653,31 @@
 
 	/** The tool's own hint, if any — what the balloon shows. */
 	let hintText = $derived(hover?.hint ?? (hover?.label ? hover.label : null));
+
+	// A test door onto the placement module — THIS component's import of it,
+	// which is the instance the pointer handlers above drive (D4e review).
+	//
+	// A spec that reached the module with its own `await import(...)` is not
+	// reliably reaching the same instance: the app imports it through the
+	// `$lib` alias and a spec imports it by path, and when the two resolve to
+	// different module records the spec drives a copy whose store has no open
+	// drawing — so the ghost comes out empty and the test fails for a reason
+	// that has nothing to do with the code under test. Measured as exactly
+	// that flake on 2026-10-05. Published here rather than on
+	// `window.__waffle` because the store cannot import that module: it
+	// imports the store, and the cycle would be real.
+	if (typeof window !== 'undefined') {
+		// @ts-ignore - test door, like `window.__waffle`
+		window.__wafflePlacement = {
+			startPlaceView,
+			startProjectView,
+			cancelPlacement,
+			placementPointerMove,
+			placementPointerDown,
+			placementGhostSvg: () => placementGhostSvg(sheet),
+			setProbeForTest: __setProbeForTest
+		};
+	}
 </script>
 
 <!-- The wrapper scrolls rather than overflows: an A3 sheet at 1:1 is wider
@@ -604,6 +692,7 @@
 		<!-- svelte-ignore a11y_no_static_element_interactions -->
 		<div
 			class="paper-stack"
+			class:placing={!!placementMode()}
 			data-testid="sheet-surface"
 			data-sheet-mode={mode}
 			bind:this={stackEl}
@@ -648,6 +737,12 @@
 				{/if}
 				{#if drag?.moved && marks.cursor}
 					<circle class="ov-drag" cx={marks.cursor[0]} cy={marks.cursor[1]} r="1.2" />
+				{/if}
+				<!-- D4e's placement ghost. Its own units are already this
+				     overlay's (paper mm, y down), so it drops straight in. -->
+				{#if ghostMarkup}
+					<!-- eslint-disable-next-line svelte/no-at-html-tags -->
+					{@html ghostMarkup}
 				{/if}
 			</svg>
 			{#if hintText}
@@ -702,6 +797,13 @@
 		max-width: 100%;
 		flex: 0 0 auto;
 		touch-action: none;
+	}
+
+	/* A D4e placement tool is running: the cursor says so, and the paper does
+	   not select under the pointer. */
+	.paper-stack.placing {
+		cursor: crosshair;
+		user-select: none;
 	}
 
 	/* The sheet carries its own mm size so printing is true to scale; on

@@ -167,6 +167,13 @@ GUI_FAST_SPECS=(
   # seconds each (measured 17 s for the 11 tests at two workers).
   drawing-dimension-tools.spec.js
   drawing-pick-radius.spec.js
+  # D4e: the two visual view-placement tools on the drawing sheet. In the fast
+  # tier because they are the oracle for a POINTER path — a ghost box that
+  # stops matching where the view lands is invisible to every Rust test.
+  # Ten tests, about half a minute at two workers (measured 2026-10-04; the
+  # D4e review added four and re-timed it, and the same run took 1.2 minutes
+  # with other suites on the box, which is the tier's usual load spread).
+  drawing-view-placement.spec.js
 )
 
 # ---------------------------------------------------------------------------

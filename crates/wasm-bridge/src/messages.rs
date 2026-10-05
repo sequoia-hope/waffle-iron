@@ -575,6 +575,36 @@ pub enum UiToEngine {
         instance_path: Vec<Uuid>,
         geom_ref: waffle_types::GeomRef,
     },
+    /// What a drawing view WOULD be, without adding it (D4e,
+    /// `specs/drawings_and_mbd.md` §8): where the engine would auto-place it,
+    /// the frame it would project with, what a projected one SHOWS under the
+    /// document's standard, and the source's world bounds for a UI to size a
+    /// ghost box from.
+    ///
+    /// **Why the engine answers and not the page.** The two placement tools
+    /// show you where a view will land before you commit it, and a ghost drawn
+    /// somewhere other than where the view appears is worse than no ghost. The
+    /// placement comes from the SAME `default_placement` an `AddView` with no
+    /// `placement_mm` uses, so a visually placed projected view is
+    /// byte-identical to a panel-added one, and the first-angle flip stays
+    /// `projected_frame`'s one table instead of becoming a second copy of the
+    /// standard in JavaScript.
+    ///
+    /// Several `projections` per call rather than one: the projected-view tool
+    /// needs all eight sectors around a parent before the pointer moves, and
+    /// eight round trips through the worker is a laggy ghost. One source tab
+    /// per call, because `bounds` is that tab's.
+    ProbeDrawingView {
+        /// The `Drawing` tab. Named rather than assumed active so a probe can
+        /// never answer about a different drawing than the caller meant.
+        tab_id: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        sheet_id: Option<Uuid>,
+        source_tab: String,
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        bodies: Vec<String>,
+        projections: Vec<feature_engine::drawing::Projection>,
+    },
     /// Open a Part tab IN THE CONTEXT of an assembly (Phase 3d-4, in-context
     /// editing, v4 §2.8). `features` is the part's tree (it becomes the live
     /// tree); the assembly and this document's trees are evaluated exactly as
@@ -2144,6 +2174,25 @@ pub enum EngineToUi {
         reason: Option<String>,
     },
 
+    /// Answer to [`UiToEngine::ProbeDrawingView`] (D4e): one entry per asked
+    /// projection, in the order asked, plus the source's bounds.
+    DrawingViewProbed {
+        /// The source bodies' world AABB in METERS, `[min, max]`, or absent
+        /// for a source with no body the kernel will bound.
+        ///
+        /// The kernel's `solid_aabb` where it answers (analytic and
+        /// conservative — a true upper bound), the body's render tessellation
+        /// where it declines (short of the true extent by the chord deficit).
+        /// Which of the two was used is not reported: a caller cannot act on
+        /// the difference, and the one thing it must not do — treat the box as
+        /// EXACT — is wrong either way.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        bounds: Option<[[f64; 3]; 2]>,
+        views: Vec<ProbedDrawingView>,
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        warnings: Vec<String>,
+    },
+
     /// STEP export is ready. `warnings` names anything the export left out
     /// (a mesh-backed imported body has no analytic geometry to write).
     ExportReady {
@@ -2597,6 +2646,39 @@ pub struct DrawingStatus {
     /// the depth to say whether Undo has anything to do on this tab.
     #[serde(default)]
     pub history: (usize, usize),
+}
+
+/// One hypothetical view, as [`EngineToUi::DrawingViewProbed`] answers it
+/// (D4e, `specs/drawings_and_mbd.md` §8).
+///
+/// The frame crosses as `dir`/`up` — a `ViewFrame`'s own two fields — rather
+/// than as the orthonormal `(u, v, w)` basis: the basis is DERIVED from these
+/// two by one documented rule (`ViewFrame::basis`), and sending the derived
+/// form as well would be a second representation of the frame on the wire
+/// that could disagree with the one the view is actually projected with.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ProbedDrawingView {
+    /// Where an `AddView` with no `placement_mm` would put this view's
+    /// content centre, in sheet millimetres from the bottom-left corner.
+    pub placement_mm: [f64; 2],
+    /// The view frame's line of sight, away from the viewer.
+    pub dir: [f64; 3],
+    /// The view frame's paper up, before it is orthogonalized against `dir`.
+    pub up: [f64; 3],
+    /// The name an `AddView` with no `name` would give it.
+    pub name: String,
+    /// For a `ProjectedFrom`, which placement's view this one SHOWS under the
+    /// document's projection standard — `Right` in third angle for a view
+    /// placed right, `Left` in first. Absent for every other projection,
+    /// which has no side to show.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub shows: Option<feature_engine::drawing::ProjectedDirection>,
+    /// Why this projection has no frame (a cycle, an unknown parent, a
+    /// degenerate cut). Reported per entry rather than failing the whole
+    /// probe: a tool asking about eight sectors must still get the seven that
+    /// are fine.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub error: Option<String>,
 }
 
 /// One named mate connector of a part (`specs/part_mate_connectors.md`), as

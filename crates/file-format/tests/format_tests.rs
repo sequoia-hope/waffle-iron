@@ -1817,12 +1817,67 @@ fn a_3d_sketch_round_trips() {
 /// `Dimension::Density`, two more variants of the enum a parameter's `unit`
 /// is written as
 /// (`m1s_annotation_variant_and_unit_variant_each_fail_a_pre_m1_reader`).
+/// v15 is D4e's four
+/// ISOMETRIC `ProjectedDirection` variants (`specs/drawings_and_mbd.md` §8),
+/// v11's case one level deeper — new variants inside a `Projection` inside a
+/// tab kind every reader since D4a deserializes (v13 went to a branch dispatched
+/// alongside D4e and is the one live gap; v14 is M1's, above, and landed —
+/// a skipped version costs nothing where a shared one costs a file two
+/// builds disagree about).
 /// What this test holds is that the writer and the floor move together and
 /// only deliberately.
 #[test]
 fn the_3d_sketch_operation_did_not_move_the_format_floor() {
-    assert_eq!(file_format::FORMAT_VERSION, 14);
-    assert_eq!(file_format::MIN_READER_VERSION, 14);
+    assert_eq!(file_format::FORMAT_VERSION, 15);
+    assert_eq!(file_format::MIN_READER_VERSION, 15);
+}
+
+/// D4e review: skipping a version does not refuse the files that claim it —
+/// which is the half of "a gap costs nothing" that is a MEASUREMENT and not
+/// an argument. (D4e wrote this for v13 AND v14; M1 then landed v14, so v13
+/// is the only live gap and the loop below covers both cases regardless,
+/// since it walks every version rather than a list.)
+///
+/// The gate is `max(version, min_reader_version) > FORMAT_VERSION`, so what
+/// matters is the comparison and not membership of a list: a file written by
+/// the branch that took 13 opens in this reader, and so does one at every
+/// version between the last documented one and ours.
+/// The forward direction is pinned too — a file one version ABOVE ours is
+/// still refused by name — because a gap that swallowed the refusal would be
+/// the real cost.
+#[test]
+fn a_file_at_a_skipped_version_still_opens_and_one_above_ours_still_does_not() {
+    let tree = make_simple_tree();
+    let meta = ProjectMetadata::new("Gap");
+    let mut parsed: serde_json::Value =
+        serde_json::from_str(&save_project(&tree, &meta)).expect("the file parses");
+
+    for version in 12..=file_format::FORMAT_VERSION {
+        parsed["version"] = serde_json::json!(version);
+        parsed["min_reader_version"] = serde_json::json!(version);
+        let (back, _) = load_project(&parsed.to_string())
+            .unwrap_or_else(|e| panic!("a v{version} file must still open: {e}"));
+        assert_eq!(
+            back.features.len(),
+            tree.features.len(),
+            "a v{version} file lost features"
+        );
+    }
+
+    let ahead = file_format::FORMAT_VERSION + 1;
+    parsed["version"] = serde_json::json!(ahead);
+    parsed["min_reader_version"] = serde_json::json!(ahead);
+    let err = load_project(&parsed.to_string()).expect_err("a newer file is refused");
+    assert!(
+        matches!(
+            err,
+            file_format::LoadError::FutureVersion {
+                file_version,
+                supported_version,
+            } if file_version == ahead && supported_version == file_format::FORMAT_VERSION
+        ),
+        "a v{ahead} file should be refused by name, got: {err}"
+    );
 }
 
 /// v10: a pre-v10 file wrote its `Selector::Pid` ids as JSON NUMBERS, and it

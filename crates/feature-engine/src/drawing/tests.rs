@@ -1677,6 +1677,491 @@ fn the_d4b_additions_round_trip_through_serde_and_cost_an_untouched_sheet_nothin
     assert!(back.sheets[0].title_block_cache.is_none());
 }
 
+// ---------------------------------------------------- D4e: isometric corners
+
+/// Dot product of two world directions.
+fn dot3_test(a: [f64; 3], b: [f64; 3]) -> f64 {
+    a[0] * b[0] + a[1] * b[1] + a[2] * b[2]
+}
+
+#[test]
+fn the_four_corner_placements_are_standard_isometrics_of_the_parents_corner() {
+    // The two numbers that DEFINE an isometric (ISO 5456-3), measured off the
+    // frame rather than recorded from it: the eye sits atan(1/√2) above the
+    // parent's horizontal plane and 45° round from its line of sight. Checked
+    // against the PARENT's own axes, so the property holds for a parent that
+    // is itself a projection and not only for the front view.
+    for parent_named in [NamedView::Front, NamedView::Top, NamedView::Right] {
+        let parent = parent_named.frame().basis().unwrap();
+        for corner in ProjectedDirection::ALL
+            .iter()
+            .copied()
+            .filter(ProjectedDirection::is_isometric)
+        {
+            let frame = projected_frame(&parent, corner, ProjectionAngle::Third);
+            let basis = frame
+                .basis()
+                .unwrap_or_else(|| panic!("{corner:?} of {} has no basis", parent_named.tag()));
+            // The eye direction is −w (w points away from the viewer).
+            let eye = [-basis.w[0], -basis.w[1], -basis.w[2]];
+            let up = dot3_test(eye, parent.v);
+            let right = dot3_test(eye, parent.u);
+            let out = dot3_test(eye, [-parent.w[0], -parent.w[1], -parent.w[2]]);
+            let elevation = up.asin();
+            assert!(
+                (elevation.abs() - (1f64 / 2f64.sqrt()).atan()).abs() < 1e-12,
+                "{corner:?} of {}: elevation {}° is not atan(1/√2)",
+                parent_named.tag(),
+                elevation.to_degrees()
+            );
+            // 45° azimuth: the two horizontal components are equal in size.
+            assert!(
+                (right.abs() - out.abs()).abs() < 1e-12,
+                "{corner:?} of {}: azimuth is not 45° ({right} across, {out} out)",
+                parent_named.tag()
+            );
+            // And it looks from the corner the placement names.
+            let want_up = match corner {
+                ProjectedDirection::UpLeft | ProjectedDirection::UpRight => 1.0,
+                _ => -1.0,
+            };
+            let want_right = match corner {
+                ProjectedDirection::UpRight | ProjectedDirection::DownRight => 1.0,
+                _ => -1.0,
+            };
+            assert!(
+                up * want_up > 0.0 && right * want_right > 0.0 && out > 0.0,
+                "{corner:?} of {}: eye at (right {right}, up {up}, out {out})",
+                parent_named.tag()
+            );
+        }
+    }
+}
+
+#[test]
+fn every_projected_frame_is_right_handed_and_shares_a_paper_axis_with_its_parent() {
+    // Right-handed in the sense `ViewBasis` documents — `(u, v, −w)` — which
+    // is what keeps a projected view from coming out mirrored. And the D4a
+    // group rule extended to the corners: a corner view's paper up is the
+    // parent's paper up, so the parent's vertical draws vertically in it.
+    let parent = ViewFrame::FRONT.basis().unwrap();
+    let cross = |a: [f64; 3], b: [f64; 3]| {
+        [
+            a[1] * b[2] - a[2] * b[1],
+            a[2] * b[0] - a[0] * b[2],
+            a[0] * b[1] - a[1] * b[0],
+        ]
+    };
+    for angle in [ProjectionAngle::Third, ProjectionAngle::First] {
+        for direction in ProjectedDirection::ALL {
+            let frame = projected_frame(&parent, direction, angle);
+            let basis = frame
+                .basis()
+                .unwrap_or_else(|| panic!("{direction:?} ({angle:?}) has no basis"));
+            let handed = cross(basis.u, basis.v);
+            assert!(
+                (0..3).all(|i| (handed[i] + basis.w[i]).abs() < 1e-12),
+                "{direction:?} ({angle:?}): u × v is {handed:?}, not −w {:?}",
+                basis.w
+            );
+            // The shared axis: an axis placement shares one of the parent's
+            // paper axes exactly; a corner shares the paper UP direction,
+            // which is the parent's v Gram-Schmidted into the oblique plane.
+            let shared = if direction.is_isometric() {
+                dot3_test(basis.v, parent.v) > 0.0
+            } else {
+                let close = |p: [f64; 3], q: [f64; 3]| (0..3).all(|i| (p[i] - q[i]).abs() < 1e-12);
+                [parent.u, parent.v]
+                    .iter()
+                    .any(|a| close(basis.u, *a) || close(basis.v, *a))
+            };
+            assert!(
+                shared,
+                "{direction:?} ({angle:?}) shares no paper axis with its parent: \
+                 u {:?} v {:?} against parent u {:?} v {:?}",
+                basis.u, basis.v, parent.u, parent.v
+            );
+        }
+    }
+}
+
+#[test]
+fn opposite_is_an_involution_over_all_eight_placements() {
+    for direction in ProjectedDirection::ALL {
+        assert_eq!(
+            direction.opposite().opposite(),
+            direction,
+            "{direction:?} is not its own opposite's opposite"
+        );
+        assert_ne!(
+            direction.opposite(),
+            direction,
+            "{direction:?} is its own opposite"
+        );
+        // A corner's opposite is the corner ACROSS the parent, not a mirror
+        // in one axis — which is what makes the first-angle flip one rule for
+        // all eight: the paper step reverses exactly.
+        let step = direction.paper_step();
+        let back = direction.opposite().paper_step();
+        assert!(
+            (0..2).all(|i| (step[i] + back[i]).abs() < 1e-12),
+            "{direction:?}: steps {step:?} and {back:?} are not opposite"
+        );
+    }
+    // And first angle IS that involution, which is why `projected_frame`
+    // reads one table backwards (D4a).
+    for direction in ProjectedDirection::ALL {
+        assert_eq!(
+            shown_side(direction, ProjectionAngle::First),
+            shown_side(direction, ProjectionAngle::Third).opposite()
+        );
+    }
+}
+
+#[test]
+fn a_corner_placement_is_auto_placed_at_the_diagonal() {
+    // The iso goes to the corner, clear of both boxes along the diagonal —
+    // which is `auto_placement_step_mm`'s support function, the same one a 45°
+    // section uses. Taking the dominant axis' half-extent instead would
+    // overlap the parent's corner.
+    let square = [20.0, 20.0];
+    let d = std::f64::consts::FRAC_1_SQRT_2;
+    let p = auto_placement_mm([0.0, 0.0], square, square, ProjectedDirection::UpRight, 0.0);
+    // A 20 mm square's support along the 45° diagonal is 10·(1/√2) per axis,
+    // so 20/√2 per box and 40/√2 for the two: the placement lands at
+    // (1/√2)·40/√2 = 20 mm each way, which is exactly the two squares'
+    // corners touching at the parent's own corner (10, 10). Taking the
+    // dominant axis' half-extent (10 + 10 = 20 along the diagonal, i.e. 14.1
+    // per axis) would overlap it.
+    let reach = 2.0 * 20.0 * d;
+    assert!(
+        (p[0] - d * reach).abs() < 1e-12 && (p[1] - p[0]).abs() < 1e-12,
+        "up-right of a 20 mm square went to {p:?}, not {:?}",
+        [d * reach, d * reach]
+    );
+    assert!(
+        (p[0] - 20.0).abs() < 1e-9,
+        "the corners should touch: {p:?}"
+    );
+    // The eight go eight ways, and no two of them land in the same place.
+    let mut seen: Vec<[f64; 2]> = Vec::new();
+    for direction in ProjectedDirection::ALL {
+        let at = auto_placement_mm([100.0, 100.0], square, square, direction, 15.0);
+        assert!(
+            !seen
+                .iter()
+                .any(|q| (q[0] - at[0]).abs() < 1e-9 && (q[1] - at[1]).abs() < 1e-9),
+            "{direction:?} lands on top of another placement at {at:?}"
+        );
+        // Clear of the parent box in the direction it stepped.
+        let step = direction.paper_step();
+        let along = (at[0] - 100.0) * step[0] + (at[1] - 100.0) * step[1];
+        assert!(
+            along > 15.0,
+            "{direction:?} is {along} mm along its own step"
+        );
+        seen.push(at);
+    }
+}
+
+#[test]
+fn every_placement_tag_round_trips_and_the_corners_are_labelled_iso() {
+    for direction in ProjectedDirection::ALL {
+        assert_eq!(
+            ProjectedDirection::from_tag(direction.tag()),
+            Some(direction),
+            "{direction:?} does not round-trip through `{}`",
+            direction.tag()
+        );
+        assert_eq!(
+            direction.is_isometric(),
+            direction.label().starts_with("Iso"),
+            "{direction:?}: `is_isometric` and the label disagree"
+        );
+    }
+    // The spellings an author types.
+    assert_eq!(
+        ProjectedDirection::from_tag("Up-Right"),
+        Some(ProjectedDirection::UpRight)
+    );
+    assert_eq!(
+        ProjectedDirection::from_tag(" down left "),
+        Some(ProjectedDirection::DownLeft)
+    );
+    assert_eq!(ProjectedDirection::from_tag("sideways"), None);
+}
+
+#[test]
+fn a_corner_view_projects_its_parents_three_axes_with_equal_foreshortening() {
+    // What "isometric" MEANS, measured on the projection rather than on the
+    // frame: the parent's three axes come out the same length on paper. The
+    // ratio is √(2/3) ≈ 0.8165, the isometric foreshortening.
+    let parent = ViewFrame::FRONT.basis().unwrap();
+    let basis = projected_frame(&parent, ProjectedDirection::UpRight, ProjectionAngle::Third)
+        .basis()
+        .unwrap();
+    let len = |d: [f64; 3]| {
+        let p = basis.project_dir(d);
+        p[0].hypot(p[1])
+    };
+    let want = (2.0f64 / 3.0).sqrt();
+    for axis in [parent.u, parent.v, parent.w] {
+        assert!(
+            (len(axis) - want).abs() < 1e-12,
+            "axis {axis:?} foreshortens to {}, not √(2/3)",
+            len(axis)
+        );
+    }
+}
+
+#[test]
+fn a_corner_view_of_a_corner_view_still_has_a_frame() {
+    // A chain through a diagonal: an iso's own iso. Not a drawing anyone
+    // wants, but `view_frame` follows the chain and must not produce a
+    // degenerate frame on the way — paper up is the parent's v, and the
+    // parent's v is never parallel to the corner's line of sight (the dot is
+    // 1/√3).
+    let mut sheet = Sheet::new("S");
+    let front = DrawingView::new(
+        "Front",
+        ViewSource::whole_tab("t"),
+        Projection::Named {
+            view: NamedView::Front,
+        },
+    );
+    let iso = DrawingView::new(
+        "Iso",
+        ViewSource::whole_tab("t"),
+        Projection::ProjectedFrom {
+            parent: front.id,
+            direction: ProjectedDirection::UpRight,
+        },
+    );
+    let iso2 = DrawingView::new(
+        "Iso of iso",
+        ViewSource::whole_tab("t"),
+        Projection::ProjectedFrom {
+            parent: iso.id,
+            direction: ProjectedDirection::DownLeft,
+        },
+    );
+    let last = iso2.id;
+    sheet.views = vec![front, iso, iso2];
+    let frame = sheet
+        .view_frame(last, ProjectionAngle::Third)
+        .expect("a chain through two corners still has a frame");
+    assert!(frame.basis().is_some());
+}
+
+#[test]
+fn a_parentless_view_is_placed_beside_what_is_drawn_and_never_on_it() {
+    // D4e, found by D4d: a named view has no parent to step clear of, and the
+    // sheet centre for every one of them means the second lands ON the first.
+    let sheet = [420.0, 297.0];
+    // Nothing drawn: the middle of the paper.
+    assert_eq!(
+        free_placement_mm(sheet, &[], DEFAULT_VIEW_GAP_MM),
+        [210.0, 148.5]
+    );
+
+    // One 40 × 25 view in the middle: the next goes to its right, clear by
+    // the gap, in the same row.
+    let first = ([210.0, 148.5], [40.0, 25.0]);
+    let second = free_placement_mm(sheet, &[first], DEFAULT_VIEW_GAP_MM);
+    assert_eq!(second[1], 148.5, "the row is kept");
+    let gap = (second[0] - 40.0 / 2.0) - (210.0 + 40.0 / 2.0);
+    assert!(
+        (gap - DEFAULT_VIEW_GAP_MM).abs() < 1e-12,
+        "the boxes are {gap} mm apart, not {DEFAULT_VIEW_GAP_MM}"
+    );
+
+    // Three in a row, each clear of the one before — and no two in the same
+    // place, which is the property the defect broke.
+    let mut placed = vec![first];
+    for _ in 0..3 {
+        let at = free_placement_mm(sheet, &placed, DEFAULT_VIEW_GAP_MM);
+        assert!(
+            !placed
+                .iter()
+                .any(|(p, _)| (p[0] - at[0]).abs() < 1e-9 && (p[1] - at[1]).abs() < 1e-9),
+            "a view was placed on top of another at {at:?}"
+        );
+        for (p, e) in &placed {
+            let dx = (at[0] - p[0]).abs() - (40.0 + e[0]) / 2.0;
+            let dy = (at[1] - p[1]).abs() - (25.0 + e[1]) / 2.0;
+            assert!(
+                dx >= -1e-9 || dy >= -1e-9,
+                "the box at {at:?} overlaps the one at {p:?}"
+            );
+        }
+        placed.push((at, [40.0, 25.0]));
+    }
+
+    // A row that runs out of paper wraps BELOW what is drawn rather than
+    // walking off the sheet.
+    let wide = ([380.0, 148.5], [60.0, 25.0]);
+    let wrapped = free_placement_mm(sheet, &[wide], DEFAULT_VIEW_GAP_MM);
+    assert!(
+        wrapped[0] < wide.0[0] && wrapped[1] < 148.5 - 25.0 / 2.0,
+        "a full row should wrap below, not step off the sheet: {wrapped:?}"
+    );
+
+    // A view with no cached extent still claims its own centre, so the next
+    // one does not land on it.
+    let unknown = ([210.0, 148.5], [0.0, 0.0]);
+    let after = free_placement_mm(sheet, &[unknown], DEFAULT_VIEW_GAP_MM);
+    assert!(
+        (after[0] - 210.0).abs() > 1e-9 || (after[1] - 148.5).abs() > 1e-9,
+        "placed on top of a view whose extent is unknown"
+    );
+}
+
+/// D4e review: the LOWER two corners view the model from below without
+/// turning it over, and the four corner frames are the closed form the
+/// `projected_frame` doc claims — measured on the PROJECTION, not the frame.
+///
+/// Derived independently of the implementation. With `sᵤ`, `s᥍ ∈ {−1, +1}`
+/// the corner's step and `(u, v, w)` the parent's basis, the frame is
+/// `dir = (w − sᵤu − s᥍v)/√3`, `up = v`, and `ViewFrame::basis`'s
+/// Gram-Schmidt then gives
+///
+/// ```text
+/// u′ = (u + sᵤ·w)/√2            v′ = (2v + s᥍·w − s᥍sᵤ·u)/√6
+/// ```
+///
+/// so the three of the parent's axes project to
+///
+/// ```text
+/// v ↦ [0, 2/√6]    w ↦ [sᵤ/√2, s᥍/√6]    u ↦ [1/√2, −s᥍sᵤ/√6]
+/// ```
+///
+/// Three readings of that table, and each is a question a drafter asks:
+///
+/// - the parent's VERTICAL draws exactly vertically (`v ↦ [0, +]`) in all
+///   four, upper and lower alike — which is what "paper up is the parent's
+///   `v`" buys, and the whole of the answer to "is a bottom iso upside
+///   down?". It is not: nothing is mirrored and nothing is turned over.
+/// - what separates an upper corner from a lower one is the sign of `s᥍` on
+///   the RECEDING axis (`w ↦ [·, s᥍/√6]`): the axis going away from the
+///   parent's viewer draws up in an iso from above and DOWN in one from
+///   below, which is exactly how a bottom isometric reads. Flipping paper up
+///   for the lower two (the `NamedView::Bottom` rule, arrived at from a third
+///   direction) would have turned the vertical over instead and changed
+///   nothing about this.
+/// - `sᵤ` separates left from right, on the same axis.
+#[test]
+fn the_lower_corner_isos_look_from_below_without_turning_the_model_over() {
+    let root2 = 2f64.sqrt();
+    let root6 = 6f64.sqrt();
+    for parent_named in [NamedView::Front, NamedView::Top, NamedView::Right] {
+        let parent = parent_named.frame().basis().unwrap();
+        for (corner, su, sv) in [
+            (ProjectedDirection::UpRight, 1.0, 1.0),
+            (ProjectedDirection::UpLeft, -1.0, 1.0),
+            (ProjectedDirection::DownRight, 1.0, -1.0),
+            (ProjectedDirection::DownLeft, -1.0, -1.0),
+        ] {
+            let basis = projected_frame(&parent, corner, ProjectionAngle::Third)
+                .basis()
+                .unwrap_or_else(|| panic!("{corner:?} of {} has no basis", parent_named.tag()));
+            let close = |got: [f64; 2], want: [f64; 2], axis: &str| {
+                assert!(
+                    (got[0] - want[0]).abs() < 1e-12 && (got[1] - want[1]).abs() < 1e-12,
+                    "{corner:?} of {}: the parent's {axis} projects to {got:?}, not {want:?}",
+                    parent_named.tag()
+                );
+            };
+            // The parent's vertical draws vertically — no paper-x component at
+            // all, and up is up, for the lower corners too.
+            close(basis.project_dir(parent.v), [0.0, 2.0 / root6], "v");
+            // The receding axis is what says above or below.
+            close(
+                basis.project_dir(parent.w),
+                [su / root2, sv / root6],
+                "line of sight",
+            );
+            close(
+                basis.project_dir(parent.u),
+                [1.0 / root2, -sv * su / root6],
+                "u",
+            );
+        }
+    }
+}
+
+/// D4e review: what [`free_placement_mm`] does and does not reserve.
+///
+/// It steps clear of every DRAWN view, on a portrait sheet as on a landscape
+/// one, and wraps to a new row below when the row runs out of paper. What it
+/// does NOT reserve is the frame margin (`SHEET_MARGIN_MM`, 10 mm, which
+/// lives in the renderer) or the title block's bottom-right corner: a wrapped
+/// row starts at the paper's own left EDGE, and a view wide enough overhangs
+/// the right one. That is the same posture `auto_placement_mm` has had since
+/// D4b — "it sits in the frame's corner, which the auto-layout does not
+/// reserve" — and it is recorded here rather than fixed because the margin is
+/// the renderer's number and reserving it would be a second copy of it in the
+/// engine. The invariant that IS load-bearing is the one the defect broke: no
+/// two views land on each other.
+#[test]
+fn free_placement_wraps_on_a_portrait_sheet_and_reserves_no_frame_margin() {
+    // A4 portrait, the narrow case: 40 mm views run out of room after two.
+    let sheet = [210.0, 297.0];
+    let extent = [40.0, 25.0];
+    let mut placed: Vec<([f64; 2], [f64; 2])> = Vec::new();
+    let mut rows = 0;
+    for _ in 0..4 {
+        let at = free_placement_mm(sheet, &placed, DEFAULT_VIEW_GAP_MM);
+        for (other, other_extent) in &placed {
+            let clear_x = (at[0] - other[0]).abs() - (extent[0] + other_extent[0]) / 2.0;
+            let clear_y = (at[1] - other[1]).abs() - (extent[1] + other_extent[1]) / 2.0;
+            assert!(
+                clear_x > -1e-9 || clear_y > -1e-9,
+                "{at:?} overlaps the view at {other:?}"
+            );
+        }
+        if placed.iter().any(|(p, _)| at[1] < p[1] - 1e-9) {
+            rows += 1;
+        }
+        placed.push((at, extent));
+    }
+    assert!(
+        rows > 0,
+        "four 40 mm views on a 210 mm sheet never wrapped: {placed:?}"
+    );
+    // The first wrap: at the paper's left edge, which is INSIDE the 10 mm
+    // frame margin the renderer draws. Measured, not desired — see the doc
+    // comment, and `specs/drawings_and_mbd.md` §8's D4e notes.
+    let wrapped = placed
+        .iter()
+        .find(|(p, _)| *p == free_placement_mm(sheet, &placed[..2], DEFAULT_VIEW_GAP_MM))
+        .map(|(p, _)| *p);
+    assert_eq!(
+        wrapped.map(|p| p[0]),
+        Some(extent[0] / 2.0),
+        "the wrapped row should start at the paper edge: {placed:?}"
+    );
+
+    // A view with a parent is untouched by any of this: a section and a detail
+    // both HAVE one, so they step clear of it through `auto_placement_mm`.
+    assert!(Projection::Section {
+        parent: Uuid::nil(),
+        from: [0.0, 0.0],
+        to: [0.01, 0.0],
+        flip: false,
+        label: "A".into(),
+    }
+    .parent()
+    .is_some());
+    assert!(Projection::Detail {
+        parent: Uuid::nil(),
+        center: [0.0, 0.0],
+        radius: 0.005,
+        label: "A".into(),
+    }
+    .parent()
+    .is_some());
+}
+
 // ──────────────────────────── D4c review: the hatch wrapper's two conversions
 
 /// A square cap loop in the view's own `(u, v)`, in METERS — the units a

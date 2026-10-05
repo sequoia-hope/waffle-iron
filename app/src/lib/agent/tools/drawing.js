@@ -13,7 +13,17 @@
  */
 
 const NAMED_VIEWS = ['front', 'back', 'left', 'right', 'top', 'bottom', 'iso'];
-const PROJECTED_DIRECTIONS = ['left', 'right', 'up', 'down'];
+/** `ProjectedDirection::ALL`'s tags (D4e): four axes, then four isometric corners. */
+const PROJECTED_DIRECTIONS = [
+	'left',
+	'right',
+	'up',
+	'down',
+	'up_left',
+	'up_right',
+	'down_left',
+	'down_right'
+];
 const ANNOTATIONS = ['Dimension', 'Note', 'CentreMark', 'CentreLine', 'Datum', 'FeatureControlFrame'];
 
 /** The ISO 1101 geometric characteristics a feature control frame controls (M1). */
@@ -119,7 +129,8 @@ export const drawingViewAddTool = {
 				default: 'right',
 				description:
 					'Where the projected view sits from its parent ON PAPER. What it SHOWS follows from the ' +
-					"document's projection standard."
+					"document's projection standard. The four CORNERS are isometrics of that corner's " +
+					'octant (35.26° elevation, 45° azimuth), not orthographic views.'
 			},
 			sheet_id: { type: 'string', description: 'Which sheet. Omit for the first one.' },
 			name: { type: 'string', description: "The view's label. Omit for the projection's own name." },

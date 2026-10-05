@@ -1182,20 +1182,49 @@ fn a_pre_m1_document_opens_at_the_defaults_with_no_spurious_warning() {
 
 // ───────────────────────────────────── the floor itself, after the merge
 
+/// The floor is coherent, and the "one ahead" arm is written RELATIVE to it.
+///
+/// M1 was assigned v14 at dispatch, and that is still the version its own
+/// wire breaks are documented under — but the floor the branch SHIPS is v15,
+/// D4e's, which merged after M1 and bumped it again. So this test asserts the
+/// constants against `FORMAT_VERSION + 1` rather than against a literal 15:
+/// pinning the next increment's number here would make a test that has
+/// nothing to do with it go red on the next bump, which is the opposite of
+/// what a floor-coherence test is for. The literals that DO belong to M1
+/// (version 14 in the wire-break fixtures of `format_tests.rs`) stay where
+/// they are, because those measure a pre-M1 reader's refusal and are about
+/// v14 specifically.
 #[test]
-fn the_format_floor_is_v14_and_coherent() {
-    assert_eq!(file_format::FORMAT_VERSION, 14, "M1's floor");
-    assert_eq!(file_format::MIN_READER_VERSION, 14, "M1's reader floor");
+fn the_format_floor_is_coherent_and_refuses_one_version_ahead() {
+    // Both constants move together, and the reader floor is never ahead of
+    // the writer. The absolute value is deliberately NOT asserted — see above.
+    assert_eq!(
+        file_format::MIN_READER_VERSION,
+        file_format::FORMAT_VERSION,
+        "every bump since v5 has moved both; a reader floor behind the writer \
+         would let this build write files it cannot read back"
+    );
+    // A COMPILE-TIME assertion, the idiom `save.rs` already uses for the
+    // pair's own coherence: both operands are constants, so a runtime
+    // `assert!` here is a constant-value assertion clippy rightly refuses.
+    // This way the floor going backwards fails the BUILD rather than a test.
+    const _: () = assert!(
+        file_format::FORMAT_VERSION >= 15,
+        "the floor is at least v15 — M1's own v14, then D4e's v15 on top"
+    );
+
+    let here = file_format::FORMAT_VERSION;
+    let ahead_v = here + 1;
 
     // A document from one version ahead is refused CLEANLY — by the envelope
     // check, naming both numbers, rather than by a serde error from inside a
     // tab it should never have started reading.
     for ahead in [
-        (15u32, 15u32),
+        (ahead_v, ahead_v),
         // `version` alone, and `min_reader_version` alone, each trip it: the
         // check takes the max.
-        (15, 0),
-        (14, 15),
+        (ahead_v, 0),
+        (here, ahead_v),
     ] {
         let json = format!(
             r#"{{
@@ -1216,13 +1245,15 @@ fn the_format_floor_is_v14_and_coherent() {
                 file_version,
                 supported_version,
             }) => {
-                assert_eq!(file_version, 15, "{ahead:?}");
-                assert_eq!(supported_version, 14, "{ahead:?}");
+                assert_eq!(file_version, ahead_v, "{ahead:?}");
+                assert_eq!(supported_version, here, "{ahead:?}");
             }
             other => panic!("v{ahead:?} must be a clean FutureVersion, got {other:?}"),
         }
     }
 
-    // v14 itself loads.
+    // And what this build WRITES loads back, which is the other half of
+    // coherence: a floor that refuses its own output would pass every
+    // assertion above.
     assert!(load_document(&save_document(&one_part_doc(all_six()))).is_ok());
 }

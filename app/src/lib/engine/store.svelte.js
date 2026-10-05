@@ -904,6 +904,7 @@ export function isViewerMode() {
  */
 export function applyViewerSnapshot(snapshot, viewerMeshes) {
 	viewerMode = true;
+	documentRevision += 1;
 	if (snapshot.tree) featureTree = snapshot.tree;
 	meshes = viewerMeshes;
 	mirrorSessionDocument(snapshot.document);
@@ -944,6 +945,7 @@ export async function initEngine() {
 	bridge.setSendGate((message, post) => withEngineLock('user', post));
 
 	bridge.on('modelUpdated', (msg) => {
+		documentRevision += 1;
 		if (msg.feature_tree) {
 			featureTree = msg.feature_tree;
 		}
@@ -7759,6 +7761,26 @@ export function getAssemblyStatus() { return assemblyStatus; }
 let drawingStatus = $state(null);
 export function getDrawingStatus() { return drawingStatus; }
 
+/**
+ * How many engine answers have replaced the document's derived state, counting
+ * from this page's load (D4e review).
+ *
+ * Bumped once per `ModelUpdated` and once per viewer snapshot — the two frames
+ * that rewrite the tree, the bodies, the assembly and the drawing together —
+ * so it moves on every edit, undo, redo, rollback, tab switch and load, and
+ * on nothing else. It is a CACHE KEY and not a document property: it is not
+ * saved, it does not survive a reload, and two pages showing the same document
+ * will disagree about its value, all of which is fine for the one thing it is
+ * for — telling a derived answer held across a pointer gesture that the
+ * document it describes has moved on. The placement tools' probe cache is its
+ * only customer; before it, a hover after a concurrent edit drew a ghost of
+ * the geometry as it had been.
+ */
+let documentRevision = $state(0);
+export function getDocumentRevision() {
+	return documentRevision;
+}
+
 /** The open Drawing tab's content, or null. */
 export function getDrawing() { return drawingStatus?.drawing ?? null; }
 
@@ -7945,8 +7967,24 @@ async function sendDrawingEdit(edit) {
 /** The named view directions a drawing view can take (D4a). */
 export const DRAWING_NAMED_VIEWS = ['Front', 'Back', 'Left', 'Right', 'Top', 'Bottom', 'Iso'];
 
-/** Where a projected view can sit relative to its parent on the paper. */
-export const DRAWING_PROJECTED_DIRECTIONS = ['Left', 'Right', 'Up', 'Down'];
+/**
+ * Where a projected view can sit relative to its parent on the paper, as the
+ * engine tags the variants (`ProjectedDirection::ALL`).
+ *
+ * The four CORNERS are isometrics of that corner's octant (D4e), not
+ * orthographic views — which is why the panel and the projected-view tool
+ * label them `Iso (up-right)` rather than by the placement alone.
+ */
+export const DRAWING_PROJECTED_DIRECTIONS = [
+	'Left',
+	'Right',
+	'Up',
+	'Down',
+	'UpLeft',
+	'UpRight',
+	'DownLeft',
+	'DownRight'
+];
 
 /**
  * Add a view of `sourceTabId` to the open drawing's sheet.
@@ -8029,6 +8067,59 @@ export async function addDrawingView(sourceTabId, options = {}) {
 	// would be a view the engine cannot be asked about.
 	const after = getDrawingSheet(sheet.id)?.views ?? [];
 	return after.find((v) => !before.has(v.id))?.id ?? null;
+}
+
+/**
+ * What one or more views WOULD be, without adding any of them (D4e): where the
+ * engine would auto-place each, the frame it would project with, what a
+ * projected one SHOWS under the document's standard, and the source's world
+ * bounds for a ghost box's size.
+ *
+ * The placement-tool door. It exists so the ghost the user sees is the
+ * placement the view will have — the engine answers with the same
+ * `default_placement` an `addDrawingView` with no `placementMm` uses — and so
+ * the first-angle flip stays the engine's one table instead of becoming a
+ * second copy of the projection standard in JavaScript.
+ *
+ * Several projections per call because the projected-view tool needs all eight
+ * sectors around a parent before the pointer moves.
+ *
+ * @param {string} sourceTabId the Part or Assembly tab the view would draw
+ * @param {any[]} projections `Projection` records, as `addDrawingView` builds them
+ * @param {{ sheetId?: string, bodies?: string[] }} [options]
+ * @returns {Promise<{ bounds: number[][] | null, views: any[], warnings: string[] } | null>}
+ */
+export async function probeDrawingView(sourceTabId, projections, options = {}) {
+	if (!bridge || !engineReady || !drawingStatus) return null;
+	if (typeof sourceTabId !== 'string' || !sourceTabId) return null;
+	if (!Array.isArray(projections) || projections.length === 0) return null;
+	try {
+		const answer = await bridge.send({
+			type: 'ProbeDrawingView',
+			tab_id: drawingStatus.tab_id,
+			sheet_id: options.sheetId ?? getDrawingSheet(null)?.id ?? null,
+			source_tab: sourceTabId,
+			bodies: options.bodies ?? [],
+			// Structurally cloned: a `$state` proxy throws `DataCloneError` at
+			// `bridge.send` (the trap recorded in the 2026-09-26 notes), and a
+			// projection built from panel state is exactly such a proxy.
+			projections: JSON.parse(JSON.stringify(projections))
+		});
+		if (answer?.type !== 'DrawingViewProbed') {
+			log('error', 'The engine could not probe a view placement', answer?.message ?? answer);
+			return null;
+		}
+		return {
+			bounds: answer.bounds ?? null,
+			views: answer.views ?? [],
+			warnings: answer.warnings ?? []
+		};
+	} catch (err) {
+		// No toast: a probe runs on a pointer move, and a toast per frame would
+		// bury the page. The tool shows no ghost, which is the visible failure.
+		log('error', `Probing a view placement failed: ${err?.message || err}`);
+		return null;
+	}
 }
 
 /**
@@ -8236,13 +8327,25 @@ export function getDrawingAnchors(viewId) {
  *
  * `'select'` picks and drags existing annotations; every other value is a
  * tool mid-flow. One mode string rather than a set of booleans, so the sheet's
- * pointer handling is a dispatch over it and a new mode — D4e's
- * `'place-view'` and `'projected-view'` — is an entry in the dispatch and a
- * tool descriptor, with nothing to change in the modes that already work.
+ * pointer handling is a dispatch over it and a new mode is an entry in the
+ * dispatch and a tool descriptor, with nothing to change in the modes that
+ * already work.
+ *
+ * D4e's two placement tools took that invitation: `'place-view'` and
+ * `'project-view'` are arms of the sheet's dispatch like the rest, and the
+ * state they need beyond the mode — the dialog's answers, the picked parent,
+ * the ghost — lives in `drawings/placementMode.svelte.js` rather than here,
+ * because none of it is a property of the sheet. (This comment said
+ * `'projected-view'` before they landed; the tool is `'project-view'`.)
+ *
+ * `'place-view'` is the one mode that cannot be entered by setting it alone:
+ * it needs a source and a scale from its dialog first, and is inert until it
+ * has them (`placementNeedsDialog()`).
  *
  * @type {'select' | 'dimension-distance' | 'dimension-hdistance' |
  *   'dimension-vdistance' | 'dimension-pointline' | 'dimension-angle' |
- *   'dimension-radius' | 'dimension-diameter' | 'note' | 'datum' | string}
+ *   'dimension-radius' | 'dimension-diameter' | 'note' | 'datum' |
+ *   'place-view' | 'project-view' | string}
  */
 let sheetMode = $state('select');
 export function getSheetMode() {

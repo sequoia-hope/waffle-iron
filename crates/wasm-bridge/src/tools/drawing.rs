@@ -941,17 +941,23 @@ fn projection_arg(sheet: &Sheet, args: &Value) -> Result<Projection, ToolFailure
             .get("direction_from_parent")
             .and_then(Value::as_str)
             .unwrap_or("right");
-        let direction = match tag.to_ascii_lowercase().as_str() {
-            "left" => ProjectedDirection::Left,
-            "right" => ProjectedDirection::Right,
-            "up" => ProjectedDirection::Up,
-            "down" => ProjectedDirection::Down,
-            other => {
+        // One table for the eight spellings, in `ProjectedDirection::from_tag`
+        // (D4e): the tool, the probe query and any later importer must agree
+        // about what `up_right` means, and a second `match` here is how they
+        // stop agreeing.
+        let direction = match ProjectedDirection::from_tag(tag) {
+            Some(direction) => direction,
+            None => {
+                let known = ProjectedDirection::ALL
+                    .iter()
+                    .map(|d| d.tag())
+                    .collect::<Vec<_>>()
+                    .join(", ");
                 return Err(ToolFailure::new(
                     "InvalidArgument",
-                    format!("direction_from_parent is left, right, up or down, not `{other}`."),
+                    format!("direction_from_parent is one of {known}, not `{tag}`."),
                     json!({ "path": "/direction_from_parent" }),
-                ))
+                ));
             }
         };
         return Ok(Projection::ProjectedFrom {
