@@ -55,6 +55,36 @@ use super::{ExprError, Span, MM_TO_METERS};
 /// Degrees per radian — the `rad` suffix's factor into degree working space.
 const DEG_PER_RAD: f64 = 180.0 / std::f64::consts::PI;
 
+/// How many decimals [`Quantity::display_text`] prints at most (D4c).
+///
+/// Four, which is a micron on a millimetre drawing — finer than any process
+/// a title block describes, and the point past which a title-block row is
+/// noise rather than information.
+pub const TEXT_DECIMALS: usize = 4;
+
+/// `value` at `decimals` decimals, with trailing zeros and a bare trailing
+/// point removed. `-0` is printed as `0`, so the text is a function of the
+/// number and not of which way a zero was signed (the same rule
+/// `kernel_v2::dxf_export::real` states).
+fn trim_decimals(value: f64, decimals: usize) -> String {
+    if !value.is_finite() {
+        return format!("{value}");
+    }
+    let mut s = format!("{value:.decimals$}");
+    if s.contains('.') {
+        while s.ends_with('0') {
+            s.pop();
+        }
+        if s.ends_with('.') {
+            s.pop();
+        }
+    }
+    if s == "-0" {
+        s = "0".to_string();
+    }
+    s
+}
+
 /// The kind of quantity a field that consumes an expression asks for.
 ///
 /// This is the tag an expression-driven field carries (`specs/
@@ -316,6 +346,38 @@ impl Quantity {
         }
     }
 
+    /// This quantity as PRINTABLE text — the working-space magnitude with the
+    /// unit its dimension names (D4c, for a title-block expression row).
+    ///
+    /// Three decisions, each because this string goes on a manufacturing
+    /// drawing:
+    ///
+    /// - The unit is always printed when there is one, and it is the WORKING
+    ///   space's (millimetres, degrees), because that is the space the
+    ///   expression was written in: a row reading `12.7` where the author
+    ///   typed `0.5in` is a number nobody can check.
+    /// - A composite dimension prints its exponents (`mm²`, `mm³`, and
+    ///   `mm^4` beyond that) rather than being refused. No FIELD accepts a
+    ///   length², but a title block is text, and `area(top)` is a perfectly
+    ///   sensible thing to print beside a part number.
+    /// - At most [`TEXT_DECIMALS`] decimals, with trailing zeros and a
+    ///   trailing point trimmed, so `25` prints as `25 mm` and not
+    ///   `25.0000 mm`. Rounding, not truncation, and the rounding is the
+    ///   printer's: the stored expression is what the document carries.
+    pub fn display_text(&self) -> String {
+        let number = trim_decimals(self.value, TEXT_DECIMALS);
+        match (self.dim().length, self.dim().angle) {
+            (0, 0) => number,
+            (0, 1) => format!("{number}°"),
+            (1, 0) => format!("{number} mm"),
+            (2, 0) => format!("{number} mm²"),
+            (3, 0) => format!("{number} mm³"),
+            (l, 0) => format!("{number} mm^{l}"),
+            (0, a) => format!("{number} deg^{a}"),
+            (l, a) => format!("{number} mm^{l}·deg^{a}"),
+        }
+    }
+
     /// Accept as a LENGTH, returning the value in model METRES.
     pub fn as_length_meters(self) -> Result<f64, ExprError> {
         self.check(Dimension::Length)?;
@@ -455,6 +517,58 @@ mod tests {
 
     fn at() -> Span {
         Span::new(0, 2)
+    }
+
+    #[test]
+    fn display_text_prints_the_working_unit_and_trims_the_decimals() {
+        // D4c: what a title-block expression row puts on the paper.
+        let t = |v: f64, dim: Dim| Quantity::tagged(v, dim, at()).display_text();
+        assert_eq!(t(25.0, Dim::LENGTH), "25 mm");
+        assert_eq!(t(25.4, Dim::LENGTH), "25.4 mm");
+        assert_eq!(t(100.0, Dim::AREA), "100 mm²");
+        assert_eq!(t(1000.0, Dim::VOLUME), "1000 mm³");
+        assert_eq!(t(45.0, Dim::ANGLE), "45°");
+        // An uncommitted number has no unit to print — and must not borrow mm.
+        assert_eq!(Quantity::untagged(3.0).display_text(), "3");
+        // A committed dimensionless RATIO is still a plain number on paper.
+        assert_eq!(t(0.5, Dim::NONE), "0.5");
+        // Rounding at TEXT_DECIMALS, with the zeros gone.
+        assert_eq!(t(1.0 / 3.0, Dim::LENGTH), "0.3333 mm");
+        assert_eq!(t(2.00001, Dim::LENGTH), "2 mm");
+        // A signed zero is one zero, as `dxf_export::real` also insists.
+        assert_eq!(t(-0.0, Dim::LENGTH), "0 mm");
+        assert_eq!(t(-1e-9, Dim::LENGTH), "0 mm");
+        // A composite no field accepts still PRINTS, with its exponents.
+        assert_eq!(
+            t(
+                2.0,
+                Dim {
+                    length: 4,
+                    angle: 0
+                }
+            ),
+            "2 mm^4"
+        );
+        assert_eq!(
+            t(
+                2.0,
+                Dim {
+                    length: 1,
+                    angle: -1
+                }
+            ),
+            "2 mm^1·deg^-1"
+        );
+        assert_eq!(
+            t(
+                2.0,
+                Dim {
+                    length: 0,
+                    angle: 2
+                }
+            ),
+            "2 deg^2"
+        );
     }
 
     #[test]

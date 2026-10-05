@@ -781,64 +781,59 @@ test.describe('D3 SVG dimension renderer', () => {
 		expect(r.warnings[0]).toContain('FeatureControlFrame');
 	});
 
-	test("a section cap's hole is not hatched, which is what even-odd buys", async ({
+	test('the hatch the renderer draws is the geometry the engine handed it', async ({
 		page,
 		waffle
 	}) => {
 		await waffle.waitForReady();
-		// D4b. The Rust side pins that the kernel reports one outer loop and
-		// one `hole: true` loop; this is the half it cannot reach — that the
-		// SCANLINE then leaves the hole empty. A count of `line.wi-hatch`
-		// cannot answer it: a renderer that ignored `hole` entirely would draw
-		// hatch lines straight across the bore and still produce a plausible
-		// count.
+		// D4c moved the scanline into the engine
+		// (`waffle_types::annotation::hatch`), so the even-odd fill rule, the
+		// half-open crossing test and the global grid are pinned where they
+		// are computed — including the claim this test used to make, that a
+		// cap's hole comes back empty
+		// (`hatch::tests::a_hole_is_not_hatched_and_the_scanline_through_its_extreme_counts_once`).
 		//
-		// The measurement is a clearance, which is exact and scale-free: no
-		// point of any hatch line may fall inside the hole. The hole's
-		// boundary reaches the markup as a chord polygon inscribed in the
-		// circle, so the lines clear the TRUE circle by up to one sagitta —
-		// measured at 6.5 µm on this 6 mm hole, hence a pin at 0.9 r with
-		// 0.59 mm of margin rather than a tight one that the chord density
-		// would move.
-		const R = 0.006;
-		const cap = (holed) => ({
-			layout: {
+		// What is left for the renderer is the half only the page can answer,
+		// and it has two parts:
+		//
+		//   1. every segment it is handed becomes one `line.wi-hatch`, at the
+		//      paper position the view transform gives it; and
+		//   2. the LOOPS alone draw NOTHING. That is the regression guard
+		//      that matters now: a renderer that quietly grew a scanline of
+		//      its own back would be a second fill for one cap, and the sheet
+		//      and the DXF would stop agreeing about where the lines are.
+		const box = [
+			edge(line([-0.015, -0.02], [0.015, -0.02])),
+			edge(line([0.015, -0.02], [0.015, 0.02])),
+			edge(line([0.015, 0.02], [-0.015, 0.02])),
+			edge(line([-0.015, 0.02], [-0.015, -0.02]))
+		];
+		const loops = [
+			{
 				curves: [
-					edge(line([-0.015, -0.02], [0.015, -0.02])),
-					edge(line([0.015, -0.02], [0.015, 0.02])),
-					edge(line([0.015, 0.02], [-0.015, 0.02])),
-					edge(line([-0.015, 0.02], [-0.015, -0.02]))
+					line([-0.015, -0.02], [0.015, -0.02]),
+					line([0.015, -0.02], [0.015, 0.02]),
+					line([0.015, 0.02], [-0.015, 0.02]),
+					line([-0.015, 0.02], [-0.015, -0.02])
 				],
-				annotations: [],
-				hatch: [
-					{
-						curves: [
-							line([-0.015, -0.02], [0.015, -0.02]),
-							line([0.015, -0.02], [0.015, 0.02]),
-							line([0.015, 0.02], [-0.015, 0.02]),
-							line([-0.015, 0.02], [-0.015, -0.02])
-						],
-						hole: false
-					},
-					...(holed
-						? [
-								{
-									curves: [
-										{
-											type: 'Circle',
-											center: [0, 0],
-											radius: R,
-											start_angle: 0,
-											end_angle: 2 * Math.PI
-										}
-									],
-									hole: true
-								}
-							]
-						: [])
-				]
+				hole: false
 			}
-		});
+		];
+		// Three segments, each 10 mm of model long and at a known place.
+		const segments = [
+			[
+				[-0.005, -0.01],
+				[0.005, -0.01]
+			],
+			[
+				[-0.005, 0.0],
+				[0.005, 0.0]
+			],
+			[
+				[-0.005, 0.01],
+				[0.005, 0.01]
+			]
+		];
 
 		const measure = (input) =>
 			page.evaluate((i) => {
@@ -847,46 +842,55 @@ test.describe('D3 SVG dimension renderer', () => {
 				const lines = Array.from(doc.querySelectorAll('line.wi-hatch')).map((el) =>
 					['x1', 'y1', 'x2', 'y2'].map((a) => Number(el.getAttribute(a)))
 				);
-				// The cap is centred on the drawing, so the hole's centre is
-				// the centre of the drawn box in paper space — derived from
-				// the hatch's own extent rather than assumed, so the check
-				// does not depend on the margin the renderer chose.
-				const xs = lines.flatMap(([a, , c]) => [a, c]);
-				const ys = lines.flatMap(([, b, , d]) => [b, d]);
-				const cx = (Math.min(...xs) + Math.max(...xs)) / 2;
-				const cy = (Math.min(...ys) + Math.max(...ys)) / 2;
-				let closest = Infinity;
-				let total = 0;
-				for (const [x1, y1, x2, y2] of lines) {
-					total += Math.hypot(x2 - x1, y2 - y1);
-					for (let t = 0; t <= 1; t += 0.02) {
-						const d = Math.hypot(x1 + (x2 - x1) * t - cx, y1 + (y2 - y1) * t - cy);
-						if (d < closest) closest = d;
-					}
-				}
-				return { count: lines.length, total, closest, warnings: out.warnings };
+				const group = doc.querySelector('g.wi-hatches');
+				return {
+					lines,
+					declared: group ? Number(group.getAttribute('data-hatch-lines')) : null,
+					warnings: out.warnings
+				};
 			}, input);
 
-		const solid = await measure(cap(false));
-		const holed = await measure(cap(true));
-		expect(solid.warnings).toEqual([]);
-		expect(holed.warnings).toEqual([]);
-		expect(solid.count, 'a solid cap is hatched').toBeGreaterThan(5);
+		// The loops alone: no fill. The engine computed none, so there is
+		// none, and that is not an error — a cap with no segments is a cap
+		// the engine has not hatched yet, not a broken drawing.
+		const loopsOnly = await measure({
+			layout: { curves: box, annotations: [], hatch: loops }
+		});
+		expect(loopsOnly.lines, 'the renderer must not compute a fill of its own').toEqual([]);
+		expect(loopsOnly.warnings).toEqual([]);
 
-		// The hole removes ink and SPLITS the scanlines that cross it, so the
-		// holed cap draws more lines of less total length. Either alone could
-		// be met by accident; together they cannot.
-		expect(holed.total).toBeLessThan(solid.total);
-		expect(holed.count).toBeGreaterThan(solid.count);
+		// The segments: one line each, and the count is declared on the group
+		// so a reader of the markup does not have to count them.
+		const drawn = await measure({
+			layout: { curves: box, annotations: [], hatch: loops, hatch_segments: segments }
+		});
+		expect(drawn.warnings).toEqual([]);
+		expect(drawn.lines.length).toBe(3);
+		expect(drawn.declared).toBe(3);
+		// Each is 10 mm on the paper at 1:1 — the view transform is a
+		// similarity, so a length in the layout is a length on the sheet.
+		for (const [x1, y1, x2, y2] of drawn.lines) {
+			expect(Math.hypot(x2 - x1, y2 - y1)).toBeCloseTo(10, 6);
+			expect(y1).toBeCloseTo(y2, 9);
+		}
+		// And the paper `y` runs DOWN, so the segment authored highest in the
+		// view (v = +0.01) is drawn at the SMALLEST paper y. Getting this
+		// backwards would mirror the hatch against the curves it fills.
+		const ys = drawn.lines.map(([, y]) => y);
+		expect(ys[0]).toBeGreaterThan(ys[2]);
 
-		// And the hole itself is empty. This is the assertion that fails if
-		// `hole` is ignored, if the even-odd pairing is off by one, or if the
-		// half-open crossing test double-counts a vertex at the hole's
-		// extremes — the classic bug the half-open test exists to prevent.
-		expect(
-			holed.closest,
-			`a hatch line reached ${holed.closest} mm from the hole centre; the hole is 6 mm`
-		).toBeGreaterThan(0.9 * R * 1000);
+		// A malformed segment is NAMED, not skipped silently: a cap drawn
+		// with some of its hatch looks finished and is not.
+		const broken = await measure({
+			layout: {
+				curves: box,
+				annotations: [],
+				hatch_segments: [segments[0], [[0, 0]], null]
+			}
+		});
+		expect(broken.lines.length).toBe(1);
+		expect(broken.warnings.length).toBe(2);
+		expect(broken.warnings[0]).toContain('hatch segment');
 	});
 
 	test('an empty layout still renders a valid, finite sheet', async ({ page, waffle }) => {

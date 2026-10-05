@@ -491,6 +491,60 @@ test.describe('Dimensioning on the sheet (D4d)', () => {
 		expect(after.map(anchorPids).sort()).toEqual(pidsBefore);
 	});
 
+	test("editing a dimension keeps D4c's expression, and a literal is refused", async ({
+		waffle
+	}) => {
+		const page = waffle.page;
+		await waffle.waitForReady();
+		const { viewId } = await plateAndDrawing(page);
+		const points = await anchorScreenPoints(page, viewId);
+		const pair = wallPair(points);
+
+		// An EXPRESSION dimension, which is what D4c made authorable. Nothing
+		// in the sheet's tools authors one (there is no door for a number and
+		// none for an expression either), so it is created through the store
+		// door, the way an agent's `drawing_annotation_add` would.
+		await page.evaluate(
+			([v, a, b]) =>
+				window.__waffle.addDrawingAnnotation(v, {
+					kind: 'Distance',
+					anchors: [a, b],
+					expr: '2 * 3 mm'
+				}),
+			[viewId, pair[0].pid, pair[1].pid]
+		);
+		await waitForAnnotationCount(page, viewId, 1);
+		const authored = (await authoredAnnotations(page, viewId))[0];
+		expect(authored.value?.type, 'the annotation reads an expression').toBe('Expr');
+		expect(authored.value?.expr).toBe('2 * 3 mm');
+
+		// Every edit to an existing annotation is a delete and a re-add, so a
+		// field the re-author does not carry is a field the edit DROPS. An
+		// expression dropped here would leave the same label printing the
+		// part's own width instead of the expression's value: a different
+		// number on the same drawing, silently.
+		await page.evaluate(
+			(v) => window.__waffle.setSheetSelection({ viewId: v, index: 0 }),
+			viewId
+		);
+		await expect(page.getByTestId('dwg-annotation')).toBeVisible();
+		await page.getByTestId('dwg-annotation-precision').fill('3');
+		await page.getByTestId('dwg-annotation-precision').blur();
+		await page.waitForFunction(
+			(id) => {
+				const sheets = window.__waffle?.getDrawingStatus()?.drawing?.sheets ?? [];
+				const view = sheets.flatMap((s) => s.views ?? []).find((v) => v.id === id);
+				return view?.annotations?.[0]?.precision === 3;
+			},
+			viewId,
+			{ timeout: 20000 }
+		);
+		const edited = (await authoredAnnotations(page, viewId))[0];
+		expect(edited.value?.type, 'the expression survived the re-author').toBe('Expr');
+		expect(edited.value?.expr).toBe('2 * 3 mm');
+		expect(edited.precision).toBe(3);
+	});
+
 	test('Delete and Escape do nothing while a panel text field has the focus', async ({
 		waffle
 	}) => {

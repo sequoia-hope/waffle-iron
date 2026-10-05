@@ -278,6 +278,14 @@ export const drawingAnnotationAddTool = {
 			},
 			text: { type: 'string', description: 'Note only: the text.' },
 			label: { type: 'string', description: 'Datum only: the letter (A, B, …).' },
+			expr: {
+				type: 'string',
+				description:
+					"Dimension only: the value as an EXPRESSION, measured against the view's source tab " +
+					'on every rebuild — "distance(wall_a, wall_b) / 2", "plate_w". The anchors are still ' +
+					'required: they are where the dimension is drawn, the expression only what it says. ' +
+					'Omit to measure the anchors themselves. A typed-in NUMBER is never accepted.'
+			},
 			precision: {
 				type: 'integer',
 				minimum: 0,
@@ -358,8 +366,8 @@ export const drawingSheetEditTool = {
 				type: 'array',
 				description:
 					"The title block's rows in print order — the whole list, replaced. A row is {key} " +
-					'for a derived one, {key, text} for one a person types, or {label, text} for a row ' +
-					'of your own.',
+					'for a derived one, {key, text} for one a person types, {key, expr} for one the ' +
+					'engine evaluates, or {label, text} / {label, expr} for a row of your own.',
 				items: {
 					type: 'object',
 					properties: {
@@ -382,6 +390,16 @@ export const drawingSheetEditTool = {
 							description:
 								'The value. Only for Date, Author, Material, Revision and a labelled row: ' +
 								'the first four keys are filled from the document.'
+						},
+						expr: {
+							type: 'string',
+							description:
+								'An expression whose evaluated text fills the row — the same language a ' +
+								"feature's fields take, measurement functions included, so " +
+								'"volume(plate) * 0.00000785" prints a mass and "plate_w" a parameter. ' +
+								'The source is kept in the document and the sheet shows the value. It is ' +
+								"measured against the one source tab this sheet's views draw, and refuses " +
+								'by name on a sheet that draws two. Not with text, and not on a derived key.'
 						}
 					},
 					additionalProperties: false

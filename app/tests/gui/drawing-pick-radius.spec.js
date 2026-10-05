@@ -14,7 +14,9 @@
  * is converted to pixels with the rendered zoom (the view `<svg>`'s own screen
  * CTM), which is the only thing between a paper millimetre and a pixel — so
  * the conversion is the app's own placement, read back, and the RADIUS is what
- * is under test.
+ * is under test. Each hover is WAITED for rather than sampled, because a
+ * sample cannot tell a point outside the radius from a pointermove the page
+ * has not handled yet (see `waitForHover`).
  *
  * Then do it again with the zoom changed (a narrower window scales the A3 sheet
  * down) and with the view scale changed (1:1 and 1:2). The zoom assertion is
@@ -52,9 +54,37 @@ const RADIUS_MM = 2;
 const MARGIN_MM = 0.6;
 
 /**
- * Probe one anchor at `RADIUS_MM ∓ MARGIN_MM` along the outward direction and
- * answer `{ inside, outside, pxPerMm }` — whether the sheet highlighted an
- * anchor at each.
+ * Wait until the sheet's hover state is `pid` (or null), and FAIL if it never
+ * is.
+ *
+ * Every probe below is a TRANSITION, which is the only form that can be
+ * waited on without swallowing the answer. Reading `getSheetHover()` straight
+ * after a `mouse.move` cannot tell "the radius excluded this point" from "the
+ * pointermove handler has not run yet", and under heavy load on this box the
+ * second happens — measured as two spurious failures in a run at load average
+ * 133 on 24 cores, in tests that pass at load 61. So the probe moves between
+ * states whose expected value differs from the current one, and this wait is
+ * the assertion: a radius that is wrong in either direction times out here
+ * rather than being read as a stale value.
+ */
+async function waitForHover(page, pid, what) {
+	await page
+		.waitForFunction(
+			(want) => (window.__waffle.getSheetHover()?.anchor?.pid ?? null) === want,
+			pid,
+			{ timeout: 10000 }
+		)
+		.catch(() => {
+			throw new Error(
+				`${what}: the sheet's hover never became ${pid === null ? 'nothing' : pid}`
+			);
+		});
+}
+
+/**
+ * Probe one anchor at `RADIUS_MM ∓ MARGIN_MM` along the outward direction,
+ * asserting as it goes, and answer `{ pxPerMm, pid }` — the zoom it probed at
+ * and the entity it probed against, for the caller to compare across runs.
  */
 async function probe(page, viewId) {
 	const points = await anchorScreenPoints(page, viewId);
@@ -79,20 +109,25 @@ async function probe(page, viewId) {
 		y: anchor.y + uy * mm * points.pxPerMm
 	});
 
-	const inside = at(RADIUS_MM - MARGIN_MM);
-	await page.mouse.move(inside.x, inside.y);
-	const hitInside = await page.evaluate(() => window.__waffle.getSheetHover()?.anchor?.pid ?? null);
+	// Three moves, each a transition from the state before it, so each wait is
+	// an assertion rather than a sample. On the anchor first: it establishes a
+	// known hover AND proves the anchor is reachable at all, which is what
+	// makes the two probes after it mean what they say.
+	await page.mouse.move(anchor.x, anchor.y);
+	await waitForHover(page, anchor.pid, 'on the anchor');
 
 	const outside = at(RADIUS_MM + MARGIN_MM);
 	await page.mouse.move(outside.x, outside.y);
-	const hitOutside = await page.evaluate(() => window.__waffle.getSheetHover()?.anchor?.pid ?? null);
+	await waitForHover(page, null, `${RADIUS_MM + MARGIN_MM} mm of paper away`);
 
-	return {
-		pxPerMm: points.pxPerMm,
-		pid: anchor.pid,
-		inside: hitInside,
-		outside: hitOutside
-	};
+	const inside = at(RADIUS_MM - MARGIN_MM);
+	await page.mouse.move(inside.x, inside.y);
+	await waitForHover(page, anchor.pid, `${RADIUS_MM - MARGIN_MM} mm of paper away`);
+
+	// Nothing to assert at the call site: the three waits above ARE the
+	// assertion, and returning the outcomes for the caller to re-check would
+	// only restate values this function already proved.
+	return { pxPerMm: points.pxPerMm, pid: anchor.pid };
 }
 
 test.describe('The pick radius is a paper distance (D4d)', () => {
@@ -114,13 +149,10 @@ test.describe('The pick radius is a paper distance (D4d)', () => {
 			wide.pxPerMm - 0.05
 		);
 
-		for (const [name, r] of [
-			['wide', wide],
-			['narrow', narrow]
-		]) {
-			expect(r.inside, `${name}: 1.4 mm of paper away is inside the radius`).toBe(r.pid);
-			expect(r.outside, `${name}: 2.6 mm of paper away is outside it`).toBeNull();
-		}
+		// Both probes already asserted the radius at their own zoom, inside
+		// `probe`. What is left to say here is that they probed the same
+		// entity, so the two runs are comparable at all.
+		expect(narrow.pid).toBe(wide.pid);
 	});
 
 	test('it is the same 2 mm of paper at two view scales', async ({ waffle }) => {
@@ -142,17 +174,10 @@ test.describe('The pick radius is a paper distance (D4d)', () => {
 		const half = await probe(page, viewId);
 
 		// At 1:2 the SAME 2 mm of paper is 4 mm of model, so a radius measured
-		// in model units would have halved on paper and the inside probe would
-		// have missed. It does not.
-		for (const [name, r] of [
-			['1:1', full],
-			['1:2', half]
-		]) {
-			expect(r.inside, `${name}: 1.4 mm of paper away is inside the radius`).toBe(r.pid);
-			expect(r.outside, `${name}: 2.6 mm of paper away is outside it`).toBeNull();
-		}
-		// And the pid is the same entity in both: the view was re-scaled, not
-		// re-projected onto different geometry.
+		// in model units would have halved on paper and `probe`'s inside wait
+		// would have timed out at 1:2. It does not. And the pid is the same
+		// entity in both: the view was re-scaled, not re-projected onto
+		// different geometry.
 		expect(half.pid).toBe(full.pid);
 	});
 
@@ -218,8 +243,9 @@ test.describe('The pick radius at devicePixelRatio 2 (D4d)', () => {
 		expect(await page.evaluate(() => window.devicePixelRatio)).toBe(2);
 		const { viewId } = await plateAndDrawing(page);
 		await clickTool(page, 'dim-distance');
+		// `probe` asserts the radius itself, inside and outside, by waiting
+		// for each transition.
 		const r = await probe(page, viewId);
-		expect(r.inside, '1.4 mm of paper away is inside the radius').toBe(r.pid);
-		expect(r.outside, '2.6 mm of paper away is outside it').toBeNull();
+		expect(r.pid, 'the probe found a wall to measure against').toBeTruthy();
 	});
 });

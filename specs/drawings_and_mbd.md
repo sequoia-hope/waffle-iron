@@ -2745,25 +2745,340 @@ their own.
 - *No PDF reader opened the file.* The structure is asserted and the geometry
   comes from the SVG by construction, but nothing in this environment
   rasterized a page.
-- *Hatching is not in the DXF.* §8 names a `HATCH` layer and the sheet DXF
-  still carries only curves: the cap's BOUNDARY is there (the projection emits
-  it as an ordinary edge), the fill is not. The segments now exist as geometry
-  (`hatchSegments`), so writing them on a `HATCH` layer is a small increment —
-  it needs the DXF writer to take a layer per curve, which it does not today.
-- *A detail view's DXF is culled but not clipped.* The export places the
-  curves the engine kept, which reach past the disc; only the SVG and the PDF
-  clip. A cutting table given a detail would get the overhang.
+- ~~*Hatching is not in the DXF.*~~ **CLOSED by D4c**, and the "small
+  increment" estimate was wrong about where the work was: the segments
+  existed in the APP, so a hatched DXF would have needed a second scanline.
+  The scanline moved into the engine instead.
+- ~~*A detail view's DXF is culled but not clipped.*~~ **CLOSED by D4c**
+  (`Curve2::clipped_to_disc`).
 - *Nothing on the sheet is clickable* — D4a's open item stands. The cutting
   line and the crop circle are authored as numbers in the panel (or as
   millimetres through the tool), where a drafter drags them.
-- *`Ordinate` is still not authorable*, and `Measured::Expr` still refuses:
-  both wait on D2, which is also what the title block's expressions wait on.
+- ~~*`Measured::Expr` still refuses*~~ — **CLOSED by D4c**. It stopped
+  refusing at D2 and became AUTHORABLE at D4c; this line was already half
+  stale when it was written.
+- *`Ordinate` is still not authorable*, and **D2 was never its blocker** —
+  this line was wrong and D4a's own note has it right. Its number is one raw
+  view-plane coordinate measured from the view FRAME's origin, so it cannot
+  be read off the sheet whatever evaluates it; the fix is the `origin:
+  GeomRef` anchor D4a named, which is additive and now has a view frame to be
+  relative to. Nothing about D2 changes that.
+- ~~*The title block's expressions wait on D2.*~~ **CLOSED by D4c.**
 - *The read-only viewer route still shows the 3D viewport on a drawing tab.*
   Unchanged from D4a.
 - *A section of an assembly leaf is implemented but not measured.* The plane
   goes through the placement and the cap's basis comes back through it, and the
   arithmetic is pinned on a placed-body unit case — but no corpus assembly has
   been sectioned end to end.
+
+### Implementation notes (D4c)
+
+Landed 2026-10-04. D4c is the three D4b open items that D2's landing (and
+D4b's own groundwork) unblocked: the title block's expressions, the hatch in
+the DXF, and the detail view's DXF clip. Where D4b left a choice open, this is
+the choice made and why.
+
+**The title block takes EXPRESSIONS, and there is still no `TitleBlockKey::
+Expr`.** §8 asks for "expressions over document metadata and the measurement
+functions, so `mass(part)` and a parameter table work with no special casing".
+`TitleBlockField.expr` holds the SOURCE and `title_block_layout` prints its
+evaluated text, so the document carries what the author wrote and the sheet
+carries what it evaluates to — never the same record, which is what stops a
+reopened file printing last week's number. The reason it is a FIELD and not a
+key variant: every key already names a row, and an expression is how the row
+is FILLED, not what it says. A `Custom { label: "Mass" }` row with
+`expr: "volume(plate) * 0.00785"` is exactly §8's `mass(part)` with a label
+the author chose, and it needed no new variant — where a variant inside a kind
+every reader deserializes would have moved the format floor by D4b's own
+`Projection::Section` argument. `expr` is additive and defaulted, so **the
+floor did not move**, pinned against the CONSTANTS in
+`format_tests.rs::a_title_block_expression_round_trips_and_did_not_move_the_format_floor`
+so the claim survives the next bump. (This is the increment that did NOT need
+a format version; v12 and v13 remain unclaimed by it.)
+
+Four further decisions:
+
+- **Which document a title-block expression measures: the one tab this
+  sheet's views draw.** A sheet of six views of one part is the ordinary case
+  and `volume(plate)` means something in it. A sheet whose views draw TWO
+  parts has no "the part" whose mass to print, and a sheet with no views has
+  no document at all; both refuse BY NAME
+  (`DrawingError::TitleBlockExprNotEvaluated`) rather than picking the first,
+  which is the choice D2 made for an assembly source, having no single engine
+  either. The consequence in `drawing_view::evaluate` is that the title-block
+  fill MOVED to after the sheet's view loop — before it, `out.parts` holds no
+  engine and every expression row would have been handed a `None`.
+- **A row that cannot be evaluated prints NOTHING and is reported.** Not its
+  own source text (a title block reading `mass(part)` is what D4b declined to
+  ship), not the row's `text`, and not the last good value. `TitleBlockFill`
+  carries the errors beside the layout for the reason
+  `ViewRebuild::annotation_errors` does: a title block of eight rows losing
+  seven because one expression broke is worse than one blank row and a named
+  error.
+- **The unit comes from the expression's OWN dimension**
+  (`expr::Quantity::display_text`): mm, mm², mm³, degrees, or the exponents
+  for a composite, at four decimals with trailing zeros trimmed. A length² no
+  FIELD accepts prints perfectly well on paper, so `area(top)` is offered
+  rather than refused — a title block is text, not a field. The unit is the
+  WORKING space's, not the author's: a row reading `12.7` where the author
+  typed `0.5in` is a number nobody can check.
+- **The renderer needed no change**, and that is the D3 division working. A
+  row arrives already evaluated and the source is not in the record
+  `sheet.js` is handed, so it cannot print the source by mistake. The SVG and
+  the PDF (which is scanned out of the SVG) both got expression rows for
+  free.
+
+**`Measured::Expr` became AUTHORABLE, and D4b's open list was wrong about
+`Ordinate`.** D2 made `Expr` evaluable and `check_measured` stopped refusing
+it then — but nothing could author one: `build_annotation` always wrote
+`Measured::FromGeometry` and the tool had no argument. It has `expr` now, and
+the anchors stay REQUIRED, because they are where the dimension is drawn and
+the expression only what it says. `value` is now refused by NAME rather than
+ignored: before `expr` there was nothing to offer instead, and an argument
+read by nobody is the silent-ignore the derived title-block rows are already
+refused by. `Ordinate` is NOT in this increment — its blocker was never D2
+(see the corrected line above) but the missing `origin: GeomRef`.
+
+**The hatch SCANLINE moved into `waffle-types`, and that is what made the
+DXF possible at all.** D4b's note called the DXF hatch "a small increment"
+needing only a layer per curve. The layer per curve was the easy half; the
+hard half was that the segments existed only in the APP (`svg.js`'s
+`hatchSegments`), and the DXF is written in Rust. Writing it from there would
+have meant a SECOND scanline — two implementations of one fill, which is
+precisely what computing segments instead of an SVG `<pattern>` exists to
+avoid, and the mistake `DrawingView.svelte` and `export_svg` both refuse for
+the curves. So `waffle_types::annotation::hatch` owns the scanline, the
+layout record carries `hatch_segments` in the view's own `(u, v)`, and
+`svg.js` strokes them. That is also §3 as written: "Rust produces curves and
+numbers; the app draws them."
+
+What is unchanged: even-odd by a scanline, the half-open crossing test
+`(y0 ≤ y) != (y1 ≤ y)` so a scanline through a vertex counts once, the loops
+kept beside the segments for a renderer that fills regions, and 3 mm at 45°.
+Three things are different and each is deliberate:
+
+- **The grid is anchored at the VIEW frame's origin, not the paper's.** The
+  property D4b named — "two caps on one sheet, a section of two bodies, carry
+  one continuous pattern instead of two that nearly line up" — is a property
+  of ONE view's caps, and it is preserved exactly (pinned in
+  `hatch::tests::the_grid_is_anchored_at_the_origin_so_two_caps_of_one_view_line_up`).
+  What is given up is alignment between two DIFFERENT section views on one
+  sheet, which no standard asks for and no reader can see; anchoring on the
+  paper would make a view's layout depend on where the view was dragged to.
+- **The angle's sign flips at the boundary.** `HATCH_ANGLE_DEG` is measured
+  on the PAPER, whose `y` runs down; a view's `v` runs up. `drawing::
+  hatch_fill` negates, which is the one place the two frames meet and the
+  reason the drawn lean is the one D4b shipped.
+- **The spacing divides by the view's SCALE**, so it is 3 mm of paper at 2:1
+  as well as at 1:1. The alternative — a fixed model spacing — would print a
+  detail view's hatch at twice the pitch of the view it was cropped from.
+  The boundary is flattened at `HATCH_BOUNDARY_SAGITTA_MM` (20 µm of paper, a
+  tenth of a narrow line) through `Curve2::flatten`'s proved bound, which is
+  what `LayoutCurve::to_curve2` was added for.
+
+A FOURTH difference was found by the review rather than declared by the move,
+and it is recorded here because it changes what a reader measures: the
+boundary's FLATTENING DENSITY. The JS scanline sampled a conic at a fixed 16
+segments per quadrant; the Rust one asks `Curve2::flatten` for
+`HATCH_BOUNDARY_SAGITTA_MM`. On a large cap the Rust sampling is finer; on a
+SMALL one it is coarser — measured, a 0.5 mm-radius hole flattens to 13 points
+where the old code gave 65 — so the ends of the hatch lines around a small bore
+move by up to the sagitta, 20 µm of paper. That is a tenth of a narrow line and
+below what a drafter can see, and a sagitta bound is the right contract (it is
+the one the DXF writer and every other flattening in the tree use, where "16
+per quadrant" is a number with no error bound attached). But it is a change,
+and the move's own notes claimed only three.
+
+The half-open rule has one visible asymmetry worth recording because a reader
+will meet it: a scanline exactly on a shape's BOTTOM edge belongs to the shape
+and one on its TOP edge does not, so a hole's bottom-edge row is split in two
+and its top-edge row is one span. Which end is included is a convention;
+counting each vertex exactly ONCE is not, and that is the property the tests
+assert. The GUI spec that used to pin the fill rule now pins the renderer's
+own half — that the loops ALONE draw nothing, which is the regression guard
+against a renderer-side scanline growing back.
+
+**The DXF writer takes a layer per curve** (`write_dxf_layers`, `DxfCurve`).
+`write_dxf` is unchanged in behaviour and is now a thin call into it, so the
+one-view flat-pattern path writes exactly the bytes it did. The `LAYER` table
+is the set of layers actually USED, with `VISIBLE` and `HIDDEN` always
+declared — their records were written unconditionally before D1c filled
+`HIDDEN`, for the reason that a reader's layer list should not change shape
+with the drawing's content. The extents cover the hatch, because a reader
+zooms to `$EXTMAX` and a chord-sampled cap boundary can put a hatch line a
+sagitta past the outline it fills. `SECTION`, `DIMENSION` and `TEXT` — the
+other layers §8 names — are still unused; the writer can carry them now, and
+what they need is a producer (a `CurveKind::SectionOutline` routing decision,
+and annotations in the DXF at all), not a writer change.
+
+**A detail view's DXF is CLIPPED, by `Curve2::clipped_to_disc`.** The layout
+is still culled and not clipped, and that stays: the renderer's `clipPath` is
+exact and free, and trimming in the layout would make the detail — the one
+view that exists to be looked at closely — the only view drawn from geometry
+the engine had to cut. The DXF has no `clipPath`, so the export trims, in VIEW
+coordinates before the placement (the crop is authored there). Each piece
+keeps its KIND: the crossing parameters are closed-form (a quadratic for a
+chord, `A cos t + B sin t = K` for a circle) and `Curve2::subcurve` does the
+cutting, so a detail's DXF carries true `LINE` and `ARC` entities rather than
+the chord polylines a clip through sampled geometry would leave.
+
+Three choices inside it:
+
+- **The midpoint decides whether an interval is inside**, never an endpoint:
+  an endpoint of a piece sits exactly on the boundary by construction, where
+  the comparison is a coin toss.
+- **An ELLIPSE is flattened first.** Its intersection with a circle is a
+  quartic, and R12 has no `ELLIPSE` entity, so the writer flattens every
+  ellipse anyway — nothing a reader of the file could have had is lost, where
+  solving the quartic would be a new root-finder for one arm with no customer.
+  Done by RECURSION onto the polyline arm rather than by a second clipper, so
+  the two cannot disagree about which pieces are inside.
+- **A non-positive or non-finite radius clips everything away**, rather than
+  meaning "no crop". The caller that authored the disc is the one that can say
+  what a bad radius means (`DrawingError::BadCropRadius`); treating it as no
+  crop would put the whole part inside a detail view.
+- A closed curve crossing the boundary comes back as separate open pieces,
+  including the two that meet at its own seam. Two entities where one would
+  do; joining them would mean reasoning about the seam for the sake of a
+  file's entity count.
+
+**Still open after this increment:**
+
+- *The projection-angle GLYPH.* Unchanged from D4b, and **not attempted
+  here**: the handedness of ISO 5456-2's truncated-cone pair is a convention,
+  not derivable from the projection rule, and no copy of the standard was
+  available in this environment either. A symbol that might be mirrored is
+  worse than the words, because a drafter reads it and believes it. The row
+  still prints `Third angle` / `First angle`, which ASME Y14.3 permits as a
+  note.
+- *`Ordinate` is still not authorable*, waiting on `origin: GeomRef` — not on
+  D2.
+- *The DXF carries no `SECTION`, `DIMENSION` or `TEXT` layer.* The writer can
+  now put a curve on any layer; what is missing is a producer. A
+  `CurveKind::SectionOutline` curve still lands on `VISIBLE`, which is a
+  routing decision rather than a capability gap, and annotations are not in
+  the DXF at all (they are text and arrowheads, which R12 can carry but which
+  nothing composes yet).
+- *A detail of a SECTION exports its curves clipped and its hatch unclipped.*
+  A detail view's own `hatch_segments` are empty (only a section view has a
+  cap), and a detail OF a section draws its parent's curves, not its parent's
+  hatch — so the case does not arise today. It would the moment a detail
+  inherited a parent's hatch.
+- *No title-block ROW editor in the panel.* The engine, the format and the
+  tool all take an expression row; `DrawingPanel` still offers only the
+  show/hide checkbox, so a person authors rows through the agent door. The
+  same gap D4b shipped, now with more to author.
+- *No PDF reader opened the file.* Unchanged from D4b.
+- *The read-only viewer route still shows the 3D viewport on a drawing tab.*
+  Unchanged from D4a.
+- *A section of an assembly leaf is implemented but not measured.* Unchanged
+  from D4b.
+- *`title_block_cache` has no validity key*, so a saved document can carry an
+  expression row's stale number where a view in the same sheet is detectably
+  stale. Found by the review and measured; see the corrections below.
+
+### D4c review corrections (2026-10-04)
+
+Reviewed on the merge of `main` at format v12. One real defect, one refusal
+that named nothing, and five properties the increment argued for in prose and
+left unmeasured. All fixed on the branch; what follows is what a later reader
+needs to know.
+
+**A TANGENCY is now a cut, because the midpoint rule cannot decide one.**
+`Curve2::clipped_to_disc` reads each candidate interval's verdict at its
+MIDPOINT — correctly, since an endpoint sits on the boundary by construction
+and `|p − c| ≤ r` is a coin toss there. But the crossing set deliberately
+EXCLUDED tangencies ("a tangency touches without crossing, so it splits
+nothing"), and that is the one case the midpoint cannot answer: an interval
+that touches the boundary at exactly its own midpoint and lies outside
+everywhere else reads as INSIDE, and the whole curve survives. Measured: a
+line from (−2, 1) to (2, 1), tangent to the unit disc at its own `t = 0.5`,
+came back whole — four units of line inside a crop of radius one, as a true
+`LINE` on the right layer at the right coordinates, and simply not belonging
+in the file. Not exotic: the touch point IS the parameter midpoint whenever a
+full circle is written from its own start angle, which is the form
+`kernel_v2::projection` produces, so a hole whose rim is tangent to an
+authored crop circle hits it. The fix is the crossing set and not a band —
+`disc == 0` returns its double root, `|ratio| == 1` its tangency angle — so
+the touch point lands on an interval boundary where it decides nothing. That
+alone would put a SEAM in a curve that merely grazes from inside, so
+consecutive kept intervals are rejoined; the run never spans the parameter
+range's ends, so a closed curve cut at its OWN seam still comes back as two
+pieces, which stays the documented answer. The existing test asserted
+`clip(&tangent).len() <= 1` and called either answer "a single answer" — it is
+not, and that inequality is what let the defect through.
+
+**A refusal that names nothing is a silent drop in a refusal's clothes.** The
+title-block row refusals (`expr` on a derived key; `text` and `expr` together)
+built their message from the raw `key` string, which is EMPTY for a custom row
+— so `{label: "Mass", text: …, expr: …}`, the very row this increment's own
+example uses, was refused with "the `` row was given both `text` and `expr`".
+They now name the row by its label where it has one.
+
+**A fourth difference in the hatch move**, found rather than declared: see the
+flattening-density paragraph above.
+
+**Five claims were prose only, and three of them would have survived their own
+negation.** `hatch_fill` — the wrapper whose entire reason for existing is the
+two conversions at the paper/view boundary — had NO test: removing the angle's
+negation or the division by the view's scale broke nothing. Both are now
+mutation-checked (the negation case fails with the lean reversed; the scale
+case reports 1.5 mm of paper at 2:1). The "one source tab" refusal was
+unpinned in all three of its cases, and is now measured with the disagreeing
+view added LAST, so a check that compared only the first two views fails.
+`renderTitleBlock`'s claim that it "cannot" print an expression's source
+"because the source is not in the record it is handed" was simply FALSE — it
+is handed the whole sheet, and `title_block.fields[i].expr` is one property
+away. The discipline is real and the comment now says so honestly, with a GUI
+spec asserting the evaluated text reaches the paper and the exported SVG while
+the source string reaches neither.
+
+**The one finding NOT fixed here, because the fix is a design call rather
+than a correction: `title_block_cache` has no validity key, and D4c is what
+made that matter.** Every view carries `DrawingView.cache_key` precisely so a
+reader with no engine can tell a current layout from a stored one. The sheet's
+title block carries no equivalent — and until D4c it needed none, because
+nothing in that cache depended on the MODEL: a document name, a sheet number,
+a scale and typed text all travel with the document and cannot go stale
+against geometry. An expression row can.
+
+Measured, through the tools: a sheet whose row reads `volume(plate)` fills with
+`1000 mm³`; switching to the part tab and doubling the extrude's depth to
+10 mm (so the volume is 2000 mm³) leaves the persisted
+`title_block_cache` reading `1000 mm³`, while the view beside it carries
+`cache_key` `d4b-…` whose inputs have changed. The drawing is re-evaluated
+only by `OpenDrawing` and `EditDrawing`, so a document saved without returning
+to the drawing tab carries that number, and the read-only viewer route — which
+has no engine and draws the cache — prints it. A reader can see the VIEWS are
+stale and cannot see that the title block is.
+
+The fix is the mirror of what the views already have: a
+`title_block_cache_key` over the same inputs (`CacheInputs::for_sheet`, the
+single source tab's recipe digest, and that tab's body pid digest), additive
+and `skip_serializing_if`, so it moves no floor. It is left to its own
+increment because choosing a cache key's input set is a design decision and
+not a review correction, and because D4d/D4e are in flight on the same
+records. **Until it lands, a title-block expression row is trustworthy on the
+screen and in an export taken from a visited drawing tab, and NOT trustworthy
+in a `.waffle` saved without visiting one.**
+
+**One claim is still unmeasured, and saying so is the correction.** The bbox
+fold that makes the DXF's `$EXTMIN`/`$EXTMAX` cover the hatch cannot be
+exercised: deleting it leaves every assertion passing, because a section's cap
+boundary is among the view's drawn curves and the hatch lies inside it. It
+earns its keep only where a cap loop is NOT drawn (culled by a detail's crop,
+or declined), which no fixture reaches. Left in place as insurance and named
+in the test, so the next reader is not misled into thinking it is pinned.
+
+Also: `hatch_segments` had two paths that returned no segments and no warning
+— a boundary of three or more distinct points enclosing no area, and a cap
+narrower than the hatch pitch — against the module's own contract that "a cap
+that came back unhatched should say why". Both now warn, with the measurable
+reason, and the rule is silent on a cap that did hatch. And no test had
+assembled the PRODUCTION configuration (45°, a curved boundary, and a hole);
+one does now, checking the bore's clearance along each segment rather than at
+its ends, because a span that bridged the hole would have both ends in the
+annulus.
 
 ### D4d — Dimensioning on the sheet (specified 2026-10-04)
 
@@ -2813,8 +3128,16 @@ tie refusal. `expectNoAnyCrash` throughout.
 ### Implementation notes (D4d)
 
 Landed 2026-10-04. Where §8's D4d brief left a choice open, this is the choice
-made and why. App only: nothing below the store changed, no Rust was touched,
-no WASM was rebuilt, and the format floor did not move.
+made and why.
+
+The brief owned `app` only, and all of the picking, the toolbar and the
+placement arithmetic are app. ONE thing was not app and could not be made so:
+the drawing's undo. It is `wasm-bridge` — the enum gained a `Batch` edit, the
+session gained a per-tab snapshot history, and `DrawingStatus` gained a
+`(undo, redo)` depth — because an undo expressed in the page's own vocabulary
+is not merely lossy on reload, it addresses the wrong annotation (the measured
+account is below). The format floor did not move: a `DrawingEdit` is a message,
+not a persisted type, and an undo stack has never been written to `.waffle`.
 
 **The hit test's coordinate system is READ FROM THE DOM, not recomputed.** The
 brief asks for a pick radius that is a paper distance. The cheap way to get
@@ -3138,6 +3461,25 @@ one that found a defect.
   — and the plausible wrong version, multiplying by `devicePixelRatio`
   anywhere on the path, passes every other test in the file.
 
+**What merging D4c found.** D4d and D4c were written in parallel and touch
+disjoint files, so the merge was clean — and clean is not the same as correct.
+D4c made a dimension's value authorable as an EXPRESSION (`Measured::Expr`),
+and D4d edits an existing annotation by deleting and re-adding it. A field the
+re-author does not carry is a field every edit silently DROPS, so dragging an
+expression dimension's label would have left the same label reading the part's
+own width instead of the expression: a different number on the same drawing,
+from a gesture that is supposed to move a label. `annotationRespec` now reads
+`Measured::Expr` back and `addAnnotationEdit` sends it, pinned by "editing a
+dimension keeps D4c's expression".
+
+The same read made the third arm explicit. A `Measured::Value` — a literal,
+which no door authors and which reaches a document only from an import or an
+older cache — is REFUSED for editing rather than re-authored, because
+re-authoring it would turn it into a `FromGeometry` dimension: the same silent
+re-interpretation, in the direction the whole spec exists to prevent. It is
+still deletable and still undoable, because the snapshot restores it whatever
+it says.
+
 Two review questions came back as "no change needed", with the measurement:
 the tie refusal cannot make a short edge undimensionable, because
 `AnchorIndex::offered` emits at most ONE anchor per `(kind, pid)` (it drops a
@@ -3200,17 +3542,41 @@ engine refuses a literal (`check_measured`).
   the fix.
 - *Tolerance is M1's*, and the panel says so by name rather than offering a
   dead control.
-- *A measured flake, pre-existing and environmental.* Under heavy load on this
-  box (load average ≈ 37 on 24 cores, ~20 parallel agent sessions) a GUI spec
-  that builds a part through the WASM kernel intermittently fails with
-  `page.evaluate: Execution context was destroyed` — the renderer dying under
-  contention, not a navigation. It is NOT D4d's: `drawing-tab.spec.js`, which
-  predates this increment and was not touched, reproduces it at two Playwright
-  workers (2 of 12 failed in one of three runs), and a probe spec whose whole
-  body is D4a's `plateAndDrawing` fixture reproduces it with no D4d code path
-  involved. The overlay was cleared as a cause separately: a mutation observer
-  over it counts 0 attribute changes in a quiet 1.5 s, so there is no runaway
-  effect. At two workers on a quiet box the D4d specs pass 11/11.
+- *A measured flake, pre-existing and environmental — and it reaches the FAST
+  tier.* Under heavy load on this box a GUI spec that builds a part through the
+  WASM kernel intermittently fails with `page.evaluate: Execution context was
+  destroyed` — the renderer dying under contention, not a navigation. It is
+  NOT D4d's: `drawing-tab.spec.js`, which predates this increment and was not
+  touched, reproduces it at two Playwright workers (2 of 12 failed in one of
+  three runs, and the same test then passes 3/3 at one worker in 3 s each),
+  and a probe spec whose whole body is D4a's `plateAndDrawing` fixture
+  reproduces it with no D4d code path involved. The overlay was cleared as a
+  cause separately: a mutation observer over it counts 0 attribute changes in
+  a quiet 1.5 s, so there is no runaway effect.
+
+  What the review added is the load figures and the fact that D4d's own specs
+  are now exposed to it, because they are in the fast tier and they build a
+  part. Measured across seven two-worker runs of the two specs:
+
+  | load average (24 cores) | outcome |
+  |---|---|
+  | 38 – 83 | 17/17, three times |
+  | 81 | 16/17, the message above |
+  | ≈ 90 | 15/17 |
+  | 133 | 15/17 |
+
+  The failing test in isolation passes 6/6 at the same load. There is nothing
+  in the suite to fix: the message names a renderer that went away mid-call.
+  What CI needs is either a quiet box or a retry budget, and that is a tier
+  decision rather than a D4d one.
+
+  One thing the hunt DID find and fix is a separate, real fragility in
+  `drawing-pick-radius.spec.js`: it sampled `getSheetHover()` immediately
+  after a `mouse.move`, and a sample cannot tell "outside the radius" from
+  "the pointermove has not been handled yet". Each probe is now a TRANSITION
+  waited on with a loud timeout (`waitForHover`), so the radius is asserted
+  rather than read, and the assertion lives where the measurement happens
+  instead of being restated at the call site.
 
 ### D4e — Visual view placement (specified 2026-10-04)
 
@@ -3357,18 +3723,24 @@ under both schema settings.
 | D2 | measurement functions in expressions | D0 | feature-engine — **LANDED 2026-10-03** |
 | D3 | `Annotation` types + SVG dimension renderer | D0 | waffle-types, app — **LANDED 2026-10-03** |
 | D4a | `Drawing` tab kind, named + projected views, DXF/SVG export | D1c, D3 | file-format, feature-engine, app, wasm-bridge — **LANDED 2026-10-03** |
-| D4b | section + detail views, title block, sheet PDF | D1d, D2, D4a | same — **LANDED 2026-10-03** (D2 not yet: the title block takes keys and literal text, not expressions) |
-| D4c | title block + `Measured::Expr` take expressions, `HATCH` layer in the DXF, detail DXF clipped | D2, D4b | app, wasm-bridge, feature-engine — in flight 2026-10-04 |
-| D4d | dimensioning toolbar on the drawing tab; anchor hit-test with paper-constant pick radius; select/drag/delete | D4b | app — **LANDED 2026-10-04** |
+| D4b | section + detail views, title block, sheet PDF | D1d, D2, D4a | same — **LANDED 2026-10-03** (without D2: the title block took keys and literal text) |
+| D4c | title-block expressions, authorable `Measured::Expr`, hatch + detail clip in the DXF | D2, D4b | waffle-types, feature-engine, kernel-v2, wasm-bridge, app — **LANDED 2026-10-04** |
+| D4d | dimensioning toolbar on the drawing tab; anchor hit-test with paper-constant pick radius; select/drag/delete; the drawing's own undo stack | D4b | app, wasm-bridge — **LANDED 2026-10-04** |
 | D4e | place-view dialog with hover ghost box; projected-view tool with eight hover sectors incl. isometric corners (`ProjectedDirection` diagonals, format bump) | D4b | app, feature-engine, file-format, wasm-bridge |
 | M1 | tolerance types, precision, material + mass | D2 | waffle-types, feature-engine, app — in flight 2026-10-04 |
 | M2 | `Datum` + `Pmi` features, 3D PMI overlay | D0, D3, M1 | feature-engine, app |
 | M3 | AP242 writer with PMI + round-trip oracle | M2 | kernel-v2, wasm-bridge |
 
-D4d and D4e are app-side and independent of each other; both can start the
-moment D4c merges, and D4e is the only one with a format bump. **D4d landed
-2026-10-04** — see its implementation notes above, including the two things it
-leaves for D4e and the one it leaves for a Rust increment (`EditAnnotation`). D0 and D1 are independent and can run in parallel. D1 is the only piece that
+D4d and D4e are independent of each other; both could start the moment D4c
+merged, and D4e is the only one with a format bump. **D4d landed 2026-10-04**
+— see its implementation notes above, including the two things it leaves for
+D4e and the one it leaves for a later Rust increment (`EditAnnotation`). It was
+planned as app-only and did not stay that way: its review found that a
+drawing's undo cannot be expressed in the page at all (`AddAnnotation` appends,
+so an inverse shifts its own indices), so the history is `wasm-bridge`'s —
+format-neutral, no bump.
+
+D0 and D1 are independent and can run in parallel. D1 is the only piece that
 is hard kernel work and it sits in the Yang stack's area (half-space booleans,
 cherchi-rs in/out predicates, SSI silhouettes), so it belongs on the kernel
 priority list rather than competing with it. Everything from D3 outward is

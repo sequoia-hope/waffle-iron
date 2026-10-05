@@ -7921,9 +7921,20 @@ export const DRAWING_PROJECTION_ANGLES = ['Third', 'First'];
  * and read — the title block prints it. `null` means "no change" for every
  * field, so a panel control can send only what it changed.
  *
+ * `titleBlockFields` is passed STRAIGHT THROUGH to a typed
+ * `Vec<TitleBlockField>`, so it takes the engine's shape and not the agent
+ * tool's sugar: a row is `{ key: { type: 'Material' }, text }`, or
+ * `{ key: { type: 'Custom', label: 'Stock' }, expr }` for D4c's expression
+ * row. `drawing_sheet_edit`'s `{ label, expr }` form is the TOOL's
+ * convenience and is converted there; sent here it would deserialize as a row
+ * with no key. Written out because this door had no caller until the D4c
+ * review's spec reached for it and hit exactly that.
+ *
  * @param {{ sheetId?: string, name?: string, size?: string | [number, number],
  *           orientation?: string, projectionAngle?: string,
- *           titleBlock?: boolean, titleBlockFields?: any[] }} [changes]
+ *           titleBlock?: boolean,
+ *           titleBlockFields?: Array<{ key: { type: string, label?: string },
+ *                                      text?: string, expr?: string }> }} [changes]
  */
 export async function editDrawingSheet(changes = {}) {
 	const size =
@@ -7986,13 +7997,15 @@ export async function deleteDrawingSheet(sheetId) {
  * the layout for exactly this, already stringified.
  *
  * There is no `value`: a dimension's number is measured from the model on
- * every rebuild, and the engine refuses a literal.
+ * every rebuild, and the engine refuses a literal. `expr` is the one thing
+ * that may say what a dimension reads (D4c's `Measured::Expr`) and it is an
+ * EXPRESSION, re-evaluated against the model every rebuild — not a number.
  *
  * @param {string} viewId
  * @param {{ annotation?: string, kind?: string,
  *           anchors?: (string | number | {pid: string | number, kind?: string})[],
  *           text?: string, label?: string, precision?: number, dualUnit?: string,
- *           placement?: [number, number] }} spec
+ *           expr?: string | null, placement?: [number, number] }} spec
  */
 export async function addDrawingAnnotation(viewId, spec = {}) {
 	const anchors = [];
@@ -8028,6 +8041,7 @@ export async function addDrawingAnnotation(viewId, spec = {}) {
 			label: spec.label ?? null,
 			precision: Number.isInteger(spec.precision) ? spec.precision : null,
 			dual_unit: spec.dualUnit ?? null,
+			expr: spec.expr ?? null,
 			placement: Array.isArray(spec.placement) ? spec.placement.map(Number) : null
 		}
 	});
@@ -8300,6 +8314,12 @@ function addAnnotationEdit(viewId, spec) {
 			label: spec.label ?? null,
 			precision: Number.isInteger(spec.precision) ? spec.precision : null,
 			dual_unit: spec.dualUnit ?? null,
+			// D4c's `Measured::Expr`. It must be here because this builder is
+			// also the RE-AUTHOR half of every annotation edit: a dimension
+			// that reads an expression and then has its placement dragged
+			// would come back reading its own geometry instead, which is a
+			// different number printed on the same drawing.
+			expr: spec.expr ?? null,
 			placement: Array.isArray(spec.placement) ? spec.placement.map(Number) : null
 		}
 	};
@@ -8387,7 +8407,10 @@ export async function editSheetAnnotation(viewId, index, changes = {}) {
 	if (!stored) return false;
 	const before = annotationRespec(stored);
 	if (!before) {
-		showToast('error', 'That annotation cannot be edited undoably.');
+		// Not an undo problem any more (the undo is a snapshot): this
+		// annotation cannot be RE-AUTHORED without changing what it says —
+		// a non-pid anchor, or a literal value with no door to write one.
+		showToast('error', 'That annotation cannot be re-authored, so it cannot be edited.');
 		return false;
 	}
 	const after = { ...before };
@@ -8438,6 +8461,18 @@ export async function moveSheetAnnotation(viewId, index, placement) {
  * writer might: a `TopoQuery` selector has no pid to echo, and guessing one
  * would re-author a dimension against a different entity.
  *
+ * `null`, too, for a dimension whose `value` is a `Measured::Value` — a
+ * literal. There is no door to author one through (the engine refuses a typed
+ * number, which is the point), so re-authoring it would silently turn it into
+ * a `FromGeometry` dimension: the same label printing a different number.
+ * Refused rather than converted; a `Value` arm only reaches a document from an
+ * import or an older cache, and it stays as it is until there is a door for it.
+ *
+ * `Measured::Expr` IS carried (D4c), through `expr`. Without that, dragging an
+ * expression dimension's label would make it read its own geometry instead —
+ * which is the same silent re-interpretation one line up, and it was reachable,
+ * because `drawing_annotation_add` authors an expression dimension today.
+ *
  * The pid comes back as a decimal STRING and goes back out as one, so the
  * round trip is exact: `Selector::Pid` is `#[serde(with = pid_str)]` on both
  * its fields, which is what makes re-authoring a `u64` id from the page
@@ -8455,6 +8490,8 @@ function annotationRespec(stored) {
 		if (pid === null || pid === undefined || pid === '') return null;
 		anchors.push({ pid, kind: ref?.kind?.type ?? 'Edge' });
 	}
+	const measured = stored?.value?.type ?? 'FromGeometry';
+	if (measured === 'Value') return null;
 	const placement = stored?.placement
 		? [Number(stored.placement.dx ?? 0), Number(stored.placement.dy ?? 0)]
 		: null;
@@ -8466,6 +8503,7 @@ function annotationRespec(stored) {
 		label: stored?.label ?? null,
 		precision: Number.isInteger(stored?.precision) ? stored.precision : null,
 		dualUnit: stored?.dual_unit ?? null,
+		expr: measured === 'Expr' ? (stored?.value?.expr ?? null) : null,
 		placement
 	};
 }
