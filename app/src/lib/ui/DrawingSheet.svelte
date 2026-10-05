@@ -23,7 +23,10 @@
 		placementGhostSvg,
 		placementMode,
 		placementPointerDown,
-		placementPointerMove
+		placementPointerMove,
+		startPlaceView,
+		startProjectView,
+		__setProbeForTest
 	} from '$lib/drawings/placementMode.svelte.js';
 	import { paperPointMm, withGhost } from '$lib/drawings/viewPlacement.js';
 
@@ -110,6 +113,31 @@
 			event.stopPropagation();
 			cancelPlacement();
 		}
+	}
+
+	// A test door onto the placement module — THIS component's import of it,
+	// which is the instance the app's pointer handlers drive (D4e review).
+	//
+	// A spec that reached the module with its own `await import(...)` is not
+	// reliably reaching the same instance: the app imports it through the
+	// `$lib` alias and a spec imports it by path, and when the two resolve to
+	// different module records the spec drives a copy whose store has no open
+	// drawing — so the ghost comes out empty and the test fails for a reason
+	// that has nothing to do with the code under test. Measured as exactly
+	// that flake on 2026-10-05. Published here rather than on `window.__waffle`
+	// because the store cannot import this module: this module imports the
+	// store, and the cycle would be real.
+	if (typeof window !== 'undefined') {
+		// @ts-ignore - test door, like `window.__waffle`
+		window.__wafflePlacement = {
+			startPlaceView,
+			startProjectView,
+			cancelPlacement,
+			placementPointerMove,
+			placementPointerDown,
+			placementGhostSvg: () => placementGhostSvg(sheet),
+			setProbeForTest: __setProbeForTest
+		};
 	}
 </script>
 

@@ -477,15 +477,21 @@ test.describe('D4e projected-view tool', () => {
 		//    with no box at all under load;
 		//  - when it lands, both continuations run, and the one whose turn has
 		//    passed must not draw. The ghost is the LAST cursor's.
+		//
+		// Driven through `window.__wafflePlacement`, the sheet component's own
+		// import of the module — a spec that reached the module with its own
+		// dynamic import drove a different instance whenever the two
+		// specifiers resolved apart, and then measured an empty ghost.
 		const page = waffle.page;
 		await waffle.waitForReady();
 		const { partTab } = await plateAndDrawingTab(page);
+		await expect(page.getByTestId('drawing-sheet')).toBeVisible();
 
 		const result = await page.evaluate(async (tab) => {
-			const mode = await import('/src/lib/drawings/placementMode.svelte.js');
-			const store = await import('/src/lib/engine/store.svelte.js');
+			const mode = window.__wafflePlacement;
+			if (!mode) throw new Error('the sheet published no placement door');
 			const pending = [];
-			mode.__setProbeForTest(() => new Promise((resolve) => pending.push(resolve)));
+			mode.setProbeForTest(() => new Promise((resolve) => pending.push(resolve)));
 			try {
 				mode.startPlaceView({ sourceTab: tab, view: 'Top', scale: 1 });
 				const first = mode.placementPointerMove([100, 100]);
@@ -510,14 +516,14 @@ test.describe('D4e projected-view tool', () => {
 					});
 				}
 				await Promise.all([first, second]);
-				const ghost = mode.placementGhostSvg(store.getDrawingSheet(null));
+				const ghost = mode.placementGhostSvg();
 				return {
 					asked,
 					centre: /data-centre-mm="([^"]+)"/.exec(ghost)?.[1] ?? null,
 					extent: /data-extent-mm="([^"]*)"/.exec(ghost)?.[1] ?? null
 				};
 			} finally {
-				mode.__setProbeForTest();
+				mode.setProbeForTest();
 				mode.cancelPlacement();
 			}
 		}, partTab);
