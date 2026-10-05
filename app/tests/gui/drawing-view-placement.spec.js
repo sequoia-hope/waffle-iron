@@ -175,8 +175,8 @@ async function openPlaceView(page, { view = 'Top', scale = '1' } = {}) {
 	await page.getByTestId('dwg-place-view-direction').selectOption(view);
 	await page.getByTestId('dwg-place-scale').selectOption(scale);
 	await page.getByTestId('dwg-place-ok').click();
-	await expect(page.getByTestId('drawing-sheet')).toHaveAttribute(
-		'data-placement-mode',
+	await expect(page.getByTestId('sheet-surface')).toHaveAttribute(
+		'data-sheet-mode',
 		'place-view'
 	);
 }
@@ -225,7 +225,7 @@ test.describe('D4e place-view tool', () => {
 		expect(placed.placement_mm[0]).toBeCloseTo(ghost.centre[0], 3);
 		expect(placed.placement_mm[1]).toBeCloseTo(ghost.centre[1], 3);
 		// And the mode is over — one click, one view.
-		await expect(page.getByTestId('drawing-sheet')).toHaveAttribute('data-placement-mode', '');
+		await expect(page.getByTestId('sheet-surface')).toHaveAttribute('data-sheet-mode', 'select');
 
 		// The ghost's extent equals the view's own drawn extent, to within the
 		// mesh-vs-analytic deficit the spec allows (zero for a plate: every
@@ -249,7 +249,7 @@ test.describe('D4e place-view tool', () => {
 
 		const before = (await views(page)).length;
 		await page.keyboard.press('Escape');
-		await expect(page.getByTestId('drawing-sheet')).toHaveAttribute('data-placement-mode', '');
+		await expect(page.getByTestId('sheet-surface')).toHaveAttribute('data-sheet-mode', 'select');
 		await expect(page.getByTestId('dwg-ghost')).toHaveCount(0);
 		expect((await views(page)).length, 'Escape placed nothing').toBe(before);
 		expect(partTab).toBeTruthy();
@@ -291,8 +291,8 @@ test.describe('D4e place-view tool', () => {
 		await free.fill('3');
 		await expect(page.getByTestId('dwg-place-scale-refusal')).toHaveCount(0);
 		await page.getByTestId('dwg-place-ok').click();
-		await expect(page.getByTestId('drawing-sheet')).toHaveAttribute(
-			'data-placement-mode',
+		await expect(page.getByTestId('sheet-surface')).toHaveAttribute(
+			'data-sheet-mode',
 			'place-view'
 		);
 		const ghost = await hover(page, [200, 150]);
@@ -333,8 +333,8 @@ test.describe('D4e projected-view tool', () => {
 	/** Enter the tool and pick `viewId` as the parent. */
 	async function pickParent(page, viewId) {
 		await page.getByTestId('dwg-tool-project-view').click();
-		await expect(page.getByTestId('drawing-sheet')).toHaveAttribute(
-			'data-placement-mode',
+		await expect(page.getByTestId('sheet-surface')).toHaveAttribute(
+			'data-sheet-mode',
 			'project-view'
 		);
 		const parent = (await views(page)).find((v) => v.id === viewId);
@@ -452,8 +452,8 @@ test.describe('D4e projected-view tool', () => {
 
 		// Still in the tool, still the same sector relative to the view's NEW
 		// position — and the ghost has to have come with it.
-		await expect(page.getByTestId('drawing-sheet')).toHaveAttribute(
-			'data-placement-mode',
+		await expect(page.getByTestId('sheet-surface')).toHaveAttribute(
+			'data-sheet-mode',
 			'project-view'
 		);
 		const after = await hover(page, [moved[0] + 60, moved[1]]);

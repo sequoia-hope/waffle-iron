@@ -139,7 +139,9 @@ fn commit(
     if let EngineToUi::Error { message, .. } = response {
         if let Some(previous) = previous {
             // Best effort: the refusal is what the agent gets either way.
-            let _ = state.session.set_drawing(tab_id, previous);
+            // `restore_drawing`, not `set_drawing`: a refused edit must not
+            // leave a step on the drawing's undo stack (D4d).
+            let _ = state.session.restore_drawing(tab_id, previous);
         }
         return Err(ToolFailure::new(
             "DrawingEditFailed",

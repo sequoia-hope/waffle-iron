@@ -3125,6 +3125,459 @@ with the expected pids; a second spec dimensions at two zoom levels and two
 view scales and asserts the pick radius is paper-constant; a third asserts the
 tie refusal. `expectNoAnyCrash` throughout.
 
+### Implementation notes (D4d)
+
+Landed 2026-10-04. Where §8's D4d brief left a choice open, this is the choice
+made and why.
+
+The brief owned `app` only, and all of the picking, the toolbar and the
+placement arithmetic are app. ONE thing was not app and could not be made so:
+the drawing's undo. It is `wasm-bridge` — the enum gained a `Batch` edit, the
+session gained a per-tab snapshot history, and `DrawingStatus` gained a
+`(undo, redo)` depth — because an undo expressed in the page's own vocabulary
+is not merely lossy on reload, it addresses the wrong annotation (the measured
+account is below). The format floor did not move: a `DrawingEdit` is a message,
+not a persisted type, and an undo stack has never been written to `.waffle`.
+
+**The hit test's coordinate system is READ FROM THE DOM, not recomputed.** The
+brief asks for a pick radius that is a paper distance. The cheap way to get
+one is to convert the cursor into paper millimetres from the numbers the
+document holds — `placement_mm`, the sheet extent, the view's own margin, the
+scale — and the cheap way is wrong twice over. It is a second derivation of
+where the view sits, free to disagree with where the renderer actually put it;
+and when it disagrees the symptom is a click binding to the edge NEXT to the
+one under the cursor, which is invisible. So `DrawingSheet.svelte` inverts the
+nested view `<svg>`'s own `getScreenCTM()`. Its user units already ARE paper
+millimetres (D4a writes a `viewBox` the same size as the `width` in mm), so
+the matrix carries the placement, the sheet's `max-width: 100%` scaling and
+the browser's own device scale in one object, and the inverse is the whole
+conversion. The pick radius is then paper-constant **for free**: 2 mm is two
+user units in that frame at every zoom and every view scale, with no
+compensation anywhere. `drawing-pick-radius.spec.js` measures it both ways and
+was falsified before being trusted — making the radius proportional to the
+view scale reddens the 1:2 case and leaves the zoom case green.
+
+**A tie is a refusal; a tie between two EXISTING dimensions is not.** The two
+look like the same rule and are opposites. Picking an anchor commits the
+document to an entity nobody can see from the paper, so two candidates equally
+near means the drawing cannot say which was meant and the pick is refused with
+the candidates named (`PICK_TIE_MM`, 0.15 paper mm — under any gesture a
+drafter can aim and over any arithmetic noise in a projection). Selecting an
+existing dimension commits nothing: both are drawn, the user can see which
+they meant, and the next click on a less crowded part of either one gets it —
+so that tie is resolved. The asymmetry is the P9/P10 posture applied to a
+pointer: refuse where the wrong answer is invisible, proceed where it is on
+the screen.
+
+Reaching the tie in a test turned out to be a property of the radius rather
+than of a fixture. A 1:50 view draws the 40 × 25 mm plate 0.8 mm wide, so its
+own centre is equidistant from two walls inside one 2 mm radius. A paper
+radius means a small enough view makes any pair ambiguous, which is correct
+and is also the cheapest possible tie fixture.
+
+**Distances are measured per view and decided once.** The cursor is a
+different point in each view's frame, so each view is probed in its own
+transform and the nearest/tie rule runs over the merged list
+(`pick.js::resolveNearest`). Deciding per view would let two views' nearest
+anchors each win locally. The distances are comparable because every one of
+them is a paper millimetre — which is the second thing the paper-space choice
+buys.
+
+**Drawing edits were not on any undo stack, and that was a measured
+surprise.** The brief asks for "undo through the document". `UiToEngine::Undo`
+pops `FeatureEngine::undo_stack`, which holds `Command`s over the open part's
+FEATURE TREE; a drawing lives on its tab in the session and is written through
+`Session::set_drawing`, which only bumps the revision. So before D4d, adding a
+dimension and pressing Ctrl+Z undid the last feature edit instead, silently,
+and the dimension stayed — a gap D4a and D4b both left because neither had an
+authoring gesture to undo.
+
+D4d's first answer was a history in the page, in the same vocabulary as the
+forward path: the store kept `DrawingEdit` lists, each with the list that
+undoes it, and replayed them through `sendDrawingEdit`. **It could not be made
+correct, and the measurement is the useful part.** `AddAnnotation` only
+APPENDS — there is no insert and no `EditAnnotation` — so every inverse built
+out of the forward vocabulary restores its annotation to the END of the view's
+list, and the recorded forward step's indices then address a DIFFERENT
+annotation. On a view with two dimensions, deleting the first, undoing and
+redoing had the redo delete the SECOND one and keep the first; the same
+mechanism applied to a placement move LOST one dimension and duplicated the
+other. Every D4d test authored exactly one annotation, where every index is 0
+and addressing the wrong one addresses the right one anyway, which is why it
+took a second dimension to see.
+
+No revision check could have caught it either, which is the reason it is a
+structural defect and not a missing guard: the shift is caused by the page's
+own undo, not by anything else touching the document, so "refuse when the
+document changed under us" refuses nothing. The order-preserving inverse is
+expressible only as "delete every annotation on the view and re-add them all",
+which is 2N round trips and a rebuild each.
+
+**So the history is the ENGINE's**, as whole-drawing SNAPSHOTS:
+`DocumentSession::drawing_histories`, a `(undo, redo)` pair of `Drawing`s per
+Drawing tab, taken inside `set_drawing` — which every committed drawing
+mutation passes through, so an annotation authored from the sheet, a view added
+from the panel and an agent's `drawing_view_add` all land on one stack in the
+order they happened, with no caller able to forget to record one. A snapshot
+carries no index, so there is nothing to shift. The derived `cache` is stripped
+from each one (a view's layout is "a megabyte of them on a real part", and the
+evaluation after a restore rebuilds it), and the stack is bounded at 128 steps.
+Nothing of the drawing comes back through JavaScript to make this work, which
+is the constraint that ruled out a page-side snapshot: a stored drawing would
+carry `u64` anchor pids through a JSON round trip and round them (D4a's own
+argument for the targeted edit path).
+
+`UiToEngine::Undo` now reaches either stack and the ENGINE decides which, so
+one Undo button is still one stack to the user. It asks the FEATURE stack
+first, and the order is not arbitrary: for a drafter the two orders are the
+same thing (a Drawing tab's feature history is its own parked one and a drawing
+has no tree to edit, so it is empty), but `Undo` has a second caller — the
+agent authoring layer's ROLLBACK in `tools::author`, which sends it to take
+back a feature it just added and must never be handed a drawing snapshot
+instead. Asking the feature stack first makes that caller exact without it
+having to name a scope. A refused tool edit rolls back through
+`restore_drawing`, which writes without recording, so a refusal leaves no step
+on the stack.
+
+What this bought beyond the defect: **view and sheet edits are undoable too**,
+for free. A `DeleteView`'s inverse is not expressible as a pair of existing
+edits — it would have to put the view's annotations back in order — and a
+snapshot does not have to express anything.
+
+**A placement MOVE is a delete and an add, sent as ONE `Batch`.**
+`DrawingEdit` has no `EditAnnotation`, so changing a placement is a
+`DeleteAnnotation` and an `AddAnnotation`. With the history per committed edit,
+sending them one at a time would make them two steps and a single Ctrl+Z after
+a drag would leave the dimension deleted — so `DrawingEdit::Batch` applies a
+list of edits to a scratch copy and commits once. All or nothing: a batch is
+refused whole if any edit in it is, because the thing that makes one Ctrl+Z
+undo it is the same thing that must make one refusal undo it. A batch inside a
+batch is refused by name rather than recursed into.
+
+The remaining cost of having no `EditAnnotation` is a reorder, and it was
+measured rather than assumed: the annotation moves to the END of the view's
+list, so dragging the first of three reorders them. **Nothing in the tree
+depends on that order.** The DXF export never sees annotations at all (it is
+driven by projected curves and its two byte goldens carry none); the SVG and
+PDF emit them as non-overlapping siblings, and no golden, snapshot, byte hash
+or document fixture pins either; no MCP tool reads an annotation back — the
+agent-facing readback carries `view.annotations.len()` and nothing more — and
+no tool consumes an annotation index. Two things do move and neither is load
+bearing: a view's `cache_key` (a staleness signal, already moved by any add or
+delete), and the index baked into a `DrawingError`'s prose. So `EditAnnotation`
+stays the right fix for the round trips and the churn, named below, rather than
+being conflated with the undo fix.
+
+The same `Batch` carries the panel's precision, dual-unit, note-text and
+datum-letter edits, so there is one re-author path and not four. The delete
+path no longer re-authors anything: it is one edit, and the snapshot restores
+whatever was there, selector kind included — so a dimension anchored by
+something other than a `Selector::Pid` is now deletable and undoable, where the
+page-side history had to refuse it because it could not echo the anchor back.
+
+**The placement rule gained its INVERSE, next to the rule.**
+`layout::placementForPoint` answers "what `Placement2` puts this dimension
+where the drafter dropped it". It lives in `layout.js` because the two are one
+convention read in opposite directions: a placement authored from a second
+reading of `layoutLinear`'s offset arithmetic would land the line somewhere
+other than the drop point. Every quantity it reads — the measurement direction
+`d`, its normal `n`, which `side` of the view centre the anchors are on, how
+far `nFar` the view's box reaches — is placement-INDEPENDENT, so the inversion
+is exact and one-shot: no iteration, no drift between the click and the line.
+
+Two kinds answer `null` rather than a number. An ANGULAR dimension's arc is
+swung from the two edges' own intersection and `layoutAngular` reads no
+placement at all, so a placement click on one would store a number nothing
+draws — the tool therefore completes at its second anchor, which is also what
+`TOOL_FLOW` says and what the toolbar's prompt shows. A `CentreMark` and a
+`CentreLine` have no placement field.
+
+For a RADIAL dimension, a note with a leader and a datum, only the
+placement's DIRECTION reaches the drawing (`norm(placement)` picks the leader
+quadrant; the leader's length is a style quantity). The full offset is stored
+anyway, so the value describes the click the user actually made and a later
+layout that honours the magnitude needs no re-authoring.
+
+**Authoring needs geometry the authored annotation does not have yet.** The
+placement inverse wants resolved anchor geometry, which only the rebuild
+produces. `ViewAnchor` carries exactly the piece the arithmetic reads — a
+witness point, and a conic's centre and radius — which is why it carries it,
+so the sheet builds a one-shot probe in `AnchorGeometry`'s shape and inverts
+against that. A `Line` anchor becomes a POINT in the probe rather than a
+fabricated segment: inventing a pair of endpoints would hand
+`measurementDirection` a direction the edge does not have, and for an aligned
+`Distance` across two parallel walls that direction is the whole answer. With
+two points the direction falls back to the line joining them, which for the
+pair a drafter picks is the same direction — and the stored `Placement2` is an
+OFFSET, so the next rebuild re-derives the drawing from the real geometry
+anyway.
+
+**The marks are a second `<svg>`, not markup injected into the sheet's.** The
+paper stays one `{@html}` of `renderSheetSvg`, so D4a's property holds: the
+markup a user sees, the markup `export_svg` writes and the markup a byte
+oracle hashes are the same string. Picking marks are not part of the drawing
+and must not reach an export, so they live in a transparent, `pointer-events:
+none` overlay sharing the sheet's `viewBox` — which also means its user units
+are the sheet's paper millimetres and every mark is placed in the same space
+the hit test works in. It is the one thing on this surface that is declarative
+Svelte rather than a string, and that is the right way round: the drawing is
+data, the cursor is not.
+
+The hint follows the CURSOR rather than sitting in the toolbar. A refusal is
+about the thing under the pointer, and chrome whose width follows a message
+re-walks the collapse ladder on every pick.
+
+**Every refusal is named before anything is authored.** A tool that needs a
+circular rim says so on hover, not after the annotation was created and rolled
+back. The difference is not cosmetic: "only a circular rim has a radius — pick
+a circle or a hole" read under the cursor is an instruction, where the same
+sentence as a toast is a report that something already went wrong. Four
+refusals are reachable: the tie, the wrong shape for the tool, a second anchor
+on a different view, and a sampled polyline (which is excluded from the
+candidates entirely, because its witness point moves with the chord tolerance
+that sampled it — the engine's own `measure` refusal, carried one layer up).
+
+**A vertex cannot be picked from the sheet, and the engine says why.**
+`ViewAnchor.at` is deliberately `None` for a vertex — its position is resolved
+per annotation rather than projected a second way in the anchor list — so a
+vertex has no point to hit-test against. The corners a drafter actually clicks
+on a plan view are the vertical EDGES seen end-on, which the projection
+reports as `Curve2::Point` and which do carry an `at`. That covers the common
+case; a true vertex pick needs `at` on the vertex arm, which is Rust.
+
+**The toolbar is a new component that REPLACES the modelling one.**
+`DrawingToolbar.svelte`, swapped in `+page.svelte` the way `AssemblyPanel`
+replaces `FeatureTree` and `DrawingSheet` replaces the viewport. A drawing has
+no sketch to enter and no solid to extrude, and a second row of chrome would
+cost the one dimension the window has least of — so it carries the document
+actions as well (Home, the name, Undo/Redo, Save/Open/Export .waffle,
+Examples, Settings) and keeps `data-testid="toolbar"`, which is what lets
+`layout-overflow.spec.js`'s `resizeTo`, its element oracle and
+`clickToolbarAction` reach it with no change.
+
+Its ladder is `Toolbar.svelte`'s with four fixed rungs instead of five (there
+is no Planes/Axes/Section group on a sheet): the file group to the ⋮ menu, the
+brand, the project name, Undo/Redo to the ⋮ menu, then trailing tools one at a
+time into "More ▾". The tool list is one array of descriptors read by the
+inline group, the overflow and the ladder alike, so **adding a tool is one
+entry** — which is the arrangement D4e needs for its `+ view` and
+projected-view tools, with the sheet's mode dispatch taking one more arm each.
+The flow prompt ("pick 2 of 2", "click to place") is width-CAPPED rather than
+width-reserved, because a toolbar whose width follows a message would re-walk
+the ladder on every click.
+
+`helpers/toolbar.js` now finds the fully-collapsed tool group by asking the
+DOM which of the three triggers is mounted, rather than asking the store
+whether a sketch is active. The toolbar's own presence is the fact the helper
+needs; a tab kind read a moment before a switch settles is not.
+
+**There is one tool per authorable `DIMENSION_TAGS` kind, which is seven, not
+§8's five.** The brief names "linear, aligned, radial, diametral, angular";
+the engine's authorable set also has `PointLineDistance`, and "linear" is two
+tools (`HDistance` and `VDistance`) because the view axis a drafter wants is a
+choice and not a heuristic on a drawing. `Ordinate` stays out on §7's terms:
+it reads one raw view-plane coordinate measured from the view FRAME's origin,
+so its printed value cannot be read off the sheet and changes when the part
+moves in space. It joins as one more entry when that closes.
+
+**A NOTE's leader is optional to the engine and required here.** The sheet's
+tool is note-WITH-leader, which is what §8 names, because a free note would be
+authored by a click on blank paper — the same gesture as "I missed". An agent
+authors a free note through `drawing_annotation_add` with no anchors. The note
+is created with placeholder text (`NOTE`) and the datum with `A`, both edited
+in the panel's selection section: a modal prompt mid-gesture would block the
+tool and a text field floating over the paper would hide the drawing.
+
+**Selection is by AUTHORED index, and is refused where the indices cannot
+agree.** The delete and edit doors address an annotation by its index in the
+view's authored list. The rebuild SKIPS an annotation it could not resolve
+(`ViewRebuild::annotation_errors`, D4a's "an annotation's failure is not its
+view's"), so a view with a failure has a layout list shorter than its authored
+list and the two indices no longer line up. Selecting by the layout index
+there would edit a different dimension, so the sheet refuses to select on such
+a view and says so under the cursor. Loud rather than guessed; the condition
+is `view.cache.annotations.length === view.annotations.length`, and the fix —
+an index on `AnnotationLayout`, or the rebuild's `annotation_errors` indices on
+the wire — is Rust.
+
+**The panel's selection section can change how a number PRINTS and nothing
+else.** §8 asks for precision, tolerance and dual unit. Precision and dual
+unit are there, a note's text and a datum's letter with them, and there is no
+`value` field and no `kind` field: the engine measures a dimension from the
+model on every rebuild and refuses a literal, and changing the kind would
+re-interpret anchors that were picked for a different measurement. Tolerance
+shows as `tolerance: M1` rather than as a control wired to nothing — D4a's own
+`ViewStyle` call.
+
+**A measured finding, from the cross-view test: a second NAMED view lands on
+top of the first.** The engine's auto-layout steps a view clear of its PARENT
+(`auto_placement_step_mm`), and a named view has no parent — so two named
+views both go to the sheet's centre, exactly coincident, and every anchor of
+one is inside the pick radius of an anchor of the other. Hovering a wall of
+that pair gives the tie refusal, which is the pick rule being right about a
+sheet that is wrong. It is a D4a/D4b layout gap, not a D4d one, and it is
+listed below; D4e's place-view tool is where a drafter would stop meeting it.
+
+**What the two suites each own.** There is no JS unit runner in this tree, so
+the pure modules (`pick.js`, `layout.js`'s inverse) are measured through the
+page, which is also where they are used. `drawing-dimension-tools.spec.js`
+owns the authoring path: two clicks and a placement click, and the document
+ends up with a dimension whose anchors name the two pids that were under the
+cursor — an EXACT comparison, because `Selector::Pid` is
+`#[serde(with = pid_str)]` on both its fields and so crosses as a decimal
+string in both directions (D4a's `DrawingStatus` comment predates that flip
+and reads as if these were numbers). It also owns the tie refusal, the
+cross-view refusal, the wrong-shape refusal, Escape's one-step back-out, the
+drag-and-undo round trip and the delete-and-undo round trip.
+`drawing-pick-radius.spec.js` owns the one property. Both are in the gui-fast
+tier: the pick radius and the tie refusal are properties of a click, and a
+regression in either binds a dimension to the wrong edge silently.
+
+**The oracles the review added, and what each would have caught.** Every one
+of them is a case the original eleven could not express, and the first is the
+one that found a defect.
+
+- *A view with TWO dimensions.* `drawing-dimension-tools.spec.js`, "a redo
+  deletes what the delete deleted". Every earlier test authored one
+  annotation, where every index is 0. This one authors a second from the
+  OTHER wall pair (`crossWallPair`), deletes the first, undoes and redoes, and
+  compares anchor pids rather than counts — which is how a redo that deletes
+  the wrong dimension is visible at all, since the count is right either way.
+- *One Ctrl+Z after a drag, with two dimensions on the view.* The batch's
+  oracle: without it a move is two steps and the undo leaves the dimension
+  deleted, with the count still plausible.
+- *Delete and Escape while a panel field has the focus.* The shortcuts are a
+  WINDOW keydown, so a Delete typed into the precision field would otherwise
+  eat the dimension. The test presses the keys in the field and then, with the
+  focus back on the sheet, presses the same key and watches it work — so a
+  passing guard cannot be confused with a shortcut that never ran.
+- *A resize BETWEEN the two picks.* The reason the hit test reads its
+  transform from the DOM on every event instead of caching one: a cached CTM
+  binds the second anchor to whatever entity now sits where the old pixels
+  pointed. Pinned in `drawing-pick-radius.spec.js`, which asserts the zoom
+  actually moved first.
+- *The pick radius at a device scale factor of 2.* `getScreenCTM()` maps user
+  units to CSS pixels, not device pixels, so a retina display changes nothing
+  — and the plausible wrong version, multiplying by `devicePixelRatio`
+  anywhere on the path, passes every other test in the file.
+
+**What merging D4c found.** D4d and D4c were written in parallel and touch
+disjoint files, so the merge was clean — and clean is not the same as correct.
+D4c made a dimension's value authorable as an EXPRESSION (`Measured::Expr`),
+and D4d edits an existing annotation by deleting and re-adding it. A field the
+re-author does not carry is a field every edit silently DROPS, so dragging an
+expression dimension's label would have left the same label reading the part's
+own width instead of the expression: a different number on the same drawing,
+from a gesture that is supposed to move a label. `annotationRespec` now reads
+`Measured::Expr` back and `addAnnotationEdit` sends it, pinned by "editing a
+dimension keeps D4c's expression".
+
+The same read made the third arm explicit. A `Measured::Value` — a literal,
+which no door authors and which reaches a document only from an import or an
+older cache — is REFUSED for editing rather than re-authored, because
+re-authoring it would turn it into a `FromGeometry` dimension: the same silent
+re-interpretation, in the direction the whole spec exists to prevent. It is
+still deletable and still undoable, because the snapshot restores it whatever
+it says.
+
+Two review questions came back as "no change needed", with the measurement:
+the tie refusal cannot make a short edge undimensionable, because
+`AnchorIndex::offered` emits at most ONE anchor per `(kind, pid)` (it drops a
+pid naming several drawn curves outright), so an edge contributes one witness
+point and cannot tie with itself; and nothing types a numeric value into a
+dimension on any path, because `annotationSpecFor` builds no `value` field,
+`addAnnotationEdit` sends none, the panel offers no control for one, and the
+engine refuses a literal (`check_measured`).
+
+**Still open after this increment:**
+
+- *No `EditAnnotation` edit.* Every change to an existing annotation is a
+  delete and an add in one `Batch`, so it moves to the end of the view's list.
+  One `DrawingEdit` variant removes the reordering and halves the round trips;
+  it is Rust and a format-neutral addition (the edit enum is a message, not a
+  persisted type). It is no longer a correctness item — the undo is a snapshot
+  — and the reorder was measured to have no customer (see above).
+- *The drawing's undo history dies with the SESSION.* It is the engine's now
+  rather than the page's, so it survives a tab switch and an agent edit
+  interleaved with a user one, and it covers views and sheets as well as
+  annotations. It is not persisted: `UndoStack` is not written to `.waffle`
+  either, so a drawing's history is exactly as durable as a part's, which is
+  the right place for the limit to sit. Making either survive a reload is one
+  change to the format, not two to the engine.
+- *A view with an unresolvable annotation cannot have its dimensions
+  selected.* Named loudly rather than selected by a mismatched index; the fix
+  is an index on the layout record.
+- *A vertex cannot be picked.* `ViewAnchor.at` is `None` for the vertex arm.
+  The corners a plan view actually offers are the end-on edges, which can.
+  The arithmetic to fill it in is six lines and the projection is already in
+  scope (`AnchorIndex::offered` sits twenty lines below the `basis` binding
+  `resolve_anchor` uses for exactly this), but it is NOT a one-line fix, and
+  the in-code comment's stated reason ("resolved per annotation rather than
+  projected a second way") is not the real one. The real one is that
+  `AnchorIndex::vertices` is built from `all_entity_pids` over ALL bodies with
+  no style filter and no depth test, where `curves` is built only from the
+  `drawn` set — so filling `at` would offer pickable points for vertices on
+  the hidden back face and for vertices a detail view cropped away, which is
+  the failure the curve index is written to avoid. A vertex pick needs a
+  visibility rule and the crop filter with the projection, or it is worse than
+  no vertex pick.
+- *No placement PREVIEW during the placement click.* The picked anchors are
+  marked and the cursor is tracked, but the dimension is not drawn in ghost
+  before it exists — that needs the annotation laid out against resolved
+  geometry, which is the rebuild's.
+- *No snap.* `placementTarget` is where one belongs (the sheet grid, another
+  dimension's line, a shared extension line), and it is a one-function change.
+- *No zoom control on the sheet.* The paper is fitted to its region
+  (`max-width: 100%`), so the "zoom" is the window width — which is enough to
+  make the pick radius property measurable at two of them, and not enough for
+  a drafter dimensioning a crowded A1. A zoom and a pan belong on the sheet and
+  the pick path needs nothing for them: the CTM already carries whatever
+  transform the paper is under.
+- *A second NAMED view is auto-placed on top of the first* (measured above).
+  The auto-layout only steps a view clear of a parent.
+- *The sheet's exports are still agent-only.* `export_svg`, `export_pdf` and
+  `export_dxf` exist as tools; the drawing toolbar does not offer them, so a
+  person on a drawing tab has no button for the sheet they are looking at.
+- *`Ordinate` is still not authorable*, and §7's `origin: GeomRef` is still
+  the fix.
+- *Tolerance is M1's*, and the panel says so by name rather than offering a
+  dead control.
+- *A measured flake, pre-existing and environmental — and it reaches the FAST
+  tier.* Under heavy load on this box a GUI spec that builds a part through the
+  WASM kernel intermittently fails with `page.evaluate: Execution context was
+  destroyed` — the renderer dying under contention, not a navigation. It is
+  NOT D4d's: `drawing-tab.spec.js`, which predates this increment and was not
+  touched, reproduces it at two Playwright workers (2 of 12 failed in one of
+  three runs, and the same test then passes 3/3 at one worker in 3 s each),
+  and a probe spec whose whole body is D4a's `plateAndDrawing` fixture
+  reproduces it with no D4d code path involved. The overlay was cleared as a
+  cause separately: a mutation observer over it counts 0 attribute changes in
+  a quiet 1.5 s, so there is no runaway effect.
+
+  What the review added is the load figures and the fact that D4d's own specs
+  are now exposed to it, because they are in the fast tier and they build a
+  part. Measured across seven two-worker runs of the two specs:
+
+  | load average (24 cores) | outcome |
+  |---|---|
+  | 38 – 83 | 17/17, three times |
+  | 81 | 16/17, the message above |
+  | ≈ 90 | 15/17 |
+  | 133 | 15/17 |
+
+  The failing test in isolation passes 6/6 at the same load. There is nothing
+  in the suite to fix: the message names a renderer that went away mid-call.
+  What CI needs is either a quiet box or a retry budget, and that is a tier
+  decision rather than a D4d one.
+
+  One thing the hunt DID find and fix is a separate, real fragility in
+  `drawing-pick-radius.spec.js`: it sampled `getSheetHover()` immediately
+  after a `mouse.move`, and a sample cannot tell "outside the radius" from
+  "the pointermove has not been handled yet". Each probe is now a TRANSITION
+  waited on with a loud timeout (`waitForHover`), so the radius is asserted
+  rather than read, and the assertion lives where the measurement happens
+  instead of being restated at the call site.
+
 ### D4e — Visual view placement (specified 2026-10-04)
 
 Owner: `app`, `wasm-bridge` (one query), `feature-engine`, `file-format`.
@@ -3440,14 +3893,46 @@ customer.
   pessimistic for a view of named `bodies` — the probe takes the body list and
   `bodies_of_tab` honours it, but an assembly's leaves are prefixed names and a
   selection of them is not offered by either tool yet.
-- *The eight-sector probe is cached by parent, not invalidated by an edit.*
-  Every entry point resets the mode, and an edit to the document leaves it, so
-  a stale answer cannot outlive the geometry it describes — but a document that
-  changed UNDER the mode (an agent editing the part while a tool is open) would
-  show one stale ghost until the pointer leaves the sector.
+- *~~The eight-sector probe is cached by parent, not invalidated by an
+  edit.~~* **Closed by the review** — the claim that "every entry point resets
+  the mode" was false (nothing resets it when the document moves under a
+  running tool), and the measurement was a ghost left where the parent had
+  been. The cache key now carries `getDocumentRevision()`.
 - *`ProjectedDirection`'s corners are not offered by `export_dxf`'s free
   `direction`/`up` pair.* An iso of a part exports today by adding the view to
   a sheet; the one-view export still takes a named view or a vector.
+
+#### The D4d merge: one mode, and the ghost moves into the overlay
+
+D4e was written against the pre-D4d sheet, which had no tool modes of its own,
+so it carried its own. D4d then made the sheet a dispatch over the store's
+`sheetMode` and said in as many words that D4e's two tools were meant to be
+arms of it. They are now, and the duplicate was removed rather than kept
+beside it: **`placementMode()` reads `getSheetMode()`** and answers `null` for
+any mode that is not one of the two, so a dimension tool or an Escape silences
+the placement module without anything having to tell it. `startPlaceView` and
+`startProjectView` set the mode; placing or cancelling returns it to
+`'select'`. Two mode strings would have meant the mode the toolbar set and the
+mode the sheet dispatched on could differ, which is the one bug a shared mode
+cannot have.
+
+Three consequences worth recording:
+
+- **Escape needed no code.** D4d's toolbar already handles it with
+  `popSheetPick`, which on an empty pick list returns the sheet to `'select'` —
+  and that is exactly "cancel the placement, place nothing".
+- **`'place-view'` is the one mode that cannot be entered by setting it
+  alone.** It needs a source and a scale from its dialog, and a toolbar button
+  that only sets the mode would have left the tool dereferencing answers it
+  did not have. It is INERT without them, and `placementNeedsDialog()` is how
+  a toolbar knows to open the dialog instead. That is the one thing whoever
+  wires these into `DRAWING_TOOLS` has to handle.
+- **The ghost moved from the paper string into D4d's picking overlay.** D4e
+  spliced it in before the sheet's closing `</svg>`, to stay exact to the pixel
+  on CSS-scaled paper. The overlay already shares the paper's `viewBox`, so it
+  is just as exact there — and it keeps D4d's rule that the markup the user
+  sees is the markup `export_svg` writes. A placement preview is not part of
+  the drawing. `withGhost` is gone with the splice.
 
 ## 9. M1 — Tolerance, precision, material
 
@@ -3546,13 +4031,22 @@ under both schema settings.
 | D4a | `Drawing` tab kind, named + projected views, DXF/SVG export | D1c, D3 | file-format, feature-engine, app, wasm-bridge — **LANDED 2026-10-03** |
 | D4b | section + detail views, title block, sheet PDF | D1d, D2, D4a | same — **LANDED 2026-10-03** (without D2: the title block took keys and literal text) |
 | D4c | title-block expressions, authorable `Measured::Expr`, hatch + detail clip in the DXF | D2, D4b | waffle-types, feature-engine, kernel-v2, wasm-bridge, app — **LANDED 2026-10-04** |
-| D4d | dimensioning toolbar on the drawing tab; anchor hit-test with paper-constant pick radius; select/drag/delete | D4b | app |
+| D4d | dimensioning toolbar on the drawing tab; anchor hit-test with paper-constant pick radius; select/drag/delete; the drawing's own undo stack | D4b | app, wasm-bridge — **LANDED 2026-10-04** |
 | D4e | place-view dialog with hover ghost box; projected-view tool with eight hover sectors incl. isometric corners (`ProjectedDirection` diagonals, format v15) | D4b | app, feature-engine, file-format, wasm-bridge — **LANDED 2026-10-04** |
 | M1 | tolerance types, precision, material + mass | D2 | waffle-types, feature-engine, app — in flight 2026-10-04 |
 | M2 | `Datum` + `Pmi` features, 3D PMI overlay | D0, D3, M1 | feature-engine, app |
 | M3 | AP242 writer with PMI + round-trip oracle | M2 | kernel-v2, wasm-bridge |
 
-D4d and D4e are app-side and independent of each other; both can start the moment D4c merges, and D4e is the only one with a format bump. D0 and D1 are independent and can run in parallel. D1 is the only piece that
+D4d and D4e are independent of each other; both could start the moment D4c
+merged, and D4e is the only one with a format bump. **D4d landed 2026-10-04**
+— see its implementation notes above, including the two things it leaves for
+D4e and the one it leaves for a later Rust increment (`EditAnnotation`). It was
+planned as app-only and did not stay that way: its review found that a
+drawing's undo cannot be expressed in the page at all (`AddAnnotation` appends,
+so an inverse shifts its own indices), so the history is `wasm-bridge`'s —
+format-neutral, no bump.
+
+D0 and D1 are independent and can run in parallel. D1 is the only piece that
 is hard kernel work and it sits in the Yang stack's area (half-space booleans,
 cherchi-rs in/out predicates, SSI silhouettes), so it belongs on the kernel
 priority list rather than competing with it. Everything from D3 outward is

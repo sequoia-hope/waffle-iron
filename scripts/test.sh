@@ -150,6 +150,14 @@ GUI_FAST_SPECS=(
   agent-script-tools.spec.js
   # The Examples panel: opens the shipped gravel bike as a new document.
   examples.spec.js
+  # D4d — dimensioning on the sheet. In the FAST tier, not with the other
+  # drawing specs in gui-full, because these two are the authoring path's only
+  # oracle: the pick radius being a PAPER distance and the tie refusal are
+  # properties of a click, and a regression in either binds a dimension to the
+  # wrong edge silently. Both build one plate and finish in a couple of
+  # seconds each (measured 17 s for the 11 tests at two workers).
+  drawing-dimension-tools.spec.js
+  drawing-pick-radius.spec.js
   # D4e: the two visual view-placement tools on the drawing sheet. In the fast
   # tier because they are the oracle for a POINTER path — a ghost box that
   # stops matching where the view lands is invisible to every Rust test.

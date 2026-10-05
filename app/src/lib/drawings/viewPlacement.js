@@ -447,22 +447,12 @@ export function ghostSvg({ centreMm, extentMm, sheetMm, label = '', aligned = fa
 	);
 }
 
-/**
- * Splice ghost markup into a rendered sheet, before its closing `</svg>`.
- *
- * A string splice rather than a second overlaid `<svg>`: the sheet's element
- * is sized by CSS (`max-width: 100%`), so an overlay would have to re-measure
- * it every frame to line up, and a one-pixel disagreement in a tool that
- * SHOWS you where something will land is the whole of the tool's value. In
- * the sheet's own user units the ghost cannot be out by anything.
- *
- * @param {string} svg the sheet, as `renderSheetSvg` returned it
- * @param {string} ghost
- * @returns {string}
+/*
+ * (`withGhost` lived here until the D4d merge: it spliced the ghost into the
+ * rendered sheet's own markup string, before the closing `</svg>`. D4d gave
+ * the sheet a transparent picking overlay that already shares the paper's
+ * `viewBox` — so the ghost goes in THERE, which keeps it exact to the pixel
+ * for the same reason the splice did and also keeps D4d's rule that the
+ * markup the user sees is the markup `export_svg` writes. A placement preview
+ * is not part of the drawing. See `DrawingSheet.svelte`'s `ghostMarkup`.)
  */
-export function withGhost(svg, ghost) {
-	const text = String(svg ?? '');
-	if (!ghost) return text;
-	const at = text.lastIndexOf('</svg>');
-	return at < 0 ? text : text.slice(0, at) + ghost + text.slice(at);
-}

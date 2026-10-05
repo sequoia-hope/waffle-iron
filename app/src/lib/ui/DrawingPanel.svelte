@@ -27,7 +27,12 @@
 		getDrawing,
 		getDrawingSheet,
 		getDrawingStatus,
-		setActiveDrawingSheetId
+		setActiveDrawingSheetId,
+		// D4d: what the sheet has selected, and the one door that changes it.
+		getSheetSelection,
+		setSheetSelection,
+		editSheetAnnotation,
+		deleteSheetAnnotation
 	} from '$lib/engine/store.svelte.js';
 	// The one copy on this side (D4b review): the panel, the detail caption and
 	// the title block's `Scale` row must all read a scale the same way.
@@ -150,6 +155,32 @@
 	$effect(() => {
 		if (!sourceTab && sources.length) sourceTab = sources[0].id;
 	});
+
+	// ── The selected annotation (D4d) ───────────────────────────────────
+	// §8's "the panel shows its precision, tolerance (M1) and dual unit for
+	// that selection". There is no `value` field and there cannot be: the
+	// engine measures a dimension from the model on every rebuild and refuses
+	// a literal, so the only things authorable here are how the measured
+	// number is PRINTED and what a note or a datum says.
+	let selection = $derived(getSheetSelection());
+	let selectedView = $derived(
+		selection ? (views.find((v) => v.id === selection.viewId) ?? null) : null
+	);
+	let selected = $derived(
+		selection && selectedView ? (selectedView.annotations?.[selection.index] ?? null) : null
+	);
+	/** The MEASURED value, read from the layout — the only place it exists. */
+	let selectedValue = $derived(
+		selection && selectedView ? (selectedView.cache?.annotations?.[selection.index] ?? null) : null
+	);
+
+	/** The dual units offered: the ones `units.js` knows, plus "none". */
+	const DUAL_UNITS = ['', 'mm', 'cm', 'm', 'in', 'ft'];
+
+	async function changeSelected(changes) {
+		if (!selection) return;
+		await run(() => editSheetAnnotation(selection.viewId, selection.index, changes));
+	}
 </script>
 
 {#if status}
@@ -532,6 +563,105 @@
 				</div>
 			{/if}
 		</div>
+
+		{#if selected}
+			<!-- D4d: the sheet's selection. Shown here rather than on the paper
+			     because a field floating over a drawing hides the drawing. -->
+			<div class="section" data-testid="dwg-annotation">
+				<div class="section-header">
+					{selected.type === 'Dimension' ? (selected.kind?.type ?? 'Dimension') : selected.type}
+					<span class="meta" data-testid="dwg-annotation-value">
+						{#if selectedValue && Number.isFinite(selectedValue.value)}
+							measured {selectedValue.value}
+						{:else}
+							not measured
+						{/if}
+					</span>
+					<button
+						class="act"
+						title="Clear the selection"
+						data-testid="dwg-annotation-clear"
+						onclick={() => setSheetSelection(null)}>×</button
+					>
+				</div>
+				{#if selected.type === 'Dimension'}
+					<div class="row-main">
+						<label title="Decimal places. Blank follows the document's own precision.">
+							places
+							<input
+								class="num"
+								type="number"
+								min="0"
+								max="6"
+								step="1"
+								data-testid="dwg-annotation-precision"
+								value={selected.precision ?? ''}
+								disabled={busy}
+								onchange={(e) =>
+									changeSelected({
+										precision:
+											e.currentTarget.value === '' ? null : Number(e.currentTarget.value)
+									})}
+							/>
+						</label>
+						<label
+							title="A second unit printed in brackets. ASME Y14.5 §1.6.2 wants the conversion to keep the implied precision; a separate dual precision is M1's."
+						>
+							dual
+							<select
+								data-testid="dwg-annotation-dual"
+								value={selected.dual_unit ?? ''}
+								disabled={busy}
+								onchange={(e) => changeSelected({ dualUnit: e.currentTarget.value })}
+							>
+								{#each DUAL_UNITS as u}
+									<option value={u}>{u === '' ? 'none' : u}</option>
+								{/each}
+							</select>
+						</label>
+					</div>
+					<div class="row-sub">
+						<!-- M1 owns `Tolerance`; until it lands there is nothing to
+						     show, and an empty control wired to nothing would be
+						     worse than a missing one (the D4a `ViewStyle` call). -->
+						<span class="meta">tolerance: M1</span>
+					</div>
+				{:else if selected.type === 'Note'}
+					<div class="row-main">
+						<input
+							class="name"
+							data-testid="dwg-annotation-text"
+							value={selected.text ?? ''}
+							disabled={busy}
+							onchange={(e) => changeSelected({ text: e.currentTarget.value })}
+						/>
+					</div>
+				{:else if selected.type === 'Datum'}
+					<div class="row-main">
+						<label title="The datum letter">
+							label
+							<input
+								class="num"
+								data-testid="dwg-annotation-label"
+								value={selected.label ?? ''}
+								disabled={busy}
+								onchange={(e) => changeSelected({ label: e.currentTarget.value })}
+							/>
+						</label>
+					</div>
+				{/if}
+				<div class="row-sub">
+					<button
+						class="act"
+						title="Remove this annotation (Delete)"
+						data-testid="dwg-annotation-remove"
+						disabled={busy}
+						onclick={() => run(() => deleteSheetAnnotation(selection.viewId, selection.index))}
+						>delete</button
+					>
+				</div>
+			</div>
+		{/if}
 
 		{#if Object.keys(status.declines ?? {}).length}
 			<div class="section">

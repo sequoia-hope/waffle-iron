@@ -21,7 +21,9 @@ import {
 	getDocumentRevision,
 	getDocumentTabs,
 	getDrawingSheet,
-	probeDrawingView
+	getSheetMode,
+	probeDrawingView,
+	setSheetMode
 } from '$lib/engine/store.svelte.js';
 import { sheetExtentMm } from './sheet.js';
 import {
@@ -39,8 +41,18 @@ import {
  *  box a click can easily miss. */
 const PICK_NEAR_MM = 20;
 
-/** `null`, `'place-view'` or `'project-view'`. */
-let mode = $state(null);
+/**
+ * The two `sheetMode` values this module owns.
+ *
+ * The MODE lives in the store (D4d), not here: the sheet dispatches one
+ * pointer path over `sheetMode`, the toolbar switches it, and Escape backs out
+ * of it through `popSheetPick`. A second mode of our own would be a second
+ * answer to "which tool is running" — and the one the toolbar set would be the
+ * one the sheet ignored. What this module keeps is the state the store has no
+ * business holding: the dialog's answers, the picked parent, and the ghost.
+ */
+const PLACEMENT_MODES = ['place-view', 'project-view'];
+
 /** The place-view dialog's answers, while that mode runs. */
 let pending = $state(null);
 /** The parent view's id, once the projected-view tool has one. */
@@ -56,9 +68,14 @@ let inflight = null;
 /** Pointer-move sequence, so a slow answer cannot overwrite a newer ghost. */
 let moveSeq = 0;
 
-/** The mode the sheet's pointer handlers are in (`null` when idle). */
+/**
+ * Which of this module's two tools is running, or `null` for any other
+ * `sheetMode` — so a dimension tool, or Escape having returned the sheet to
+ * `select`, leaves this module silent without anything telling it to.
+ */
 export function placementMode() {
-	return mode;
+	const current = getSheetMode();
+	return PLACEMENT_MODES.includes(current) ? current : null;
 }
 
 /** The parent view the projected-view tool is working from, or null. */
@@ -66,9 +83,24 @@ export function placementParentId() {
 	return parentId;
 }
 
+/**
+ * Whether the place-view tool is waiting on its dialog — the mode is
+ * `'place-view'` and nothing has told it what to place.
+ *
+ * The mode can be switched from the toolbar, which has no dialog behind it,
+ * so the one wiring this tool in needs to know when to open one. True also
+ * answers "why is there no ghost".
+ */
+export function placementNeedsDialog() {
+	return placementMode() === 'place-view' && !pending;
+}
+
 /** The ghost the sheet should draw, as SVG in the sheet's own units. */
 export function placementGhostSvg(sheet) {
-	if (!ghost || !sheet) return '';
+	// `placementMode()` as well as `ghost`: the toolbar can switch tools
+	// without this module hearing about it, and a ghost left over from the
+	// last tool would be drawn under the new one.
+	if (!ghost || !sheet || !placementMode()) return '';
 	return ghostSvg({
 		centreMm: ghost.centreMm,
 		extentMm: ghost.extentMm,
@@ -81,23 +113,29 @@ export function placementGhostSvg(sheet) {
 /** Enter place-view mode with the dialog's answers. */
 export function startPlaceView({ sourceTab, view, scale }) {
 	reset();
-	mode = 'place-view';
+	setSheetMode('place-view');
 	pending = { sourceTab, view, scale: Number(scale) || 1 };
 }
 
 /** Enter projected-view mode, waiting for a parent view to be clicked. */
 export function startProjectView() {
 	reset();
-	mode = 'project-view';
+	setSheetMode('project-view');
 }
 
 /** Leave whatever mode is running and drop the ghost. */
 export function cancelPlacement() {
-	reset();
+	finish();
 }
 
+/** Drop this module's state and hand the sheet back to the select tool. */
+function finish() {
+	reset();
+	setSheetMode('select');
+}
+
+/** Drop this module's own state, leaving `sheetMode` alone. */
 function reset() {
-	mode = null;
 	pending = null;
 	parentId = null;
 	ghost = null;
@@ -181,12 +219,22 @@ async function askProbe(question, sourceTab, projections) {
  */
 export async function placementPointerMove(atMm) {
 	const sheet = getDrawingSheet(null);
+	const mode = placementMode();
 	if (!mode || !sheet || !Array.isArray(atMm)) return;
+	// `place-view` with no answers yet: the mode can be set from the toolbar,
+	// which has no dialog behind it, so this tool is INERT until
+	// `startPlaceView` has given it a source and a scale. Silent rather than
+	// throwing on `pending.sourceTab`, and `placementNeedsDialog()` is how a
+	// toolbar knows to open the dialog instead.
+	if (mode === 'place-view' && !pending) {
+		ghost = null;
+		return;
+	}
 	// This move's turn. A probe is a round trip, so two moves can be in the
 	// air at once; the LAST one the pointer made is the one whose ghost is
 	// true, and an older answer landing afterwards must not overwrite it.
 	const seq = ++moveSeq;
-	const stale = () => seq !== moveSeq || !mode;
+	const stale = () => seq !== moveSeq || placementMode() !== mode;
 	if (mode === 'place-view') {
 		const answer = await askProbe(`named:${pending.sourceTab}:${pending.view}`, pending.sourceTab, [
 			{ type: 'Named', view: { type: pending.view } }
@@ -278,7 +326,9 @@ export async function placementPointerMove(atMm) {
  */
 export async function placementPointerDown(atMm) {
 	const sheet = getDrawingSheet(null);
+	const mode = placementMode();
 	if (!mode || !sheet || !Array.isArray(atMm)) return null;
+	if (mode === 'place-view' && !pending) return null;
 	if (mode === 'place-view') {
 		if (!ghost) await placementPointerMove(atMm);
 		// SPREAD, not the array itself: `ghost` is `$state`, so reading
@@ -287,7 +337,7 @@ export async function placementPointerDown(atMm) {
 		// 2026-09-26 notes. Measured here: the click placed nothing at all.
 		const placementMm = [...(ghost?.centreMm ?? atMm)].map(Number);
 		const spec = pending;
-		reset();
+		finish();
 		return await addDrawingView(spec.sourceTab, {
 			view: spec.view,
 			scale: spec.scale,
@@ -308,7 +358,7 @@ export async function placementPointerDown(atMm) {
 	if (!direction) return null;
 	const source = parent.source?.tab_id;
 	const scale = Number(parent.scale) || 1;
-	reset();
+	finish();
 	// No `placementMm`: the engine places it, which is the SAME placement the
 	// ghost showed (the probe answered with `default_placement`). Passing the
 	// ghost's own number back would be a second copy of it travelling through

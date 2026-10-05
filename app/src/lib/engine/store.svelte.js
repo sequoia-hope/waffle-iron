@@ -1385,6 +1385,20 @@ export async function initEngine() {
 			deleteDrawingView: (viewId) => deleteDrawingView(viewId),
 			addDrawingAnnotation: (viewId, spec) => addDrawingAnnotation(viewId, spec),
 			deleteDrawingAnnotation: (viewId, index) => deleteDrawingAnnotation(viewId, index),
+			// D4d: dimensioning on the sheet. The MODE is what a click does,
+			// the ANCHORS are what it can bind to, and the history is the
+			// drawing's own undo stack (the feature engine's holds the part
+			// tree's commands, not a drawing's edits). Exposed for the specs
+			// and the console; the authoring itself is real pointer events on
+			// the sheet.
+			getSheetMode: () => sheetMode,
+			setSheetMode: (mode) => setSheetMode(mode),
+			getSheetPicks: () => JSON.parse(JSON.stringify(sheetPicks)),
+			getSheetHover: () => (sheetHover ? JSON.parse(JSON.stringify(sheetHover)) : null),
+			getSheetSelection: () => (sheetSelection ? { ...sheetSelection } : null),
+			setSheetSelection: (selection) => setSheetSelection(selection),
+			getDrawingAnchors: (viewId) => JSON.parse(JSON.stringify(getDrawingAnchors(viewId))),
+			getDrawingHistoryDepth: () => getDrawingHistoryDepth(),
 			// D4b: the sheet's own door and the projection standard.
 			editDrawingSheet: (changes) => editDrawingSheet(changes),
 			addDrawingSheet: (options) => addDrawingSheet(options),
@@ -8074,13 +8088,15 @@ export async function deleteDrawingSheet(sheetId) {
  * the layout for exactly this, already stringified.
  *
  * There is no `value`: a dimension's number is measured from the model on
- * every rebuild, and the engine refuses a literal.
+ * every rebuild, and the engine refuses a literal. `expr` is the one thing
+ * that may say what a dimension reads (D4c's `Measured::Expr`) and it is an
+ * EXPRESSION, re-evaluated against the model every rebuild — not a number.
  *
  * @param {string} viewId
  * @param {{ annotation?: string, kind?: string,
  *           anchors?: (string | number | {pid: string | number, kind?: string})[],
  *           text?: string, label?: string, precision?: number, dualUnit?: string,
- *           placement?: [number, number] }} spec
+ *           expr?: string | null, placement?: [number, number] }} spec
  */
 export async function addDrawingAnnotation(viewId, spec = {}) {
 	const anchors = [];
@@ -8116,6 +8132,7 @@ export async function addDrawingAnnotation(viewId, spec = {}) {
 			label: spec.label ?? null,
 			precision: Number.isInteger(spec.precision) ? spec.precision : null,
 			dual_unit: spec.dualUnit ?? null,
+			expr: spec.expr ?? null,
 			placement: Array.isArray(spec.placement) ? spec.placement.map(Number) : null
 		}
 	});
@@ -8124,6 +8141,474 @@ export async function addDrawingAnnotation(viewId, spec = {}) {
 /** Remove one annotation from a view, by its index. */
 export async function deleteDrawingAnnotation(viewId, index) {
 	return sendDrawingEdit({ type: 'DeleteAnnotation', view_id: viewId, index });
+}
+
+// -- Dimensioning on the sheet (D4d, `specs/drawings_and_mbd.md` §8) --
+
+/**
+ * The entities one view drew, with the persistent ids an annotation anchors
+ * on (`ViewAnchor`: `pid`, `shape`, `kind`, `at`, `radius`).
+ *
+ * Rides on `ModelUpdated.drawing.anchors`, BESIDE the layouts rather than
+ * inside them, because a layout carries no model reference at all — that is
+ * what makes the renderer unable to draw a value other than the measured one
+ * (D3). This is the other half of the arrangement: the authoring path, which
+ * is what a click on the sheet needs.
+ *
+ * The pids arrive as decimal STRINGS and must stay strings all the way back
+ * to `addDrawingAnnotation` (see `sendDrawingEdit` for the `u64` rounding
+ * that forces it).
+ *
+ * @param {string} viewId
+ * @returns {any[]}
+ */
+export function getDrawingAnchors(viewId) {
+	return (drawingStatus?.anchors ?? {})[viewId] ?? [];
+}
+
+/**
+ * What a click on the sheet DOES (D4d).
+ *
+ * `'select'` picks and drags existing annotations; every other value is a
+ * tool mid-flow. One mode string rather than a set of booleans, so the sheet's
+ * pointer handling is a dispatch over it and a new mode is an entry in the
+ * dispatch and a tool descriptor, with nothing to change in the modes that
+ * already work.
+ *
+ * D4e's two placement tools took that invitation: `'place-view'` and
+ * `'project-view'` are arms of the sheet's dispatch like the rest, and the
+ * state they need beyond the mode — the dialog's answers, the picked parent,
+ * the ghost — lives in `drawings/placementMode.svelte.js` rather than here,
+ * because none of it is a property of the sheet. (This comment said
+ * `'projected-view'` before they landed; the tool is `'project-view'`.)
+ *
+ * `'place-view'` is the one mode that cannot be entered by setting it alone:
+ * it needs a source and a scale from its dialog first, and is inert until it
+ * has them (`placementNeedsDialog()`).
+ *
+ * @type {'select' | 'dimension-distance' | 'dimension-hdistance' |
+ *   'dimension-vdistance' | 'dimension-pointline' | 'dimension-angle' |
+ *   'dimension-radius' | 'dimension-diameter' | 'note' | 'datum' |
+ *   'place-view' | 'project-view' | string}
+ */
+let sheetMode = $state('select');
+export function getSheetMode() {
+	return sheetMode;
+}
+
+/**
+ * Switch the sheet tool. Always clears the pick in progress: a half-finished
+ * linear dimension whose first anchor survived into the radius tool would bind
+ * an anchor the new tool never offered the user.
+ */
+export function setSheetMode(mode) {
+	sheetMode = typeof mode === 'string' && mode ? mode : 'select';
+	sheetPicks = [];
+	sheetSelection = null;
+}
+
+/**
+ * The anchors picked so far in the current tool's flow, in pick order, each
+ * `{ viewId, anchor }`.
+ *
+ * The VIEW is carried with every pick because a dimension is measured in one
+ * view's `(u, v)`: two anchors from different views have no common frame, so
+ * the second pick is refused rather than measured in whichever view's
+ * transform happened to be used (see `addSheetPick`).
+ */
+let sheetPicks = $state([]);
+export function getSheetPicks() {
+	return sheetPicks;
+}
+
+/** Drop the last pick — what Escape does, one step at a time. */
+export function popSheetPick() {
+	if (sheetPicks.length === 0) {
+		setSheetMode('select');
+		return false;
+	}
+	sheetPicks = sheetPicks.slice(0, -1);
+	return true;
+}
+
+/**
+ * Add one pick to the flow, or refuse it with a reason.
+ *
+ * Two refusals, both of them the increment's point:
+ *
+ * - **Cross-view.** An annotation lives on ONE view (D4a put annotations on
+ *   the view, not the tab, for exactly this reason: an annotation with no
+ *   view has no coordinate system). Two anchors from two views would be
+ *   measured in one of the two frames, silently, and print a number that is
+ *   neither distance.
+ * - **The same entity twice.** A distance from an edge to itself is zero, and
+ *   a zero dimension on a drawing reads as a feature that is not there.
+ *
+ * @param {string} viewId
+ * @param {any} anchor a `ViewAnchor`
+ * @returns {{ ok: true, picks: any[] } | { ok: false, reason: string }}
+ */
+export function addSheetPick(viewId, anchor) {
+	const first = sheetPicks[0];
+	if (first && first.viewId !== viewId) {
+		return {
+			ok: false,
+			reason: 'a dimension measures within one view — both anchors must be on the same view'
+		};
+	}
+	if (sheetPicks.some((p) => p.anchor?.pid === anchor?.pid)) {
+		return { ok: false, reason: 'that entity is already picked' };
+	}
+	sheetPicks = [...sheetPicks, { viewId, anchor }];
+	return { ok: true, picks: sheetPicks };
+}
+
+/** Clear the flow without leaving the tool. */
+export function clearSheetPicks() {
+	sheetPicks = [];
+}
+
+/**
+ * Which existing annotation is selected on the sheet: `{ viewId, index }`, or
+ * null.
+ *
+ * By INDEX, which is how the delete door addresses one and the only identity
+ * an annotation has (`Annotation` is deliberately not `PartialEq` — D3). An
+ * index is only valid against the drawing it was read from, so every consumer
+ * re-reads the annotation through it rather than caching a copy.
+ */
+let sheetSelection = $state(null);
+export function getSheetSelection() {
+	return sheetSelection;
+}
+
+export function setSheetSelection(selection) {
+	sheetSelection =
+		selection && typeof selection.viewId === 'string' && Number.isInteger(selection.index)
+			? { viewId: selection.viewId, index: selection.index }
+			: null;
+}
+
+/**
+ * The hover state the sheet shows: which anchor would be picked, what it is,
+ * and any refusal to show instead — `{ viewId, anchor, label, paper, hint }`
+ * or null.
+ *
+ * Store state rather than component state because the status bar and the
+ * toolbar both read the hint, and a second copy passed down would be the next
+ * thing to go stale (the `AssemblyPanel` contract this whole tab follows).
+ */
+let sheetHover = $state(null);
+export function getSheetHover() {
+	return sheetHover;
+}
+
+export function setSheetHover(hover) {
+	sheetHover = hover ?? null;
+}
+
+/**
+ * Drawing edits are NOT on the feature engine's undo stack, and the ENGINE is
+ * where they are undone.
+ *
+ * `UiToEngine::Undo` pops `FeatureEngine::undo_stack`, which holds `Command`s
+ * over the open part's FEATURE TREE; a drawing lives on its tab in the
+ * session. So before D4d, adding a dimension and pressing Ctrl+Z undid the
+ * last FEATURE edit instead, silently, and the dimension stayed.
+ *
+ * D4d first answered that with a history in this file: `DrawingEdit` lists
+ * paired with the lists that undo them, replayed through `sendDrawingEdit`.
+ * That could not be made correct, and the measurement is worth keeping.
+ * `DrawingEdit` can only APPEND an annotation (`AddAnnotation` pushes; there
+ * is no insert and no `EditAnnotation`), so every inverse built from the
+ * forward vocabulary restores its annotation to the END of the view's list —
+ * and the recorded forward step's indices then address a DIFFERENT
+ * annotation. A view with two dimensions, the first deleted, undone and
+ * redone, had the redo delete the SECOND one and keep the first
+ * (`probe` → `drawing-dimension-tools.spec.js`, "a redo deletes what the
+ * delete deleted"). No revision check can catch it, because the shift is
+ * caused by the page's own undo rather than by anything else touching the
+ * document.
+ *
+ * So the history is `DocumentSession::drawing_histories` (wasm-bridge), as
+ * whole-drawing snapshots with their derived layouts stripped, taken inside
+ * `set_drawing` — which every committed drawing mutation passes through, so
+ * an annotation authored from the sheet, a view added from the panel and an
+ * agent's `drawing_view_add` are all on one stack in the order they happened.
+ * A snapshot carries no index, so there is nothing to shift; `Undo` tries the
+ * active drawing's stack first and falls through to the tree's when it is
+ * empty.
+ *
+ * Nothing of the drawing comes back through JavaScript to make this work,
+ * which is the constraint that killed the page-side snapshot alternative: a
+ * stored drawing would carry `u64` anchor pids through a JSON round trip and
+ * round them (see `sendDrawingEdit`).
+ */
+
+/** How deep the open drawing's engine-side history is: `{ undo, redo }`. */
+export function getDrawingHistoryDepth() {
+	const [undo, redo] = drawingStatus?.history ?? [0, 0];
+	return { undo, redo };
+}
+
+/**
+ * Apply `edits` as ONE undoable step. Undoability is the ENGINE's:
+ * `set_drawing` snapshots the previous drawing, so there is nothing to record
+ * here — but a step has to arrive as one message to BE one snapshot.
+ *
+ * A list rather than a single edit because `DrawingEdit` carries one change
+ * and a placement move is a delete and an add (there is no `EditAnnotation`).
+ * Sent one at a time those would be two steps, and a single Ctrl+Z after a
+ * drag would leave the dimension deleted — so more than one goes as a
+ * `Batch`, which the engine applies to a scratch copy and commits once.
+ *
+ * @param {string} label what the step did, for the log
+ * @param {any[]} edits
+ */
+async function applyDrawingStep(label, edits) {
+	if (!drawingStatus?.tab_id || edits.length === 0) return false;
+	const ok = await sendDrawingEdit(
+		edits.length === 1 ? edits[0] : { type: 'Batch', edits }
+	);
+	if (ok) log('action', `Drawing: ${label}`);
+	return ok;
+}
+
+/** One view of the open drawing, by id. */
+function drawingViewById(viewId) {
+	for (const sheet of drawingStatus?.drawing?.sheets ?? []) {
+		const view = (sheet.views ?? []).find((v) => v.id === viewId);
+		if (view) return view;
+	}
+	return null;
+}
+
+/**
+ * The `AddAnnotation` edit for one authored annotation — the same wire shape
+ * `addDrawingAnnotation` builds, factored out so the history can replay it.
+ *
+ * `null` when an anchor has no usable id. The `2^53` refusal is
+ * `addDrawingAnnotation`'s own and is repeated here rather than shared with
+ * it, because the two doors are reached independently (an agent calls one,
+ * the sheet the other) and a corruption named three layers downstream of its
+ * cause is the failure this check exists to prevent.
+ */
+function addAnnotationEdit(viewId, spec) {
+	const anchors = [];
+	for (const a of spec.anchors ?? []) {
+		const raw = typeof a === 'object' && a !== null ? a.pid : a;
+		const kind = typeof a === 'object' && a !== null ? (a.kind ?? 'Edge') : 'Edge';
+		if (typeof raw === 'number' && !Number.isSafeInteger(raw)) {
+			log('error', 'A drawing anchor arrived as an imprecise number', { pid: raw });
+			showToast('error', 'That anchor id was rounded in transit; pass it as a string.');
+			return null;
+		}
+		if (raw === null || raw === undefined || raw === '') return null;
+		anchors.push({ pid: String(raw), kind: { type: kind } });
+	}
+	return {
+		type: 'AddAnnotation',
+		view_id: viewId,
+		annotation: {
+			annotation: spec.annotation ?? 'Dimension',
+			kind: spec.kind ?? 'Distance',
+			anchors,
+			text: spec.text ?? null,
+			label: spec.label ?? null,
+			precision: Number.isInteger(spec.precision) ? spec.precision : null,
+			dual_unit: spec.dualUnit ?? null,
+			// D4c's `Measured::Expr`. It must be here because this builder is
+			// also the RE-AUTHOR half of every annotation edit: a dimension
+			// that reads an expression and then has its placement dragged
+			// would come back reading its own geometry instead, which is a
+			// different number printed on the same drawing.
+			expr: spec.expr ?? null,
+			placement: Array.isArray(spec.placement) ? spec.placement.map(Number) : null
+		}
+	};
+}
+
+/**
+ * Author one annotation from the sheet.
+ *
+ * The index it lands on is the view's annotation count before it:
+ * `AddAnnotation` appends. That is read here only to SELECT what was just
+ * made — the undo is the engine's and needs no index.
+ *
+ * @param {string} viewId
+ * @param {Record<string, any>} spec as `addDrawingAnnotation` takes it
+ * @returns {Promise<boolean>}
+ */
+export async function addSheetAnnotation(viewId, spec) {
+	const view = drawingViewById(viewId);
+	if (!view) return false;
+	const edit = addAnnotationEdit(viewId, spec);
+	if (!edit) return false;
+	const index = (view.annotations ?? []).length;
+	const ok = await applyDrawingStep(`add ${spec.annotation ?? 'Dimension'}`, [edit]);
+	if (ok) {
+		sheetPicks = [];
+		sheetSelection = { viewId, index };
+	}
+	return ok;
+}
+
+/**
+ * Delete the annotation at `index`.
+ *
+ * One edit, and the undo is the engine's snapshot — so there is no
+ * re-authoring here and no refusal for an annotation whose anchors are not
+ * persistent ids. The page-side history needed both (it rebuilt the deleted
+ * annotation from its stored anchors to put it back, and had to refuse a
+ * `TopoQuery` anchor it could not echo); a whole-drawing snapshot restores
+ * whatever was there, selector kind included.
+ *
+ * @param {string} viewId
+ * @param {number} index
+ */
+export async function deleteSheetAnnotation(viewId, index) {
+	const view = drawingViewById(viewId);
+	if (!(view?.annotations ?? [])[index]) return false;
+	const ok = await applyDrawingStep('delete annotation', [
+		{ type: 'DeleteAnnotation', view_id: viewId, index }
+	]);
+	if (ok) sheetSelection = null;
+	return ok;
+}
+
+/**
+ * Change one field of the annotation at `index` — its placement, its
+ * precision, its dual unit, a note's text, a datum's letter — as ONE undoable
+ * step.
+ *
+ * Two edits, because `DrawingEdit` has no `EditAnnotation`: delete, then
+ * re-add with the field changed. Sent as ONE `Batch`, so the engine takes one
+ * snapshot and a single Ctrl+Z puts the old value back rather than leaving the
+ * annotation deleted.
+ *
+ * The annotation moves to the END of the view's list, which is the real cost
+ * of doing it this way: a sheet with three dimensions has their order changed
+ * by dragging the first. Nothing anywhere depends on that order — the DXF
+ * export never sees annotations at all, the SVG and PDF emit them as
+ * non-overlapping siblings, no golden or fixture pins an annotation, and no
+ * tool reads one back by index (measured 2026-10-04) — but it is why an
+ * `EditAnnotation` edit is still the right fix, and it is named as an open
+ * item rather than worked around here.
+ *
+ * There is deliberately no `value` and no `kind` among the changes: a
+ * dimension's number is measured from the model on every rebuild, and changing
+ * the kind would re-interpret anchors picked for a different measurement.
+ *
+ * @param {string} viewId
+ * @param {number} index
+ * @param {{ placement?: [number, number], precision?: number | null,
+ *           dualUnit?: string | null, text?: string, label?: string }} changes
+ */
+export async function editSheetAnnotation(viewId, index, changes = {}) {
+	const view = drawingViewById(viewId);
+	const stored = (view?.annotations ?? [])[index];
+	if (!stored) return false;
+	const before = annotationRespec(stored);
+	if (!before) {
+		// Not an undo problem any more (the undo is a snapshot): this
+		// annotation cannot be RE-AUTHORED without changing what it says —
+		// a non-pid anchor, or a literal value with no door to write one.
+		showToast('error', 'That annotation cannot be re-authored, so it cannot be edited.');
+		return false;
+	}
+	const after = { ...before };
+	if (Array.isArray(changes.placement)) {
+		after.placement = [Number(changes.placement[0]), Number(changes.placement[1])];
+	}
+	if ('precision' in changes) {
+		after.precision = Number.isInteger(changes.precision) ? changes.precision : null;
+	}
+	if ('dualUnit' in changes) after.dualUnit = changes.dualUnit || null;
+	if ('text' in changes) after.text = changes.text ?? null;
+	if ('label' in changes) after.label = changes.label ?? null;
+	const forwardAdd = addAnnotationEdit(viewId, after);
+	if (!forwardAdd) {
+		showToast('error', 'That annotation cannot be re-authored, so it cannot be edited.');
+		return false;
+	}
+	// The re-added annotation lands last, which is where the selection goes.
+	const lastIndex = (view.annotations ?? []).length - 1;
+	const ok = await applyDrawingStep(
+		Array.isArray(changes.placement) ? 'move annotation' : 'edit annotation',
+		[{ type: 'DeleteAnnotation', view_id: viewId, index }, forwardAdd]
+	);
+	if (ok) sheetSelection = { viewId, index: lastIndex };
+	return ok;
+}
+
+/**
+ * Move the annotation at `index` to a new `Placement2` — the drag's commit.
+ * @param {string} viewId
+ * @param {number} index
+ * @param {[number, number]} placement view-space meters, `[dx, dy]`
+ */
+export async function moveSheetAnnotation(viewId, index, placement) {
+	return editSheetAnnotation(viewId, index, { placement });
+}
+
+/**
+ * An AUTHORED annotation turned back into the spec that would author it.
+ *
+ * Reads the document's own `Annotation` (serde-tagged: `type`, `kind`,
+ * `anchors` of `GeomRef`, `placement` as a `Placement2`), not the layout —
+ * the layout has no anchors in it, by the design that makes it unable to
+ * print an unmeasured value.
+ *
+ * `null` for an annotation whose anchors are not `Selector::Pid`, which is
+ * every anchor the UI and the tools author but not necessarily one a future
+ * writer might: a `TopoQuery` selector has no pid to echo, and guessing one
+ * would re-author a dimension against a different entity.
+ *
+ * `null`, too, for a dimension whose `value` is a `Measured::Value` — a
+ * literal. There is no door to author one through (the engine refuses a typed
+ * number, which is the point), so re-authoring it would silently turn it into
+ * a `FromGeometry` dimension: the same label printing a different number.
+ * Refused rather than converted; a `Value` arm only reaches a document from an
+ * import or an older cache, and it stays as it is until there is a door for it.
+ *
+ * `Measured::Expr` IS carried (D4c), through `expr`. Without that, dragging an
+ * expression dimension's label would make it read its own geometry instead —
+ * which is the same silent re-interpretation one line up, and it was reachable,
+ * because `drawing_annotation_add` authors an expression dimension today.
+ *
+ * The pid comes back as a decimal STRING and goes back out as one, so the
+ * round trip is exact: `Selector::Pid` is `#[serde(with = pid_str)]` on both
+ * its fields, which is what makes re-authoring a `u64` id from the page
+ * possible at all (D4a's `DrawingStatus` comment predates that flip and reads
+ * as if these were numbers).
+ */
+function annotationRespec(stored) {
+	const anchors = [];
+	const refs =
+		stored?.anchors ?? (stored?.anchor ? [stored.anchor] : stored?.leader ? [stored.leader] : []);
+	for (const ref of refs) {
+		const sel = ref?.selector;
+		if (sel?.type !== 'Pid') return null;
+		const pid = sel.pid;
+		if (pid === null || pid === undefined || pid === '') return null;
+		anchors.push({ pid, kind: ref?.kind?.type ?? 'Edge' });
+	}
+	const measured = stored?.value?.type ?? 'FromGeometry';
+	if (measured === 'Value') return null;
+	const placement = stored?.placement
+		? [Number(stored.placement.dx ?? 0), Number(stored.placement.dy ?? 0)]
+		: null;
+	return {
+		annotation: stored?.type ?? 'Dimension',
+		kind: stored?.kind?.type ?? 'Distance',
+		anchors,
+		text: stored?.text ?? null,
+		label: stored?.label ?? null,
+		precision: Number.isInteger(stored?.precision) ? stored.precision : null,
+		dualUnit: stored?.dual_unit ?? null,
+		expr: measured === 'Expr' ? (stored?.value?.expr ?? null) : null,
+		placement
+	};
 }
 
 // -- In-context editing (v4 Phase 3d-4) --
@@ -9774,6 +10259,12 @@ export async function undo() {
 	}
 	log('action', 'Undo feature');
 	if (!bridge || !engineReady) return;
+	// D4d: one message, and the ENGINE decides which stack it comes off. On a
+	// Drawing tab it tries that tab's drawing history first and falls through
+	// to the tree's when it is empty, which is what one Undo button means.
+	// The selection is an INDEX into the view's annotation list, so it cannot
+	// survive a step that may have changed that list.
+	sheetSelection = null;
 	try {
 		await sendRebuild({ type: 'Undo' });
 	} catch { /* NothingToUndo — no-op */ }
@@ -9791,6 +10282,7 @@ export async function redo() {
 	}
 	log('action', 'Redo feature');
 	if (!bridge || !engineReady) return;
+	sheetSelection = null;
 	try {
 		await sendRebuild({ type: 'Redo' });
 	} catch { /* NothingToRedo — no-op */ }
