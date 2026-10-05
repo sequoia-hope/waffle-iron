@@ -4245,8 +4245,13 @@ centroid, the mass and the inertia tensor together. The material IS here,
 because it is a table lookup and it tells a caller whether `measure_mass` will
 have a density to use at all.
 
-**Format v14, and v12/v13 belong to other branches.** Two wire-breaking
-changes, either of which would move the floor alone:
+**Format v14 — though the branch SHIPS v15.** M1's own two wire breaks are
+v14's, and that is the version they are documented under; v12 went to P2/P3
+and v13 to a branch still in flight. But D4e merged into this branch
+afterwards carrying **v15**, so the floor the merged tree writes is 15 and
+`the_format_floor_is_coherent_and_refuses_one_version_ahead` is written
+relative to the constant rather than against either literal. The two wire
+breaks, either of which would have moved the floor alone:
 
 1. `Annotation::FeatureControlFrame` — a new serde-tagged variant inside a
    `Drawing` tab. The v11 case over again, and the one D3's notes predicted:
@@ -4314,7 +4319,7 @@ authored in fractional inches IS a fractional-inch drawing, and reopening it
 in decimals prints different text for the same geometry — the same reason
 `display_unit` has always been persisted. `document.inch_fraction`,
 `.inch_denominator` and `.fit_band` join `.precision`, `.dual_unit` and
-`.dual_precision`; all six are additive and defaulted, so they ride the v14
+`.dual_precision`; all six are additive and defaulted, so they rode the v14
 bump rather than needing one. The denominator is deliberately NOT validated
 on the way in: the formatter refuses one outside the drafting set and falls
 back to a decimal, loudly, where a reader that quietly substituted 16 would
