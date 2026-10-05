@@ -66,6 +66,71 @@ fn run_once(scenario: &GenerativeChainScenario) -> Outcome {
     }
 }
 
+/// Replace every UUID (8-4-4-4-12 hex) in `text` with `<uuid>`.
+///
+/// Feature ids are minted fresh by every `ModelBuilder` run, and the engine's
+/// error texts embed them (`rebuild.rs`: "Output key Main not found in
+/// feature <uuid>"). Two runs that fail for the SAME reason therefore differ
+/// in that identifier alone, which is not non-determinism of the chain —
+/// measured 2026-10-05 on a persisted proptest seed: fresh UUIDs on each
+/// replay, same missing output key both times. Everything else in the text
+/// (the reason, the output key, face ids) still has to match.
+fn normalize_ids(text: &str) -> String {
+    let bytes = text.as_bytes();
+    let is_hex = |b: u8| b.is_ascii_hexdigit();
+    let mut out = String::with_capacity(text.len());
+    let mut i = 0;
+    while i < bytes.len() {
+        // Groups of 8-4-4-4-12 hex digits separated by '-'.
+        const GROUPS: [usize; 5] = [8, 4, 4, 4, 12];
+        let mut j = i;
+        let mut ok = true;
+        for (g, &len) in GROUPS.iter().enumerate() {
+            if j + len > bytes.len() || !bytes[j..j + len].iter().all(|&b| is_hex(b)) {
+                ok = false;
+                break;
+            }
+            j += len;
+            if g < GROUPS.len() - 1 {
+                if j >= bytes.len() || bytes[j] != b'-' {
+                    ok = false;
+                    break;
+                }
+                j += 1;
+            }
+        }
+        // A UUID is bounded by non-hex characters (or the text's ends), so a
+        // longer hex run is never half-matched.
+        let bounded =
+            ok && (i == 0 || !is_hex(bytes[i - 1])) && (j == bytes.len() || !is_hex(bytes[j]));
+        if bounded {
+            out.push_str("<uuid>");
+            i = j;
+        } else {
+            // Advance by one char (UTF-8 aware).
+            let ch = text[i..].chars().next().expect("in-bounds char");
+            out.push(ch);
+            i += ch.len_utf8();
+        }
+    }
+    out
+}
+
+#[test]
+fn normalize_ids_replaces_only_whole_uuids() {
+    let text = "Output key Main not found in feature c90cefcc-d6e5-4733-b923-977e2c799f3f; \
+                FaceId(19) deadbeef stays";
+    assert_eq!(
+        normalize_ids(text),
+        "Output key Main not found in feature <uuid>; FaceId(19) deadbeef stays"
+    );
+    // Two different ids normalize to the same text; a different reason does not.
+    let a = normalize_ids("x 00000000-0000-0000-0000-000000000000 y");
+    let b = normalize_ids("x ffffffff-ffff-ffff-ffff-ffffffffffff y");
+    assert_eq!(a, b);
+    assert_ne!(normalize_ids("reason A"), normalize_ids("reason B"));
+}
+
 /// Outcome equality with a tessellation-tolerance on volumes.
 fn same_outcome(a: &Outcome, b: &Outcome) -> Result<(), String> {
     match (a, b) {
@@ -106,7 +171,7 @@ fn same_outcome(a: &Outcome, b: &Outcome) -> Result<(), String> {
             }
             Ok(())
         }
-        (Outcome::Failed(x), Outcome::Failed(y)) if x == y => Ok(()),
+        (Outcome::Failed(x), Outcome::Failed(y)) if normalize_ids(x) == normalize_ids(y) => Ok(()),
         (x, y) => Err(format!("outcome differs:\n  run0 = {x:?}\n  runN = {y:?}")),
     }
 }
