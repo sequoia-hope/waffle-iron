@@ -22,10 +22,17 @@ fn star(points: u32, inner_r: f64, outer_r: f64) -> Vec<(f64, f64)> {
 
 /// The first finding of the loud generative runners (2026-09-27, spec §8):
 /// an octagon prism on the Y plane unioned with a 4-point needle star
-/// (r_in = 2, r_out ≈ 22) on the X plane, both at y = 22.42. The union
-/// STOPs loudly in tessellation ("planar triangle collapsed at render
-/// precision"), and the categorizer must report exactly that as ERROR
-/// from the saved document — the P1 acceptance case.
+/// (r_in = 2, r_out ≈ 22) on the X plane, both at y = 22.42. When found,
+/// the union STOPped loudly in tessellation ("planar triangle collapsed at
+/// render precision") and the P1 acceptance case was that the categorizer
+/// reports exactly that ERROR from the saved document. Promoted as P0001
+/// and CONVERTED the same day (the §4.5.5 edge-in-plane conformity rule,
+/// spec `yang_455_edge_in_plane_conformity.md`): the union now builds, and
+/// the same document is the P1 acceptance of the OTHER verdict — a derived
+/// meta judges a non-corpus document SUPPORTED_CORRECT when the kernel is
+/// right, exactly as the corpus pin for P0001 does. A test asserting the
+/// old STOP would have stayed red while nothing was wrong (the inverse of a
+/// stale `#[ignore]`; found red 2026-10-05).
 fn needle_star_document() -> String {
     let mut b = ModelBuilder::kernel_v2();
     let y = 22.41755130980609;
@@ -55,14 +62,14 @@ fn needle_star_document() -> String {
     .unwrap();
     b.extrude_no_merge("ext_1", "sk_1", 7.854423622158365)
         .unwrap();
-    // The union fails loudly; the feature stays in the tree with its error.
-    let union = b.boolean_union("bool_0", "ext_0", "ext_1");
-    assert!(union.is_err(), "the needle-star union was expected to STOP");
+    // P0001 CONVERTED 2026-09-27: the union builds.
+    b.boolean_union("bool_0", "ext_0", "ext_1")
+        .expect("the needle-star union builds since the P0001 conversion");
     b.save().unwrap()
 }
 
 #[test]
-fn needle_star_union_categorizes_as_the_recorded_error() {
+fn needle_star_union_categorizes_as_converted_correct() {
     let waffle = needle_star_document();
     let doc: serde_json::Value = serde_json::from_str(&waffle).unwrap();
     let meta = derive_meta("X-needle-star", &doc).unwrap();
@@ -71,16 +78,9 @@ fn needle_star_union_categorizes_as_the_recorded_error() {
     let outcome = categorize("X-needle-star", &waffle, &meta);
     assert_eq!(
         outcome.category,
-        Category::Error,
+        Category::SupportedCorrect,
         "category {:?}: {}",
         outcome.category,
-        outcome.detail
-    );
-    assert!(
-        outcome
-            .detail
-            .contains("planar triangle collapsed at render precision"),
-        "signature not found in: {}",
         outcome.detail
     );
 }
@@ -643,10 +643,13 @@ fn prospect_derive_meta() {
     );
 }
 
-/// Promote the needle star (the first loud generative finding, spec §8) as
-/// a `P` case from the acceptance document.
+/// The instrument that promoted the needle star (the first loud generative
+/// finding, spec §8) as `P0001` on 2026-09-27. The case is in the corpus and
+/// CONVERTED, so this no longer writes anything: run by hand, it re-judges
+/// the acceptance document under a fresh `P` id's derived meta and refuses
+/// to promote a SUPPORTED_CORRECT document (a promotion records a finding).
 #[test]
-#[ignore = "corpus promotion (writes app/tests/cases/assay); run by hand — spec §8"]
+#[ignore = "manual instrument: re-judges the P0001 document, promotes nothing — spec §8"]
 fn prospect_promote_needle_star() {
     let waffle = needle_star_document();
     let doc: serde_json::Value = serde_json::from_str(&waffle).unwrap();
@@ -654,20 +657,17 @@ fn prospect_promote_needle_star() {
     let id = promote::next_p_id(&corpus).unwrap();
     let meta = derive_meta(&id, &doc).unwrap();
     let outcome = categorize(&id, &waffle, &meta);
-    assert_eq!(outcome.category, Category::Error, "{}", outcome.detail);
-    promote::write_case(
-        &corpus,
-        &id,
-        &waffle,
-        &meta,
-        "3 ops, scale=3.28e1, extrude(polygon,boss)+extrude(polygon,boss)+boolean-union — \
-         prospector P0: octagon prism (Y plane) ∪ 4-point needle star r_in=2 r_out=22 (X plane) \
-         ⇒ boolean_union TessellationFailed \"planar triangle collapsed at render precision\" \
-         (found by the first loud generative_chain run, 2026-09-27; ERROR-class pin, \
-         derived_meta: expectations unadjudicated until conversion)",
-    )
-    .unwrap();
-    eprintln!("[promote] {id} ← needle star: {}", outcome.detail);
+    assert_eq!(
+        outcome.category,
+        Category::SupportedCorrect,
+        "the needle star is P0001, promoted 2026-09-27 and converted; a new verdict \
+         is a NEW finding to promote by hand: {}",
+        outcome.detail
+    );
+    eprintln!(
+        "[promote] {id} NOT written — needle star is P0001 (converted): {}",
+        outcome.detail
+    );
 }
 
 // ── Mutation search (spec §5) ────────────────────────────────────────────
