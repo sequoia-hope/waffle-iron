@@ -1,10 +1,13 @@
 /**
  * The drawing tools' MCP definitions (`specs/drawings_and_mbd.md` §8, D4a):
- * `drawing_view_add`, `drawing_view_edit`, `drawing_annotation_add`.
+ * `drawing_view_add`, `drawing_view_edit`, `drawing_annotation_add`,
+ * `drawing_sheet_edit` (D4b), and since D4f the read-back and the removals —
+ * `drawing_get`, `drawing_view_delete`, `drawing_annotation_edit`,
+ * `drawing_annotation_delete`.
  *
- * All three run in the engine (`crates/wasm-bridge/src/tools/drawing.rs`) and
- * all three need a Drawing tab active, which is the mirror of the feature
- * tools' Part-tab gate and the assembly tools' Assembly-tab one.
+ * All run in the engine (`crates/wasm-bridge/src/tools/drawing.rs`) and all
+ * need a Drawing tab active, which is the mirror of the feature tools'
+ * Part-tab gate and the assembly tools' Assembly-tab one.
  *
  * Note what is NOT here: a dimension has no `value` argument. Its number is
  * measured from the model on every rebuild; a drawing whose dimension was
@@ -307,8 +310,10 @@ export const drawingAnnotationAddTool = {
 								},
 								kind: { type: 'string', enum: ['Edge', 'Face', 'Vertex'], default: 'Edge' }
 							},
-							required: ['pid'],
-							additionalProperties: false
+							// Open to extra fields on purpose (D4f): an anchor_list entry
+							// carries shape, at and radius beside pid and kind, and must
+							// pass back as it is.
+							required: ['pid']
 						}
 					]
 				}
@@ -528,6 +533,192 @@ export const drawingSheetEditTool = {
 	},
 	annotations: {
 		title: 'Edit drawing sheet',
+		readOnlyHint: false,
+		destructiveHint: false,
+		openWorldHint: false
+	}
+};
+
+/**
+ * The anchors argument the annotation tools share: `arity` persistent ids,
+ * each a bare id (an edge), or `{pid, kind}` with the kind as the bare tag OR
+ * as the `{type}` object the engine's own `anchor_list` and
+ * `annotation_list` records carry — so an anchor read off `drawing_get`
+ * passes back verbatim (D4f).
+ */
+const anchorKindSchema = {
+	oneOf: [
+		{ type: 'string', enum: ['Edge', 'Face', 'Vertex'] },
+		{
+			type: 'object',
+			properties: { type: { type: 'string', enum: ['Edge', 'Face', 'Vertex'] } },
+			required: ['type'],
+			additionalProperties: false
+		}
+	]
+};
+drawingAnnotationAddTool.inputSchema.properties.anchors.items.oneOf[2].properties.kind = {
+	...anchorKindSchema,
+	default: 'Edge'
+};
+
+/**
+ * `drawing_get` (D4f) — the family's one QUERY. D4a's notes named it as
+ * missing: an agent that opened a document with a drawing tab could list its
+ * views only by editing one.
+ */
+export const drawingGetTool = {
+	name: 'drawing_get',
+	description:
+		'Read the open DRAWING tab: its sheets, every view (id, projection, scale, placement, how many ' +
+		'curves it drew, its cache key), the title block as authored and as printed, the projection ' +
+		'standard, and what the last rebuild declined or failed. Changes nothing. With include_anchors ' +
+		"each view also lists the persistent ids an annotation can anchor on (anchor_list); with " +
+		'include_annotations each view lists its annotations (annotation_list) — index, kind, anchors ' +
+		'(pids as decimal strings), precision, dual unit, expression, text or label, placement, and for ' +
+		"a dimension the VALUE the rebuild measured (meters; radians when angular) and whether it " +
+		'resolved. The index is what drawing_annotation_edit and _delete take. Refused with ' +
+		'TabKindNotSupported off a Drawing tab and NotFound for a sheet_id the drawing does not have. ' +
+		'specs/drawings_and_mbd.md §8 D4f.',
+	inputSchema: {
+		type: 'object',
+		properties: {
+			sheet_id: {
+				type: 'string',
+				description: 'Check that this sheet exists; the answer is still the whole drawing.'
+			},
+			include_anchors: {
+				type: 'boolean',
+				default: false,
+				description: 'List, per view, the persistent ids an annotation can anchor on (anchor_list).'
+			},
+			include_annotations: {
+				type: 'boolean',
+				default: false,
+				description: 'List, per view, its annotations with their measured values (annotation_list).'
+			}
+		},
+		additionalProperties: false
+	},
+	outputSchema: drawingStateSchema,
+	annotations: { title: 'Read drawing', readOnlyHint: true, destructiveHint: false, openWorldHint: false }
+};
+
+export const drawingViewDeleteTool = {
+	name: 'drawing_view_delete',
+	description:
+		'Delete one view of the open DRAWING tab — and with it every view projected, sectioned or ' +
+		'detailed FROM it, which is what deleting a parent means. The answer lists every view id that ' +
+		'went (deleted), so a delete that took three views says so. Refused with TabKindNotSupported ' +
+		'off a Drawing tab and NotFound for a view the drawing does not have. specs/drawings_and_mbd.md ' +
+		'§8 D4f.',
+	inputSchema: {
+		type: 'object',
+		properties: { view_id: { type: 'string' } },
+		required: ['view_id'],
+		additionalProperties: false
+	},
+	outputSchema: {
+		type: 'object',
+		properties: {
+			view_id: { type: 'string' },
+			deleted: { type: 'array', items: { type: 'string' }, description: 'Every view id removed, the named one included.' },
+			...drawingStateSchema.properties
+		},
+		required: ['view_id', 'deleted', ...drawingStateSchema.required]
+	},
+	annotations: { title: 'Delete drawing view', readOnlyHint: false, destructiveHint: true, openWorldHint: false }
+};
+
+export const drawingAnnotationDeleteTool = {
+	name: 'drawing_annotation_delete',
+	description:
+		"Delete one annotation of a view of the open DRAWING tab, by its index in the view's list — " +
+		'the index drawing_get reports with include_annotations (and annotation_index on ' +
+		'drawing_annotation_add). The annotations after it move up one. Refused with ' +
+		'TabKindNotSupported off a Drawing tab, NotFound for a view the drawing does not have or an ' +
+		"index past the view's count (the refusal says the count), and InvalidArgument without an " +
+		'index. specs/drawings_and_mbd.md §8 D4f.',
+	inputSchema: {
+		type: 'object',
+		properties: {
+			view_id: { type: 'string' },
+			index: { type: 'integer', minimum: 0 }
+		},
+		required: ['view_id', 'index'],
+		additionalProperties: false
+	},
+	outputSchema: {
+		type: 'object',
+		properties: { view_id: { type: 'string' }, index: { type: 'integer' }, ...drawingStateSchema.properties },
+		required: ['view_id', 'index', ...drawingStateSchema.required]
+	},
+	annotations: {
+		title: 'Delete drawing annotation',
+		readOnlyHint: false,
+		destructiveHint: true,
+		openWorldHint: false
+	}
+};
+
+export const drawingAnnotationEditTool = {
+	name: 'drawing_annotation_edit',
+	description:
+		'Change one annotation of a view of the open DRAWING tab IN PLACE, so it keeps its index: a ' +
+		"dimension's precision, dual unit, expression and placement; a note's text and placement; a " +
+		"datum's label and placement. Only what is given changes. A field the annotation's kind does " +
+		'not have (text on a dimension, precision on a note) is refused by name with InvalidArgument, ' +
+		'never dropped. There is no value, kind or anchors: a dimension is measured, never typed, and ' +
+		'changing what is measured is a new annotation (delete and add). An expr the rebuild cannot ' +
+		'evaluate is rolled back whole and refused with AnnotationNotMeasurable. Answers with the ' +
+		"drawing and every view's annotation_list. Refused with TabKindNotSupported off a Drawing tab " +
+		"and NotFound for a view or an index the drawing does not have. specs/drawings_and_mbd.md §8 D4f.",
+	inputSchema: {
+		type: 'object',
+		properties: {
+			view_id: { type: 'string' },
+			index: { type: 'integer', minimum: 0, description: 'From drawing_get with include_annotations.' },
+			precision: {
+				description:
+					'Dimension only: decimal places shown, 0 to 9 — or the word "default" to return to the ' +
+					'document setting.',
+				oneOf: [
+					{ type: 'integer', minimum: 0, maximum: 9 },
+					{ type: 'string', enum: ['default'] }
+				]
+			},
+			dual_unit: {
+				type: 'string',
+				description: 'Dimension only: a second unit shown beneath the primary ("in", "mm", …); "" clears it.'
+			},
+			expr: {
+				type: 'string',
+				description:
+					'Dimension only: an expression the engine re-measures on every rebuild, as on ' +
+					'drawing_annotation_add; "" returns the dimension to measuring its own anchors.'
+			},
+			text: { type: 'string', minLength: 1, description: 'Note only: the new text.' },
+			label: { type: 'string', minLength: 1, description: 'Datum only: the new letter.' },
+			placement: {
+				type: 'array',
+				items: { type: 'number' },
+				minItems: 2,
+				maxItems: 2,
+				description:
+					"Dimension, note or datum: the label's cosmetic offset from where the layout puts it, in " +
+					"the view's own units (meters)."
+			}
+		},
+		required: ['view_id', 'index'],
+		additionalProperties: false
+	},
+	outputSchema: {
+		type: 'object',
+		properties: { view_id: { type: 'string' }, index: { type: 'integer' }, ...drawingStateSchema.properties },
+		required: ['view_id', 'index', ...drawingStateSchema.required]
+	},
+	annotations: {
+		title: 'Edit drawing annotation',
 		readOnlyHint: false,
 		destructiveHint: false,
 		openWorldHint: false

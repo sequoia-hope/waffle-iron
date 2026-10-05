@@ -100,9 +100,13 @@ pub const MIGRATED: &[&str] = &[
     "connector_add",
     "connector_edit",
     "connector_delete",
+    "drawing_get",
     "drawing_view_add",
     "drawing_view_edit",
+    "drawing_view_delete",
     "drawing_annotation_add",
+    "drawing_annotation_edit",
+    "drawing_annotation_delete",
     "drawing_sheet_edit",
     "mate_add",
     "mate_edit",
@@ -154,7 +158,10 @@ pub fn mutates(name: &str) -> bool {
             | "connector_delete"
             | "drawing_view_add"
             | "drawing_view_edit"
+            | "drawing_view_delete"
             | "drawing_annotation_add"
+            | "drawing_annotation_edit"
+            | "drawing_annotation_delete"
             | "drawing_sheet_edit"
             | "mate_add"
             | "mate_edit"
@@ -358,9 +365,13 @@ fn run(
         "connector_add" => assembly::connector_add(state, kb, args),
         "connector_edit" => assembly::connector_edit(state, kb, args),
         "connector_delete" => assembly::connector_delete(state, kb, args),
+        "drawing_get" => drawing::drawing_get(state, args),
         "drawing_view_add" => drawing::drawing_view_add(state, kb, args),
         "drawing_view_edit" => drawing::drawing_view_edit(state, kb, args),
+        "drawing_view_delete" => drawing::drawing_view_delete(state, kb, args),
         "drawing_annotation_add" => drawing::drawing_annotation_add(state, kb, args),
+        "drawing_annotation_edit" => drawing::drawing_annotation_edit(state, kb, args),
+        "drawing_annotation_delete" => drawing::drawing_annotation_delete(state, kb, args),
         "drawing_sheet_edit" => drawing::drawing_sheet_edit(state, kb, args),
         "mate_add" => assembly::mate_add(state, kb, args),
         "mate_edit" => assembly::mate_edit(state, kb, args),

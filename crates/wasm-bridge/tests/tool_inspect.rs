@@ -531,9 +531,17 @@ fn the_migrated_list_is_exactly_what_this_checkpoint_implements() {
             // groups by the tab a tool needs — Part tools, then the tab
             // tools, then Assembly, then Drawing. A reader who wants the
             // whole of one family reads a run of adjacent lines.
+            // D4f (2026-10-05): the family's one query leads it, and the
+            // deletes and the in-place annotation edit sit beside the adds
+            // they undo — the door an agent reads and takes back from, not
+            // only authors through.
+            "drawing_get",
             "drawing_view_add",
             "drawing_view_edit",
+            "drawing_view_delete",
             "drawing_annotation_add",
+            "drawing_annotation_edit",
+            "drawing_annotation_delete",
             // D4b (2026-10-03): the sheet's own door — its paper, its title
             // block, and the drawing's projection standard, which D4a had no
             // setter for at all.

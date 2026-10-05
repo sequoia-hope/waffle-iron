@@ -1,0 +1,563 @@
+{
+  "checks": [
+    {
+      "name": "tools/list carries the whole drawing family",
+      "ok": true,
+      "detail": []
+    },
+    {
+      "name": "the page is paired and ready",
+      "ok": true,
+      "detail": {
+        "state": "ready",
+        "app_build": {
+          "date": "2026-10-03",
+          "commit": "2e594811"
+        },
+        "document_name": "Untitled"
+      }
+    },
+    {
+      "name": "the plate is one body with no errors",
+      "ok": true,
+      "detail": {
+        "bodies": 1,
+        "errors": []
+      }
+    },
+    {
+      "name": "the bored plate volume is the closed form",
+      "ok": true,
+      "detail": {
+        "volume_m3": 0.00001392876110196153,
+        "expected": 0.00001392876110196153
+      }
+    },
+    {
+      "name": "drawing_get on a Part tab is refused",
+      "ok": true,
+      "detail": "TabKindNotSupported"
+    },
+    {
+      "name": "the gate names the tab kind",
+      "ok": true,
+      "detail": {
+        "code": "TabKindNotSupported",
+        "details": {
+          "kind": "Part"
+        },
+        "message": "The active tab is a Part tab; drawing tools need a Drawing tab (tab_add kind:\"Drawing\" or tab_switch)."
+      }
+    },
+    {
+      "name": "a fresh drawing has one sheet and no views",
+      "ok": true,
+      "detail": {
+        "sheets": 1
+      }
+    },
+    {
+      "name": "the top view drew curves and no view errored",
+      "ok": true,
+      "detail": {
+        "curves": 10,
+        "errors": []
+      }
+    },
+    {
+      "name": "anchors were offered: two walls and a bore rim",
+      "ok": true,
+      "detail": {
+        "anchors": 20,
+        "span": 0.06
+      }
+    },
+    {
+      "name": "the walls span the plate width or depth",
+      "ok": true,
+      "detail": 0.06
+    },
+    {
+      "name": "an anchor pid is a decimal string",
+      "ok": true,
+      "detail": "16555857627038603897"
+    },
+    {
+      "name": "the distance landed at index 0",
+      "ok": true
+    },
+    {
+      "name": "the diameter landed at index 1",
+      "ok": true
+    },
+    {
+      "name": "the note landed at index 2",
+      "ok": true
+    },
+    {
+      "name": "a typed-in value is refused",
+      "ok": true,
+      "detail": "SchemaRejected"
+    },
+    {
+      "name": "the value refusal is the schema's, with the pointer",
+      "ok": true,
+      "detail": {
+        "code": "SchemaRejected",
+        "message": "Invalid arguments for drawing_annotation_add: Additional properties are not allowed ('value' was unexpected)",
+        "details": {
+          "path": "/arguments"
+        }
+      }
+    },
+    {
+      "name": "drawing_get lists three annotations",
+      "ok": true,
+      "detail": [
+        "Dimension",
+        "Dimension",
+        "Note"
+      ]
+    },
+    {
+      "name": "the distance measured the plate",
+      "ok": true,
+      "detail": {
+        "value": 0.06
+      }
+    },
+    {
+      "name": "the distance keeps its precision and anchors",
+      "ok": true,
+      "detail": {
+        "anchors": [
+          {
+            "kind": {
+              "type": "Edge"
+            },
+            "pid": "16555857627038603897"
+          },
+          {
+            "kind": {
+              "type": "Edge"
+            },
+            "pid": "4533069408600097872"
+          }
+        ],
+        "angular": false,
+        "annotation": "Dimension",
+        "dual_unit": null,
+        "expr": null,
+        "index": 0,
+        "kind": {
+          "type": "Distance"
+        },
+        "placement": [
+          0,
+          0
+        ],
+        "precision": 2,
+        "resolved": true,
+        "value": 0.06
+      }
+    },
+    {
+      "name": "the diameter measured 2r of the bore",
+      "ok": true,
+      "detail": {
+        "value": 0.01
+      }
+    },
+    {
+      "name": "the note reads back its text",
+      "ok": true
+    },
+    {
+      "name": "a read-back anchor is accepted verbatim",
+      "ok": true
+    },
+    {
+      "name": "the edit kept index 0 and applied every field",
+      "ok": true,
+      "detail": {
+        "anchors": [
+          {
+            "kind": {
+              "type": "Edge"
+            },
+            "pid": "16555857627038603897"
+          },
+          {
+            "kind": {
+              "type": "Edge"
+            },
+            "pid": "4533069408600097872"
+          }
+        ],
+        "angular": false,
+        "annotation": "Dimension",
+        "dual_unit": "in",
+        "expr": null,
+        "index": 0,
+        "kind": {
+          "type": "Distance"
+        },
+        "placement": [
+          0,
+          0.012
+        ],
+        "precision": 3,
+        "resolved": true,
+        "value": 0.06
+      }
+    },
+    {
+      "name": "precision on a note is refused",
+      "ok": true,
+      "detail": "InvalidArgument"
+    },
+    {
+      "name": "the wrong-field refusal names the field",
+      "ok": true,
+      "detail": "a Note has no `precision` to change"
+    },
+    {
+      "name": "an expression that does not evaluate is refused",
+      "ok": true,
+      "detail": "AnnotationNotMeasurable"
+    },
+    {
+      "name": "a bad expression is AnnotationNotMeasurable",
+      "ok": true,
+      "detail": "AnnotationNotMeasurable"
+    },
+    {
+      "name": "the refused expression was rolled back",
+      "ok": true,
+      "detail": {
+        "anchors": [
+          {
+            "kind": {
+              "type": "Edge"
+            },
+            "pid": "16555857627038603897"
+          },
+          {
+            "kind": {
+              "type": "Edge"
+            },
+            "pid": "4533069408600097872"
+          }
+        ],
+        "angular": false,
+        "annotation": "Dimension",
+        "dual_unit": "in",
+        "expr": null,
+        "index": 0,
+        "kind": {
+          "type": "Distance"
+        },
+        "placement": [
+          0,
+          0.012
+        ],
+        "precision": 3,
+        "resolved": true,
+        "value": 0.06
+      }
+    },
+    {
+      "name": "the expression dimension prints the expression",
+      "ok": true,
+      "detail": 0.03
+    },
+    {
+      "name": "the note is gone and the centre mark moved up",
+      "ok": true,
+      "detail": [
+        "Dimension",
+        "Dimension",
+        "CentreMark"
+      ]
+    },
+    {
+      "name": "an index past the list is refused",
+      "ok": true,
+      "detail": "NotFound"
+    },
+    {
+      "name": "the past-the-end refusal says the count",
+      "ok": true,
+      "detail": {
+        "count": 3,
+        "index": 7,
+        "view_id": "28cb3ae1-3d27-43fe-b584-8aab73447fe8"
+      }
+    },
+    {
+      "name": "the projected view shows the plate thickness",
+      "ok": true,
+      "detail": [
+        0.006000000000000002,
+        0.04
+      ]
+    },
+    {
+      "name": "the section has a hatched cap",
+      "ok": true,
+      "detail": {
+        "hatch_loops": 2,
+        "errors": []
+      }
+    },
+    {
+      "name": "four views are on the sheet",
+      "ok": true,
+      "detail": 4
+    },
+    {
+      "name": "the view edit moved the detail and turned hidden lines off",
+      "ok": true,
+      "detail": {
+        "anchor_list": null,
+        "anchors": 13,
+        "annotation_list": null,
+        "annotations": 0,
+        "bbox": [
+          [
+            -0.008,
+            -0.008
+          ],
+          [
+            0.008,
+            0.008
+          ]
+        ],
+        "cache_key": "d4b-6a98f81d06c3ca88",
+        "curves": 3,
+        "hatch_loops": 0,
+        "id": "52c900a3-fe2f-4325-a60b-0fbc40a8a32d",
+        "marks": 0,
+        "name": "DETAIL B",
+        "placement_mm": [
+          240,
+          60
+        ],
+        "projection": {
+          "center": [
+            0,
+            0
+          ],
+          "label": "B",
+          "parent": "28cb3ae1-3d27-43fe-b584-8aab73447fe8",
+          "radius": 0.008,
+          "type": "Detail"
+        },
+        "scale": 4,
+        "source": {
+          "bodies": [],
+          "tab_id": "43ae68dc-344f-4c4c-829d-310a24979853"
+        },
+        "style": {
+          "hidden_lines": false,
+          "silhouettes": true
+        }
+      }
+    },
+    {
+      "name": "the title block prints the expression row as the measured mass",
+      "ok": true,
+      "detail": {
+        "row": {
+          "label": "Mass (g)",
+          "value": "37.6077 mm³"
+        },
+        "expected_g": 37.60765497529613,
+        "errors": [],
+        "warnings": []
+      }
+    },
+    {
+      "name": "the derived rows are filled from the document",
+      "ok": true,
+      "detail": [
+        {
+          "label": "Title",
+          "value": "Drawings E2E plate"
+        },
+        {
+          "label": "Sheet",
+          "value": "1 / 1"
+        },
+        {
+          "label": "Scale",
+          "value": "2:1"
+        },
+        {
+          "label": "Projection",
+          "value": "Third angle"
+        },
+        {
+          "label": "Drawn by",
+          "value": "claude-code (MCP e2e)"
+        },
+        {
+          "label": "Material",
+          "value": "6061-T6"
+        },
+        {
+          "label": "Mass (g)",
+          "value": "37.6077 mm³"
+        }
+      ]
+    },
+    {
+      "name": "typing a derived title-block row is refused",
+      "ok": true,
+      "detail": "InvalidArgument"
+    },
+    {
+      "name": "the derived-row refusal names the row",
+      "ok": true,
+      "detail": "`SheetNumber` is filled from the document (the name, the sheet number, the scale, the projection standard), so it takes neither text nor an expression."
+    },
+    {
+      "name": "the SVG carries the printed width",
+      "ok": true,
+      "detail": [
+        "51.909",
+        "45.877",
+        "52.524",
+        "46.642"
+      ]
+    },
+    {
+      "name": "the SVG carries the bore diameter",
+      "ok": true
+    },
+    {
+      "name": "the PDF is one page",
+      "ok": true,
+      "detail": {
+        "deliver": "agent",
+        "file_name": "Sheet 1.pdf",
+        "mime_type": "application/pdf",
+        "bytes": 10152,
+        "pages": 1,
+        "warnings": [
+          "the diameter sign ⌀ is written as Ø, which no base-14 font has as ⌀"
+        ]
+      }
+    },
+    {
+      "name": "the sheet DXF carries the HATCH layer",
+      "ok": true
+    },
+    {
+      "name": "a model-view argument on the drawing tab is refused",
+      "ok": true,
+      "detail": "InvalidArgument"
+    },
+    {
+      "name": "the model-view argument is refused on a drawing tab",
+      "ok": true
+    },
+    {
+      "name": "deleting the side view took only itself",
+      "ok": true,
+      "detail": [
+        "1b4e706e-1107-4c36-9269-806f27188d77"
+      ]
+    },
+    {
+      "name": "three views remain",
+      "ok": true,
+      "detail": 3
+    },
+    {
+      "name": "deleting it again is refused",
+      "ok": true,
+      "detail": "NotFound"
+    },
+    {
+      "name": "a second delete is NotFound",
+      "ok": true
+    },
+    {
+      "name": "deleting the top view took its section and detail and said so",
+      "ok": true,
+      "detail": [
+        "28cb3ae1-3d27-43fe-b584-8aab73447fe8",
+        "93c5035e-4c4a-4691-849d-1a33d47228fa",
+        "52c900a3-fe2f-4325-a60b-0fbc40a8a32d"
+      ]
+    },
+    {
+      "name": "no view remains",
+      "ok": true,
+      "detail": 0
+    },
+    {
+      "name": "the iso DXF has the plate edges and the bore rims",
+      "ok": true,
+      "detail": {
+        "lines": 15,
+        "curved": 4
+      }
+    },
+    {
+      "name": "the document saved",
+      "ok": true,
+      "detail": {
+        "provider": "local",
+        "id": "71af4395-5220-437c-b008-f706b622d311",
+        "saved_at": "2026-10-05T02:12:40.040Z"
+      }
+    },
+    {
+      "name": "undo restored the three deleted views",
+      "ok": true,
+      "detail": {
+        "views": 3,
+        "undone": {
+          "bodies_added": [],
+          "bodies_removed": [],
+          "errors": [],
+          "features_added": [],
+          "features_changed": [],
+          "features_removed": [],
+          "order_changed": false,
+          "warnings": []
+        }
+      }
+    }
+  ],
+  "tools": [
+    "body_measure",
+    "body_rename",
+    "document_new",
+    "document_save",
+    "drawing_annotation_add",
+    "drawing_annotation_delete",
+    "drawing_annotation_edit",
+    "drawing_get",
+    "drawing_sheet_edit",
+    "drawing_view_add",
+    "drawing_view_delete",
+    "drawing_view_edit",
+    "export_dxf",
+    "export_pdf",
+    "export_svg",
+    "feature_add",
+    "feature_rename",
+    "model_summary",
+    "parameters_set",
+    "sketch_create",
+    "tab_add",
+    "tab_switch",
+    "undo",
+    "waffle_status"
+  ],
+  "passed": 55,
+  "failed": 0
+}

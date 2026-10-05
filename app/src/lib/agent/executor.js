@@ -123,7 +123,13 @@ const DRAWING_COMMANDS = new Set([
 	'drawing_annotation_add',
 	// D4b: the sheet's own door — its paper, its title block, and the
 	// drawing's projection standard.
-	'drawing_sheet_edit'
+	'drawing_sheet_edit',
+	// D4f: the deletes, and the in-place annotation edit. `drawing_get` is
+	// the family's one query and routes with the other engine queries below;
+	// the engine applies the Drawing-tab gate to it itself.
+	'drawing_view_delete',
+	'drawing_annotation_edit',
+	'drawing_annotation_delete'
 ]);
 
 const ASSEMBLY_COMMANDS = new Set([
@@ -168,7 +174,12 @@ function commandRefusal(ctx, tool) {
 				{ kind }
 			);
 		}
-	} else if (!TAB_TOOLS.has(tool) && kind !== 'Part') {
+	} else if (!TAB_TOOLS.has(tool) && kind !== 'Part' && !(kind === 'Drawing' && (tool === 'undo' || tool === 'redo'))) {
+		// `undo` / `redo` pass on a Drawing tab (D4f): a drawing's history is
+		// the engine's own stack (D4d), and the `Undo` message reaches it
+		// there — the drawing tab's feature tree is empty, so nothing of a
+		// part can be undone by mistake. Pinned in
+		// `crates/wasm-bridge/tests/tool_drawing.rs`.
 		return new ToolFailure('TabKindNotSupported', `The active tab is a ${kind} tab; agent edits work on Part tabs.`, { kind });
 	}
 	const busy = getUserBusyReason();
@@ -358,7 +369,8 @@ const ENGINE_QUERIES = new Set([
 	'script_source_get',
 	'assembly_get',
 	'entity_meta',
-	'material_list'
+	'material_list',
+	'drawing_get'
 ]);
 
 const ENGINE_COMMANDS = new Set([

@@ -375,15 +375,22 @@ test.describe('Read-only agent tools run in the engine (S3 C5b)', () => {
 		const expected = [...READ_ONLY];
 		expected.splice(expected.indexOf('sketch_regions') + 1, 0, 'sketch3d_get');
 		// `entity_meta` (2026-09-26, `specs/kicad_board_link.md` C4) needs a
-		// linked KiCad board, so it is named here too. `material_list`
-		// (2026-10-04, M1 of `specs/drawings_and_mbd.md` §9) is named here
-		// rather than in READ_ONLY for a different reason: it CAN be called
-		// with no fixture, but the sequence's plate has no materials, so
-		// calling it would assert two empty lists. Its answer's shape — the
-		// table, the per-body assignments, and the assignments that no longer
-		// resolve — is pinned in
-		// `crates/wasm-bridge/tests/measurement_expr.rs`. The two material
-		// EDITS are authoring tools and live in the other spec.
-		expect(routed).toEqual([...expected, 'assembly_get', 'entity_meta', 'material_list']);
+		// linked KiCad board, so it is named here too. Two more are named
+		// here rather than in READ_ONLY, each for its own reason.
+		// `material_list` (M1, §9) CAN be called with no fixture, but the
+		// sequence's plate has no materials, so calling it would assert two
+		// empty lists; its answer's shape — the table, the per-body
+		// assignments, and the assignments that no longer resolve — is pinned
+		// in `crates/wasm-bridge/tests/measurement_expr.rs`. `drawing_get`
+		// (D4f, §8) needs a Drawing tab; its answers are pinned in
+		// `crates/wasm-bridge/tests/tool_drawing.rs`. M1's two material EDITS
+		// are authoring tools and live in the other spec, as do D4f's.
+		expect(routed).toEqual([
+			...expected,
+			'assembly_get',
+			'entity_meta',
+			'material_list',
+			'drawing_get'
+		]);
 	});
 });

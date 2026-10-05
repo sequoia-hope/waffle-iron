@@ -81,8 +81,12 @@ import {
 } from './scripts.js';
 import {
 	drawingAnnotationAddTool,
+	drawingAnnotationDeleteTool,
+	drawingAnnotationEditTool,
+	drawingGetTool,
 	drawingSheetEditTool,
 	drawingViewAddTool,
+	drawingViewDeleteTool,
 	drawingViewEditTool
 } from './drawing.js';
 import { viewportCaptureTool, viewportViewTool } from './viewport.js';
@@ -157,9 +161,13 @@ export const TOOLS = [
 	mateAddTool,
 	mateEditTool,
 	mateDeleteTool,
+	drawingGetTool,
 	drawingViewAddTool,
 	drawingViewEditTool,
+	drawingViewDeleteTool,
 	drawingAnnotationAddTool,
+	drawingAnnotationEditTool,
+	drawingAnnotationDeleteTool,
 	drawingSheetEditTool
 ];
 

@@ -12,8 +12,10 @@ Owner crates: `kernel-v2` (D1, D2), `waffle-types` (D0, D3, M1), `file-format`
 M2), `step-export` work in `kernel-v2::step_export` (M3).
 
 Status: **D1a, D1b and D1c landed 2026-10-03, with the one-view DXF export of
-§12.** Everything else is still design. Written 2026-10-03 from a survey of
-the tree.
+§12.** Written 2026-10-03 from a survey of the tree. Since then D2, D3 and
+D4a–D4f have landed too (§12 has the dates; each has its implementation notes
+under §8), and M1 is in flight. The paragraphs below this one record D1 as it
+landed.
 The v4 document model (`specs/waffle_v4_document_model.md` §Phase 4, line 503)
 reserved the `Drawing` tab kind and named the kernel projection debt (line
 489) that this spec carries as D1.
@@ -3937,6 +3939,138 @@ Three consequences worth recording:
   sees is the markup `export_svg` writes. A placement preview is not part of
   the drawing. `withGhost` is gone with the splice.
 
+### D4f — The agent's drawing door, completed (landed 2026-10-05)
+
+Owner: `wasm-bridge`, `app` (tool definitions and routing), `relay`
+(manifest). No format change: every addition is a tool or a message, and the
+one new edit variant (`DrawingEdit::EditAnnotation`) is wire vocabulary, not
+a persisted type.
+
+**What was missing, and had been named as missing.** §8 wrote the MCP surface
+as three mutating tools and D4a–D4e added a fourth; four increments of notes
+then named the holes an agent fell into: no `drawing_get` (D4a: "an agent
+that OPENS a document with a drawing tab has no read-only way to list its
+views"), no way to read an annotation back (D4d: "no MCP tool reads an
+annotation back — the agent-facing readback carries `view.annotations.len()`
+and nothing more"), no `EditAnnotation` (D4d: the panel's drag is a delete
+and a re-add in one `Batch`, which moves the annotation to the end of the
+list), and no export of an isometric without first putting it on a sheet
+(D4e: "`ProjectedDirection`'s corners are not offered by `export_dxf`").
+Two more were never written down because nothing in the engine was missing:
+`DeleteView` and `DeleteAnnotation` existed as edits since D4a, and the panel
+used them, but no tool did — so an agent that misplaced a view could not take
+it back off the sheet. The MCP spec (`specs/waffle_mcp_server.md` §2.5) had
+no Drawings section at all; it does now, with the family's two rules (no
+`value`; anchors are pids) and the four codes the tools had been raising
+outside its closed set (`NotFound`, `InvalidArgument`, `DrawingEditFailed`,
+`AnnotationNotMeasurable`).
+
+**`drawing_get` is gated on a Drawing tab like the commands, and that is
+deliberate.** A read-only tool would ordinarily be allowed anywhere, and the
+document's drawing content IS readable for any tab. But half of what the
+answer carries — the anchors an annotation may be authored on, the per-view
+declines and errors, the measured value of every dimension — is the OPEN
+drawing's evaluation (`EngineState::drawing`), which exists only for the
+active tab. A `drawing_get` of an inactive drawing would answer with
+`anchors: 0` and no values and look like an empty drawing. `assembly_get`
+made the same call for the same reason.
+
+**The annotation record pairs the document with the layout, and the pairing
+is positional.** `ViewLayout.annotations` carries only the annotations that
+RESOLVED, in document order (D4d's open item: no index on the layout record),
+so the k-th resolved annotation is the k-th layout entry.
+`drawing_state_with` walks both lists with one cursor, skipping the indices in
+`annotation_errors`. The record's `value` therefore comes from the layout and
+never from the document — the document stores no number (§7) — and
+`resolved: false` is what an agent reads for a dimension whose edge the model
+has since lost. The anchors ride as `{pid: "<decimal>", kind: {type}}`, the
+same shape `anchor_list` uses, and `anchors_arg` now accepts that object kind
+beside the bare tag, so a record read off `drawing_get` passes back into
+`drawing_annotation_add` verbatim (pinned by the round trip in
+`drawing_get_lists_an_annotation_with_the_number_the_rebuild_measured`).
+
+**`EditAnnotation` refuses a field the kind lacks, by name, before writing
+anything.** The alternative — ignore `text` on a dimension — is the derived
+title-block-row failure again: a caller that set a field and heard nothing
+believes it took. `edit_annotation_in_place` checks every given field against
+the variant first and writes only if all pass, so a refused edit changes
+nothing. The tool surfaces that refusal as `InvalidArgument` (it is the
+argument's fault) by applying the edit to a scratch copy before committing;
+`DrawingEditFailed` is kept for the engine refusing the resulting document.
+Clearing is spelled per field in the way the field's type allows:
+`precision: "default"` (a number cannot carry "none"; `null` means "not
+given" on every door here), `dual_unit: ""`, `expr: ""` — the last because
+`""` already meant "measure the anchors" on `_add`. The rollback rule is
+`_add`'s with one refinement: an edit that leaves a WORKING annotation
+unresolvable (an `expr` naming nothing) is rolled back whole and refused
+`AnnotationNotMeasurable`; an annotation that already did not resolve stays
+editable (its placement, say), because rolling that back would make a broken
+dimension un-fixable from the tool.
+
+**`drawing_view_delete` names what it took.** The engine's cascade (D4a,
+transitive since D4b) is the right behaviour and the panel's silence about it
+is an open item there. The tool diffs the view ids before and after and
+answers `deleted: [...]`, so an agent that deletes a parent is told the
+section and the detail went with it rather than discovering it on the next
+`drawing_get`.
+
+**`export_dxf` lost its private copy of the named-view table.** It carried six
+rows of `(tag, dir, up)` that restated `NamedView::frame` — identical rows,
+checked — and lacked the seventh. `named_views()` now reads `NamedView::ALL`,
+so the one-view export and a sheet's `view` argument spell `iso` the same way
+and cannot drift; the unit-axis test became "six unit axes and the diagonal".
+The D4e item was phrased about `ProjectedDirection`'s corners; the model-level
+export has no parent to project from, so the isometric it gains is
+`NamedView::Iso` (`(+1, +1, +1)`, `+z` up), and the corners stay a sheet
+concept.
+
+**The page side is routing, not logic.** `tools/drawing.js` defines the four;
+`executor.js` routes `drawing_get` with the engine queries (the engine applies
+the tab gate itself) and the three commands with `DRAWING_COMMANDS` (the
+page's early gate answers before the lock is waited for);
+`agent-rust-tools.spec.js` and `agent-rust-authoring.spec.js` pin both tables.
+The relay manifest was regenerated (73 tools) and its 125 tests pass. The
+end-to-end exercise of every drawing tool through a real MCP client, a local
+relay and a headless page is `docs/notes/drawings_mcp_e2e/` (55 checks, 24
+tools, the sheet exported and the PDF inspected; its README has the table).
+
+**Three things the end-to-end run changed.** (1) The `anchors` item schema
+had `additionalProperties: false`, so an `anchor_list` entry — which carries
+`shape`, `at` and `radius` beside `pid` and `kind` — was rejected by the
+relay's argument validation before the page saw it; the "passes back
+verbatim" claim above was false until the schema was opened. (2) The page's
+Part-tab gate refused `undo` / `redo` on a Drawing tab ("agent edits work on
+Part tabs") although the engine's `Undo` reaches the drawing's own stack
+there (D4d) and a drawing tab's feature tree is empty, so nothing of a part
+can be undone by mistake; the gate now passes the two on a Drawing tab, and
+`tool_drawing.rs` pins that two undos empty the sheet and a redo refills it
+while the part's tree is untouched. (3) The relay's schema check refuses a
+typed `value` with a JSON-RPC `-32602` and the pointer BEFORE the engine's
+by-name refusal can run — both are loud, but a client sees the schema's
+message, not the one that names `expr`; the engine's is pinned in Rust.
+
+**Still open after this increment:**
+
+- *The host relay the user's Claude Code session talks to was started
+  2026-09-29 and serves the manifest it loaded then.* The relay adopts a
+  newer manifest from the page on pairing (§2.4), but an MCP client that does
+  not act on `tools/list_changed` sees the stale list until its server is
+  restarted. Not a code item; recorded because it is the first thing that
+  looks like "the drawing tools are missing".
+- *No index on the layout record* — D4d's item stands; the positional
+  pairing above is correct but would be simpler with it.
+- *The panel still edits an annotation as delete-and-re-add.* The engine edit
+  it wanted now exists; switching `editSheetAnnotation` to it is one
+  function and removes the reorder.
+- *`drawing_get` reads the ACTIVE drawing only.* A `tab_id` argument that
+  answered the document content of an inactive drawing (views, sheets, title
+  block fields — but no anchors, no values) is additive if a reader ever
+  needs it.
+- *`Ordinate` is still not authorable*, and §7's `origin: GeomRef` is still
+  the fix.
+
+## 9. M1 — Tolerance, precision, material
+
 ## 9. M1 — Tolerance, precision, material (LANDED 2026-10-04)
 
 Owner: `waffle-types`, `feature-engine`, `app`.
@@ -4718,6 +4852,7 @@ under both schema settings.
 | D4c | title-block expressions, authorable `Measured::Expr`, hatch + detail clip in the DXF | D2, D4b | waffle-types, feature-engine, kernel-v2, wasm-bridge, app — **LANDED 2026-10-04** |
 | D4d | dimensioning toolbar on the drawing tab; anchor hit-test with paper-constant pick radius; select/drag/delete; the drawing's own undo stack | D4b | app, wasm-bridge — **LANDED 2026-10-04** |
 | D4e | place-view dialog with hover ghost box; projected-view tool with eight hover sectors incl. isometric corners (`ProjectedDirection` diagonals, format v15) | D4b | app, feature-engine, file-format, wasm-bridge — **LANDED 2026-10-04** |
+| D4f | the agent's door completed: `drawing_get` (with annotation read-back and measured values), `drawing_view_delete`, `drawing_annotation_edit` (`EditAnnotation`, in place), `drawing_annotation_delete`; `export_dxf` takes `iso`; the MCP spec's Drawings section | D4d | wasm-bridge, app, relay — **LANDED 2026-10-05** |
 | M1 | tolerance types, precision, material + mass | D2 | waffle-types, feature-engine, app — **LANDED 2026-10-04** (assigned format v14; the floor ENDS at v15, D4e's, which merged after it) |
 | M2 | `Datum` + `Pmi` features, 3D PMI overlay | D0, D3, M1 | feature-engine, app |
 | M3 | AP242 writer with PMI + round-trip oracle | M2 | kernel-v2, wasm-bridge |
