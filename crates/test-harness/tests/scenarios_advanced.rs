@@ -807,7 +807,10 @@ fn test_extrude_advanced_full_params() {
             merge: true,
             target_body: None,
             depth_mode: DepthMode::Blind,
-            second_direction: Some(SecondDirection::Blind { depth: 5.0 }),
+            second_direction: Some(SecondDirection::Blind {
+                depth: 5.0,
+                depth_expr: None,
+            }),
             region: None,
             regions: Vec::new(),
             depth_expr: None,

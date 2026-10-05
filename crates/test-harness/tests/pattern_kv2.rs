@@ -49,8 +49,10 @@ fn circular_about_z(
             axis: AxisRef::Explicit {
                 origin: [0.0, 0.0, 0.0],
                 direction: [0.0, 0.0, 1.0],
+                origin_expr: None,
             },
             count,
+            count_expr: None,
             angle_deg: 360.0,
             angle_expr: None,
             skip: vec![],
@@ -353,16 +355,20 @@ fn linear_pattern_and_grid_volumes() {
             direction: AxisRef::Explicit {
                 origin: [0.0; 3],
                 direction: [2.0, 0.0, 0.0], // non-unit: normalized
+                origin_expr: None,
             },
             count: 3,
+            count_expr: None,
             spacing: 0.15,
             spacing_expr: None,
             second: Some(LinearSecondDirection {
                 direction: AxisRef::Explicit {
                     origin: [0.0; 3],
                     direction: [0.0, 1.0, 0.0],
+                    origin_expr: None,
                 },
                 count: 2,
+                count_expr: None,
                 spacing: -0.2, // negative: toward −y
                 spacing_expr: None,
             }),
@@ -430,6 +436,7 @@ fn entity_axis_from_a_cylindrical_face_drives_the_pattern() {
             seeds: PatternSeeds::Selected(vec![body_ref(bump, OutputKey::Main)]),
             axis: AxisRef::Entity { geom_ref: lateral },
             count: 4,
+            count_expr: None,
             angle_deg: 360.0,
             angle_expr: None,
             skip: vec![],
@@ -498,6 +505,7 @@ fn mirror_in(seed: Uuid, origin: [f64; 3], normal: [f64; 3]) -> Operation {
             plane: AxisRef::Explicit {
                 origin,
                 direction: normal,
+                origin_expr: None,
             },
             combine: None,
             targets: None,
@@ -559,6 +567,7 @@ fn a_mirrored_spoke_adds_into_a_hub_as_one_shell() {
                 plane: AxisRef::Explicit {
                     origin: [0.0; 3],
                     direction: [0.0, 1.0, 0.0],
+                    origin_expr: None,
                 },
                 combine: Some(CombineMode::Add),
                 targets: Some(vec![body_ref(hub, OutputKey::Main)]),
@@ -599,6 +608,7 @@ fn all_seeds_patterns_every_live_body() {
                 plane: AxisRef::Explicit {
                     origin: [0.0, 0.0, -0.5],
                     direction: [0.0, 0.0, 1.0],
+                    origin_expr: None,
                 },
                 combine: None,
                 targets: None,

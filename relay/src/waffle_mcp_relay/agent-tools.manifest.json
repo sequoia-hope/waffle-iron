@@ -1,5 +1,5 @@
 {
-  "manifest_hash": "b7f62e369cc272af0492b0218093a323c9d9f9dd42b1b8fc4916a88397fbb7ff",
+  "manifest_hash": "ec2696a1b759305d74a663a8f23031a029ad3b3871cbc96a397b22ba011f1b80",
   "protocol": "waffle-agent-link/1",
   "tools": [
     {
@@ -26301,6 +26301,10 @@
             "description": "A second unit shown in brackets beneath the primary one (\"in\", \"mm\", …).",
             "type": "string"
           },
+          "expr": {
+            "description": "Dimension only: the value as an EXPRESSION, measured against the view's source tab on every rebuild — \"distance(wall_a, wall_b) / 2\", \"plate_w\". The anchors are still required: they are where the dimension is drawn, the expression only what it says. Omit to measure the anchors themselves. A typed-in NUMBER is never accepted.",
+            "type": "string"
+          },
           "kind": {
             "default": "Distance",
             "description": "Dimension only. Distance is an ALIGNED dimension (between two parallel edges, or between two points); HDistance and VDistance are the horizontal and vertical components; Angle is in degrees when printed and measures the ACUTE angle between two straight edges.",
@@ -26466,10 +26470,14 @@
             "type": "boolean"
           },
           "title_block_fields": {
-            "description": "The title block's rows in print order — the whole list, replaced. A row is {key} for a derived one, {key, text} for one a person types, or {label, text} for a row of your own.",
+            "description": "The title block's rows in print order — the whole list, replaced. A row is {key} for a derived one, {key, text} for one a person types, {key, expr} for one the engine evaluates, or {label, text} / {label, expr} for a row of your own.",
             "items": {
               "additionalProperties": false,
               "properties": {
+                "expr": {
+                  "description": "An expression whose evaluated text fills the row — the same language a feature's fields take, measurement functions included, so \"volume(plate) * 0.00000785\" prints a mass and \"plate_w\" a parameter. The source is kept in the document and the sheet shows the value. It is measured against the one source tab this sheet's views draw, and refuses by name on a sheet that draws two. Not with text, and not on a derived key.",
+                  "type": "string"
+                },
                 "key": {
                   "enum": [
                     "DocumentName",

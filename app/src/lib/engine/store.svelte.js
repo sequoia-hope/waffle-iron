@@ -7998,9 +7998,20 @@ export const DRAWING_PROJECTION_ANGLES = ['Third', 'First'];
  * and read — the title block prints it. `null` means "no change" for every
  * field, so a panel control can send only what it changed.
  *
+ * `titleBlockFields` is passed STRAIGHT THROUGH to a typed
+ * `Vec<TitleBlockField>`, so it takes the engine's shape and not the agent
+ * tool's sugar: a row is `{ key: { type: 'Material' }, text }`, or
+ * `{ key: { type: 'Custom', label: 'Stock' }, expr }` for D4c's expression
+ * row. `drawing_sheet_edit`'s `{ label, expr }` form is the TOOL's
+ * convenience and is converted there; sent here it would deserialize as a row
+ * with no key. Written out because this door had no caller until the D4c
+ * review's spec reached for it and hit exactly that.
+ *
  * @param {{ sheetId?: string, name?: string, size?: string | [number, number],
  *           orientation?: string, projectionAngle?: string,
- *           titleBlock?: boolean, titleBlockFields?: any[] }} [changes]
+ *           titleBlock?: boolean,
+ *           titleBlockFields?: Array<{ key: { type: string, label?: string },
+ *                                      text?: string, expr?: string }> }} [changes]
  */
 export async function editDrawingSheet(changes = {}) {
 	const size =

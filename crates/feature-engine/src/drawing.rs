@@ -164,6 +164,29 @@ pub enum DrawingError {
         expr: String,
         reason: String,
     },
+    /// A title-block expression row in a fill with no expression environment
+    /// (D4c) — a sheet whose views draw no single source tab, so there is no
+    /// one document for `volume(plate)` to mean something in.
+    ///
+    /// Named rather than printed as its own source: a title block reading
+    /// `mass(part)` is the failure D4b declined to ship.
+    #[error(
+        "the `{label}` row of sheet {sheet} prints the expression `{expr}`, and this sheet has \
+         no single source tab to evaluate it against"
+    )]
+    TitleBlockExprNotEvaluated {
+        sheet: Uuid,
+        label: String,
+        expr: String,
+    },
+    /// A title-block expression row whose expression failed (D4c).
+    #[error("the `{label}` row of sheet {sheet}: the expression `{expr}` failed: {reason}")]
+    TitleBlockExprFailed {
+        sheet: Uuid,
+        label: String,
+        expr: String,
+        reason: String,
+    },
     /// An anchor whose selector is not a persistent id.
     #[error(
         "annotation {index} of view {view} anchors by {selector}; a drawing annotation must \
@@ -627,21 +650,24 @@ pub enum Orientation {
 
 // --------------------------------------------------------------- title block
 
-/// A sheet's title block (`specs/drawings_and_mbd.md` §8, D4b): the data
+/// A sheet's title block (`specs/drawings_and_mbd.md` §8, D4b/D4c): the data
 /// fields printed in the frame's bottom-right corner.
 ///
-/// **The fields are KEYS and authored text, not expressions.** §8 writes
-/// "title block fields are expressions over document metadata and the
-/// measurement functions, so `mass(part)` and a parameter table work with no
-/// special casing" — and that is right once D2 lands. It has not, and the
-/// choice is the same one D4a made for `Measured::Expr`: an unevaluated
+/// **A field is a KEY plus either authored text or an EXPRESSION** (D4c). §8
+/// wants "expressions over document metadata and the measurement functions,
+/// so `mass(part)` and a parameter table work with no special casing", and
+/// D4b could not offer them because D2 had not landed — an unevaluated
 /// expression printed as a number would be a different number from the one
 /// authored, and printed as its own source text would be a title block
-/// reading `mass(part)`. So this increment offers the keys the engine can
-/// actually fill plus literal text for the ones only a person knows, and
-/// [`TitleBlockKey::Expr`] is deliberately absent — a variant that exists and
-/// cannot be filled is a document a user can author and the engine cannot
-/// draw (the D4a argument for leaving `Section` out until it worked).
+/// reading `mass(part)`. D2 landed, so [`TitleBlockField::expr`] now holds the
+/// SOURCE and [`title_block_layout`] prints its evaluated text.
+///
+/// There is still no `TitleBlockKey::Expr` VARIANT, and that is a choice:
+/// every key already names a row, and an expression is how the row is
+/// FILLED, not what it says. A `Custom { label }` row with an expression is
+/// `mass(part)` beside a label the author chose, which is what §8 asks for,
+/// and a new key variant would have moved the format floor (the D4b
+/// `Projection::Section` argument) to buy nothing.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[cfg_attr(feature = "json-schema", derive(schemars::JsonSchema))]
 pub struct TitleBlock {
@@ -700,6 +726,20 @@ pub struct TitleBlockField {
     /// derived key — see [`TitleBlockKey::is_derived`].
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub text: Option<String>,
+    /// An EXPRESSION whose evaluated text fills this row (D4c) — the source,
+    /// kept, so the document carries what the author wrote and the sheet
+    /// carries what it evaluates to.
+    ///
+    /// Additive and defaulted, so it moved no format floor: a reader that
+    /// does not know the field keeps it in [`TitleBlockField::extra`] and
+    /// re-emits it, and prints the row's `text` (or nothing) meanwhile —
+    /// which is a visible gap rather than a wrong number.
+    ///
+    /// Takes precedence over `text` when both are present, and the authoring
+    /// door refuses that pair by name rather than letting one silently win.
+    /// Ignored for a derived key, on the same terms as `text`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub expr: Option<String>,
     #[serde(flatten)]
     pub extra: Map<String, Value>,
 }
@@ -709,6 +749,7 @@ impl TitleBlockField {
         TitleBlockField {
             key,
             text: None,
+            expr: None,
             extra: Map::new(),
         }
     }
@@ -716,9 +757,16 @@ impl TitleBlockField {
     /// This field with authored text.
     pub fn with_text(key: TitleBlockKey, text: impl Into<String>) -> TitleBlockField {
         TitleBlockField {
-            key,
             text: Some(text.into()),
-            extra: Map::new(),
+            ..TitleBlockField::new(key)
+        }
+    }
+
+    /// This field filled by an expression (D4c).
+    pub fn with_expr(key: TitleBlockKey, expr: impl Into<String>) -> TitleBlockField {
+        TitleBlockField {
+            expr: Some(expr.into()),
+            ..TitleBlockField::new(key)
         }
     }
 }
@@ -847,16 +895,36 @@ pub struct TitleBlockContext<'a> {
     pub angle: ProjectionAngle,
 }
 
-/// Fill `block`'s rows (D4b).
+/// A filled title block and whatever refused while filling it (D4c).
 ///
-/// A derived key's authored `text` is IGNORED rather than preferred: a title
-/// block whose sheet number disagrees with the sheet it is printed on is worse
-/// than one a person cannot overrule.
+/// The errors are beside the layout rather than instead of it, for the reason
+/// `ViewRebuild::annotation_errors` is: a title block of eight rows losing
+/// seven because one expression is broken is worse than a sheet with one
+/// blank row and a named error.
+#[derive(Debug, Clone, Default)]
+pub struct TitleBlockFill {
+    pub layout: TitleBlockLayout,
+    pub errors: Vec<DrawingError>,
+}
+
+/// Fill `block`'s rows (D4b, D4c).
+///
+/// A derived key's authored `text` — and its `expr` — are IGNORED rather than
+/// preferred: a title block whose sheet number disagrees with the sheet it is
+/// printed on is worse than one a person cannot overrule.
+///
+/// `exprs` evaluates a [`TitleBlockField::expr`] row (D4c). `None` is a caller
+/// with no expression environment, and such a row then refuses by name and
+/// prints NOTHING — never its own source text, which would put `mass(part)`
+/// on the paper, and never the row's `text`, which is a different value from
+/// the one the author asked for.
 pub fn title_block_layout(
     block: &TitleBlock,
     sheet: &Sheet,
     ctx: &TitleBlockContext,
-) -> TitleBlockLayout {
+    exprs: Option<&dyn ExprDimensions>,
+) -> TitleBlockFill {
+    let mut errors = Vec::new();
     let rows = block
         .fields
         .iter()
@@ -872,11 +940,40 @@ pub fn title_block_layout(
                     ProjectionAngle::Third => "Third angle".to_string(),
                     ProjectionAngle::First => "First angle".to_string(),
                 },
-                _ => field.text.clone().unwrap_or_default(),
+                _ => match field.expr.as_deref().filter(|e| !e.trim().is_empty()) {
+                    None => field.text.clone().unwrap_or_default(),
+                    Some(expr) => {
+                        let got = match exprs {
+                            None => Err(DrawingError::TitleBlockExprNotEvaluated {
+                                sheet: sheet.id,
+                                label: field.key.label().to_string(),
+                                expr: expr.to_string(),
+                            }),
+                            Some(values) => values.text_of(expr).map_err(|reason| {
+                                DrawingError::TitleBlockExprFailed {
+                                    sheet: sheet.id,
+                                    label: field.key.label().to_string(),
+                                    expr: expr.to_string(),
+                                    reason,
+                                }
+                            }),
+                        };
+                        match got {
+                            Ok(text) => text,
+                            Err(e) => {
+                                errors.push(e);
+                                String::new()
+                            }
+                        }
+                    }
+                },
             },
         })
         .collect();
-    TitleBlockLayout { rows }
+    TitleBlockFill {
+        layout: TitleBlockLayout { rows },
+        errors,
+    }
 }
 
 /// A sheet's scale as a title block prints it: the one ratio every view shares,
@@ -1951,6 +2048,11 @@ pub struct ViewRebuild {
     /// drawing where the information was. The view draws, the annotations
     /// that resolved are on it, and the ones that did not are named.
     pub annotation_errors: Vec<(usize, DrawingError)>,
+    /// What the rebuild could still DRAW but had to compromise on (D4c) —
+    /// today, a hatch boundary that came back degenerate. Beside the layout
+    /// for the reason `annotation_errors` is: a cap that came back unhatched
+    /// should say why rather than look like a cap nobody sectioned.
+    pub warnings: Vec<String>,
 }
 
 /// Project `bodies` into `frame` and resolve `view`'s annotations against the
@@ -2117,6 +2219,8 @@ pub fn rebuild_view_in(
     }
     layout.annotations = resolved;
     layout.hatch = extras.hatch.clone();
+    let mut warnings = Vec::new();
+    layout.hatch_segments = hatch_fill(&extras.hatch, view.scale, &mut warnings);
     layout.marks = extras.marks.clone();
     layout.clip = extras.clip;
 
@@ -2135,7 +2239,42 @@ pub fn rebuild_view_in(
         geometry: drawn,
         anchors: anchors.offered(),
         annotation_errors,
+        warnings,
     })
+}
+
+/// A section cap's hatch, in the view's own `(u, v)` (D4c).
+///
+/// Two conversions happen here and both are the whole reason this wrapper
+/// exists rather than the scanline being called directly:
+///
+/// - **The spacing is a PAPER quantity**, 3 mm whatever the view's scale, so
+///   it is divided by the scale on the way in. A view drawn at 2:1 therefore
+///   hatches at 1.5 mm of model, which is 3 mm of paper — the alternative, a
+///   fixed model spacing, would print a detail view's hatch at twice the
+///   pitch of the view it was cropped from.
+/// - **The angle's SIGN flips.** [`hatch::HATCH_ANGLE_DEG`] is measured on
+///   the paper, whose `y` runs DOWN; a view's `v` runs up. Negating here is
+///   what keeps the drawn lean the one D4b shipped, and it is the one place
+///   the two frames meet.
+fn hatch_fill(loops: &[HatchLoop], scale: f64, warnings: &mut Vec<String>) -> Vec<[[f64; 2]; 2]> {
+    use waffle_types::annotation::hatch;
+    if loops.is_empty() {
+        return Vec::new();
+    }
+    // Meters per paper millimetre at this view's scale. `scale` is already
+    // known finite and positive (checked at the top of `rebuild_view_in`).
+    let per_mm = 1.0 / (1000.0 * scale);
+    let fill = hatch::hatch_segments(
+        loops,
+        &hatch::HatchParams {
+            spacing: hatch::HATCH_SPACING_MM * per_mm,
+            angle_rad: (-hatch::HATCH_ANGLE_DEG).to_radians(),
+            sagitta: hatch::HATCH_BOUNDARY_SAGITTA_MM * per_mm,
+        },
+    );
+    warnings.extend(fill.warnings);
+    fill.segments
 }
 
 /// Every drawn curve of a view, indexed by the persistent id of the entity it
@@ -2442,6 +2581,18 @@ pub trait ExprDimensions {
     /// `waffle_types::annotation::measure` produces, because the two feed
     /// one field and a renderer must not have to ask which it got.
     fn value_of(&self, expression: &str, kind: DimensionKind) -> Result<f64, String>;
+
+    /// `expression` as PRINTABLE text, for a title-block row (D4c).
+    ///
+    /// Text rather than a number because a title block is text: the row has
+    /// no `DimensionKind` to accept a value for, and `area(top)` — a length²
+    /// no field accepts — is a sensible thing to print beside a part number.
+    /// The unit therefore comes back inside the string, chosen by the
+    /// expression's OWN dimension (`expr::Quantity::display_text`), which is
+    /// why this is one method on the same trait rather than a second
+    /// environment: a sheet must not be able to measure one document for its
+    /// dimensions and another for its title block.
+    fn text_of(&self, expression: &str) -> Result<String, String>;
 }
 
 /// One anchor's geometry in the view plane, or a typed refusal naming it.

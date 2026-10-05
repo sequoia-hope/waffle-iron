@@ -74,6 +74,7 @@
 //! schema is pinned regardless, by `tests/annotation_schema_golden.rs`, so
 //! the shape cannot drift between now and then unnoticed.
 
+pub mod hatch;
 pub mod layout;
 pub mod measure;
 

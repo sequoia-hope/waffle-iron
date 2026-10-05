@@ -621,6 +621,114 @@ fn a_linear_dimension_on_a_top_view_measures_the_authored_box() {
 }
 
 #[test]
+fn an_expression_dimension_is_authorable_and_prints_the_expression_not_the_anchors() {
+    // D4c: `Measured::Expr` became EVALUABLE with D2 and the rebuild stopped
+    // refusing it then — but nothing could author one, because
+    // `build_annotation` always wrote `Measured::FromGeometry` and the tool
+    // had no `expr` argument. This is the authoring half.
+    //
+    // The pin is that the printed number is the EXPRESSION's and not the
+    // anchors': the dimension is anchored on the same wall pair the test
+    // above measures, and the expression asks for half of it, so one number
+    // cannot be mistaken for the other.
+    let (mut state, mut kernel, part_tab, drawing_tab) = box_and_drawing();
+    let (lo, hi, span) = wall_pids(&mut state, &mut kernel, &part_tab, &drawing_tab);
+    ok(
+        &mut state,
+        &mut kernel,
+        "tab_switch",
+        json!({ "tab_id": part_tab }),
+    );
+    ok(
+        &mut state,
+        &mut kernel,
+        "parameters_set",
+        json!({ "parameters": [{ "name": "half_span", "expression": format!("{}", span * 500.0) }] }),
+    );
+    ok(
+        &mut state,
+        &mut kernel,
+        "tab_switch",
+        json!({ "tab_id": drawing_tab }),
+    );
+    let view_id = ok(
+        &mut state,
+        &mut kernel,
+        "drawing_view_add",
+        json!({ "tab_id": part_tab, "view": "top" }),
+    )["view_id"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    ok(
+        &mut state,
+        &mut kernel,
+        "drawing_annotation_add",
+        json!({
+            "view_id": view_id,
+            "annotation": "Dimension",
+            "kind": "Distance",
+            // The anchors are still required — they are WHERE it is drawn.
+            "anchors": [lo, hi],
+            "expr": "half_span",
+        }),
+    );
+    let laid_out = layout(&state, &drawing_tab, &view_id);
+    let AnnotationLayout::Dimension { value, .. } = &laid_out.annotations[0] else {
+        panic!("not a dimension: {:?}", laid_out.annotations[0]);
+    };
+    // The layout carries METERS, and the expression was written in mm.
+    assert!(
+        (value - span / 2.0).abs() < 1e-12,
+        "the expression asked for {} m, the layout says {value}",
+        span / 2.0
+    );
+    assert!(
+        (value - span).abs() > 1e-6,
+        "it printed what the anchors measure, so the expression did nothing"
+    );
+
+    // A `value` is STILL not expressible at this door, which is §7's refusal
+    // and the reason an expression is allowed where a literal is not: an
+    // expression is re-measured on every rebuild and cannot go stale.
+    let err = refused(
+        &mut state,
+        &mut kernel,
+        "drawing_annotation_add",
+        json!({
+            "view_id": view_id,
+            "annotation": "Dimension",
+            "kind": "Distance",
+            "anchors": [lo, hi],
+            "value": 0.123,
+        }),
+    );
+    assert_eq!(err["code"], "InvalidArgument", "{err}");
+
+    // An expression that does not resolve takes the annotation down loudly
+    // and leaves nothing behind.
+    let err = refused(
+        &mut state,
+        &mut kernel,
+        "drawing_annotation_add",
+        json!({
+            "view_id": view_id,
+            "annotation": "Dimension",
+            "kind": "Distance",
+            "anchors": [lo, hi],
+            "expr": "no_such_parameter",
+        }),
+    );
+    let message = serde_json::to_string(&err).unwrap_or_default();
+    assert!(message.contains("no_such_parameter"), "{err}");
+    assert_eq!(
+        layout(&state, &drawing_tab, &view_id).annotations.len(),
+        1,
+        "the refused annotation was rolled back"
+    );
+}
+
+#[test]
 fn an_annotation_whose_anchor_is_absent_refuses_rather_than_dimensioning_a_neighbour() {
     // D0's never-rebinding `Selector::Pid`, at the drawing boundary: an
     // anchor on a pid this view does not draw has no geometry at all, so it
@@ -730,6 +838,325 @@ fn a_sheet_exports_every_view_placed_in_paper_millimetres() {
         min_y < 50.0 && max_y > 150.0,
         "and both rows, got y {min_y}..{max_y}"
     );
+}
+
+/// Every DXF entity in the `ENTITIES` section, as `(type, layer, groups)`,
+/// where `groups` maps a group code to its values in order.
+///
+/// A real walk of the group-code stream rather than a substring search: the
+/// claim "the hatch is on the HATCH layer" is about which `8` group each
+/// entity carries, and a `grep` for `HATCH` would be satisfied by the layer
+/// TABLE alone — which is exactly the bug a writer could have.
+fn dxf_entities(dxf: &str) -> Vec<(String, String, std::collections::BTreeMap<i32, Vec<String>>)> {
+    use std::collections::BTreeMap;
+    let lines: Vec<&str> = dxf.lines().map(str::trim).collect();
+    let start = lines
+        .windows(3)
+        .position(|w| w[0] == "0" && w[1] == "SECTION" && w[2] == "2")
+        .map(|i| i + 3)
+        .filter(|i| lines.get(*i).copied() == Some("ENTITIES"))
+        .or_else(|| {
+            // The ENTITIES section is not the first; walk for it.
+            lines
+                .iter()
+                .enumerate()
+                .find(|(i, l)| **l == "ENTITIES" && lines.get(i.wrapping_sub(1)) == Some(&"2"))
+                .map(|(i, _)| i)
+        })
+        .expect("the DXF has an ENTITIES section");
+    let mut out = Vec::new();
+    let mut current: Option<(String, String, BTreeMap<i32, Vec<String>>)> = None;
+    let mut i = start + 1;
+    while i + 1 < lines.len() {
+        let code: i32 = match lines[i].parse() {
+            Ok(c) => c,
+            Err(_) => {
+                i += 2;
+                continue;
+            }
+        };
+        let value = lines[i + 1];
+        i += 2;
+        if code == 0 {
+            if let Some(entity) = current.take() {
+                out.push(entity);
+            }
+            if value == "ENDSEC" || value == "EOF" {
+                break;
+            }
+            current = Some((value.to_string(), String::new(), BTreeMap::new()));
+        } else if let Some((_, layer, groups)) = current.as_mut() {
+            if code == 8 {
+                *layer = value.to_string();
+            }
+            groups.entry(code).or_default().push(value.to_string());
+        }
+    }
+    out
+}
+
+/// The declared `LAYER` records, in order.
+fn dxf_layers(dxf: &str) -> Vec<String> {
+    let lines: Vec<&str> = dxf.lines().map(str::trim).collect();
+    let mut out = Vec::new();
+    for i in 0..lines.len().saturating_sub(3) {
+        if lines[i] == "0" && lines[i + 1] == "LAYER" && lines[i + 2] == "2" {
+            out.push(lines[i + 3].to_string());
+        }
+    }
+    out
+}
+
+#[test]
+fn a_sections_hatch_reaches_the_dxf_on_the_hatch_layer() {
+    // D4c, closing D4b's "hatching is not in the DXF". §8 names a `HATCH`
+    // layer and the sheet DXF carried only curves: the cap's BOUNDARY was
+    // there (the projection emits it as an ordinary edge), the fill was not.
+    //
+    // The fill is the ENGINE's scanline now — one implementation for the
+    // screen, the PDF and this file — so the pin is that the same segment
+    // count the layout carries reaches the file, on the layer the standard
+    // names, as LINE entities a cutting table understands.
+    let (mut state, mut kernel, part_tab, drawing_tab) = bored_box_and_drawing();
+    let front = ok(
+        &mut state,
+        &mut kernel,
+        "drawing_view_add",
+        json!({ "tab_id": part_tab, "view": "front", "placement_mm": [100.0, 100.0] }),
+    )["view_id"]
+        .as_str()
+        .expect("the front view's id")
+        .to_string();
+    let section = ok(
+        &mut state,
+        &mut kernel,
+        "drawing_view_add",
+        json!({
+            "tab_id": part_tab,
+            "parent_view_id": front,
+            "section_mm": [-2.0, H * 1000.0 / 2.0, W * 1000.0 + 2.0, H * 1000.0 / 2.0],
+            "label": "A",
+        }),
+    )["view_id"]
+        .as_str()
+        .expect("the section's id")
+        .to_string();
+
+    let laid_out = layout(&state, &drawing_tab, &section);
+    let segments = laid_out.hatch_segments.len();
+    // A 20 × 10 mm cap at 3 mm spacing and 45°: enough lines to read as
+    // hatched, which is the whole point of the 3 mm choice.
+    assert!(
+        segments >= 5,
+        "a 20 × 10 mm cap must carry a readable hatch, got {segments} line(s)"
+    );
+
+    let dxf = exported_dxf(&tool(
+        &mut state,
+        &mut kernel,
+        "export_dxf",
+        json!({ "deliver": "agent" }),
+    ));
+    let entities = dxf_entities(&dxf);
+    let hatched: Vec<_> = entities
+        .iter()
+        .filter(|(_, layer, _)| layer == "HATCH")
+        .collect();
+    assert_eq!(
+        hatched.len(),
+        segments,
+        "every hatch line the layout carries must be in the file, and no others"
+    );
+    for (kind, _, groups) in &hatched {
+        // R12 `LINE`: group 10/20 the first point, 11/21 the second. Not a
+        // POLYLINE and not an `HATCH` entity (which R12 does not have).
+        assert_eq!(kind, "LINE", "a hatch line is an R12 LINE");
+        for code in [10, 20, 11, 21] {
+            assert_eq!(groups.get(&code).map(Vec::len), Some(1), "group {code}");
+        }
+    }
+    // The hatch lines land INSIDE the section view's own paper box, which is
+    // what says the placement went through the same similarity the curves
+    // did. (A hatch left in view coordinates would sit at the origin.)
+    let section_view = state
+        .session
+        .drawing(&drawing_tab)
+        .expect("the drawing")
+        .find_view(Uuid::parse_str(&section).unwrap())
+        .expect("the section")
+        .1
+        .clone();
+    let placement = section_view.placement_mm;
+    for (_, _, groups) in &hatched {
+        let x: f64 = groups[&10][0].parse().expect("an x");
+        let y: f64 = groups[&20][0].parse().expect("a y");
+        assert!(
+            (x - placement[0]).abs() < 30.0 && (y - placement[1]).abs() < 30.0,
+            "a hatch line at ({x}, {y}) is nowhere near the view at {placement:?}"
+        );
+    }
+    // The file's EXTENTS contain the hatch: a reader zooms to `$EXTMAX`, and a
+    // hatch line outside the box the file declares is a line the reader never
+    // sees. Every hatch coordinate in the file is checked, both ends of every
+    // line.
+    //
+    // This is a consistency check on the FILE, not a pin on the bbox fold in
+    // `dispatch::export_dxf` that exists for it. MEASURED: deleting that fold
+    // leaves this assertion passing, because the cap's own boundary is among
+    // the drawn curves and the hatch lies inside it — so on this fixture, and
+    // on any section whose cap boundary is drawn, the fold is a no-op. It
+    // earns its keep only where a cap loop is NOT among the view's curves
+    // (culled by a detail's crop, or declined), and no fixture reaches that
+    // today. Left in place as insurance, and named here so the next reader is
+    // not misled into thinking it is measured.
+    let (min_x, min_y, max_x, max_y) = dxf_extents(&dxf);
+    for (_, _, groups) in hatched.iter() {
+        for (gx, gy) in [(10, 20), (11, 21)] {
+            let x: f64 = groups[&gx][0].parse().expect("an x");
+            let y: f64 = groups[&gy][0].parse().expect("a y");
+            assert!(
+                x >= min_x && x <= max_x && y >= min_y && y <= max_y,
+                "a hatch line reaches ({x}, {y}), outside the file's own extents \
+                 ({min_x}, {min_y})…({max_x}, {max_y})"
+            );
+        }
+    }
+    // And the layer TABLE declares it, so a reader can switch it off. VISIBLE
+    // and HIDDEN stay declared whatever the drawing holds.
+    let layers = dxf_layers(&dxf);
+    assert_eq!(layers, vec!["VISIBLE", "HIDDEN", "HATCH"], "{layers:?}");
+    // A sheet with no section declares the two and no HATCH entity.
+    let (mut state, mut kernel, part_tab, _) = box_and_drawing();
+    ok(
+        &mut state,
+        &mut kernel,
+        "drawing_view_add",
+        json!({ "tab_id": part_tab, "view": "top" }),
+    );
+    let plain = exported_dxf(&tool(
+        &mut state,
+        &mut kernel,
+        "export_dxf",
+        json!({ "deliver": "agent" }),
+    ));
+    assert_eq!(dxf_layers(&plain), vec!["VISIBLE", "HIDDEN"]);
+    assert!(dxf_entities(&plain)
+        .iter()
+        .all(|(_, layer, _)| layer != "HATCH"));
+}
+
+#[test]
+fn a_detail_views_dxf_is_clipped_to_its_disc_and_not_merely_culled() {
+    // D4c, closing D4b's "a detail view's DXF is culled but not clipped". The
+    // layout carries every curve that REACHES the disc, whole — that is
+    // deliberate, because the renderer's `clipPath` is exact and free. The
+    // DXF has no `clipPath`, so it trimmed nothing and a cutting table given
+    // a detail got the overhang.
+    //
+    // The fixture is a 5 mm disc at the centre of one 20 mm edge of the
+    // plate's top view. That edge is 20 mm long and CROSSES the disc
+    // boundary, so the claim has a number: in the file it must be 10 mm (the
+    // chord of a 5 mm-radius disc through its centre), not 20.
+    let (mut state, mut kernel, part_tab, drawing_tab) = box_and_drawing();
+    let top = ok(
+        &mut state,
+        &mut kernel,
+        "drawing_view_add",
+        json!({ "tab_id": part_tab, "view": "top" }),
+    )["view_id"]
+        .as_str()
+        .expect("an id")
+        .to_string();
+    // The top view's (u, v) is the sketch plane, so the plate spans
+    // 0…W by 0…D. A disc on the middle of the v = 0 edge.
+    const R_MM: f64 = 5.0;
+    let detail = ok(
+        &mut state,
+        &mut kernel,
+        "drawing_view_add",
+        json!({ "tab_id": part_tab, "parent_view_id": top,
+                "detail_mm": [W * 1000.0 / 2.0, 0.0, R_MM] }),
+    )["view_id"]
+        .as_str()
+        .expect("an id")
+        .to_string();
+
+    // The LAYOUT is unchanged: still culled, not clipped. The edge it keeps
+    // is the authored 20 mm one, whole.
+    let laid_out = layout(&state, &drawing_tab, &detail);
+    let longest_in_layout = laid_out
+        .curves
+        .iter()
+        .filter_map(|c| match &c.geometry {
+            LayoutCurve::Line { start, end } => {
+                Some(((end[0] - start[0]).powi(2) + (end[1] - start[1]).powi(2)).sqrt())
+            }
+            _ => None,
+        })
+        .fold(0.0, f64::max);
+    assert!(
+        (longest_in_layout - W).abs() < 1e-9,
+        "the layout must still carry the whole edge for the renderer to clip: {longest_in_layout}"
+    );
+
+    let dxf = exported_dxf(&tool(
+        &mut state,
+        &mut kernel,
+        "export_dxf",
+        json!({ "deliver": "agent", "view_id": detail }),
+    ));
+    let entities = dxf_entities(&dxf);
+    let lines: Vec<f64> = entities
+        .iter()
+        .filter(|(kind, _, _)| kind == "LINE")
+        .map(|(_, _, groups)| {
+            let g = |code: i32| -> f64 { groups[&code][0].parse().expect("a coordinate") };
+            ((g(11) - g(10)).powi(2) + (g(21) - g(20)).powi(2)).sqrt()
+        })
+        .collect();
+    assert!(!lines.is_empty(), "the detail must draw something: {dxf}");
+    let longest = lines.iter().fold(0.0_f64, |a, b| a.max(*b));
+    assert!(
+        (longest - 2.0 * R_MM).abs() < 1e-6,
+        "the clipped edge must be the disc's 10 mm chord, got {longest} mm from {lines:?}"
+    );
+    // And it is still a LINE: the clip keeps each piece's kind, so a detail's
+    // DXF is not the one view flattened to polylines.
+    assert!(
+        entities
+            .iter()
+            .any(|(kind, _, _)| kind == "LINE" || kind == "ARC"),
+        "{entities:?}"
+    );
+    // Nothing reaches past the disc. A single view exports with NO sheet
+    // offset (that is what "at the paper origin" means — the view's own
+    // coordinates in mm), so the disc is still centred where it was authored
+    // and the file's extents must be exactly its box. Measured rather than
+    // assumed, because getting the clip's FRAME wrong is how this silently
+    // keeps working: a clip applied after the placement, or against the
+    // view's box centre instead of the authored centre, both still shorten
+    // the edge to 10 mm while trimming the wrong 10 mm.
+    let (min_x, min_y, max_x, max_y) = dxf_extents(&dxf);
+    let cu = W * 1000.0 / 2.0;
+    assert!(
+        (min_x - (cu - R_MM)).abs() < 1e-6
+            && (max_x - (cu + R_MM)).abs() < 1e-6
+            && (min_y + R_MM).abs() < 1e-6
+            && (max_y - R_MM).abs() < 1e-6,
+        "the extents must be the crop's own box around ({cu}, 0): \
+         ({min_x}, {min_y})–({max_x}, {max_y})"
+    );
+    for (_, _, groups) in entities.iter().filter(|(kind, _, _)| kind == "LINE") {
+        for (xc, yc) in [(10, 20), (11, 21)] {
+            let x: f64 = groups[&xc][0].parse().expect("an x");
+            let y: f64 = groups[&yc][0].parse().expect("a y");
+            let r = ((x - cu).powi(2) + y.powi(2)).sqrt();
+            assert!(
+                r <= R_MM + 1e-6,
+                "a clipped endpoint at ({x}, {y}) is {r} mm from the crop centre"
+            );
+        }
+    }
 }
 
 #[test]
@@ -1442,6 +1869,261 @@ fn a_detail_of_the_whole_part_keeps_every_curve_and_one_of_a_corner_keeps_fewer(
     );
     // The crop rides on the layout so the renderer can clip to it exactly.
     assert!(layout(&state, &drawing_tab, &corner).clip.is_some());
+}
+
+#[test]
+fn a_title_block_expression_row_prints_the_measured_model_and_keeps_its_source() {
+    // D4c, §8: "title block fields are expressions over document metadata and
+    // the measurement functions, so `mass(part)` and a parameter table work
+    // with no special casing". The plate is 20 × 10 × 5 mm, so its volume is
+    // 1000 mm³ and a 7.85 g/cm³ steel plate weighs 7.85 g — which is the
+    // `mass(part)` row §8 names, written in the language that exists rather
+    // than waiting for M1's material table.
+    let (mut state, mut kernel, part_tab, _drawing) = box_and_drawing();
+    ok(
+        &mut state,
+        &mut kernel,
+        "tab_switch",
+        json!({ "tab_id": part_tab }),
+    );
+    let body = ok(&mut state, &mut kernel, "model_summary", json!({}))["bodies"][0]["body_id"]
+        .as_str()
+        .expect("the plate's body id")
+        .to_string();
+    ok(
+        &mut state,
+        &mut kernel,
+        "body_rename",
+        json!({ "body_id": body, "new_name": "plate" }),
+    );
+    ok(
+        &mut state,
+        &mut kernel,
+        "parameters_set",
+        json!({ "parameters": [{ "name": "lot", "expression": "42" }] }),
+    );
+    let drawing_tab = state
+        .session
+        .tabs()
+        .into_iter()
+        .find(|t| t.kind == "Drawing")
+        .expect("the drawing tab")
+        .id;
+    ok(
+        &mut state,
+        &mut kernel,
+        "tab_switch",
+        json!({ "tab_id": drawing_tab }),
+    );
+    ok(
+        &mut state,
+        &mut kernel,
+        "drawing_view_add",
+        json!({ "tab_id": part_tab, "view": "top" }),
+    );
+    let answer = ok(
+        &mut state,
+        &mut kernel,
+        "drawing_sheet_edit",
+        json!({
+            "title_block_fields": [
+                { "label": "Mass", "expr": "volume(plate) * 0.00785" },
+                { "label": "Lot", "expr": "lot" },
+                { "label": "Stock", "expr": "20mm * 10mm" },
+                { "key": "Material", "text": "AISI 304" },
+            ],
+        }),
+    );
+    let rows = answer["sheets"][0]["title_block"]["rows"]["rows"]
+        .as_array()
+        .cloned()
+        .unwrap_or_else(|| panic!("the filled rows: {answer}"));
+    let value = |i: usize| rows[i]["value"].as_str().unwrap_or_default().to_string();
+    // A measurement: 1000 mm³ × 0.00785 — the unit is the expression's own
+    // dimension, printed, which is what makes the row checkable.
+    assert_eq!(value(0), "7.85 mm³", "{answer}");
+    // A design PARAMETER, through the same environment.
+    assert_eq!(value(1), "42", "{answer}");
+    // Arithmetic with unit literals: a length² prints its exponent rather
+    // than being refused, because a title block is text, not a field.
+    assert_eq!(value(2), "200 mm²", "{answer}");
+    // And a literal row is untouched by any of it.
+    assert_eq!(value(3), "AISI 304");
+    // The SOURCE is what the document carries — never the evaluated text, or
+    // a reopened document would print a number nothing recomputes.
+    let fields = answer["sheets"][0]["title_block"]["fields"]
+        .as_array()
+        .cloned()
+        .unwrap_or_else(|| panic!("the authored fields: {answer}"));
+    assert_eq!(fields[0]["expr"], "volume(plate) * 0.00785");
+    assert!(fields[0]["text"].is_null());
+
+    // An expression that cannot be evaluated BLANKS its row and is reported.
+    // Not its own source text on the paper, and not the last good number.
+    let answer = ok(
+        &mut state,
+        &mut kernel,
+        "drawing_sheet_edit",
+        json!({ "title_block_fields": [{ "label": "Mass", "expr": "volume(gone)" }] }),
+    );
+    assert_eq!(
+        answer["sheets"][0]["title_block"]["rows"]["rows"][0]["value"],
+        ""
+    );
+    let errors = serde_json::to_string(&answer["errors"]).unwrap_or_default();
+    assert!(errors.contains("volume(gone)"), "{answer}");
+
+    // `expr` on a DERIVED key is refused by name, like `text` is: an agent
+    // that wrote a sheet number must be told the engine fills it.
+    let error = refused(
+        &mut state,
+        &mut kernel,
+        "drawing_sheet_edit",
+        json!({ "title_block_fields": [{ "key": "Scale", "expr": "1" }] }),
+    );
+    assert_eq!(error["code"], "InvalidArgument");
+    // And both at once is refused rather than resolved by precedence — BY
+    // NAME, which for a known key is its tag.
+    let error = refused(
+        &mut state,
+        &mut kernel,
+        "drawing_sheet_edit",
+        json!({ "title_block_fields": [{ "key": "Revision", "text": "A", "expr": "1" }] }),
+    );
+    assert_eq!(error["code"], "InvalidArgument");
+    assert!(
+        error["message"]
+            .as_str()
+            .unwrap_or_default()
+            .contains("Revision"),
+        "{error}"
+    );
+    // A CUSTOM row is named by its LABEL, and that is the row this increment's
+    // own example uses (`{label: "Mass", expr: "volume(plate) * …"}`). A custom
+    // row carries no `key`, so a message built from the raw `key` string reads
+    // "the `` row was given both" and names nothing — which is a silent drop
+    // wearing a refusal's clothes.
+    let error = refused(
+        &mut state,
+        &mut kernel,
+        "drawing_sheet_edit",
+        json!({ "title_block_fields": [{ "label": "Mass", "text": "7 g", "expr": "1" }] }),
+    );
+    assert_eq!(error["code"], "InvalidArgument");
+    assert!(
+        error["message"]
+            .as_str()
+            .unwrap_or_default()
+            .contains("Mass"),
+        "{error}"
+    );
+    assert_eq!(error["details"]["path"], "/title_block_fields/0");
+}
+
+#[test]
+fn a_title_block_expression_needs_exactly_one_source_tab_and_says_so_by_name() {
+    // D4c's choice: a title-block expression measures "the one tab this
+    // sheet's views draw". A sheet of six views of one part is the ordinary
+    // case and `volume(plate)` means something in it; a sheet whose views draw
+    // TWO parts has no "the part" whose mass to print, and a sheet with NO
+    // views has no document at all. Both refuse by name rather than picking
+    // the first, and none of the three was measured.
+    let (mut state, mut kernel, part_tab, drawing_tab) = box_and_drawing();
+    ok(
+        &mut state,
+        &mut kernel,
+        "tab_switch",
+        json!({ "tab_id": part_tab }),
+    );
+    let body = ok(&mut state, &mut kernel, "model_summary", json!({}))["bodies"][0]["body_id"]
+        .as_str()
+        .expect("the plate's body id")
+        .to_string();
+    ok(
+        &mut state,
+        &mut kernel,
+        "body_rename",
+        json!({ "body_id": body, "new_name": "plate" }),
+    );
+    ok(
+        &mut state,
+        &mut kernel,
+        "tab_switch",
+        json!({ "tab_id": drawing_tab }),
+    );
+
+    let row = json!({ "title_block_fields": [{ "label": "Mass", "expr": "volume(plate)" }] });
+    let value_and_errors = |answer: &Value| {
+        (
+            answer["sheets"][0]["title_block"]["rows"]["rows"][0]["value"]
+                .as_str()
+                .unwrap_or_default()
+                .to_string(),
+            serde_json::to_string(&answer["errors"]).unwrap_or_default(),
+        )
+    };
+
+    // (a) NO views: there is no document to measure.
+    let answer = ok(&mut state, &mut kernel, "drawing_sheet_edit", row.clone());
+    let (value, errors) = value_and_errors(&answer);
+    assert_eq!(value, "", "an unmeasurable row prints nothing: {answer}");
+    assert!(
+        errors.contains("volume(plate)"),
+        "the refusal must name the expression: {answer}"
+    );
+
+    // (b) SIX views of the one tab: the ordinary case, and it evaluates. Six
+    // rather than one, because the refusal walks every view and a check
+    // against only the second would pass with one.
+    for view in ["top", "front", "right", "left", "back", "bottom"] {
+        ok(
+            &mut state,
+            &mut kernel,
+            "drawing_view_add",
+            json!({ "tab_id": part_tab, "view": view }),
+        );
+    }
+    let answer = ok(&mut state, &mut kernel, "drawing_sheet_edit", row.clone());
+    let (value, _) = value_and_errors(&answer);
+    assert_eq!(
+        value, "1000 mm\u{b3}",
+        "six views of one part are one document: {answer}"
+    );
+
+    // (c) A SEVENTH view drawing a DIFFERENT tab, added LAST — so a check that
+    // compared the first two views, or that stopped at the first disagreement
+    // it happened to reach, would still say "one tab".
+    let other = ok(
+        &mut state,
+        &mut kernel,
+        "tab_add",
+        json!({ "kind": "Part", "name": "Other" }),
+    )["tab_id"]
+        .as_str()
+        .expect("the new part tab")
+        .to_string();
+    ok(
+        &mut state,
+        &mut kernel,
+        "tab_switch",
+        json!({ "tab_id": drawing_tab }),
+    );
+    ok(
+        &mut state,
+        &mut kernel,
+        "drawing_view_add",
+        json!({ "tab_id": other, "view": "top" }),
+    );
+    let answer = ok(&mut state, &mut kernel, "drawing_sheet_edit", row);
+    let (value, errors) = value_and_errors(&answer);
+    assert_eq!(
+        value, "",
+        "a sheet of two parts has no `the part` to measure: {answer}"
+    );
+    assert!(
+        errors.contains("volume(plate)"),
+        "the refusal must name the expression: {answer}"
+    );
 }
 
 #[test]

@@ -591,6 +591,59 @@ test.describe('the drawing tab, D4b', () => {
 		await expect(block).toHaveCount(0);
 	});
 
+	test('an expression row prints its value on the paper and its source nowhere', async ({
+		waffle
+	}) => {
+		const page = waffle.page;
+		await waffle.waitForReady();
+		await plateAndDrawing(page);
+
+		// D4c: `TitleBlockField.expr` holds the SOURCE and the sheet shows what
+		// it evaluates to — "never the same record, which is what stops a
+		// reopened file printing last week's number". The renderer is handed the
+		// whole sheet, so the source IS one property away from it
+		// (`title_block.fields[i].expr`); keeping it off the paper is a
+		// discipline rather than an impossibility, which is why it is measured
+		// here instead of argued in a comment.
+		// The store door takes the ENGINE's field shape (`{key, text?, expr?}`),
+		// not the agent tool's `{label, expr}` sugar — `editDrawingSheet` passes
+		// the array straight through to a typed `Vec<TitleBlockField>`.
+		const source = '7mm * 1.1';
+		await page.evaluate(
+			(expr) =>
+				window.__waffle.editDrawingSheet({
+					titleBlockFields: [{ key: { type: 'Custom', label: 'Stock' }, expr }]
+				}),
+			source
+		);
+		await page.waitForFunction(
+			() =>
+				(window.__waffle?.getDrawingStatus()?.drawing?.sheets?.[0]?.title_block_cache?.rows ?? [])
+					.length === 1,
+			null,
+			{ timeout: 15000 }
+		);
+		const block = page.locator('[data-testid="drawing-sheet"] .wi-title-block');
+		await expect(block.locator('text.wi-title-label')).toHaveText(['Stock']);
+		// The EVALUATED text, with the unit the expression's own dimension
+		// carries — which is the thing a reader can check against a rule.
+		await expect(block.locator('text.wi-title-value')).toHaveText('7.7 mm');
+
+		// And the source is nowhere in the sheet's markup, nor in the SVG the
+		// export writes from the same renderer. Both, because the screen and the
+		// file are the same bytes by construction and a test of only one would
+		// not notice the construction changing.
+		const drawn = await page.locator('[data-testid="drawing-sheet"]').innerHTML();
+		expect(drawn).toContain('7.7 mm');
+		expect(drawn, 'the source must not reach the paper').not.toContain(source);
+		const answer = await callTool(page, 'export_svg', { deliver: 'agent' });
+		expect(answer.isError, JSON.stringify(answer.structuredContent)).toBe(false);
+		const svg = answer.content.find((c) => c.type === 'resource')?.resource?.text ?? '';
+		expect(svg.length, 'the export returned no markup').toBeGreaterThan(500);
+		expect(svg).toContain('7.7 mm');
+		expect(svg, 'the source must not reach the exported file').not.toContain(source);
+	});
+
 	test('export_pdf writes a one-page PDF of the sheet', async ({ waffle }) => {
 		const page = waffle.page;
 		await waffle.waitForReady();
