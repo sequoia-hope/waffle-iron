@@ -5807,6 +5807,10 @@ the always-green twin at r = 0.014), plus the coaxial disc-minus-disc tube
 quarter-arc annulus profile does NOT reach the rule (its rims retain the same
 four azimuths top and bottom; seams either way) — the pin has to enter where
 F11 does.
+
+Corpus proof (2026-10-05, release, 8 jobs, 900 s budget, wall 1120 s):
+**324C / 0W / 22E / 5EE / 0T over 351**, `results.json` byte-identical to the
+canonical snapshot — zero moves either way; the rewrite tier green.
 ## N78 — the EDGE-pinch split runs at a SECOND site, where the pinch is Stage 4's own, not the arrangement's (P0020)
 
 **State: OPEN (2026-10-03 night-later, P0020). Remediation BUILT and GATED
