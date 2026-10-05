@@ -350,6 +350,25 @@ pub fn apply_edit(
             view.annotations.remove(*index);
             Ok(*view_id)
         }
+
+        E::Batch { edits } => {
+            if edits.is_empty() {
+                return Err("a batch of drawing edits cannot be empty".to_string());
+            }
+            if edits.iter().any(|e| matches!(e, E::Batch { .. })) {
+                return Err("a batch of drawing edits cannot contain another batch".to_string());
+            }
+            // Applied to a SCRATCH copy, so a refusal part-way leaves the
+            // document untouched: the point of a batch is that one Ctrl+Z
+            // undoes it, which requires that one refusal undoes it too.
+            let mut scratch = drawing.clone();
+            let mut last = None;
+            for edit in edits {
+                last = Some(apply_edit(&mut scratch, edit)?);
+            }
+            *drawing = scratch;
+            last.ok_or_else(|| "a batch of drawing edits cannot be empty".to_string())
+        }
     }
 }
 

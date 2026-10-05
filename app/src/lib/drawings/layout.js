@@ -867,3 +867,178 @@ export function layoutAnnotation(a, style, tf, centrePaper, boundsPaper) {
 			return [];
 	}
 }
+
+/**
+ * The `Placement2` that would put `target` (paper mm) where this annotation's
+ * placement controls it — the INVERSE of the placement rule each `layout*`
+ * function above applies (D4d).
+ *
+ * It lives here, beside the rule, rather than in the picking module, for one
+ * reason: the two are the same convention read in opposite directions, and a
+ * placement authored by a different reading of `layoutLinear`'s offset
+ * arithmetic would put the dimension somewhere other than where the drafter
+ * dropped it. Every quantity it reads (`d`, `n`, `side`, `nFar`) is
+ * placement-INDEPENDENT, so the inversion is exact and one-shot: there is no
+ * iteration and no drift between where the user clicked and where the line
+ * lands.
+ *
+ * Returns view-space METERS (`[dx, dy]`, `v` up), which is what `Placement2`
+ * is and what the authoring door takes — §7's open item about paper
+ * millimetres being the more natural unit stands.
+ *
+ * `null` where the kind has no placement to set: an ANGULAR dimension's arc
+ * is swung from the two edges' own intersection and `layoutAngular` reads no
+ * placement at all, so a placement click on one would store a number nothing
+ * draws.
+ *
+ * For a RADIAL dimension, a NOTE with a leader and a DATUM, only the
+ * placement's DIRECTION reaches the drawing (`norm(placement)` picks the
+ * leader quadrant; the leader's own length is a style quantity). The full
+ * offset is still returned rather than a unit vector, so the stored value is
+ * the one the user's click actually describes and a later layout that honours
+ * the magnitude needs no re-authoring.
+ *
+ * @param {any} a an `AnnotationLayout` (no `text` needed)
+ * @param {import('./style.js').DrawingStyle} style
+ * @param {ReturnType<typeof paperTransform>} tf
+ * @param {[number, number]} centrePaper
+ * @param {[number, number][] | undefined} boundsPaper
+ * @param {[number, number]} target where the dimension should sit, paper mm
+ * @returns {[number, number] | null} `[dx, dy]` in view-space meters
+ */
+export function placementForPoint(a, style, tf, centrePaper, boundsPaper, target) {
+	const paper = placementPaperForPoint(a, style, tf, centrePaper, boundsPaper, target);
+	if (!paper || !paper.every(Number.isFinite)) return null;
+	// The exact inverse of `paperPlacement`, including the v flip.
+	return [paper[0] / tf.mmPerMeter, -paper[1] / tf.mmPerMeter];
+}
+
+/** `placementForPoint`'s answer before the trip back to view-space meters. */
+function placementPaperForPoint(a, style, tf, centrePaper, boundsPaper, target) {
+	if (!Array.isArray(target) || !target.every(Number.isFinite)) return null;
+	switch (a?.type) {
+		case 'Dimension':
+			switch (a.kind?.type) {
+				case 'Radius':
+				case 'Diameter': {
+					const curve = a.anchors?.[0]?.curve;
+					if (!curve || (curve.type !== 'Circle' && curve.type !== 'Ellipse')) return null;
+					// `layoutRadial` swings the leader out of the centre along
+					// `norm(placement)`, so the offset from the centre IS the
+					// placement.
+					return sub(target, tf.toPaper(curve.center));
+				}
+				case 'Angle':
+					return null;
+				case 'Ordinate': {
+					const p = witnessPoint(a.anchors?.[0]);
+					if (!p) return null;
+					const away = /** @type {[number, number]} */ (
+						a.kind?.axis?.type === 'U' ? [0, -1] : [1, 0]
+					);
+					return sub(target, add(tf.toPaper(p), mul(away, style.dimensionOffset)));
+				}
+				default: {
+					const p0 = witnessPoint(a.anchors?.[0]);
+					const p1 = witnessPoint(a.anchors?.[1]);
+					if (!p0 || !p1) return null;
+					const q0 = tf.toPaper(p0);
+					const q1 = tf.toPaper(p1);
+					const d = measurementDirection(a.kind, a.anchors, tf);
+					if (!d) return null;
+					const n = perp(d);
+					const mid = mul(add(q0, q1), 0.5);
+					const side = dot(mid, n) >= dot(centrePaper, n) ? 1 : -1;
+					const clear = [q0, q1, ...boxCorners(boundsPaper)].map((q) => dot(q, n));
+					const nFar = side > 0 ? Math.max(...clear) : Math.min(...clear);
+					// `layoutLinear` puts the dimension line at
+					// `nFar + side·offset + dot(placement, n)` and slides the
+					// witness feet along `d` by `dot(placement, d)`, so asking
+					// for the line's centre to land on `target` fixes both
+					// components.
+					const alongN = dot(target, n) - nFar - side * style.dimensionOffset;
+					const alongD = dot(target, d) - dot(mid, d);
+					return add(mul(n, alongN), mul(d, alongD));
+				}
+			}
+		case 'Note': {
+			const at = witnessPoint(a.leader);
+			// A FREE note's text sits at the placement itself; a note with a
+			// leader hangs it off the anchor.
+			return at ? sub(target, tf.toPaper(at)) : [target[0], target[1]];
+		}
+		case 'Datum': {
+			const p = witnessPoint(a.anchor);
+			return p ? sub(target, tf.toPaper(p)) : null;
+		}
+		default:
+			// CentreMark and CentreLine have no placement field at all.
+			return null;
+	}
+}
+
+/**
+ * Where a laid-out annotation can be GRABBED, in paper mm (D4d): the point its
+ * value is printed at, and the segments of its dimension line.
+ *
+ * Derived by running the real `layoutAnnotation` and reading its primitives
+ * back, so the thing a click selects is the thing the sheet drew. A second
+ * "hit geometry" derivation would be free to disagree with the markup — and
+ * then a drafter would click a dimension and select a different one.
+ *
+ * @param {any} a an `AnnotationLayout` with a `text` field added
+ * @param {import('./style.js').DrawingStyle} style
+ * @param {ReturnType<typeof paperTransform>} tf
+ * @param {[number, number]} centrePaper
+ * @param {[number, number][]} [boundsPaper]
+ * @returns {{ points: [number, number][], segments: [[number, number], [number, number]][] }}
+ */
+export function annotationHandles(a, style, tf, centrePaper, boundsPaper) {
+	const points = [];
+	const segments = [];
+	for (const p of layoutAnnotation(a, style, tf, centrePaper, boundsPaper)) {
+		if (p.kind === 'text' || p.kind === 'dot') {
+			if (Array.isArray(p.at) && p.at.every(Number.isFinite)) points.push([p.at[0], p.at[1]]);
+		} else if (p.kind === 'line' && (p.role === 'dimension' || p.role === 'leader')) {
+			if ([...p.from, ...p.to].every(Number.isFinite)) {
+				segments.push([
+					[p.from[0], p.from[1]],
+					[p.to[0], p.to[1]]
+				]);
+			}
+		} else if (p.kind === 'box') {
+			// A datum's boxed letter: its centre is the grab point the leader
+			// ends at, which is what the user reaches for.
+			if ([p.at[0], p.at[1], p.width, p.height].every(Number.isFinite)) {
+				points.push([p.at[0] + p.width / 2, p.at[1] + p.height / 2]);
+			}
+		} else if (p.kind === 'arc') {
+			// An angular dimension draws no straight dimension line, so its
+			// arc is the only thing to grab. Three points on it is enough for
+			// a 2 mm pick radius against a radius of 10 mm and up.
+			for (const f of [0, 0.5, 1]) {
+				const deg = p.startDeg + (p.endDeg - p.startDeg) * f;
+				const rad = (deg * Math.PI) / 180;
+				points.push([
+					p.center[0] + p.radius * Math.cos(rad),
+					p.center[1] + p.radius * Math.sin(rad)
+				]);
+			}
+		}
+	}
+	return { points, segments };
+}
+
+/**
+ * The distance from `p` to the segment `a`–`b`, in whatever units they are in.
+ * A zero-length segment degrades to the distance to its own endpoint.
+ * @param {[number, number]} p @param {[number, number]} a @param {[number, number]} b
+ */
+export function distanceToSegment(p, a, b) {
+	const ab = sub(b, a);
+	const len2 = dot(ab, ab);
+	if (len2 === 0) return Math.hypot(...sub(p, a));
+	let t = dot(sub(p, a), ab) / len2;
+	t = t < 0 ? 0 : t > 1 ? 1 : t;
+	return Math.hypot(...sub(p, add(a, mul(ab, t))));
+}

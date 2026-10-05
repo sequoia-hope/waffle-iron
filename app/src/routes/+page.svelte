@@ -3,6 +3,7 @@
 	import { goto } from '$app/navigation';
 	import { base } from '$app/paths';
 	import Toolbar from '$lib/ui/Toolbar.svelte';
+	import DrawingToolbar from '$lib/ui/DrawingToolbar.svelte';
 	import LinkedDocBanner from '$lib/ui/LinkedDocBanner.svelte';
 	import AgentBar from '$lib/agent/AgentBar.svelte';
 	import ContextBanner from '$lib/ui/ContextBanner.svelte';
@@ -154,7 +155,12 @@
 {#if isMobile}
 <div class="app-shell mobile">
 	<div class="toolbar-area">
-		<Toolbar />
+		<!-- A Drawing tab gets its OWN toolbar (D4d), the way it already gets
+		     its own sidebar and its own main region: a drawing has no sketch to
+		     enter and no solid to extrude, and a second row of chrome would cost
+		     the one dimension the window has least of. `DrawingToolbar` carries
+		     the document actions too and keeps `data-testid="toolbar"`. -->
+		{#if activeIsDrawing}<DrawingToolbar />{:else}<Toolbar />{/if}
 	</div>
 	<div class="tabbar-area">
 		<AgentBar />
@@ -195,7 +201,12 @@
 	style="grid-template-columns: {leftWidth}px auto 1fr auto {rightWidth}px"
 >
 	<div class="toolbar-area">
-		<Toolbar />
+		<!-- A Drawing tab gets its OWN toolbar (D4d), the way it already gets
+		     its own sidebar and its own main region: a drawing has no sketch to
+		     enter and no solid to extrude, and a second row of chrome would cost
+		     the one dimension the window has least of. `DrawingToolbar` carries
+		     the document actions too and keeps `data-testid="toolbar"`. -->
+		{#if activeIsDrawing}<DrawingToolbar />{:else}<Toolbar />{/if}
 	</div>
 	<div class="tabbar-area">
 		<AgentBar />

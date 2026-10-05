@@ -544,12 +544,43 @@ fn handle_message(
         }
 
         // -- History --
+        //
+        // A `Drawing` tab's edits are NOT on the feature engine's stack and
+        // cannot be: that stack holds `Command`s over a part's feature tree,
+        // and `Engine::apply_inverse` has no reach into the session's tabs,
+        // where a drawing lives (D4d). So one `Undo` reaches either stack and
+        // the engine decides which — a single Undo button means a single
+        // stack to the user.
+        //
+        // The FEATURE stack is asked first, and the order is not arbitrary.
+        // For a drafter the two orders are the same thing: a Drawing tab's
+        // feature history is its own parked one (`DocumentSession::switch_tab`)
+        // and a drawing has no tree to edit, so it is empty and Ctrl+Z reaches
+        // the drawing. But `Undo` has a second caller — the agent authoring
+        // layer's ROLLBACK (`tools::author`), which sends it to take back a
+        // feature it just added and must never be handed a drawing snapshot
+        // instead. Asking the feature stack first makes that caller exact
+        // without it having to name a scope.
         UiToEngine::Undo => {
+            if !state.engine.can_undo() {
+                let tab_id = state.session.active_tab_id().to_string();
+                if state.session.undo_drawing(&tab_id) {
+                    open_drawing(state, &tab_id, kb)?;
+                    return Ok(model_updated_response(state));
+                }
+            }
             state.engine.undo(kb)?;
             Ok(model_updated_response(state))
         }
 
         UiToEngine::Redo => {
+            if !state.engine.can_redo() {
+                let tab_id = state.session.active_tab_id().to_string();
+                if state.session.redo_drawing(&tab_id) {
+                    open_drawing(state, &tab_id, kb)?;
+                    return Ok(model_updated_response(state));
+                }
+            }
             state.engine.redo(kb)?;
             Ok(model_updated_response(state))
         }
@@ -3636,6 +3667,7 @@ fn drawing_status(state: &EngineState) -> Option<crate::messages::DrawingStatus>
         declines: open.declines.clone(),
         errors: open.errors.clone(),
         warnings: open.warnings.clone(),
+        history: state.session.drawing_history_depth(&open.tab_id),
     })
 }
 
