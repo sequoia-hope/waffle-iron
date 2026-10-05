@@ -3842,13 +3842,53 @@ is invisible when you only look at one of the two.
   JavaScript: a starter list of materials in the app would be a second source
   of truth for a density, which is the one number this increment exists to
   make unambiguous.
-- *Two test-harness cases are red on this branch's base and stay red.*
-  `f11_disjoint_cut_on_r14_bore_succeeds` ("cylinder face with inner loops is
-  outside the KV5a vocabulary") and `gear_flange_union_builds_full_height`
-  are kernel boolean-capability failures. M1's diff touches NO geometry crate
-  — `git diff main...HEAD -- crates/kernel-v2 crates/yang-rs crates/cherchi-rs
-  crates/ssi-rs crates/cad-primitives crates/modeling-ops` is empty — so they
-  are not this increment's, and this increment is not the place to fix them.
+- *FIVE test-harness cases are red, and none of them is M1's.* Measured on
+  the fully merged branch with `cargo test -p test-harness --release`, after
+  `--release --no-run` confirmed every target compiles (the P2/P3 merge had
+  left the crate not compiling at all; main's 429c4538 fixed that, and it is
+  merged here).
+
+  Two are the kernel boolean capability the team lead independently measured
+  red at 6c926379, the commit BEFORE P2/P3:
+  `f11_disjoint_cut_on_r14_bore_succeeds` and
+  `gear_flange_union_builds_full_height`, both
+  `CurvedGeometryMismatch { reason: "cylinder face with inner loops is
+  outside the KV5a vocabulary" }`. An OPEN kernel item, not a drawings one.
+
+  The other three were found by this review and are pre-existing too, each
+  established by TREE IDENTITY against the pinned main rather than by a
+  second build (every kernel crate's tree — `kernel-v2`, `yang-rs`,
+  `cherchi-rs`, `ssi-rs`, `cad-primitives`, `modeling-ops`, `step-import` —
+  hashes equal to main's, as do all three test files):
+
+  - `analytic_fixtures_match_the_exporter` — "drilled_block: committed
+    fixture differs from the exporter". The test, the fixture
+    (`crates/step-import/tests/fixtures/analytic/drilled_block.step`) and the
+    exporter's whole crate are byte-identical to main, so it fails there
+    identically. A stale generated fixture; regenerate deliberately with
+    `UPDATE_SI5_FIXTURES=1` and review the diff, which is SI5's call and not
+    this increment's.
+  - `needle_star_union_categorizes_as_the_recorded_error` — "the needle-star
+    union was expected to STOP". `prospect.rs` and the kernel trees are
+    identical to main. This reads like the inverse of a stale `#[ignore]`: the
+    P0001 conversion landed the capability and a test still asserts the old
+    STOP. Worth someone's attention precisely because a test asserting a STOP
+    that has since been FIXED is a test that will stay red while nothing is
+    wrong.
+  - `chain_deterministic` — a test that **cannot pass on a whole class of
+    input, by construction.** Its failure arm compares two error strings for
+    raw equality (`(Outcome::Failed(x), Outcome::Failed(y)) if x == y`), and
+    the error it got embeds a freshly minted feature UUID
+    (`rebuild.rs`: "Output key Main not found in feature <uuid>"). Both runs
+    failed for the SAME reason and differ only in that identifier, so the
+    determinism the docstring means ("the same error text") held in substance.
+    Measured by replaying the persisted proptest seed: fresh UUIDs on each
+    replay, same mismatch. Whether it fires at all depends on the proptest
+    seed, so it is a latent flake on main rather than a constant red. The fix
+    is to normalize identifiers out of the error text before comparing, which
+    belongs to whoever owns the assay generator. Unreachable from M1: the
+    chain generator never declares a `DesignParameter.unit`, which is the only
+    path M1's density refusal touches.
 - *An assembly has no materials.* The table is per-Part, so an assembly's mass
   is the sum nobody computes yet; it needs the same instance-scoped plumbing
   Q2, Q6 and a measuring expression in an assembly tab all wait on.
