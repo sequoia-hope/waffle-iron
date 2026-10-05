@@ -151,9 +151,12 @@ export const exportDxfTool = {
 		properties: {
 			view: {
 				type: 'string',
-				enum: ['top', 'bottom', 'front', 'back', 'right', 'left'],
+				enum: ['top', 'bottom', 'front', 'back', 'right', 'left', 'iso'],
 				default: 'top',
-				description: 'Named orthographic view. Omit for "top", the flat-pattern view.'
+				description:
+					'Named view: the six orthographic ones, or iso — the isometric from (+1, +1, +1) with +z up, ' +
+					"the same table a drawing sheet's view argument uses (D4f). Omit for \"top\", the " +
+					'flat-pattern view.'
 			},
 			direction: {
 				type: 'array',

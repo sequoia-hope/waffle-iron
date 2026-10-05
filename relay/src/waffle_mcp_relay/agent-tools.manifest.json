@@ -1,5 +1,5 @@
 {
-  "manifest_hash": "ec2696a1b759305d74a663a8f23031a029ad3b3871cbc96a397b22ba011f1b80",
+  "manifest_hash": "e83bd195ffb0f5798e35a9fbc0b6681d383786c9338259b362f92c31468b8dd0",
   "protocol": "waffle-agent-link/1",
   "tools": [
     {
@@ -19711,14 +19711,15 @@
           },
           "view": {
             "default": "top",
-            "description": "Named orthographic view. Omit for \"top\", the flat-pattern view.",
+            "description": "Named view: the six orthographic ones, or iso — the isometric from (+1, +1, +1) with +z up, the same table a drawing sheet's view argument uses (D4f). Omit for \"top\", the flat-pattern view.",
             "enum": [
               "top",
               "bottom",
               "front",
               "back",
               "right",
-              "left"
+              "left",
+              "iso"
             ],
             "type": "string"
           },
@@ -25953,6 +25954,78 @@
       "annotations": {
         "destructiveHint": false,
         "openWorldHint": false,
+        "readOnlyHint": true,
+        "title": "Read drawing"
+      },
+      "description": "Read the open DRAWING tab: its sheets, every view (id, projection, scale, placement, how many curves it drew, its cache key), the title block as authored and as printed, the projection standard, and what the last rebuild declined or failed. Changes nothing. With include_anchors each view also lists the persistent ids an annotation can anchor on (anchor_list); with include_annotations each view lists its annotations (annotation_list) — index, kind, anchors (pids as decimal strings), precision, dual unit, expression, text or label, placement, and for a dimension the VALUE the rebuild measured (meters; radians when angular) and whether it resolved. The index is what drawing_annotation_edit and _delete take. Refused with TabKindNotSupported off a Drawing tab and NotFound for a sheet_id the drawing does not have. specs/drawings_and_mbd.md §8 D4f.",
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "include_anchors": {
+            "default": false,
+            "description": "List, per view, the persistent ids an annotation can anchor on (anchor_list).",
+            "type": "boolean"
+          },
+          "include_annotations": {
+            "default": false,
+            "description": "List, per view, its annotations with their measured values (annotation_list).",
+            "type": "boolean"
+          },
+          "sheet_id": {
+            "description": "Check that this sheet exists; the answer is still the whole drawing.",
+            "type": "string"
+          }
+        },
+        "type": "object"
+      },
+      "name": "drawing_get",
+      "outputSchema": {
+        "properties": {
+          "declines": {
+            "description": "What the projections declined to decide, by counter name (D1c). Every counter but cross_body means a line the drawing does not carry, so a large count is a degenerate view rather than a clean one.",
+            "type": "object"
+          },
+          "errors": {
+            "description": "Per-view failures, each naming its view.",
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "projection_angle": {
+            "description": "Third or First angle.",
+            "type": "object"
+          },
+          "sheets": {
+            "description": "Each sheet with its size and its views (ids, projections, scales, placements, how many curves each drew and how many anchors it offers — anchor_list with include_anchors).",
+            "items": {
+              "type": "object"
+            },
+            "type": "array"
+          },
+          "tab_id": {
+            "type": "string"
+          },
+          "warnings": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "tab_id",
+          "sheets",
+          "errors",
+          "warnings"
+        ],
+        "type": "object"
+      }
+    },
+    {
+      "annotations": {
+        "destructiveHint": false,
+        "openWorldHint": false,
         "readOnlyHint": false,
         "title": "Add drawing view"
       },
@@ -26231,6 +26304,82 @@
     },
     {
       "annotations": {
+        "destructiveHint": true,
+        "openWorldHint": false,
+        "readOnlyHint": false,
+        "title": "Delete drawing view"
+      },
+      "description": "Delete one view of the open DRAWING tab — and with it every view projected, sectioned or detailed FROM it, which is what deleting a parent means. The answer lists every view id that went (deleted), so a delete that took three views says so. Refused with TabKindNotSupported off a Drawing tab and NotFound for a view the drawing does not have. specs/drawings_and_mbd.md §8 D4f.",
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "view_id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "view_id"
+        ],
+        "type": "object"
+      },
+      "name": "drawing_view_delete",
+      "outputSchema": {
+        "properties": {
+          "declines": {
+            "description": "What the projections declined to decide, by counter name (D1c). Every counter but cross_body means a line the drawing does not carry, so a large count is a degenerate view rather than a clean one.",
+            "type": "object"
+          },
+          "deleted": {
+            "description": "Every view id removed, the named one included.",
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "errors": {
+            "description": "Per-view failures, each naming its view.",
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "projection_angle": {
+            "description": "Third or First angle.",
+            "type": "object"
+          },
+          "sheets": {
+            "description": "Each sheet with its size and its views (ids, projections, scales, placements, how many curves each drew and how many anchors it offers — anchor_list with include_anchors).",
+            "items": {
+              "type": "object"
+            },
+            "type": "array"
+          },
+          "tab_id": {
+            "type": "string"
+          },
+          "view_id": {
+            "type": "string"
+          },
+          "warnings": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "view_id",
+          "deleted",
+          "tab_id",
+          "sheets",
+          "errors",
+          "warnings"
+        ],
+        "type": "object"
+      }
+    },
+    {
+      "annotations": {
         "destructiveHint": false,
         "openWorldHint": false,
         "readOnlyHint": false,
@@ -26253,16 +26402,36 @@
                   "type": "string"
                 },
                 {
-                  "additionalProperties": false,
                   "properties": {
                     "kind": {
                       "default": "Edge",
-                      "enum": [
-                        "Edge",
-                        "Face",
-                        "Vertex"
-                      ],
-                      "type": "string"
+                      "oneOf": [
+                        {
+                          "enum": [
+                            "Edge",
+                            "Face",
+                            "Vertex"
+                          ],
+                          "type": "string"
+                        },
+                        {
+                          "additionalProperties": false,
+                          "properties": {
+                            "type": {
+                              "enum": [
+                                "Edge",
+                                "Face",
+                                "Vertex"
+                              ],
+                              "type": "string"
+                            }
+                          },
+                          "required": [
+                            "type"
+                          ],
+                          "type": "object"
+                        }
+                      ]
                     },
                     "pid": {
                       "oneOf": [
@@ -26391,6 +26560,204 @@
         },
         "required": [
           "annotation_index",
+          "tab_id",
+          "sheets",
+          "errors",
+          "warnings"
+        ],
+        "type": "object"
+      }
+    },
+    {
+      "annotations": {
+        "destructiveHint": false,
+        "openWorldHint": false,
+        "readOnlyHint": false,
+        "title": "Edit drawing annotation"
+      },
+      "description": "Change one annotation of a view of the open DRAWING tab IN PLACE, so it keeps its index: a dimension's precision, dual unit, expression and placement; a note's text and placement; a datum's label and placement. Only what is given changes. A field the annotation's kind does not have (text on a dimension, precision on a note) is refused by name with InvalidArgument, never dropped. There is no value, kind or anchors: a dimension is measured, never typed, and changing what is measured is a new annotation (delete and add). An expr the rebuild cannot evaluate is rolled back whole and refused with AnnotationNotMeasurable. Answers with the drawing and every view's annotation_list. Refused with TabKindNotSupported off a Drawing tab and NotFound for a view or an index the drawing does not have. specs/drawings_and_mbd.md §8 D4f.",
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "dual_unit": {
+            "description": "Dimension only: a second unit shown beneath the primary (\"in\", \"mm\", …); \"\" clears it.",
+            "type": "string"
+          },
+          "expr": {
+            "description": "Dimension only: an expression the engine re-measures on every rebuild, as on drawing_annotation_add; \"\" returns the dimension to measuring its own anchors.",
+            "type": "string"
+          },
+          "index": {
+            "description": "From drawing_get with include_annotations.",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "label": {
+            "description": "Datum only: the new letter.",
+            "minLength": 1,
+            "type": "string"
+          },
+          "placement": {
+            "description": "Dimension, note or datum: the label's cosmetic offset from where the layout puts it, in the view's own units (meters).",
+            "items": {
+              "type": "number"
+            },
+            "maxItems": 2,
+            "minItems": 2,
+            "type": "array"
+          },
+          "precision": {
+            "description": "Dimension only: decimal places shown, 0 to 9 — or the word \"default\" to return to the document setting.",
+            "oneOf": [
+              {
+                "maximum": 9,
+                "minimum": 0,
+                "type": "integer"
+              },
+              {
+                "enum": [
+                  "default"
+                ],
+                "type": "string"
+              }
+            ]
+          },
+          "text": {
+            "description": "Note only: the new text.",
+            "minLength": 1,
+            "type": "string"
+          },
+          "view_id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "view_id",
+          "index"
+        ],
+        "type": "object"
+      },
+      "name": "drawing_annotation_edit",
+      "outputSchema": {
+        "properties": {
+          "declines": {
+            "description": "What the projections declined to decide, by counter name (D1c). Every counter but cross_body means a line the drawing does not carry, so a large count is a degenerate view rather than a clean one.",
+            "type": "object"
+          },
+          "errors": {
+            "description": "Per-view failures, each naming its view.",
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "index": {
+            "type": "integer"
+          },
+          "projection_angle": {
+            "description": "Third or First angle.",
+            "type": "object"
+          },
+          "sheets": {
+            "description": "Each sheet with its size and its views (ids, projections, scales, placements, how many curves each drew and how many anchors it offers — anchor_list with include_anchors).",
+            "items": {
+              "type": "object"
+            },
+            "type": "array"
+          },
+          "tab_id": {
+            "type": "string"
+          },
+          "view_id": {
+            "type": "string"
+          },
+          "warnings": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "view_id",
+          "index",
+          "tab_id",
+          "sheets",
+          "errors",
+          "warnings"
+        ],
+        "type": "object"
+      }
+    },
+    {
+      "annotations": {
+        "destructiveHint": true,
+        "openWorldHint": false,
+        "readOnlyHint": false,
+        "title": "Delete drawing annotation"
+      },
+      "description": "Delete one annotation of a view of the open DRAWING tab, by its index in the view's list — the index drawing_get reports with include_annotations (and annotation_index on drawing_annotation_add). The annotations after it move up one. Refused with TabKindNotSupported off a Drawing tab, NotFound for a view the drawing does not have or an index past the view's count (the refusal says the count), and InvalidArgument without an index. specs/drawings_and_mbd.md §8 D4f.",
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "index": {
+            "minimum": 0,
+            "type": "integer"
+          },
+          "view_id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "view_id",
+          "index"
+        ],
+        "type": "object"
+      },
+      "name": "drawing_annotation_delete",
+      "outputSchema": {
+        "properties": {
+          "declines": {
+            "description": "What the projections declined to decide, by counter name (D1c). Every counter but cross_body means a line the drawing does not carry, so a large count is a degenerate view rather than a clean one.",
+            "type": "object"
+          },
+          "errors": {
+            "description": "Per-view failures, each naming its view.",
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "index": {
+            "type": "integer"
+          },
+          "projection_angle": {
+            "description": "Third or First angle.",
+            "type": "object"
+          },
+          "sheets": {
+            "description": "Each sheet with its size and its views (ids, projections, scales, placements, how many curves each drew and how many anchors it offers — anchor_list with include_anchors).",
+            "items": {
+              "type": "object"
+            },
+            "type": "array"
+          },
+          "tab_id": {
+            "type": "string"
+          },
+          "view_id": {
+            "type": "string"
+          },
+          "warnings": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "view_id",
+          "index",
           "tab_id",
           "sheets",
           "errors",

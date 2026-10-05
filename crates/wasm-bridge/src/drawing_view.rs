@@ -346,6 +346,41 @@ pub fn apply_edit(
             view.annotations.remove(*index);
             Ok(*view_id)
         }
+        E::EditAnnotation {
+            view_id,
+            index,
+            precision,
+            clear_precision,
+            dual_unit,
+            expr,
+            text,
+            label,
+            placement,
+        } => {
+            let sheet = drawing
+                .sheet_of_view_mut(*view_id)
+                .ok_or_else(|| format!("this drawing has no view {view_id}"))?;
+            let view = sheet
+                .view_mut(*view_id)
+                .ok_or_else(|| format!("this drawing has no view {view_id}"))?;
+            let count = view.annotations.len();
+            let annotation = view.annotations.get_mut(*index).ok_or_else(|| {
+                format!("view {view_id} has {count} annotation(s), not an index {index}")
+            })?;
+            edit_annotation_in_place(
+                annotation,
+                AnnotationChanges {
+                    precision: *precision,
+                    clear_precision: *clear_precision,
+                    dual_unit: dual_unit.as_deref(),
+                    expr: expr.as_deref(),
+                    text: text.as_deref(),
+                    label: label.as_deref(),
+                    placement: *placement,
+                },
+            )?;
+            Ok(*view_id)
+        }
 
         E::Batch { edits } => {
             if edits.is_empty() {
@@ -366,6 +401,124 @@ pub fn apply_edit(
             last.ok_or_else(|| "a batch of drawing edits cannot be empty".to_string())
         }
     }
+}
+
+/// The fields `DrawingEdit::EditAnnotation` may change, borrowed.
+#[derive(Debug, Clone, Copy, Default)]
+pub struct AnnotationChanges<'a> {
+    pub precision: Option<u8>,
+    pub clear_precision: bool,
+    pub dual_unit: Option<&'a str>,
+    pub expr: Option<&'a str>,
+    pub text: Option<&'a str>,
+    pub label: Option<&'a str>,
+    pub placement: Option<[f64; 2]>,
+}
+
+/// Change `annotation` in place (D4f), or say which given field its kind
+/// does not have.
+///
+/// Every field is matched against the variant, and a field the variant lacks
+/// is a refusal that names it — the same rule the derived title-block rows
+/// follow: a caller that set `text` on a dimension and heard nothing would
+/// believe the dimension now says it. Checked BEFORE anything is written, so
+/// a refused edit changes no field at all.
+pub fn edit_annotation_in_place(
+    annotation: &mut Annotation,
+    changes: AnnotationChanges<'_>,
+) -> Result<(), String> {
+    let kind = feature_engine::drawing::annotation_tag(annotation);
+    let refuse =
+        |field: &str| -> Result<(), String> { Err(format!("a {kind} has no `{field}` to change")) };
+    let is_dimension = matches!(annotation, Annotation::Dimension { .. });
+    if !is_dimension {
+        if changes.precision.is_some() || changes.clear_precision {
+            refuse("precision")?;
+        }
+        if changes.dual_unit.is_some() {
+            refuse("dual_unit")?;
+        }
+        if changes.expr.is_some() {
+            refuse("expr")?;
+        }
+    }
+    if changes.text.is_some() && !matches!(annotation, Annotation::Note { .. }) {
+        refuse("text")?;
+    }
+    if changes.label.is_some() && !matches!(annotation, Annotation::Datum { .. }) {
+        refuse("label")?;
+    }
+    if changes.placement.is_some() && annotation.placement().is_none() {
+        refuse("placement")?;
+    }
+    if changes.precision.is_some() && changes.clear_precision {
+        return Err("give precision or clear_precision, not both".to_string());
+    }
+    if changes.text.is_some_and(|t| t.is_empty()) {
+        return Err("a note needs text".to_string());
+    }
+    if changes.label.is_some_and(|l| l.is_empty()) {
+        return Err("a datum needs a label".to_string());
+    }
+
+    match annotation {
+        Annotation::Dimension {
+            value,
+            precision,
+            dual_unit,
+            placement,
+            ..
+        } => {
+            if let Some(p) = changes.precision {
+                *precision = Some(p);
+            }
+            if changes.clear_precision {
+                *precision = None;
+            }
+            if let Some(unit) = changes.dual_unit {
+                *dual_unit = Some(unit.to_string()).filter(|u| !u.is_empty());
+            }
+            if let Some(expr) = changes.expr {
+                // An expression dimension still anchors — the anchors are
+                // where it is drawn — so this only changes what it SAYS,
+                // exactly as `build_annotation` reads `spec.expr`.
+                *value = match expr.trim() {
+                    "" => Measured::FromGeometry,
+                    e => Measured::Expr {
+                        expr: e.to_string(),
+                    },
+                };
+            }
+            if let Some(p) = changes.placement {
+                *placement = Placement2::new(p[0], p[1]);
+            }
+        }
+        Annotation::Note {
+            text, placement, ..
+        } => {
+            if let Some(t) = changes.text {
+                *text = t.to_string();
+            }
+            if let Some(p) = changes.placement {
+                *placement = Placement2::new(p[0], p[1]);
+            }
+        }
+        Annotation::Datum {
+            label, placement, ..
+        } => {
+            if let Some(l) = changes.label {
+                *label = l.to_string();
+            }
+            if let Some(p) = changes.placement {
+                *placement = Placement2::new(p[0], p[1]);
+            }
+        }
+        Annotation::CentreMark { .. } | Annotation::CentreLine { .. } => {
+            // Nothing editable on either: every given field was refused
+            // above, so reaching here means nothing was given.
+        }
+    }
+    Ok(())
 }
 
 /// The document annotation one `DrawingAnnotationSpec` means.

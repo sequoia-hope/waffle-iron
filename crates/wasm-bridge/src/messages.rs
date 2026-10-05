@@ -2275,6 +2275,43 @@ pub enum DrawingEdit {
         view_id: Uuid,
         index: usize,
     },
+    /// Change the annotation at `index` IN PLACE (D4f) — the edit D4d named as
+    /// the right fix for the delete-and-re-add `Batch` the panel's drag sends,
+    /// which moves the annotation to the end of the view's list.
+    ///
+    /// Only what is given changes, and every field is checked against the
+    /// annotation's own kind: `text` on a dimension or `expr` on a note is
+    /// refused by name rather than ignored, because a caller that set a field
+    /// and heard nothing believes it took. Deliberately absent, as in
+    /// `DrawingAnnotationSpec`: a dimension's `value` (measured, never typed)
+    /// and its `kind` and `anchors` (changing what is measured is a new
+    /// annotation, not an edit of this one).
+    EditAnnotation {
+        view_id: Uuid,
+        index: usize,
+        /// Decimal places, dimension only; `clear_precision` returns it to
+        /// the document setting.
+        #[serde(default)]
+        precision: Option<u8>,
+        #[serde(default)]
+        clear_precision: bool,
+        /// Dimension only. An empty string clears it.
+        #[serde(default)]
+        dual_unit: Option<String>,
+        /// Dimension only: a non-empty expression becomes `Measured::Expr`;
+        /// an empty one returns the dimension to measuring its anchors.
+        #[serde(default)]
+        expr: Option<String>,
+        /// Note only.
+        #[serde(default)]
+        text: Option<String>,
+        /// Datum only.
+        #[serde(default)]
+        label: Option<String>,
+        /// Dimension, note and datum: the label's cosmetic offset.
+        #[serde(default)]
+        placement: Option<[f64; 2]>,
+    },
     /// Change one sheet — its name, paper, title block — and the DRAWING's
     /// projection standard (D4b).
     ///

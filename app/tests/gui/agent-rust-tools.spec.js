@@ -375,7 +375,9 @@ test.describe('Read-only agent tools run in the engine (S3 C5b)', () => {
 		const expected = [...READ_ONLY];
 		expected.splice(expected.indexOf('sketch_regions') + 1, 0, 'sketch3d_get');
 		// `entity_meta` (2026-09-26, `specs/kicad_board_link.md` C4) needs a
-		// linked KiCad board, so it is named here too.
-		expect(routed).toEqual([...expected, 'assembly_get', 'entity_meta']);
+		// linked KiCad board, so it is named here too — and `drawing_get`
+		// (D4f, `specs/drawings_and_mbd.md` §8, 2026-10-05) needs a Drawing
+		// tab; its answers are pinned in `crates/wasm-bridge/tests/tool_drawing.rs`.
+		expect(routed).toEqual([...expected, 'assembly_get', 'entity_meta', 'drawing_get']);
 	});
 });

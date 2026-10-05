@@ -237,21 +237,26 @@ pub(super) fn export_step(
     ))
 }
 
-/// The six named orthographic views (`specs/drawings_and_mbd.md` §8
-/// `Projection::Named`), as `(direction of sight, paper up)`.
+/// The named views (`specs/drawings_and_mbd.md` §8 `Projection::Named`), as
+/// `(tag, direction of sight, paper up)` — the six orthographic ones and the
+/// isometric.
 ///
 /// Naming a view is a DOCUMENT concern, not a kernel one — the kernel takes a
-/// direction — so the table lives here, where the agent's vocabulary is. Each
-/// is third-angle conventional: `u = dir × up`, so the top view reads `+x`
-/// right / `+y` up, the front `+x` right / `+z` up, the back mirrors `x`.
-const NAMED_VIEWS: &[(&str, [f64; 3], [f64; 3])] = &[
-    ("top", [0.0, 0.0, -1.0], [0.0, 1.0, 0.0]),
-    ("bottom", [0.0, 0.0, 1.0], [0.0, -1.0, 0.0]),
-    ("front", [0.0, 1.0, 0.0], [0.0, 0.0, 1.0]),
-    ("back", [0.0, -1.0, 0.0], [0.0, 0.0, 1.0]),
-    ("right", [-1.0, 0.0, 0.0], [0.0, 0.0, 1.0]),
-    ("left", [1.0, 0.0, 0.0], [0.0, 0.0, 1.0]),
-];
+/// direction — so the vocabulary is the drawing model's
+/// (`feature_engine::drawing::NamedView`), read here rather than restated:
+/// until D4f this file carried its own six-row copy of the same table, and a
+/// drawing sheet's `iso` was the row it lacked. Each is third-angle
+/// conventional: `u = dir × up`, so the top view reads `+x` right / `+y` up,
+/// the front `+x` right / `+z` up, the back mirrors `x`.
+fn named_views() -> Vec<(String, [f64; 3], [f64; 3])> {
+    feature_engine::drawing::NamedView::ALL
+        .iter()
+        .map(|v| {
+            let frame = v.frame();
+            (v.tag().to_ascii_lowercase(), frame.dir, frame.up)
+        })
+        .collect()
+}
 
 /// `(direction of sight, paper up)` as the `ExportDxf` message carries them:
 /// `None` leaves the choice to the engine.
@@ -289,17 +294,16 @@ fn view_arguments(args: &Value) -> Result<ViewArgs, ToolFailure> {
             ))
         }
     };
-    let Some((_, dir, default_up)) = NAMED_VIEWS
-        .iter()
-        .find(|(n, _, _)| n.eq_ignore_ascii_case(name))
+    let views = named_views();
+    let Some((_, dir, default_up)) = views.iter().find(|(n, _, _)| n.eq_ignore_ascii_case(name))
     else {
         return Err(ToolFailure::new(
             "InvalidArgument",
             format!(
                 "`{name}` is not a named view; use one of {}.",
-                NAMED_VIEWS
+                views
                     .iter()
-                    .map(|(n, _, _)| *n)
+                    .map(|(n, _, _)| n.as_str())
                     .collect::<Vec<_>>()
                     .join(", ")
             ),
@@ -570,24 +574,34 @@ mod tests {
     }
 
     #[test]
-    fn every_named_view_is_a_distinct_unit_axis_pair() {
-        for (name, dir, up) in NAMED_VIEWS {
+    fn every_named_view_is_a_distinct_axis_pair_and_the_iso_is_among_them() {
+        let named = named_views();
+        for (name, dir, up) in &named {
+            // The six orthographic views look along a unit axis; the
+            // isometric looks along the (−1, −1, −1) diagonal (D4f: it is
+            // the drawing model's table now, iso included).
             let len = (dir[0] * dir[0] + dir[1] * dir[1] + dir[2] * dir[2]).sqrt();
-            assert_eq!(len, 1.0, "{name} dir is not a unit axis");
-            let d = dir[0] * up[0] + dir[1] * up[1] + dir[2] * up[2];
-            assert_eq!(d, 0.0, "{name} up is not perpendicular to its direction");
+            if name == "iso" {
+                assert_eq!(*dir, [-1.0, -1.0, -1.0], "the iso looks down the diagonal");
+            } else {
+                assert_eq!(len, 1.0, "{name} dir is not a unit axis");
+                let d = dir[0] * up[0] + dir[1] * up[1] + dir[2] * up[2];
+                assert_eq!(d, 0.0, "{name} up is not perpendicular to its direction");
+            }
         }
         // Pairwise, not `dedup` — which only removes CONSECUTIVE repeats and
         // would miss `top` reappearing as `left`.
-        for (i, (a, da, _)) in NAMED_VIEWS.iter().enumerate() {
-            for (b, db, _) in &NAMED_VIEWS[i + 1..] {
+        for (i, (a, da, _)) in named.iter().enumerate() {
+            for (b, db, _) in &named[i + 1..] {
                 assert_ne!(da, db, "{a} and {b} look the same way");
             }
         }
+        assert_eq!(named.len(), 7, "six orthographic views and the isometric");
+        // The one-view export and a sheet's `view` argument share the table,
+        // so `iso` is spelled the same on both doors.
         assert_eq!(
-            NAMED_VIEWS.len(),
-            6,
-            "the six views look six different ways"
+            views(json!({ "view": "iso" })),
+            (Some([-1.0, -1.0, -1.0]), Some([0.0, 0.0, 1.0]))
         );
     }
 

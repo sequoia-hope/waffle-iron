@@ -3044,3 +3044,586 @@ fn the_probe_answers_a_parentless_placement_the_add_then_uses_even_once_views_ha
         );
     }
 }
+
+// ── D4f: the agent's read-back, delete and in-place edit ────────────────
+
+fn add_view(
+    state: &mut EngineState,
+    kernel: &mut kernel_v2::KernelV2Adapter,
+    args: Value,
+) -> String {
+    ok(state, kernel, "drawing_view_add", args)["view_id"]
+        .as_str()
+        .unwrap()
+        .to_string()
+}
+
+fn view_ids(answer: &Value) -> Vec<String> {
+    answer["sheets"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .flat_map(|s| s["views"].as_array().unwrap().iter())
+        .map(|v| v["id"].as_str().unwrap().to_string())
+        .collect()
+}
+
+#[test]
+fn drawing_get_reads_the_drawing_an_agent_did_not_just_edit() {
+    // D4a's open item: an agent that opens a document with a drawing tab had
+    // no read-only way to list its views. `drawing_get` answers what every
+    // edit answers, and is refused off a Drawing tab like the rest.
+    let (mut state, mut kernel, part_tab, drawing_tab) = box_and_drawing();
+    let top = add_view(
+        &mut state,
+        &mut kernel,
+        json!({ "tab_id": part_tab, "view": "top" }),
+    );
+    let side = add_view(
+        &mut state,
+        &mut kernel,
+        json!({ "tab_id": part_tab, "parent_view_id": top, "direction_from_parent": "right" }),
+    );
+
+    let got = ok(&mut state, &mut kernel, "drawing_get", json!({}));
+    assert_eq!(got["tab_id"], drawing_tab);
+    assert_eq!(view_ids(&got), vec![top.clone(), side.clone()]);
+    let views = got["sheets"][0]["views"].as_array().unwrap();
+    // Counts by default, the lists on request.
+    assert!(views[0]["anchors"].as_u64().unwrap() > 0);
+    assert!(views[0]["anchor_list"].is_null());
+    assert!(views[0]["annotation_list"].is_null());
+    assert_eq!(views[0]["annotations"], 0);
+
+    let got = ok(
+        &mut state,
+        &mut kernel,
+        "drawing_get",
+        json!({ "include_anchors": true, "include_annotations": true }),
+    );
+    let views = got["sheets"][0]["views"].as_array().unwrap();
+    assert!(!views[0]["anchor_list"].as_array().unwrap().is_empty());
+    assert_eq!(views[0]["annotation_list"], json!([]));
+
+    // A sheet nobody has is a refusal, not an empty answer.
+    let err = refused(
+        &mut state,
+        &mut kernel,
+        "drawing_get",
+        json!({ "sheet_id": Uuid::nil().to_string() }),
+    );
+    assert_eq!(err["code"], "NotFound");
+
+    // The gate is the family's: a Part tab refuses the read too, because the
+    // anchors and measurements it reports are the OPEN drawing's evaluation.
+    ok(
+        &mut state,
+        &mut kernel,
+        "tab_switch",
+        json!({ "tab_id": part_tab }),
+    );
+    let err = refused(&mut state, &mut kernel, "drawing_get", json!({}));
+    assert_eq!(err["code"], "TabKindNotSupported");
+}
+
+#[test]
+fn drawing_get_lists_an_annotation_with_the_number_the_rebuild_measured() {
+    // No tool read an annotation back before D4f (the D4d notes measured
+    // that). The record carries what the document says — kind, anchors as
+    // decimal strings, precision — and what the layout measured, which is
+    // the authored span and never a typed number.
+    let (mut state, mut kernel, part_tab, drawing_tab) = box_and_drawing();
+    let (lo, hi, span) = wall_pids(&mut state, &mut kernel, &part_tab, &drawing_tab);
+    let view_id = add_view(
+        &mut state,
+        &mut kernel,
+        json!({ "tab_id": part_tab, "view": "top" }),
+    );
+    ok(
+        &mut state,
+        &mut kernel,
+        "drawing_annotation_add",
+        json!({
+            "view_id": view_id,
+            "annotation": "Dimension",
+            "kind": "Distance",
+            "anchors": [lo, hi],
+            "precision": 2,
+            "dual_unit": "in",
+        }),
+    );
+    ok(
+        &mut state,
+        &mut kernel,
+        "drawing_annotation_add",
+        json!({ "view_id": view_id, "annotation": "Note", "text": "DEBURR", "anchors": [lo] }),
+    );
+
+    let got = ok(
+        &mut state,
+        &mut kernel,
+        "drawing_get",
+        json!({ "include_annotations": true }),
+    );
+    let list = got["sheets"][0]["views"][0]["annotation_list"]
+        .as_array()
+        .unwrap()
+        .clone();
+    assert_eq!(list.len(), 2);
+    let dim = &list[0];
+    assert_eq!(dim["index"], 0);
+    assert_eq!(dim["annotation"], "Dimension");
+    assert_eq!(dim["kind"]["type"], "Distance");
+    assert_eq!(dim["precision"], 2);
+    assert_eq!(dim["dual_unit"], "in");
+    assert_eq!(dim["expr"], Value::Null);
+    assert_eq!(dim["resolved"], true);
+    assert_eq!(dim["angular"], false);
+    assert_eq!(dim["placement"], json!([0.0, 0.0]));
+    // Anchors cross the wire as STRINGS (the `ViewAnchor` rule), and are the
+    // pids that were authored.
+    assert_eq!(dim["anchors"][0]["pid"], json!(lo.to_string()));
+    assert_eq!(dim["anchors"][1]["pid"], json!(hi.to_string()));
+    // The kind rides as the `{type}` object `anchor_list` uses, and the add
+    // tool takes that object back as it is.
+    assert_eq!(dim["anchors"][0]["kind"], json!({ "type": "Edge" }));
+    let value = dim["value"].as_f64().expect("a measured value");
+    assert!(
+        (value - span).abs() < 1e-12,
+        "drawing_get reports {value}, the walls are {span} apart"
+    );
+    let note = &list[1];
+    assert_eq!(note["index"], 1);
+    assert_eq!(note["annotation"], "Note");
+    assert_eq!(note["text"], "DEBURR");
+    assert_eq!(note["value"], Value::Null);
+    assert_eq!(note["anchors"].as_array().unwrap().len(), 1);
+
+    // Round trip: the anchors as `drawing_get` reports them are what
+    // `drawing_annotation_add` accepts, object kind and string pid alike.
+    let answer = ok(
+        &mut state,
+        &mut kernel,
+        "drawing_annotation_add",
+        json!({
+            "view_id": view_id,
+            "annotation": "Dimension",
+            "kind": "Distance",
+            "anchors": dim["anchors"],
+        }),
+    );
+    assert_eq!(answer["annotation_index"], 2);
+}
+
+#[test]
+fn deleting_a_view_takes_the_views_projected_from_it_and_says_which() {
+    // The engine's `DeleteView` cascades (D4a), and the panel does it
+    // silently (an open item there). The tool names every id that went, so
+    // an agent that deletes a parent is told what else it took.
+    let (mut state, mut kernel, part_tab, _drawing_tab) = box_and_drawing();
+    let front = add_view(
+        &mut state,
+        &mut kernel,
+        json!({ "tab_id": part_tab, "view": "front" }),
+    );
+    let top = add_view(
+        &mut state,
+        &mut kernel,
+        json!({ "tab_id": part_tab, "view": "top", "placement_mm": [60.0, 140.0] }),
+    );
+    let side = add_view(
+        &mut state,
+        &mut kernel,
+        json!({ "tab_id": part_tab, "parent_view_id": top, "direction_from_parent": "right" }),
+    );
+    let detail = add_view(
+        &mut state,
+        &mut kernel,
+        json!({
+            "tab_id": part_tab,
+            "parent_view_id": side,
+            "detail_mm": [0.0, 0.0, 30.0],
+            "scale": 2.0,
+        }),
+    );
+
+    let answer = ok(
+        &mut state,
+        &mut kernel,
+        "drawing_view_delete",
+        json!({ "view_id": top }),
+    );
+    assert_eq!(answer["view_id"], top);
+    let mut deleted: Vec<String> = answer["deleted"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|v| v.as_str().unwrap().to_string())
+        .collect();
+    deleted.sort();
+    let mut expected = vec![top.clone(), side.clone(), detail.clone()];
+    expected.sort();
+    assert_eq!(
+        deleted, expected,
+        "the top view, its projection and the projection's detail all go"
+    );
+    assert_eq!(
+        view_ids(&answer),
+        vec![front.clone()],
+        "the unrelated front view stays"
+    );
+
+    // Deleting what is not there is a refusal by name, and changes nothing.
+    let err = refused(
+        &mut state,
+        &mut kernel,
+        "drawing_view_delete",
+        json!({ "view_id": top }),
+    );
+    assert_eq!(err["code"], "NotFound");
+    let got = ok(&mut state, &mut kernel, "drawing_get", json!({}));
+    assert_eq!(view_ids(&got), vec![front]);
+}
+
+#[test]
+fn an_annotation_is_deleted_by_index_and_the_index_is_checked_first() {
+    let (mut state, mut kernel, part_tab, drawing_tab) = box_and_drawing();
+    let (lo, hi, _) = wall_pids(&mut state, &mut kernel, &part_tab, &drawing_tab);
+    let view_id = add_view(
+        &mut state,
+        &mut kernel,
+        json!({ "tab_id": part_tab, "view": "top" }),
+    );
+    for text in ["FIRST", "SECOND"] {
+        ok(
+            &mut state,
+            &mut kernel,
+            "drawing_annotation_add",
+            json!({ "view_id": view_id, "annotation": "Note", "text": text, "anchors": [lo] }),
+        );
+    }
+    ok(
+        &mut state,
+        &mut kernel,
+        "drawing_annotation_add",
+        json!({ "view_id": view_id, "annotation": "Dimension", "anchors": [lo, hi] }),
+    );
+    assert_eq!(layout(&state, &drawing_tab, &view_id).annotations.len(), 3);
+
+    // Out of range names the count rather than failing inside the engine.
+    let err = refused(
+        &mut state,
+        &mut kernel,
+        "drawing_annotation_delete",
+        json!({ "view_id": view_id, "index": 3 }),
+    );
+    assert_eq!(err["code"], "NotFound");
+    assert_eq!(err["details"]["count"], 3);
+    // And a missing index is the argument's fault, not the document's.
+    let err = refused(
+        &mut state,
+        &mut kernel,
+        "drawing_annotation_delete",
+        json!({ "view_id": view_id }),
+    );
+    assert_eq!(err["code"], "InvalidArgument");
+    assert_eq!(err["details"]["path"], "/index");
+
+    let answer = ok(
+        &mut state,
+        &mut kernel,
+        "drawing_annotation_delete",
+        json!({ "view_id": view_id, "index": 0 }),
+    );
+    assert_eq!(answer["index"], 0);
+    let got = ok(
+        &mut state,
+        &mut kernel,
+        "drawing_get",
+        json!({ "include_annotations": true }),
+    );
+    let list = got["sheets"][0]["views"][0]["annotation_list"]
+        .as_array()
+        .unwrap()
+        .clone();
+    assert_eq!(list.len(), 2);
+    assert_eq!(
+        list[0]["text"], "SECOND",
+        "the FIRST note went, the rest moved up"
+    );
+    assert_eq!(list[1]["annotation"], "Dimension");
+    assert_eq!(layout(&state, &drawing_tab, &view_id).annotations.len(), 2);
+}
+
+#[test]
+fn an_annotation_is_edited_in_place_and_keeps_its_index() {
+    // The `EditAnnotation` edit D4d named: the panel's drag was a delete and
+    // a re-add in one Batch, which moved the annotation to the END of the
+    // list. In place, the first dimension stays first.
+    let (mut state, mut kernel, part_tab, drawing_tab) = box_and_drawing();
+    let (lo, hi, span) = wall_pids(&mut state, &mut kernel, &part_tab, &drawing_tab);
+    ok(
+        &mut state,
+        &mut kernel,
+        "tab_switch",
+        json!({ "tab_id": part_tab }),
+    );
+    ok(
+        &mut state,
+        &mut kernel,
+        "parameters_set",
+        json!({ "parameters": [{ "name": "half_span", "expression": format!("{}", span * 500.0) }] }),
+    );
+    ok(
+        &mut state,
+        &mut kernel,
+        "tab_switch",
+        json!({ "tab_id": drawing_tab }),
+    );
+    let view_id = add_view(
+        &mut state,
+        &mut kernel,
+        json!({ "tab_id": part_tab, "view": "top" }),
+    );
+    ok(
+        &mut state,
+        &mut kernel,
+        "drawing_annotation_add",
+        json!({ "view_id": view_id, "annotation": "Dimension", "anchors": [lo, hi], "precision": 1 }),
+    );
+    ok(
+        &mut state,
+        &mut kernel,
+        "drawing_annotation_add",
+        json!({ "view_id": view_id, "annotation": "Note", "text": "OLD", "anchors": [lo] }),
+    );
+
+    // Precision, a dual unit, a placement and an expression, on the FIRST.
+    let answer = ok(
+        &mut state,
+        &mut kernel,
+        "drawing_annotation_edit",
+        json!({
+            "view_id": view_id,
+            "index": 0,
+            "precision": 3,
+            "dual_unit": "in",
+            "placement": [0.004, -0.002],
+            "expr": "half_span",
+        }),
+    );
+    assert_eq!(answer["index"], 0);
+    let list = answer["sheets"][0]["views"][0]["annotation_list"]
+        .as_array()
+        .unwrap()
+        .clone();
+    assert_eq!(list.len(), 2, "an edit adds nothing");
+    assert_eq!(
+        list[0]["annotation"], "Dimension",
+        "the dimension kept index 0"
+    );
+    assert_eq!(list[0]["precision"], 3);
+    assert_eq!(list[0]["dual_unit"], "in");
+    assert_eq!(list[0]["placement"], json!([0.004, -0.002]));
+    assert_eq!(list[0]["expr"], "half_span");
+    let value = list[0]["value"].as_f64().unwrap();
+    assert!(
+        (value - span / 2.0).abs() < 1e-12,
+        "the edited dimension prints the expression: {value} vs {}",
+        span / 2.0
+    );
+    assert_eq!(list[1]["text"], "OLD");
+
+    // Clearing: `precision: "default"`, `dual_unit: ""`, `expr: ""`.
+    let answer = ok(
+        &mut state,
+        &mut kernel,
+        "drawing_annotation_edit",
+        json!({ "view_id": view_id, "index": 0, "precision": "default", "dual_unit": "", "expr": "" }),
+    );
+    let dim = &answer["sheets"][0]["views"][0]["annotation_list"][0];
+    assert_eq!(dim["precision"], Value::Null);
+    assert_eq!(dim["dual_unit"], Value::Null);
+    assert_eq!(dim["expr"], Value::Null);
+    assert!(
+        (dim["value"].as_f64().unwrap() - span).abs() < 1e-12,
+        "back to measuring the anchors"
+    );
+
+    // The note's text, in place.
+    let answer = ok(
+        &mut state,
+        &mut kernel,
+        "drawing_annotation_edit",
+        json!({ "view_id": view_id, "index": 1, "text": "NEW" }),
+    );
+    assert_eq!(
+        answer["sheets"][0]["views"][0]["annotation_list"][1]["text"],
+        "NEW"
+    );
+
+    // A field the kind does not have is refused BY NAME, and nothing changes.
+    let err = refused(
+        &mut state,
+        &mut kernel,
+        "drawing_annotation_edit",
+        json!({ "view_id": view_id, "index": 1, "precision": 2 }),
+    );
+    assert_eq!(err["code"], "InvalidArgument");
+    assert!(
+        err["message"].as_str().unwrap().contains("precision"),
+        "{err}"
+    );
+    let err = refused(
+        &mut state,
+        &mut kernel,
+        "drawing_annotation_edit",
+        json!({ "view_id": view_id, "index": 0, "text": "no" }),
+    );
+    assert!(err["message"].as_str().unwrap().contains("text"), "{err}");
+    // Nor a value, a kind or the anchors — the §7 refusal and "what is
+    // measured is the annotation".
+    for args in [
+        json!({ "view_id": view_id, "index": 0, "value": 1.0 }),
+        json!({ "view_id": view_id, "index": 0, "kind": "Radius" }),
+        json!({ "view_id": view_id, "index": 0, "anchors": [lo] }),
+    ] {
+        let err = refused(&mut state, &mut kernel, "drawing_annotation_edit", args);
+        assert_eq!(err["code"], "InvalidArgument", "{err}");
+    }
+
+    // An expression the rebuild cannot evaluate rolls the edit back whole:
+    // the dimension still measures its anchors and still sits at index 0.
+    let err = refused(
+        &mut state,
+        &mut kernel,
+        "drawing_annotation_edit",
+        json!({ "view_id": view_id, "index": 0, "expr": "no_such_parameter" }),
+    );
+    assert_eq!(err["code"], "AnnotationNotMeasurable");
+    let got = ok(
+        &mut state,
+        &mut kernel,
+        "drawing_get",
+        json!({ "include_annotations": true }),
+    );
+    let dim = &got["sheets"][0]["views"][0]["annotation_list"][0];
+    assert_eq!(
+        dim["expr"],
+        Value::Null,
+        "the failed expression was rolled back"
+    );
+    assert_eq!(dim["resolved"], true);
+    assert_eq!(
+        layout(&state, &drawing_tab, &view_id).annotations.len(),
+        2,
+        "both annotations still lay out"
+    );
+}
+
+#[test]
+fn the_one_view_dxf_export_takes_the_isometric_view() {
+    // D4e's open item: the sheet's `view` vocabulary had `iso` and the
+    // one-view export did not, because `export_dxf` carried its own six-row
+    // copy of the table. One table now (`NamedView::ALL`), so an iso of the
+    // model exports without first adding it to a sheet.
+    let (mut state, mut kernel, part_tab, _drawing_tab) = box_and_drawing();
+    ok(
+        &mut state,
+        &mut kernel,
+        "tab_switch",
+        json!({ "tab_id": part_tab }),
+    );
+    let result = tool(
+        &mut state,
+        &mut kernel,
+        "export_dxf",
+        json!({ "view": "iso" }),
+    );
+    assert!(!result.is_error, "{result:?}");
+    let dxf = exported_dxf(&result);
+    let entities = dxf_entities(&dxf);
+    let lines = entities
+        .iter()
+        .filter(|(kind, _, _)| kind == "LINE")
+        .count();
+    // The same count the sheet's iso view draws: nine visible and three
+    // hidden edges of a box.
+    assert_eq!(
+        lines, 12,
+        "an isometric of a box is twelve edges, drew {lines}"
+    );
+    let layers = dxf_layers(&dxf);
+    assert!(layers.iter().any(|l| l == "HIDDEN"), "{layers:?}");
+}
+
+#[test]
+fn the_undo_and_redo_tools_reach_the_drawings_own_stack_on_a_drawing_tab() {
+    // D4d made a drawing's history the engine's (whole-drawing snapshots);
+    // the `undo` / `redo` TOOLS send the same `Undo` / `Redo` the page does,
+    // so on a Drawing tab they must act on the drawing — and must NOT reach
+    // past it into the part's feature tree, which has its own history.
+    let (mut state, mut kernel, part_tab, drawing_tab) = box_and_drawing();
+    // The engine holds the ACTIVE tab's tree, and a drawing tab's is empty —
+    // which is exactly why the tree's `can_undo` is false there and the
+    // `Undo` message falls through to the drawing's stack. The part's count
+    // is read on the part tab.
+    ok(
+        &mut state,
+        &mut kernel,
+        "tab_switch",
+        json!({ "tab_id": part_tab }),
+    );
+    let features_before = state.engine.tree.features.len();
+    assert_eq!(features_before, 2, "the fixture is a sketch and an extrude");
+    ok(
+        &mut state,
+        &mut kernel,
+        "tab_switch",
+        json!({ "tab_id": drawing_tab }),
+    );
+    let top = add_view(
+        &mut state,
+        &mut kernel,
+        json!({ "tab_id": part_tab, "view": "top" }),
+    );
+    add_view(
+        &mut state,
+        &mut kernel,
+        json!({ "tab_id": part_tab, "parent_view_id": top, "direction_from_parent": "right" }),
+    );
+    assert_eq!(
+        view_ids(&ok(&mut state, &mut kernel, "drawing_get", json!({}))).len(),
+        2
+    );
+
+    ok(&mut state, &mut kernel, "undo", json!({}));
+    let got = ok(&mut state, &mut kernel, "drawing_get", json!({}));
+    assert_eq!(
+        view_ids(&got),
+        vec![top.clone()],
+        "one undo takes the last view off"
+    );
+    ok(&mut state, &mut kernel, "undo", json!({}));
+    let got = ok(&mut state, &mut kernel, "drawing_get", json!({}));
+    assert!(view_ids(&got).is_empty(), "a second undo empties the sheet");
+
+    // The part is untouched throughout.
+    ok(
+        &mut state,
+        &mut kernel,
+        "tab_switch",
+        json!({ "tab_id": part_tab }),
+    );
+    assert_eq!(state.engine.tree.features.len(), features_before);
+    ok(
+        &mut state,
+        &mut kernel,
+        "tab_switch",
+        json!({ "tab_id": drawing_tab }),
+    );
+
+    ok(&mut state, &mut kernel, "redo", json!({}));
+    let got = ok(&mut state, &mut kernel, "drawing_get", json!({}));
+    assert_eq!(view_ids(&got), vec![top], "redo puts the top view back");
+}

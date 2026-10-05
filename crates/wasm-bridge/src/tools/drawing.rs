@@ -40,6 +40,13 @@
 //! line in the parent view's own plane) and a **detail** (`detail_mm`, a crop
 //! disc), and `drawing_sheet_edit` carries the sheet's paper, its title block
 //! and the drawing's projection standard.
+//!
+//! D4f completed the door with the half an agent could not do before: READ
+//! a drawing it did not just edit (`drawing_get`, with the annotations and
+//! their measured values on request), take a view or an annotation back off
+//! the sheet (`drawing_view_delete`, `drawing_annotation_delete`), and change
+//! an annotation in place (`drawing_annotation_edit`, over the
+//! `EditAnnotation` edit D4d named as the fix for its delete-and-re-add).
 
 use feature_engine::drawing::{
     dimension_kind_from_tag, Drawing, NamedView, Orientation, ProjectedDirection, Projection,
@@ -57,10 +64,19 @@ use crate::messages::{
 };
 
 /// The drawing tools: the ones whose gate is "a Drawing tab is active".
+///
+/// `drawing_get` is the one QUERY among them (D4f): it reads the evaluated
+/// drawing and changes nothing, but it needs the same tab, because the
+/// anchors and the per-annotation measurements it answers with are the open
+/// drawing's evaluation, not the document's.
 pub const DRAWING_TOOLS: &[&str] = &[
+    "drawing_get",
     "drawing_view_add",
     "drawing_view_edit",
+    "drawing_view_delete",
     "drawing_annotation_add",
+    "drawing_annotation_edit",
+    "drawing_annotation_delete",
     "drawing_sheet_edit",
 ];
 
@@ -164,6 +180,18 @@ fn commit(
 /// they are curve lists, a megabyte of them on a real part, and an agent that
 /// wants the drawing itself asks for `export_svg` or `export_dxf`.
 fn drawing_state(state: &EngineState, tab_id: &str, include_anchors: bool) -> Answer {
+    drawing_state_with(state, tab_id, include_anchors, false)
+}
+
+/// [`drawing_state`], optionally with every view's annotations listed
+/// (`annotation_list`, D4f) — what each one is, what it anchors on, and the
+/// number the last rebuild measured for it.
+fn drawing_state_with(
+    state: &EngineState,
+    tab_id: &str,
+    include_anchors: bool,
+    include_annotations: bool,
+) -> Answer {
     let drawing = drawing_of(state, tab_id)?;
     let open = state.drawing.as_ref().filter(|d| d.tab_id == tab_id);
     let sheets: Vec<Value> = drawing
@@ -175,6 +203,30 @@ fn drawing_state(state: &EngineState, tab_id: &str, include_anchors: bool) -> An
                 .iter()
                 .map(|view| {
                     let cached = view.cache.as_ref();
+                    let annotation_list = include_annotations.then(|| {
+                        // The layout carries only the annotations that
+                        // RESOLVED, in document order, so the k-th resolved
+                        // annotation is the k-th layout entry (D4d's open
+                        // item: there is no index on the layout record yet).
+                        let mut resolved_so_far = 0usize;
+                        view.annotations
+                            .iter()
+                            .enumerate()
+                            .map(|(index, a)| {
+                                let failed = open.is_some_and(|d| {
+                                    d.annotation_errors.contains(&(view.id, index))
+                                });
+                                let laid_out = if failed || cached.is_none() {
+                                    None
+                                } else {
+                                    let k = resolved_so_far;
+                                    resolved_so_far += 1;
+                                    cached.and_then(|c| c.annotations.get(k))
+                                };
+                                annotation_record(a, index, laid_out, failed)
+                            })
+                            .collect::<Vec<_>>()
+                    });
                     json!({
                         "id": view.id,
                         "name": view.name,
@@ -208,6 +260,10 @@ fn drawing_state(state: &EngineState, tab_id: &str, include_anchors: bool) -> An
                         "anchor_list": (include_anchors)
                             .then(|| open.and_then(|d| d.anchors.get(&view.id)).cloned())
                             .flatten(),
+                        // The annotations themselves, on request (D4f):
+                        // the one place an agent reads back what it, or a
+                        // person on the sheet, authored.
+                        "annotation_list": annotation_list,
                     })
                 })
                 .collect();
@@ -265,6 +321,297 @@ fn sheet_index(drawing: &Drawing, args: &Value) -> Result<usize, ToolFailure> {
             Ok(0)
         }
     }
+}
+
+/// One annotation as `drawing_get` reports it (D4f): the document's record
+/// of it — kind, anchors, what it was told to say — beside what the last
+/// rebuild measured for it.
+///
+/// Anchor pids cross the wire as decimal STRINGS, the same rule
+/// `ViewAnchor` follows: a `u64` above 2^53 is not exact as a JSON number in
+/// JavaScript, and an agent that read a rounded id back and passed it on
+/// would be refused for an anchor it was just shown.
+fn annotation_record(
+    annotation: &waffle_types::annotation::Annotation,
+    index: usize,
+    laid_out: Option<&waffle_types::annotation::layout::AnnotationLayout>,
+    failed: bool,
+) -> Value {
+    use waffle_types::annotation::layout::AnnotationLayout;
+    use waffle_types::annotation::{Annotation, Measured};
+    use waffle_types::geom_ref::Selector;
+
+    let anchors: Vec<Value> = annotation
+        .anchors()
+        .iter()
+        .map(|r| {
+            let pid = match &r.selector {
+                Selector::Pid { pid, .. } => Some(pid.to_string()),
+                _ => None,
+            };
+            json!({ "pid": pid, "kind": r.kind })
+        })
+        .collect();
+    let mut record = json!({
+        "index": index,
+        "annotation": feature_engine::drawing::annotation_tag(annotation),
+        "anchors": anchors,
+        "resolved": !failed && laid_out.is_some(),
+    });
+    let placement = annotation
+        .placement()
+        .map(|p| json!([p.dx, p.dy]))
+        .unwrap_or(Value::Null);
+    record["placement"] = placement;
+    match annotation {
+        Annotation::Dimension {
+            kind,
+            value,
+            precision,
+            dual_unit,
+            ..
+        } => {
+            record["kind"] = json!(kind);
+            record["precision"] = json!(precision);
+            record["dual_unit"] = json!(dual_unit);
+            record["expr"] = match value {
+                Measured::Expr { expr } => json!(expr),
+                _ => Value::Null,
+            };
+            // The number the drawing prints, in the model's units (meters;
+            // radians for an angle), from the layout — never from the
+            // document, which stores no number (§7).
+            let measured = match laid_out {
+                Some(AnnotationLayout::Dimension { value, .. }) => json!(value),
+                _ => Value::Null,
+            };
+            record["value"] = measured;
+            record["angular"] = json!(kind.is_angular());
+        }
+        Annotation::Note { text, .. } => record["text"] = json!(text),
+        Annotation::Datum { label, .. } => record["label"] = json!(label),
+        Annotation::CentreMark { .. } | Annotation::CentreLine { .. } => {}
+    }
+    record
+}
+
+/// `drawing_get {sheet_id?, include_anchors?, include_annotations?}` (D4f).
+///
+/// The read-only door D4a's notes named as missing: an agent that opens a
+/// document with a drawing tab had no way to list its views short of editing
+/// one. Answers exactly what every edit answers, plus the two lists only a
+/// reader wants — the anchors (as the edits already offered) and the
+/// annotations with their measured values (new here).
+pub(crate) fn drawing_get(state: &mut EngineState, args: &Value) -> Answer {
+    let tab = require_drawing_tab(state)?;
+    let drawing = drawing_of(state, &tab.id)?;
+    // A sheet_id that names nothing is a refusal, not an empty answer; the
+    // answer itself is still the whole drawing, because a view's parent may
+    // be on another sheet and a reader asking about one sheet needs the id
+    // vocabulary of all of them.
+    let _ = sheet_index(&drawing, args)?;
+    drawing_state_with(
+        state,
+        &tab.id,
+        args.get("include_anchors").is_some_and(truthy),
+        args.get("include_annotations").is_some_and(truthy),
+    )
+}
+
+/// `drawing_view_delete {view_id}` (D4f): the view, and with it every view
+/// projected, sectioned or detailed FROM it — which is what deleting a parent
+/// means, and which the panel does silently. The answer names every id that
+/// went, so an agent is told how many a delete took rather than counting.
+pub(crate) fn drawing_view_delete(
+    state: &mut EngineState,
+    kb: &mut dyn KernelBundle,
+    args: &Value,
+) -> Answer {
+    let tab = require_drawing_tab(state)?;
+    let view_id = required_uuid(args, "view_id")?;
+    let before = drawing_of(state, &tab.id)?;
+    if before.find_view(view_id).is_none() {
+        return Err(view_not_found(view_id));
+    }
+    let ids_before: Vec<Uuid> = before
+        .sheets
+        .iter()
+        .flat_map(|s| s.views.iter().map(|v| v.id))
+        .collect();
+    edit(state, kb, &tab.id, DrawingEdit::DeleteView { view_id })?;
+    let after = drawing_of(state, &tab.id)?;
+    let deleted: Vec<Uuid> = ids_before
+        .into_iter()
+        .filter(|id| after.find_view(*id).is_none())
+        .collect();
+    let mut answer = json!({ "view_id": view_id, "deleted": deleted });
+    super::tabs::merge(&mut answer, drawing_state(state, &tab.id, false)?);
+    Ok(answer)
+}
+
+/// The annotation `index` of `view_id`, checked against the document so the
+/// refusal names the count rather than describing the edit.
+fn annotation_index(
+    state: &EngineState,
+    tab_id: &str,
+    view_id: Uuid,
+    args: &Value,
+) -> Result<usize, ToolFailure> {
+    let drawing = drawing_of(state, tab_id)?;
+    let (_, view) = drawing
+        .find_view(view_id)
+        .ok_or_else(|| view_not_found(view_id))?;
+    let index = args.get("index").and_then(Value::as_u64).ok_or_else(|| {
+        ToolFailure::new(
+            "InvalidArgument",
+            "index is required: the annotation's position in the view's list, as drawing_get \
+                 reports it."
+                .to_string(),
+            json!({ "path": "/index" }),
+        )
+    })? as usize;
+    if index >= view.annotations.len() {
+        return Err(ToolFailure::new(
+            "NotFound",
+            format!(
+                "View {view_id} has {} annotation(s), so there is no index {index}.",
+                view.annotations.len()
+            ),
+            json!({ "view_id": view_id, "index": index, "count": view.annotations.len() }),
+        ));
+    }
+    Ok(index)
+}
+
+/// `drawing_annotation_delete {view_id, index}` (D4f).
+pub(crate) fn drawing_annotation_delete(
+    state: &mut EngineState,
+    kb: &mut dyn KernelBundle,
+    args: &Value,
+) -> Answer {
+    let tab = require_drawing_tab(state)?;
+    let view_id = required_uuid(args, "view_id")?;
+    let index = annotation_index(state, &tab.id, view_id, args)?;
+    edit(
+        state,
+        kb,
+        &tab.id,
+        DrawingEdit::DeleteAnnotation { view_id, index },
+    )?;
+    let mut answer = json!({ "view_id": view_id, "index": index });
+    super::tabs::merge(&mut answer, drawing_state(state, &tab.id, false)?);
+    Ok(answer)
+}
+
+/// `drawing_annotation_edit {view_id, index, precision?, dual_unit?, expr?,
+/// text?, label?, placement?}` (D4f): change the annotation IN PLACE, so it
+/// keeps its index.
+///
+/// Only what is given changes. A field the annotation's kind does not have is
+/// refused by name (`InvalidArgument`), never dropped. `precision` is a
+/// number of places or the word `default` for the document setting;
+/// `dual_unit: ""` and `expr: ""` clear theirs. As on `_add`, there is no
+/// `value`, no `kind` and no `anchors`: changing what is measured is a new
+/// annotation.
+///
+/// An edit the rebuild then cannot resolve — an `expr` that does not
+/// evaluate — is rolled back whole, as `drawing_annotation_add` rolls back an
+/// annotation that never worked, and refused as `AnnotationNotMeasurable`.
+pub(crate) fn drawing_annotation_edit(
+    state: &mut EngineState,
+    kb: &mut dyn KernelBundle,
+    args: &Value,
+) -> Answer {
+    let tab = require_drawing_tab(state)?;
+    let view_id = required_uuid(args, "view_id")?;
+    let index = annotation_index(state, &tab.id, view_id, args)?;
+    if args.get("value").is_some_and(|v| !v.is_null()) {
+        return Err(ToolFailure::new(
+            "InvalidArgument",
+            "A drawing dimension is measured from the model, never typed in; change `expr` or \
+             leave it to measure its anchors."
+                .to_string(),
+            json!({ "path": "/value" }),
+        ));
+    }
+    for fixed in ["kind", "anchors"] {
+        if args.get(fixed).is_some_and(|v| !v.is_null()) {
+            return Err(ToolFailure::new(
+                "InvalidArgument",
+                format!(
+                    "`{fixed}` cannot be changed on an existing annotation — what is measured is \
+                     the annotation; delete it and add another."
+                ),
+                json!({ "path": format!("/{fixed}") }),
+            ));
+        }
+    }
+    // `precision`: a whole number, or the word `default` to return to the
+    // document setting. Null means "not given", as everywhere on this door.
+    let (precision, clear_precision) = match args.get("precision").filter(|v| !v.is_null()) {
+        None => (None, false),
+        Some(Value::String(s)) if s.eq_ignore_ascii_case("default") => (None, true),
+        Some(_) => (precision_arg(args)?, false),
+    };
+    let text_field = |name: &str| -> Option<String> {
+        args.get(name)
+            .filter(|v| !v.is_null())
+            .map(|v| v.as_str().unwrap_or_default().to_string())
+    };
+    let changes = DrawingEdit::EditAnnotation {
+        view_id,
+        index,
+        precision,
+        clear_precision,
+        dual_unit: text_field("dual_unit"),
+        expr: text_field("expr"),
+        text: text_field("text"),
+        label: text_field("label"),
+        placement: placement_arg(args, "placement")?,
+    };
+    let before = drawing_of(state, &tab.id)?;
+    // An annotation that ALREADY did not resolve stays editable (its
+    // placement, say); only an edit that turns a working one into a broken
+    // one is rolled back below.
+    let was_failed = state
+        .drawing
+        .as_ref()
+        .is_some_and(|d| d.annotation_errors.contains(&(view_id, index)));
+    // The kind check is `apply_edit`'s, and its refusal names the field; it
+    // is surfaced as the ARGUMENT at fault rather than as a document problem.
+    let mut scratch = before.clone();
+    crate::drawing_view::apply_edit(&mut scratch, &changes).map_err(|reason| {
+        ToolFailure::new(
+            "InvalidArgument",
+            reason.clone(),
+            json!({ "reason": reason, "view_id": view_id, "index": index }),
+        )
+    })?;
+    edit(state, kb, &tab.id, changes)?;
+
+    let failed = state
+        .drawing
+        .as_ref()
+        .is_some_and(|d| d.annotation_errors.contains(&(view_id, index)));
+    if failed && !was_failed {
+        let reason = state
+            .drawing
+            .as_ref()
+            .map(|d| d.errors.join("; "))
+            .unwrap_or_default();
+        commit(state, kb, &tab.id, before)?;
+        return Err(ToolFailure::new(
+            "AnnotationNotMeasurable",
+            format!("The annotation was not changed: {reason}"),
+            json!({ "reason": reason, "view_id": view_id, "index": index }),
+        ));
+    }
+    let mut answer = json!({ "view_id": view_id, "index": index });
+    super::tabs::merge(
+        &mut answer,
+        drawing_state_with(state, &tab.id, false, true)?,
+    );
+    Ok(answer)
 }
 
 /// Apply one edit through `drawing_view::apply_edit` — the same function the
@@ -1238,7 +1585,17 @@ fn anchors_arg(args: &Value, arity: usize) -> Result<Vec<DrawingAnchorSpec>, Too
     for item in array {
         let (raw, kind) = match item {
             Value::Object(o) => {
-                let kind = match o.get("kind").and_then(Value::as_str).unwrap_or("Edge") {
+                // `kind` as the bare tag, or as the `{type}` object the
+                // engine's own `anchor_list` / `annotation_list` records
+                // carry — so an anchor read off `drawing_get` passes back
+                // verbatim (D4f).
+                let tag = match o.get("kind") {
+                    None | Some(Value::Null) => "Edge",
+                    Some(Value::String(s)) => s.as_str(),
+                    Some(Value::Object(k)) => k.get("type").and_then(Value::as_str).unwrap_or(""),
+                    Some(_) => "",
+                };
+                let kind = match tag {
                     "Edge" => TopoKind::Edge,
                     "Face" => TopoKind::Face,
                     "Vertex" => TopoKind::Vertex,

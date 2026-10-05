@@ -268,6 +268,56 @@ assembly, else `null`): the picked face or edge is in the part's space and is
 what `connector_add` takes as `geom_ref`. `tab_switch` accepts Assembly tabs
 (the switch evaluates the tab, as the tab bar's does).
 
+**Drawings** (D4a 2026-10-03 → D4f 2026-10-05; `specs/drawings_and_mbd.md`
+§8). All run in the engine (`crates/wasm-bridge/src/tools/drawing.rs`) over
+the same `DrawingEdit` vocabulary the drawing panel and the sheet send, so an
+agent and a person cannot make different documents out of the same
+instruction. Every one needs a **Drawing tab active** (the third tab-kind
+gate, G7: `TabKindNotSupported{kind}` on a Part or Assembly tab) — the query
+included, because the anchors and the measured values it answers with are the
+OPEN drawing's evaluation, not the document's. The commands are document
+commands (§2.7): not engine feature-tree undo steps, but each is one snapshot
+on the drawing's own undo stack (D4d), which `undo`/`redo` reach when a
+Drawing tab is active. Each answers with the **drawing state**: `{tab_id,
+projection_angle, sheets[{id, name, size, orientation, extent_mm,
+title_block{show, fields, rows}, views[{id, name, source{tab_id, bodies},
+projection, scale, placement_mm, style, annotations (count), curves, bbox,
+hatch_loops, marks, cache_key, anchors (count), anchor_list?,
+annotation_list?}]}], declines, errors[], warnings[]}`. The curve lists are
+NOT in it (a megabyte on a real part): the drawing itself is `export_svg` /
+`export_pdf` / `export_dxf`.
+
+Two rules the whole family keeps. **A dimension has no `value`**: its number
+is measured from the model on every rebuild; `expr` (an expression the engine
+re-measures) is the one thing that may replace the measurement, and a literal
+is refused by name at both the tool and the engine boundary (§7 of the
+drawings spec). **Anchors are persistent ids** (`Selector::Pid`, D0), given as
+a bare id, or `{pid, kind}` with `kind` the bare tag or the `{type}` object
+the engine's own `anchor_list` / `annotation_list` carry — so an anchor read
+off `drawing_get` passes back verbatim. A pid crosses the wire as a decimal
+**string** (a `u64` above 2^53 is not exact as a JSON number in JavaScript).
+
+| Tool | Kind | Inputs (defaults) | Result |
+|---|---|---|---|
+| `drawing_get` | query | `sheet_id?`, `include_anchors (false)`, `include_annotations (false)` | drawing state; with the flags, per view `anchor_list[{pid, kind, shape, at, radius}]` and `annotation_list[{index, annotation, kind?, anchors[{pid, kind}], value? (meters; radians when `angular`), precision?, dual_unit?, expr?, text?, label?, placement, resolved}]`. `NotFound` for a `sheet_id` the drawing lacks (the answer is still the whole drawing: a view's parent may be on another sheet) |
+| `drawing_view_add` | command | `tab_id`, `bodies? (all)`, one of `view ("front")` \| `direction`+`up?` \| `parent_view_id`+`direction_from_parent ("right")` \| `parent_view_id`+`section_mm`+`flip?` \| `parent_view_id`+`detail_mm`; `label?`, `sheet_id?`, `name?`, `scale (1)`, `placement_mm?`, `include_anchors?` | `{view_id}` + state. `TabNotFound`; `InvalidArgument` for more than one projection, a non-positive scale, a degenerate cutting line; the eight `direction_from_parent` tags include the four isometric corners (D4e) |
+| `drawing_view_edit` | command | `view_id`, `name?`, `scale?`, `placement_mm?`, `bodies?`, `hidden_lines?`, `silhouettes?`, `include_anchors?` | state; `NotFound` |
+| `drawing_view_delete` | command | `view_id` | `{view_id, deleted[]}` + state — every view projected, sectioned or detailed from it goes too, transitively, and `deleted` names them all; `NotFound` |
+| `drawing_annotation_add` | command | `view_id`, `annotation ("Dimension")`, `kind ("Distance")`, `anchors` (arity from the kind), `text?`, `label?`, `expr?`, `precision?`, `dual_unit?`, `placement?` | `{annotation_index}` + state. `AnnotationNotMeasurable` — the annotation is rolled back out of the document — for an anchor the view does not draw or an `expr` that does not evaluate; `InvalidArgument` for `value`, the wrong arity, an unknown kind |
+| `drawing_annotation_edit` | command | `view_id`, `index`, `precision? (int \| "default")`, `dual_unit? ("" clears)`, `expr? ("" measures the anchors)`, `text?`, `label?`, `placement?` | `{view_id, index}` + state with every `annotation_list`. IN PLACE (`DrawingEdit::EditAnnotation`), so the index is kept; a field the annotation's kind lacks is `InvalidArgument` naming it; `value`, `kind`, `anchors` are refused (what is measured IS the annotation — delete and add); an `expr` the rebuild cannot evaluate is rolled back and `AnnotationNotMeasurable` |
+| `drawing_annotation_delete` | command | `view_id`, `index` | `{view_id, index}` + state; `NotFound` with `details.count` for an index past the view's list |
+| `drawing_sheet_edit` | command | `sheet_id?`, `name?`, `size? (A4…A0 \| Letter \| Tabloid \| [w_mm, h_mm])`, `orientation?`, `projection_angle? ("third" \| "first")`, `title_block?`, `title_block_fields? [{key \| label, text? \| expr?}]`, or `add_sheet` / `delete_sheet` | `{sheet_id}` + state. The derived rows (`DocumentName`, `SheetNumber`, `Scale`, `ProjectionAngle`) take no text and refuse one by name; the last sheet cannot be deleted |
+
+The sheet's exports ride on the export tools: `export_dxf` on a Drawing tab
+exports the sheet (every view placed, in sheet millimetres; `sheet_id?`,
+`view_id?` for one view alone at the paper origin — the model-view arguments
+are refused there and the sheet ones off it); `export_svg {sheet_id?,
+deliver}` and `export_pdf {sheet_id?, deliver}` are the PAGE's tools (the
+sheet's renderer is the app's, §3 of the drawings spec) and are in neither
+engine routing table. The one-view `export_dxf` on a Part or Assembly tab
+takes `view` from the same table a sheet's `view` does (`NamedView::ALL`, the
+isometric included since D4f) or a free `direction`+`up`.
+
 ### 2.6 Measurement method
 
 `body_measure.method` is `"exact"` (B-Rep volume/area through ICR-1) or
@@ -346,7 +396,7 @@ exact.
 | G4 | paused | `AgentPaused` |
 | G5 | document linked read-only (`isDocumentReadOnly()`) | `DocumentReadOnly` (fork is a user decision) |
 | G6 | engine not ready / crashed (`needsRestart`) | `EngineNotReady` / `EngineCrashed` |
-| G7 | active tab is not a Part (feature tools); active tab is not an Assembly (assembly tools, §2.5) | `TabKindNotSupported{kind}` |
+| G7 | active tab is not a Part (feature tools); active tab is not an Assembly (assembly tools, §2.5); active tab is not a Drawing (drawing tools, §2.5 — `drawing_get` included) | `TabKindNotSupported{kind}` |
 | G8 | user presses a modeling shortcut during an agent call | ignored with a status-bar hint "Agent is working"; nothing queued |
 
 Queries run in G1–G8 except G6. Those that read store state do not take the
@@ -545,6 +595,10 @@ Tool results with `isError: true`:
 | `InvalidArguments` | an argument combination the schema cannot express: both `rotation_quat` and `rotation_euler_deg`, a zero quaternion, several of `part_connector`/`geom_ref`/`frame`, `mate_add` with `a === b` |
 | `NameTaken` / `InvalidName` / `NameNotFound` | `entity_name` with a name the document already uses (for an entity or a body — one namespace), a name that is not one or two identifier segments, or whose `body.` segment is not the body the entity is in; `body_rename` with a `new_name` an entity name holds (the same namespace, the other direction); `entity_unname` with a name the document does not have (N1, §5.2) |
 | `ReferenceNotResolved` | `entity_name` with a `target` that no longer identifies one entity, or a `{type: name}` target naming nothing. A name must point at something real at the moment it is assigned |
+| `NotFound` | a drawing tool naming a view, sheet or annotation index the open drawing does not have (`details` carries the id, and `count` for an index) |
+| `InvalidArgument` | the engine-side tools' argument refusal (`details.path` is the JSON pointer): `export_dxf`'s view vocabulary, the drawing tools' scale, projection, anchors, `value`, a field an annotation's kind lacks. The singular spelling is the engine's (S3), beside the page's `InvalidArguments` above; both are kept rather than renamed under callers |
+| `DrawingEditFailed` | the engine refused the `EditDrawing` the tool built (`reason` verbatim); the previous drawing is restored and no undo step is taken |
+| `AnnotationNotMeasurable` | `drawing_annotation_add` / `_edit`: the rebuild could not resolve the annotation just authored — an anchor the view does not draw, an `expr` that does not evaluate (`reason` verbatim). The annotation (or the edit) is rolled back; the view still draws |
 | `Internal` | the executor detects a broken invariant (rollback not byte-exact; `ModelDelta` inconsistent). The agent session is then **paused** automatically, and the bar tells the user why. |
 
 ### 6.2 Structured-error gap

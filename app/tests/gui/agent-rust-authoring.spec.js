@@ -280,7 +280,13 @@ test.describe('Authoring tools run in the engine and still answer as the page di
 				// title block, and the drawing's projection standard, which
 				// D4a had no setter for at all. export_pdf joins export_svg in
 				// the PAGE, so like it, it is in neither routing table.
-				'drawing_sheet_edit'
+				'drawing_sheet_edit',
+				// D4f (2026-10-05): the deletes and the in-place annotation
+				// edit. `drawing_get`, the family's query, is in the other
+				// spec's table.
+				'drawing_view_delete',
+				'drawing_annotation_edit',
+				'drawing_annotation_delete'
 			].sort()
 		);
 	});
