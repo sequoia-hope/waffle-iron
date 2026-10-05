@@ -1734,6 +1734,19 @@ pub fn section_paper_step(cut: &CutPlane, angle: ProjectionAngle) -> [f64; 2] {
 /// an estimate and not a promise: a view much wider than anything on the
 /// sheet can still overhang the paper, and the author moves it. What it is
 /// not allowed to do is land on another view.
+///
+/// **What is NOT reserved** (D4e review, measured in
+/// `free_placement_wraps_on_a_portrait_sheet_and_reserves_no_frame_margin`):
+/// the frame margin and the title block. A wrapped row starts at the paper's
+/// own left EDGE, 10 mm inside the drawn frame, and a row that descends far
+/// enough reaches the title block's bottom-right corner. That is the posture
+/// `auto_placement_mm` has had since D4b — the renderer's own comment is "it
+/// sits in the frame's corner, which the auto-layout does not reserve" — and
+/// it stays that way here rather than being fixed, because `SHEET_MARGIN_MM`
+/// is the RENDERER's number (`app/src/lib/drawings/sheet.js`) and a copy of
+/// it in the engine is a second definition of where the paper ends. Reserving
+/// the frame is one mirrored constant away and belongs to whichever increment
+/// owns the sheet frame, not to the placement rule.
 pub fn free_placement_mm(
     sheet_extent_mm: [f64; 2],
     occupied: &[([f64; 2], [f64; 2])],

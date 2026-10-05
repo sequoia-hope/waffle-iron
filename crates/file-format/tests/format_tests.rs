@@ -1825,6 +1825,52 @@ fn the_3d_sketch_operation_did_not_move_the_format_floor() {
     assert_eq!(file_format::MIN_READER_VERSION, 15);
 }
 
+/// D4e review: skipping v13 and v14 does not refuse the files that claim
+/// them — which is the half of "a gap costs nothing" that is a MEASUREMENT
+/// and not an argument.
+///
+/// The gate is `max(version, min_reader_version) > FORMAT_VERSION`, so what
+/// matters is the comparison and not membership of a list: a file written by
+/// either of the two branches that took 13 and 14 opens in this reader, and
+/// so does one at every version between the last documented one and ours.
+/// The forward direction is pinned too — a file one version ABOVE ours is
+/// still refused by name — because a gap that swallowed the refusal would be
+/// the real cost.
+#[test]
+fn a_file_at_a_skipped_version_still_opens_and_one_above_ours_still_does_not() {
+    let tree = make_simple_tree();
+    let meta = ProjectMetadata::new("Gap");
+    let mut parsed: serde_json::Value =
+        serde_json::from_str(&save_project(&tree, &meta)).expect("the file parses");
+
+    for version in 12..=file_format::FORMAT_VERSION {
+        parsed["version"] = serde_json::json!(version);
+        parsed["min_reader_version"] = serde_json::json!(version);
+        let (back, _) = load_project(&parsed.to_string())
+            .unwrap_or_else(|e| panic!("a v{version} file must still open: {e}"));
+        assert_eq!(
+            back.features.len(),
+            tree.features.len(),
+            "a v{version} file lost features"
+        );
+    }
+
+    let ahead = file_format::FORMAT_VERSION + 1;
+    parsed["version"] = serde_json::json!(ahead);
+    parsed["min_reader_version"] = serde_json::json!(ahead);
+    let err = load_project(&parsed.to_string()).expect_err("a newer file is refused");
+    assert!(
+        matches!(
+            err,
+            file_format::LoadError::FutureVersion {
+                file_version,
+                supported_version,
+            } if file_version == ahead && supported_version == file_format::FORMAT_VERSION
+        ),
+        "a v{ahead} file should be refused by name, got: {err}"
+    );
+}
+
 /// v10: a pre-v10 file wrote its `Selector::Pid` ids as JSON NUMBERS, and it
 /// still loads — which is what makes the flip to strings free of a migration.
 ///

@@ -1869,3 +1869,149 @@ fn a_parentless_view_is_placed_beside_what_is_drawn_and_never_on_it() {
         "placed on top of a view whose extent is unknown"
     );
 }
+
+/// D4e review: the LOWER two corners view the model from below without
+/// turning it over, and the four corner frames are the closed form the
+/// `projected_frame` doc claims — measured on the PROJECTION, not the frame.
+///
+/// Derived independently of the implementation. With `sᵤ`, `s᥍ ∈ {−1, +1}`
+/// the corner's step and `(u, v, w)` the parent's basis, the frame is
+/// `dir = (w − sᵤu − s᥍v)/√3`, `up = v`, and `ViewFrame::basis`'s
+/// Gram-Schmidt then gives
+///
+/// ```text
+/// u′ = (u + sᵤ·w)/√2            v′ = (2v + s᥍·w − s᥍sᵤ·u)/√6
+/// ```
+///
+/// so the three of the parent's axes project to
+///
+/// ```text
+/// v ↦ [0, 2/√6]    w ↦ [sᵤ/√2, s᥍/√6]    u ↦ [1/√2, −s᥍sᵤ/√6]
+/// ```
+///
+/// Three readings of that table, and each is a question a drafter asks:
+///
+/// - the parent's VERTICAL draws exactly vertically (`v ↦ [0, +]`) in all
+///   four, upper and lower alike — which is what "paper up is the parent's
+///   `v`" buys, and the whole of the answer to "is a bottom iso upside
+///   down?". It is not: nothing is mirrored and nothing is turned over.
+/// - what separates an upper corner from a lower one is the sign of `s᥍` on
+///   the RECEDING axis (`w ↦ [·, s᥍/√6]`): the axis going away from the
+///   parent's viewer draws up in an iso from above and DOWN in one from
+///   below, which is exactly how a bottom isometric reads. Flipping paper up
+///   for the lower two (the `NamedView::Bottom` rule, arrived at from a third
+///   direction) would have turned the vertical over instead and changed
+///   nothing about this.
+/// - `sᵤ` separates left from right, on the same axis.
+#[test]
+fn the_lower_corner_isos_look_from_below_without_turning_the_model_over() {
+    let root2 = 2f64.sqrt();
+    let root6 = 6f64.sqrt();
+    for parent_named in [NamedView::Front, NamedView::Top, NamedView::Right] {
+        let parent = parent_named.frame().basis().unwrap();
+        for (corner, su, sv) in [
+            (ProjectedDirection::UpRight, 1.0, 1.0),
+            (ProjectedDirection::UpLeft, -1.0, 1.0),
+            (ProjectedDirection::DownRight, 1.0, -1.0),
+            (ProjectedDirection::DownLeft, -1.0, -1.0),
+        ] {
+            let basis = projected_frame(&parent, corner, ProjectionAngle::Third)
+                .basis()
+                .unwrap_or_else(|| panic!("{corner:?} of {} has no basis", parent_named.tag()));
+            let close = |got: [f64; 2], want: [f64; 2], axis: &str| {
+                assert!(
+                    (got[0] - want[0]).abs() < 1e-12 && (got[1] - want[1]).abs() < 1e-12,
+                    "{corner:?} of {}: the parent's {axis} projects to {got:?}, not {want:?}",
+                    parent_named.tag()
+                );
+            };
+            // The parent's vertical draws vertically — no paper-x component at
+            // all, and up is up, for the lower corners too.
+            close(basis.project_dir(parent.v), [0.0, 2.0 / root6], "v");
+            // The receding axis is what says above or below.
+            close(
+                basis.project_dir(parent.w),
+                [su / root2, sv / root6],
+                "line of sight",
+            );
+            close(
+                basis.project_dir(parent.u),
+                [1.0 / root2, -sv * su / root6],
+                "u",
+            );
+        }
+    }
+}
+
+/// D4e review: what [`free_placement_mm`] does and does not reserve.
+///
+/// It steps clear of every DRAWN view, on a portrait sheet as on a landscape
+/// one, and wraps to a new row below when the row runs out of paper. What it
+/// does NOT reserve is the frame margin (`SHEET_MARGIN_MM`, 10 mm, which
+/// lives in the renderer) or the title block's bottom-right corner: a wrapped
+/// row starts at the paper's own left EDGE, and a view wide enough overhangs
+/// the right one. That is the same posture `auto_placement_mm` has had since
+/// D4b — "it sits in the frame's corner, which the auto-layout does not
+/// reserve" — and it is recorded here rather than fixed because the margin is
+/// the renderer's number and reserving it would be a second copy of it in the
+/// engine. The invariant that IS load-bearing is the one the defect broke: no
+/// two views land on each other.
+#[test]
+fn free_placement_wraps_on_a_portrait_sheet_and_reserves_no_frame_margin() {
+    // A4 portrait, the narrow case: 40 mm views run out of room after two.
+    let sheet = [210.0, 297.0];
+    let extent = [40.0, 25.0];
+    let mut placed: Vec<([f64; 2], [f64; 2])> = Vec::new();
+    let mut rows = 0;
+    for _ in 0..4 {
+        let at = free_placement_mm(sheet, &placed, DEFAULT_VIEW_GAP_MM);
+        for (other, other_extent) in &placed {
+            let clear_x = (at[0] - other[0]).abs() - (extent[0] + other_extent[0]) / 2.0;
+            let clear_y = (at[1] - other[1]).abs() - (extent[1] + other_extent[1]) / 2.0;
+            assert!(
+                clear_x > -1e-9 || clear_y > -1e-9,
+                "{at:?} overlaps the view at {other:?}"
+            );
+        }
+        if placed.iter().any(|(p, _)| at[1] < p[1] - 1e-9) {
+            rows += 1;
+        }
+        placed.push((at, extent));
+    }
+    assert!(
+        rows > 0,
+        "four 40 mm views on a 210 mm sheet never wrapped: {placed:?}"
+    );
+    // The first wrap: at the paper's left edge, which is INSIDE the 10 mm
+    // frame margin the renderer draws. Measured, not desired — see the doc
+    // comment, and `specs/drawings_and_mbd.md` §8's D4e notes.
+    let wrapped = placed
+        .iter()
+        .find(|(p, _)| *p == free_placement_mm(sheet, &placed[..2], DEFAULT_VIEW_GAP_MM))
+        .map(|(p, _)| *p);
+    assert_eq!(
+        wrapped.map(|p| p[0]),
+        Some(extent[0] / 2.0),
+        "the wrapped row should start at the paper edge: {placed:?}"
+    );
+
+    // A view with a parent is untouched by any of this: a section and a detail
+    // both HAVE one, so they step clear of it through `auto_placement_mm`.
+    assert!(Projection::Section {
+        parent: Uuid::nil(),
+        from: [0.0, 0.0],
+        to: [0.01, 0.0],
+        flip: false,
+        label: "A".into(),
+    }
+    .parent()
+    .is_some());
+    assert!(Projection::Detail {
+        parent: Uuid::nil(),
+        center: [0.0, 0.0],
+        radius: 0.005,
+        label: "A".into(),
+    }
+    .parent()
+    .is_some());
+}
