@@ -71,8 +71,6 @@ export const DRAWING_TOKENS = {
  * @property {number[]} hiddenDash    - ISO 128-2 type 02
  * @property {number[]} centreDash    - ISO 128-2 type 04
  * @property {boolean} architecturalTicks - draw 45° ticks instead of arrowheads (§7's option)
- * @property {number} hatchSpacing   - D4b: paper mm between section hatch lines
- * @property {number} hatchAngleDeg  - D4b: hatch direction, from +u counter-clockwise
  * @property {number} cutLineWidth   - D4b: the cutting-plane line on a parent view
  * @property {number} titleBlockWidth  - D4b: the title block's paper width
  * @property {number} titleBlockRowHeight - D4b: one row's height
@@ -99,15 +97,13 @@ export const DEFAULT_STYLE = {
 	hiddenDash: [4, 2],
 	centreDash: [12, 2, 2, 2],
 	architecturalTicks: false,
-	// D4b. ISO 128-50 specifies section hatching as continuous NARROW lines
-	// at a uniform spacing and (for a single material) 45°, and leaves the
-	// spacing to the drawing's scale and size; 3 mm is the middle of the
-	// 2–4 mm range general-purpose practice uses on A4–A2 and is coarse
-	// enough that a 10 mm cap reads as hatched rather than as solid. It is a
-	// PAPER quantity like the line widths, so it does not scale with the
-	// view.
-	hatchSpacing: 3,
-	hatchAngleDeg: 45,
+	// D4c: the hatch SPACING and ANGLE are no longer here. They are the
+	// engine's (`waffle_types::annotation::hatch::HATCH_SPACING_MM` and
+	// `HATCH_ANGLE_DEG`), because the scanline that uses them is, and a copy
+	// of the number on this side would be a second spacing nothing reconciles
+	// — the sheet and the DXF would hatch at different pitches and both would
+	// claim to be 3 mm. `thinWidth` below is what this renderer still decides
+	// about the hatch: the segments arrive as geometry and are stroked.
 	// The cutting-plane line (ISO 128-2 type 04, long-dash dotted) is drawn
 	// at the WIDE width at its ends and narrow between; drawn at the hidden
 	// width throughout here, which is the middle one — heavier than a

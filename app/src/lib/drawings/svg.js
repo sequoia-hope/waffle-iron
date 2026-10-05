@@ -218,139 +218,61 @@ function paperArcPath(center, radius, startDeg, endDeg) {
 // ─────────────────────────────────────────────── D4b: hatch, marks, crop
 
 /**
- * A section cap's hatching, as PAPER-SPACE line segments
- * (`specs/drawings_and_mbd.md` §8, D4b).
+ * A section cap's hatching as SVG (`specs/drawings_and_mbd.md` §8, D4b/D4c).
  *
- * ## Why segments and not a pattern or a clip path
+ * ## The scanline is the ENGINE's since D4c
  *
- * An SVG `<pattern>` fill, or a `<clipPath>` with a family of long lines
- * through it, would both be shorter — and neither survives the trip to PDF
- * (and to DXF, whose `HATCH` entity is a different thing again). Computing
- * the segments means the hatch is the same geometry in every output, and the
- * line a reader measures on the screen is the line in the file.
+ * D4b computed the segments HERE, by an even-odd scanline over the cap loops
+ * in paper space. The reason for segments rather than an SVG `<pattern>` or a
+ * `<clipPath>` with long lines through it stands — neither survives the trip
+ * to PDF, or to DXF, whose `HATCH` entity is a different thing again, and
+ * computing the segments is what makes the line a reader measures on the
+ * screen the line in the file.
  *
- * ## The fill rule
+ * But the DXF is written in Rust, so with the scanline living here the sheet
+ * DXF could not carry the hatch at all without a SECOND implementation of
+ * one fill — which is the thing segments exist to avoid, and which would be
+ * the same mistake `DrawingView.svelte` and `export_svg` both refuse for the
+ * curves. So the scanline moved to `waffle_types::annotation::hatch`, the
+ * layout record carries `hatch_segments` in the view's own `(u, v)`, and this
+ * function strokes them. The loops are still on the record, for a renderer
+ * that fills regions instead of stroking lines.
  *
- * Even-odd, by a scanline. The loops are rotated so the hatch direction
- * becomes horizontal, each scanline's crossings with every loop edge are
- * collected and sorted, and consecutive pairs are the inside. A crossing is
- * counted with the half-open test `(y0 <= y) !== (y1 <= y)`, which is what
- * makes a scanline passing exactly through a VERTEX count once rather than
- * twice — the classic even-odd bug, and the one a cap with a hole in it would
- * hit at the hole's extremes.
+ * What a reader of this file needs to know about the geometry it is handed:
+ * the fill rule is even-odd by a scanline, the crossing test is half-open so
+ * a scanline through a vertex counts once, the grid is anchored at the view
+ * frame's origin so the caps of ONE view carry one continuous pattern, and
+ * the spacing is 3 paper mm whatever the view's scale. All four are stated
+ * and pinned where they are computed.
  *
- * Even-odd rather than the loops' own winding because a cap's loops already
- * carry their direction as `hole`, and an outer loop nested inside another
- * outer loop (two bodies, one inside a hollow of the other) is hatched
- * correctly by even-odd without anyone having to work out the nesting.
- *
- * @param {any[]} loops `HatchLoop`s: `{ curves, hole }`
+ * @param {number[][][]} segments `[[u0, v0], [u1, v1]]` per line, view units
  * @param {{ toPaper: (p: number[]) => number[] }} tf
- * @param {{ spacing: number, angleDeg: number }} options
- * @returns {{ segments: number[][][], warnings: string[] }}
+ * @param {import('./style.js').DrawingStyle} style
  */
-export function hatchSegments(loops, tf, { spacing, angleDeg }) {
+function renderHatch(segments, tf, style) {
 	const warnings = [];
-	const segments = [];
-	if (!(spacing > 0) || !Number.isFinite(spacing)) {
-		return { segments, warnings: ['the hatch spacing is not a positive length'] };
-	}
-	const theta = (angleDeg * Math.PI) / 180;
-	const [c, s] = [Math.cos(theta), Math.sin(theta)];
-	// Rotate BY −θ so the hatch lines lie along the x axis.
-	const into = ([x, y]) => [x * c + y * s, -x * s + y * c];
-	const back = ([x, y]) => [x * c - y * s, x * s + y * c];
-
-	/** @type {number[][][]} */
-	const rings = [];
-	for (const loop of loops ?? []) {
-		const ring = [];
-		for (const curve of loop?.curves ?? []) {
-			const got = curvePoints(curve, tf);
-			if (!got || got.points.length === 0) {
-				warnings.push(`a hatch boundary curve of type ${curve?.type ?? '?'} produced no points`);
-				continue;
-			}
-			for (const p of got.points) {
-				const q = into(p);
-				// Consecutive curves of a loop SHARE an endpoint, so the join
-				// would otherwise be a duplicate vertex — and a duplicate
-				// vertex is a zero-length edge, which the crossing test counts
-				// as neither in nor out.
-				const last = ring[ring.length - 1];
-				if (last && Math.abs(last[0] - q[0]) < 1e-12 && Math.abs(last[1] - q[1]) < 1e-12) {
-					continue;
-				}
-				ring.push(q);
-			}
+	const lines = [];
+	for (const segment of segments ?? []) {
+		const a = segment?.[0];
+		const b = segment?.[1];
+		if (!Array.isArray(a) || !Array.isArray(b)) {
+			// Named rather than skipped: a cap drawn with some of its hatch is
+			// a drawing that looks finished and is not.
+			warnings.push('a hatch segment was not a pair of points and was not drawn');
+			continue;
 		}
-		if (ring.length >= 3) rings.push(ring);
-		else if (ring.length > 0) {
-			warnings.push('a hatch boundary loop had fewer than three distinct points');
-		}
-	}
-	if (rings.length === 0) return { segments, warnings };
-
-	let minY = Infinity;
-	let maxY = -Infinity;
-	for (const ring of rings) {
-		for (const [, y] of ring) {
-			if (!Number.isFinite(y)) {
-				return { segments, warnings: [...warnings, 'a hatch boundary point is not finite'] };
-			}
-			minY = Math.min(minY, y);
-			maxY = Math.max(maxY, y);
-		}
-	}
-	// The scanlines are laid on a GLOBAL grid (multiples of the spacing from
-	// the paper origin) rather than from the cap's own minimum, so two caps on
-	// one sheet — a section of two bodies — carry one continuous hatch
-	// pattern instead of two that nearly line up.
-	const first = Math.ceil(minY / spacing) * spacing;
-	// A cap larger than this many lines is a degenerate input (a spacing of
-	// nothing, a cap the size of a building); reported rather than hung on.
-	const MAX_LINES = 20000;
-	let lines = 0;
-	for (let y = first; y <= maxY; y += spacing) {
-		if (++lines > MAX_LINES) {
-			warnings.push(`the hatch stopped at ${MAX_LINES} lines; the cap is too large for the spacing`);
-			break;
-		}
-		/** @type {number[]} */
-		const crossings = [];
-		for (const ring of rings) {
-			for (let i = 0; i < ring.length; i++) {
-				const [x0, y0] = ring[i];
-				const [x1, y1] = ring[(i + 1) % ring.length];
-				if (y0 <= y !== y1 <= y) {
-					crossings.push(x0 + ((y - y0) / (y1 - y0)) * (x1 - x0));
-				}
-			}
-		}
-		crossings.sort((a, b) => a - b);
-		for (let i = 0; i + 1 < crossings.length; i += 2) {
-			if (crossings[i + 1] - crossings[i] <= 1e-9) continue;
-			segments.push([back([crossings[i], y]), back([crossings[i + 1], y])]);
-		}
-	}
-	return { segments, warnings };
-}
-
-/** The hatch as SVG, or `''`. */
-function renderHatch(loops, tf, style) {
-	const { segments, warnings } = hatchSegments(loops, tf, {
-		spacing: style.hatchSpacing,
-		angleDeg: style.hatchAngleDeg
-	});
-	if (segments.length === 0) return { svg: '', warnings };
-	const lines = segments
-		.map(
-			([a, b]) =>
-				`<line class="wi-hatch" x1="${n(a[0])}" y1="${n(a[1])}" x2="${n(b[0])}" y2="${n(b[1])}" ` +
+		const [x1, y1] = tf.toPaper(a);
+		const [x2, y2] = tf.toPaper(b);
+		lines.push(
+			`<line class="wi-hatch" x1="${n(x1)}" y1="${n(y1)}" x2="${n(x2)}" y2="${n(y2)}" ` +
 				`stroke="${DRAWING_TOKENS.hatch}" stroke-width="${n(style.thinWidth)}" />`
-		)
-		.join('');
-	return { svg: `<g class="wi-hatches" data-hatch-lines="${segments.length}">${lines}</g>`, warnings };
+		);
+	}
+	if (lines.length === 0) return { svg: '', warnings };
+	return {
+		svg: `<g class="wi-hatches" data-hatch-lines="${lines.length}">${lines.join('')}</g>`,
+		warnings
+	};
 }
 
 /**
@@ -669,7 +591,7 @@ export function renderViewSvg({
 	// edges stay the heaviest lines in the view; the marks a child view put
 	// on this one go in front of both, because a cutting line crossing the
 	// part has to be readable where it crosses.
-	const hatch = renderHatch(layout?.hatch ?? [], tf, style);
+	const hatch = renderHatch(layout?.hatch_segments ?? [], tf, style);
 	warnings.push(...hatch.warnings);
 	const marks = renderMarks(layout?.marks ?? [], tf, style);
 	warnings.push(...marks.warnings);

@@ -118,6 +118,56 @@ impl LayoutCurve {
         }
     }
 
+    /// Back to the kernel-side curve — the exact inverse of
+    /// [`LayoutCurve::from_curve2`], arm for arm (D4c).
+    ///
+    /// Added so the hatch scanline can reach [`Curve2::flatten`]'s proved
+    /// sagitta bound rather than carrying a second sampler of its own. It
+    /// grants a holder of a layout record no new reach into the model:
+    /// [`Curve2`] is pure geometry in the view plane, which is what a layout
+    /// curve already is. The round trip is the identity, pinned by
+    /// `tests::every_curve2_arm_has_a_layout_twin`.
+    pub fn to_curve2(&self) -> Curve2 {
+        let p = |a: &[f64; 2]| cad_primitives::Point2::new(a[0], a[1]);
+        match self {
+            LayoutCurve::Point { at } => Curve2::Point(p(at)),
+            LayoutCurve::Line { start, end } => Curve2::Line {
+                start: p(start),
+                end: p(end),
+            },
+            LayoutCurve::Circle {
+                center,
+                radius,
+                start_angle,
+                end_angle,
+            } => Curve2::Circle {
+                center: p(center),
+                radius: *radius,
+                start_angle: *start_angle,
+                end_angle: *end_angle,
+            },
+            LayoutCurve::Ellipse {
+                center,
+                major_axis,
+                major_radius,
+                minor_radius,
+                start_param,
+                end_param,
+            } => Curve2::Ellipse {
+                center: p(center),
+                major_axis: *major_axis,
+                major_radius: *major_radius,
+                minor_radius: *minor_radius,
+                start_param: *start_param,
+                end_param: *end_param,
+            },
+            LayoutCurve::Polyline { points, closed } => Curve2::Polyline {
+                points: points.iter().map(p).collect(),
+                closed: *closed,
+            },
+        }
+    }
+
     /// The single point this curve contributes when a dimension needs one
     /// place to measure from: the point itself, a line's midpoint, a
     /// circle's or ellipse's centre.
@@ -492,6 +542,20 @@ pub struct ViewLayout {
     /// kind (D4b).
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub hatch: Vec<HatchLoop>,
+    /// The hatch itself, as `[[u0, v0], [u1, v1]]` line segments in this
+    /// view's own `(u, v)` (D4c) — computed by
+    /// [`crate::annotation::hatch::hatch_segments`] from `hatch` above.
+    ///
+    /// D4b left the scanline in the app, which gave the SVG and the PDF one
+    /// geometry and gave the DXF none: a hatched DXF would have needed a
+    /// second implementation of the same fill. Computing it here is what
+    /// makes the line a reader measures on the screen the line in every file.
+    ///
+    /// The LOOPS stay beside it, because a renderer that fills regions rather
+    /// than stroking lines needs them, and because a test asserting "one
+    /// outer boundary and one hole" needs them most of all.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub hatch_segments: Vec<[[f64; 2]; 2]>,
     /// What is marked on THIS view because another view was derived from it: a
     /// child section's cutting line, a child detail's circle (D4b).
     #[serde(default, skip_serializing_if = "Vec::is_empty")]

@@ -453,6 +453,11 @@ fn an_expression_dimension_whose_expression_fails_is_loud_and_draws_nothing() {
                 "radius(\"rim\"): the name does not resolve ({expression})"
             ))
         }
+        fn text_of(&self, expression: &str) -> Result<String, String> {
+            Err(format!(
+                "radius(\"rim\"): the name does not resolve ({expression})"
+            ))
+        }
     }
     let kernel = waffle_types::kernel::MockKernel::new();
     let mut view = DrawingView::new(
@@ -1273,7 +1278,9 @@ fn the_title_block_fills_the_rows_the_engine_knows_and_leaves_the_rest_to_be_typ
             sheet_count: 3,
             angle: ProjectionAngle::First,
         },
-    );
+        None,
+    )
+    .layout;
     let rows: Vec<(&str, &str)> = layout
         .rows
         .iter()
@@ -1316,11 +1323,148 @@ fn a_derived_row_ignores_authored_text_rather_than_printing_a_second_truth() {
             sheet_count: 1,
             angle: ProjectionAngle::Third,
         },
-    );
+        None,
+    )
+    .layout;
     assert_eq!(layout.rows[0].value, "1 / 1");
     assert_eq!(layout.rows[1].value, "1:1");
     assert!(TitleBlockKey::SheetNumber.is_derived());
     assert!(!TitleBlockKey::Date.is_derived());
+}
+
+/// An expression environment that answers one spelling and refuses the rest,
+/// so a test can tell "the row was evaluated" from "the row was filled some
+/// other way".
+struct OneExpr(&'static str, &'static str);
+
+impl ExprDimensions for OneExpr {
+    fn value_of(&self, _expression: &str, _kind: DimensionKind) -> Result<f64, String> {
+        Err("this double answers title blocks only".to_string())
+    }
+    fn text_of(&self, expression: &str) -> Result<String, String> {
+        if expression == self.0 {
+            Ok(self.1.to_string())
+        } else {
+            Err(format!("`{expression}` does not resolve"))
+        }
+    }
+}
+
+#[test]
+fn a_title_block_expression_row_prints_its_evaluated_text_and_keeps_its_source() {
+    // D4c: §8's "title block fields are expressions over document metadata
+    // and the measurement functions". The ROW prints the value; the DOCUMENT
+    // keeps what was written, so the two are never the same record.
+    let (sheet, _) = sheet_with_front();
+    let block = TitleBlock {
+        show: true,
+        fields: vec![TitleBlockField::with_expr(
+            TitleBlockKey::Custom {
+                label: "Mass".into(),
+            },
+            "volume(plate) * 0.00000785",
+        )],
+        extra: Map::new(),
+    };
+    let fill = title_block_layout(
+        &block,
+        &sheet,
+        &TitleBlockContext {
+            document_name: "D",
+            sheet_number: 1,
+            sheet_count: 1,
+            angle: ProjectionAngle::Third,
+        },
+        Some(&OneExpr("volume(plate) * 0.00000785", "7.85 mm³")),
+    );
+    assert!(fill.errors.is_empty(), "{:?}", fill.errors);
+    assert_eq!(fill.layout.rows[0].label, "Mass");
+    assert_eq!(fill.layout.rows[0].value, "7.85 mm³");
+    // The source survives in the document, unevaluated.
+    assert_eq!(
+        block.fields[0].expr.as_deref(),
+        Some("volume(plate) * 0.00000785")
+    );
+}
+
+#[test]
+fn a_title_block_expression_that_cannot_be_evaluated_blanks_its_row_and_is_named() {
+    // Two ways a row fails and both print NOTHING rather than their own
+    // source text: a title block reading `mass(part)` is the failure D4b
+    // declined to ship, and a title block reading the LAST rebuild's number
+    // is the failure the whole spec exists to prevent.
+    let (sheet, _) = sheet_with_front();
+    let block = TitleBlock {
+        show: true,
+        fields: vec![
+            TitleBlockField::with_expr(TitleBlockKey::Material, "volume(gone)"),
+            // A row whose text and expr are BOTH set: the expression wins,
+            // and the authoring door refuses the pair outright so this is
+            // only reachable from a hand-edited file.
+            TitleBlockField {
+                text: Some("AISI 304".into()),
+                expr: Some("volume(gone)".into()),
+                ..TitleBlockField::new(TitleBlockKey::Revision)
+            },
+        ],
+        extra: Map::new(),
+    };
+    let ctx = TitleBlockContext {
+        document_name: "D",
+        sheet_number: 1,
+        sheet_count: 1,
+        angle: ProjectionAngle::Third,
+    };
+    // An environment that refuses the spelling.
+    let fill = title_block_layout(&block, &sheet, &ctx, Some(&OneExpr("other", "x")));
+    assert_eq!(fill.layout.rows[0].value, "");
+    assert_eq!(fill.layout.rows[1].value, "");
+    assert_eq!(fill.errors.len(), 2);
+    let message = fill.errors[0].to_string();
+    assert!(message.contains("Material"), "{message}");
+    assert!(message.contains("volume(gone)"), "{message}");
+
+    // NO environment at all — a sheet whose views draw no single source tab.
+    let fill = title_block_layout(&block, &sheet, &ctx, None);
+    assert_eq!(fill.layout.rows[0].value, "");
+    assert!(matches!(
+        fill.errors[0],
+        DrawingError::TitleBlockExprNotEvaluated { .. }
+    ));
+    assert!(
+        fill.errors[0].to_string().contains("no single source tab"),
+        "{}",
+        fill.errors[0]
+    );
+}
+
+#[test]
+fn a_derived_row_ignores_an_expression_the_same_way_it_ignores_text() {
+    // The derived rows stay the document's own, whichever way someone tries
+    // to overrule them — and an ignored expression is NOT reported, because
+    // nothing was asked of the evaluator.
+    let (sheet, _) = sheet_with_front();
+    let block = TitleBlock {
+        show: true,
+        fields: vec![TitleBlockField::with_expr(
+            TitleBlockKey::SheetNumber,
+            "1 + 1",
+        )],
+        extra: Map::new(),
+    };
+    let fill = title_block_layout(
+        &block,
+        &sheet,
+        &TitleBlockContext {
+            document_name: "D",
+            sheet_number: 1,
+            sheet_count: 4,
+            angle: ProjectionAngle::Third,
+        },
+        Some(&OneExpr("1 + 1", "2")),
+    );
+    assert_eq!(fill.layout.rows[0].value, "1 / 4");
+    assert!(fill.errors.is_empty());
 }
 
 #[test]
@@ -1531,4 +1675,112 @@ fn the_d4b_additions_round_trip_through_serde_and_cost_an_untouched_sheet_nothin
     assert!(back.sheets[0].title_block.show);
     assert_eq!(back.sheets[0].title_block.fields.len(), 6);
     assert!(back.sheets[0].title_block_cache.is_none());
+}
+
+// ──────────────────────────── D4c review: the hatch wrapper's two conversions
+
+/// A square cap loop in the view's own `(u, v)`, in METERS — the units a
+/// `HatchLoop` carries. 20 mm on a side, which at any of the scales below is
+/// several hatch lines wide.
+fn square_cap_mm(side_mm: f64) -> Vec<HatchLoop> {
+    let s = side_mm / 1000.0;
+    vec![HatchLoop {
+        curves: vec![waffle_types::annotation::layout::LayoutCurve::Polyline {
+            points: vec![[0.0, 0.0], [s, 0.0], [s, s], [0.0, s]],
+            closed: true,
+        }],
+        hole: false,
+        exact: true,
+    }]
+}
+
+/// The perpendicular distances between neighbouring hatch lines, in PAPER
+/// millimetres at `scale` — which is what a reader measures with a rule.
+///
+/// Each line is `u·sin θ − v·cos θ = c` for the one `θ` the fill used, so the
+/// offset `c` identifies the line and the gap between neighbouring `c`s is the
+/// perpendicular spacing. Taken from the segment MIDPOINTS projected on the
+/// normal, so a line's length plays no part.
+fn line_pitches_mm(segments: &[[[f64; 2]; 2]], scale: f64) -> Vec<f64> {
+    assert!(segments.len() >= 3, "need several lines: {segments:?}");
+    let d = [
+        segments[0][1][0] - segments[0][0][0],
+        segments[0][1][1] - segments[0][0][1],
+    ];
+    let len = (d[0] * d[0] + d[1] * d[1]).sqrt();
+    let n = [-d[1] / len, d[0] / len];
+    let mut offsets: Vec<f64> = segments
+        .iter()
+        .map(|s| {
+            let mid = [0.5 * (s[0][0] + s[1][0]), 0.5 * (s[0][1] + s[1][1])];
+            (mid[0] * n[0] + mid[1] * n[1]) * 1000.0 * scale
+        })
+        .collect();
+    offsets.sort_by(f64::total_cmp);
+    offsets
+        .windows(2)
+        .map(|w| (w[1] - w[0]).abs())
+        .filter(|g| *g > 1e-9)
+        .collect()
+}
+
+#[test]
+fn a_views_hatch_is_three_millimetres_of_paper_at_every_scale() {
+    // The wrapper's first conversion, and the one no fixture reached because
+    // every hatched fixture runs at 1:1, where dividing by the scale is a
+    // no-op. A fixed MODEL spacing would print a detail view's hatch at twice
+    // the pitch of the view it was cropped from; what the division buys is
+    // that a reader's rule measures 3 mm on every view of the sheet.
+    let cap = square_cap_mm(20.0);
+    for scale in [0.5, 1.0, 2.0, 5.0] {
+        let mut warnings = Vec::new();
+        let segments = hatch_fill(&cap, scale, &mut warnings);
+        assert!(warnings.is_empty(), "scale {scale}: {warnings:?}");
+        for pitch in line_pitches_mm(&segments, scale) {
+            assert!(
+                (pitch - waffle_types::annotation::hatch::HATCH_SPACING_MM).abs() < 1e-9,
+                "at scale {scale} the lines are {pitch} mm of paper apart, not 3"
+            );
+        }
+    }
+}
+
+#[test]
+fn a_views_hatch_leans_the_way_the_paper_does_because_the_wrapper_negates() {
+    // The wrapper's second conversion. `HATCH_ANGLE_DEG` is measured on the
+    // PAPER, whose `y` runs down; a view's `v` runs up, and the renderer maps
+    // `paper_y = −v · scale · 1000`. So a segment that leans right-and-DOWN on
+    // paper — the lean D4b shipped — must lean right-and-UP in `v`, i.e. `Δu`
+    // and `Δv` carry the SAME sign once `Δv` is read through that flip.
+    //
+    // Concretely: in the view's own frame the direction is
+    // `(cos(−45°), sin(−45°))`, so `Δu > 0` and `Δv < 0`; through the flip
+    // that is `Δu > 0` and `Δpaper_y > 0`, which is right-and-down. Dropping
+    // the negation would send every hatch line the other way, and nothing
+    // measured it.
+    let mut warnings = Vec::new();
+    let segments = hatch_fill(&square_cap_mm(20.0), 1.0, &mut warnings);
+    assert!(warnings.is_empty(), "{warnings:?}");
+    assert!(segments.len() >= 3, "{segments:?}");
+    for s in &segments {
+        // Read each segment left to right, as a renderer draws it.
+        let (a, b) = if s[0][0] <= s[1][0] {
+            (s[0], s[1])
+        } else {
+            (s[1], s[0])
+        };
+        let du = b[0] - a[0];
+        let dv = b[1] - a[1];
+        assert!(du > 0.0, "a degenerate hatch line: {s:?}");
+        assert!(
+            dv < 0.0,
+            "the hatch leans right-and-up in v ({du}, {dv}), which draws \
+             right-and-UP on paper — the negation in `hatch_fill` is gone"
+        );
+        // 45°, so the two components match in magnitude.
+        assert!(
+            (du + dv).abs() < 1e-9 * du,
+            "the lean is not 45°: ({du}, {dv})"
+        );
+    }
 }

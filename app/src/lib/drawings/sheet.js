@@ -245,6 +245,23 @@ export function renderSheetSvg({
  * worked out the sheet number itself would be a second source of truth for a
  * number the document already knows.
  *
+ * That division is also why D4c's EXPRESSION rows needed no change here: a
+ * row whose value is `volume(plate) * 0.00785` arrives already evaluated to
+ * `7.85 mm³`, and the one thing this renderer must never do is print the
+ * source text instead.
+ *
+ * It is a DISCIPLINE, not an impossibility, and the distinction matters to
+ * whoever edits this next. The evaluated rows come from
+ * `sheet.title_block_cache.rows`, but this function is handed the whole
+ * `sheet`, and `sheet.title_block.fields[i].expr` is the source — sitting one
+ * property away. Nothing structural stops a future row renderer from reaching
+ * for it (to show a tooltip, say, or to fall back when a row is blank), and a
+ * fallback is exactly how a sheet comes to print `volume(plate)` where a
+ * drafter expects a number. So the rule is measured rather than assumed:
+ * `drawing-tab.spec.js`'s "an expression row prints its value on the paper and
+ * its source nowhere" asserts the evaluated text is in the markup and the
+ * source string is not, on the screen and in the exported SVG alike.
+ *
  * ## The projection standard is printed as WORDS
  *
  * ISO 5456-2's projection symbol is a truncated cone shown in two views, and

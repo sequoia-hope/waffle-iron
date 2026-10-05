@@ -903,6 +903,238 @@ impl Curve2 {
         }
     }
 
+    /// The parts of this curve inside the closed disc `|p − center| ≤ radius`
+    /// (`specs/drawings_and_mbd.md` §8, D4c) — a detail view's crop, TRIMMED
+    /// rather than culled.
+    ///
+    /// **Each piece keeps its kind where a kind survives the cut**, which is
+    /// the point: a line clipped by a circle is a line, and an ARC of a
+    /// circle clipped by another circle is an ARC of the same circle, so a
+    /// detail view's DXF carries true `LINE` and `ARC` entities rather than
+    /// chord polylines. The crossing parameters are solved in closed form for
+    /// those two arms (a quadratic for a chord, `A cos t + B sin t = K` for a
+    /// circle) and [`Curve2::subcurve`] does the cutting.
+    ///
+    /// **An ELLIPSE is flattened first**, at `sagitta`. Its intersection with
+    /// a circle is a quartic, and the DXF writer flattens every ellipse
+    /// anyway (R12 has no `ELLIPSE` entity), so nothing is lost that a reader
+    /// of the file could have had — where solving the quartic would be a new
+    /// root-finder for one arm with no customer. `sagitta` is ignored by
+    /// every other arm, which are exact.
+    ///
+    /// A non-finite or non-positive `radius` clips everything away: the caller
+    /// that authored the disc is the one that can say what a bad radius means
+    /// (`DrawingError::BadCropRadius`), and silently treating it as "no crop"
+    /// would put the whole part inside a detail view.
+    ///
+    /// A closed curve that crosses the boundary comes back as separate open
+    /// pieces, including the two that meet at its own seam — they are two
+    /// entities where one would do, and joining them would mean reasoning
+    /// about the seam for the sake of a file's entity count.
+    ///
+    /// A TANGENCY is a cut even though it crosses nothing. Each interval's
+    /// verdict is read at its MIDPOINT, and a curve that touches the boundary
+    /// at exactly its own midpoint — the ordinary shape of a full circle
+    /// written from its own start angle — would otherwise read as inside and
+    /// survive a crop it never enters. Cutting there puts the touch point on
+    /// an interval boundary instead, where it decides nothing; consecutive
+    /// kept intervals are then rejoined, so a curve tangent from INSIDE still
+    /// comes back as one piece rather than two arcs meeting at the point it
+    /// grazes.
+    pub fn clipped_to_disc(&self, center: [f64; 2], radius: f64, sagitta: f64) -> Vec<Curve2> {
+        if !(radius.is_finite() && radius > 0.0 && center[0].is_finite() && center[1].is_finite()) {
+            return Vec::new();
+        }
+        let inside = |p: Point2| -> bool {
+            let (dx, dy) = (p.x() - center[0], p.y() - center[1]);
+            dx * dx + dy * dy <= radius * radius
+        };
+        // The ellipse arm becomes a polyline and is clipped as one. Done by
+        // RECURSION on the polyline arm rather than by a second clipper, so
+        // the two cannot disagree about which pieces are inside.
+        if let Curve2::Ellipse { .. } = self {
+            let points = self.flatten(sagitta);
+            if points.len() < 2 {
+                return points
+                    .into_iter()
+                    .filter(|p| inside(*p))
+                    .map(Curve2::Point)
+                    .collect();
+            }
+            return Curve2::Polyline {
+                points,
+                closed: self.is_closed(),
+            }
+            .clipped_to_disc(center, radius, sagitta);
+        }
+        if let Curve2::Point(p) = self {
+            return if inside(*p) {
+                vec![self.clone()]
+            } else {
+                vec![]
+            };
+        }
+        let Some((lo, hi)) = self.param_range() else {
+            return Vec::new();
+        };
+        let mut cuts = self.disc_crossings(center, radius);
+        cuts.retain(|t| t.is_finite() && *t > lo && *t < hi);
+        cuts.sort_by(f64::total_cmp);
+        cuts.dedup_by(|b, a| (*b - *a).abs() <= 1e-15 * (1.0 + a.abs()));
+        let mut bounds = Vec::with_capacity(cuts.len() + 2);
+        bounds.push(lo);
+        bounds.extend(cuts);
+        bounds.push(hi);
+        let mut out = Vec::new();
+        // Consecutive kept intervals are ONE piece. They arise where the cut
+        // was a TANGENCY — the curve met the boundary without leaving the
+        // disc — and emitting them separately would put a seam in a hole's rim
+        // on the sheet. The run never spans `lo`/`hi`, so a closed curve's own
+        // seam still comes back as two pieces, which is the documented answer.
+        let mut run: Option<(f64, f64)> = None;
+        let flush = |run: &mut Option<(f64, f64)>, out: &mut Vec<Curve2>| {
+            if let Some((a, b)) = run.take() {
+                if let Some(piece) = self.subcurve(a, b) {
+                    out.push(piece);
+                }
+            }
+        };
+        for pair in bounds.windows(2) {
+            let (a, b) = (pair[0], pair[1]);
+            if b <= a {
+                continue;
+            }
+            // The MIDPOINT decides, not an endpoint: an endpoint of a piece
+            // sits exactly on the boundary by construction, where `inside`'s
+            // comparison is a coin toss. This is sound only because a
+            // tangency is one of the cuts — otherwise an interval that TOUCHES
+            // the boundary at its own midpoint and lies outside everywhere
+            // else would answer "inside" and be kept whole.
+            let keep = match self.eval(0.5 * (a + b)) {
+                Some(mid) => inside(mid),
+                None => false,
+            };
+            if !keep {
+                flush(&mut run, &mut out);
+                continue;
+            }
+            match &mut run {
+                Some(r) if r.1 == a => r.1 = b,
+                _ => {
+                    flush(&mut run, &mut out);
+                    run = Some((a, b));
+                }
+            }
+        }
+        flush(&mut run, &mut out);
+        out
+    }
+
+    /// The parameters at which this curve crosses the circle
+    /// `|p − center| = radius`, in closed form (D4c). Not de-duplicated and
+    /// not range-filtered — [`Curve2::clipped_to_disc`] does both.
+    ///
+    /// Empty for the arms that have no closed form here (a point, an
+    /// ellipse); `clipped_to_disc` routes those elsewhere rather than
+    /// treating "no crossings" as "no boundary", which would keep or drop a
+    /// whole ellipse by its midpoint alone.
+    fn disc_crossings(&self, center: [f64; 2], radius: f64) -> Vec<f64> {
+        // |a + t·d − c|² = r², i.e. (d·d)t² + 2(d·(a−c))t + (|a−c|² − r²) = 0,
+        // returning the roots in `(0, 1)` — a chord's own parameter.
+        let chord = |a: Point2, b: Point2| -> Vec<f64> {
+            let (dx, dy) = (b.x() - a.x(), b.y() - a.y());
+            let (ex, ey) = (a.x() - center[0], a.y() - center[1]);
+            let qa = dx * dx + dy * dy;
+            if qa <= 0.0 {
+                return Vec::new();
+            }
+            let qb = 2.0 * (dx * ex + dy * ey);
+            let qc = ex * ex + ey * ey - radius * radius;
+            let disc = qb * qb - 4.0 * qa * qc;
+            if disc < 0.0 {
+                return Vec::new();
+            }
+            // `disc == 0` is a TANGENCY, and it is reported — as the double
+            // root, which the caller dedups to one cut. It touches without
+            // crossing, so it changes no interval's inside/outside verdict;
+            // what it does is keep the touch point off any interval's
+            // MIDPOINT, which is what the verdict is read from. Without it a
+            // chord tangent at its own midpoint reads as inside and the whole
+            // chord survives a crop it never enters.
+            let root = disc.sqrt();
+            [(-qb - root) / (2.0 * qa), (-qb + root) / (2.0 * qa)]
+                .into_iter()
+                .filter(|t| *t > 0.0 && *t < 1.0)
+                .collect()
+        };
+        match *self {
+            Curve2::Point(_) | Curve2::Ellipse { .. } => Vec::new(),
+            Curve2::Line { start, end } => chord(start, end),
+            Curve2::Polyline { ref points, closed } => {
+                let Some(chords) = polyline_chords(points.len(), closed) else {
+                    return Vec::new();
+                };
+                let mut out = Vec::new();
+                for i in 0..chords {
+                    let a = points[i];
+                    let b = points[(i + 1) % points.len()];
+                    out.extend(chord(a, b).into_iter().map(|t| i as f64 + t));
+                }
+                out
+            }
+            // On the circle `p(t) = c₀ + r₀(cos t, sin t)`:
+            //   |p − c|² = |c₀ − c|² + r₀² + 2r₀((c₀ − c)·(cos t, sin t)) = r²
+            // so `A cos t + B sin t = K`, which is `R cos(t − φ) = K` with
+            // `R = hypot(A, B)` and `φ = atan2(B, A)`. Every solution in the
+            // curve's own (possibly multi-turn, possibly negative) parameter
+            // range is wanted, so both roots are unwrapped across every turn
+            // the range can reach.
+            Curve2::Circle {
+                center: c0,
+                radius: r0,
+                start_angle,
+                end_angle,
+            } => {
+                use std::f64::consts::TAU;
+                if !(r0.is_finite() && r0 > 0.0) {
+                    return Vec::new();
+                }
+                let (ex, ey) = (c0.x() - center[0], c0.y() - center[1]);
+                let a = 2.0 * r0 * ex;
+                let b = 2.0 * r0 * ey;
+                let k = radius * radius - (ex * ex + ey * ey) - r0 * r0;
+                let r = (a * a + b * b).sqrt();
+                if r <= 0.0 {
+                    // Concentric: the whole circle is inside or outside, and
+                    // either way it crosses nowhere.
+                    return Vec::new();
+                }
+                let ratio = k / r;
+                // `|ratio| == 1` is a tangency and IS reported, for the
+                // reason the chord's double root is: it keeps the touch point
+                // off a candidate interval's midpoint. `acos` gives `0` there
+                // (the two branches coincide and dedup to one) or `π` (they
+                // differ by a full turn, which the turn sweep enumerates
+                // anyway).
+                if ratio.abs() > 1.0 {
+                    return Vec::new();
+                }
+                let phi = b.atan2(a);
+                let delta = ratio.acos();
+                let mut out = Vec::new();
+                let first = ((start_angle - phi) / TAU).floor() - 1.0;
+                let last = ((end_angle - phi) / TAU).ceil() + 1.0;
+                let mut turn = first;
+                while turn <= last {
+                    out.push(phi + delta + turn * TAU);
+                    out.push(phi - delta + turn * TAU);
+                    turn += 1.0;
+                }
+                out
+            }
+        }
+    }
+
     /// This curve scaled about the view-plane origin by `scale` and then
     /// moved by `offset` — the paper-space placement of a drawing view
     /// (`specs/drawings_and_mbd.md` §8, D4a).
@@ -2246,6 +2478,393 @@ mod tests {
         assert!(Curve2::Point(Point2::new(1.0, 1.0))
             .subcurve(0.0, 0.0)
             .is_none());
+    }
+
+    // ─────────────────────────────────────────────── D4c: the disc clip
+
+    /// A disc centred on the origin, radius 1 — the fixture every clip test
+    /// below uses, so the arithmetic is readable.
+    const UNIT: ([f64; 2], f64) = ([0.0, 0.0], 1.0);
+
+    fn clip(curve: &Curve2) -> Vec<Curve2> {
+        curve.clipped_to_disc(UNIT.0, UNIT.1, 1e-4)
+    }
+
+    #[test]
+    fn a_line_crossing_the_disc_is_clipped_to_a_line_at_the_two_crossings() {
+        // The headline claim: the piece keeps its KIND, so a detail view's
+        // DXF carries a `LINE` and not a chord polyline of one.
+        let l = Curve2::Line {
+            start: Point2::new(-3.0, 0.0),
+            end: Point2::new(3.0, 0.0),
+        };
+        let pieces = clip(&l);
+        assert_eq!(pieces.len(), 1);
+        let Curve2::Line { start, end } = &pieces[0] else {
+            panic!("a clipped line must still be a line: {:?}", pieces[0]);
+        };
+        assert!(close(start.x(), -1.0) && close(start.y(), 0.0), "{start:?}");
+        assert!(close(end.x(), 1.0) && close(end.y(), 0.0), "{end:?}");
+
+        // Wholly inside: unchanged, not re-derived.
+        let inside = Curve2::Line {
+            start: Point2::new(-0.5, 0.0),
+            end: Point2::new(0.5, 0.0),
+        };
+        assert_eq!(clip(&inside), vec![inside.clone()]);
+
+        // Wholly outside: nothing. Including a line whose INFINITE extension
+        // would cross — the roots are outside `(0, 1)` and are discarded.
+        for away in [
+            Curve2::Line {
+                start: Point2::new(2.0, 2.0),
+                end: Point2::new(3.0, 3.0),
+            },
+            Curve2::Line {
+                start: Point2::new(2.0, 0.0),
+                end: Point2::new(3.0, 0.0),
+            },
+        ] {
+            assert!(clip(&away).is_empty(), "{away:?}");
+        }
+
+        // A TANGENT line is outside everywhere but the one point it touches,
+        // so NOTHING of it survives the crop — see
+        // `a_curve_that_only_touches_the_disc_is_clipped_away_whatever_its_midpoint`,
+        // which is where the rule and its three other shapes are pinned. An
+        // inequality here (`len() <= 1`) would pass on the answer "the whole
+        // four-unit line, inside a disc of radius one".
+        let tangent = Curve2::Line {
+            start: Point2::new(-2.0, 1.0),
+            end: Point2::new(2.0, 1.0),
+        };
+        assert!(clip(&tangent).is_empty(), "{:?}", clip(&tangent));
+    }
+
+    #[test]
+    fn an_arc_clipped_by_the_disc_stays_an_arc_of_the_same_circle() {
+        // A circle of radius 1 centred at (1, 0): it passes through the
+        // origin and through (2, 0), so exactly half of it — the half with
+        // `x < 0.5` — lies inside the unit disc. The two circles meet where
+        // `x = 1/2`, i.e. at `t = ±2π/3` on the moved circle.
+        let c = Curve2::Circle {
+            center: Point2::new(1.0, 0.0),
+            radius: 1.0,
+            start_angle: 0.0,
+            end_angle: TAU,
+        };
+        let pieces = clip(&c);
+        // A full turn crossing the boundary comes back as the pieces its own
+        // seam and the two crossings cut it into; the seam at `t = 0` is
+        // OUTSIDE the disc here (the point (2, 0)), so there is exactly one.
+        assert_eq!(pieces.len(), 1, "{pieces:?}");
+        let Curve2::Circle {
+            center,
+            radius,
+            start_angle,
+            end_angle,
+        } = &pieces[0]
+        else {
+            panic!("a clipped arc must still be an arc: {:?}", pieces[0]);
+        };
+        assert!(close(center.x(), 1.0) && close(*radius, 1.0));
+        // 2π/3 … 4π/3 — the half of the circle nearer the origin.
+        assert!(
+            close(*start_angle, 2.0 * PI / 3.0) && close(*end_angle, 4.0 * PI / 3.0),
+            "got {start_angle} … {end_angle}"
+        );
+        // Both endpoints sit ON the crop boundary, which is the test that the
+        // roots are the real crossings and not an approximation of them.
+        for t in [*start_angle, *end_angle] {
+            let p = pieces[0].eval(t).expect("an arc evaluates");
+            assert!(
+                close(p.x() * p.x() + p.y() * p.y(), 1.0),
+                "the cut landed at {p:?}, which is not on the unit circle"
+            );
+        }
+
+        // A circle entirely inside comes back whole — not as an arc of
+        // itself, which would put a seam in a hole's rim on the sheet.
+        let small = Curve2::Circle {
+            center: Point2::new(0.0, 0.0),
+            radius: 0.5,
+            start_angle: 0.0,
+            end_angle: TAU,
+        };
+        assert_eq!(clip(&small), vec![small.clone()]);
+        // Concentric and LARGER: outside, and the concentric case has no
+        // crossing to find, so it must be decided by the midpoint.
+        let big = Curve2::Circle {
+            center: Point2::new(0.0, 0.0),
+            radius: 2.0,
+            start_angle: 0.0,
+            end_angle: TAU,
+        };
+        assert!(clip(&big).is_empty());
+    }
+
+    #[test]
+    fn a_full_circle_cut_at_its_own_seam_comes_back_as_two_arcs() {
+        // The documented consequence: the seam is a parameter boundary like
+        // any other, so a circle whose `t = 0` point is INSIDE the disc comes
+        // back as two arcs that happen to meet there. Two entities where one
+        // would do — correct geometry, and joining them would mean reasoning
+        // about the seam for the sake of an entity count.
+        let c = Curve2::Circle {
+            center: Point2::new(1.0, 0.0),
+            radius: 1.5,
+            start_angle: -PI,
+            end_angle: PI,
+        };
+        // `t = ±π` is the point (−0.5, 0), inside the unit disc.
+        let seam = c.eval(PI).expect("evaluates");
+        assert!(seam.x() * seam.x() + seam.y() * seam.y() < 1.0);
+        let pieces = clip(&c);
+        assert_eq!(pieces.len(), 2, "{pieces:?}");
+        for piece in &pieces {
+            assert!(matches!(piece, Curve2::Circle { .. }));
+            for t in [
+                piece.param_range().unwrap().0,
+                piece.param_range().unwrap().1,
+            ] {
+                let p = piece.eval(t).expect("evaluates");
+                let r2 = p.x() * p.x() + p.y() * p.y();
+                // Each end is either on the crop boundary or at the seam.
+                assert!(
+                    close(r2, 1.0) || close(t.abs(), PI),
+                    "a piece ends at {p:?} (r² = {r2}) at t = {t}"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn a_polyline_is_clipped_chord_by_chord_into_the_pieces_inside() {
+        // A zig-zag that enters, leaves and re-enters: three chords, two
+        // pieces, and the interior vertex of each piece is kept (that is
+        // `subcurve`'s contract, exercised through the clip).
+        let p = Curve2::Polyline {
+            points: vec![
+                Point2::new(-3.0, 0.0),
+                Point2::new(0.0, 0.0),
+                Point2::new(0.0, 3.0),
+                Point2::new(3.0, 3.0),
+            ],
+            closed: false,
+        };
+        let pieces = clip(&p);
+        assert_eq!(pieces.len(), 1, "{pieces:?}");
+        let Curve2::Polyline { points, closed } = &pieces[0] else {
+            panic!("a clipped polyline is a polyline: {:?}", pieces[0]);
+        };
+        assert!(!closed, "a clipped piece of a polyline is open");
+        // (−1, 0) … (0, 0) … (0, 1): the two crossings with the vertex
+        // between them.
+        assert_eq!(points.len(), 3, "{points:?}");
+        assert!(close(points[0].x(), -1.0) && close(points[0].y(), 0.0));
+        assert!(close(points[1].x(), 0.0) && close(points[1].y(), 0.0));
+        assert!(close(points[2].x(), 0.0) && close(points[2].y(), 1.0));
+
+        // A closed polyline straddling the disc: every piece is open, and
+        // together they stay inside.
+        let square = Curve2::Polyline {
+            points: vec![
+                Point2::new(-2.0, -0.5),
+                Point2::new(2.0, -0.5),
+                Point2::new(2.0, 0.5),
+                Point2::new(-2.0, 0.5),
+            ],
+            closed: true,
+        };
+        let pieces = clip(&square);
+        assert_eq!(pieces.len(), 2, "{pieces:?}");
+        for piece in &pieces {
+            for t in [
+                piece.param_range().unwrap().0,
+                piece.param_range().unwrap().1,
+            ] {
+                let q = piece.eval(t).expect("evaluates");
+                assert!(
+                    q.x() * q.x() + q.y() * q.y() <= 1.0 + 1e-9,
+                    "a piece reaches {q:?}, outside the crop"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn an_ellipse_is_clipped_as_the_polyline_the_writer_would_flatten_it_to() {
+        // The one arm with no closed form. The answer is still inside the
+        // disc and still spans it, which is what a detail view needs; what it
+        // is NOT is an analytic ellipse arc, and that costs nothing because
+        // R12 has no `ELLIPSE` entity to carry one.
+        let e = Curve2::Ellipse {
+            center: Point2::new(0.0, 0.0),
+            major_axis: [1.0, 0.0],
+            major_radius: 3.0,
+            minor_radius: 0.5,
+            start_param: 0.0,
+            end_param: TAU,
+        };
+        let pieces = clip(&e);
+        assert!(!pieces.is_empty(), "the ellipse crosses the disc");
+        assert!(
+            pieces.iter().all(|p| matches!(p, Curve2::Polyline { .. })),
+            "{pieces:?}"
+        );
+        for piece in &pieces {
+            for p in piece.flatten(1e-4) {
+                assert!(
+                    p.x() * p.x() + p.y() * p.y() <= 1.0 + 1e-6,
+                    "a clipped ellipse piece reaches {p:?}, outside the crop"
+                );
+            }
+        }
+        // An ellipse wholly inside survives as a polyline too — the honest
+        // consequence of flattening the arm, and the reason the sagitta is
+        // the caller's to choose.
+        let small = Curve2::Ellipse {
+            center: Point2::new(0.0, 0.0),
+            major_axis: [1.0, 0.0],
+            major_radius: 0.5,
+            minor_radius: 0.25,
+            start_param: 0.0,
+            end_param: TAU,
+        };
+        let pieces = clip(&small);
+        assert_eq!(pieces.len(), 1);
+        assert!(matches!(pieces[0], Curve2::Polyline { closed: true, .. }));
+    }
+
+    #[test]
+    fn a_point_is_kept_or_dropped_and_a_bad_radius_clips_everything() {
+        assert_eq!(
+            clip(&Curve2::Point(Point2::new(0.5, 0.0))),
+            vec![Curve2::Point(Point2::new(0.5, 0.0))]
+        );
+        assert!(clip(&Curve2::Point(Point2::new(5.0, 0.0))).is_empty());
+        // A radius that is not a disc clips everything away rather than
+        // meaning "no crop": the caller that authored it is the one that can
+        // say what a bad radius means, and treating it as no crop would put
+        // the whole part inside a detail view.
+        let l = Curve2::Line {
+            start: Point2::new(-3.0, 0.0),
+            end: Point2::new(3.0, 0.0),
+        };
+        for bad in [0.0, -1.0, f64::NAN, f64::INFINITY] {
+            assert!(
+                l.clipped_to_disc([0.0, 0.0], bad, 1e-4).is_empty(),
+                "radius {bad}"
+            );
+        }
+    }
+
+    #[test]
+    fn an_arc_that_dips_out_of_the_disc_between_two_inside_ends_is_split_in_two() {
+        // Both ENDS inside, the middle outside — the case a clip that only
+        // looked at endpoints, or that gave up on a multi-turn parameter
+        // range, would answer with one piece spanning the gap.
+        //
+        // The same circle as above: centred at (1, 0), radius 1, so the part
+        // inside the unit disc is `t ∈ (2π/3, 4π/3)` and the part outside is
+        // `t ∈ (4π/3, 8π/3)`. An arc from just before `4π/3` to just after
+        // `8π/3` therefore starts inside, leaves, and comes back.
+        let arc = Curve2::Circle {
+            center: Point2::new(1.0, 0.0),
+            radius: 1.0,
+            start_angle: 4.0 * PI / 3.0 - 0.2,
+            end_angle: 8.0 * PI / 3.0 + 0.2,
+        };
+        for t in [arc.param_range().unwrap().0, arc.param_range().unwrap().1] {
+            let p = arc.eval(t).unwrap();
+            assert!(
+                p.x() * p.x() + p.y() * p.y() < 1.0,
+                "the fixture's end at {p:?} must be inside the disc"
+            );
+        }
+        let pieces = clip(&arc);
+        assert_eq!(pieces.len(), 2, "{pieces:?}");
+        // The two crossings are the cut, and both are a full turn apart from
+        // the ones the one-turn solve would have found.
+        assert!(close(pieces[0].param_range().unwrap().1, 4.0 * PI / 3.0));
+        assert!(close(pieces[1].param_range().unwrap().0, 8.0 * PI / 3.0));
+        for piece in &pieces {
+            assert!(matches!(piece, Curve2::Circle { .. }));
+            for t in [
+                piece.param_range().unwrap().0,
+                piece.param_range().unwrap().1,
+            ] {
+                let p = piece.eval(t).unwrap();
+                assert!(
+                    p.x() * p.x() + p.y() * p.y() <= 1.0 + 1e-9,
+                    "a piece ends at {p:?}, outside the crop"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn a_curve_that_only_touches_the_disc_is_clipped_away_whatever_its_midpoint() {
+        // A tangency is the one place the midpoint rule can be asked a
+        // question it cannot answer: the interval touches the boundary at
+        // exactly one point and is outside everywhere else, so if that point
+        // happens to BE the midpoint, `|p − c| ≤ r` says "inside" and the
+        // whole curve is kept. The crop then carries geometry that lies
+        // entirely outside it — a detail view's DXF showing a part of the
+        // model the detail circle does not enclose. The tangency parameter is
+        // therefore a cut like any other, so each piece's midpoint is strictly
+        // off the boundary.
+        //
+        // Every fixture here is built so the touch point IS the parameter
+        // midpoint, which is the ordinary shape of a full circle written from
+        // its own start angle.
+
+        // A line tangent at (0, 1), whose `t = 0.5` is that very point.
+        let tangent = Curve2::Line {
+            start: Point2::new(-2.0, 1.0),
+            end: Point2::new(2.0, 1.0),
+        };
+        assert!(close(tangent.eval(0.5).unwrap().y(), 1.0));
+        assert!(clip(&tangent).is_empty(), "{:?}", clip(&tangent));
+
+        // A circle EXTERNALLY tangent at (1, 0), written from `t = 0` so its
+        // midpoint `t = π` is the touch point.
+        let outside = Curve2::Circle {
+            center: Point2::new(2.0, 0.0),
+            radius: 1.0,
+            start_angle: 0.0,
+            end_angle: TAU,
+        };
+        assert!(close(outside.eval(PI).unwrap().x(), 1.0));
+        assert!(clip(&outside).is_empty(), "{:?}", clip(&outside));
+
+        // A polyline whose middle chord grazes the boundary: the two outer
+        // chords are outside, and the grazing one is kept or dropped on the
+        // same terms as the tangent line.
+        let graze = Curve2::Polyline {
+            points: vec![
+                Point2::new(-2.0, 1.0),
+                Point2::new(-1.0, 1.0),
+                Point2::new(1.0, 1.0),
+                Point2::new(2.0, 1.0),
+            ],
+            closed: false,
+        };
+        assert!(clip(&graze).is_empty(), "{:?}", clip(&graze));
+
+        // The other side of the same rule: a circle INTERNALLY tangent at
+        // (1, 0) is wholly inside the CLOSED disc, so it survives — and as
+        // ONE curve, not as two arcs meeting at the point it touches. A clip
+        // that cut at the tangency and never rejoined would put a seam in a
+        // hole's rim on the sheet.
+        let inside = Curve2::Circle {
+            center: Point2::new(0.5, 0.0),
+            radius: 0.5,
+            start_angle: -PI,
+            end_angle: PI,
+        };
+        assert!(close(inside.eval(0.0).unwrap().x(), 1.0));
+        assert_eq!(clip(&inside), vec![inside.clone()]);
     }
 
     #[test]

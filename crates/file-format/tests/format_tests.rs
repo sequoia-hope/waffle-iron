@@ -2008,6 +2008,68 @@ fn a_section_and_a_detail_view_survive_a_save_and_a_load_with_everything_on_them
 }
 
 #[test]
+fn a_title_block_expression_round_trips_and_did_not_move_the_format_floor() {
+    // D4c. The expression row is the SOURCE, persisted — the evaluated text
+    // is a derived hint on the same terms a view's `cache` is one, so a
+    // reopened document re-measures rather than printing last week's number.
+    //
+    // And the claim that cost nothing: `TitleBlockField.expr` is additive and
+    // defaulted, so unlike D4b's `Projection::Section` it moved no floor. The
+    // check is written against the CONSTANTS rather than a literal, because
+    // the claim is "an expression row moves nothing", whatever the floor is.
+    use feature_engine::drawing::{Drawing, TitleBlockField, TitleBlockKey};
+
+    let mut drawing = Drawing::new();
+    drawing.sheets[0]
+        .title_block
+        .fields
+        .push(TitleBlockField::with_expr(
+            TitleBlockKey::Custom {
+                label: "Mass".to_string(),
+            },
+            "volume(plate) * 0.00785",
+        ));
+    let mut doc = WaffleDocument::new("Massed");
+    doc.tabs.push(Tab::drawing("Drawing 1", drawing));
+    let json = save_document(&doc);
+    let loaded = load_document(&json).expect("a D4c drawing loads");
+    assert_eq!(
+        save_document(&loaded.document),
+        json,
+        "an expression row must survive the round trip byte for byte"
+    );
+    let field = &loaded.document.tabs[1]
+        .drawing_tree()
+        .expect("the drawing")
+        .sheets[0]
+        .title_block
+        .fields
+        .last()
+        .expect("the expression row")
+        .clone();
+    assert_eq!(field.expr.as_deref(), Some("volume(plate) * 0.00785"));
+    assert!(
+        field.text.is_none(),
+        "the source is not also stored as text"
+    );
+
+    // The floor: exactly what a plain drawing claims, which is in turn what a
+    // document with no drawing claims (the test above).
+    let with_expr: serde_json::Value = serde_json::from_str(&json).unwrap();
+    let mut plain_doc = WaffleDocument::new("Massed");
+    plain_doc
+        .tabs
+        .push(Tab::drawing("Drawing 1", Drawing::new()));
+    let plain: serde_json::Value = serde_json::from_str(&save_document(&plain_doc)).unwrap();
+    assert_eq!(with_expr["version"], plain["version"]);
+    assert_eq!(
+        with_expr["min_reader_version"], plain["min_reader_version"],
+        "a title-block expression must not make an older build refuse the file"
+    );
+    assert_eq!(with_expr["version"], file_format::FORMAT_VERSION);
+}
+
+#[test]
 fn a_projection_variant_an_older_reader_does_not_know_fails_the_whole_document() {
     // WHY D4b moved the floor where D4a did not — as a measurement, not as an
     // assertion about intent.
