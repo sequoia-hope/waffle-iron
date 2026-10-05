@@ -1,5 +1,5 @@
 {
-  "manifest_hash": "3348bda695881a5f9e286813cb6806e2f0ce0e0dee99c14594cb80771e6d0e7d",
+  "manifest_hash": "ec2696a1b759305d74a663a8f23031a029ad3b3871cbc96a397b22ba011f1b80",
   "protocol": "waffle-agent-link/1",
   "tools": [
     {
@@ -25987,12 +25987,16 @@
           },
           "direction_from_parent": {
             "default": "right",
-            "description": "Where the projected view sits from its parent ON PAPER. What it SHOWS follows from the document's projection standard.",
+            "description": "Where the projected view sits from its parent ON PAPER. What it SHOWS follows from the document's projection standard. The four CORNERS are isometrics of that corner's octant (35.26° elevation, 45° azimuth), not orthographic views.",
             "enum": [
               "left",
               "right",
               "up",
-              "down"
+              "down",
+              "up_left",
+              "up_right",
+              "down_left",
+              "down_right"
             ],
             "type": "string"
           },

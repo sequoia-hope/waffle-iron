@@ -1359,6 +1359,13 @@ impl NamedView {
 /// placement is what is fixed and the content is what the projection standard
 /// decides: `Right` is the right-hand view in third angle and the left-hand
 /// view in first angle.
+///
+/// The four DIAGONALS are isometrics (D4e): where an axis placement turns the
+/// parent's line of sight by a quarter turn about a paper axis, a corner
+/// placement steps toward BOTH paper axes at once, which is the standard
+/// isometric of that corner — see [`projected_frame`] for the frame and
+/// `specs/drawings_and_mbd.md` §8 D4e for why the corners belong on this
+/// enum rather than on a second one.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "type")]
 #[cfg_attr(feature = "json-schema", derive(schemars::JsonSchema))]
@@ -1367,29 +1374,160 @@ pub enum ProjectedDirection {
     Right,
     Up,
     Down,
+    UpLeft,
+    UpRight,
+    DownLeft,
+    DownRight,
 }
 
 impl ProjectedDirection {
     /// The paper offset direction, in sheet millimetres (`+x` right, `+y` up).
+    ///
+    /// Unit — the diagonals too, at `1/√2` each — so the eight are one family
+    /// a caller can compare and scale alike.
+    /// [`auto_placement_step_mm`] normalizes whatever it is given, so the
+    /// length changes nothing downstream; it is unit here because a
+    /// "direction" that is sometimes 1 long and sometimes √2 is the kind of
+    /// difference a later caller reads as significant.
     pub fn paper_step(&self) -> [f64; 2] {
+        /// `1/√2`, as a literal rather than a `const fn`: `f64::sqrt` is not
+        /// const, and the two components of a unit diagonal are this number.
+        const D: f64 = std::f64::consts::FRAC_1_SQRT_2;
         match self {
             ProjectedDirection::Left => [-1.0, 0.0],
             ProjectedDirection::Right => [1.0, 0.0],
             ProjectedDirection::Up => [0.0, 1.0],
             ProjectedDirection::Down => [0.0, -1.0],
+            ProjectedDirection::UpLeft => [-D, D],
+            ProjectedDirection::UpRight => [D, D],
+            ProjectedDirection::DownLeft => [-D, -D],
+            ProjectedDirection::DownRight => [D, -D],
         }
     }
 
     /// The placement across the parent from this one — which is the whole of
     /// the difference between the two projection standards (see
     /// [`projected_frame`]).
+    ///
+    /// An involution over all EIGHT, which is what lets `projected_frame`
+    /// read one table backwards for first angle whatever the placement is: a
+    /// corner's opposite is the corner across the parent, not the mirror in
+    /// one axis.
     pub fn opposite(&self) -> ProjectedDirection {
         match self {
             ProjectedDirection::Left => ProjectedDirection::Right,
             ProjectedDirection::Right => ProjectedDirection::Left,
             ProjectedDirection::Up => ProjectedDirection::Down,
             ProjectedDirection::Down => ProjectedDirection::Up,
+            ProjectedDirection::UpLeft => ProjectedDirection::DownRight,
+            ProjectedDirection::UpRight => ProjectedDirection::DownLeft,
+            ProjectedDirection::DownLeft => ProjectedDirection::UpRight,
+            ProjectedDirection::DownRight => ProjectedDirection::UpLeft,
         }
+    }
+
+    /// Whether this placement is one of the four isometric CORNERS.
+    ///
+    /// The one question a caller asks that the variant list does not answer
+    /// in a word: a corner view is an isometric and an axis view is an
+    /// orthographic, and a label, a tool's hover sector and the title a
+    /// drafter reads all turn on it.
+    pub fn is_isometric(&self) -> bool {
+        matches!(
+            self,
+            ProjectedDirection::UpLeft
+                | ProjectedDirection::UpRight
+                | ProjectedDirection::DownLeft
+                | ProjectedDirection::DownRight
+        )
+    }
+
+    /// The tag a tool argument and a tool error use — the variant's own name,
+    /// lower case with an underscore (`up_right`).
+    pub fn tag(&self) -> &'static str {
+        match self {
+            ProjectedDirection::Left => "left",
+            ProjectedDirection::Right => "right",
+            ProjectedDirection::Up => "up",
+            ProjectedDirection::Down => "down",
+            ProjectedDirection::UpLeft => "up_left",
+            ProjectedDirection::UpRight => "up_right",
+            ProjectedDirection::DownLeft => "down_left",
+            ProjectedDirection::DownRight => "down_right",
+        }
+    }
+
+    /// How the placement reads on a view's name and on a tool's hover label:
+    /// `Right`, `Iso (up-right)`.
+    ///
+    /// The corners say ISO rather than `UpRight`, because what a drafter
+    /// needs to know about a corner view is that it is an isometric; which
+    /// corner is secondary and is in the parenthesis. One copy, read by
+    /// [`default_view_name`](crate::drawing) through the engine and by the
+    /// placement tools through the probe answer, so a ghost's label and the
+    /// name the view ends up with cannot disagree.
+    pub fn label(&self) -> &'static str {
+        match self {
+            ProjectedDirection::Left => "Left",
+            ProjectedDirection::Right => "Right",
+            ProjectedDirection::Up => "Up",
+            ProjectedDirection::Down => "Down",
+            ProjectedDirection::UpLeft => "Iso (up-left)",
+            ProjectedDirection::UpRight => "Iso (up-right)",
+            ProjectedDirection::DownLeft => "Iso (down-left)",
+            ProjectedDirection::DownRight => "Iso (down-right)",
+        }
+    }
+
+    /// A direction from its [`tag`](Self::tag), case-insensitively, also
+    /// accepting the hyphen and space spellings an author may type.
+    ///
+    /// One table rather than a `match` at every door: the MCP tool, the
+    /// probe query (D4e) and any later importer must agree about what
+    /// `up-right` means, and a second table is how they stop agreeing.
+    pub fn from_tag(tag: &str) -> Option<ProjectedDirection> {
+        let norm: String = tag
+            .trim()
+            .to_ascii_lowercase()
+            .chars()
+            .map(|c| if c == '-' || c == ' ' { '_' } else { c })
+            .collect();
+        ProjectedDirection::ALL
+            .iter()
+            .copied()
+            .find(|d| d.tag() == norm)
+    }
+
+    /// Every placement, for a tool's argument enumeration and for an oracle
+    /// that must cover all of them.
+    ///
+    /// Axes first, then corners, which is the order a UI offers them in and
+    /// the order the four-way table above was written in.
+    pub const ALL: [ProjectedDirection; 8] = [
+        ProjectedDirection::Left,
+        ProjectedDirection::Right,
+        ProjectedDirection::Up,
+        ProjectedDirection::Down,
+        ProjectedDirection::UpLeft,
+        ProjectedDirection::UpRight,
+        ProjectedDirection::DownLeft,
+        ProjectedDirection::DownRight,
+    ];
+}
+
+/// Which placement's view a view placed at `direction` SHOWS, under
+/// projection standard `angle`.
+///
+/// Third angle shows the side it is placed on; first angle shows the side
+/// opposite (the view placed on one side shows the side across the object).
+/// The whole of the difference between the standards, in one expression —
+/// [`projected_frame`] reads its table at this row, and a UI that wants to
+/// label a ghost "shows the right-hand side" asks here rather than carrying
+/// a second copy of the rule.
+pub fn shown_side(direction: ProjectedDirection, angle: ProjectionAngle) -> ProjectedDirection {
+    match angle {
+        ProjectionAngle::Third => direction,
+        ProjectionAngle::First => direction.opposite(),
     }
 }
 
@@ -1461,21 +1599,67 @@ impl ViewStyle {
 /// at from the other direction. Taking the opposite row makes the two
 /// standards one rule and one table, and it is what the standard itself
 /// says.
+///
+/// ## The four CORNERS are isometrics (D4e)
+///
+/// A corner placement steps toward both paper axes at once, and the view it
+/// gives is the standard isometric seen from that corner of the parent. The
+/// parent's viewer sits along `−w`; stepping `sᵤ` toward paper right and `s᥍`
+/// toward paper up puts the eye at `(sᵤ·u + s᥍·v − w)/√3`, so
+///
+/// ```text
+/// dir = (w − sᵤ·u − s᥍·v)/√3,    up = v
+/// ```
+///
+/// which is an isometric by construction and not by a fitted number: the eye
+/// direction's component along the parent's paper up is `1/√3` out of a unit
+/// vector, so the elevation is `asin(1/√3) = atan(1/√2) ≈ 35.264°`, and its
+/// horizontal part `(sᵤ·u − w)/√3` makes 45° with the parent's own line of
+/// sight. Those are the two numbers that define an isometric (ISO 5456-3),
+/// and `atan(1/√2)` is exactly the angle at which the three model axes
+/// foreshorten equally.
+///
+/// **Paper up is the parent's `v` for all four corners**, which is the D4a
+/// rule that every view in a projection group shares a paper axis with the
+/// view it is grouped with: `v` Gram-Schmidts to the isometric's paper up, so
+/// the parent's vertical draws vertically in the corner view, exactly as it
+/// does in the parent. A corner BELOW the parent keeps it — an isometric from
+/// underneath still draws the vertical axis vertically; flipping paper up for
+/// the lower corners would turn the model upside down rather than view it
+/// from below, which is the `NamedView::Bottom` trap arrived at from a third
+/// direction.
+///
+/// First angle needs no new rule here either: `shown_side` takes the opposite
+/// CORNER (`UpRight → DownLeft`), so the view placed at the top-right corner
+/// of a first-angle group looks from the bottom-left octant — the same
+/// sentence the four axis rows obey.
 pub fn projected_frame(
     parent: &ViewBasis,
     direction: ProjectedDirection,
     angle: ProjectionAngle,
 ) -> ViewFrame {
     let (u, v, w) = (parent.u, parent.v, parent.w);
-    let shown = match angle {
-        ProjectionAngle::Third => direction,
-        ProjectionAngle::First => direction.opposite(),
+    // `(w − sᵤ·u − s᥍·v)/√3`. Normalized here rather than left to
+    // `ViewFrame::basis`, which normalizes anyway, because a reader comparing
+    // this with the formula above should see the same vector.
+    let iso = |su: f64, sv: f64| {
+        let d = [
+            w[0] - su * u[0] - sv * v[0],
+            w[1] - su * u[1] - sv * v[1],
+            w[2] - su * u[2] - sv * v[2],
+        ];
+        let k = 1.0 / 3f64.sqrt();
+        [d[0] * k, d[1] * k, d[2] * k]
     };
-    let (dir, up) = match shown {
+    let (dir, up) = match shown_side(direction, angle) {
         ProjectedDirection::Right => (neg(u), v),
         ProjectedDirection::Left => (u, v),
         ProjectedDirection::Up => (neg(v), w),
         ProjectedDirection::Down => (v, neg(w)),
+        ProjectedDirection::UpRight => (iso(1.0, 1.0), v),
+        ProjectedDirection::UpLeft => (iso(-1.0, 1.0), v),
+        ProjectedDirection::DownRight => (iso(1.0, -1.0), v),
+        ProjectedDirection::DownLeft => (iso(-1.0, -1.0), v),
     };
     ViewFrame {
         origin: [0.0, 0.0, 0.0],
@@ -1619,6 +1803,82 @@ pub fn section_paper_step(cut: &CutPlane, angle: ProjectionAngle) -> [f64; 2] {
         ProjectionAngle::Third => n,
         ProjectionAngle::First => [-n[0], -n[1]],
     }
+}
+
+/// Where a view with NO parent goes, in sheet millimetres: the middle of an
+/// empty sheet, and beside what is already drawn otherwise (D4e).
+///
+/// `occupied` is `(centre, drawn extent)` per view already on the sheet; a
+/// view whose extent is not known yet is passed as `[0, 0]`, which still
+/// claims its own centre.
+///
+/// **A named view has no parent to step clear of, and that used to mean the
+/// sheet centre every time** — so a second `Front` landed exactly on top of
+/// the first, two drawings in one place and nothing saying so. Found by D4d
+/// (2026-10-04) while adding views to dimension.
+///
+/// The rule: step RIGHT of everything drawn, keeping the row the drawn views
+/// sit in, and if that would leave the paper, start a new row BELOW them at
+/// the left-hand edge. Rightwards first because a drawing is read left to
+/// right and because the sheet is landscape by default; the row is the
+/// occupied box's own vertical centre rather than the sheet's, so two named
+/// views come out side by side and aligned, which is what a projection group
+/// wants anyway.
+///
+/// The new view's own extent is not known when it is placed (it has not been
+/// projected yet) — the same gap `auto_placement_mm` has, where the parent's
+/// extent stands in. Here the LARGEST drawn view's extent stands in, which is
+/// an estimate and not a promise: a view much wider than anything on the
+/// sheet can still overhang the paper, and the author moves it. What it is
+/// not allowed to do is land on another view.
+///
+/// **What is NOT reserved** (D4e review, measured in
+/// `free_placement_wraps_on_a_portrait_sheet_and_reserves_no_frame_margin`):
+/// the frame margin and the title block. A wrapped row starts at the paper's
+/// own left EDGE, 10 mm inside the drawn frame, and a row that descends far
+/// enough reaches the title block's bottom-right corner. That is the posture
+/// `auto_placement_mm` has had since D4b — the renderer's own comment is "it
+/// sits in the frame's corner, which the auto-layout does not reserve" — and
+/// it stays that way here rather than being fixed, because `SHEET_MARGIN_MM`
+/// is the RENDERER's number (`app/src/lib/drawings/sheet.js`) and a copy of
+/// it in the engine is a second definition of where the paper ends. Reserving
+/// the frame is one mirrored constant away and belongs to whichever increment
+/// owns the sheet frame, not to the placement rule.
+pub fn free_placement_mm(
+    sheet_extent_mm: [f64; 2],
+    occupied: &[([f64; 2], [f64; 2])],
+    gap_mm: f64,
+) -> [f64; 2] {
+    let centre = [sheet_extent_mm[0] / 2.0, sheet_extent_mm[1] / 2.0];
+    let finite = |p: [f64; 2]| p.iter().all(|x| x.is_finite());
+    let mut lo = [f64::INFINITY; 2];
+    let mut hi = [f64::NEG_INFINITY; 2];
+    let mut largest = [0.0f64; 2];
+    let mut any = false;
+    for (at, extent) in occupied {
+        if !finite(*at) || !finite(*extent) {
+            continue;
+        }
+        for k in 0..2 {
+            lo[k] = lo[k].min(at[k] - extent[k].abs() / 2.0);
+            hi[k] = hi[k].max(at[k] + extent[k].abs() / 2.0);
+        }
+        if extent[0].abs() * extent[1].abs() >= largest[0] * largest[1] {
+            largest = [extent[0].abs(), extent[1].abs()];
+        }
+        any = true;
+    }
+    if !any {
+        return centre;
+    }
+    let own = largest;
+    let x = hi[0] + gap_mm + own[0] / 2.0;
+    let row = (lo[1] + hi[1]) / 2.0;
+    if x + own[0] / 2.0 <= sheet_extent_mm[0] {
+        return [x, row];
+    }
+    // No room to the right: a new row under everything, at the left edge.
+    [own[0] / 2.0, lo[1] - gap_mm - own[1] / 2.0]
 }
 
 /// Where a projected view's centre goes, in sheet millimetres: clear of the

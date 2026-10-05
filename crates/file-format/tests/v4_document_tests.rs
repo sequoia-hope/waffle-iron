@@ -83,8 +83,11 @@ fn v4_envelope_round_trip_keeps_identity_sources_and_tabs() {
     // every reader since D4a DESERIALIZES, so unlike D4a's new tab kind they
     // are not kept opaque — see
     // `format_tests.rs::a_projection_variant_an_older_reader_does_not_know_fails_the_whole_document`.
-    // v10 was the pid representation flip to decimal strings.
-    assert_eq!(FORMAT_VERSION, 12);
+    // v10 was the pid representation flip to decimal strings. v15 since
+    // 2026-10-04 (D4e's four ISOMETRIC `ProjectedDirection` variants — the
+    // v11 case one level deeper; v13 and v14 went to branches dispatched
+    // alongside it).
+    assert_eq!(FORMAT_VERSION, 15);
     assert_eq!(parsed["document"]["id"], doc.document.id.to_string());
     assert_eq!(parsed["sources"].as_array().unwrap().len(), 1);
     // `.git` is normalized away on the way in; host is inferred, not written.

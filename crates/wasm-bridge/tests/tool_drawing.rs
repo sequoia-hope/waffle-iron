@@ -2512,3 +2512,535 @@ fn curve_extent_points(curve: &LayoutCurve) -> Vec<[f64; 2]> {
         LayoutCurve::Polyline { points, .. } => points.clone(),
     }
 }
+
+// ------------------------------------------- D4e: the view probe (no mutation)
+
+/// Send one `UiToEngine` and get the answer as JSON — the page's door, which
+/// the probe is on (it is not a tool: an agent adds the view and reads the
+/// answer, where a pointer tool has to know where the view WOULD go first).
+fn message(state: &mut EngineState, kernel: &mut kernel_v2::KernelV2Adapter, msg: Value) -> Value {
+    let text = wasm_bridge::process::process_message_json(
+        state,
+        kernel,
+        &msg.to_string(),
+        &|| 0.0,
+        &|_| {},
+    );
+    serde_json::from_str(&text).expect("the engine answered JSON")
+}
+
+#[test]
+fn the_probe_answers_the_placement_an_add_would_use_and_adds_nothing() {
+    let (mut state, mut kernel, part_tab, drawing_tab) = box_and_drawing();
+    let front = ok(
+        &mut state,
+        &mut kernel,
+        "drawing_view_add",
+        json!({ "tab_id": part_tab, "view": "front" }),
+    );
+    let front_id = front["view_id"].as_str().expect("a view id").to_string();
+    let views_before = state
+        .session
+        .drawing(&drawing_tab)
+        .expect("a drawing")
+        .sheets[0]
+        .views
+        .len();
+
+    let probed = message(
+        &mut state,
+        &mut kernel,
+        json!({
+            "type": "ProbeDrawingView",
+            "tab_id": drawing_tab,
+            "source_tab": part_tab,
+            "projections": [
+                { "type": "ProjectedFrom", "parent": front_id, "direction": { "type": "Right" } },
+                { "type": "ProjectedFrom", "parent": front_id, "direction": { "type": "UpRight" } },
+            ]
+        }),
+    );
+    assert_eq!(probed["type"], "DrawingViewProbed", "{probed}");
+    // Nothing was added: a probe is a query.
+    assert_eq!(
+        state
+            .session
+            .drawing(&drawing_tab)
+            .expect("a drawing")
+            .sheets[0]
+            .views
+            .len(),
+        views_before,
+        "the probe added a view"
+    );
+
+    // The bounds are the authored box, in meters.
+    let bounds = &probed["bounds"];
+    for (i, want) in [0.0, 0.0, 0.0].iter().enumerate() {
+        assert!(
+            (bounds[0][i].as_f64().expect("a number") - want).abs() < 1e-9,
+            "bounds min is {bounds}"
+        );
+    }
+    for (i, want) in [W, D, H].iter().enumerate() {
+        assert!(
+            (bounds[1][i].as_f64().expect("a number") - want).abs() < 1e-9,
+            "bounds max is {bounds}"
+        );
+    }
+
+    // Third angle: a view placed right SHOWS the right side, and the corner
+    // shows its own corner.
+    assert_eq!(probed["views"][0]["shows"]["type"], "Right");
+    assert_eq!(probed["views"][1]["shows"]["type"], "UpRight");
+    assert_eq!(probed["views"][1]["name"], "Iso (up-right) of parent");
+    // The corner's frame is the isometric, not an orthographic: all three of
+    // the parent's axes have a non-zero depth component.
+    let dir: Vec<f64> = probed["views"][1]["dir"]
+        .as_array()
+        .expect("a direction")
+        .iter()
+        .map(|v| v.as_f64().expect("a number"))
+        .collect();
+    assert!(
+        dir.iter().all(|c| c.abs() > 0.5),
+        "the up-right corner's dir is {dir:?}, not an isometric"
+    );
+
+    // And the placement IS the one an add with no `placement_mm` produces.
+    for (i, direction) in ["right", "up_right"].iter().enumerate() {
+        let added = ok(
+            &mut state,
+            &mut kernel,
+            "drawing_view_add",
+            json!({
+                "tab_id": part_tab,
+                "parent_view_id": front_id,
+                "direction_from_parent": direction,
+            }),
+        );
+        let id = Uuid::parse_str(added["view_id"].as_str().expect("a view id")).expect("a uuid");
+        let placed = state
+            .session
+            .drawing(&drawing_tab)
+            .expect("a drawing")
+            .find_view(id)
+            .expect("the added view")
+            .1
+            .placement_mm;
+        for k in 0..2 {
+            let p = probed["views"][i]["placement_mm"][k]
+                .as_f64()
+                .expect("a number");
+            assert!(
+                (p - placed[k]).abs() < 1e-12,
+                "{direction}: the probe said {p} and the add placed at {}",
+                placed[k]
+            );
+        }
+    }
+}
+
+#[test]
+fn first_angle_flips_what_the_probe_says_a_sector_shows_but_not_where_it_goes() {
+    // The projected-view tool reads BOTH out of the probe, so this is the
+    // whole of what the first-angle setting does to the tool: the ghost keeps
+    // the sector the cursor is in (`ProjectedDirection` is named by the paper
+    // placement) and the view it previews becomes the opposite side's. A tool
+    // that had to know which is which would be a second copy of the standard.
+    let (mut state, mut kernel, part_tab, drawing_tab) = box_and_drawing();
+    let front = ok(
+        &mut state,
+        &mut kernel,
+        "drawing_view_add",
+        json!({ "tab_id": part_tab, "view": "front" }),
+    );
+    let front_id = front["view_id"].as_str().expect("a view id").to_string();
+    let ask = json!({
+        "type": "ProbeDrawingView",
+        "tab_id": drawing_tab,
+        "source_tab": part_tab,
+        "projections": [
+            { "type": "ProjectedFrom", "parent": front_id, "direction": { "type": "Right" } },
+            { "type": "ProjectedFrom", "parent": front_id, "direction": { "type": "UpRight" } },
+        ]
+    });
+    let third = message(&mut state, &mut kernel, ask.clone());
+    ok(
+        &mut state,
+        &mut kernel,
+        "drawing_sheet_edit",
+        json!({ "projection_angle": "first" }),
+    );
+    let first = message(&mut state, &mut kernel, ask);
+
+    assert_eq!(third["views"][0]["shows"]["type"], "Right");
+    assert_eq!(first["views"][0]["shows"]["type"], "Left");
+    assert_eq!(third["views"][1]["shows"]["type"], "UpRight");
+    assert_eq!(first["views"][1]["shows"]["type"], "DownLeft");
+    for i in 0..2 {
+        assert_eq!(
+            third["views"][i]["placement_mm"], first["views"][i]["placement_mm"],
+            "the standard moved the placement, which is the content's job"
+        );
+        assert_ne!(
+            third["views"][i]["dir"], first["views"][i]["dir"],
+            "the standard did not change what the view looks at"
+        );
+    }
+}
+
+#[test]
+fn a_probe_of_an_unknown_parent_names_that_one_projection_and_answers_the_rest() {
+    let (mut state, mut kernel, part_tab, drawing_tab) = box_and_drawing();
+    let probed = message(
+        &mut state,
+        &mut kernel,
+        json!({
+            "type": "ProbeDrawingView",
+            "tab_id": drawing_tab,
+            "source_tab": part_tab,
+            "projections": [
+                { "type": "Named", "view": { "type": "Iso" } },
+                { "type": "ProjectedFrom", "parent": Uuid::nil(), "direction": { "type": "Left" } },
+            ]
+        }),
+    );
+    assert!(probed["views"][0]["error"].is_null(), "{probed}");
+    assert!(
+        probed["views"][1]["error"]
+            .as_str()
+            .unwrap_or_default()
+            .contains("not on this sheet"),
+        "{probed}"
+    );
+    // A named view of a source with nothing on the sheet yet lands in the
+    // middle of the paper — which is where the dialog's ghost starts.
+    let extent = state
+        .session
+        .drawing(&drawing_tab)
+        .expect("a drawing")
+        .sheets[0]
+        .extent_mm();
+    for k in 0..2 {
+        let p = probed["views"][0]["placement_mm"][k]
+            .as_f64()
+            .expect("a number");
+        assert!((p - extent[k] / 2.0).abs() < 1e-9, "{probed}");
+    }
+}
+
+#[test]
+fn a_second_named_view_is_not_added_on_top_of_the_first() {
+    // The defect D4d found and D4e owns: a named view has no parent to step
+    // clear of, so the auto-placement answered the sheet centre for every one
+    // of them and the second drawing landed exactly on the first — two views
+    // in one place, and nothing on the sheet saying so.
+    //
+    // Measured on the DOCUMENT rather than on the function, because the thing
+    // that was wrong was which placement the ADD path asked for.
+    let (mut state, mut kernel, part_tab, drawing_tab) = box_and_drawing();
+    let mut boxes: Vec<([f64; 2], [f64; 2])> = Vec::new();
+    for view in ["front", "top", "right", "left"] {
+        ok(
+            &mut state,
+            &mut kernel,
+            "drawing_view_add",
+            json!({ "tab_id": part_tab, "view": view }),
+        );
+        let sheet = &state
+            .session
+            .drawing(&drawing_tab)
+            .expect("a drawing")
+            .sheets[0];
+        let added = sheet.views.last().expect("the added view");
+        let extent = match added.cache.as_ref().and_then(|c| c.bbox) {
+            Some([min, max]) => [
+                (max[0] - min[0]) * 1000.0 * added.scale,
+                (max[1] - min[1]) * 1000.0 * added.scale,
+            ],
+            None => panic!("view `{view}` has no drawn extent"),
+        };
+        let at = added.placement_mm;
+        for (other, other_extent) in &boxes {
+            let clear_x = (at[0] - other[0]).abs() - (extent[0] + other_extent[0]) / 2.0;
+            let clear_y = (at[1] - other[1]).abs() - (extent[1] + other_extent[1]) / 2.0;
+            assert!(
+                clear_x > -1e-9 || clear_y > -1e-9,
+                "`{view}` at {at:?} ({extent:?}) overlaps a view at {other:?} ({other_extent:?})"
+            );
+        }
+        boxes.push((at, extent));
+    }
+}
+
+// -------------------------------------- D4e review: the probe's two claims
+
+/// Cylinder radius and height for the curved-bounds measurement, in meters.
+const CYL_R: f64 = 0.012;
+const CYL_H: f64 = 0.006;
+
+/// A radius-`CYL_R`, height-`CYL_H` cylinder on a Part tab plus a Drawing
+/// tab. The curved counterpart of [`box_and_drawing`], for the one claim a
+/// prismatic part cannot measure: whether the ghost's box is an UPPER bound.
+///
+/// Also answers the body's RENDER MESH width, measured while the Part tab is
+/// still the live one (the drawing tab's engine is a different one, and the
+/// part's mesh is not in it) — the inscribed number the analytic box has to
+/// beat.
+fn cylinder_and_drawing() -> (EngineState, kernel_v2::KernelV2Adapter, String, String, f64) {
+    let mut state = EngineState::new();
+    let mut kernel = kernel_v2::KernelV2Adapter::new();
+    let part_tab = state.session.active_tab_id().to_string();
+
+    let sketch = Operation::Sketch {
+        sketch: Sketch {
+            id: Uuid::new_v4(),
+            plane_face: None,
+            plane: GeomRef {
+                kind: TopoKind::Face,
+                anchor: Anchor::Datum {
+                    datum_id: Uuid::new_v4(),
+                },
+                selector: Selector::Role {
+                    role: Role::EndCapPositive,
+                    index: 0,
+                },
+                policy: ResolvePolicy::BestEffort,
+                scope: None,
+            },
+            plane_origin: [0.0, 0.0, 0.0],
+            plane_normal: [0.0, 0.0, 1.0],
+            plane_x_axis: Some([1.0, 0.0, 0.0]),
+            entities: vec![
+                point(1, 0.0, 0.0),
+                SketchEntity::Circle {
+                    id: 2,
+                    center_id: 1,
+                    radius: CYL_R,
+                    construction: false,
+                },
+            ],
+            constraints: Vec::new(),
+            solve_status: SolveStatus::FullyConstrained,
+            solved_positions: [(1, (0.0, 0.0))].into_iter().collect(),
+            projected: Vec::new(),
+            solved_profiles: vec![ClosedProfile {
+                entity_ids: vec![2],
+                is_outer: true,
+                vertex_ids: vec![],
+                circle: Some(CircleProfile {
+                    center_u: 0.0,
+                    center_v: 0.0,
+                    radius: CYL_R,
+                }),
+                spline_segments: vec![],
+                arc_segments: vec![],
+            }],
+        },
+    };
+    let added = ok(
+        &mut state,
+        &mut kernel,
+        "feature_add",
+        json!({ "operation": serde_json::to_value(sketch).expect("a sketch operation") }),
+    );
+    ok(
+        &mut state,
+        &mut kernel,
+        "feature_add",
+        json!({ "operation": {
+            "type": "Extrude",
+            "params": {
+                "sketch_id": added["feature_id"].clone(),
+                "profile_index": 0,
+                "profile_entity_ids": [2],
+                "depth": CYL_H,
+                "symmetric": false,
+                "cut": false,
+            }
+        } }),
+    );
+    wasm_bridge::tessellation_runner::tessellate_missing_meshes(&mut state, &mut kernel);
+    let mut lo = f64::INFINITY;
+    let mut hi = f64::NEG_INFINITY;
+    for result in state.engine.feature_results.values() {
+        for (_, body) in &result.outputs {
+            let Some(mesh) = body.mesh.as_ref() else {
+                continue;
+            };
+            for v in mesh.vertices.chunks_exact(3) {
+                lo = lo.min(v[0] as f64);
+                hi = hi.max(v[0] as f64);
+            }
+        }
+    }
+    assert!(lo.is_finite(), "the cylinder produced no render mesh");
+    let mesh_span = hi - lo;
+
+    let drawing_tab = ok(
+        &mut state,
+        &mut kernel,
+        "tab_add",
+        json!({ "kind": "Drawing" }),
+    )["tab_id"]
+        .as_str()
+        .expect("the drawing tab's id")
+        .to_string();
+    (state, kernel, part_tab, drawing_tab, mesh_span)
+}
+
+#[test]
+fn the_probes_bounds_of_a_curved_body_are_an_analytic_upper_bound_and_a_loose_one() {
+    // The claim `ghostExtentMm`'s doc comment makes — that the ghost box
+    // bounds the drawn extent from ABOVE — rests on `bodies_bounds` reaching
+    // for `solid_aabb` first. For a CURVED body that is the whole of the
+    // claim: a tessellation is inscribed, so a mesh-derived box is SHORT of
+    // the true extent and a ghost sized from it would be UNDER rather than
+    // over. A prismatic plate (the GUI spec's fixture) cannot tell the two
+    // apart — every extreme of a box is a vertex — so it is measured here on
+    // a cylinder, whose analytic diameter the mesh undershoots at any finite
+    // chord tolerance.
+    //
+    // What the measurement also shows, and what the D4e review recorded: the
+    // box is an upper bound and a LOOSE one. `conservative_aabb` grows a
+    // circular edge by its radius in all three axes (a sphere about the
+    // circle's centre, not the circle's own disc), so this cylinder's box is
+    // `2r` across — exact — and `2r + h` tall where the solid is `h` tall.
+    // Safe for layout, 5× too tall for a side-on ghost of this part. The
+    // remedy is a tighter analytic box in kernel-v2, not a correction here:
+    // a consumer cannot un-widen a box it is handed.
+    let (mut state, mut kernel, part_tab, drawing_tab, mesh_span) = cylinder_and_drawing();
+    let probed = message(
+        &mut state,
+        &mut kernel,
+        json!({
+            "type": "ProbeDrawingView",
+            "tab_id": drawing_tab,
+            "source_tab": part_tab,
+            "projections": [{ "type": "Named", "view": { "type": "Top" } }]
+        }),
+    );
+    assert_eq!(probed["type"], "DrawingViewProbed", "{probed}");
+    let span = |k: usize| {
+        probed["bounds"][1][k].as_f64().expect("a number")
+            - probed["bounds"][0][k].as_f64().expect("a number")
+    };
+    // Across the axis: the analytic diameter, to the last bit of the authored
+    // radius — not the chord-deficient mesh width, which at the 0.1 mm render
+    // tolerance this body reports short. A TOP view's ghost is therefore
+    // exact, which is the case the dialog's ghost is sized from.
+    for k in 0..2 {
+        assert!(
+            (span(k) - 2.0 * CYL_R).abs() < 1e-12,
+            "axis {k} spans {} m, not the analytic {} m — the bounds came from \
+             a mesh, so the ghost would be a LOWER bound",
+            span(k),
+            2.0 * CYL_R
+        );
+    }
+    // Along the axis: containing, and loose by exactly the rim circles'
+    // radius at each end. Asserted as the measured number so a future
+    // tightening of the kernel's box shows up here as a failing EXPECTATION
+    // rather than as a silently different ghost.
+    assert!(
+        span(2) >= CYL_H - 1e-12,
+        "the height spans {} m, which does not even contain the solid's {CYL_H} m",
+        span(2)
+    );
+    assert!(
+        (span(2) - (CYL_H + 2.0 * CYL_R)).abs() < 1e-12,
+        "the height spans {} m; the measured looseness was `h + 2r` = {} m",
+        span(2),
+        CYL_H + 2.0 * CYL_R
+    );
+
+    // And it really is above the mesh: the same body's render tessellation is
+    // strictly inside the box the probe answered, on the axis where the box
+    // is tight.
+    assert!(
+        mesh_span < span(0) - 1e-9,
+        "the mesh spans {mesh_span} m and the probe answered {} m — the \
+         inscribed mesh should be strictly narrower",
+        span(0)
+    );
+}
+
+#[test]
+fn the_probe_answers_a_parentless_placement_the_add_then_uses_even_once_views_have_moved() {
+    // The other half of the byte-identity claim. `ProjectedFrom` is pinned by
+    // `the_probe_answers_the_placement_an_add_would_use_and_adds_nothing`; a
+    // view with NO parent goes through `free_placement_mm`, which reads every
+    // view already on the sheet — so the one way it can disagree with the add
+    // is by being asked at a different moment. Measured across three adds and
+    // after a view has been MOVED out from under the row the rule keeps,
+    // which is the state a hover sees after a drag.
+    let (mut state, mut kernel, part_tab, drawing_tab) = box_and_drawing();
+    let ask = json!({
+        "type": "ProbeDrawingView",
+        "tab_id": drawing_tab,
+        "source_tab": part_tab,
+        "projections": [{ "type": "Named", "view": { "type": "Front" } }]
+    });
+
+    for round in 0..3 {
+        if round == 2 {
+            // Move the first view somewhere the rule has to notice.
+            let first = state
+                .session
+                .drawing(&drawing_tab)
+                .expect("a drawing")
+                .sheets[0]
+                .views[0]
+                .id;
+            ok(
+                &mut state,
+                &mut kernel,
+                "drawing_view_edit",
+                json!({ "view_id": first.to_string(), "placement_mm": [60.0, 40.0] }),
+            );
+        }
+        let probed = message(&mut state, &mut kernel, ask.clone());
+        let said = [0, 1].map(|k| {
+            probed["views"][0]["placement_mm"][k]
+                .as_f64()
+                .expect("a number")
+        });
+        let added = ok(
+            &mut state,
+            &mut kernel,
+            "drawing_view_add",
+            json!({ "tab_id": part_tab, "view": "front" }),
+        );
+        let id = Uuid::parse_str(added["view_id"].as_str().expect("a view id")).expect("a uuid");
+        let placed = state
+            .session
+            .drawing(&drawing_tab)
+            .expect("a drawing")
+            .find_view(id)
+            .expect("the added view")
+            .1
+            .placement_mm;
+        for k in 0..2 {
+            assert!(
+                (said[k] - placed[k]).abs() < 1e-12,
+                "round {round}: the probe said {} and the add placed at {}",
+                said[k],
+                placed[k]
+            );
+        }
+        // And the name agrees too, which is the other thing a ghost shows.
+        assert_eq!(
+            probed["views"][0]["name"].as_str().unwrap_or_default(),
+            state
+                .session
+                .drawing(&drawing_tab)
+                .expect("a drawing")
+                .find_view(id)
+                .expect("the added view")
+                .1
+                .name,
+            "round {round}: the probe's name is not the one the add gave"
+        );
+    }
+}

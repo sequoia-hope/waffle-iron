@@ -65,6 +65,11 @@
 		AGENT_WORKING_HINT
 	} from '$lib/engine/store.svelte.js';
 	import { TOOL_FLOW } from '$lib/drawings/pick.js';
+	// D4e's two view-placement tools ride the same descriptor array; their
+	// pointer handling lives in `placementMode.svelte.js` as arms of the
+	// sheet's mode dispatch, so the toolbar only has to enter the mode.
+	import { VIEW_PLACEMENT_TOOLS } from '$lib/drawings/viewPlacement.js';
+	import { startProjectView } from '$lib/drawings/placementMode.svelte.js';
 	import SettingsModal from './SettingsModal.svelte';
 	import { goto } from '$app/navigation';
 	import { base } from '$app/paths';
@@ -93,6 +98,10 @@
 			label: 'Select',
 			title: 'Pick, drag and delete the dimensions already on the sheet'
 		},
+		// D4e: place a view (dialog, then a hover ghost) and project a view
+		// from a parent (hover a side or a corner). Views come before the
+		// dimensions because a sheet needs a view before it can carry one.
+		...VIEW_PLACEMENT_TOOLS.map(({ id, mode, label, title }) => ({ id, mode, label, title })),
 		{
 			id: 'dim-distance',
 			mode: 'dimension-distance',
@@ -298,6 +307,13 @@
 			setToolHint(AGENT_WORKING_HINT);
 			return;
 		}
+		if (tool.id === 'project-view') {
+			// Resets the placement module's own state before entering the mode.
+			startProjectView();
+			return;
+		}
+		// `place-view` is entered bare: `placementNeedsDialog()` then reads
+		// true and `DrawingPanel` opens the dialog that supplies the answers.
 		setSheetMode(tool.mode);
 	}
 

@@ -3625,8 +3625,314 @@ GUI: hover each of the eight sectors around a placed front view and assert
 the ghost label and the resulting view's projection type; place a view with
 the dialog at two scales and assert the ghost box equals the placed view's
 drawn extent to within the mesh-vs-analytic deficit; assert the first-angle
-document setting moves the ghost to the opposite side without the tool
-knowing why.
+document setting changes what the ghost says the view SHOWS and leaves its
+placement where it is, without the tool knowing why.
+
+(That last oracle is **corrected from the sentence this spec first carried**,
+which asked for the ghost to move to the opposite side. It does not and must
+not: `ProjectedDirection` is named by the paper placement, so `Right` places
+right under both standards and the standard decides only the content — which
+is what the four axis placements have done since D4a, where
+`auto_placement_mm` takes no `ProjectionAngle` at all. The D4e review
+confirmed that against the existing four before the diagonals were pinned to
+match. See the D4e implementation notes.)
+
+### Implementation notes (D4e)
+
+Landed 2026-10-04. Where §8's D4e sketch left a choice open, this is the
+choice made and why.
+
+**The four corners are isometrics derived from the parent's frame, not
+recorded.** `projected_frame` gains four rows. The parent's viewer sits along
+`−w`, so stepping `sᵤ` toward paper right and `s᥍` toward paper up puts the eye
+at `(sᵤ·u + s᥍·v − w)/√3`: the component along the parent's paper up is `1/√3`
+of a unit vector, so the elevation is `asin(1/√3) = atan(1/√2) ≈ 35.264°`, and
+the horizontal part `(sᵤ·u − w)/√3` makes 45° with the parent's own line of
+sight. Those two numbers are what ISO 5456-3 means by an isometric, and the
+unit test measures them off the frame (for three different parents) rather
+than comparing against a recorded vector — plus the property they exist for:
+the parent's three axes foreshorten equally, to `√(2/3)`.
+
+**Paper up is the parent's `v` for all four corners, the lower two included.**
+That is D4a's rule — every view in a group shares a paper axis with the view it
+is grouped with — carried to a placement that cannot share one exactly: `v`
+Gram-Schmidts to the corner view's paper up, so the parent's vertical draws
+vertically. Flipping it for the lower corners was considered and rejected: an
+isometric from underneath still draws the vertical axis vertically, and
+flipping would turn the model upside down rather than view it from below, which
+is `NamedView::Bottom`'s own trap arrived at from a third direction.
+
+**First angle needed no new rule, which is the test of D4a's table.** The flip
+is `shown_side(direction, angle)` — now a named function, so a UI can ask
+instead of re-deriving — and for a corner it takes the opposite CORNER
+(`UpRight → DownLeft`), not a mirror in one axis. `opposite` is an involution
+over all eight and reverses the paper step exactly, which is what lets one
+table be read forwards or backwards for eight placements instead of four.
+
+**`paper_step` is unit for all eight.** `auto_placement_step_mm` normalizes
+whatever it is given, so the length changes nothing — but a "direction" that is
+sometimes 1 long and sometimes `√2` is a difference a later caller reads as
+significant. The diagonal placement then falls out of the support function a
+45° section already uses: two 20 mm squares at zero gap land with their corners
+touching, where taking the dominant axis' half-extent would have overlapped
+them.
+
+**The format bump is v15, floor included, and v13/v14 are skipped.** The four
+variants sit inside a `Projection` inside a tab kind every reader since D4a
+DESERIALIZES, so this is v11's case one level deeper: a v12 reader fails on the
+whole document with a raw serde error about a variant, where the bump makes it
+refuse up front with `FutureVersion`. D4e was dispatched alongside two branches
+that were assigned 13 and 14; a gap in the sequence costs nothing (the gate is
+`max(version, min_reader_version) > FORMAT_VERSION`, and nothing enumerates the
+versions) where a collision costs a file two builds disagree about. The parity
+scenarios fixture was found still at **v11** — stale since P2's v12 — and is
+regenerated with it.
+
+**The ghost asks the engine, through one new query.** `ProbeDrawingView` answers
+what a view WOULD be without adding it: the placement from the same
+`default_placement` an `AddView` with no `placement_mm` calls, the frame from
+`Sheet::view_frame` over a temporary view pushed onto a CLONE of the sheet (so a
+`ProjectedFrom` chain, a section's cut and a detail's inheritance stay that one
+function's business), what a projected view shows, and the source's world
+bounds. Several projections per call, because the projected-view tool needs all
+eight sectors before the pointer moves and eight round trips through the worker
+is a laggy ghost. It takes nothing from the pool it does not park back, so a
+hover over a source the drawing already draws builds nothing.
+
+**The ghost box's SIZE is an app-side derivation, and an upper bound.**
+Projecting the source's AABB corners through the view frame and scaling bounds
+the drawn extent from above: the solid lies inside its box, an orthographic
+projection is linear, and the image of a box under a linear map is the hull of
+its corners' images. The slack is real — a cylinder seen down its axis draws a
+circle inside a square ghost — and the one caveat is the AABB's provenance:
+`solid_aabb` where the kernel answers (analytic, documented conservative) and
+the render tessellation where it declines, which is INSCRIBED and so short of
+the true extent by the chord deficit. That is why §8's oracle compares the
+ghost with the drawn extent "to within the mesh-vs-analytic deficit" instead of
+asserting containment; for the prismatic plate the GUI spec uses, the two are
+equal to a thousandth of a millimetre.
+
+**The ghost is spliced into the sheet's markup rather than overlaid.** The
+paper is CSS-scaled (`max-width: 100%`), so an absolutely positioned overlay
+would have to re-measure it on every pointer move, and a one-pixel disagreement
+in a tool whose whole purpose is showing where something will land is the tool
+failing at its job. In the sheet's own user units the ghost cannot be out at
+all. `withGhost` is one string splice before `</svg>`.
+
+**One deviation from §8's oracle list, and it is a correction.** §8 says to
+"assert the first-angle document setting moves the ghost to the opposite side
+without the tool knowing why". It does not, and it should not:
+`ProjectedDirection` is named by the PAPER PLACEMENT (D4a's own words), so
+`Right` places right under both standards and the standard decides only what is
+SEEN. A ghost that jumped across the parent when the document switched to first
+angle would also be wrong as a tool — every CAD package puts the projected view
+where you drag it and lets the standard decide which side it shows, which is
+exactly what `projected_frame` encodes. So the spec's claim is implemented as
+what is true and is still the same oracle in substance: the same sector, the
+same placement, and the engine says the view there now shows the LEFT side —
+`Right of Front — shows left`, with the tool reading `shows` off the probe and
+knowing no rule. The GUI test asserts the label changes and the placement does
+not; the engine test (`tool_drawing.rs::first_angle_flips_what_the_probe_says_a_sector_shows_but_not_where_it_goes`)
+asserts the same thing one layer down.
+
+#### Review findings (D4e, 2026-10-04)
+
+The increment was reviewed against this section by independent arithmetic and
+measurement. Four of its claims held; three app-side defects were found and
+fixed, and two limits were measured and recorded rather than fixed.
+
+**Held.** The four corner frames are standard isometrics, re-derived from
+scratch: for a parent `(u, v, w)` the eyes are `(±1, ±1, −1)/√3` in that
+basis, elevation `asin(1/√3) = atan(1/√2)`, azimuth 45°, the three parent axes
+foreshortening equally to `√(2/3)`, and the frame right-handed by
+`ViewFrame::basis`'s own construction. The byte-identity claim holds on both
+paths and at both layers. A v14 document opens in this reader — the gate is
+`max(version, min_reader_version) > FORMAT_VERSION`, so a skipped version is
+not a refused one, now pinned forwards and backwards in
+`format_tests.rs::a_file_at_a_skipped_version_still_opens_and_one_above_ours_still_does_not`.
+
+**The lower corners are right, and here is the sharper reason.** Keeping paper
+up as the parent's `v` was questioned on the ground that a bottom isometric
+drawn with the parent's up might read upside down. It does not. The closed
+form of the Gram-Schmidt is `u′ = (u + sᵤ·w)/√2` and
+`v′ = (2v + s᥍·w − s᥍sᵤ·u)/√6`, so the parent's three axes project as
+`v ↦ [0, 2/√6]`, `w ↦ [sᵤ/√2, s᥍/√6]`, `u ↦ [1/√2, −s᥍sᵤ/√6]`. The parent's
+VERTICAL therefore draws exactly vertically in all four corners, upper and
+lower alike — nothing is mirrored and nothing is turned over — and what
+separates an iso from above from one from below is the sign of `s᥍` on the
+RECEDING axis: the axis going away from the parent's viewer draws up in the
+one and down in the other, which is how a bottom isometric reads. Pinned in
+`the_lower_corner_isos_look_from_below_without_turning_the_model_over`.
+
+**The first-angle deviation is correct and §8's own oracle was wrong.** The
+existing four axis placements have never moved under first angle:
+`auto_placement_mm` takes no `ProjectionAngle` at all, and the flip has always
+been inside `projected_frame`'s content table. So the diagonals matching them
+is not a deviation from the design, only from one sentence of the oracle list,
+and that sentence is corrected above.
+
+**Fixed: the probe cache survived an edit it described.** The cache keyed on
+the question alone and argued that "any document edit leaves the mode". It
+does not — `reset` runs when a tool is started, cancelled or completed, and
+nothing calls it when the document moves underneath a running tool. Moving the
+parent view 30 mm while the projected tool was open left the ghost where the
+parent had been (measured, then fixed by putting the store's new
+`getDocumentRevision()` in the key, and re-measured by reverting it).
+
+**Fixed: the free scale field refused in silence**, and `<input
+type="number">` delivers an empty string for everything it could not parse, so
+"3x", a pasted "1:2" and a blank field were one indistinguishable greyed-out
+button. It now says which refusal it is. The ISO 5455 list was also described
+as the standard's whole series and is not — it stops at 1:1000, where a
+mechanical drawing stops, and the claim now says so.
+
+**Fixed: a third copy of the eight tags.** `DIRECTION_ORDER` indexes into the
+probe's answers and was written out by hand beside the mirrored
+`PROJECTED_DIRECTIONS` table; one position of disagreement would have labelled
+every sector with a neighbour's frame. It is derived from the table the Rust
+mirror test pins.
+
+**Measured, not fixed: the ghost box is an upper bound and a loose one.** The
+"upper bound" claim is sound — `bodies_bounds` reaches for the kernel's
+conservative `solid_aabb` first, and the inscribed render mesh is only the
+fallback for a body it declines (a surface-pair or hyperbola edge). But
+`conservative_aabb` grows a circular edge by its radius in all three axes, so
+a radius-12 mm, height-6 mm cylinder gets a box `2r` across (exact) and
+`2r + h` tall: a side-on ghost five times too tall. Safe for layout, poor as a
+preview, and not correctable in the consumer — a caller cannot un-widen a box
+it is handed. The remedy is a tighter analytic box in kernel-v2, and the
+measurement is pinned at
+`tool_drawing.rs::the_probes_bounds_of_a_curved_body_are_an_analytic_upper_bound_and_a_loose_one`
+so that tightening it shows up as a failing expectation.
+
+**Measured, not fixed: `free_placement_mm` reserves neither the frame margin
+nor the title block.** A wrapped row starts at the paper's own left edge, 10 mm
+inside the drawn frame, and a wide view overhangs the right one. That is the
+posture `auto_placement_mm` has had since D4b (the renderer's comment: "it
+sits in the frame's corner, which the auto-layout does not reserve"), and it
+stays, because `SHEET_MARGIN_MM` is the renderer's number and a copy of it in
+the engine would be a second definition of where the paper ends. Reserving the
+frame is one mirrored constant away and belongs to whichever increment owns
+it. What is load-bearing and is pinned, on an A4 portrait sheet as well as a
+landscape one, is that no two views land on each other.
+
+**The sectors are the parent box's own edge lines extended.** Nine regions: the
+box, four sides, four corners. No angles and no tuning, and a cursor is in a
+corner sector exactly when it is clear of both edges — which is also exactly
+when an isometric placed there would not collide with the side views. Inside
+the parent's box there is no direction, so there is no ghost, rather than the
+last one (which would read as a placement the click would make).
+
+**The snap is per axis, and alignment beats the grid.** A ghost within 8 mm of
+an existing view's centre line takes that line and keeps the other axis where
+the cursor asked, because a projection group is read by its rows and columns;
+outside the band it rounds to a 5 mm paper grid. Both distances are PAPER
+distances, for D4d's reason: a 1:10 view and a 2:1 view must snap alike.
+
+**Where the two tools live.** `app/src/lib/drawings/viewPlacement.js` is the
+pure half (the scale series, the sector test, the snap, the ghost markup, the
+extent derivation), `placementMode.svelte.js` is the mode and the two pointer
+handlers, and `PlaceViewDialog.svelte` is the dialog. `DrawingPanel` carries
+the two buttons MEANWHILE: D4d is building the drawing toolbar, and
+`VIEW_PLACEMENT_TOOLS` is the descriptor array it reads, so moving them is one
+import there and the deletion of the buttons here. The panel's numeric form
+stays — a placement typed in is sometimes exactly what is wanted.
+
+**The wiring seam with D4d.** D4d's toolbar reads an array of
+`{ id, mode, label, title }` and turns `id` into `toolbar-btn-<id>` for
+`clickTool`; `VIEW_PLACEMENT_TOOLS`' rows are exactly that shape (plus a
+`testid` the panel uses meanwhile, which a toolbar ignores), with `id`/`mode`
+`place-view` and `project-view`. Its sheet dispatches `onPointerDown` on the
+mode, so the two arms call `placementPointerDown`/`placementPointerMove` —
+the same two functions the panel path already drives on this branch. Nothing
+in either tool reads `sheetMode` directly, so whichever module ends up owning
+the mode after the merge, the handlers do not change.
+
+**A defect this increment inherited and fixed: a second named view landed on
+the first.** The auto-placement steps clear of the PARENT, and a named view
+has none, so `default_placement` answered the sheet centre for every one of
+them — two drawings in one place, with nothing saying so (found by D4d while
+adding views to dimension). `free_placement_mm` now steps right of everything
+drawn, keeping the drawn views' row, and wraps to a new row below when the
+paper runs out; the new view's own extent is estimated by the largest drawn
+one, which is an estimate rather than a promise (a view much wider than
+anything on the sheet can still overhang the paper, and the author moves it).
+What it may not do is land on another view, which is what both pins assert —
+`free_placement_mm`'s unit test and
+`tool_drawing.rs::a_second_named_view_is_not_added_on_top_of_the_first`, which
+adds four named views through the TOOL and checks every pair of drawn boxes.
+
+**The app's eight labels are pinned to the engine's.** `ProjectedDirection`'s
+labels (`Right`, `Iso (up-right)`) are what a view ends up NAMED, and the
+hover must label a sector before any probe answers — so the table is mirrored
+in `viewPlacement.js` and pinned by
+`crates/feature-engine/tests/js_projected_direction_mirror.rs`, the
+`js_format_mirror` arrangement for the reason it exists there: nothing compared
+the two copies, and the one that drifted was found a day later by its symptom.
+
+**Found and fixed on the way:** a `$state` proxy array reaching `bridge.send`
+throws `DataCloneError`, so the first version of the place click placed nothing
+at all (the ghost's centre is a reactive proxy; it is spread into a plain array
+before it travels). The trap is in the 2026-09-26 notes and now has a second
+customer.
+
+**Still open after this increment:**
+
+- *Nothing drags an existing view.* The ghost shows where a NEW view lands;
+  moving one still goes through the panel's two number fields. The snap and the
+  hit test are both in place (`snapPlacementMm` takes an `exceptId` for exactly
+  this), so it is a drag handler and an `editDrawingView`, not a design
+  question.
+- *The place-view dialog offers named views only.* A free direction
+  (`Projection::Custom`) is reachable from the panel and the MCP tool but not
+  from the dialog, because a direction authored as three numbers is not
+  something a pointer picks; a "from the current 3D view" entry is the obvious
+  shape and it needs the viewport's camera, which a drawing tab does not have.
+- *An assembly source's ghost is the whole assembly's box.* `bounds` unions
+  every placed leaf, which is right for a view of the whole thing and
+  pessimistic for a view of named `bodies` — the probe takes the body list and
+  `bodies_of_tab` honours it, but an assembly's leaves are prefixed names and a
+  selection of them is not offered by either tool yet.
+- *~~The eight-sector probe is cached by parent, not invalidated by an
+  edit.~~* **Closed by the review** — the claim that "every entry point resets
+  the mode" was false (nothing resets it when the document moves under a
+  running tool), and the measurement was a ghost left where the parent had
+  been. The cache key now carries `getDocumentRevision()`.
+- *`ProjectedDirection`'s corners are not offered by `export_dxf`'s free
+  `direction`/`up` pair.* An iso of a part exports today by adding the view to
+  a sheet; the one-view export still takes a named view or a vector.
+
+#### The D4d merge: one mode, and the ghost moves into the overlay
+
+D4e was written against the pre-D4d sheet, which had no tool modes of its own,
+so it carried its own. D4d then made the sheet a dispatch over the store's
+`sheetMode` and said in as many words that D4e's two tools were meant to be
+arms of it. They are now, and the duplicate was removed rather than kept
+beside it: **`placementMode()` reads `getSheetMode()`** and answers `null` for
+any mode that is not one of the two, so a dimension tool or an Escape silences
+the placement module without anything having to tell it. `startPlaceView` and
+`startProjectView` set the mode; placing or cancelling returns it to
+`'select'`. Two mode strings would have meant the mode the toolbar set and the
+mode the sheet dispatched on could differ, which is the one bug a shared mode
+cannot have.
+
+Three consequences worth recording:
+
+- **Escape needed no code.** D4d's toolbar already handles it with
+  `popSheetPick`, which on an empty pick list returns the sheet to `'select'` —
+  and that is exactly "cancel the placement, place nothing".
+- **`'place-view'` is the one mode that cannot be entered by setting it
+  alone.** It needs a source and a scale from its dialog, and a toolbar button
+  that only sets the mode would have left the tool dereferencing answers it
+  did not have. It is INERT without them, and `placementNeedsDialog()` is how
+  a toolbar knows to open the dialog instead. That is the one thing whoever
+  wires these into `DRAWING_TOOLS` has to handle.
+- **The ghost moved from the paper string into D4d's picking overlay.** D4e
+  spliced it in before the sheet's closing `</svg>`, to stay exact to the pixel
+  on CSS-scaled paper. The overlay already shares the paper's `viewBox`, so it
+  is just as exact there — and it keeps D4d's rule that the markup the user
+  sees is the markup `export_svg` writes. A placement preview is not part of
+  the drawing. `withGhost` is gone with the splice.
 
 ## 9. M1 — Tolerance, precision, material
 
@@ -3726,7 +4032,7 @@ under both schema settings.
 | D4b | section + detail views, title block, sheet PDF | D1d, D2, D4a | same — **LANDED 2026-10-03** (without D2: the title block took keys and literal text) |
 | D4c | title-block expressions, authorable `Measured::Expr`, hatch + detail clip in the DXF | D2, D4b | waffle-types, feature-engine, kernel-v2, wasm-bridge, app — **LANDED 2026-10-04** |
 | D4d | dimensioning toolbar on the drawing tab; anchor hit-test with paper-constant pick radius; select/drag/delete; the drawing's own undo stack | D4b | app, wasm-bridge — **LANDED 2026-10-04** |
-| D4e | place-view dialog with hover ghost box; projected-view tool with eight hover sectors incl. isometric corners (`ProjectedDirection` diagonals, format bump) | D4b | app, feature-engine, file-format, wasm-bridge |
+| D4e | place-view dialog with hover ghost box; projected-view tool with eight hover sectors incl. isometric corners (`ProjectedDirection` diagonals, format v15) | D4b | app, feature-engine, file-format, wasm-bridge — **LANDED 2026-10-04** |
 | M1 | tolerance types, precision, material + mass | D2 | waffle-types, feature-engine, app — in flight 2026-10-04 |
 | M2 | `Datum` + `Pmi` features, 3D PMI overlay | D0, D3, M1 | feature-engine, app |
 | M3 | AP242 writer with PMI + round-trip oracle | M2 | kernel-v2, wasm-bridge |
