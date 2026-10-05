@@ -1528,11 +1528,13 @@ fn try_recover(
                     continue;
                 };
 
-                // Anchor EVERY rim of the component at that one direction: an
-                // existing vertex within the band (same predicate PASS 2's
-                // `existing_foot` uses), else the EXACT minted foot
-                // `c + r·dir`, which lies on the circle both adjacent
-                // surfaces declare.
+                // Anchor EVERY rim of the component at that one direction, in
+                // two steps.
+                //
+                // (a) REUSE: an existing vertex within the band of `dir` (same
+                //     predicate PASS 2's `existing_foot` uses) becomes the
+                //     rim's foot. A rim with none is deferred to (b).
+                let mut to_mint: Vec<usize> = Vec::new();
                 for &rc in &rims {
                     if chains[rc].anchor.is_some() {
                         continue;
@@ -1554,21 +1556,83 @@ fn try_recover(
                             best = Some((a, v));
                         }
                     }
-                    let foot = match best.filter(|&(a, _)| a * r <= band) {
-                        Some((_, v)) => v,
-                        None => {
-                            let ca = c.as_array();
-                            let p = Point3::new(
-                                ca[0] + r * dir[0],
-                                ca[1] + r * dir[1],
-                                ca[2] + r * dir[2],
-                            );
-                            let nv = (yverts.len() + minted.len()) as u32;
-                            minted.push(BRepVertex { point: p });
-                            nv
+                    match best.filter(|&(a, _)| a * r <= band) {
+                        Some((_, v)) => chains[rc].anchor = Some(v),
+                        None => to_mint.push(rc),
+                    }
+                }
+                // (b) MINT: the EXACT on-circle foot of every remaining rim.
+                //     Its direction is NOT `dir` when the rim shares a band
+                //     with an anchored rim: a reused foot sits anywhere within
+                //     `band` of `dir` (~1e-9 relative), while the two feet of
+                //     one band are the ends of ONE seam ruling and must share
+                //     an azimuth to the validator's 1e-12 bound — the F11 rule
+                //     PASS 2 states ("a reused foot fixes its minted twin's
+                //     azimuth"), which this pass had dropped: measured
+                //     2026-10-05 on the F11 tube itself (a r = 0.014 bore whose
+                //     outer wall seeded `dir`; one bore rim reused a vertex
+                //     2.6e-10 rad off `dir`, the other minted AT `dir`, seam
+                //     3.66e-12 off its ruling → REFUSED → annular → the
+                //     assembler refused its own output) and on the gear ∪
+                //     flange bore (8.47e-12). So a minted rim takes the exact
+                //     radial direction of an anchored neighbour, propagated
+                //     breadth-first across runs of minted-only rims (every
+                //     such run then lies on one ruling with the reused foot
+                //     it hangs from), and only a component with NO anchored
+                //     rim mints at `dir` itself. Two reused feet that are not
+                //     a ruling still refuse their band below, as PASS 2 does.
+                //     Phase coherence (C0117) is untouched: every foot stays
+                //     within `band` of `dir`, far below the sagitta.
+                let mut adjacent: BTreeMap<usize, Vec<usize>> = BTreeMap::new();
+                for &ci in &bands {
+                    let (ra, rb) = (cands[ci].ca, cands[ci].cb);
+                    adjacent.entry(ra).or_default().push(rb);
+                    adjacent.entry(rb).or_default().push(ra);
+                }
+                for nbs in adjacent.values_mut() {
+                    nbs.sort_unstable();
+                    nbs.dedup();
+                }
+                let mut mint_dir: BTreeMap<usize, [f64; 3]> = BTreeMap::new();
+                let mut queue: std::collections::VecDeque<usize> = rims
+                    .iter()
+                    .copied()
+                    .filter(|&rc| chains[rc].anchor.is_some())
+                    .collect();
+                while let Some(rc) = queue.pop_front() {
+                    let d = match chains[rc].anchor {
+                        Some(v) => {
+                            rim_circle(&chains, rc).and_then(|(c, _)| rdir(v, c, axis, &minted))
                         }
+                        None => mint_dir.get(&rc).copied(),
                     };
-                    chains[rc].anchor = Some(foot);
+                    let Some(d) = d else {
+                        continue;
+                    };
+                    let Some(nbs) = adjacent.get(&rc) else {
+                        continue;
+                    };
+                    for &nb in nbs {
+                        if chains[nb].anchor.is_some()
+                            || mint_dir.contains_key(&nb)
+                            || !to_mint.contains(&nb)
+                        {
+                            continue;
+                        }
+                        mint_dir.insert(nb, d);
+                        queue.push_back(nb);
+                    }
+                }
+                for &rc in &to_mint {
+                    let Some((c, r)) = rim_circle(&chains, rc) else {
+                        continue;
+                    };
+                    let d = mint_dir.get(&rc).copied().unwrap_or(dir);
+                    let ca = c.as_array();
+                    let p = Point3::new(ca[0] + r * d[0], ca[1] + r * d[1], ca[2] + r * d[2]);
+                    let nv = (yverts.len() + minted.len()) as u32;
+                    minted.push(BRepVertex { point: p });
+                    chains[rc].anchor = Some(nv);
                 }
 
                 // Per band: the two feet are the ends of ONE seam ruling, so

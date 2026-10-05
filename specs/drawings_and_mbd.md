@@ -4740,7 +4740,13 @@ is invisible when you only look at one of the two.
   JavaScript: a starter list of materials in the app would be a second source
   of truth for a density, which is the one number this increment exists to
   make unambiguous.
-- *FIVE test-harness cases are red, and none of them is M1's.* Measured on
+- *FIVE test-harness cases are red, and none of them is M1's.* (**All five
+  FIXED on main 2026-10-05**, after M1 merged: the two KV5a inner-loop reds
+  were one `recover.rs` regression from N77's 2026-10-03 component pass —
+  `docs/yang_deviations.md` N77 "Amendment 2026-10-05"; the needle-star test
+  now asserts the converted verdict; `chain_deterministic` normalizes UUIDs
+  out of error text; `drilled_block.step` was regenerated and reviewed as
+  last-ULP drift.) Measured on
   the fully merged branch with `cargo test -p test-harness --release`, after
   `--release --no-run` confirmed every target compiles (the P2/P3 merge had
   left the crate not compiling at all; main's 429c4538 fixed that, and it is
