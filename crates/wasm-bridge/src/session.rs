@@ -80,6 +80,49 @@ pub struct DocumentSession {
     /// Parked undo history of every tab except the active one, whose history
     /// is live in the engine.
     histories: HashMap<String, UndoStack>,
+    /// A `Drawing` tab's own undo history, by tab id (D4d).
+    ///
+    /// Separate from `histories` because a drawing is not a feature tree and
+    /// `Command` cannot express one: `Engine::apply_inverse` writes through
+    /// `self.tree` and has no reach into the session's tabs, which is where a
+    /// drawing lives. Snapshots rather than inverse edits, for the reason the
+    /// app-side attempt measured: `DrawingEdit` can only APPEND an
+    /// annotation, so every inverse built out of the forward vocabulary moves
+    /// the annotation it restores to the end of the view's list — and the
+    /// recorded forward step's indices then address a different annotation on
+    /// the redo. A whole-drawing snapshot has no index in it at all.
+    drawing_histories: HashMap<String, DrawingHistory>,
+}
+
+/// One `Drawing` tab's undo/redo history, as whole-drawing snapshots.
+///
+/// Snapshots are cheap because the derived part is stripped: a view's `cache`
+/// is a curve list, "a megabyte of them on a real part", and it is recomputed
+/// by the evaluation that follows every restore. What is left is sheets,
+/// placements, styles and annotations.
+#[derive(Debug, Default)]
+struct DrawingHistory {
+    undo: Vec<feature_engine::drawing::Drawing>,
+    redo: Vec<feature_engine::drawing::Drawing>,
+}
+
+/// How many drawing edits one tab can step back through.
+///
+/// A bound rather than unbounded growth: the history is per tab and lives as
+/// long as the session, and a drafter nudging a dimension's placement with
+/// the pointer authors one entry per drag.
+const DRAWING_HISTORY_LIMIT: usize = 128;
+
+/// A drawing with its derived layouts stripped — what a snapshot stores.
+fn without_caches(
+    mut drawing: feature_engine::drawing::Drawing,
+) -> feature_engine::drawing::Drawing {
+    for sheet in &mut drawing.sheets {
+        for view in &mut sheet.views {
+            view.cache = None;
+        }
+    }
+    drawing
 }
 
 impl DocumentSession {
@@ -97,6 +140,7 @@ impl DocumentSession {
             active_tab: doc.active_tab,
             revision: 0,
             histories: HashMap::new(),
+            drawing_histories: HashMap::new(),
         }
     }
 
@@ -209,6 +253,7 @@ impl DocumentSession {
         }
         self.tabs.remove(index);
         self.histories.remove(id);
+        self.drawing_histories.remove(id);
         let successor = if self.active_tab == id {
             let next = index.min(self.tabs.len() - 1);
             Some(self.tabs[next].id.clone())
@@ -433,8 +478,45 @@ impl DocumentSession {
             })
     }
 
-    /// Replace a `Drawing` tab's content, as the drawing tools' edits do.
+    /// Replace a `Drawing` tab's content, as the drawing tools' edits do —
+    /// recording the previous content as one UNDOABLE step (D4d).
+    ///
+    /// Every committed drawing mutation passes through here, which is why the
+    /// history is taken here and not at a call site: an annotation authored
+    /// from the sheet, a view added from the panel and an agent's
+    /// `drawing_view_add` are then all on the same stack, in the order they
+    /// happened, with no caller able to forget to record one.
     pub fn set_drawing(
+        &mut self,
+        id: &str,
+        drawing: feature_engine::drawing::Drawing,
+    ) -> Result<(), SessionError> {
+        let previous = self.drawing(id)?.clone();
+        self.write_drawing(id, drawing)?;
+        let history = self.drawing_histories.entry(id.to_string()).or_default();
+        history.undo.push(without_caches(previous));
+        if history.undo.len() > DRAWING_HISTORY_LIMIT {
+            history.undo.remove(0);
+        }
+        // A new edit invalidates the redo branch, as every undo stack does.
+        history.redo.clear();
+        Ok(())
+    }
+
+    /// Replace a `Drawing` tab's content WITHOUT recording a step.
+    ///
+    /// For the two writes that are not user edits: the drawing tools' rollback
+    /// of a refused edit (which must not leave the refusal on the stack) and
+    /// the undo/redo restores themselves.
+    pub fn restore_drawing(
+        &mut self,
+        id: &str,
+        drawing: feature_engine::drawing::Drawing,
+    ) -> Result<(), SessionError> {
+        self.write_drawing(id, drawing)
+    }
+
+    fn write_drawing(
         &mut self,
         id: &str,
         drawing: feature_engine::drawing::Drawing,
@@ -453,6 +535,46 @@ impl DocumentSession {
         }
         self.commit();
         Ok(())
+    }
+
+    /// Step one drawing edit back on `id`. `false` when there is nothing to
+    /// undo, which is what lets the caller fall through to the feature
+    /// engine's own stack — one Undo button means one stack to the user.
+    pub fn undo_drawing(&mut self, id: &str) -> bool {
+        let Ok(current) = self.drawing(id).cloned() else {
+            return false;
+        };
+        let Some(history) = self.drawing_histories.get_mut(id) else {
+            return false;
+        };
+        let Some(previous) = history.undo.pop() else {
+            return false;
+        };
+        history.redo.push(without_caches(current));
+        self.write_drawing(id, previous).is_ok()
+    }
+
+    /// Step one undone drawing edit forward again.
+    pub fn redo_drawing(&mut self, id: &str) -> bool {
+        let Ok(current) = self.drawing(id).cloned() else {
+            return false;
+        };
+        let Some(history) = self.drawing_histories.get_mut(id) else {
+            return false;
+        };
+        let Some(next) = history.redo.pop() else {
+            return false;
+        };
+        history.undo.push(without_caches(current));
+        self.write_drawing(id, next).is_ok()
+    }
+
+    /// How deep a `Drawing` tab's history is: `(undo, redo)`.
+    pub fn drawing_history_depth(&self, id: &str) -> (usize, usize) {
+        self.drawing_histories
+            .get(id)
+            .map(|h| (h.undo.len(), h.redo.len()))
+            .unwrap_or((0, 0))
     }
 
     /// Write the rebuilt layouts back onto a `Drawing` tab's views (the
@@ -875,5 +997,162 @@ mod tests {
         }
         // An id the document does not have is ignored, not a panic.
         s.set_preview_mesh("no-such-tab", None);
+    }
+
+    // ── A drawing tab's own undo history (D4d) ──────────────────────────
+
+    /// A drawing whose one view carries `notes` in that order — a note needs
+    /// no pid, so the identity being asserted is the authored list itself.
+    fn drawing_with(notes: &[&str]) -> feature_engine::drawing::Drawing {
+        use feature_engine::drawing::{DrawingView, NamedView, Projection, Sheet, ViewSource};
+        use waffle_types::annotation::Annotation;
+        let mut view = DrawingView::new(
+            "Top",
+            ViewSource::whole_tab("part"),
+            Projection::Named {
+                view: NamedView::Top,
+            },
+        );
+        view.annotations = notes
+            .iter()
+            .map(|t| Annotation::Note {
+                text: (*t).to_string(),
+                leader: None,
+                placement: Default::default(),
+            })
+            .collect();
+        let mut sheet = Sheet::new("Sheet 1");
+        sheet.views = vec![view];
+        let mut drawing = feature_engine::drawing::Drawing::new();
+        drawing.sheets = vec![sheet];
+        drawing
+    }
+
+    /// The note texts of the drawing on `tab`, in authored order.
+    fn notes_of(s: &DocumentSession, tab: &str) -> Vec<String> {
+        use waffle_types::annotation::Annotation;
+        s.drawing(tab)
+            .unwrap()
+            .sheets
+            .iter()
+            .flat_map(|sh| sh.views.iter())
+            .flat_map(|v| v.annotations.iter())
+            .map(|a| match a {
+                Annotation::Note { text, .. } => text.clone(),
+                other => panic!("{other:?}"),
+            })
+            .collect()
+    }
+
+    /// The property the app-side history could not have: a redo repeats what
+    /// the forward step DID, to the annotation the forward step touched.
+    ///
+    /// Inverse edits built out of `DrawingEdit` cannot. `AddAnnotation` only
+    /// appends, so restoring a deleted annotation puts it at the END of the
+    /// view's list, and the recorded forward step's index then addresses a
+    /// DIFFERENT annotation — measured as a redo that deleted the wrong
+    /// dimension and duplicated the right one. A snapshot carries no index.
+    #[test]
+    fn a_drawing_undo_then_redo_restores_the_annotation_order_and_identity() {
+        let mut s = session();
+        let tab = s.add_tab("Drawing", None).unwrap();
+        s.set_drawing(&tab, drawing_with(&["A", "B"])).unwrap();
+        // The edit under test: the FIRST annotation is deleted.
+        s.set_drawing(&tab, drawing_with(&["B"])).unwrap();
+        assert_eq!(notes_of(&s, &tab), ["B"]);
+
+        assert!(s.undo_drawing(&tab));
+        // Order, not just count: "A" is back where it was authored.
+        assert_eq!(notes_of(&s, &tab), ["A", "B"]);
+
+        assert!(s.redo_drawing(&tab));
+        assert_eq!(
+            notes_of(&s, &tab),
+            ["B"],
+            "the redo must delete the annotation the forward step deleted"
+        );
+    }
+
+    #[test]
+    fn a_drawing_undo_walks_back_through_every_edit_then_refuses() {
+        let mut s = session();
+        let tab = s.add_tab("Drawing", None).unwrap();
+        s.set_drawing(&tab, drawing_with(&["A"])).unwrap();
+        s.set_drawing(&tab, drawing_with(&["A", "B"])).unwrap();
+        assert_eq!(s.drawing_history_depth(&tab), (2, 0));
+
+        assert!(s.undo_drawing(&tab));
+        assert_eq!(notes_of(&s, &tab), ["A"]);
+        assert!(s.undo_drawing(&tab));
+        // The drawing a fresh Drawing tab starts with: one empty sheet.
+        assert_eq!(notes_of(&s, &tab), Vec::<String>::new());
+        assert_eq!(s.drawing_history_depth(&tab), (0, 2));
+        // Empty is a REFUSAL, which is what lets the caller fall through to
+        // the feature engine's own stack.
+        assert!(!s.undo_drawing(&tab));
+    }
+
+    #[test]
+    fn a_new_drawing_edit_clears_the_redo_branch() {
+        let mut s = session();
+        let tab = s.add_tab("Drawing", None).unwrap();
+        s.set_drawing(&tab, drawing_with(&["A"])).unwrap();
+        assert!(s.undo_drawing(&tab));
+        assert_eq!(s.drawing_history_depth(&tab), (0, 1));
+        s.set_drawing(&tab, drawing_with(&["C"])).unwrap();
+        assert_eq!(s.drawing_history_depth(&tab), (1, 0));
+        assert!(!s.redo_drawing(&tab));
+    }
+
+    #[test]
+    fn a_refused_edits_rollback_leaves_no_step_on_the_stack() {
+        let mut s = session();
+        let tab = s.add_tab("Drawing", None).unwrap();
+        let before = s.drawing(&tab).unwrap().clone();
+        s.set_drawing(&tab, drawing_with(&["A"])).unwrap();
+        // What the drawing tools do when the engine refuses an edit.
+        s.restore_drawing(&tab, before).unwrap();
+        assert_eq!(notes_of(&s, &tab), Vec::<String>::new());
+        assert_eq!(
+            s.drawing_history_depth(&tab),
+            (1, 0),
+            "a rollback is not an edit, so it adds no step"
+        );
+    }
+
+    #[test]
+    fn a_snapshot_keeps_no_derived_layout() {
+        let mut s = session();
+        let tab = s.add_tab("Drawing", None).unwrap();
+        let mut with_cache = drawing_with(&["A"]);
+        with_cache.sheets[0].views[0].cache =
+            Some(waffle_types::annotation::layout::ViewLayout::default());
+        s.set_drawing(&tab, with_cache).unwrap();
+        s.set_drawing(&tab, drawing_with(&["A", "B"])).unwrap();
+        assert!(s.undo_drawing(&tab));
+        // The restored drawing carries the authored state and no stale
+        // layout: the evaluation that follows the restore rebuilds it.
+        assert_eq!(notes_of(&s, &tab), ["A"]);
+        assert!(s.drawing(&tab).unwrap().sheets[0].views[0].cache.is_none());
+    }
+
+    #[test]
+    fn a_part_tab_has_no_drawing_history_to_undo() {
+        let mut s = session();
+        let part = s.tabs()[0].id.clone();
+        assert!(!s.undo_drawing(&part));
+        assert!(!s.redo_drawing(&part));
+        assert!(!s.undo_drawing("no-such-tab"));
+        assert_eq!(s.drawing_history_depth(&part), (0, 0));
+    }
+
+    #[test]
+    fn closing_a_drawing_tab_drops_its_history() {
+        let mut s = session();
+        let tab = s.add_tab("Drawing", None).unwrap();
+        s.set_drawing(&tab, drawing_with(&["A"])).unwrap();
+        assert_eq!(s.drawing_history_depth(&tab), (1, 0));
+        s.close_tab(&tab).unwrap();
+        assert_eq!(s.drawing_history_depth(&tab), (0, 0));
     }
 }

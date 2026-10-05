@@ -11,7 +11,14 @@
  * Runs in the fast tier: a new toolbar button that does not fit fails here.
  */
 import { test, expect } from './helpers/waffle-test.js';
-import { clickSketch, clickRectangle, clickFinishSketch, clickExtrude, clickToolbarAction } from './helpers/toolbar.js';
+import {
+	clickSketch,
+	clickRectangle,
+	clickFinishSketch,
+	clickExtrude,
+	clickToolbarAction,
+	isToolOffered
+} from './helpers/toolbar.js';
 import { drawRectangle } from './helpers/canvas.js';
 import { waitForEntityCount, waitForFeatureCount } from './helpers/state.js';
 import { expectNothingOffscreen, expectViewportUsable, dragDivider } from './helpers/layout.js';
@@ -199,9 +206,33 @@ test.describe('Layout overflow', () => {
 		await page.getByTestId('dwg-add-derived').selectOption('section');
 		await expect(page.getByTestId('dwg-add-section')).toBeVisible();
 
+		// D4d widens both halves again. The TOOLBAR is a different component on
+		// a drawing tab (`DrawingToolbar`, with ten dimension tools) walking its
+		// own collapse ladder, and the PANEL grows a section for the selected
+		// annotation. An annotation is authored with a pid that resolves to
+		// nothing on purpose: the panel's section reads the AUTHORED annotation,
+		// so it renders in its widest state (the "not measured" meta is longer
+		// than a number) without this test having to build a part to dimension.
+		await expect(page.getByTestId('toolbar')).toHaveAttribute('data-toolbar', 'drawing');
+		await page.evaluate(
+			(id) => window.__waffle.addDrawingAnnotation(id, { kind: 'Distance', anchors: ['1', '2'] }),
+			first
+		);
+		await page.evaluate((id) => window.__waffle.setSheetSelection({ viewId: id, index: 0 }), first);
+		await expect(page.getByTestId('dwg-annotation')).toBeVisible();
+		await expect(page.getByTestId('dwg-annotation-value')).toContainText('not measured');
+
 		for (const width of WIDTHS) {
 			await resizeTo(page, { width, height: 720 });
 			await expectNothingOffscreen(page, expect, `drawing tab @${width}`);
+			// The settings gear is the LAST in-flow item of the drawing toolbar
+			// too, so it is the one that falls off first.
+			await expect(page.getByTestId('toolbar-btn-settings'), `drawing settings @${width}`).toBeVisible();
+			// And the tool group reaches every tool at this width, inline or in
+			// a dropdown — which is also the sweep of the dropdown panels
+			// themselves, since `isToolOffered` opens whichever one is there.
+			expect(await isToolOffered(page, 'datum'), `the datum tool is offered @${width}`).toBe(true);
+			await expectNothingOffscreen(page, expect, `drawing tab, tools reachable @${width}`);
 			// There is no canvas to measure (`expectViewportUsable` would find
 			// none): the sheet is the main region, and it must keep a usable
 			// size of its own.
