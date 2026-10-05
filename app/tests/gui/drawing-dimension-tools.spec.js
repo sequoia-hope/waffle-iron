@@ -330,6 +330,80 @@ test.describe('Dimensioning on the sheet (D4d)', () => {
 		);
 	});
 
+	test('the document precision reaches BOTH the printed sheet and the pick geometry (M1 x D4d)', async ({
+		waffle
+	}) => {
+		const page = waffle.page;
+		await waffle.waitForReady();
+
+		// The merge conflict this pins. D4d's sheet carried its own
+		// `DOCUMENT_PRECISION = 2`, with a comment saying M1 would own the real
+		// setting; M1 then replaced that placeholder for the RENDER path only.
+		// Left as two sources of truth, a document at three places would DRAW
+		// `40.000` while computing its grab handle for `40.00` — and the handle
+		// is positioned from the text's WIDTH, so a click aimed at the
+		// dimension would miss it. Silent, and only on documents that set a
+		// precision, which is why nothing else here would have caught it.
+		const { viewId } = await plateAndDrawing(page);
+		const points = await anchorScreenPoints(page, viewId);
+		const pair = wallPair(points);
+		expect(pair, 'the top view offers two opposite walls').toBeTruthy();
+
+		await clickTool(page, 'dim-distance');
+		await clickAt(page, pair[0].x, pair[0].y);
+		await clickAt(page, pair[1].x, pair[1].y);
+		await clickAt(page, pair[0].x, pair[0].y - 10 * points.pxPerMm);
+		await waitForAnnotationCount(page, viewId, 1);
+
+		// What the DOCUMENT's default prints, read rather than assumed: which
+		// wall pair `wallPair` hands back is the helper's business, and this
+		// test is about the PLACES and not about the measurement.
+		const atDefault = (await printedValues(page))[0];
+		expect(atDefault, 'a wall pair prints two places by default').toMatch(/^\d+\.\d{2}$/);
+		const mm = Number(atDefault);
+
+		// Half one: the SHEET follows the document to three places, through
+		// D4d's own authoring path rather than a hand-written layout — and the
+		// NUMBER is unchanged, which is what "precision is how it prints"
+		// means.
+		await page.evaluate(() => window.__waffle.setDisplaySettings({ precision: 3 }));
+		await expect.poll(() => printedValues(page)).toEqual([mm.toFixed(3)]);
+
+		const line = await page.evaluate(() => {
+			const el = document.querySelector(
+				'[data-testid="drawing-sheet"] svg.wi-sheet line.wi-dim-dimension'
+			);
+			const r = el.getBoundingClientRect();
+			return { x: r.x + r.width / 2, y: r.y + r.height / 2 };
+		});
+
+		// Half two: the dimension is still PICKABLE at the non-default
+		// precision, so D4d's hit-test survives M1's seam. This half is a
+		// REGRESSION GUARD and not a detector of the wrong precision, and the
+		// difference is worth stating because it was measured rather than
+		// assumed: `annotationHandles` reads a text primitive's ANCHOR
+		// (`p.at`) and never its width, and a dimension's text is centred on
+		// its dimension line, so a digit more does not move any handle. An
+		// attempt to make this assertion sensitive — selecting at two
+		// precisions and comparing the selection overlay's extent — returned
+		// the same 47.4997 px both ways, which is what settled it.
+		await clickTool(page, 'select');
+		await clickAt(page, line.x, line.y);
+		await expect(page.getByTestId('sheet-overlay')).toHaveAttribute('data-selected', '0');
+
+		// The annotation carries NO precision of its own, so the three places
+		// came from the document and not from an override the tool wrote.
+		const annotations = await authoredAnnotations(page, viewId);
+		expect(annotations).toHaveLength(1);
+		expect(annotations[0].precision ?? null).toBeNull();
+
+		// Back to the default and the same dimension prints two places again,
+		// so the three above came from the SETTING and not from a renderer that
+		// always prints three.
+		await page.evaluate(() => window.__waffle.setDisplaySettings({ precision: null }));
+		await expect.poll(() => printedValues(page)).toEqual([mm.toFixed(2)]);
+	});
+
 	test('the panel shows the selected dimension and changes how it PRINTS, never its value', async ({
 		waffle
 	}) => {

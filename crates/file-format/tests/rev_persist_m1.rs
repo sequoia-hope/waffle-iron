@@ -1180,6 +1180,62 @@ fn a_pre_m1_document_opens_at_the_defaults_with_no_spurious_warning() {
     }
 }
 
+/// **A v14 document — M1's OWN version — still opens under the v15 floor.**
+///
+/// The one thing M1 has to prove after D4e bumped the floor out from under
+/// it. M1 was dispatched at v14 and every `.waffle` written by the branch
+/// before D4e merged declares `"version": 14`, so if the v15 reader refused
+/// those, the bump would have orphaned this increment's own files.
+///
+/// It does not, and the reason is the gate's SHAPE rather than a list: the
+/// check is `max(version, min_reader_version) > FORMAT_VERSION`, so every
+/// version at or below ours loads and nothing enumerates which ones exist.
+/// That is why the gap at v13 costs nothing either.
+///
+/// Measured on a document that actually CARRIES M1's content — all six
+/// display settings, both material tables and a toleranced dimension — and
+/// not on a bare envelope, because an envelope would pass even if the v14
+/// payload had stopped deserializing.
+#[test]
+fn a_v14_document_still_opens_under_the_v15_floor() {
+    // Written as v14 by hand rather than by this build's writer, which now
+    // stamps 15 — the point is to read what the OLD writer produced.
+    let mut parsed: serde_json::Value =
+        serde_json::from_str(&save_document(&one_part_doc(all_six()))).expect("the file parses");
+    assert_eq!(
+        parsed["version"], 15,
+        "this build writes the current floor; the fixture below backdates it"
+    );
+    parsed["version"] = serde_json::json!(14);
+    parsed["min_reader_version"] = serde_json::json!(14);
+
+    let loaded = load_document(&parsed.to_string())
+        .expect("a v14 document must still open under the v15 floor")
+        .document;
+
+    // And its M1 content survived the read, which is what makes this more
+    // than an envelope check.
+    assert_eq!(loaded.document.precision, Some(3));
+    assert_eq!(loaded.document.dual_unit.as_deref(), Some("in"));
+    assert_eq!(loaded.document.dual_precision, Some(5));
+    assert_eq!(loaded.document.inch_fraction, Some(true));
+    assert_eq!(loaded.document.inch_denominator, Some(32));
+    assert_eq!(loaded.document.fit_band, Some(false));
+
+    // Every version from the last documented one up to ours, so a future
+    // bump cannot orphan an intermediate release either. v13 is the skipped
+    // one and is included deliberately: a file claiming it still opens.
+    for version in 11u32..=file_format::FORMAT_VERSION {
+        parsed["version"] = serde_json::json!(version);
+        parsed["min_reader_version"] = serde_json::json!(version);
+        assert!(
+            load_document(&parsed.to_string()).is_ok(),
+            "a v{version} document must open in a v{} reader",
+            file_format::FORMAT_VERSION
+        );
+    }
+}
+
 // ───────────────────────────────────── the floor itself, after the merge
 
 /// The floor is coherent, and the "one ahead" arm is written RELATIVE to it.
