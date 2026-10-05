@@ -2857,8 +2857,17 @@ GUI: hover each of the eight sectors around a placed front view and assert
 the ghost label and the resulting view's projection type; place a view with
 the dialog at two scales and assert the ghost box equals the placed view's
 drawn extent to within the mesh-vs-analytic deficit; assert the first-angle
-document setting moves the ghost to the opposite side without the tool
-knowing why.
+document setting changes what the ghost says the view SHOWS and leaves its
+placement where it is, without the tool knowing why.
+
+(That last oracle is **corrected from the sentence this spec first carried**,
+which asked for the ghost to move to the opposite side. It does not and must
+not: `ProjectedDirection` is named by the paper placement, so `Right` places
+right under both standards and the standard decides only the content — which
+is what the four axis placements have done since D4a, where
+`auto_placement_mm` takes no `ProjectionAngle` at all. The D4e review
+confirmed that against the existing four before the diagonals were pinned to
+match. See the D4e implementation notes.)
 
 ### Implementation notes (D4e)
 
@@ -2957,6 +2966,87 @@ same placement, and the engine says the view there now shows the LEFT side —
 knowing no rule. The GUI test asserts the label changes and the placement does
 not; the engine test (`tool_drawing.rs::first_angle_flips_what_the_probe_says_a_sector_shows_but_not_where_it_goes`)
 asserts the same thing one layer down.
+
+#### Review findings (D4e, 2026-10-04)
+
+The increment was reviewed against this section by independent arithmetic and
+measurement. Four of its claims held; three app-side defects were found and
+fixed, and two limits were measured and recorded rather than fixed.
+
+**Held.** The four corner frames are standard isometrics, re-derived from
+scratch: for a parent `(u, v, w)` the eyes are `(±1, ±1, −1)/√3` in that
+basis, elevation `asin(1/√3) = atan(1/√2)`, azimuth 45°, the three parent axes
+foreshortening equally to `√(2/3)`, and the frame right-handed by
+`ViewFrame::basis`'s own construction. The byte-identity claim holds on both
+paths and at both layers. A v14 document opens in this reader — the gate is
+`max(version, min_reader_version) > FORMAT_VERSION`, so a skipped version is
+not a refused one, now pinned forwards and backwards in
+`format_tests.rs::a_file_at_a_skipped_version_still_opens_and_one_above_ours_still_does_not`.
+
+**The lower corners are right, and here is the sharper reason.** Keeping paper
+up as the parent's `v` was questioned on the ground that a bottom isometric
+drawn with the parent's up might read upside down. It does not. The closed
+form of the Gram-Schmidt is `u′ = (u + sᵤ·w)/√2` and
+`v′ = (2v + s᥍·w − s᥍sᵤ·u)/√6`, so the parent's three axes project as
+`v ↦ [0, 2/√6]`, `w ↦ [sᵤ/√2, s᥍/√6]`, `u ↦ [1/√2, −s᥍sᵤ/√6]`. The parent's
+VERTICAL therefore draws exactly vertically in all four corners, upper and
+lower alike — nothing is mirrored and nothing is turned over — and what
+separates an iso from above from one from below is the sign of `s᥍` on the
+RECEDING axis: the axis going away from the parent's viewer draws up in the
+one and down in the other, which is how a bottom isometric reads. Pinned in
+`the_lower_corner_isos_look_from_below_without_turning_the_model_over`.
+
+**The first-angle deviation is correct and §8's own oracle was wrong.** The
+existing four axis placements have never moved under first angle:
+`auto_placement_mm` takes no `ProjectionAngle` at all, and the flip has always
+been inside `projected_frame`'s content table. So the diagonals matching them
+is not a deviation from the design, only from one sentence of the oracle list,
+and that sentence is corrected above.
+
+**Fixed: the probe cache survived an edit it described.** The cache keyed on
+the question alone and argued that "any document edit leaves the mode". It
+does not — `reset` runs when a tool is started, cancelled or completed, and
+nothing calls it when the document moves underneath a running tool. Moving the
+parent view 30 mm while the projected tool was open left the ghost where the
+parent had been (measured, then fixed by putting the store's new
+`getDocumentRevision()` in the key, and re-measured by reverting it).
+
+**Fixed: the free scale field refused in silence**, and `<input
+type="number">` delivers an empty string for everything it could not parse, so
+"3x", a pasted "1:2" and a blank field were one indistinguishable greyed-out
+button. It now says which refusal it is. The ISO 5455 list was also described
+as the standard's whole series and is not — it stops at 1:1000, where a
+mechanical drawing stops, and the claim now says so.
+
+**Fixed: a third copy of the eight tags.** `DIRECTION_ORDER` indexes into the
+probe's answers and was written out by hand beside the mirrored
+`PROJECTED_DIRECTIONS` table; one position of disagreement would have labelled
+every sector with a neighbour's frame. It is derived from the table the Rust
+mirror test pins.
+
+**Measured, not fixed: the ghost box is an upper bound and a loose one.** The
+"upper bound" claim is sound — `bodies_bounds` reaches for the kernel's
+conservative `solid_aabb` first, and the inscribed render mesh is only the
+fallback for a body it declines (a surface-pair or hyperbola edge). But
+`conservative_aabb` grows a circular edge by its radius in all three axes, so
+a radius-12 mm, height-6 mm cylinder gets a box `2r` across (exact) and
+`2r + h` tall: a side-on ghost five times too tall. Safe for layout, poor as a
+preview, and not correctable in the consumer — a caller cannot un-widen a box
+it is handed. The remedy is a tighter analytic box in kernel-v2, and the
+measurement is pinned at
+`tool_drawing.rs::the_probes_bounds_of_a_curved_body_are_an_analytic_upper_bound_and_a_loose_one`
+so that tightening it shows up as a failing expectation.
+
+**Measured, not fixed: `free_placement_mm` reserves neither the frame margin
+nor the title block.** A wrapped row starts at the paper's own left edge, 10 mm
+inside the drawn frame, and a wide view overhangs the right one. That is the
+posture `auto_placement_mm` has had since D4b (the renderer's comment: "it
+sits in the frame's corner, which the auto-layout does not reserve"), and it
+stays, because `SHEET_MARGIN_MM` is the renderer's number and a copy of it in
+the engine would be a second definition of where the paper ends. Reserving the
+frame is one mirrored constant away and belongs to whichever increment owns
+it. What is load-bearing and is pinned, on an A4 portrait sheet as well as a
+landscape one, is that no two views land on each other.
 
 **The sectors are the parent box's own edge lines extended.** Nine regions: the
 box, four sides, four corners. No angles and no tuning, and a cursor is in a

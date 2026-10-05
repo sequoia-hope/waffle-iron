@@ -34,6 +34,23 @@
 
 	let scale = $derived(scaleChoice === 'free' ? Number(freeScale) : Number(scaleChoice));
 	let scaleOk = $derived(Number.isFinite(scale) && scale > 0);
+	/**
+	 * Why a typed scale is refused, in words (D4e review).
+	 *
+	 * A disabled OK is a refusal the user has to GUESS at, and `<input
+	 * type="number">` hands back an empty string for anything it could not
+	 * parse — so "3x", a pasted "1:2" and a blank field all arrive here
+	 * identically and all used to just grey the button out. Saying it also
+	 * covers the two values that parse and are still not scales: zero, and a
+	 * negative ratio that would mirror the view.
+	 */
+	let scaleRefusal = $derived(
+		scaleChoice !== 'free' || scaleOk
+			? null
+			: !String(freeScale ?? '').trim() || !Number.isFinite(Number(freeScale))
+				? 'A ratio is a number: 2 for 2:1, 0.5 for 1:2.'
+				: `A scale must be greater than zero, not ${Number(freeScale)}.`
+	);
 
 	function place() {
 		if (!sourceTab || !scaleOk) return;
@@ -101,6 +118,9 @@
 				bind:value={freeScale}
 			/>
 		</label>
+	{/if}
+	{#if scaleRefusal}
+		<div class="warn" data-testid="dwg-place-scale-refusal">{scaleRefusal}</div>
 	{/if}
 	{#if !sources.length}
 		<div class="warn" data-testid="dwg-place-no-source">

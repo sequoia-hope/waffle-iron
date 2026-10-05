@@ -18,6 +18,7 @@
  */
 import {
 	addDrawingView,
+	getDocumentRevision,
 	getDocumentTabs,
 	getDrawingSheet,
 	probeDrawingView
@@ -29,7 +30,8 @@ import {
 	sectorAtMm,
 	snapPlacementMm,
 	ghostExtentMm,
-	viewExtentMm
+	viewExtentMm,
+	PROJECTED_DIRECTIONS
 } from './viewPlacement.js';
 
 /** How near (paper mm) a click must be to a view's centre to pick it when the
@@ -106,14 +108,46 @@ function reset() {
 }
 
 /**
+ * The probe the module asks. Replaceable so a test can decide WHEN an answer
+ * lands (`__setProbeForTest`); the ordering guarantee below is about which of
+ * two answers wins, and a test that established that with a sleep would be
+ * measuring the machine.
+ */
+let askEngine = probeDrawingView;
+
+/**
+ * Test door (D4e review): replace the probe, or restore it with no argument.
+ *
+ * Only `drawing-view-placement.spec.js` uses it, to land two answers in a
+ * chosen order. It also drops the cache, so a test cannot inherit a real
+ * answer.
+ */
+export function __setProbeForTest(fn) {
+	askEngine = typeof fn === 'function' ? fn : probeDrawingView;
+	probe = null;
+	probeKey = null;
+	inflight = null;
+}
+
+/**
  * Ask the engine about `projections` of `sourceTab`, once per distinct
- * question.
+ * question and document state.
  *
  * Cached because a hover fires per pointer move and the answer depends on the
  * document, not on the cursor — the cursor only chooses WHICH of the answers
- * to draw. The key is the question; any document edit leaves the mode (every
- * entry point calls `reset`), so a stale answer cannot outlive the geometry it
- * describes.
+ * to draw.
+ *
+ * **The key carries the document's revision** (`getDocumentRevision`), not
+ * just the question. The first version of this cache keyed on the question
+ * alone and argued that "any document edit leaves the mode", which was not
+ * true: `reset` runs when a tool is STARTED, cancelled or completed, and
+ * nothing calls it when the document changes underneath a running tool. So an
+ * edit from the panel, from an agent over the relay, or from an undo left the
+ * mode running with an answer describing geometry that no longer existed —
+ * measured in `the_ghost_follows_an_edit_made_while_the_tool_is_running`,
+ * where moving the parent view 30 mm left the ghost where the parent had
+ * been. The revision moves on every `ModelUpdated`, so the stale entry is
+ * simply never read again.
  *
  * A second move asking the same question while the first is in flight AWAITS
  * that round trip rather than giving up on it. Bailing out with whatever was
@@ -122,10 +156,11 @@ function reset() {
  * pointer move was coming. Measured as a 1-in-3 flake in the GUI spec at four
  * workers.
  */
-async function askProbe(key, sourceTab, projections) {
+async function askProbe(question, sourceTab, projections) {
+	const key = `${getDocumentRevision()}|${question}`;
 	if (probeKey === key && probe) return probe;
 	if (inflight && inflight.key === key) return await inflight.promise;
-	const promise = probeDrawingView(sourceTab, projections)
+	const promise = askEngine(sourceTab, projections)
 		.then((answer) => {
 			if (answer) {
 				probe = answer;
@@ -290,8 +325,17 @@ function directionProjections(parent) {
 	}));
 }
 
-/** The order the eight probe answers come back in. */
-const DIRECTION_ORDER = ['Left', 'Right', 'Up', 'Down', 'UpLeft', 'UpRight', 'DownLeft', 'DownRight'];
+/**
+ * The order the eight probe answers come back in — `PROJECTED_DIRECTIONS`'s
+ * own order, which is `ProjectedDirection::ALL`'s.
+ *
+ * DERIVED rather than written out again (D4e review): this array indexes into
+ * the probe's answers, so a third copy of the eight tags that disagreed with
+ * the table by one position would label every sector with a neighbour's
+ * frame — and `js_projected_direction_mirror.rs` pins the table against the
+ * engine, not a literal here.
+ */
+const DIRECTION_ORDER = PROJECTED_DIRECTIONS.map((d) => d.tag);
 
 function viewById(sheet, id) {
 	if (!id) return null;

@@ -885,6 +885,7 @@ export function isViewerMode() {
  */
 export function applyViewerSnapshot(snapshot, viewerMeshes) {
 	viewerMode = true;
+	documentRevision += 1;
 	if (snapshot.tree) featureTree = snapshot.tree;
 	meshes = viewerMeshes;
 	mirrorSessionDocument(snapshot.document);
@@ -925,6 +926,7 @@ export async function initEngine() {
 	bridge.setSendGate((message, post) => withEngineLock('user', post));
 
 	bridge.on('modelUpdated', (msg) => {
+		documentRevision += 1;
 		if (msg.feature_tree) {
 			featureTree = msg.feature_tree;
 		}
@@ -7588,6 +7590,26 @@ export function getAssemblyStatus() { return assemblyStatus; }
  */
 let drawingStatus = $state(null);
 export function getDrawingStatus() { return drawingStatus; }
+
+/**
+ * How many engine answers have replaced the document's derived state, counting
+ * from this page's load (D4e review).
+ *
+ * Bumped once per `ModelUpdated` and once per viewer snapshot — the two frames
+ * that rewrite the tree, the bodies, the assembly and the drawing together —
+ * so it moves on every edit, undo, redo, rollback, tab switch and load, and
+ * on nothing else. It is a CACHE KEY and not a document property: it is not
+ * saved, it does not survive a reload, and two pages showing the same document
+ * will disagree about its value, all of which is fine for the one thing it is
+ * for — telling a derived answer held across a pointer gesture that the
+ * document it describes has moved on. The placement tools' probe cache is its
+ * only customer; before it, a hover after a concurrent edit drew a ghost of
+ * the geometry as it had been.
+ */
+let documentRevision = $state(0);
+export function getDocumentRevision() {
+	return documentRevision;
+}
 
 /** The open Drawing tab's content, or null. */
 export function getDrawing() { return drawingStatus?.drawing ?? null; }

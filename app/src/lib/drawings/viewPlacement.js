@@ -35,12 +35,17 @@
  * The ISO 5455 scale series, as `{ ratio, scale }` with `scale` the paper
  * length per model length that `DrawingView.scale` holds.
  *
- * The standard's own list, not a convenient subset: a drawing at a scale off
- * this series is one a reader cannot check against a scale rule, and the
- * enlargements and reductions are each 1, 2 or 5 times a power of ten for
- * that reason. A free field sits beside these in the dialog, because a detail
- * at 3:1 is a thing people draw and refusing it would push them back to the
- * numeric panel the tool is meant to replace.
+ * The standard's series, and every entry is on it: a drawing at a scale off
+ * the series is one a reader cannot check against a scale rule, which is why
+ * each enlargement and reduction is 1, 2 or 5 times a power of ten.
+ *
+ * It stops at 1:1000 (D4e review, which found the list described as the
+ * standard's whole one). ISO 5455:1979 continues 1:2000, 1:5000, 1:10000 —
+ * reductions for civil work, where a 1:5000 site plan is a normal drawing and
+ * a 1:5000 machine part is not a drawing at all. They are reachable through
+ * the free field, which exists anyway because a detail at 3:1 is a thing
+ * people draw and refusing it would push them back to the numeric panel the
+ * tool is meant to replace.
  */
 export const ISO_5455_SCALES = [
 	{ ratio: '50:1', scale: 50 },
@@ -182,12 +187,23 @@ export function paperBasis(dir, up) {
  * whose 2D extent is the extent of its eight projected corners (the image of
  * a box under a linear map is the convex hull of the images of its corners).
  * So this box CONTAINS the drawn curves, and a view placed by it cannot
- * overlap a neighbour the ghost said it would clear. The slack is real: a
- * cylinder seen down its axis draws a circle inside a square ghost.
+ * overlap a neighbour the ghost said it would clear.
  *
- * The one caveat is the AABB's own provenance. The engine answers with the
- * kernel's `solid_aabb`, which is conservative for an analytic solid — but a
- * body it declines on falls back to the render tessellation's bounds, and a
+ * **The slack is real, and on a curved body it is large** (D4e review,
+ * measured in `wasm-bridge/tests/tool_drawing.rs::the_probes_bounds_of_a_
+ * curved_body_are_an_analytic_upper_bound_and_a_loose_one`). A cylinder seen
+ * down its axis draws a circle inside a square ghost, which is the cheap
+ * case; seen from the side its ghost is `2r + h` tall where the part is `h`
+ * tall, because the kernel's conservative box grows a circular edge by its
+ * radius in ALL THREE axes. For a radius-12, height-6 mm cylinder that is a
+ * ghost five times too tall. It errs in the safe direction for layout and it
+ * is not corrected here — a consumer cannot un-widen a box it is handed, and
+ * the fix is a tighter analytic box in the kernel.
+ *
+ * The one caveat in the OTHER direction is the AABB's provenance. The engine
+ * answers with the kernel's `solid_aabb`, which is conservative for an
+ * analytic solid — but a body it declines on (one carrying a surface-pair or
+ * hyperbola edge) falls back to the render tessellation's bounds, and a
  * tessellation is INSCRIBED, so that fallback is short of the true extent by
  * the chord deficit (≈ the sagitta of one facet). The ghost is then under by
  * that much, which is why D4e's oracle compares the ghost with the drawn

@@ -255,6 +255,61 @@ test.describe('D4e place-view tool', () => {
 		expect(partTab).toBeTruthy();
 	});
 
+	test('a scale off the series is taken, and garbage is refused in words', async ({ waffle }) => {
+		// D4e review. The free field exists because 3:1 is a scale people draw;
+		// what it must not do is refuse QUIETLY. `<input type="number">` hands
+		// back an empty string for anything it could not parse, so "3x", a
+		// pasted "1:2" and a blank field all arrive identically — and a greyed
+		// OK with no reason is a refusal the user has to guess at.
+		const page = waffle.page;
+		await waffle.waitForReady();
+		const { partTab } = await plateAndDrawingTab(page);
+
+		await page.getByTestId('dwg-tool-place-view').click();
+		await expect(page.getByTestId('dwg-place-view-dialog')).toBeVisible();
+		await page.getByTestId('dwg-place-view-direction').selectOption('Top');
+		await page.getByTestId('dwg-place-scale').selectOption('free');
+		const free = page.getByTestId('dwg-place-scale-free');
+
+		// Unparseable: named, and OK is closed. Typed as an EMPTY field,
+		// because that is what the control delivers for anything it could not
+		// parse — the browser will not even let a test put "1:2" in a number
+		// input, and a user who types it sees the same blank value. Which is
+		// the whole reason the blank case has to be named rather than just
+		// greying the button.
+		await free.fill('');
+		await expect(page.getByTestId('dwg-place-scale-refusal')).toContainText('A ratio is a number');
+		await expect(page.getByTestId('dwg-place-ok')).toBeDisabled();
+		// Parses and is still not a scale.
+		await free.fill('0');
+		await expect(page.getByTestId('dwg-place-scale-refusal')).toContainText(
+			'greater than zero'
+		);
+		await expect(page.getByTestId('dwg-place-ok')).toBeDisabled();
+
+		// 3:1, which is off the ISO 5455 series and is taken anyway.
+		await free.fill('3');
+		await expect(page.getByTestId('dwg-place-scale-refusal')).toHaveCount(0);
+		await page.getByTestId('dwg-place-ok').click();
+		await expect(page.getByTestId('drawing-sheet')).toHaveAttribute(
+			'data-placement-mode',
+			'place-view'
+		);
+		const ghost = await hover(page, [200, 150]);
+		// Three times the plate's 40 × 25 mm top view.
+		expect([...ghost.extent].sort((a, b) => a - b)[0]).toBeCloseTo(75, 3);
+		expect([...ghost.extent].sort((a, b) => a - b)[1]).toBeCloseTo(120, 3);
+		const screen = await screenAt(page, [200, 150]);
+		await page.mouse.click(screen.x, screen.y);
+		await page.waitForFunction(
+			() => (window.__waffle.getDrawingStatus()?.drawing?.sheets?.[0]?.views ?? []).length > 0,
+			null,
+			{ timeout: 20000 }
+		);
+		expect((await views(page)).at(-1).scale).toBeCloseTo(3, 9);
+		expect(partTab).toBeTruthy();
+	});
+
 	test('the ghost snaps onto an existing view to keep a projection group aligned', async ({
 		waffle
 	}) => {
@@ -360,6 +415,171 @@ test.describe('D4e projected-view tool', () => {
 		);
 		const drawn = (await views(page)).find((v) => v.id === added.id).cache.bbox;
 		expect((drawn[1][1] - drawn[0][1]) * 1000).toBeGreaterThan(10);
+	});
+
+	test('the ghost follows an edit made while the tool is running', async ({ waffle }) => {
+		// D4e review. The probe's answer is cached per hover — it has to be,
+		// since a pointer move fires per frame and the answer is a function of
+		// the document rather than of the cursor. What it must NOT be is cached
+		// across a change to that document: nothing leaves placement mode when
+		// the document moves, so without a revision in the cache key the ghost
+		// goes on describing geometry that no longer exists. Measured by moving
+		// the PARENT view, which is what the projected placement is computed
+		// from: before the fix the ghost stayed where the parent had been.
+		const page = waffle.page;
+		await waffle.waitForReady();
+		const { partTab } = await plateAndDrawingTab(page);
+		const front = await addView(page, partTab, 'Front');
+		const parent = await pickParent(page, front);
+		const [cx, cy] = parent.placement_mm;
+		const before = await hover(page, [cx + 60, cy]);
+
+		const moved = [cx - 30, cy];
+		await page.evaluate(
+			([id, at]) => window.__waffle.editDrawingView(id, { placementMm: at }),
+			[front, moved]
+		);
+		await page.waitForFunction(
+			([id, x]) => {
+				const v = (
+					window.__waffle.getDrawingStatus()?.drawing?.sheets?.[0]?.views ?? []
+				).find((w) => w.id === id);
+				return Math.abs((v?.placement_mm?.[0] ?? 0) - x) < 1e-6;
+			},
+			[front, moved[0]],
+			{ timeout: 20000 }
+		);
+
+		// Still in the tool, still the same sector relative to the view's NEW
+		// position — and the ghost has to have come with it.
+		await expect(page.getByTestId('drawing-sheet')).toHaveAttribute(
+			'data-placement-mode',
+			'project-view'
+		);
+		const after = await hover(page, [moved[0] + 60, moved[1]]);
+		expect(after.label).toContain('Right of Front');
+		expect(after.centre[0]).toBeCloseTo(before.centre[0] - 30, 3);
+		expect(after.centre[1]).toBeCloseTo(before.centre[1], 3);
+	});
+
+	test('two moves make one probe, and the older answer does not win', async ({ waffle }) => {
+		// D4e review, pinning the race fix by DECIDING when the answer lands
+		// rather than by racing the machine.
+		//
+		// A probe is a round trip and a pointer move fires per frame, so two
+		// moves are in the air at once routinely. Two properties hold it
+		// together, and both are measured here:
+		//
+		//  - two moves asking the same question (the same source and named
+		//    view — which is every move of one place-view gesture) make ONE
+		//    round trip: the second AWAITS the first rather than bailing out
+		//    with whatever was cached, which is the bug that left the ghost
+		//    with no box at all under load;
+		//  - when it lands, both continuations run, and the one whose turn has
+		//    passed must not draw. The ghost is the LAST cursor's.
+		const page = waffle.page;
+		await waffle.waitForReady();
+		const { partTab } = await plateAndDrawingTab(page);
+
+		const result = await page.evaluate(async (tab) => {
+			const mode = await import('/src/lib/drawings/placementMode.svelte.js');
+			const store = await import('/src/lib/engine/store.svelte.js');
+			const pending = [];
+			mode.__setProbeForTest(() => new Promise((resolve) => pending.push(resolve)));
+			try {
+				mode.startPlaceView({ sourceTab: tab, view: 'Top', scale: 1 });
+				const first = mode.placementPointerMove([100, 100]);
+				const second = mode.placementPointerMove([200, 150]);
+				const asked = pending.length;
+				for (const resolve of pending) {
+					resolve({
+						bounds: [
+							[0, 0, 0],
+							[0.04, 0.025, 0.01]
+						],
+						views: [
+							{
+								placement_mm: [0, 0],
+								dir: [0, 0, -1],
+								up: [0, 1, 0],
+								name: 'Top of plate',
+								error: null
+							}
+						],
+						warnings: []
+					});
+				}
+				await Promise.all([first, second]);
+				const ghost = mode.placementGhostSvg(store.getDrawingSheet(null));
+				return {
+					asked,
+					centre: /data-centre-mm="([^"]+)"/.exec(ghost)?.[1] ?? null,
+					extent: /data-extent-mm="([^"]*)"/.exec(ghost)?.[1] ?? null
+				};
+			} finally {
+				mode.__setProbeForTest();
+				mode.cancelPlacement();
+			}
+		}, partTab);
+
+		expect(result.asked, 'two moves, one round trip').toBe(1);
+		// The second move's cursor, snapped to the 5 mm grid — not the first's.
+		expect(result.centre).toBe('200,150');
+		// And it was sized from the answer, so the surviving ghost is the
+		// complete one rather than a placement with no box.
+		expect(result.extent).toBe('40,25');
+	});
+
+	test('a view the tool adds is byte-identical to the one the panel adds', async ({ waffle }) => {
+		// D4e review: the claim §8 makes in so many words — "a visually placed
+		// projected view and a panel-added one are byte-identical". Pinned on
+		// the SAVED record rather than on the placement alone, because the two
+		// paths also decide a name and a scale, and the probe answers all
+		// three. Only the uuid may differ, and it is minted per add.
+		const page = waffle.page;
+		await waffle.waitForReady();
+		const { partTab } = await plateAndDrawingTab(page);
+		const front = await addView(page, partTab, 'Front');
+		const parent = await pickParent(page, front);
+		const [cx, cy] = parent.placement_mm;
+
+		const ghost = await hover(page, [cx + 60, cy + 50]);
+		expect(ghost.label).toContain('Iso (up-right)');
+		const screen = await screenAt(page, [cx + 60, cy + 50]);
+		await page.mouse.click(screen.x, screen.y);
+		await page.waitForFunction(
+			(n) => (window.__waffle.getDrawingStatus()?.drawing?.sheets?.[0]?.views ?? []).length > n,
+			1,
+			{ timeout: 20000 }
+		);
+		const byTool = (await views(page)).at(-1);
+		await page.evaluate((id) => window.__waffle.deleteDrawingView(id), byTool.id);
+		await page.waitForFunction(
+			(n) => (window.__waffle.getDrawingStatus()?.drawing?.sheets?.[0]?.views ?? []).length === n,
+			1,
+			{ timeout: 20000 }
+		);
+
+		// The panel's own door, with the same three answers the tool gave it.
+		const panelId = await page.evaluate(
+			([tab, id]) =>
+				window.__waffle.addDrawingView(tab, { parent: id, direction: 'UpRight', scale: 1 }),
+			[partTab, front]
+		);
+		await page.waitForFunction(
+			(id) => {
+				const v = (
+					window.__waffle.getDrawingStatus()?.drawing?.sheets?.[0]?.views ?? []
+				).find((x) => x.id === id);
+				return (v?.cache?.curves?.length ?? 0) > 0;
+			},
+			panelId,
+			{ timeout: 20000 }
+		);
+		const byPanel = (await views(page)).find((v) => v.id === panelId);
+
+		const normalize = (v) => JSON.stringify({ ...v, id: '<id>', cache_key: '<key>' });
+		expect(normalize(byTool)).toBe(normalize(byPanel));
 	});
 
 	test('the projection standard changes what the ghost says it shows, not the sector', async ({
