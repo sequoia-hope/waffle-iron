@@ -615,6 +615,11 @@
 		} else if (preview.type === 'slot') {
 			const len = Math.hypot(d.cx2 - d.cx1, d.cy2 - d.cy1);
 			text = `L ${fmt(len)}  W ${fmt(d.width)}`;
+		} else if (preview.type === 'dimension' && Number.isFinite(d.value)) {
+			// Placing a dimension: the value it will carry, while the leader is
+			// still being positioned. Angles are unitless degrees.
+			const body = d.angle ? `${d.value.toFixed(2)}°` : fmt(d.value);
+			text = d.prefix ? `${d.prefix} ${body}` : body;
 		}
 		if (!text) return null;
 		const px = getSketchPixelSize() || 0.00001;

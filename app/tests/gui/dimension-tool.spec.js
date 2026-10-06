@@ -476,3 +476,41 @@ async function sketchWithRectangle(waffle) {
 		await waffle.dumpState('rect-draw-failed');
 	}
 }
+
+// While the leader is being placed the measured value is already on screen
+// (2026-10-06 feedback: "I would like to immediately see the value while I
+// figure out where to place the leader"); the placing click then opens the
+// popup with that same value.
+test.describe('dimension readout while placing', () => {
+	test('a picked line shows its measured length beside the cursor before the leader is placed', async ({ waffle }) => {
+		const page = waffle.page;
+		await sketchLineAndSwitchToDim(waffle);
+
+		// Pick the line at its midpoint: dimension is now complete and placing.
+		await clickAt(page, 0, 0);
+		const bounds = await page.locator('canvas').first().boundingBox();
+		await page.mouse.move(bounds.x + bounds.width / 2 + 10, bounds.y + bounds.height / 2 - 60, { steps: 4 });
+
+		const readout = page.locator('[data-testid="sketch-draw-readout"]');
+		await expect(readout).toBeVisible({ timeout: 5000 });
+		const text = (await readout.textContent()).trim();
+		// A horizontal line measures horizontally: "H <length> <unit>".
+		expect(text).toMatch(/^H \d/);
+		const shown = parseFloat(text.replace(/^H\s*/, ''));
+		expect(shown).toBeGreaterThan(0);
+
+		// The placing click opens the popup on the SAME value the readout showed.
+		await clickAt(page, 10, -60);
+		await waitForDimensionPopup(page);
+		const popup = await getDimensionPopupState(page);
+		expect(popup).not.toBeNull();
+		expect(popup.prefix).toBe('H');
+		// The popup's default is internal meters; the readout is in the document
+		// display unit, so compare through the unit the readout printed.
+		const unit = text.split(/\s+/).pop();
+		const metersPerUnit = { mm: 1e-3, cm: 1e-2, m: 1, in: 0.0254 }[unit];
+		expect(metersPerUnit).toBeDefined();
+		expect(shown * metersPerUnit).toBeCloseTo(popup.defaultValue, 6);
+		await dismissDimensionPopup(page);
+	});
+});

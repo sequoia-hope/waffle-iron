@@ -7,6 +7,33 @@
 import * as THREE from 'three';
 
 /**
+ * The x axis a NEW sketch gets when nobody chose one — stamped on
+ * `sketchMode.xAxis` at sketch start and persisted as `Sketch.plane_x_axis`.
+ *
+ * MIRRORS `SketchPlaneBasis::default_x_axis` in
+ * `crates/waffle-types/src/sketch_plane.rs` (the agent's `sketch_create`
+ * applies the same default), so a Top sketch drawn here and one an agent
+ * creates agree on which way +x runs. Change one and change the other.
+ *
+ * `buildSketchPlane`'s derived basis is upright wherever the normal has an
+ * in-plane world-Z part (x = Z × n, so +y points up). On a plane facing ±Z
+ * the reference flips to world X and x = X × n = ∓Y: a Top sketch whose +x
+ * runs along world −Y, which the camera (up = sketch +y = world +X) shows a
+ * quarter turn from the view cube's Top. For those planes the default is
+ * world +X; every other plane returns null and keeps the derived basis.
+ * Sketches saved without an axis keep the basis they were drawn with.
+ *
+ * @param {[number, number, number]} normal
+ * @returns {[number, number, number] | null}
+ */
+export function defaultSketchXAxis(normal) {
+	const n = new THREE.Vector3(normal[0], normal[1], normal[2]);
+	const len = n.length();
+	if (!(len > 0) || !Number.isFinite(len)) return null;
+	return Math.abs(n.z / len) < 0.99 ? null : [1, 0, 0];
+}
+
+/**
  * Build a sketch plane coordinate system from origin and normal, and
  * optionally the in-plane direction +u points along.
  *

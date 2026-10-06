@@ -19,8 +19,9 @@ export const sketchCreateTool = {
 		'plane. plane is either a face or datum GeomRef (from selection_get or face_list) or an explicit ' +
 		'{origin, normal} in world meters; EITHER form takes an optional x_axis — the world direction the ' +
 		'sketch\'s +x points along, which is how you orient a rectangular member or a keyway without ' +
-		'reproducing the engine\'s own basis. Without one the engine picks the in-plane axes, so read the ' +
-		'result back (it answers with the plane basis it used) rather than assuming +x/+y. Entity ids are ' +
+		'reproducing the engine\'s own basis. Without one the engine picks the in-plane axes (world +X on a ' +
+		'plane facing ±Z, so a Top sketch\'s +x/+y are world +X/+Y; elsewhere x = Z × normal, so +y points up), ' +
+		'so read the result back (it answers with the plane basis it used) rather than assuming +x/+y. Entity ids are ' +
 		'unsigned integers unique within the ' +
 		'sketch; Lines/Arcs/Circles name Point ids. An over-constrained or failed solve is rolled back by ' +
 		'default (SketchSolveFailed). regions lists the closed loops: pass a region\'s profile_entity_ids to ' +

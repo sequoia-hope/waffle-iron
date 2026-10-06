@@ -264,7 +264,8 @@ export class EngineBridge {
 		if (msg.type === 'SketchSolved') {
 			const s = msg.solved || msg;
 			const st = s.status || {};
-			summary.dof = st.dof ?? msg.dof ?? -1;
+			// `FullyConstrained` is a bare tag with no `dof` field: zero, not −1.
+			summary.dof = st.dof ?? msg.dof ?? (st.type === 'FullyConstrained' ? 0 : (s.report?.dof ?? -1));
 			summary.status = st.type || (typeof st === 'string' ? st : 'unknown');
 		}
 		if (msg.type === 'Error') summary.message = msg.message;

@@ -5,8 +5,8 @@
  * with correct values as entities and constraints are added.
  */
 import { test, expect } from './helpers/waffle-test.js';
-import { clickSketch, clickRectangle, clickSelect } from './helpers/toolbar.js';
-import { drawLine, drawRectangle } from './helpers/canvas.js';
+import { clickSketch, clickRectangle, clickSelect, clickTool } from './helpers/toolbar.js';
+import { drawLine, drawRectangle, drawCircle } from './helpers/canvas.js';
 import { waitForEntityCount, getEntities } from './helpers/state.js';
 import { getConstraintCount, setSketchSelection } from './helpers/constraint.js';
 
@@ -95,5 +95,64 @@ test.describe('sketch DOF display', () => {
 		const text = await badge.textContent();
 		// 4 points x 2 DOF = 8, minus 4 constraints (2 H + 2 V) = 4 DOF
 		expect(text.trim()).toContain('DOF');
+	});
+});
+
+// The badge is a function of the LIVE sketch — entities included, and an
+// empty sketch has nothing to say. Each of these was a user-visible defect on
+// 2026-10-06: "-1 DOF" on a fully constrained sketch (FullyConstrained has no
+// dof field on the wire), a stale verdict after adding an entity (the engine's
+// AddSketchEntity does not solve), and the undone line's "3 DOF" still showing
+// after undo had emptied the sketch.
+test.describe('sketch DOF display is a function of the live sketch', () => {
+	test.beforeEach(async ({ waffle }) => {
+		await clickSketch(waffle.page);
+	});
+
+	const badgeText = async (page) => {
+		const badge = page.locator('[data-testid="dof-badge"]');
+		return (await badge.count()) ? (await badge.textContent()).trim() : null;
+	};
+
+	test('a circle on the origin counts its free radius, then reads fully constrained once dimensioned', async ({ waffle }) => {
+		const page = waffle.page;
+		await clickTool(page, 'circle');
+		await drawCircle(page, 0, 0, 80, 0);
+		await waitForEntityCount(page, 2, 5000);
+
+		// Centre pinned to the origin (2 rows), radius free: exactly 1 DOF —
+		// not the centre-only "fully constrained" verdict that was solved
+		// before the circle existed.
+		await expect(page.locator('[data-testid="dof-badge"]')).toHaveText('1 DOF', { timeout: 5000 });
+
+		const circle = (await getEntities(page)).find((e) => e.type === 'Circle');
+		await page.evaluate((id) => {
+			window.__waffle.addSketchConstraint({ type: 'Diameter', entity: id, value: 0.05 });
+		}, circle.id);
+		await expect(page.locator('[data-testid="dof-badge"]')).toHaveText('Fully constrained', { timeout: 5000 });
+		const status = await page.evaluate(() => window.__waffle.getSolveStatus());
+		expect(status.status).toBe('FullyConstrained');
+		expect(status.dof).toBe(0);
+	});
+
+	test('a free diagonal line shows its 4 DOF as soon as it exists', async ({ waffle }) => {
+		const page = waffle.page;
+		await drawLine(page, -100, -40, 100, 40);
+		await waitForEntityCount(page, 3, 5000);
+		expect(await getConstraintCount(page)).toBe(0);
+		await expect(page.locator('[data-testid="dof-badge"]')).toHaveText('4 DOF', { timeout: 5000 });
+	});
+
+	test('undoing the sketch to empty clears the badge instead of keeping the undone verdict', async ({ waffle }) => {
+		const page = waffle.page;
+		await drawLine(page, -100, 0, 100, 0);
+		await waitForEntityCount(page, 3, 5000);
+		await expect(page.locator('[data-testid="dof-badge"]')).toHaveText(/^[34] DOF$/, { timeout: 5000 });
+
+		await page.evaluate(() => window.__waffle.undo());
+		await waitForEntityCount(page, 0, 5000);
+		await expect(page.locator('[data-testid="dof-badge"]')).toHaveCount(0, { timeout: 5000 });
+		expect(await badgeText(page)).toBeNull();
+		expect(await page.evaluate(() => window.__waffle.getSolveStatus())).toBeNull();
 	});
 });

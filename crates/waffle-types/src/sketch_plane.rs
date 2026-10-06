@@ -57,6 +57,41 @@ impl SketchPlaneBasis {
         }
     }
 
+    /// The x axis a NEW sketch gets when its author did not choose one.
+    ///
+    /// Mirrors `defaultSketchXAxis(normal)` in `sketchCoords.js` — the UI
+    /// stamps the same value on every sketch it starts, so a sketch drawn
+    /// in the app and one created through `sketch_create` land the same way.
+    ///
+    /// `from_origin_normal`'s derived basis is upright for every plane whose
+    /// normal has an in-plane world-Z component: its x axis is `Z × n`, so
+    /// +v points up. On a plane facing ±Z that cross product degenerates and
+    /// the reference flips to world X, giving `x = X × n = ∓Y` — a Top sketch
+    /// whose +u runs along world −Y, drawn on screen with world +X pointing
+    /// UP, a quarter turn from the Top view the view cube shows. For those
+    /// planes the default is world +X (so +v is ±Y, matching the standard
+    /// top/bottom views); every other plane keeps the derived basis, and the
+    /// band is the same 0.99 the reference-vector choice switches on.
+    ///
+    /// Returned as an explicit `Some` so it is PERSISTED (`Sketch.plane_x_axis`)
+    /// rather than re-derived: a sketch written before this default keeps the
+    /// basis it was drawn with, because it carries no axis at all.
+    pub fn default_x_axis(normal: [f64; 3]) -> Option<[f64; 3]> {
+        // A normal that is not a direction gets no default: the caller's
+        // own validation owns that failure, not a silently-chosen axis
+        // (`norm` would stand a zero vector up as +Z).
+        let len = dot(normal, normal).sqrt();
+        if !len.is_finite() || len <= f64::MIN_POSITIVE {
+            return None;
+        }
+        let n = norm(normal);
+        if dot(n, [0.0, 0.0, 1.0]).abs() < 0.99 {
+            None
+        } else {
+            Some([1.0, 0.0, 0.0])
+        }
+    }
+
     /// Build the basis with a CALLER-CHOSEN in-plane x axis, mirroring
     /// `buildSketchPlane(origin, normal, xAxis)` in the UI.
     ///
@@ -256,6 +291,41 @@ mod tests {
             assert_eq!(a.x_axis, b.x_axis, "{normal:?}");
             assert_eq!(a.y_axis, b.y_axis, "{normal:?}");
         }
+    }
+
+    #[test]
+    fn default_x_axis_makes_a_z_facing_sketch_upright() {
+        // Top and bottom: the derived basis has +u along ∓Y; the default
+        // puts +u on world +X so +v is ±Y — the standard top/bottom views.
+        for (normal, expect_y) in [
+            ([0.0, 0.0, 1.0], [0.0, 1.0, 0.0]),
+            ([0.0, 0.0, -1.0], [0.0, -1.0, 0.0]),
+        ] {
+            let x = SketchPlaneBasis::default_x_axis(normal);
+            assert_eq!(x, Some([1.0, 0.0, 0.0]), "{normal:?}");
+            let b = SketchPlaneBasis::from_origin_normal_x([0.0; 3], normal, x);
+            assert!(dist(b.x_axis, [1.0, 0.0, 0.0]) < 1e-15, "{:?}", b.x_axis);
+            assert!(dist(b.y_axis, expect_y) < 1e-15, "{:?}", b.y_axis);
+        }
+        // Everything else already derives upright (+v has a +Z part), so the
+        // default is "no axis" and the basis stays bit-identical to the
+        // pre-default one.
+        for normal in [
+            [0.0, -1.0, 0.0],
+            [1.0, 0.0, 0.0],
+            [1.0, 2.0, 3.0],
+            [0.0, 0.0, 0.0],
+            [f64::NAN, 0.0, 1.0],
+        ] {
+            assert_eq!(SketchPlaneBasis::default_x_axis(normal), None, "{normal:?}");
+        }
+        // The band is the reference-vector switch: a normal 8° off Z still
+        // derives from Z, so it needs no default; at 0.99 the reference flips.
+        assert_eq!(SketchPlaneBasis::default_x_axis([0.15, 0.0, 0.98]), None);
+        assert_eq!(
+            SketchPlaneBasis::default_x_axis([0.1, 0.0, 0.995]),
+            Some([1.0, 0.0, 0.0])
+        );
     }
 
     #[test]

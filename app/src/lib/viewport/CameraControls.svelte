@@ -1004,7 +1004,7 @@
 
 	/**
 	 * Zoom camera to center on a face.
-	 * @param {{ center: number[], normal: number[], size: number }} detail
+	 * @param {{ center: number[], normal: number[], size: number, xAxis?: number[] | null }} detail
 	 */
 	function zoomToFace(detail) {
 		if (!cameraRef) return;
@@ -1013,14 +1013,11 @@
 		const normal = new THREE.Vector3(detail.normal[0], detail.normal[1], detail.normal[2]).normalize();
 		const size = detail.size;
 
-		// Choose an appropriate up vector (perpendicular to normal)
-		const worldUp = new THREE.Vector3(0, 1, 0);
-		let up;
-		if (Math.abs(normal.dot(worldUp)) > 0.99) {
-			up = new THREE.Vector3(0, 0, -Math.sign(normal.y));
-		} else {
-			up = worldUp.clone();
-		}
+		// Screen-up is the sketch's own +y, exactly as `alignToPlane` does —
+		// one basis for what is drawn and what is shown. The old Y-up guess
+		// here was a world-Y-up rule in a Z-up world: a sketch on a +X face
+		// got world +Y up, i.e. the sketch's x axis pointing at the ceiling.
+		const up = buildSketchPlane(detail.center, detail.normal, detail.xAxis ?? null).yAxis;
 
 		if (isOrtho()) {
 			frustumHalf = size * 1.5 / 2;

@@ -16,7 +16,7 @@ import { buildFinishProfiles } from '$lib/sketch/finishProfiles.js';
 import { sampleBSpline } from '$lib/sketch/bspline.js';
 import { getPreview, getSnapIndicator, getSnapCandidates as _getSnapCandidates } from '$lib/sketch/sketchToolState.svelte.js';
 import { resetTool, getToolState as _getToolState, getIsDragging as _getIsDragging, getPointerDownPos as _getPointerDownPos, getStartPos as _getStartPos, getStartPointId as _getStartPointId, getToolEventLog as _getToolEventLog, clearToolEventLog as _clearToolEventLog, getOffsetToolState as _getOffsetToolState } from '$lib/sketch/tools.js';
-import { buildSketchPlane, sketchToScreen } from '$lib/sketch/sketchCoords.js';
+import { buildSketchPlane, defaultSketchXAxis, sketchToScreen } from '$lib/sketch/sketchCoords.js';
 import { computeConstraintBadges } from '$lib/sketch/constraintBadges.js';
 import { stepConstraintModal, modalInstruction, isModalConstraint } from '$lib/sketch/constraintModalEngine.js';
 import { classifyDimension } from '$lib/sketch/dimensionHeuristic.js';
@@ -1068,7 +1068,16 @@ export async function initEngine() {
 		const solved = msg.solved || msg;
 		const statusObj = solved.status || { type: msg.status || 'unknown' };
 		const statusStr = statusObj.type || (typeof statusObj === 'string' ? statusObj : 'unknown');
-		const dof = statusObj.dof ?? msg.dof ?? -1;
+		// Only `UnderConstrained` carries `dof` on the wire; `FullyConstrained`
+		// is a bare tag, and reading its absent field as −1 is what the toolbar
+		// badge printed as "-1 DOF" for every fully constrained sketch. The
+		// report counts the same quantity from the same Jacobian, so it is the
+		// value; a status with neither (OverConstrained, SolveFailed) has no
+		// meaningful count and stays −1, which the badge never prints.
+		const dof =
+			statusObj.dof ??
+			msg.dof ??
+			(statusStr === 'FullyConstrained' ? 0 : (solved.report?.dof ?? -1));
 		const positions = solved.positions || msg.positions;
 		// `conflicts` are indices into OUR OWN constraint array. The solver
 		// drops reference dimensions from the driving set itself and maps the
@@ -2512,7 +2521,12 @@ export async function enterSketchMode(origin = [0, 0, 0], normal = [0, 0, 1], fa
 		}
 	}
 
-	sketchMode = { active: true, origin, normal, xAxis: null };
+	// A new sketch gets the default +x for its plane (world +X on a plane
+	// facing ±Z, derived elsewhere — `defaultSketchXAxis`), persisted as
+	// `plane_x_axis` at finish so the basis it was drawn in is the basis it
+	// rebuilds in. An existing sketch re-enters with its own axis (or none)
+	// in `enterSketchEditMode`, so nothing already saved moves.
+	sketchMode = { active: true, origin, normal, xAxis: defaultSketchXAxis(normal) };
 
 	// Collect reference snap points from inactive sketches on the same/parallel plane
 	referenceSnapPoints = collectSamePlaneSketchPoints(origin, normal, editingSketchFeatureId);
@@ -2524,7 +2538,7 @@ export async function enterSketchMode(origin = [0, 0, 0], normal = [0, 0, 1], fa
 			const bounds = computeFaceBounds(faceGeomRef);
 			if (bounds) {
 				window.dispatchEvent(new CustomEvent('waffle-zoom-to-face', {
-					detail: { center: bounds.center, normal: bounds.normal, size: bounds.size }
+					detail: { center: bounds.center, normal: bounds.normal, size: bounds.size, xAxis: sketchMode.xAxis }
 				}));
 				return;
 			}
@@ -2843,6 +2857,26 @@ export function addLocalEntity(entity) {
 	if (!suppressProfileExtraction) {
 		reExtractProfiles();
 	}
+
+	// The solve status is a function of the LIVE sketch, entities included.
+	// `AddSketchEntity` only appends on the engine side; it does not solve, so
+	// without this the badge kept the last constraint's verdict — a circle
+	// placed on the origin read "fully constrained" (the centre's pin, solved
+	// before the circle and its free radius existed), a line drawn with no
+	// snap showed nothing at all. Coalesced to one solve per tick: a
+	// rectangle adds eight entities in one action.
+	scheduleSolve();
+}
+
+let solveScheduled = false;
+/** Run `triggerSolve()` once this tick, however many adds asked for it. */
+function scheduleSolve() {
+	if (solveScheduled) return;
+	solveScheduled = true;
+	queueMicrotask(() => {
+		solveScheduled = false;
+		triggerSolve();
+	});
 }
 
 // -- Projected geometry (project external model geometry into the sketch) --
@@ -9654,7 +9688,14 @@ export async function discardAutoSave() {
 export function triggerSolve(transientConstraints = []) {
 	if (!bridge || !engineReady) return;
 	if (!sketchMode.active) return;
-	if (sketchEntities.length === 0) return;
+	if (sketchEntities.length === 0) {
+		// Nothing to solve — and nothing to report. Leaving the previous
+		// verdict in place is how an undo that emptied the sketch kept
+		// showing the undone line's "3 DOF".
+		sketchSolveStatus = null;
+		recomputeOverConstrained();
+		return;
+	}
 
 	// Re-sync the live sketch state before solving. The engine's per-item
 	// AddSketchEntity / AddConstraint paths are append-only — they keep the

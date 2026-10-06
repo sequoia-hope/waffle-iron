@@ -1672,14 +1672,35 @@ function tryExtendDimensionTargets(hitId) {
 	return true;
 }
 
-/** Refresh the leader/witness preview for the current cursor while placing. */
+/** The readout prefix a dimension of this classification carries ("H 20 mm"). */
+function dimensionPrefix(res) {
+	if (res.valueField === 'value_degrees') return '∠';
+	if (res.orientation === 'horizontal') return 'H';
+	if (res.orientation === 'vertical') return 'V';
+	return '';
+}
+
+/**
+ * Refresh the leader/witness preview for the current cursor while placing.
+ * The preview carries the MEASURED value beside the leader so the user sees
+ * what the dimension will say while choosing where to put it — the same
+ * number the value popup opens with on the placing click.
+ */
 function updateDimensionLeaderPreview(leader, pixelSize = 0.001) {
 	const positions = getSketchPositions();
 	const entities = getSketchEntities();
 	const res = classifyDimension({ targets: dimTargets, leader, positions, entities });
 	if (!res) { setPreview(null); return; }
 	const points = dimensionPreviewPolyline(res, { positions, entities, leader, pixelSize });
-	setPreview(points ? { type: 'dimension', data: { points } } : null);
+	setPreview(points ? {
+		type: 'dimension',
+		data: {
+			points,
+			value: res.value,
+			angle: res.valueField === 'value_degrees',
+			prefix: dimensionPrefix(res),
+		}
+	} : null);
 }
 
 /** Place the leader: classify, open the value popup, and reset. */
@@ -1702,7 +1723,7 @@ function finalizeDimensionPlacement(leader) {
 			// Angles are unitless degrees — the input must not run them through
 			// the length-unit conversion.
 			angle: isAngle,
-			prefix: isAngle ? '\u2220' : (res.orientation === 'horizontal' ? 'H' : res.orientation === 'vertical' ? 'V' : ''),
+			prefix: dimensionPrefix(res),
 			defaultValue: res.value,
 			// Reuse the popup's customApply hook: clone the measured constraint
 			// and override its value with the user-entered number.

@@ -211,7 +211,7 @@ pub(super) fn resolve_plane(
         return Ok(SketchPlane {
             origin,
             normal,
-            x_axis,
+            x_axis: x_axis.or_else(|| waffle_types::SketchPlaneBasis::default_x_axis(normal)),
             face_ref: None,
         });
     }
@@ -255,7 +255,11 @@ pub(super) fn resolve_plane(
     Ok(SketchPlane {
         origin,
         normal,
-        x_axis,
+        // No caller choice ⇒ the same default the page stamps on a sketch it
+        // starts (`SketchPlaneBasis::default_x_axis`): world +X on a plane
+        // facing ±Z, derived everywhere else. An agent's Top sketch and the
+        // user's Top sketch must agree on which way +x runs.
+        x_axis: x_axis.or_else(|| waffle_types::SketchPlaneBasis::default_x_axis(normal)),
         face_ref: Some(plane.clone()),
     })
 }

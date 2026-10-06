@@ -275,7 +275,12 @@ and `uv()` pair.
    EITHER plane form (a bare `{origin, normal}` or a face/datum `GeomRef`),
    and the engine builds the sketch on it: the profile faces, the pipe path
    and the share-a-face scan all go through one `sketch_x_axis`, so there is
-   one answer to "which way is up in this sketch".
+   one answer to "which way is up in this sketch". Since 2026-10-06 a sketch
+   started WITHOUT a choice gets `SketchPlaneBasis::default_x_axis` — world
+   +X on a plane facing ±Z (the derived basis put a Top sketch's +u on world
+   −Y, a quarter turn from the Top view), nothing elsewhere — stamped by
+   both the page and `sketch_create`, and persisted, so a document written
+   before it keeps the basis it was drawn with.
 2. **`sketch_create` answers with the basis it used** — `plane: {origin,
    normal, x_axis, y_axis}`. Even a caller that does not care which basis it
    gets no longer has to reproduce the derivation to find out; it reads it

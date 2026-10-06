@@ -339,21 +339,22 @@ fn committed_x_axis(state: &EngineState) -> Option<[f64; 3]> {
 #[test]
 fn a_plane_may_name_its_own_x_axis_and_the_answer_says_where_it_went() {
     let mut state = EngineState::new();
-    // Without one, the engine picks: on the XY plane sketch +x is world −y,
-    // which is exactly the derivation a caller should not have to reproduce.
+    // Without one, the engine picks: on the front plane sketch +x is world
+    // +x and +y is world +z (x = Z × n), which is exactly the derivation a
+    // caller should not have to reproduce.
     let out = ok(
         &mut state,
         json!({
-            "plane": { "origin": [0, 0, 0], "normal": [0, 0, 1] },
+            "plane": { "origin": [0, 0, 0], "normal": [0, -1, 0] },
             "entities": rectangle(),
         }),
     );
-    assert_eq!(out["plane"]["x_axis"], json!([0.0, -1.0, 0.0]));
-    assert_eq!(out["plane"]["y_axis"], json!([1.0, 0.0, 0.0]));
+    assert_eq!(out["plane"]["x_axis"], json!([1.0, 0.0, 0.0]));
+    assert_eq!(out["plane"]["y_axis"], json!([0.0, 0.0, 1.0]));
     assert_eq!(
         committed_x_axis(&state),
         None,
-        "nothing stored when none given"
+        "nothing stored when none given and the derived basis is the answer"
     );
 
     // With one, sketch +x IS that direction — and it is orthogonalized, so a
@@ -382,6 +383,46 @@ fn a_plane_may_name_its_own_x_axis_and_the_answer_says_where_it_went() {
         }),
     );
     assert_eq!(out["plane"]["x_axis"], json!([1.0, 0.0, 0.0]));
+}
+
+/// A sketch on a plane facing ±Z gets world +X as its default +x — the
+/// derived basis (x = X × n = ∓Y) drew a Top sketch a quarter turn from the
+/// Top view — and the default is STORED, so the sketch rebuilds in the basis
+/// it answered with. The page stamps the same default (`defaultSketchXAxis`),
+/// so an agent's Top sketch and the user's agree on where +x runs.
+#[test]
+fn a_z_facing_plane_defaults_to_world_x_and_stores_it() {
+    let mut state = EngineState::new();
+    // NB the built-in datum NAMED "Front" (`planes.js`) is the +Z-facing one —
+    // the plane the view cube's Top view looks at face-on; the datum named
+    // "Top" faces +Y and keeps the derived basis.
+    for plane in [
+        json!({ "origin": [0, 0, 0], "normal": [0, 0, 1] }),
+        json!({ "anchor": { "type": "DatumPlane", "datum_id": FRONT_PLANE_ID } }),
+    ] {
+        let out = ok(
+            &mut state,
+            json!({ "plane": plane, "entities": rectangle() }),
+        );
+        assert_eq!(out["plane"]["x_axis"], json!([1.0, 0.0, 0.0]), "{plane}");
+        assert_eq!(out["plane"]["y_axis"], json!([0.0, 1.0, 0.0]), "{plane}");
+        assert_eq!(
+            committed_x_axis(&state),
+            Some([1.0, 0.0, 0.0]),
+            "the default is persisted, not re-derived: {plane}"
+        );
+    }
+    // Facing −Z: +x stays world +X, so +y is world −Y (the bottom view).
+    let out = ok(
+        &mut state,
+        json!({
+            "plane": { "origin": [0, 0, 0], "normal": [0, 0, -1] },
+            "entities": rectangle(),
+        }),
+    );
+    assert_eq!(out["plane"]["x_axis"], json!([1.0, 0.0, 0.0]));
+    assert_eq!(out["plane"]["y_axis"], json!([0.0, -1.0, 0.0]));
+    assert_eq!(committed_x_axis(&state), Some([1.0, 0.0, 0.0]));
 }
 
 #[test]
