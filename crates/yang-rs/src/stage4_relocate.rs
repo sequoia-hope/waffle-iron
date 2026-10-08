@@ -807,6 +807,23 @@ pub(crate) struct LineReloc {
     pub(crate) band_budget: f64,
 }
 
+/// Two line records name the SAME line: `b`'s point lies on `a`'s line and
+/// the directions are parallel (either sense), both against `TAU_MODEL`.
+/// The line arm's identity test, hoisted (P0027) so the line-pair junction
+/// map and the arm agree byte-for-byte on what "a different line" is.
+pub(crate) fn same_line(a: &LineReloc, b: &LineReloc) -> bool {
+    line_perp_distance(a.point, b.point, b.dir) <= cad_primitives::TAU_MODEL && {
+        let d1 = normalize3(a.dir.as_array());
+        let d2 = normalize3(b.dir.as_array());
+        let cx = [
+            d1[1] * d2[2] - d1[2] * d2[1],
+            d1[2] * d2[0] - d1[0] * d2[2],
+            d1[0] * d2[1] - d1[1] * d2[0],
+        ];
+        (cx[0] * cx[0] + cx[1] * cx[1] + cx[2] * cx[2]).sqrt() <= cad_primitives::TAU_MODEL
+    }
+}
+
 /// Per-vertex circle assignment `(center, normal, radius, source_sphere_radius)`
 /// — the `vert_circle` value tuple, shared by the PR-F3 line+circle junction map.
 pub(crate) type CircleAssign = (Point3, Vector3, f64, Option<f64>);

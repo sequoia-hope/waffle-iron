@@ -113,14 +113,19 @@ Do NOT skip to lower-priority items because they are easier.
    un-minimized lineage now STOPs one crate later in kernel-v2's render
    tessellator, "patch triangulation folded — KV9-F2", a NEW signature to
    re-minimize). P0005–P0024 (seeds 1–2) are ALL CONVERTED (by
-   2026-10-03). **The open P-series ERROR tail is P0026–P0039 (seed 3,
+   2026-10-03). **The open P-series ERROR tail is P0028–P0039 (seed 3,
    `docs/yang_tail_triage.md` §2026-10-03, one row per distinct STOP
    site)** — P0025, the 14-row locus, CONVERTED 2026-10-08 (a coplanar
    ellipse PAIR on two cylinders is the {plane, cyl, cyl} triple corner;
    `vert_ell_junction` was the sixth junction map counting zero toward the
-   triple block's `n_maps` — spec `yang_stage4_conic_triple_junction.md`
-   top blockquote). Next: P0026/P0027 (`surface_pair_endpoint_mix`,
-   `line_line_junction`), then P0028–P0039 — each its own kernel session
+   triple block's `n_maps`); P0027 CONVERTED 2026-10-08 (later) (two
+   cylinders' GENERATORS crossing in one cutting plane are the same corner;
+   the line arm's one slot was the seventh such map — both in spec
+   `yang_stage4_conic_triple_junction.md` top blockquotes); P0026 is
+   ADJUDICATED, not converted — a minimizer-MINTED exact tangency (depth =
+   centre height = radius) whose exact result is two lobes joined along a
+   line, non-2-manifold, so its loud STOP is correct and its pin stays
+   `Error`. Next: P0028–P0039 — each its own kernel session
    (anchor against the un-minimized lineage in `target/prospect/seed-3/
    candidates/` first via `WAFFLE_PATH=… user_case_probe replay_waffle_env`:
    the minimizer's rounding can mint a contact that keeps a

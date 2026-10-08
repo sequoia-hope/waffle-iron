@@ -43,6 +43,67 @@ after the reconciliation run (release, 8 jobs, 360 s; wall 577 s, F0085
 regression since 2026-08-01 is outstanding (checked over every commit of
 `results.json`).
 
+## 2026-10-08 (later) — P0027 CONVERTED: the line-pair corner; P0026 adjudicated a MINTED exact tangency whose exact result is non-2-manifold
+
+**Diagnosis (probes `YANG_LRR_PROBE`, `YANG_SAMETYPE_PROBE`, `[triple-gate]`,
+`[triple-bail]`; the un-minimized lineage `target/prospect/seed-3/candidates/
+X00000003-00054.waffle` replayed with the BUILT `user_case_probe` binary).**
+P0027's STOP site `line_line_junction` named "a vertex claimed by two
+DIFFERENT plane-pair line relocations" — the two records were not plane-pair
+lines but two GENERATORS: cylinder A's (axis ŷ, r 2.81841; `dir ŷ` through
+z = 0.96496) and cylinder B's (axis −ẑ, r 2.97256; `dir −ẑ` through
+y = 1.24459), both in the pentagon cut's lateral plane x = −2.64808. The
+vertex (v50 = (−2.64808, 1.25085, 0.94292), on the plane exactly and off both
+cylinders by their facet chords) is the point where the cylinder×cylinder
+CREASE of the previous circle-cut pierces a face PARALLEL to both axes —
+`{plane, cyl_A, cyl_B}`, exactly three incident surfaces, the plain triple
+corner the Stage-4 triple block resolves (R0035's, P0025's shape). It never
+reached the block: the line arm STOPped on the second record, so
+`vert_line`'s one slot was the **seventh junction map counting ZERO toward
+`n_maps`** (spec `yang_stage4_conic_triple_junction.md`, top blockquote).
+The lineage's FIRST STOPping cut (op 3, v8/v47) is the same corner one op
+earlier.
+
+**Fix.** The arm routes the second record into a new `vert_line_junction`
+(identity by `stage4_relocate::same_line`, the arm's own test hoisted) and
+keeps the first in `vert_line`; the block admits `line_pair_corner`; the
+bookkeeping tail removes a resolved vertex; a residue audit right after the
+block re-raises the SAME `line_line_junction` STOP for any pair it bailed on
+(≠ 3 surfaces, diverged Newton, over-gate move). A THIRD distinct line is
+still the loud STOP. Knob `YANG_LINE_PAIR_CORNER=0|off` = pre-flip. v50
+moves ρ 2.2911e-2 against the slab gate 1.4008 to (−2.64808, 1.24459,
+0.96496) — the closed-form crossing of the two generators to the printed
+digits.
+
+**Measured.** P0027 ⇒ SUPPORTED_CORRECT (1.1 s). The un-minimized index 54
+builds to completion with every render oracle green (both STOPping cuts
+clear). Pins: `yang-rs tests_unit/s4_line_pair_corner.rs`, kernel-v2
+`tests/s4_line_pair_corner_chain.rs` (two perpendicular bosses ∪, then a box
+whose near face is parallel to both axes −: mutation-checked RED/GREEN with
+the knob), smoke pin `P0027 → SupportedCorrect`. Corpus: see the roadmap
+refresh blockquote of the same date.
+
+**P0026 is NOT the same finding, and not a kernel capability gap.** The
+un-minimized lineage's cut circle (centre height 2.69286, r 2.97256) crosses
+A's cap y = 0 at y = −0.280; the minimizer rounded the boss depth, the cut
+centre height and the cut radius ALL to 3.0 — the seed-1 hazard (rounding
+MINTS a contact) in its purest form: A's cap plane is now exactly TANGENT to
+the cut cylinder along the generator x = −0.05. Its STOP vertex (v9 =
+(−0.05, 0, −2.9403), on that generator exactly) is the {cap, cyl_A, cyl_B}
+corner where the crease TOUCHES the cap; the cap's normal is parallel to
+cyl_B's there, so the triple Newton's rank check returns None
+(`[triple-bail] v=9 newton diverged`, every refinement round) and the
+vertex falls through to the pair loop's `surface_pair_endpoint_mix` STOP
+(now `stage4_correct.rs:13165`). The exact result of that subtract is two
+lobes `|x + 0.05| ≥ √(6y − y²)` joined only along the tangent segment in
+y = 0 — not 2-manifold — so the loud STOP is the correct verdict for the
+document as authored. Its pin stays `Error` with the diagnosis in its
+description; the generic family (a cut cylinder CROSSING the cap) is P0027,
+converted above. Lesson for the prospector (spec §8): a minimum whose
+rounded values make two authored quantities EQUAL (depth = centre height =
+radius) is a tangency candidate — check the equality before promoting the
+minimum as the site's representative.
+
 ## 2026-10-08 — P0025 CONVERTED: the coplanar ellipse-pair corner; all 14 seed-3 rows at `stage4_correct.rs:12318` move
 
 **Diagnosis (probes `YANG_V_PROBE=3`, `YANG_LRR_PROBE`, `[triple-gate]`).**
@@ -194,8 +255,8 @@ conversion moves it. Every one was re-judged under the corpus runner
 | case | source | ops | error text | SITE (the thing that distinguishes it) | single_case |
 |---|---|---|---|---|---|
 | ~~**P0025**~~ | #126, min 5→4 `convex4:boss circle:boss circle:boss convex3:∩` | 4 | Stage-4 `LocalRefinementRequired` | `stage4_correct.rs:12318` — the PR-KV9 ellipse×ellipse junction relocation, whose two cutting planes are PARALLEL, so `|n₁ × n₂| < MIN_FEATURE_SIZE` and the plane-pair line is underivable. **14 of the 32 ERROR rows raise here** | ~~ERROR 4.5 s~~ **CONVERTED 2026-10-08** → SUPPORTED_CORRECT 1.4 s (coplanar ellipse-pair admission to the triple block; see the 2026-10-08 section) |
-| **P0026** | #54, min 5→3 `circle:boss circle:cut convex4:cut` | 3 | Stage-4 `LocalRefinementRequired` | `stage4_correct.rs:13065` — the `surface_pair_endpoint_mix` decline | ERROR 0.8 s |
-| **P0027** | #54 **UN-MINIMIZED** `circle:boss circle:cut convex5:thru circle:cut convex8:thru` | 5 | Stage-4 `LocalRefinementRequired` | `stage4_correct.rs:10805` — `line_line_junction`, a vertex claimed by two DIFFERENT plane-pair line relocations, which the comment there calls out of scope | ERROR 5.2 s |
+| **P0026** | #54, min 5→3 `circle:boss circle:cut convex4:cut` | 3 | Stage-4 `LocalRefinementRequired` | `stage4_correct.rs:13065` — the `surface_pair_endpoint_mix` decline | ERROR 0.8 s — **ADJUDICATED 2026-10-08 (later): a MINTED exact tangency** (depth = centre height = radius = 3.0; the cap is tangent to the cut cylinder, the exact result is two lobes joined along a line, non-2-manifold); loud by design for the document as authored, not P0027's finding |
+| ~~**P0027**~~ | #54 **UN-MINIMIZED** `circle:boss circle:cut convex5:thru circle:cut convex8:thru` | 5 | Stage-4 `LocalRefinementRequired` | `stage4_correct.rs:10805` — `line_line_junction`, a vertex claimed by two DIFFERENT plane-pair line relocations, which the comment there calls out of scope | ~~ERROR 5.2 s~~ **CONVERTED 2026-10-08 (later)** → SUPPORTED_CORRECT 1.1 s (the two "plane-pair lines" were two cylinders' GENERATORS in one plane — the {plane, cyl_A, cyl_B} corner; line-pair admission to the triple block) |
 | **P0028** | #109, min 5→2 `convex4:boss circle:cut` | 2 | `reassembled output would be non-2-manifold` | `s6-planar-loop-nonplanar` — face 5 vertex 0 sits **3.604e-1** off its own plane against a **3.500e-6** band | ERROR 0.2 s |
 | **P0029** | #109 **UN-MINIMIZED** `convex4:sym convex8:cut convex3:∪ circle:cut nonconvex6:rev-cut` | 5 | the same text | `s4-dc-attr` — a doubled directed edge (17,18) **fwd=2 rev=2** between an A plane and a B plane | ERROR 1.4 s |
 | **P0030** | #72, min 7→3 `convex4:boss circle:rev convex4:boss` | 3 | the same text, auto-union | `s6-curved-empty-cycles: face 0` — a curved face whose reassembly cycle set is EMPTY. A third site for one text | ERROR 0.3 s |

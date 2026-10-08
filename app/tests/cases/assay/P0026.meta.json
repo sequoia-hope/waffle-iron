@@ -1,6 +1,6 @@
 {
   "id": "P0026",
-  "description": "prospector seed 3 index 54, minimized 5->3 ops (circle:boss circle:cut convex4:cut): Stage-4 LocalRefinementRequired at stage4_correct.rs:13065 — the surface_pair_endpoint_mix decline. A DIFFERENT site from the un-minimized lineage (10805, promoted separately). derived_meta; the pin IS the expectation.",
+  "description": "prospector seed 3 index 54, minimized 5->3 ops (circle:boss circle:cut convex4:cut): Stage-4 LocalRefinementRequired at the surface_pair_endpoint_mix decline. ADJUDICATED 2026-10-08: the minimizer rounded the boss depth, the cut circle's centre height and its radius all to 3.0, so A's cap plane y=0 is exactly TANGENT to the cut cylinder (the un-minimized lineage crosses it at y=-0.280). The STOP vertex is the {cap, cyl_A, cyl_B} corner where the crease touches the cap; the cap's normal is parallel to cyl_B's there, so the triple Newton is singular and the vertex falls to the pair loop's endpoint-mix STOP. The exact result of this subtract is two lobes joined only along the tangent generator (non-2-manifold), so the loud STOP is the correct verdict for the document as authored. The generic family (a cut cylinder CROSSING the cap) is P0027, CONVERTED the same day. derived_meta; the pin IS the expectation.",
   "master_seed": 0,
   "test_seed": 0,
   "scale": 10.0,

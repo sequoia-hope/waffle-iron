@@ -1,5 +1,69 @@
 # Spec: Stage-4 general conic triple-surface junction relocation
 
+> **Junction-map candidates — the line pair (2026-10-08, P0027).** The
+> Stage-4 line arm (`Curve::LineSegment` recomputed as an exact ssi `Line`:
+> a cylinder∩plane generator, a Steinmetz line, a cone-apex generator) keeps
+> ONE record per vertex in `vert_line`; a vertex reached by a SECOND,
+> DIFFERENT line STOPped `LocalRefinementRequired` on the spot
+> (`line_line_junction`, "a line∩line junction — out of scope"), BEFORE the
+> triple block ran. But a vertex on two different exact lines is a
+> three-surface corner by construction: two generators of two DIFFERENT
+> cylinders crossing in ONE cutting plane are the cylinder×cylinder crease
+> of a previous union pierced by a face PARALLEL to both axes —
+> `{plane, cyl_A, cyl_B}`, the R0035 / P0025 shape — and two generators of
+> ONE cylinder in two planes are `{plane, plane, cyl}`, the R0070 shape.
+> Measured on P0027 (prospector seed 3 index 54, un-minimized: circle boss,
+> circle cut, pentagon through-cut, circle cut, octagon through-cut;
+> `YANG_LRR_PROBE`, `YANG_SAMETYPE_PROBE`, 2026-10-08; scale 5.14): in the
+> pentagon cut, Stage-4 v50 = (−2.64808, 1.25085, 0.94292) carries cylinder
+> A's generator (axis ŷ, r 2.81841; `dir ŷ` through z = 0.96496) and
+> cylinder B's generator (axis −ẑ through (−0.05219, 2.69286, ·), r 2.97256;
+> `dir −ẑ` through y = 1.24459), both in the cut's lateral plane
+> x = −2.64808; its incident surfaces dedup to exactly those three. The
+> seventh junction map found counting ZERO toward `n_maps` (after KV16
+> same-type, R0044 pair, M5 K11 line×circle, C0067 circle-pair, R0070/P0004
+> plane-pair and the P0025 coplanar ellipse pair). Wired: the arm routes the
+> second record into `vert_line_junction` (identity by
+> `stage4_relocate::same_line`, the arm's own point-on-line + parallel-
+> direction test against `TAU_MODEL`, hoisted so the arm and the map agree
+> byte-for-byte) and `vert_line` keeps the FIRST; a THIRD distinct line
+> (≥ 4 surfaces) is still the loud STOP; the block's `n_maps < 2` skip is
+> bypassed for `line_pair_corner`; the bookkeeping tail removes a resolved
+> vertex from the pair map; and a **residue audit** right after the block
+> re-raises the SAME `line_line_junction` STOP for any pair the block bailed
+> on (≠ 3 surfaces, diverged Newton, over-gate move) — never a relocation
+> onto one line's foot alone. Household knob `YANG_LINE_PAIR_CORNER=0|off` =
+> the pre-flip arm (dev A/B). Monotone by construction: the pair STOPped
+> unconditionally, so only a STOP can change. Result: v50 relocates ρ
+> 2.2911e-2 against the three-slab gate 1.4008 (d_ε 1.0122e-1, sin θ
+> 0.14453, `metric=slab`) to (−2.64808, 1.24459, 0.96496) — the closed-form
+> crossing of the two generators to the printed digits — and BOTH of the
+> lineage's STOPping cuts (ops 3 and 5: v8/v47 in the first, v50/v59/v60/
+> v80 in the second) build clean; P0027 ⇒ SUPPORTED_CORRECT (1.1 s
+> release). Pins: `tests_unit/s4_line_pair_corner.rs` (the two records are
+> different generators of two cylinders in one plane; `same_line` is sense-
+> and point-free; the closed-form crossing is on all three surfaces while
+> v50 is off both cylinders; the Newton lands on the crossing within the
+> slab corridor), kernel-v2 `tests/s4_line_pair_corner_chain.rs` (two
+> perpendicular bosses unioned, then a box whose near face is parallel to
+> both axes subtracted: RED at `LocalRefinementRequired` v15 with the knob
+> off — mutation-checked — GREEN with it, all four crease corners on the cut
+> face exact output vertices on all three surfaces) and the `assay_kv2`
+> smoke pin `P0027 → SupportedCorrect`.
+>
+> **Not this finding — P0026, the minted tangency.** Index 54's 3-op
+> minimum STOPs one block later (`surface_pair_endpoint_mix`) because the
+> minimizer rounded the boss depth, the cut circle's centre height and its
+> radius all to 3.0: A's cap plane y = 0 is exactly TANGENT to the cut
+> cylinder. Its vertex is the {cap, cyl_A, cyl_B} corner where the crease
+> TOUCHES the cap; the cap's normal is parallel to cyl_B's along the tangent
+> generator, so the triple Newton's Jacobian is singular (`[triple-bail] v=9
+> newton diverged`) and the vertex falls to the pair loop's endpoint-mix
+> STOP. The exact result of that subtract is two lobes joined only along the
+> tangent generator — not 2-manifold — so the loud STOP is the correct
+> verdict for the document as authored; recorded, not converted
+> (`docs/yang_tail_triage.md` §2026-10-08 (later)).
+
 > **Junction-map candidates — the coplanar ellipse pair (2026-10-08,
 > P0025).** `insert_ellipse_or_junction` demotes a vertex carrying two
 > DIFFERENT ellipse records out of `vert_ellipse` into `vert_ell_junction`,

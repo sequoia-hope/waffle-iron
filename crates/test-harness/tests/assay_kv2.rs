@@ -1829,8 +1829,33 @@ fn smoke_corpus_boundary_categories() {
         // the signature STRING is byte-identical, and the string does not see
         // the site — seed 1's hazard (rounding mints a contact) from a new
         // direction. P0027 is therefore pinned UN-MINIMIZED to keep its locus.
+        //
+        // P0027 CONVERTED 2026-10-08 (spec `yang_stage4_conic_triple_junction`,
+        // "Junction-map candidates — the line pair"): the two lines were two
+        // GENERATORS — cylinder A's and cylinder B's — in the pentagon cut's
+        // one lateral plane x = −2.648, crossing where the two-boss crease
+        // pierces that face: the plain {plane, cyl_A, cyl_B} corner. The line
+        // arm STOPped on the second record before the triple block ran (the
+        // seventh junction map counting zero toward `n_maps`); the block now
+        // admits the pair and lands v50 on the closed-form crossing of the two
+        // generators (ρ 2.29e-2 against the slab gate 1.40). Both of the
+        // lineage's STOPping cuts (ops 3 and 5) build clean.
+        //
+        // P0026 stays ERROR, and the 2026-10-08 adjudication says WHY it is
+        // not P0027's finding: the minimizer rounded the boss depth, the cut
+        // circle's centre height and its radius all to 3.0, making A's cap
+        // plane y = 0 exactly TANGENT to the cut cylinder. Its STOP vertex is
+        // the {cap, cyl_A, cyl_B} corner where the crease TOUCHES the cap;
+        // the plane's normal is parallel to cyl_B's there, so the triple
+        // Newton's Jacobian is singular (`[triple-bail] v=9 newton
+        // diverged`) and the vertex falls to the surface-pair endpoint-mix
+        // STOP. The exact result of that subtract is two lobes joined only
+        // along the tangent generator — not 2-manifold — so a loud STOP is
+        // the correct verdict for the document as authored: a minted
+        // tangency, not a kernel capability gap (`docs/yang_tail_triage.md`
+        // §2026-10-08 (later)).
         ("P0026", Category::Error),
-        ("P0027", Category::Error),
+        ("P0027", Category::SupportedCorrect),
         // P0028 / P0029 / P0030: one error text, `reassembled output would be
         // non-2-manifold`, at THREE sites. P0028 (2 ops — a square boss and a
         // circle cut, the smallest finding of the seed) is

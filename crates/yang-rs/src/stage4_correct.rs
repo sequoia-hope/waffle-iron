@@ -9803,6 +9803,27 @@ fn stage4_relocate_and_correct_inner(
     // off the cylinder) by up to the sagitta — they need relocation exactly
     // like the conic arms. Plane∩plane segments are exact and stay skipped.
     let mut vert_line: BTreeMap<u32, LineReloc> = BTreeMap::new();
+    // P0027 (2026-10-08, spec `yang_stage4_conic_triple_junction`,
+    // "Junction-map candidates — the line pair"): a vertex claimed by a
+    // SECOND, DIFFERENT exact line. Two generators of two different
+    // cylinders crossing in ONE cutting plane (the cylinder×cylinder crease
+    // of a previous union pierced by a face PARALLEL to both axes) is the
+    // plain `{plane, cyl_A, cyl_B}` corner the triple block solves; two
+    // generators of ONE cylinder in two planes is `{plane, plane, cyl}`,
+    // likewise three surfaces. The line arm STOPped on the second record
+    // (`line_line_junction`) before the block ever ran — the seventh
+    // junction map found counting ZERO toward `n_maps`. `vert_line` keeps the
+    // FIRST record (the KV16 one-slot precedent, inverted: first, not last —
+    // the gate's `junction_line_curve_divergence` certifies either); this
+    // map keeps the second, and any vertex still here after the block is
+    // the SAME loud STOP as before (the residue audit below the block).
+    let mut vert_line_junction: BTreeMap<u32, LineReloc> = BTreeMap::new();
+    // Household knob (dev A/B only): `YANG_LINE_PAIR_CORNER=0|off` restores
+    // the pre-flip line arm (STOP on the second record) byte-identically.
+    let line_pair_corner_on = !matches!(
+        std::env::var("YANG_LINE_PAIR_CORNER").as_deref(),
+        Ok("0") | Ok("off")
+    );
     // M5 (Y4): per-vertex procedural surface-pair relocation data — the TWO
     // defining surfaces of a `Curve::SurfacePair` edge, carried on the curve
     // itself (no incidence scan needed). Each endpoint is Newton-projected
@@ -10776,36 +10797,46 @@ fn stage4_relocate_and_correct_inner(
                     if exact_junctions.contains(&v) {
                         continue;
                     }
-                    // A vertex on TWO DIFFERENT lines (e.g. a box corner ruling
-                    // piercing the cylinder) would need a line∩line junction —
-                    // out of scope, loud STOP rather than silently overwriting
-                    // (the same defect class F3 fixes for line+circle).
+                    // A vertex on TWO DIFFERENT lines is a line∩line junction:
+                    // two generators crossing where a crease pierces a plane —
+                    // a THREE-surface corner ({plane, cyl_A, cyl_B} or
+                    // {plane, plane, cyl}). P0027 (2026-10-08): route it to
+                    // the triple block instead of STOPping here (the KV16
+                    // same-type precedent); the block's residue audit below
+                    // restores this exact STOP for a pair it cannot resolve.
+                    // A THIRD distinct line (≥ 4 surfaces) stays the loud
+                    // STOP, as does the pre-flip path under the knob — never
+                    // a silent overwrite (the defect class F3 fixes for
+                    // line+circle).
                     if let Some(prev) = vert_line.get(&v) {
-                        let same = line_perp_distance(prev.point, lr.point, lr.dir)
-                            <= cad_primitives::TAU_MODEL
-                            && {
-                                let d1 = normalize3(prev.dir.as_array());
-                                let d2 = normalize3(lr.dir.as_array());
-                                let cx = [
-                                    d1[1] * d2[2] - d1[2] * d2[1],
-                                    d1[2] * d2[0] - d1[0] * d2[2],
-                                    d1[0] * d2[1] - d1[1] * d2[0],
-                                ];
-                                (cx[0] * cx[0] + cx[1] * cx[1] + cx[2] * cx[2]).sqrt()
-                                    <= cad_primitives::TAU_MODEL
-                            };
+                        let same = same_line(prev, &lr);
                         if !same {
-                            if std::env::var_os("YANG_LRR_PROBE").is_some() {
+                            let third = vert_line_junction
+                                .get(&v)
+                                .is_some_and(|second| !same_line(second, &lr));
+                            if third || !line_pair_corner_on {
+                                if std::env::var_os("YANG_LRR_PROBE").is_some() {
+                                    eprintln!(
+                                        "YANG_LRR_SITE site=line_line_junction v={v} p={:?} \
+                                         prev={prev:?} new={lr:?} third={third}",
+                                        mesh.verts.get(v as usize)
+                                    );
+                                }
+                                return Err(YangError::stage4_region_invalid(
+                                    v,
+                                    Stage4InvalidReason::LocalRefinementRequired,
+                                ));
+                            }
+                            if std::env::var_os("YANG_SAMETYPE_PROBE").is_some() {
                                 eprintln!(
-                                    "YANG_LRR_SITE site=line_line_junction v={v} p={:?} \
-                                     prev={prev:?} new={lr:?}",
+                                    "[sametype-probe] v={v} p={:?} line junction: \
+                                     prev={prev:?} -> new={lr:?}",
                                     mesh.verts.get(v as usize)
                                 );
                             }
-                            return Err(YangError::stage4_region_invalid(
-                                v,
-                                Stage4InvalidReason::LocalRefinementRequired,
-                            ));
+                            vert_line_junction.insert(v, lr);
+                            endpoints.push(v);
+                            continue;
                         }
                     }
                     vert_line.insert(v, lr);
@@ -11134,10 +11165,22 @@ fn stage4_relocate_and_correct_inner(
             ) && vert_ell_junction
                 .get(&v)
                 .is_some_and(|(ea, eb)| crate::stage4_relocate::ellipse_pair_coplanar(ea, eb));
+            // P0027 (2026-10-08, spec "Junction-map candidates — the line
+            // pair"): a vertex on two DIFFERENT exact lines — two generators
+            // crossing where a cylinder×cylinder crease pierces a plane
+            // parallel to both axes ({plane, cyl_A, cyl_B}), or one
+            // cylinder's generators in two planes ({plane, plane, cyl}). The
+            // line arm used to STOP on the second record before this block
+            // ran: the seventh junction map counting ZERO toward `n_maps`.
+            // Monotone: the pair STOPped unconditionally, so only a STOP can
+            // change; a pair this block bails on STOPs at the residue audit
+            // below, at the same site text.
+            let line_pair_corner = vert_line_junction.contains_key(&v);
             if n_maps < 2
                 && !same_type_junction.contains(&v)
                 && !circle_pair_corner
                 && !ell_pair_corner
+                && !line_pair_corner
                 && !torus_conic_mix
                 && !pp_conic_corner
             {
@@ -11838,6 +11881,9 @@ fn stage4_relocate_and_correct_inner(
             // reach the PR-KV9 junction arm (whose plane-pair line is
             // underivable for it — the very STOP this admission converts).
             vert_ell_junction.remove(&v);
+            // P0027: a line∩line corner resolved here leaves the pair map, so
+            // the residue audit below does not STOP on it.
+            vert_line_junction.remove(&v);
             endpoints.retain(|&u| u != v);
             triple_resolved.insert(v);
             if rho > cad_primitives::TAU_WORK {
@@ -11845,6 +11891,28 @@ fn stage4_relocate_and_correct_inner(
                 triple_moved.push(v);
             }
         }
+    }
+
+    // P0027 residue audit (P10): a line∩line junction the triple block did
+    // not resolve (≠ 3 incident surfaces, a diverged Newton, an over-gate
+    // move already collected by §4.5.1) is the SAME loud STOP the line arm
+    // raised before the admission — at the same site text, so the triage
+    // probe keeps localizing it. Never relocate such a vertex onto one of
+    // its two lines alone.
+    if let Some((&v, second)) = vert_line_junction.iter().next() {
+        if std::env::var_os("YANG_LRR_PROBE").is_some() {
+            eprintln!(
+                "YANG_LRR_SITE site=line_line_junction v={v} p={:?} prev={:?} new={second:?} \
+                 unresolved_by_triple_block=true surfs={:?}",
+                mesh.verts.get(v as usize),
+                vert_line.get(&v),
+                vert_surfs.get(&v).map(Vec::len),
+            );
+        }
+        return Err(YangError::stage4_region_invalid(
+            v,
+            Stage4InvalidReason::LocalRefinementRequired,
+        ));
     }
 
     // M8 disc∩disc no-skip audit (P10): a circle∩circle lens corner that is ALSO
