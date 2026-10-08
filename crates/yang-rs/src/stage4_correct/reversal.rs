@@ -344,10 +344,19 @@ pub(crate) fn sweep_reversed_intersections(
                     if std::env::var_os("YANG_V_PROBE").is_some() {
                         eprintln!(
                             "YANG_V_PROBE reversal collapse: p_b={p_b} p_r={p_r} p_n={p_n} \
-                             victim={victim} survivor={survivor} at {:?} <- {:?}",
+                             victim={victim} survivor={survivor} at {:?} <- {:?} \
+                             all_conic={all_conic} loop={verts:?}",
                             mesh.verts.get(survivor as usize),
                             mesh.verts.get(victim as usize),
                         );
+                        for (ti, tri) in mesh.tris.iter().enumerate() {
+                            if tri.contains(&p_r) || tri.contains(&p_n) {
+                                eprintln!(
+                                    "YANG_V_PROBE   tri {ti} {tri:?} attr={:?}",
+                                    attribution.get(ti).copied().flatten()
+                                );
+                            }
+                        }
                     }
                     if std::env::var_os("YANG_DOUBLECOVER_PROBE").is_some() {
                         eprintln!(
@@ -873,6 +882,28 @@ pub(crate) fn same_line_run(
     }
 }
 
+/// How many DISTINCT analytic surfaces the loop edges at `v` carry — the
+/// incidence rank of a vertex (spec `yang_453_junction_protected_collapse`
+/// §3d). Two is a point on one intersection curve; three or more is a
+/// corner junction, exact by Stage 4's closed forms.
+pub(crate) fn distinct_surfaces_at(
+    incidence: &std::collections::BTreeMap<(u32, u32), Vec<(InputId, Surface)>>,
+    v: u32,
+) -> usize {
+    let mut seen: Vec<Surface> = Vec::new();
+    for (&(s, e), entries) in incidence {
+        if s != v && e != v {
+            continue;
+        }
+        for &(_, surf) in entries {
+            if !seen.contains(&surf) {
+                seen.push(surf);
+            }
+        }
+    }
+    seen.len()
+}
+
 /// §4.5.3 collapse direction (spec `yang_453_junction_protected_collapse` §3):
 /// which loop vertex is REMOVED for a reversal detected at `p_r` with next
 /// point `p_n` (whose own next point is `p_after`)? Returns
@@ -906,6 +937,52 @@ pub(crate) fn reversal_collapse_direction(
     } else {
         (p_after, p_n)
     };
+    // Spec §3d (P0028, 2026-10-08): a junction by INCIDENCE. The §3 test
+    // reads the curve change at `p_n` off the loop's far edge, but a corner
+    // where one operand's solid edge pierces the other's surface (the
+    // {cap, side, cylinder} vertex of a prism edge crossed by a cylinder)
+    // can sit on a loop whose far edge carries the SAME curve: the chord
+    // polyline of the cap∩cylinder ellipse dips back inside the solid past
+    // the exact corner, so the arrangement keeps a cap SLIVER bounded by
+    // that one ellipse on every side, and after relocation its 3-cycle
+    // reads `curve(p_r,p_n) == curve(p_n,p_after)`. The paper default then
+    // removed the corner — the only exact vertex on all three surfaces — and
+    // kept the overshooting chord vertex, 3.6e-1 off the side plane
+    // (`s6-planar-loop-nonplanar`). A vertex on three or more distinct
+    // surfaces is the exact closed-form endpoint of every curve through it
+    // regardless of what the loop's next edge says: it outranks a two-surface
+    // chord vertex and is never the victim. Equal ranks keep the curve test
+    // byte-identically.
+    // Household knob (dev A/B only): `YANG_453_RANK=0|off` restores the
+    // pre-§3d curve-only test byte-identically.
+    let rank_on = !matches!(
+        std::env::var("YANG_453_RANK").as_deref(),
+        Ok("0") | Ok("off")
+    );
+    let rank_r = if rank_on {
+        distinct_surfaces_at(incidence, p_r)
+    } else {
+        0
+    };
+    let rank_n = if rank_on {
+        distinct_surfaces_at(incidence, p_n)
+    } else {
+        0
+    };
+    if std::env::var_os("YANG_V_PROBE").is_some() {
+        eprintln!(
+            "YANG_V_PROBE reversal direction: p_r={p_r} p_n={p_n} p_after={p_after} \
+             rank_r={rank_r} rank_n={rank_n} curve_n={:?} curve_after={:?}",
+            curves.get(&key_n),
+            curves.get(&key_after),
+        );
+    }
+    if rank_n >= 3 && rank_n > rank_r {
+        return (p_r, p_n);
+    }
+    if rank_r >= 3 && rank_r > rank_n {
+        return (p_n, p_r);
+    }
     match (curves.get(&key_n), curves.get(&key_after)) {
         (Some(cn), Some(ca)) if cn != ca => (p_r, p_n),
         // Spec §3c: the run ENDS at p_n (its far edge is not an intersection

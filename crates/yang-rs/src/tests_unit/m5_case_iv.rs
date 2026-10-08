@@ -1747,6 +1747,74 @@ pub(crate) fn s453_collapse_protects_junction_p_n() {
     );
 }
 
+// Spec §3d (P0028): a junction by INCIDENCE. The loop's far edge carries
+// the SAME ellipse (a cap sliver's 3-cycle), so the §3 curve test reads
+// "same curve beyond p_n" — but p_n sits on three distinct surfaces (the
+// prism's cap and side planes plus the cylinder) while p_r sits on two:
+// p_n is the exact corner and p_r the overshooting chord vertex.
+#[test]
+pub(crate) fn s453d_incidence_rank_protects_the_corner_on_a_same_curve_loop() {
+    use std::collections::BTreeMap;
+    let ellipse = Curve::Ellipse {
+        center: p(0.0, 0.0, 1.0),
+        normal: Vector3::new(0.0, 0.0, 1.0),
+        major_axis: Vector3::new(1.0, 0.0, 0.0),
+        major_radius: 2.0,
+        minor_radius: 1.0,
+    };
+    let cap = Surface::Plane {
+        normal: Vector3::new(0.0, 0.0, 1.0),
+        d: -1.0,
+    };
+    let side = Surface::Plane {
+        normal: Vector3::new(1.0, 0.0, 0.0),
+        d: -1.5,
+    };
+    let cyl = Surface::Cylinder {
+        axis_point: p(0.0, 0.0, 0.0),
+        axis_dir: Vector3::new(0.0, 0.0, 1.0),
+        radius: 1.0,
+    };
+    // The 3-cycle (p_r=0, p_n=2, p_after=3) on one ellipse, plus the
+    // corner's two other edges: the solid edge (2,4) on cap∩side and the
+    // side∩cylinder edge (2,5).
+    let mut curves: BTreeMap<(u32, u32), Curve> = BTreeMap::new();
+    curves.insert((0, 2), ellipse);
+    curves.insert((2, 3), ellipse);
+    curves.insert((0, 3), ellipse);
+    curves.insert((2, 5), ellipse);
+    let mut inc: BTreeMap<(u32, u32), Vec<(InputId, Surface)>> = BTreeMap::new();
+    inc.insert((0, 2), vec![(InputId::A, cap), (InputId::B, cyl)]);
+    inc.insert((2, 3), vec![(InputId::A, cap), (InputId::B, cyl)]);
+    inc.insert((0, 3), vec![(InputId::A, cap), (InputId::B, cyl)]);
+    inc.insert((2, 4), vec![(InputId::A, cap), (InputId::A, side)]);
+    inc.insert((2, 5), vec![(InputId::A, side), (InputId::B, cyl)]);
+    assert_eq!(distinct_surfaces_at(&inc, 0), 2);
+    assert_eq!(distinct_surfaces_at(&inc, 2), 3);
+    assert_eq!(
+        reversal_collapse_direction(&curves, &inc, 0, 2, 3),
+        (0, 2),
+        "a three-surface corner outranks the two-surface chord vertex: the \
+         corner survives although the loop's far edge carries the same curve"
+    );
+    // The mirrored site: the corner as p_r (its two edges on one curve) and a
+    // plain chord vertex as p_n keeps the paper default — the corner survives.
+    assert_eq!(
+        reversal_collapse_direction(&curves, &inc, 2, 0, 3),
+        (0, 2),
+        "a corner at p_r is never the victim either"
+    );
+    // Equal ranks (both plain) keep the §3 curve test byte-identically.
+    inc.remove(&(2, 4));
+    inc.remove(&(2, 5));
+    assert_eq!(distinct_surfaces_at(&inc, 2), 2);
+    assert_eq!(
+        reversal_collapse_direction(&curves, &inc, 0, 2, 3),
+        (2, 0),
+        "same curve beyond a plain p_n ⇒ the paper default stands"
+    );
+}
+
 // Spec §3c: straight-run reversal — branch table 4–7 on synthetic
 // curve + incidence maps. The seam runs along +x; vertex 1 (p_r) doubles
 // back to vertex 2 (p_n) at 0.5 (a U-turn on the run).

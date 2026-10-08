@@ -113,7 +113,7 @@ Do NOT skip to lower-priority items because they are easier.
    un-minimized lineage now STOPs one crate later in kernel-v2's render
    tessellator, "patch triangulation folded — KV9-F2", a NEW signature to
    re-minimize). P0005–P0024 (seeds 1–2) are ALL CONVERTED (by
-   2026-10-03). **The open P-series ERROR tail is P0028–P0039 (seed 3,
+   2026-10-03). **The open P-series ERROR tail is P0029–P0039 (seed 3,
    `docs/yang_tail_triage.md` §2026-10-03, one row per distinct STOP
    site)** — P0025, the 14-row locus, CONVERTED 2026-10-08 (a coplanar
    ellipse PAIR on two cylinders is the {plane, cyl, cyl} triple corner;
@@ -125,7 +125,10 @@ Do NOT skip to lower-priority items because they are easier.
    ADJUDICATED, not converted — a minimizer-MINTED exact tangency (depth =
    centre height = radius) whose exact result is two lobes joined along a
    line, non-2-manifold, so its loud STOP is correct and its pin stays
-   `Error`. Next: P0028–P0039 — each its own kernel session
+   `Error`; P0028 CONVERTED 2026-10-08 (night) (the §4.5.3 reversal sweep
+   had collapsed the exact {cap, side, cylinder} corner INTO the chord
+   vertex that overshot it — victim selection now ranks by incidence, spec
+   `yang_453_junction_protected_collapse.md` §3d). Next: P0029–P0039 — each its own kernel session
    (anchor against the un-minimized lineage in `target/prospect/seed-3/
    candidates/` first via `WAFFLE_PATH=… user_case_probe replay_waffle_env`:
    the minimizer's rounding can mint a contact that keeps a

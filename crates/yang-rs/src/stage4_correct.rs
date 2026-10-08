@@ -9503,6 +9503,29 @@ pub(crate) fn stage4_relocate_and_correct(
     star_probe("s4-entry", mesh, attribution);
     nonmanifold_edge_census("s4-entry", mesh, attribution);
     coincident_vertex_census("s4-entry", mesh);
+    // Diagnosis probe (read-only, env-gated): `YANG_V_PROBE_VERTS=a,b,c`
+    // dumps the listed vertices' ENTRY positions and every incident triangle
+    // with its attribution — the arrangement as Stage 4 first sees it.
+    if let Ok(spec) = std::env::var("YANG_V_PROBE_VERTS") {
+        let want: Vec<u32> = spec
+            .split(',')
+            .filter_map(|s| s.trim().parse().ok())
+            .collect();
+        for &v in &want {
+            eprintln!(
+                "YANG_V_PROBE_VERTS v={v} p={:?}",
+                mesh.verts.get(v as usize).map(|p| p.as_array())
+            );
+        }
+        for (ti, tri) in mesh.tris.iter().enumerate() {
+            if tri.iter().any(|x| want.contains(x)) {
+                eprintln!(
+                    "YANG_V_PROBE_VERTS   tri {ti} {tri:?} attr={:?}",
+                    attribution.attributions.get(ti).copied().flatten()
+                );
+            }
+        }
+    }
     // (0) EDGE-PINCH split, at ENTRY (spec `yang_tangency_pinch_split.md` §0a).
     // A face of one operand TANGENT to a face of the other along a whole LINE
     // reaches Stage 4 as a chain of 4-triangle edges — the arrangement's honest

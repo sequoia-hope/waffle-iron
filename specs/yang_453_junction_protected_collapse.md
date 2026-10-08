@@ -248,6 +248,67 @@ a stable coarse-N conic-site criterion.
   `yang_kept_mesh_manifold_gate` §2b: no mesh-level manifold invariant
   survives the kept set).
 
+## 3d. Fourth mechanism (P0028, 2026-10-08): a junction by INCIDENCE on a same-curve loop — WIRED
+
+Measured on P0028 (`YANG_V_PROBE` + the new `YANG_V_PROBE_VERTS` entry dump,
+2026-10-08; reproducer `kernel-v2/tests/s453_edge_corner_overshoot_chain.rs`):
+a diamond prism (cap z = 34, side −x + y = 21) is cut by a tilted cylinder
+(r 24) whose wall pierces the prism's own top edge E. The exact corner
+J = E ∩ cylinder is minted at Stage 1 and sits on THREE surfaces (cap, side,
+cylinder). Near J the cap∩cylinder ellipse leaves the prism through E almost
+tangentially, so the Stage-1 chord polyline — inside the true ellipse by its
+sagitta — dips back INSIDE the prism past J: the arrangement's chord crossing
+of E (v1) lies 3.5 along E from J, and the cap keeps a two-triangle SLIVER
+(v0, v1, J), (J, v3, v0) bounded by that one ellipse on three sides and by the
+E segment (v1, J) on the fourth, attached to the rest of the cap at J alone.
+Stage 4 relocates v1 onto J in closed form (welded into the mint), and v0, v3
+onto the ellipse by their centre rays — OUTSIDE the prism (v0: −x + y =
+21.51), beyond J in ellipse parameter. The sliver is now the 3-cycle
+(v0, J, v3) with the SAME ellipse on every edge, and the sweep detects the
+genuine §4.5.3 reversal at p_r = v0 (p_b = v3, p_n = J).
+
+The §3 victim rule reads the junction off `curve(p_r,p_n) ≠ curve(p_n,p_after)`
+— on this loop both edges carry the cap ellipse, so it returned the paper
+default and collapsed **J into v0**: the only exact vertex on all three
+surfaces was removed and the overshooting chord vertex inherited its side-plane
+incidence, 3.604e-1 off that plane (`s6-planar-loop-nonplanar`, band 3.5e-6).
+The §3 principle is unchanged — "Yang §4.5.3 removes points progressing along
+ONE curve C, never C's endpoints" — but a solid-edge corner is C's endpoint by
+INCIDENCE, not by what the loop's next edge happens to carry.
+
+### Branch table (extends §3; evaluated BEFORE the curve test)
+
+`rank(v)` = number of DISTINCT analytic surfaces on the loop edges at `v`
+(`distinct_surfaces_at`, over the Phase-A `incidence` map — 2 for a point on
+one intersection curve, ≥ 3 for a corner).
+
+| # | condition | Action |
+|---|---|---|
+| 8 | `rank(p_n) ≥ 3` and `rank(p_n) > rank(p_r)` | collapse `p_r` onto `p_n` (the corner survives) |
+| 9 | `rank(p_r) ≥ 3` and `rank(p_r) > rank(p_n)` | collapse `p_n` onto `p_r` (the paper default; a corner is never the victim) |
+| 10 | otherwise (equal ranks, or neither a corner) | the §3 / §3c curve-identity rule, byte-identical |
+
+A corner reached by the closed-form triple block / junction maps is exact on
+every surface through it; a two-surface chord vertex is exact on one curve at
+best. Ranking by incidence is the same exactness ordering §3b uses for the
+§4.4.1(b) merge (junction > conic endpoint > plain), applied to the reversal
+sweep's own pair.
+
+Knob (dev A/B only): `YANG_453_RANK=0|off` restores the curve-only rule.
+
+### Oracles
+
+- Unit: `s453d_incidence_rank_protects_the_corner_on_a_same_curve_loop` —
+  branch 8 (corner at `p_n`, same curve beyond), branch 9 (corner at `p_r`),
+  branch 10 (both plain ⇒ paper default), on a synthetic 3-cycle plus the
+  corner's solid edge and side∩cylinder edge.
+- Chain: `kernel-v2/tests/s453_edge_corner_overshoot_chain.rs` — RED with
+  `YANG_453_RANK=0` (the P0028 STOP), GREEN with the rule: the boolean
+  validates, no cap vertex lies outside the side plane, and the corner is an
+  exact output vertex on all three surfaces.
+- Corpus: P0028 `Error → SupportedCorrect` (smoke pin); the seed-3 index-98
+  duplicate (its minimum lands on the same site) builds to completion.
+
 ## 6. Failure modes
 
 - Branch 2 with `collapse_vertex` dropping zero triangles → existing loud

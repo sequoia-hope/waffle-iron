@@ -1,6 +1,6 @@
 {
   "id": "P0028",
-  "description": "prospector seed 3 index 109, minimized 5->2 ops (convex4:boss circle:cut): yang-rs 'reassembled output would be non-2-manifold', site s6-planar-loop-nonplanar (NONMANIFOLD_SITE_PROBE: face 5 vertex 0 sits 3.604e-1 off its own plane against a 3.500e-6 band) — a relocation left its planar face. Same class at x1e-3 and x1e3. derived_meta; the pin IS the expectation.",
+  "description": "prospector seed 3 index 109, minimized 5->2 ops (convex4:boss circle:cut): was yang-rs 'reassembled output would be non-2-manifold', site s6-planar-loop-nonplanar (face 5 vertex 0 sat 3.604e-1 off its own plane against a 3.500e-6 band). CONVERTED 2026-10-08 (night): the off-plane vertex was a cap chord vertex relocated past the prism's top edge, and the Stage-4 s4.5.3 reversal sweep had collapsed the exact {cap, side, cylinder} corner INTO it (the loop's far edge carried the same ellipse, so the curve-change junction test read the paper default); victim selection now ranks by incidence (spec yang_453_junction_protected_collapse s3d). Same class at x1e-3 and x1e3. derived_meta; the pin is the expectation.",
   "master_seed": 0,
   "test_seed": 0,
   "scale": 120.0,

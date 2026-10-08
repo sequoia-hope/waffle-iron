@@ -1868,7 +1868,16 @@ fn smoke_corpus_boundary_categories() {
         // 0`, a curved face whose reassembly cycle set is EMPTY. (Index 98 is
         // a duplicate of P0028, not a fourth site: its own minimum reads face
         // 15 vertex 44, 7.482e-3 off plane against a 1.129e-7 band.)
-        ("P0028", Category::Error),
+        //
+        // P0028 CONVERTED 2026-10-08 (night) (spec
+        // `yang_453_junction_protected_collapse` §3d): the off-plane vertex
+        // was a cap chord vertex relocated past the prism's top edge, and
+        // the §4.5.3 sweep had collapsed the exact three-surface corner INTO
+        // it — the loop's far edge carried the same ellipse, so the
+        // curve-change junction test read the paper default. Victim
+        // selection now ranks the pair by incidence (a ≥3-surface vertex is
+        // never the victim). Index 98 (the duplicate) builds as well.
+        ("P0028", Category::SupportedCorrect),
         ("P0029", Category::Error),
         ("P0030", Category::Error),
         // P0031 / P0032: `SelfIntersectingBooleanOutput` at kernel-v2's output

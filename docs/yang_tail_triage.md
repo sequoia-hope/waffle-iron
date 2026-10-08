@@ -43,6 +43,45 @@ after the reconciliation run (release, 8 jobs, 360 s; wall 577 s, F0085
 regression since 2026-08-01 is outstanding (checked over every commit of
 `results.json`).
 
+## 2026-10-08 (night) — P0028 CONVERTED: the §4.5.3 sweep removed the corner instead of the chord vertex that overshot it
+
+**Diagnosis (`NONMANIFOLD_SITE_PROBE`, `YANG_S6_NONPLANAR_PROBE` +
+`YANG_S5_FOLD_PROBE` provenance columns, `YANG_V_PROBE` with a new
+collapse-direction trace, and a new `YANG_V_PROBE_VERTS=…` Stage-4 ENTRY
+dump; the un-minimized lineage `X00000003-00109` is P0029's own site and
+was not the anchor — the 2-op minimum IS the finding).** The off-plane
+vertex (face 5 v0, 3.604e-1 off the side plane −x + y = 21) was a cap
+chord vertex of the cap∩cylinder ellipse, relocated along its centre ray by
+1.2 to the exact ellipse — OUTSIDE the prism (−x + y = 21.51) — and then
+given the side plane's incidence by a §4.5.3 collapse that merged the
+exact corner J = {cap, side, cylinder} (Stage-1 mint v2, the closed-form
+target of the arrangement's E-crossing v1, welded into it) INTO v0. The
+sweep's site was real: the ellipse exits the prism through its top edge E
+almost tangentially, so the chord polyline (inside the ellipse by its
+sagitta) dips back inside the prism 3.5 along E past J, the cap keeps a
+two-triangle sliver bounded by that one ellipse on three sides, and after
+relocation the sliver is the 3-cycle (v0, J, v3) with the SAME ellipse on
+every edge — p_r = v0 overshoots J. The victim rule (spec
+`yang_453_junction_protected_collapse` §3) reads "p_n is a junction" off
+`curve(p_r,p_n) ≠ curve(p_n,p_after)`; on that loop both are the cap
+ellipse, so the paper default removed J.
+
+**Fix (spec §3d).** `reversal_collapse_direction` ranks the pair by
+INCIDENCE first — `distinct_surfaces_at` over the Phase-A map: a vertex on
+≥ 3 surfaces outranks a two-surface chord vertex and is never the victim;
+equal ranks keep the curve test byte-identically. Knob `YANG_453_RANK=0|off`.
+With it, v0 collapses onto J, the second reversal on the side-ellipse chain
+(v41, 0.027 past J in parameter) collapses onto J as well, and the sliver
+vanishes.
+
+**Measured.** P0028 builds to completion with every render oracle green
+(2098 tris, volume 4.3803e3); the seed-3 index-98 duplicate builds (175
+tris). Pins: yang-rs `s453d_incidence_rank_protects_the_corner_on_a_same_curve_loop`,
+kernel-v2 `tests/s453_edge_corner_overshoot_chain.rs` (mutation-checked
+RED with the knob off), smoke pin `P0028 → SupportedCorrect`. P0029 (the
+un-minimized 109) still STOPs at its own `s4-dc-attr` site — unmoved, as
+promoted. Corpus: see the roadmap refresh blockquote of the same date.
+
 ## 2026-10-08 (later) — P0027 CONVERTED: the line-pair corner; P0026 adjudicated a MINTED exact tangency whose exact result is non-2-manifold
 
 **Diagnosis (probes `YANG_LRR_PROBE`, `YANG_SAMETYPE_PROBE`, `[triple-gate]`,
@@ -257,7 +296,7 @@ conversion moves it. Every one was re-judged under the corpus runner
 | ~~**P0025**~~ | #126, min 5→4 `convex4:boss circle:boss circle:boss convex3:∩` | 4 | Stage-4 `LocalRefinementRequired` | `stage4_correct.rs:12318` — the PR-KV9 ellipse×ellipse junction relocation, whose two cutting planes are PARALLEL, so `|n₁ × n₂| < MIN_FEATURE_SIZE` and the plane-pair line is underivable. **14 of the 32 ERROR rows raise here** | ~~ERROR 4.5 s~~ **CONVERTED 2026-10-08** → SUPPORTED_CORRECT 1.4 s (coplanar ellipse-pair admission to the triple block; see the 2026-10-08 section) |
 | **P0026** | #54, min 5→3 `circle:boss circle:cut convex4:cut` | 3 | Stage-4 `LocalRefinementRequired` | `stage4_correct.rs:13065` — the `surface_pair_endpoint_mix` decline | ERROR 0.8 s — **ADJUDICATED 2026-10-08 (later): a MINTED exact tangency** (depth = centre height = radius = 3.0; the cap is tangent to the cut cylinder, the exact result is two lobes joined along a line, non-2-manifold); loud by design for the document as authored, not P0027's finding |
 | ~~**P0027**~~ | #54 **UN-MINIMIZED** `circle:boss circle:cut convex5:thru circle:cut convex8:thru` | 5 | Stage-4 `LocalRefinementRequired` | `stage4_correct.rs:10805` — `line_line_junction`, a vertex claimed by two DIFFERENT plane-pair line relocations, which the comment there calls out of scope | ~~ERROR 5.2 s~~ **CONVERTED 2026-10-08 (later)** → SUPPORTED_CORRECT 1.1 s (the two "plane-pair lines" were two cylinders' GENERATORS in one plane — the {plane, cyl_A, cyl_B} corner; line-pair admission to the triple block) |
-| **P0028** | #109, min 5→2 `convex4:boss circle:cut` | 2 | `reassembled output would be non-2-manifold` | `s6-planar-loop-nonplanar` — face 5 vertex 0 sits **3.604e-1** off its own plane against a **3.500e-6** band | ERROR 0.2 s |
+| ~~**P0028**~~ | #109, min 5→2 `convex4:boss circle:cut` | 2 | `reassembled output would be non-2-manifold` | `s6-planar-loop-nonplanar` — face 5 vertex 0 sits **3.604e-1** off its own plane against a **3.500e-6** band | ~~ERROR 0.2 s~~ **CONVERTED 2026-10-08 (night)** → SUPPORTED_CORRECT (the §4.5.3 sweep had collapsed the three-surface corner into the chord vertex that overshot it; victim selection now ranks by incidence — spec `yang_453_junction_protected_collapse` §3d; see the 2026-10-08 (night) section) |
 | **P0029** | #109 **UN-MINIMIZED** `convex4:sym convex8:cut convex3:∪ circle:cut nonconvex6:rev-cut` | 5 | the same text | `s4-dc-attr` — a doubled directed edge (17,18) **fwd=2 rev=2** between an A plane and a B plane | ERROR 1.4 s |
 | **P0030** | #72, min 7→3 `convex4:boss circle:rev convex4:boss` | 3 | the same text, auto-union | `s6-curved-empty-cycles: face 0` — a curved face whose reassembly cycle set is EMPTY. A third site for one text | ERROR 0.3 s |
 | **P0031** | #57, min 3→3 `circle:boss nonconvex6:boss star3(0.15):cut` | 3 | `SelfIntersectingBooleanOutput { penetrations: 3 }` | `FaceId(32)` **CYLINDER** × `FaceId(55)` **PLANE**. Not P0021's family (cylinder × cylinder) and not P0007's (the cylinder's rim here IS an `EllipseArc`, so §4.4.2 carried it) | ERROR 1.6 s |
